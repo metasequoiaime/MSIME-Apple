@@ -149,7 +149,7 @@ pub(super) fn validate_dictionary_catalog_identity(
         DictionaryKind::Quick => code
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
-        DictionaryKind::English => code.bytes().all(|byte| byte.is_ascii_alphabetic()),
+        DictionaryKind::English => crate::dictionary::english_code_is_well_formed(code),
     };
     if !code_ok
         || code.is_empty()
@@ -358,7 +358,7 @@ pub(super) fn validate_dictionary_value(
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
             32,
         ),
-        DictionaryKind::English => (code.bytes().all(|byte| byte.is_ascii_alphabetic()), 64),
+        DictionaryKind::English => (crate::dictionary::english_code_is_well_formed(code), 64),
     };
     if !code_ok
         || code.is_empty()

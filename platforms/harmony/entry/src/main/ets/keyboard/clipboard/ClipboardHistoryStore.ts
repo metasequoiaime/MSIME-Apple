@@ -9,7 +9,7 @@
  * Reading and writing are supplied by the caller rather than performed here, so the rules can be
  * checked off a device. ClipboardHistoryPolicy holds the per-entry bounds these share.
  */
-import { ClipboardHistoryPolicy } from './ClipboardHistoryPolicy';
+import { ClipboardHistoryPolicy } from "./ClipboardHistoryPolicy";
 
 export const MAX_FILE_BYTES: number = 4000000;
 
@@ -21,10 +21,11 @@ export interface ClipboardHistoryItem {
 }
 
 export enum ClipboardFailure {
-  EMPTY = '剪贴板中没有可保存的文本。',
-  TOO_LONG = '单条最多保存 10,000 字，请缩短后重试。',
-  FULL = '50 条历史均已固定，请先取消固定或删除一条。',
-  INVALID_FILE = '历史记录无法读取，请清空后重试。'
+  EMPTY = "剪贴板中没有可保存的文本。",
+  TOO_LONG = "单条最多保存 10,000 字，请缩短后重试。",
+  FULL = "50 条历史均已固定，请先取消固定或删除一条。",
+  INVALID_FILE = "历史记录无法读取；原文件已保留。",
+  STALE = "记录已在其他窗口中更改，请重试。",
 }
 
 export class ClipboardHistoryError extends Error {
@@ -62,9 +63,13 @@ export class ClipboardHistoryStore {
     }
     const items: ClipboardHistoryItem[] = [];
     for (const entry of raw) {
-      if (entry === null || typeof entry.text !== 'string'
-          || !ClipboardHistoryPolicy.acceptable(entry.text)
-          || !Number.isFinite(entry.at) || typeof entry.pinned !== 'boolean') {
+      if (
+        entry === null ||
+        typeof entry.text !== "string" ||
+        !ClipboardHistoryPolicy.acceptable(entry.text) ||
+        !Number.isFinite(entry.at) ||
+        typeof entry.pinned !== "boolean"
+      ) {
         throw new ClipboardHistoryError(ClipboardFailure.INVALID_FILE);
       }
       items.push(item(entry.text, entry.at, entry.pinned));
@@ -79,13 +84,6 @@ export class ClipboardHistoryStore {
       }
       return right.at - left.at;
     });
-  }
-
-  static serialize(items: ClipboardHistoryItem[]): string {
-    if (items.length > ClipboardHistoryStore.LIMIT) {
-      throw new ClipboardHistoryError(ClipboardFailure.FULL);
-    }
-    return JSON.stringify(items);
   }
 
   /**
@@ -103,8 +101,9 @@ export class ClipboardHistoryStore {
       throw new ClipboardHistoryError(ClipboardFailure.TOO_LONG);
     }
     const items: ClipboardHistoryItem[] = existing.slice();
-    const index: number = items.findIndex((entry: ClipboardHistoryItem): boolean =>
-      entry.text === text);
+    const index: number = items.findIndex(
+      (entry: ClipboardHistoryItem): boolean => entry.text === text,
+    );
     if (index >= 0) {
       items[index] = item(text, now, items[index].pinned);
       return ClipboardHistoryStore.ordered(items);
@@ -112,8 +111,7 @@ export class ClipboardHistoryStore {
     if (items.length === ClipboardHistoryStore.LIMIT) {
       let oldest: number = -1;
       for (let position: number = 0; position < items.length; position++) {
-        if (!items[position].pinned
-            && (oldest === -1 || items[position].at < items[oldest].at)) {
+        if (!items[position].pinned && (oldest === -1 || items[position].at < items[oldest].at)) {
           oldest = position;
         }
       }
@@ -124,15 +122,5 @@ export class ClipboardHistoryStore {
     }
     items.push(item(text, now, false));
     return ClipboardHistoryStore.ordered(items);
-  }
-
-  static togglePin(items: ClipboardHistoryItem[], text: string): ClipboardHistoryItem[] {
-    return ClipboardHistoryStore.ordered(
-      items.map((entry: ClipboardHistoryItem): ClipboardHistoryItem =>
-        entry.text === text ? item(entry.text, entry.at, !entry.pinned) : entry));
-  }
-
-  static remove(items: ClipboardHistoryItem[], text: string): ClipboardHistoryItem[] {
-    return items.filter((entry: ClipboardHistoryItem): boolean => entry.text !== text);
   }
 }

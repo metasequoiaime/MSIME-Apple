@@ -58,4 +58,12 @@ export class NineKeyLayout {
   static digitPunctuation(): string[] {
     return DIGIT_SIDEBAR;
   }
+
+  /** Literal choices behind a letter key: its printed digit, then each printed letter. */
+  static holdOptions(key: NineKey): string[] {
+    if (key.input < "2" || key.input > "9" || !/^[A-Z]{3,4}$/.test(key.label)) {
+      return [];
+    }
+    return [key.input].concat(key.label.toLowerCase().split(""));
+  }
 }

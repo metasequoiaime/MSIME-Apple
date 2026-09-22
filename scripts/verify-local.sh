@@ -224,6 +224,7 @@ python3 scripts/test-quick-phrase-limit.py || fail "quick phrase limit"
 # refused before it reached a recogniser.
 note "handwriting limits"
 python3 scripts/test-handwriting-limits.py || fail "handwriting limits"
+python3 scripts/test-harmony-handwriting-scheduling.py || fail "harmony handwriting scheduling"
 
 # How long a cloud candidate is worth waiting for belongs to the product, but
 # each host reaches the network with its own library and can shorten it on its
@@ -334,6 +335,12 @@ note "harmony unwired policies"
 python3 scripts/test-harmony-unwired-policies.py || fail "harmony unwired policies"
 python3 scripts/test-harmony-unwired-symbols.py || fail "harmony unwired symbols"
 python3 scripts/test-harmony-manifest.py || fail "harmony manifest"
+python3 scripts/test-harmony-snapshot-inspection.py || fail "harmony snapshot inspection"
+python3 scripts/test-harmony-personal-dictionary.py || fail "harmony personal dictionary"
+python3 scripts/test-harmony-candidate-translation.py || fail "harmony candidate translation"
+python3 scripts/test-harmony-expanded-candidates.py || fail "harmony expanded candidates"
+python3 scripts/test-harmony-reply-lifecycle.py || fail "harmony reply lifecycle"
+python3 scripts/test-harmony-custom-skin-rendering.py || fail "harmony custom skin rendering"
 
 note "harmony bridge parity"
 python3 scripts/test-harmony-bridge-parity.py || fail "harmony bridge parity"

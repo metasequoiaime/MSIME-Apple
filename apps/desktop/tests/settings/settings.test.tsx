@@ -812,7 +812,7 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
   expect(english.checked).toBe(true);
   expect(emoji.checked).toBe(false);
   expect(kaomoji.checked).toBe(false);
-  expect(threshold.value).toBe("2");
+  expect(threshold.value).toBe("5");
   expect(threshold.options.length).toBe(8);
   fireEvent.change(threshold, { target: { value: "8" } });
   fireEvent.click(english);
@@ -1643,6 +1643,35 @@ test("macOS about page exposes reversible uninstall with explicit data removal",
   await waitFor(() => expect(uninstallInputSource).toHaveBeenCalledWith(true));
 });
 
+test("macOS about page moves the shared data root only after an explicit confirmation", async () => {
+  const status = vi.fn().mockResolvedValue({ path: "/synthetic/default-state", isDefault: true });
+  const pick = vi.fn().mockResolvedValue("/synthetic/second-volume/MetasequoiaIME");
+  const move = vi.fn().mockResolvedValue({
+    path: "/synthetic/second-volume/MetasequoiaIME",
+    isDefault: false,
+    retainedOldData: false,
+  });
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        dataDirectory: { status, pick, move },
+        host: { platform: "macos", panel_windows: true } as never,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText("/synthetic/default-state")).toBeDefined();
+  expect(screen.getByText("（默认）")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "选择位置…" }));
+  expect(await screen.findByText(/词库、学习记录、皮肤、剪贴板历史和设置将移动到/)).toBeDefined();
+  expect(move).not.toHaveBeenCalled();
+  await answerConfirm("confirm");
+  await waitFor(() => expect(move).toHaveBeenCalledWith());
+  expect(await screen.findByText(/数据已移动。设置窗口即将关闭/)).toBeDefined();
+});
+
 test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
   const preferences = {
     ...initial.preferences,
@@ -1886,6 +1915,88 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   );
 });
 
+test("dictionary manager creates entries with the Windows settings default weight", async () => {
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    dictionary: {
+      list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+      edit,
+    },
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "新增词条" }));
+  expect(screen.getByRole("spinbutton", { name: "权重" })).toHaveProperty("value", "10");
+  fireEvent.change(screen.getByRole("textbox", { name: /^编码 / }), {
+    target: { value: "fixture-code" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "短语" }), {
+    target: { value: "synthetic phrase" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() =>
+    expect(edit).toHaveBeenCalledWith(
+      null,
+      {
+        kind: "quick_phrase",
+        key: "fixture-code",
+        value: "synthetic phrase",
+        weight: 10,
+      },
+      expect.stringMatching(/^ui-add-/),
+    ),
+  );
+});
+
+test("dictionary fallback import uses 10000 by default and preserves an explicit zero", async () => {
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    dictionary: {
+      list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+      edit,
+    },
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  const manager = screen.getByRole("region", { name: "快捷短语管理" });
+  fireEvent.change(within(manager).getByLabelText("导入"), {
+    target: {
+      files: [
+        new File(["synthetic default\tdefault-code\nsynthetic zero\tzero-code\t0\n"], "words.tsv"),
+      ],
+    },
+  });
+  await waitFor(() => expect(edit).toHaveBeenCalledTimes(2));
+  expect(edit).toHaveBeenNthCalledWith(
+    1,
+    null,
+    {
+      kind: "quick_phrase",
+      key: "default-code",
+      value: "synthetic default",
+      weight: 10000,
+    },
+    expect.stringMatching(/^ui-import-/),
+  );
+  expect(edit).toHaveBeenNthCalledWith(
+    2,
+    null,
+    {
+      kind: "quick_phrase",
+      key: "zero-code",
+      value: "synthetic zero",
+      weight: 0,
+    },
+    expect.stringMatching(/^ui-import-/),
+  );
+});
+
 test("dictionary manager pages through entries instead of loading the whole dictionary", async () => {
   const page = (offset: number, count: number, has_more: boolean) => ({
     entries: Array.from({ length: count }, (_, index) => ({
@@ -1916,7 +2027,10 @@ test("dictionary manager pages through entries instead of loading the whole dict
   // The first page must not be followed by a second request on its own.
   expect(list).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", true);
+  const results = screen.getByRole("list", { name: "词库查询结果" });
+  results.scrollTop = 480;
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect(results.scrollTop).toBe(0);
   expect(await screen.findByText("第 101–120 条")).toBeDefined();
   expect(list).toHaveBeenLastCalledWith(100, 100, "pinyin", "");
   expect(screen.getByRole("button", { name: "下一页" })).toHaveProperty("disabled", true);
@@ -5710,6 +5824,16 @@ test("category navigation preserves one draft and saves edits across pages", asy
     quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: false },
   });
   expect(client.load).toHaveBeenCalledTimes(1);
+});
+
+test("category navigation opens every shared settings page at the top", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  await settingsReady();
+  const content = screen.getByRole("main");
+  content.scrollTop = 480;
+  fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("辅助码");
+  expect(content.scrollTop).toBe(0);
 });
 
 test.each(["undo", "clear", "next stroke", "host replacement"])(

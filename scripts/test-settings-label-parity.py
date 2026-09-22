@@ -25,81 +25,40 @@ copies here are still compared with each other, which is the part that does not 
 
 from __future__ import annotations
 
-import os
 import pathlib
 import re
-import subprocess
 import sys
+
+from reference_source import reference_root, show_file
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PARTIAL = "ui-html/webview2/settings/ime-settings/src/partials/helpcode.html"
 
 
-def reference_root() -> pathlib.Path:
-    """Where the reference checkout is: beside the *main* worktree, not beside this one."""
-    override = os.environ.get("MSIME_REFERENCE_DIR")
-    if override:
-        return pathlib.Path(override)
-    common = subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if common.returncode == 0 and common.stdout.strip():
-        return pathlib.Path(common.stdout.strip()).parent.parent / "MSIME-Windows"
-    return ROOT.parent / "MSIME-Windows"
-
-
-REFERENCE = reference_root()
+REFERENCE = reference_root(ROOT)
 
 
 def reference_labels() -> tuple[dict[str, str], str, str] | None:
-    """The reference's own dropdown, at the tip of its default branch."""
-    if not (REFERENCE / ".git").exists():
+    """The reference's own dropdown, at the fixed migration source."""
+    shown = show_file(ROOT, PARTIAL)
+    if shown is None:
         return None
-    symref = subprocess.run(
-        ["git", "ls-remote", "--symref", "origin", "HEAD"],
-        cwd=REFERENCE,
-        capture_output=True,
-        text=True,
-        timeout=30,
+    text, ref, sha = shown
+    found = re.findall(
+        r'<div class="dropdown-item" data-value="([^"]+)">([^<]+)</div>', text
     )
-    candidates = []
-    if symref.returncode == 0:
-        match = re.search(r"^ref:\s+refs/heads/(\S+)\s+HEAD$", symref.stdout, re.M)
-        if match:
-            candidates.append(f"origin/{match.group(1)}")
-    candidates += ["origin/develop", "origin/HEAD"]
-    for ref in candidates:
-        revision = subprocess.run(
-            ["git", "rev-parse", ref], cwd=REFERENCE, capture_output=True, text=True
-        )
-        if revision.returncode != 0:
-            continue
-        sha = revision.stdout.strip()
-        shown = subprocess.run(
-            ["git", "show", f"{sha}:{PARTIAL}"], cwd=REFERENCE, capture_output=True, text=True
-        )
-        if shown.returncode != 0:
-            continue
-        found = re.findall(
-            r'<div class="dropdown-item" data-value="([^"]+)">([^<]+)</div>', shown.stdout
-        )
-        # The partial repeats the same list once per scheme it applies to; both copies are the same
-        # dropdown, so a disagreement between them is the reference's own problem to report.
-        labels: dict[str, str] = {}
-        for value, label in found:
-            if value in labels and labels[value] != label:
-                print(
-                    f"FAIL the reference itself spells {value} both {labels[value]} and {label}",
-                    file=sys.stderr,
-                )
-                return None
-            labels[value] = label
-        if labels:
-            return labels, ref, sha
-    return None
+    # The partial repeats the same list once per scheme it applies to; both copies are the same
+    # dropdown, so a disagreement between them is the reference's own problem to report.
+    labels: dict[str, str] = {}
+    for value, label in found:
+        if value in labels and labels[value] != label:
+            print(
+                f"FAIL the reference itself spells {value} both {labels[value]} and {label}",
+                file=sys.stderr,
+            )
+            return None
+        labels[value] = label
+    return (labels, ref, sha) if labels else None
 
 
 def shared_ui() -> dict[str, str]:

@@ -66,7 +66,8 @@ pub use dictionary::{
 };
 mod dictionary_snapshot;
 pub use dictionary_snapshot::{
-    msime_client_snapshot_discard, msime_client_snapshot_prepare, msime_client_snapshot_version,
+    msime_client_snapshot_discard, msime_client_snapshot_inspect, msime_client_snapshot_prepare,
+    msime_client_snapshot_queue, msime_client_snapshot_restore, msime_client_snapshot_version,
 };
 
 /// Names of the audio capture devices the Engine can record from.
@@ -387,7 +388,7 @@ fn scheme_code(scheme: InputScheme) -> u8 {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct HostOptions {
     api_version: u32,

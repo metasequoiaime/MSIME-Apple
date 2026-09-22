@@ -41,9 +41,21 @@ MARKER = DEST / ".msime-engine-lock"
 
 
 def lock_marker(lock: dict) -> str:
-    """Include deterministic local compatibility overlays in the prepared marker."""
+    """Include deterministic local compatibility overlays in the prepared marker.
+
+    By content, not by name. An overlay names a rewrite of the Engine's source, so editing one is
+    editing the Engine - but a marker listing only file names is equal before and after that edit,
+    the prepared tree is left alone, and the change silently does not apply. Measured on
+    2026-09-21 while adding the English-display overlay: the tree kept the old rule and the test
+    that should have failed passed.
+    """
+    scripts = {}
+    for name in lock.get("overlay_scripts", []) + lock.get("overlay_assets", []):
+        path = ROOT / name
+        digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
+        scripts[name] = digest
     overlays = json.dumps(
-        {"patches": lock.get("patches", []), "scripts": lock.get("overlay_scripts", [])},
+        {"patches": lock.get("patches", []), "scripts": scripts},
         sort_keys=True,
         separators=(",", ":"),
     )

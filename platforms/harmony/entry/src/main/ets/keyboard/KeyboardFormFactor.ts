@@ -9,9 +9,10 @@
  * Read once: a device does not change what it is while the process is alive, and this is consulted
  * on every layout pass.
  */
-import deviceInfo from '@ohos.deviceInfo';
+import deviceInfo from "@ohos.deviceInfo";
+import { KeyboardFormFactorPolicy } from "./KeyboardFormFactorPolicy";
 
-const DESKTOP: boolean = deviceInfo.deviceType === deviceInfo.DeviceTypes.TYPE_2IN1;
+const DESKTOP: boolean = KeyboardFormFactorPolicy.isDesktop(deviceInfo.deviceType);
 
 export class KeyboardFormFactor {
   /** A machine whose keys are already under the user's hands, so this one draws none. */

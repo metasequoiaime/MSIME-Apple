@@ -64,6 +64,16 @@
 
 本轮核过且确认等价或目标更强的：来源 12 个共享后端文件目标全有（另有 `BackendAiClient`）；四个原生视图（剪贴板、词库、账号、设置同步）文案差集为空；云词库备份视图逐字一致；输入法菜单条目集合一致；引擎选项写入面一致（来源的嵌套字段对应目标的扁平字段，自动纠错来源是一个总开关、目标拆成换位与邻键两项，覆盖引擎仅有的两个位）；`HostSurface` 各能力位 macOS 均已开启，唯一未开的 `number_row_selection` 来源没有该功能；`preference_coverage.py` 的「不适用」清单双向校验、无陈旧项。
 
+### 固定 Windows 来源的全拼纠错增量（2026-09-22）
+
+上段“覆盖引擎仅有的两个位”后来被固定 Windows 来源的 Engine 提交推翻。目标锁定的共享 Engine 确实比早期来源锁更新，但 Windows 来源随后在 `3c2f3ae3`、`34c69fbe`、`c064cc64`、`49d0bf58`、`94abc08e`、`6673155c`、`3ee2ecdb` 上继续演进了全拼纠错：新增漏字/多字边、k-best 歧义切分、编辑代价分层、“纠错头 + 简拼尾”、ü 拼写别名标记、双拼置顶键修复以及热路径缓存。这说明“inventory 已登记”或“某一时点 Engine 更新”都不能替代逐提交行为核对。
+
+真实锁定词库给出了可重跑的缺口证据：改动前 `gau` 只返回“噶”，没有进入 `gua/gai` 纠错；`hauzh` 只返回“哈”，没有形成 `hua'zh`。迁移后 `gau` 的便宜换位读音 `gua` 整组稳定领先昂贵邻键读音 `gai`，`hauzh` 可得到“华中”等候选。实现仍在 Engine 边界内：严格上下文 overlay 移植固定来源算法，大型纠错表由同一固定来源生成器从 Engine 自身合法音节表重建；patch 与生成器均进入 `engine-lock.json` 的内容摘要，冷 checkout 能得到相同源码。共享桥接的合成词库回归同时覆盖 `gau` 分层、`hauzh` 组合、`shng` 漏字、`sshang` 多字和 `nue` 别名轻标记；真实词库示例另行固定产品数据上的排序与候选。
+
+### 固定 Windows 来源的中英混输默认值（2026-09-22）
+
+固定对象 `467b9804` 的 `1cf27e2f` 已把出厂 `cn_en_mixed_input_min_chars` 从 2 改为 5。目标此前的审计读取过落后的可变分支，误写成“来源从未出现过 5”，又用门禁把共享默认和 Windows 模板一起钉在 2；macOS 原生设置却已经按 5 显示，因而空偏好下界面与共享运行时会分裂。现在共享偏好、Engine 默认选项、共享 React 与 Windows 模板统一为 5，macOS 原生设置无需再改；显式保存的 1–8 仍原样保留。`test-default-config-parity.py` 改为直接读取固定对象，以后不会再由可变 checkout 的历史描述覆盖真实基线。
+
 ## 符号比对的重跑（2026-09-20，双方当前 HEAD）
 
 前面那次符号比对做在固定提交上，而两边此后都前进过，所以在来源 `63c51ed`（比之前的固定检出多出候选行宽适配等改动）与目标当时的 `develop` 上重跑了一遍，方法与结论都记下来，便于下次复核而不是重新发明：
@@ -139,12 +149,12 @@
 | IMK 事件路由、候选面板、输入源注册 | `MetasequoiaInputController.mm`、`CandidatePanel.mm`、`InputSourceRegistration.mm`、`InputControllerKeyRouting.h` | `platforms/macos/src/input/InputController.mm`、`candidate/CandidatePanel.mm`、`input/InputSourceRegistration.mm`、`input/InputControllerPhysicalKeys.h` | 有调用链；目标另行处理来源未覆盖的小键盘数字与标点物理键 |
 | 候选翻页、以词定字、方向键导航 | `MetasequoiaCandidateKeyOptions`、`ClassifyConfiguredControllerKey` | 共享 `NavigationPreferences`、`WordCharacterPreferences`；宿主逐项消费 `minus_equal`/`comma_period`/`brackets`/`tab`/`page_up_down`/`arrows`/`mouse_wheel` | 有调用链；来源的互斥开关在目标是各自独立的布尔项，互斥由 `Preferences::validate()` 保证 |
 | 设置界面 | `PreferencesWindowController.mm` | 主编辑器为 Tauri `packages/ui/src/index.tsx`；原生回退 `settings/AppearancePreferences.mm`、`voice/VoiceProviderSettings.mm` | 有强制检查（`preference-coverage`、`voice-provider-settings-keys`）；按「公共 UI 放 Tauri」重构形态，非逐窗复刻 |
-| 语音输入 | `VoiceInputService.mm`、`VoiceSettings.mm`（云端 + 本地 Whisper） | `platforms/macos/src/voice/`：豆包流式、HTTP 批量、macOS 系统识别、本地 Whisper（#3014）；`shared/voice/` 提供 `recognize_local_asr` | 有强制检查（`bundle-contents` 校验可执行文件确实链接了本地识别器） |
+| 语音输入 | `VoiceInputService.mm`、`VoiceSettings.mm`（云端 + 本地 Whisper） | `platforms/macos/src/voice/`：豆包流式、HTTP 批量（OpenAI、Groq、SiliconFlow、EveryAPI、Mistral）、macOS 系统识别、本地 Whisper（#3014）；`shared/voice/` 提供 `recognize_local_asr` | 有强制检查（`bundle-contents` 校验可执行文件确实链接了本地识别器，`http-voice-controller` 校验 provider 路由与会话代次） |
 | 候选释义与翻译 | `TranslationClient.mm`、`CandidateGlossClient.swift`、第二语言、Option/Control 取列上屏 | `cloud/CustomTranslationBatch.mm`、`cloud/TranslationCache.mm`、`commitCandidateGlossColumn:`、共享 `translation_secondary_language` | 有调用链；目标另有腾讯、NiuTrans、账号释义与离线优先 |
 | 智能标点 | `PairedPunctuation.h`、重复标点转中文 | 共享 `punctuation::route` 消费 `direct_digit`/`direct_letter`（#3075）；空格回转 ASCII（#3081） | 有强制检查（`smart-punctuation-space`） |
 | 词库与用户词条 | `DictionaryInstaller.mm`、`PersonalDictionaryStore.mm`、`PersonalDictionaryView.mm` | `dictionary/DictionaryInstaller.mm`、`dictionary/DictionaryWindowController.mm`；词条增删改查与导入导出在 Tauri 词库页 | 有调用链 |
 | 学习数据清除 | `ResetMetasequoiaLearnedData` 及其标记/恢复协议 | `crates/host-api/src/dictionary.rs` 的 `Operation::Reset`，经 `DictionaryAccess::try_maintenance` 加锁后交 `msime_engine_bridge::reset_learned_data` | 有调用链；按「输入算法与词库归 Engine」下沉，宿主不再自建标记恢复协议 |
-| 软件更新 | `UpdateController.mm`（Sparkle 2.9.6） | `core/UpdateController.mm`；非应用 bundle 进程拒绝启动 Sparkle（#3014），并有 `update-controller` 覆盖（#3025） | 有强制检查 |
+| 软件更新 | `UpdateController.mm`（Sparkle 2.9.6） | 共享 About 页检查本仓库发行版；`core/UpdateController.mm` 仅在应用 bundle 配置 `SUFeedURL` 时启动 Sparkle，无 feed 的原生降级会说明限制并经用户确认打开固定的官方发布页；非应用进程不显示更新 UI | 有强制检查（`update-controller` 覆盖三种路由、确认、取消与打开失败） |
 | 卸载 | `Uninstaller.mm` | `crates/host-macos/native/uninstaller.mm`，`shared-uninstaller` CTest | 有强制检查 |
 | 输入菜单图标、本地化、TCC 权限 | `MetasequoiaIMEMenuIcon.tiff`、`render_menu_icon.swift`、`Info.plist` 用途字符串 | `resources/MSIMEClientInputMethodMenuIcon.{svg,tiff}`、`scripts/render_menu_icon.swift`（#3021）；语音识别用途字符串及其本地化（#3015、#3052）；输入源名称的本地化键与 bundle id 配对 | 有强制检查（`info-plist-icons`、`info-plist-usage`、`info-plist-names`、`bundle-contents`） |
 | 账号、云剪贴板、云词典、快照、社区 | `shared/backend/*.swift` | `shared/backend/` 为来源的超集（另有 `BackendAiClient.swift`），并带 Swift 测试 | 有调用链 |

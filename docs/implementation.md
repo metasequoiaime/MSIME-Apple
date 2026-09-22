@@ -816,6 +816,12 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 
 本地验证：client-core 11、engine-bridge 3、host-api 12 项测试通过，前端 5 项测试、TypeScript/Vite 构建、Rust fmt/clippy 通过。覆盖旧配置读取、关闭后持久化、活动组合延迟更新及设置页保存。尚未验证 Windows 编辑器中的端到端纠错行为；完整 Windows 功能复刻仍未完成。
 
+### Windows 功能复刻：全拼纠错算法增量
+
+固定来源后续的七个 Engine 提交不在锁定共享 Engine 中。通过 `apply_engine_quanpin_autocorrect_parity.py` 在既有 lattice、学习、候选缓存和 Google ü 边界 overlay 之后做严格上下文合并，加入漏字/多字纠错、k-best 去重与缓存、按编辑代价分层、纠错头与简拼尾组合、ü 别名标记和双拼置顶键修复。纠错表不提交到 vendor：固定来源生成器读取 `intact_pinyin_list()` 重建四类表，生成器与上下文 patch 作为 `overlay_assets` 一并参与 Engine 锁标记和 Cargo 重建追踪。
+
+验证分两层：合成词库单测让昂贵的 `gai` 具有更高词频，仍要求 `gau -> gua` 领先，并覆盖 `hauzh -> hua'zh`、`shng -> shang`、`sshang -> shang` 与 `nue -> nve` 的标记语义；`quanpin_autocorrect_dictionary` 使用固定发布词库确认首候选和真实词组。反向使用改动前 Engine 时，真实探针分别只得到“噶”和“哈”，证明新增断言不是既有路径的重复覆盖。
+
 ### Windows 功能复刻：全拼与双拼辅助码配置通路
 
 来源为 Windows 远端默认分支 develop 的固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da`，核对 `server/assets/config/config.toml` 及设置页 `helpcode.ts`、`helpcode.html`。共享设置分别保存全拼和双拼辅助码开关与五种方案；默认开启、自然码，按上游随包配置（不是旧 UI 静态占位的蓝天值）。缺省旧 JSON 按该默认值读取，不改写文件；未知方案拒绝保存。设置按当前输入方案传入 Engine，组合结束后重建时生效，保留另一个方案的选择。client-core 不依赖 Engine，筛选算法仍只在 Engine。
@@ -1088,6 +1094,12 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 
 本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建、`desktop-settings-launcher`/`shortcut`/`floating-toolbar-panel`/`input-menu` 四项 CTest 通过；桌面 UI TypeScript 类型检查和 Vite production build 通过，`macos-settings-routes` 两项测试通过。一次全量 UI 测试还暴露两个与本切片无关的既有断言失败（外部皮肤预览顺序、输入默认标点状态），未修改其行为；真实安装输入源、Sparkle 下载/签名和系统升级验收仍需在产品环境执行，CI 保持禁用。
 
+### macOS 无更新源时的原生反馈
+
+复核更新调用链发现，共享 About 页会正确查询本仓库的 GitHub 发行版，但输入菜单在共享设置 bundle 启动失败后回退到 Sparkle；当前 macOS bundle 没有 `SUFeedURL`，控制器因此选中空实现，用户点击后既无检查也无错误，文档却写成“保留原生更新能力”。原生控制器现在显式区分三种宿主：应用 bundle 且有 feed 时继续交给 Sparkle；应用 bundle 无 feed 时说明不能应用内检查，并只在用户确认后打开固定的官方发行页，打开失败再显示错误；测试或命令行进程不弹更新 UI。共享 Tauri 检查流程和 Windows 安装包信任信息均未改变。
+
+本地验证：`update-controller` 定向 CTest 通过；`scripts/verify-local.sh --quick` 通过并实际编译 macOS bundle；macOS 全套 130 项第一次为 129 项通过，`desktop-input-session` 的合成剪贴板进程间夹具超时，单独重跑通过。未触发真实弹窗、浏览器或更新下载，CI 保持禁用。
+
 ### macOS 候选皮肤目录入口共享 Tauri
 
 原生候选设置中的“浏览所有皮肤…”现在优先启动共享 Tauri `settings:skin` 页面，复用桌面宿主已经提供的皮肤目录扫描、受限资源读取、外部目录打开和共享偏好保存；Tauri bundle 不存在或启动失败时，仍回退到原生 `SkinSettingsView` 卡片窗口。新增 `Skin` 设置路由不会把皮肤解析、候选绘制或 Engine 状态移入 UI，两个入口继续使用同一受控皮肤目录和快照字段。
@@ -1317,7 +1329,15 @@ macOS 屏幕键盘在打开时捕获外部前台应用的进程 ID，并在后�
 
 MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转写服务：EveryAPI 和 Mistral·Voxtral。两者都是与既有 OpenAI/SiliconFlow/Groq 相同的 HTTPS multipart 批量转写，所以接入的不是新传输，而是各层认得这两个 id 并解析到正确的接口地址与模型：共享 C++ `default_asr_endpoint` / `default_asr_model`、Rust `ASR_PROVIDERS` 校验、iOS 语音配置解析、移动端 multipart 请求校验、凭据测试白名单、Linux provider 脚本的服务与默认值表，以及设置页的识别服务选项。默认模型和文档地址取自 Apple 的 `VoiceProviderPreset`，没有自行编造。
 
-切换服务仍沿用既有规则：豆包的 websocket 默认地址会被改写成新服务的 HTTPS 地址，用户手填的地址和模型保留，API Key 留在被切走那个服务的槽位里。只有豆包携带请求头，两个新服务的请求头必须为空。HarmonyOS 继续按既有的「当前版本不可用」标注处理非豆包服务；macOS 旧原生语音设置窗口是迁移期的独立入口，未纳入本次改动。
+切换服务仍沿用既有规则：豆包的 websocket 默认地址会被改写成新服务的 HTTPS 地址，用户手填的地址和模型保留，API Key 留在被切走那个服务的槽位里。只有豆包携带请求头，两个新服务的请求头必须为空。HarmonyOS 继续按既有的「当前版本不可用」标注处理非豆包服务；macOS 旧原生语音设置窗口是迁移期的独立入口，未纳入这批设置界面改动。
+
+后续原生宿主审计发现 macOS 的实际路由没有同步扩展：公共设置页虽然能保存 EveryAPI 与 Mistral，`HTTPVoiceRequest` 也已接受两者，但 `InputController` 的批量 HTTP provider 集合仍只有 OpenAI、Groq 与 SiliconFlow。没有外部 provider socket 时，两项会静默落入 macOS Speech 路径，所选 endpoint、model 和 token 全被忽略。现已将两者纳入原生 HTTP 路由，并由 controller 回归把全部 HTTPS provider、豆包 websocket 与系统识别三类分开断言；这次没有执行真实服务请求或真实编辑器验收。
+
+同一轮后续审计也补齐 macOS 原生备用设置窗：它现在列出 EveryAPI、Mistral 与 macOS 系统识别，使用与公共设置页相同的 endpoint/model 默认值；provider id、标题、默认值、下拉选择与保存共用一份表，避免已选的新 provider 打开窗口后显示成豆包并被保存覆盖。豆包按 WSS + token 校验且不再错误要求 HTTPS 和模型名，系统识别不要求云端字段，本地 Whisper 仍只要求可读模型文件。合成回归覆盖完整八项 provider、两个新增默认值及三类校验；未执行真实服务或钥匙串写入。
+
+原生外观设置页里的“配置语音输入…”此前仍指向保留的旧 `MSIMEVoiceSettings`，且只对一个以 `window=nil` 初始化的 controller 调 `showWindow:`，首次点击不会建窗也没有任何反馈。该入口现在与输入法菜单回退一致，动态打开同一个 `MetasequoiaVoiceProviderSettingsWindow` 并调用其 `showAndActivate`；动态路由保留是为了让不链接语音窗口的隔离设置测试继续成立。合成替身覆盖成功展示、缺少工厂和缺少展示方法三条路径，未启动 Tauri 工程或安装输入源。
+
+统一后的窗口随后暴露出凭据隔离缺口：切换 provider 会直接清空输入框，保存还会把当前 ASR 与润色来源之外的 Keychain 项全部删除；同时只更新扁平 token，不更新固定 Windows 来源、共享 React 页和 Rust 配置契约共同使用的 `asr_tokens` / `polish_tokens`。现在窗口离开 provider 时先把草稿放回该 provider 的槽位，返回时恢复对应值；系统识别与本地 Whisper 不保留槽位。默认 endpoint/model 随 provider 更新，用户手填值继续保留。Keychain account 加入 provider id，避免两个 OpenAI 兼容服务共用 origin 时串用密钥；旧 account 在当前 provider 首次保存时迁移。保存只删除同一 provider 被替换的旧 origin，切换 provider 不再抹掉另一服务的密钥，并将完整槽位表交给共享快照持久化。
 
 本地验证：`shared-voice-provider-routing` 以 `-Wall -Wextra -Werror` 编译并通过，覆盖两个新服务的默认地址、默认模型、非 websocket 判定、豆包地址改写和语言参数；`msime-client-core` 239 项、`msime-tauri-mobile-platform` 12 项 Rust 测试通过（含扩展后的凭据探测与 multipart 校验用例）；`cargo fmt --all --check` 与两个 crate 的 clippy `-D warnings` 通过；桌面 UI 套件 700 passed，失败项与 `scripts/known-failures.txt` 一致；新增 4 项 Vitest 覆盖默认值、地址改写、手填保留和 iOS 设置页选项；Linux provider 脚本的服务集合与默认值表一致性已断言。`apps/desktop/src-tauri` 的 iOS 语音配置用例已写入但未能执行：该 crate 的构建脚本要求先产出 macOS 预览 bundle，而 `cargo build -p msime-host-api` 在本机以 `can't find crate for zerofrom_derive` 失败——在未修改的 `origin/develop` 上同样失败，属既有环境债而非本次回归。未执行真实服务请求、iOS 真机或 Linux 图形桌面验收，CI 保持禁用。
 
@@ -1454,3 +1474,23 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 iOS 真机装机走的是产品宿主 `MSIMEClientApp`，不是 Tauri CLI：`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，产物装不上真机，所以直接对 XcodeGen 工程加 CocoaPods workspace 调 `xcodebuild` 并允许签名，命令已写进 iOS README。本机 Xcode 已登录 team `LXCL4Z68GU`，`app.msime.ios` 与 `app.msime.ios.keyboard` 的开发描述文件都在本地且包含目标设备，README 中「本机没有登录账号、签名构建与真机验收尚未执行」的说法随之失效，已按实际状态改写。
 
 本地验证：`msime-engine-bridge`、`msime-input-runtime`、`msime-host-api` 三个 crate 共 188 个测试通过、0 失败；C++ Engine 0.27.0 重新编译通过；`ninekey_dictionary` 探针在补齐后的资源目录上通过。证据分级到第五级的签名与安装——App 与键盘扩展以开发证书签名、装上 iPhone 17（iOS 27）、启动成功；键盘扩展的启用与真实编辑器验收由使用者在设备上进行，不在本条记录的实测范围内。CI 保持禁用。
+
+### macOS 原生 provider 设置写回共享快照
+
+原生外观页统一到 `MetasequoiaVoiceProviderSettingsWindow` 后，该窗口保存会更新输入法进程实际读取的 `MSIMEClientVoice*` 默认值，但它发出的 provider 通知此前只取消在途录音，不会走外观设置原有的 CAS 快照保存。于是共享 `preferences.json` 仍保留旧 `voice_input`，下次偏好重载可能把刚选的 provider、endpoint、model 与录音设备覆盖回去。provider 通知现在先让已在途的旧快照读取失效，在撤销录音状态后再请求 `persistAppearancePreferences`；该路径继续复用现有的合并、revision 冲突重试与失败诊断，不另写第二套配置文件事务。宿主替身回归断言每次 provider 保存恰好发起一次共享快照持久化，并验证通知前启动的旧读取不能再应用；共享语音字段映射仍由既有 `shared-voice-preferences` 用例覆盖。
+
+### Linux 安装后的首次配置，以及组件名去掉 -preview
+
+把 Fcitx5 插件真装到一台 Arch 机器上用起来，暴露的不是代码缺陷而是产品缺口：安装完成之后没有任何产品侧的路径能把状态拼起来。词库要么在配置阶段用 `-DMSIME_ENGINE_RESOURCES` 随包装好，要么只能在仓库检出里跑 `install_resources` 示例去取——只拿到安装包的用户凑不齐词库，而没有词库一个候选都出不来；更糟的是词库锁此前只在随包提供词库时才安装，也就是最需要它的那种安装里反而没有。状态目录同样：`msime-client-prepare` 要两个绝对路径，用户得先知道该给哪两个。这些步骤此前只存在于对话和 README 的零散段落里，等于每个用户各自重做一遍。
+
+新增随装的 `msime-client-setup` 把三步收成一条命令：按词库锁逐个核对名称、大小和 SHA-256，调用已有的 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client` 建立状态，再按当前运行的是 fcitx5 还是 ibus 打印下一步。默认不联网，取回词库必须显式 `--download`；校验不过即中止，不留半份词库；状态目录已存在时报错而不是覆盖。词库锁里 `dict_pinyin.dat` 没有下载地址（它来自引擎源码树），该项按同样改为无条件随装的 `engine-lock.json` 找到对应固定依赖归档，校验归档摘要后只取出这一个文件，再按词库锁校验它本身。判定规则由 `linux-setup-resolution` 覆盖，不需要词库也不联网，因此容器门禁真的会跑到它。
+
+同批把 IBus 组件与引擎名的 `-preview` 后缀去掉（`msime-client-preview` → `msime-client`，应用 id `app.msime.client.preview` → `app.msime.client`，两份组件文件随之改名），宿主内部的 `msime_preview_*` 改为 `msime_ibus_*`。安装只写入新的组件文件，不会带走改名前留下的那一份，升级需先卸载或手工删除，这一条写进了 README 的卸载章节。共享桌面数据目录仍叫 `app.msime.client.preview`——它是 macOS、Windows 与设置页共用的应用数据目录名，改它会搬走已有用户的 `preferences.json`、皮肤和打字统计，属于需要迁移方案的另一件事，本批不动。
+
+证据：`verify-local.sh --quick` 整体通过；`platforms/linux` 全部目标构建、ctest 23 项通过；安装清单预演确认新入口与两份锁就位；`msime-client-setup` 三条路径在本机实测（已有词库一次准备成功、缺词库未给 `--download` 退出码 1 并说明办法、状态目录已存在退出码 1 且不改动既有目录）。`--download` 的完整取回未在本机执行，只验证了校验与报错路径。真实 GTK/Qt 编辑器里的逐键输入仍未验收，不据此宣称 Linux 产品迁移完成。CI 保持禁用。
+
+### 外部工具栏皮肤的包内 CSS 导入
+
+固定 Windows 来源把外部皮肤目录挂成 `candidate-skins` 虚拟来源，浏览器因此会按每份样式表的位置解析相对 `@import` 与 `url()`。共享 Tauri 预览改用 constructed stylesheet 后，`@import` 会被浏览器直接丢弃；导入表位于子目录时，它的资源地址还会被误当成相对 skin 根目录。这使合法皮肤只显示基础样式并报告 partial。
+
+共享 UI 现在先在 host 边界读取同一 skin 包内的 CSS，再递归展开导入并把每份样式表的资源路径归一到包根。保留 `layer`、`supports()` 与 media 条件；远程、绝对和越出包根的导入会被删除并报告 partial。循环、深度、文件数与总字节均有上限，导入后的字体、图片、动画与作用域隔离继续走既有准备链。Tauri 新命令只接受 package id 与已归一化相对路径，Rust 核心重新验证当前 manifest、目录 containment、CSS MIME、8 MiB 单文件限制与 UTF-8，不向 webview 暴露文件系统路径。

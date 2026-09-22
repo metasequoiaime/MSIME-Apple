@@ -3,13 +3,12 @@
  * platforms/android/java/app/msime/client/CustomKeyboardSkin.java.
  *
  * Every field arrives from a shared preference document that the host does not control, so each one
- * is clamped or rejected rather than trusted. The photo is the one place the port differs in shape:
- * Java decodes the Base64 here, while this takes the decoded bytes so the class stays free of runtime
- * APIs and testable without a device. The size and format checks are unchanged.
+ * is clamped or rejected rather than trusted. Photos are decoded here with a small runtime-neutral
+ * Base64 reader, keeping the size and magic-number checks testable without a device image decoder.
  */
 const MAX_PHOTO_BYTES: number = 512000;
-const KEY_SHAPES: string[] = ['rounded', 'capsule', 'ticket', 'pebble'];
-const KEY_MATERIALS: string[] = ['flat', 'raised', 'glass', 'paper'];
+const KEY_SHAPES: string[] = ["rounded", "capsule", "ticket", "pebble"];
+const KEY_MATERIALS: string[] = ["flat", "raised", "glass", "paper"];
 
 export interface CustomSkinDocument {
   readonly background?: number;
@@ -29,12 +28,17 @@ export interface CustomSkinDocument {
   readonly gradientHorizontal?: boolean;
   readonly patternOpacity?: number;
   readonly customBorderColor?: number | null;
+  readonly photo?: string;
   readonly photoShade?: number;
   readonly photoPosition?: number;
 }
 
-function bounded(value: number | undefined, minimum: number, maximum: number,
-                 fallback: number): number {
+function bounded(
+  value: number | undefined,
+  minimum: number,
+  maximum: number,
+  fallback: number,
+): number {
   if (value === undefined || !Number.isFinite(value)) {
     return fallback;
   }
@@ -46,11 +50,11 @@ function oneOf(value: string | undefined, allowed: string[]): string {
 }
 
 function color(value: number | undefined, fallback: number): number {
-  return value === undefined || !Number.isFinite(value) ? fallback : (value & 0xffffff);
+  return value === undefined || !Number.isFinite(value) ? fallback : value & 0xffffff;
 }
 
 function hex(value: number): string {
-  return '#' + (value & 0xffffff).toString(16).toUpperCase().padStart(6, '0');
+  return "#" + (value & 0xffffff).toString(16).toUpperCase().padStart(6, "0");
 }
 
 function startsWith(bytes: Uint8Array, prefix: number[]): boolean {
@@ -65,6 +69,54 @@ function startsWith(bytes: Uint8Array, prefix: number[]): boolean {
   return true;
 }
 
+function decodePhoto(value: string | undefined): Uint8Array | null {
+  if (
+    value === undefined ||
+    value.length === 0 ||
+    value.length > 682668 ||
+    value.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(value)
+  )
+    return null;
+  const alphabet: string = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const padding: number = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  const size: number = (value.length / 4) * 3 - padding;
+  if (size <= 0 || size > MAX_PHOTO_BYTES) return null;
+  const output = new Uint8Array(size);
+  let cursor: number = 0;
+  for (let index: number = 0; index < value.length; index += 4) {
+    const a: number = alphabet.indexOf(value[index]);
+    const b: number = alphabet.indexOf(value[index + 1]);
+    const c: number = value[index + 2] === "=" ? 0 : alphabet.indexOf(value[index + 2]);
+    const d: number = value[index + 3] === "=" ? 0 : alphabet.indexOf(value[index + 3]);
+    if (a < 0 || b < 0 || c < 0 || d < 0) return null;
+    const bits: number = (a << 18) | (b << 12) | (c << 6) | d;
+    if (cursor < size) output[cursor++] = (bits >> 16) & 255;
+    if (cursor < size) output[cursor++] = (bits >> 8) & 255;
+    if (cursor < size) output[cursor++] = bits & 255;
+  }
+  return output;
+}
+
+function photoType(bytes: Uint8Array): string | null {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10])) return "image/png";
+  if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38])) return "image/gif";
+  if (
+    bytes.length >= 12 &&
+    startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
 /** JPEG, PNG, GIF and WebP by magic number. Anything else is not drawn. */
 export function supportedPhoto(bytes: Uint8Array): boolean {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
@@ -73,12 +125,20 @@ export function supportedPhoto(bytes: Uint8Array): boolean {
   if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10])) {
     return true;
   }
-  if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38, 0x37, 0x61])
-      || startsWith(bytes, [0x47, 0x49, 0x46, 0x38, 0x39, 0x61])) {
+  if (
+    startsWith(bytes, [0x47, 0x49, 0x46, 0x38, 0x37, 0x61]) ||
+    startsWith(bytes, [0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
+  ) {
     return true;
   }
-  return bytes.length >= 12 && startsWith(bytes, [0x52, 0x49, 0x46, 0x46])
-    && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+  return (
+    bytes.length >= 12 &&
+    startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  );
 }
 
 /** Matches java.util.Arrays.hashCode so the cache key means the same thing on both hosts. */
@@ -119,14 +179,15 @@ export class CustomKeyboardSkin {
   private shadowValue: number = 0;
   private patternValue: number = 0;
   private monospacedValue: boolean = false;
-  private keyShapeValue: string = 'rounded';
-  private keyMaterialValue: string = 'flat';
+  private keyShapeValue: string = "rounded";
+  private keyMaterialValue: string = "flat";
   private keyOpacityValue: number = 1;
   private gradientEndColor: number | null = null;
   private gradientHorizontalValue: boolean = false;
   private patternOpacityValue: number = 0.15;
   private customBorderColor: number | null = null;
   private photoBytes: Uint8Array | null = null;
+  private photoSourceValue: string | null = null;
   private photoShadeValue: number = 0.25;
   private photoPositionValue: number = 0.5;
 
@@ -135,8 +196,10 @@ export class CustomKeyboardSkin {
   }
 
   /** `photo` is the already-decoded image; pass null when there is none or it failed to decode. */
-  static from(document: CustomSkinDocument | null,
-              photo: Uint8Array | null = null): CustomKeyboardSkin {
+  static from(
+    document: CustomSkinDocument | null,
+    photo: Uint8Array | null = null,
+  ): CustomKeyboardSkin {
     const value: CustomKeyboardSkin = CustomKeyboardSkin.defaults();
     if (document === null) {
       return value;
@@ -154,60 +217,123 @@ export class CustomKeyboardSkin {
     value.keyShapeValue = oneOf(document.keyShape, KEY_SHAPES);
     value.keyMaterialValue = oneOf(document.keyMaterial, KEY_MATERIALS);
     value.keyOpacityValue = bounded(document.keyOpacity, 0.25, 1, 1);
-    value.gradientEndColor = document.gradientEnd === undefined || document.gradientEnd === null
-      ? null : color(document.gradientEnd, value.backgroundColor);
+    value.gradientEndColor =
+      document.gradientEnd === undefined || document.gradientEnd === null
+        ? null
+        : color(document.gradientEnd, value.backgroundColor);
     value.gradientHorizontalValue = document.gradientHorizontal ?? false;
     value.patternOpacityValue = bounded(document.patternOpacity, 0, 0.5, 0.15);
     value.customBorderColor =
       document.customBorderColor === undefined || document.customBorderColor === null
-        ? null : color(document.customBorderColor, value.accentColor);
+        ? null
+        : color(document.customBorderColor, value.accentColor);
     value.photoShadeValue = bounded(document.photoShade, 0, 0.8, 0.25);
     value.photoPositionValue = bounded(document.photoPosition, 0, 1, 0.5);
-    value.photoBytes = photo !== null && photo.length <= MAX_PHOTO_BYTES && supportedPhoto(photo)
-      ? photo : null;
+    const decoded: Uint8Array | null = photo ?? decodePhoto(document.photo);
+    value.photoBytes =
+      decoded !== null && decoded.length <= MAX_PHOTO_BYTES && supportedPhoto(decoded)
+        ? decoded
+        : null;
+    const mime: string | null = value.photoBytes === null ? null : photoType(value.photoBytes);
+    if (mime !== null && document.photo !== undefined && decoded !== null) {
+      value.photoSourceValue = `data:${mime};base64,${document.photo}`;
+    }
     return value;
   }
 
-  background(): string { return hex(this.backgroundColor); }
-  keyBackground(): string { return hex(this.keyBackgroundColor); }
-  keyForeground(): string { return hex(this.keyForegroundColor); }
-  accent(): string { return hex(this.accentColor); }
-  actionBackground(): string { return hex(this.actionBackgroundColor); }
+  background(): string {
+    return hex(this.backgroundColor);
+  }
+  keyBackground(): string {
+    return hex(this.keyBackgroundColor);
+  }
+  keyForeground(): string {
+    return hex(this.keyForegroundColor);
+  }
+  accent(): string {
+    return hex(this.accentColor);
+  }
+  actionBackground(): string {
+    return hex(this.actionBackgroundColor);
+  }
 
   /** Black on a light action key, white on a dark one, decided by relative luminance. */
   actionForeground(): string {
-    return luminance(this.actionBackgroundColor) > 0.179 ? '#000000' : '#FFFFFF';
+    return luminance(this.actionBackgroundColor) > 0.179 ? "#000000" : "#FFFFFF";
   }
 
-  cornerRadius(): number { return this.cornerRadiusValue; }
-  borderWidth(): number { return this.borderWidthValue; }
-  shadow(): number { return this.shadowValue; }
-  pattern(): number { return this.patternValue; }
-  monospaced(): boolean { return this.monospacedValue; }
-  keyShape(): string { return this.keyShapeValue; }
-  keyMaterial(): string { return this.keyMaterialValue; }
-  keyOpacity(): number { return this.keyOpacityValue; }
+  cornerRadius(): number {
+    return this.cornerRadiusValue;
+  }
+  borderWidth(): number {
+    return this.borderWidthValue;
+  }
+  shadow(): number {
+    return this.shadowValue;
+  }
+  pattern(): number {
+    return this.patternValue;
+  }
+  monospaced(): boolean {
+    return this.monospacedValue;
+  }
+  keyShape(): string {
+    return this.keyShapeValue;
+  }
+  keyMaterial(): string {
+    return this.keyMaterialValue;
+  }
+  keyOpacity(): number {
+    return this.keyOpacityValue;
+  }
   gradientEnd(): string | null {
     return this.gradientEndColor === null ? null : hex(this.gradientEndColor);
   }
-  gradientHorizontal(): boolean { return this.gradientHorizontalValue; }
-  patternOpacity(): number { return this.patternOpacityValue; }
+  gradientHorizontal(): boolean {
+    return this.gradientHorizontalValue;
+  }
+  patternOpacity(): number {
+    return this.patternOpacityValue;
+  }
   borderColor(): string {
     return hex(this.customBorderColor === null ? this.accentColor : this.customBorderColor);
   }
-  photo(): Uint8Array | null { return this.photoBytes; }
-  photoShade(): number { return this.photoShadeValue; }
-  photoPosition(): number { return this.photoPositionValue; }
+  photo(): Uint8Array | null {
+    return this.photoBytes;
+  }
+  photoSource(): string | null {
+    return this.photoSourceValue;
+  }
+  photoShade(): number {
+    return this.photoShadeValue;
+  }
+  photoPosition(): number {
+    return this.photoPositionValue;
+  }
 
   /** Identity for caching a rendered skin. Any field that changes the drawing appears here. */
   key(): string {
     return [
-      this.backgroundColor, this.keyBackgroundColor, this.keyForegroundColor, this.accentColor,
-      this.actionBackgroundColor, this.cornerRadiusValue, this.borderWidthValue, this.shadowValue,
-      this.patternValue, this.monospacedValue, this.keyShapeValue, this.keyMaterialValue,
-      this.keyOpacityValue, this.gradientEndColor, this.gradientHorizontalValue,
-      this.patternOpacityValue, this.customBorderColor, photoHash(this.photoBytes),
-      this.photoShadeValue, this.photoPositionValue
-    ].join(':');
+      this.backgroundColor,
+      this.keyBackgroundColor,
+      this.keyForegroundColor,
+      this.accentColor,
+      this.actionBackgroundColor,
+      this.cornerRadiusValue,
+      this.borderWidthValue,
+      this.shadowValue,
+      this.patternValue,
+      this.monospacedValue,
+      this.keyShapeValue,
+      this.keyMaterialValue,
+      this.keyOpacityValue,
+      this.gradientEndColor,
+      this.gradientHorizontalValue,
+      this.patternOpacityValue,
+      this.customBorderColor,
+      photoHash(this.photoBytes),
+      this.photoShadeValue,
+      this.photoPositionValue,
+    ].join(":");
   }
 }

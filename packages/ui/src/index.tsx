@@ -2,6 +2,7 @@ import { useConfirm } from "./core/confirm";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1297,7 +1298,7 @@ export type MixedInputPreferences = {
 };
 const defaultMixedInput: MixedInputPreferences = {
   english: true,
-  minimum_prefix: 2,
+  minimum_prefix: 5,
   emoji: false,
   kaomoji: false,
 };
@@ -1467,7 +1468,7 @@ export interface SettingsClient {
   scanSkinCatalog?: () => Promise<SkinCatalog>;
   readSkinImage?: SkinImageReader;
   readSkinFont?: SkinFontReader;
-  readSkinToolbarCss?: (id: string) => Promise<string | null>;
+  readSkinToolbarCss?: (id: string, relative?: string) => Promise<string | null>;
   openSkinDirectory?: () => Promise<void>;
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
@@ -1506,6 +1507,12 @@ export interface SettingsClient {
   installInputSource?: () => Promise<void>;
   /** macOS moves the installed input source to Trash; data removal is explicit. */
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
+  /** macOS keeps small fixed locators while the state root itself may move to another volume. */
+  dataDirectory?: {
+    status(): Promise<{ path: string; isDefault: boolean }>;
+    pick(): Promise<string | null>;
+    move(): Promise<{ path: string; isDefault: boolean; retainedOldData: boolean }>;
+  };
   /**
    * Ask the host for a file path, resolving to null when the user cancels. A local speech model is loaded
    * by path and a file input hands back contents instead, so only the host can answer this.
@@ -2078,9 +2085,19 @@ export function SettingsPage({
   const [uninstallConfirmation, setUninstallConfirmation] = useState(false);
   const [uninstallBusy, setUninstallBusy] = useState(false);
   const [uninstallResult, setUninstallResult] = useState<"success" | "error" | null>(null);
+  const [dataDirectory, setDataDirectory] = useState<{ path: string; isDefault: boolean }>();
+  const [dataDirectoryBusy, setDataDirectoryBusy] = useState(false);
+  const [dataDirectoryResult, setDataDirectoryResult] = useState("");
   const [page, setPage] = useState<SettingsPageId>(() =>
     requestedPage(initialPage ?? (client.home ? "home" : undefined)),
   );
+  const settingsContentRef = useRef<HTMLElement>(null);
+  // Every settings category shares this one scrolling surface. Reset it after
+  // the new category is committed so sidebar clicks, in-page links and mobile
+  // back navigation all open the destination at its beginning.
+  useLayoutEffect(() => {
+    if (settingsContentRef.current) settingsContentRef.current.scrollTop = 0;
+  }, [page]);
   // Mobile hosts use the WebView history stack for the system back gesture. The
   // native activity can therefore dismiss a nested page without the shared UI
   // having to know which Android/iOS navigation API is in use.
@@ -2147,6 +2164,7 @@ export function SettingsPage({
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const phraseRequestGeneration = useRef(0);
+  const phraseListRef = useRef<HTMLUListElement>(null);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<
     Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>
@@ -2215,6 +2233,22 @@ export function SettingsPage({
       window.removeEventListener("blur", clear);
     };
   }, [client]);
+
+  useEffect(() => {
+    if (!macosPlatform || !client.dataDirectory) return;
+    let active = true;
+    client.dataDirectory
+      .status()
+      .then((value) => {
+        if (active) setDataDirectory(value);
+      })
+      .catch(() => {
+        if (active) setDataDirectoryResult("无法读取当前数据目录。");
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, macosPlatform]);
   useEffect(() => {
     let active = true;
     let unsubscribe: (() => void) | undefined;
@@ -2520,6 +2554,45 @@ export function SettingsPage({
     }
   }
 
+  async function chooseDataDirectory() {
+    if (!client.dataDirectory || dataDirectoryBusy) return;
+    setDataDirectoryBusy(true);
+    setDataDirectoryResult("");
+    try {
+      const target = await client.dataDirectory.pick();
+      if (!target) return;
+      const confirmed = await confirm({
+        title: "移动输入法数据？",
+        message: `词库、学习记录、皮肤、剪贴板历史和设置将移动到“${target}”。移动期间输入法会短暂退出；完成后设置窗口会关闭。`,
+        confirmLabel: "移动",
+      });
+      if (!confirmed) return;
+      const result = await client.dataDirectory.move();
+      setDataDirectory({ path: result.path, isDefault: result.isDefault });
+      setDataDirectoryResult(
+        result.retainedOldData
+          ? "数据已切换到新目录；旧目录不属于水杉输入法，已为安全起见保留。设置窗口即将关闭。"
+          : "数据已移动。设置窗口即将关闭，请重新打开后继续使用。",
+      );
+    } catch (reason) {
+      const code =
+        typeof reason === "object" && reason !== null && "code" in reason
+          ? String(reason.code)
+          : "";
+      setDataDirectoryResult(
+        code === "data_directory_not_empty"
+          ? "请选择空文件夹；现有文件不会被覆盖。"
+          : code === "data_directory_invalid"
+            ? "该位置不能作为数据目录，请选择其他空文件夹。"
+            : code === "data_directory_busy"
+              ? "输入法仍在使用数据目录，请稍后重试。"
+              : "移动失败，仍在使用原目录，原有数据未被删除。",
+      );
+    } finally {
+      setDataDirectoryBusy(false);
+    }
+  }
+
   async function previewMobileKeyboardHaptics() {
     const feedback = client.mobileKeyboardFeedback;
     if (!feedback?.preview || !mobileKeyboardFeedback?.hapticsEnabled) return;
@@ -2691,6 +2764,12 @@ export function SettingsPage({
       if (generation === phraseRequestGeneration.current) setPhraseBusy(false);
     }
   }
+  function turnPhrasePage(offset: number) {
+    // The list is its own scrolling surface. A page turn must reveal the new
+    // page's first entry instead of preserving the previous page's bottom.
+    if (phraseListRef.current) phraseListRef.current.scrollTop = 0;
+    void loadPhrases(dictionaryKind, offset);
+  }
   async function removePhrase(entry: DictionaryEntry) {
     if (!client.dictionary) return;
     // Deletion is not undoable and the row is one click away from 编辑.
@@ -2780,12 +2859,17 @@ export function SettingsPage({
         if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
         const lines = text.split(/\r?\n/).filter(Boolean);
         for (const line of lines) {
-          const [first, second, weight = "100000"] = line.split("\t");
+          const [first, second, weight = "10000"] = line.split("\t");
           if (!first || !second) continue;
           const [value, key] = dictionaryFormat === "windows" ? [second, first] : [first, second];
+          const parsedWeight = Number(weight);
+          const normalizedWeight =
+            weight.trim() !== "" && Number.isSafeInteger(parsedWeight) && parsedWeight >= 0
+              ? parsedWeight
+              : 10000;
           await client.dictionary.edit(
             null,
-            { kind: dictionaryKind, key: key.trim(), value, weight: Number(weight) || 100000 },
+            { kind: dictionaryKind, key: key.trim(), value, weight: normalizedWeight },
             requestId("ui-import"),
           );
         }
@@ -3163,7 +3247,10 @@ export function SettingsPage({
   const localVoice = macosPlatform && voiceInput.asr_provider === "local";
   const serviceVoice = !systemVoice && !localVoice;
   const harmonyUnsupportedAsr =
-    harmonyPlatform && !["doubao", "system"].includes(String(voiceInput.asr_provider));
+    harmonyPlatform &&
+    !["doubao", "system", "openai", "siliconflow", "groq", "everyapi", "mistral"].includes(
+      String(voiceInput.asr_provider),
+    );
   const doubaoAuthMode =
     voiceInput.doubao_auth_mode ||
     (voiceInput.asr_app_key && !voiceInput.asr_app_key.startsWith("<") ? "legacy" : "api_key");
@@ -3729,6 +3816,7 @@ export function SettingsPage({
           <p className={settings.previewLabel}>客户端预览版</p>
         </nav>
         <main
+          ref={settingsContentRef}
           id="settings-content"
           className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0 pr-6 pb-0 pl-4 [scrollbar-gutter:stable] max-phone:px-2"
           aria-labelledby="page-title"
@@ -4501,7 +4589,7 @@ export function SettingsPage({
                                 setPhraseForm({
                                   key: "",
                                   value: "",
-                                  weight: 100000,
+                                  weight: 10,
                                   previous: null,
                                 })
                               }
@@ -4717,7 +4805,11 @@ export function SettingsPage({
                             词条
                           </p>
                         ) : (
-                          <ul className={settings.phraseList}>
+                          <ul
+                            ref={phraseListRef}
+                            className={settings.phraseList}
+                            aria-label="词库查询结果"
+                          >
                             {phrases
                               .filter((entry) => entry.key.startsWith(phraseSearch))
                               .map((entry, index) => (
@@ -4761,10 +4853,7 @@ export function SettingsPage({
                             className="secondary"
                             disabled={phraseBusy || phrasePage.offset === 0}
                             onClick={() =>
-                              void loadPhrases(
-                                dictionaryKind,
-                                Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE),
-                              )
+                              turnPhrasePage(Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE))
                             }
                           >
                             上一页
@@ -4774,12 +4863,7 @@ export function SettingsPage({
                             type="button"
                             className="secondary"
                             disabled={phraseBusy || !phrasePage.hasMore}
-                            onClick={() =>
-                              void loadPhrases(
-                                dictionaryKind,
-                                phrasePage.offset + DICTIONARY_PAGE_SIZE,
-                              )
-                            }
+                            onClick={() => turnPhrasePage(phrasePage.offset + DICTIONARY_PAGE_SIZE)}
                           >
                             下一页
                           </button>
@@ -7335,6 +7419,39 @@ export function SettingsPage({
                         <span aria-hidden="true">↗</span>
                       </button>
                     </div>
+                    {macosPlatform && client.dataDirectory && (
+                      <div className="section" role="group" aria-label="数据目录">
+                        <div className="section-header">
+                          <span className="section-title">
+                            数据目录
+                            <small>
+                              词库、学习记录、皮肤、剪贴板历史和设置共用此位置。可移动到其他磁盘。
+                            </small>
+                          </span>
+                        </div>
+                        <div className={settings.serviceRow}>
+                          <span>
+                            当前目录
+                            <small>
+                              <code>{dataDirectory?.path ?? "正在读取…"}</code>
+                              {dataDirectory?.isDefault ? "（默认）" : ""}
+                            </small>
+                          </span>
+                          <div>
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={dataDirectoryBusy || !dataDirectory}
+                              aria-busy={dataDirectoryBusy}
+                              onClick={() => void chooseDataDirectory()}
+                            >
+                              {dataDirectoryBusy ? "正在移动…" : "选择位置…"}
+                            </button>
+                          </div>
+                        </div>
+                        {dataDirectoryResult && <p role="status">{dataDirectoryResult}</p>}
+                      </div>
+                    )}
                     {macosPlatform && (
                       <div className="section" role="group" aria-label="许可与卸载">
                         <div className="section-header">
@@ -8285,7 +8402,7 @@ export function SettingsPage({
                      * cover it.
                      */}
                     {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-                      ["openai", "siliconflow", "groq", "doubao"].includes(
+                      ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
                         voiceInput.asr_provider ?? "",
                       ) && (
                         <>

@@ -1,5 +1,6 @@
 package app.msime.client.home;
 
+import android.content.Intent;
 import android.os.Bundle;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
@@ -72,6 +73,10 @@ public final class HomeActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, back);
 
         playIntro(state == null);
+        // 第一次打开先走一遍引导：这台设备还没见过它，而它讲的正是「键盘怎么用起来」。
+        if (state == null && !OnboardingActivity.seen(this)) {
+            startActivity(new Intent(this, OnboardingActivity.class));
+        }
 
         if (state != null) selected = state.getInt(STATE_TAB, FIRST_TAB);
         tabs.setOnItemSelectedListener(item -> {

@@ -26,7 +26,7 @@ fn windows_legacy_mixed_input_ignores_invalid_values_and_documents() {
         "[general]\ncn_en_mixed_input_min_chars = 9\n",
         &mut preferences,
     ));
-    assert_eq!(preferences.mixed_input.minimum_prefix, 2);
+    assert_eq!(preferences.mixed_input.minimum_prefix, 5);
     assert!(!apply_windows_legacy_mixed_input(
         "not toml",
         &mut preferences
@@ -1904,6 +1904,69 @@ fn mobile_clipboard_migrates_apple_history_and_uses_structured_actions() {
         call(json!({"operation": "load"}))["value"]["entries"],
         json!([])
     );
+}
+
+#[test]
+fn harmony_mobile_clipboard_migrates_once_and_preserves_corrupt_current_data() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(),
+            "legacy": "harmony_state",
+            "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
+    };
+    let legacy = directory.path().join("state/clipboard-history.json");
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(
+        &legacy,
+        serde_json::to_vec(&json!([
+            {"text": "synthetic older", "at": 10, "pinned": false},
+            {"text": "synthetic pinned", "at": 1, "pinned": true}
+        ]))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let loaded = call(json!({"operation": "load"}));
+    assert_eq!(loaded["value"]["migrated"], true);
+    assert_eq!(loaded["value"]["entries"][0]["text"], "synthetic pinned");
+    assert!(!legacy.exists());
+
+    let captured = call(json!({"operation": "capture", "text": "synthetic current"}));
+    assert_eq!(captured["value"]["captured"], true);
+    assert_eq!(captured["value"]["entries"][1]["text"], "synthetic current");
+    let shared = directory.path().join("MSIME/clipboard_history.json");
+    let corrupt = b"invalid synthetic current history";
+    std::fs::write(&shared, corrupt).unwrap();
+    let refused = call(json!({"operation": "capture", "text": "synthetic rejected"}));
+    assert_eq!(refused["ok"], false);
+    assert_eq!(std::fs::read(&shared).unwrap(), corrupt);
+}
+
+#[test]
+fn harmony_mobile_clipboard_rejects_corrupt_legacy_without_replacing_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let legacy = directory.path().join("state/clipboard-history.json");
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    let corrupt = b"invalid synthetic harmony history";
+    std::fs::write(&legacy, corrupt).unwrap();
+    let request = serde_json::to_vec(&json!({
+        "directory": directory.path(),
+        "legacy": "harmony_state",
+        "action": {"operation": "load"}
+    }))
+    .unwrap();
+    let response =
+        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) });
+    assert_eq!(response["error"], "invalid legacy clipboard history");
+    assert_eq!(std::fs::read(&legacy).unwrap(), corrupt);
+    assert!(!directory
+        .path()
+        .join("MSIME/clipboard_history.json")
+        .exists());
 }
 
 #[test]
@@ -4243,6 +4306,7 @@ fn published_defaults_complete_every_nested_preference_object() {
         parsed,
         msime_client_core::preferences::Preferences::default()
     );
+    assert_eq!(defaults["mixed_input"]["minimum_prefix"], 5);
 
     // The two objects the Linux host patches, spelled out: a partial one of these
     // is what stopped a session being created at all.
@@ -4295,7 +4359,7 @@ fn importing_a_personal_dictionary_file_queues_instead_of_taking_the_engine_lock
         "format": "msime-personal-dictionary",
         "version": 1,
         "entries": [
-            {"kind": "pinyin", "key": "shuishan", "value": "水杉", "weight": 100},
+            {"kind": "pinyin", "key": "shui'shan", "value": "水杉", "weight": 100},
             {"kind": "quickPhrase", "key": "zjd", "value": "在家等", "weight": 100},
         ],
     })
@@ -4338,6 +4402,65 @@ fn importing_a_personal_dictionary_file_queues_instead_of_taking_the_engine_lock
     let again =
         read(unsafe { msime_client_personal_dictionary_request(second.as_ptr(), second.len()) });
     assert_eq!(again["value"]["pending_count"], 3);
+
+    // A cloud word selected for local download uses the same durable queue, but is normalized by
+    // the Engine before it is persisted. The settings page may therefore send the cloud spelling
+    // verbatim without becoming a second author of pinyin validation rules.
+    let cloud = json!({
+        "options": options,
+        "action": {
+            "operation": "queue_edit",
+            "previous": null,
+            "replacement": {
+                "kind": "pinyin",
+                "key": "NI HAO",
+                "value": "拟好",
+                "weight": 100_000,
+            },
+            "request_id": "ui-cloud",
+        },
+    })
+    .to_string();
+    let downloaded =
+        read(unsafe { msime_client_personal_dictionary_request(cloud.as_ptr(), cloud.len()) });
+    assert_eq!(downloaded["value"]["pending_count"], 4);
+    let state: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("PersonalDictionary/sync.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["requests"][3]["replacement"]["key"], "ni'hao");
+
+    let invalid_cloud = json!({
+        "options": options,
+        "action": {
+            "operation": "queue_edit",
+            "previous": null,
+            "replacement": {
+                "kind": "pinyin",
+                "key": "nihao",
+                "value": "坏词",
+                "weight": 100_000,
+            },
+            "request_id": "ui-cloud-invalid",
+        },
+    })
+    .to_string();
+    assert_eq!(
+        read(unsafe {
+            msime_client_personal_dictionary_request(invalid_cloud.as_ptr(), invalid_cloud.len())
+        })["ok"],
+        false
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(
+            &std::fs::read(directory.path().join("PersonalDictionary/sync.json")).unwrap(),
+        )
+        .unwrap()["requests"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
 
     // A file this host cannot read is refused before anything is queued, so a malformed import
     // cannot leave the queue half-written.

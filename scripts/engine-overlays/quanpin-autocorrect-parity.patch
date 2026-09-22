@@ -1,0 +1,1814 @@
+--- a/core/input_session_composition.cpp
++++ b/core/input_session_composition.cpp
+@@ -153,10 +153,16 @@
+     return quanpin::strip_active_helpcodes(request.raw_input, request.raw_input_with_cases);
+ }
+~
++// Same four-bit mapping as autocorrect_types_from_request (engine.cpp): the
++// request only carries the two legacy bools, and either one on also enables
++// deletion and insertion so the preedit rebuild sees the same correction space
++// as the query.
+ unsigned QuanpinAutocorrectTypes(const QueryRequest &request)
+ {
+-    return (request.enable_quanpin_autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
+-           (request.enable_quanpin_autocorrect_neighbor ? quanpin::kAutocorrectNeighbor : 0u);
++    const unsigned legacy =
++        (request.enable_quanpin_autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
++        (request.enable_quanpin_autocorrect_neighbor ? quanpin::kAutocorrectNeighbor : 0u);
++    return legacy == 0 ? 0u : legacy | quanpin::kAutocorrectDeletion | quanpin::kAutocorrectInsertion;
+ }
+~
+ std::string QuanpinLettersWithoutDelimiters(const std::string &text)
+@@ -173,10 +179,14 @@
+     return letters;
+ }
+~
+-// Folds letters for autocorrect comparisons: lowercases and strips manual
+-// delimiters, and maps the u-umlaut style 'v' spelling onto 'u'. The jv/nv
+-// normalisation is not a correction, so it must never make the scheme
+-// segmentation look rewritten.
++// Folds letters for autocorrect display comparisons: lowercases and strips
++// manual delimiters, and maps the u-umlaut style 'v' spelling onto 'u'. This
++// equivalence is what classifies length-preserving spelling aliases (jv->ju,
++// nue->nve) as "explainable by the cut" so the preedit can be rebuilt with
++// separators; removing it would drop separators for alias-typed input. It only
++// ever compares two internally derived strings, never gates a user-facing
++// mark — the dictionary-side corrected_from contract lives in
++// quanpin_dictionary.cpp and treats v/u as distinct letters on purpose.
+ std::string FoldQuanpinAutocorrectLetters(const std::string &text)
+ {
+     std::string folded;
+@@ -193,6 +203,18 @@
+     return folded;
+ }
+~
++// Folded letters of a cut's syllable sequence, for comparing the BFS reading
++// against the scheme segmentation reading.
++std::string CutSyllableLetters(const quanpin::AutocorrectCut &cut)
++{
++    std::string letters;
++    for (const auto &segment : cut.segments)
++    {
++        letters += segment.syllable;
++    }
++    return FoldQuanpinAutocorrectLetters(letters);
++}
++
+ // Rebuilds the preedit from the cased input letters with separators at the raw
+ // spans the correction BFS reports. Letters (case included) are preserved
+ // verbatim; manual delimiters are replaced by the actual cut positions.
+@@ -247,12 +269,29 @@
+     // type is enabled or the input is already a complete pinyin spelling, so
+     // no correction interpretation exists to draw separators from.
+     if (!letters_rewritten && (types == 0 || quanpin::is_complete_pinyin_input(request.raw_input)))
++    {
++        return base;
++    }
++
++    // Jianpin guard, mirroring resolve_series_query in the dictionary layer: a
++    // legal syllable plus at most one trailing letter is user intent, never a
++    // typo. The deletion table explains shapes like "zheg" -> zheng, so without
++    // this guard the preedit would lose the scheme separators once the deletion
++    // bit rides along with the legacy switches.
++    if (quanpin::looks_like_syllable_with_jianpin_tail(request.raw_input))
+     {
+         return base;
+     }
+~
+     const auto cut = quanpin::autocorrect_cut_detail(folded_input, types);
+-    if (!cut.empty())
++    // When the scheme rewrote the letters, the query resolved through the alias
++    // layer, so the preedit may only draw separators from the BFS when both
++    // layers explain the letters identically ("sahnghao" -> shang'hao).
++    // Otherwise the deletion bit would re-separate "sahng" as sa'hng while the
++    // candidates actually come from the alias reading shang -- the old code
++    // never noticed because the cut happened to be empty without it.
++    if (!cut.empty() && (!letters_rewritten || CutSyllableLetters(cut) == FoldQuanpinAutocorrectLetters(
++                                                                              QuanpinLettersWithoutDelimiters(base))))
+     {
+         return RebuildQuanpinDisplayFromCut(cased, cut);
+     }
+--- a/quanpin/engine.cpp
++++ b/quanpin/engine.cpp
+@@ -5,11 +5,16 @@
+~
+ namespace
+ { // The request carries one bool per correction type; the dictionary layer gates
+-// the whole feature with a single mask, so bridge the two here.
++// the whole feature with a single mask, so bridge the two here. Design D2: any
++// correction switch on also enables the deletion bit -- the user's intent to
++// have typos fixed covers dropped letters -- while both off stays 0. The same
++// linkage carries the insertion bit (design D4 of the insertion task).
+ unsigned autocorrect_types_from_request(const QueryRequest &request)
+ {
+-    return (request.enable_quanpin_autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
+-           (request.enable_quanpin_autocorrect_neighbor ? quanpin::kAutocorrectNeighbor : 0u);
++    const unsigned legacy =
++        (request.enable_quanpin_autocorrect_transposition ? quanpin::kAutocorrectTransposition : 0u) |
++        (request.enable_quanpin_autocorrect_neighbor ? quanpin::kAutocorrectNeighbor : 0u);
++    return legacy == 0 ? 0u : legacy | quanpin::kAutocorrectDeletion | quanpin::kAutocorrectInsertion;
+ }
+ } // namespace
+~
+--- a/quanpin/quanpin_dictionary.cpp
++++ b/quanpin/quanpin_dictionary.cpp
+@@ -42,13 +42,24 @@
+     return normalized;
+ }
+~
++// 正字法别名归一：把非标准 ü 拼写改写成词库标准键，输出即进入查询管线的权威拼写
++// （查库键、pinyin_segmentation_、调频/造词键因此全部落在标准拼法上）。标准拼音约定：
++// ü 保留鱼眼的音节（n/l 系）键写 v（nv/nve/lv/lve），省略鱼眼的（j/q/x/y 系）键写 u
++// （ju/jue/qu/.../yue）。nu/lu 是真实音节（怒/路），所以 n/l 系只按段精确匹配 nue/lue，
++// 绝不改写 nv/lv/nu/lu。
+ quanpin::Segments normalize_umlaut_aliases(quanpin::Segments segments)
+ {
+     for (auto &segment : segments)
+     {
+-        if (segment.size() >= 2 && segment[1] == 'v' &&
+-            (segment[0] == 'j' || segment[0] == 'q' || segment[0] == 'x' || segment[0] == 'y'))
++        if (segment.size() == 3 && segment[1] == 'u' && segment[2] == 'e' && (segment[0] == 'n' || segment[0] == 'l'))
+         {
++            // nue/lue → nve/lve：词库正键用 v，混拼 u 是它的别名。
++            segment[1] = 'v';
++        }
++        else if (segment.size() >= 2 && segment[1] == 'v' &&
++                 (segment[0] == 'j' || segment[0] == 'q' || segment[0] == 'x' || segment[0] == 'y'))
++        {
++            // j/q/x/y 系没有保留鱼眼的合法音节，v 一律是 u 的别名。
+             segment[1] = 'u';
+         }
+         // lue/nue are legal spellings of lve/nve, but the dictionary only stores the v rows. Exact syllable equality,
+@@ -72,9 +83,11 @@
+ }
+~
+ // Folds letters for autocorrect comparisons: lowercases and strips manual
+-// delimiters, and maps the ü-style 'v' spelling onto 'u' on both sides. The
+-// jv/nv normalisation is not a correction, so it must never make the primary
+-// segmentation look rewritten (jv displays as typed and stays unmarked).
++// delimiters. v and u must compare as distinct letters — the ü-style alias
++// rewrite is a first-class marking source (the trailing star badge), so
++// 'nve' (primary segmentation) differing from typed 'nue' is exactly what
++// produces the corrected_from label. The old contract ("aliases never look
++// rewritten, hence never marked") was flipped by product decision.
+ std::string fold_autocorrect_letters(const std::string &text)
+ {
+     std::string folded;
+@@ -85,36 +98,133 @@
+         {
+             continue;
+         }
+-        const char lower = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+-        folded.push_back(lower == 'v' ? 'u' : lower);
++        folded.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+     }
+     return folded;
+ }
+~
+-struct SeriesQueryResolution
++// How many ranked correction cuts feed the query pipeline: the primary cut
++// becomes the query key and the rest ride along as alternative segmentations
++// for query-time disambiguation (patent CN 101133411 B M3). k=9 is set by the
++// phase-4/5 evaluation data: dropped-initial keys such as uan have 10-15
++// equally-weighted deletion targets (cuan/duan/guan/.../zuan), and k=3 cut the
++// list by table order before reaching the correct reading (quan'li for uanli).
++// k=9 lifts R@1/R@3 across the deletion and mixed models with no p95 change.
++constexpr std::size_t kAutocorrectCutKBest = 9;
++
++quanpin::Segments cut_syllables(const quanpin::AutocorrectCut &cut)
+ {
+-    std::string segmentation;
+-    std::string cache_key;
+-    quanpin::Segments corrected_segments;
+-    bool corrected_input = false;
+-};
++    quanpin::Segments syllables;
++    syllables.reserve(cut.segments.size());
++    for (const auto &segment : cut.segments)
++    {
++        syllables.push_back(segment.syllable);
++    }
++    return syllables;
++}
+~
+-SeriesQueryResolution resolve_series_query(const std::string &raw_input, const std::string &segmentation,
+-                                           const quanpin::Segments &segments, unsigned autocorrect_types)
++SeriesQueryResolution resolve_series_query(const std::string &raw_input, const quanpin::Segments &segments,
++                                           unsigned autocorrect_types)
+ {
+     SeriesQueryResolution result;
+     // Guard order matters: the jianpin-shape predicate runs before autocorrect_cut
+     // so a guarded input never pays for the BFS. Both guards express "the user did
+-    // not mistype" and either one disables the rewrite entirely.
+-    result.corrected_input =
+-        autocorrect_types != 0 && !segments.empty() && raw_input.find('\'') == std::string::npos &&
+-        !quanpin::has_only_complete_pinyin_segments(segments) &&
+-        !quanpin::looks_like_syllable_with_jianpin_tail(raw_input) &&
+-        !(result.corrected_segments = quanpin::autocorrect_cut(raw_input, autocorrect_types)).empty();
+-    result.segmentation =
+-        result.corrected_input
+-            ? quanpin::join_segments(result.corrected_segments)
+-            : (segmentation.empty() ? (segments.empty() ? raw_input : quanpin::join_segments(segments)) : segmentation);
++    // not mistype" and either one disables the rewrite entirely. The base
++    // segmentation is deliberately NOT part of the gate: the BFS works on the raw
++    // letters, so an empty base cut (nothing segmentable, e.g. a dropped initial
++    // such as uanli for quan'li) is often exactly the input that needs correction.
++    // With no correction reading the search returns nothing and the plain path is
++    // kept unchanged.
++    const bool eligible = autocorrect_types != 0 && raw_input.find('\'') == std::string::npos &&
++                          !quanpin::has_only_complete_pinyin_segments(segments) &&
++                          !quanpin::looks_like_syllable_with_jianpin_tail(raw_input);
++    if (eligible)
++    {
++        // Fill corrected_segments and the two alternative tiers from cost-ranked
++        // cuts, optionally appending a trailing jianpin segment (used by the
++        // head-correction + jianpin-tail composition below). cuts are ranked
++        // cheapest-first (edge count, then weight): the primary defines the cost
++        // tier, same-cost readings frequency-compete with it, costlier readings
++        // stay behind it (see the two vectors' contracts in the header).
++        const auto populate_from_cuts = [&](const std::vector<quanpin::AutocorrectCut> &cuts,
++                                            const std::string &jianpin_tail) {
++            const auto to_segments = [&](const quanpin::AutocorrectCut &cut) {
++                quanpin::Segments segs = cut_syllables(cut);
++                if (!jianpin_tail.empty())
++                {
++                    segs.push_back(jianpin_tail);
++                }
++                return segs;
++            };
++            const auto &primary_cut = cuts.front();
++            result.corrected_segments = to_segments(primary_cut);
++            for (std::size_t i = 1; i < cuts.size(); ++i)
++            {
++                if (cuts[i].same_cost_as(primary_cut))
++                {
++                    result.alternative_corrected_cuts.push_back(to_segments(cuts[i]));
++                }
++                else
++                {
++                    result.costlier_corrected_cuts.push_back(to_segments(cuts[i]));
++                }
++            }
++        };
++
++        const auto cuts = quanpin::autocorrect_cut_kbest(raw_input, autocorrect_types, kAutocorrectCutKBest);
++        if (!cuts.empty())
++        {
++            result.corrected_input = true;
++            populate_from_cuts(cuts, "");
++        }
++        else
++        {
++            // Compose a correction with a trailing jianpin tail. The k-best search
++            // only reaches the end when every segment is a complete syllable, so an
++            // input like "hauzh" (hau typo + zh jianpin) or "hauz" fails outright.
++            // Retry on the head with the trailing incomplete-syllable prefix removed;
++            // query_series then handles the tail exactly as it does for the correctly
++            // spelled "huazh" (hua + zh). Shortest tail first, so the correction
++            // explains as much of the input as possible.
++            //
++            // Neighbor corrections are excluded from the head: they carry the widest
++            // false-positive surface (largest table), and this path already relaxes
++            // the "whole input is a legal cut" constraint by trusting a speculative
++            // jianpin boundary. Stacking the two turns deletion-shaped input into
++            // noise (e.g. "shng" -> "sun" + "g" -> 笋干). Structural typos
++            // (transposition / deletion / insertion) are confident enough to compose.
++            const unsigned head_types = autocorrect_types & ~quanpin::kAutocorrectNeighbor;
++            const auto &prefixes = quanpin::prefix_pinyin_set();
++            const auto &intact = quanpin::intact_pinyin_set();
++            for (std::size_t tail_len = 1; head_types != 0 && tail_len <= 2 && tail_len < raw_input.size(); ++tail_len)
++            {
++                const std::string tail = raw_input.substr(raw_input.size() - tail_len);
++                // A jianpin tail is an incomplete syllable: a valid pinyin prefix
++                // that is not itself a complete syllable (e.g. "zh", "z", "h").
++                if (prefixes.count(tail) == 0 || intact.count(tail) != 0)
++                {
++                    continue;
++                }
++                const std::string head = raw_input.substr(0, raw_input.size() - tail_len);
++                const auto head_cuts = quanpin::autocorrect_cut_kbest(head, head_types, kAutocorrectCutKBest);
++                if (head_cuts.empty())
++                {
++                    continue;
++                }
++                result.corrected_input = true;
++                populate_from_cuts(head_cuts, tail);
++                break;
++            }
++        }
++    }
++    // Both branches rebuild the segmentation string from segments: they already
++    // carry the canonical (alias-normalised) spelling, while a caller-passed
++    // explicit string could keep the alias spelling — the query would succeed
++    // yet nothing would look rewritten, so alias inputs with manual delimiters
++    // ("nue'hao") could never get marked. Delimiters sit on syllable boundaries,
++    // so split/join round-trips them unchanged ("nu'e" stays "nu'e").
++    result.segmentation = result.corrected_input ? quanpin::join_segments(result.corrected_segments)
++                                                 : (segments.empty() ? raw_input : quanpin::join_segments(segments));
+     result.cache_key = (result.corrected_input ? "C:" : "") + series_cache_key(raw_input, result.segmentation);
+     return result;
+ }
+@@ -133,7 +243,7 @@
+ } // namespace
+~
+ QuanpinDictionary::QuanpinDictionary(std::string db_path, metasequoia::RuntimePaths paths)
+-    : cache_(128), series_cache_(128), segmentation_cache_(128), paths_(std::move(paths)),
++    : cache_(128), series_cache_(128), segmentation_cache_(128), resolution_cache_(128), paths_(std::move(paths)),
+       decoder_(paths_.resource(metasequoia::assets::pinyin_model),
+                paths_.user(metasequoia::assets::pinyin_user_dictionary)),
+       db_path_(db_path.empty() ? metasequoia::path_to_utf8(paths_.dictionary(metasequoia::assets::main_dictionary))
+@@ -201,8 +311,34 @@
+     // segmentation becomes the primary key so that selection and weight
+     // updates land on the right dictionary entries, and the original
+     // (garbage-leaning) candidates stay behind as a fallback tail.
+-    const auto resolution = resolve_series_query(raw_input, segmentation, segments, autocorrect_types);
++    // Memoize the k-best correction search: it is the expensive part of every
++    // keystroke, yet a pure function of this input tuple, so a re-typed or
++    // backspaced prefix should reuse it instead of re-running the k=9 beam.
++    const std::string resolution_key = std::to_string(autocorrect_types) + '\x1f' + raw_input + '\x1f' + segmentation;
++    SeriesQueryResolution resolution;
++    if (const auto cached_resolution = resolution_cache_.get(resolution_key))
++    {
++        resolution = cached_resolution.value();
++    }
++    else
++    {
++        resolution = resolve_series_query(raw_input, segments, autocorrect_types);
++        resolution_cache_.insert(resolution_key, resolution);
++    }
+     pinyin_segmentation_ = resolution.segmentation;
++    // The alternative readings must be published even on the cache-hit path:
++    // mark_autocorrect_candidates runs after every query, cached or not.
++    pinyin_alternative_segmentations_.clear();
++    for (const auto &alternative : resolution.alternative_corrected_cuts)
++    {
++        pinyin_alternative_segmentations_.push_back(quanpin::join_segments(alternative));
++    }
++    // Costlier readings are still corrections, so they must be marked as such
++    // even though they rank below the primary tier (see the tail append below).
++    for (const auto &alternative : resolution.costlier_corrected_cuts)
++    {
++        pinyin_alternative_segmentations_.push_back(quanpin::join_segments(alternative));
++    }
+~
+     // Autocorrected results get their own cache slot so they never leak the
+     // fallback tail into plain (correct) spellings sharing the same key.
+@@ -219,6 +355,14 @@
+~
+     std::vector<quanpin::Segments> alternative_segmentations;
+     std::unordered_set<std::string> seen_segmentations = {pinyin_segmentation_};
++    // Keep costlier readings out of the frequency-competing merge tier; they are
++    // appended after it below so dictionary frequency never lifts a dearer
++    // correction above the cheaper primary. Seeding "seen" here also blocks the
++    // greedy correction paths from re-introducing them into the merge tier.
++    for (const auto &costlier : resolution.costlier_corrected_cuts)
++    {
++        seen_segmentations.insert(quanpin::join_segments(costlier));
++    }
+     const auto append_alternative = [&](const quanpin::Segments &candidate) {
+         const std::string key = quanpin::join_segments(candidate);
+         if (!key.empty() && seen_segmentations.insert(key).second &&
+@@ -235,6 +379,13 @@
+     // autocorrection explicitly turned off.
+     if (autocorrect_types != 0)
+     {
++        // Correction alternatives first: they explain the letters the user
++        // actually typed, so they outrank the phonetic-shape alias readings that
++        // follow (the alias layer rewrites legal-looking spellings regardless).
++        for (const auto &candidate : resolution.alternative_corrected_cuts)
++        {
++            append_alternative(candidate);
++        }
+         const auto correction_paths = quanpin::cut_pinyin_by_mode(raw_input, "correction");
+         for (const auto &candidate : correction_paths)
+         {
+@@ -260,6 +411,21 @@
+         const std::string fallback_segmentation =
+             segmentation.empty() ? quanpin::join_segments(segments) : segmentation;
+         append_unique_words(result, query_series(raw_input, fallback_segmentation, segments));
++        // Query-time disambiguation (patent M3): the alternative readings of the
++        // same typo compete with the primary cut under dictionary word
++        // frequency; the best one keeps a protected slot near the top.
++        if (!alternative_segmentations.empty())
++        {
++            result = merge_alternative_segmentations(raw_input, pinyin_segmentation_, resolution.corrected_segments,
++                                                     alternative_segmentations, std::move(result));
++        }
++        // Costlier readings sit below the whole primary cost tier: append them
++        // last so a high-frequency dearer correction (gau -> gai, weight 13)
++        // can never precede the cheaper one (gau -> gua, weight 10).
++        for (const auto &costlier : resolution.costlier_corrected_cuts)
++        {
++            append_unique_words(result, query_series(raw_input, quanpin::join_segments(costlier), costlier));
++        }
+     }
+     else
+     {
+@@ -510,12 +676,12 @@
+~
+ quanpin::Segments QuanpinDictionary::resolve_segments(const std::string &raw_input, const std::string &segmentation)
+ {
+-    if (!segmentation.empty())
+-    {
+-        return quanpin::split_segments(segmentation);
+-    }
+-
+-    return get_or_compute_segments(raw_input);
++    // 单一归一咽喉点：显式 segmentation 与自动切分两条路径都过这里，进入查询
++    // 管线的 segments 由此保证已归一恰一次。查库、调频、造词各调用点因此
++    // 不必各自处理别名。
++    quanpin::Segments segments =
++        segmentation.empty() ? get_or_compute_segments(raw_input) : quanpin::split_segments(segmentation);
++    return normalize_umlaut_aliases(std::move(segments));
+ }
+~
+ quanpin::Segments QuanpinDictionary::get_or_compute_segments(const std::string &raw_input)
+@@ -594,8 +760,8 @@
+             return result;
+         }
+~
+-        const auto lookup_segments = normalize_umlaut_aliases(segments);
+-        const auto flat_items = quanpin::query_segments_keyed_flat(lookup_segments, db_, statement_cache_, INT_MAX);
++        // segments 已在 resolve_segments 归一，直接按标准键查库。
++        const auto flat_items = quanpin::query_segments_keyed_flat(segments, db_, statement_cache_, INT_MAX);
+         std::vector<WordItem> result;
+         result.reserve(flat_items.size());
+         const std::string code = segmentation.empty() ? quanpin::join_segments(segments) : segmentation;
+@@ -748,17 +914,30 @@
+~
+ void QuanpinDictionary::mark_autocorrect_candidates(std::vector<WordItem> &candidates, const std::string &raw_input)
+ {
+-    // A candidate comes from the corrected interpretation exactly when its code
+-    // letters equal the primary segmentation letters while those differ from the
+-    // typed letters. The first condition alone would also sweep up prefix
+-    // candidates (keneng -> ke, single-letter jianpin expansions) that the user
+-    // spelled correctly; both rules together keep those unmarked. Deliberately
+-    // switch-independent: the scheme alias layer rewrites letters regardless of
+-    // the autocorrect switches, so an alias-corrected candidate is labelled as
+-    // such even with autocorrection off.
+-    const std::string primary_letters = fold_autocorrect_letters(pinyin_segmentation_);
++    // A candidate comes from a corrected interpretation exactly when its code
++    // letters equal any correction cut's letters (primary or ranked
++    // alternative) while those differ from the typed letters. The letters-only
++    // comparison alone would also sweep up prefix candidates (keneng -> ke,
++    // single-letter jianpin expansions) that the user spelled correctly; both
++    // rules together keep those unmarked. The ü-style alias rewrite (nue->nve,
++    // jv->ju) is a first-class marking source: it runs in resolve_segments
++    // regardless of the autocorrect switches, so an alias-rewritten query marks
++    // its candidates with the typed spelling, while a standard spelling exits
++    // at the all-equal gate because every set equals the typed letters.
++    std::vector<std::string> corrected_letter_sets;
++    corrected_letter_sets.reserve(1 + pinyin_alternative_segmentations_.size());
++    corrected_letter_sets.push_back(fold_autocorrect_letters(pinyin_segmentation_));
++    for (const auto &alternative : pinyin_alternative_segmentations_)
++    {
++        corrected_letter_sets.push_back(fold_autocorrect_letters(alternative));
++    }
++    corrected_letter_sets.erase(std::remove_if(corrected_letter_sets.begin(), corrected_letter_sets.end(),
++                                               [](const std::string &letters) { return letters.empty(); }),
++                                corrected_letter_sets.end());
+     const std::string raw_letters = fold_autocorrect_letters(raw_input);
+-    if (primary_letters.empty() || primary_letters == raw_letters)
++    if (corrected_letter_sets.empty() ||
++        std::all_of(corrected_letter_sets.begin(), corrected_letter_sets.end(),
++                    [&](const std::string &letters) { return letters == raw_letters; }))
+     {
+         return;
+     }
+@@ -768,7 +947,15 @@
+         {
+             continue;
+         }
+-        if (fold_autocorrect_letters(item.pinyin) == primary_letters)
++        const std::string item_letters = fold_autocorrect_letters(item.pinyin);
++        // Match only against readings that actually differ from the typed
++        // letters. An alternative cut can fold back to exactly raw_letters
++        // (e.g. a v/u-normalizing fold that erases the corrected difference);
++        // matching that set would stamp corrected_from onto a candidate the
++        // user spelled correctly. The all-equal gate above only guards the case
++        // where EVERY set equals raw_letters, so this per-set filter is needed.
++        if (std::any_of(corrected_letter_sets.begin(), corrected_letter_sets.end(),
++                        [&](const std::string &letters) { return letters != raw_letters && item_letters == letters; }))
+         {
+             item.corrected_from = raw_letters;
+         }
+@@ -850,6 +1037,9 @@
+     if (cuts.empty())
+         return ERROR_CODE;
+     auto segments = cuts.front();
++    // 别名拼写（nue/lue 等词库不存在的键）不得承载用户调频数据：改写为标准键，
++    // 保证权重更新落在标准字典行上（PRD R3）。
++    segments = normalize_umlaut_aliases(std::move(segments));
+     const size_t han_count = HelpcodeUtils::count_han_chars(word);
+     if (segments.size() > han_count)
+         segments.resize(han_count);
+@@ -903,7 +1093,7 @@
+     }
+~
+     const auto segments = resolve_segments(raw_input, segmentation);
+-    const auto resolution = resolve_series_query(raw_input, segmentation, segments, autocorrect_types);
++    const auto resolution = resolve_series_query(raw_input, segments, autocorrect_types);
+     return insert_word_to_series_cache_key(resolution.cache_key, raw_input, word, source);
+ }
+~
+@@ -961,6 +1151,7 @@
+ {
+     pinyin_sequence_.clear();
+     pinyin_segmentation_.clear();
++    pinyin_alternative_segmentations_.clear();
+     current_candidate_list_.clear();
+ }
+~
+@@ -1323,7 +1514,7 @@
+     }
+~
+     const auto segments = resolve_segments(raw_input, segmentation);
+-    const auto resolution = resolve_series_query(raw_input, segmentation, segments, autocorrect_types);
++    const auto resolution = resolve_series_query(raw_input, segments, autocorrect_types);
+     return insert_word_to_series_cache_key(resolution.cache_key, raw_input, words, source);
+ }
+~
+--- a/quanpin/quanpin_dictionary.h
++++ b/quanpin/quanpin_dictionary.h
+@@ -15,6 +15,23 @@
+ #include <vector>
+ #include <optional>
+~
++// Result of the autocorrect k-best search for one query: the primary corrected
++// segmentation plus the ranked alternative readings. Purely a function of
++// (raw_input, segmentation, autocorrect_types) and the static correction tables
++// -- independent of dictionary contents -- so it is safe to memoize without
++// tying it to the database-version invalidation the other caches use.
++struct SeriesQueryResolution
++{
++    std::string segmentation;
++    std::string cache_key;
++    quanpin::Segments corrected_segments;
++    // Alternative k-best readings that share the primary cut's edit cost.
++    std::vector<quanpin::Segments> alternative_corrected_cuts;
++    // Strictly costlier readings remain visible after the primary tier.
++    std::vector<quanpin::Segments> costlier_corrected_cuts;
++    bool corrected_input = false;
++};
++
+ class QuanpinDictionary
+ {
+   public:
+@@ -125,6 +142,11 @@
+     CircularBuffer<std::string, std::vector<WordItem>> cache_;
+     CircularBuffer<std::string, std::vector<WordItem>> series_cache_;
+     CircularBuffer<std::string, quanpin::Segments> segmentation_cache_;
++    // Memoizes the k-best correction search keyed on its full input tuple so a
++    // repeated keystroke (backspace / re-type) never re-runs the k=9 beam. Not
++    // cleared with the dictionary caches: its value depends only on the input
++    // and the static correction tables, never on dictionary rows.
++    CircularBuffer<std::string, SeriesQueryResolution> resolution_cache_;
+     sqlite3 *db_ = nullptr;
+     sqlite3_int64 data_version_ = -1;
+     metasequoia::RuntimePaths paths_;
+@@ -135,5 +157,8 @@
+~
+     std::string pinyin_sequence_;
+     std::string pinyin_segmentation_;
++    // Joined alternative correction cuts (k-best readings after the primary)
++    // backing mark_autocorrect_candidates on every query, cached or not.
++    std::vector<std::string> pinyin_alternative_segmentations_;
+     std::vector<WordItem> current_candidate_list_;
+ };
+--- a/quanpin/quanpin_utils.cpp
++++ b/quanpin/quanpin_utils.cpp
+@@ -3,11 +3,10 @@
+ #include "autocorrect_table.h"
+ #include "../common/helpcode_utils.h"
+ #include <algorithm>
+-#include <deque>
+ #include <limits>
+-#include <optional>
+ #include <string_view>
+ #include <unordered_map>
++#include <unordered_set>
+~
+ namespace quanpin
+ {
+@@ -190,7 +189,23 @@
+         }
+         pos += matched;
+     }
+-    return pos > 0 && pinyin.size() - pos <= 1;
++    if (pos == 0 || pinyin.size() - pos > 1)
++    {
++        return false;
++    }
++    if (pinyin.size() == pos)
++    {
++        // Fully reduced to legal syllables: a legitimate spelling, not a typo.
++        return true;
++    }
++    // Exactly one trailing letter. It reads as jianpin intent only when it is a
++    // plausible jianpin initial -- an initial consonant, as in "zheg" = zhe + g.
++    // A bare vowel can never begin a jianpin syllable, so a complete syllable
++    // followed by a lone vowel ("gau" = ga + u) is far more likely a
++    // transposition typo (gua) than jianpin intent; let it reach correction.
++    const char tail = pinyin.back();
++    const bool tail_is_vowel = tail == 'a' || tail == 'e' || tail == 'i' || tail == 'o' || tail == 'u' || tail == 'v';
++    return !tail_is_vowel;
+ }
+~
+ SyllableGraph build_syllable_graph(const std::string &pinyin)
+@@ -466,160 +481,320 @@
+ {
+ constexpr size_t kMaxAutocorrectEdges = 3;
+ constexpr size_t kMaxAutocorrectInputLength = 64;
++constexpr size_t kNoPredecessor = static_cast<size_t>(-1);
+~
+ // Keys point at string literals in the generated tables (static storage), so views
+-// stay valid forever.
+-const std::unordered_map<std::string_view, std::string_view> &transposition_index()
++// stay valid forever; Entry::correct is a 16-bit index into the generated
++// kCorrectSyllables table, dereferenced once here so everything downstream
++// (ranking, merging, queries) keeps plain string views. One wrong key maps to
++// every correction target the tables offer: ambiguous variants are kept on purpose so the query layer can settle
++// them with word frequency (CN 101133411 B M3). Tables are merged in weight
++// order (transposition, deletion, insertion, neighbor), so target lists end up
++// weight-sorted with array order breaking ties -- the deterministic "table
++// order" of the ranking key.
++struct CorrectionTarget
+ {
+-    static const std::unordered_map<std::string_view, std::string_view> kIndex = [] {
+-        std::unordered_map<std::string_view, std::string_view> index;
+-        index.reserve(autocorrect::kTranspositionCount * 2);
+-        for (const auto &entry : autocorrect::kTranspositionEntries)
+-        {
+-            index.emplace(entry.wrong, entry.correct);
+-        }
+-        return index;
+-    }();
+-    return kIndex;
++    std::string_view syllable;
++    // OR of every correction type whose table offers this (wrong -> syllable)
++    // pair. The tie-break weight is derived from the ENABLED subset at query
++    // time (see min_enabled_correction_weight), never from a switched-off table.
++    unsigned type_bit = 0;
++};
++
++// Canonical per-type tie-break cost. Each correction type carries one fixed
++// weight (header constants); this maps a single type bit back to it.
++constexpr int correction_type_weight(const unsigned type_bit)
++{
++    switch (type_bit)
++    {
++    case kAutocorrectTransposition:
++        return kAutocorrectTranspositionWeight;
++    case kAutocorrectDeletion:
++        return kAutocorrectDeletionWeight;
++    case kAutocorrectInsertion:
++        return kAutocorrectInsertionWeight;
++    case kAutocorrectNeighbor:
++        return kAutocorrectNeighborWeight;
++    default:
++        return 0;
++    }
+ }
+~
+-const std::unordered_map<std::string_view, std::string_view> &neighbor_index()
++// Cheapest explanation among the correction types that are BOTH offered by a
++// target and enabled by the caller. A pair shared by two tables is ranked by
++// the min weight of the enabled ones only, so disabling a cheaper table lets
++// the surviving (dearer) table set the cost instead of leaking the off table's.
++int min_enabled_correction_weight(const unsigned enabled_bits)
+ {
+-    static const std::unordered_map<std::string_view, std::string_view> kIndex = [] {
+-        std::unordered_map<std::string_view, std::string_view> index;
+-        index.reserve(autocorrect::kNeighborCount * 2);
+-        for (const auto &entry : autocorrect::kNeighborEntries)
++    int best = std::numeric_limits<int>::max();
++    for (const unsigned bit :
++         {kAutocorrectTransposition, kAutocorrectDeletion, kAutocorrectInsertion, kAutocorrectNeighbor})
++    {
++        if (enabled_bits & bit)
+         {
+-            index.emplace(entry.wrong, entry.correct);
++            best = std::min(best, correction_type_weight(bit));
+         }
++    }
++    return best;
++}
++
++const std::unordered_map<std::string_view, std::vector<CorrectionTarget>> &correction_index()
++{
++    static const std::unordered_map<std::string_view, std::vector<CorrectionTarget>> kIndex = [] {
++        std::unordered_map<std::string_view, std::vector<CorrectionTarget>> index;
++        index.reserve((autocorrect::kTranspositionCount + autocorrect::kNeighborCount + autocorrect::kDeletionCount +
++                       autocorrect::kInsertionCount) *
++                      4 / 3);
++        const auto add_table = [&](const autocorrect::Entry *entries, const std::size_t count,
++                                   const unsigned type_bit) {
++            for (std::size_t i = 0; i < count; ++i)
++            {
++                const std::string_view correct = autocorrect::kCorrectSyllables[entries[i].correct];
++                auto &targets = index[entries[i].wrong];
++                // The generator guarantees (wrong, correct) pairs are unique
++                // across tables; the merge below only defends against drift.
++                // Only the type bits accumulate -- the tie-break weight is
++                // recomputed from the enabled subset at query time, so a shared
++                // pair never inherits a switched-off table's cheaper cost.
++                const auto duplicate =
++                    std::find_if(targets.begin(), targets.end(),
++                                 [&](const CorrectionTarget &target) { return target.syllable == correct; });
++                if (duplicate != targets.end())
++                {
++                    duplicate->type_bit |= type_bit;
++                }
++                else
++                {
++                    targets.push_back(CorrectionTarget{correct, type_bit});
++                }
++            }
++        };
++        add_table(autocorrect::kTranspositionEntries, autocorrect::kTranspositionCount, kAutocorrectTransposition);
++        add_table(autocorrect::kDeletionEntries, autocorrect::kDeletionCount, kAutocorrectDeletion);
++        add_table(autocorrect::kInsertionEntries, autocorrect::kInsertionCount, kAutocorrectInsertion);
++        add_table(autocorrect::kNeighborEntries, autocorrect::kNeighborCount, kAutocorrectNeighbor);
+         return index;
+     }();
+     return kIndex;
+ }
+~
++// Edge taken to arrive at a hypothesis position. raw_length is the number of
++// input letters consumed: equal to syllable.size() for legal syllables and
++// same-length corrections (transposition / neighbor), one less for deletion
++// corrections ("zhng" -> zhang), one more for insertion corrections
++// ("shangg" -> shang).
+ struct AutocorrectEdge
+ {
+-    size_t end = 0;
++    size_t raw_length = 0;
+     std::string_view syllable;
+     bool corrected = false;
+ };
++
++// One propagated cut hypothesis, ranked by (edge_count, weight, arrival):
++// fewest corrections first (the least-intrusive contract), then the summed
++// correction weights (only within the same edge count), then the deterministic
++// generation order -- positions ascending, pieces longest-first, table order.
++// prev_index points back into the predecessor position's final hypothesis
++// list, which is frozen once finalized, so indices stay stable.
++struct SearchHypothesis
++{
++    size_t edge_count = 0;
++    size_t prev_index = kNoPredecessor;
++    size_t arrival = 0;
++    int weight = 0;
++    AutocorrectEdge edge;
++    // Order-sensitive rolling hash of the joined syllable sequence. Two
++    // hypotheses reaching the same position share a sequence iff their hashes
++    // match; dedup keys on this instead of materializing the full string per
++    // node (which was O(length^2 * k) allocation on the keystroke path). A
++    // 64-bit collision across the few thousand live hypotheses is ~1e-11, and
++    // its only effect would be dropping one alternative reading -- the same
++    // class of outcome the dedup itself produces.
++    size_t seq_hash = 0;
++};
++
++// Fold one more syllable into a sequence hash (boost-style hash_combine over
++// the predecessor hash so order and separators are encoded).
++inline size_t extend_sequence_hash(const size_t seed, const std::string_view syllable)
++{
++    const size_t piece = std::hash<std::string_view>{}(syllable);
++    return seed ^ (piece + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
++}
+ } // namespace
+~
+-AutocorrectCut autocorrect_cut_detail(const std::string &pinyin, const unsigned autocorrect_types)
++std::vector<AutocorrectCut> autocorrect_cut_kbest(const std::string &pinyin, const unsigned autocorrect_types,
++                                                  const std::size_t k)
+ {
+-    // Contract: the caller has already failed the correction cut (the input is
+-    // not a legal pinyin combination), so a valid result here always contains
+-    // at least one corrected edge. Manual delimiters express user intent and
+-    // are never rewritten.
+-    if (autocorrect_types == 0 || pinyin.empty() || pinyin.size() > kMaxAutocorrectInputLength ||
++    // Contract (see header): no type enabled, manual delimiters, overlong
++    // input, or k == 0 yield nothing. Every returned cut contains at least one
++    // corrected edge; legal-only hypotheses at the final position are dropped
++    // on arrival, so a fully legal input without any correction reading
++    // returns {} -- the caller already owns the plain segmentation.
++    if (k == 0 || autocorrect_types == 0 || pinyin.empty() || pinyin.size() > kMaxAutocorrectInputLength ||
+         pinyin.find('\'') != std::string::npos)
+     {
+         return {};
+     }
+~
+     const auto &valid_pinyin = intact_pinyin_set();
++    const auto &index = correction_index();
+     const size_t length = pinyin.size();
+~
+-    // The generated tables are disjoint (cross-type conflicts are resolved at
+-    // generation time), so at most one enabled index can claim a piece.
+-    const auto correction = [](const unsigned types, const std::string_view piece) -> std::optional<std::string_view> {
+-        if ((types & kAutocorrectTransposition) != 0)
+-        {
+-            const auto &index = transposition_index();
+-            if (const auto found = index.find(piece); found != index.end())
+-            {
+-                return found->second;
+-            }
+-        }
+-        if ((types & kAutocorrectNeighbor) != 0)
+-        {
+-            const auto &index = neighbor_index();
+-            if (const auto found = index.find(piece); found != index.end())
++    // Top-k hypotheses per input position. All edges consume at least one raw
++    // letter, so a single left-to-right sweep finalizes each position before
++    // relaxing its out-edges -- a label-correcting pass without a queue.
++    std::vector<std::vector<SearchHypothesis>> best(length + 1);
++    std::vector<bool> finalized(length + 1, false);
++    size_t arrival = 0;
++    best[0].push_back(SearchHypothesis{}); // seed: zero edges, no predecessor
++
++    const auto finalize = [&](const size_t position) {
++        if (finalized[position])
++        {
++            return;
++        }
++        finalized[position] = true;
++        auto &list = best[position];
++        if (list.size() < 2)
++        {
++            return;
++        }
++        std::sort(list.begin(), list.end(), [](const SearchHypothesis &lhs, const SearchHypothesis &rhs) {
++            if (lhs.edge_count != rhs.edge_count)
+             {
+-                return found->second;
++                return lhs.edge_count < rhs.edge_count;
+             }
++            if (lhs.weight != rhs.weight)
++            {
++                return lhs.weight < rhs.weight;
++            }
++            return lhs.arrival < rhs.arrival;
++        });
++        // Same syllable sequence reached twice (different raw spans): keep the
++        // best-ranked hypothesis, drop the rest before truncating to k. The list
++        // is sorted by (edge_count, weight, arrival), NOT by sequence, so equal
++        // sequences are not adjacent -- std::unique would miss them. Scan front
++        // to back (best first) and drop any sequence hash already seen.
++        std::unordered_set<size_t> seen_sequences;
++        seen_sequences.reserve(list.size());
++        list.erase(std::remove_if(list.begin(), list.end(),
++                                  [&](const SearchHypothesis &hypothesis) {
++                                      return !seen_sequences.insert(hypothesis.seq_hash).second;
++                                  }),
++                   list.end());
++        if (list.size() > k)
++        {
++            list.resize(k);
+         }
+-        return std::nullopt;
+     };
+~
+-    const auto kInfinite = std::numeric_limits<size_t>::max();
+-    std::vector<size_t> dist(length + 1, kInfinite);
+-    // Predecessor of each reachable position: the edge used to arrive.
+-    std::vector<AutocorrectEdge> pred(length + 1);
++    const auto extend = [&](const size_t end, const SearchHypothesis &parent, const std::size_t parent_index,
++                            const AutocorrectEdge &edge, const int edge_weight) {
++        SearchHypothesis child;
++        child.edge_count = parent.edge_count + (edge.corrected ? 1 : 0);
++        if (child.edge_count > kMaxAutocorrectEdges)
++        {
++            return;
++        }
++        // Legal-only hypotheses at the final position can never win a result
++        // slot nor propagate further; dropping them here keeps k == 1
++        // consistent with larger k (same first cut either way).
++        if (end == length && child.edge_count == 0)
++        {
++            return;
++        }
++        child.prev_index = parent_index;
++        child.arrival = arrival++;
++        child.weight = parent.weight + edge_weight;
++        child.edge = edge;
++        child.seq_hash = extend_sequence_hash(parent.seq_hash, edge.syllable);
++        best[end].push_back(std::move(child));
++    };
+~
+-    // 0-1 BFS over the autocorrect-aware syllable graph: normal syllables are
+-    // zero-cost edges, corrected ones cost one. The first full path popped with
+-    // the minimal corrected-edge count is the least-intrusive correction.
+-    std::deque<size_t> queue;
+-    dist[0] = 0;
+-    queue.push_back(0);
+-
+-    while (!queue.empty())
++    for (size_t start = 0; start < length; ++start)
+     {
+-        const size_t start = queue.front();
+-        queue.pop_front();
+-
+-        const size_t current_cost = dist[start];
++        finalize(start);
++        const auto &hypotheses = best[start];
++        if (hypotheses.empty())
++        {
++            continue;
++        }
+         const size_t remaining = length - start;
+         const size_t max_len = std::min<size_t>(remaining, 6);
+         for (size_t len = max_len; len >= 1; --len)
+         {
+             const std::string_view piece(pinyin.data() + start, len);
+             AutocorrectEdge edge;
++            edge.raw_length = len;
+             if (valid_pinyin.find(std::string(piece)) != valid_pinyin.end())
+             {
+-                edge = AutocorrectEdge{start + len, piece, false};
+-            }
+-            else if (const auto corrected = correction(autocorrect_types, piece))
+-            {
+-                edge = AutocorrectEdge{start + len, *corrected, true};
+-            }
+-            else
+-            {
++                edge.syllable = piece;
++                edge.corrected = false;
++                for (size_t i = 0; i < hypotheses.size(); ++i)
++                {
++                    extend(start + len, hypotheses[i], i, edge, 0);
++                }
+                 continue;
+             }
+-
+-            const size_t next_cost = current_cost + (edge.corrected ? 1 : 0);
+-            if (next_cost >= dist[edge.end] || next_cost > kMaxAutocorrectEdges)
++            const auto found = index.find(piece);
++            if (found == index.end())
+             {
+                 continue;
+             }
+-            dist[edge.end] = next_cost;
+-            pred[edge.end] = edge;
+-            if (edge.corrected)
++            // Every ambiguous target is a parallel edge; the enabled type
++            // bits gate which tables may answer.
++            for (const auto &target : found->second)
+             {
+-                queue.push_back(edge.end);
++                const unsigned enabled_bits = autocorrect_types & target.type_bit;
++                if (enabled_bits == 0)
++                {
++                    continue;
++                }
++                edge.syllable = target.syllable;
++                edge.corrected = true;
++                const int weight = min_enabled_correction_weight(enabled_bits);
++                for (size_t i = 0; i < hypotheses.size(); ++i)
++                {
++                    extend(start + len, hypotheses[i], i, edge, weight);
++                }
+             }
+-            else
+-            {
+-                queue.push_front(edge.end);
+-            }
+         }
+     }
++    finalize(length);
+~
+-    if (dist[length] == kInfinite || dist[length] == 0)
++    // Rebuild each surviving end hypothesis by walking the predecessor chain.
++    // raw_length (not syllable.size()) gives the raw span: deletion edges
++    // consume one letter less, insertion edges one letter more, than the
++    // syllable they produce.
++    std::vector<AutocorrectCut> results;
++    for (const auto &hypothesis : best[length])
+     {
+-        // Either no correction path exists, or the input is fully legal after all
+-        // (nothing to correct; the caller already owns the plain segmentation).
+-        return {};
++        AutocorrectCut cut;
++        cut.edge_count = hypothesis.edge_count;
++        cut.weight = hypothesis.weight;
++        size_t position = length;
++        const SearchHypothesis *current = &hypothesis;
++        while (current->prev_index != kNoPredecessor)
++        {
++            const size_t segment_start = position - current->edge.raw_length;
++            cut.segments.push_back(AutocorrectCutSegment{std::string(current->edge.syllable),
++                                                         pinyin.substr(segment_start, current->edge.raw_length),
++                                                         segment_start, current->edge.corrected});
++            position = segment_start;
++            current = &best[position][current->prev_index];
++        }
++        std::reverse(cut.segments.begin(), cut.segments.end());
++        results.push_back(std::move(cut));
+     }
++    return results;
++}
+~
+-    // Rebuild the chain of predecessor edges from the end back to the start.
+-    // Every edge consumes exactly syllable.size() input chars (transpositions
+-    // and neighbor substitutions preserve length), so the raw span of each
+-    // edge is derivable from the position without storing it.
+-    AutocorrectCut result;
+-    size_t pos = length;
+-    while (pos != 0)
+-    {
+-        const auto &edge = pred[pos];
+-        const size_t start = pos - edge.syllable.size();
+-        result.segments.push_back(AutocorrectCutSegment{
+-            std::string(edge.syllable), pinyin.substr(start, edge.syllable.size()), start, edge.corrected});
+-        pos = start;
+-    }
+-    std::reverse(result.segments.begin(), result.segments.end());
+-    return result;
++AutocorrectCut autocorrect_cut_detail(const std::string &pinyin, const unsigned autocorrect_types)
++{
++    // Single-hypothesis projection of the k-best search: same gating, same
++    // ranking, cheapest path for the per-keystroke preedit consumer.
++    const auto kbest = autocorrect_cut_kbest(pinyin, autocorrect_types, 1);
++    return kbest.empty() ? AutocorrectCut{} : kbest.front();
+ }
+~
+ Segments autocorrect_cut(const std::string &pinyin, const unsigned autocorrect_types)
+--- a/quanpin/quanpin_utils.h
++++ b/quanpin/quanpin_utils.h
+@@ -40,12 +40,47 @@
+ // independently toggleable (quanpin.autocorrect_transposition / autocorrect_neighbor).
+ inline constexpr unsigned kAutocorrectTransposition = 1u << 0;
+ inline constexpr unsigned kAutocorrectNeighbor = 1u << 1;
++// Deletion (one dropped letter) corrections. The server side wires this bit to
++// the two existing autocorrect switches (either one on also enables deletion,
++// design D2); it stays a separate bit so a future config key can gate it alone.
++inline constexpr unsigned kAutocorrectDeletion = 1u << 2;
++// Insertion (one extra letter, a repeated or QWERTY-neighbor key) corrections.
++// Same linkage model as deletion: the legacy switches carry this bit too (design
++// D4 of the insertion task); the bit stays independent for a future config key.
++inline constexpr unsigned kAutocorrectInsertion = 1u << 3;
+~
++/**
++ * Integer correction-edge weights (patent CN 101133411 B, [0052]).
++ *
++ * The patent prescribes probability-weighted edit distances trained on user
++ * data (fig. 10); until such calibration data exists it explicitly allows
++ * estimated constants, which is what these are. The prior: transpositions are
++ * the most common typo, deletions slightly less, insertions next (real extra-key
++ * slips are rarer than drops, and the neighbor/double-tap constraint keeps the
++ * table small), neighbor substitutions carry the widest false-positive surface
++ * (largest table), so they cost the most.
++ * Calibration path: mine user_journal for corrected_from candidate hits.
++ *
++ * Ranking contract: the corrected-edge COUNT stays the primary sort key (the
++ * least-intrusive-correction semantics), weights only break ties between cuts
++ * with the same edge count. The engine never trades one extra correction for a
++ * lower total weight.
++ */
++inline constexpr int kAutocorrectTranspositionWeight = 10;
++inline constexpr int kAutocorrectDeletionWeight = 11;
++// Between deletion and neighbor: insertion slips are estimated rarer than
++// drops (patent [0052] estimated constant), but the constrained table yields
++// a narrower false-positive surface than neighbor substitutions.
++inline constexpr int kAutocorrectInsertionWeight = 12;
++inline constexpr int kAutocorrectNeighborWeight = 13;
++
+ // One segment of an autocorrect-aware cut. syllable is the canonical (possibly
+ // table-corrected) text used for dictionary lookups; raw_text/start describe the
+ // original letters the segment consumed so the preedit can keep showing what the
+-// user typed while separators follow the actual cut positions. Correction edges
+-// preserve length, so raw_text is always the same width as syllable.
++// user typed while separators follow the actual cut positions. Deletion edges
++// consume one letter less, insertion edges one letter more, than the syllable
++// they produce, so raw_text may differ in length from syllable
++// ("zhng" -> zhang, "shangg" -> shang).
+ struct AutocorrectCutSegment
+ {
+     std::string syllable;
+@@ -57,23 +92,55 @@
+ struct AutocorrectCut
+ {
+     std::vector<AutocorrectCutSegment> segments;
++    // Edit cost of this cut, matching the k-best ranking key: number of
++    // corrected edges first, then the summed correction weights. Two cuts have
++    // the same cost iff both fields are equal. The query layer uses this to keep
++    // frequency disambiguation within a single cost tier -- a strictly cheaper
++    // reading (transposition gau -> gua, weight 10) must lead a costlier one
++    // (neighbor gau -> gai, weight 13) regardless of dictionary frequency.
++    size_t edge_count = 0;
++    int weight = 0;
+~
+     bool empty() const
+     {
+         return segments.empty();
+     }
++
++    // Same edit cost = same tier for frequency disambiguation.
++    bool same_cost_as(const AutocorrectCut &other) const
++    {
++        return edge_count == other.edge_count && weight == other.weight;
++    }
+ };
+~
+ // Range-carrying variant of autocorrect_cut: identical gating (no type enabled,
+-// manual delimiters, overlong input) and identical cost model, but every segment
+-// also reports which raw letters it replaced.
++// manual delimiters, overlong input) and identical cost model (it is the k=1
++// projection of autocorrect_cut_kbest), but every segment also reports which raw
++// letters it replaced.
+ AutocorrectCut autocorrect_cut_detail(const std::string &pinyin, unsigned autocorrect_types);
+~
+ // Cuts the input into syllables, allowing at most kMaxAutocorrectEdges correction
+ // edges from the tables selected by autocorrect_types. Returns {} when no type is
+ // enabled, the input contains a manual delimiter, or no correction path exists.
++// This is the k=1 projection of autocorrect_cut_kbest.
+ Segments autocorrect_cut(const std::string &pinyin, unsigned autocorrect_types);
+~
++// Up to k ranked correction cuts of the input: per-position top-k hypothesis
++// propagation (label-correcting left-to-right sweep) over the same syllable
++// graph and gating as autocorrect_cut, but keeping ambiguous table entries
++// alive as parallel hypotheses. Ranking key: (corrected edge count, summed
++// edge weight, generation order = table order); hypotheses explaining the same
++// syllable sequence are deduplicated, keeping the best-ranked one. Every
++// returned cut contains at least one corrected edge, so a fully legal input
++// with no correction reading yields an empty vector (the caller owns the plain
++// segmentation). This is the query-time disambiguation surface of CN 101133411
++// B: ambiguity survives the cut layer and is settled by dictionary frequency.
++// k is a policy knob: the production caller pins kAutocorrectCutKBest (see
++// quanpin_dictionary.cpp) tuned by evaluation; tests use the small default
++// below to keep their assertions focused.
++std::vector<AutocorrectCut> autocorrect_cut_kbest(const std::string &pinyin, unsigned autocorrect_types,
++                                                  std::size_t k = 3);
++
+ // True when the input reads as one or more legal syllables plus at most one trailing
+ // letter ("zheg" = zhe + g): a jianpin-intent shape the correction tables must not
+ // rewrite. Deliberately NOT true for all-consonant strings of 3+ letters: the engine
+--- a/shuangpin/shuangpin_dictionary.cpp
++++ b/shuangpin/shuangpin_dictionary.cpp
+@@ -768,7 +768,11 @@
+ int ShuangpinDictionary::update_weight_by_pinyin_and_word(string pinyin, string word)
+ {
+     const auto direct_cuts = quanpin::cut_pinyin_by_mode(remove_delimiters(pinyin), "correction");
+-    if (direct_cuts.empty() ||
++    // 只有“完整合法拼读”的直切才可信：correction 模式的 greedy 后备允许单声母
++    // 等不完整段，会把双拼原始串（如 qbtmuo → q'b't'mu'o）切成恰好能拼回原串
++    // 的碎片，导致归一化被跳过、置顶更新落在错误 key 上静默失败（0 行更新
++    // 仍返回 OK）。完整拼读检查与 delete 路径的段数-字数比对语义一致。
++    if (direct_cuts.empty() || !quanpin::has_only_complete_pinyin_segments(direct_cuts.front()) ||
+         remove_delimiters(quanpin::join_segments(direct_cuts.front())) != remove_delimiters(pinyin))
+     {
+         pinyin = normalize_shuangpin_to_quanpin_input(pinyin);
+@@ -1041,8 +1045,11 @@
+~
+ std::string ShuangpinDictionary::build_quanpin_sql_for_updating_word(std::string pinyin, const std::string &word) const
+ {
+-    pinyin = normalize_shuangpin_to_quanpin_input(pinyin);
+-    const auto cuts = quanpin::cut_pinyin_by_mode(pinyin, "correction");
++    // 调用方约定传入 canonical 全拼（update_weight 已归一化；get_quanpin 本身就
++    // 是全拼）。这里不能再过 normalize_shuangpin_to_quanpin_input：双拼 profile
++    // 会把它当作双拼码重切，qin'tian'shuo 被搧成 qi'n'ti'an'sang'shuo，UPDATE
++    // 永远落在错误 key 上静默失败（0 行更新仍返回 OK）。
++    const auto cuts = quanpin::cut_pinyin_by_mode(remove_delimiters(pinyin), "correction");
+     if (cuts.empty())
+     {
+         return "";
+--- a/tests/src/test_pinyin.cpp
++++ b/tests/src/test_pinyin.cpp
+@@ -683,9 +683,11 @@
+     }
+     const char *sql = "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                       "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
++                      "CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                       "CREATE TABLE tbl_4_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                       "INSERT INTO tbl_1_s VALUES('shang','s','上',100);"
+                       "INSERT INTO tbl_2_s VALUES('shang''zhi','sz','上至',100);"
++                      "INSERT INTO tbl_2_j VALUES('jian''du','jd','监督',100);"
+                       "INSERT INTO tbl_4_s VALUES('sa''huang''na''ge','shng','撒谎那个',1000);";
+     const int result = sqlite3_exec(db, sql, nullptr, nullptr, nullptr);
+     sqlite3_close(db);
+@@ -740,10 +742,128 @@
+            "Pure-consonant jianpin must stay correctable at the predicate level.");
+     expect(!quanpin::looks_like_syllable_with_jianpin_tail("bqng"),
+            "3+ letter all-consonant strings stay correctable by design (no multi-letter jianpin).");
++    // A complete syllable plus a lone trailing VOWEL is not jianpin (no vowel is
++    // a jianpin initial); it reads as a transposition typo, so the guard must
++    // let it through to correction ("gau" = ga + u -> gua).
++    expect(!quanpin::looks_like_syllable_with_jianpin_tail("gau"),
++           "'gau' (ga + trailing vowel u) must stay correctable, not be read as jianpin.");
++    expect(!quanpin::looks_like_syllable_with_jianpin_tail("hau"),
++           "'hau' (ha + trailing vowel u) must stay correctable, not be read as jianpin.");
++    expect(quanpin::join_segments(quanpin::autocorrect_cut("gau", transposition_only)) == "gua",
++           "'gau' must correct to 'gua' via transposition once the guard lets it through.");
+     expect(quanpin::join_segments(quanpin::autocorrect_cut("bqng", neighbor_only)) == "bang",
+            "'bqng' -> bang must remain a valid neighbor correction.");
+     expect(quanpin::autocorrect_cut("zheg", both).empty(),
+            "The cleaned table must offer no correction path for 'zheg' (2-letter keys are gone).");
++
++    // Deletion bit (phase 2): "shng" (dropped "a") is a deletion fix; only
++    // that bit may correct it, and the legacy switches keep their own families.
++    const unsigned deletion_only = quanpin::kAutocorrectDeletion;
++    const unsigned all = transposition_only | neighbor_only | deletion_only;
++    expect(quanpin::join_segments(quanpin::autocorrect_cut("shng", deletion_only)) == "shang",
++           "Deletion-only must correct 'shng'.");
++    expect(quanpin::autocorrect_cut("shng", transposition_only).empty(),
++           "Transposition-only must not correct the deletion case 'shng'.");
++    expect(quanpin::autocorrect_cut("shng", neighbor_only).empty(),
++           "Neighbor-only must not correct the deletion case 'shng'.");
++    expect(quanpin::autocorrect_cut("sahng", deletion_only).empty() == false &&
++               quanpin::join_segments(quanpin::autocorrect_cut("sahng", deletion_only)) == "sa'hang",
++           "Bits gate tables, not intents: deletion-only still explains 'sahng' via sa + hng -> hang.");
++    expect(quanpin::autocorrect_cut("shabg", deletion_only).empty(),
++           "Deletion-only must not correct the neighbor case 'shabg'.");
++    expect(quanpin::join_segments(quanpin::autocorrect_cut("shngzhk", all)) == "shang'zhi",
++           "A deletion edge followed by a neighbor edge must cut 'shngzhk'.");
++    expect(quanpin::autocorrect_cut("shngzhk", both).empty(),
++           "Without the deletion bit 'shngzhk' must stay unexplained.");
++
++    // Insertion bit (fourth type): "shangg" (doubled g) and "sjhang" (j is a
++    // QWERTY neighbor of h) are insertion fixes; only that bit may correct them.
++    const unsigned insertion_only = quanpin::kAutocorrectInsertion;
++    const unsigned all_four = all | insertion_only;
++    expect(quanpin::join_segments(quanpin::autocorrect_cut("shangg", insertion_only)) == "shang",
++           "Insertion-only must correct 'shangg'.");
++    expect(quanpin::autocorrect_cut("shangg", transposition_only).empty(),
++           "Transposition-only must not correct the insertion case 'shangg'.");
++    expect(quanpin::autocorrect_cut("shangg", deletion_only).empty(),
++           "Deletion-only must not correct the insertion case 'shangg'.");
++    expect(quanpin::autocorrect_cut("shangg", neighbor_only).empty(),
++           "Neighbor-only must not correct the insertion case 'shangg'.");
++    expect(quanpin::join_segments(quanpin::autocorrect_cut("sjhang", insertion_only)) == "shang",
++           "Insertion-only must correct the neighbor-key insertion 'sjhang'.");
++    expect(quanpin::autocorrect_cut("sjhang", neighbor_only).empty(),
++           "Neighbor-only must not correct the insertion case 'sjhang'.");
++    expect(quanpin::join_segments(quanpin::autocorrect_cut("shanggzhi", all_four)) == "shang'zhi",
++           "An insertion edge followed by a legal tail must cut 'shanggzhi'.");
++
++    // Jianpin guard shapes sit INSIDE the insertion table (zher = zhe + r, and
++    // r is a QWERTY neighbor of e): the BFS cut exists by design, the shape
++    // guard must fire before it at the dictionary layer (end-to-end in the
++    // display test below).
++    expect(quanpin::looks_like_syllable_with_jianpin_tail("zher"),
++           "'zher' (zhe + r) must be detected as jianpin intent.");
++    expect(!quanpin::autocorrect_cut_detail("zher", insertion_only).empty(),
++           "The insertion key 'zher' is in the BFS search space by design; the guard is the dictionary layer's job.");
++
++    // k-best (phase 2): ambiguous keys keep parallel readings for query-time
++    // disambiguation; k = 1 stays consistent with the single-cut projection.
++    const auto cut_reading = [](const quanpin::AutocorrectCut &cut) {
++        quanpin::Segments syllables;
++        for (const auto &segment : cut.segments)
++        {
++            syllables.push_back(segment.syllable);
++        }
++        return quanpin::join_segments(syllables);
++    };
++    const auto ahan_cuts = quanpin::autocorrect_cut_kbest("ahan", both);
++    expect(ahan_cuts.size() >= 2, "'ahan' must keep both the shan and zhan readings.");
++    expect(cut_reading(ahan_cuts[0]) == "shan" && cut_reading(ahan_cuts[1]) == "zhan",
++           "The first two 'ahan' cuts must be shan then zhan (edge count, weight, table order).");
++    const auto shng_cuts = quanpin::autocorrect_cut_kbest("shng", all);
++    expect(shng_cuts.size() >= 2 && cut_reading(shng_cuts[0]) == "shang",
++           "'shng' must cut to shang first with sheng as a kept alternative.");
++    bool has_sheng = false;
++    for (const auto &cut : shng_cuts)
++    {
++        has_sheng = has_sheng || cut_reading(cut) == "sheng";
++    }
++    expect(has_sheng, "'shng' must keep the sheng reading alongside shang.");
++    const auto sahng_cuts = quanpin::autocorrect_cut_kbest("sahng", all);
++    expect(sahng_cuts.size() >= 2 && cut_reading(sahng_cuts[0]) == "shang" && cut_reading(sahng_cuts[1]) == "sa'hang",
++           "Within one edge the transposition weight (10) must outrank the split deletion (11).");
++    // Cost tiers must be reported on the cut so the query layer keeps frequency
++    // disambiguation inside one tier: gau -> gua (transposition, weight 10) is
++    // strictly cheaper than gau -> gai (neighbor, weight 13), so gua leads and
++    // the two land in different tiers regardless of dictionary frequency.
++    const auto gau_cuts = quanpin::autocorrect_cut_kbest("gau", both);
++    expect(gau_cuts.size() >= 2 && cut_reading(gau_cuts[0]) == "gua",
++           "'gau' must rank the transposition reading gua first.");
++    const auto gau_gai = std::find_if(gau_cuts.begin(), gau_cuts.end(),
++                                      [&](const quanpin::AutocorrectCut &cut) { return cut_reading(cut) == "gai"; });
++    expect(gau_gai != gau_cuts.end(), "'gau' must keep the neighbor reading gai as an alternative.");
++    expect(gau_gai != gau_cuts.end() && !gau_cuts.front().same_cost_as(*gau_gai) &&
++               gau_cuts.front().weight < gau_gai->weight,
++           "gua (weight 10) and gai (weight 13) must be reported as different cost tiers.");
++    // Ambiguous insertion keys keep parallel readings (query-time
++    // disambiguation): baio -> {biao via transposition, bai, bao via
++    // insertion}. Same edge count, so weight orders them: 10 < 12.
++    const auto baio_cuts = quanpin::autocorrect_cut_kbest("baio", all_four);
++    expect(baio_cuts.size() >= 3 && cut_reading(baio_cuts[0]) == "biao" && cut_reading(baio_cuts[1]) == "bai" &&
++               cut_reading(baio_cuts[2]) == "bao",
++           "'baio' must rank the transposition reading (10) before the insertion readings (12) within one edge.");
++    const std::pair<const char *, unsigned> projection_inputs[] = {
++        {"sahng", both},      {"shabg", both}, {"sahnguai", both},
++        {"ahan", both},       {"zheg", both},  {"keneng", both},
++        {"shng", all},        {"zhngu", all},  {"shangg", insertion_only},
++        {"sjhang", all_four},
++    };
++    for (const auto &[input, types] : projection_inputs)
++    {
++        const auto single = quanpin::autocorrect_cut(input, types);
++        const auto top1 = quanpin::autocorrect_cut_kbest(input, types, 1);
++        expect(top1.size() == (single.empty() ? 0u : 1u) &&
++                   (single.empty() || cut_reading(top1.front()) == quanpin::join_segments(single)),
++               std::string("k=1 must agree with autocorrect_cut for '") + input + "'.");
++    }
+~
+     // Dictionary-level matrix against a deterministic probe database.
+     const auto db_path = create_autocorrect_probe_database();
+@@ -775,41 +895,91 @@
+         expect(!neighbor_corrected.empty() && neighbor_corrected.front().word == "上",
+                "Neighbor-only must correct 'shabg' at the dictionary layer (AC3).");
+~
++        // 门控语义按纠错标记验证：transposition-only 不产生针对 'shabg' 的纠错
++        // 候选。不能断言"上"完全缺席——序列前缀查询会以 sha 前缀命中 'shang'
++        // 键，那是与纠错无关的既有行为。
+         const auto transposition_denied = dictionary.query("shabg", "sha'b'g", transposition_only);
+-        expect(std::none_of(transposition_denied.begin(), transposition_denied.end(), is_shang),
++        expect(std::none_of(transposition_denied.begin(), transposition_denied.end(),
++                            [](const WordItem &item) { return item.corrected_from == "shabg"; }),
+                "Transposition-only must not correct the neighbor case 'shabg' (AC3).");
+~
+         const auto multi = dictionary.query("sahngzhi", "sa'h'n'g'zhi", both);
+         expect(!multi.empty() && multi.front().word == "上至",
+                "Cross-syllable correction must survive the mask wiring.");
+~
++        // 空基础切分（丢声母：jian -> ian）也要进纠错：correction 模式对该类错拼
++        // 切不出任何段，旧门 !segments.empty() 会整体跳过纠错。BFS 从原始字母
++        // 纠正，备选切分 jian'du 经查询期词频合并成为首位。
++        const auto dropped_initial = dictionary.query("iandu", "", all);
++        expect(!dropped_initial.empty() && dropped_initial.front().word == "监督" &&
++                   dropped_initial.front().corrected_from == "iandu",
++               "An empty base segmentation (dropped initial) must still reach the correction path.");
++        const auto dropped_initial_off = dictionary.query("iandu", "", none);
++        expect(std::none_of(dropped_initial_off.begin(), dropped_initial_off.end(),
++                            [](const WordItem &item) { return item.word == "监督"; }),
++               "With autocorrection off the dropped-initial typo must not resolve through a corrected key.");
++
+         // The guard fires before the BFS, so a jianpin-shaped input must resolve
+         // through its raw segmentation instead of a corrected key such as 'zu'ge'.
+         (void)dictionary.query("zheg", "", both);
+         expect(dictionary.get_pinyin_segmentation() != "zu'ge",
+                "A jianpin-shaped input must not resolve through a corrected key.");
++
++        // Correction composes with a trailing jianpin tail: the k-best search
++        // fails on the whole input (the tail is an incomplete syllable), so the
++        // head is corrected and the tail carried through to the jianpin query.
++        (void)dictionary.query("hauzh", "", both);
++        expect(dictionary.get_pinyin_segmentation() == "hua'zh",
++               "A correctable head plus a jianpin tail must compose: hauzh -> hua'zh.");
++        (void)dictionary.query("hauz", "", both);
++        expect(dictionary.get_pinyin_segmentation() == "hua'z",
++               "The jianpin tail may be a single initial: hauz -> hua'z.");
++        // A correctly spelled head with the same jianpin tail is untouched.
++        (void)dictionary.query("huazh", "", both);
++        expect(dictionary.get_pinyin_segmentation() == "hua'zh",
++               "A correctly spelled jianpin input keeps its plain segmentation.");
++        // With autocorrection off, the mistyped head must not compose either.
++        (void)dictionary.query("hauzh", "", none);
++        expect(dictionary.get_pinyin_segmentation() != "hua'zh",
++               "With autocorrection off, hauzh must not resolve through a corrected key.");
++        // Neighbor corrections are excluded from the composition head: without
++        // that guard a deletion-shaped input becomes noise via a low-confidence
++        // neighbor head plus a speculative jianpin tail (shng -> sun'g).
++        (void)dictionary.query("shng", "sh'n'g", both);
++        expect(dictionary.get_pinyin_segmentation() != "sun'g",
++               "A neighbor head must not compose with a jianpin tail (shng must not become sun'g).");
+     }
+     std::error_code cleanup_ec;
+     fs::remove(db_path, cleanup_ec);
+~
+-    // Generated-table invariants shared by both type tables (AC6).
++    // Generated-table invariants shared by all three type tables (AC6).
++    // Ambiguity is kept: one wrong key may map to several syllables, so
++    // uniqueness is asserted per (wrong, correct) pair instead of per key.
+     const auto &legal = quanpin::intact_pinyin_set();
+-    std::unordered_set<std::string> seen_keys;
++    std::unordered_set<std::string> seen_pairs;
+     size_t total_entries = 0;
+-    for (const auto *table : {&quanpin::autocorrect::kTranspositionEntries, &quanpin::autocorrect::kNeighborEntries})
++    const std::pair<const quanpin::autocorrect::Entry *, std::size_t> tables[] = {
++        {quanpin::autocorrect::kTranspositionEntries, quanpin::autocorrect::kTranspositionCount},
++        {quanpin::autocorrect::kNeighborEntries, quanpin::autocorrect::kNeighborCount},
++        {quanpin::autocorrect::kDeletionEntries, quanpin::autocorrect::kDeletionCount},
++        {quanpin::autocorrect::kInsertionEntries, quanpin::autocorrect::kInsertionCount},
++    };
++    for (const auto &[entries, count] : tables)
+     {
+-        for (const auto &entry : *table)
++        for (std::size_t i = 0; i < count; ++i)
+         {
+-            const std::string wrong(entry.wrong);
+-            const std::string correct(entry.correct);
++            const std::string wrong(entries[i].wrong);
++            // correct 是生成音节表的 16-bit 下标，断言前先解引用。
++            const std::string correct(quanpin::autocorrect::kCorrectSyllables[entries[i].correct]);
+             expect(wrong.size() >= 3, "2-letter keys belong to the jianpin space and must not be generated.");
+             expect(legal.find(wrong) == legal.end(), "A correction key must never shadow a legal syllable.");
+             expect(legal.find(correct) != legal.end(), "A correction target must be a legal syllable.");
+-            expect(seen_keys.insert(wrong).second, "Correction keys must be unique across both tables.");
++            expect(seen_pairs.insert(wrong + '>' + correct).second,
++                   "(wrong, correct) pairs must be unique across all tables.");
+             ++total_entries;
+         }
+     }
+-    expect(total_entries > 1000, "The generated tables unexpectedly shrank.");
++    expect(total_entries >= 4700, "The generated tables unexpectedly shrank.");
+ }
+~
+ namespace
+@@ -827,11 +997,13 @@
+     const char *sql = "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                       "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                       "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
++                      "CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                       "CREATE TABLE tbl_2_k(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                       "CREATE TABLE tbl_4_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                       "INSERT INTO tbl_1_s VALUES('shang','s','上',100);"
+                       "INSERT INTO tbl_1_n VALUES('nv','n','女',100);"
+                       "INSERT INTO tbl_2_s VALUES('shang''hao','sh','上好',100);"
++                      "INSERT INTO tbl_2_j VALUES('jian''du','jd','监督',100);"
+                       "INSERT INTO tbl_2_k VALUES('ke''neng','kn','可能',100);"
+                       "INSERT INTO tbl_4_s VALUES('sa''huang''na''ge','shng','撒谎那个',1000);";
+     const int result = sqlite3_exec(db, sql, nullptr, nullptr, nullptr);
+@@ -889,8 +1061,8 @@
+     expect(sahnghao_cut.segments[0].syllable == "shang" && sahng_cut.segments[0].raw_text == "sahng" &&
+                sahnghao_cut.segments[0].start == 0 && sahnghao_cut.segments[0].corrected,
+            "The first 'sahnghao' segment must keep the raw letters of the corrected part.");
+-    expect(sahnghao_cut.segments[1].syllable == "hao" && sahng_cut.segments[1].raw_text == "hao" &&
+-               sahng_cut.segments[1].start == 5 && !sahnghao_cut.segments[1].corrected,
++    expect(sahnghao_cut.segments[1].syllable == "hao" && sahnghao_cut.segments[1].raw_text == "hao" &&
++               sahnghao_cut.segments[1].start == 5 && !sahnghao_cut.segments[1].corrected,
+            "The untouched tail of 'sahnghao' must keep its raw span.");
+~
+     expect(quanpin::autocorrect_cut_detail("zheg", both).empty(),
+@@ -904,6 +1076,54 @@
+     expect(quanpin::join_segments(quanpin::autocorrect_cut("sahng", both)) == "shang",
+            "The Segments wrapper must stay a projection of the detail cut.");
+~
++    // 不等长边（漏字）：4 字母 raw "zhng" 映到 5 字母音节 zhang，第二段从 raw
++    // 偏移 4 接 "gu"；位置推进跟随 raw_length 而非音节长度。
++    const unsigned all = transposition_only | neighbor_only | quanpin::kAutocorrectDeletion;
++    const auto zhnggu_cut = quanpin::autocorrect_cut_detail("zhnggu", all);
++    expect(zhnggu_cut.segments.size() == 2, "'zhnggu' must cut into two segments via a deletion edge.");
++    expect(zhnggu_cut.segments[0].syllable == "zhang" && zhnggu_cut.segments[0].raw_text == "zhng" &&
++               zhnggu_cut.segments[0].start == 0 && zhnggu_cut.segments[0].corrected,
++           "The deletion segment must map 4 raw letters onto the 5-letter syllable.");
++    expect(zhnggu_cut.segments[1].syllable == "gu" && zhnggu_cut.segments[1].raw_text == "gu" &&
++               zhnggu_cut.segments[1].start == 4 && !zhnggu_cut.segments[1].corrected,
++           "The legal tail of 'zhnggu' must start at the raw offset the deletion edge left.");
++
++    // "zhngu"（3+2）：更短的不等长拆分，第二段起点在 3。
++    const auto zhngu_cut = quanpin::autocorrect_cut_detail("zhngu", all);
++    expect(zhngu_cut.segments.size() == 2 && zhngu_cut.segments[0].raw_text == "zhn" &&
++               zhngu_cut.segments[0].corrected && zhngu_cut.segments[1].raw_text == "gu" &&
++               zhngu_cut.segments[1].start == 3 && !zhngu_cut.segments[1].corrected,
++           "'zhngu' must split 3+2 with the legal tail starting at raw offset 3.");
++
++    // 插入（第四类）：raw 比音节长 1（"shangg" -> shang）；位置推进同样跟随
++    // raw_length 而非音节长度。
++    const unsigned all_four = all | quanpin::kAutocorrectInsertion;
++    const auto shangg_cut = quanpin::autocorrect_cut_detail("shangg", all_four);
++    expect(shangg_cut.segments.size() == 1, "'shangg' must cut into a single corrected segment.");
++    expect(shangg_cut.segments[0].syllable == "shang" && shangg_cut.segments[0].raw_text == "shangg" &&
++               shangg_cut.segments[0].start == 0 && shangg_cut.segments[0].corrected,
++           "The insertion segment must map 6 raw letters onto the 5-letter syllable.");
++    const auto shangghao_cut = quanpin::autocorrect_cut_detail("shangghao", all_four);
++    expect(shangghao_cut.segments.size() == 2, "'shangghao' must cut into two segments.");
++    // 同为 1 条纠错边时权重定序：漏字解释（shang + ghao->gao，11）胜过插入
++    // 解释（shangg->shang + hao，12），插入不劫持更便宜的解释。
++    expect(shangghao_cut.segments[0].syllable == "shang" && shangghao_cut.segments[0].raw_text == "shang" &&
++               shangghao_cut.segments[0].start == 0 && !shangghao_cut.segments[0].corrected,
++           "The cheaper deletion reading (weight 11) must win over the insertion reading (12).");
++    expect(shangghao_cut.segments[1].syllable == "gao" && shangghao_cut.segments[1].raw_text == "ghao" &&
++               shangghao_cut.segments[1].start == 5 && shangghao_cut.segments[1].corrected,
++           "The 'ghao' tail must be corrected through the deletion key.");
++    // 纯插入解释的 raw 区间：无更便宜的捷径时插入边胜出，第二段起点跟随
++    // raw_length（6 而非 5）。
++    const auto shanggni_cut = quanpin::autocorrect_cut_detail("shanggni", all_four);
++    expect(shanggni_cut.segments.size() == 2, "'shanggni' must cut into two segments via an insertion edge.");
++    expect(shanggni_cut.segments[0].syllable == "shang" && shanggni_cut.segments[0].raw_text == "shangg" &&
++               shanggni_cut.segments[0].start == 0 && shanggni_cut.segments[0].corrected,
++           "The insertion segment must keep the raw letters of the corrected part.");
++    expect(shanggni_cut.segments[1].syllable == "ni" && shanggni_cut.segments[1].raw_text == "ni" &&
++               shanggni_cut.segments[1].start == 6 && !shanggni_cut.segments[1].corrected,
++           "The legal tail of 'shanggni' must start at the raw offset the insertion edge left.");
++
+     // 字典级标记：候选字母 == 主切分字母 且 主切分字母 != 原始字母 才标记。
+     const auto db_path = create_autocorrect_display_probe_database();
+     {
+@@ -941,6 +1161,25 @@
+         const auto nv = dictionary.query("nv", "nv", both);
+         expect(!nv.empty() && nv.front().word == "女" && nv.front().corrected_from.empty(),
+                "The u-umlaut 'v' spelling must stay unmarked.");
++
++        // 漏字（阶段 2）：deletion 位开时 "shng" 经纠错键命中目标词并标记；
++        // 关掉则回到现状（无标记，乱码后备尾）。打标按字母比较，天然兼容不等长边。
++        const auto deletion = dictionary.query("shng", "sh'n'g", all);
++        expect(!deletion.empty() && deletion.front().word == "上" && deletion.front().corrected_from == "shng",
++               "A deletion typo must resolve through the corrected key and carry corrected_from.");
++        const auto deletion_off = dictionary.query("shng", "sh'n'g", both);
++        expect(count_marked(deletion_off) == 0, "Without the deletion bit 'shng' must stay uncorrected and unmarked.");
++
++        // 插入（阶段 4）：insertion 位开时 "sshang"（双打 s）经纠错键命中目标词
++        // 并带 corrected_from（AC5）；关闭 insertion 位则无纠错标记。注：结尾单
++        // 插入（如 shangg = shang + g）属简拼尾形状，被词典门按设计拦截，
++        // 与 zher 同理 —— insertion 的可达面在中间/开头插入与多音节输入。
++        const auto insertion = dictionary.query("sshang", "", all_four);
++        expect(!insertion.empty() && insertion.front().word == "上" && insertion.front().corrected_from == "sshang",
++               "An insertion typo must resolve through the corrected key and carry corrected_from.");
++        const auto insertion_off = dictionary.query("sshang", "", all);
++        expect(count_marked(insertion_off) == 0,
++               "Without the insertion bit 'sshang' must stay uncorrected and unmarked.");
+     }
+~
+     // 会话级 preedit：get_pinyin_segmentation_with_cases 必须画原始字母。
+@@ -1024,6 +1263,17 @@
+                "Neighbor-only must correct 'shabg' end to end (AC3, mask must survive the session).");
+         expect(session.get_pinyin_segmentation_with_cases() == "shabg",
+                "Neighbor-only 'shabg' preedit shows the typed letters.");
++    }
++    {
++        // 空基础切分的丢声母错拼（jian -> ian）：会话层同样要走到纠错候选，
++        // 预编辑按不等长切分的 raw 区间重绘分隔（ian'du）。
++        metasequoia::InputSession session(SchemeType::Quanpin, all, true, true, true, paths);
++        type_display_session(session, "iandu");
++        expect(session.get_pinyin_segmentation_with_cases() == "ian'du",
++               "A dropped initial must redraw separators from the raw spans (ian'du).");
++        expect(!session.candidates().empty() && session.candidates().front().word == "监督" &&
++                   session.candidates().front().corrected_from == "iandu",
++               "An InputSession-level dropped initial must reach the corrected candidate.");
+     }
+     {
+         metasequoia::InputSession session(SchemeType::Quanpin, transposition_only, true, true, true, paths);
+@@ -1077,6 +1327,91 @@
+                    session.candidates().front().corrected_from.empty(),
+                "The u-umlaut candidate must stay unmarked.");
+     }
++    {
++        // 阶段 3：deletion 位随既有开关联动（design D2）后，显式三位 mask 下
++        // zheg 的 preedit 必须仍走简拼守卫，不被漏字表重排为 zheng。
++        const unsigned all_three = transposition_only | neighbor_only | quanpin::kAutocorrectDeletion;
++        metasequoia::InputSession session(SchemeType::Quanpin, all_three, true, true, true, paths);
++        type_display_session(session, "zheg");
++        expect(session.get_pinyin_segmentation_with_cases() == "zhe'g",
++               "The jianpin guard must hold with the deletion bit enabled (phase 3).");
++        expect(count_marked(session.candidates()) == 0,
++               "The jianpin shape must stay unmarked with the deletion bit enabled.");
++    }
++    {
++        // 阶段 3：漏字输入的 display —— 切分段携带不等长 raw span，rebuild 后
++        // preedit 显示原始字母（无分隔，单段纠错）。
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type_display_session(session, "shng");
++        expect(session.get_pinyin_segmentation_with_cases() == "shng",
++               "A deletion-corrected input must show its typed letters in the preedit.");
++        expect(!session.candidates().empty() && session.candidates().front().word == "上" &&
++                   session.candidates().front().corrected_from == "shng",
++               "The deletion reading must reach the candidates end to end with the linked bit.");
++    }
++    {
++        // 阶段 3（design D2）：仅开 transposition 时请求布尔映射也带上 deletion
++        // 位 —— "shng" 必须可纠（端到端行为断言：mask 是会话内部状态，以纠错
++        // 生效为准）。
++        metasequoia::InputSession session(SchemeType::Quanpin, transposition_only, true, true, true, paths);
++        type_display_session(session, "shng");
++        expect(std::any_of(session.candidates().begin(), session.candidates().end(),
++                           [](const WordItem &item) { return item.word == "上"; }),
++               "Transposition-only must still enable the deletion reading of 'shng' (D2 linkage).");
++    }
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, none, true, true, true, paths);
++        type_display_session(session, "shng");
++        // 门控按纠错标记验证：前缀查询可能以 'sh' 命中「上」，那与纠错无关；
++        // 开关全关时不得存在任何带 corrected_from 的候选。
++        expect(std::none_of(session.candidates().begin(), session.candidates().end(),
++                            [](const WordItem &item) { return !item.corrected_from.empty(); }),
++               "Both switches off must keep the deletion reading disabled.");
++    }
++    {
++        // 阶段 4：插入输入的 display —— raw span 比音节长 1，preedit 显示原始
++        // 字母（无分隔，单段纠错）。用开头双打 "sshang"：结尾单插入属简拼尾
++        // 形状，被词典门拦截（见 zher 用例）。
++        const unsigned all_four =
++            transposition_only | neighbor_only | quanpin::kAutocorrectDeletion | quanpin::kAutocorrectInsertion;
++        metasequoia::InputSession session(SchemeType::Quanpin, all_four, true, true, true, paths);
++        type_display_session(session, "sshang");
++        expect(session.get_pinyin_segmentation_with_cases() == "sshang",
++               "An insertion-corrected input must show its typed letters in the preedit.");
++        expect(!session.candidates().empty() && session.candidates().front().word == "上" &&
++                   session.candidates().front().corrected_from == "sshang",
++               "The insertion reading must reach the candidates end to end.");
++    }
++    {
++        // 阶段 4（design D4）：仅开 transposition 时请求布尔映射也带上 insertion
++        // 位 —— "sshang" 必须可纠（端到端行为断言）。
++        metasequoia::InputSession session(SchemeType::Quanpin, transposition_only, true, true, true, paths);
++        type_display_session(session, "sshang");
++        expect(std::any_of(session.candidates().begin(), session.candidates().end(),
++                           [](const WordItem &item) { return item.word == "上"; }),
++               "Transposition-only must still enable the insertion reading of 'sshang' (D4 linkage).");
++    }
++    {
++        // 阶段 4：'zher' 是 insertion 键（r 是 e 的邻键）但属简拼守卫形状，
++        // 词典门在 BFS 之前拦截：preedit 保持 zhe'r，无任何纠错标记（AC2）。
++        const unsigned all_four =
++            transposition_only | neighbor_only | quanpin::kAutocorrectDeletion | quanpin::kAutocorrectInsertion;
++        metasequoia::InputSession session(SchemeType::Quanpin, all_four, true, true, true, paths);
++        type_display_session(session, "zher");
++        // 守卫拦下纠错后，preedit 保持方案层自身的贪心切分（zh + er），
++        // 不重绘为 insertion 键的字母区间。
++        expect(session.get_pinyin_segmentation_with_cases() == "zh'er",
++               "The jianpin guard must hold for 'zher' with the insertion bit enabled.");
++        expect(count_marked(session.candidates()) == 0,
++               "The jianpin shape 'zher' must stay unmarked (insertion key inside the guard). ");
++    }
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, none, true, true, true, paths);
++        type_display_session(session, "sshang");
++        expect(std::none_of(session.candidates().begin(), session.candidates().end(),
++                            [](const WordItem &item) { return !item.corrected_from.empty(); }),
++               "Both switches off must keep the insertion reading disabled.");
++    }
+~
+     fs::remove_all(session_dir, cleanup_ec);
+     fs::remove(db_path, cleanup_ec);
+--- a/tests/src/test_input_session.cpp
++++ b/tests/src/test_input_session.cpp
+@@ -183,6 +183,168 @@
+     }
+     return std::equal(left.candidates().begin(), left.candidates().end(), right.candidates().begin(),
+                       [](const auto &left_item, const auto &right_item) { return left_item.word == right_item.word; });
++}
++
++// 同 candidate_index，但未命中返回 candidates().size() 而不是拖出：供「不得出现」断言用。
++std::size_t find_candidate_index(const metasequoia::InputSession &session, const std::string &word)
++{
++    const auto found = std::find_if(session.candidates().begin(), session.candidates().end(),
++                                    [&](const WordItem &item) { return item.word == word; });
++    return static_cast<std::size_t>(std::distance(session.candidates().begin(), found));
++}
++
++// ü 系拼写别名归一与轻标记的会话级回归（AC1–AC6）。自建隔离词库，不依赖主 fixture：
++// 词库正键全部用标准拼写，另放真实音节 nu/lu 供隔离断言。打标与开关无关，掩码取
++// both 仅代表真实前端配置。
++void run_umlaut_alias_session_tests(const std::filesystem::path &data_directory)
++{
++    const std::filesystem::path directory = data_directory / "umlaut-alias";
++    std::filesystem::create_directories(directory);
++    {
++        Database database(directory / "msime.db");
++        database.execute("CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
++                         "INSERT INTO tbl_1_n VALUES('nve', 'n', '虐', 100);"
++                         "INSERT INTO tbl_1_n VALUES('nv', 'n', '女', 90);"
++                         "INSERT INTO tbl_1_n VALUES('nu', 'n', '怒', 80);");
++        database.execute("CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
++                         "INSERT INTO tbl_1_l VALUES('lve', 'l', '略', 100);"
++                         "INSERT INTO tbl_1_l VALUES('lv', 'l', '绿', 90);"
++                         "INSERT INTO tbl_1_l VALUES('lu', 'l', '路', 80);");
++        database.execute("CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
++                         "INSERT INTO tbl_1_j VALUES('jue', 'j', '决', 100);");
++        database.execute("CREATE TABLE tbl_1_e(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
++                         "INSERT INTO tbl_1_e VALUES('e', 'e', '鹅', 50);");
++        database.execute("CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
++                         "INSERT INTO tbl_2_n VALUES('nu''e', 'ne', '怒鹅', 30);");
++    }
++
++    metasequoia::RuntimePaths paths;
++    paths.resources = directory;
++    paths.user_data = directory;
++    paths.cache = directory;
++    paths.dictionaries = directory;
++    const unsigned both = quanpin::kAutocorrectTransposition | quanpin::kAutocorrectNeighbor;
++
++    // AC1 + preedit 非回归：nue 命中 nve 行并带标记，preedit 仍画原样字母。
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "nue");
++        require(session.get_pinyin_segmentation_with_cases() == "nue",
++                "The preedit for 'nue' must keep the typed letters, not the alias rewrite.");
++        require(session.preedit() == "nue", "The engine preedit for 'nue' must stay unrewritten.");
++        const auto found = find_candidate_index(session, "虐");
++        require(found < session.candidates().size() && session.candidates()[found].corrected_from == "nue",
++                "The 'nue' candidate for 虐 must carry corrected_from='nue'.");
++        require(found < session.candidates().size() && session.candidates()[found].pinyin == "nve",
++                "The 'nue' candidate must carry the canonical pinyin 'nve'.");
++    }
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "nve");
++        const auto found = find_candidate_index(session, "虐");
++        require(found < session.candidates().size() && session.candidates()[found].corrected_from.empty(),
++                "The standard spelling 'nve' must stay unmarked.");
++    }
++
++    // AC2：lue/lve 同理。
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "lue");
++        const auto found = find_candidate_index(session, "略");
++        require(found < session.candidates().size() && session.candidates()[found].corrected_from == "lue",
++                "The 'lue' candidate for 略 must carry corrected_from='lue'.");
++    }
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "lve");
++        const auto found = find_candidate_index(session, "略");
++        require(found < session.candidates().size() && session.candidates()[found].corrected_from.empty(),
++                "The standard spelling 'lve' must stay unmarked.");
++    }
++
++    // AC3：jqxy 系既有归一从无标变带标（行为变更），标准拼法无标。
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "jve");
++        require(session.get_pinyin_segmentation_with_cases() == "jve",
++                "The preedit for 'jve' must keep the typed letters.");
++        const auto found = find_candidate_index(session, "决");
++        require(found < session.candidates().size() && session.candidates()[found].corrected_from == "jve",
++                "The 'jve' candidate for 决 must carry corrected_from='jve'.");
++    }
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "jue");
++        const auto found = find_candidate_index(session, "决");
++        require(found < session.candidates().size() && session.candidates()[found].corrected_from.empty(),
++                "The standard spelling 'jue' must stay unmarked.");
++    }
++
++    // AC4：nu/nv/lu/lv 真实音节互不串，标准拼法均无标记。
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "nu");
++        require(find_candidate_index(session, "怒") < session.candidates().size() &&
++                    find_candidate_index(session, "女") == session.candidates().size() &&
++                    find_candidate_index(session, "虐") == session.candidates().size(),
++                "'nu' must only offer 怒, never 女/虐.");
++    }
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "nv");
++        const auto found = find_candidate_index(session, "女");
++        require(found < session.candidates().size() &&
++                    find_candidate_index(session, "怒") == session.candidates().size() &&
++                    find_candidate_index(session, "虐") == session.candidates().size() &&
++                    session.candidates()[found].corrected_from.empty(),
++                "'nv' must only offer unmarked 女, never 怒/虐.");
++    }
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "lu");
++        require(find_candidate_index(session, "路") < session.candidates().size() &&
++                    find_candidate_index(session, "绿") == session.candidates().size() &&
++                    find_candidate_index(session, "略") == session.candidates().size(),
++                "'lu' must only offer 路, never 绿/略.");
++    }
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "lv");
++        const auto found = find_candidate_index(session, "绿");
++        require(found < session.candidates().size() &&
++                    find_candidate_index(session, "路") == session.candidates().size() &&
++                    find_candidate_index(session, "略") == session.candidates().size() &&
++                    session.candidates()[found].corrected_from.empty(),
++                "'lv' must only offer unmarked 绿, never 路/略.");
++    }
++
++    // AC5：手动分隔符 nu'e 切分为 怒+鹅，不触发别名（虐不可见），无标记。
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "nu'e");
++        require(find_candidate_index(session, "怒鹅") < session.candidates().size() &&
++                    find_candidate_index(session, "怒") < session.candidates().size() &&
++                    find_candidate_index(session, "虐") == session.candidates().size(),
++                "'nu'e' must split as 怒+鹅 and never trigger the nue alias.");
++        require(std::none_of(session.candidates().begin(), session.candidates().end(),
++                             [](const WordItem &item) { return !item.corrected_from.empty(); }),
++                "'nu'e' must produce no marked candidates.");
++    }
++
++    // AC6：别名命中的候选上屏后，调频数据落在标准拼法键 nve 上。
++    {
++        metasequoia::InputSession session(SchemeType::Quanpin, both, true, true, true, paths);
++        type(session, "nue");
++        (void)session.select_candidate(find_candidate_index(session, "虐"));
++        require(!session.has_composition(), "Selecting the only candidate must finish the composition.");
++        Database database(directory / "msime.db");
++        require(database.query_integer("SELECT weight FROM tbl_1_n WHERE key='nve' AND value='虐'") == 101,
++                "Selecting 虐 from 'nue' must update the canonical 'nve' row.");
++        require(database.query_integer("SELECT COUNT(*) FROM tbl_1_n WHERE key='nue'") == 0,
++                "No user data may accumulate under the alias key 'nue'.");
++    }
++
++    std::filesystem::remove_all(directory);
+ }
+ } // namespace
+~
+@@ -842,6 +1004,8 @@
+~
+         require(!session.handle_character('\'').handled, "An idle apostrophe was swallowed.");
+     }
++
++    run_umlaut_alias_session_tests(data_directory);
+ #endif
+~
+ #ifndef METASEQUOIA_SKIP_FREQUENCY_TESTS

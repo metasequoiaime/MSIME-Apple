@@ -70,13 +70,21 @@ function validJobId(value: string): boolean {
 export class AiSkinRun {
   private readonly runner: AiSkinRunner;
   private cancelledFlag = false;
+  private readonly cancellation: Promise<void>;
+  private resolveCancellation: (() => void) | undefined;
 
   constructor(runner: AiSkinRunner) {
     this.runner = runner;
+    this.cancellation = new Promise<void>((resolve: () => void): void => {
+      this.resolveCancellation = resolve;
+    });
   }
 
   cancel(): void {
+    if (this.cancelledFlag) return;
     this.cancelledFlag = true;
+    this.resolveCancellation?.();
+    this.resolveCancellation = undefined;
   }
 
   get cancelled(): boolean {
@@ -96,9 +104,9 @@ export class AiSkinRun {
    */
   async generate(prompt: string, progress: (completed: number) => void): Promise<AiSkinProposal[]> {
     this.checkCancelled();
-    const model = await this.runner.defaultModel();
+    const model = await this.step(this.runner.defaultModel());
     this.checkCancelled();
-    const answer = await this.runner.chat(prompt, model);
+    const answer = await this.step(this.runner.chat(prompt, model));
     this.checkCancelled();
     const plans = this.runner.plans(answer);
     if (plans.length !== 3) throw new AiSkinFailure("ai_skin_response");
@@ -109,17 +117,25 @@ export class AiSkinRun {
     // and the service issues them independently.
     const results = await Promise.allSettled(
       plans.map(async (plan) => {
-        const artwork = await this.illustrate(plan.artworkPrompt);
-        completed += 1;
-        progress(completed);
-        return { ...plan, artwork } as AiSkinProposal;
+        try {
+          const artwork = await this.illustrate(plan.artworkPrompt);
+          completed += 1;
+          progress(completed);
+          return { ...plan, artwork } as AiSkinProposal;
+        } catch (error) {
+          // A real failure stops the sibling jobs immediately. A user cancellation has already
+          // signalled them, so repeating it changes nothing.
+          if (!(error instanceof AiSkinCancelled)) this.cancel();
+          throw error;
+        }
       }),
     );
-    const failure = results.find((result) => result.status === "rejected");
+    const failures = results.filter((result) => result.status === "rejected");
+    const failure =
+      failures.find(
+        (result) => !((result as PromiseRejectedResult).reason instanceof AiSkinCancelled),
+      ) ?? failures[0];
     if (failure !== undefined) {
-      // The first failure ends the other two. Leaving them running would keep spending on pictures
-      // for a set the user is never going to be shown.
-      this.cancelledFlag = true;
       const reason = (failure as PromiseRejectedResult).reason;
       throw reason instanceof Error ? reason : new AiSkinFailure("ai_skin_unavailable");
     }
@@ -135,7 +151,7 @@ export class AiSkinRun {
    */
   private async illustrate(artworkPrompt: string): Promise<Object> {
     this.checkCancelled();
-    const job = await this.runner.createJob(artworkPrompt);
+    const job = await this.step(this.runner.createJob(artworkPrompt));
     if (!validJobId(job.id)) throw new AiSkinFailure("ai_skin_response");
     try {
       return await this.poll(job);
@@ -162,10 +178,17 @@ export class AiSkinRun {
       }
       if (job.state !== "running") throw new AiSkinFailure("ai_skin_unavailable");
       if (this.runner.now() >= deadline) throw new AiSkinFailure("ai_skin_unavailable");
-      await this.runner.wait(POLL_INTERVAL_MS);
+      await this.step(this.runner.wait(POLL_INTERVAL_MS));
       this.checkCancelled();
-      job = await this.runner.readJob(initial.id);
+      job = await this.step(this.runner.readJob(initial.id));
       if (job.id !== initial.id) throw new AiSkinFailure("ai_skin_response");
     }
+  }
+
+  /** Let cancellation interrupt a wait or request so the enclosing `finally` releases its job. */
+  private async step<T>(operation: Promise<T>): Promise<T> {
+    const value: T | void = await Promise.race([operation, this.cancellation]);
+    this.checkCancelled();
+    return value as T;
   }
 }

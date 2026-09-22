@@ -4,6 +4,181 @@ fn snapshot_module_is_present() {
 }
 
 #[test]
+fn queue_state_can_be_polled_while_an_engine_session_holds_shared_access() {
+    use msime_client_core::dictionary::access::DictionaryAccess;
+    use msime_client_core::preferences::Preferences;
+    use std::fs;
+
+    let root = tempfile::tempdir().unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        fs::create_dir(root.path().join(name)).unwrap();
+    }
+    let path = |name: &str| root.path().join(name).to_string_lossy().into_owned();
+    let options: super::HostOptions = serde_json::from_value(serde_json::json!({
+        "api_version": 1,
+        "resources": path("resources"),
+        "user_data": path("user"),
+        "cache": path("cache"),
+        "dictionaries": path("dictionaries"),
+        "preferences": Preferences::default(),
+    }))
+    .unwrap();
+    let _session =
+        DictionaryAccess::try_session(&root.path().join("user"), &root.path().join("dictionaries"))
+            .unwrap()
+            .unwrap();
+    let queue_root = tempfile::tempdir_in(root.path()).unwrap();
+    let queue = super::snapshot_queue(queue_root.path().to_str().unwrap()).unwrap();
+
+    let state = super::snapshot_queue_state(&queue, options, false).unwrap();
+
+    assert!(state["request"].is_null());
+    assert!(state["localVersion"].as_str().is_some());
+}
+
+#[test]
+fn inspection_requires_the_complete_counted_snapshot_envelope() {
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("snapshot.ndjson");
+    let lines = [
+        r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":7}"#,
+        r#"{"type":"entry","data":{"id":"fixture","kind":"quick","code":"test","word":"合成","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z"}}"#,
+        r#"{"type":"overlay","deleted":false,"data":{"id":"fixture","kind":"quick","code":"test","word":"合成","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z"}}"#,
+    ];
+    let body = format!("{}\n", lines.join("\n"));
+    let digest = format!("{:x}", Sha256::digest(body.as_bytes()));
+    let footer = format!(
+        r#"{{"type":"footer","records":{},"sha256":"{}"}}"#,
+        lines.len(),
+        digest
+    );
+    let complete = format!("{body}{footer}\n");
+    fs::write(&file, &complete).unwrap();
+    let metadata = super::inspect_snapshot(&file).unwrap();
+    assert_eq!(metadata.cloud_revision, 7);
+    assert_eq!(metadata.records, 3);
+    assert_eq!(metadata.entries, 1);
+    assert_eq!(metadata.overlays, 1);
+    assert_eq!(metadata.engine_records, 1);
+    assert_eq!(metadata.bytes, complete.len() as u64);
+    assert_eq!(
+        metadata.file_sha256,
+        format!("{:x}", Sha256::digest(complete.as_bytes()))
+    );
+    let staged = super::SnapshotFileRecords::open(&file)
+        .unwrap()
+        .collect::<Vec<_>>();
+    assert_eq!(staged.len(), 1, "only the overlay is an Engine record");
+    assert!(staged[0].is_ok());
+
+    fs::write(&file, body.as_bytes()).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+    fs::write(&file, complete.replace("\"records\":3", "\"records\":2")).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+    fs::write(&file, complete.replacen("合成", "篡改", 1)).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+    fs::write(&file, format!("{complete}{{}}\n")).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+
+    let malformed_lines = [
+        lines[0].to_owned(),
+        lines[1].to_owned(),
+        lines[2].replace("\"weight\":1", "\"weight\":2"),
+    ];
+    let malformed_body = format!("{}\n", malformed_lines.join("\n"));
+    let malformed_digest = format!("{:x}", Sha256::digest(malformed_body.as_bytes()));
+    let malformed = format!(
+        "{malformed_body}{{\"type\":\"footer\",\"records\":3,\"sha256\":\"{malformed_digest}\"}}\n"
+    );
+    fs::write(&file, malformed).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+}
+
+#[test]
+fn restore_reinspects_the_exact_file_before_upload() {
+    use msime_client_core::account::AccountDictionarySnapshotRestore;
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("snapshot.ndjson");
+    let header =
+        r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":7}"#;
+    let body = format!("{header}\n");
+    let body_sha256 = format!("{:x}", Sha256::digest(body.as_bytes()));
+    let complete =
+        format!("{body}{{\"type\":\"footer\",\"records\":1,\"sha256\":\"{body_sha256}\"}}\n");
+    fs::write(&file, &complete).unwrap();
+    let file_sha256 = format!("{:x}", Sha256::digest(complete.as_bytes()));
+    let request = super::RestoreRequest {
+        revision: 11,
+        expected_sha256: file_sha256.clone(),
+        access_token: "a".repeat(64),
+    };
+    let mut uploaded = false;
+
+    let result = super::restore_snapshot_with(request, &file, |path, revision, token| {
+        uploaded = true;
+        assert_eq!(path, file);
+        assert_eq!(revision, 11);
+        assert_eq!(token, "a".repeat(64));
+        Ok(AccountDictionarySnapshotRestore {
+            revision: 12,
+            reset: true,
+        })
+    })
+    .unwrap();
+    assert!(uploaded);
+    assert_eq!(result, serde_json::json!({"revision": 12, "reset": true}));
+
+    let changed = complete.replace("\"revision\":7", "\"revision\":8");
+    fs::write(&file, changed).unwrap();
+    let mut called = false;
+    let request = super::RestoreRequest {
+        revision: 11,
+        expected_sha256: file_sha256,
+        access_token: "a".repeat(64),
+    };
+    assert_eq!(
+        super::restore_snapshot_with(request, &file, |_, _, _| {
+            called = true;
+            unreachable!()
+        }),
+        Err("account_invalid".to_owned())
+    );
+    assert!(!called);
+}
+
+#[test]
+fn restore_maps_account_errors_without_exposing_snapshot_data() {
+    use msime_client_core::account::AccountError;
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("snapshot.ndjson");
+    let header =
+        r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":0}"#;
+    let body = format!("{header}\n");
+    let body_sha256 = format!("{:x}", Sha256::digest(body.as_bytes()));
+    let complete =
+        format!("{body}{{\"type\":\"footer\",\"records\":1,\"sha256\":\"{body_sha256}\"}}\n");
+    fs::write(&file, &complete).unwrap();
+    let request = super::RestoreRequest {
+        revision: 4,
+        expected_sha256: format!("{:x}", Sha256::digest(complete.as_bytes())),
+        access_token: "b".repeat(64),
+    };
+
+    let result: Result<serde_json::Value, String> =
+        super::restore_snapshot_with(request, &file, |_, _, _| Err(AccountError::Conflict));
+    assert_eq!(result, Err("account_conflict".to_owned()));
+}
+
+#[test]
 fn activation_swaps_all_state_roots_and_consumes_handle() {
     activation_case(false, false, 123);
     activation_case(true, false, 123);

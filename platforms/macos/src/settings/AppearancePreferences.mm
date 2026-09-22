@@ -16,7 +16,7 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #import "../core/SharedVoicePreferences.h"
 #import "../core/UpdateController.h"
 #import "../core/SupportWindowController.h"
-#import "../voice/VoiceSettings.h"
+#import "../voice/VoiceSettingsEntry.h"
 #include "ShuangpinProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
 
@@ -2547,10 +2547,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)showVoiceSettings:(id)sender {
     (void)sender;
-    Class voiceClass = NSClassFromString(@"MSIMEVoiceSettings");
-    if (![voiceClass respondsToSelector:@selector(sharedSettings)]) return;
-    [[voiceClass sharedSettings] showWindow:self];
-    [NSApp activateIgnoringOtherApps:YES];
+    MSIMEShowVoiceSettingsWindow(NSClassFromString(@"MetasequoiaVoiceProviderSettingsWindow"));
 }
 - (void)openProductWebsite:(id)sender {
     (void)sender;

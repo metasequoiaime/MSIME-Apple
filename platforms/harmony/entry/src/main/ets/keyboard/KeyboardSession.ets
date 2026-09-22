@@ -39,6 +39,9 @@ import { DesktopSurface } from './DesktopSurface';
 import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateManagementAction } from './candidate/CandidateManagementAction';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import {
+  CandidateGlossLayoutPolicy, CandidateGlossProviderState
+} from './candidate/CandidateGlossLayoutPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import {
   CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinPaletteTokens, CandidateSkinDecoration
@@ -56,8 +59,7 @@ import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
 import http from '@ohos.net.http';
 import {
-  ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure,
-  MAX_FILE_BYTES
+  ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from './clipboard/ClipboardHistoryStore';
 import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPreferencePolicy';
 import {
@@ -85,6 +87,10 @@ import {
 import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
+import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
+import {
+  CompositionBoundary, CompositionBoundaryAction, CompositionBoundaryPolicy
+} from './input/CompositionBoundaryPolicy';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
@@ -182,6 +188,44 @@ interface TypingStatisticsRecordAction {
 interface TypingStatisticsRecordRequest {
   directory: string;
   action: TypingStatisticsRecordAction;
+}
+
+interface MobileClipboardAction {
+  operation: string;
+  text?: string;
+  pinned?: boolean;
+}
+
+interface MobileClipboardRequest {
+  directory: string;
+  legacy: string;
+  action: MobileClipboardAction;
+}
+
+interface NativeClipboardEntry {
+  text: string;
+  timestampMs: number;
+  pinned: boolean;
+}
+
+interface MobileClipboardValue {
+  entries: NativeClipboardEntry[];
+  captured?: boolean;
+  reason?: string | null;
+  updated?: boolean;
+  removed?: boolean;
+  cleared?: boolean;
+}
+
+interface MobileClipboardReply {
+  ok: boolean;
+  value: MobileClipboardValue;
+  error: string;
+}
+
+export interface ClipboardHistoryMutation {
+  readonly entries: ClipboardHistoryItem[];
+  readonly failure: ClipboardFailure | null;
 }
 
 // The local emoji catalog lives in others.db beside the dictionaries, so the query carries the
@@ -389,6 +433,8 @@ export interface KeyboardState {
 }
 
 interface EngineValue {
+  /** False means the platform editor, rather than the Engine composition, owns the command. */
+  handled: boolean;
   // The Rust side sends Option<String>, but an absent commit reaches ArkTS as undefined rather than
   // the null the JSON names, so both have to be spelled out here. Treating one and not the other
   // threw on every focus, which tore the session down before a single key could be pressed.
@@ -490,6 +536,39 @@ interface PrepareRequest {
   state_root: string;
 }
 
+interface SnapshotQueueProcessAction {
+  operation: string;
+  directory: string;
+  staging_root: string;
+  options: Object;
+}
+
+interface SnapshotQueueProcessReply {
+  ok: boolean;
+  error?: string;
+}
+
+interface SnapshotQueueRequestState {
+  status: string;
+}
+
+interface SnapshotQueueStateValue {
+  request?: SnapshotQueueRequestState | null;
+}
+
+interface SnapshotQueueStateReply {
+  ok: boolean;
+  value?: SnapshotQueueStateValue;
+  error?: string;
+}
+
+interface SnapshotQueueStateAction {
+  operation: string;
+  directory: string;
+  options: Object;
+  acknowledge: boolean;
+}
+
 // Only the fields the keyboard acts on are declared. The rest of the document is forwarded to create
 // untouched, so naming it here would only invite the two shapes to drift apart.
 interface PreparedPreferences {
@@ -549,6 +628,12 @@ interface PreparedPreferences {
   word_character: PreparedWordCharacterPreferences;
   floating_toolbar: PreparedFloatingToolbar;
   candidate_english_gloss: boolean;
+  candidate_translations: boolean;
+  translation_target_language: string;
+  translation_secondary_language?: string | null;
+  custom_translation: TranslationProviderConfig;
+  tencent_tmt: TencentTranslationConfig;
+  niutrans: NiuTransTranslationConfig;
   /** Tenths of a vp, which is the unit the shared settings store these in. */
   touch_key_spacing_tenths: number;
   touch_row_spacing_tenths: number;
@@ -696,6 +781,16 @@ interface DictionaryRequest {
   action: DictionaryAction;
 }
 
+interface PersonalDictionarySyncValue {
+  pending_count: number;
+}
+
+interface PersonalDictionarySyncResponse {
+  ok: boolean;
+  value: PersonalDictionarySyncValue;
+  error: string;
+}
+
 /**
  * The shared command table from msime_client_command. Spelling the numbers out here keeps the call
  * sites readable and keeps the table in one place instead of scattered behind comments.
@@ -710,14 +805,20 @@ enum InputCommand {
   MOVE_HOME = 6,
   MOVE_END = 7,
   DELETE_FORWARD = 8,
+  FINISH_COMPOSITION = 9,
+  COMMIT_READING = 11,
   BACKSPACE_SEGMENT = 12,
   MOVE_LEFT_SEGMENT = 13,
   MOVE_RIGHT_SEGMENT = 14,
   NEXT_PAGE = 100,
   PREVIOUS_PAGE = 101,
   NEXT_CANDIDATE = 102,
-  PREVIOUS_CANDIDATE = 103
+  PREVIOUS_CANDIDATE = 103,
+  FIRST_CANDIDATE = 104
 }
+
+const JAPANESE_SCHEME: number = 3;
+const IDLE_DICTIONARY_RETRY_MS: number = 2000;
 
 /**
  * Owns the native session for the lifetime of the extension ability and turns key presses into
@@ -730,7 +831,15 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private handle: number = 0;
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
+  private personalDictionarySettled: boolean = true;
+  private personalDictionaryTimer: number = -1;
+  private snapshotOptions: Object | undefined = undefined;
+  private snapshotQueueTimer: number = -1;
   private editorGeneration: number = 0;
+  // Editor mutations are echoed asynchronously through KeyboardDelegate.textChange. Keep the
+  // count raised until those callbacks arrive so our own commit cannot be mistaken for a host edit
+  // and finish a residual composition that the Engine deliberately left active.
+  private pendingOwnEdits: number = 0;
   private replyContextGeneration: number = 0;
   private replyResultEditorGeneration: number = -1;
   private replyResultContextGeneration: number = -1;
@@ -739,6 +848,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // The Engine opens a session in whichever mode the preferences name, and the shared default is
   // English. Remembered here so every focus reasserts it rather than inheriting the previous editor.
   private englishMode: boolean = false;
+  /** The editor generation in which the user explicitly chose Chinese or English. */
+  private manualLanguageGeneration: number = -1;
   // Which application the mode belongs to. Windows and macOS both keep this per application by
   // default; this host used to keep one mode for every editor it was ever attached to.
   private englishSuggestionsEnabled: boolean = true;
@@ -770,6 +881,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // session builds the candidate entries itself; the view only draws what it is handed.
   private wubiCodeHint: boolean = true;
   private candidateEnglishGloss: boolean = false;
+  private candidateGlossEnabled: boolean = false;
+  private candidateGlossRows: number = 0;
   // Read before the panels are built, so a badge the user turned off is never created at all.
   private modeBadge: boolean = true;
   private resourceDirectory: string = '';
@@ -863,6 +976,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   onCandidateCount: ((count: number) => void) | undefined = undefined;
   /** Lets a desktop panel follow the widest current candidate without measuring ArkUI nodes. */
   onCandidateWidth: ((widthVp: number) => void) | undefined = undefined;
+  /** The native host owns panel geometry; the touch view reports its newly requested total height. */
+  onTouchHeight: ((heightVp: number) => void) | undefined = undefined;
   /**
    * Whether a composition is open, for the host that owns the panel.
    *
@@ -989,6 +1104,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       const requested: PreparedOptions = prepared.value;
       requested.phrase_preedit = true;
       options = JSON.stringify(requested);
+      this.snapshotOptions = requested;
+      this.processDictionarySnapshot(requested, stateRoot);
       const preferences: PreparedPreferences = prepared.value.preferences;
       this.clipboardHistoryEnabled = ClipboardHistoryPreferencePolicy.enabled(
         preferences.clipboard_history);
@@ -996,6 +1113,26 @@ export class KeyboardSession implements HardwareKeyTarget {
         preferences.wubi_code_hint);
       this.candidateEnglishGloss = CandidateAnnotationPreferencePolicy.englishGloss(
         preferences.candidate_english_gloss);
+      this.candidateGlossEnabled = CandidateGlossLayoutPolicy.displays(
+        this.candidateEnglishGloss, preferences.candidate_translations);
+      const glossTargets: string[] = [preferences.translation_target_language];
+      if (preferences.translation_secondary_language !== undefined
+          && preferences.translation_secondary_language !== null
+          && !glossTargets.includes(preferences.translation_secondary_language)) {
+        glossTargets.push(preferences.translation_secondary_language);
+      }
+      const glossProviders: CandidateGlossProviderState = {
+        customEnabled: preferences.custom_translation.enabled,
+        customEndpoint: preferences.custom_translation.endpoint,
+        niuTransEnabled: preferences.niutrans.enabled,
+        niuTransAppId: preferences.niutrans.app_id,
+        niuTransApiKey: preferences.niutrans.apikey,
+        tencentEnabled: preferences.tencent_tmt.enabled,
+        tencentSecretId: preferences.tencent_tmt.secret_id,
+        tencentSecretKey: preferences.tencent_tmt.secret_key
+      };
+      this.candidateGlossRows = CandidateGlossLayoutPolicy.rows(this.candidateEnglishGloss,
+        glossTargets, preferences.candidate_translations, glossProviders);
       this.modeBadge = InputModeHudPolicy.enabled(preferences.input_mode_hud);
       this.englishSuggestionsEnabled = preferences.english_suggestions !== false;
       if (ClipboardHistoryPreferencePolicy.shouldClearHistory(this.clipboardHistoryEnabled)) {
@@ -1141,7 +1278,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // exclusive lock that a live session's shared lock would block, so this is the one moment in
     // the keyboard's life when queued personal-dictionary edits can actually be applied. A failure
     // is not a reason to refuse to start — the queue keeps its entries and the next start retries.
-    this.drainPersonalDictionary(options);
+    this.personalDictionarySettled = this.drainPersonalDictionary(options);
     try {
       const created: CreateResponse = JSON.parse(client.create(options)) as CreateResponse;
       if (!created.ok) {
@@ -1150,6 +1287,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       this.handle = created.value.session;
       KeyboardLog.info(`session ${this.handle} created`);
+      this.schedulePersonalDictionaryDrain();
+      this.scheduleDictionarySnapshotPoll();
       return true;
     } catch (error) {
       // A response that will not parse means the ABI moved underneath us. Refusing to start is
@@ -1171,15 +1310,98 @@ export class KeyboardSession implements HardwareKeyTarget {
    * a delay rather than the import; refusing to start the keyboard over it would turn a dictionary
    * problem into no keyboard at all.
    */
-  private drainPersonalDictionary(options: string): void {
+  private drainPersonalDictionary(options: string): boolean {
     try {
-      const reply: Record<string, Object> =
-        JSON.parse(client.personalDictionarySync(options)) as Record<string, Object>;
-      if (reply['ok'] !== true) {
+      const reply: PersonalDictionarySyncResponse =
+        JSON.parse(client.personalDictionarySync(options)) as PersonalDictionarySyncResponse;
+      if (!reply.ok) {
         KeyboardLog.error('personal dictionary queue not applied; it will be retried');
+        return false;
       }
+      return reply.value.pending_count === 0;
     } catch (error) {
       KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
+      return false;
+    }
+  }
+
+  /**
+   * Continue a large import in four-entry turns while the editor is idle.
+   *
+   * The native queue deliberately limits one synchronization to four edits. Releasing the event
+   * loop between batches keeps a 128-entry import from monopolising the input method, while the
+   * composition/local-mode guards make the brief Engine-session rebuild invisible to typed text.
+   */
+  private schedulePersonalDictionaryDrain(): void {
+    if (this.personalDictionarySettled || this.personalDictionaryTimer >= 0 || this.handle === 0) {
+      return;
+    }
+    this.personalDictionaryTimer = setTimeout((): void => {
+      this.personalDictionaryTimer = -1;
+      if (this.composing() || this.isInLocalMode()) {
+        this.schedulePersonalDictionaryDrain();
+        return;
+      }
+      this.restartIdleSession('personal dictionary queue');
+    }, IDLE_DICTIONARY_RETRY_MS);
+  }
+
+  /** Poll the cross-process snapshot queue just as the Apple worker timer does. */
+  private scheduleDictionarySnapshotPoll(): void {
+    if (this.snapshotQueueTimer >= 0 || this.handle === 0) return;
+    this.snapshotQueueTimer = setTimeout((): void => {
+      this.snapshotQueueTimer = -1;
+      if (this.composing() || this.isInLocalMode()) {
+        this.scheduleDictionarySnapshotPoll();
+        return;
+      }
+      if (this.dictionarySnapshotNeedsWork()) {
+        this.restartIdleSession('snapshot queue');
+        return;
+      }
+      this.scheduleDictionarySnapshotPoll();
+    }, IDLE_DICTIONARY_RETRY_MS);
+  }
+
+  /** Querying queue state takes no Engine maintenance lock and never acknowledges terminal state. */
+  private dictionarySnapshotNeedsWork(): boolean {
+    if (this.snapshotOptions === undefined || this.stateDirectory.length === 0) return false;
+    try {
+      const action: SnapshotQueueStateAction = {
+        operation: 'state', directory: `${this.stateDirectory}/dictionary-snapshots`,
+        options: this.snapshotOptions, acknowledge: false
+      };
+      const reply: SnapshotQueueStateReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueStateReply;
+      if (!reply.ok) {
+        KeyboardLog.error(`snapshot queue poll refused: ${reply.error ?? 'snapshot_unavailable'}`);
+        return false;
+      }
+      const request: SnapshotQueueRequestState | null | undefined = reply.value?.request;
+      return request !== undefined && request !== null
+        && (request.status === 'queued' || request.status === 'preparing');
+    } catch (error) {
+      KeyboardLog.error(`snapshot queue poll unavailable: ${describeError(error)}`);
+      return false;
+    }
+  }
+
+  /** Rebuild an idle Engine session without changing the editor-visible input mode. */
+  private restartIdleSession(reason: string): void {
+    const attached: inputMethodEngine.InputClient | undefined = this.inputClient;
+    const english: boolean = this.englishMode;
+    const nineKey: boolean = this.nineKeyMode;
+    this.stop();
+    if (!this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
+      KeyboardLog.error(`${reason} left the session unavailable`);
+      return;
+    }
+    this.englishMode = english;
+    this.nineKeyMode = nineKey;
+    if (attached !== undefined && this.inputClient === attached) {
+      this.apply(client.focus(this.handle, true));
+      this.applyView(client.setEnglishMode(this.handle, english));
+      this.applyView(client.setNineKeyMode(this.handle, nineKey));
     }
   }
 
@@ -1320,7 +1542,12 @@ export class KeyboardSession implements HardwareKeyTarget {
    * and pushes the rest along. Off means no room is kept and the chips are as wide as their words.
    */
   glossesExpected(): boolean {
-    return this.candidateEnglishGloss;
+    return this.candidateGlossRows > 0;
+  }
+
+  /** Fixed horizontal rows reserved before asynchronous candidate glosses arrive. */
+  glossRows(): number {
+    return this.candidateGlossRows;
   }
 
   /** True when the Engine is composing English rather than Chinese. */
@@ -1545,7 +1772,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return this.englishMode;
     }
+    this.finishCompositionBoundary(CompositionBoundary.MODE_SWITCH);
     this.englishMode = !this.englishMode;
+    this.manualLanguageGeneration = this.editorGeneration;
     // The user asked for this one, so it is the choice this application is remembered by.
     this.modeScope.remember(this.englishMode);
     this.applyView(client.setEnglishMode(this.handle, this.englishMode));
@@ -1559,11 +1788,19 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Ask the host to put the keyboard away, committing whatever was being composed first. */
   dismiss(): void {
-    // The user typed those letters and never asked to throw them away, which is the same reason
-    // macOS commits in prepareForDeactivation.
-    this.commitRaw();
+    this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
     if (this.onDismiss !== undefined) {
       this.onDismiss();
+    }
+  }
+
+  private finishCompositionBoundary(boundary: CompositionBoundary): void {
+    const action: CompositionBoundaryAction = CompositionBoundaryPolicy.action(
+      this.composing(), this.schemeName === 'japanese', boundary);
+    if (action === CompositionBoundaryAction.FINISH_COMPOSITION) {
+      this.finishComposition();
+    } else if (action === CompositionBoundaryAction.COMMIT_RAW) {
+      this.commitRaw();
     }
   }
 
@@ -1668,7 +1905,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       AiPolishPolicy.replacement(source, result, current);
     if (replacement === null) return false;
     try {
-      this.inputClient.deleteBackwardSync(replacement.deleteCount);
+      this.deleteEditorBackwardSync(replacement.deleteCount);
     } catch (error) {
       KeyboardLog.error(`polish could not replace the text: ${describeError(error)}`);
       return false;
@@ -1709,6 +1946,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
     const editorGeneration: number = ++this.editorGeneration;
+    this.pendingOwnEdits = 0;
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
@@ -1732,7 +1970,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       // be in the way. That override is the editor's, not the user's, so it is never remembered.
       const english: boolean =
         this.modeScope.mode(this.defaultEnglish) || EditorPolicy.prefersLatin(this.traits);
-      if (this.handle !== 0 && english !== this.englishMode) {
+      if (this.handle !== 0 && EditorPolicy.appliesDelayedLanguage(
+        this.composing(), this.englishMode, english,
+        this.manualLanguageGeneration === editorGeneration)) {
         this.englishMode = english;
         this.applyView(client.setEnglishMode(this.handle, english));
       }
@@ -1751,12 +1991,17 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   detach(): void {
     this.editorGeneration++;
+    this.manualLanguageGeneration = -1;
+    this.pendingOwnEdits = 0;
     this.modeScope.deactivate();
     this.clearEnglishSuggestions();
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
     if (this.handle !== 0) {
+      // Runtime focus(false) cancels whatever remains. Finish first while the old editor client is
+      // still attached, so changing fields cannot silently discard what the user just typed.
+      this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
       this.apply(client.focus(this.handle, false));
     }
     this.inputClient = undefined;
@@ -1764,9 +2009,18 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   stop(): void {
     this.editorGeneration++;
+    this.pendingOwnEdits = 0;
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
+    if (this.personalDictionaryTimer >= 0) {
+      clearTimeout(this.personalDictionaryTimer);
+      this.personalDictionaryTimer = -1;
+    }
+    if (this.snapshotQueueTimer >= 0) {
+      clearTimeout(this.snapshotQueueTimer);
+      this.snapshotQueueTimer = -1;
+    }
     if (this.handle !== 0) {
       client.destroy(this.handle);
       this.handle = 0;
@@ -1790,54 +2044,110 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /** Invalidate asynchronous reply work without logging or retaining editor text. */
-  invalidateReplyContext(): void {
+  invalidateReplyContext(notifyEditorChange: boolean = true): void {
     this.replyContextGeneration++;
     this.replyResultEditorGeneration = -1;
     this.replyResultContextGeneration = -1;
     this.replyResultTexts = [];
-    if (this.onReplyContextChanged !== undefined) {
+    if (notifyEditorChange && this.onReplyContextChanged !== undefined) {
       this.onReplyContextChanged();
     }
   }
 
-  /** Activate a prepared dictionary snapshot only at an idle boundary. */
-  snapshotActivate(handle: number, expectedVersion: string): string {
-    if (handle <= 0 || !/^[0-9a-f]{64}$/.test(expectedVersion) || this.composing()) {
-      return JSON.stringify({ ok: false, error: 'snapshot access busy' });
+  /** Resize only the phone/tablet soft-keyboard panel; desktop surfaces have separate geometry. */
+  resizeTouchKeyboard(heightVp: number): void {
+    if (!KeyboardFormFactor.isDesktop() && this.onTouchHeight !== undefined) {
+      this.onTouchHeight(heightVp);
     }
-    const hadSession: boolean = this.handle !== 0;
-    const english: boolean = this.englishMode;
-    const nineKey: boolean = this.nineKeyMode;
-    if (hadSession) this.stop();
-    let result: string;
+  }
+
+  /** Reconcile a document mutation reported by the editor with keyboard-owned edit echoes. */
+  editorTextChanged(): void {
+    this.invalidateReplyContext();
+    if (!EditorPolicy.isExternalTextChange(this.pendingOwnEdits)) {
+      this.pendingOwnEdits--;
+      if (this.onEditorChanged !== undefined) {
+        this.onEditorChanged();
+      }
+      return;
+    }
+    // A host edit may clear the field, replace the document or move text around the active
+    // composition. Commit what the user typed before the Engine's state can drift from the editor.
+    this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
+    this.clearEnglishSuggestions();
+    this.clearSmartPunctuationRepeat();
+    this.clearSmartPunctuationSpace();
+    if (this.onEditorChanged !== undefined) {
+      this.onEditorChanged();
+    }
+  }
+
+  /** A selection move changes contextual UI but does not itself discard an active composition. */
+  editorSelectionChanged(): void {
+    this.invalidateReplyContext();
+    this.clearEnglishSuggestions();
+    if (this.onEditorChanged !== undefined) {
+      this.onEditorChanged();
+    }
+  }
+
+  /** Insert through the editor while reserving the asynchronous text-change echo it produces. */
+  private insertEditorText(text: string): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return;
+    const generation: number = this.editorGeneration;
+    this.pendingOwnEdits++;
+    inputClient.insertText(text).catch((error: Object): void => {
+      if (generation === this.editorGeneration && this.inputClient === inputClient
+          && this.pendingOwnEdits > 0) {
+        this.pendingOwnEdits--;
+      }
+      KeyboardLog.error(`editor insertion unavailable: ${describeError(error)}`);
+    });
+  }
+
+  /** Synchronous insert variant for an atomic read/replace editor operation. */
+  private insertEditorTextSync(text: string): void {
+    if (this.inputClient === undefined) return;
+    this.pendingOwnEdits++;
     try {
-      result = client.snapshotActivate(handle, expectedVersion);
+      this.inputClient.insertTextSync(text);
     } catch (error) {
-      KeyboardLog.error(`snapshot activation unavailable: ${describeError(error)}`);
-      result = JSON.stringify({ ok: false, error: 'snapshot activation failed' });
+      this.pendingOwnEdits--;
+      throw error;
     }
+  }
+
+  /** Delete through the editor while reserving the asynchronous text-change echo it produces. */
+  private deleteEditorBackwardSync(count: number): void {
+    if (this.inputClient === undefined) return;
+    this.pendingOwnEdits++;
     try {
-      const parsed: SnapshotResponse = JSON.parse(result) as SnapshotResponse;
-      if (!parsed.ok) {
-        KeyboardLog.error(`snapshot activation refused: ${parsed.error}`);
-      }
-    } catch {
-      // Preserve the native response for the caller; a malformed response is already an error.
+      this.inputClient.deleteBackwardSync(count);
+    } catch (error) {
+      this.pendingOwnEdits--;
+      throw error;
     }
-    // Stopping the live session is part of the maintenance boundary. Always recreate it, even
-    // when the native activation refused, so a transient conflict cannot leave the keyboard dead.
-    if (hadSession && this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
-      this.englishMode = english;
-      this.nineKeyMode = nineKey;
-      if (this.inputClient !== undefined) {
-        this.apply(client.focus(this.handle, true));
-        this.applyView(client.setEnglishMode(this.handle, english));
-        this.applyView(client.setNineKeyMode(this.handle, nineKey));
+  }
+
+  /** Resume one durable cloud snapshot before a shared Engine session takes the read lock. */
+  private processDictionarySnapshot(options: Object, stateRoot: string): void {
+    const staging: string = `${stateRoot}/dictionary-snapshot-staging`;
+    try {
+      if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
+      const action: SnapshotQueueProcessAction = {
+        operation: 'process', directory: `${stateRoot}/dictionary-snapshots`,
+        staging_root: staging, options: options
+      };
+      const reply: SnapshotQueueProcessReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueProcessReply;
+      if (!reply.ok) {
+        KeyboardLog.error(`snapshot queue refused: ${reply.error ?? 'snapshot_unavailable'}`);
       }
-    } else if (hadSession) {
-      KeyboardLog.error('snapshot activation left the session unavailable');
+    } catch (error) {
+      // The durable request remains queued/preparing. The idle poll retries the same UUID.
+      KeyboardLog.error(`snapshot queue unavailable: ${describeError(error)}`);
     }
-    return result;
   }
 
   /**
@@ -1878,11 +2188,15 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       const request: DictionaryRequest = { options: prepared.value, action: action };
       // Same request shape, different store. The queued route writes the personal-dictionary file
-      // beside the preferences and is drained at the next session start; the Engine route needs
-      // the maintenance lock this method has just taken.
-      result = decision.queued
-        ? client.personalDictionaryRequest(JSON.stringify(request))
-        : client.dictionary(JSON.stringify(request));
+      // beside the preferences and is drained in bounded idle turns; the Engine route needs the
+      // maintenance lock this method has just taken.
+      if (decision.queued) {
+        result = client.personalDictionaryRequest(JSON.stringify(request));
+        this.personalDictionarySettled = false;
+        this.schedulePersonalDictionaryDrain();
+      } else {
+        result = client.dictionary(JSON.stringify(request));
+      }
     } catch (error) {
       KeyboardLog.error(`dictionary request unavailable: ${describeError(error)}`);
       result = JSON.stringify({ ok: false, error: 'dictionary request failed' });
@@ -1962,10 +2276,11 @@ export class KeyboardSession implements HardwareKeyTarget {
         try {
           // deleteBackwardSync(1) removes the one scalar just before the caret. The preceding
           // scalar was checked above, so a replacement cannot consume unrelated text.
-          this.inputClient.deleteBackwardSync(1);
-          this.inputClient.insertTextSync(chinese);
+          this.deleteEditorBackwardSync(1);
+          this.insertEditorTextSync(chinese);
           this.recordTypingStatistics(chinese, this.typingSource());
           this.clearSmartPunctuationRepeat();
+          this.refreshEnglishSuggestions();
           return;
         } catch (error) {
           KeyboardLog.error(`repeated punctuation replacement unavailable: ${describeError(error)}`);
@@ -1996,8 +2311,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       try {
         const literal: string = FullWidthInputPolicy.output(String.fromCharCode(ascii), this.fullWidth)
           ?? String.fromCharCode(ascii);
-        this.inputClient.insertTextSync(literal);
+        this.insertEditorTextSync(literal);
         this.recordTypingStatistics(literal, this.typingSource());
+        this.refreshEnglishSuggestions();
         if (this.canArmSmartPunctuationRepeat(ascii, preceding)) {
           this.smartPunctuationSnapshot = SmartPunctuationRepeatPolicy.snapshot(
             ascii, literal, now, this.editorGeneration);
@@ -2019,8 +2335,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.editorGeneration);
     if (completion === null || this.inputClient === undefined) return;
     try {
-      this.inputClient.insertTextSync(completion.closing);
+      this.insertEditorTextSync(completion.closing);
       this.recordTypingStatistics(completion.closing, this.typingSource());
+      this.refreshEnglishSuggestions();
       if (completion.opening === 0x3c) {
         const balanced: string = client.balancePairedPunctuationAfterAutoClose(
           this.handle, completion.opening);
@@ -2035,11 +2352,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  private command(command: InputCommand): void {
+  private command(command: InputCommand): boolean {
     if (this.handle === 0) {
-      return;
+      return false;
     }
-    this.apply(client.command(this.handle, command));
+    return this.apply(client.command(this.handle, command));
   }
 
   commitHighlighted(): void {
@@ -2083,7 +2400,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   backspace(): void {
-    this.command(InputCommand.BACKSPACE);
+    const handled: boolean = this.command(InputCommand.BACKSPACE);
+    if (!BackspaceHoldPolicy.deletesEditor(handled) || this.inputClient === undefined) {
+      return;
+    }
+    try {
+      this.deleteEditorBackwardSync(1);
+      this.refreshEnglishSuggestions();
+    } catch (error) {
+      KeyboardLog.error(`editor backspace unavailable: ${describeError(error)}`);
+    }
   }
 
   /** Throw the composition away without committing it, which is what 重输 means. */
@@ -2099,6 +2425,54 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Commit the spelling as typed rather than any candidate. */
   commitRaw(): void {
     this.command(InputCommand.COMMIT_RAW);
+  }
+
+  /** Commit the highlighted candidate, or the reading when the scheme has no converted candidate. */
+  finishComposition(): boolean {
+    return this.command(InputCommand.FINISH_COMPOSITION);
+  }
+
+  /** Commit Japanese kana as entered, without forcing the first converted candidate. */
+  commitReading(): boolean {
+    return this.command(InputCommand.COMMIT_READING);
+  }
+
+  /** Space starts Japanese conversion, then advances and wraps without committing. */
+  convertJapanese(): boolean {
+    if (this.scheme !== JAPANESE_SCHEME || this.editing.length === 0
+        || this.currentCandidates.length === 0) {
+      return false;
+    }
+    if (this.japaneseConversionIndex < 0
+        || this.japaneseConversionReading !== this.editing) {
+      this.japaneseConversionIndex = 0;
+      this.japaneseConversionReading = this.editing;
+      return true;
+    }
+    const next: number = this.japaneseConversionIndex + 1;
+    const wraps: boolean = next >= this.currentCandidates.length;
+    const wanted: number = wraps ? 0 : next;
+    if (!this.command(wraps ? InputCommand.FIRST_CANDIDATE : InputCommand.NEXT_CANDIDATE)) {
+      return false;
+    }
+    this.japaneseConversionIndex = wanted;
+    return true;
+  }
+
+  /** Return commits the conversion only after Space; otherwise it preserves the kana reading. */
+  commitJapanese(): boolean {
+    if (this.scheme !== JAPANESE_SCHEME || this.editing.length === 0) {
+      return false;
+    }
+    const converted: boolean = this.japaneseConversionActive();
+    this.japaneseConversionIndex = -1;
+    this.japaneseConversionReading = '';
+    return converted ? this.command(InputCommand.SELECT_HIGHLIGHTED) : this.commitReading();
+  }
+
+  japaneseConversionActive(): boolean {
+    return this.japaneseConversionIndex >= 0
+      && this.japaneseConversionReading === this.editing;
   }
 
   moveLeft(): void {
@@ -2192,7 +2566,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.insertWithSource(fallback, this.typingSource());
   }
 
-  private apply(raw: string): void {
+  private apply(raw: string): boolean {
     let response: Response;
     try {
       response = JSON.parse(raw) as Response;
@@ -2201,11 +2575,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       // failure to chase on a device. The reply itself stays out of the log: it carries candidates,
       // and candidates are the user's text.
       KeyboardLog.error(`unreadable engine reply: ${describeError(error)}`);
-      return;
+      return false;
     }
     if (!response.ok) {
       KeyboardLog.error(`engine refused: ${response.error}`);
-      return;
+      return false;
     }
     const value: EngineValue = response.value;
     // Bounded before it reaches the surface: a diagnostic is a message, not a place to print a
@@ -2221,10 +2595,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       // The Engine commits simplified; whether the user wanted traditional is a host decision, the
       // same boundary the Apple and Android hosts draw.
       const output: string = this.asTraditional(commit);
-      this.inputClient.insertText(output);
+      this.insertEditorText(output);
       this.recordTypingStatistics(output, this.typingSource());
     }
     this.render(value.view);
+    return value.handled === true;
   }
 
   /** For the entry points whose reply is a bare view. */
@@ -2278,6 +2653,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // the table on every keystroke.
   private converter: i18n.Transliterator | undefined = undefined;
   private editing: string = '';
+  private japaneseConversionIndex: number = -1;
+  private japaneseConversionReading: string = '';
   // Where the segment keys have put the caret. Drawn by the candidate window, which is the
   // only place it is visible: the editor sees a committed string, not a composition.
   private editingCaret: number = 0;
@@ -2291,6 +2668,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.generation = view.generation;
     this.currentCandidates = view.candidates.slice();
     this.lastView = view;
+    if (this.japaneseConversionIndex >= 0
+        && view.editing_text !== this.japaneseConversionReading) {
+      this.japaneseConversionIndex = -1;
+      this.japaneseConversionReading = '';
+    }
     if (this.translationPage !== null) return;
     const localModeChanged: boolean = this.localMode !== view.local_mode;
     this.localMode = view.local_mode;
@@ -2320,9 +2702,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
         annotation: CandidateGlossPolicy.annotation(candidate.annotation,
-          candidate.translation ?? null, this.candidateEnglishGloss),
+          candidate.translation ?? null, this.candidateGlossEnabled),
         annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(candidate.annotation,
-          candidate.translation ?? null, this.candidateEnglishGloss)
+          candidate.translation ?? null, this.candidateGlossEnabled)
       });
     }
     if (this.onChanged !== undefined) {
@@ -2370,9 +2752,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
         view.local_mode, view.answered_by_pinyin_fallback),
       annotation: CandidateGlossPolicy.annotation(candidate.annotation,
-        candidate.translation ?? null, this.candidateEnglishGloss),
+        candidate.translation ?? null, this.candidateGlossEnabled),
       annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(candidate.annotation,
-        candidate.translation ?? null, this.candidateEnglishGloss)
+        candidate.translation ?? null, this.candidateGlossEnabled)
     }));
     this.onChanged({
       candidates: entries, editing: view.phrase_prefix + view.editing_text,
@@ -2909,22 +3291,48 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  private clipboardFile(): string {
-    return `${this.stateDirectory}/clipboard-history.json`;
+  /** `stateRoot` is `<files>/state`; the shared mobile store owns `<files>/MSIME`. */
+  private clipboardRoot(): string {
+    const separator: number = this.stateDirectory.lastIndexOf('/');
+    return separator > 0 ? this.stateDirectory.substring(0, separator) : '';
   }
 
   private clearClipboardHistoryFile(): void {
     if (this.stateDirectory.length === 0) {
       return;
     }
-    try {
-      const handle = fs.openSync(this.clipboardFile(),
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      fs.writeSync(handle.fd, '[]');
-      fs.closeSync(handle);
-    } catch (error) {
-      KeyboardLog.error(`clipboard history not cleared: ${describeError(error)}`);
+    const value: MobileClipboardValue | null = this.mobileClipboard({ operation: 'clear' });
+    if (value === null || value.cleared !== true) {
+      KeyboardLog.error('clipboard history not cleared');
     }
+  }
+
+  /** One locked native transaction; errors never expose clipboard contents in the log. */
+  private mobileClipboard(action: MobileClipboardAction): MobileClipboardValue | null {
+    const directory: string = this.clipboardRoot();
+    if (directory.length === 0) return null;
+    const request: MobileClipboardRequest = {
+      directory: directory, legacy: 'harmony_state', action: action
+    };
+    try {
+      const reply: MobileClipboardReply = JSON.parse(
+        client.mobileClipboardHistory(JSON.stringify(request))) as MobileClipboardReply;
+      if (!reply.ok || reply.value === undefined || reply.value === null
+        || !Array.isArray(reply.value.entries)) return null;
+      return reply.value;
+    } catch (error) {
+      KeyboardLog.error(`clipboard history unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
+  /** Validate and translate the native camel-case record before it reaches ArkUI. */
+  private clipboardEntries(value: MobileClipboardValue): ClipboardHistoryItem[] {
+    const rows: ClipboardHistoryItem[] = value.entries.map(
+      (entry: NativeClipboardEntry): ClipboardHistoryItem => ({
+        text: entry.text, at: entry.timestampMs, pinned: entry.pinned
+      }));
+    return ClipboardHistoryStore.parse(JSON.stringify(rows));
   }
 
   /**
@@ -2937,32 +3345,64 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!this.clipboardHistoryAllowed()) {
       return [];
     }
-    const file: string = this.clipboardFile();
     try {
-      if (!fs.accessSync(file) || fs.statSync(file).size > MAX_FILE_BYTES) {
-        return [];
-      }
-      return ClipboardHistoryStore.parse(fs.readTextSync(file));
+      const value: MobileClipboardValue | null = this.mobileClipboard({ operation: 'load' });
+      return value === null ? [] : this.clipboardEntries(value);
     } catch (error) {
       KeyboardLog.error(`clipboard history unreadable: ${describeError(error)}`);
       return [];
     }
   }
 
-  saveClipboardHistory(items: ClipboardHistoryItem[]): boolean {
+  captureClipboardHistory(text: string): ClipboardHistoryMutation {
     if (!this.clipboardHistoryAllowed()) {
-      return false;
+      return { entries: [], failure: ClipboardFailure.INVALID_FILE };
     }
     try {
-      const document: string = ClipboardHistoryStore.serialize(items);
-      const handle = fs.openSync(this.clipboardFile(),
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      fs.writeSync(handle.fd, document);
-      fs.closeSync(handle);
-      return true;
+      // Reuse the tested public validation and its specific user-facing failures before crossing
+      // the ABI. The native transaction repeats these checks against the persisted document.
+      ClipboardHistoryStore.add([], text, Date.now());
+      const value: MobileClipboardValue | null = this.mobileClipboard(
+        { operation: 'capture', text: text });
+      if (value === null) return { entries: [], failure: ClipboardFailure.INVALID_FILE };
+      const entries: ClipboardHistoryItem[] = this.clipboardEntries(value);
+      if (value.captured !== true) {
+        return { entries: entries, failure: value.reason === 'full'
+          ? ClipboardFailure.FULL : ClipboardFailure.INVALID_FILE };
+      }
+      return { entries: entries, failure: null };
     } catch (error) {
-      KeyboardLog.error(`clipboard history not saved: ${describeError(error)}`);
-      return false;
+      return { entries: [], failure: error instanceof ClipboardHistoryError
+        ? error.failure : ClipboardFailure.INVALID_FILE };
+    }
+  }
+
+  setClipboardPinned(text: string, pinned: boolean): ClipboardHistoryMutation {
+    return this.mutateClipboard({ operation: 'set_pinned', text: text, pinned: pinned }, 'updated');
+  }
+
+  removeClipboardHistory(text: string): ClipboardHistoryMutation {
+    return this.mutateClipboard({ operation: 'remove', text: text }, 'removed');
+  }
+
+  clearClipboardHistory(): ClipboardHistoryMutation {
+    return this.mutateClipboard({ operation: 'clear' }, 'cleared');
+  }
+
+  private mutateClipboard(action: MobileClipboardAction,
+                          flag: string): ClipboardHistoryMutation {
+    if (!this.clipboardHistoryAllowed()) {
+      return { entries: [], failure: ClipboardFailure.INVALID_FILE };
+    }
+    try {
+      const value: MobileClipboardValue | null = this.mobileClipboard(action);
+      if (value === null) return { entries: [], failure: ClipboardFailure.INVALID_FILE };
+      const succeeded: boolean = flag === 'updated' ? value.updated === true
+        : flag === 'removed' ? value.removed === true : value.cleared === true;
+      return { entries: this.clipboardEntries(value),
+        failure: succeeded ? null : ClipboardFailure.STALE };
+    } catch (error) {
+      return { entries: [], failure: ClipboardFailure.INVALID_FILE };
     }
   }
 
@@ -3438,8 +3878,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.inputClient !== undefined) {
       const widened: string | null = FullWidthInputPolicy.output(text, this.fullWidth);
       const output: string = this.asTraditional(widened === null ? text : widened);
-      this.inputClient.insertText(output);
+      this.insertEditorText(output);
       this.recordTypingStatistics(output, this.typingSource());
+      this.refreshEnglishSuggestions();
     }
   }
 
@@ -3516,7 +3957,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       return '';
     }
     try {
-      return EnglishSuggestionPolicy.currentWord(this.inputClient.getForwardSync(64));
+      return EnglishSuggestionPolicy.currentWord(
+        this.inputClient.getForwardSync(EnglishSuggestionPolicy.CONTEXT_CHARACTERS));
     } catch (error) {
       return '';
     }
@@ -3545,7 +3987,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return;
     }
     try {
-      this.inputClient.deleteBackwardSync(replacement.deleteCount);
+      this.deleteEditorBackwardSync(replacement.deleteCount);
     } catch (error) {
       KeyboardLog.error(`english completion could not replace the word: ${describeError(error)}`);
       this.clearEnglishSuggestions();
@@ -3630,7 +4072,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   insertWithSource(text: string, source: string): void {
     if (this.inputClient === undefined || text.length === 0) return;
     const output: string = this.asTraditional(text);
-    this.inputClient.insertText(output);
+    this.insertEditorText(output);
     this.recordTypingStatistics(output, source);
   }
 
@@ -3675,8 +4117,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     const ascii: string = String.fromCharCode(snapshot.ascii);
     try {
       // The preceding scalar was just checked to be the armed mark, so this cannot eat other text.
-      this.inputClient.deleteBackwardSync(1);
-      this.inputClient.insertTextSync(ascii);
+      this.deleteEditorBackwardSync(1);
+      this.insertEditorTextSync(ascii);
       this.recordTypingStatistics(ascii, this.typingSource());
     } catch (error) {
       KeyboardLog.error(`punctuation space conversion unavailable: ${describeError(error)}`);
@@ -3768,9 +4210,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         entries.push({
           text: candidate.text,
           annotation: CandidateGlossPolicy.annotation(candidate.annotation,
-            candidate.translation ?? null, this.candidateEnglishGloss),
+            candidate.translation ?? null, this.candidateGlossEnabled),
           annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
-            candidate.annotation, candidate.translation ?? null, this.candidateEnglishGloss)
+            candidate.annotation, candidate.translation ?? null, this.candidateGlossEnabled)
         });
       }
       return entries;

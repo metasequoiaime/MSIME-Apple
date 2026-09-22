@@ -55,6 +55,52 @@ export function decodeCssUrl(raw: string, quoted: boolean): string | null {
 export function isImageDataUrl(value: string): boolean {
   return value.length <= 12 * 1024 * 1024 && imageData.test(value);
 }
+
+// Turn resources relative to a stylesheet into package-root paths before
+// imported sheets are flattened. `..` may walk within the package but never
+// above it; the host validates the resulting path again when reading bytes.
+export function rebaseCssResources(value: string, stylesheet: string): string | null {
+  const normalized = normalizeImageSets(value);
+  if (normalized === null) return null;
+  value = normalized;
+  const base = stylesheet.split("/").filter(Boolean);
+  base.pop();
+  let invalid = false;
+  const result = value.replace(
+    urlPattern,
+    (token, double: string, single: string, bare: string) => {
+      if (double === undefined && single === undefined && bare === undefined) return token;
+      const decoded = decodeCssUrl(double ?? single ?? bare, bare === undefined);
+      if (decoded === null || isImageDataUrl(decoded))
+        return decoded === null ? ((invalid = true), token) : token;
+      if (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(decoded)) {
+        invalid = true;
+        return token;
+      }
+      const parts = [...base];
+      for (const part of decoded.replace(/^\.\//, "").split("/")) {
+        if (!part || part === "." || !/^[a-zA-Z0-9._-]+$/.test(part)) {
+          invalid = true;
+          return token;
+        }
+        if (part === "..") {
+          if (!parts.length) {
+            invalid = true;
+            return token;
+          }
+          parts.pop();
+        } else parts.push(part);
+      }
+      const relative = parts.join("/");
+      if (!relative || relative.length > 256) {
+        invalid = true;
+        return token;
+      }
+      return `url("${relative}")`;
+    },
+  );
+  return invalid ? null : result;
+}
 export function hasUnresolvedCssResource(value: string): boolean {
   const normalized = normalizeImageSets(value);
   if (normalized === null) return true;

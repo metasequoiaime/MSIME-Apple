@@ -369,12 +369,24 @@ pub fn read_toolbar_stylesheet(
     let Some(relative) = package.toolbar_stylesheet else {
         return Ok(None);
     };
-    let resource = read_resource(root, id, &relative)?;
+    read_stylesheet(root, id, &relative).map(Some)
+}
+
+/// Read one package-local CSS resource. This is also the boundary used for
+/// relative `@import` rules: callers never submit a filesystem path, and every
+/// imported sheet is revalidated against the current manifest and package.
+pub fn read_stylesheet(
+    root: impl AsRef<Path>,
+    id: &str,
+    relative: &str,
+) -> Result<String, ResourceError> {
+    let resource = read_resource(root, id, relative)?;
+    if resource.content_type != "text/css; charset=utf-8" {
+        return Err(ResourceError::UnsupportedType);
+    }
     let text = String::from_utf8(resource.bytes).map_err(|_| ResourceError::InvalidEncoding)?;
     // A UTF-8 BOM is an encoding marker, not part of the first selector.
-    Ok(Some(
-        text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned(),
-    ))
+    Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
 }
 
 /// Untrusted resource data. Hosts must set the content type, disable MIME

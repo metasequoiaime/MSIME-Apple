@@ -23,41 +23,17 @@ not every machine has.
 
 from __future__ import annotations
 
-import os
 import pathlib
 import re
-import subprocess
 import sys
+
+from reference_source import reference_root, show_file
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OURS = ROOT / "platforms/windows/installer/config.default.toml"
 REFERENCE_CONFIG = "installer/default_config/config.default.toml"
 
-
-def reference_root() -> pathlib.Path:
-    """Where the reference checkout is.
-
-    Beside the *main* worktree, not beside this one: development here happens in short-lived
-    worktrees under `~/worktrees`, so resolving against the current checkout would make this
-    check skip forever and look like it was passing. `MSIME_REFERENCE_DIR` overrides it.
-    """
-    override = os.environ.get("MSIME_REFERENCE_DIR")
-    if override:
-        return pathlib.Path(override)
-    common = subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if common.returncode == 0 and common.stdout.strip():
-        # <main worktree>/.git -> <main worktree> -> its parent holds the sibling checkouts.
-        main = pathlib.Path(common.stdout.strip()).parent
-        return main.parent / "MSIME-Windows"
-    return ROOT.parent / "MSIME-Windows"
-
-
-REFERENCE = reference_root()
+REFERENCE = reference_root(ROOT)
 
 # Keys the reference has that this repository answers somewhere other than a configuration key of
 # the same name. Each needs the reason, because "it is handled elsewhere" is exactly what someone
@@ -79,55 +55,8 @@ def keys(text: str) -> set[str]:
     return found
 
 
-def reference_revision() -> tuple[str, str] | None:
-    """(ref, sha) of the reference's default branch, or None.
-
-    Not the local `origin/HEAD`: that symbolic ref is written once at clone time and here it
-    still points at `origin/main`, the release branch, which lags the default branch by thirty
-    configuration keys. Comparing against it would report everything present while the reference
-    had moved on - the exact false pass this check exists to prevent. The remote is asked what
-    its default branch is, and the ref that was used is always printed so the answer is never
-    anonymous.
-    """
-    if not (REFERENCE / ".git").exists():
-        return None
-    symref = subprocess.run(
-        ["git", "ls-remote", "--symref", "origin", "HEAD"],
-        cwd=REFERENCE,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    candidates = []
-    if symref.returncode == 0:
-        match = re.search(r"^ref:\s+refs/heads/(\S+)\s+HEAD$", symref.stdout, re.M)
-        if match:
-            candidates.append(f"origin/{match.group(1)}")
-    # Offline, or a remote that does not advertise one. `develop` is this reference's default
-    # branch and the object the parity document pins; `origin/HEAD` is the last resort and is
-    # named in the output so a stale one is visible.
-    candidates += ["origin/develop", "origin/HEAD"]
-    for ref in candidates:
-        revision = subprocess.run(
-            ["git", "rev-parse", ref], cwd=REFERENCE, capture_output=True, text=True
-        )
-        if revision.returncode == 0:
-            return ref, revision.stdout.strip()
-    return None
-
-
 def reference_config() -> tuple[str, str, str] | None:
-    resolved = reference_revision()
-    if resolved is None:
-        return None
-    ref, sha = resolved
-    shown = subprocess.run(
-        ["git", "show", f"{sha}:{REFERENCE_CONFIG}"],
-        cwd=REFERENCE,
-        capture_output=True,
-        text=True,
-    )
-    return (shown.stdout, ref, sha) if shown.returncode == 0 else None
+    return show_file(ROOT, REFERENCE_CONFIG)
 
 
 def main() -> int:

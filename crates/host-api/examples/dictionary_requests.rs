@@ -97,8 +97,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Removing it with the form that created it works, because both sides fold the same way.
     let remove_shouted = json!({ "operation": "edit", "previous": shouted, "replacement": null, "request_id": "native-fold-remove" });
     assert_eq!(request(&options, remove_shouted)["ok"], true);
+    assert_eq!(
+        request(&options, list.clone())["value"]["entries"],
+        json!([])
+    );
+
+    // An English code and the word it types out are two different texts. `dont` types out `don't`,
+    // which is the case the reference's own importer exists to accept and the one the Engine used
+    // to refuse: its English rule demanded that the word be the code again, letter for letter,
+    // ignoring case. The table underneath always had room for it - `english_words(word, display,
+    // weight)` is two columns - so what changed is the rule, in
+    // `scripts/apply_engine_english_display.py`.
+    let contraction = json!({ "kind": "english", "key": "dont", "value": "don't", "weight": 4096 });
+    let add_contraction = json!({ "operation": "edit", "previous": null, "replacement": contraction.clone(), "request_id": "native-english-display" });
+    assert_eq!(
+        request(&options, add_contraction)["value"]["applied"],
+        true,
+        "an English word may differ from the code that types it"
+    );
+    assert_eq!(
+        request(&options, list.clone())["value"]["entries"],
+        json!([contraction]),
+        "and it is stored as both texts rather than folded into one"
+    );
+
+    // A code carrying an apostrophe of its own is the other half of the reference's rule: it asks
+    // only that the code be letters, hyphens and apostrophes.
+    let hyphenated =
+        json!({ "kind": "english", "key": "e-mail", "value": "e-mail", "weight": 4096 });
+    let add_hyphenated = json!({ "operation": "edit", "previous": null, "replacement": hyphenated.clone(), "request_id": "native-english-hyphen" });
+    assert_eq!(
+        request(&options, add_hyphenated)["value"]["applied"],
+        true,
+        "a hyphen belongs to the code as much as to the word"
+    );
+
+    // The point of storing two texts: typing the code offers the word. Temporary English mode is
+    // Shift+Y, the same key the reference documents for it.
+    let session = create(&options);
+    read(msime_client_focus(session, true));
+    read(msime_client_character(session, b'Y', true));
+    for byte in b"dont" {
+        read(msime_client_character(session, *byte, false));
+    }
+    let view = read(msime_client_view(session));
+    let offered: Vec<String> = view["value"]["candidates"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|candidate| candidate["text"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        offered.iter().any(|text| text == "don't"),
+        "typing the code offers the word it types out; got {offered:?}"
+    );
+    read(msime_client_destroy(session));
+
+    let remove_contraction = json!({ "operation": "edit", "previous": contraction, "replacement": null, "request_id": "native-english-remove" });
+    assert_eq!(request(&options, remove_contraction)["ok"], true);
+    let remove_hyphenated = json!({ "operation": "edit", "previous": hyphenated, "replacement": null, "request_id": "native-english-hyphen-remove" });
+    assert_eq!(request(&options, remove_hyphenated)["ok"], true);
     assert_eq!(request(&options, list)["value"]["entries"], json!([]));
 
-    println!("native list/busy/add/retry/recreate/commit/remove/fold roundtrip passed");
+    println!(
+        "native list/busy/add/retry/recreate/commit/remove/fold/english-display roundtrip passed"
+    );
     Ok(())
 }

@@ -66,6 +66,10 @@ export enum HardwareKeyAction {
   REMOVE_CANDIDATE,
   /** Throw away the Engine's candidate cache for this session, the other Windows maintenance key. */
   RESET_CACHE,
+  /** Start or advance Japanese conversion without committing it. */
+  JAPANESE_CONVERT,
+  /** Commit converted Japanese, or the kana reading when conversion never started. */
+  JAPANESE_COMMIT,
 }
 
 export interface HardwareKeyDecision {
@@ -262,6 +266,12 @@ export class HardwareKeyRouter {
       return RELEASE;
     }
     if (composing) {
+      if (japanese && key.keyCode === KEYCODE_SPACE) {
+        return decision(HardwareKeyAction.JAPANESE_CONVERT);
+      }
+      if (japanese && (key.keyCode === KEYCODE_ENTER || key.keyCode === KEYCODE_NUMPAD_ENTER)) {
+        return decision(HardwareKeyAction.JAPANESE_COMMIT);
+      }
       if (key.keyCode === KEYCODE_DEL) {
         return decision(HardwareKeyAction.BACKSPACE);
       }

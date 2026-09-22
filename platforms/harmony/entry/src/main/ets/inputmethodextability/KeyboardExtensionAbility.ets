@@ -99,6 +99,18 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       }
     };
 
+  /** The editor changed its selection, invalidating everything derived from the old caret. */
+  private readonly selectionChanged: (oldBegin: number, oldEnd: number,
+                                      newBegin: number, newEnd: number) => void =
+    (_oldBegin: number, _oldEnd: number, _newBegin: number, _newEnd: number): void => {
+      KeyboardSession.shared.editorSelectionChanged();
+    };
+
+  /** The editor changed its document, either as our edit echo or independently of the keyboard. */
+  private readonly textChanged: (value: string) => void = (_value: string): void => {
+    KeyboardSession.shared.editorTextChanged();
+  };
+
   /**
    * As wide as the buttons the user left on, scaled by what they asked for.
    *
@@ -179,9 +191,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
     const tall: boolean = surface !== DesktopSurface.NONE;
     const heightVp: number = tall
-      ? KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment)
+      ? KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
+        KeyboardSession.shared.glossRows(), settings.candidateFontSize)
       : KeyboardMetrics.candidateHeightVp(settings.candidateLayout, this.candidateCount,
-        settings.candidateShowPreedit, settings.candidateDecorationTopVp);
+        settings.candidateShowPreedit, settings.candidateDecorationTopVp,
+        KeyboardSession.shared.glossRows(), settings.candidateFontSize);
     const widthVp: number = tall ? DESKTOP_SURFACE_WIDTH_VP : this.candidateWidthVp;
     await this.panel.resize(Math.round(widthVp * this.density),
       Math.round(heightVp * this.density));
@@ -200,7 +214,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
     const height: number = KeyboardMetrics.totalHeightVp(
-      settings.rowSpacingTenths, settings.heightAdjustment) * this.density;
+      settings.rowSpacingTenths, settings.heightAdjustment,
+      KeyboardSession.shared.glossRows(), settings.candidateFontSize) * this.density;
     const width: number = DESKTOP_SURFACE_WIDTH_VP * this.density;
     this.panel.moveTo(Math.round((this.screenWidth - width) / 2),
       Math.round(this.screenHeight - height - TOOLBAR_MARGIN_VP * this.density))
@@ -296,7 +311,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
     const height: number = KeyboardMetrics.candidateHeightVp(settings.candidateLayout,
       this.candidateCount, settings.candidateShowPreedit,
-      settings.candidateDecorationTopVp) * this.density;
+      settings.candidateDecorationTopVp, KeyboardSession.shared.glossRows(),
+      settings.candidateFontSize) * this.density;
     const gap: number = KeyboardMetrics.CANDIDATE_WINDOW_GAP_VP * this.density;
     const anchor: CandidateAnchor = CandidateAnchorPolicy.position(settings.candidateFollowCursor,
       this.candidateAnchor, this.caret);
@@ -537,6 +553,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     engine.on('inputStart', this.started);
     engine.on('inputStop', this.stopped);
+    inputMethodEngine.getKeyboardDelegate().on('selectionChange', this.selectionChanged);
+    inputMethodEngine.getKeyboardDelegate().on('textChange', this.textChanged);
     // Which gestures are bound is the document's business, so the keyboard and the settings page
     // cannot disagree about what a key does. Bound before any key can arrive, on every device: a
     // keyboard may be plugged into this one later.
@@ -579,8 +597,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
       const heightVp: number = desktop
         ? KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
-          settings.candidateShowPreedit, settings.candidateDecorationTopVp)
-        : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment);
+          settings.candidateShowPreedit, settings.candidateDecorationTopVp,
+          KeyboardSession.shared.glossRows(), settings.candidateFontSize)
+        : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
+          KeyboardSession.shared.glossRows(), settings.candidateFontSize);
       // A soft keyboard is as wide as the screen because it has to be; a candidate window is as wide
       // as its content, and covering the width of a desktop with one would hide the very text the
       // candidates are for.
@@ -632,6 +652,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         };
         KeyboardSession.shared.onSurfaceRequested = (surface: DesktopSurface): void => {
           this.showDesktopSurface(surface);
+        };
+      } else {
+        KeyboardSession.shared.onTouchHeight = (requestedHeightVp: number): void => {
+          panel.resize(screen.width, Math.round(requestedHeightVp * this.density))
+            .catch((error: Object): void => {
+              KeyboardLog.error(`touch keyboard would not resize: ${describeError(error)}`);
+            });
         };
       }
       if (desktop && KeyboardSession.shared.toolbarEnabled()) {
@@ -710,6 +737,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.panel = undefined;
       engine.off('inputStart', this.started);
       engine.off('inputStop', this.stopped);
+      inputMethodEngine.getKeyboardDelegate().off('selectionChange', this.selectionChanged);
+      inputMethodEngine.getKeyboardDelegate().off('textChange', this.textChanged);
+      KeyboardSession.shared.onTouchHeight = undefined;
       return;
     }
   }
@@ -717,6 +747,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   onDestroy(): void {
     engine.off('inputStart', this.started);
     engine.off('inputStop', this.stopped);
+    inputMethodEngine.getKeyboardDelegate().off('selectionChange', this.selectionChanged);
+    inputMethodEngine.getKeyboardDelegate().off('textChange', this.textChanged);
+    KeyboardSession.shared.onTouchHeight = undefined;
     if (this.routingKeys) {
       inputMethodEngine.getKeyboardDelegate().off('keyEvent', this.typed);
       this.routingKeys = false;

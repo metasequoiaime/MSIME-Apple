@@ -765,9 +765,18 @@ mod tests {
         })
         .unwrap();
         assert_eq!(normalized.key, "ni'hao");
+        let english = dictionary_validate(&DictionaryEntry {
+            kind: DictionaryKind::English,
+            key: "dont".into(),
+            value: "don't".into(),
+            weight: 100_000,
+        })
+        .unwrap();
+        assert_eq!(english.key, "dont");
+        assert_eq!(english.value, "don't");
         assert!(dictionary_validate(&DictionaryEntry {
             kind: DictionaryKind::English,
-            key: "wrong".into(),
+            key: "wrong_code".into(),
             value: "Word".into(),
             weight: 100_000,
         })
@@ -972,7 +981,7 @@ mod tests {
             frequency_trigger_count: 1,
             frequency_linear_step: 1,
             mixed_english: true,
-            english_minimum_prefix: 2,
+            english_minimum_prefix: 5,
             mixed_emoji: false,
             mixed_kaomoji: false,
             local_unicode: true,
@@ -1093,7 +1102,7 @@ mod tests {
         .unwrap();
         assert!(!prepared.autocorrect_transposition);
         assert!(!prepared.autocorrect_neighbor);
-        assert_eq!(prepared.english_minimum_prefix, 2);
+        assert_eq!(prepared.english_minimum_prefix, 5);
     }
     #[test]
     fn dictionary_revision_uses_real_journal_and_rejects_corruption() {

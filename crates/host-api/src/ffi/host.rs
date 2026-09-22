@@ -304,6 +304,34 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
     })
 }
 
+/// Read the typing-statistics master switch without accepting committed text.
+///
+/// Native hosts cache this result and refresh it when settings change, so an opt-out can stop at
+/// the capture boundary instead of serializing text merely to discover that recording is off.
+/// # Safety
+/// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_typing_statistics_enabled(
+    directory: *const u8,
+    length: usize,
+) -> i32 {
+    if directory.is_null() || length > 16_384 {
+        return -1;
+    }
+    // SAFETY: guaranteed by the documented caller contract.
+    let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+    let Ok(directory) = std::str::from_utf8(bytes) else {
+        return -1;
+    };
+    if !std::path::Path::new(directory).is_absolute() {
+        return -1;
+    }
+    match TypingStatisticsStore::new(directory).load() {
+        Ok(statistics) => i32::from(statistics.enabled),
+        Err(_) => -1,
+    }
+}
+
 /// Scan a skin root so native presenters read the same catalog the settings
 /// page edits. Unreadable roots return an empty catalog, not an error; a
 /// package that fails validation is reported as an issue and never rendered.
@@ -928,7 +956,15 @@ const APPLE_REFERENCE_DATE_UNIX_SECONDS: f64 = 978_307_200.0;
 #[serde(deny_unknown_fields)]
 struct MobileClipboardRequest {
     directory: String,
+    #[serde(default)]
+    legacy: Option<MobileClipboardLegacy>,
     action: MobileClipboardAction,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum MobileClipboardLegacy {
+    HarmonyState,
 }
 
 #[derive(Deserialize)]
@@ -947,6 +983,14 @@ struct AppleLegacyClipboardEntry {
     id: String,
     text: String,
     date: f64,
+    pinned: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HarmonyLegacyClipboardEntry {
+    text: String,
+    at: f64,
     pinned: bool,
 }
 
@@ -1053,8 +1097,77 @@ pub fn migrate_apple_clipboard_history(root: &std::path::Path) -> Result<bool, S
     Ok(imported)
 }
 
+/// Migrate the first Harmony host's local structured history into the shared mobile store.
+/// The caller opts into this path explicitly, so an unrelated `state` directory in an Apple App
+/// Group can never be mistaken for Harmony data.
+fn migrate_harmony_clipboard_history(root: &std::path::Path) -> Result<bool, String> {
+    use std::io::Read;
+
+    let _lock = apple_clipboard_migration_lock(root)?;
+    let shared_path = root.join("MSIME").join("clipboard_history.json");
+    let mut shared = msime_client_core::clipboard::ClipboardHistoryStore::open(&shared_path);
+    shared
+        .load()
+        .map_err(|_| "shared clipboard history unavailable")?;
+    if !shared.entries().is_empty() {
+        return Ok(false);
+    }
+
+    let legacy_path = root.join("state").join("clipboard-history.json");
+    let metadata = match std::fs::symlink_metadata(&legacy_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err("legacy clipboard history unavailable".into()),
+    };
+    if !metadata.file_type().is_file() || metadata.len() > MAX_APPLE_LEGACY_CLIPBOARD_BYTES {
+        return Err("invalid legacy clipboard history".into());
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(&legacy_path)
+        .and_then(|file| {
+            file.take(MAX_APPLE_LEGACY_CLIPBOARD_BYTES + 1)
+                .read_to_end(&mut bytes)
+        })
+        .map_err(|_| "legacy clipboard history unavailable")?;
+    if bytes.len() as u64 > MAX_APPLE_LEGACY_CLIPBOARD_BYTES {
+        return Err("invalid legacy clipboard history".into());
+    }
+    let legacy: Vec<HarmonyLegacyClipboardEntry> =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid legacy clipboard history")?;
+    if legacy.len() > 50 {
+        return Err("invalid legacy clipboard history".into());
+    }
+    let mut texts = std::collections::HashSet::new();
+    let mut entries = Vec::with_capacity(legacy.len());
+    for entry in legacy {
+        if !entry.at.is_finite()
+            || entry.at < 0.0
+            || entry.at > u64::MAX as f64
+            || !texts.insert(entry.text.clone())
+            || !msime_client_core::clipboard::mobile_text_is_valid(&entry.text)
+        {
+            return Err("invalid legacy clipboard history".into());
+        }
+        entries.push(msime_client_core::clipboard::ClipboardHistoryEntry {
+            text: entry.text,
+            timestamp_ms: entry.at.round() as u64,
+            pinned: entry.pinned,
+        });
+    }
+    let imported = shared
+        .import_if_empty(entries)
+        .map_err(|_| "clipboard migration failed")?;
+    if imported {
+        std::fs::remove_file(&legacy_path).map_err(|_| "clipboard migration cleanup failed")?;
+    }
+    Ok(imported)
+}
+
 /// Clear shared mobile history and its fixed Apple legacy source under one lock.
-pub fn clear_mobile_clipboard_history(root: &std::path::Path) -> Result<(), String> {
+fn clear_mobile_clipboard_history_with_legacy(
+    root: &std::path::Path,
+    legacy: Option<MobileClipboardLegacy>,
+) -> Result<(), String> {
     let _lock = apple_clipboard_migration_lock(root)?;
     let legacy_path = root.join("Clipboard").join("history.json");
     match std::fs::symlink_metadata(&legacy_path) {
@@ -1065,11 +1178,28 @@ pub fn clear_mobile_clipboard_history(root: &std::path::Path) -> Result<(), Stri
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return Err("mobile clipboard clear failed".into()),
     }
+    if matches!(legacy, Some(MobileClipboardLegacy::HarmonyState)) {
+        let harmony_path = root.join("state").join("clipboard-history.json");
+        match std::fs::symlink_metadata(&harmony_path) {
+            Ok(metadata) if metadata.file_type().is_file() => {
+                std::fs::remove_file(harmony_path).map_err(|_| "mobile clipboard clear failed")?;
+            }
+            Ok(_) => return Err("mobile clipboard clear failed".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("mobile clipboard clear failed".into()),
+        }
+    }
     msime_client_core::clipboard::ClipboardHistoryStore::open(
         root.join("MSIME").join("clipboard_history.json"),
     )
     .clear()
     .map_err(|_| "mobile clipboard clear failed".to_owned())
+}
+
+/// Clear the shared mobile and Apple legacy history for native callers that do not request a
+/// platform-specific migration path.
+pub fn clear_mobile_clipboard_history(root: &std::path::Path) -> Result<(), String> {
+    clear_mobile_clipboard_history_with_legacy(root, None)
 }
 
 /// Structured mobile clipboard history operations. The directory is the trusted
@@ -1096,10 +1226,13 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
             return Err("invalid mobile clipboard directory".into());
         }
         if matches!(&request.action, MobileClipboardAction::Clear) {
-            clear_mobile_clipboard_history(root)?;
-            return Ok(json!({"cleared": true, "migrated": false}));
+            clear_mobile_clipboard_history_with_legacy(root, request.legacy)?;
+            return Ok(json!({"cleared": true, "migrated": false, "entries": []}));
         }
-        let migrated = migrate_apple_clipboard_history(root)?;
+        let mut migrated = migrate_apple_clipboard_history(root)?;
+        if matches!(request.legacy, Some(MobileClipboardLegacy::HarmonyState)) {
+            migrated = migrate_harmony_clipboard_history(root)? || migrated;
+        }
         let path = root.join("MSIME").join("clipboard_history.json");
         let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(path);
         match request.action {
@@ -1121,7 +1254,8 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                 Ok(json!({
                     "captured": captured,
                     "reason": (!captured).then_some("full"),
-                    "migrated": migrated
+                    "migrated": migrated,
+                    "entries": history.entries()
                 }))
             }
             MobileClipboardAction::SetPinned { text, pinned } => {
@@ -1133,7 +1267,11 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                 let updated = history
                     .set_pinned(&text, pinned)
                     .map_err(|_| "mobile clipboard pin update failed")?;
-                Ok(json!({"updated": updated, "migrated": migrated}))
+                Ok(json!({
+                    "updated": updated,
+                    "migrated": migrated,
+                    "entries": history.entries()
+                }))
             }
             MobileClipboardAction::Remove { text } => {
                 if text.is_empty()
@@ -1144,7 +1282,11 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                 let removed = history
                     .remove(&text)
                     .map_err(|_| "mobile clipboard removal failed")?;
-                Ok(json!({"removed": removed, "migrated": migrated}))
+                Ok(json!({
+                    "removed": removed,
+                    "migrated": migrated,
+                    "entries": history.entries()
+                }))
             }
             MobileClipboardAction::Clear => unreachable!("clear handled before migration"),
         }

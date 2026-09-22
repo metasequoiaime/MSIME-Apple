@@ -6,4 +6,5 @@
 
 pub mod candidates;
 pub mod dictionary;
+pub mod snapshot_queue;
 pub mod transport;

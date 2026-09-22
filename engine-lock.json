@@ -5,9 +5,20 @@
   "sha256": "40df62bf7c0bbdced9cb70da48fcb164d904e424f320627688f37a351fe716b3",
   "patches": [],
   "overlay_scripts": [
+    "scripts/apply_engine_alternative_segmentation_page.py",
     "scripts/apply_engine_double_helpcode_cache.py",
+    "scripts/apply_engine_english_display.py",
     "scripts/apply_engine_expand_initial_candidates.py",
-    "scripts/apply_engine_jiajia_helpcode.py"
+    "scripts/apply_engine_frequency_comparison_set.py",
+    "scripts/apply_engine_google_umlaut.py",
+    "scripts/apply_engine_jiajia_helpcode.py",
+    "scripts/apply_engine_lattice_reading.py",
+    "scripts/apply_engine_standalone_sentence_learning.py",
+    "scripts/apply_engine_quanpin_autocorrect_parity.py"
+  ],
+  "overlay_assets": [
+    "scripts/engine-overlays/generate_quanpin_autocorrect.py",
+    "scripts/engine-overlays/quanpin-autocorrect-parity.patch"
   ],
   "dependencies": [
     {

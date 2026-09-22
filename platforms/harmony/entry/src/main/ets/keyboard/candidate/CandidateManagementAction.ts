@@ -125,8 +125,8 @@ export class CandidateManagementAction {
    * Windows and Android side, so a bare gloss would read as one more noun among verbs and the
    * title says what tapping it does.
    *
-   * First in the list because it is the reason someone presses and holds a candidate that has a
-   * gloss; the management items are the reason for one that does not.
+   * This action-worded form sits beside the desktop management items. `touchGlossAction` below
+   * removes that wording because the source's touch menu contains the gloss and nothing else.
    */
   static glossAction(gloss: string): ManagementAction | null {
     const text: string = gloss.trim();
@@ -146,6 +146,29 @@ export class CandidateManagementAction {
       confirmationRequired: false,
       menuItemId: MENU_ITEM_BASE + 8,
     };
+  }
+
+  /** Apple touch candidates expose only the gloss, with no desktop dictionary operations beside it. */
+  static touchGlossAction(gloss: string): ManagementAction | null {
+    const action: ManagementAction | null = CandidateManagementAction.glossAction(gloss);
+    if (action === null) {
+      return null;
+    }
+    const text: string = gloss.trim();
+    const characters: string[] = Array.from(text);
+    const title: string =
+      characters.length > MAX_GLOSS_TITLE_CHARACTERS
+        ? characters.slice(0, MAX_GLOSS_TITLE_CHARACTERS - 1).join("") + "…"
+        : text;
+    return { ...action, title: title };
+  }
+
+  static touchActions(gloss: string, isTranslation: boolean): ManagementAction[] {
+    if (!isTranslation) {
+      return [];
+    }
+    const action: ManagementAction | null = CandidateManagementAction.touchGlossAction(gloss);
+    return action === null ? [] : [action];
   }
 
   static validatePosition(position: number): number {

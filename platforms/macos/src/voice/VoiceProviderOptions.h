@@ -1,6 +1,21 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
+// Decide the in-process recognition transport from the persisted provider id.
+// Keep this pure so the settings surface and controller cannot silently drift:
+// every HTTPS multipart preset belongs to the batch request path, while Doubao
+// and system Speech have dedicated transports. An external provider socket owns
+// all provider routing when present.
+static inline BOOL MSIMEVoiceUsesNativeHTTPProvider(NSString *provider,
+                                                     BOOL providerSocketAvailable,
+                                                     BOOL localASRAvailable) {
+    if (providerSocketAvailable) return NO;
+    NSString *identifier = provider.lowercaseString ?: @"";
+    if ([identifier isEqual:@"local"]) return localASRAvailable;
+    return [@[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"cloud"]
+        containsObject:identifier];
+}
+
 // Adapt native preferences to the existing provider contract. Do not infer an
 // authentication mode here: older configurations rely on provider-side inference.
 static inline NSDictionary *MSIMEVoiceProviderOptions(NSDictionary *query, NSUserDefaults *defaults) {

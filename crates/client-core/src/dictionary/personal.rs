@@ -59,7 +59,7 @@ impl PersonalWord {
     /// normalizes entries before applying them.
     pub fn validate(&self) -> Result<(), &'static str> {
         let key_limit = match self.kind {
-            PersonalWordKind::Pinyin => 256,
+            PersonalWordKind::Pinyin => 512,
             PersonalWordKind::Wubi => 4,
             PersonalWordKind::QuickPhrase => 32,
             PersonalWordKind::English => 64,
@@ -75,21 +75,20 @@ impl PersonalWord {
                         || (self.kind == PersonalWordKind::QuickPhrase && byte.is_ascii_digit())
                 })
             }
-            PersonalWordKind::English => self.key.bytes().all(|byte| byte.is_ascii_alphabetic()),
+            PersonalWordKind::English => super::english_code_is_well_formed(&self.key),
         };
+        let value_has_invalid_control = self.value.chars().any(|character| {
+            character.is_control()
+                && !(self.kind == PersonalWordKind::QuickPhrase && matches!(character, '\n' | '\t'))
+        });
         if self.key.is_empty()
             || self.key.len() > key_limit
             || !key_valid
             || self.value.is_empty()
-            || self.value.chars().any(char::is_control)
+            || value_has_invalid_control
             || self.weight < 0
         {
             return Err("invalid personal dictionary entry");
-        }
-        if self.kind == PersonalWordKind::QuickPhrase
-            && self.value.encode_utf16().count() > super::import::MAX_QUICK_PHRASE_UTF16
-        {
-            return Err("personal quick phrase is too long");
         }
         Ok(())
     }
@@ -604,6 +603,48 @@ mod tests {
     }
 
     #[test]
+    fn large_import_yields_between_four_entry_batches_and_preserves_receipts() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PersonalDictionaryStore::new(root.path());
+        let words: Vec<_> = (0..9)
+            .map(|index| word(&format!("batch{index}"), "fixture"))
+            .collect();
+        store.enqueue_import(words, "import".into()).unwrap();
+        let ids: Vec<_> = store
+            .read()
+            .unwrap()
+            .requests
+            .iter()
+            .map(|request| request.id.clone())
+            .collect();
+        let refresh_id = store.read().unwrap().refresh_id;
+        let mut applied = Vec::new();
+        for expected in [4, 8, 9] {
+            store
+                .synchronize(
+                    |request| {
+                        applied.push(request.id.clone());
+                        Ok(())
+                    },
+                    |_| {
+                        Ok(PersonalWordPage {
+                            entries: Vec::new(),
+                            has_more: false,
+                        })
+                    },
+                )
+                .unwrap();
+            assert_eq!(applied, ids[..expected]);
+            let state = store.read().unwrap();
+            assert_eq!(state.pending_count(), 9 - expected);
+            assert_eq!(
+                state.completed_refresh_id.as_deref(),
+                (expected == 9).then_some(refresh_id.as_str())
+            );
+        }
+    }
+
+    #[test]
     fn malformed_state_is_rejected_without_being_overwritten() {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path();
@@ -614,5 +655,21 @@ mod tests {
             Err(PersonalDictionaryError::InvalidState)
         ));
         assert_eq!(fs::read(directory.join("sync.json")).unwrap(), b"not-json");
+    }
+
+    #[test]
+    fn transport_validation_matches_engine_multiline_quick_phrases() {
+        assert!(word("fixture", "first line\nsecond\tcolumn")
+            .validate()
+            .is_ok());
+        assert!(PersonalWord {
+            kind: PersonalWordKind::Pinyin,
+            key: "ni".into(),
+            value: "first\nsecond".into(),
+            weight: 100_000,
+        }
+        .validate()
+        .is_err());
+        assert!(word("fixture", "first\0second").validate().is_err());
     }
 }

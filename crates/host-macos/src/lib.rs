@@ -210,6 +210,20 @@ pub fn quiesce_input_sessions() {
     unsafe { msime_macos_quiesce_input_sessions() };
 }
 
+/// Tell the separate IMK process that the private aggregate-statistics opt-in changed.
+///
+/// Only the boolean crosses the process boundary. No committed text, path, or statistic is placed
+/// in the distributed notification.
+#[cfg(target_os = "macos")]
+pub fn notify_typing_statistics_enabled(enabled: bool) {
+    unsafe extern "C" {
+        fn msime_macos_notify_typing_statistics_enabled(enabled: bool);
+    }
+    // SAFETY: scalar ABI; the native function posts one per-user notification and retains no
+    // caller-owned state.
+    unsafe { msime_macos_notify_typing_statistics_enabled(enabled) };
+}
+
 /// Read the account session shared with the Swift backend Keychain store.
 #[cfg(target_os = "macos")]
 pub fn account_load() -> Result<Option<Vec<u8>>, &'static str> {
@@ -475,6 +489,38 @@ pub fn pick_file() -> Option<String> {
         .map(str::to_owned);
     unsafe { msime_macos_free_picked_path(raw) };
     path
+}
+
+/// Ask the user for a directory and return its absolute path, or `None` when cancelled.
+/// Must run on the AppKit main thread.
+#[cfg(target_os = "macos")]
+pub fn pick_directory() -> Option<String> {
+    unsafe extern "C" {
+        fn msime_macos_pick_directory() -> *mut std::os::raw::c_char;
+        fn msime_macos_free_picked_path(path: *mut std::os::raw::c_char);
+    }
+    // SAFETY: the native side returns either null or a strdup'd UTF-8 path that this owns and frees.
+    let raw = unsafe { msime_macos_pick_directory() };
+    if raw.is_null() {
+        return None;
+    }
+    let path = unsafe { std::ffi::CStr::from_ptr(raw) }
+        .to_str()
+        .ok()
+        .map(str::to_owned);
+    unsafe { msime_macos_free_picked_path(raw) };
+    path
+}
+
+/// Stop every running instance of the separate InputMethodKit bundle before its state is moved.
+/// Must run on the AppKit main thread.
+#[cfg(target_os = "macos")]
+pub fn stop_input_method() -> bool {
+    unsafe extern "C" {
+        fn msime_macos_stop_input_method() -> bool;
+    }
+    // SAFETY: no pointers cross the boundary; native code validates the calling thread.
+    unsafe { msime_macos_stop_input_method() }
 }
 
 #[cfg(test)]
