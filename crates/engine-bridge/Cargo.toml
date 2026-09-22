@@ -17,7 +17,7 @@ cxx-build = "1"
 cmake = "0.1"
 
 [dev-dependencies]
-rusqlite = "0.32"
+rusqlite = "0.40"
 tempfile.workspace = true
 
 [lints]
