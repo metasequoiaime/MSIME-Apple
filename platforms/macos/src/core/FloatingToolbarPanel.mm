@@ -478,7 +478,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSString *resolved = ([surface isEqual:@"dark"] || [surface isEqual:@"light"]) ? surface : mode;
     if ([resolved isEqual:@"light"])
         self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
-    else if ([resolved isEqual:@"system"])
+    else if (resolved == nil || [resolved isEqual:@"system"])
         self.appearance = nil;
     else
         self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];

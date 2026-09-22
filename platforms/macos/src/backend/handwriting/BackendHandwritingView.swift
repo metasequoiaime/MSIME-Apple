@@ -4,7 +4,7 @@ import Vision
 
 @MainActor final class MacHandwritingAppearance: ObservableObject {
   static let shared = MacHandwritingAppearance()
-  @Published private(set) var colorScheme: ColorScheme? = .dark
+  @Published private(set) var colorScheme: ColorScheme?
 
   func apply(_ preferences: NSDictionary) {
     let surface = preferences["handwriting_theme"] as? String
@@ -14,7 +14,8 @@ import Vision
     switch resolved {
     case "light": next = .light
     case "system": next = nil
-    default: next = .dark
+    case "dark": next = .dark
+    default: next = nil
     }
     if colorScheme != next { colorScheme = next }
   }

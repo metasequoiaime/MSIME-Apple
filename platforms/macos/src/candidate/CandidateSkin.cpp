@@ -625,6 +625,7 @@ bool IsSafeSkinId(std::string_view id)
 
 std::string NormalizeSkinId(std::string_view id)
 {
+    if (id.empty()) return "willow_green";
     return IsSafeSkinId(id) ? std::string(id) : std::string("fluent");
 }
 
@@ -1178,11 +1179,12 @@ ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::
 ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::path &skinsRoot,
                          std::string_view layout, std::string_view theme)
 {
+    const bool defaultRequested = id.empty();
     const std::string normalized = NormalizeSkinId(id);
     ResolvedSkin resolved;
-    resolved.id = "fluent";
-    resolved.name = "Fluent";
-    resolved.tokens = FluentTokens(dark);
+    resolved.id = defaultRequested ? "willow_green" : "fluent";
+    resolved.name = defaultRequested ? "杨柳青" : "Fluent";
+    resolved.tokens = BuiltInSkinTokens(defaultRequested ? "willow_green" : "fluent", dark);
     if (IsBuiltInSkinId(normalized))
     {
         resolved.id = normalized;

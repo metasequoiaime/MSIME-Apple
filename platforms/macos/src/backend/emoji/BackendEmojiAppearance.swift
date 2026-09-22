@@ -36,7 +36,7 @@ struct MacEmojiPalette {
 
 @MainActor final class MacEmojiAppearance: ObservableObject {
   static let shared = MacEmojiAppearance()
-  @Published private(set) var colorScheme: ColorScheme? = .dark
+  @Published private(set) var colorScheme: ColorScheme?
 
   func apply(_ preferences: NSDictionary) {
     let resolved: ColorScheme?
@@ -45,7 +45,8 @@ struct MacEmojiPalette {
     switch (surface == "dark" || surface == "light") ? surface : global {
     case "light": resolved = .light
     case "system": resolved = nil
-    default: resolved = .dark
+    case "dark": resolved = .dark
+    default: resolved = nil
     }
     if colorScheme != resolved { colorScheme = resolved }
   }

@@ -151,7 +151,7 @@ static BOOL VoiceAppearanceIsDark(NSAppearance *appearance)
     id global = preferences[@"theme"];
     id resolved = ([surface isKindOfClass:NSString.class] &&
                    ([surface isEqual:@"dark"] || [surface isEqual:@"light"])) ? surface : global;
-    _followsSystemAppearance = [resolved isEqual:@"system"];
+    _followsSystemAppearance = resolved == nil || [resolved isEqual:@"system"];
     if ([resolved isEqual:@"light"])
         self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     else if (_followsSystemAppearance)

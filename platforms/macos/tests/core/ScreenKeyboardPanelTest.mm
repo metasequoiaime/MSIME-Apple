@@ -54,7 +54,7 @@ int main() {
         }];
         assert(!panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
         [panel applyThemePreferences:@{}];
-        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
+        assert(panel.appearance == nil);
         [panel applyThemePreferences:@{@"theme": @"light"}];
         assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
         [panel applyThemePreferences:@{@"theme": @"light", @"screen_keyboard_theme": @"dark"}];

@@ -247,7 +247,7 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
     id global = preferences[@"theme"];
     id resolved = ([surface isEqual:@"dark"] || [surface isEqual:@"light"]) ? surface : global;
     if ([resolved isEqual:@"light"]) self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
-    else if ([resolved isEqual:@"system"]) self.appearance = nil;
+    else if (resolved == nil || [resolved isEqual:@"system"]) self.appearance = nil;
     else self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
 }
 - (BOOL)canBecomeMainWindow { return NO; }
