@@ -231,6 +231,7 @@ impl HostCapabilities {
                 HostPlatform::Linux
                     | HostPlatform::Windows
                     | HostPlatform::Macos
+                    | HostPlatform::Android
                     | HostPlatform::Harmony
             ),
             typing_statistics: true,
@@ -862,6 +863,9 @@ mod tests {
         // Mobile hosts draw no toolbar at all.
         let android = HostCapabilities::for_platform(HostPlatform::Android);
         assert!(android.mobile_settings);
+        // Android's InputMethodService keys the persisted mode by the focused
+        // editor package when the shared scope is set to app.
+        assert!(android.ime_mode_scope);
         assert!(
             !android.floating_toolbar
                 && !android.floating_toolbar_appearance
