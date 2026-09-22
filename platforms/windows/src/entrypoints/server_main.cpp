@@ -177,11 +177,16 @@ std::filesystem::path production_state_directory() {
   // installer/enterprise launcher can provide one absolute data directory;
   // all preferences, dictionaries and runtime leases then follow it instead
   // of silently splitting state between the redirected path and LocalAppData.
-  if (const auto *configured = _wgetenv(L"METASEQUOIA_IME_DATA_DIR");
-      configured && *configured) {
-    const std::filesystem::path value(configured);
-    if (value.is_absolute())
-      return value;
+  {
+    std::vector<wchar_t> configured(32768);
+    const DWORD length = GetEnvironmentVariableW(
+        L"METASEQUOIA_IME_DATA_DIR", configured.data(),
+        static_cast<DWORD>(configured.size()));
+    if (length && length < configured.size()) {
+      const std::filesystem::path value(std::wstring(configured.data(), length));
+      if (value.is_absolute())
+        return value;
+    }
   }
   // The installer stores its user-selected directory in the 64-bit machine
   // view so the 32-bit TSF DLL and the 64-bit Server resolve the same root.

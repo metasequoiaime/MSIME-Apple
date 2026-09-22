@@ -13,8 +13,11 @@ namespace {
 std::mutex lock;
 std::filesystem::path file() {
 #ifdef _WIN32
-  const char *base = std::getenv("LOCALAPPDATA");
-  return (base ? std::filesystem::path(base) : std::filesystem::temp_directory_path()) / "MSIME" / "telemetry.json";
+  // Read the wide value: getenv is deprecated under MSVC /WX and would pass the path through the ANSI code page.
+  wchar_t *base = nullptr; size_t length = 0;
+  std::filesystem::path root = _wdupenv_s(&base, &length, L"LOCALAPPDATA") == 0 && base && *base ? std::filesystem::path(base) : std::filesystem::temp_directory_path();
+  std::free(base);
+  return root / "MSIME" / "telemetry.json";
 #else
   const char *base = std::getenv("XDG_STATE_HOME");
   if (!base) { const char *home = std::getenv("HOME"); base = home ? home : "/tmp"; }
