@@ -596,11 +596,13 @@ elif [ -n "$cross_vcpkg" ]; then
   if ! mkdir "$cross_lock" 2>/dev/null; then
     echo "windows cross build: skipped (another run holds $cross_lock)"
   else
+    cross_build_ok=0
     trap 'rmdir "$cross_lock" 2>/dev/null' EXIT
     cross_log="$(mktemp)"
     if MSIME_VCPKG_ROOT="$cross_vcpkg" MSIME_WINDOWS_DEPS_ROOT="$cross_deps" \
       bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
       echo "windows cross build (x64): links"
+      cross_build_ok=1
     elif grep -q "Failed to take the filesystem lock" "$cross_log"; then
       # vcpkg's own lock, taken by something that is not this gate.
       echo "windows cross build: skipped (vcpkg busy in another run)"
@@ -611,6 +613,20 @@ elif [ -n "$cross_vcpkg" ]; then
     rm -f "$cross_log"
     rmdir "$cross_lock" 2>/dev/null
     trap - EXIT
+  fi
+
+  # The native CMake build does not compile the shared Tauri shell. Its Windows
+  # branches use the same host-windows dependency prefix but a different Rust
+  # target, so keep this check beside the cross build that prepares that prefix.
+  # This catches visibility/import drift in the public settings and panel code
+  # before a Windows packaging attempt, while still avoiding a second native
+  # host build.
+  if [ "${cross_build_ok:-0}" -eq 1 ]; then
+    windows_deps="$cross_deps/x64/x64-mingw-static"
+    MSIME_WINDOWS_DEPS="$windows_deps" \
+      cargo check -p msime-desktop --target x86_64-pc-windows-gnu --lib --locked 2>&1 | tail -3
+    [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check -p msime-desktop (windows GNU)"
+    echo "msime-desktop (windows GNU): checks"
   fi
 else
   echo "skipped: $MSIME_NATIVE_BUILD not configured, and no MinGW cross toolchain"
