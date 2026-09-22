@@ -154,6 +154,9 @@ public final class AccountFragment extends HomeTabFragment {
         AppIconStyle current = AppIcons.selected(requireContext());
         addRow(rows, R.drawable.ic_feature_skin, R.color.badge_field, "App 图标",
             current.title() + " · " + current.description(), this::showIcons);
+        addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "云剪贴板",
+            "在设备之间同步你明确添加的内容", () -> startActivity(new android.content.Intent(
+                requireContext(), CloudClipboardActivity.class)));
     }
 
     /**
