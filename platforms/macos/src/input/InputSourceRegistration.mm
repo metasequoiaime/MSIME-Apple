@@ -75,17 +75,37 @@ OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleId
     CFArrayRef sources = lister((__bridge CFDictionaryRef)filter, true);
     if (!sources || CFArrayGetCount(sources) == 0) { if (sources) CFRelease(sources); return fnfErr; }
     bool enabled = false;
+    TISInputSourceRef primary = nullptr;
     for (CFIndex i = 0; i < CFArrayGetCount(sources); ++i) {
         TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
         void *property = propertyGetter(source, kTISPropertyInputSourceID);
         if (property && CFGetTypeID(property) == CFStringGetTypeID() &&
             [(__bridge NSString *)property isEqualToString:bundleIdentifier]) {
-            status = enabler(source); if (status != noErr) { CFRelease(sources); return status; } enabled = true;
+            status = enabler(source); if (status != noErr) { CFRelease(sources); return status; }
+            if (!primary) primary = source;
+            enabled = true;
+        }
+    }
+    // A bundle with visible ComponentInputModeDict entries does not need a separate top-level
+    // TISInputSourceID. In that shape macOS exposes the mode as the selectable source, which avoids
+    // showing the bundle and its only mode as two identically named menu entries.
+    if (!enabled) {
+        NSString *modePrefix = [bundleIdentifier stringByAppendingString:@"."];
+        for (CFIndex i = 0; i < CFArrayGetCount(sources); ++i) {
+            TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
+            void *property = propertyGetter(source, kTISPropertyInputSourceID);
+            if (!property || CFGetTypeID(property) != CFStringGetTypeID() ||
+                ![(__bridge NSString *)property hasPrefix:modePrefix]) continue;
+            status = enabler(source); if (status != noErr) { CFRelease(sources); return status; }
+            primary = source;
+            enabled = true;
+            break;
         }
     }
     if (!enabled) { CFRelease(sources); return fnfErr; }
     for (CFIndex i = 0; i < CFArrayGetCount(sources); ++i) {
         TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
+        if (source == primary) continue;
         void *property = propertyGetter(source, kTISPropertyInputSourceID);
         if (!property || CFGetTypeID(property) != CFStringGetTypeID() ||
             ![(__bridge NSString *)property isEqualToString:bundleIdentifier]) {
