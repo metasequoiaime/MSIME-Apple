@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
+# Several guards below are "fail if rg finds this". Without rg each of those exits 127, which the if reads as "not found", so a missing binary would pass every one of them silently.
+if ! command -v rg >/dev/null 2>&1; then
+  echo "ripgrep (rg) is required by the Android host contract checks" >&2
+  exit 1
+fi
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 if [[ -z "$android_sdk" ]]; then
   echo "Set ANDROID_SDK_ROOT to an installed Android SDK" >&2
