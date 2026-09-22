@@ -205,12 +205,19 @@ public final class AccountFragment extends HomeTabFragment {
                 new android.content.Intent(requireContext(), DesktopDownloadActivity.class)));
         divider(rows);
         addRow(rows, R.drawable.ic_feature_system, R.color.badge_field, "关于水杉",
-            "版本、开源与隐私", () -> startActivity(
-                new android.content.Intent(requireContext(), AboutActivity.class)));
+            "版本、开源与隐私", this::openAbout);
         divider(rows);
         addRow(rows, R.drawable.ic_feature_ai, R.color.badge_field, "重新查看新手引导",
             "四步走完键盘的启用和设置", () -> startActivity(
                 new android.content.Intent(requireContext(), OnboardingActivity.class)));
+    }
+
+    /** Keep Android's public about/help/feedback surface in the shared Tauri UI. */
+    private void openAbout() {
+        android.content.Intent intent = new android.content.Intent();
+        intent.setClassName(requireContext(), "app.msime.client.MainActivity");
+        intent.putExtra("msime_settings_page", "about");
+        startActivity(intent);
     }
 
     private void showIcons() {
