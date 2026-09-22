@@ -1492,6 +1492,7 @@ struct KeyboardView {
             .fontSize(this.settings.candidateFontSize)
             .fontFamily(this.candidateFontFamily())
             .fontColor(this.candidateTextColor())
+            .accessibilityText(KeyAccessibilityPolicy.englishSuggestion(index + 1, word))
             .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
               right: KeyboardMetrics.CANDIDATE_PADDING_VP })
             .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)

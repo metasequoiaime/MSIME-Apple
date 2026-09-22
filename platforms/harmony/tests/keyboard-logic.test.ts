@@ -837,6 +837,10 @@ group("every tool in the shortcut bar has a name", () => {
       "候选词 3：绿，英文释义：green",
     "the gloss is appended as the ported policy words it",
   );
+  check(
+    KeyAccessibilityPolicy.englishSuggestion(2, "hello") === "英文补全 2：hello",
+    "english completions get a spoken candidate label",
+  );
 });
 
 group("a report says which release it came from, or says nothing", () => {

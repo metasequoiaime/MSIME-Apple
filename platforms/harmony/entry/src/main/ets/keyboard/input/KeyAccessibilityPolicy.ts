@@ -107,4 +107,9 @@ export class KeyAccessibilityPolicy {
         : `候选词 ${number}：${display}，还需输入 ${hint}`;
     return base + suffix;
   }
+
+  /** English completions are candidates too, even though they do not come from the Engine row. */
+  static englishSuggestion(number: number, word: string): string {
+    return `英文补全 ${number}：${word}`;
+  }
 }
