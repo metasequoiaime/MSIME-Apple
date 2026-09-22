@@ -747,19 +747,32 @@ pub fn work_area() -> Option<WorkArea> {
     (read != 0).then(|| to_work_area(rect)).flatten()
 }
 
-/// Reveal an existing directory in the shell. The caller owns the path; a
-/// missing or relative path is refused rather than handed to the shell.
+/// Reveal an existing directory in the shell. The caller owns the path; a missing or relative path is refused rather than handed to the shell.
 pub fn open_directory(path: &Path) -> bool {
-    use windows_sys::Win32::System::Com::{
-        CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED,
-    };
-    use windows_sys::Win32::UI::Shell::ShellExecuteW;
-    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     if !path.is_absolute() || !path.is_dir() {
         return false;
     }
     let mut target: Vec<u16> = path.as_os_str().encode_wide().collect();
     target.push(0);
+    shell_open(&target)
+}
+
+/// Open an https URL in the default browser. ShellExecuteW hands the URL to its registered handler directly, so unlike `cmd /C start` no console window flashes up from the GUI process and no shell parses the text. Anything other than an https URL is refused.
+pub fn open_url(url: &str) -> bool {
+    if !url.starts_with("https://") || url.contains('\0') {
+        return false;
+    }
+    let mut target: Vec<u16> = url.encode_utf16().collect();
+    target.push(0);
+    shell_open(&target)
+}
+
+fn shell_open(target: &[u16]) -> bool {
+    use windows_sys::Win32::System::Com::{
+        CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED,
+    };
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     let mut operation: Vec<u16> = "open".encode_utf16().collect();
     operation.push(0);
     // SAFETY: the apartment is released below, including on the failure path.
@@ -829,6 +842,14 @@ mod tests {
         assert!(!open_directory(Path::new(
             "C:\\definitely-missing-msime-path"
         )));
+    }
+
+    #[test]
+    fn urls_must_be_https() {
+        assert!(!open_url("http://example.com"));
+        assert!(!open_url("file:///C:/Windows/System32/calc.exe"));
+        assert!(!open_url("calc.exe"));
+        assert!(!open_url("https://example.com/\0calc"));
     }
 
     #[test]

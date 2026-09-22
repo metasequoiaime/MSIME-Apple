@@ -2435,3 +2435,9 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 发行版按平台挑选：各平台由 `.github/workflows/release-*.yml` 独立发布到同一个仓库，标签带平台前缀（`windows-v1.2.0`、`linux-v1.2.0`）。原来的 `releases/latest` 只返回整个仓库最新的那一个，通常属于别的平台（写作时是 `macos-v…`），带前缀的标签又解析不出版本号，于是 Linux 等平台的检查同样一直失败。现在读取列表，只取本平台前缀、非草稿、非预发布的发行版，按版本号而不是列表顺序取最新；没有则显示「暂无可用发行版」。
 - 版本号：Server 的遥测原本写死 `0.1.0-dev`。现在由 CMake 从 `platforms/windows/version.txt` 读入（发布工作流读的也是它），`Build-Client.ps1` 带 `-TargetVersion` 构建安装包时同一个版本号同时传给 Tauri 和 Server。
 - 证据：设置页用例覆盖 Windows 读列表、跨平台与预发布过滤、按版本比较；MinGW 交叉构建。未在 Windows 主机上实际点「检查更新」。
+
+### 外部链接改走 ShellExecuteW；Windows CI 门禁真正编译（2026-09-23）
+
+- 外部链接：设置页「打开链接」在 Windows 上原来是 `cmd /C start "" <url>`，从 GUI 进程起一个控制台，会闪一下黑框，而且 URL 要经过 cmd 解析。现在走 `msime_host_windows::open_url`，用 `ShellExecuteW` 把 https URL 直接交给默认浏览器，非 https 一律拒绝；与已有的 `open_directory` 共用同一段调用。
+- CI：`ci-platforms.yml` 的「Windows GNU cross build」跑在 ubuntu-24.04 上，那里的 MinGW 头文件没有 `d2d1_3.h`（`msimeui` 的 SVG 渲染要用），凡是真正进入构建步骤的运行都失败，develop 上的绿色只是因为构建被跳过。现在该作业跑在 `debian:trixie-slim` 容器里，环境与 `platforms/windows/cross/Dockerfile` 一致；改动 `ci-platforms.yml` 本身也会触发全部平台门禁，门禁的修改因此能被自己验证。
+- 证据：`msime-host-windows` 与 `msime-desktop` 对 `x86_64-pc-windows-gnu` 通过 clippy（无新增告警）；本 PR 的 CI 运行即 Windows 门禁的验证。未在 Windows 主机上实际点击链接。
