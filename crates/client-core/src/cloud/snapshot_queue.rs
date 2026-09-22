@@ -189,7 +189,7 @@ impl DictionarySnapshotQueue {
             .truncate(false)
             .open(root.join(name))
             .map_err(|_| SnapshotQueueError::Unavailable)?;
-        match crate::file_lock::try_exclusive(&file) {
+        match crate::file_lock::try_exclusive_with_grace(&file) {
             Ok(true) => Ok((file, root)),
             Ok(false) => Err(SnapshotQueueError::Busy),
             Err(_) => Err(SnapshotQueueError::Unavailable),
