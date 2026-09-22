@@ -78,6 +78,10 @@ impl HostPlatform {
 #[serde(deny_unknown_fields)]
 pub struct HostCapabilities {
     pub platform: HostPlatform,
+    /// The shared settings surface uses phone navigation and touch-oriented copy. This is usually
+    /// the inverse of `is_desktop`, but a host may override it from the actual device form factor:
+    /// one HarmonyOS HAP runs on both phones and 2-in-1 machines.
+    pub mobile_settings: bool,
     /// The host can restart the input method service from the settings page.
     pub restart_input_method: bool,
     /// The host can open the shared panels as separate always-on-top windows.
@@ -205,6 +209,7 @@ impl HostCapabilities {
     pub fn for_platform(platform: HostPlatform) -> Self {
         HostCapabilities {
             platform,
+            mobile_settings: !platform.is_desktop(),
             // Linux restarts IBus; Windows sends a request to the supervised
             // native Server over its session-less auxiliary pipe; macOS starts
             // a fresh bundle instance with --reregister-input-source so
@@ -767,6 +772,7 @@ mod tests {
     #[test]
     fn capabilities_describe_each_host() {
         let linux = HostCapabilities::for_platform(HostPlatform::Linux);
+        assert!(!linux.mobile_settings);
         assert!(linux.restart_input_method);
         assert!(linux.ime_mode_scope);
         assert!(linux.panel_windows);
@@ -851,6 +857,7 @@ mod tests {
         assert!(!HostCapabilities::for_platform(HostPlatform::Ios).input_mode_hud);
         // Mobile hosts draw no toolbar at all.
         let android = HostCapabilities::for_platform(HostPlatform::Android);
+        assert!(android.mobile_settings);
         assert!(
             !android.floating_toolbar
                 && !android.floating_toolbar_appearance
@@ -860,6 +867,7 @@ mod tests {
         assert!(android.candidate_row_colors);
         assert!(android.candidate_selection_appearance);
         let ios = HostCapabilities::for_platform(HostPlatform::Ios);
+        assert!(ios.mobile_settings);
         assert!(ios.fuzzy_pinyin);
         assert!(ios.typing_statistics);
         assert!(!ios.panel_windows);
@@ -921,6 +929,7 @@ mod tests {
     fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
         assert!(!HostPlatform::Harmony.is_desktop());
         let harmony = HostCapabilities::for_platform(HostPlatform::Harmony);
+        assert!(harmony.mobile_settings);
         assert!(!harmony.panel_windows);
         assert!(!harmony.window_chrome);
         // ArkUI enumerates the installed families, so the page can offer them.

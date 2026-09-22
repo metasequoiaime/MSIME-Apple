@@ -34,6 +34,7 @@ import { OsVersionPolicy } from '../keyboard/input/OsVersionPolicy';
 import {
   AiCatalogPage, AiModelCatalogPolicy
 } from '../keyboard/settings/AiModelCatalogPolicy';
+import { KeyboardFormFactorPolicy } from '../keyboard/KeyboardFormFactorPolicy';
 
 /** One key-feedback operation from the page: load, save or preview. */
 interface KeyboardFeedbackAction {
@@ -943,16 +944,19 @@ class SettingsBridge {
   hostCapabilities(): string {
     const document: string = client.hostCapabilities(PLATFORM);
     const release: string | null = OsVersionPolicy.release(deviceInfo.osFullName);
-    if (release === null) {
-      return document;
-    }
     try {
       const reply: Record<string, Object> = JSON.parse(document) as Record<string, Object>;
       if (reply['ok'] !== true) {
         return document;
       }
       const value: Record<string, Object> = reply['value'] as Record<string, Object>;
-      value['os_version'] = release;
+      // Unlike the platform name, the form factor is not fixed: this HAP runs on both phones and
+      // 2-in-1 machines. Keep phone navigation on touch devices and give a 2-in-1 the large-screen
+      // settings surface that matches its physical keyboard and candidate panel.
+      value['mobile_settings'] = !KeyboardFormFactorPolicy.isDesktop(deviceInfo.deviceType);
+      if (release !== null) {
+        value['os_version'] = release;
+      }
       return JSON.stringify(reply);
     } catch (error) {
       // A capability document this cannot read is forwarded untouched: the page has a fallback for

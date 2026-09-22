@@ -577,6 +577,8 @@ export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
   platform: HostPlatform;
+  /** Whether settings use the phone navigation and touch-oriented surface. */
+  mobile_settings?: boolean;
   restart_input_method: boolean;
   panel_windows: boolean;
   ime_mode_scope: boolean;
@@ -2079,7 +2081,8 @@ export function SettingsPage({
           : iosPlatform
             ? "为 iPhone 与 iPad 触屏输入体验打造的开放中文输入法。"
             : "为现代 Windows 桌面体验打造的开放中文输入法。";
-  const mobilePlatform = iosPlatform || androidPlatform || harmonyPlatform;
+  const mobilePlatform =
+    host?.mobile_settings ?? (iosPlatform || androidPlatform || harmonyPlatform);
 
   // Whether this host draws the shared panels as windows of its own — `panel_windows` is the
   // injected projection of `host_surface::is_desktop`.
