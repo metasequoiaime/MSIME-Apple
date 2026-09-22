@@ -141,7 +141,7 @@ Windows 原生独立测试入口：`cmake -S platforms/windows -B target/windows
 
 `accept_main` 依赖已经 Ready 的 ToTsf 回复端点及其进程绑定，读取主连接 ClientHello、复用固定 Engine 的 Negotiate，再次复核两条端点身份后，经回复端点发送 ProtocolReady 或 ProtocolMismatch。旧版 unversioned hello 不额外发送协议确认；非法客户端或无法表示的请求 ID 不发送确认。只有 HandshakeStatus::Ready 可进入下一注册步骤，单独的 negotiation.accepted 或 io.complete() 不代表握手成功。能力位必须由已实现的分发层显式提供，没有默认启用语音或字符集快捷键。
 
-两函数仅用于 I/O 工作线程，超时按每次 I/O 计算；调用方须保证借用句柄有效，在握手期间排除同端点的其他写入、关闭与替换，并把返回结果绑定到同一 registration generation。这里不建立路由注册表，也不赋予焦点所有权。主握手传入的回复管道必须确实是已注册 ToTsf 而不是 worker，不能只因 PID 相同就任意替换；生产注册器仍待接入。测试覆盖编码字节、两类 PipeReady、版本协商、未实现的必需能力拒绝、旧握手无 ACK、错误客户端/角色及预取消；编码测试已本机执行，管道握手测试仅交叉编译，尚未 Windows 运行验收。
+两函数仅用于 I/O 工作线程，超时按每次 I/O 计算；调用方须保证借用句柄有效，在握手期间排除同端点的其他写入、关闭与替换，并把返回结果绑定到同一 registration generation。这里不建立路由注册表，也不赋予焦点所有权。主握手传入的回复管道必须确实是已注册 ToTsf 而不是 worker，不能只因 PID 相同就任意替换；生产入口由 `PipeService` 的 intake 回调把成功登记交给 `RegistrationInbox`，再由 `SessionController` 消费。测试覆盖编码字节、两类 PipeReady、版本协商、未实现的必需能力拒绝、旧握手无 ACK、错误客户端/角色及预取消；编码测试已本机执行，管道握手测试仅交叉编译，尚未 Windows 运行验收。
 
 ## 安全监听与连接所有权
 
@@ -159,7 +159,7 @@ accept 只在单一监听工作线程调用，使用手动事件等待连接，�
 
 PipeTicket 保存三条端点的不可复用注册代次；发送须匹配完整票据，清理只删除指定角色的匹配代次。反向端点变化使主注册失效，必须重新主握手；旧任务不能发往替代连接，也不能通过过期清理关闭替代连接。主读取持有共享端点引用但不占用客户端锁，移除/重连发出取消信号；I/O 完成后再验证注册与身份，旧帧不返回给调用方。写入失败停用该发送端点与主注册，不自动重试。
 
-容量限制针对已登记客户端数量；握手尚未识别 client_id 时由外部 intake 保有连接，因此 Server 仍须限制待握手连接和工作线程。verify_reverse 只验证身份并返回 Verified，不发送成功确认；注册器先检查容量和代次，再在客户端锁内发送 PipeReady 并发布端点，避免客户端收到确认后主连接却查不到登记的竞态。容量不足或过旧的并发注册直接关闭，不发成功确认。没有默认后台线程或全局 Server。shutdown 先停止新登记并取消已登记读取；外部握手使用调用方取消事件，调用方必须停止 intake、取消握手、等待所有 I/O 工作线程退出后再析构注册器。
+容量限制针对已登记客户端数量；握手尚未识别 client_id 时由外部 intake 保有连接，因此 Server 仍须限制待握手连接和工作线程。verify_reverse 只验证身份并返回 Verified，不发送成功确认；注册器先检查容量和代次，再在客户端锁内发送 PipeReady 并发布端点，避免客户端收到确认后主连接却查不到登记的竞态。容量不足或过旧的并发注册直接关闭，不发成功确认。通用 `PipeRegistry` 没有默认后台线程或全局 Server；生产 `WindowsServer` 由 `PipeService`、有界收件箱和 `SessionController` 提供这层装配。shutdown 先停止新登记并取消已登记读取；外部握手使用调用方取消事件，调用方必须停止 intake、取消握手、等待所有 I/O 工作线程退出后再析构注册器。
 
 这里的 Ready 和票据只证明传输登记，不授予输入焦点，也不确认客户端已经处理上屏。进入 Engine 队列和发送前的 activation/focus 校验、FocusSessionReady、ReplyComposer 确认及真实 TSF 生命周期仍需接入。原生测试连通监听→反向注册→主协商→注册器读写，覆盖未主握手禁止发送、代次错配、重连取消待读取、旧发送/旧清理拒绝、容量耗尽与回收；目前仅 x86/x64 编译链接通过，未 Windows 运行。
 
@@ -169,7 +169,7 @@ PipeTicket 保存三条端点的不可复用注册代次；发送须匹配完整
 
 主 hello 精确读取后交给 Registry，反向端点按角色登记。完成回调必须短且非阻塞，将结果放入下游有界队列；返回 false 或抛错时，池按代次撤销未交付登记，不误删替代端点。统计只含数量，不记录输入、帧或异常正文。控制线程 stop 会停止接收、清空队列、取消握手并 join；stop 返回后没有回调，已开始的回调可能在 join 期间结束，因此依赖须保持存活，禁止在回调内 stop 或析构池。
 
-停止 intake 不删除已成功交给下游的登记。Server 关闭时应先停止监听和 intake，再取消 Registry I/O、等待输入线程退出后析构 Registry。超时/取消需等待实际 I/O 完成，不承诺硬性返回时限。原生测试覆盖静默客户端、队列饱和、停止清理、三角色投递及回调拒收/异常；目前仅通过 x86/x64 编译链接，尚未 Windows 运行，也尚未装配生产监听循环、焦点状态机或 Engine 队列。
+停止 intake 不删除已成功交给下游的登记。生产 `WindowsServer` 先停止监听和 intake，再由 `SessionController` 关闭 Registry I/O、等待输入线程和连接 worker 退出；通用池仍要求调用方保证这一顺序。超时/取消需等待实际 I/O 完成，不承诺硬性返回时限。原生测试覆盖静默客户端、队列饱和、停止清理、三角色投递及回调拒收/异常；目前仅通过 x86/x64 编译链接，尚未 Windows 运行。
 
 ## 三角色传输服务装配
 
@@ -179,7 +179,7 @@ PipeTicket 保存三条端点的不可复用注册代次；发送须匹配完整
 
 stop 幂等地停止监听、等待握手池、shutdown Registry 并释放监听器。若外部线程使用 registry() 读取输入，stop 会取消其注册 I/O，但外部线程仍须 join 后才能析构整个服务。客户端仍持有旧句柄时，旧管道名可能仍占用，重启仍按首次创建规则失败，不绕过占用保护。
 
-原生测试不手动调用 accept/submit，而用三条实际监听连接完成反向确认和主协商；另外覆盖重复启停、幂等 stop、第三个名称占用导致启动失败及前两个名称回收。x86/x64 编译链接通过，未在 Windows 执行。此类仍是传输服务库，不是已启动的生产 Server，也没有接入焦点状态机、Engine 输入队列、TSF 安装或系统编辑器验收。
+原生测试不手动调用 accept/submit，而用三条实际监听连接完成反向确认和主协商；另外覆盖重复启停、幂等 stop、第三个名称占用导致启动失败及前两个名称回收。x86/x64 编译链接通过，未在 Windows 执行。此类仍是传输服务库；生产 Server 已在 `WindowsServer` 中使用它并接入焦点状态机、Engine 输入队列和会话 worker，但 TSF 安装及系统编辑器验收仍未完成。
 
 ## 主管道空闲等待
 
@@ -199,7 +199,7 @@ stop 幂等地停止监听、等待握手池、shutdown Registry 并释放监听
 
 with_active 在同一焦点锁内验证并执行动作，避免检查后焦点已切换却继续发送；动作须短或有界，不得递归调用该门禁。涉及管道时锁顺序固定为 FocusGate → PipeRegistry，注册器仍在写入时核对传输代次；不能只凭 focus lease 绕过注册验证。旧 lease 的 deactivate 和旧票据的 invalidate 不影响新激活。已确认激活仍不证明应用实际插入了文本，ReplyComposer 投递确认保持独立。
 
-这只是状态与同步机制，不会从任意状态通知推断系统焦点。可信 ClientActivated、KeyEvent、FocusRestored、挂起与停用的事件路由策略，以及旧/新 ServerSession 的输入队列切换仍由后续分发器接入。系统焦点事件未接入前，不能仅调用 begin 就宣称完成焦点授权。
+这只是状态与同步机制，不会从任意状态通知推断系统焦点。生产 `SessionPump`/`FocusRouter` 已接入可信 ClientActivated、KeyEvent、FocusRestored、挂起与停用事件，以及旧/新 ServerSession 的输入队列切换；`begin` 仍不能单独被当作系统焦点授权。
 
 本机新增 windows-focus-gate 测试，验证 pending/ready、坏票据、旧确认、失败/异常、失焦失效与并发动作互斥；连同原有三项 CTest 共四项通过。原生管道测试把门禁组合到 worker 焦点确认和回复发送，并在重连后失效旧 lease；x86/x64 编译链接通过，未 Windows 实测。
 
@@ -229,7 +229,7 @@ dispatch 按各 Main 流原始顺序处理消息。显式激活引入非零 toke
 
 FocusRoute.activation 表示新激活：先将 cleanup 交给旧 FocusedSession.cancel，再 prepare 新会话，I/O worker 经 gate.acknowledge 写焦点 fence；成功通知回到控制队列后调用 confirmed，再执行输入。fence 表示上游要求确认标记：pending 路由等待已安排的确认，不重复 acknowledge；ready 路由重发标记通过 gate.with_active 和 Registry 票据检查。准备、确认或发送失败调用 failed 并处理 cleanup，不能重放不确定写入。gate 切换时原子记录 previous_ready，避免遗漏已成功确认但通知尚未处理的 token。route 可能仍为 pending，不是立即执行 Engine 的授权，实际执行与发送仍复核 gate。
 
-本机测试覆盖策略状态和真实 FocusedSession 跨客户端组合清理；Windows 管道测试已串入路由、worker 确认与回复发送，但未原生运行。专用队列见下节，可执行控制器仍未装配，未接管系统焦点或注册 TSF。
+本机测试覆盖策略状态和真实 FocusedSession 跨客户端组合清理；Windows 管道测试已串入路由、worker 确认与回复发送，但未原生运行。生产控制器已经由 `WindowsServer` 装配并接管指定生产管道；它仍未完成系统 TSF 注册和真实编辑器验收。
 
 ### 专用输入线程与有界任务队列
 
@@ -239,7 +239,7 @@ submit 非阻塞接纳任务，容量 1–4096 限制等待任务数，客户端
 
 request_stop 可从回调调用，不 join；stop 由外部控制线程调用，等待当前短任务结束，取消未执行任务并结算 future，在原 worker 撤销路由和销毁全部会话。任务异常先清理全部会话、停止接纳，再返回 Failed，其余任务得到 Cancelled，不传播原始诊断。禁止在 worker 调用 stop 或销毁队列；对同一队列的并发外部 stop 会串行 join。Gate 及回调依赖必须活到 stop 返回，产品停机还应先停止外部发送/接纳，不能在队列结束后继续调度 I/O。
 
-本机测试执行专用线程真实 Unicode 提交、焦点切换和停机销毁，另验证多生产者顺序、满队列、取消、异常和自 join 拒绝。仍需原生控制器把 PipeService 接纳、读取、焦点确认、回复发送及失败回执串接到此队列，包含逐客户端等待与配置重试；这不是已经可安装的 Windows 输入法。
+本机测试执行专用线程真实 Unicode 提交、焦点切换和停机销毁，另验证多生产者顺序、满队列、取消、异常和自 join 拒绝。生产 `SessionController` 已把 PipeService 接纳、读取、焦点确认、回复发送及失败回执串接到此队列；生产入口的控制循环和偏好监视路径负责配置发布与重试。这仍不是已经完成 TSF 注册和真实编辑器验收的 Windows 输入法。
 
 ### 已登记 Main 连接处理循环
 
@@ -249,7 +249,7 @@ PipeMainTransport 的 read 复用 Registry 的可取消空闲等待与消息校�
 
 KeyHandler 在输入队列上使用真实 TSF 模式/消费路径选择 ReplyPath，并且只调用一次 state.key；测试里的 Unicode 专用分发不是生产 VK 推断器。EventHandler 必须显式提供，用于发布携带 lease 的模式/候选 UI 工作；有活动 route 时回调处于焦点锁内，不得重入 gate、调用 Engine 或执行 I/O。清理类通知没有新前台授权，不得隐藏其他客户端 UI；异步消费者仍须检查 lease。无编码帧的返回只能表示 ReplyComposer 已验证的本地完成或无回复路径，不能拿它绕过待回复门禁。
 
-本机确定性传输测试运行同一个 SessionPump 和真实 Rust/C++ 输入线程，验证 Unicode 完整回复、确认顺序、失败不重放、错误路由拒绝、旧焦点输出丢弃、重复 hello 和自等待拒绝。Windows 原生管道测试使用实际 PipeMainTransport 检查读写与旧 ticket 关闭不影响新登记；尚未在 Windows 运行，也尚未把 Windows Rust 与真实管道完整链接验收。剩余原生控制器负责有界 worker 生命周期、接纳回调、取消/join、实际 KeyHandler/EventHandler、模式输出和配置重试；目前不启动生产管道。
+本机确定性传输测试运行同一个 SessionPump 和真实 Rust/C++ 输入线程，验证 Unicode 完整回复、确认顺序、失败不重放、错误路由拒绝、旧焦点输出丢弃、重复 hello 和自等待拒绝。Windows 原生管道测试使用实际 PipeMainTransport 检查读写与旧 ticket 关闭不影响新登记；尚未在 Windows 运行，也尚未把 Windows Rust 与真实管道完整链接验收。生产 `WindowsServer` 已提供有界 worker 生命周期、接纳回调、取消/join、实际 KeyHandler/EventHandler、模式输出和配置重试，但这些仍需在 Windows 系统入口和真实编辑器中验收。
 
 ### 有界连接工作线程
 

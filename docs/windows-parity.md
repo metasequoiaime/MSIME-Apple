@@ -2369,3 +2369,7 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 ### Windows 面板恢复焦点确认实际前台窗口（2026-09-22）
 
 面板投递此前只检查 `SetForegroundWindow` 的返回值，没有在全局 `SendInput` 前确认当时的实际前台句柄；前台若未落在记住的编辑器，输入可能进入别的窗口。Windows host 的 `focus` 现在在句柄有效且调用成功后立即读取 `GetForegroundWindow`，只有目标仍是前台窗口才报告成功；语音路径原有的前台核对与面板路径因此共享同一安全边界。这里只验证源码与交叉编译契约，尚未进行真实 Windows 编辑器验收。
+
+### Windows 原生 README 的生产装配状态校正（2026-09-22）
+
+`platforms/windows/README.md` 的早期分段仍把 `PipeService`、`RegistrationInbox`、`SessionController`、`SessionWorkers` 和 `SessionPump` 写成“尚未接入生产”的下一步，和当前 `WindowsServer`/生产 `server_main.cpp` 已实际装配的路径相矛盾。本次只校正文档状态：明确生产入口已经启动指定管道、消费登记票据并运行焦点路由与输入队列，同时保留“仅 x86/x64 交叉编译，尚未 Windows 原生 TSF 注册、安装和真实编辑器验收”的证据等级。没有把交叉编译或 `server_smoke` 静态/合成运行写成系统入口验收。
