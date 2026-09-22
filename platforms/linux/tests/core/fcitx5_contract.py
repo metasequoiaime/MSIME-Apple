@@ -148,6 +148,8 @@ assert 'MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET' in source
 assert 'nextCloudClipboard' in source
 assert '++cloud_clipboard_generation_' in source
 assert 'cloud_clipboard_enabled_ = true;' in source
+assert 'result.value("_socket", std::string{}) == translation_socket_' in source
+assert '{"_socket", socket}' in source
 
 # Voice provider discovery must match IBus and the standalone Linux provider
 # contract, including the runtime socket fallback during hot reload.

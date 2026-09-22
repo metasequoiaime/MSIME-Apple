@@ -1545,7 +1545,8 @@ public:
             }
           }
           return Json{{"query", encoded}, {"translations", local},
-                      {"continue_online", offline && !socket.empty()}};
+                      {"continue_online", offline && !socket.empty()},
+                      {"_socket", socket}};
         }).share();
   }
   void refreshTranslations() {
@@ -1558,7 +1559,8 @@ public:
         auto result = translation_job_.get();
         translation_job_ = {};
         if (allowed && session_ == translation_session_ && query.is_object() &&
-            result.is_object() && result.value("query", "") == encodedQuery) {
+            result.is_object() && result.value("query", "") == encodedQuery &&
+            result.value("_socket", std::string{}) == translation_socket_) {
           const auto encoded = result.value("translations", Json::array()).dump();
           view_ = response(msime_client_apply_translations(
               session_, query.at("generation"), reinterpret_cast<const uint8_t *>(encoded.data()),
