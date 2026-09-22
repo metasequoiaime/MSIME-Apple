@@ -164,6 +164,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidates: [String] = []
   private var visibleCandidateCodes: [String] = []
   private var visibleCandidateGlosses: [String] = []
+  private var visibleCandidateAnnotations: [String] = []
   private var visibleCandidatePageCount = 0
   private var appliedCandidateColumnWidth: CGFloat = 0
   private var visibleCandidatesAnsweredByPinyinFallback = false
@@ -2225,7 +2226,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let panel = KeyboardCandidatePanelView(
         candidates: snapshot.entries.map(\.text), preedit: snapshot.preedit,
         annotations: snapshot.entries.map {
-          candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text,
+          candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
                                    typed: snapshot.preedit)
         },
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
@@ -2775,6 +2776,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                          candidates: snapshot.candidates,
                          candidateCodes: snapshot.candidateCodes,
                          candidateGlosses: snapshot.candidateGlosses,
+                         candidateAnnotations: snapshot.candidateAnnotations,
                          candidatePageCount: snapshot.candidatePageCount,
                          answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
     refreshCandidatePanelAnnotations()
@@ -2805,7 +2807,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateStrip(preedit: String, candidates: [String],
                                     candidateCodes: [String] = [], candidateGlosses: [String] = [],
-                                    candidatePageCount: Int = 0,
+                                    candidateAnnotations: [String] = [], candidatePageCount: Int = 0,
                                     answeredByPinyinFallback: Bool = false) {
     if visibleCandidates != candidates {
       candidateGlossRequestedGeneration = nil
@@ -2814,6 +2816,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidates = candidates
     visibleCandidateCodes = candidateCodes
     visibleCandidateGlosses = candidateGlosses
+    visibleCandidateAnnotations = candidateAnnotations
     visibleCandidatePageCount = candidatePageCount
     visibleCandidatesAnsweredByPinyinFallback = answeredByPinyinFallback
     requestCandidateTranslations()
@@ -2856,9 +2859,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func candidateAnnotation(at index: Int) -> KeyboardCandidateAnnotation {
     let code = visibleCandidateCodes.indices.contains(index) ? visibleCandidateCodes[index] : ""
-    let hint = wubiCodeHint(code: code, typed: visiblePreedit)
-    return hint.isEmpty ? .none : KeyboardCandidateAnnotation(
-      text: hint, accessibilityDescription: "还需输入 \(hint)")
+    let engine = visibleCandidateAnnotations.indices.contains(index) ? visibleCandidateAnnotations[index] : ""
+    let (hint, description) = codeHint(code: code, engine: engine, typed: visiblePreedit)
+    return hint.isEmpty ? .none : KeyboardCandidateAnnotation(text: hint, accessibilityDescription: description)
+  }
+
+  /// The code shown under a candidate: the Wubi keys still to type, or else the Engine's own suffix - the candidate's helpcode when the scheme shows helpcodes, or the spelling a typo correction replaced. The Engine fills its suffix only when there is one to show, so the helpcode setting needs no second check here.
+  private func codeHint(code: String, engine: String, typed: String) -> (String, String) {
+    let wubi = wubiCodeHint(code: code, typed: typed)
+    if !wubi.isEmpty { return (wubi, "还需输入 \(wubi)") }
+    // Pinyin schemes only: that is where the Engine puts helpcodes and corrections, and what other schemes carry there is not something these settings govern.
+    guard !engine.isEmpty, !isInLocalMode, inputScheme == .quanpin || usesShuangpin else { return ("", "") }
+    // The Engine brackets its suffix for desktop windows that append it after the word; here it sits under the word like the Wubi hint, which is bare.
+    let bare = engine.hasPrefix("(") && engine.hasSuffix(")") && engine.count > 2
+      ? String(engine.dropFirst().dropLast()) : engine
+    return (bare, "编码提示 \(bare)")
   }
 
   private func candidateGlosses(at index: Int) -> [String] {
@@ -2897,13 +2912,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return translations.gloss(word: word, code: language.code)
   }
 
-  private func candidatePanelAnnotation(code: String, gloss: String, word: String,
+  private func candidatePanelAnnotation(code: String, gloss: String, word: String, engine: String,
                                         typed: String) -> KeyboardCandidateAnnotation {
-    let hint = wubiCodeHint(code: code, typed: typed)
+    let (hint, hintDescription) = codeHint(code: code, engine: engine, typed: typed)
     let lines = glosses(word: word, offline: gloss)
     let text = ([hint] + lines).filter { !$0.isEmpty }.joined(separator: "\n")
     guard !text.isEmpty else { return .none }
-    let description = ([hint.isEmpty ? "" : "还需输入 \(hint)", lines.isEmpty ? "" : "英文释义：\(lines.joined(separator: "，"))"])
+    let description = ([hintDescription, lines.isEmpty ? "" : "英文释义：\(lines.joined(separator: "，"))"])
       .filter { !$0.isEmpty }.joined(separator: "，")
     return KeyboardCandidateAnnotation(text: text, accessibilityDescription: description)
   }
@@ -2934,7 +2949,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
     panel.updateAnnotations(snapshot.entries.map {
-      candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text,
+      candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
                                typed: snapshot.preedit)
     })
   }
