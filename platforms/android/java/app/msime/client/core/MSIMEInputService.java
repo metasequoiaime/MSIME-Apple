@@ -267,6 +267,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean numberRowSelection = true;
     /** Resolved 以词定字 binding: `disabled`, `brackets` or `minus_equal`. */
     private String wordCharacterBinding = WordCharacterPolicy.DISABLED;
+    /** 「候选栏预编辑」: whether the strip draws what is being spelled. */
+    private String candidatePreeditStyle = CandidatePreeditStylePolicy.PINYIN;
     /** Which hardware keys page the candidate list, from the shared `navigation` preferences. */
     private CandidateNavigationPolicy.Bindings candidateNavigation =
         CandidateNavigationPolicy.Bindings.defaults();
@@ -467,6 +469,8 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
         if (session == 0) fullWidthInput = fullWidthPreference;
         wordCharacterBinding = wordCharacterBindingFrom(preferences);
+        candidatePreeditStyle = CandidatePreeditStylePolicy.style(preferences == null ? null
+            : preferences.optString("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
         candidateNavigation = candidateNavigationFrom(
             preferences == null ? null : preferences.optJSONObject("navigation"));
         JSONObject keybindings = preferences == null ? null : preferences.optJSONObject("keybindings");
@@ -1260,6 +1264,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextFullWidthPreference = CharacterWidthPolicy.preferenceIsFullWidth(
             preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
         String nextWordCharacterBinding = wordCharacterBindingFrom(preferences);
+        String nextCandidatePreeditStyle = CandidatePreeditStylePolicy.style(
+            preferences.optString("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
         CandidateNavigationPolicy.Bindings nextCandidateNavigation =
             candidateNavigationFrom(preferences.optJSONObject("navigation"));
         boolean nextLanguageCtrl = nextKeybindings != null
@@ -1319,6 +1325,7 @@ public final class MSIMEInputService extends InputMethodService {
             CharacterWidthPolicy.overridesToggle(fullWidthPreference, nextFullWidthPreference);
         fullWidthPreference = nextFullWidthPreference;
         wordCharacterBinding = nextWordCharacterBinding;
+        candidatePreeditStyle = nextCandidatePreeditStyle;
         candidateNavigation = nextCandidateNavigation;
         hardwareLanguageCtrl = nextLanguageCtrl;
         defaultImeMode = nextDefaultImeMode;
@@ -7211,13 +7218,19 @@ public final class MSIMEInputService extends InputMethodService {
             String reading = view == null ? "" : view.optString("reading", "");
             String localModeTitle = "none".equals(localModeKey)
                 ? (reading.isEmpty() ? editingText : reading) : editingText;
+            // A mode's own name is a label saying which mode is running, not composed input, so it
+            // survives 「不显示」; anything the mode is spelling beyond its trigger does not.
+            boolean localModeName = false;
             for (LocalInputMode mode : LocalInputMode.values()) {
                 if (mode.preferenceKey().equals(localModeKey)
                         && mode.trigger().equals(editingText)) {
                     localModeTitle = mode.title();
+                    localModeName = true;
                     break;
                 }
             }
+            localModeTitle = CandidatePreeditStylePolicy.composedText(
+                candidatePreeditStyle, localModeTitle, localModeName);
             boolean idleTitle = idle && editingText.isEmpty();
             brandPillVisible = idleTitle;
             String phrasePrefix = view == null ? "" : view.optString("phrase_prefix", "");
