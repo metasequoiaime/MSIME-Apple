@@ -42,7 +42,8 @@ use platform::desktop::desktop_preferences_monitor;
 use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
 use platform::linux::{
-    linux_account, linux_audio_devices, linux_process, linux_provider_credentials, linux_setup,
+    linux_account, linux_audio_devices, linux_data_directory, linux_process,
+    linux_provider_credentials, linux_setup,
 };
 #[cfg(target_os = "macos")]
 use platform::macos::{
@@ -3777,6 +3778,8 @@ pub fn run() {
             });
             #[cfg(target_os = "macos")]
             app.manage(DataDirectorySelectionState::default());
+            #[cfg(target_os = "linux")]
+            app.manage(linux_data_directory::DataDirectorySelectionState::default());
             #[cfg(target_os = "macos")]
             if let Some(surface) = macos_keyboard::startup_panel(requested_surface_route())
                 .or_else(|| macos_panel_session::startup_panel_for_launch(requested_surface_route()))
@@ -3923,6 +3926,12 @@ pub fn run() {
             pick_data_directory,
             #[cfg(target_os = "macos")]
             move_data_directory,
+            #[cfg(target_os = "linux")]
+            linux_data_directory::data_directory_status,
+            #[cfg(target_os = "linux")]
+            linux_data_directory::pick_data_directory,
+            #[cfg(target_os = "linux")]
+            linux_data_directory::move_data_directory,
             #[cfg(target_os = "macos")]
             load_macos_shuangpin_keymap,
             #[cfg(target_os = "macos")]

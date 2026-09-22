@@ -2365,7 +2365,7 @@ export function SettingsPage({
   }, [client]);
 
   useEffect(() => {
-    if (!macosPlatform || !client.dataDirectory) return;
+    if (!(macosPlatform || linuxPlatform) || !client.dataDirectory) return;
     let active = true;
     client.dataDirectory
       .status()
@@ -2378,7 +2378,7 @@ export function SettingsPage({
     return () => {
       active = false;
     };
-  }, [client, macosPlatform]);
+  }, [client, macosPlatform, linuxPlatform]);
   useEffect(() => {
     let active = true;
     let unsubscribe: (() => void) | undefined;
@@ -2724,13 +2724,15 @@ export function SettingsPage({
           ? String(reason.code)
           : "";
       setDataDirectoryResult(
-        code === "data_directory_not_empty"
-          ? "请选择空文件夹；现有文件不会被覆盖。"
-          : code === "data_directory_invalid"
-            ? "该位置不能作为数据目录，请选择其他空文件夹。"
-            : code === "data_directory_busy"
-              ? "输入法仍在使用数据目录，请稍后重试。"
-              : "移动失败，仍在使用原目录，原有数据未被删除。",
+        code === "data_directory_picker_unavailable"
+          ? "未找到目录选择工具，请安装 zenity 或 kdialog 后重试。"
+          : code === "data_directory_not_empty"
+            ? "请选择空文件夹；现有文件不会被覆盖。"
+            : code === "data_directory_invalid"
+              ? "该位置不能作为数据目录，请选择其他空文件夹。"
+              : code === "data_directory_busy"
+                ? "输入法仍在使用数据目录，请稍后重试。"
+                : "移动失败，仍在使用原目录，原有数据未被删除。",
       );
     } finally {
       setDataDirectoryBusy(false);
@@ -7757,13 +7759,15 @@ export function SettingsPage({
                         <span aria-hidden="true">↗</span>
                       </button>
                     </div>
-                    {macosPlatform && client.dataDirectory && (
+                    {(macosPlatform || linuxPlatform) && client.dataDirectory && (
                       <div className="section" role="group" aria-label="数据目录">
                         <div className="section-header">
                           <span className="section-title">
                             数据目录
                             <small>
                               词库、学习记录、皮肤、剪贴板历史和设置共用此位置。可移动到其他磁盘。
+                              {linuxPlatform &&
+                                "输入法入口配置和在线服务、语音服务的凭据固定保存在 ~/.config/msime-client，不随数据移动。"}
                             </small>
                           </span>
                         </div>
