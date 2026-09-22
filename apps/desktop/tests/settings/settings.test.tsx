@@ -30,7 +30,10 @@ import {
   type Snapshot,
   type TouchKeyboardSkinDesign,
 } from "@msime/ui";
-import { validateGitHubRelease } from "../../../../packages/ui/src/settings/update-manifest";
+import {
+  selectPlatformRelease,
+  validateGitHubRelease,
+} from "../../../../packages/ui/src/settings/update-manifest";
 import { candidateSkinPalette } from "../../../../packages/ui/src/skin/skin-preview-palette";
 import { answerConfirm } from "../support/confirm";
 
@@ -4793,7 +4796,16 @@ test("about page validates a newer release before offering its URL", async () =>
 });
 
 test("Linux checks the client release feed and treats no release as a normal result", async () => {
-  const fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+  const fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => [
+      {
+        tag_name: "macos-v9.0.0",
+        html_url: "https://github.com/metasequoiaime/msime/releases/tag/macos-v9.0.0",
+      },
+    ],
+  });
   vi.stubGlobal("fetch", fetch);
   render(
     <SettingsPage
@@ -4809,23 +4821,34 @@ test("Linux checks the client release feed and treats no release as a normal res
   expect(await screen.findByText("暂无可用发行版")).toBeDefined();
   expect(fetch).toHaveBeenCalledWith(
     expect.stringMatching(
-      /^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\/latest\?t=\d+$/,
+      /^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?per_page=100&t=\d+$/,
     ),
     { cache: "no-store" },
   );
   vi.unstubAllGlobals();
 });
 
-test("Linux offers a validated newer client release", async () => {
+test("Linux offers its own newest published release, not another platform's", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({
-        tag_name: "v1.2.0",
-        html_url: "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
-      }),
+      json: async () => [
+        {
+          tag_name: "macos-v9.0.0",
+          html_url: "https://github.com/metasequoiaime/msime/releases/tag/macos-v9.0.0",
+        },
+        {
+          tag_name: "linux-v1.3.0",
+          html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.3.0",
+          prerelease: true,
+        },
+        {
+          tag_name: "linux-v1.2.0",
+          html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
+        },
+      ],
     }),
   );
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
@@ -4845,10 +4868,53 @@ test("Linux offers a validated newer client release", async () => {
   fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
   await waitFor(() =>
     expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
+      "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
     ),
   );
   expect(screen.queryByText(/SHA256/)).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("Windows checks this repository's Windows releases rather than the reference manifest", async () => {
+  const fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => [
+      {
+        tag_name: "linux-v9.0.0",
+        html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v9.0.0",
+      },
+      {
+        tag_name: "windows-v1.2.0",
+        html_url: "https://github.com/metasequoiaime/msime/releases/tag/windows-v1.2.0",
+      },
+    ],
+  });
+  vi.stubGlobal("fetch", fetch);
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openExternalUrl,
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  expect(fetch).toHaveBeenCalledWith(
+    expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?/),
+    { cache: "no-store" },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://github.com/metasequoiaime/msime/releases/tag/windows-v1.2.0",
+    ),
+  );
   vi.unstubAllGlobals();
 });
 
@@ -4858,10 +4924,12 @@ test("about page uses the packaged app version for display and update comparison
     vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({
-        tag_name: "v1.2.0",
-        html_url: "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
-      }),
+      json: async () => [
+        {
+          tag_name: "linux-v1.2.0",
+          html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
+        },
+      ],
     }),
   );
   render(
@@ -4880,6 +4948,23 @@ test("about page uses the packaged app version for display and update comparison
   expect(await screen.findByText("已是最新版本")).toBeDefined();
   expect(screen.queryByRole("button", { name: "前往下载" })).toBeNull();
   vi.unstubAllGlobals();
+});
+
+test("platform release selection compares versions rather than trusting list order", () => {
+  const page = "https://github.com/metasequoiaime/msime/releases";
+  expect(
+    selectPlatformRelease(
+      [
+        { tag_name: "windows-v0.9.0", html_url: `${page}/tag/windows-v0.9.0` },
+        { tag_name: "windows-v0.10.0", html_url: `${page}/tag/windows-v0.10.0` },
+        { tag_name: "windows-v2.0.0", html_url: `${page}/tag/windows-v2.0.0`, draft: true },
+        { tag_name: "windowsx-v3.0.0", html_url: `${page}/tag/windowsx-v3.0.0` },
+      ],
+      "windows",
+      page,
+    )?.version.display,
+  ).toBe("0.10.0");
+  expect(selectPlatformRelease([], "windows", page)).toBeNull();
 });
 
 test("client release validation rejects a release URL outside the shared repository", () => {

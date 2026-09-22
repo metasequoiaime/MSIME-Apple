@@ -187,7 +187,7 @@ import {
   compareVersions,
   describeInstallerTrust,
   parseVersion,
-  validateGitHubRelease,
+  selectPlatformRelease,
   validateManifest,
   type GitHubRelease,
   type UpdateManifest,
@@ -563,7 +563,7 @@ const fallbackAppVersion = "0.1.0";
 const releasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
 const linuxReleasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
 const updateManifestUrl = "https://msime.app/update.json";
-const clientLatestReleaseUrl = "https://api.github.com/repos/metasequoiaime/msime/releases/latest";
+const clientReleasesUrl = "https://api.github.com/repos/metasequoiaime/msime/releases";
 const licenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
@@ -2019,7 +2019,9 @@ export function SettingsPage({
   // panel_windows is the injected projection of host_surface::is_desktop, so this follows the capability instead of listing the mobile hosts by name and missing the next one.
   const showDesktopMaintenanceShortcuts = !host || host.panel_windows;
   const maintenanceChord = macosPlatform ? "Ctrl+Shift+Option" : "Ctrl+Shift+Alt";
+  // Windows is built from this repository now too, so it reads this repository's releases; msime.app/update.json describes the reference Windows product and names its repository, which the validation below rightly refuses.
   const clientHostedPlatform =
+    windowsPlatform ||
     linuxPlatform ||
     androidPlatform ||
     macosPlatform ||
@@ -2731,17 +2733,25 @@ export function SettingsPage({
     setUpdateStatus("");
     setAvailableUpdate(null);
     try {
-      const endpoint = clientHostedPlatform ? clientLatestReleaseUrl : updateManifestUrl;
-      const response = await fetch(`${endpoint}?t=${Date.now()}`, { cache: "no-store" });
-      if (clientHostedPlatform && response.status === 404) {
-        setUpdateStatus("暂无可用发行版");
-        return;
-      }
+      const releasePlatform = client.host?.platform ?? (linuxPlatform ? "linux" : null);
+      const endpoint =
+        clientHostedPlatform && releasePlatform
+          ? `${clientReleasesUrl}?per_page=100&t=${Date.now()}`
+          : `${updateManifestUrl}?t=${Date.now()}`;
+      const response = await fetch(endpoint, { cache: "no-store" });
       if (!response.ok) throw new Error(`update manifest returned ${response.status}`);
-      const manifest = (await response.json()) as UpdateManifest | GitHubRelease;
-      const update = clientHostedPlatform
-        ? validateGitHubRelease(manifest as GitHubRelease, platformReleasesPageUrl)
-        : validateManifest(manifest as UpdateManifest, platformReleasesPageUrl);
+      const manifest = (await response.json()) as UpdateManifest | GitHubRelease[];
+      let update: ValidatedUpdate | null;
+      if (clientHostedPlatform && releasePlatform) {
+        if (!Array.isArray(manifest)) throw new Error("invalid release list");
+        update = selectPlatformRelease(manifest, releasePlatform, platformReleasesPageUrl);
+        if (!update) {
+          setUpdateStatus("暂无可用发行版");
+          return;
+        }
+      } else {
+        update = validateManifest(manifest as UpdateManifest, platformReleasesPageUrl);
+      }
       const current = parseVersion(currentAppVersion);
       if (!update || !current) throw new Error("invalid update manifest");
       if (compareVersions(update.version, current) > 0) {

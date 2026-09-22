@@ -61,6 +61,7 @@ try {
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$bin",
             '-DMSIMEUI_BUILD_HANDWRITING_DEMO=OFF')
         if ($arch -eq 'x64') { $configure += '-DMSIME_SERVER_UIACCESS=ON' }
+        if ($TargetVersion -ne '') { $configure += "-DMSIME_WINDOWS_VERSION=$TargetVersion" }
         Invoke-ClientBuild cmake $configure
         $targets = if ($arch -eq 'x64') {
             @('msime-client-server', 'msime-client-watchdog', 'msime-client-prepare', 'msime-tsf')

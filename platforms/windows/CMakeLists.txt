@@ -932,6 +932,13 @@ if(WIN32)
   set_tests_properties(windows-watchdog-help PROPERTIES TIMEOUT 5)
   add_executable(msime-client-server src/entrypoints/server_main.cpp)
   target_include_directories(msime-client-server PRIVATE ../../platforms/common)
+  # The version the Server reports in telemetry, read from the file the release workflow reads. Build-Client.ps1 passes the release version explicitly when it builds an installer.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/version.txt")
+  if(NOT MSIME_WINDOWS_VERSION)
+    file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/version.txt" MSIME_WINDOWS_VERSION LIMIT_COUNT 1)
+    string(STRIP "${MSIME_WINDOWS_VERSION}" MSIME_WINDOWS_VERSION)
+  endif()
+  target_compile_definitions(msime-client-server PRIVATE MSIME_WINDOWS_VERSION="${MSIME_WINDOWS_VERSION}")
   # The product mark, which the toolbar loads out of the running executable.
   # Compiled into the Server itself rather than shipped beside it: an icon the
   # installer could forget to copy is an icon that silently stops appearing.
