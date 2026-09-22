@@ -282,6 +282,26 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_punctuationWithC
     }
     return response(env, msime_client_punctuation_with_context(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), static_cast<uint32_t>(preceding)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_smartPunctuationArmRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
+    if (!request) return response(env, msime_client_smart_punctuation_arm(static_cast<uint64_t>(handle), nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_smart_punctuation_arm(static_cast<uint64_t>(handle),
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_smartPunctuationDecideRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
+    if (!request) return response(env, msime_client_smart_punctuation_decide(static_cast<uint64_t>(handle), nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_smart_punctuation_decide(static_cast<uint64_t>(handle),
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_commandRaw(JNIEnv *env, jclass, jlong handle, jint command) {
     return response(env, msime_client_command(static_cast<uint64_t>(handle), static_cast<uint32_t>(command)));
 }

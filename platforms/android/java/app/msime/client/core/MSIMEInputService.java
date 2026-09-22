@@ -323,6 +323,9 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean replySuppressed;
     private boolean statisticsFailureReported;
     private long editorContextRevision;
+    /** Editor-owned smart-punctuation snapshots; never persisted or sent to the UI. */
+    private JSONObject smartRepeatSnapshot;
+    private JSONObject smartSpaceSnapshot;
     private SharedPreferences emojiPreferences;
     private java.util.List<String> emojiRecents = java.util.List.of();
     private java.util.List<EmojiCatalogModel.Item> emojiItems = java.util.List.of();
@@ -620,6 +623,7 @@ public final class MSIMEInputService extends InputMethodService {
         connection = getCurrentInputConnection();
         ensureCandidateTranslationStore();
         editorContextRevision++;
+        clearSmartPunctuationSnapshots();
         bridge = new EditorBridge();
         schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
         loadKeyboardLayoutPreferences();
@@ -791,6 +795,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void stop(boolean finish) {
         cancelBackspaceRepeat();
         clearDiagnostic();
+        clearSmartPunctuationSnapshots();
         deactivateHandwriting();
         invalidateCandidateGlosses();
         preferencesReloader.stop();
@@ -1854,8 +1859,59 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         int preceding = SmartPunctuationContext.precedingCodePoint(before);
-        try { return apply(NativeClient.punctuationWithContext(session, ascii, preceding)); }
+        try {
+            JSONObject decision = smartPunctuationDecision((char) ascii, before);
+            String replacement = decision == null ? null : decision.optString("replace_with", null);
+            if (replacement != null && !replacement.isEmpty()) {
+                if (connection == null || !connection.deleteSurroundingText(1, 0)) return false;
+                smartRepeatSnapshot = null;
+                return commitText(replacement);
+            }
+            String response = NativeClient.punctuationWithContext(session, ascii, preceding);
+            boolean handled = apply(response);
+            armSmartPunctuation(ascii, response, false);
+            return handled;
+        }
         catch (JSONException | LinkageError error) { fail(); return true; }
+    }
+
+    private void clearSmartPunctuationSnapshots() {
+        smartRepeatSnapshot = null;
+        smartSpaceSnapshot = null;
+    }
+
+    private JSONObject smartPunctuationDecision(char character, CharSequence before) {
+        if (session == 0) return null;
+        try {
+            int preceding = SmartPunctuationContext.precedingCodePoint(before);
+            JSONObject request = new JSONObject().put("character", (int) character)
+                .put("preceding", preceding == 0 ? JSONObject.NULL
+                    : String.valueOf(Character.toChars(preceding)))
+                .put("timestamp_ms", SystemClock.elapsedRealtime())
+                .put("editor_generation", editorContextRevision)
+                .put("repeat", smartRepeatSnapshot == null ? JSONObject.NULL : smartRepeatSnapshot)
+                .put("space", smartSpaceSnapshot == null ? JSONObject.NULL : smartSpaceSnapshot);
+            return value(NativeClient.smartPunctuationDecide(session, request.toString()));
+        } catch (Exception | LinkageError ignored) {
+            return null;
+        }
+    }
+
+    private void armSmartPunctuation(int ascii, String response, boolean autoClosedPair) {
+        if (session == 0) return;
+        try {
+            JSONObject result = value(response);
+            JSONObject request = new JSONObject().put("ascii", ascii)
+                .put("commit", result.isNull("commit") ? "" : result.optString("commit", ""))
+                .put("timestamp_ms", SystemClock.elapsedRealtime())
+                .put("editor_generation", editorContextRevision)
+                .put("auto_closed_pair", autoClosedPair);
+            JSONObject armed = value(NativeClient.smartPunctuationArm(session, request.toString()));
+            smartRepeatSnapshot = armed.isNull("repeat") ? null : armed.getJSONObject("repeat");
+            smartSpaceSnapshot = armed.isNull("space") ? null : armed.getJSONObject("space");
+        } catch (Exception | LinkageError ignored) {
+            clearSmartPunctuationSnapshots();
+        }
     }
 
     private static boolean isAsciiLetter(int value) {
@@ -1872,6 +1928,15 @@ public final class MSIMEInputService extends InputMethodService {
     private void space() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
+        JSONObject spaceDecision = smartPunctuationDecision(' ', getTextBeforeCursor());
+        if (spaceDecision != null && !spaceDecision.isNull("space_ascii")) {
+            int ascii = spaceDecision.optInt("space_ascii", 0);
+            if (ascii >= 32 && ascii <= 126 && connection.deleteSurroundingText(1, 0)) {
+                smartSpaceSnapshot = null;
+                commitText(String.valueOf((char) ascii));
+                return;
+            }
+        }
         if (japaneseSchemeActive() && view != null) {
             String editingText = view.optString("editing_text", "");
             JSONArray candidates = view.optJSONArray("candidates");
@@ -1900,6 +1965,12 @@ public final class MSIMEInputService extends InputMethodService {
         } else if (!command(1)) {
             commitText(fullWidthOutput(" "));
         }
+    }
+
+    private CharSequence getTextBeforeCursor() {
+        if (connection == null) return null;
+        try { return connection.getTextBeforeCursor(2, 0); }
+        catch (RuntimeException ignored) { return null; }
     }
 
     private boolean japaneseSchemeActive() {

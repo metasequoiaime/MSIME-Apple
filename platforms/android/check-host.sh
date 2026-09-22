@@ -57,6 +57,15 @@ if ! rg -q 'shuangpinKeyHintsRaw' \
   echo "Android double-pinyin hints must cross the shared Host API through JNI" >&2
   exit 1
 fi
+# Smart-punctuation repeat/space decisions belong to the shared Host API. Android may hold
+# editor-scoped snapshots, but must not reimplement timing or replacement rules locally.
+if ! rg -q 'smartPunctuationArmRaw|smartPunctuationDecideRaw' \
+    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+    || ! rg -q 'msime_client_smart_punctuation_(arm|decide)' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android smart punctuation must cross the shared Host API through JNI" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling

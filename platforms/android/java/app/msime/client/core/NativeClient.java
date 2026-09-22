@@ -26,6 +26,7 @@ public final class NativeClient {
     private static final int ENGLISH_COMPLETION_RESPONSE_LIMIT = 262_144;
     private static final int SHUANGPIN_PROFILE_LIMIT = 64;
     private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
+    private static final int SMART_PUNCTUATION_REQUEST_LIMIT = 4_096;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
@@ -142,6 +143,19 @@ public final class NativeClient {
             throw new IllegalArgumentException("Preceding character must be a Unicode scalar");
         return text(punctuationWithContextRaw(session, ascii, precedingCodePoint));
     }
+    public static String smartPunctuationArm(long session, String request) {
+        return text(smartPunctuationArmRaw(session, boundedSmartPunctuation(request)));
+    }
+    public static String smartPunctuationDecide(long session, String request) {
+        return text(smartPunctuationDecideRaw(session, boundedSmartPunctuation(request)));
+    }
+    private static byte[] boundedSmartPunctuation(String request) {
+        if (request == null) throw new IllegalArgumentException("Missing smart punctuation request");
+        byte[] payload = request.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > SMART_PUNCTUATION_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Smart punctuation request is too large");
+        return payload;
+    }
     public static String command(long session, int command) { return text(commandRaw(session, command)); }
     public static String select(long session, long generation, long index) {
         if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
@@ -235,6 +249,8 @@ public final class NativeClient {
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
     private static native byte[] punctuationWithContextRaw(long session, int ascii,
         int precedingCodePoint);
+    private static native byte[] smartPunctuationArmRaw(long session, byte[] request);
+    private static native byte[] smartPunctuationDecideRaw(long session, byte[] request);
     private static native byte[] commandRaw(long session, int command);
     private static native byte[] selectRaw(long session, long generation, long index);
     private static native byte[] selectAnyCandidateRaw(long session, long generation, long index);
