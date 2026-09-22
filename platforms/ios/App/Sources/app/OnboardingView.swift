@@ -151,10 +151,12 @@ struct InputSettingsView: View {
         Section {
           Toggle("按键音", isOn: $soundEnabled)
             .accessibilityIdentifier("keyboardSoundToggle")
-          Toggle("按键振动", isOn: $hapticsEnabled)
-            .accessibilityIdentifier("keyboardHapticsToggle")
-            .onChange(of: hapticsEnabled) { enabled in if enabled { previewHaptics() } }
-          if hapticsEnabled {
+          if KeyboardFeedbackPreference.hapticsAvailable {
+            Toggle("按键振动", isOn: $hapticsEnabled)
+              .accessibilityIdentifier("keyboardHapticsToggle")
+              .onChange(of: hapticsEnabled) { enabled in if enabled { previewHaptics() } }
+          }
+          if KeyboardFeedbackPreference.hapticsAvailable && hapticsEnabled {
             Picker("振动强度", selection: $hapticStrength) {
               ForEach(KeyboardHapticStrength.allCases, id: \.rawValue) { strength in
                 Text(strength.title).tag(strength.rawValue)
@@ -169,7 +171,9 @@ struct InputSettingsView: View {
         } header: {
           Text("按键反馈")
         } footer: {
-          Text("按键音受系统静音设置控制；振动效果取决于设备与系统支持。")
+          Text(KeyboardFeedbackPreference.hapticsAvailable
+            ? "按键音受系统静音设置控制；振动效果取决于设备与系统支持。"
+            : "按键音受系统静音设置控制。")
         }
 
     }

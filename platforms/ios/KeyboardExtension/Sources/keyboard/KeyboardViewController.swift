@@ -103,6 +103,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
   private var microsoftFinalKey: UIButton?
+  /// Comma and full stop at the end of the third letter row; shown only on the tablet keyboard.
+  private var letterRowPunctuationKeys: [UIButton] = []
+  private var formFactor: KeyboardFormFactor { .resolve(traitCollection) }
   private var letterRowViews: [UIView] = []
   private var symbolRowViews: [UIView] = []
   // Symbol keys show the punctuation they actually emit in Chinese mode.
@@ -979,7 +982,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           if KeyboardFeedbackPreference.soundEnabled { UIDevice.current.playInputClick() }
           self?.updateShortcutButtons()
         },
-        KeyboardTool(title: "按键振动", symbol: "iphone.radiowaves.left.and.right",
+        withHaptics(KeyboardTool(title: "按键振动", symbol: "iphone.radiowaves.left.and.right",
                      selected: KeyboardFeedbackPreference.hapticsEnabled) { [weak self] in
           KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled,
                                                    forKey: KeyboardFeedbackPreference.hapticsKey)
@@ -988,13 +991,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             self?.prepareKeyFeedback()
           }
           self?.updateShortcutButtons()
-        },
+        }),
         KeyboardTool(title: "全角输入", symbol: "character.cursor.ibeam",
                      selected: KeyboardLayoutPreference.fullWidthInputEnabled) { [weak self] in
           KeyboardLayoutPreference.fullWidthInputEnabled = !KeyboardLayoutPreference.fullWidthInputEnabled
           self?.updateShortcutButtons()
         },
-        KeyboardTool(title: "振动强度", symbol: "waveform",
+        withHaptics(KeyboardTool(title: "振动强度", symbol: "waveform",
                      enabled: KeyboardFeedbackPreference.hapticsEnabled,
                      caption: KeyboardFeedbackPreference.hapticStrength.title) { [weak self] in
           guard let self else { return }
@@ -1006,9 +1009,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           keyFeedback.impactOccurred(intensity: next.intensity)
           prepareKeyFeedback()
           updateShortcutButtons()
-        },
-      ]),
+        }),
+      ].compactMap { $0 }),
     ]
+  }
+
+  /// Vibration controls only where there is a Taptic Engine to drive; an iPad would show switches that do nothing.
+  private func withHaptics(_ tool: KeyboardTool) -> KeyboardTool? {
+    KeyboardFeedbackPreference.hapticsAvailable ? tool : nil
   }
 
   private func makeLocalModeSections() -> [KeyboardToolSection] {
@@ -1134,6 +1142,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         shift.widthAnchor.constraint(equalToConstant: 44),
         delete.widthAnchor.constraint(equalTo: shift.widthAnchor),
       ] + keys.dropFirst().map { $0.widthAnchor.constraint(equalTo: keys[0].widthAnchor) })
+      // The iPad system keyboard ends this row with comma and full stop. They start hidden and
+      // their widths sit below required so the stack view's own hiding constraint wins on phones.
+      for ascii in [",", "."] {
+        let chinese = Self.chineseSymbolFaces[ascii] ?? ascii
+        let key = makeKey(title: chinese, accessibilityLabel: "符号 \(chinese)") { [weak self] in
+          self?.handleSymbol(ascii)
+        }
+        key.accessibilityIdentifier = ascii == "," ? "letterRowCommaKey" : "letterRowPeriodKey"
+        key.isHidden = true
+        symbolKeyFaces.append((key, ascii, chinese))
+        letterRowPunctuationKeys.append(key)
+        row.insertArrangedSubview(key, at: row.arrangedSubviews.count - 1)
+        let width = key.widthAnchor.constraint(equalTo: keys[0].widthAnchor)
+        width.priority = .init(999)
+        width.isActive = true
+      }
     }
     if letters == letterRows[1] {
       let key = makeKey(title: ";", accessibilityLabel: "微软双拼 ing") { [weak self] in self?.handleCharacter(";") }
@@ -2389,6 +2413,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let globe: Bool
     let hasSpellings: Bool
     let geometry: KeyboardGeometry
+    let formFactor: KeyboardFormFactor
   }
 
   private var layoutInputs: KeyboardLayoutInputs {
@@ -2396,7 +2421,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       chinese: isChineseMode, scheme: inputScheme, localMode: currentLocalMode,
       symbols: showsSymbols, globe: needsInputModeSwitchKey,
       hasSpellings: !currentNineKeySpellings.isEmpty,
-      geometry: KeyboardLayoutPreference.geometry)
+      geometry: KeyboardLayoutPreference.geometry,
+      formFactor: formFactor)
   }
 
   /// Rebuild the keyboard only when something it depends on moved.
@@ -2431,6 +2457,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if writes { handwriting.activate() }
     handwritingActionHeight?.isActive = writes
     letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes || kana }
+    let rowPunctuation = formFactor.showsLetterRowPunctuation
+    for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
     // The nine-key digit layer keeps the three-column grid and only changes its legends. This
     // avoids replacing it with the ten-across symbol rows and preserves the user's chosen layout.
     let nineKeyDigits = nineKey && showsSymbols
@@ -3345,11 +3373,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // The composition line added a row to the candidate strip; the keyboard grew by it rather than
     // taking the space out of the keys.
     let extra = Self.compositionRowHeight + Self.glossHeight(lines: glossLineCount)
-    // Handwriting shares the candidate strip and therefore the common portrait height. Landscape
-    // keeps a small allowance so the writing canvas remains usable in the shorter keyboard.
-    let height: CGFloat = handwriting.isHidden || !landscape
-      ? (landscape ? 216 + extra : 260 + extra)
-      : 240 + extra
+    // Handwriting shares the candidate strip and therefore the common portrait height.
+    let height = formFactor.baseHeight(landscape: landscape, handwriting: !handwriting.isHidden) + extra
     let adjustedHeight = height + sharedKeyboardHeightAdjustment
     if keyboardHeightConstraint?.constant != adjustedHeight { keyboardHeightConstraint?.constant = adjustedHeight }
   }
@@ -3679,6 +3704,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if isViewLoaded, actionRow != nil,
        previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
       applyKeyboardSkin()
+    }
+    // Docking or undocking the iPad keyboard changes the width class, and with it the form factor.
+    if isViewLoaded, actionRow != nil,
+       previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+      updateKeyboardLayoutIfNeeded()
     }
   }
 
