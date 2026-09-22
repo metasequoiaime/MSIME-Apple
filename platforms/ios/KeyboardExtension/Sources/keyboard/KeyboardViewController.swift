@@ -126,6 +126,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Japanese conversion keeps the selected candidate in the strip until Return commits it.
   private var japaneseConversionIndex: Int?
   private var isChineseMode = true
+
+  /// The mode a newly opened keyboard starts in, from the shared `default_ime_mode`.
+  ///
+  /// Only a new keyboard reads it: once the 中/英 key has been pressed, that choice holds for as long as this keyboard lives, and a settings change never flips the mode under the typist. iOS does not tell a keyboard which app it is typing into, so `ime_mode_scope` has nothing to key a per-app memory on and is not used here (see `HostCapabilities::ime_mode_scope`).
+  static func startsInChinese(_ preferences: [String: Any]?) -> Bool {
+    preferences?["default_ime_mode"] as? String != "english"
+  }
   private var inputContext = KeyboardInputContext()
   private var inputScheme: ChineseInputScheme = .quanpin
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
@@ -310,6 +317,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     super.viewDidLoad()
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
+    isChineseMode = Self.startsInChinese(session.sharedPreferences)
     glossLineCount = currentGlossLines()
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()

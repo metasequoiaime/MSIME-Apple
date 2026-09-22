@@ -1081,9 +1081,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private static func hostOverrides(applyingTo preferences: [String: Any]) -> [String: Any] {
     var preferences = preferences
     preferences["candidate_page_size"] = 9
-    // The shared preference default is English, and iOS has no setting that overrides it: the
-    // 中/英 key switches modes instead. macOS compensates the same way.
-    preferences["default_ime_mode"] = "chinese"
     // Cloud candidates are opt-in on iOS; see CloudCandidatePreference. Never persisted: the shared document keeps the desktop's value.
     preferences["cloud_candidates"] = CloudCandidatePreference.enabled
     return preferences
