@@ -3904,6 +3904,8 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::android_open_input_method_settings,
             #[cfg(target_os = "android")]
+            android_account::android_open_keyboard_tryout,
+            #[cfg(target_os = "android")]
             android_account::android_show_input_method_picker,
             #[cfg(target_os = "android")]
             android_account::android_bootstrap_status,
