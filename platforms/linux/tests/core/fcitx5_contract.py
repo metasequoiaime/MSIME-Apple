@@ -137,6 +137,11 @@ assert 'MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET' in source
 assert 'nextCloudClipboard' in source
 assert '++cloud_clipboard_generation_' in source
 
+# Voice provider discovery must match IBus and the standalone Linux provider
+# contract, including the runtime socket fallback during hot reload.
+assert 'providerSocket(options, "voice_provider_socket"' in source
+assert '"MSIME_VOICE_PROVIDER_SOCKET", "voice.sock"' in source
+
 # Fcitx5 menu preference writes retain the last failed field and expose a retry
 # action. A failed revision comparison must not leave the user with a silent
 # diagnostic-only failure as the old async save path did.

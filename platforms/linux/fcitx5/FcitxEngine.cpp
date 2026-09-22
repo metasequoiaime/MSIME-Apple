@@ -1225,10 +1225,8 @@ public:
       cloud_clipboard_items_.clear();
     }
     cloud_clipboard_socket_ = std::move(cloud_clipboard_socket);
-    voice_socket_ = options.value("voice_provider_socket", std::string());
-    if (voice_socket_.empty()) {
-      if (const auto *socket = std::getenv("MSIME_VOICE_PROVIDER_SOCKET")) voice_socket_ = socket;
-    }
+    voice_socket_ = providerSocket(options, "voice_provider_socket",
+                                   "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
     const auto voicePreferences = preferences_.value("voice_input", Json::object());
     voice_enabled_ = voicePreferences.value("enabled", true);
     voice_hotkey_ctrl_f9_ = voicePreferences.value("hotkey_ctrl_f9", true);
@@ -1379,10 +1377,8 @@ public:
         cloud_clipboard_items_.clear();
         cloud_clipboard_socket_ = std::move(nextCloudClipboard);
       }
-      auto nextVoice = options.value("voice_provider_socket", std::string{});
-      if (nextVoice.empty()) {
-        if (const auto *socket = std::getenv("MSIME_VOICE_PROVIDER_SOCKET")) nextVoice = socket;
-      }
+      auto nextVoice = providerSocket(options, "voice_provider_socket",
+                                      "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
       if (nextVoice != voice_socket_) {
         if (voice_loading_) cancelVoice();
         voice_socket_ = std::move(nextVoice);
