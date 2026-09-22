@@ -841,6 +841,10 @@ group("every tool in the shortcut bar has a name", () => {
     KeyAccessibilityPolicy.englishSuggestion(2, "hello") === "英文补全 2：hello",
     "english completions get a spoken candidate label",
   );
+  check(
+    KeyAccessibilityPolicy.spelling("ni hao") === "选择拼音 ni hao",
+    "nine-key spellings describe their selectable action",
+  );
 });
 
 group("a report says which release it came from, or says nothing", () => {
