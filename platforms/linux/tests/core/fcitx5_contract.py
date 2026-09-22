@@ -127,6 +127,10 @@ assert 'nextClipboard = options.value("preferences_directory", std::string{})' i
 assert 'options.value("clipboard_history_path", std::string{})' in source
 assert '++clipboard_generation_' in source
 assert 'clipboard_loading_ = false' in source
+# Explicit clipboard_history_path has precedence over the derived preferences
+# directory in both initial setup and runtime reload.
+assert 'auto clipboard_path = options.value("clipboard_history_path", std::string());' in source
+assert 'auto nextClipboard = options.value("clipboard_history_path", std::string{});' in source
 
 # Cloud clipboard follows the provider socket contract: explicit options,
 # environment override, then the per-user runtime socket, and hot reload must
