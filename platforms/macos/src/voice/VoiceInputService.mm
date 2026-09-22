@@ -119,15 +119,13 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
         if (!duration->append(buffer.frameLength)) return;
         [speechRequest appendAudioPCMBuffer:buffer]; bufferHandler(buffer);
     };
-    if (@available(macOS 27.0, *)) {
-        [input installTapOnBus:0 bufferSize:1024 format:format error:&tapError block:capture];
-    } else {
-        // Keep capture available on the supported macOS 13–26 hosts.
+    // AVAudioInputNode exposes the tap API without an NSError parameter on
+    // the macOS SDKs supported by this host. Keep the deprecated warning
+    // local to this call rather than selecting a non-existent overload.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        [input installTapOnBus:0 bufferSize:1024 format:format block:capture];
+    [input installTapOnBus:0 bufferSize:1024 format:format block:capture];
 #pragma clang diagnostic pop
-    }
     if (tapError) { duration->finish(); _captureDuration.reset(); _audioEngine = nil; if (error) *error = tapError; return NO; }
     NSError *startError = nil;
     if (![_audioEngine startAndReturnError:&startError]) { duration->finish(); _captureDuration.reset(); [input removeTapOnBus:0]; _audioEngine = nil; if (error) *error = startError; return NO; }
