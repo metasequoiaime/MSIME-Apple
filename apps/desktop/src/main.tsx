@@ -18,6 +18,7 @@ import {
   SettingsPage,
   SettingsStartupPage,
   WelcomeFlowPage,
+  LinuxSetupPage,
   useCandidatePreviewTheme,
   type AccountClient,
   type ApiCredentialTestResult,
@@ -45,6 +46,9 @@ import {
   type LocalDictionaryFormat,
   type OnboardingActions,
   type OnboardingInputScheme,
+  type LinuxSetupClient,
+  type LinuxSetupLine,
+  type LinuxSetupStatus,
 } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
@@ -127,6 +131,18 @@ async function downloadCloudEntryToLocal(
   });
   await dictionaryClient.importPersonal(text, `ui-cloud-download-${Date.now()}`);
 }
+const linuxSetupClient: LinuxSetupClient = {
+  run: async (download, onLine) => {
+    const unlisten = await listen<LinuxSetupLine>("linux-setup-output", (event) =>
+      onLine(event.payload),
+    );
+    try {
+      return await invoke<LinuxSetupStatus>("run_linux_setup", { download });
+    } finally {
+      unlisten();
+    }
+  },
+};
 const typingStatistics: TypingStatisticsClient = {
   load: () => invoke("load_typing_statistics"),
   setEnabled: (enabled: boolean) => invoke("set_typing_statistics_enabled", { enabled }),
@@ -392,6 +408,7 @@ async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
 function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
+  const [linuxSetup, setLinuxSetup] = useState<LinuxSetupStatus | null>(null);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<
     | "voice"
@@ -512,7 +529,13 @@ function DesktopSettings() {
         : ios
           ? await invoke<boolean>("ios_onboarding_status").catch(() => false)
           : true;
+      // Linux prepares its runtime options from the first-run page instead of refusing to start without them.
+      const linuxSetupStatus =
+        host?.platform === "linux"
+          ? await invoke<LinuxSetupStatus>("linux_setup_status").catch(() => null)
+          : null;
       if (!active) return;
+      if (linuxSetupStatus && !linuxSetupStatus.prepared) setLinuxSetup(linuxSetupStatus);
       setBootstrapRequired((android || ios) && !ready);
       setInitialPage(page ?? undefined);
       const hosted: SettingsClient = host
@@ -712,6 +735,14 @@ function DesktopSettings() {
     setBootstrapRequired(false);
     setReplayOnboarding(false);
   };
+  if (linuxSetup)
+    return (
+      <LinuxSetupPage
+        status={linuxSetup}
+        client={linuxSetupClient}
+        onComplete={() => setLinuxSetup(null)}
+      />
+    );
   // Mount once after discovery: replacing the client later would reload draft preferences.
   if (bootstrapRequired || replayOnboarding)
     return (

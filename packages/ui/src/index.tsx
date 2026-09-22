@@ -132,6 +132,12 @@ export {
   type OnboardingActions,
   type OnboardingInputScheme,
 } from "./account/onboarding-page";
+export {
+  LinuxSetupPage,
+  type LinuxSetupClient,
+  type LinuxSetupLine,
+  type LinuxSetupStatus,
+} from "./account/linux-setup-page";
 export { SettingsStartupPage } from "./settings/settings-startup-page";
 export {
   CommunitySkinsPage,

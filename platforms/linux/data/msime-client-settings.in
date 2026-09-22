@@ -53,10 +53,13 @@ else
     /*) ;;
     *) echo "MSIME user configuration directory must be absolute" >&2; exit 1 ;;
   esac
-  # Match the IBus component's installed configuration fallback. An existing
-  # unreadable file or dangling symlink is a broken user configuration.
+  # Match the IBus component's installed configuration fallback. An existing unreadable file or dangling symlink is a broken user configuration.
   if [ ! -e "$config" ] && [ ! -L "$config" ]; then
-    config='@MSIME_SETTINGS_SYSTEM_CONFIG@'
+    system_config='@MSIME_SETTINGS_SYSTEM_CONFIG@'
+    # With neither file present the window opens on its first-run page, which prepares the user file named here.
+    if [ -e "$system_config" ] || [ -L "$system_config" ]; then
+      config=$system_config
+    fi
   fi
 fi
 
@@ -64,8 +67,8 @@ case "$config" in
   /*) ;;
   *) echo "MSIME runtime options must be an absolute path: $config" >&2; exit 1 ;;
 esac
-if [ ! -r "$config" ]; then
-  echo "MSIME runtime options not found: $config" >&2
+if { [ -e "$config" ] || [ -L "$config" ]; } && [ ! -r "$config" ]; then
+  echo "MSIME runtime options are not readable: $config" >&2
   exit 1
 fi
 
