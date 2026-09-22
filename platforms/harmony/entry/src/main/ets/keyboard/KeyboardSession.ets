@@ -2027,6 +2027,12 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
+    // A candidate-window face belongs to the editor/session that opened it. Do not carry a 2-in-1
+    // emoji, voice or screen-keyboard surface into the next focus or an idle Engine restart; on a
+    // phone this is a no-op because desktop surfaces are fail-closed at setDesktopSurface().
+    if (this.desktopSurface !== DesktopSurface.NONE) {
+      this.setDesktopSurface(DesktopSurface.NONE);
+    }
     if (this.personalDictionaryTimer >= 0) {
       clearTimeout(this.personalDictionaryTimer);
       this.personalDictionaryTimer = -1;
