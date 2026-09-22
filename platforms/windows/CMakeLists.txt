@@ -851,7 +851,8 @@ if(WIN32)
   else()
     set(MSIME_SQLITE_TARGET SQLite::SQLite3)
   endif()
-  add_library(msime-windows-server STATIC src/system/WindowsServer.cpp src/candidate/CandidateWindow.cpp src/candidate/CandidateFlyoutWindow.cpp src/candidate/TrayMenuWindow.cpp)
+  add_library(msime-windows-server STATIC src/system/WindowsServer.cpp src/candidate/CandidateWindow.cpp src/candidate/CandidateFlyoutWindow.cpp src/candidate/TrayMenuWindow.cpp ../../platforms/common/Telemetry.cpp)
+  target_include_directories(msime-windows-server PRIVATE ../../platforms/common)
   # src/entrypoints/server_main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
   # are out of line. Without these the Server target does not link at all.
   target_sources(msime-windows-server PRIVATE src/clipboard/ClipboardHistory.cpp src/clipboard/ClipboardMonitor.cpp)
@@ -899,6 +900,7 @@ if(WIN32)
   add_test(NAME windows-watchdog-help COMMAND msime-client-watchdog --help)
   set_tests_properties(windows-watchdog-help PROPERTIES TIMEOUT 5)
   add_executable(msime-client-server src/entrypoints/server_main.cpp)
+  target_include_directories(msime-client-server PRIVATE ../../platforms/common)
   # The product mark, which the toolbar loads out of the running executable.
   # Compiled into the Server itself rather than shipped beside it: an icon the
   # installer could forget to copy is an icon that silently stops appearing.

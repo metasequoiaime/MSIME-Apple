@@ -42,6 +42,9 @@ int main(int argc, const char *argv[]) {
         MSIMEConfigureMovableState();
         NSString *swiftBackend = [NSBundle.mainBundle.privateFrameworksPath stringByAppendingPathComponent:@"MSIMEBackend.dylib"];
         if (swiftBackend.length > 0 && dlopen(swiftBackend.fileSystemRepresentation, RTLD_NOW | RTLD_GLOBAL) == nullptr) return 1;
+        using MSIMEStartTelemetryFn = void (*)(void);
+        MSIMEStartTelemetryFn startTelemetry = reinterpret_cast<MSIMEStartTelemetryFn>(dlsym(RTLD_DEFAULT, "MSIMEStartTelemetry"));
+        if (startTelemetry != nullptr) startTelemetry();
         if (MSIMEShouldShowPreferences(argc, argv)) {
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
             id closeObserver = [[NSNotificationCenter defaultCenter]

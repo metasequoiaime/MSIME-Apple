@@ -31,6 +31,7 @@
 #include "VoiceHotkey.h"
 #include "VoiceInputSession.h"
 #include "WatchdogPolicy.h"
+#include "Telemetry.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
 #include <fstream>
@@ -38,6 +39,7 @@
 #include <memory>
 #include <mutex>
 #include <cstdlib>
+#include <exception>
 #ifdef _WIN32
 #include <shlobj.h>
 #endif
@@ -521,6 +523,8 @@ private:
 };
 } // namespace
 int wmain(int argc, wchar_t **argv) {
+  msime::telemetry::start("windows", "0.1.0-dev");
+  std::set_terminate([] { msime::telemetry::crash("windows", "0.1.0-dev", "std::terminate"); std::abort(); });
   using namespace msime::windows;
   if (argc == 2 && std::wstring(argv[1]) == L"--help") {
     std::cout << "MSIME Client Server: --config <absolute-json-path>\n"

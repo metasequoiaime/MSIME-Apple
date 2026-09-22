@@ -5,6 +5,7 @@ import window from '@ohos.window';
 import { KeyboardLog } from '../keyboard/KeyboardLog';
 import { BusinessErrorPolicy } from '../keyboard/BusinessErrorPolicy';
 import { describeError } from '../keyboard/KeyboardLog';
+import { flushStartupTelemetry } from '../telemetry/Telemetry';
 
 /**
  * The application the keyboard belongs to.
@@ -20,6 +21,7 @@ export default class EntryAbility extends UIAbility {
 
   onCreate(want: Want, launch: AbilityConstant.LaunchParam): void {
     KeyboardLog.info('app created');
+    flushStartupTelemetry();
   }
 
   onWindowStageCreate(stage: window.WindowStage): void {
