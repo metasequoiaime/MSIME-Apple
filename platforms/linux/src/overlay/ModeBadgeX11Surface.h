@@ -1,0 +1,36 @@
+#pragma once
+#include <X11/Xlib.h>
+
+#include <memory>
+#include <string>
+
+#include "ModeBadgeSurface.h"
+
+namespace msime::linux_host {
+
+// X11 会话下的徽章：一个 override-redirect 窗口，用 cairo-xlib 画，输入形状为空所以点击
+// 穿透。画法与 Wayland 后端共用 ModeBadgePainter.h。
+class ModeBadgeX11Surface final : public ModeBadgeSurface {
+ public:
+  ~ModeBadgeX11Surface() override;
+  ModeBadgeX11Surface(const ModeBadgeX11Surface &) = delete;
+  ModeBadgeX11Surface &operator=(const ModeBadgeX11Surface &) = delete;
+
+  static std::unique_ptr<ModeBadgeX11Surface> create();
+
+  bool show(const std::string &text, const std::string &icon_path, bool light_theme) override;
+  void hide() override;
+
+ private:
+  ModeBadgeX11Surface() = default;
+  bool ensure_window();
+  void destroy_window();
+
+  Display *display_ = nullptr;
+  Window window_ = 0;
+  Visual *visual_ = nullptr;
+  Colormap colormap_ = 0;
+  bool visible_ = false;
+};
+
+}  // namespace msime::linux_host

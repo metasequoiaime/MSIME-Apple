@@ -403,6 +403,9 @@ struct State {
   bool voice_requires_control = false;
   uint64_t voice_generation = 0;
   uint64_t voice_failure_id = 0;
+  // 中英文切换提示：辅助区域短暂显示「中」或「英」。代次用于丢弃过期的隐藏回调，
+  // 与语音失败提示同一套做法。
+  uint64_t mode_hint_id = 0;
   std::string voice_preedit;
   std::string voice_transcript;
   std::string voice_phase = "正在录音…";
@@ -5320,6 +5323,48 @@ bool unicode_plus_key(const Json &view, guint key, guint modifiers) {
          view.value("local_mode", std::string("none")) == "unicode" &&
          view.value("editing_text", std::string{}) == "U";
 }
+struct ModeHintNotice {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+  uint64_t id;
+};
+// 中英文切换后在辅助区域短暂显示「中」或「英」，对应共享偏好 input_mode_hud。
+//
+// IBus 没有 Fcitx5 那种由面板绘制的信息弹窗，辅助文本是这个宿主唯一能表达的位置：它由
+// panel 按当前输入上下文摆放，因此也跟着输入点走。不自己画窗口——那条边界在这个宿主上
+// 仍然成立（Fcitx5 那侧的徽章是所有者要求的例外，且带 logo 是它存在的理由）。
+//
+// 隐藏时先确认辅助区域还属于这条提示：用户可能在这 1.2 秒内已经开始打字，那时辅助文本
+// 是候选页码，收掉它等于替用户关掉正在看的东西。代次和组合状态两道都查。
+void show_input_mode_hint(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!configured.contains("preferences") ||
+      !configured.at("preferences").value("input_mode_hud", true))
+    return;
+  if (!s.focused || s.blocked)
+    return;
+  ++s.mode_hint_id;
+  if (s.mode_hint_id == 0)
+    ++s.mode_hint_id;
+  ibus_engine_update_auxiliary_text(
+      engine, ibus_text_new_from_string(s.input_enabled ? "中" : "英"), TRUE);
+  auto *notice = new ModeHintNotice{engine, s.alive, s.mode_hint_id};
+  g_timeout_add_full(
+      G_PRIORITY_DEFAULT, 1200,
+      +[](gpointer data) -> gboolean {
+        std::unique_ptr<ModeHintNotice> notice(static_cast<ModeHintNotice *>(data));
+        if (!notice->alive->load())
+          return G_SOURCE_REMOVE;
+        auto &s = state(notice->engine);
+        const bool composing =
+            !s.view.value("editing_text", std::string{}).empty() ||
+            !s.view.value("candidates", Json::array()).empty();
+        if (s.mode_hint_id == notice->id && !composing)
+          ibus_engine_hide_auxiliary_text(notice->engine);
+        return G_SOURCE_REMOVE;
+      },
+      notice, nullptr);
+}
 void toggle_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
   s.native_compose.reset();
@@ -5339,6 +5384,7 @@ void toggle_input_mode(IBusEngine *engine) {
     apply(engine, msime_client_focus(s.session, s.input_enabled));
   clear(engine);
   publish_mode(engine);
+  show_input_mode_hint(engine);
 }
 gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) {
   auto &s = state(engine);

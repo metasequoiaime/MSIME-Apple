@@ -3,6 +3,8 @@
 #include <memory>
 #include <string>
 
+#include "ModeBadgeSurface.h"
+
 struct wl_compositor;
 struct wl_display;
 struct wl_registry;
@@ -23,9 +25,9 @@ namespace msime::linux_host {
 // 不与语音波形浮层合并，是因为后者连着 IBus 回退面和 X11 实现，把它整套拖进 Fcitx5 插件
 // 会带上 glib 和 xfixes；这里只需要 layer-shell 加一块共享内存。两者共用的只有技术手法，
 // 各自的模型和生命周期没有重合。
-class ModeBadgeWaylandSurface {
+class ModeBadgeWaylandSurface final : public ModeBadgeSurface {
  public:
-  ~ModeBadgeWaylandSurface();
+  ~ModeBadgeWaylandSurface() override;
   ModeBadgeWaylandSurface(const ModeBadgeWaylandSurface &) = delete;
   ModeBadgeWaylandSurface &operator=(const ModeBadgeWaylandSurface &) = delete;
 
@@ -34,8 +36,8 @@ class ModeBadgeWaylandSurface {
   static std::unique_ptr<ModeBadgeWaylandSurface> create();
 
   // 画出徽章并立即提交。icon_path 为空或读不到时只画文字，不报错。
-  bool show(const std::string &text, const std::string &icon_path, bool light_theme);
-  void hide();
+  bool show(const std::string &text, const std::string &icon_path, bool light_theme) override;
+  void hide() override;
 
  private:
   ModeBadgeWaylandSurface() = default;

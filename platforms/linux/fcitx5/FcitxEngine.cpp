@@ -24,7 +24,7 @@
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/core/CandidateSkinCatalog.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
-#include "../src/overlay/ModeBadgeWaylandSurface.h"
+#include "../src/overlay/ModeBadgeSurface.h"
 #endif
 #include "../src/core/BackspaceHoldPolicy.h"
 #include "../src/core/SmartPunctuationSpace.h"
@@ -2381,7 +2381,7 @@ public:
   bool ctrl_in_combination_ = false;
   fcitx::EventLoop *loop_ = nullptr;
 #ifdef MSIME_FCITX5_MODE_BADGE
-  std::unique_ptr<msime::linux_host::ModeBadgeWaylandSurface> mode_badge_;
+  std::unique_ptr<msime::linux_host::ModeBadgeSurface> mode_badge_;
   bool mode_badge_unavailable_ = false;
   std::unique_ptr<fcitx::EventSourceTime> mode_badge_timer_;
 #endif
@@ -4391,7 +4391,7 @@ void FcitxState::showInputModeHud() {
   // 自绘徽章带产品 logo，面板那个提示只能显示文字。连不上合成器或没有 layer-shell 时
   // 记下来不再重试，回退到文字提示——提示少一张图，好过没有提示。
   if (!mode_badge_ && !mode_badge_unavailable_) {
-    mode_badge_ = msime::linux_host::ModeBadgeWaylandSurface::create();
+    mode_badge_ = msime::linux_host::ModeBadgeSurface::create();
     mode_badge_unavailable_ = !mode_badge_;
   }
   // 两个提示各补一半：面板那个由合成器按光标矩形定位，跟着输入点走，但只能显示文字；
