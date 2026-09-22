@@ -77,8 +77,10 @@ jobs:
           # Build-Client.ps1 defaults to the Visual Studio 2022 generator; the runner image moves between Visual Studio releases, so name the one it has.
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $major = ([version](& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion)).Major
-          $year = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property catalog_productLineVersion
-          $generator = "Visual Studio $major $year"
+          # vswhere reports the product line as the major version from Visual Studio 2026 on, so take the full generator name from CMake's own list.
+          $generator = @(cmake --help | Select-String -Pattern "Visual Studio $major \d{4}" -AllMatches | ForEach-Object { $_.Matches.Value } | Select-Object -Unique)
+          if ($generator.Count -ne 1) { throw "no single CMake generator for Visual Studio $major" }
+          $generator = $generator[0]
           Write-Output "CMake generator: $generator"
           ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator
       - name: Collect third-party notices
