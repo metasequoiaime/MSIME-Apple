@@ -118,6 +118,8 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size`、`candidate_preedit_font_size`、`candidate_font_family`、`candidate_english_font`、`candidate_fallback_fonts`、`candidate_skin`、`candidate_theme` 及候选颜色覆盖；Fluent、微信绿、石墨 Graphite 和杨柳青 Willow green 四套候选皮肤按明暗主题渲染到普通候选栏和展开面板，候选按钮、预编辑、页码和英文建议使用设置中的首选字体，缺字回落交给 Android 系统字体链。非法皮肤、主题、颜色和字体安全回退，显式候选文字颜色还按共享规则派生半透明编号色。偏好热更新成功后立即调整候选排列、字号、字体和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，字体名称遵循共享的 128 UTF-8 字节和控制字符边界；真实设备视觉和触摸验收仍待完成。
 
+横向候选条在 Engine session、generation 或候选页变化时回到当前页首项；这样翻页或新组字不会沿用上一页的横向偏移，把用户带到旧列表的中段。仅释义/翻译等同一代次的显示重绘保留用户当前滚动位置。候选身份仍由共享 session/generation/index 决定，Android 不自行排序或改写候选内容。
+
 Tauri/React 共享设置页现在按 Android 原生能力展示候选字体、字号、颜色和边框/悬停控件；Android 不枚举桌面系统字体，字体框允许用户输入完整字体名，保存后由输入法进程消费。这样设置页不会把 Android 未实现的桌面字体目录能力伪装成可用功能。
 
 “更多”工具页提供键盘内剪贴板历史面板。与 Apple 一致，只有用户点按“保存当前剪贴板”时才读取 Android 文本剪贴板，不后台监听；最多保存 50 条，支持去重、固定、删除、确认清空和点按插入。历史放在输入法私有偏好中，应用禁用备份且不记录内容；共享 `clipboard_history` 关闭时立即清空并禁用入口。非文本、空白或超过 10,000 UTF-16 单元/40,000 UTF-8 字节的内容不会保存。

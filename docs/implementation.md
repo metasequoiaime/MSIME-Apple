@@ -1516,3 +1516,9 @@ Android 原生 IME 此前把带 Ctrl/Alt/Meta 的硬件事件全部交回系统�
 共享设置中的 `number_row_selection` 此前只在 Linux/HarmonyOS 能力上显示，Android `InputMethodService` 也没有消费该字段。现在 Android 外接硬件键盘的 1–9 会在中文 Engine 候选可用时选择对应槽位，并复用候选身份的 session/generation/index 校验；英文、敏感字段、无候选或关闭设置时不拦截数字。`HostCapabilities.number_row_selection` 已加入 Android，Tauri 设置页会显示开关。
 
 本地验证：`NumberRowSelectionPolicySmoke`、Android Java 编译、`platforms/android/check-host.sh`、client-core 能力测试和 `git diff --check` 通过；未执行实体键盘真机验收，CI 保持禁用。
+
+### Android 候选条在换页后回到首项
+
+Android 横向候选条此前会保留旧页面的 `HorizontalScrollView` 偏移。用户从一页翻到下一页、或 Engine 进入新的 generation 后，候选条可能从中段开始显示，看起来像候选顺序错乱或候选缺失。现在候选条以 session、generation 和 page 作为滚动身份：任一项变化就回到当前页的首项；同一代次的英文释义/在线翻译等显示重绘不抢回用户的横向位置。候选文本、排序和选择身份仍完全由共享 Engine/host 提供，Android 只修正显示滚动位置。
+
+本地验证：`CandidateScrollPolicySmoke` 与 `platforms/android/check-host.sh` 全部通过；未执行实体设备翻页视觉验收，CI 保持禁用。
