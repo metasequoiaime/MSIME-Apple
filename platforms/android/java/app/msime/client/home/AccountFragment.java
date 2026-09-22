@@ -155,23 +155,20 @@ public final class AccountFragment extends HomeTabFragment {
         addRow(rows, R.drawable.ic_feature_skin, R.color.badge_field, "App 图标",
             current.title() + " · " + current.description(), this::showIcons);
         addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "云剪贴板",
-            "在设备之间同步你明确添加的内容", this::openCloudClipboard);
+            "在设备之间同步你明确添加的内容", () -> startActivity(new android.content.Intent(
+                requireContext(), CloudClipboardActivity.class)));
         addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "云词库",
             "管理云端词条、个人候选和词库快照", this::openCloudDictionary);
         addRow(rows, R.drawable.ic_feature_ai, R.color.badge_field, "社区作品",
             "发布、收藏皮肤、词库和回复", this::openCommunityAccount);
     }
 
-    /** Open the shared Tauri cloud clipboard panel instead of duplicating its UI natively. */
-    private void openCloudClipboard() {
-        android.content.Intent intent = new android.content.Intent();
-        intent.setClassName(requireContext(), "app.msime.client.MainActivity");
-        intent.putExtra("msime_mobile_panel", "cloud-clipboard");
-        startActivity(intent);
-    }
-
-    /** Open the shared Tauri cloud dictionary panel; dictionary UI stays in the common surface. */
+    /** Open the shared Tauri mobile panel; dictionary UI stays in the common settings surface. */
     private void openCloudDictionary() {
+        if (!tauriAvailable()) {
+            note("云词库需要管理界面合包，请使用 Tauri 合包打开。您仍可在本机使用词库设置。 ");
+            return;
+        }
         android.content.Intent intent = new android.content.Intent();
         intent.setClassName(requireContext(), "app.msime.client.MainActivity");
         intent.putExtra("msime_mobile_panel", "cloud-dictionary");
@@ -179,6 +176,10 @@ public final class AccountFragment extends HomeTabFragment {
     }
 
     private void openCommunityAccount() {
+        if (!tauriAvailable()) {
+            note("社区管理需要管理界面合包，请使用 Tauri 合包打开。 ");
+            return;
+        }
         android.content.Intent intent = new android.content.Intent();
         intent.setClassName(requireContext(), "app.msime.client.MainActivity");
         intent.putExtra("msime_settings_page", "account");
@@ -214,10 +215,24 @@ public final class AccountFragment extends HomeTabFragment {
 
     /** Keep Android's public about/help/feedback surface in the shared Tauri UI. */
     private void openAbout() {
+        if (!tauriAvailable()) {
+            startActivity(new android.content.Intent(requireContext(), AboutActivity.class));
+            return;
+        }
         android.content.Intent intent = new android.content.Intent();
         intent.setClassName(requireContext(), "app.msime.client.MainActivity");
         intent.putExtra("msime_settings_page", "about");
         startActivity(intent);
+    }
+
+    /** The standalone native APK deliberately has no WebView; the Tauri bundle does. */
+    private boolean tauriAvailable() {
+        try {
+            Class.forName("app.msime.client.MainActivity");
+            return true;
+        } catch (ClassNotFoundException error) {
+            return false;
+        }
     }
 
     private void showIcons() {

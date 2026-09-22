@@ -166,10 +166,26 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     /** Keep the dictionary editor in the shared Tauri UI while exposing it from the native shell. */
     private void openPersonalDictionary() {
+        if (!tauriAvailable()) {
+            android.widget.Toast.makeText(requireContext(),
+                "个人词库需要管理界面合包，请使用 Tauri 合包打开。", android.widget.Toast.LENGTH_LONG)
+                .show();
+            return;
+        }
         Intent intent = new Intent();
         intent.setClassName(requireContext(), "app.msime.client.MainActivity");
         intent.putExtra("msime_settings_page", "dictionary");
         startActivity(intent);
+    }
+
+    /** The standalone native APK deliberately has no WebView; the Tauri bundle does. */
+    private boolean tauriAvailable() {
+        try {
+            Class.forName("app.msime.client.MainActivity");
+            return true;
+        } catch (ClassNotFoundException error) {
+            return false;
+        }
     }
 
     private String keysSummary(@Nullable JSONObject preferences) {
