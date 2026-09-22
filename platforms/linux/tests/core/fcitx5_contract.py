@@ -159,6 +159,13 @@ assert '++cloud_clipboard_generation_' in source
 assert 'providerSocket(options, "voice_provider_socket"' in source
 assert '"MSIME_VOICE_PROVIDER_SOCKET", "voice.sock"' in source
 
+# Moving preferences_directory while focused must invalidate the old async
+# store read and retry state before loading from the new directory.
+assert 'nextPreferencesDirectory' in source
+assert 'preferences_job_session_ = 0' in source
+assert 'preferences_snapshot_ = Json()' in source
+assert 'preferences_save_retry_.reset()' in source
+
 # Fcitx5 menu preference writes retain the last failed field and expose a retry
 # action. A failed revision comparison must not leave the user with a silent
 # diagnostic-only failure as the old async save path did.
