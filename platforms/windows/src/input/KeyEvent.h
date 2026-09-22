@@ -42,9 +42,10 @@ inline KeyAction translate_key(const FanyImeNamedpipeData &packet) {
   // host and must not mutate the Engine composition.
   if (is_segment_backspace_key(key, modifiers) ||
       is_segment_caret_key(key, modifiers)) {
-    return {KeyKind::Command, key == 0x08 ? MSIME_BACKSPACE_SEGMENT
-                                         : key == 0x25 ? MSIME_MOVE_LEFT_SEGMENT
-                                                       : MSIME_MOVE_RIGHT_SEGMENT};
+    // The conditional is not a constant expression, so MSVC rejects the enum-to-uint32_t conversion as narrowing inside braces; GCC and Clang accept it.
+    return {KeyKind::Command, static_cast<uint32_t>(key == 0x08   ? MSIME_BACKSPACE_SEGMENT
+                                                    : key == 0x25 ? MSIME_MOVE_LEFT_SEGMENT
+                                                                  : MSIME_MOVE_RIGHT_SEGMENT)};
   }
   if (modifiers & ~1u)
     return {KeyKind::CancelAndForward, MSIME_CANCEL};
