@@ -16,6 +16,7 @@ final class KeyboardCandidatePanelView: UIView {
   private static let annotatedColumns: CGFloat = 3
   private static let rowSpacing: CGFloat = 6
   private let candidates: [String]
+  private let candidateScale: CGFloat
   private var annotations: [KeyboardCandidateAnnotation]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
@@ -27,10 +28,12 @@ final class KeyboardCandidatePanelView: UIView {
   private var laidOutWidth: CGFloat = 0
 
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
+       candidateScale: CGFloat = 1, preeditScale: CGFloat = 1,
        display: @escaping (String) -> String,
        menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
     self.candidates = candidates
+    self.candidateScale = candidateScale
     self.annotations = annotations
     self.display = display
     self.menuElements = menuElements
@@ -41,7 +44,7 @@ final class KeyboardCandidatePanelView: UIView {
 
     let spelling = UILabel()
     spelling.text = preedit
-    spelling.font = .preferredFont(forTextStyle: .subheadline)
+    spelling.font = CandidateFontPreference.font(.subheadline, scale: preeditScale)
     spelling.adjustsFontForContentSizeCategory = true
     spelling.textColor = KeyboardSkinPreference.selected.accent
     spelling.accessibilityIdentifier = "candidatePanelSpelling"
@@ -175,7 +178,7 @@ final class KeyboardCandidatePanelView: UIView {
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
     var title = AttributedString(text, attributes: AttributeContainer([
-      .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+      .font: CandidateFontPreference.font(.body, scale: candidateScale), .paragraphStyle: paragraph,
     ]))
     if !annotation.text.isEmpty {
       let lines = annotation.text.split(separator: "\n", omittingEmptySubsequences: false)
