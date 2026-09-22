@@ -121,6 +121,13 @@ assert 'system_theme_probe_due_' in source
 assert 'pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)' in (root / "fcitx5/CMakeLists.txt").read_text()
 assert 'fcitx_system_dark_theme' in (root / "fcitx5/SystemTheme.cpp").read_text()
 
+# Runtime option reload must follow the same clipboard path precedence as
+# initial session setup and fence reads started against the old history file.
+assert 'nextClipboard = options.value("preferences_directory", std::string{})' in source
+assert 'options.value("clipboard_history_path", std::string{})' in source
+assert '++clipboard_generation_' in source
+assert 'clipboard_loading_ = false' in source
+
 # Fcitx5 menu preference writes retain the last failed field and expose a retry
 # action. A failed revision comparison must not leave the user with a silent
 # diagnostic-only failure as the old async save path did.
