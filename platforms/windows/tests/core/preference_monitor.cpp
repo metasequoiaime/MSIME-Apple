@@ -64,10 +64,23 @@ void preference_monitor_tests(const std::string &options,
   require(filler.has_value(), "Synthetic queue fill failed");
   std::atomic<unsigned> callbacks{0};
   std::atomic<uint64_t> published_revision{0};
+  std::atomic<bool> callback_saw_applied_preferences{false};
   PreferenceMonitor monitor(input, directory, std::chrono::milliseconds(10),
                             [&](const PreferenceSnapshot &snapshot) {
                               published_revision.store(snapshot.revision());
                               callbacks.fetch_add(1);
+                              auto observation = input.submit(
+                                  [&](InputState &state) {
+                                    const auto navigation =
+                                        state.navigation_bindings();
+                                    callback_saw_applied_preferences.store(
+                                        state.word_character_binding() ==
+                                                WordCharacterBinding::MinusEqual &&
+                                            !navigation.minus_equal &&
+                                            navigation.brackets);
+                                  });
+                              if (observation)
+                                (void)observation->get();
                             });
   // Stop monitor before Release unwinds: its pending tasks capture only values,
   // and stopping never waits for an input publication receipt.
@@ -79,6 +92,8 @@ void preference_monitor_tests(const std::string &options,
   await([&] { return monitor.status() == PreferenceMonitorStatus::Current; });
   require(callbacks.load() == 1 && published_revision.load() == 2,
           "Published preference callback was not confirmed after apply");
+  require(callback_saw_applied_preferences.load(),
+          "Published preference callback ran before the queue applied settings");
   const auto completed = input.stats().completed;
   std::this_thread::sleep_for(std::chrono::milliseconds(60));
   require(input.stats().completed == completed,
