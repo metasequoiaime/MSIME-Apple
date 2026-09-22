@@ -1,0 +1,20 @@
+# 刷新 hicolor 的图标缓存。
+#
+# 图标是按名字解析的，而 GTK/Qt 读的是这份缓存：发行版装包有 hook 负责刷新它，
+# cmake --install 没有。于是图标装进去了却谁都找不到——托盘、输入法列表和启动器
+# 一律回落成占位图，看起来像是没有图标资源，实际上文件就在那里。
+#
+# 设了 DESTDIR 的暂存安装不刷新：那时写入的不是目标系统的缓存，由打包脚本负责。
+if("$ENV{DESTDIR}" STREQUAL "")
+  find_program(MSIME_ICON_CACHE_TOOL NAMES gtk-update-icon-cache gtk4-update-icon-cache)
+  if(MSIME_ICON_CACHE_TOOL)
+    execute_process(
+      COMMAND "${MSIME_ICON_CACHE_TOOL}" -f -t "@CMAKE_INSTALL_FULL_DATADIR@/icons/hicolor"
+      RESULT_VARIABLE msime_icon_cache_result OUTPUT_QUIET ERROR_QUIET)
+    if(NOT msime_icon_cache_result EQUAL 0)
+      message(STATUS "跳过：图标缓存未刷新，gtk-update-icon-cache 返回 ${msime_icon_cache_result}")
+    endif()
+  else()
+    message(STATUS "跳过：找不到 gtk-update-icon-cache，图标在缓存刷新前不会显示")
+  endif()
+endif()

@@ -392,12 +392,15 @@ if(MSIME_DESKTOP_BINARY)
   install(PROGRAMS "${MSIME_DESKTOP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME msime-client-desktop)
   install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/msime-client-settings DESTINATION "${CMAKE_INSTALL_BINDIR}")
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client.desktop DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
-  # The desktop entry names Icon=msime-client, which resolves through the icon theme rather than a
-  # path, so the entry is only as good as these files: without them the launcher falls back to a
-  # generic placeholder and the application looks unbranded in every menu that reads the entry.
-  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data/icons/"
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/icons")
 endif()
+# 桌面入口的 Icon=msime-client、Fcitx5 输入法条目的 Icon 和 IBus 组件的 <icon> 都按名字
+# 解析，所以这些文件决定了托盘、输入法列表和启动器上显示的是 logo 还是占位图。它们此前
+# 装在桌面二进制那个分支里，于是只装输入法、不装设置窗口的安装一张图标都没有，而那恰恰
+# 是最小可用的安装方式。
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data/icons/"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons")
+configure_file(cmake/icon-cache.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/icon-cache.cmake @ONLY)
+install(SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/icon-cache.cmake)
 if(MSIME_RUNTIME_OPTIONS_FILE)
  install(FILES "${MSIME_RUNTIME_OPTIONS_FILE}" DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/msime-client" RENAME runtime-options.json)
 endif()
