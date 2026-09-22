@@ -48,6 +48,11 @@ void DllRelease(void)
     }
 }
 
+static LONG DllRefCountSnapshot()
+{
+    return InterlockedCompareExchange(&Global::dllRefCount, 0, 0);
+}
+
 //+---------------------------------------------------------------------------
 //
 //  CClassFactory declaration with IClassFactory Interface
@@ -113,7 +118,7 @@ STDAPI CClassFactory::QueryInterface(REFIID riid, _Outptr_ void **ppvObj)
 STDAPI_(ULONG) CClassFactory::AddRef()
 {
     DllAddRef();
-    return (Global::dllRefCount + 1);
+    return static_cast<ULONG>(DllRefCountSnapshot() + 1);
 }
 
 //+---------------------------------------------------------------------------
@@ -125,7 +130,7 @@ STDAPI_(ULONG) CClassFactory::AddRef()
 STDAPI_(ULONG) CClassFactory::Release()
 {
     DllRelease();
-    return (Global::dllRefCount + 1);
+    return static_cast<ULONG>(DllRefCountSnapshot() + 1);
 }
 
 //+---------------------------------------------------------------------------
@@ -242,7 +247,7 @@ _Check_return_ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, _In_ REFIID riid, 
 
 STDAPI DllCanUnloadNow(void)
 {
-    if (Global::dllRefCount >= 0)
+    if (DllRefCountSnapshot() >= 0)
     {
         return S_FALSE;
     }

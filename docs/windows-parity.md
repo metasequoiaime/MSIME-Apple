@@ -2358,6 +2358,8 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 
 `CClassFactory` 的私有复制赋值运算符原本声明为返回引用，却没有返回值；这会在 Windows x64 交叉构建中产生 `-Wreturn-type` 警告，也让一个不可复制的 COM 类保留了未定义行为入口。现改为显式删除复制赋值操作，保持类工厂不可复制并消除该警告。x64 TSF DLL/Server 交叉构建、Windows 合成测试和 i686 语法门禁均通过；没有把这些证据表述为真实 Windows COM、TSF 注册或编辑器验收。
 
+同一边界随后补上引用计数的原子观察：`DllCanUnloadNow` 以及类工厂 `AddRef`/`Release` 的返回值现在通过 `InterlockedCompareExchange` 读取 `dllRefCount`，不再与 `InterlockedIncrement/Decrement` 并发读写普通 `LONG`。加法和清理语义保持不变；验证为 x64 交叉链接、宿主可执行合成测试和 i686 语法门禁，仍不等于真实 Windows COM 运行时验收。
+
 ### 安装器数据目录选择与删除边界（2026-09-22）
 
 此前六道 reference 门禁只盘点来源 `windows/`、`server/` 与 `ui/src`，没有覆盖 `installer/`。沿固定来源 `345cb87a` 对照安装器时确认两处真实缺口：来源有可见的数据目录选择页，目标只有隐藏的 `/DATADIR` 参数；目标的 `DataDirIsSafe` 又只拒绝与少数系统目录完全相等的路径，像 `C:\Users` 这种包含用户关键目录的父级仍会通过。安装结束后目标会写入所有权标记，卸载则递归删除带标记目录，因此这不是界面差异，而是可达的数据删除边界。
