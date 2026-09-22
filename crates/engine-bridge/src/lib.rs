@@ -1342,6 +1342,18 @@ mod tests {
     }
 
     #[test]
+    fn cloud_query_preserves_manual_quanpin_segmentation() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = Session::new(&options(dir.path())).unwrap();
+        for character in b"qi'e'huan" {
+            assert!(session.character(*character, false).unwrap().handled);
+        }
+        let query = session.online_query().unwrap();
+        assert!(query.available);
+        assert_eq!(query.query_text, "qi'e'huan");
+    }
+
+    #[test]
     fn real_engine_handles_unicode_mode_without_a_dictionary_bundle() {
         let dir = tempfile::tempdir().unwrap();
         let mut session = Session::new(&options(dir.path())).unwrap();
