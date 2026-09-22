@@ -3,7 +3,7 @@
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>app.msime.inputmethod.MetasequoiaIME</string>
 <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
-<key>CFBundleExecutable</key><string>水杉输入法（预览）</string>
+<key>CFBundleExecutable</key><string>水杉输入法</string>
 <key>CFBundleName</key><string>Metasequoia IME</string>
 <key>CFBundleDisplayName</key><string>水杉输入法</string>
 <key>CFBundleIconFile</key><string>MSIMEClientInputMethod.icns</string>

@@ -10,10 +10,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-// The identifier the input method bundle carries, which is MetasequoiaIME's rather than a new one of this client's: the preview supersedes that input source in place instead of standing beside it. `validate_bundle` looks for it in the packaged Info.plist, so a value that has drifted from platforms/macos/Info.plist.in rejects the correct bundle rather than accepting a wrong one.
+// The identifier the input method bundle carries, which is MetasequoiaIME's rather than a new one of this client's: the client supersedes that input source in place instead of standing beside it. `validate_bundle` looks for it in the packaged Info.plist, so a value that has drifted from platforms/macos/Info.plist.in rejects the correct bundle rather than accepting a wrong one.
 pub(crate) const INPUT_SOURCE_BUNDLE_ID: &str = "app.msime.inputmethod.MetasequoiaIME";
-pub(crate) const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法（预览）.app";
-const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法（预览）";
+pub(crate) const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法.app";
+const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法";
 /// Bundles under a name this no longer installs, still sitting in `~/Library/Input Methods`.
 ///
 /// The directory name is not something a user ever reads - the input menu and System Settings show
@@ -23,7 +23,7 @@ const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法（预览）";
 /// name therefore stays where it has always been, and a copy briefly installed under the shorter
 /// one is removed. Same bundle identifier on both, so leaving two behind would give the input menu
 /// two entries for one source.
-const LEGACY_BUNDLE_NAMES: [&str; 1] = ["水杉输入法.app"];
+const LEGACY_BUNDLE_NAMES: [&str; 1] = ["水杉输入法（预览）.app"];
 
 #[derive(Debug)]
 pub(crate) enum InstallError {

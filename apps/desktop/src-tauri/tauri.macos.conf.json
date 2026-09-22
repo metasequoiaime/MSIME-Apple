@@ -6,7 +6,7 @@
     "macOS": { "minimumSystemVersion": "13.0" },
     "resources": {
       "../../../target/macos/EngineResources": "EngineResources",
-      "../../../target/macos/水杉输入法（预览）.app": "水杉输入法（预览）.app",
+      "../../../target/macos/水杉输入法.app": "水杉输入法.app",
       "../../../vendor/MSIME-Engine/handwriting/models/handwriting-zh_CN.model": "handwriting/handwriting-zh_CN.model",
       "../../../vendor/MSIME-Engine/handwriting/models/HandwritingModel-LICENSE.txt": "handwriting/HandwritingModel-LICENSE.txt",
       "../../../vendor/MSIME-Engine/handwriting/third_party/zinnia/Zinnia-LICENSE.txt": "handwriting/Zinnia-LICENSE.txt",

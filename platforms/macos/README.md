@@ -196,7 +196,7 @@ Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `run
 
 发行设置页的“关于 → 数据目录”可以把词库、学习记录、偏好、统计、剪贴板历史、皮肤和缓存移动到另一块磁盘。设置 bundle 与 IMK bundle 各自在固定 Application Support 目录保留一个小型 `runtime-options.json` 定位器，二者指向同一个可移动状态根；bundle 内只读资源不搬。迁移会先停掉 IMK 进程，只接受真实的空目录，在目标卷完成复制和按最终路径重新准备后原子切换两个定位器，最后才清理旧目录。失败保持旧目录有效；无 `.metasequoiaime-data` 所有权标记的非默认源目录不会自动删除。成功后设置窗口关闭，重新打开即可从新目录继续。
 
-产物为 `target/macos/水杉输入法（预览）.app`。可选开发配置包含本机绝对路径，不得对外分发。未嵌入开发配置时从新客户端的应用数据目录读取 `runtime-options.json`；配置缺失时不拦截输入。Tauri macOS bundle 会把同一 IMK bundle 随应用资源打包；设置页的“安装 / 更新”先在 staging 目录完成校验和原子替换到 `~/Library/Input Methods/水杉输入法（预览）.app`，再直接启动 bundle 的 `--register-input-source`，失败不会删除旧安装，也不会替用户切换当前输入源。静态库与宿主均以 macOS 13 为最低构建目标，必须使用同一架构。
+产物为 `target/macos/水杉输入法.app`。可选开发配置包含本机绝对路径，不得对外分发。未嵌入开发配置时从新客户端的应用数据目录读取 `runtime-options.json`；配置缺失时不拦截输入。Tauri macOS bundle 会把同一 IMK bundle 随应用资源打包；设置页的“安装 / 更新”先在 staging 目录完成校验和原子替换到 `~/Library/Input Methods/水杉输入法.app`，再直接启动 bundle 的 `--register-input-source`，失败不会删除旧安装，也不会替用户切换当前输入源。静态库与宿主均以 macOS 13 为最低构建目标，必须使用同一架构。
 
 新的 `prepare_host` 配置包含 `preferences_directory`。宿主激活时立即后台读取此目录，之后每秒检查一次，前一次未完成时不重叠读取；失活后停止定时器。文件锁和读取不占用会话主线程，应用仍在主线程且有组合时延迟；读取错误保留原配置。旧配置没有此字段时不自动重读，需要重新准备开发配置（先停止该开发宿主）。
 

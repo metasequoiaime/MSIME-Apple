@@ -2330,14 +2330,13 @@ async fn uninstall_input_source(
         code: "unavailable",
     })?;
     let input_methods = PathBuf::from(home).join("Library/Input Methods");
-    // The bundle has kept one name; a copy briefly installed under the shorter one may still be
-    // there instead. Both carry the same bundle identifier, so at most one is installed - uninstall
-    // whichever is.
-    let bundle = ["水杉输入法（预览）.app", "水杉输入法.app"]
+    // Prefer the current product name, but remove a copy left by the previous preview build if
+    // that is the one still installed. Both carry the same bundle identifier.
+    let bundle = ["水杉输入法.app", "水杉输入法（预览）.app"]
         .into_iter()
         .map(|name| input_methods.join(name))
         .find(|candidate| candidate.exists())
-        .unwrap_or_else(|| input_methods.join("水杉输入法（预览）.app"));
+        .unwrap_or_else(|| input_methods.join("水杉输入法.app"));
     tauri::async_runtime::spawn_blocking(move || {
         msime_host_macos::uninstall_input_source(&bundle, &state, remove_user_data).map_err(|_| {
             HostActionError {

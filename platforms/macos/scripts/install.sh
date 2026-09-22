@@ -16,8 +16,8 @@
 #   MSIME_VOICE_ENTITLEMENTS     entitlements to sign with; defaults to resources/VoiceInput.entitlements
 set -euo pipefail
 
-name="水杉输入法（预览）.app"
-executable="水杉输入法（预览）"
+name="水杉输入法.app"
+executable="水杉输入法"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source_bundle="${1:-$root/target/macos/$name}"
 destination_root="${MSIME_INPUT_METHODS_DIR:-$HOME/Library/Input Methods}"

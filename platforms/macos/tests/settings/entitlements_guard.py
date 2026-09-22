@@ -35,11 +35,11 @@ def poisoned_run(install: Path, entitlements: Path) -> int:
     for value in (["Default"], [], False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            bundle = root / "水杉输入法（预览）.app"
+            bundle = root / "水杉输入法.app"
             (bundle / "Contents/MacOS").mkdir(parents=True)
             destination = root / "Input Methods"
             destination.mkdir()
-            sentinel = destination / "水杉输入法（预览）.app"
+            sentinel = destination / "水杉输入法.app"
             sentinel.mkdir()
             (sentinel / "installed").write_text("previous installation")
 
@@ -60,7 +60,7 @@ def poisoned_run(install: Path, entitlements: Path) -> int:
                 print(f"install.sh did not say why it refused {value!r}: {result.stderr.strip()}",
                       file=sys.stderr)
                 failures += 1
-            if sorted(p.name for p in destination.iterdir()) != ["水杉输入法（预览）.app"]:
+            if sorted(p.name for p in destination.iterdir()) != ["水杉输入法.app"]:
                 print(f"install.sh left {list(destination.iterdir())} behind for {value!r}", file=sys.stderr)
                 failures += 1
             if (sentinel / "installed").read_text() != "previous installation":
