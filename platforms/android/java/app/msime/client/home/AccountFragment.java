@@ -155,15 +155,22 @@ public final class AccountFragment extends HomeTabFragment {
         addRow(rows, R.drawable.ic_feature_skin, R.color.badge_field, "App 图标",
             current.title() + " · " + current.description(), this::showIcons);
         addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "云剪贴板",
-            "在设备之间同步你明确添加的内容", () -> startActivity(new android.content.Intent(
-                requireContext(), CloudClipboardActivity.class)));
+            "在设备之间同步你明确添加的内容", this::openCloudClipboard);
         addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "云词库",
             "管理云端词条、个人候选和词库快照", this::openCloudDictionary);
         addRow(rows, R.drawable.ic_feature_ai, R.color.badge_field, "社区作品",
             "发布、收藏皮肤、词库和回复", this::openCommunityAccount);
     }
 
-    /** Open the shared Tauri mobile panel; dictionary UI stays in the common settings surface. */
+    /** Open the shared Tauri cloud clipboard panel instead of duplicating its UI natively. */
+    private void openCloudClipboard() {
+        android.content.Intent intent = new android.content.Intent();
+        intent.setClassName(requireContext(), "app.msime.client.MainActivity");
+        intent.putExtra("msime_mobile_panel", "cloud-clipboard");
+        startActivity(intent);
+    }
+
+    /** Open the shared Tauri cloud dictionary panel; dictionary UI stays in the common surface. */
     private void openCloudDictionary() {
         android.content.Intent intent = new android.content.Intent();
         intent.setClassName(requireContext(), "app.msime.client.MainActivity");
