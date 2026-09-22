@@ -1379,6 +1379,18 @@ public:
       if (!session_ || !ic_.hasFocus() || restricted()) return;
       const auto options = readOptions();
       candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
+      // Runtime options can move the shared clipboard history while this
+      // input context remains focused. Keep the same path precedence as the
+      // initial session setup and fence an in-flight read from the old file.
+      auto nextClipboard = options.value("preferences_directory", std::string{});
+      if (nextClipboard.empty())
+        nextClipboard = options.value("clipboard_history_path", std::string{});
+      if (nextClipboard != clipboard_path_) {
+        ++clipboard_generation_;
+        clipboard_items_.clear();
+        clipboard_loading_ = false;
+        clipboard_path_ = std::move(nextClipboard);
+      }
       auto nextVoice = options.value("voice_provider_socket", std::string{});
       if (nextVoice.empty()) {
         if (const auto *socket = std::getenv("MSIME_VOICE_PROVIDER_SOCKET")) nextVoice = socket;
