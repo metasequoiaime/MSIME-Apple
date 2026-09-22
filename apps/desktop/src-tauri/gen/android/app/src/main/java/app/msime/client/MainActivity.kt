@@ -9,6 +9,7 @@ import app.msime.client.TauriActivity
 class MainActivity : TauriActivity() {
   private var settingsWebView: WebView? = null
   private var pendingMobilePanel: String? = null
+  private var pendingSettingsPage: String? = null
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
@@ -16,11 +17,13 @@ class MainActivity : TauriActivity() {
     WindowLayout.fitSystemBars(webView)
     webView.post { webView.requestApplyInsets() }
     dispatchPendingMobilePanel(webView)
+    dispatchPendingSettingsPage(webView)
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     pendingMobilePanel = intent.getStringExtra("msime_mobile_panel")
+    pendingSettingsPage = intent.getStringExtra("msime_settings_page")
     super.onCreate(savedInstanceState)
     // Preparation used to sit behind a button on a development launcher screen. That screen is
     // gone, so each launcher triggers it; the call is idempotent and never overwrites an existing
@@ -49,7 +52,9 @@ class MainActivity : TauriActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     pendingMobilePanel = intent?.getStringExtra("msime_mobile_panel")
+    pendingSettingsPage = intent?.getStringExtra("msime_settings_page")
     settingsWebView?.let { dispatchPendingMobilePanel(it) }
+    settingsWebView?.let { dispatchPendingSettingsPage(it) }
   }
 
   private fun dispatchPendingMobilePanel(webView: WebView) {
@@ -59,6 +64,18 @@ class MainActivity : TauriActivity() {
     webView.postDelayed({
       webView.evaluateJavascript(
         "window.dispatchEvent(new CustomEvent('msime-mobile-panel',{detail:'cloud-dictionary'}));",
+        null,
+      )
+    }, 250)
+  }
+
+  private fun dispatchPendingSettingsPage(webView: WebView) {
+    val page = pendingSettingsPage ?: return
+    if (page != "dictionary") return
+    pendingSettingsPage = null
+    webView.postDelayed({
+      webView.evaluateJavascript(
+        "window.dispatchEvent(new CustomEvent('msime-settings-page',{detail:'dictionary'}));",
         null,
       )
     }, 250)
