@@ -8,7 +8,10 @@
         <activity android:name="app.msime.client.home.HomeActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
+        <activity android:name="app.msime.client.home.HelpActivity" android:exported="false" />
+        <activity android:name="app.msime.client.home.FeedbackActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name="app.msime.client.home.OnboardingActivity" android:exported="false" />
+        <activity android:name="app.msime.client.home.AboutActivity" android:exported="false" />
         <activity android:name="app.msime.client.home.DesktopDownloadActivity" android:exported="false" />
         <activity android:name="app.msime.client.home.KeyboardTryoutActivity" android:exported="false" android:windowSoftInputMode="adjustResize|stateVisible" />
         <activity-alias android:name=".MainActivityForest" android:targetActivity="app.msime.client.home.HomeActivity" android:icon="@drawable/app_icon_forest" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
