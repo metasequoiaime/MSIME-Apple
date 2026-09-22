@@ -41,7 +41,9 @@ use platform::desktop::desktop_preferences_monitor;
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
-use platform::linux::{linux_account, linux_audio_devices, linux_process};
+use platform::linux::{
+    linux_account, linux_audio_devices, linux_process, linux_provider_credentials,
+};
 #[cfg(target_os = "macos")]
 use platform::macos::{
     macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_data_directory,
@@ -3840,6 +3842,16 @@ pub fn run() {
             write_custom_translations,
             open_skin_directory,
             test_api_credential,
+            #[cfg(target_os = "linux")]
+            linux_provider_credentials::provider_credentials_status,
+            #[cfg(target_os = "linux")]
+            linux_provider_credentials::save_ai_provider_credential,
+            #[cfg(target_os = "linux")]
+            linux_provider_credentials::clear_ai_provider_credential,
+            #[cfg(target_os = "linux")]
+            linux_provider_credentials::save_tencent_provider_credential,
+            #[cfg(target_os = "linux")]
+            linux_provider_credentials::clear_tencent_provider_credential,
             save_preferences,
             clipboard_history::list_clipboard_history,
             clipboard_history::clear_clipboard_history,
