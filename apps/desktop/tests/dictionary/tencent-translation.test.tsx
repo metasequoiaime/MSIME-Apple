@@ -126,6 +126,9 @@ test("Linux saves Tencent credentials to the provider file", async () => {
     aiInvalid: false,
     tencent: { region: "ap-guangzhou" },
     tencentInvalid: false,
+    voiceAsr: [],
+    voicePolish: [],
+    voiceInvalid: false,
   };
   const credentials = {
     status: vi.fn(async () => ({ ...configured, tencent: null })),
@@ -133,6 +136,8 @@ test("Linux saves Tencent credentials to the provider file", async () => {
     clearAi: vi.fn(),
     saveTencent: vi.fn(async () => configured),
     clearTencent: vi.fn(async () => ({ ...configured, tencent: null })),
+    saveVoice: vi.fn(),
+    clearVoice: vi.fn(),
   };
   render(
     <SettingsPage

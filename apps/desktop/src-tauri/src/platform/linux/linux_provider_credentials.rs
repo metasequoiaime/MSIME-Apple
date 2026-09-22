@@ -1,6 +1,6 @@
-//! Linux online provider credential files.
+//! Linux provider credential files.
 //!
-//! Windows and macOS keep AI tokens and translation secrets in the shared preferences document, because the shell itself sends those requests. On Linux the network requests belong to the user's `msime-client-online-provider` service, which reads `ai-provider.json` and `tencent-provider.json` from `$XDG_CONFIG_HOME/msime-client` on every request. This module lets the settings page write those two files instead of asking the user to hand-edit JSON: the provider picks the change up on the next request, without a restart.
+//! Windows and macOS keep AI tokens, translation secrets and speech keys in the shared preferences document, because the shell itself sends those requests. On Linux the network requests belong to the user's provider services: `msime-client-online-provider` reads `ai-provider.json` and `tencent-provider.json`, and `msime-client-voice-provider` reads `voice-provider.json`, all from `$XDG_CONFIG_HOME/msime-client` and on every request. This module lets the settings page write those files instead of asking the user to hand-edit JSON: the provider picks the change up on the next request, without a restart. The voice service refuses to start without a valid file, so saving the first voice credential also enables its socket unit.
 //!
 //! The files follow the provider's own reader (`load_private_config`, `load_ai_config`, `load_tencent_config`): a regular file owned by this user with no group or other bits, at most 16 KiB, published by rename so the provider never reads a half-written document. Validation mirrors the provider's, so a document this module writes is one the provider accepts - the AI file is validated as a whole, and a single bad profile would disable every provider in it.
 //!
@@ -21,6 +21,23 @@ const MAX_PROVIDER_CONFIG_BYTES: usize = 16 * 1024;
 const MAX_AI_PROFILES: usize = 16;
 const AI_FILE: &str = "ai-provider.json";
 const TENCENT_FILE: &str = "tencent-provider.json";
+const VOICE_FILE: &str = "voice-provider.json";
+const VOICE_SOCKET_UNIT: &str = "msime-client-voice.socket";
+const VOICE_SERVICE_UNIT: &str = "msime-client-voice.service";
+/// The voice provider's `ASR_PROVIDERS` and `POLISH_PROVIDERS`.
+const ASR_PROVIDERS: [&str; 6] = [
+    "openai",
+    "groq",
+    "siliconflow",
+    "everyapi",
+    "mistral",
+    "doubao",
+];
+const POLISH_PROVIDERS: [&str; 4] = ["openai", "groq", "siliconflow", "deepseek"];
+/// The voice provider's default Doubao resource when an entry names none.
+const DOUBAO_DEFAULT_RESOURCE: &str = "volc.seedasr.sauc.duration";
+/// The voice provider's bound on each Doubao field.
+const MAX_DOUBAO_FIELD: usize = 512;
 
 /// Serialises read-modify-write of the two files within this process.
 static WRITE_LOCK: Mutex<()> = Mutex::new(());
@@ -40,6 +57,8 @@ pub(crate) enum CredentialError {
     TooManyProfiles,
     InvalidSecret,
     InvalidRegion,
+    /// The voice provider requires a recognition entry; polishing alone is not a file it accepts.
+    VoiceAsrRequired,
 }
 
 impl CredentialError {
@@ -56,6 +75,7 @@ impl CredentialError {
             Self::TooManyProfiles => "provider_credentials_too_many_profiles",
             Self::InvalidSecret => "provider_credentials_invalid_secret",
             Self::InvalidRegion => "provider_credentials_invalid_region",
+            Self::VoiceAsrRequired => "provider_credentials_voice_asr_required",
         }
     }
 }
@@ -82,6 +102,73 @@ pub struct ProviderCredentialStatus {
     ai_invalid: bool,
     tencent: Option<TencentCredentialStatus>,
     tencent_invalid: bool,
+    voice_asr: Vec<VoiceCredentialStatus>,
+    voice_polish: Vec<VoiceCredentialStatus>,
+    /// The voice file exists but the provider would refuse it, so voice input does not start until it is saved again or removed.
+    voice_invalid: bool,
+}
+
+/// A stored voice entry as the settings page may see it. `model` and `endpoint` are what the file holds, empty when the entry leaves them to the provider's defaults.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceCredentialStatus {
+    provider: String,
+    model: String,
+    endpoint: String,
+    /// Doubao recognition only.
+    resource_id: Option<String>,
+    auth_mode: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceSaveResponse {
+    status: ProviderCredentialStatus,
+    /// Whether `systemctl --user` accepted the change to the voice socket unit. False on a system without the user manager or without the unit installed; the file is saved either way.
+    service_updated: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum VoiceKind {
+    Asr,
+    Polish,
+}
+
+impl VoiceKind {
+    fn parse(value: &str) -> Result<Self, CredentialError> {
+        match value {
+            "asr" => Ok(Self::Asr),
+            "polish" => Ok(Self::Polish),
+            _ => Err(CredentialError::InvalidProvider),
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Asr => "asr",
+            Self::Polish => "polish",
+        }
+    }
+
+    fn providers(self) -> &'static [&'static str] {
+        match self {
+            Self::Asr => &ASR_PROVIDERS,
+            Self::Polish => &POLISH_PROVIDERS,
+        }
+    }
+}
+
+/// One voice credential as the settings page submits it. `None` secrets keep the stored value.
+pub(crate) struct VoiceCredential<'a> {
+    pub kind: VoiceKind,
+    pub provider: &'a str,
+    pub endpoint: &'a str,
+    pub model: &'a str,
+    pub token: Option<&'a str>,
+    /// Doubao legacy console authentication only.
+    pub app_key: Option<&'a str>,
+    pub resource_id: &'a str,
+    pub auth_mode: &'a str,
 }
 
 /// `$XDG_CONFIG_HOME/msime-client`, resolved the way `msime-client-provider-session` resolves it: a relative `XDG_CONFIG_HOME` is an error, not a fallback.
@@ -339,12 +426,357 @@ pub(crate) fn status_in(directory: &Path) -> Result<ProviderCredentialStatus, Cr
         Err(CredentialError::Existing) => (None, true),
         Err(error) => return Err(error),
     };
+    let (voice_asr, voice_polish, voice_invalid) = match read_private(&directory.join(VOICE_FILE)) {
+        Ok(None) => (Vec::new(), Vec::new(), false),
+        Ok(Some(document)) => match voice_status(&document) {
+            Ok((asr, polish)) => (asr, polish, false),
+            Err(_) => (Vec::new(), Vec::new(), true),
+        },
+        Err(CredentialError::Existing) => (Vec::new(), Vec::new(), true),
+        Err(error) => return Err(error),
+    };
     Ok(ProviderCredentialStatus {
         ai,
         ai_invalid,
         tencent,
         tencent_invalid,
+        voice_asr,
+        voice_polish,
+        voice_invalid,
     })
+}
+
+/// The voice provider's `provider_id`: ASCII, compared case-insensitively.
+fn voice_provider_id(value: &str) -> Option<String> {
+    value.is_ascii().then(|| value.to_ascii_lowercase())
+}
+
+/// Voice entries of one kind keyed by provider, and which of them sits in the `asr` / `polish` slot rather than under `<kind>_profiles`.
+struct VoiceEntries {
+    default: Option<String>,
+    entries: BTreeMap<String, Map<String, Value>>,
+}
+
+fn voice_entries(
+    document: &Map<String, Value>,
+    kind: VoiceKind,
+) -> Result<VoiceEntries, CredentialError> {
+    let mut entries = BTreeMap::new();
+    let mut default = None;
+    match document.get(kind.key()) {
+        None => {}
+        Some(Value::Object(entry)) => {
+            let provider = entry
+                .get("provider")
+                .and_then(Value::as_str)
+                .and_then(voice_provider_id)
+                .ok_or(CredentialError::Existing)?;
+            let mut entry = entry.clone();
+            entry.insert("provider".into(), Value::String(provider.clone()));
+            entries.insert(provider.clone(), entry);
+            default = Some(provider);
+        }
+        Some(_) => return Err(CredentialError::Existing),
+    }
+    match document.get(&format!("{}_profiles", kind.key())) {
+        None => {}
+        Some(Value::Object(profiles)) => {
+            for (provider, entry) in profiles {
+                let provider = voice_provider_id(provider).ok_or(CredentialError::Existing)?;
+                let Value::Object(entry) = entry else {
+                    return Err(CredentialError::Existing);
+                };
+                if entries.contains_key(&provider) {
+                    return Err(CredentialError::Existing);
+                }
+                let mut entry = entry.clone();
+                entry.insert("provider".into(), Value::String(provider.clone()));
+                entries.insert(provider, entry);
+            }
+        }
+        Some(_) => return Err(CredentialError::Existing),
+    }
+    Ok(VoiceEntries { default, entries })
+}
+
+/// The voice provider's `normalize_doubao_auth_mode`.
+fn doubao_auth_mode(entry: &Map<String, Value>) -> &'static str {
+    match entry
+        .get("doubao_auth_mode")
+        .and_then(Value::as_str)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("api_key") => "api_key",
+        Some("legacy") => "legacy",
+        _ if !entry_text(entry, "app_key").is_empty() => "legacy",
+        _ => "api_key",
+    }
+}
+
+fn doubao_field_ok(value: &str) -> bool {
+    value.len() <= MAX_DOUBAO_FIELD && value.bytes().all(|byte| (33..=126).contains(&byte))
+}
+
+/// The checks the voice provider's `load_config` applies to each entry, with its defaults for an absent endpoint or model.
+fn validate_voice_entry(
+    kind: VoiceKind,
+    entry: &Map<String, Value>,
+) -> Result<(), CredentialError> {
+    let provider = entry_text(entry, "provider");
+    if !kind.providers().contains(&provider) {
+        return Err(CredentialError::InvalidProvider);
+    }
+    for key in ["endpoint", "model", "app_key", "resource_id"] {
+        if entry.get(key).is_some_and(|value| !value.is_string()) {
+            return Err(CredentialError::Existing);
+        }
+    }
+    let endpoint = trim_pasted(entry_text(entry, "endpoint"));
+    let model = trim_pasted(entry_text(entry, "model"));
+    if has_control(endpoint) || has_control(model) {
+        return Err(CredentialError::InvalidEndpoint);
+    }
+    let doubao = kind == VoiceKind::Asr && provider == "doubao";
+    if !endpoint.is_empty() {
+        let scheme = if doubao { "wss" } else { "https" };
+        let valid = Url::parse(endpoint).is_ok_and(|url| {
+            url.scheme() == scheme
+                && url.host_str().is_some_and(|host| !host.is_empty())
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.fragment().is_none()
+        });
+        if !valid {
+            return Err(CredentialError::InvalidEndpoint);
+        }
+    }
+    if doubao {
+        let app_key = trim_pasted(entry_text(entry, "app_key"));
+        let resource_id = match entry.get("resource_id") {
+            Some(_) => trim_pasted(entry_text(entry, "resource_id")),
+            None => DOUBAO_DEFAULT_RESOURCE,
+        };
+        if !doubao_field_ok(model) || !doubao_field_ok(resource_id) || resource_id.is_empty() {
+            return Err(CredentialError::InvalidModel);
+        }
+        if !doubao_field_ok(app_key)
+            || app_key.starts_with('<')
+            || app_key.starts_with("FAKESECRET_")
+        {
+            return Err(CredentialError::InvalidSecret);
+        }
+        if doubao_auth_mode(entry) == "legacy" && app_key.is_empty() {
+            return Err(CredentialError::TokenRequired);
+        }
+    }
+    if !valid_secret(trim_pasted(entry_text(entry, "token"))) {
+        return Err(CredentialError::InvalidToken);
+    }
+    Ok(())
+}
+
+fn voice_status_of(
+    kind: VoiceKind,
+    entries: &VoiceEntries,
+) -> Result<Vec<VoiceCredentialStatus>, CredentialError> {
+    if entries.entries.len() > kind.providers().len() {
+        return Err(CredentialError::Existing);
+    }
+    let mut status = Vec::new();
+    for (provider, entry) in &entries.entries {
+        validate_voice_entry(kind, entry).map_err(|_| CredentialError::Existing)?;
+        let doubao = kind == VoiceKind::Asr && provider == "doubao";
+        status.push(VoiceCredentialStatus {
+            provider: provider.clone(),
+            model: trim_pasted(entry_text(entry, "model")).to_owned(),
+            endpoint: trim_pasted(entry_text(entry, "endpoint")).to_owned(),
+            resource_id: doubao.then(|| match entry.get("resource_id") {
+                Some(_) => trim_pasted(entry_text(entry, "resource_id")).to_owned(),
+                None => DOUBAO_DEFAULT_RESOURCE.to_owned(),
+            }),
+            auth_mode: doubao.then(|| doubao_auth_mode(entry).to_owned()),
+        });
+    }
+    Ok(status)
+}
+
+type VoiceStatusPair = (Vec<VoiceCredentialStatus>, Vec<VoiceCredentialStatus>);
+
+fn voice_status(document: &Map<String, Value>) -> Result<VoiceStatusPair, CredentialError> {
+    let asr = voice_entries(document, VoiceKind::Asr)?;
+    if asr.default.is_none() {
+        return Err(CredentialError::Existing);
+    }
+    let polish = voice_entries(document, VoiceKind::Polish)?;
+    Ok((
+        voice_status_of(VoiceKind::Asr, &asr)?,
+        voice_status_of(VoiceKind::Polish, &polish)?,
+    ))
+}
+
+/// Lay one kind's entries out the way `load_config` requires: one in the `asr` / `polish` slot, keeping the one that was there, and the rest under `<kind>_profiles`.
+fn place_voice_entries(
+    document: &mut Map<String, Value>,
+    kind: VoiceKind,
+    voice: VoiceEntries,
+) -> Result<(), CredentialError> {
+    let profiles_key = format!("{}_profiles", kind.key());
+    document.remove(kind.key());
+    document.remove(&profiles_key);
+    if voice.entries.len() > kind.providers().len() {
+        return Err(CredentialError::TooManyProfiles);
+    }
+    let default = voice
+        .default
+        .filter(|provider| voice.entries.contains_key(provider))
+        .or_else(|| voice.entries.keys().next().cloned());
+    let mut profiles = Map::new();
+    for (provider, mut entry) in voice.entries {
+        validate_voice_entry(kind, &entry)?;
+        if Some(&provider) == default.as_ref() {
+            document.insert(kind.key().into(), Value::Object(entry));
+        } else {
+            entry.remove("provider");
+            profiles.insert(provider, Value::Object(entry));
+        }
+    }
+    if !profiles.is_empty() {
+        document.insert(profiles_key, Value::Object(profiles));
+    }
+    Ok(())
+}
+
+/// Store one voice credential, keyed by provider and bound to the model the settings page shows: the provider only uses an entry whose model matches the request's.
+pub(crate) fn save_voice_in(
+    directory: &Path,
+    credential: &VoiceCredential<'_>,
+) -> Result<(), CredentialError> {
+    let _guard = WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let path = directory.join(VOICE_FILE);
+    let mut document = read_private(&path)?.unwrap_or_default();
+    let kind = credential.kind;
+    let mut voice = voice_entries(&document, kind)?;
+    let provider = voice_provider_id(trim_pasted(credential.provider))
+        .ok_or(CredentialError::InvalidProvider)?;
+    let mut entry = voice.entries.remove(&provider).unwrap_or_default();
+    let token = match credential.token.map(trim_pasted) {
+        Some(token) => token.to_owned(),
+        None => trim_pasted(entry_text(&entry, "token")).to_owned(),
+    };
+    if token.is_empty() {
+        return Err(CredentialError::TokenRequired);
+    }
+    entry.insert("provider".into(), Value::String(provider.clone()));
+    entry.insert("token".into(), Value::String(token));
+    for (key, value) in [
+        ("endpoint", credential.endpoint),
+        ("model", credential.model),
+    ] {
+        let value = trim_pasted(value);
+        if value.is_empty() {
+            entry.remove(key);
+        } else {
+            entry.insert(key.into(), Value::String(value.to_owned()));
+        }
+    }
+    if kind == VoiceKind::Asr && provider == "doubao" {
+        let mode = if credential.auth_mode == "legacy" {
+            "legacy"
+        } else {
+            "api_key"
+        };
+        entry.insert("doubao_auth_mode".into(), Value::String(mode.into()));
+        if mode == "legacy" {
+            if let Some(app_key) = credential.app_key.map(trim_pasted) {
+                entry.insert("app_key".into(), Value::String(app_key.to_owned()));
+            }
+        } else {
+            entry.remove("app_key");
+        }
+        let resource_id = trim_pasted(credential.resource_id);
+        if resource_id.is_empty() {
+            entry.remove("resource_id");
+        } else {
+            entry.insert("resource_id".into(), Value::String(resource_id.to_owned()));
+        }
+    } else {
+        for key in ["app_key", "resource_id", "doubao_auth_mode"] {
+            entry.remove(key);
+        }
+    }
+    validate_voice_entry(kind, &entry)?;
+    voice.entries.insert(provider, entry);
+    place_voice_entries(&mut document, kind, voice).map_err(|error| match error {
+        CredentialError::TooManyProfiles => error,
+        _ => CredentialError::Existing,
+    })?;
+    if !document.contains_key("asr") {
+        return Err(CredentialError::VoiceAsrRequired);
+    }
+    // The other kind is carried over untouched, but it still has to pass: the provider rejects the whole file for one bad entry.
+    let other = match kind {
+        VoiceKind::Asr => VoiceKind::Polish,
+        VoiceKind::Polish => VoiceKind::Asr,
+    };
+    voice_status_of(other, &voice_entries(&document, other)?)
+        .map_err(|_| CredentialError::Existing)?;
+    write_private(&path, Some(&Value::Object(document)))
+}
+
+/// Remove one voice credential. Removing the last recognition entry while polishing entries remain would leave a file the provider refuses, so that is an error; removing the last entry of all removes the file.
+pub(crate) fn clear_voice_in(
+    directory: &Path,
+    kind: VoiceKind,
+    provider: &str,
+) -> Result<bool, CredentialError> {
+    let _guard = WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let path = directory.join(VOICE_FILE);
+    let Some(mut document) = read_private(&path)? else {
+        return Ok(false);
+    };
+    let mut voice = voice_entries(&document, kind)?;
+    let provider =
+        voice_provider_id(trim_pasted(provider)).ok_or(CredentialError::InvalidProvider)?;
+    if voice.entries.remove(&provider).is_none() {
+        return Ok(false);
+    }
+    place_voice_entries(&mut document, kind, voice).map_err(|_| CredentialError::Existing)?;
+    let asr_left = document.contains_key("asr");
+    let polish_left = document.contains_key("polish");
+    if !asr_left && polish_left {
+        return Err(CredentialError::VoiceAsrRequired);
+    }
+    if !asr_left {
+        write_private(&path, None)?;
+        return Ok(true);
+    }
+    write_private(&path, Some(&Value::Object(document)))?;
+    Ok(false)
+}
+
+/// Point the voice socket unit at the new state of the file: enabled once there is a credential for it to serve, disabled once the file is gone. A failed earlier start is cleared so the next connection tries again.
+fn update_voice_service(enabled: bool) -> bool {
+    let systemctl = |arguments: &[&str]| {
+        std::process::Command::new("systemctl")
+            .arg("--user")
+            .args(arguments)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    };
+    if enabled {
+        let _ = systemctl(&["reset-failed", VOICE_SERVICE_UNIT]);
+        systemctl(&["enable", "--now", VOICE_SOCKET_UNIT])
+    } else {
+        systemctl(&["disable", "--now", VOICE_SOCKET_UNIT])
+    }
 }
 
 /// Store the credential for `provider`, bound to `endpoint` and `model`. A `None` token keeps the stored one, so the user can rebind an endpoint or model without pasting the key again.
@@ -524,6 +956,57 @@ pub async fn clear_tencent_provider_credential(
     run(|directory| {
         clear_tencent_in(directory)?;
         status_in(directory)
+    })
+    .await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn save_voice_provider_credential(
+    kind: String,
+    provider: String,
+    endpoint: String,
+    model: String,
+    token: Option<String>,
+    app_key: Option<String>,
+    resource_id: String,
+    auth_mode: String,
+) -> Result<VoiceSaveResponse, crate::CommandError> {
+    run(move |directory| {
+        save_voice_in(
+            directory,
+            &VoiceCredential {
+                kind: VoiceKind::parse(&kind)?,
+                provider: &provider,
+                endpoint: &endpoint,
+                model: &model,
+                token: token.as_deref(),
+                app_key: app_key.as_deref(),
+                resource_id: &resource_id,
+                auth_mode: &auth_mode,
+            },
+        )?;
+        let service_updated = update_voice_service(true);
+        Ok(VoiceSaveResponse {
+            status: status_in(directory)?,
+            service_updated,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn clear_voice_provider_credential(
+    kind: String,
+    provider: String,
+) -> Result<VoiceSaveResponse, crate::CommandError> {
+    run(move |directory| {
+        let removed_file = clear_voice_in(directory, VoiceKind::parse(&kind)?, &provider)?;
+        let service_updated = !removed_file || update_voice_service(false);
+        Ok(VoiceSaveResponse {
+            status: status_in(directory)?,
+            service_updated,
+        })
     })
     .await
 }
@@ -737,6 +1220,161 @@ mod tests {
         clear_tencent_in(root).unwrap();
         assert!(!path.exists());
         assert_eq!(status_in(root).unwrap().tencent, None);
+    }
+
+    fn voice<'a>(
+        kind: VoiceKind,
+        provider: &'a str,
+        model: &'a str,
+        token: Option<&'a str>,
+    ) -> VoiceCredential<'a> {
+        VoiceCredential {
+            kind,
+            provider,
+            endpoint: "",
+            model,
+            token,
+            app_key: None,
+            resource_id: "",
+            auth_mode: "",
+        }
+    }
+
+    #[test]
+    fn saves_voice_entries_in_the_layout_the_voice_provider_requires() {
+        let temp = directory();
+        let root = temp.path();
+        // Polishing alone is not a file the provider starts with.
+        assert_eq!(
+            save_voice_in(
+                root,
+                &voice(VoiceKind::Polish, "deepseek", "", Some("sk-p"))
+            ),
+            Err(CredentialError::VoiceAsrRequired)
+        );
+        assert!(!root.join(VOICE_FILE).exists());
+        save_voice_in(
+            root,
+            &voice(
+                VoiceKind::Asr,
+                "SiliconFlow",
+                "FunAudioLLM/SenseVoiceSmall",
+                Some(" sk-s "),
+            ),
+        )
+        .unwrap();
+        save_voice_in(root, &voice(VoiceKind::Asr, "openai", "", Some("sk-o"))).unwrap();
+        save_voice_in(
+            root,
+            &voice(
+                VoiceKind::Polish,
+                "deepseek",
+                "deepseek-v4-flash",
+                Some("sk-p"),
+            ),
+        )
+        .unwrap();
+        let path = root.join(VOICE_FILE);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            read(&path),
+            serde_json::json!({
+                "asr": {"provider": "siliconflow", "token": "sk-s", "model": "FunAudioLLM/SenseVoiceSmall"},
+                "asr_profiles": {"openai": {"token": "sk-o"}},
+                "polish": {"provider": "deepseek", "token": "sk-p", "model": "deepseek-v4-flash"}
+            })
+        );
+        let status = status_in(root).unwrap();
+        assert_eq!(status.voice_asr.len(), 2);
+        assert_eq!(status.voice_polish[0].model, "deepseek-v4-flash");
+        assert!(!status.voice_invalid);
+
+        // Rebinding the model keeps the token.
+        save_voice_in(
+            root,
+            &voice(VoiceKind::Asr, "siliconflow", "TeleAI/TeleSpeechASR", None),
+        )
+        .unwrap();
+        assert_eq!(read(&path)["asr"]["token"], "sk-s");
+
+        // Recognition cannot go while polishing depends on it; the last entry of all takes the file.
+        clear_voice_in(root, VoiceKind::Asr, "siliconflow").unwrap();
+        assert_eq!(read(&path)["asr"]["provider"], "openai");
+        assert_eq!(
+            clear_voice_in(root, VoiceKind::Asr, "openai"),
+            Err(CredentialError::VoiceAsrRequired)
+        );
+        assert_eq!(
+            clear_voice_in(root, VoiceKind::Polish, "deepseek"),
+            Ok(false)
+        );
+        assert_eq!(clear_voice_in(root, VoiceKind::Asr, "openai"), Ok(true));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn follows_the_voice_providers_doubao_and_endpoint_rules() {
+        let temp = directory();
+        let root = temp.path();
+        let mut doubao = voice(VoiceKind::Asr, "doubao", "", Some("api-key"));
+        doubao.auth_mode = "legacy";
+        assert_eq!(
+            save_voice_in(root, &doubao),
+            Err(CredentialError::TokenRequired)
+        );
+        doubao.app_key = Some("<app key>");
+        assert_eq!(
+            save_voice_in(root, &doubao),
+            Err(CredentialError::InvalidSecret)
+        );
+        doubao.app_key = Some("app-1");
+        doubao.endpoint = "https://openspeech.bytedance.com/api/v3/sauc/bigmodel";
+        assert_eq!(
+            save_voice_in(root, &doubao),
+            Err(CredentialError::InvalidEndpoint)
+        );
+        doubao.endpoint = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel";
+        doubao.resource_id = "volc.bigasr.sauc.duration";
+        save_voice_in(root, &doubao).unwrap();
+        let document = read(&root.join(VOICE_FILE));
+        assert_eq!(document["asr"]["app_key"], "app-1");
+        assert_eq!(document["asr"]["doubao_auth_mode"], "legacy");
+        let status = status_in(root).unwrap();
+        assert_eq!(
+            status.voice_asr[0].resource_id.as_deref(),
+            Some("volc.bigasr.sauc.duration")
+        );
+        assert_eq!(status.voice_asr[0].auth_mode.as_deref(), Some("legacy"));
+
+        // Switching to the single API key drops the stored App Key.
+        let mut api_key = voice(VoiceKind::Asr, "doubao", "", None);
+        api_key.auth_mode = "api_key";
+        save_voice_in(root, &api_key).unwrap();
+        let document = read(&root.join(VOICE_FILE));
+        assert!(document["asr"].get("app_key").is_none());
+        assert!(document["asr"].get("resource_id").is_none());
+        assert_eq!(
+            status_in(root).unwrap().voice_asr[0].resource_id.as_deref(),
+            Some(DOUBAO_DEFAULT_RESOURCE)
+        );
+
+        assert_eq!(
+            save_voice_in(root, &voice(VoiceKind::Asr, "whisper", "", Some("sk"))),
+            Err(CredentialError::InvalidProvider)
+        );
+        assert_eq!(
+            save_voice_in(root, &voice(VoiceKind::Polish, "mistral", "", Some("sk"))),
+            Err(CredentialError::InvalidProvider)
+        );
+        let mut http = voice(VoiceKind::Polish, "openai", "", Some("sk"));
+        http.endpoint = "http://api.openai.com/v1/chat/completions";
+        assert_eq!(
+            save_voice_in(root, &http),
+            Err(CredentialError::InvalidEndpoint)
+        );
     }
 
     #[test]

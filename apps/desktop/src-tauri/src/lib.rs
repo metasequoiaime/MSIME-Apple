@@ -3883,6 +3883,10 @@ pub fn run() {
             linux_provider_credentials::save_tencent_provider_credential,
             #[cfg(target_os = "linux")]
             linux_provider_credentials::clear_tencent_provider_credential,
+            #[cfg(target_os = "linux")]
+            linux_provider_credentials::save_voice_provider_credential,
+            #[cfg(target_os = "linux")]
+            linux_provider_credentials::clear_voice_provider_credential,
             save_preferences,
             clipboard_history::list_clipboard_history,
             clipboard_history::clear_clipboard_history,
