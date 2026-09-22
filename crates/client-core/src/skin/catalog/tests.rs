@@ -16,6 +16,24 @@ fn resource_package(root: &Path) -> std::path::PathBuf {
 }
 
 #[test]
+fn scan_external_skin_under_non_ascii_directory() {
+    let root = tempdir().unwrap();
+    let non_ascii_root = root.path().join("用户目录").join("skins");
+    let skin = resource_package(&non_ascii_root);
+
+    let package = load(&non_ascii_root, "sample").unwrap();
+    assert_eq!(package.id, "sample");
+    assert_eq!(package.name, "Sample");
+    assert_eq!(package.base, "fluent");
+
+    let catalog = scan(&non_ascii_root);
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    assert_eq!(catalog.packages.len(), 1);
+    assert_eq!(catalog.packages[0].id, "sample");
+    assert!(skin.join("skin.toml").exists());
+}
+
+#[test]
 fn toolbar_source_distinguishes_absent_empty_and_declared_utf8_text() {
     let root = tempdir().unwrap();
     let skin = resource_package(root.path());
