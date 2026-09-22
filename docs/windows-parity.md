@@ -2428,3 +2428,10 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 停止快捷键（Ctrl+Shift+Alt+T）：原来只是让主循环退出、返回 0，Watchdog 把 0 当成非正常退出，两秒后又把 Server 拉起来，等于「停止」无效。现在返回 `watchdog::stop_exit_code`，与来源 `window_hook.cpp` 的 `ExitProcess(kStopExitCode)` 一致，Watchdog 随之退出。已打开的设置等 Tauri 窗口是独立进程，不随 Server 关闭，与「重启」时的行为相同。
 - 诊断日志文件：受管模式下 stdout/stderr 没有去处，原来写到控制台的诊断无人可见。设置页「Server 端日志」「TSF 端日志」两个开关（`diagnostic_log.server` / `diagnostic_log.tsf`）原本只影响控制台输出，现在分别控制写入数据目录下的 `logs\server.log`：Server 启停原因、各组件是否就绪、退出码，以及 TIP 上报的诊断批次。来源写到桌面、失败再退回数据目录；这里固定写数据目录，因为输入法在桌面上凭空出现文件不是用户预期的副作用。文件达到 4 MiB 时轮转为 `server.log.1`，最多保留两份；新文件带 UTF-8 BOM，行尾 CRLF，与来源一致。只记状态，不记按键、输入内容或候选文本。偏好发布时立即生效，无需重启 Server。
 - 证据：MinGW 交叉构建与 Wine 下的原生用例；未在 Windows 主机上目视确认。
+
+### 检查更新改读本仓库的 Windows 发行版；Server 上报的版本号取自 version.txt（2026-09-23）
+
+- 检查更新：来源的「关于」页读 `https://msime.app/update.json`，那份清单描述的是来源产品，`releaseUrl` 指向 `metasequoiaime/MSIME-Windows`。共享设置页在 Windows 上沿用了这个地址，而校验只接受本仓库 `metasequoiaime/msime/releases` 下的链接，所以 Windows 上每次检查都显示「检查失败」；就算放行，也会把用户带去下载另一个产品。现在 Windows 与其他平台一样读本仓库的发行版列表。
+- 发行版按平台挑选：各平台由 `.github/workflows/release-*.yml` 独立发布到同一个仓库，标签带平台前缀（`windows-v1.2.0`、`linux-v1.2.0`）。原来的 `releases/latest` 只返回整个仓库最新的那一个，通常属于别的平台（写作时是 `macos-v…`），带前缀的标签又解析不出版本号，于是 Linux 等平台的检查同样一直失败。现在读取列表，只取本平台前缀、非草稿、非预发布的发行版，按版本号而不是列表顺序取最新；没有则显示「暂无可用发行版」。
+- 版本号：Server 的遥测原本写死 `0.1.0-dev`。现在由 CMake 从 `platforms/windows/version.txt` 读入（发布工作流读的也是它），`Build-Client.ps1` 带 `-TargetVersion` 构建安装包时同一个版本号同时传给 Tauri 和 Server。
+- 证据：设置页用例覆盖 Windows 读列表、跨平台与预发布过滤、按版本比较；MinGW 交叉构建。未在 Windows 主机上实际点「检查更新」。

@@ -544,8 +544,8 @@ private:
 };
 } // namespace
 int wmain(int argc, wchar_t **argv) {
-  msime::telemetry::start("windows", "0.1.0-dev");
-  std::set_terminate([] { msime::telemetry::crash("windows", "0.1.0-dev", "std::terminate"); std::abort(); });
+  msime::telemetry::start("windows", MSIME_WINDOWS_VERSION);
+  std::set_terminate([] { msime::telemetry::crash("windows", MSIME_WINDOWS_VERSION, "std::terminate"); std::abort(); });
   using namespace msime::windows;
   const auto launch = parse_server_arguments(argc, argv);
   attach_launching_console(launch);

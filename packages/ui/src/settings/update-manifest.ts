@@ -11,6 +11,8 @@ export type UpdateManifest = {
 export type GitHubRelease = {
   tag_name?: unknown;
   html_url?: unknown;
+  draft?: unknown;
+  prerelease?: unknown;
 };
 
 export type ValidatedUpdate = {
@@ -88,6 +90,31 @@ export function validateGitHubRelease(
     installerSha256: null,
     signed: null,
   };
+}
+
+/**
+ * The newest published release of one platform, from the repository's release list.
+ *
+ * Every platform publishes to the same repository under its own tag prefix (`windows-v1.2.0`, `linux-v1.2.0`; see `.github/workflows/release-*.yml`), so the repository's single "latest" release usually belongs to another platform, and its prefixed tag is not a version. Drafts and prereleases are not offered.
+ */
+export function selectPlatformRelease(
+  releases: readonly GitHubRelease[],
+  platform: string,
+  releasesPageUrl: string,
+): ValidatedUpdate | null {
+  const prefix = `${platform}-`;
+  let newest: ValidatedUpdate | null = null;
+  for (const release of releases) {
+    if (!release || typeof release !== "object") continue;
+    if (release.draft === true || release.prerelease === true) continue;
+    if (typeof release.tag_name !== "string" || !release.tag_name.startsWith(prefix)) continue;
+    const update = validateGitHubRelease(
+      { tag_name: release.tag_name.slice(prefix.length), html_url: release.html_url },
+      releasesPageUrl,
+    );
+    if (update && (!newest || compareVersions(update.version, newest.version) > 0)) newest = update;
+  }
+  return newest;
 }
 
 export function describeInstallerTrust(update: ValidatedUpdate): {
