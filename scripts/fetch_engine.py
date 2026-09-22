@@ -50,7 +50,7 @@ def lock_marker(lock: dict) -> str:
     that should have failed passed.
     """
     scripts = {}
-    for name in lock.get("overlay_scripts", []):
+    for name in lock.get("overlay_scripts", []) + lock.get("overlay_assets", []):
         path = ROOT / name
         digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
         scripts[name] = digest
