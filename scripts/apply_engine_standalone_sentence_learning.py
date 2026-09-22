@@ -78,7 +78,17 @@ def apply(root: Path) -> None:
 
     // Both quanpin and shuangpin sentences carry canonical quanpin. Require a complete reading
     // with one syllable per Han character before creating the row.
-    const std::string canonical = normalize_canonical_pinyin_for_word(selected.canonical_pinyin, selected.word);
+    // Online cloud/AI rows are injected after the local query and therefore carry no
+    // canonical_pinyin.  For a complete full-pinyin query the session's explicit segmentation is
+    // the canonical key; using committed_pinyin would erase apostrophes and let correction
+    // re-segment a reading such as qi'e'huan before it is stored.
+    const bool online_candidate = selected.source == CandidateSource::CloudSuggestion ||
+                                  selected.source == CandidateSource::AiSuggestion;
+    const std::string selected_canonical =
+        selected.canonical_pinyin.empty() && online_candidate && is_all_complete_pure_pinyin()
+            ? get_pinyin_segmentation()
+            : selected.canonical_pinyin;
+    const std::string canonical = normalize_canonical_pinyin_for_word(selected_canonical, selected.word);
     if (canonical.empty() || quanpin::split_segments(canonical).size() > kMaxLearnedSentenceSyllables)
     {
         return std::nullopt;
