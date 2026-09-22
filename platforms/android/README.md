@@ -38,6 +38,8 @@ API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享
 
 微软双拼在字母第二行额外提供“微软双拼 ing”分词键，只有中文微软双拼普通输入时显示；它把 `;` 原样交给 Engine，由 Engine 根据当前组合决定 ing 韵母或标点语义。英文、日语、五笔和本地输入模式不显示该键。
 
+双拼键位提示由 Engine 的 profile 表通过共享 Host API 提供，Android 不维护第二份键盘映射。提示中的 ` / ` 分隔声母侧与韵母侧，同一侧的多个单位以空格分隔；因此一个键可能同时显示多个韵母（例如小鹤 `K` 的 `ing uai`）。切换双拼方案后按 profile 刷新缓存；未知方案、损坏响应或原生失败直接隐藏提示，不用其他方案的标签误标当前键盘。提示只在中文双拼、非本地模式且非 dedicated English 时显示。
+
 顶部“简 / 繁”快捷键消费共享 `traditional_chinese_output` 偏好，并按固定 Apple 来源只在 Android 展示与插入边界使用系统 ICU `Simplified-Traditional` 转换：Engine 候选原文、候选身份、组合文本和输入算法保持不变。候选条、展开候选面板、Engine 最终提交和手写候选使用同一规则；日语方案、临时日语和 dedicated English 保留原文。快捷键通过共享 revision CAS 乐观刷新当前候选，冲突或写入失败恢复最近接受值；顶部语音入口开启时让出同一快捷位，高情商回复优先于语音。Android `Transliterator` 从 API 29 提供，API 28 保留原文并禁用快捷键，不伪装已转换。
 
 “全角输入”沿用 Apple 键盘扩展的直接输出边界：Android 更多工具页提供持久化开关，宿主明确直写的 ASCII 字符、空格和九键字面在开启后转换为 Unicode 全角；Engine 的中文组合、候选身份、手写结果、日语和本地模式保持原文。专用英文模式虽由 Android Engine 管理组合，但其最终英文 commit 在同一宿主边界转换，保证键盘内英文候选与 Apple 的直接英文输入一致。
