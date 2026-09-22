@@ -31,10 +31,10 @@ final class BackendWindowBridge: NSObject {
   @objc func showClipboard(forAccountID accountID: String) { show("clipboard", accountID: accountID, title: "云剪贴板", size: NSSize(width: 560, height: 560)) { MacCloudClipboardView(accountID: accountID) } }
   @objc func showSnapshot(forAccountID accountID: String) { show("snapshot", accountID: accountID, title: "词库快照", size: NSSize(width: 560, height: 460)) { MacCloudSnapshotView(accountID: accountID) } }
   @objc func showSettings(forAccountID accountID: String) { show("settings", accountID: accountID, title: "桌面设置同步", size: NSSize(width: 540, height: 520)) { MacCloudSettingsView(accountID: accountID) } }
-  @objc func showHandwriting() { show("handwriting", accountID: "local", title: "水杉手写识别板", size: NSSize(width: 640, height: 460)) { MacHandwritingToolView() } }
+  @objc func showHandwriting() { show("handwriting", accountID: "local", title: "水杉手写识别板", size: NSSize(width: 720, height: 510)) { MacHandwritingToolView() } }
   @objc func showHandwriting(selectionAttempt selection: @escaping (String) -> Bool) {
     weak var presented: NSWindowController?
-    presented = show("handwriting", accountID: UUID().uuidString, title: "水杉手写识别板", size: NSSize(width: 640, height: 460)) {
+    presented = show("handwriting", accountID: UUID().uuidString, title: "水杉手写识别板", size: NSSize(width: 720, height: 510)) {
       MacHandwritingToolView(onCandidate: { text in
         let accepted = selection(text)
         if accepted { presented?.close() }
