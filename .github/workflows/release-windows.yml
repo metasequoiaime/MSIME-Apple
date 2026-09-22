@@ -74,7 +74,13 @@ jobs:
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           $deps = Join-Path $env:RUNNER_TEMP 'msime-deps'
-          ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION
+          # Build-Client.ps1 defaults to the Visual Studio 2022 generator; the runner image moves between Visual Studio releases, so name the one it has.
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $major = ([version](& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion)).Major
+          $year = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property catalog_productLineVersion
+          $generator = "Visual Studio $major $year"
+          Write-Output "CMake generator: $generator"
+          ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator
       - name: Collect third-party notices
         shell: pwsh
         run: |
