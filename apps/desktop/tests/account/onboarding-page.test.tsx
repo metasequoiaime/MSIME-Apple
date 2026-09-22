@@ -47,6 +47,23 @@ test("exposes Android system settings and input method picker actions", async ()
   await waitFor(() => expect(actions.showInputMethodPicker).toHaveBeenCalledOnce());
 });
 
+test("adapts setup copy and actions for HarmonyOS", async () => {
+  const actions = makeActions({ platform: "harmony" });
+  render(<WelcomeFlowPage actions={actions} onComplete={vi.fn().mockResolvedValue(undefined)} />);
+  fireEvent.click(screen.getByRole("button", { name: "开始设置" }));
+  await screen.findByRole("heading", { name: "启用键盘" });
+
+  expect(screen.getByText(/HarmonyOS 中启用并选择水杉输入法/)).toBeTruthy();
+  expect(screen.getByText("前往 HarmonyOS 的系统输入法设置。")).toBeTruthy();
+  expect(screen.getByText(/系统设置页面由 HarmonyOS 管理/)).toBeTruthy();
+  expect(screen.queryByText(/Android/)).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "打开系统设置" }));
+  await waitFor(() => expect(actions.openSystemKeyboardSettings).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole("button", { name: "选择输入法" }));
+  await waitFor(() => expect(actions.showInputMethodPicker).toHaveBeenCalledOnce());
+});
+
 test("adapts the setup step for iOS keyboard settings", async () => {
   const actions = makeActions({ platform: "ios" });
   render(<WelcomeFlowPage actions={actions} onComplete={vi.fn().mockResolvedValue(undefined)} />);
