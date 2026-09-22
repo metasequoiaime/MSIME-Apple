@@ -468,7 +468,8 @@ add_executable(doubao-voice-request-test tests/voice/DoubaoVoiceRequestTest.mm s
 target_compile_options(doubao-voice-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(doubao-voice-request-test PRIVATE apple-client MetasequoiaIme::Voice "-framework Foundation")
 add_test(NAME doubao-voice-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/doubao_voice_fixture.py" "$<TARGET_FILE:doubao-voice-request-test>")
-set_tests_properties(doubao-voice-request PROPERTIES TIMEOUT 65)
+# Above the fixture's own 60 s client limit plus the 3 s stack sample it takes of a hung client, so a hang reports where it is stuck instead of being killed silently.
+set_tests_properties(doubao-voice-request PROPERTIES TIMEOUT 80)
 add_executable(preference-save-state-test tests/settings/PreferenceSaveStateTest.cpp)
 target_compile_options(preference-save-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME preference-save-state COMMAND preference-save-state-test)

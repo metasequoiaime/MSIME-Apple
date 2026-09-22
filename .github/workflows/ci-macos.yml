@@ -266,6 +266,7 @@ jobs:
           if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime.db"; else touch "$RUNNER_TEMP/dictionary/msime.db"; fi
       - name: Build the Rust host library
         run: cargo build --locked -p msime-host-api
+      # OBJCXX is its own CMake language here, so CXX flags alone left every .mm unsanitized. Templates such as vector<uint8_t> are instantiated on both sides, and the linker keeping one copy from each can let instrumented code check container annotations the uninstrumented half never wrote - a container-overflow inside nlohmann's lexer.
       - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
         run: >
           cmake -S platforms/macos -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
@@ -275,6 +276,7 @@ jobs:
           -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime.db"
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_OBJCXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
           -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
       - name: Build
