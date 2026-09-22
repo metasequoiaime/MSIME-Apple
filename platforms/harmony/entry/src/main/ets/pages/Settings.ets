@@ -195,6 +195,7 @@ interface LocalDictionaryEditRequest {
 interface TypingStatisticsAction {
   operation: string;
   enabled?: boolean;
+  retention?: string;
 }
 
 interface TypingStatisticsDocument {
@@ -1075,8 +1076,10 @@ class SettingsBridge {
     }
     try {
       const action: TypingStatisticsAction = JSON.parse(actionDocument) as TypingStatisticsAction;
-      if (!['load', 'set_enabled', 'reset'].includes(action.operation)
-        || (action.operation === 'set_enabled' && typeof action.enabled !== 'boolean')) {
+      if (!['load', 'set_enabled', 'set_retention', 'reset'].includes(action.operation)
+        || (action.operation === 'set_enabled' && typeof action.enabled !== 'boolean')
+        || (action.operation === 'set_retention'
+          && !['forever', '30d', '90d', '180d', '365d'].includes(action.retention ?? ''))) {
         return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
       }
       const raw: string = client.typingStatistics(JSON.stringify({

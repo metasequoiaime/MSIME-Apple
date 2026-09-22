@@ -44,6 +44,7 @@ import {
   type CloudDictionaryPanelClient,
   type SettingsClient,
   type Snapshot,
+  type StatisticsRetention,
   type TypingStatisticsClient,
   type TypingStatisticsStatus,
 } from "@msime/ui";
@@ -694,6 +695,10 @@ function makeClient(
     setEnabled: async (enabled: boolean) =>
       unwrap<TypingStatisticsStatus>(
         native.typingStatistics(JSON.stringify({ operation: "set_enabled", enabled })),
+      ),
+    setRetention: async (retention: StatisticsRetention) =>
+      unwrap<TypingStatisticsStatus>(
+        native.typingStatistics(JSON.stringify({ operation: "set_retention", retention })),
       ),
     reset: async () =>
       unwrap<TypingStatisticsStatus>(

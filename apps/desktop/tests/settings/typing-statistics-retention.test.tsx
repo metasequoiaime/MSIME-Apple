@@ -77,3 +77,26 @@ test("a host that does not keep the statistics is not offered the control", asyn
   // A dead control that silently does nothing would be worse than no control.
   expect(screen.queryByLabelText("自动清理")).toBeNull();
 });
+
+test("a phone keeps cleanup policy out of its touch-oriented statistics page", async () => {
+  const value: TypingStatistics = {
+    enabled: true,
+    total: 10,
+    days: { "2026-09-21": 10 },
+    retention: "90d",
+  };
+  render(
+    <TypingStatisticsPage
+      mobile
+      client={{
+        load: async () => status(value),
+        setEnabled: async () => status(value),
+        setRetention: async () => status(value),
+        reset: async () => status(value),
+      }}
+    />,
+  );
+
+  await screen.findByLabelText("统计内容");
+  expect(screen.queryByLabelText("自动清理")).toBeNull();
+});
