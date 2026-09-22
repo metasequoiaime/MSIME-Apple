@@ -28,6 +28,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic, copy) NSString *inputScheme;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
+/// Allow Pinyin fallback when a Wubi code has no Wubi candidates.
+@property(nonatomic) BOOL wubiMixedPinyinEnabled;
 /// Shared inline composition display: raw keys, formatted pinyin, or hidden.
 @property(nonatomic, readonly) MSIMEInlinePreeditStyle inlinePreeditStyle;
 @property(nonatomic) NSUInteger fontSize;

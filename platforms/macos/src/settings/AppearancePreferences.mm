@@ -153,6 +153,7 @@ static NSString *const QuanpinHelpcodeKey = @"MSIMEClientQuanpinHelpcodeEnabled"
 static NSString *const ShuangpinHelpcodeKey = @"MSIMEClientShuangpinHelpcodeEnabled";
 static NSString *const KeymapKey = @"MSIMEClientShuangpinKeymap";
 static NSString *const WubiKey = @"MSIMEClientWubiAutoCommitUnique";
+static NSString *const WubiMixedPinyinKey = @"MSIMEClientWubiMixedPinyin";
 static NSString *const InputModeShortcutKey = @"MSIMEClientInputModeShortcut";
 static NSString *const ShiftTapShortcutKey = @"MSIMEClientShiftTapShortcut";
 static NSString *const ControlTapShortcutKey = @"MSIMEClientControlTapShortcut";
@@ -502,6 +503,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSString *_sharedInputScheme;
     NSString *_sharedShuangpinProfile;
     NSNumber *_sharedShuangpinPreeditUsesRaw;
+    NSNumber *_sharedWubiMixedPinyin;
     NSString *_sharedInlinePreeditStyle;
     NSMutableDictionary *_sharedLocalModes;
     NSMutableArray<NSButton *> *_localModeButtons;
@@ -672,6 +674,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     if (![self.inputScheme isEqual:@"japanese"]) merged[@"last_chinese_scheme"] = self.inputScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
+    merged[@"wubi_mixed_pinyin"] = @(self.wubiMixedPinyinEnabled);
     NSMutableDictionary *qh = [merged[@"quanpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
     qh[@"enabled"] = @(self.quanpinHelpcodeEnabled);
     merged[@"quanpin_helpcode"] = qh;
@@ -1079,6 +1082,14 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
 - (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+- (BOOL)wubiMixedPinyinEnabled {
+    return _sharedWubiMixedPinyin ? _sharedWubiMixedPinyin.boolValue : [_defaults boolForKey:WubiMixedPinyinKey];
+}
+- (void)setWubiMixedPinyinEnabled:(BOOL)value {
+    _sharedWubiMixedPinyin = nil;
+    [_defaults setBool:value forKey:WubiMixedPinyinKey];
+    [self preferencesChanged];
+}
 - (MSIMEInlinePreeditStyle)inlinePreeditStyle {
     NSString *value = _sharedInlinePreeditStyle ?: @"raw";
     if ([value isEqual:@"raw"]) return MSIMEInlinePreeditStyleRaw;
@@ -1141,9 +1152,11 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     id scheme = preferences[@"scheme"];
     id profile = preferences[@"shuangpin_profile"];
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
+    id wubiMixedPinyin = preferences[@"wubi_mixed_pinyin"];
     if ([@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:scheme]) _sharedInputScheme = [scheme copy];
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
+    if (LocalModeBoolean(wubiMixedPinyin)) _sharedWubiMixedPinyin = wubiMixedPinyin;
     id inlinePreedit = preferences[@"tsf_preedit_style"];
     if ([@[@"raw", @"pinyin", @"empty"] containsObject:inlinePreedit]) _sharedInlinePreeditStyle = [inlinePreedit copy];
     [self refreshControls];
