@@ -3782,8 +3782,9 @@ struct KeyboardView {
    * The tools, two to a row.
    *
    * 表情 and 剪贴板历史 open something; 本地输入 goes one level in rather than putting eight modes on
-   * the keyboard's own rows, which is the arrangement iOS settled on. AI 润色 is not offered because
-   * this host has no AI surface, and a card that does nothing is worse than one that is absent.
+   * the keyboard's own rows, which is the arrangement iOS settled on. AI 润色 is offered only when
+   * the host has a configured provider, so an unavailable service is represented by a disabled card
+   * instead of a dead entry.
    */
   @Builder
   toolsFace() {

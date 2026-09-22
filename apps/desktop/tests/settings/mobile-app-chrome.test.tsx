@@ -127,8 +127,10 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
     }),
   );
   fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  const phoneSettings = screen.getByRole("region", { name: "全部设置" });
+  expect(within(phoneSettings).queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
   fireEvent.click(
-    within(screen.getByRole("region", { name: "全部设置" })).getByRole("button", {
+    within(phoneSettings).getByRole("button", {
       name: "快捷键",
     }),
   );
@@ -179,6 +181,7 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
     candidate_font_controls: true,
   });
   await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByRole("button", { name: "悬浮工具栏" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   expect(screen.getByRole("region", { name: "候选窗口预览" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "候选窗预编辑" })).toBeTruthy();
