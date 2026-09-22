@@ -18,6 +18,7 @@ pub use uuid;
 pub mod account;
 pub mod ai;
 pub mod candidate_document;
+pub mod chinese_conversion;
 pub mod clipboard;
 pub mod cloud;
 pub mod community;
