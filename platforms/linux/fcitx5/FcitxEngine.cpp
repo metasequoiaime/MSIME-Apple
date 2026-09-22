@@ -1230,6 +1230,7 @@ public:
     if (cloud_clipboard_socket != cloud_clipboard_socket_) {
       ++cloud_clipboard_generation_;
       cloud_clipboard_items_.clear();
+      cloud_clipboard_enabled_ = true;
     }
     cloud_clipboard_socket_ = std::move(cloud_clipboard_socket);
     voice_socket_ = providerSocket(options, "voice_provider_socket",
@@ -1389,6 +1390,7 @@ public:
       if (nextCloudClipboard != cloud_clipboard_socket_) {
         ++cloud_clipboard_generation_;
         cloud_clipboard_items_.clear();
+        cloud_clipboard_enabled_ = true;
         cloud_clipboard_socket_ = std::move(nextCloudClipboard);
       }
       auto nextVoice = providerSocket(options, "voice_provider_socket",
