@@ -146,6 +146,16 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_englishCompletio
     env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_shuangpinKeyHintsRaw(JNIEnv *env, jclass, jbyteArray profile) {
+    if (!profile) return response(env, msime_client_shuangpin_key_hints(nullptr, 0));
+    jsize length = env->GetArrayLength(profile);
+    jbyte *bytes = env->GetByteArrayElements(profile, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_shuangpin_key_hints(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(profile, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_savePreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision, jbyteArray snapshot) {
     if (!directory || !snapshot || expected_revision < 0) {
         return response(env, msime_client_save_preferences(nullptr, 0, 0, nullptr, 0));

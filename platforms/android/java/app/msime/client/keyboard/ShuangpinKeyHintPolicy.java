@@ -1,19 +1,14 @@
 package app.msime.client;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/** Display-only double-pinyin key hints derived from the Engine profile tables. */
+/** Visibility and bounded decoding for Engine-owned double-pinyin key hints. */
 public final class ShuangpinKeyHintPolicy {
-    private static final String[] LETTER_KEYS = {
-        "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P",
-        "A", "S", "D", "F", "G", "H", "J", "K", "L", "Z",
-        "X", "C", "V", "B", "N", "M", ";"
-    };
-    private static final Map<String, Map<String, String>> PROFILES = profiles();
+    private static final int MAX_KEYS = 64;
+    private static final int MAX_HINT_LENGTH = 128;
+    private static final String OK_TRUE = "\"ok\"\\s*:\\s*true";
 
     private ShuangpinKeyHintPolicy() { }
 
@@ -21,75 +16,72 @@ public final class ShuangpinKeyHintPolicy {
         return !dedicatedEnglish && scheme == 1 && "none".equals(localMode);
     }
 
-    public static String hint(String profile, String key, boolean dedicatedEnglish,
-            int scheme, String localMode) {
-        if (!visible(dedicatedEnglish, scheme, localMode) || key == null) return "";
-        Map<String, String> hints = PROFILES.get(profile);
-        if (hints == null) return "";
+    /** Decode the shared host envelope; malformed or failed responses intentionally yield no map. */
+    public static Map<String, String> decode(String response) {
+        if (response == null || response.length() > 65_536) return Map.of();
+        if (!java.util.regex.Pattern.compile(OK_TRUE).matcher(response).find()) return Map.of();
+        int valueKey = response.indexOf("\"value\"");
+        int open = valueKey < 0 ? -1 : response.indexOf('{', valueKey);
+        int close = matchingObjectEnd(response, open);
+        if (open < 0 || close < 0) return Map.of();
+        Map<String, String> hints = new LinkedHashMap<>();
+        int cursor = open + 1;
+        while (cursor < close) {
+            cursor = skipSpaceAndCommas(response, cursor, close);
+            if (cursor == close) break;
+            if (response.charAt(cursor) != '"') return Map.of();
+            int keyEnd = response.indexOf('"', cursor + 1);
+            if (keyEnd < 0 || keyEnd > close) return Map.of();
+            String key = response.substring(cursor + 1, keyEnd);
+            cursor = skipSpaces(response, keyEnd + 1, close);
+            if (cursor >= close || response.charAt(cursor) != ':') return Map.of();
+            cursor = skipSpaces(response, cursor + 1, close);
+            if (cursor >= close || response.charAt(cursor) != '"') return Map.of();
+            int hintEnd = response.indexOf('"', cursor + 1);
+            if (hintEnd < 0 || hintEnd > close) return Map.of();
+            String hint = response.substring(cursor + 1, hintEnd);
+            if (!validKey(key) || hint.length() > MAX_HINT_LENGTH || hint.indexOf('\\') >= 0)
+                return Map.of();
+            hints.put(key, hint);
+            cursor = hintEnd + 1;
+            cursor = skipSpaces(response, cursor, close);
+            if (cursor < close && response.charAt(cursor) != ',') return Map.of();
+        }
+        return hints.size() > MAX_KEYS ? Map.of() : Map.copyOf(hints);
+    }
+
+    private static int skipSpaces(String value, int cursor, int limit) {
+        while (cursor < limit && Character.isWhitespace(value.charAt(cursor))) cursor++;
+        return cursor;
+    }
+
+    private static int skipSpaceAndCommas(String value, int cursor, int limit) {
+        while (cursor < limit && (Character.isWhitespace(value.charAt(cursor))
+                || value.charAt(cursor) == ',')) cursor++;
+        return cursor;
+    }
+
+    private static int matchingObjectEnd(String value, int open) {
+        if (open < 0) return -1;
+        boolean quoted = false;
+        for (int index = open; index < value.length(); index++) {
+            char current = value.charAt(index);
+            if (current == '"' && (index == 0 || value.charAt(index - 1) != '\\')) quoted = !quoted;
+            if (!quoted && current == '}') return index;
+        }
+        return -1;
+    }
+
+    public static String hint(Map<String, String> hints, String key,
+            boolean dedicatedEnglish, int scheme, String localMode) {
+        if (!visible(dedicatedEnglish, scheme, localMode) || key == null || hints == null)
+            return "";
         return hints.getOrDefault(key.toUpperCase(Locale.ROOT), "");
     }
 
-    private static Map<String, Map<String, String>> profiles() {
-        Map<String, Map<String, String>> profiles = new HashMap<>();
-        profiles.put("xiaohe", profile(
-            new String[] {"sh=u", "ch=i", "zh=v"},
-            new String[] {"iu=q", "ei=w", "e=e", "uan=r", "ue=t", "ve=t", "un=y",
-                "u=u", "i=i", "uo=o", "o=o", "ie=p", "a=a", "ong=s", "iong=s",
-                "ai=d", "en=f", "eng=g", "ang=h", "an=j", "uai=k", "ing=k", "uang=l", "iang=l",
-                "ou=z", "ua=x", "ia=x", "ao=c", "ui=v", "v=v", "in=b", "iao=n", "ian=m"}));
-        profiles.put("ziranma", profile(
-            new String[] {"sh=u", "ch=i", "zh=v"},
-            new String[] {"iu=q", "ia=w", "ua=w", "e=e", "uan=r", "ue=t", "ve=t", "ing=y",
-                "uai=y", "u=u", "i=i", "o=o", "uo=o", "un=p", "a=a", "iong=s", "ong=s",
-                "iang=d", "uang=d", "en=f", "eng=g", "ang=h", "an=j", "ao=k", "ai=l",
-                "ei=z", "ie=x", "iao=c", "ui=v", "v=v", "ou=b", "in=n", "ian=m"}));
-        profiles.put("shoudao", profile(
-            new String[] {"sh=e", "ch=i", "zh=v"},
-            new String[] {"iu=q", "ua=w", "e=e", "ie=r", "uan=t", "ang=y", "u=u", "i=i",
-                "o=o", "uo=o", "iao=p", "a=a", "ou=s", "ao=d", "eng=f", "uai=g", "ing=g",
-                "ong=h", "iong=h", "an=j", "en=k", "ia=k", "ai=l", "ue=l", "un=z",
-                "iang=x", "uang=x", "in=c", "v=v", "ui=v", "ve=b", "ian=n", "ei=m"}));
-        profiles.put("microsoft", profile(
-            new String[] {"sh=u", "ch=i", "zh=v"},
-            new String[] {"iu=q", "ia=w", "ua=w", "e=e", "uan=r", "ue=t", "ve=v", "uai=y",
-                "v=y", "u=u", "i=i", "o=o", "uo=o", "un=p", "a=a", "iong=s", "ong=s",
-                "iang=d", "uang=d", "en=f", "eng=g", "ang=h", "an=j", "ao=k", "ai=l",
-                "ing=;", "ei=z", "ie=x", "iao=c", "ui=v", "ou=b", "in=n", "ian=m"}));
-        return Map.copyOf(profiles);
-    }
-
-    private static Map<String, String> profile(String[] initials, String[] finals) {
-        Map<String, List<String>> initialsByKey = new HashMap<>();
-        Map<String, List<String>> finalsByKey = new HashMap<>();
-        addUnits(initialsByKey, initials);
-        addUnits(finalsByKey, finals);
-        Map<String, String> hints = new HashMap<>();
-        for (String key : LETTER_KEYS) {
-            String initial = join(initialsByKey.get(key));
-            String ending = join(finalsByKey.get(key));
-            if (initial.isEmpty() && ending.isEmpty()) continue;
-            hints.put(key, initial.isEmpty() ? ending
-                : ending.isEmpty() ? initial : initial + " / " + ending);
-        }
-        return Map.copyOf(hints);
-    }
-
-    private static void addUnits(Map<String, List<String>> byKey, String[] entries) {
-        for (String entry : entries) {
-            int separator = entry.indexOf('=');
-            String unit = displayUnit(entry.substring(0, separator));
-            String key = entry.substring(separator + 1).toUpperCase(Locale.ROOT);
-            byKey.computeIfAbsent(key, ignored -> new ArrayList<>()).add(unit);
-        }
-    }
-
-    private static String displayUnit(String unit) {
-        return unit.startsWith("v") ? "ü" + unit.substring(1) : unit;
-    }
-
-    private static String join(List<String> units) {
-        if (units == null || units.isEmpty()) return "";
-        units.sort(String::compareTo);
-        return String.join(" ", units);
+    private static boolean validKey(String key) {
+        if (key == null || key.length() != 1) return false;
+        char value = key.charAt(0);
+        return value >= 'A' && value <= 'Z' || value == ';';
     }
 }
