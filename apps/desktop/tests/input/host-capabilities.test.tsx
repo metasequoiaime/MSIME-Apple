@@ -249,6 +249,23 @@ test("candidate appearance follows host capabilities", async () => {
   expect(screen.getByText("当前宿主的候选面板不支持悬停或边框颜色。")).toBeTruthy();
 });
 
+test("Linux panel font takes the family and size but not a preedit size", async () => {
+  mount({
+    host: capabilities({
+      platform: "linux",
+      candidate_font_controls: true,
+      candidate_preedit_font: false,
+      candidate_selection_appearance: false,
+    }),
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
+  expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
+  // The application draws the composition there, so a preedit size would change nothing.
+  expect(screen.queryByLabelText("候选窗预编辑字号")).toBeNull();
+  expect(screen.queryByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeNull();
+});
+
 test("Windows candidate appearance keeps native controls", async () => {
   mount({
     host: capabilities({

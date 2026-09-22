@@ -18,6 +18,7 @@
 #include "../overlay/WaveOverlayIbusSurface.h"
 #include "../overlay/WaveOverlaySurfaceFactory.h"
 #include "../candidates/CandidatePalette.h"
+#include "../candidates/CandidateFontPolicy.h"
 #include "../candidates/CandidateActionPolicy.h"
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/PairedPunctuation.h"
@@ -63,6 +64,27 @@ std::string accepted_preferences_directory;
 Json accepted_preferences_snapshot;
 bool menu_save_pending = false;
 uint64_t menu_status_generation = 0;
+
+// The IBus panel draws the candidate list from one font description the whole desktop shares, the
+// same pair of keys ibus-setup writes. A desktop without the schema (a panel of its own, such as
+// GNOME Shell's popup, which follows the shell theme) has nothing to write and is left alone.
+void apply_candidate_panel_font(const Json &preferences) {
+  static msime::linux_host::CandidateFontSync sync;
+  const auto description = sync.next(msime::linux_host::read_candidate_font(preferences));
+  if (!description) return;
+  auto *source = g_settings_schema_source_get_default();
+  auto *schema = source ? g_settings_schema_source_lookup(source, "org.freedesktop.ibus.panel", TRUE)
+                        : nullptr;
+  if (!schema) return;
+  const bool writable = g_settings_schema_has_key(schema, "custom-font") &&
+                        g_settings_schema_has_key(schema, "use-custom-font");
+  g_settings_schema_unref(schema);
+  if (!writable) return;
+  auto *settings = g_settings_new("org.freedesktop.ibus.panel");
+  g_settings_set_string(settings, "custom-font", description->c_str());
+  g_settings_set_boolean(settings, "use-custom-font", TRUE);
+  g_object_unref(settings);
+}
 
 bool system_dark = false;
 Json skin_display_preferences(Json preferences) {
@@ -747,6 +769,7 @@ struct State {
         std::move(initial_snapshot.at("preferences"));
   }
   void refresh_host_preferences(const Json &preferences) {
+    apply_candidate_panel_font(preferences);
     const auto diagnostic = preferences.value("diagnostic_log", Json::object());
     msime_linux_diagnostic_configure(
         configured.value("preferences_directory", std::string{}),
