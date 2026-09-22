@@ -1,4 +1,4 @@
-name: Platform CI
+name: Native Platform CI
 
 # Native-host gates for the four platforms that do not use the Apple runners.
 # Release workflows remain separate; this workflow only builds and tests.
