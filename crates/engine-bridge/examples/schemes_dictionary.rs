@@ -181,6 +181,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             reading.candidates
         );
     }
+    // `yo` is a complete zero-initial syllable in every shipped profile. A synthetic empty
+    // dictionary can leave a non-empty preedit even when the parser split it incorrectly, so pin
+    // both the visible boundary and the real dictionary row for 哟.
+    for profile in 0..4 {
+        let reading = probe.read(SHUANGPIN, profile, "yo")?;
+        assert_eq!(
+            reading.preedit, "yo",
+            "shuangpin profile {profile} split the complete yo syllable"
+        );
+        assert!(
+            reading.offers("哟"),
+            "shuangpin profile {profile} did not reach yo: {:?}",
+            reading.candidates
+        );
+    }
     // Microsoft is the one profile whose finals this repository spells out, so it also gets a
     // two-syllable reading: `hk` is `hao`, and the preedit has to show the syllable split.
     let microsoft = probe.read(SHUANGPIN, 3, "nihk")?;
