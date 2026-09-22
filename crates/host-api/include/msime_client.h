@@ -136,6 +136,12 @@ typedef intptr_t (*msime_client_snapshot_next)(void *context, uint8_t *buffer, s
 char *msime_client_snapshot_version(const uint8_t *options, size_t length);
 /* Validates a complete host-private NDJSON file and returns bounded metadata only. */
 char *msime_client_snapshot_inspect(const uint8_t *path, size_t length);
+/* Revalidates the exact host-private file, then streams it to the account service.
+ * request: {revision,expected_sha256,access_token}; expected_sha256 identifies
+ * the complete file returned by inspect, not only the checksummed snapshot body.
+ * Blocking network and file I/O: call only from a worker thread. */
+char *msime_client_snapshot_restore(const uint8_t *request, size_t request_length,
+                                    const uint8_t *path, size_t path_length);
 /* Crash-safe queue state, enqueue, cancellation and idle processing. */
 char *msime_client_snapshot_queue(const uint8_t *request, size_t length);
 char *msime_client_snapshot_prepare(const uint8_t *request, size_t length,

@@ -1,6 +1,9 @@
 //! Native-only snapshot preparation. Staged paths stay private until a future
 //! activation transaction can own publication and session coordination.
 use super::{response, DictionaryAccess, HostOptions};
+use msime_client_core::account::{
+    AccountDictionarySnapshotRestore, AccountError, BackendAccountClient,
+};
 use msime_client_core::cloud::snapshot_queue::{
     local_version, local_version_digest, DictionarySnapshotQueue, SnapshotQueueError,
 };
@@ -57,6 +60,14 @@ struct PrepareRequest {
     records: usize,
     #[serde(default)]
     activation_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RestoreRequest {
+    revision: i64,
+    expected_sha256: String,
+    access_token: String,
 }
 
 #[derive(Deserialize)]
@@ -654,6 +665,29 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
         selections: counts[3],
         engine_records: counts[1] + counts[2] + counts[3],
     })
+}
+
+fn restore_snapshot_with(
+    request: RestoreRequest,
+    path: &Path,
+    upload: impl FnOnce(&Path, i64, &str) -> Result<AccountDictionarySnapshotRestore, AccountError>,
+) -> Result<Value, String> {
+    if request.revision < 0
+        || request.expected_sha256.len() != 64
+        || !request
+            .expected_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("account_invalid".to_owned());
+    }
+    let metadata = inspect_snapshot(path).map_err(|_| "account_invalid".to_owned())?;
+    if metadata.file_sha256 != request.expected_sha256 {
+        return Err("account_invalid".to_owned());
+    }
+    let restored = upload(path, request.revision, &request.access_token)
+        .map_err(|error| error.code().to_owned())?;
+    serde_json::to_value(restored).map_err(|_| "account_unavailable".to_owned())
 }
 
 /// Called synchronously: positive UTF-8 JSON length, zero only at verified EOF,
@@ -1334,6 +1368,43 @@ pub unsafe extern "C" fn msime_client_snapshot_inspect(
         inspect_snapshot(path)
             .and_then(|metadata| serde_json::to_value(metadata).map_err(|_| "snapshot unavailable"))
             .map_err(Into::into)
+    })
+}
+
+/// Reinspect and upload one host-private snapshot file without buffering it in the host bridge.
+/// # Safety
+/// `request` points to `request_length` readable JSON bytes and `path` points to
+/// `path_length` readable UTF-8 bytes naming an absolute private file path.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_snapshot_restore(
+    request: *const u8,
+    request_length: usize,
+    path: *const u8,
+    path_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null()
+            || request_length == 0
+            || request_length > BUFFER_LIMIT
+            || path.is_null()
+            || path_length == 0
+            || path_length > 16_384
+        {
+            return Err("account_invalid".to_owned());
+        }
+        let request: RestoreRequest =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
+                .map_err(|_| "account_invalid".to_owned())?;
+        let path = std::str::from_utf8(unsafe { std::slice::from_raw_parts(path, path_length) })
+            .map_err(|_| "account_invalid".to_owned())?;
+        let path = Path::new(path);
+        if !path.is_absolute() {
+            return Err("account_invalid".to_owned());
+        }
+        let client = BackendAccountClient::new().map_err(|error| error.code().to_owned())?;
+        restore_snapshot_with(request, path, |path, revision, access_token| {
+            client.restore_dictionary_snapshot_file(path, revision, access_token)
+        })
     })
 }
 
