@@ -43,6 +43,20 @@ if rg -n 'VariantGroup|showJapaneseVariants' \
   echo "Android must not duplicate Engine-owned Japanese kana variant tables" >&2
   exit 1
 fi
+# Double-pinyin labels belong to the Engine profile tables. Android may gate visibility and
+# decode the bounded response, but it must not carry a second profile keymap that can drift.
+if rg -n 'PROFILES|uai=k|ing=;' \
+    "$repo_root/platforms/android/java/app/msime/client/keyboard/ShuangpinKeyHintPolicy.java"; then
+  echo "Android must not duplicate Engine-owned double-pinyin profile tables" >&2
+  exit 1
+fi
+if ! rg -q 'shuangpinKeyHintsRaw' \
+    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+    || ! rg -q 'msime_client_shuangpin_key_hints' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android double-pinyin hints must cross the shared Host API through JNI" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling

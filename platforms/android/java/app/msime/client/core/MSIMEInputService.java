@@ -199,6 +199,8 @@ public final class MSIMEInputService extends InputMethodService {
     private final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
         new java.util.ArrayList<>();
     private final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>();
+    private String shuangpinHintsProfile = "";
+    private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
     private java.util.List<KeyboardScheme> enabledSchemes =
         KeyboardScheme.enabledFromPreferenceIds(null);
@@ -1989,11 +1991,23 @@ public final class MSIMEInputService extends InputMethodService {
         boolean chineseMode = !dedicatedEnglish;
         boolean local = view != null && !"none".equals(localMode);
         boolean shifted = letterCase.usesUppercase();
+        if (!profile.equals(shuangpinHintsProfile)) {
+            shuangpinHintsProfile = profile;
+            shuangpinHints = java.util.Map.of();
+            if (!profile.isEmpty()) {
+                try {
+                    shuangpinHints = ShuangpinKeyHintPolicy.decode(
+                        NativeClient.shuangpinKeyHints(profile));
+                } catch (RuntimeException | LinkageError ignored) {
+                    // Native/profile failures hide hints rather than guessing another keymap.
+                }
+            }
+        }
         for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
             ShuangpinHintButton button = shuangpinKeyButtons.get(index);
             String input = shuangpinKeyInputs.get(index);
             String hint = ShuangpinKeyHintPolicy.hint(
-                profile, input, dedicatedEnglish, scheme, localMode);
+                shuangpinHints, input, dedicatedEnglish, scheme, localMode);
             button.setHintText(hint);
             button.setHintColor(Color.parseColor(skin.accent()));
             if (";".equals(input)) continue;
