@@ -1290,7 +1290,7 @@ export type MixedInputPreferences = {
 };
 const defaultMixedInput: MixedInputPreferences = {
   english: true,
-  minimum_prefix: 2,
+  minimum_prefix: 5,
   emoji: false,
   kaomoji: false,
 };

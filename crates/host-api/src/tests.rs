@@ -26,7 +26,7 @@ fn windows_legacy_mixed_input_ignores_invalid_values_and_documents() {
         "[general]\ncn_en_mixed_input_min_chars = 9\n",
         &mut preferences,
     ));
-    assert_eq!(preferences.mixed_input.minimum_prefix, 2);
+    assert_eq!(preferences.mixed_input.minimum_prefix, 5);
     assert!(!apply_windows_legacy_mixed_input(
         "not toml",
         &mut preferences
@@ -4243,6 +4243,7 @@ fn published_defaults_complete_every_nested_preference_object() {
         parsed,
         msime_client_core::preferences::Preferences::default()
     );
+    assert_eq!(defaults["mixed_input"]["minimum_prefix"], 5);
 
     // The two objects the Linux host patches, spelled out: a partial one of these
     // is what stopped a session being created at all.

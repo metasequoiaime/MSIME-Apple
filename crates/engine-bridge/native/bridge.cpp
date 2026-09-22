@@ -690,7 +690,7 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
     result.frequency_trigger_count = 1;
     result.frequency_linear_step = 1;
     result.mixed_english = true;
-    result.english_minimum_prefix = 2;
+    result.english_minimum_prefix = 5;
     result.mixed_emoji = false;
     result.mixed_kaomoji = false;
     result.local_unicode = true;
