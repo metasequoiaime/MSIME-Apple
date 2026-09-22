@@ -416,6 +416,8 @@ IBus 在可输入的焦点会话中监听历史文件所在目录，外部工具
 
 配置放在 `$XDG_CONFIG_HOME/msime-client/`（默认 `~/.config/msime-client/`）：在线服务可选 `ai-provider.json`、`tencent-provider.json`，语音服务需要 `voice-provider.json`。格式和 owner-only 权限要求与对应 provider 参数一致。仅云候选可不提供私有配置。
 
+`ai-provider.json` 和 `tencent-provider.json` 不必手写：设置页「AI 辅助」和「输入 → 在线翻译服务」里的凭据输入框会由 Tauri 宿主直接写入这两个文件（目录 0700、文件 0600、先写临时文件再 rename），AI 凭据按服务商存到 `profiles` 下并绑定当时的接口地址和模型。凭据只从设置页流向宿主进程，设置页只能读到哪些服务商已有凭据及其绑定的接口和模型。已存在但不合规的文件（权限过宽、符号链接、JSON 无效）不会被覆盖，设置页会提示修复或删除。
+
 随包在线服务启动器通过 `--config-directory` 固定配置目录，即使启动时尚无 `ai-provider.json` 或 `tencent-provider.json`，后续创建或修复文件也会在下次请求生效，无需重启服务。目录模式下缺失、损坏或权限不合规的配置只会停用相应功能；每次请求仍执行 owner-only 文件校验。手动传入 `--ai-config` 或 `--tencent-config` 时保留原有启动校验，并优先于配置目录中的默认文件。
 
 Windows 上在线、语音和剪贴板功能随常驻的服务进程一直可用；Linux 对应的做法是 systemd 用户 socket 激活。安装提供 `msime-client-online.socket` 和 `msime-client-voice.socket`，登录后 `$XDG_RUNTIME_DIR/msime-client/online.sock` 与 `voice.sock` 即存在（目录 0700、socket 0600），输入法和面板按原有路径发现服务，首个请求到达时 systemd 才启动 provider 进程。`msime-client-setup` 准备好状态目录后会执行 `systemctl --user enable --now`：在线 socket 总是启用（没有私有配置也能提供云候选）；语音 socket 只在 `voice-provider.json` 已存在时启用，因为语音 provider 缺少配置时无法启动；状态目录位于默认的 `$XDG_CONFIG_HOME/msime-client` 时同时启用剪贴板监视器。没有 systemctl 或启用失败时，脚本打印可手动执行的命令，不影响首次配置本身。

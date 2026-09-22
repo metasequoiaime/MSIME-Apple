@@ -740,6 +740,62 @@ export type AiAssistantPreferences = {
   prompt_custom_2: string;
   prompt_custom_3: string;
 };
+/** What the Linux online provider holds, never the secrets themselves. */
+export type ProviderCredentialStatus = {
+  ai: { provider: string; endpoint: string; model: string }[];
+  /** The AI file exists but the provider refuses it, so no AI provider works until it is repaired. */
+  aiInvalid: boolean;
+  tencent: { region: string } | null;
+  tencentInvalid: boolean;
+};
+/**
+ * The Linux host's owner-only credential files for the online provider service. A secret passed as undefined keeps the stored one, so an endpoint, model or region can change without pasting the key again.
+ */
+export type ProviderCredentialClient = {
+  status(): Promise<ProviderCredentialStatus>;
+  saveAi(credential: {
+    provider: string;
+    endpoint: string;
+    model: string;
+    token?: string;
+  }): Promise<ProviderCredentialStatus>;
+  clearAi(provider: string): Promise<ProviderCredentialStatus>;
+  saveTencent(credential: {
+    secretId?: string;
+    secretKey?: string;
+    region: string;
+  }): Promise<ProviderCredentialStatus>;
+  clearTencent(): Promise<ProviderCredentialStatus>;
+};
+export function providerCredentialErrorMessage(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code: unknown }).code)
+      : "";
+  switch (code) {
+    case "provider_credentials_invalid_endpoint":
+      return "接口地址必须是完整的 HTTPS 地址，且不能包含用户名、密码或 # 片段。";
+    case "provider_credentials_invalid_model":
+      return "请先填写模型。";
+    case "provider_credentials_invalid_provider":
+      return "请先选择服务商。";
+    case "provider_credentials_invalid_token":
+    case "provider_credentials_invalid_secret":
+      return "凭据只能包含可见的 ASCII 字符，且不能是示例占位值。";
+    case "provider_credentials_token_required":
+      return "请填写凭据。";
+    case "provider_credentials_invalid_region":
+      return "地域只能包含小写字母、数字和连字符，例如 ap-guangzhou。";
+    case "provider_credentials_too_many_profiles":
+      return "已保存的 AI 服务商过多，请先清除不再使用的凭据。";
+    case "provider_credentials_existing_invalid":
+      return "现有配置文件不是仅限当前用户读写的有效 JSON，请修复或删除后重试。";
+    case "provider_credentials_location":
+      return "无法确定用户配置目录，请检查 HOME 或 XDG_CONFIG_HOME。";
+    default:
+      return "无法写入凭据文件，请检查用户配置目录的权限。";
+  }
+}
 export type AiAssistantClient = {
   // `provider` is for the hosts whose provider service holds the credential: it
   // is what that service checks its private configuration against. The hosts that
@@ -1451,6 +1507,8 @@ export interface SettingsClient {
   chat?: ChatClient;
   /** Android performs user-configured AI service requests in its native host. */
   aiAssistant?: AiAssistantClient;
+  /** Linux writes AI and translation credentials to the online provider's owner-only files. */
+  providerCredentials?: ProviderCredentialClient;
   /** Native hosts test credentials without exposing private provider secrets to the webview. */
   testApiCredential?: (
     service: ApiCredentialTestService,
@@ -2249,6 +2307,17 @@ export function SettingsPage({
     >
   >({});
   const credentialTestGeneration = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
+  const [providerCredentials, setProviderCredentials] = useState<ProviderCredentialStatus>();
+  const [aiCredentialInput, setAiCredentialInput] = useState("");
+  const [tencentCredentialInput, setTencentCredentialInput] = useState<{
+    secretId: string;
+    secretKey: string;
+    region?: string;
+  }>({ secretId: "", secretKey: "" });
+  const [providerCredentialBusy, setProviderCredentialBusy] = useState<"ai" | "tencent">();
+  const [providerCredentialMessages, setProviderCredentialMessages] = useState<
+    Partial<Record<"ai" | "tencent", { ok: boolean; text: string }>>
+  >({});
   // What a report needs first is the release and the scheme, because that is what a repro is
   // written against. The user agent only says which web view drew this window, so it is the
   // fallback for a host that cannot name its own OS rather than a line of its own.
@@ -2327,6 +2396,20 @@ export function SettingsPage({
     return () => {
       active = false;
       unsubscribe?.();
+    };
+  }, [client]);
+  useEffect(() => {
+    const credentials = client.providerCredentials;
+    if (!credentials) return;
+    let active = true;
+    void credentials
+      .status()
+      .then((status) => {
+        if (active) setProviderCredentials(status);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
     };
   }, [client]);
   useEffect(() => {
@@ -3114,6 +3197,9 @@ export function SettingsPage({
   const ai = draft?.ai_assistant ?? defaultAiAssistant;
   const aiOrigin = aiCredentialOrigin(ai.endpoint);
   const aiToken = aiOrigin ? (ai.tokens?.[aiOrigin] ?? "") : "";
+  const storedAiCredential = providerCredentials?.ai.find(
+    (entry) => entry.provider === ai.provider,
+  );
   const updateAi = (patch: Partial<AiAssistantPreferences>) => {
     aiRequestGeneration.current += 1;
     setAiModelsBusy(false);
@@ -3364,6 +3450,36 @@ export function SettingsPage({
         },
       }));
     }
+  };
+  const runProviderCredential = async (
+    kind: "ai" | "tencent",
+    operation: (credentials: ProviderCredentialClient) => Promise<ProviderCredentialStatus>,
+    success: string,
+  ) => {
+    const credentials = client.providerCredentials;
+    if (!credentials) return;
+    setProviderCredentialBusy(kind);
+    setProviderCredentialMessages((current) => ({ ...current, [kind]: undefined }));
+    try {
+      setProviderCredentials(await operation(credentials));
+      if (kind === "ai") setAiCredentialInput("");
+      else setTencentCredentialInput({ secretId: "", secretKey: "" });
+      setProviderCredentialMessages((current) => ({
+        ...current,
+        [kind]: { ok: true, text: success },
+      }));
+    } catch (error) {
+      setProviderCredentialMessages((current) => ({
+        ...current,
+        [kind]: { ok: false, text: providerCredentialErrorMessage(error) },
+      }));
+    } finally {
+      setProviderCredentialBusy(undefined);
+    }
+  };
+  const providerCredentialMessage = (kind: "ai" | "tencent") => {
+    const message = providerCredentialMessages[kind];
+    return message ? <span role={message.ok ? "status" : "alert"}>{message.text}</span> : null;
   };
   const credentialTestControl = (
     service: ApiCredentialTestService,
@@ -5763,11 +5879,122 @@ export function SettingsPage({
                                 在线翻译服务
                                 <small>由用户管理的 Linux provider 服务负责网络请求和凭据</small>
                               </div>
-                              <p className="input-setting-description">
-                                候选词翻译开启后，provider 从用户配置目录的{" "}
-                                <code>tencent-provider.json</code>{" "}
-                                读取腾讯云凭据；设置页不保存不会生效的 SecretId 或 SecretKey。
-                              </p>
+                              {client.providerCredentials ? (
+                                <>
+                                  <p className="input-setting-description">
+                                    {providerCredentials?.tencentInvalid
+                                      ? "现有 tencent-provider.json 无效，provider 服务不会发出翻译请求；请修复或删除该文件。"
+                                      : providerCredentials?.tencent
+                                        ? "腾讯云凭据已保存；SecretId 和 SecretKey 留空则保留原值。"
+                                        : "凭据只写入用户配置目录的 tencent-provider.json，由 provider 服务读取，不进入共享设置。"}
+                                  </p>
+                                  <label className="section-header">
+                                    <span className="section-title">SecretId</span>
+                                    <input
+                                      aria-label="腾讯云 SecretId"
+                                      type="password"
+                                      autoComplete="off"
+                                      value={tencentCredentialInput.secretId}
+                                      onChange={(event) =>
+                                        setTencentCredentialInput({
+                                          ...tencentCredentialInput,
+                                          secretId: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <label className="section-header">
+                                    <span className="section-title">SecretKey</span>
+                                    <input
+                                      aria-label="腾讯云 SecretKey"
+                                      type="password"
+                                      autoComplete="off"
+                                      value={tencentCredentialInput.secretKey}
+                                      onChange={(event) =>
+                                        setTencentCredentialInput({
+                                          ...tencentCredentialInput,
+                                          secretKey: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <label className="section-header">
+                                    <span className="section-title">地域</span>
+                                    <input
+                                      aria-label="腾讯云地域"
+                                      value={
+                                        tencentCredentialInput.region ??
+                                        providerCredentials?.tencent?.region ??
+                                        "ap-guangzhou"
+                                      }
+                                      onChange={(event) =>
+                                        setTencentCredentialInput({
+                                          ...tencentCredentialInput,
+                                          region: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <div className={settings.serviceRow}>
+                                    <div>
+                                      <button
+                                        type="button"
+                                        className="secondary"
+                                        disabled={
+                                          providerCredentialBusy === "tencent" ||
+                                          (!providerCredentials?.tencent &&
+                                            (!tencentCredentialInput.secretId.trim() ||
+                                              !tencentCredentialInput.secretKey.trim()))
+                                        }
+                                        onClick={() =>
+                                          void runProviderCredential(
+                                            "tencent",
+                                            (credentials) =>
+                                              credentials.saveTencent({
+                                                ...(tencentCredentialInput.secretId.trim()
+                                                  ? { secretId: tencentCredentialInput.secretId }
+                                                  : {}),
+                                                ...(tencentCredentialInput.secretKey.trim()
+                                                  ? { secretKey: tencentCredentialInput.secretKey }
+                                                  : {}),
+                                                region:
+                                                  tencentCredentialInput.region ??
+                                                  providerCredentials?.tencent?.region ??
+                                                  "ap-guangzhou",
+                                              }),
+                                            "凭据已保存，provider 服务下次请求时生效。",
+                                          )
+                                        }
+                                      >
+                                        保存凭据
+                                      </button>
+                                      {providerCredentials?.tencent && (
+                                        <button
+                                          type="button"
+                                          className="secondary"
+                                          disabled={providerCredentialBusy === "tencent"}
+                                          onClick={() =>
+                                            void runProviderCredential(
+                                              "tencent",
+                                              (credentials) => credentials.clearTencent(),
+                                              "凭据已清除。",
+                                            )
+                                          }
+                                        >
+                                          清除凭据
+                                        </button>
+                                      )}
+                                      {providerCredentialMessage("tencent")}
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <p className="input-setting-description">
+                                  候选词翻译开启后，provider 从用户配置目录的{" "}
+                                  <code>tencent-provider.json</code>{" "}
+                                  读取腾讯云凭据；设置页不保存不会生效的 SecretId 或 SecretKey。
+                                </p>
+                              )}
                               {translationProvider === "tencent" &&
                                 credentialTestControl(
                                   "translation.tencent",
@@ -9042,7 +9269,87 @@ export function SettingsPage({
                         />
                       </label>
                     </div>
-                    {linuxPlatform ? (
+                    {linuxPlatform && client.providerCredentials ? (
+                      <div className="section" role="group" aria-label="AI 凭据">
+                        <label className="section-header">
+                          <span className="section-title">
+                            API Token
+                            <small>
+                              {providerCredentials?.aiInvalid
+                                ? "现有 ai-provider.json 无效，provider 服务不会发出任何 AI 请求；请修复或删除该文件"
+                                : !storedAiCredential
+                                  ? "尚未保存；保存后只写入用户配置目录的 ai-provider.json，由 provider 服务读取"
+                                  : storedAiCredential.endpoint === ai.endpoint &&
+                                      storedAiCredential.model === ai.model
+                                    ? "已保存，留空则保留原凭据"
+                                    : `已保存的凭据绑定 ${storedAiCredential.endpoint}（${storedAiCredential.model}），与上方设置不一致；保存后改为绑定当前接口和模型`}
+                            </small>
+                          </span>
+                          <input
+                            aria-label="AI API Token"
+                            type="password"
+                            autoComplete="off"
+                            disabled={!aiOrigin}
+                            value={aiCredentialInput}
+                            onChange={(event) => setAiCredentialInput(event.target.value)}
+                          />
+                        </label>
+                        <div className={settings.serviceRow}>
+                          <div>
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={
+                                providerCredentialBusy === "ai" ||
+                                !aiOrigin ||
+                                !ai.model.trim() ||
+                                (!aiCredentialInput.trim() && !storedAiCredential)
+                              }
+                              onClick={() =>
+                                void runProviderCredential(
+                                  "ai",
+                                  (credentials) =>
+                                    credentials.saveAi({
+                                      provider: ai.provider,
+                                      endpoint: ai.endpoint,
+                                      model: ai.model,
+                                      ...(aiCredentialInput.trim()
+                                        ? { token: aiCredentialInput }
+                                        : {}),
+                                    }),
+                                  "凭据已保存，provider 服务下次请求时生效。",
+                                )
+                              }
+                            >
+                              保存凭据
+                            </button>
+                            {storedAiCredential && (
+                              <button
+                                type="button"
+                                className="secondary"
+                                disabled={providerCredentialBusy === "ai"}
+                                onClick={() =>
+                                  void runProviderCredential(
+                                    "ai",
+                                    (credentials) => credentials.clearAi(ai.provider),
+                                    "凭据已清除。",
+                                  )
+                                }
+                              >
+                                清除凭据
+                              </button>
+                            )}
+                            {providerCredentialMessage("ai")}
+                          </div>
+                        </div>
+                        {credentialTestControl(
+                          "ai.assistant",
+                          "测试 AI 辅助配置",
+                          { provider: ai.provider, endpoint: ai.endpoint, model: ai.model },
+                          !ai.enabled || !aiOrigin || !ai.model.trim(),
+                        )}
+                      </div>
+                    ) : linuxPlatform ? (
                       <div className="section">
                         <div className="section-title">
                           Linux AI provider<small>AI 请求由用户管理的 provider 服务完成</small>

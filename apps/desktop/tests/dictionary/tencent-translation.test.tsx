@@ -120,6 +120,54 @@ test("Linux delegates Tencent credentials to the user-managed provider", async (
   expect(screen.queryByLabelText("腾讯云地域")).toBeNull();
 });
 
+test("Linux saves Tencent credentials to the provider file", async () => {
+  const configured = {
+    ai: [],
+    aiInvalid: false,
+    tencent: { region: "ap-guangzhou" },
+    tencentInvalid: false,
+  };
+  const credentials = {
+    status: vi.fn(async () => ({ ...configured, tencent: null })),
+    saveAi: vi.fn(),
+    clearAi: vi.fn(),
+    saveTencent: vi.fn(async () => configured),
+    clearTencent: vi.fn(async () => ({ ...configured, tencent: null })),
+  };
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: { platform: "linux" } as never,
+        providerCredentials: credentials,
+      }}
+    />,
+  );
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const online = screen.getByRole("group", { name: "在线翻译服务" });
+  await waitFor(() => expect(credentials.status).toHaveBeenCalled());
+  expect(online.textContent).toContain("tencent-provider.json");
+  const save = screen.getByRole("button", { name: "保存凭据" }) as HTMLButtonElement;
+  expect(save.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("腾讯云 SecretId"), { target: { value: "AKIDexample" } });
+  fireEvent.change(screen.getByLabelText("腾讯云 SecretKey"), { target: { value: "secret" } });
+  fireEvent.change(screen.getByLabelText("腾讯云地域"), { target: { value: "ap-shanghai" } });
+  fireEvent.click(save);
+  await waitFor(() =>
+    expect(credentials.saveTencent).toHaveBeenCalledWith({
+      secretId: "AKIDexample",
+      secretKey: "secret",
+      region: "ap-shanghai",
+    }),
+  );
+  await screen.findByRole("button", { name: "清除凭据" });
+  expect((screen.getByLabelText("腾讯云 SecretKey") as HTMLInputElement).value).toBe("");
+  fireEvent.click(screen.getByRole("button", { name: "清除凭据" }));
+  await waitFor(() => expect(credentials.clearTencent).toHaveBeenCalled());
+});
+
 test("macOS exposes the native Tencent credential probe with current settings", async () => {
   const macosSnapshot: Snapshot = {
     ...snapshot,

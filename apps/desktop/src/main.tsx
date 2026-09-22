@@ -31,6 +31,8 @@ import {
   type EmojiCatalogGroup,
   type EmojiPanelClient,
   type HostCapabilities,
+  type ProviderCredentialClient,
+  type ProviderCredentialStatus,
   type TypingStatisticsClient,
   type PanelClient,
   type VoicePanelClient,
@@ -567,6 +569,28 @@ function DesktopSettings() {
                     service: ApiCredentialTestService,
                     config: Record<string, unknown>,
                   ) => invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
+                  providerCredentials: {
+                    status: () => invoke<ProviderCredentialStatus>("provider_credentials_status"),
+                    saveAi: ({ provider, endpoint, model, token }) =>
+                      invoke<ProviderCredentialStatus>("save_ai_provider_credential", {
+                        provider,
+                        endpoint,
+                        model,
+                        token,
+                      }),
+                    clearAi: (provider) =>
+                      invoke<ProviderCredentialStatus>("clear_ai_provider_credential", {
+                        provider,
+                      }),
+                    saveTencent: ({ secretId, secretKey, region }) =>
+                      invoke<ProviderCredentialStatus>("save_tencent_provider_credential", {
+                        secretId,
+                        secretKey,
+                        region,
+                      }),
+                    clearTencent: () =>
+                      invoke<ProviderCredentialStatus>("clear_tencent_provider_credential"),
+                  } satisfies ProviderCredentialClient,
                 }
               : {}),
             ...(host.platform === "windows" || host.platform === "macos"
