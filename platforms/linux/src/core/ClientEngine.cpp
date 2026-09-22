@@ -1,5 +1,6 @@
 #include "ClientEngine.h"
 #include "KeyRouterAdapter.h"
+#include "BackspaceHoldPolicy.h"
 #include "../clipboard/ClipboardText.h"
 #include "../system/ChineseTextConversion.h"
 #include "HelpcodeDefaults.h"
@@ -367,6 +368,7 @@ struct State {
   msime::linux_host::PairedPunctuationTracker paired_tracker;
   // Japanese converts with Space and commits with Enter; see core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion;
+  msime::linux_host::BackspaceHoldPolicy backspace_hold;
   std::string ai_context;
   void remember_commit(const std::string &text) {
     if (!focused || blocked || private_input) {
@@ -561,6 +563,7 @@ struct State {
     space_convert_preceding.clear();
     paired_tracker.clear();
     japanese_conversion.reset();
+    backspace_hold.reset();
   }
   void open() {
     auto options = configured;
@@ -4104,6 +4107,7 @@ void focus_out(IBusEngine *engine) {
     s.stop_clipboard_monitor();
     s.native_compose.reset();
     s.reset_mode_modifiers();
+    s.backspace_hold.reset();
     s.ai_context.clear();
     s.invalidate_providers();
     s.surrounding_text.clear();
@@ -5173,6 +5177,7 @@ void reset(IBusEngine *engine) {
     state(engine).host_shortcut_strokes.clear();
     state(engine).ai_context.clear();
     state(engine).native_compose.reset();
+    state(engine).backspace_hold.reset();
     if (state(engine).voice_active)
       voice_cancel(engine);
     state(engine).voice_consumed_keys.clear();
@@ -5355,6 +5360,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  if (key == IBUS_BackSpace && release) {
+    const bool owned = s.backspace_hold.armed();
+    s.backspace_hold.release();
+    if (owned) return TRUE;
+  } else if (!release && key != IBUS_BackSpace) {
+    s.backspace_hold.reset();
+  }
   // Physical key identity survives releasing Shift before the letter. Use a
   // normalized keysym only for synthetic events without a hardware keycode.
   const guint host_stroke = keycode != 0 ? keycode
@@ -5659,6 +5671,18 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   };
   guarded(engine, "process_key", [&] {
     s.open();
+    const bool bare_backspace = key == IBUS_BackSpace && modifiers == 0;
+    if (!bare_backspace) {
+      s.backspace_hold.reset();
+    } else {
+      const bool composing =
+          !s.view.value("editing_text", std::string{}).empty() ||
+          !s.view.value("candidates", Json::array()).empty();
+      if (s.backspace_hold.press(composing)) {
+        handled = true;
+        return;
+      }
+    }
     if (s.translation_candidates_active) {
       const auto page_size = std::clamp(
           s.translation_saved_view.value("page_size", size_t{9}), size_t{1},

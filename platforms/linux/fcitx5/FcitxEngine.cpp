@@ -23,6 +23,7 @@
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/core/CandidateSkinCatalog.h"
+#include "../src/core/BackspaceHoldPolicy.h"
 #include "../src/core/SmartPunctuationSpace.h"
 #include "../src/system/DiagnosticLog.h"
 #include "../src/core/HelpcodeDefaults.h"
@@ -281,6 +282,7 @@ public:
     last_smart_punctuation_at_ = {};
     smart_punctuation_rejected_ = 0;
     japanese_conversion_.reset();
+    backspace_hold_.reset();
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
     preferences_save_job_ = {};
@@ -2261,6 +2263,7 @@ public:
   bool paired_punctuation_ = true;
   // Japanese converts with Space and commits with Enter; see ../src/core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion_;
+  msime::linux_host::BackspaceHoldPolicy backspace_hold_;
   bool smart_punctuation_ = true;
   bool smart_punctuation_repeat_ = true;
   bool smart_punctuation_space_convert_ = false;
@@ -4101,6 +4104,7 @@ public:
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+    state->backspace_hold_.reset();
     try { if (state->session_) state->command(MSIME_CANCEL); } catch (...) { state->close(); }
     state->clearPanel();
   }
@@ -4346,6 +4350,13 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   const auto &key = event.key();
   const auto sym = key.sym();
   const auto states = key.states();
+  if (sym == FcitxKey_BackSpace && event.isRelease()) {
+    const bool owned = backspace_hold_.armed();
+    backspace_hold_.release();
+    if (owned) return true;
+  } else if (!event.isRelease() && sym != FcitxKey_BackSpace) {
+    backspace_hold_.reset();
+  }
   // An accepted stroke owns its repeats and release, even if modifiers or
   // preferences change while held. Unmatched releases must not stop voice.
   if (sym == FcitxKey_F9 && voice_f9_held_) {
@@ -4454,6 +4465,17 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   }
   if (event.isRelease()) return false;
   if (!input_enabled_) return false;
+  const bool bareBackspace = sym == FcitxKey_BackSpace &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
+                                       fcitx::KeyState::Shift, fcitx::KeyState::Super,
+                                       fcitx::KeyState::Hyper});
+  if (!bareBackspace) {
+    backspace_hold_.reset();
+  } else {
+    const bool composing = !view_.value("editing_text", std::string{}).empty() ||
+                           !view_.value("candidates", Json::array()).empty();
+    if (backspace_hold_.press(composing)) return true;
+  }
   if (sym == FcitxKey_BackSpace) {
     if (last_smart_punctuation_ != 0) {
       smart_punctuation_rejected_ = last_smart_punctuation_;
