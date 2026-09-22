@@ -568,8 +568,23 @@ int main(int argc, char **argv) {
     fcitx::KeyEvent passthrough(&ic, fcitx::Key(FcitxKey_n));
     engine.keyEvent(entry, passthrough);
     require(!passthrough.accepted(), "disabled input mode passes keys through");
-    engine.input_mode_action_.activate(&ic);
-    require(state->input_enabled_, "input mode action restores Chinese input");
+    const auto ctrlSpace = [&] {
+      fcitx::KeyEvent event(
+          &ic, fcitx::Key(FcitxKey_space, fcitx::KeyStates(fcitx::KeyState::Ctrl)));
+      engine.keyEvent(entry, event);
+      return event.accepted();
+    };
+    require(ctrlSpace(), "Ctrl+Space is handled during English passthrough");
+    require(state->input_enabled_, "Ctrl+Space restores Chinese input");
+    require(ctrlSpace(), "Ctrl+Space is handled in Chinese input");
+    require(!state->input_enabled_, "Ctrl+Space switches to English input");
+    fcitx::KeyEvent ctrlAltSpace(
+        &ic, fcitx::Key(FcitxKey_space,
+                        fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}));
+    engine.keyEvent(entry, ctrlAltSpace);
+    require(ctrlAltSpace.accepted(),
+            "enabled Ctrl+Alt+Space is handled during English passthrough");
+    require(state->input_enabled_, "Ctrl+Alt+Space restores Chinese input");
     const auto key = [&](fcitx::KeySym sym) {
       fcitx::KeyEvent event(&ic, fcitx::Key(sym));
       engine.keyEvent(entry, event);

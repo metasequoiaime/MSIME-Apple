@@ -118,6 +118,11 @@ for key in ("switch_language_shift", "switch_language_ctrl",
 assert "pure_shift_candidate_" in source and "pure_ctrl_candidate_" in source
 assert "modifier_toggle_deadline_" in source
 assert "event.isRelease()" in source
+# Ctrl+Space and Ctrl+Alt+Space must be able to return from English passthrough.
+# The old gate sat above the chord and made the switch one-way.
+assert source.index("return toggleInputMode();") < source.index(
+    "if (!input_enabled_) return false;"
+)
 # The startup mode belongs to the input context, not to each Engine session, or
 # refocusing would put the default back over the mode the user chose.
 assert "ime_mode_chosen_" in source

@@ -4551,7 +4551,6 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     }
   }
   if (event.isRelease()) return false;
-  if (!input_enabled_) return false;
   const bool bareBackspace = sym == FcitxKey_BackSpace &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                        fcitx::KeyState::Shift, fcitx::KeyState::Super,
@@ -4649,6 +4648,40 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     voice_f9_held_ = true;
     return true;
   }
+  if (ctrl && shift && alt &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
+    if (sym == FcitxKey_c || sym == FcitxKey_C) return resetCache();
+    std::optional<size_t> slot;
+    if (sym >= FcitxKey_1 && sym <= FcitxKey_8)
+      slot = static_cast<size_t>(sym - FcitxKey_1);
+    else if (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_8)
+      slot = static_cast<size_t>(sym - FcitxKey_KP_1);
+    if (slot) return removeCandidateSlot(*slot);
+  }
+  // These host-level chords remain active while ordinary input is being passed
+  // through in English mode. Keeping the passthrough gate above this block made
+  // Ctrl+Space a one-way switch: it could leave Chinese mode but never return.
+  pure_shift_candidate_ = false;
+  pure_ctrl_candidate_ = false;
+  if (sym == FcitxKey_space && ctrl && !shift &&
+      (alt ? mode_ctrl_alt_space_enabled_ : true)) {
+    if (composing) command(MSIME_COMMIT_RAW);
+    return toggleInputMode();
+  }
+  if (sym == FcitxKey_space && ctrl && shift && !alt) {
+    if (composing) command(MSIME_COMMIT_RAW);
+    return toggleWidth();
+  }
+  if (!input_enabled_) return false;
+  if (character_set_shortcut_enabled_ && ctrl && shift && !alt &&
+      (sym == FcitxKey_f || sym == FcitxKey_F)) {
+    if (composing) command(MSIME_COMMIT_RAW);
+    return toggleTraditional();
+  }
+  if (ctrl && shift && !alt && (sym == FcitxKey_e || sym == FcitxKey_E)) {
+    if (composing) command(MSIME_COMMIT_RAW);
+    return toggleEnglish();
+  }
   if (emoji_search_mode_) {
     if (sym == FcitxKey_Escape) {
       endEmojiSearch();
@@ -4694,44 +4727,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     }
     return true;
   }
-  if (ctrl && shift && alt &&
-      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
-    if (sym == FcitxKey_c || sym == FcitxKey_C) return resetCache();
-    std::optional<size_t> slot;
-    if (sym >= FcitxKey_1 && sym <= FcitxKey_8)
-      slot = static_cast<size_t>(sym - FcitxKey_1);
-    else if (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_8)
-      slot = static_cast<size_t>(sym - FcitxKey_KP_1);
-    if (slot) return removeCandidateSlot(*slot);
-  }
   if (sym == FcitxKey_Escape && voice_loading_) {
     cancelVoice();
     return composing ? command(MSIME_CANCEL) : true;
-  }
-  // The four configurable mode chords. Windows measures a bare modifier on its
-  // release and only when nothing else was typed while it was held, and so does
-  // the IBus host; this host answered none of them, while the settings page
-  // showed all four switches for this platform.
-  // Any other key press means the held modifier was part of a combination.
-  pure_shift_candidate_ = false;
-  pure_ctrl_candidate_ = false;
-  if (sym == FcitxKey_space && ctrl && !shift &&
-      (alt ? mode_ctrl_alt_space_enabled_ : true)) {
-    if (composing) command(MSIME_COMMIT_RAW);
-    return toggleInputMode();
-  }
-  if (character_set_shortcut_enabled_ && ctrl && shift && !alt &&
-      (sym == FcitxKey_f || sym == FcitxKey_F)) {
-    if (composing) command(MSIME_COMMIT_RAW);
-    return toggleTraditional();
-  }
-  if (ctrl && shift && !alt && (sym == FcitxKey_e || sym == FcitxKey_E)) {
-    if (composing) command(MSIME_COMMIT_RAW);
-    return toggleEnglish();
-  }
-  if (sym == FcitxKey_space && ctrl && shift && !alt) {
-    if (composing) command(MSIME_COMMIT_RAW);
-    return toggleWidth();
   }
   if (translation_candidates_active_) {
     if (ctrl && !alt && !shift &&
