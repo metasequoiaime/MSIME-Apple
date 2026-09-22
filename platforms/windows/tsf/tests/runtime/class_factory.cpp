@@ -83,6 +83,24 @@ int main() {
             "TSF class factory could not be created");
     require(can_unload_now() == S_FALSE,
             "TSF DLL must remain loaded while its class factory is referenced");
+    require(factory->QueryInterface(IID_IClassFactory, nullptr) == E_POINTER,
+            "Class factory QueryInterface must reject a null output pointer");
+
+    IClassFactory *factory_alias = nullptr;
+    require(SUCCEEDED(factory->QueryInterface(IID_IClassFactory,
+                                               reinterpret_cast<void **>(&factory_alias))) &&
+                factory_alias != nullptr,
+            "Class factory QueryInterface could not return a second interface");
+    require(can_unload_now() == S_FALSE,
+            "TSF DLL must remain loaded while a queried class-factory interface is referenced");
+    factory_alias->Release();
+
+    require(factory->CreateInstance(nullptr, IID_IUnknown, nullptr) == E_INVALIDARG,
+            "Class factory CreateInstance must reject a null output pointer");
+    require(factory->LockServer(TRUE) == S_OK && can_unload_now() == S_FALSE,
+            "LockServer(TRUE) must hold the TSF DLL loaded");
+    require(factory->LockServer(FALSE) == S_OK && can_unload_now() == S_FALSE,
+            "LockServer(FALSE) must release only its server lock");
 
     IUnknown *aggregated = nullptr;
     require(factory->CreateInstance(reinterpret_cast<IUnknown *>(factory), IID_IUnknown,

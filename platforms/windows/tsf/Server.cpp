@@ -92,14 +92,18 @@ class CClassFactory : public IClassFactory
 
 STDAPI CClassFactory::QueryInterface(REFIID riid, _Outptr_ void **ppvObj)
 {
+    if (ppvObj == nullptr)
+    {
+        return E_POINTER;
+    }
+    *ppvObj = nullptr;
+
     if (IsEqualIID(riid, IID_IClassFactory) || IsEqualIID(riid, IID_IUnknown))
     {
         *ppvObj = this;
         DllAddRef();
         return NOERROR;
     }
-    *ppvObj = nullptr;
-
     return E_NOINTERFACE;
 }
 

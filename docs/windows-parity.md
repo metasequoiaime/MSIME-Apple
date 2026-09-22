@@ -2390,6 +2390,8 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 
 本批把同一回归扩展到 COM 生命周期与错误路径：未知 CLSID 返回 `CLASS_E_CLASSNOTAVAILABLE`，已知 CLSID 但请求不支持的类工厂接口返回 `E_NOINTERFACE`，空输出指针返回 `E_INVALIDARG`；类工厂拒绝聚合，并由 `DllCanUnloadNow` 钉住“类工厂或 TIP 仍被引用时不可卸载、全部释放后可卸载”。生产 `DllGetClassObject` 现在先清空输出并按 CLSID 再按接口判定，避免把这两类错误混为一谈。测试不注册 TIP、不写 TSF 注册表、不调用 `ITfTextInputProcessor::Activate`；交叉构建仍不等于 Windows 原生 COM 运行时验收。
 
+本批继续补齐类工厂的 COM 契约：`CClassFactory::QueryInterface` 对空输出指针返回 `E_POINTER` 并在处理 IID 前清空输出；`CreateInstance` 对空输出指针返回 `E_INVALIDARG`；第二个类工厂接口引用和 `LockServer(TRUE/FALSE)` 的加锁、解锁行为都由 `DllCanUnloadNow` 生命周期断言覆盖。测试仍只使用合成输入，不注册 TIP、不写 TSF 注册表、不调用 `ITfTextInputProcessor::Activate`，因此没有真实 Windows 注册、TIP 激活或编辑器验收证据。
+
 ### Windows 偏好发布回调的生效时序（2026-09-22）
 
 偏好监视器的生产链路先在输入队列应用 `PreferenceSnapshot`，再从监视线程通知 `SessionController` 的发布回调；回调会清理并按新配置重新发起当前候选页的翻译查询。原有用例已经覆盖延迟到未确认回复完成后应用，本批另加一个顺序断言：回调提交的观察任务必须看到新的导航绑定和以词定字状态，防止未来把“发布任务已入队”误当成“偏好已经生效”。测试只使用合成 JSON 和队列状态，不触碰用户配置；这仍是源码/交叉构建证据，不是 Windows 原生编辑器验收。
