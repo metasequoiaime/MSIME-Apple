@@ -193,6 +193,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/settings/AppIconStyleSmoke.java" \
   "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/settings/HardwareShortcutPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" PhrasePreeditSmoke
@@ -254,6 +255,7 @@ java -cp "$output_dir" CommunityRequestSmoke
 java -cp "$output_dir" AppIconStyleSmoke
 java -cp "$output_dir" SmartPunctuationContextSmoke
 java -cp "$output_dir" HardwareKeyPolicySmoke
+java -cp "$output_dir" app.msime.client.HardwareShortcutPolicySmoke
 java -cp "$output_dir" SymbolPanelModelSmoke
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
