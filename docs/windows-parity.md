@@ -2373,3 +2373,9 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 ### Windows 原生 README 的生产装配状态校正（2026-09-22）
 
 `platforms/windows/README.md` 的早期分段仍把 `PipeService`、`RegistrationInbox`、`SessionController`、`SessionWorkers` 和 `SessionPump` 写成“尚未接入生产”的下一步，和当前 `WindowsServer`/生产 `server_main.cpp` 已实际装配的路径相矛盾。本次只校正文档状态：明确生产入口已经启动指定管道、消费登记票据并运行焦点路由与输入队列，同时保留“仅 x86/x64 交叉编译，尚未 Windows 原生 TSF 注册、安装和真实编辑器验收”的证据等级。没有把交叉编译或 `server_smoke` 静态/合成运行写成系统入口验收。
+
+### 可控 TSF 编辑宿主（2026-09-22）
+
+固定来源 `345cb87a3822f6ad7013bb29506fe3d856c1931a` 的 `experiments/tsf-edit-control` 已迁入 `platforms/windows/experiments/tsf-edit-control`，并作为 Windows-only CMake 目标接入。它提供 Direct2D/DirectWrite 绘制的原生 Win32 编辑宿主与最小 demo，可重复检查 TSF 文档上下文、preedit/display attribute、候选位置、软换行、选区、插入点和鼠标命中等边界。
+
+这是一项验证工具，不是产品组件：它不注册 TSF、不启动生产 Server，也不替代第三方编辑器验收。实验源码中来源工程特有但目标树不存在的 `common.ver`、`InputScope.h` 和 `tsattrs.h` 依赖已去除；宿主仍使用系统 TSF 头文件。交叉构建最多证明能够编译和链接，真实 TSF、TIP 激活与编辑器输入仍待在 Windows 上运行验证。

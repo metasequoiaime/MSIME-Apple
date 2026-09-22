@@ -839,6 +839,7 @@ foreach(clipboard_target windows-clipboard-history windows-clipboard-link
   set_tests_properties(${clipboard_target} PROPERTIES TIMEOUT 30)
 endforeach()
 if(WIN32)
+  add_subdirectory(experiments/tsf-edit-control)
   install(FILES installer/config.default.toml DESTINATION share/msime)
   install(DIRECTORY installer/assets/icons/ DESTINATION share/msime/icons)
   install(DIRECTORY installer/assets/audios/ DESTINATION share/msime/audios)
