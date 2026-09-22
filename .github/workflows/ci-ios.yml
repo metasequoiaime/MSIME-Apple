@@ -113,7 +113,7 @@ jobs:
         run: python3 scripts/fetch_engine.py
       - name: Validate keyboard configuration
         run: |
-          python3 platforms/ios/tests/ProjectConfigurationTests.py
+          python3 platforms/ios/tests/settings/ProjectConfigurationTests.py
           if [[ -f platforms/ios/tests/DictionaryPackagingTests.py ]]; then python3 platforms/ios/tests/DictionaryPackagingTests.py; fi
           # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。缺 pyjwt 时它自己跳过。
           if [[ -f platforms/ios/tests/TestFlightSubmissionTests.py ]]; then python3 platforms/ios/tests/TestFlightSubmissionTests.py; fi
@@ -198,7 +198,7 @@ jobs:
         run: python3 scripts/fetch_engine.py
       - name: Validate keyboard configuration
         run: |
-          python3 platforms/ios/tests/ProjectConfigurationTests.py
+          python3 platforms/ios/tests/settings/ProjectConfigurationTests.py
           if [[ -f platforms/ios/tests/DictionaryPackagingTests.py ]]; then python3 platforms/ios/tests/DictionaryPackagingTests.py; fi
           # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。缺 pyjwt 时它自己跳过。
           if [[ -f platforms/ios/tests/TestFlightSubmissionTests.py ]]; then python3 platforms/ios/tests/TestFlightSubmissionTests.py; fi
