@@ -1523,6 +1523,12 @@ Android 横向候选条此前会保留旧页面的 `HorizontalScrollView` 偏移
 
 本地验证：`CandidateScrollPolicySmoke` 与 `platforms/android/check-host.sh` 全部通过；未执行实体设备翻页视觉验收，CI 保持禁用。
 
+### Android 纵向候选列表换页回到首项
+
+候选滚动位置修复此前只覆盖横向候选条，使用 `candidate_layout=vertical` 时仍可能在翻页后保留旧的 `ScrollView` 偏移。现在横向和纵向候选表面共同使用 session、generation、page 身份围栏：任一项变化就回到当前页首项，同一代次的释义或翻译重绘保持用户位置。
+
+本地验证：Android host Java/API/JVM smoke 与 `scripts/verify-local.sh --quick` 通过；未执行实体设备纵向布局视觉验收，CI 保持禁用。
+
 ### Android 候选词保持完整单行
 
 Android 候选按钮此前依赖 TextView 默认的省略与折行行为；长候选或较长释义在不同字体/屏幕宽度下可能被截断或拆成多行，用户看到的候选文字因此不完整。现在普通候选条与展开候选面板都明确关闭自动省略和候选词折行：横向条让外层滚动承载宽度，展开面板按候选格换行；释义只是附加标注，不会改变候选身份或文本。
