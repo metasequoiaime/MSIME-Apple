@@ -54,7 +54,7 @@
 | 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；五项已逐个核对（第四十批）：按应用/全局状态有纯决策函数与 `mode_authority` 用例；标点重复与成对补全随配置帧下发并由 `tsf_config_frames` 钉住；热更新有 `preference_monitor` 用例；CapsLock 由 Server 持有并经 `CapsLockChanged` 帧下发，帧本身已在第四十二批补上用例。 |
 | K/T/U/E/M/J/Y/R 快捷模式、混输 | README 实用功能快捷模式 | Engine 桥接、共享偏好、`platforms/windows/src/ipc/ServerSession.cpp` 及 `platforms/windows/tests/runtime/session_smoke.cpp` | 已补带锁定词库的 ServerSession 回归：八种快捷模式均验证 Shift 入口、候选生成和选词提交；仍需 Windows 原生 TSF/真实编辑器交互验证。 |
 | 谷歌云候选与 AI 联想 | README 云/AI 联想、设置 `ai-settings.ts` | `CloudCandidateWorker.cpp`、`AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 | 有调用链；核对每个提供方、超时、取消、失焦后旧结果以及凭据路由，勿只验证 UI 保存。 |
-| 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；缓存失效已核对并确认做到（第三十六批）：缓存键按服务商与账号分域，凭据、端点、目标语言与启用开关任一变化都丢弃正负两种结果；腾讯请求签名已按官方 TC3-HMAC-SHA256 构造独立算出已知答案并钉住（第三十七批）；本地优先级已按源码核对为正确实现但**零测试覆盖**（第三十八批）；词库编辑已核对（第三十九批）：设置侧有五个按 Engine 实际读取语义写的用例，消费侧每次请求现算本地释义，编辑立即生效且恒胜过缓存的云端结果。本行四项到此走完。 |
+| 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；缓存失效已核对并确认做到（第三十六批）：缓存键按服务商与账号分域，凭据、端点、目标语言与启用开关任一变化都丢弃正负两种结果；腾讯请求签名已按官方 TC3-HMAC-SHA256 构造独立算出已知答案并钉住（第三十七批）；本地优先级已按源码核对并由 `CandidateTranslationPolicy.h`、真实 `TranslationWorker` 调用链及 `candidate_translation_merge` 回归覆盖（第三十八批）；词库编辑已核对（第三十九批）：设置侧有五个按 Engine 实际读取语义写的用例，消费侧每次请求现算本地释义，编辑立即生效且恒胜过缓存的云端结果。本行四项到此走完。 |
 | 设置读取、保存、热更新与窗口行为 | `settings_app.cpp`、`config-sync.ts` | Tauri `load_preferences` / `save_preferences`，`PreferenceMonitor.cpp` 与 `main.cpp` 发布回调；macOS 云端桌面快照覆盖 Apple 20 项基线字段并保留客户端新增双拼预编辑字段 | 有调用链；逐字段核对默认值、冲突/损坏保护、当前组合期间延迟生效。macOS 云端快照现补齐两套辅助码方案、候选学习和本地扩展模式；本地扩展的兼容布尔值应用为八个本地模式的全开/全关。原生备用语音现在读取并回写当前 provider 的 `asr_tokens` / `polish_tokens` 槽位，缺失槽位保留旧扁平字段兼容。不能因配置字段存在就标记功能接通。 |
 | API 凭据测试（**本仓库新增，来源没有此功能**） | 来源无对应物；`settings/settings_app.cpp` 存在但不含凭据测试 | Tauri `test_api_credential` → `client-core::credential_*`（Windows/macOS） | 有调用链；Windows 已接入聊天、批量 ASR、豆包 WebSocket、腾讯云/NiuTrans/DeepLX 等共享凭据测试。**「逐项核对来源字段」一项已撤销（第五十二批）——来源没有可比的字段**；仅「真实服务行为」仍需真实账号验证。 |
 | 词库查询、增改删、导入导出、快捷短语 | `dictionary_manager.cpp`、设置 `dict.ts` / `tools-settings.ts` | Tauri `dictionary_request` / `dictionary_maintenance_handshake`，共享 `dictionary/access.rs` / `dictionary/import.rs` | 有调用链；验证 quiesce/resume、失败恢复、五笔/英文/快捷短语/翻译各表的字段和导出编码，保留用户数据。 |
@@ -2345,3 +2345,11 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 - `56bfc046` 与 `345cb87a` 是上述提交的 merge commits，没有额外内容。
 
 六道 reference 门禁均只用 `git show` / `git grep` 读取这个新固定对象；相邻仓库当前 checkout、未提交内容及以后继续移动的远端 tip 仍不参与验证。
+
+### 语音组字快照的截断与分帧边界（2026-09-22）
+
+固定来源测试 `server/tests/src/test_voice_composition_pipe.cpp` 确认，超出 `kMaxSnapshotChars` 的流式语音组字快照不是应当被拒绝，而是截断到 2048 个 `wchar_t` 后按固定 worker packet 分帧。本仓 `voice_composition_bytes` 此前在调用共享协议编码器前提前拒绝超长文本，可能让中间结果无法更新 TSF 组字，最终结果退回 SendInput fallback。
+
+现在由共享协议负责截断和分帧，Windows ReplyCodec 只拒绝零 generation、NUL 文本和非法消息类型。回归覆盖单帧中文/Emoji、多帧重组、恰好 `kMaxChunkChars` 的边界、超限快照截断，以及上述非法输入；测试从实际 404-byte worker frame 反解并核对顺序、generation 和 first/last 标记。
+
+`bash platforms/windows/build-cross.sh x64` 已成功完成 Windows x64 GNU host/TSF DLL、Server 和原生测试目标的交叉构建，`git diff --check` 通过。Wine 执行级验证因 Docker daemon 未运行而跳过；因此本批有交叉链接和静态回归证据，但没有 Windows/Wine 运行时验收证据。
