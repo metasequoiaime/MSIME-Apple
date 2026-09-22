@@ -593,8 +593,7 @@ function DesktopSettings() {
                   },
                 }
               : {}),
-            ...(host.platform === "android" ||
-            host.platform === "windows" ||
+            ...(host.platform === "windows" ||
             host.platform === "macos" ||
             host.platform === "linux"
               ? {
