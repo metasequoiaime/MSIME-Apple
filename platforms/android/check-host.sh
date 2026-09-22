@@ -144,14 +144,26 @@ fi
 # so this script no longer compiles the whole source set -- `platforms/android/gradle-app` does, and
 # build-apk.sh drives it. What stays here is the part that is worth having without a Gradle daemon:
 # the pure-Java models and their smokes, which have no Android dependency at all and run in a second.
+#
+# Match the launcher activities by their path *inside the repository*. The absolute pattern this
+# started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
+# lives under /home/runner: the list came out empty, javac was handed nothing but the test files,
+# and the gate failed with 1069 "cannot find symbol" errors on every pull request while passing on
+# any developer machine whose checkout is not under /home.
 client_sources=()
 while IFS= read -r source; do
-  case "$source" in
-    */home/*) continue ;;
+  case "${source#"$repo_root/"}" in
+    platforms/android/java/app/msime/client/home/*) continue ;;
   esac
   if rg -q '^import (androidx|com\.google)\.' "$source"; then continue; fi
   client_sources+=("$source")
 done < <(find "$repo_root/platforms/android/java/app/msime/client" -name "*.java" -print)
+# An empty list means the filter above ate everything; javac would then fail on the test files with
+# a wall of missing symbols rather than saying so.
+if [[ ${#client_sources[@]} -eq 0 ]]; then
+  echo "No Android client sources selected for compilation; the source filter is wrong" >&2
+  exit 1
+fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
   "$repo_root/platforms/android/tests/core/EditorSmoke.java" \
