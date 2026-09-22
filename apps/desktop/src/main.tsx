@@ -404,6 +404,7 @@ function DesktopSettings() {
     | null
   >(null);
   const mobilePanelRef = useRef(mobilePanel);
+  const [initialPage, setInitialPage] = useState<string | undefined>();
   useEffect(() => {
     mobilePanelRef.current = mobilePanel;
   }, [mobilePanel]);
@@ -459,16 +460,27 @@ function DesktopSettings() {
         setMobilePanel(panel as NonNullable<typeof mobilePanel>);
       }
     };
+    const onNativeSettingsPage = (event: Event) => {
+      const page = (event as CustomEvent<unknown>).detail;
+      if (
+        typeof page === "string" &&
+        ["home", "appearance", "dictionary", "account"].includes(page)
+      ) {
+        setInitialPage(page);
+        setMobilePanel(null);
+      }
+    };
     window.addEventListener("popstate", onPopState);
     window.addEventListener("msime-mobile-panel", onNativePanel);
+    window.addEventListener("msime-settings-page", onNativeSettingsPage);
     return () => {
       window.removeEventListener("popstate", onPopState);
       window.removeEventListener("msime-mobile-panel", onNativePanel);
+      window.removeEventListener("msime-settings-page", onNativeSettingsPage);
     };
   }, []);
   // The host menu entry that started this window names a section; resolve it
   // before mounting so the page never opens on one and then jumps.
-  const [initialPage, setInitialPage] = useState<string | undefined>();
   useEffect(() => {
     let active = true;
     let unsubscribe: (() => void) | undefined;
