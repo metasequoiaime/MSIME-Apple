@@ -4804,7 +4804,8 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {!mobilePlatform && (
+                    {/* Linux menus are the IBus property menu and the Fcitx5 status menu, drawn by the desktop panel in its own theme. */}
+                    {!mobilePlatform && !linuxPlatform && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -7542,6 +7543,14 @@ export function SettingsPage({
                               <div className={settings.shortcutRow}>
                                 <span>重启输入法服务</span>
                                 <kbd>Ctrl+Shift+Alt+R</kbd>
+                              </div>
+                              <div
+                                className={`${settings.shortcutRow} ${settings.shortcutRowDanger}`}
+                              >
+                                <span>
+                                  立即退出 IBus 宿主进程（Fcitx5 下与 Fcitx5 同进程，不提供）
+                                </span>
+                                <kbd>Ctrl+Shift+Alt+T</kbd>
                               </div>
                             </>
                           )}
