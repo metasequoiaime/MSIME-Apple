@@ -390,6 +390,10 @@ struct KeyboardView {
         if (this.surface === SURFACE_VOICE) {
           this.show(SURFACE_NONE);
         }
+        if (KeyboardFormFactor.isDesktop()
+          && KeyboardSession.shared.openSurface() === DesktopSurface.VOICE) {
+          KeyboardSession.shared.setDesktopSurface(DesktopSurface.NONE);
+        }
       }
     };
     KeyboardSession.shared.onEnglishSuggestions = (prefix: string, items: string[]): void => {
@@ -399,7 +403,11 @@ struct KeyboardView {
       // The panel has to be on screen before recording starts, or the first thing the user sees of
       // a shortcut they just pressed is nothing at all.
       if (action === VoiceHotkeyAction.START) {
-        this.show(SURFACE_VOICE);
+        if (KeyboardFormFactor.isDesktop()) {
+          KeyboardSession.shared.setDesktopSurface(DesktopSurface.VOICE);
+        } else {
+          this.show(SURFACE_VOICE);
+        }
         this.startVoice();
         return;
       }
@@ -409,7 +417,11 @@ struct KeyboardView {
       }
       if (action === VoiceHotkeyAction.CANCEL) {
         this.cancelVoice();
-        this.show(SURFACE_NONE);
+        if (KeyboardFormFactor.isDesktop()) {
+          KeyboardSession.shared.setDesktopSurface(DesktopSurface.NONE);
+        } else {
+          this.show(SURFACE_NONE);
+        }
         return;
       }
       if (action === VoiceHotkeyAction.LOCK) {

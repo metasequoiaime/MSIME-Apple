@@ -1721,7 +1721,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!KeyboardFormFactor.isDesktop()) {
       return;
     }
-    this.desktopSurface = this.desktopSurface === surface ? DesktopSurface.NONE : surface;
+    this.setDesktopSurface(this.desktopSurface === surface ? DesktopSurface.NONE : surface);
+  }
+
+  /** Set a desktop face without toggle semantics, for hotkeys that open a face repeatedly. */
+  setDesktopSurface(surface: DesktopSurface): void {
+    if (!KeyboardFormFactor.isDesktop()) {
+      return;
+    }
+    this.desktopSurface = surface;
     // The view first: the window is sized around what it drew, so drawing it second would leave one
     // frame of a keyboard-sized window with a candidate strip in it.
     if (this.onSurfaceChanged !== undefined) {
