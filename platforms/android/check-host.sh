@@ -54,6 +54,16 @@ if rg -n 'Files\.(readString|writeString)\(' "$repo_root/platforms/android/java"
   echo "Files.readString/writeString need API 34; this host declares minSdk 28" >&2
   exit 1
 fi
+if [[ ! -f "$repo_root/platforms/android/java/app/msime/client/handwriting/MlKitHandwritingRecognizer.java" \
+      || ! -f "$repo_root/platforms/android/java/app/msime/client/handwriting/MlKitImeInitProvider.java" ]]; then
+  echo "Android handwriting implementation must live with the native host sources" >&2
+  exit 1
+fi
+if ! rg -Uq 'android:name="app\.msime\.client\.MlKitImeInitProvider"[[:space:]]+android:authorities="\$\{applicationId\}\.mlkit-ime-init"[[:space:]]+android:exported="false"[[:space:]]+android:process=":ime"' \
+    "$repo_root/platforms/android/AndroidManifest.xml"; then
+  echo "Android native host must initialize ML Kit inside the isolated IME process" >&2
+  exit 1
+fi
 # The host compiles against AndroidX and Material now, and those are AARs that only Gradle resolves,
 # so this script no longer compiles the whole source set -- `platforms/android/gradle-app` does, and
 # build-apk.sh drives it. What stays here is the part that is worth having without a Gradle daemon:
@@ -63,7 +73,7 @@ while IFS= read -r source; do
   case "$source" in
     */home/*) continue ;;
   esac
-  if rg -q '^import (androidx|com\.google\.android\.material)\.' "$source"; then continue; fi
+  if rg -q '^import (androidx|com\.google)\.' "$source"; then continue; fi
   client_sources+=("$source")
 done < <(find "$repo_root/platforms/android/java/app/msime/client" -name "*.java" -print)
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
