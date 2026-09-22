@@ -166,7 +166,7 @@ IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到
 
 候选行保留 Engine 的来源身份：本地词库和用户词库不额外标记，云候选显示 `云`，AI 候选显示 `AI`。来源标签只用于 IBus panel 展示，不进入提交文本、候选索引或异步结果校验。
 
-共享 `candidate_text_color`、`candidate_number_color`、`candidate_accent_color` 和 `candidate_surface_color` 设置分别映射为 IBus 候选文字、编号标签前景、固定候选的 accent 前景和候选背景属性；未设置时使用当前候选皮肤的 token，普通候选仍可交由 panel 主题决定。候选字体族、字号和回退字体仍由桌面 panel 的字体栈控制。
+共享 `candidate_text_color`、`candidate_number_color`、`candidate_accent_color` 和 `candidate_surface_color` 设置分别映射为 IBus 候选文字、编号标签前景、固定候选的 accent 前景和候选背景属性；未设置时使用当前候选皮肤的 token，普通候选仍可交由 panel 主题决定。候选字体族、回退字体和字号由宿主写进桌面 panel 自己读取的那一个字体描述：IBus 写 `org.freedesktop.ibus.panel` 的 `custom-font` 并打开 `use-custom-font`（与 ibus-setup 写的是同一对键），Fcitx5 通过 classicui 插件自己的配置写 `Font`，立即生效并保存在 `classicui.conf`。描述按 Pango 格式把主字体和回退字体依次列出、去重，以像素为字号单位。这个字体归整个桌面所有，所以设置从未改过、仍是默认值时宿主不写，之后用户每次修改都会写一次，回到默认值也算一次修改。GNOME Shell 自带的候选弹窗跟随 Shell 主题、Plasma 的 kimpanel 跟随桌面字体，这两种面板上宿主不写任何东西。预编辑由应用自己绘制，因此 Linux 不提供单独的预编辑字号，设置页按 `candidate_preedit_font` 能力位隐藏它；英文字体同理不提供。
 
 中英混输默认在预编辑达到 5 个字母后显示英文候选，Emoji 与颜文字混输默认关闭；旧宿主选项缺少这些字段时使用相同默认值。用户仍可在设置中选择 1–8 个字符并分别切换 Emoji/颜文字，显式配置优先于默认值。
 

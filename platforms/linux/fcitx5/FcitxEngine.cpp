@@ -6,6 +6,8 @@
 #include <fcitx-utils/event.h>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
+#include <fcitx/addoninstance.h>
+#include <fcitx-config/rawconfig.h>
 #include <fcitx/action.h>
 #include <fcitx/statusarea.h>
 #include <fcitx/menu.h>
@@ -20,6 +22,7 @@
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
 #include "../src/candidates/CandidatePalette.h"
+#include "../src/candidates/CandidateFontPolicy.h"
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/core/CandidateSkinCatalog.h"
@@ -801,6 +804,7 @@ public:
     return true;
   }
   void refreshToolbar();
+  void syncCandidatePanelFont();
   void syncVoiceAction();
   // 中英文切换后在光标附近短暂显示「中」或「英」，由 Fcitx5 面板绘制；定义在
   // FcitxEngine 之后，它需要那个类型完整。
@@ -1374,6 +1378,7 @@ public:
     // 第一格，用户永远到不了五笔和日文。私密上下文是唯一没中招的，只是因为它顺手把同
     // 一份 preferences_ 回填了。
     options["preferences"] = preferences_;
+    syncCandidatePanelFont();
     // This front end draws view.phrase_prefix ahead of the reading, so a phrase assembled out of
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
@@ -1435,6 +1440,7 @@ public:
             // The toolbar follows the reloaded switches without waiting for the
             // next focus change, the way the IBus property menu does.
             refreshToolbar();
+            syncCandidatePanelFont();
             const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
             punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
             navigation_ = preferences_.value("navigation", Json::object());
@@ -4219,6 +4225,19 @@ private:
 class FcitxEngine : public fcitx::InputMethodEngine {
 public:
   fcitx::Instance *instance() const { return instance_; }
+  // Fcitx5 draws the candidate list in its classic UI, which takes one Pango font description for
+  // the whole panel. Writing it through the addon's own configuration applies it at once and keeps
+  // it in classicui.conf, where Fcitx5's configuration tool shows the same value. A front end
+  // without the classic UI (kimpanel on Plasma draws with the desktop's font) is left alone.
+  void applyCandidatePanelFont(const Json &preferences) {
+    const auto description = candidate_font_sync_.next(msime::linux_host::read_candidate_font(preferences));
+    if (!description) return;
+    auto *classicui = instance_->addonManager().addon("classicui", true);
+    if (!classicui) return;
+    fcitx::RawConfig config;
+    config.setValueByPath("Font", *description);
+    classicui->setConfig(config);
+  }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
@@ -4613,6 +4632,7 @@ public:
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   }
   fcitx::Instance *instance_;
+  msime::linux_host::CandidateFontSync candidate_font_sync_;
   fcitx::FactoryFor<FcitxState> factory_{[this](fcitx::InputContext &ic) {
     return new FcitxState(ic, this, instance_->eventLoop());
   }};
@@ -4768,6 +4788,10 @@ void FcitxState::syncVoiceAction() {
   else
     ic_.statusArea().removeAction(&engine_->voice_action_);
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+}
+
+void FcitxState::syncCandidatePanelFont() {
+  if (engine_) engine_->applyCandidatePanelFont(preferences_);
 }
 
 void FcitxState::refreshToolbar() {

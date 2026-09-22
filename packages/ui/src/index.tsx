@@ -598,6 +598,7 @@ export interface HostCapabilities {
   number_row_selection?: boolean;
   voice_capture_devices: boolean;
   candidate_font_controls: boolean;
+  candidate_preedit_font?: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
   candidate_follow_cursor: boolean;
@@ -1980,6 +1981,10 @@ export function SettingsPage({
   const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
   const showToolbarComponents = host ? host.floating_toolbar_components : true;
   const showCandidateFontControls = host ? host.candidate_font_controls : true;
+  // Linux sets the panel's font from the family and candidate size, but the composition is drawn by
+  // the focused application there, so a preedit size would be a control with nothing to change.
+  const showCandidatePreeditFont =
+    showCandidateFontControls && (host?.candidate_preedit_font ?? true);
   // Was a list of platform names, which is how HarmonyOS came to consume the preference without
   // anyone being able to set it. A host that predates the capability keeps the old reading.
   const showCandidateEnglishFont =
@@ -4108,7 +4113,7 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {showCandidateFontControls && (
+                    {showCandidatePreeditFont && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">

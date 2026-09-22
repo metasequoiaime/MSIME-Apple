@@ -129,6 +129,11 @@ pub struct HostCapabilities {
     pub voice_capture_devices: bool,
     /// The host can apply candidate font family, fallback family and size preferences.
     pub candidate_font_controls: bool,
+    /// The composition drawn beside the candidates has its own size. Linux reads the family and
+    /// candidate size into the desktop panel's single font, but the composition itself is drawn by
+    /// the focused application, so a separate preedit size would have nothing to change there.
+    #[serde(default)]
+    pub candidate_preedit_font: bool,
     /// The host can apply candidate foreground/background RGB row colors.
     /// Linux exposes these through IBusText attributes even though it cannot
     /// draw the native card geometry or hover state.
@@ -322,8 +327,18 @@ impl HostCapabilities {
             // Native Windows/macOS candidate windows consume the shared font
             // controls. Harmony's desktop candidate panel and Android's
             // native candidate bar also apply the family chain and both
-            // candidate/preedit sizes; iOS remains touch-only here.
+            // candidate/preedit sizes; iOS remains touch-only here. Linux
+            // writes the family chain and candidate size into the panel's
+            // font: the IBus panel settings or the Fcitx5 classic UI.
             candidate_font_controls: matches!(
+                platform,
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
+                    | HostPlatform::Android
+                    | HostPlatform::Linux
+            ),
+            candidate_preedit_font: matches!(
                 platform,
                 HostPlatform::Windows
                     | HostPlatform::Macos
@@ -796,7 +811,8 @@ mod tests {
         assert!(linux.panel_shortcuts);
         assert!(linux.number_row_selection);
         assert!(linux.voice_capture_devices);
-        assert!(!linux.candidate_font_controls);
+        assert!(linux.candidate_font_controls);
+        assert!(!linux.candidate_preedit_font);
         assert!(linux.candidate_row_colors);
         assert!(!linux.candidate_selection_appearance);
         // IBus owns the candidate list's placement, so the host cannot pin it.
@@ -838,6 +854,7 @@ mod tests {
                 && windows.floating_toolbar_components
         );
         assert!(windows.candidate_font_controls);
+        assert!(windows.candidate_preedit_font);
         assert!(windows.candidate_row_colors);
         assert!(windows.candidate_selection_appearance);
         // Windows positions its own card, so pinning it is a real choice there.
