@@ -34,6 +34,7 @@ import {
   type HostCapabilities,
   type ProviderCredentialClient,
   type ProviderCredentialStatus,
+  type VoiceCredentialSaveResult,
   type TypingStatisticsClient,
   type PanelClient,
   type VoicePanelClient,
@@ -613,6 +614,16 @@ function DesktopSettings() {
                       }),
                     clearTencent: () =>
                       invoke<ProviderCredentialStatus>("clear_tencent_provider_credential"),
+                    saveVoice: (credential) =>
+                      invoke<VoiceCredentialSaveResult>(
+                        "save_voice_provider_credential",
+                        credential,
+                      ),
+                    clearVoice: (kind, provider) =>
+                      invoke<VoiceCredentialSaveResult>("clear_voice_provider_credential", {
+                        kind,
+                        provider,
+                      }),
                   } satisfies ProviderCredentialClient,
                 }
               : {}),

@@ -72,6 +72,8 @@ function credentialClient(initial: ProviderCredentialStatus) {
     clearAi: vi.fn(async () => ({ ...initial, ai: [] })),
     saveTencent: vi.fn(async () => initial),
     clearTencent: vi.fn(async () => initial),
+    saveVoice: vi.fn(async () => ({ status: initial, serviceUpdated: true })),
+    clearVoice: vi.fn(async () => ({ status: initial, serviceUpdated: true })),
   } satisfies ProviderCredentialClient;
 }
 
@@ -81,6 +83,9 @@ test("Linux writes the AI token to the provider file, bound to the current setti
     aiInvalid: false,
     tencent: null,
     tencentInvalid: false,
+    voiceAsr: [],
+    voicePolish: [],
+    voiceInvalid: false,
   });
   render(
     <SettingsPage
@@ -129,6 +134,9 @@ test("Linux reports a provider file it cannot use", async () => {
     aiInvalid: true,
     tencent: null,
     tencentInvalid: false,
+    voiceAsr: [],
+    voicePolish: [],
+    voiceInvalid: false,
   });
   credentials.saveAi.mockRejectedValueOnce({ code: "provider_credentials_existing_invalid" });
   render(

@@ -755,6 +755,24 @@ export type ProviderCredentialStatus = {
   aiInvalid: boolean;
   tencent: { region: string } | null;
   tencentInvalid: boolean;
+  voiceAsr: VoiceProviderCredential[];
+  voicePolish: VoiceProviderCredential[];
+  /** The voice file exists but the provider refuses it, so voice input does not start until it is repaired. */
+  voiceInvalid: boolean;
+};
+/** A stored voice entry; empty `model` / `endpoint` mean the provider's defaults. */
+export type VoiceProviderCredential = {
+  provider: string;
+  model: string;
+  endpoint: string;
+  resourceId: string | null;
+  authMode: string | null;
+};
+export type VoiceCredentialKind = "asr" | "polish";
+export type VoiceCredentialSaveResult = {
+  status: ProviderCredentialStatus;
+  /** Whether the user service manager accepted the voice socket change; the file is saved either way. */
+  serviceUpdated: boolean;
 };
 /**
  * The Linux host's owner-only credential files for the online provider service. A secret passed as undefined keeps the stored one, so an endpoint, model or region can change without pasting the key again.
@@ -774,6 +792,17 @@ export type ProviderCredentialClient = {
     region: string;
   }): Promise<ProviderCredentialStatus>;
   clearTencent(): Promise<ProviderCredentialStatus>;
+  saveVoice(credential: {
+    kind: VoiceCredentialKind;
+    provider: string;
+    endpoint: string;
+    model: string;
+    token?: string;
+    appKey?: string;
+    resourceId: string;
+    authMode: string;
+  }): Promise<VoiceCredentialSaveResult>;
+  clearVoice(kind: VoiceCredentialKind, provider: string): Promise<VoiceCredentialSaveResult>;
 };
 export function providerCredentialErrorMessage(error: unknown): string {
   const code =
@@ -794,6 +823,8 @@ export function providerCredentialErrorMessage(error: unknown): string {
       return "请填写凭据。";
     case "provider_credentials_invalid_region":
       return "地域只能包含小写字母、数字和连字符，例如 ap-guangzhou。";
+    case "provider_credentials_voice_asr_required":
+      return "语音 provider 需要至少一个识别凭据：请先保存识别凭据，或先清除润色凭据。";
     case "provider_credentials_too_many_profiles":
       return "已保存的 AI 服务商过多，请先清除不再使用的凭据。";
     case "provider_credentials_existing_invalid":
@@ -2326,9 +2357,14 @@ export function SettingsPage({
     secretKey: string;
     region?: string;
   }>({ secretId: "", secretKey: "" });
-  const [providerCredentialBusy, setProviderCredentialBusy] = useState<"ai" | "tencent">();
+  const [voiceCredentialInput, setVoiceCredentialInput] = useState<
+    Record<VoiceCredentialKind, { token: string; appKey: string; endpoint?: string }>
+  >({ asr: { token: "", appKey: "" }, polish: { token: "", appKey: "" } });
+  const [providerCredentialBusy, setProviderCredentialBusy] = useState<
+    "ai" | "tencent" | VoiceCredentialKind
+  >();
   const [providerCredentialMessages, setProviderCredentialMessages] = useState<
-    Partial<Record<"ai" | "tencent", { ok: boolean; text: string }>>
+    Partial<Record<"ai" | "tencent" | VoiceCredentialKind, { ok: boolean; text: string }>>
   >({});
   // What a report needs first is the release and the scheme, because that is what a repro is
   // written against. The user agent only says which web view drew this window, so it is the
@@ -3491,7 +3527,169 @@ export function SettingsPage({
       setProviderCredentialBusy(undefined);
     }
   };
-  const providerCredentialMessage = (kind: "ai" | "tencent") => {
+  const runVoiceCredential = async (
+    kind: VoiceCredentialKind,
+    operation: (credentials: ProviderCredentialClient) => Promise<VoiceCredentialSaveResult>,
+    success: string,
+  ) => {
+    const credentials = client.providerCredentials;
+    if (!credentials) return;
+    setProviderCredentialBusy(kind);
+    setProviderCredentialMessages((current) => ({ ...current, [kind]: undefined }));
+    try {
+      const result = await operation(credentials);
+      setProviderCredentials(result.status);
+      setVoiceCredentialInput((current) => ({ ...current, [kind]: { token: "", appKey: "" } }));
+      setProviderCredentialMessages((current) => ({
+        ...current,
+        [kind]: result.serviceUpdated
+          ? { ok: true, text: success }
+          : {
+              ok: false,
+              text: `${success}但未能更新语音服务，请运行 systemctl --user enable --now msime-client-voice.socket。`,
+            },
+      }));
+    } catch (error) {
+      setProviderCredentialMessages((current) => ({
+        ...current,
+        [kind]: { ok: false, text: providerCredentialErrorMessage(error) },
+      }));
+    } finally {
+      setProviderCredentialBusy(undefined);
+    }
+  };
+  /**
+   * The Linux voice provider's credential for the recognition or polishing service selected above. The provider only uses an entry whose model matches the request's, so a save binds the current model; the endpoint is stored in the provider's file, not in the shared preferences.
+   */
+  const voiceCredentialControls = (kind: VoiceCredentialKind) => {
+    if (!client.providerCredentials) return null;
+    const provider =
+      kind === "asr"
+        ? (voiceInput.asr_provider ?? "doubao")
+        : (voiceInput.polish_provider ?? "siliconflow");
+    const model = (kind === "asr" ? voiceInput.asr_model : voiceInput.polish_model) ?? "";
+    const doubao = kind === "asr" && provider === "doubao";
+    const legacy = doubao && doubaoAuthMode === "legacy";
+    const stored = (
+      kind === "asr" ? providerCredentials?.voiceAsr : providerCredentials?.voicePolish
+    )?.find((entry) => entry.provider === provider);
+    const input = voiceCredentialInput[kind];
+    const endpoint = input.endpoint ?? stored?.endpoint ?? "";
+    const update = (patch: Partial<typeof input>) =>
+      setVoiceCredentialInput((current) => ({ ...current, [kind]: { ...input, ...patch } }));
+    const name = kind === "asr" ? "识别" : "润色";
+    const tokenLabel = doubao && !legacy ? "Doubao API Key" : `${name} API Token`;
+    const mismatch =
+      stored &&
+      ((model.trim() && stored.model !== model.trim()) ||
+        (doubao &&
+          ((voiceInput.asr_resource_id?.trim() &&
+            stored.resourceId !== voiceInput.asr_resource_id.trim()) ||
+            stored.authMode !== doubaoAuthMode)));
+    return (
+      <div className="section" role="group" aria-label={`语音${name}凭据`}>
+        <div className="section-title">
+          {name}凭据
+          <small>
+            {providerCredentials?.voiceInvalid
+              ? "现有 voice-provider.json 无效，语音 provider 不会启动；请修复或删除该文件"
+              : !stored
+                ? "尚未保存；保存后只写入用户配置目录的 voice-provider.json，由语音 provider 读取"
+                : mismatch
+                  ? "已保存的凭据与上方模型或豆包设置不一致；保存后改为绑定当前设置"
+                  : "已保存，留空则保留原凭据"}
+          </small>
+        </div>
+        <label className="section-header">
+          <span className="section-title">
+            接口地址<small>留空使用当前 provider 默认地址</small>
+          </span>
+          <input
+            aria-label={`${name}接口地址`}
+            type="url"
+            value={endpoint}
+            onChange={(event) => update({ endpoint: event.target.value })}
+          />
+        </label>
+        {legacy && (
+          <label className="section-header">
+            <span className="section-title">
+              Doubao App Key<small>旧版控制台鉴权使用</small>
+            </span>
+            <input
+              aria-label="Doubao App Key"
+              type="password"
+              autoComplete="off"
+              value={input.appKey}
+              onChange={(event) => update({ appKey: event.target.value })}
+            />
+          </label>
+        )}
+        <label className="section-header">
+          <span className="section-title">{tokenLabel}</span>
+          <input
+            aria-label={tokenLabel}
+            type="password"
+            autoComplete="off"
+            value={input.token}
+            onChange={(event) => update({ token: event.target.value })}
+          />
+        </label>
+        <div className={settings.serviceRow}>
+          <div>
+            <button
+              type="button"
+              className="secondary"
+              aria-label={`保存${name}凭据`}
+              disabled={
+                providerCredentialBusy === kind ||
+                (!input.token.trim() && !stored) ||
+                (legacy && !input.appKey.trim() && stored?.authMode !== "legacy")
+              }
+              onClick={() =>
+                void runVoiceCredential(
+                  kind,
+                  (credentials) =>
+                    credentials.saveVoice({
+                      kind,
+                      provider,
+                      endpoint,
+                      model,
+                      ...(input.token.trim() ? { token: input.token } : {}),
+                      ...(legacy && input.appKey.trim() ? { appKey: input.appKey } : {}),
+                      resourceId: doubao ? (voiceInput.asr_resource_id ?? "") : "",
+                      authMode: doubao ? doubaoAuthMode : "",
+                    }),
+                  "凭据已保存，语音 provider 下次请求时生效。",
+                )
+              }
+            >
+              保存凭据
+            </button>
+            {stored && (
+              <button
+                type="button"
+                className="secondary"
+                aria-label={`清除${name}凭据`}
+                disabled={providerCredentialBusy === kind}
+                onClick={() =>
+                  void runVoiceCredential(
+                    kind,
+                    (credentials) => credentials.clearVoice(kind, provider),
+                    "凭据已清除。",
+                  )
+                }
+              >
+                清除凭据
+              </button>
+            )}
+            {providerCredentialMessage(kind)}
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const providerCredentialMessage = (kind: "ai" | "tencent" | VoiceCredentialKind) => {
     const message = providerCredentialMessages[kind];
     return message ? <span role={message.ok ? "status" : "alert"}>{message.text}</span> : null;
   };
@@ -8738,6 +8936,11 @@ export function SettingsPage({
                       </div>
                     )}
                     {linuxPlatform &&
+                      ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
+                        voiceInput.asr_provider ?? "doubao",
+                      ) &&
+                      voiceCredentialControls("asr")}
+                    {linuxPlatform &&
                       credentialTestControl("voice.asr", "测试语音识别配置", {
                         asr_provider: voiceInput.asr_provider ?? "doubao",
                         asr_model: voiceInput.asr_model ?? "",
@@ -9128,6 +9331,7 @@ export function SettingsPage({
                         >
                           恢复默认
                         </button>
+                        {linuxPlatform && voiceCredentialControls("polish")}
                         {linuxPlatform &&
                           credentialTestControl(
                             "voice.polish",
