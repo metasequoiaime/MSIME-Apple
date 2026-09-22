@@ -1471,7 +1471,7 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 
 新增 `crates/engine-bridge/examples/ninekey_dictionary.rs`，按仓库既有的真词库探针约定接收一个已备齐的资源目录。它断言两件事：两张表在目录里；以及把它们拿掉后候选顺序确实会变——后者用来证明表是被读到的，而不是打包了却没生效。这道防护针对的正是本批的失败模式，因为「表缺失」在运行时没有任何可见信号。
 
-iOS 真机装机走的是产品宿主 `MSIMEClientApp`，不是 Tauri CLI：`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，产物装不上真机，所以直接对 XcodeGen 工程加 CocoaPods workspace 调 `xcodebuild` 并允许签名，命令已写进 iOS README。本机 Xcode 已登录 team `LXCL4Z68GU`，`app.msime.ios` 与 `app.msime.ios.keyboard` 的开发描述文件都在本地且包含目标设备，README 中「本机没有登录账号、签名构建与真机验收尚未执行」的说法随之失效，已按实际状态改写。
+iOS 真机装机走的是产品宿主 `MSIMEApp`，不是 Tauri CLI：`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，产物装不上真机，所以直接对 XcodeGen 工程加 CocoaPods workspace 调 `xcodebuild` 并允许签名，命令已写进 iOS README。本机 Xcode 已登录 team `LXCL4Z68GU`，`app.msime.ios` 与 `app.msime.ios.keyboard` 的开发描述文件都在本地且包含目标设备，README 中「本机没有登录账号、签名构建与真机验收尚未执行」的说法随之失效，已按实际状态改写。
 
 本地验证：`msime-engine-bridge`、`msime-input-runtime`、`msime-host-api` 三个 crate 共 188 个测试通过、0 失败；C++ Engine 0.27.0 重新编译通过；`ninekey_dictionary` 探针在补齐后的资源目录上通过。证据分级到第五级的签名与安装——App 与键盘扩展以开发证书签名、装上 iPhone 17（iOS 27）、启动成功；键盘扩展的启用与真实编辑器验收由使用者在设备上进行，不在本条记录的实测范围内。CI 保持禁用。
 

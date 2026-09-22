@@ -4,7 +4,7 @@ project 'MSIMEClient.xcodeproj'
 workspace 'MSIMEClient.xcworkspace'
 use_frameworks! :linkage => :static
 
-target 'MSIMEClientApp' do
+target 'MSIMEApp' do
   target 'MSIMEKeyboardExtension' do
     pod 'MLKitDigitalInkRecognition', '8.0.0'
   end

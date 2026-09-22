@@ -481,7 +481,7 @@
 			containerPortal = 427999E1F11472E0C57A751F /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = B3343CC05D37C315487BC973;
-			remoteInfo = MSIMEClientApp;
+			remoteInfo = MSIMEApp;
 		};
 		CA5AB57B61B33C3F839A7CA2 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -649,7 +649,7 @@
 		98B1A9D27C521DC3E8D516BD /* TauriDictionarySnapshotBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TauriDictionarySnapshotBridge.swift; sourceTree = "<group>"; };
 		998740623BE3E698150DCE1E /* KeyboardBrand.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = KeyboardBrand.png; sourceTree = "<group>"; };
 		9BFF7F69104E516219FFBA2B /* KeyboardLayoutPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutPreference.swift; sourceTree = "<group>"; };
-		9E30A0713267D216228DB458 /* MSIMEClientApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MSIMEClientApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9E30A0713267D216228DB458 /* MSIMEApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MSIMEApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9EEB3D67B2FC69BE6BA2F345 /* CommunityGalleryStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityGalleryStyle.swift; sourceTree = "<group>"; };
 		9F529E38A8814F08E0626C2A /* ChineseTextConversion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChineseTextConversion.swift; sourceTree = "<group>"; };
 		9F6824935264C5DE093C8BD4 /* InputSchemeTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputSchemeTestSupport.swift; sourceTree = "<group>"; };
@@ -1093,7 +1093,7 @@
 		6D00B944494B7757B6A99FF3 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				9E30A0713267D216228DB458 /* MSIMEClientApp.app */,
+				9E30A0713267D216228DB458 /* MSIMEApp.app */,
 				43376A1462AEF84BB7C4E3A9 /* MSIMEClientUITests.xctest */,
 				391403CFE82802FB8570F86A /* MSIMEDoubaoTransport.framework */,
 				CA0AA119D7B8E03394F9B45C /* MSIMEDoubaoTransportTests.xctest */,
@@ -1588,9 +1588,9 @@
 			productReference = 43376A1462AEF84BB7C4E3A9 /* MSIMEClientUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		B3343CC05D37C315487BC973 /* MSIMEClientApp */ = {
+		B3343CC05D37C315487BC973 /* MSIMEApp */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 8D56F6C2CC358D39A3E277D4 /* Build configuration list for PBXNativeTarget "MSIMEClientApp" */;
+			buildConfigurationList = 8D56F6C2CC358D39A3E277D4 /* Build configuration list for PBXNativeTarget "MSIMEApp" */;
 			buildPhases = (
 				7708DEB186B014E45B4D181B /* Sources */,
 				BE78D0C775C629E9AA6B7E2C /* Resources */,
@@ -1602,11 +1602,11 @@
 			dependencies = (
 				436090A4AF9943F53204A656 /* PBXTargetDependency */,
 			);
-			name = MSIMEClientApp;
+			name = MSIMEApp;
 			packageProductDependencies = (
 			);
-			productName = MSIMEClientApp;
-			productReference = 9E30A0713267D216228DB458 /* MSIMEClientApp.app */;
+			productName = MSIMEApp;
+			productReference = 9E30A0713267D216228DB458 /* MSIMEApp.app */;
 			productType = "com.apple.product-type.application";
 		};
 		F21120A0A35140FF782BAC4A /* MSIMEServiceTests */ = {
@@ -1697,7 +1697,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				B3343CC05D37C315487BC973 /* MSIMEClientApp */,
+				B3343CC05D37C315487BC973 /* MSIMEApp */,
 				292C206FC359697E0EA95DDD /* MSIMEKeyboardExtension */,
 				69CEC806C67E3F35E458FA5A /* MSIMEKeyboardTestHost */,
 				5D2366474DFB6CD078500AA0 /* MSIMEKeyboardTests */,
@@ -2266,7 +2266,7 @@
 		};
 		520456A940E5E372518C306C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = B3343CC05D37C315487BC973 /* MSIMEClientApp */;
+			target = B3343CC05D37C315487BC973 /* MSIMEApp */;
 			targetProxy = 9E518A78D9EDE91538D145A7 /* PBXContainerItemProxy */;
 		};
 		62E99B5412E159EDA6164FD4 /* PBXTargetDependency */ = {
@@ -2505,7 +2505,7 @@
 				INFOPLIST_FILE = "";
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.uitests;
 				PRODUCT_NAME = MSIMEClientUITests;
-				TEST_TARGET_NAME = MSIMEClientApp;
+				TEST_TARGET_NAME = MSIMEApp;
 			};
 			name = Release;
 		};
@@ -2516,7 +2516,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = App/Resources/MSIMEClientApp.entitlements;
+				CODE_SIGN_ENTITLEMENTS = App/Resources/MSIMEApp.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "水杉输入法";
@@ -2536,7 +2536,7 @@
 					UIKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios;
-				PRODUCT_NAME = MSIMEClientApp;
+				PRODUCT_NAME = MSIMEApp;
 			};
 			name = Release;
 		};
@@ -2548,7 +2548,7 @@
 				INFOPLIST_FILE = "";
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios.uitests;
 				PRODUCT_NAME = MSIMEClientUITests;
-				TEST_TARGET_NAME = MSIMEClientApp;
+				TEST_TARGET_NAME = MSIMEApp;
 			};
 			name = Debug;
 		};
@@ -2601,7 +2601,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = App/Resources/MSIMEClientApp.entitlements;
+				CODE_SIGN_ENTITLEMENTS = App/Resources/MSIMEApp.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "水杉输入法";
@@ -2621,7 +2621,7 @@
 					UIKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.msime.ios;
-				PRODUCT_NAME = MSIMEClientApp;
+				PRODUCT_NAME = MSIMEApp;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 			};
 			name = Debug;
@@ -2683,7 +2683,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		8D56F6C2CC358D39A3E277D4 /* Build configuration list for PBXNativeTarget "MSIMEClientApp" */ = {
+		8D56F6C2CC358D39A3E277D4 /* Build configuration list for PBXNativeTarget "MSIMEApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				FEE8E472BEBBD1DFEC8E68B9 /* Debug */,

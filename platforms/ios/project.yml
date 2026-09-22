@@ -42,7 +42,7 @@ schemes:
       targets:
         - MSIMEClientUITests
 targets:
-  MSIMEClientApp:
+  MSIMEApp:
     type: application
     platform: iOS
     # 只为了一个 URL scheme。键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme;
@@ -77,10 +77,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios
-        PRODUCT_NAME: MSIMEClientApp
-        CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEClientApp.entitlements
+        PRODUCT_NAME: MSIMEApp
+        CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEApp.entitlements
         GENERATE_INFOPLIST_FILE: YES
-        # 主屏、设置和系统的应用列表都显示这个名字。没有它时 iOS 退回 CFBundleName,也就是 PRODUCT_NAME,装出来的图标底下写的是 MSIMEClientApp。
+        # 主屏、设置和系统的应用列表都显示这个名字。没有它时 iOS 退回 CFBundleName,也就是 PRODUCT_NAME,装出来的图标底下写的是 MSIMEApp。
         INFOPLIST_KEY_CFBundleDisplayName: 水杉输入法
         # LaunchScreen.storyboard 一直被编进 bundle,但没有这个键就没人指向它,启动屏等于白打包。
         INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
@@ -323,9 +323,9 @@ targets:
         ARCHS: arm64
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: ""
-        TEST_TARGET_NAME: MSIMEClientApp
+        TEST_TARGET_NAME: MSIMEApp
     dependencies:
-      - target: MSIMEClientApp
+      - target: MSIMEApp
   MSIMEDoubaoTransport:
     type: framework
     platform: iOS

@@ -25,8 +25,8 @@ jobs:
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           mkdir -p dist
-          ditto target/ios/derived-simulator/Build/Products/Release-iphonesimulator/MSIMEClientApp.app "dist/MSIMEClientApp-${VERSION}.app"
-          tar -czf "dist/msime-ios-${VERSION}.tar.gz" -C dist "MSIMEClientApp-${VERSION}.app"
+          ditto target/ios/derived-simulator/Build/Products/Release-iphonesimulator/MSIMEApp.app "dist/MSIMEApp-${VERSION}.app"
+          tar -czf "dist/msime-ios-${VERSION}.tar.gz" -C dist "MSIMEApp-${VERSION}.app"
       - name: Publish independent iOS release
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |

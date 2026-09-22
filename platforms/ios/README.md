@@ -12,7 +12,7 @@ Swift 单元/配置测试与模拟器构建只证明源码和桥接可编译。X
 
 共享 Tauri 语音面板通过 `tauri-mobile-platform` 在 App 进程内使用 `AVAudioRecorder` 录制 16 kHz、单声道、PCM16 WAV，最长 60 秒；停止后把有界录音上传到当前 `PreferencesStore` 中选择的服务。OpenAI、SiliconFlow 和 Groq 使用 HTTPS multipart 批量转写；Doubao 使用 WSS、共享 `client-core` 鉴权策略和帧编解码 ABI，并按 Windows 的 200 ms PCM16 分帧发送。两种传输都禁止重定向并限制接口、模型、token、音频、消息、累计响应和识别文本大小；取消会停止录音或网络请求并删除临时文件。provider 凭据只在 Rust 与原生插件之间传递，不进入 WebView、日志或键盘扩展。
 
-**iOS 的产品宿主是 `platforms/ios` 的原生 App（`MSIMEClientApp`）**，它承载应用生命周期、图标与设置界面，并嵌入 `MSIMEKeyboardExtension`。Tauri/React 在 iOS 上是**公共组件**——提供跨平台共享的功能与界面，由原生宿主按需承载——**不是产品本体，也不作为独立 App 启动**。扩展继续从 `platforms/ios` 编译唯一一份原生键盘、共享 UI、宿主桥接与平台服务源码，不依赖常驻桌面服务；App 与扩展各自打包已校验词库，并通过 App Group 共享状态。真机 target 使用锁定的 ML Kit Digital Ink 8.0.0，arm64 模拟器使用明确的无识别 fallback。
+**iOS 的产品宿主是 `platforms/ios` 的原生 App（`MSIMEApp`）**，它承载应用生命周期、图标与设置界面，并嵌入 `MSIMEKeyboardExtension`。Tauri/React 在 iOS 上是**公共组件**——提供跨平台共享的功能与界面，由原生宿主按需承载——**不是产品本体，也不作为独立 App 启动**。扩展继续从 `platforms/ios` 编译唯一一份原生键盘、共享 UI、宿主桥接与平台服务源码，不依赖常驻桌面服务；App 与扩展各自打包已校验词库，并通过 App Group 共享状态。真机 target 使用锁定的 ML Kit Digital Ink 8.0.0，arm64 模拟器使用明确的无识别 fallback。
 
 共享账户页的设置同步以 MSIME-Apple 远端 `develop@81e79abec7b53e7243fb8cbe82a42a4dde1e528f` 为固定来源，上传和应用输入方案、双拼方案、简繁、九键、按键音、触感及强度、词库学习、键盘皮肤、当前自定义皮肤，以及共享输入偏好中的调频方式、触发次数和线性步长（`input.frequency_mode`、`input.frequency_trigger_count`、`input.frequency_linear_step`）。Tauri 继续由 `BackendAccountSession` 持有 Keychain 会话；WebView 只接收有界标量设置，不接收 token。iOS 平台适配器在 App Group UserDefaults 与共享 `PreferencesStore` 间同步键盘可直接修改的状态，应用前完整校验，Rust 偏好保存失败时恢复原生快照；未知平台字段原样保留在云端。iOS 英文建议开关属于键盘扩展直接读取的 App Group 原生偏好，由移动键盘反馈接口维护，不作为账号云同步字段，避免下载旧云值覆盖设备上的原生选择。凭据、联网授权、输入内容、词库和打字统计不进入设置同步。
 
@@ -84,7 +84,7 @@ Engine 只用到 Boost 的头文件（`find_package(Boost REQUIRED)` 之后链�
 
 `device` 目标产出 `target/ios/device/libmsime_host_api.a`，`simulator` 目标产出 arm64 的 `target/ios/simulator/libmsime_host_api.a`。脚本会自动识别依赖前缀下唯一的版本化 `BoostConfig.cmake` 与 `boost_headers-config.cmake`；有多个版本时，分别用 `MSIME_BOOST_DIR` 和 `MSIME_BOOST_HEADERS_DIR` 指向对应配置目录。
 
-一条命令完成资源暂存、键盘扩展 native 构建，并构建 iOS 的产品宿主 `MSIMEClientApp`（同时嵌入键盘扩展）。要改为单独构建 Tauri/React 这个公共组件，在同一条命令前加 `MSIME_IOS_TAURI_COMPONENT=1`：
+一条命令完成资源暂存、键盘扩展 native 构建，并构建 iOS 的产品宿主 `MSIMEApp`（同时嵌入键盘扩展）。要改为单独构建 Tauri/React 这个公共组件，在同一条命令前加 `MSIME_IOS_TAURI_COMPONENT=1`：
 
 ```sh
 MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
@@ -93,19 +93,19 @@ MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
 
 ## 真机签名构建
 
-产品宿主 `MSIMEClientApp` 的装机走 XcodeGen 工程加 CocoaPods workspace，不经过 Tauri CLI。`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，只验证编译与打包，产物装不上真机；要装机就直接调 `xcodebuild` 并允许签名：
+产品宿主 `MSIMEApp` 的装机走 XcodeGen 工程加 CocoaPods workspace，不经过 Tauri CLI。`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，只验证编译与打包，产物装不上真机；要装机就直接调 `xcodebuild` 并允许签名：
 
 ```sh
 resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
 platforms/ios/stage-resources.sh "$resource_dir"
 MSIME_IOS_DEPS=/opt/homebrew/Cellar/boost/<version> platforms/ios/build-native.sh device
 cd platforms/ios && xcodegen generate -s project.yml -p . && pod install --deployment && cd -
-xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace -scheme MSIMEClientApp \
+xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace -scheme MSIMEApp \
   -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath target/ios/derived-device -allowProvisioningUpdates \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=YES DEVELOPMENT_TEAM=LXCL4Z68GU build
 xcrun devicectl device install app --device <udid> \
-  target/ios/derived-device/Build/Products/Release-iphoneos/MSIMEClientApp.app
+  target/ios/derived-device/Build/Products/Release-iphoneos/MSIMEApp.app
 ```
 
 `-allowProvisioningUpdates` 是必须的：键盘扩展的描述文件要由 Xcode 联网刷新，新设备也在这一步注册进去。App 与 `MSIMEKeyboardExtension` 都以 team `LXCL4Z68GU` 的 Apple Development 证书签名，扩展侧带全部已校验词库，App bundle 约 241 MB。
@@ -197,16 +197,16 @@ xcrun simctl delete "$device"
 - **入口搬了家。** `voiceSettingsLink` 不在首页，活路径是 首页 → 按键 → 语音设置。同名标识符还留在 `KeyboardSettingsView` 上，而那个页面已经没有任何地方实例化——它是 `ce4a76844` 把入口搬到首页时留下的孤儿，朝它伸手会让「搬家」看起来像「缺失」。
 - **滚动没有真的发生。** SwiftUI 的 `Form` 是惰性列表，折线以下的行不在无障碍树里，所以「先 `waitForExistence` 再滚」永远等不到也永远不滚；而 `app.swipeUp()` 从屏幕中心起手，在 键盘设置 页那是键盘预览，那块把上下拖动解释成**改行间距**——表单不动，还顺手改掉了马上要读的设置。要边滚边看，并且用坐标拖拽把起点压在预览以下、标签栏以上。
 
-`MSIMEClientApp` 是 iOS 的产品宿主，装机与设备验收都以它为准，也是 `build-app.sh` 的默认产物，不需要任何开关。要单独构建 Tauri/React 这个公共组件时用 `MSIME_IOS_TAURI_COMPONENT=1` 显式选择。此前该脚本默认产出 Tauri 包、把原生宿主锁在 `MSIME_IOS_LEGACY_APP=1` 后面，并由一条测试固化，这与架构相反，已纠正。
+`MSIMEApp` 是 iOS 的产品宿主，装机与设备验收都以它为准，也是 `build-app.sh` 的默认产物，不需要任何开关。要单独构建 Tauri/React 这个公共组件时用 `MSIME_IOS_TAURI_COMPONENT=1` 显式选择。此前该脚本默认产出 Tauri 包、把原生宿主锁在 `MSIME_IOS_LEGACY_APP=1` 后面，并由一条测试固化，这与架构相反，已纠正。
 
-**上面那条 SIGTRAP 只挡 Tauri 宿主，不挡这个。** `MSIMEClientApp` 不加载 WebView，在 iOS 27 模拟器上界面能正常起来，键盘扩展也随它一起装进去，所以要在模拟器上看界面就走这条路：
+**上面那条 SIGTRAP 只挡 Tauri 宿主，不挡这个。** `MSIMEApp` 不加载 WebView，在 iOS 27 模拟器上界面能正常起来，键盘扩展也随它一起装进去，所以要在模拟器上看界面就走这条路：
 
 ```sh
 MSIME_IOS_DEPS=/absolute/ios/dependency-prefix platforms/ios/build-native.sh simulator
-xcodebuild -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClientApp \
+xcodebuild -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEApp \
   -destination 'platform=iOS Simulator,name=<设备名>' \
   -derivedDataPath target/ios/derived-sim CODE_SIGNING_ALLOWED=NO build
-xcrun simctl install booted target/ios/derived-sim/Build/Products/Debug-iphonesimulator/MSIMEClientApp.app
+xcrun simctl install booted target/ios/derived-sim/Build/Products/Debug-iphonesimulator/MSIMEApp.app
 xcrun simctl launch booted app.msime.ios
 ```
 

@@ -83,12 +83,12 @@ class ProjectConfigurationTests(unittest.TestCase):
 
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"
-        app = (IOS_ROOT / "App/Resources/MSIMEClientApp.entitlements").read_text()
+        app = (IOS_ROOT / "App/Resources/MSIMEApp.entitlements").read_text()
         keyboard = (IOS_ROOT / "KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements").read_text()
         self.assertIn(expected, app)
         self.assertIn(expected, keyboard)
         project = (IOS_ROOT / "project.yml").read_text()
-        self.assertIn("CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEClientApp.entitlements", project)
+        self.assertIn("CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEApp.entitlements", project)
         self.assertIn("CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements", project)
 
     def test_app_icon_assets_and_alternate_names_are_configured(self):
@@ -209,7 +209,7 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertNotIn('tauri ios build', shipping)
         # The default product is the native host under platforms/ios.
         self.assertIn('xcodegen generate', shipping)
-        self.assertIn('-scheme MSIMEClientApp', shipping)
+        self.assertIn('-scheme MSIMEApp', shipping)
         self.assertNotIn('MSIME_IOS_LEGACY_APP', script)
 
 
