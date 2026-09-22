@@ -608,6 +608,8 @@ export interface HostCapabilities {
   helpcode_shift_entry?: boolean;
   skin_directory_import?: boolean;
   shuangpin_preedit?: boolean;
+  /** The host tells the runtime its character width, so 全角输入 has something to act on. */
+  character_width?: boolean;
   ai_provider_credentials?: boolean;
   voice_commit_mode?: boolean;
   /** The OS release the host is running on, for the feedback page to attach. */
@@ -2056,6 +2058,10 @@ export function SettingsPage({
   // Every host's Engine honours the preference; this is about which of them draw the composition
   // themselves, and so show the user a difference between the raw keys and the expanded pinyin.
   const showShuangpinPreedit = host?.shuangpin_preedit ?? macosPlatform;
+  // Was hidden for every touch platform, on the reading that a phone keyboard has no width to
+  // switch. It has: the keyboards route it to the runtime the same way the desktop hosts do, and
+  // reach it from their own surfaces. iOS is the one host that never tells the runtime a width.
+  const showCharacterWidth = host?.character_width ?? !mobilePlatform;
   // The host's provider holds the AI credential, so the page does not ask for a token and does not
   // withhold the service controls for want of one. Reaching the service still works - through that
   // provider - which is why these controls are offered rather than hidden.
@@ -6490,13 +6496,13 @@ export function SettingsPage({
                         />
                       </label>
                     </div>
-                    {!mobilePlatform && (
+                    {showCharacterWidth && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
                             全角输入
                             <small>
-                              将英文字符和空格提交为全角形式，可用工具栏或快捷键临时切换
+                              将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换
                             </small>
                           </span>
                           <input

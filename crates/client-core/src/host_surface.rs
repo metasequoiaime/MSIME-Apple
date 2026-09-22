@@ -159,6 +159,13 @@ pub struct HostCapabilities {
     /// there, so the difference is its to show.
     #[serde(default)]
     pub shuangpin_preedit: bool,
+    /// The host tells the runtime which character width it is in, so the Engine
+    /// widens what it commits. The preference is the width a session starts at;
+    /// the host's own toolbar, menu or chord moves it from there. A host that
+    /// never makes that call cannot honour the preference at all, and offering
+    /// the switch there would be a control with nothing behind it.
+    #[serde(default)]
+    pub character_width: bool,
     /// The host shows read-only English word completions while typing directly
     /// in English, governed by the shared `english_suggestions` preference. iOS
     /// offers the same surface but keeps its switch in the native App Group
@@ -401,6 +408,10 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Harmony | HostPlatform::Linux
             ),
+            // Every host but iOS calls `msime_client_set_character_width`; the iOS keyboard
+            // extension commits through its input client and never tells the runtime a width,
+            // so the preference has nothing to act on there.
+            character_width: platform != HostPlatform::Ios,
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android and HarmonyOS run the same ported ChineseHelpcodePolicy:
             // Shift during a quanpin or shuangpin composition hands the next
@@ -981,6 +992,19 @@ mod tests {
         assert!(!HostCapabilities::for_platform(HostPlatform::Ios).english_suggestions);
         assert!(!HostCapabilities::for_platform(HostPlatform::Windows).english_suggestions);
         assert!(!HostCapabilities::for_platform(HostPlatform::Linux).candidate_english_font);
+        // 全角输入 was withheld from every touch platform, which was a statement about form
+        // factor rather than about who can honour it. What decides is whether the host tells the
+        // runtime a width: five of the six do, from a toolbar, a menu or the keyboard's own tools.
+        for platform in [
+            HostPlatform::Windows,
+            HostPlatform::Macos,
+            HostPlatform::Linux,
+            HostPlatform::Android,
+            HostPlatform::Harmony,
+        ] {
+            assert!(HostCapabilities::for_platform(platform).character_width);
+        }
+        assert!(!HostCapabilities::for_platform(HostPlatform::Ios).character_width);
         // Drawn from the input method's status-bar panel, which scales itself by the shared
         // scale and font size, hides the buttons the user turned off, and opens the emoji panel
         // and the screen keyboard in the window its candidates otherwise occupy.

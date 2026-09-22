@@ -130,6 +130,15 @@ public final class NativeClient {
     public static String setEnglishMode(long session, boolean enabled) {
         return text(setEnglishModeRaw(session, enabled));
     }
+    /**
+     * Route the fullwidth state through the runtime so Engine commits carry it too.
+     *
+     * <p>The host still widens what it commits on its own, but anything the Engine finishes -
+     * candidates, local input modes, Japanese kana - is only reachable here.
+     */
+    public static String setCharacterWidth(long session, boolean fullwidth) {
+        return text(setCharacterWidthRaw(session, fullwidth));
+    }
     public static String character(long session, int ascii, boolean shift) {
         if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
         return text(characterRaw(session, ascii, shift));
@@ -246,6 +255,7 @@ public final class NativeClient {
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
+    private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
     private static native byte[] punctuationWithContextRaw(long session, int ascii,
         int precedingCodePoint);
