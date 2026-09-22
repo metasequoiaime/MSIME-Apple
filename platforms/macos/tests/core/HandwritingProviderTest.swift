@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import SwiftUI
 
 @objc(MSIMEClientSession) final class HandwritingSessionStub: NSObject {
   static var request: NSDictionary?
@@ -37,6 +38,22 @@ import Foundation
       _ = try MacHandwritingProvider.recognizeLocal([])
       assertionFailure("empty local handwriting input was accepted")
     } catch { }
-    print("macOS handwriting provider payload and local-input bounds passed")
+
+    let snapshotDirectory = ProcessInfo.processInfo.environment["MSIME_HANDWRITING_SNAPSHOT_DIR"]
+    for (name, theme) in [("light", "light"), ("dark", "dark")] {
+      appearance.apply(["theme": theme, "handwriting_theme": "follow"])
+      let renderer = ImageRenderer(content: MacHandwritingToolView(appearance: appearance, snapshotCanvas: true,
+        previewCandidates: ["水", "永", "冰", "泳", "木", "本", "氵", "泉", "求"])
+        .frame(width: 720, height: 510))
+      renderer.scale = 2
+      guard let image = renderer.cgImage else { fatalError("handwriting UI render unavailable") }
+      assert(image.width == 1440 && image.height == 1020)
+      if let snapshotDirectory {
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        let data = bitmap.representation(using: .png, properties: [:])!
+        try data.write(to: URL(fileURLWithPath: snapshotDirectory).appendingPathComponent("handwriting-\(name).png"))
+      }
+    }
+    print("macOS handwriting provider payload, local-input bounds and light/dark UI rendering passed")
   }
 }
