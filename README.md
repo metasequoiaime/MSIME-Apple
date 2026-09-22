@@ -47,7 +47,7 @@ pnpm tauri dev
 
 桌面构建需要 [Tauri 平台依赖](https://tauri.app/start/prerequisites/)。`pnpm tauri build --debug --no-bundle` 构建开发二进制；暂不签名、安装或发布。普通浏览器中只显示无法访问本地配置的提示，不模拟保存成功。
 
-桌面设置默认通过 `app.msime.client.preview` 应用数据目录中的 `preferences.json` 保存，也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。新 macOS 预览宿主可后台读取同一目录，输入中延迟应用；这不修改旧产品的已安装输入法。多个设置窗口保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
+桌面设置的应用标识和默认应用数据目录统一为 `app.msime.client`，偏好保存在其中的 `preferences.json`。macOS 首次用新标识启动时会读取旧目录的小型定位文件：仍使用默认目录的状态会复制到 `app.msime.client` 并重建其中的绝对路径，旧目录留作降级备份；用户明确移到其他磁盘的数据保持原位，只把定位文件迁入新目录。`app.msime.client.preview` 不再用于新安装或新的默认数据。也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。macOS 原生宿主读取同一份配置并在当前组词结束后应用更新；多个设置窗口同时保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
 
 Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS 的产品宿主是 `platforms/ios` 的原生 App，它嵌入原生键盘扩展并通过 App Group 共享状态；Tauri/React 在 iOS 上只作为共享功能与界面的公共组件，不作为独立 App 启动。签名和设备验收边界见 [iOS 宿主](platforms/ios/README.md)。
 
