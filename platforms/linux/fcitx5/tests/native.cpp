@@ -412,7 +412,7 @@ int main(int argc, char **argv) {
             "clipboard history management menu attached");
     require(engine.cloud_clipboard_menu_.actions().size() == 5,
             "cloud clipboard menu attached");
-    require(engine.desktop_tools_menu_.actions().size() == 13,
+    require(engine.desktop_tools_menu_.actions().size() == 14,
             "desktop tools menu attached");
     require(engine.candidate_page_size_menu_.actions().size() == 9,
             "candidate page-size menu attached");
