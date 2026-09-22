@@ -113,6 +113,7 @@ assert source.index("return toggleInputMode();") < source.index(
 # refocusing would put the default back over the mode the user chose.
 assert "ime_mode_chosen_" in source
 assert 'preferences_.value("default_ime_mode", "chinese")' in source
+assert 'voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_)' in source
 
 # Native Fcitx5 sessions use the same non-focus-stealing X11/Wayland voice
 # surface as IBus when one is available, while the auxiliary panel remains the

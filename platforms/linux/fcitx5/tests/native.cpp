@@ -39,6 +39,7 @@ int main(int argc, char **argv) {
     options["preferences"]["learning"] = false;
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["clipboard_history"] = true;
+    options["preferences"]["voice_input"]["hotkey_hold_space_lock"] = false;
     const auto clipboardPath = std::filesystem::path(options.at("preferences_directory").get<std::string>()) /
                                "clipboard_history.json";
     std::ofstream(clipboardPath) << Json::array({"剪贴板合成测试", "第二条"}).dump();
@@ -185,6 +186,8 @@ int main(int argc, char **argv) {
       }
       require(state->session_ != 0, ("focus must unpack transition view: " + reason).c_str());
     }
+    require(!state->voice_hotkey_hold_space_lock_,
+            "initial voice context reads the hold-to-lock preference");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
     auto changedPreferences = options["preferences"];
     changedPreferences["number_row_selection"] = false;
