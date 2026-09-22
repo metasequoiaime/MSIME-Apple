@@ -35,6 +35,7 @@ assert "xdg-shell.xml" in cmake_fcitx5
 assert "wlr-layer-shell-unstable-v1.xml" in cmake_fcitx5
 
 source = (root / "fcitx5/FcitxEngine.cpp").read_text()
+ibus_source = (root / "src/core/ClientEngine.cpp").read_text()
 # 中英文切换提示：面板那个弹出物必须排在面板更新之后，先弹再刷会被 clearPanel()/render()
 # 收掉，表现为提示时有时无。
 assert "showCustomInputMethodInformation" in source
@@ -162,6 +163,10 @@ assert '++cloud_clipboard_generation_' in source
 # contract, including the runtime socket fallback during hot reload.
 assert 'providerSocket(options, "voice_provider_socket"' in source
 assert '"MSIME_VOICE_PROVIDER_SOCKET", "voice.sock"' in source
+assert 'translationSocket' in source
+assert '"MSIME_TRANSLATION_PROVIDER_SOCKET", "translation.sock"' in source
+assert '"MSIME_TRANSLATION_PROVIDER_SOCKET"' in ibus_source
+assert '"translation.sock"' in ibus_source
 
 # Moving preferences_directory while focused must invalidate the old async
 # store read and retry state before loading from the new directory.

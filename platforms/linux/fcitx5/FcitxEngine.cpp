@@ -269,6 +269,12 @@ std::string cloudClipboardSocket(const Json &options) {
                         "MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET", "cloud-clipboard.sock");
 }
 
+std::string translationSocket(const Json &options) {
+  auto value = providerSocket(options, "translation_provider_socket",
+                              "MSIME_TRANSLATION_PROVIDER_SOCKET", "translation.sock");
+  return value.empty() ? onlineSocket(options) : value;
+}
+
 Json voiceProviderOptions(const Json &preferences) {
   const auto voice = preferences.value("voice_input", Json::object());
   Json options = Json::object();
@@ -1266,12 +1272,7 @@ public:
         preferences_.value("voice_theme", "follow"),
         preferences_.value("theme", "dark"), system_dark_);
     online_socket_ = onlineSocket(options);
-    translation_socket_ = options.value("translation_provider_socket", std::string{});
-    if (translation_socket_.empty()) {
-      if (const auto *socket = std::getenv("MSIME_TRANSLATION_PROVIDER_SOCKET"))
-        translation_socket_ = socket;
-    }
-    if (translation_socket_.empty()) translation_socket_ = online_socket_;
+    translation_socket_ = translationSocket(options);
     if (private_) {
       preferences_["learning"] = false;
       preferences_["cloud_candidates"] = false;
@@ -1427,11 +1428,7 @@ public:
         online_query_.clear();
         for (auto &slot : online_slots_) slot.query.clear();
       }
-      auto nextTranslation = options.value("translation_provider_socket", std::string{});
-      if (nextTranslation.empty()) {
-        if (const auto *socket = std::getenv("MSIME_TRANSLATION_PROVIDER_SOCKET")) nextTranslation = socket;
-      }
-      if (nextTranslation.empty()) nextTranslation = online_socket_;
+      auto nextTranslation = translationSocket(options);
       if (nextTranslation != translation_socket_) {
         translation_socket_ = std::move(nextTranslation);
         translation_query_.clear();
