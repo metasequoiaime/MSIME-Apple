@@ -131,6 +131,17 @@ assert source.index("return toggleInputMode();") < source.index(
 assert "ime_mode_chosen_" in source
 assert 'preferences_.value("default_ime_mode", "chinese")' in source
 
+# Native Fcitx5 sessions use the same non-focus-stealing X11/Wayland voice
+# surface as IBus when one is available, while the auxiliary panel remains the
+# explicit fallback for headless or unsupported desktops.
+for marker in ("WaveOverlayModel", "WaveOverlaySurface", "WaveOverlayX11Surface",
+               "WaveOverlayWaylandSurface", "create_fcitx_wave_overlay_surface",
+               "MSIME_WAVE_OVERLAY_BACKEND", "updateVoiceOverlay", "hideVoiceOverlay",
+               "wave_overlay_.set_input_level", "wave_overlay_.actions_visible = true"):
+    assert marker in source, marker
+assert "WaveOverlayX11Surface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
+assert "WaveOverlayWaylandSurface.cpp" in (root / "fcitx5/CMakeLists.txt").read_text()
+
 # The floating toolbar's eight component switches decide what the "工具栏" submenu
 # contains. They decided nothing here before, while the settings page showed all of
 # them for this platform, so each switch is pinned to the entry it governs.

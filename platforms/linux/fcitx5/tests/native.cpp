@@ -733,6 +733,8 @@ int main(int argc, char **argv) {
         fcitx::Key(FcitxKey_F9, fcitx::KeyStates{fcitx::KeyState::Ctrl}));
     engine.keyEvent(entry, voiceHotkey);
     require(voiceHotkey.accepted(), "Ctrl+F9 starts voice input");
+    require(state->wave_overlay_.actions_visible && state->wave_overlay_.listening,
+            "voice start arms the native wave overlay actions");
     bool observedVoicePartial = false;
     bool observedVoicePreedit = false;
     const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -755,6 +757,7 @@ int main(int argc, char **argv) {
     require(ic.committed.find("语音测试") != std::string::npos, "voice action commits provider text");
     require(ic.inputPanel().clientPreedit().empty(),
             "final voice result clears streaming preedit");
+    require(!state->wave_overlay_visible_, "voice completion hides the native wave overlay");
     require(voiceProvider.get(), "voice socket protocol");
     Json statistics;
     const auto statisticsDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
