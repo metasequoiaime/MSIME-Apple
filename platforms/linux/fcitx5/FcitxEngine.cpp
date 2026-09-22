@@ -326,6 +326,18 @@ bool launchDesktopPanel(const char *panel) {
                       environmentPointers.data()) == 0;
 }
 
+// Fcitx5 owns the addon process, so service maintenance is routed through its
+// user-session helper rather than trying to stop this addon from inside an
+// input callback.  The fixed argv also keeps the configurable settings
+// launcher out of this service-control path.
+bool reloadFcitxService() {
+  char command[] = "fcitx5-remote";
+  char reload[] = "-r";
+  char *arguments[] = {command, reload, nullptr};
+  pid_t child = 0;
+  return posix_spawnp(&child, command, nullptr, nullptr, arguments, ::environ) == 0;
+}
+
 class FcitxState : public fcitx::InputContextProperty {
 public:
   explicit FcitxState(fcitx::InputContext &ic, FcitxEngine *engine, fcitx::EventLoop &loop)
@@ -372,6 +384,7 @@ public:
     smart_punctuation_rejected_ = 0;
     japanese_conversion_.reset();
     backspace_hold_.reset();
+    maintenance_reload_held_ = false;
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
     preferences_save_job_ = {};
@@ -1155,6 +1168,10 @@ public:
     return false;
   }
   void maintenance(int operation);
+  bool reloadService() {
+    if (!ic_.hasFocus() || restricted() || privateInput()) return false;
+    return reloadFcitxService();
+  }
   void applyContextOverrides(Json &preferences) const {
     if (scheme_override_) preferences["scheme"] = *scheme_override_;
     if (shuangpin_profile_override_) preferences["shuangpin_profile"] = *shuangpin_profile_override_;
@@ -2582,6 +2599,7 @@ public:
   bool voice_hotkey_hold_space_lock_ = true;
   bool voice_ralt_held_ = false;
   bool voice_f9_held_ = false;
+  bool maintenance_reload_held_ = false;
   bool voice_ctrl_win_held_ = false;
   bool voice_rctrl_ralt_held_ = false;
   bool voice_space_consumed_ = false;
@@ -3725,6 +3743,24 @@ private:
   int operation_;
 };
 
+class FcitxReloadServiceAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxReloadServiceAction(fcitx::FactoryFor<FcitxState> *factory)
+      : factory_(factory) {
+    setShortText("重载输入法服务");
+    setLongText("重新加载当前 Fcitx5 输入法服务");
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state) state->reloadService();
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxDesktopPanelAction : public fcitx::SimpleAction {
 public:
   FcitxDesktopPanelAction(fcitx::FactoryFor<FcitxState> *factory,
@@ -4274,6 +4310,7 @@ public:
     desktop_tools_menu_.addAction(&about_action_);
     desktop_tools_menu_.addAction(&help_action_);
     desktop_tools_menu_.addAction(&feedback_action_);
+    desktop_tools_menu_.addAction(&reload_service_action_);
     desktop_tools_menu_.addAction(&toolbar_enabled_action_);
     desktop_tools_menu_.addAction(&voice_enabled_action_);
     desktop_tools_menu_.addAction(&preference_save_retry_action_);
@@ -4514,6 +4551,7 @@ public:
   FcitxHelpcodeSchemaAction helpcode_schema_action_{&factory_};
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
+  FcitxReloadServiceAction reload_service_action_{&factory_};
   FcitxClipboardAction clipboard_action_{&factory_};
   FcitxClipboardHistoryAction clipboard_history_action_{&factory_};
   FcitxCloudClipboardAction cloud_clipboard_action_{&factory_};
@@ -4753,6 +4791,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (event.isRelease()) voice_f9_held_ = false;
     return true;
   }
+  if ((sym == FcitxKey_r || sym == FcitxKey_R) && maintenance_reload_held_) {
+    if (event.isRelease()) maintenance_reload_held_ = false;
+    return true;
+  }
   if (sym == FcitxKey_Alt_R && voice_ralt_held_) {
     if (event.isRelease()) {
       voice_ralt_held_ = false;
@@ -4965,6 +5007,12 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (ctrl && shift && alt &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
     if (sym == FcitxKey_c || sym == FcitxKey_C) return resetCache();
+    if (sym == FcitxKey_r || sym == FcitxKey_R) {
+      if (!ic_.hasFocus() || restricted() || privateInput()) return false;
+      if (!reloadService()) return false;
+      maintenance_reload_held_ = true;
+      return true;
+    }
     std::optional<size_t> slot;
     if (sym >= FcitxKey_1 && sym <= FcitxKey_8)
       slot = static_cast<size_t>(sym - FcitxKey_1);
