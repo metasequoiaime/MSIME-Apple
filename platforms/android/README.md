@@ -6,7 +6,7 @@ Java/Kotlin 宿主按 `java/app/msime/client/<feature>/` 分为 `account`、`can
 
 API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享设置和部分统计/手写流程。arm64-v8a 与 x86_64 两个 ABI 均已按固定 NDK 与 vcpkg 完成原生构建并通过 `verify-native.sh`，包括在线候选的五个 host 导出与五个 JNI 方法；x86_64 仍只有构建证据，没有设备运行证据。源码检查、JVM 测试和 APK 签名/对齐不等于真机、旋转、系统回收、权限或长期生命周期验收，发布说明必须分别列出这些缺口。
 
-本目录的正式 Android applicationId 是 `app.msime.android`，原生类所在的 namespace 是 `app.msime.client`；两者不同但都属于同一个 Android 宿主。设备 smoke 使用独立的 `app.msime.client.test` instrumentation APK。尚未上线的其他包名不属于本目录的构建、安装或验收范围。
+本目录的正式 Android applicationId 是 `app.msime.android`，原生类所在的 namespace 是 `app.msime.client`；两者不同但都属于同一个 Android 宿主。设备 smoke 使用独立的 `app.msime.client.test` instrumentation APK。`app.msime.client.preview` 是尚未上线的旧包名，不属于本次 Android 迁移、构建、安装或验收范围；不要为它新增入口、兼容分支或文档中的完成项。
 
 ### 手机、大屏与二合一布局边界
 
