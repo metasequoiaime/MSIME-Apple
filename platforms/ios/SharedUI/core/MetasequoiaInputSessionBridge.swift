@@ -24,6 +24,8 @@ private func msimeClientPunctuationWithContext(
 private func msimeClientCommand(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select")
 private func msimeClientSelect(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_select_edge")
+private func msimeClientSelectEdge(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ edge: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_pin_candidate")
 private func msimeClientPinCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_remove_candidate")
@@ -576,6 +578,20 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func selectCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
     guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
     return dispatch { msimeClientSelect(handle, generation, index) }
+  }
+
+  /// Commit only the first or the last Han character of a candidate (以词定字); the Engine ends the composition with it.
+  func selectCandidateEdge(at index: UInt, last: Bool) -> MetasequoiaInputSnapshot {
+    guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
+          let identity = rows[Int(index)]["id"] as? [String: Any],
+          let generation = identity["generation"] as? NSNumber,
+          let globalIndex = identity["index"] as? NSNumber else { return diagnostic("候选已失效") }
+    return selectCandidateEdge(generation: generation.uint64Value, globalIndex: globalIndex.uint64Value, last: last)
+  }
+
+  func selectCandidateEdge(generation: UInt64, globalIndex: UInt64, last: Bool) -> MetasequoiaInputSnapshot {
+    guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
+    return dispatch { msimeClientSelectEdge(handle, generation, index, last ? 1 : 0) }
   }
 
   func allCandidates() throws -> [String: Any] {

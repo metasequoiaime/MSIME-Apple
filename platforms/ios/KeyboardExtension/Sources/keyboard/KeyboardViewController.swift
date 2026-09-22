@@ -3241,7 +3241,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
       return session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
     }
-    return glosses + management
+    let edges = wordCharacterMenuElements(candidate: candidate) { [weak self] last in
+      guard let self, candidateRevision == revision,
+            visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
+      return session.selectCandidateEdge(at: UInt(index), last: last)
+    }
+    return edges + glosses + management
   }
 
   /// The same menu for a candidate identified the way the expanded panel holds it. Panel positions
@@ -3270,7 +3275,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let management = candidateMenuElements { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
-    return glosses + management
+    let edges = wordCharacterMenuElements(candidate: candidate) { [weak self] last in
+      guard let self else { return nil }
+      closeKeyboardPicker()
+      return session.selectCandidateEdge(generation: generation, globalIndex: globalIndex, last: last)
+    }
+    return edges + glosses + management
+  }
+
+  /// 以词定字: commit just the first or the last Han character of a longer candidate. Desktop hosts bind it to [ ] or - =; a keyboard extension receives no hardware keys, even on an iPad with one attached, so here it lives in the candidate's long-press menu and follows only the on/off half of the shared `word_character` preference.
+  private func wordCharacterMenuElements(
+    candidate: String, select: @escaping (_ last: Bool) -> MetasequoiaInputSnapshot?
+  ) -> [UIMenuElement] {
+    let stored = session.sharedPreferences?["word_character"] as? [String: Any] ?? [:]
+    let han = candidate.filter { $0.unicodeScalars.first?.properties.isUnifiedIdeograph == true }
+    guard stored["enabled"] as? Bool ?? true, han.count > 1, let first = han.first, let last = han.last else { return [] }
+    func action(_ title: String, _ character: Character, last: Bool) -> UIAction {
+      UIAction(title: "\(title)「\(chineseOutput(String(character)))」", image: UIImage(systemName: last ? "text.insert" : "text.append")) { [weak self] _ in
+        guard let self, let result = select(last) else { return }
+        playInputClick()
+        render(result)
+        if !result.isHandled { showDiagnostic("当前候选不支持以词定字") }
+      }
+    }
+    return [UIMenu(title: "以词定字", options: .displayInline, children: [
+      action("只上屏首字", first, last: false), action("只上屏末字", last, last: true),
+    ])]
   }
 
   private func candidateMenuElements(

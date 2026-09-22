@@ -24,7 +24,7 @@ iOS 云剪贴板复用共享账号会话和 Tauri `CloudClipboardPanel`，只上
 
 App 的“输入设置 → 标点”页直接读写共享 `PreferencesStore`：智能标点及其四条子规则（重复转中文、空格转英文、数字后直出、字母后直出，总开关关闭时置灰）、成对标点自动补全和固定标点。这些开关没有 App Group 兼容键，页面通过 `MetasequoiaInputSessionBridge.loadSharedPreferences` / `updateSharedPreferences` 访问，不创建输入会话、不加载 Engine；写入与键盘共用同一份带 revision 的比较交换，写入失败时页面回读实际值并提示重试。键盘出现时 `reloadSharedPreferences` 只把这组标点开关（以及下面「候选与纠错」「辅助码」「本地输入模式」三页的 `quanpin`、`mixed_input`、`quanpin_helpcode`、`shuangpin_helpcode`、`local_modes` 五个对象）交给正在运行的会话（会话在组字中会排队到输入结束），输入方案等其他字段仍等下一个会话，避免键盘可见时方案被换掉。
 
-“输入设置 → 候选与纠错”页用同样的方式读写全拼纠错（`quanpin.autocorrect_transposition` 字母错位、`quanpin.autocorrect_neighbor` 相邻键误触，默认都关）和候选混输（`mixed_input` 的英文单词及触发字母数、emoji、颜文字）。这两个字段是嵌套对象，每次写入只合并一个子字段，其余子字段保持存储值。字母触发的本地模式（`local_modes`）不在 iOS 上提供开关：键盘从预编辑区的「本地输入」菜单显式打开它们，触屏上不会像桌面的 Shift+字母那样误触发，关掉某个模式只会让菜单项失效。
+“输入设置 → 候选与纠错”页用同样的方式读写全拼纠错（`quanpin.autocorrect_transposition` 字母错位、`quanpin.autocorrect_neighbor` 相邻键误触，默认都关）和候选混输（`mixed_input` 的英文单词及触发字母数、emoji、颜文字）。这两个字段是嵌套对象，每次写入只合并一个子字段，其余子字段保持存储值。同一页的「以词定字」对应 `word_character.enabled`：桌面用 [ ] 或 - = 键只上屏候选的首字或末字，键盘扩展收不到硬件键（iPad 外接键盘也一样），所以 iOS 把它放进候选的长按菜单（候选栏和展开的候选面板都有），只对两个汉字以上的候选出现，`word_character.keys` 在 iOS 上不用。
 
 “输入设置 → 辅助码”页分别设置双拼和全拼的辅助码：开关、方案（蓝天小雨点、自然码、首右2.0、首右plus、小鹤、加加）以及是否在候选栏显示辅助码，默认值与 Windows 相同（双拼蓝天小雨点并显示，全拼自然码不显示）。全拼或双拼组字时点一下 Shift，下一个字母作为辅助码交给 Engine，用于缩小候选；五笔、九宫格、日语和本地模式不使用辅助码。辅助码表是 Engine 资产，不在词库发布里：`stage-resources.sh` 按 Engine 资产契约（`contracts/assets/assets.json`）把各方案的表从已准备的 `vendor/MSIME-Engine` 复制到 `EngineResources/helpcodes/`，资源校验只放行这一个目录，钉住的词库文件仍逐个校验。缺了这些表，Shift 字母会被当作辅助码吃掉却不缩小任何候选。候选栏显示的辅助码来自 Engine 给每个候选的注释，桌面版把它加括号接在词后，iOS 放在候选下方，与五笔编码提示一致，不带括号。
 
