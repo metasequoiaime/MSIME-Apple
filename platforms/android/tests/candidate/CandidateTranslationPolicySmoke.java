@@ -26,6 +26,12 @@ public final class CandidateTranslationPolicySmoke {
             "only offline-capable targets reserve rows");
         check(CandidateTranslationPolicy.glossLines(List.of("en", "ja"), false, true) == 2,
             "online translation reserves every target row");
+        check(CandidateTranslationPolicy.renderedGlossLines("hello") == 1,
+            "single rendered gloss stays one row");
+        check(CandidateTranslationPolicy.renderedGlossLines("hello\nこんにちは") == 2,
+            "actual two-row gloss gets two rows");
+        check(CandidateTranslationPolicy.renderedGlossLines(null) == 1,
+            "missing rendered gloss stays one row");
         System.out.println("Android candidate translation language policy passed");
     }
 
