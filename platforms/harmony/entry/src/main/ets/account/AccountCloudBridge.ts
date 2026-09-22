@@ -55,7 +55,7 @@ type Session = {
 type Action = Record<string, unknown>;
 
 type CredentialReply = { token?: string; error?: string };
-type AuthorizedReply = { response?: AccountTransportResponse; error?: string };
+type AuthorizedReply = { response?: AccountTransportResponse; token?: string; error?: string };
 
 /**
  * The envelope ceiling, which is a first line rather than the real bound.
@@ -366,7 +366,7 @@ export class AccountCloudBridge {
         case "login":
           return await this.login(action);
         case "profile":
-          return await this.authenticated("GET", "/v1/users/me");
+          return await this.profile();
         case "rename":
           return await this.rename(action);
         case "logout":
@@ -627,11 +627,58 @@ export class AccountCloudBridge {
   private async rename(action: Action): Promise<string> {
     if (
       !validString(action.display_name, 256) ||
+      [...action.display_name].length > 64 ||
       action.display_name.trim() !== action.display_name
     ) {
       return error("account_invalid");
     }
-    return this.authenticated("PATCH", "/v1/users/me", { display_name: action.display_name });
+    const generation = this.generation;
+    const userId = this.session?.user.id ?? null;
+    const renamed = await this.authorizedResponse("PATCH", "/v1/users/me", {
+      display_name: action.display_name,
+    });
+    if (renamed.response === undefined) return error(renamed.error ?? "account_unavailable");
+    if (renamed.response.status < 200 || renamed.response.status >= 300) {
+      return error(mapStatus(renamed.response.status));
+    }
+    // PATCH is a no-content operation in the shared service. Read the canonical profile back so
+    // the page and the persisted native session agree even if the service normalizes the name.
+    return await this.profile(generation, userId);
+  }
+
+  /** Read the canonical profile and bind its user to the session that authorized this reply. */
+  private async profile(
+    expectedGeneration: number = this.generation,
+    expectedUserId: string | null = this.session?.user.id ?? null,
+  ): Promise<string> {
+    if (expectedGeneration !== this.generation) {
+      return error("account_cancelled");
+    }
+    const result = await this.authorizedResponse("GET", "/v1/users/me");
+    if (result.response === undefined || result.token === undefined) {
+      return error(result.error ?? "account_unavailable");
+    }
+    if (result.response.status < 200 || result.response.status >= 300) {
+      return error(mapStatus(result.response.status));
+    }
+    const value = parseJson(result.response.body);
+    if (value === null || !validateUser(value.user) || !Array.isArray(value.identities)) {
+      return error("account_unavailable");
+    }
+    const current = this.session;
+    if (
+      current === null ||
+      expectedGeneration !== this.generation ||
+      current.access_token !== result.token ||
+      current.user.id !== expectedUserId ||
+      value.user.id !== expectedUserId
+    ) {
+      return error("account_cancelled");
+    }
+    const updated: Session = { ...current, user: value.user };
+    this.store.save(JSON.stringify(updated));
+    this.session = updated;
+    return success(value);
   }
 
   private async logout(action: Action): Promise<string> {
@@ -1369,7 +1416,7 @@ export class AccountCloudBridge {
       timeoutMs,
     );
     if (generation !== this.generation) return { error: "account_cancelled" };
-    if (response.status !== 401 && response.status !== 403) return { response };
+    if (response.status !== 401 && response.status !== 403) return { response, token };
     credential = await this.credential(token);
     if (credential.token === undefined)
       return { error: credential.error ?? "account_unauthorized" };
@@ -1381,7 +1428,7 @@ export class AccountCloudBridge {
       this.clearExpired();
       return { error: "account_unauthorized" };
     }
-    return { response };
+    return { response, token };
   }
 
   /** The file equivalent of `authorizedResponse`, including refresh and generation invalidation. */

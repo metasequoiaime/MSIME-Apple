@@ -5778,7 +5778,7 @@ group("account access tokens rotate once and cannot outlive logout", () => {
       check(token === "c".repeat(64), "authenticated work receives the rotated access token");
       return {
         status: 200,
-        body: '{"user":{"id":"synthetic-user","display_name":"Test","created_at":"2026-01-01"}}',
+        body: '{"user":{"id":"synthetic-user","display_name":"Test","created_at":"2026-01-01"},"identities":[]}',
       };
     },
   };
@@ -5842,6 +5842,128 @@ group("account access tokens rotate once and cannot outlive logout", () => {
   });
 });
 
+group("profile updates preserve the session and cannot outlive logout", () => {
+  const expiresAt = Date.now() + 600000;
+  const original = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: expiresAt,
+    user: { id: "synthetic-user", display_name: "Before", created_at: "2026-01-01" },
+  });
+  let stored: string | null = original;
+  const calls: string[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (method, path, token) => {
+        calls.push(`${method} ${path}`);
+        check(token === "a".repeat(64), "profile updates keep credentials inside the host");
+        if (method === "PATCH") return { status: 204, body: "" };
+        return {
+          status: 200,
+          body: JSON.stringify({
+            user: {
+              id: "synthetic-user",
+              display_name: "Canonical name",
+              created_at: "2026-01-01",
+            },
+            identities: [{ provider: "email", subject: "synthetic@example.test" }],
+          }),
+        };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+    },
+  );
+  void bridge
+    .handle(JSON.stringify({ operation: "rename", display_name: "Requested name" }))
+    .then(async (reply) => {
+      check(
+        JSON.parse(reply).value.user.display_name === "Canonical name",
+        "rename returns the canonical profile",
+      );
+      check(
+        JSON.stringify(calls) === JSON.stringify(["PATCH /v1/users/me", "GET /v1/users/me"]),
+        "rename reads the canonical profile after the no-content update",
+      );
+      const saved = stored === null ? null : JSON.parse(stored);
+      check(
+        saved?.user.display_name === "Canonical name",
+        "the canonical user replaces the cached user",
+      );
+      check(saved?.expires_at === expiresAt, "updating the cached user preserves session expiry");
+      check(
+        saved?.access_token === "a".repeat(64) && saved?.refresh_token === "b".repeat(64),
+        "updating the cached user preserves both tokens",
+      );
+      const status = JSON.parse(await bridge.handle('{"operation":"status"}'));
+      check(
+        status.value.user.display_name === "Canonical name",
+        "status immediately sees the updated cache",
+      );
+      const beforeInvalid = calls.length;
+      const invalid = await bridge.handle(
+        JSON.stringify({ operation: "rename", display_name: "😀".repeat(65) }),
+      );
+      check(
+        JSON.parse(invalid).error === "account_invalid",
+        "native rename enforces the 64-character limit",
+      );
+      check(calls.length === beforeInvalid, "an oversized nickname never reaches transport");
+    });
+
+  let lateStored: string | null = original;
+  let resolveProfile: ((response: AccountTransportResponse) => void) | undefined;
+  let markProfileStarted: (() => void) | undefined;
+  const profileStarted = new Promise<void>((resolve) => {
+    markProfileStarted = resolve;
+  });
+  const lateBridge = new AccountCloudBridge(
+    {
+      request: async (method) => {
+        if (method === "PATCH") return { status: 204, body: "" };
+        markProfileStarted?.();
+        return await new Promise<AccountTransportResponse>((resolve) => {
+          resolveProfile = resolve;
+        });
+      },
+    },
+    {
+      load: () => lateStored,
+      save: (value) => {
+        lateStored = value;
+      },
+      clear: () => {
+        lateStored = null;
+      },
+    },
+  );
+  const lateRename = lateBridge.handle(
+    JSON.stringify({ operation: "rename", display_name: "Late name" }),
+  );
+  void profileStarted.then(async () => {
+    await lateBridge.handle('{"operation":"clear_expired"}');
+    resolveProfile?.({
+      status: 200,
+      body: JSON.stringify({
+        user: { id: "synthetic-user", display_name: "Late name", created_at: "2026-01-01" },
+        identities: [],
+      }),
+    });
+  });
+  void lateRename.then((reply) => {
+    check(JSON.parse(reply).error === "account_cancelled", "logout rejects a late profile result");
+    check(lateStored === null, "a late profile cannot restore cleared storage");
+  });
+});
+
 group("a rejected account token refreshes and retries once", () => {
   let stored: string | null = JSON.stringify({
     access_token: "a".repeat(64),
@@ -5877,7 +5999,7 @@ group("a rejected account token refreshes and retries once", () => {
           ? { status: 401, body: "private failure" }
           : {
               status: 200,
-              body: '{"user":{"id":"synthetic-user","display_name":"Test","created_at":"2026-01-01"}}',
+              body: '{"user":{"id":"synthetic-user","display_name":"Test","created_at":"2026-01-01"},"identities":[]}',
             };
       },
     },
