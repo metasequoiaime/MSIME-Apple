@@ -1301,6 +1301,8 @@ public:
     voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", true);
     voice_hotkey_ctrl_win_ = voicePreferences.value("hotkey_ctrl_win", false);
     voice_hotkey_rctrl_ralt_ = voicePreferences.value("hotkey_rctrl_ralt", false);
+    voice_hotkey_hold_space_lock_ =
+        voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
     voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
     voice_options_ = voiceProviderOptions(preferences_);
     wave_overlay_.light_theme = msime_voice_overlay_light_theme(
