@@ -28,9 +28,16 @@ int main() {
     fs::remove(state / "runtime-options.json");
     if (msime::windows::prepare_first_run(executable, state, host) || calls != 1)
       throw std::runtime_error("Incomplete state was rebuilt");
+    std::ofstream(state / msime::windows::kDataDirectoryMarker) << "synthetic ownership";
+    if (!msime::windows::prepare_first_run(executable, state, host) || calls != 2 ||
+        !fs::is_regular_file(state / "runtime-options.json"))
+      throw std::runtime_error("Installer-owned state was not prepared");
+    fs::remove(state / "runtime-options.json");
+    if (!msime::windows::prepare_first_run(executable, state, host) || calls != 3)
+      throw std::runtime_error("Installer-owned state was not recoverable");
     const auto file = root / "state-file";
     std::ofstream(file) << "synthetic sentinel";
-    if (msime::windows::prepare_first_run(executable, file, host) || calls != 1)
+    if (msime::windows::prepare_first_run(executable, file, host) || calls != 3)
       throw std::runtime_error("Existing file was rebuilt");
     auto reject = [](const auto &action) {
       bool rejected = false;
@@ -39,12 +46,12 @@ int main() {
     };
     reject([&] { msime::windows::prepare_first_run(executable, "relative", host); });
     reject([&] { msime::windows::prepare_first_run(root / "missing", root / "unprepared", host); });
-    if (fs::exists(root / "unprepared") || calls != 1)
+    if (fs::exists(root / "unprepared") || calls != 3)
       throw std::runtime_error("Missing resources mutated state");
     const auto failed = root / "failed";
     reject([&] { msime::windows::prepare_first_run(executable, failed,
         [](const std::string &) { return "{\"ok\":false}"; }); });
-    if (msime::windows::prepare_first_run(executable, failed, host) || calls != 1)
+    if (msime::windows::prepare_first_run(executable, failed, host) || calls != 3)
       throw std::runtime_error("Failed preparation was retried destructively");
     fs::remove_all(root);
     std::cout << "Production first-run policy passed\n";

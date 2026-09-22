@@ -9,7 +9,7 @@
 namespace msime::windows {
 // Only orchestration belongs here. Resource verification and Engine dictionary
 // preparation stay in the shared Host API, supplied by the native executable.
-inline std::filesystem::path prepare_host_state(
+inline std::filesystem::path prepare_host_state_in_directory(
     const std::filesystem::path &resources,
     const std::filesystem::path &requested_state,
     const std::function<std::string(const std::string &)> &prepare) {
@@ -22,11 +22,6 @@ inline std::filesystem::path prepare_host_state(
       {"state_root", state.u8string()}}.dump();
   if (request.size() > 16384)
     throw std::runtime_error("Preparation request oversized");
-  // create_directory is exclusive: never prepare against live or existing state.
-  // Its parent must already exist. On Windows the new directory inherits the
-  // user's LocalAppData ACL; this tool must run as that user, not the installer.
-  if (!std::filesystem::create_directory(state))
-    throw std::runtime_error("A fresh state directory is required");
   const auto response = nlohmann::json::parse(prepare(request));
   if (!response.value("ok", false) || !response.at("value").is_object())
     throw std::runtime_error("Shared host preparation failed");
@@ -48,5 +43,21 @@ inline std::filesystem::path prepare_host_state(
   std::filesystem::create_hard_link(temporary, destination);
   std::filesystem::remove(temporary);
   return destination;
+}
+
+inline std::filesystem::path prepare_host_state(
+    const std::filesystem::path &resources,
+    const std::filesystem::path &requested_state,
+    const std::function<std::string(const std::string &)> &prepare) {
+  // create_directory is exclusive: never prepare against live or existing state.
+  // Its parent must already exist. On Windows the new directory inherits the
+  // user's LocalAppData ACL; this tool must run as that user, not the installer.
+  const auto state = requested_state.lexically_normal();
+  if (!resources.is_absolute() || !requested_state.is_absolute() ||
+      !std::filesystem::is_directory(resources))
+    throw std::runtime_error("Absolute resource and new state paths required");
+  if (!std::filesystem::create_directory(state))
+    throw std::runtime_error("A fresh state directory is required");
+  return prepare_host_state_in_directory(resources, state, prepare);
 }
 } // namespace msime::windows
