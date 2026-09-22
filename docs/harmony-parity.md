@@ -210,6 +210,8 @@ EnglishCapitalizationPolicy.shouldShift
 
 固定 Apple 测试又补出三条边界：`e9209b62d` 要求快照恢复响应为 `application/json`；`67897470a` 让 Harmony 在重命名后重新读取规范 profile、保留 token 与过期时间更新本地缓存，并拒绝登出后的迟到响应；`d67dae230` 允许协商设置文档在 1 MiB 总上限内承载照片大小的自定义皮肤字符串。Harmony 逻辑套件现为 1590 条断言，client-core 全套为 292 个测试。以上仍只有源码、单元测试与本地构建证据。
 
+`WelcomeUITests.testMainTabsKeepIndependentNavigation` 又指出 #3503 只复刻了四个底部 tab 的外观和入口，没有复刻每个 tab 独立的导航栈：从「键盘」进入「输入」，切去社区后再回来会被重置到首页。共享 UI 仍保持扁平路由以适配 WebView，但现在按 tab 记住各自最后一个叶页面，浏览器返回恢复页面时也同步更新该记录；回归测试按来源同样走「全部设置 → 输入 → 社区 → 键盘」，确认回到的仍是「输入」。
+
 ## 2026-09-21 补：模拟器验收
 
 上面那份「证据边界」写完之后，在 API 21 的 `Mate 70 Pro` arm64 模拟器上实际跑了一遍，结论需要改写——不是因为结论错了，而是因为它们本来就只是没去跑。
