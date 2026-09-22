@@ -1,22 +1,22 @@
-# macOS InputMethodKit 预览宿主
+# macOS InputMethodKit 宿主
 
 ## 目录结构
 
 macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/`、`input/`、`cloud/`、`dictionary/`、`settings/` 和 `core/` 分层；`tests/` 保存测试，`resources/` 保存输入法资源，`scripts/` 保存构建脚本，平台根目录只保留 CMake、资源模板和文档。
 
-本目录提供可复现的 IMK 预览 bundle、Rust/C++ 构建和离屏/替身测试。它不自动安装或切换系统输入源；真实编辑器焦点、权限、麦克风/识别服务、设置热更新和正式签名仍需在 macOS 主机上单独验收。
+本目录提供可复现的 IMK bundle、Rust/C++ 构建和离屏/替身测试。它不自动安装或切换系统输入源；真实编辑器焦点、权限、麦克风/识别服务、设置热更新和正式签名仍需在 macOS 主机上单独验收。
 
 本地构建出来的 bundle 装进 `~/Library/Input Methods` 后**注册不上输入源**：`--register-input-source` 会返回 1，`TISCreateInputSourceList` 按 bundle id 过滤返回空，输入法不会出现在输入菜单里。实测于 macOS 27：同一台机器上 Developer ID 签名的正式版两个输入源都正常注册启用，而 ad-hoc 签名的本地构建——无论是哪一次构建——都注册失败。第一次调用可能返回 0，那是上一份 bundle 的注册记录还在 LaunchServices 缓存里；`lsregister -f` 之后就会如实返回 1。所以菜单图标的实际观感、TCC 权限弹窗文案、以及真实编辑器里的输入行为都无法在**首次引入该 identifier 的那次登录会话里**验收；签名产品包也不例外，换成 Developer ID 签名同样进不去列表（见下一段的实测）。重新登录一次即可，之后同一 identifier 的更新都不再需要。bundle 本身是否装配正确由 `bundle-contents` 这项 CTest 检查（图标是否真的暂存进去、用途字符串是否每种语言都有、可执行文件是否链接了本地识别器）。
 
 `scripts/install.sh` 会停掉正在运行的实例、在暂存目录用本机 Developer ID 连同 `resources/VoiceInput.entitlements` 重签名（`--deep`，因为 Sparkle 自带其发布方的签名，hardened runtime 下 Team ID 不一致会导致进程加载失败）、原子替换并保留旧 bundle，任一步失败自动回滚，最后用 `scripts/check_input_source.swift` 查注册表而不是只看 `--register-input-source` 的退出码。即便如此，注册在本机仍不成功。以下是已经排除的原因，记下来免得重复排查：ad-hoc 签名（换成 Developer ID + hardened runtime + entitlements 后仍失败）；Sparkle 被展平导致的签名失败（改用 ditto 后签名通过）；Sparkle 与应用的 Team ID 不一致（`--deep` 重签后 dyld 报错消失）；LaunchServices 的陈旧记录（`lsregister -u` 后再注册仍失败；但这条本身是真问题：每个 worktree 的 `target/` 构建产物都会以同一个发布 identifier 被 LaunchServices 登记，实测机上堆了五条，其中两条指向已不存在的临时目录，`install.sh` 现在会在注册前只保留已安装的那一条）；公证（同机能正常注册的正式版本身也是 `Unnotarized Developer ID`、没有 stapled ticket）；bundle 与可执行文件名里的中文和全角括号（都换成 ASCII 后仍失败）；Info.plist 的 TIS 相关键（与正式版逐键相同，差异只有 Sparkle feed 和词库校验和）。表现始终是 `TISRegisterInputSource` 返回 noErr 而 `TISCreateInputSourceList` 查不到，枚举全部 336 个输入源也只有正式版那两条。现已不是推测而是实测：把同机注册正常的那份输入法整体复制一份，只改 bundle identifier（连同 `TISInputSourceID`、`ComponentInputModeDict` 的模式 id 与 `InputMethodConnectionName`），用同一张 Developer ID 证书重签后注册，失败方式完全一样——`TISRegisterInputSource` 返回 noErr、`TISCreateInputSourceList` 查不到。重启 `imklaunchagent`、`TextInputMenuAgent`、`TextInputSwitcher`、`keyboardservicesd`（`launchctl kickstart` 在 SIP 下返回 150，只能 `kill` 让 launchd 拉起）、`lsregister -f` 重新登记、`lsregister -r -domain user` 重扫用户域，都改变不了——每次重新注册后枚举全部输入源，总数与 msime 条目数都不变。而当前会话里唯一能被列出的那份，其安装时间（`~/Library/Input Methods/.MetasequoiaIME.install.lock`，9 月 9 日）早于本次登录会话的开始时间（`loginwindow` 进程启动于 9 月 14 日 13:07）。结论：**一个在本次登录会话开始时不在输入源列表里的 bundle identifier，无论 bundle 内容如何都进不去**；已在列表中的 identifier 原地更新则正常。因此这与 bundle 是否签名、名字是否 ASCII、plist 是否正确都无关——本项目的 bundle 在这一点上与那份能用的输入法表现一致。因此 `install.sh` 把安装与注册分开——bundle 就位并签名成功即视为安装成功，不再因为本次会话看不到它而回滚，只报告需要重新登录。
 
-**2026-09-20 更新：这条限制对本项目已经不生效了。** #3270 之后预览版的 `CFBundleIdentifier` 继承 `app.msime.inputmethod.MetasequoiaIME`，而它在本次登录会话开始时就在输入源列表里，于是命中的是上面那条判据的另一半——已在列表中的 identifier 原地更新是正常的。实测从当前 develop 构建并 `install.sh` 安装之后，`check_input_source.swift` 稳定报 `app.msime.inputmethod.MetasequoiaIME` 与 `.Hans` 两条 enabled，连续 15 次查询全部命中，不必注销登录。上面记的那些排除项仍然有效，只是它们描述的是「给预览版一个全新标识」那条路——那条路依旧走不通，这也正是继承标识的理由。
+**2026-09-20 更新：这条限制对本项目已经不生效了。** 当前 bundle 使用系统已登记的 `app.msime.inputmethod.MetasequoiaIME`，已在列表中的 identifier 原地更新正常。实测从当前 develop 构建并 `install.sh` 安装之后，`check_input_source.swift` 稳定报 `app.msime.inputmethod.MetasequoiaIME` 与 `.Hans` 两条 enabled，连续 15 次查询全部命中，不必注销登录。
 
 ### 当前标识与数据目录
 
 这里有两个不同产品进程，不能用同一个概念混写：输入法本体是 InputMethodKit bundle，继续使用系统已经登记的 `app.msime.inputmethod.MetasequoiaIME`；承载共享 React 设置页的设置应用使用 `app.msime.client`。设置应用的默认状态根和输入法读取的原生定位器都在 `~/Library/Application Support/app.msime.client/`，外部皮肤、偏好、统计与 `runtime-options.json` 以此为当前默认来源。
 
-旧版本用过的 `app.msime.client.preview` 和 `app.msime.inputmethod.MetasequoiaIME.settings` 不是当前产品标识。升级时设置应用只把它们当迁移来源：默认状态复制进 `app.msime.client` 后重建所有路径字段，原目录保留为降级备份；用户通过“数据目录”明确选过的外部路径不会被擅自搬回，只迁移指向它的定位文件。新安装不会创建或写入这两个旧目录。
+设置应用和原生宿主均以 `app.msime.client` 作为正式客户端标识与默认状态目录；新安装按该标识初始化，不创建额外的预览目录。
 
 同一天的后续实测推翻了一条一度写在这里的话。当时写的是「在别的 worktree 裸跑 `cmake --build` 会把注册顶掉，只有重新登录能恢复」——**不对**。那次读到的 0/12 是真的，但过一段时间之后，不做任何操作也没有重新登录，连查 15 次全部命中，直接枚举 TIS 也能看到两条都 enabled。真正的现象是：`TISCreateInputSourceList` 在 bundle 被替换或重新注册之后会有分钟级的一段时间按 bundle id 查不到东西，然后自己回来。
 
