@@ -2379,3 +2379,7 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 固定来源 `345cb87a3822f6ad7013bb29506fe3d856c1931a` 的 `experiments/tsf-edit-control` 已迁入 `platforms/windows/experiments/tsf-edit-control`，并作为 Windows-only CMake 目标接入。它提供 Direct2D/DirectWrite 绘制的原生 Win32 编辑宿主与最小 demo，可重复检查 TSF 文档上下文、preedit/display attribute、候选位置、软换行、选区、插入点和鼠标命中等边界。
 
 这是一项验证工具，不是产品组件：它不注册 TSF、不启动生产 Server，也不替代第三方编辑器验收。实验源码中来源工程特有但目标树不存在的 `common.ver`、`InputScope.h` 和 `tsattrs.h` 依赖已去除；宿主仍使用系统 TSF 头文件。交叉构建最多证明能够编译和链接，真实 TSF、TIP 激活与编辑器输入仍待在 Windows 上运行验证。
+
+### Win32 剪贴板监听注册回归（2026-09-22）
+
+`ClipboardHistory` 原有用例只覆盖文本边界和持久化策略，没有触及生产 `ClipboardMonitor` 的 `AddClipboardFormatListener`、消息窗口创建与停止清理。新增 Windows-only `windows-clipboard-monitor` 合成用例，实际注册消息监听器、验证重复 `start` 幂等，并验证重复 `stop` 不崩溃；测试不改写系统剪贴板，也不记录用户内容。它补的是 Win32 注册生命周期证据，不宣称已经完成真实复制、粘贴或第三方编辑器上屏验收。
