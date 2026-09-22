@@ -1498,3 +1498,9 @@ iOS 真机装机走的是产品宿主 `MSIMEClientApp`，不是 Tauri CLI：`bui
 ### Android 包名范围：排除尚未上线的 preview 包
 
 Android 迁移只覆盖已经上线范围内的正式宿主 `app.msime.android`、其原生 namespace `app.msime.client`，以及设备 smoke 使用的 `app.msime.client.test` instrumentation 包。`app.msime.client.preview` 尚未上线，因此明确排除在源码迁移、构建产物、安装验收、入口路由和完成度统计之外；它不是 Android 正式包名的别名，也不需要补做兼容或重命名工作。后续若该包正式立项，应另开范围明确的迁移切片，不把本记录当作其实现承诺。
+
+### Android 输入模式默认值与记忆范围
+
+共享设置页已经提供 `default_ime_mode` 与 `ime_mode_scope`，但 Android 键盘此前只保留当前 `dedicatedEnglish` 内存值，切换编辑器或重启输入法后不会按 Apple 语义恢复。本次在原生 IME 增加有界的 `InputModeStore`：无历史时按默认模式初始化；`app` 范围按编辑器包名记忆手动中英切换，`global` 范围使用单一记忆值。URI、邮箱、密码等 `inputType` 触发的临时英文覆盖仍由 `KeyboardInputContext` 管理，不污染用户记忆；缺失或非法包名只走默认值。
+
+本地验证：`platforms/android/check-host.sh` 新增并通过 `InputModeStoreSmoke`，覆盖默认值、应用隔离、全局共享和非法包名回退；Android `compileDebugJavaWithJavac` 通过。未执行真机多应用切换验收，CI 保持禁用。
