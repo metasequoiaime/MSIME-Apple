@@ -50,6 +50,7 @@ import android.widget.TextView;
 import android.widget.HorizontalScrollView;
 import android.widget.Toast;
 import app.msime.client.candidate.EnglishSuggestionModel;
+import app.msime.client.CandidateTranslationPolicy;
 import app.msime.client.keyboard.EnglishSuggestionPolicy;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -5384,7 +5385,7 @@ public final class MSIMEInputService extends InputMethodService {
         // empty case single-line prevents long candidate words from wrapping inside the chip.
         // Likewise, a second requested language may be unavailable for this particular result;
         // only an actual newline in the rendered annotation warrants a second row.
-        int lines = annotation != null && annotation.indexOf('\n') >= 0 ? 2 : 1;
+        int lines = CandidateTranslationPolicy.renderedGlossLines(annotation);
         // A two-language gloss deliberately occupies two rows. Do not turn the whole label into
         // a single-line TextView in that case, or the second gloss is silently clipped. With no
         // gloss row the chip can scroll horizontally as one intact candidate word.
@@ -5480,7 +5481,7 @@ public final class MSIMEInputService extends InputMethodService {
         // numeric prefix. The slot remains available through contentDescription and the shared
         // session/generation/index identity for accessibility and hardware number-row selection.
         button.setText(candidateLabel("", text, annotation, highlighted));
-        int labelLines = annotation.indexOf('\n') >= 0 ? 2 : 1;
+        int labelLines = CandidateTranslationPolicy.renderedGlossLines(annotation);
         button.setMinLines(labelLines);
         button.setMaxLines(labelLines);
         configureCandidateTextLayout(button, annotation);
@@ -5507,7 +5508,7 @@ public final class MSIMEInputService extends InputMethodService {
         String annotation = candidateAnnotation(candidate, typed);
         button.setAllCaps(false);
         button.setText(candidateLabel("", text, annotation, highlighted));
-        int labelLines = annotation.indexOf('\n') >= 0 ? 2 : 1;
+        int labelLines = CandidateTranslationPolicy.renderedGlossLines(annotation);
         button.setMinLines(labelLines);
         button.setMaxLines(labelLines);
         configureCandidateTextLayout(button, annotation);
