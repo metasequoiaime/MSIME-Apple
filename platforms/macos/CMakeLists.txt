@@ -717,6 +717,8 @@ if(TARGET ggml AND NOT TARGET shared-voice-backend-registry)
   add_executable(shared-voice-backend-registry ../../shared/voice/tests/backend_registry.cpp)
   target_link_libraries(shared-voice-backend-registry PRIVATE ggml)
   add_test(NAME shared-voice-backend-registry COMMAND shared-voice-backend-registry)
+  # Registering the Metal backend compiles ggml's embedded shader library: under a second with a warm Metal cache, 12-15 s on a fresh arm64 runner and past the 20 s CI default on the Intel one.
+  set_tests_properties(shared-voice-backend-registry PROPERTIES TIMEOUT 120)
 endif()
 target_sources(shortcut-test PRIVATE src/cloud/TranslationCache.mm src/input/InputModeHUDPanel.mm)
 add_executable(shuangpin-keymap-input-test tests/input/ShuangpinKeymapInputTest.mm src/settings/ShuangpinKeymapPanel.mm)

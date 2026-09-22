@@ -182,9 +182,12 @@ jobs:
       - name: Build
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: cmake --build build --parallel "$(sysctl -n hw.logicalcpu)"
+      # On the Intel runner every view SwiftUI draws through RenderBox aborted inside Metal: loading RenderBox's precompiled binary archive asks the paravirtual GPU for an architecture it does not report ("Target device architecture is nil"), and nothing of ours is on that stack. RenderBox's own switches skip the archive and the GPU, so these tests still lay out and draw there, on the CPU.
       - name: Test
         if: ${{ needs.changes.outputs.build == 'true' }}
-        run: ctest --no-tests=error --test-dir build --output-on-failure --timeout 20
+        run: |
+          if [[ "$(uname -m)" == x86_64 ]]; then export RB_USE_BINARY_ARCHIVE=0 RB_DISABLE_GPU=1; fi
+          ctest --no-tests=error --test-dir build --output-on-failure --timeout 20
       # A test that aborts inside a system framework prints only the assertion; the stack is in the crash report, which the runner discards with the machine.
       - name: Upload crash reports
         if: ${{ failure() && needs.changes.outputs.build == 'true' }}
