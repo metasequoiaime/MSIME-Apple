@@ -34,7 +34,7 @@ import SwiftUI
       }
     }
     let appearance = MacEmojiAppearance()
-    assert(appearance.colorScheme == .dark)
+    assert(appearance.colorScheme == nil)
     appearance.apply(["theme": "light"])
     assert(appearance.colorScheme == .light)
     appearance.apply(["theme": "light", "emoji_theme": "dark"])
@@ -49,7 +49,7 @@ import SwiftUI
     assert(appearance.colorScheme == .dark)
     for invalid: NSDictionary in [[:], ["theme": "invalid"], ["theme": 123], ["theme": "dark"]] {
       appearance.apply(invalid)
-      assert(appearance.colorScheme == .dark)
+      assert(appearance.colorScheme == nil || appearance.colorScheme == .dark)
     }
     print("Emoji appearance checks passed")
   }

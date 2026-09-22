@@ -326,8 +326,8 @@ NSArray<NSString *> *PreviewSamples()
         _darkSkin = [_preferences resolvedSkinForDark:YES];
     } else {
         const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
-        _lightSkin = msime::mac::ResolveSkin(_previewSkinId.UTF8String ?: "fluent", false, root);
-        _darkSkin = msime::mac::ResolveSkin(_previewSkinId.UTF8String ?: "fluent", true, root);
+        _lightSkin = msime::mac::ResolveSkin(_previewSkinId.UTF8String ?: "willow_green", false, root);
+        _darkSkin = msime::mac::ResolveSkin(_previewSkinId.UTF8String ?: "willow_green", true, root);
     }
     self.themeButton.title = [self forcedThemeButtonTitle];
     _heightConstraint.constant = [self previewContentHeight];

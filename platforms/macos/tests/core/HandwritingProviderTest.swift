@@ -13,7 +13,7 @@ import SwiftUI
 @main enum HandwritingProviderTest {
   @MainActor static func main() throws {
     let appearance = MacHandwritingAppearance()
-    assert(appearance.colorScheme == .dark)
+    assert(appearance.colorScheme == nil)
     appearance.apply(["theme": "light", "handwriting_theme": "dark"])
     assert(appearance.colorScheme == .dark)
     appearance.apply(["theme": "dark", "handwriting_theme": "light"])

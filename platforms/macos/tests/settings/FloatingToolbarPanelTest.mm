@@ -78,7 +78,7 @@ int main() {
         assert((panel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces) != 0);
         assert((panel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary) == 0);
         [panel applyThemePreferences:@{}];
-        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
+        assert(panel.appearance == nil);
         [panel applyThemePreferences:@{@"theme": @"light", @"toolbar_theme": @"follow"}];
         assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
         [panel applyThemePreferences:@{@"theme": @"light", @"toolbar_theme": @"dark"}];

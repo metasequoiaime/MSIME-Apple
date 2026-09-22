@@ -40,7 +40,8 @@ int main()
                 !msime::mac::IsBuiltInSkinId("niya-demo"),
             "Built-in skin ids did not match the Windows catalog.");
     Require(msime::mac::IsSafeSkinId("niya-demo") && !msime::mac::IsSafeSkinId("Fluent") &&
-                !msime::mac::IsSafeSkinId("../x") && msime::mac::NormalizeSkinId("nope!") == "fluent",
+                !msime::mac::IsSafeSkinId("../x") && msime::mac::NormalizeSkinId("") == "willow_green" &&
+                    msime::mac::NormalizeSkinId("nope!") == "fluent",
             "Skin id validation did not match the Windows catalog.");
     Require(msime::mac::BuiltInSkinEntries().size() == 4, "The built-in skin list was incomplete.");
 

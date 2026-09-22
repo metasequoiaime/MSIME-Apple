@@ -4373,7 +4373,7 @@ int main(int argc, char **argv) {
         // Unset is the shared default, and a number past the end is pulled to the end rather than to
         // the top of a three-value set.
         assert(appearance.pageSize == 6);
-        assert([appearance.skinID isEqual:@"fluent"]);
+        assert([appearance.skinID isEqual:@"willow_green"]);
         appearance.skinID = @"../invalid";
         assert([appearance.skinID isEqual:@"fluent"]);
         appearance.pageSize = 10;
