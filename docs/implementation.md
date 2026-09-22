@@ -1540,3 +1540,9 @@ Android 候选按钮此前依赖 TextView 默认的省略与折行行为；长�
 Android 普通候选按钮此前把页内槽位序号直接拼到候选文字前面。Apple 的触屏候选 chip 只显示候选词本身，序号属于无障碍和硬件选择语义；视觉前缀会让用户误以为数字是候选内容。现在 Android 普通候选条移除视觉序号，content description 仍保留“候选 N”，session/generation/index 也保持不变，因此无障碍和外接数字行选择不受影响。
 
 本地验证：Android host Java/API/JVM smoke 与 `scripts/verify-local.sh --quick` 通过；未执行实体设备无障碍树和触屏视觉验收，CI 保持禁用。
+
+### Android 候选多语言释义保留多行
+
+候选 chip 去掉视觉序号后，原先用于“候选词保持完整单行”的布局约束会无条件把整个按钮设成单行；开启双语言释义时，这会把第二行释义裁掉。现在 Android 按当前释义策略计算行数：无释义或只有一行释义时，候选词继续保持单行并由外层横向滚动；存在两行释义时，按钮允许多行并保留两种语言。该调整只影响附加释义的布局，不改变 Engine 候选文本、排序、session/generation/index 或硬件数字行选择。
+
+本地验证：`CandidateTranslationPolicySmoke`、Android host Java/API/JVM smoke 与 `scripts/verify-local.sh --quick` 通过；未执行实体设备双语言释义视觉验收，CI 保持禁用。
