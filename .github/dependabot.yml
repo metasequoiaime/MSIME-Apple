@@ -1,0 +1,40 @@
+# Every third-party action in .github/workflows is pinned to a commit SHA, which nobody updates by hand. Dependabot keeps those pins current; Cargo and pnpm are grouped into one pull request per ecosystem so a monthly sweep stays reviewable, and major versions are left out of the group so each one arrives on its own.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    labels: [dependencies, github_actions]
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: cargo
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: build
+    labels: [dependencies]
+    groups:
+      cargo-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: build
+    labels: [dependencies]
+    groups:
+      pnpm-minor:
+        update-types: [minor, patch]

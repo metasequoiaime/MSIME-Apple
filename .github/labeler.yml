@@ -1,0 +1,82 @@
+# Path labels for pull requests, applied by pr-triage.yml. The platform labels mirror the scope check in ci-platforms.yml: each native host lives under platforms/<os>, and anything under the shared layers is labelled "area/shared" rather than every platform at once.
+
+platform/android:
+  - changed-files:
+      - any-glob-to-any-file:
+          - platforms/android/**
+
+platform/ios:
+  - changed-files:
+      - any-glob-to-any-file:
+          - platforms/ios/**
+          - crates/ios-native-ffi/**
+
+platform/macos:
+  - changed-files:
+      - any-glob-to-any-file:
+          - platforms/macos/**
+          - crates/host-macos/**
+
+platform/linux:
+  - changed-files:
+      - any-glob-to-any-file:
+          - platforms/linux/**
+
+platform/windows:
+  - changed-files:
+      - any-glob-to-any-file:
+          - platforms/windows/**
+          - crates/host-windows/**
+
+platform/harmony:
+  - changed-files:
+      - any-glob-to-any-file:
+          - platforms/harmony/**
+          - apps/harmony/**
+
+area/shared:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/client-core/**
+          - crates/engine-bridge/**
+          - crates/host-api/**
+          - crates/input-runtime/**
+          - crates/tauri-mobile-platform/**
+          - shared/**
+          - platforms/common/**
+
+area/ui:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/ui/**
+          - apps/desktop/**
+
+area/engine:
+  - changed-files:
+      - any-glob-to-any-file:
+          - engine-lock.json
+          - scripts/fetch_engine.py
+          - scripts/apply_engine_*.py
+          - scripts/engine-overlays/**
+
+area/ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - .githooks/**
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - docs/**
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - Cargo.lock
+          - pnpm-lock.yaml
+          - '**/Cargo.toml'
+          - '**/package.json'
+          - '**/oh-package.json5'
+          - '**/*.gradle.kts'
