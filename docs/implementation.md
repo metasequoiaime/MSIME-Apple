@@ -1485,7 +1485,7 @@ iOS 真机装机走的是产品宿主 `MSIMEClientApp`，不是 Tauri CLI：`bui
 
 新增随装的 `msime-client-setup` 把三步收成一条命令：按词库锁逐个核对名称、大小和 SHA-256，调用已有的 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client` 建立状态，再按当前运行的是 fcitx5 还是 ibus 打印下一步。默认不联网，取回词库必须显式 `--download`；校验不过即中止，不留半份词库；状态目录已存在时报错而不是覆盖。词库锁里 `dict_pinyin.dat` 没有下载地址（它来自引擎源码树），该项按同样改为无条件随装的 `engine-lock.json` 找到对应固定依赖归档，校验归档摘要后只取出这一个文件，再按词库锁校验它本身。判定规则由 `linux-setup-resolution` 覆盖，不需要词库也不联网，因此容器门禁真的会跑到它。
 
-同批把 IBus 组件与引擎名的 `-preview` 后缀去掉（`msime-client-preview` → `msime-client`，应用 id `app.msime.client.preview` → `app.msime.client`，两份组件文件随之改名），宿主内部的 `msime_preview_*` 改为 `msime_ibus_*`。安装只写入新的组件文件，不会带走改名前留下的那一份，升级需先卸载或手工删除，这一条写进了 README 的卸载章节。共享桌面数据目录仍叫 `app.msime.client.preview`——它是 macOS、Windows 与设置页共用的应用数据目录名，改它会搬走已有用户的 `preferences.json`、皮肤和打字统计，属于需要迁移方案的另一件事，本批不动。
+同批把 IBus 组件与引擎名的 `-preview` 后缀去掉（`msime-client-preview` → `msime-client`，应用 id `app.msime.client.preview` → `app.msime.client`，两份组件文件随之改名），宿主内部的 `msime_preview_*` 改为 `msime_ibus_*`。安装只写入新的组件文件，不会带走改名前留下的那一份，升级需先卸载或手工删除，这一条写进了 README 的卸载章节。当时共享桌面数据目录暂时保留旧名，避免在没有迁移机制时让 `preferences.json`、皮肤和打字统计失联；现在设置应用和原生宿主的当前目录也已统一为 `app.msime.client`，旧名只在升级兼容代码和历史记录中出现。
 
 证据：`verify-local.sh --quick` 整体通过；`platforms/linux` 全部目标构建、ctest 23 项通过；安装清单预演确认新入口与两份锁就位；`msime-client-setup` 三条路径在本机实测（已有词库一次准备成功、缺词库未给 `--download` 退出码 1 并说明办法、状态目录已存在退出码 1 且不改动既有目录）。`--download` 的完整取回未在本机执行，只验证了校验与报错路径。真实 GTK/Qt 编辑器里的逐键输入仍未验收，不据此宣称 Linux 产品迁移完成。CI 保持禁用。
 

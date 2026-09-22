@@ -201,7 +201,7 @@
 
 这一节此前写的是「需要重新登录一次」，现在不需要了，原因是 #3270。
 
-之前的判据没有错：**一个在本次登录会话开始时不在输入源列表里的 bundle identifier，无论 bundle 内容如何都进不去**。错的是由此得出的结论——当时目标用的是自己的新标识 `app.msime.client.preview.inputmethod`，它在本次会话开始时确实不在列表里，所以永远注册不上。#3270 让预览版继承 `app.msime.inputmethod.MetasequoiaIME`，而这个标识在本次会话开始时就在列表里，于是走的是同一条判据的另一半：「已在列表中的 identifier 原地更新则正常」。
+之前的判据没有错：**一个在本次登录会话开始时不在输入源列表里的 bundle identifier，无论 bundle 内容如何都进不去**。错的是由此得出的结论——当时实验目标临时用过 `app.msime.client.preview.inputmethod`（这不是当前标识），它在本次会话开始时确实不在列表里，所以永远注册不上。#3270 让预览版继承 `app.msime.inputmethod.MetasequoiaIME`，而这个标识在本次会话开始时就在列表里，于是走的是同一条判据的另一半：「已在列表中的 identifier 原地更新则正常」。
 
 实测：从 `e215ba7be` 构建、`platforms/macos/scripts/install.sh` 安装之后，`check_input_source.swift` 报
 

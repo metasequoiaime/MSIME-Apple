@@ -4143,7 +4143,7 @@ static void TestGlossScheduling() {
 @end
 @implementation SettingsRouteWorkspace
 - (NSURL *)URLForApplicationWithBundleIdentifier:(NSString *)identifier {
-    assert([identifier isEqual:@"app.msime.inputmethod.MetasequoiaIME.settings"]);
+    assert([identifier isEqual:@"app.msime.client"]);
     return self.installed ? [NSURL fileURLWithPath:@"/synthetic/Settings.app"] : nil;
 }
 - (void)openApplicationAtURL:(NSURL *)url configuration:(NSWorkspaceOpenConfiguration *)configuration

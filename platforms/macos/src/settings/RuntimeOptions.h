@@ -4,7 +4,7 @@ static inline NSString *MSIMERuntimeOptionsPath(void) {
     NSString *path = [NSBundle.mainBundle pathForResource:@"runtime-options" ofType:@"json"];
     if (!path) {
         NSURL *support = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
-        path = [[support URLByAppendingPathComponent:@"app.msime.client.preview/runtime-options.json"] path];
+        path = [[support URLByAppendingPathComponent:@"app.msime.client/runtime-options.json"] path];
     }
     return path;
 }

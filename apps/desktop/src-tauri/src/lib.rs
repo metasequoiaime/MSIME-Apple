@@ -3464,19 +3464,25 @@ pub fn run() {
                     .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS"));
                 let state_override = std::env::var_os("MSIME_CLIENT_STATE_DIR");
                 let application_directory = app.path().app_data_dir()?;
-                if options_override.is_none() && state_override.is_none() {
-                    if let Ok(native_root) = macos_launch::native_locator_root() {
-                        let _ = macos_launch::recover_default_options(
-                            &application_directory,
-                            &native_root.join("runtime-options.json"),
-                        );
-                    }
-                }
                 let resources_directory = if options_override.is_none() {
                     Some(app.path().resource_dir()?.join("EngineResources"))
                 } else {
                     None
                 };
+                if options_override.is_none() && state_override.is_none() {
+                    if let (Ok(legacy_roots), Some(resources)) = (
+                        macos_launch::legacy_native_locator_roots(),
+                        resources_directory.as_deref(),
+                    ) {
+                        if macos_launch::migrate_legacy_application_data(
+                            &application_directory,
+                            resources,
+                            &legacy_roots,
+                        )? {
+                            // The migrated locator is already present in the canonical directory.
+                        }
+                    }
+                }
                 let launch = macos_launch::resolve_with_resources(
                     &application_directory,
                     resources_directory.as_deref(),
