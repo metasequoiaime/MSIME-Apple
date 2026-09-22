@@ -11,7 +11,7 @@ import pathlib
 import subprocess
 import sys
 
-PINNED_SHA = "467b9804dac9bcea7dfac654d293dc9f99f57b09"
+PINNED_SHA = "345cb87a3822f6ad7013bb29506fe3d856c1931a"
 PINNED_REF = "fixed source"
 
 

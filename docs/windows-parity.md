@@ -26,9 +26,9 @@
 
 目标是迁移 MSIME-Windows 的完整功能，而不是只移植语音、设置页或能在当前机器运行的子集。公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态仍归 C++ Engine；Windows 保留 TSF DLL / Server 进程及协议边界。已合并的其他平台成果不回退。每部分本地验证后提交合并，不要求用户逐项确认，不恢复私有仓库 CI。
 
-2026-09-17 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
+2026-09-22 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
 
-- 来源：`metasequoiaime/MSIME-Windows` 的固定提交 `467b9804dac9bcea7dfac654d293dc9f99f57b09`。五道 reference 门禁统一从 `scripts/reference_source.py` 读取这个对象，不跟随相邻检出的当前分支或可变远端 tip；`MSIME_REFERENCE_DIR` 只覆盖检出位置，不能覆盖版本。
+- 来源：`metasequoiaime/MSIME-Windows` 的固定提交 `345cb87a3822f6ad7013bb29506fe3d856c1931a`。六道 reference 门禁统一从 `scripts/reference_source.py` 读取这个对象，不跟随相邻检出的当前分支或可变远端 tip；`MSIME_REFERENCE_DIR` 只覆盖检出位置，不能覆盖版本。
 - 目标：`metasequoiaime/msime` 的 `develop`；各增量以实际 PR merge commit 为证，不把一个会随迁移继续推进的目标 SHA 伪装成全程不变的基线。
 - 来源 Engine 已内嵌为 `engine/`，其 `UPSTREAM.md` 记录导入提交 `c810d201f549b337ae0c4a65a9d694103f1c1754`。目标通过 `engine-lock.json` 和 `scripts/fetch_engine.py` 获取并校验独立的 `vendor/MSIME-Engine` 源码归档，不使用 `.gitmodules`、递归 Git checkout 或 gitlink。两者不能因目录名或协议名相同而视为内容相同，也不能把来源 Server 的新接口记为目标已接入。
 
@@ -2334,3 +2334,14 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 `apply_engine_wubi_prefix_learning.py` 在 Engine 边界内迁入来源语义：精确等长码先于高权重前缀行，随后按权重和稳定键序排列，最多返回 50 条；选择五笔候选时把该候选权重写为同码组最大值加一，并在同一 SQLite attached-database 事务中写入 `wubi` journal，删除仍复用已有的精确行加墓碑事务。公共宿主继续只消费 Engine 快照，不在 Rust、Tauri 或任一平台宿主复制码表查询与调频算法。
 
 合成词库回归覆盖三条可见不变量：权重更高的长码不能压过已经完整匹配的简码；一键前缀在 Engine 入口被截到 50 条；选择同码第二项后，新会话中它升到首位且 journal 恰有一条 upsert。来源同日的四码唯一自动上屏与第五键“顶字后保留余码”还涉及 Windows TSF/Server 新协议，本片没有把 Engine 调频完成误写成那条链路已经迁完，后续单独接协议和宿主状态机。
+
+### 固定来源推进到 345cb87a（2026-09-22）
+
+来源远端默认分支在 `467b9804` 之后新增四个提交，现逐项核对完并把 reference 门禁固定到 merge commit `345cb87a3822f6ad7013bb29506fe3d856c1931a`：
+
+- `837af70b` 让全拼云查询保留手动撇号边界。目标由 `apply_engine_manual_segmentation_cloud.py` 在公共 Engine 边界实现；回归直接断言 `qi'e'huan` 原样进入 query text，macOS 经同一 Host API 获取该查询。
+- `99a8a355` 让云/AI 候选选中后按手动分词落库。目标将 CloudSuggestion/AiSuggestion 纳入公共 Engine 的句子学习路径，以会话的 canonical segmentation 补齐在线候选自身缺少的读音；真实词库探针选中“企鹅幻”后能用 `qeh` 找回。macOS、Windows 与 Linux 都通过同一 `InputSession::select`，不复制来源 Server 的旁路。
+- `d328895f` 只让 Windows 安装器忽略本地 `staging/` 中转目录，不改变产物、运行时或用户功能；目标的打包树没有这个来源目录，不需要迁移。
+- `56bfc046` 与 `345cb87a` 是上述提交的 merge commits，没有额外内容。
+
+六道 reference 门禁均只用 `git show` / `git grep` 读取这个新固定对象；相邻仓库当前 checkout、未提交内容及以后继续移动的远端 tip 仍不参与验证。
