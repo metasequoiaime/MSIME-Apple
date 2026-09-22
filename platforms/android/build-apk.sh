@@ -41,8 +41,8 @@ fi
 "$tools_dir/zipalign" -P 16 4 "$unsigned" "$repo_root/target/android/aligned.apk"
 "$tools_dir/apksigner" sign --ks "$keystore" --ks-key-alias androiddebugkey \
   --ks-pass pass:android --key-pass pass:android \
-  --out target/android/msime-client-preview.apk "$repo_root/target/android/aligned.apk"
-"$tools_dir/apksigner" verify --verbose target/android/msime-client-preview.apk
-"$tools_dir/zipalign" -c -P 16 4 target/android/msime-client-preview.apk
+  --out target/android/msime-client.apk "$repo_root/target/android/aligned.apk"
+"$tools_dir/apksigner" verify --verbose target/android/msime-client.apk
+"$tools_dir/zipalign" -c -P 16 4 target/android/msime-client.apk
 rm -f "$repo_root/target/android/aligned.apk"
-echo "Development APK built: $repo_root/target/android/msime-client-preview.apk; not installed or device-verified"
+echo "Development APK built: $repo_root/target/android/msime-client.apk; not installed or device-verified"
