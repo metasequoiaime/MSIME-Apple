@@ -650,7 +650,11 @@ public:
     input_enabled_ = !input_enabled_;
     ime_mode_chosen_ = true;
     if (!input_enabled_) {
-      if (!view_.value("editing_text", std::string{}).empty()) command(MSIME_FINISH_COMPOSITION);
+      // 切到英文时上屏的是读入串而不是候选：用户敲了 nihao 再按 Shift，要的就是 nihao
+      // 这几个字母，而不是它当前高亮的「你好」。Windows 是这个语义，IBus 宿主也照它写着
+      // （见 ClientEngine.cpp 的 toggle_input_mode），这个宿主此前用的是结束组合，于是
+      // 同一个手势在两个 Linux 宿主上给出不同的结果。
+      if (!view_.value("editing_text", std::string{}).empty()) command(MSIME_COMMIT_RAW);
       clearPanel();
     } else {
       render();
@@ -2349,7 +2353,8 @@ public:
   bool pure_shift_candidate_ = false;
   bool pure_ctrl_candidate_ = false;
   bool shift_down_ = false;
-  std::chrono::steady_clock::time_point last_ordinary_key_at_{};
+  bool shift_in_combination_ = false;
+  bool ctrl_in_combination_ = false;
   bool ctrl_down_ = false;
   std::chrono::steady_clock::time_point modifier_toggle_deadline_{};
   std::shared_future<Json> voice_job_;
@@ -4388,13 +4393,15 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     const bool ctrlRelease = !shiftRelease && isCtrlKey(event);
     if ((shiftRelease || ctrlRelease) && event.isRelease()) {
       // 有的前端只送来松开。同一套 xkb 选项下实测：Shift 的按下事件根本不会到达引擎，
-      // 只有松开会（Ctrl 则两者都有）。没有按下就没有布防，所以这里补一条同样严格的
-      // 判据——这次松开之前 500ms 内没有任何普通按键，说明它不是组合键的一半。宁可漏
-      // 判也不能误切：漏判只是手势没生效，误切会在用户正常打字时突然换掉输入模式。
+      // 只有松开会（Ctrl 则两者都有）。没有按下就没有布防，判据改由按键自己的修饰位
+      // 给出：这段时间里若有普通按键带着这个修饰位，它就是组合键的一半——按住 Shift
+      // 打出的大写字母带 Shift 位，而敲完 ni 再点一下 Shift 不带。这比按时间窗口判断准，
+      // 也正好容得下「组字途中切英文」这个最常用的操作。
       const bool armed = shiftRelease ? pure_shift_candidate_ : pure_ctrl_candidate_;
-      const bool quiet = std::chrono::steady_clock::now() - last_ordinary_key_at_ >
-                         std::chrono::milliseconds(500);
-      const bool candidate = armed || (!shift_down_ && !ctrl_down_ && quiet);
+      const bool combined = shiftRelease ? shift_in_combination_ : ctrl_in_combination_;
+      const bool candidate = armed || (!shift_down_ && !ctrl_down_ && !combined);
+      if (shiftRelease) shift_in_combination_ = false;
+      else ctrl_in_combination_ = false;
       const bool enabled = shiftRelease ? mode_shift_enabled_ : mode_ctrl_enabled_;
       if (shiftRelease) {
         shift_down_ = false;
@@ -4450,6 +4457,15 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
                                !states.test(fcitx::KeyState::Shift);
       }
       return false;
+    }
+    // 普通按键带着哪个修饰位，就说明那个修饰键此刻是被按住用的，不是在做手势。这里同样
+    // 必须排在下面两条返回之前：大写字母等分支在更后面就返回了，记在那里会漏掉。
+    if (!shiftKey && !ctrlKey && !event.isRelease()) {
+      // 这里要看 rawKey：fcitx5 会把按键归一化，Shift+a 变成符号 A 并且把 Shift 位抹掉，
+      // 于是归一化之后的 states 看不出修饰键被按住过。判「是不是组合键」必须用原始事件。
+      const auto raw = event.rawKey().states();
+      if (raw.test(fcitx::KeyState::Shift)) shift_in_combination_ = true;
+      if (raw.test(fcitx::KeyState::Ctrl)) ctrl_in_combination_ = true;
     }
   }
   if (event.isRelease()) return false;
@@ -4605,7 +4621,6 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   // Any other key press means the held modifier was part of a combination.
   pure_shift_candidate_ = false;
   pure_ctrl_candidate_ = false;
-  last_ordinary_key_at_ = std::chrono::steady_clock::now();
   if (sym == FcitxKey_space && ctrl && !shift &&
       (alt ? mode_ctrl_alt_space_enabled_ : true)) {
     if (composing) command(MSIME_COMMIT_RAW);
