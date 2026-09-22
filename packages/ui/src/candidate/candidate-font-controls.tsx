@@ -14,12 +14,14 @@ export function CandidateFontControls({
   readFonts,
   windows = false,
   englishFont = windows,
+  mobile = false,
 }: {
   value: CandidateFontPreferences;
   onChange: (patch: CandidateFontPreferences) => void;
   readFonts?: FontCatalogReader;
   windows?: boolean;
   englishFont?: boolean;
+  mobile?: boolean;
 }) {
   const catalog = useFontCatalog(readFonts);
   const fonts = value.candidate_fallback_fonts ?? [...defaultCandidateFallbackFonts];
@@ -28,6 +30,7 @@ export function CandidateFontControls({
     (windows
       ? defaultCandidateEnglishFont
       : (value.candidate_font_family ?? defaultCandidateFontFamily));
+  const surfaceName = mobile ? "候选栏" : "候选窗";
   const move = (index: number, delta: number) => {
     const next = [...fonts];
     [next[index], next[index + delta]] = [next[index + delta], next[index]];
@@ -39,14 +42,14 @@ export function CandidateFontControls({
         <div className="section">
           <div className="section-header">
             <span className="section-title">
-              候选窗英文字体
+              {surfaceName}英文字体
               <small>
                 优先用于候选和预编辑；缺字后依次使用补充字体，不限英文输入模式。
                 {windows ? "保存后自动应用。" : "未设置时跟随候选主字体。"}
               </small>
             </span>
             <FontFamilyInput
-              label="候选窗英文字体"
+              label={`${surfaceName}英文字体`}
               value={englishFontValue}
               fonts={catalog.fonts}
               enabled={!!readFonts}
@@ -60,9 +63,9 @@ export function CandidateFontControls({
       <div className="section">
         {!windows && (
           <div className="section-header">
-            <span className="section-title">候选窗主字体</span>
+            <span className="section-title">{surfaceName}主字体</span>
             <FontFamilyInput
-              label="候选窗主字体"
+              label={`${surfaceName}主字体`}
               value={value.candidate_font_family ?? defaultCandidateFontFamily}
               fonts={catalog.fonts}
               enabled={!!readFonts}
@@ -97,7 +100,7 @@ export function CandidateFontControls({
       <div className="section">
         <div className="section-header">
           <span className="section-title">
-            候选窗补充字体<small>主字体缺字时依次回落，最后使用系统字体。最多 32 项。</small>
+            {surfaceName}补充字体<small>主字体缺字时依次回落，最后使用系统字体。最多 32 项。</small>
           </span>
         </div>
         <div className="candidate-fallback-list" role="group" aria-label="补充字体回落顺序">

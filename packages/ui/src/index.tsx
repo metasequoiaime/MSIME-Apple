@@ -4047,6 +4047,7 @@ export function SettingsPage({
                       resolveFonts={client.resolveFontFamilies}
                       active={page === "appearance"}
                       revision={snapshot?.revision ?? 0}
+                      mobile={mobilePlatform}
                     />
                     {showCandidateFollowCursor && (
                       <div className="section">
@@ -4074,6 +4075,7 @@ export function SettingsPage({
                         readFonts={client.listFontFamilies}
                         windows={host?.platform === "windows"}
                         englishFont={showCandidateEnglishFont}
+                        mobile={mobilePlatform}
                       />
                     ) : (
                       <div className="section">
@@ -4083,9 +4085,11 @@ export function SettingsPage({
                     {showCandidateFontControls && (
                       <div className="section">
                         <label className="section-header">
-                          <span className="section-title">候选窗字号</span>
+                          <span className="section-title">
+                            {mobilePlatform ? "候选栏字号" : "候选窗字号"}
+                          </span>
                           <select
-                            aria-label="候选窗字号"
+                            aria-label={mobilePlatform ? "候选栏字号" : "候选窗字号"}
                             value={candidateFontSize(draft.candidate_font_size)}
                             onChange={(event) =>
                               setDraft({
@@ -4106,9 +4110,11 @@ export function SettingsPage({
                     {showCandidateFontControls && (
                       <div className="section">
                         <label className="section-header">
-                          <span className="section-title">候选窗预编辑字号</span>
+                          <span className="section-title">
+                            {mobilePlatform ? "候选栏预编辑字号" : "候选窗预编辑字号"}
+                          </span>
                           <select
-                            aria-label="候选窗预编辑字号"
+                            aria-label={mobilePlatform ? "候选栏预编辑字号" : "候选窗预编辑字号"}
                             value={candidatePreeditFontSize(draft.candidate_preedit_font_size)}
                             onChange={(event) =>
                               setDraft({
