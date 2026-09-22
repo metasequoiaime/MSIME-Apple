@@ -7,6 +7,7 @@ import css from "../../../../packages/ui/src/styles.css?raw";
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  window.history.replaceState({}, "");
 });
 
 const initial: Snapshot = {
@@ -21,13 +22,13 @@ const initial: Snapshot = {
   },
 };
 
-function renderSettings(platform: string) {
+function renderSettings(platform: string, host: Record<string, unknown> = {}) {
   render(
     <SettingsPage
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn().mockResolvedValue(undefined),
-        host: { platform } as never,
+        host: { platform, ...host } as never,
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
         // Both window commands are present here because one Tauri binary serves every platform: the
         // app exposes them on a phone too, which is exactly how the titlebar reached Android.
@@ -45,6 +46,24 @@ test("a phone host draws no window titlebar", async () => {
   await screen.findByRole("button", { name: "保存设置" });
 
   expect(screen.queryByRole("banner", { name: "窗口控制" })).toBeNull();
+});
+
+test("Harmony settings follow the actual phone or 2-in-1 form factor", async () => {
+  renderSettings("harmony", { mobile_settings: true });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByRole("navigation", { name: "主要功能" })).toBeTruthy();
+  cleanup();
+
+  renderSettings("harmony", { mobile_settings: false });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByRole("navigation", { name: "主要功能" })).toBeNull();
+  expect(screen.getByRole("navigation", { name: "设置分类" })).toBeTruthy();
+  const preview = document.querySelector(".screen-keyboard-artwork");
+  const keys = Array.from(preview!.querySelectorAll("[data-keyboard-key]")).map((key) =>
+    key.getAttribute("data-keyboard-key"),
+  );
+  expect(keys).toContain("Caps Lock");
+  expect(keys).toContain("Tab");
 });
 
 test("a desktop host keeps its window titlebar", async () => {
@@ -165,6 +184,7 @@ test("a phone is not offered the desktop's modifier-chord voice shortcuts", asyn
     expect(screen.queryByText("语音快捷键")).toBeNull();
     expect(screen.queryByText("语音输入弹出条主题")).toBeNull();
     cleanup();
+    window.history.replaceState({}, "");
   }
 
   renderSettings("windows");
