@@ -1522,3 +1522,9 @@ Android 原生 IME 此前把带 Ctrl/Alt/Meta 的硬件事件全部交回系统�
 Android 横向候选条此前会保留旧页面的 `HorizontalScrollView` 偏移。用户从一页翻到下一页、或 Engine 进入新的 generation 后，候选条可能从中段开始显示，看起来像候选顺序错乱或候选缺失。现在候选条以 session、generation 和 page 作为滚动身份：任一项变化就回到当前页的首项；同一代次的英文释义/在线翻译等显示重绘不抢回用户的横向位置。候选文本、排序和选择身份仍完全由共享 Engine/host 提供，Android 只修正显示滚动位置。
 
 本地验证：`CandidateScrollPolicySmoke` 与 `platforms/android/check-host.sh` 全部通过；未执行实体设备翻页视觉验收，CI 保持禁用。
+
+### Android 候选词保持完整单行
+
+Android 候选按钮此前依赖 TextView 默认的省略与折行行为；长候选或较长释义在不同字体/屏幕宽度下可能被截断或拆成多行，用户看到的候选文字因此不完整。现在普通候选条与展开候选面板都明确关闭自动省略和候选词折行：横向条让外层滚动承载宽度，展开面板按候选格换行；释义只是附加标注，不会改变候选身份或文本。
+
+本地验证：Android host Java/API/JVM smoke 与 `scripts/verify-local.sh --quick` 通过；未执行实体设备字体和长候选视觉验收，CI 保持禁用。
