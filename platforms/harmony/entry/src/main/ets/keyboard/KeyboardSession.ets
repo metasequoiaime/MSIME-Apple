@@ -3533,8 +3533,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /** Generates bounded reply candidates through the shared AI ABI without involving Engine state. */
-  async thoughtfulReplies(source: string, style: string, extraPrompt: string = ''): Promise<string[]> {
-    const request: ReplyRequest | null = ReplyKeyboardPolicy.request(source, style, extraPrompt);
+  async thoughtfulReplies(source: string, style: string, extraPrompt: string = '', polish: boolean = false): Promise<string[]> {
+    const request: ReplyRequest | null = ReplyKeyboardPolicy.request(source, style, extraPrompt, polish);
     if (request === null || !this.aiAssistant.enabled || this.aiAssistant.endpoint.length === 0) {
       return [];
     }

@@ -1516,6 +1516,13 @@ group("reply source and request bounds are explicit", () => {
   check(ReplyKeyboardPolicy.source("含\n换行") === null, "rejects control characters");
   const request = ReplyKeyboardPolicy.request("对方的话", "高情商");
   check(request !== null && request.prompt.includes("高情商"), "builds style prompt");
+  const polish = ReplyKeyboardPolicy.request("用户原文", "成熟稳重", "", true);
+  check(
+    polish !== null &&
+      polish.prompt.includes("润色用户文字") &&
+      !polish.prompt.includes("对方发来以下内容"),
+    "builds polish prompt separately",
+  );
 });
 
 group("reply results are safe, unique and bounded", () => {

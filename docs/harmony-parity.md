@@ -245,3 +245,9 @@ EnglishCapitalizationPolicy.shouldShift
 - Anthropic/Gemini/EveryAPI 模型目录、EveryAPI/Mistral 转写及云剪贴板删除只验证了请求策略、边界与产品接线；没有用真实凭据执行服务往返，也没有在设备上验证录音授权和 multipart 请求。
 - 账号刷新、候选排序/固定位置、云词库导出、快照冲突检查与本地快照恢复云端只验证了状态机、请求形状、文件边界和产品接线；没有对真实账号服务往返，也没有设备上的系统打开/保存选择器或流式上传证据。
 - 真机签名与麦克风授权流程。
+
+## 延续审计补记（回复键面）
+
+固定 Apple `KeyboardSurfaceUITests.testReplyKeyboardPastesChoosesStyleAndInserts` 对照发现，Harmony 原有回复键面只能粘贴、选择风格并生成；缺少来源已有的“帮你回／帮润色”模式、源文字删除与清空、取消生成、换一句和重新选择风格。该切片已补入 `KeyboardView.ets`，由 `ReplyKeyboardPolicy` 生成两种不同的提示语，并通过回复上下文 generation 使取消、清空和模式切换丢弃迟到结果；模板请求继续保留自定义提示语路径。新增策略断言覆盖润色提示不误用“对方来话”提示。
+
+验证：Harmony 逻辑套件 `1596 assertions` 全部通过，Harmony TypeScript 类型检查通过，ArkTS 子集检查通过。`hvigorw assembleHap` 仍被 develop 中既有 ArkTS 错误阻断（`KeyboardSession.ets` 的 arbitrary throw、`Settings.ets` 的字段索引、既有 `isInLocalMode` 与 `StackAttribute.justifyContent`），本切片没有新增编译错误；该结果不替代 HAP 或设备验收证据。
