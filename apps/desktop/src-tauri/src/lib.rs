@@ -759,6 +759,8 @@ enum PanelInputTarget {
     Sway(u64),
     Ydotool,
     Wayland,
+    // No external tool reached the editor, but the MSIME input method serves the panel socket and types into whatever context it has focused.
+    InputMethod,
 }
 
 // The window that owned the caret before the panel appeared. Panels never take

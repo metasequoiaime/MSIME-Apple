@@ -126,6 +126,8 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 桌面 Tauri 面板在 Linux 上也接入了屏幕键盘、手写和语音提交。打开面板时宿主先保存当前输入目标：X11 使用 `xdotool getactivewindow`，Sway 使用 `swaymsg -t get_tree`；按键通过目标窗口的 `xdotool key`、Sway 的 `wtype` 或通用 Wayland 的 `ydotool` 发送。`ydotool` 仅在其 daemon 可用时启用，以 `/dev/uinput` 注入，不依赖面板重新夺取焦点；没有全局注入能力时回退到 `wtype`。手写候选和语音识别结果通过同一目标提交文本，语音面板消费 provider 的 partial/final 事件并实时显示转写，关闭面板时发送当前 generation 的取消消息。手写识别服务的绝对 Unix socket 由 `MSIME_HANDWRITING_PROVIDER_SOCKET` 提供，语音服务使用 HostOptions 的 `voice_provider_socket` 或 `MSIME_VOICE_PROVIDER_SOCKET`；服务仍负责录音、模型和凭据。缺少注入工具或服务时面板保留可见状态并返回宿主错误，不伪造提交。
 
+IBus 和 Fcitx5 宿主还提供一条比上述工具更直接的提交路径，对应 Windows 面板经 TSF 回填当前编辑器的行为：输入法进程在 `$XDG_RUNTIME_DIR/msime-client/panel-input.sock`（目录 0700、socket 0600，只接受同一 uid 的对端）监听，面板的按键、手写候选、语音结果和 Ctrl+V 优先通过它由输入法自身提交或转发，不需要 `xdotool`、`wtype` 或 `ydotool`，Wayland 下也不依赖 compositor 支持虚拟键盘协议。请求为一行 JSON：`{"op":"generation"}` 取当前焦点代次，`{"op":"text","text":"…","after_generation":N}` 提交单行文本，`{"op":"key","key":"BackSpace","keycode":14,"shift":false,"control":false,"alt":false,"super":false}` 以 X keysym 名和 evdev 键码转发按键；应答为 `{"ok":true}` 或 `{"ok":false,"error":"no_focus|restricted|invalid"}`。面板获得焦点时先取代次、释放焦点，再要求输入法只在更新的焦点上投递，所以文本不会落回面板自己的 webview；700ms 内没有新的焦点则应答 `no_focus` 并丢弃请求，不会迟到上屏。密码等受限字段应答 `restricted`，面板不再改用注入工具绕过。含换行或制表符的文本仍走剪贴板或注入工具。两个宿主同时运行时先绑定的一方提供服务，不抢占仍存活的 socket。应答缺失或无法解析时桌面宿主报告错误而不回退，避免同一文本被提交两次。
+
 桌面手写和语音面板支持 `preferences.handwriting_theme` 与 `preferences.voice_theme`，取值为 `follow`、`dark` 或 `light`；`follow` 继承全局主题。设置保存后，已打开的面板通过偏好变更事件立即更新外观。
 
 桌面 Emoji 面板（包括颜文字、符号和剪贴板页）支持 `preferences.emoji_theme`，同样取值为 `follow`、`dark` 或 `light`；设置保存后已打开的面板实时同步主题。
