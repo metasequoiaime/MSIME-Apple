@@ -76,7 +76,7 @@ candidate_presentation_from_view(const FocusLease &lease,
   size_t highlighted = 0;
   for (const auto &candidate : view.at("candidates")) {
     const auto &id = candidate.at("id");
-    const auto source = candidate.value("source", uint8_t{});
+    const auto candidate_source = candidate.value("source", uint8_t{});
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),
@@ -84,10 +84,10 @@ candidate_presentation_from_view(const FocusLease &lease,
                                   traditional_output),
         candidate.at("highlighted").get<bool>(),
         candidate.value("annotation", std::string{}),
-        source == 2 ? " ☁️" : source == 3 ? " 🤖" : "",
+        candidate_source == 2 ? " ☁️" : candidate_source == 3 ? " 🤖" : "",
         candidate.value("fixed_position", uint8_t{}),
         candidate.value("translation", std::string{}),
-        candidate_actions_available(view.value("scheme", 0u), source)};
+        candidate_actions_available(view.value("scheme", 0u), candidate_source)};
     if (item.session != output.session ||
         item.generation != output.generation || item.text.size() > 4096 ||
         item.annotation.size() > 4096 || item.badge.size() > 4096 ||
@@ -134,7 +134,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   size_t highlighted = 0;
   for (const auto &candidate : view.at("candidates")) {
     const auto &id = candidate.at("id");
-    const auto source = candidate.value("source", uint8_t{});
+    const auto candidate_source = candidate.value("source", uint8_t{});
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),
@@ -142,10 +142,10 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
                                   reply.traditional_output),
         candidate.at("highlighted").get<bool>(),
         candidate.value("annotation", std::string{}),
-        source == 2 ? " ☁️" : source == 3 ? " 🤖" : "",
+        candidate_source == 2 ? " ☁️" : candidate_source == 3 ? " 🤖" : "",
         candidate.value("fixed_position", uint8_t{}),
         candidate.value("translation", std::string{}),
-        candidate_actions_available(view.value("scheme", 0u), source)};
+        candidate_actions_available(view.value("scheme", 0u), candidate_source)};
     if (item.session != output.session ||
         item.generation != output.generation || item.text.size() > 4096 ||
         item.annotation.size() > 4096 || item.badge.size() > 4096 ||
