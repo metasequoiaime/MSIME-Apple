@@ -254,6 +254,8 @@ import {
   PointerButton,
 } from "../entry/src/main/ets/keyboard/input/CandidateContextMenuPolicy";
 import { PanelSurfaceAction } from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
+import { DesktopSurface } from "../entry/src/main/ets/keyboard/DesktopSurface";
+import { SurfaceRoutingPolicy } from "../entry/src/main/ets/keyboard/SurfaceRoutingPolicy";
 import { PreferenceRevisionPolicy } from "../entry/src/main/ets/keyboard/input/PreferenceRevisionPolicy";
 import { PreferencesErrorCode } from "../entry/src/main/ets/keyboard/settings/PreferencesErrorCode";
 import {
@@ -495,6 +497,17 @@ group("keeps desktop-only chrome off touch devices", () => {
   check(!KeyboardFormFactorPolicy.isDesktop("tablet"), "a tablet keeps the touch keyboard");
   check(!KeyboardFormFactorPolicy.isDesktop("default"), "an unknown form factor fails closed");
   check(!KeyboardFormFactorPolicy.isDesktop(null), "missing device information fails closed");
+});
+
+group("routes voice shortcuts to the matching form-factor surface", () => {
+  check(
+    SurfaceRoutingPolicy.voiceSurface(true) === DesktopSurface.VOICE,
+    "2-in-1 voice shortcuts use the candidate window voice face",
+  );
+  check(
+    SurfaceRoutingPolicy.voiceSurface(false) === null,
+    "phone voice shortcuts stay on the touch keyboard face",
+  );
 });
 
 group("projects the same form factor into every settings capability", () => {

@@ -48,6 +48,7 @@ import {
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { DesktopSurface } from './DesktopSurface';
+import { SurfaceRoutingPolicy } from './SurfaceRoutingPolicy';
 import { ClipboardHistoryItem, ClipboardFailure } from './clipboard/ClipboardHistoryStore';
 import componentSnapshot from '@ohos.arkui.componentSnapshot';
 import { image } from '@kit.ImageKit';
@@ -403,8 +404,10 @@ struct KeyboardView {
       // The panel has to be on screen before recording starts, or the first thing the user sees of
       // a shortcut they just pressed is nothing at all.
       if (action === VoiceHotkeyAction.START) {
-        if (KeyboardFormFactor.isDesktop()) {
-          KeyboardSession.shared.setDesktopSurface(DesktopSurface.VOICE);
+        const desktopSurface: DesktopSurface | null =
+          SurfaceRoutingPolicy.voiceSurface(KeyboardFormFactor.isDesktop());
+        if (desktopSurface !== null) {
+          KeyboardSession.shared.setDesktopSurface(desktopSurface);
         } else {
           this.show(SURFACE_VOICE);
         }
@@ -417,7 +420,7 @@ struct KeyboardView {
       }
       if (action === VoiceHotkeyAction.CANCEL) {
         this.cancelVoice();
-        if (KeyboardFormFactor.isDesktop()) {
+        if (SurfaceRoutingPolicy.voiceSurface(KeyboardFormFactor.isDesktop()) !== null) {
           KeyboardSession.shared.setDesktopSurface(DesktopSurface.NONE);
         } else {
           this.show(SURFACE_NONE);
