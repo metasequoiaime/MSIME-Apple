@@ -3684,7 +3684,7 @@ public:
     if (!ic || !ic->hasFocus()) return;
     try {
       auto *state = ic->propertyFor(factory_);
-      if (!state || state->restricted() || state->privateInput() ||
+      if (!state || state->restricted() ||
           (std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_) ||
           !ic->hasFocus()) return;
       launchDesktopPanel(panel_);
