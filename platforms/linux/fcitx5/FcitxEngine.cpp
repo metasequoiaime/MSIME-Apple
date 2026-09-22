@@ -393,6 +393,7 @@ public:
     cloud_clipboard_socket_.clear();
     ++cloud_clipboard_generation_;
     cloud_clipboard_items_.clear();
+    cloud_clipboard_enabled_ = true;
     cloud_clipboard_job_ = {};
     emoji_items_.clear();
     ++emoji_generation_;
@@ -1741,13 +1742,19 @@ public:
         if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object() &&
             result.value("_socket", std::string{}) == cloud_clipboard_socket_ &&
             result.value("_generation", uint64_t{}) == cloud_clipboard_generation_)
-          cloud_clipboard_items_ = result.value("entries", Json::array());
+        {
+          cloud_clipboard_enabled_ = result.value("enabled", true);
+          cloud_clipboard_items_ = cloud_clipboard_enabled_
+              ? result.value("entries", Json::array())
+              : Json::array();
+        }
       }
     } catch (...) { cloud_clipboard_items_.clear(); }
   }
   bool pasteCloudClipboard(size_t index = 0) {
     if (cloud_clipboard_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus()) return false;
     refreshCloudClipboard();
+    if (!cloud_clipboard_enabled_) return false;
     if (index < cloud_clipboard_items_.size()) {
       const auto &item = cloud_clipboard_items_.at(index);
       const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
@@ -2490,6 +2497,7 @@ public:
   std::string cloud_clipboard_socket_;
   uint64_t cloud_clipboard_generation_ = 0;
   Json cloud_clipboard_items_ = Json::array();
+  bool cloud_clipboard_enabled_ = true;
   std::shared_future<Json> cloud_clipboard_job_;
   Json emoji_items_ = Json::array();
   std::shared_future<Json> emoji_job_;
