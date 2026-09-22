@@ -90,6 +90,8 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
 
     private Predicate<AccessibilityNodeInfo> glossCandidate() {
         return node -> preview(node) && node.getContentDescription() != null
+            && node.getText() != null
+            && !node.getText().toString().startsWith("1 ")
             && node.getContentDescription().toString().startsWith("候选 1：你好")
             && node.getContentDescription().toString().contains("英文释义：hello");
     }
@@ -108,6 +110,8 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
 
     private Predicate<AccessibilityNodeInfo> plainCandidate() {
         return node -> preview(node) && node.getContentDescription() != null
+            && node.getText() != null
+            && !node.getText().toString().startsWith("1 ")
             && node.getContentDescription().toString().startsWith("候选 1：你好")
             && !node.getContentDescription().toString().contains("英文释义：");
     }
