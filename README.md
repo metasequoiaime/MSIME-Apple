@@ -24,7 +24,7 @@
 | --- | --- | --- | --- |
 | [Android](platforms/android/README.md) | `platforms/android/` | API 35 arm64 专用模拟器、Tauri/IME 合包和共享设置 | 真机、x86_64 合包、完整生命周期 |
 | [iOS](platforms/ios/README.md) | `platforms/ios/` | Swift/配置测试；模拟器 App 与真机 `.ipa` 的未签名构建，两者都内嵌键盘扩展和固定词库 | 签名、设备安装与键盘扩展启用验收 |
-| [macOS](platforms/macos/README.md) | `platforms/macos/` | IMK 预览 bundle、Rust/C++/CTest 和离屏 UI 测试 | 安装输入源、真实编辑器和权限验收 |
+| [macOS](platforms/macos/README.md) | `platforms/macos/` | IMK bundle、Rust/C++/CTest 和离屏 UI 测试 | 安装输入源、真实编辑器和权限验收 |
 | [Linux](platforms/linux/README.md) | `platforms/linux/` | arm64 容器中的 IBus daemon、Fcitx5 构建和隔离测试；Arch 图形桌面上安装后被 fcitx5 加载并出现在输入法列表 | 真实编辑器端到端、cpack 安装包和 Wayland/X11 焦点与选区 |
 | [Windows](platforms/windows/README.md) | `platforms/windows/`、`platforms/windows/tsf/` | x86/x64 交叉编译、管道/Server 边界测试 | Windows 原生运行、TSF 注册和编辑器验收 |
 | [HarmonyOS](platforms/harmony/README.md) | `platforms/harmony/` | ArkTS 逻辑测试和 OpenHarmony NDK 构建入口 | DevEco/HAP 设备运行和系统输入验收 |
@@ -47,7 +47,7 @@ pnpm tauri dev
 
 桌面构建需要 [Tauri 平台依赖](https://tauri.app/start/prerequisites/)。`pnpm tauri build --debug --no-bundle` 构建开发二进制；暂不签名、安装或发布。普通浏览器中只显示无法访问本地配置的提示，不模拟保存成功。
 
-桌面设置的应用标识和默认应用数据目录统一为 `app.msime.client`，偏好保存在其中的 `preferences.json`。macOS 首次用新标识启动时会读取旧目录的小型定位文件：仍使用默认目录的状态会复制到 `app.msime.client` 并重建其中的绝对路径，旧目录留作降级备份；用户明确移到其他磁盘的数据保持原位，只把定位文件迁入新目录。`app.msime.client.preview` 不再用于新安装或新的默认数据。也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。macOS 原生宿主读取同一份配置并在当前组词结束后应用更新；多个设置窗口同时保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
+桌面设置的应用标识和默认应用数据目录统一为 `app.msime.client`，偏好保存在其中的 `preferences.json`。macOS 首次用正式标识启动时会完成默认状态初始化并重建其中的绝对路径；也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。macOS 原生宿主读取同一份配置并在当前组词结束后应用更新；多个设置窗口同时保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
 
 Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS 的产品宿主是 `platforms/ios` 的原生 App，它嵌入原生键盘扩展并通过 App Group 共享状态；Tauri/React 在 iOS 上只作为共享功能与界面的公共组件，不作为独立 App 启动。签名和设备验收边界见 [iOS 宿主](platforms/ios/README.md)。
 
