@@ -1073,6 +1073,7 @@ impl<E: InputEngine> Runtime<E> {
                 microsoft_shuangpin: false,
                 shuangpin_profile: String::new(),
                 answered_by_pinyin_fallback: true,
+                wubi_unique_four_code: false,
                 local_mode: "unknown".into(),
                 dedicated_english: false,
                 preedit: String::new(),
@@ -1272,6 +1273,7 @@ impl<E: InputEngine> Runtime<E> {
         // A digit on the candidate page picks a candidate; the Engine is asked the same question as
         // for Select, so it can begin a phrase the same way.
         let mut selected_by_digit = false;
+        let character_action = matches!(action, Action::Character { .. });
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -1339,6 +1341,18 @@ impl<E: InputEngine> Runtime<E> {
         if let Err(error) = refresh {
             // A successful engine commit must survive a presentation refresh failure.
             result.diagnostic = format!("Candidate refresh failed: {error}");
+        }
+        // The Engine owns the definition of a complete, native, unique Wubi code. Every host gets
+        // the same fourth-key behavior here; platform adapters only decide how that commit crosses
+        // their native composition boundary. A held phrase is still being assembled and must stay
+        // open, matching the reference's creating-word guard.
+        if character_action
+            && self.snapshot_valid
+            && self.cached.wubi_unique_four_code
+            && self.phrase_prefix.is_empty()
+        {
+            result = self.engine.select(0)?;
+            self.refresh()?;
         }
         // The Engine takes what it used off the front of the reading, so what is gone from the
         // front is what the selection consumed. A reading that did not simply shrink - a special

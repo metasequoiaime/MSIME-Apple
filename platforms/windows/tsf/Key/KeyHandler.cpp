@@ -12,6 +12,7 @@
 #include <fmt/xchar.h>
 #include "FanyUtils.h"
 #include "Ipc.h"
+#include "CommitCandidateAndContinuePayload.h"
 #include "FanyDefines.h"
 #include "../Utils/PerfTimer.h"
 #include "../HostRawCommit.h"
@@ -19,6 +20,7 @@
 #include "../KeyboardCancellation.h"
 #include "../../../../shared/input/CompositionDisplay.h"
 #include <limits>
+#include <algorithm>
 
 namespace
 {
@@ -431,6 +433,66 @@ HRESULT CMetasequoiaIME::_HandleInsertText(TfEditCookie ec, _In_ ITfContext *pCo
         return hr;
     }
     return _HandleCompleteCommitFirst(ec, pContext);
+}
+
+HRESULT CMetasequoiaIME::_HandleCommitCandidateAndContinue(TfEditCookie ec, _In_ ITfContext *pContext,
+                                                           const std::wstring &payload)
+{
+    std::size_t consumed = 0;
+    std::wstring commitText;
+    if (!ParseCommitCandidateAndContinuePayload(payload, consumed, commitText))
+    {
+        return E_INVALIDARG;
+    }
+
+    CCompositionProcessorEngine *engine = _pCompositionProcessorEngine;
+    const std::wstring buffer = engine ? engine->GetKeystrokeBuffer().ToWString() : std::wstring{};
+    if (_pComposition == nullptr)
+    {
+        if (commitText.empty())
+        {
+            return S_OK;
+        }
+        CStringRange commitRange;
+        commitRange.Set(commitText.c_str(), commitText.length());
+        return _AddCharAndFinalize(ec, pContext, &commitRange);
+    }
+
+    const std::size_t consume = (std::min)(consumed, buffer.size());
+    const std::wstring remainder = buffer.substr(consume);
+    if (!commitText.empty())
+    {
+        CStringRange commitRange;
+        commitRange.Set(commitText.c_str(), commitText.length());
+        HRESULT hr = _InsertTextToComposition(ec, pContext, &commitRange);
+        if (FAILED(hr))
+        {
+            hr = _AddComposingAndChar(ec, pContext, &commitRange);
+        }
+        if (FAILED(hr))
+        {
+            return hr;
+        }
+    }
+
+    _HandleCompleteCommitFirst(ec, pContext);
+    if (remainder.empty() || engine == nullptr)
+    {
+        return S_OK;
+    }
+    _StartComposition(pContext);
+    if (_pComposition == nullptr)
+    {
+        CStringRange remainderRange;
+        remainderRange.Set(remainder.c_str(), remainder.length());
+        return _AddCharAndFinalize(ec, pContext, &remainderRange);
+    }
+    engine->PurgeVirtualKey();
+    for (const wchar_t value : remainder)
+    {
+        engine->AddVirtualKey(value);
+    }
+    return _HandleCompositionInputWorker(engine, ec, pContext, FANY_IME_NO_REQUEST_ID);
 }
 
 HRESULT CMetasequoiaIME::_HandleUpdateVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext,

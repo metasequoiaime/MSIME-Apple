@@ -270,6 +270,32 @@ class CPunctuationCommitEditSession : public CEditSessionBase
     uint64_t _deferredReplayToken;
 };
 
+class CCommitCandidateAndContinueEditSession : public CEditSessionBase
+{
+  public:
+    CCommitCandidateAndContinueEditSession(CMetasequoiaIME *pTextService, ITfContext *pContext, std::wstring payload,
+                                           uint64_t focusToken, uint64_t compositionEpoch)
+        : CEditSessionBase(pTextService, pContext), _payload(std::move(payload)), _focusToken(focusToken),
+          _compositionEpoch(compositionEpoch)
+    {
+    }
+
+    STDMETHODIMP DoEditSession(TfEditCookie ec) override
+    {
+        if (!_pTextService->_IsFocusSessionCurrent(_focusToken, _pContext) ||
+            !_pTextService->_IsCompositionEpochCurrent(_compositionEpoch))
+        {
+            return S_FALSE;
+        }
+        return _pTextService->_HandleCommitCandidateAndContinue(ec, _pContext, _payload);
+    }
+
+  private:
+    std::wstring _payload;
+    uint64_t _focusToken;
+    uint64_t _compositionEpoch;
+};
+
 class CDeferredApplicationTextEditSession : public CEditSessionBase
 {
   public:
@@ -698,6 +724,11 @@ bool CMetasequoiaIME::_PostAsyncKeyRequest(UINT message, UINT code, WCHAR wch, u
 bool CMetasequoiaIME::_PostServerCandidateCommit(_In_z_ const WCHAR *candidateText)
 {
     return _PostServerTextDelivery(WM_CommitCandidate, candidateText);
+}
+
+bool CMetasequoiaIME::_PostServerCandidateCommitAndContinue(_In_z_ const WCHAR *payload)
+{
+    return _PostServerTextDelivery(WM_CommitCandidateAndContinue, payload);
 }
 
 bool CMetasequoiaIME::_PostServerInsertText(_In_z_ const WCHAR *text)
@@ -1726,6 +1757,7 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
 
         bool validFrame = true;
         if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CommitCurCandidate ||
+            buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CommitCandidateAndContinue ||
             buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InsertText ||
             buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CancelVoiceComposition)
         {
@@ -1903,6 +1935,13 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             if (pIME->_workerCommitReady.load(std::memory_order_acquire))
             {
                 pIME->_PostServerCandidateCommit(buf.data);
+            }
+        }
+        else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CommitCandidateAndContinue)
+        {
+            if (pIME->_workerCommitReady.load(std::memory_order_acquire))
+            {
+                pIME->_PostServerCandidateCommitAndContinue(buf.data);
             }
         }
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InsertText)
@@ -2528,6 +2567,38 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
                 KeystrokeState.Function = FUNCTION_FINALIZE_CANDIDATELIST;
                 pIME->_InvokeKeyHandler(pContext, 0, 0, 0, KeystrokeState, FANY_IME_UNSOLICITED_REQUEST_ID,
                                         std::move(request.text), 0, request.compositionEpoch, request.focusToken);
+                pContext->Release();
+            }
+            pDocMgrFocus->Release();
+        }
+        break;
+    }
+    case WM_CommitCandidateAndContinue: {
+        CMetasequoiaIME::WorkerCandidateCommit request;
+        if (!pIME->_TakeServerCandidateCommit(static_cast<UINT>(wParam), request))
+        {
+            break;
+        }
+        if (!pIME->_IsFocusSessionCurrent(request.focusToken) ||
+            !pIME->_IsCompositionEpochCurrent(request.compositionEpoch))
+        {
+            break;
+        }
+        ITfDocumentMgr *pDocMgrFocus = nullptr;
+        ITfContext *pContext = nullptr;
+        if (SUCCEEDED(pIME->_GetThreadMgr()->GetFocus(&pDocMgrFocus)) && pDocMgrFocus)
+        {
+            if (SUCCEEDED(pDocMgrFocus->GetTop(&pContext)) && pContext)
+            {
+                auto *editSession = new (std::nothrow) CCommitCandidateAndContinueEditSession(
+                    pIME, pContext, std::move(request.text), request.focusToken, request.compositionEpoch);
+                if (editSession)
+                {
+                    HRESULT editSessionHr = E_FAIL;
+                    pContext->RequestEditSession(pIME->_tfClientId, editSession,
+                                                 TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, &editSessionHr);
+                    editSession->Release();
+                }
                 pContext->Release();
             }
             pDocMgrFocus->Release();

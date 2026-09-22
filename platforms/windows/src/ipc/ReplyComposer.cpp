@@ -166,6 +166,26 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
                                   candidates, highlighted);
     }
     break;
+  case ReplyPath::AutoCommitAndContinue: {
+    const auto &context = result.transition.at("commit_context");
+    if (delta.empty() || !raw.empty() || context.is_null() ||
+        context.value("scheme", 255u) != 2u) {
+      invalid();
+      break;
+    }
+    const auto total = prefix_ + output_delta;
+    next.worker = commit_candidate_and_continue_bytes(4, total);
+    if (!next.worker) {
+      invalid();
+      break;
+    }
+    if (result.reply_expected)
+      next.encoded = uiless ? uiless_reply(result.request_id, {}, {}, 0)
+                            : preedit_reply(result.request_id, {});
+    next.next_prefix.clear();
+    next.committed_text = total;
+    break;
+  }
   }
   session_ = session;
   pending_ = std::move(next);
@@ -353,7 +373,12 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                         ? ReplyPath::Composition
                         : ReplyPath::NoReply;
   result.reply_expected = path != ReplyPath::NoReply;
-  return stage(result, path, uiless);
+  const bool auto_wubi_commit =
+      !result.transition.at("commit").is_null() &&
+      !result.transition.at("commit_context").is_null() &&
+      result.transition.at("commit_context").value("scheme", 255u) == 2u;
+  return stage(result, auto_wubi_commit ? ReplyPath::AutoCommitAndContinue : path,
+               uiless);
 }
 std::optional<PendingReply>
 ReplyComposer::navigate(ServerSession &session,

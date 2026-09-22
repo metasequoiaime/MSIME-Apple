@@ -210,6 +210,17 @@ void candidate_mailbox_tests() {
   require(visual_event(first, FanyImePipeEventType::HideCandidateWnd));
   require(publish(first, 2));
   require(mailbox.snapshot(gate)->visible); // A new confirmed key refreshes UI.
+  require(visual_event(first, FanyImePipeEventType::HideCandidateWnd,
+                       internal_continuation_hide));
+  const auto continued = mailbox.snapshot(gate);
+  require(continued && continued->visible && continued->generation == 2 &&
+          !continued->preedit.empty());
+  auto stale_continuation = first;
+  ++stale_continuation.token;
+  require(!visual_event(stale_continuation,
+                        FanyImePipeEventType::HideCandidateWnd,
+                        internal_continuation_hide));
+  require(mailbox.snapshot(gate)->visible);
   require(visual_event(first, FanyImePipeEventType::MoveCandidateWnd,
                        FanyImePipeFlags::UiLess));
   const auto host_drawn = mailbox.snapshot(gate);
