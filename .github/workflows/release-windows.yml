@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 150
     env:
       VCPKG_DISABLE_METRICS: '1'
+      # Python on Windows otherwise decodes text as the ANSI code page, and the Engine overlays and the Engine's own generators read UTF-8 sources.
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
@@ -32,6 +34,8 @@ jobs:
         # rust-toolchain.toml pins the compiler; adding targets from the repository root installs that toolchain first.
         run: rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
       - name: Prepare the locked Engine archive and settled-rerank model
+        # bash stops at the first failing command; a multi-line pwsh step only reports the last one.
+        shell: bash
         run: |
           python scripts/fetch_engine.py
           python scripts/fetch_settled_model.py
