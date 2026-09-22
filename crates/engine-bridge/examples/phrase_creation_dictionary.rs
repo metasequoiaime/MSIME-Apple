@@ -14,6 +14,9 @@ use msime_engine_bridge::{prepare_options, EngineOptions, Session};
 const KEYS: &str = "haitanpaobu";
 const ABBREVIATION: &str = "htpb";
 const PHRASE: &str = "海滩跑步";
+const ONLINE_KEYS: &str = "qi'e'huan";
+const ONLINE_ABBREVIATION: &str = "qeh";
+const ONLINE_PHRASE: &str = "企鹅幻";
 /// The first selection has to be the candidate that consumes part of the input rather than the
 /// whole-sentence one the lattice puts first.
 const PARTIAL: usize = 1;
@@ -109,6 +112,36 @@ impl Store {
         }
         Ok(source)
     }
+
+    /// Inject and select an online row whose explicit segmentation differs from the greedy cut.
+    fn select_online_sentence(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut session = Session::new(&self.options(true)?)?;
+        for character in ONLINE_KEYS.bytes() {
+            session.character(character, false)?;
+        }
+        let query = session.online_query()?;
+        if !query.available || query.query_text != ONLINE_KEYS {
+            return Err(format!(
+                "manual segmentation was not preserved: {}",
+                query.query_text
+            )
+            .into());
+        }
+        if !session.apply_online_candidate(&query, ONLINE_PHRASE, 1)? {
+            return Err("the synthetic AI candidate was rejected".into());
+        }
+        let snapshot = session.snapshot()?;
+        let index = snapshot
+            .candidates
+            .iter()
+            .position(|candidate| candidate == ONLINE_PHRASE)
+            .ok_or("the synthetic AI candidate disappeared")?;
+        let committed = session.select(index)?;
+        if !committed.has_commit || committed.commit != ONLINE_PHRASE {
+            return Err("the synthetic AI candidate was not committed".into());
+        }
+        Ok(())
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -175,6 +208,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "a directly selected sentence was stored while learning was turned off"
     );
 
-    println!("composed and standalone sentence candidates learn only when enabled");
+    // Cloud/AI rows do not carry canonical_pinyin themselves. The session must use its explicit
+    // segmentation as the storage key, and the strict canonical insertion path must not erase and
+    // greedily re-cut it (qi'e'huan would otherwise become qie'huan and fail the 3-character check).
+    let online = Store::new(&resources)?;
+    assert!(!online
+        .candidates(ONLINE_ABBREVIATION)?
+        .contains(&ONLINE_PHRASE.to_string()));
+    online.select_online_sentence()?;
+    assert!(
+        online
+            .candidates(ONLINE_ABBREVIATION)?
+            .contains(&ONLINE_PHRASE.to_string()),
+        "the online phrase was not stored under its explicit segmentation"
+    );
+
+    println!("composed, standalone and online sentence candidates learn with canonical readings");
     Ok(())
 }
