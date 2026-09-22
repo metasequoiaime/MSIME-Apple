@@ -164,9 +164,10 @@ int main()
         enabledSources.clear();
         require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
-                                                         EnableInputSource) == fnfErr,
-                "An input mode without its enabled parent was accepted.");
-        require(enabledSources.empty(), "An input mode was enabled before its parent was found.");
+                                                         EnableInputSource) == noErr,
+                "An input mode without a top-level source was rejected.");
+        require(enabledSources.size() == 1 && enabledSources[0] == modeSource,
+                "The primary input mode was not enabled when the top-level source was absent.");
         CFRelease(sourceList);
         sourceList = nullptr;
 

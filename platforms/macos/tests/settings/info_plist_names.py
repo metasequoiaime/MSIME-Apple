@@ -3,9 +3,9 @@
 
 Nothing fails when the key is missing. TISRegisterInputSource still returns noErr, the mode still appears, the menu icon still draws - and where the name belongs the menu prints the identifier itself, so the picker reads `app.msime.inputmethod.MetasequoiaIME.Hans` in a list beside 日文 and ABC.
 
-A rename is what produces that. The identifiers live in Info.plist.in and the names live in one .strings per language, with nothing connecting the two files, so changing the four identifiers in the plist leaves the old keys behind as valid syntax attached to an input source that no longer exists.
+A rename is what produces that. The identifiers live in Info.plist.in and the names live in one .strings per language, with nothing connecting the two files, so changing the identifiers in the plist leaves the old keys behind as valid syntax attached to an input source that no longer exists.
 
-Hence both directions: every identifier the plist declares must be named in every language, and every identifier-shaped key in a .strings must name something the plist still declares. The plist's own four places are checked against each other for the same reason - a mode whose identifier and TISInputSourceID disagree, or that is absent from the visible order, is registered and then never offered.
+Hence both directions: every identifier the plist declares must be named in every language, and every identifier-shaped key in a .strings must name something the plist still declares. The plist's mode identifier and TISInputSourceID are checked against each other for the same reason - a mode whose identifier disagrees, or that is absent from the visible order, is registered and then never offered.
 
 The names are not the only thing keyed on the identifier, so the last pass reads the sources: the settings app validates the packaged bundle by looking the identifier up inside it, launches the input method by it, and reads the preferences domain NSUserDefaults derives from it, and the uninstaller deletes that domain. Each of those is a string literal in another language in another directory, and each fails silently in its own way - an install that rejects the correct bundle, a restart that finds no application, a settings page that saves into a plist nobody reads.
 """
@@ -43,8 +43,10 @@ def main() -> int:
     modes = plist.get("ComponentInputModeDict", {}).get("tsInputModeListKey", {}) or {}
     visible = plist.get("ComponentInputModeDict", {}).get("tsVisibleInputModeOrderedArrayKey", []) or []
 
-    if source != bundle:
-        failures.append(f"TISInputSourceID is {source} but CFBundleIdentifier is {bundle}; the system tells the two apart and registers neither as the other")
+    if source:
+        failures.append(
+            "top-level TISInputSourceID creates a second menu entry; the visible ComponentInputModeDict mode must be the only selectable source"
+        )
     for mode, body in sorted(modes.items()):
         if body.get("TISInputSourceID") != mode:
             failures.append(f"input mode {mode} carries TISInputSourceID {body.get('TISInputSourceID')}; the menu and the registration would name different sources")
