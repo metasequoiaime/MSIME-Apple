@@ -104,6 +104,9 @@ const palettes: Record<CandidateSkin, Record<PreviewTheme, Record<string, string
 
 /** The custom properties a preview card sets for a built-in skin. */
 export function candidateSkinPalette(skin: string, theme: PreviewTheme): CSSProperties {
-  const palette = palettes[skin as CandidateSkin] ?? palettes.fluent;
+  // An omitted skin uses the product default. Invalid persisted skin ids are handled by the
+  // surrounding preview components before this helper is called, so keep the shared preview
+  // fallback aligned with the default green willow theme as well.
+  const palette = palettes[skin as CandidateSkin] ?? palettes.willow_green;
   return palette[theme] as CSSProperties;
 }

@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { AppearanceCandidatePreview } from "../../../../packages/ui/src/candidate/appearance-candidate-preview";
+import { candidateSkinPalette } from "../../../../packages/ui/src/skin/skin-preview-palette";
 import type { Preferences } from "@msime/ui";
 
 afterEach(() => {
@@ -15,6 +16,12 @@ const preferences: Preferences = {
   learning: true,
   chinese_punctuation: true,
 };
+
+test("missing preview skin uses the default willow green palette", () => {
+  const palette = candidateSkinPalette("", "light") as Record<string, string>;
+  const willow = candidateSkinPalette("willow_green", "light") as Record<string, string>;
+  expect(palette).toEqual(willow);
+});
 
 test("all builtins resolve candidate override before global, independently of settings", () => {
   const view = render(<AppearanceCandidatePreview preferences={preferences} />);
