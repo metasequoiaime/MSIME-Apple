@@ -131,6 +131,7 @@ assert source.index("return toggleInputMode();") < source.index(
 assert "ime_mode_chosen_" in source
 assert 'preferences_.value("default_ime_mode", "chinese")' in source
 assert 'voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_)' in source
+assert 'voice_options_.value("asr_provider", std::string{"doubao"})' in source
 assert 'fcitx_system_dark_theme()' in source
 assert 'refreshSystemTheme()' in source
 assert 'system_theme_probe_due_' in source

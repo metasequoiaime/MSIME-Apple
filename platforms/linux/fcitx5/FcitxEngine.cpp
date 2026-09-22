@@ -1987,7 +1987,7 @@ public:
           if (!partial.empty()) {
             const bool inlinePreedit = msime_voice_stream_inline_enabled(
                 voice_options_.value("stream_inline_preedit", false),
-                voice_options_.value("asr_provider", std::string{}),
+                voice_options_.value("asr_provider", std::string{"doubao"}),
                 voice_options_.value("commit_mode", std::string("tsf")));
             if (inlinePreedit) {
               voice_preedit_ = partial;
@@ -2034,7 +2034,7 @@ public:
           latestPartial = msime_voice_bound_result(std::move(latestPartial));
           const bool inlinePreedit = msime_voice_stream_inline_enabled(
               voice_options_.value("stream_inline_preedit", false),
-              voice_options_.value("asr_provider", std::string{}),
+              voice_options_.value("asr_provider", std::string{"doubao"}),
               voice_options_.value("commit_mode", std::string("tsf")));
           (inlinePreedit ? voice_preedit_ : voice_transcript_) = std::move(latestPartial);
         }
