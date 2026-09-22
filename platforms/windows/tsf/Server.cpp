@@ -78,10 +78,7 @@ class CClassFactory : public IClassFactory
     HRESULT (*_pfnCreateInstance)(IUnknown *pUnkOuter, REFIID riid, _COM_Outptr_ void **ppvObj);
 
   private:
-    CClassFactory &operator=(const CClassFactory &rhn)
-    {
-        rhn;
-    };
+    CClassFactory &operator=(const CClassFactory &) = delete;
 };
 
 //+---------------------------------------------------------------------------
