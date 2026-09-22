@@ -30,7 +30,9 @@ public final class MlKitHandwritingRecognizer implements HandwritingRecognizer {
         Objects.requireNonNull(context, "context");
         DigitalInkRecognitionModelIdentifier identifier =
             DigitalInkRecognitionModelIdentifier.fromLanguageTag("zh-Hani-CN");
-        if (identifier == null) throw new IllegalStateException("Chinese handwriting model unavailable");
+        if (identifier == null) {
+            throw new IllegalStateException("Chinese handwriting model unavailable");
+        }
         model = DigitalInkRecognitionModel.builder(identifier).build();
         recognizer = DigitalInkRecognition.getClient(
             DigitalInkRecognizerOptions.builder(model).build());

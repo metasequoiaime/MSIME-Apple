@@ -9,12 +9,16 @@ import androidx.work.Configuration;
 import androidx.work.WorkManager;
 import com.google.mlkit.common.MlKit;
 
-/** Initializes packaged handwriting dependencies before the isolated IME service starts. */
+/** Initializes packaged handwriting dependencies inside the isolated IME process. */
 public final class MlKitImeInitProvider extends ContentProvider {
     @Override public boolean onCreate() {
         Context context = getContext();
         if (context == null) return false;
-        WorkManager.initialize(context, new Configuration.Builder().build());
+        try {
+            WorkManager.getInstance(context);
+        } catch (IllegalStateException uninitialized) {
+            WorkManager.initialize(context, new Configuration.Builder().build());
+        }
         MlKit.initialize(context);
         return true;
     }
