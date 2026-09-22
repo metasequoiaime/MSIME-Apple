@@ -217,13 +217,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private static let candidateRowHeight: CGFloat = 38
   static let glossLineHeight: CGFloat = 14
   static func glossHeight(lines: Int) -> CGFloat { CGFloat(max(lines, 0)) * glossLineHeight }
-  static func candidateStripHeight(glossLines: Int) -> CGFloat {
-    compositionRowHeight + candidateRowHeight + glossHeight(lines: glossLines)
+  // A larger candidate or composition size grows its row with it, but a smaller one never shrinks the row below the default: the row is also the touch target.
+  static func compositionRowHeight(preeditScale: CGFloat) -> CGFloat {
+    max(compositionRowHeight, ceil(compositionRowHeight * preeditScale))
+  }
+  static func candidateRowHeight(candidateScale: CGFloat) -> CGFloat {
+    max(candidateRowHeight, ceil(candidateRowHeight * candidateScale))
+  }
+  static func candidateStripHeight(
+    glossLines: Int, candidateScale: CGFloat = 1, preeditScale: CGFloat = 1
+  ) -> CGFloat {
+    compositionRowHeight(preeditScale: preeditScale) + candidateRowHeight(candidateScale: candidateScale)
+      + glossHeight(lines: glossLines)
+  }
+  /// What the strip adds to the keyboard's base height, which already counts one default candidate row.
+  static func stripExtraHeight(
+    glossLines: Int, candidateScale: CGFloat = 1, preeditScale: CGFloat = 1
+  ) -> CGFloat {
+    candidateStripHeight(glossLines: glossLines, candidateScale: candidateScale, preeditScale: preeditScale)
+      - candidateRowHeight
   }
   /// Height reserved below the candidate row for composition and configured gloss lines.
   /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
   static var stripExtraHeight: CGFloat {
-    compositionRowHeight + glossHeight(lines: configuredGlossLines(fullAccess: false))
+    stripExtraHeight(glossLines: configuredGlossLines(fullAccess: false))
   }
 
   static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool) -> Bool {
@@ -241,7 +258,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return lines
   }
   private var glossLineCount = 0
+  private var candidateFontScale: CGFloat = 1
+  private var preeditFontScale: CGFloat = 1
   private var candidateStripHeightConstraint: NSLayoutConstraint?
+  private var compositionRowHeightConstraint: NSLayoutConstraint?
+  private var shortcutBarTopConstraint: NSLayoutConstraint?
 
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
@@ -304,8 +325,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     installKeyboard()
     let height = view.heightAnchor.constraint(equalToConstant:
-      260 + Self.compositionRowHeight + Self.glossHeight(lines: glossLineCount)
-        + CGFloat(KeyboardLayoutPreference.heightAdjustment))
+      260 + currentStripExtraHeight + CGFloat(KeyboardLayoutPreference.heightAdjustment))
     height.priority = .init(999)
     height.identifier = "keyboardHeight"
     height.isActive = true
@@ -774,12 +794,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // went wrong, so dropping it is dropping the useful half.
     preeditConfiguration.titleLineBreakMode = .byTruncatingTail
     preeditConfiguration.baseForegroundColor = KeyboardSkinPreference.selected.accent
-    preeditConfiguration.titleTextAttributesTransformer =
-      UIConfigurationTextAttributesTransformer { attributes in
-        var attributes = attributes
-        attributes.font = .preferredFont(forTextStyle: .subheadline)
-        return attributes
-      }
+    preeditConfiguration.titleTextAttributesTransformer = Self.fontTransformer(
+      .subheadline, scale: preeditFontScale)
     preeditButton.configuration = preeditConfiguration
     preeditButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
     preeditButton.showsMenuAsPrimaryAction = true
@@ -841,14 +857,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     installShortcutBar(in: container)
 
     let stripHeight = container.heightAnchor.constraint(
-      equalToConstant: Self.candidateStripHeight(glossLines: glossLineCount))
+      equalToConstant: currentStripHeight)
     candidateStripHeightConstraint = stripHeight
+    let compositionHeight = compositionRow.heightAnchor.constraint(
+      equalToConstant: Self.compositionRowHeight(preeditScale: preeditFontScale))
+    compositionRowHeightConstraint = compositionHeight
     NSLayoutConstraint.activate([
       stripHeight,
       compositionRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
       compositionRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
       compositionRow.topAnchor.constraint(equalTo: container.topAnchor),
-      compositionRow.heightAnchor.constraint(equalToConstant: Self.compositionRowHeight),
+      compositionHeight,
       preeditButton.leadingAnchor.constraint(equalTo: compositionRow.leadingAnchor),
       preeditButton.trailingAnchor.constraint(lessThanOrEqualTo: compositionRow.trailingAnchor),
       preeditButton.centerYAnchor.constraint(equalTo: compositionRow.centerYAnchor),
@@ -890,14 +909,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
     }
     container.addSubview(shortcutBar)
+    // The shortcut bar stands in for the candidates, so it takes their row rather than the
+    // composition's; the composition line stays reserved either way and nothing shifts when a
+    // composition starts.
+    let shortcutTop = shortcutBar.topAnchor.constraint(
+      equalTo: container.topAnchor, constant: Self.compositionRowHeight(preeditScale: preeditFontScale))
+    shortcutBarTopConstraint = shortcutTop
     NSLayoutConstraint.activate([
       shortcutBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
       shortcutBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-      // The shortcut bar stands in for the candidates, so it takes their row rather than the
-      // composition's; the composition line stays reserved either way and nothing shifts when a
-      // composition starts.
-      shortcutBar.topAnchor.constraint(
-        equalTo: container.topAnchor, constant: Self.compositionRowHeight),
+      shortcutTop,
       shortcutBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
     ])
     scriptShortcut.addAction(UIAction { [weak self] _ in
@@ -1823,13 +1844,46 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     Self.configuredGlossLines(fullAccess: hasFullAccess)
   }
 
+  private var currentStripHeight: CGFloat {
+    Self.candidateStripHeight(
+      glossLines: glossLineCount, candidateScale: candidateFontScale, preeditScale: preeditFontScale)
+  }
+
+  private var currentStripExtraHeight: CGFloat {
+    Self.stripExtraHeight(
+      glossLines: glossLineCount, candidateScale: candidateFontScale, preeditScale: preeditFontScale)
+  }
+
+  /// Gloss lines and the candidate and composition sizes all decide how tall the strip is, so they are applied together.
   private func applyCandidateGlossLayout() {
     let lines = currentGlossLines()
-    guard lines != glossLineCount else { return }
+    let tablet = formFactor == .tablet
+    let candidateScale = CandidateFontPreference.candidateScale(in: session.sharedPreferences, tablet: tablet)
+    let preeditScale = CandidateFontPreference.preeditScale(in: session.sharedPreferences, tablet: tablet)
+    guard lines != glossLineCount || candidateScale != candidateFontScale
+      || preeditScale != preeditFontScale else { return }
     glossLineCount = lines
-    candidateStripHeightConstraint?.constant = Self.candidateStripHeight(glossLines: lines)
+    if preeditScale != preeditFontScale {
+      preeditFontScale = preeditScale
+      preeditButton.configuration?.titleTextAttributesTransformer = Self.fontTransformer(
+        .subheadline, scale: preeditScale)
+    }
+    candidateFontScale = candidateScale
+    candidateStripHeightConstraint?.constant = currentStripHeight
+    compositionRowHeightConstraint?.constant = Self.compositionRowHeight(preeditScale: preeditScale)
+    shortcutBarTopConstraint?.constant = Self.compositionRowHeight(preeditScale: preeditScale)
     updatePreferredKeyboardHeight()
     renderCandidateStrip()
+  }
+
+  private static func fontTransformer(
+    _ style: UIFont.TextStyle, scale: CGFloat
+  ) -> UIConfigurationTextAttributesTransformer {
+    UIConfigurationTextAttributesTransformer { attributes in
+      var attributes = attributes
+      attributes.font = CandidateFontPreference.font(style, scale: scale)
+      return attributes
+    }
   }
 
   private func applyInputScheme() -> MetasequoiaInputSnapshot {
@@ -2239,6 +2293,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
                                    typed: snapshot.preedit)
         },
+        candidateScale: candidateFontScale, preeditScale: preeditFontScale,
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         menuElements: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return [] }
@@ -3160,18 +3215,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if annotation.isEmpty && glosses.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
       configuration.attributedTitle = nil
+      configuration.titleTextAttributesTransformer = Self.fontTransformer(.body, scale: candidateFontScale)
       configuration.title = display
     } else {
       configuration.titleLineBreakMode = .byWordWrapping
+      // The runs below carry their own fonts; a transformer would flatten the gloss lines to the candidate size.
+      configuration.titleTextAttributesTransformer = nil
       let paragraph = NSMutableParagraphStyle()
       paragraph.alignment = .natural
       paragraph.lineBreakMode = .byTruncatingTail
       var title = AttributedString(display, attributes: AttributeContainer([
-        .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+        .font: CandidateFontPreference.font(.body, scale: candidateFontScale), .paragraphStyle: paragraph,
       ]))
       if !annotation.isEmpty {
         title += AttributedString(" " + annotation, attributes: AttributeContainer([
-          .font: UIFont.preferredFont(forTextStyle: .caption1), .paragraphStyle: paragraph,
+          .font: CandidateFontPreference.font(.caption1, scale: candidateFontScale), .paragraphStyle: paragraph,
           .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
         ]))
       }
@@ -3436,7 +3494,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       ?? (traitCollection.verticalSizeClass == .compact)
     // The composition line added a row to the candidate strip; the keyboard grew by it rather than
     // taking the space out of the keys.
-    let extra = Self.compositionRowHeight + Self.glossHeight(lines: glossLineCount)
+    let extra = currentStripExtraHeight
     // Handwriting shares the candidate strip and therefore the common portrait height.
     let height = formFactor.baseHeight(landscape: landscape, handwriting: !handwriting.isHidden) + extra
     let adjustedHeight = height + sharedKeyboardHeightAdjustment
@@ -3773,6 +3831,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if isViewLoaded, actionRow != nil,
        previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
       updateKeyboardLayoutIfNeeded()
+      // The form factor also sets how large a synced candidate size may be drawn.
+      applyCandidateGlossLayout()
     }
   }
 

@@ -1,6 +1,7 @@
 import SwiftUI
+import UIKit
 
-/// Pinyin typo correction, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
+/// Candidate text size, pinyin typo correction, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
 ///
 /// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. Cloud candidates are the exception: an iOS-only switch in the App Group (see CloudCandidatePreference). The keyboard hands a change to its live session the next time it appears.
 struct CandidateOptionsSettingsView: View {
@@ -14,10 +15,38 @@ struct CandidateOptionsSettingsView: View {
   @State private var wordCharacter = true
   @AppStorage(CloudCandidatePreference.key, store: CloudCandidatePreference.defaults)
   private var cloudCandidates = false
+  @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
+  @State private var preeditSize = CandidateFontPreference.defaultPreeditSize
   @State private var saveFailed = false
+  /// A docked iPad keyboard has room for larger candidates than a phone strip; the keyboard applies the same limits when it draws.
+  private let tablet = UIDevice.current.userInterfaceIdiom == .pad
 
   var body: some View {
     Form {
+      Section {
+        Stepper(value: storedTop(CandidateFontPreference.candidateKey, $candidateSize),
+                in: CandidateFontPreference.candidateRange(tablet: tablet)) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("候选字号：\(candidateSize)")
+            Text("水杉输入法").font(Font(CandidateFontPreference.font(
+              .body, scale: CGFloat(candidateSize) / CGFloat(CandidateFontPreference.defaultCandidateSize))))
+          }
+        }.accessibilityIdentifier("candidateFontSize")
+        Stepper(value: storedTop(CandidateFontPreference.preeditKey, $preeditSize),
+                in: CandidateFontPreference.preeditRange(tablet: tablet)) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("编码字号：\(preeditSize)")
+            Text("shui'shan").font(Font(CandidateFontPreference.font(
+              .subheadline, scale: CGFloat(preeditSize) / CGFloat(CandidateFontPreference.defaultPreeditSize))))
+          }
+        }.accessibilityIdentifier("candidatePreeditFontSize")
+      } header: {
+        Text("字号")
+      } footer: {
+        Text(tablet
+          ? "默认 18 和 15，与桌面端同步。候选栏会随字号变高；浮动的小键盘按手机的上限显示。"
+          : "默认 18 和 15，与桌面端同步。候选栏会随字号变高；桌面端设得更大时，手机上最多显示到 24 和 20。")
+      }
       Section {
         Toggle(isOn: stored("quanpin", "autocorrect_transposition", $transposition)) {
           labelled("字母顺序错位", "例如把 shang 输入为 sahng")
@@ -88,6 +117,15 @@ struct CandidateOptionsSettingsView: View {
     })
   }
 
+  /// A binding that writes one top-level field of the shared document; a refused write puts the stored value back.
+  private func storedTop<Value>(_ key: String, _ state: Binding<Value>) -> Binding<Value> {
+    Binding(get: { state.wrappedValue }, set: { value in
+      state.wrappedValue = value
+      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
+      if saveFailed { reload() }
+    })
+  }
+
   private func reload() {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     let quanpin = preferences["quanpin"] as? [String: Any] ?? [:]
@@ -98,6 +136,8 @@ struct CandidateOptionsSettingsView: View {
     minimumPrefix = (mixed["minimum_prefix"] as? NSNumber)?.intValue ?? minimumPrefix
     emoji = mixed["emoji"] as? Bool ?? emoji
     kaomoji = mixed["kaomoji"] as? Bool ?? kaomoji
+    candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: tablet)
+    preeditSize = CandidateFontPreference.preeditSize(in: preferences, tablet: tablet)
     wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
   }
 }

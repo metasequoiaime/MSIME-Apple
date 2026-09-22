@@ -401,8 +401,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       }
       let candidate = try button("candidate-1", in: controller)
       XCTAssertTrue(candidate.menu?.children.first is UIDeferredMenuElement)
+      // 你好 has two characters, so 以词定字 leads the menu while the shared `word_character.enabled` default is on.
       XCTAssertEqual(controller.candidateMenuElements(at: 0).map(\.title),
-                     ["优先显示", "固定到首位", "取消固定", "删除词条…"])
+                     ["以词定字", "优先显示", "固定到首位", "取消固定", "删除词条…"])
       XCTAssertEqual((controller.candidateMenuElements(at: 0).last as? UIMenu)?.children.first?.title,
                      "确认删除此词条")
     }
@@ -1702,10 +1703,9 @@ final class NineKeyKeyboardTests: XCTestCase {
 
   /// Nine-key digits reach the English candidates too.
   ///
-  /// From a report: typing 65 on nine-key wanted `ok` and the strip had nothing. The digits are
-  /// letter groups, so the mixed-English path has to see them the same way the Chinese one does;
-  /// nothing in the host mapped them, and the failure looked like the word being missing from
-  /// the dictionary rather than like the layout never asking.
+  /// From a report: typing 65 on nine-key wanted `ok` and the strip had nothing. The digits are letter groups, so the mixed-English path has to see them the same way the Chinese one does; nothing in the host mapped them, and the failure looked like the word being missing from the dictionary rather than like the layout never asking.
+  ///
+  /// The shared `mixed_input.minimum_prefix` default is now 5, matching Windows, so a two-digit `ok` no longer reaches English at all; the check types the five digits of `hello` instead.
   func testNineKeyOffersEnglishForTheDigitsTyped() throws {
     let previousScheme = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
@@ -1720,7 +1720,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.frame = CGRect(
       x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
     controller.viewWillAppear(false)
-    for key in ["nineKey6", "nineKey5"] {
+    for key in ["nineKey4", "nineKey3", "nineKey5", "nineKey5", "nineKey6"] {
       try button(key, in: controller).sendActions(for: .primaryActionTriggered)
     }
     let chips = descendants(controller.view).compactMap { $0 as? UIButton }
@@ -1728,7 +1728,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       .compactMap { chip -> String? in
         chip.configuration?.attributedTitle.map { String($0.characters) } ?? chip.configuration?.title
       }
-    XCTAssertTrue(chips.contains { $0.hasPrefix("ok") }, "nine-key 65 offered no ok: \(chips)")
+    XCTAssertTrue(chips.contains { $0.hasPrefix("hello") }, "nine-key 43556 offered no hello: \(chips)")
   }
 
   func testNineKeyInputAndLayoutSwitches() throws {
