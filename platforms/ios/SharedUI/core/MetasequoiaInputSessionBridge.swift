@@ -160,6 +160,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var stateRoot: String?
   private var initializationDiagnostic: String?
   private var revision: UInt64 = 0
+  /// The shared document's revision as this bridge last saw it.
+  ///
+  /// Kept apart from `revision`, which counts the snapshots handed to the session: every local change bumps that one, so a document the settings app had just saved - one step past what the keyboard last read - compared lower and was dropped as stale.
+  private var documentRevision: UInt64 = 0
   private var appliedFuzzyPinyinRules: UInt32?
   private var suspended = false
   // Nine-key lives on the session, not in the preferences the options carry, so a rebuilt session
@@ -230,7 +234,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           completion(false)
           return
         }
-        guard revision.uint64Value >= self.revision else {
+        guard revision.uint64Value >= self.documentRevision else {
           completion(false)
           return
         }
@@ -238,11 +242,33 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         // visible; applyLearningPreferences will update only the fuzzy-pinyin
         // contract below. This avoids changing the selected scheme underneath
         // UIKit while a Tauri settings write is being observed.
+        let applied = (self.options["preferences"] as? [String: Any]) ?? [:]
         self.options["preferences"] = Self.hostOverrides(applyingTo: preferences)
         self.revision = max(self.revision, revision.uint64Value)
+        self.documentRevision = revision.uint64Value
+        self.applyPunctuationRules(from: preferences, over: applied)
         completion(true)
       }
     }
+  }
+
+  /// The punctuation switches the settings app edits.
+  ///
+  /// Unlike the scheme, they are read on every keystroke rather than when the session is built, so a change made in the settings app has to reach the live session: the keyboard extension process outlives many appearances, and waiting for its next session meant a switch the user had just turned off kept working.
+  private static let punctuationRuleKeys = [
+    "smart_punctuation", "smart_punctuation_repeat", "smart_punctuation_space_convert",
+    "smart_punctuation_direct_digit", "smart_punctuation_direct_letter",
+    "paired_punctuation", "punctuation_lock",
+  ]
+
+  /// Hand the reloaded punctuation switches to the session, leaving every other field as the session has it. The session queues the change behind an open composition, so this never interrupts typing.
+  private func applyPunctuationRules(from reloaded: [String: Any], over applied: [String: Any]) {
+    var next = applied
+    for key in Self.punctuationRuleKeys { next[key] = reloaded[key] }
+    guard handle != 0, !NSDictionary(dictionary: next).isEqual(to: applied) else { return }
+    revision &+= 1
+    let snapshot: [String: Any] = ["format_version": 1, "revision": revision, "preferences": next]
+    _ = try? Self.callUpdate(msimeClientUpdatePreferences, handle, snapshot)
   }
 
   /// The active fuzzy-pinyin bitset from the shared PreferencesStore.
@@ -388,25 +414,58 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// wrote it. A lost compare-and-swap leaves the live session alone; the next selection retries.
   @discardableResult
   private func persistSharedPreferences(_ mutate: (inout [String: Any]) -> Void) -> Bool {
-    guard let stateRoot else { return false }
+    guard let stateRoot,
+          let revision = Self.persistSharedPreferences(stateRoot: stateRoot, mutate) else { return false }
+    self.revision = max(self.revision, revision)
+    documentRevision = max(documentRevision, revision)
+    return true
+  }
+
+  /// The shared document as the settings app reads it: without a session, so opening a settings page does not load the Engine.
+  ///
+  /// `stateRoot` is for tests; the app and the keyboard share the App Group one.
+  static func loadSharedPreferences(stateRoot: URL? = nil) -> [String: Any]? {
+    let directory = Data(sharedStateRoot(stateRoot).utf8)
+    guard !directory.isEmpty, directory.count <= 16_384 else { return nil }
+    return (try? callDirectory(msimeClientLoadPreferences, directory))?["preferences"] as? [String: Any]
+  }
+
+  /// Change fields of the shared document from the settings app.
+  ///
+  /// The keyboard picks the change up the next time it appears (`reloadSharedPreferences`). A write that loses the compare-and-swap to the keyboard returns false and changes nothing.
+  @discardableResult
+  static func updateSharedPreferences(stateRoot: URL? = nil,
+                                      _ mutate: (inout [String: Any]) -> Void) -> Bool {
+    persistSharedPreferences(stateRoot: sharedStateRoot(stateRoot), mutate) != nil
+  }
+
+  private static func sharedStateRoot(_ override: URL?) -> String {
+    bootstrapOptions(resources: nil, stateRoot: override)["state_root"] as? String ?? ""
+  }
+
+  /// Returns the revision the document is at afterwards, or nil when nothing was written.
+  private static func persistSharedPreferences(stateRoot: String,
+                                               _ mutate: (inout [String: Any]) -> Void) -> UInt64? {
     let directory = Data(stateRoot.utf8)
-    guard !directory.isEmpty, directory.count <= 16_384 else { return false }
-    guard let stored = try? Self.callDirectory(msimeClientLoadPreferences, directory),
+    guard !directory.isEmpty, directory.count <= 16_384 else { return nil }
+    guard let stored = try? callDirectory(msimeClientLoadPreferences, directory),
           let storedRevision = stored["revision"] as? NSNumber,
-          let previous = stored["preferences"] as? [String: Any] else { return false }
+          let previous = stored["preferences"] as? [String: Any] else { return nil }
     var preferences = previous
     mutate(&preferences)
-    guard !NSDictionary(dictionary: preferences).isEqual(to: previous) else { return true }
+    guard !NSDictionary(dictionary: preferences).isEqual(to: previous) else {
+      return storedRevision.uint64Value
+    }
     let document: [String: Any] = ["format_version": 1, "revision": storedRevision,
                                    "preferences": preferences]
     guard JSONSerialization.isValidJSONObject(document),
           let snapshot = try? JSONSerialization.data(withJSONObject: document),
-          snapshot.count <= 16_384 else { return false }
+          snapshot.count <= 16_384 else { return nil }
     let saved: [String: Any]
     do {
       saved = try directory.withUnsafeBytes { directoryBytes -> [String: Any] in
         try snapshot.withUnsafeBytes { snapshotBytes -> [String: Any] in
-          let value = try Self.decode(msimeClientSavePreferences(
+          let value = try decode(msimeClientSavePreferences(
             directoryBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(directory.count),
             storedRevision.uint64Value,
             snapshotBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(snapshot.count)))
@@ -417,12 +476,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         }
       }
     } catch {
-      return false
+      return nil
     }
-    if let revision = saved["revision"] as? NSNumber {
-      self.revision = max(self.revision, revision.uint64Value)
-    }
-    return true
+    return (saved["revision"] as? NSNumber)?.uint64Value ?? storedRevision.uint64Value
   }
 
   /// Persist a built-in touch-keyboard skin in the canonical PreferencesStore.
