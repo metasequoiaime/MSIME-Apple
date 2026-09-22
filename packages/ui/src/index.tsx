@@ -3600,6 +3600,42 @@ export function SettingsPage({
                   : "已保存，留空则保留原凭据"}
           </small>
         </div>
+        {doubao && (
+          <label className="section-header">
+            <span className="section-title">
+              流式接口
+              <small>
+                整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址，保存凭据后生效；地址留空时语音
+                provider 使用双向流式。
+              </small>
+            </span>
+            <select
+              aria-label="流式接口"
+              value={
+                // An empty address is the provider's default, which is the bidirectional endpoint.
+                DOUBAO_STREAM_ENDPOINTS.find(
+                  (option) =>
+                    option.endpoint ===
+                    (endpoint.trim() ||
+                      DOUBAO_STREAM_ENDPOINTS.find((preset) => preset.id === "async")?.endpoint),
+                )?.id ?? "custom"
+              }
+              onChange={(event) => {
+                const chosen = DOUBAO_STREAM_ENDPOINTS.find(
+                  (option) => option.id === event.target.value,
+                );
+                if (chosen) update({ endpoint: chosen.endpoint });
+              }}
+            >
+              {DOUBAO_STREAM_ENDPOINTS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.title}
+                </option>
+              ))}
+              <option value="custom">自定义地址</option>
+            </select>
+          </label>
+        )}
         <label className="section-header">
           <span className="section-title">
             接口地址<small>留空使用当前 provider 默认地址</small>

@@ -11,6 +11,7 @@
 #include "JapaneseConversion.h"
 #include "CandidateSkinCatalog.h"
 #include "DictionaryQuiesceLease.h"
+#include "InputModeIndicator.h"
 #include "SmartPunctuationSpace.h"
 #include "WordCharacterBinding.h"
 #include "../voice/VoiceAction.h"
@@ -375,6 +376,8 @@ struct State {
   bool voice_hotkey_rctrl_ralt = false;
   bool voice_hotkey_hold_space_lock = true;
   bool voice_hotkey_ctrl_f9 = true;
+  // The lock state as the last key event reported it; IBus sends no event of its own when it changes.
+  bool caps_lock = false;
   // Key ownership lasts until release, independently of provider completion.
   std::set<guint> voice_consumed_keys;
   guint voice_hold_key = 0;
@@ -2375,8 +2378,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
                                                        : "直接输入（不转换）"),
       s.focused && !s.blocked, TRUE,
       s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  ibus_property_set_symbol(
-      property, ibus_text_new_from_static_string(s.input_enabled ? "文" : "A"));
+  const char *mode_symbol = "文";
+  switch (msime::linux_host::input_mode_indicator(s.input_enabled, japanese_scheme, s.caps_lock)) {
+  case msime::linux_host::InputModeIndicator::Chinese: mode_symbol = "文"; break;
+  case msime::linux_host::InputModeIndicator::Japanese: mode_symbol = "日"; break;
+  case msime::linux_host::InputModeIndicator::English: mode_symbol = "A"; break;
+  case msime::linux_host::InputModeIndicator::CapsLock: mode_symbol = "⇪"; break;
+  }
+  ibus_property_set_symbol(property, ibus_text_new_from_static_string(mode_symbol));
   const auto voice_label = s.voice_active
       ? (s.voice_space_locked && !s.voice_stopping
              ? std::string("录音已锁定") : s.voice_phase)
@@ -5358,6 +5367,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // Pressing CapsLock reports the old lock state and releasing it the new one, so every event is checked.
+  if (const bool caps_lock = (flags & IBUS_LOCK_MASK) != 0; caps_lock != s.caps_lock) {
+    s.caps_lock = caps_lock;
+    publish_mode(engine);
+  }
   if (key == IBUS_BackSpace && release) {
     const bool owned = s.backspace_hold.armed();
     s.backspace_hold.release();

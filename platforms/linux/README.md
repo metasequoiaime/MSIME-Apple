@@ -208,7 +208,7 @@ Linux 桌面外壳现在提供与 Windows、macOS 同样的九个账号命令（
 
 桌面设置可在 HostOptions 中配置 `cloud_dictionary_provider_socket` 和 `cloud_clipboard_provider_socket` 两个绝对 Unix socket；未配置时分别回退到 `MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET` 和 `MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET`。这两个字段会随 runtime-options 原样保留，但不会进入 Engine 选项或输入会话。
 
-IBus 面板注册 `InputMode` 开关：选中时按当前输入方案转换，关闭时直接透传编辑器输入。面板符号为「文」或「A」，不把日语等已配置方案误标为中文。切到直接输入前通过 Engine 完成高亮组合；再次聚焦保留当前实例的选择，关闭期间的候选点击和翻页无效。密码等受限字段及失焦时开关不可用，恢复正常字段后继续使用原选择。按 `ime_mode_scope` 分别记忆客户端或共享全局状态，不写回偏好文件或重启持久化，也不占用桌面已有的输入源切换快捷键。
+IBus 面板注册 `InputMode` 开关：选中时按当前输入方案转换，关闭时直接透传编辑器输入。面板符号为「文」或「A」，日语方案开启转换时为「日」，CapsLock 打开时无论哪种模式都显示「⇪」（与 Windows 语言栏图标的优先级一致），不把日语等已配置方案误标为中文。Fcitx5 宿主通过输入法子模式标签在托盘和面板上显示同样的状态，用词与模式提示一致：「中」「英」「日」「⇪」。CapsLock 状态取自按键事件（松开 CapsLock 时即更新）。切到直接输入前通过 Engine 完成高亮组合；再次聚焦保留当前实例的选择，关闭期间的候选点击和翻页无效。密码等受限字段及失焦时开关不可用，恢复正常字段后继续使用原选择。按 `ime_mode_scope` 分别记忆客户端或共享全局状态，不写回偏好文件或重启持久化，也不占用桌面已有的输入源切换快捷键。
 
 `ime_mode_scope` 可设为 `app` 或 `global`。按应用时按 IBus 提供的客户端身份分别记忆每个编辑器的中英文状态；没有客户端身份时回退到 `default_ime_mode`。状态表有界且只保存在当前 IBus 进程内。设为全局时，当前 IBus 进程的输入上下文在获得焦点时同步同一个中英文状态；该状态不写回偏好文件，也不干预桌面环境已有的输入源切换。
 
@@ -424,7 +424,7 @@ IBus 在可输入的焦点会话中监听历史文件所在目录，外部工具
 
 `ai-provider.json` 和 `tencent-provider.json` 不必手写：设置页「AI 辅助」和「输入 → 在线翻译服务」里的凭据输入框会由 Tauri 宿主直接写入这两个文件（目录 0700、文件 0600、先写临时文件再 rename），AI 凭据按服务商存到 `profiles` 下并绑定当时的接口地址和模型。凭据只从设置页流向宿主进程，设置页只能读到哪些服务商已有凭据及其绑定的接口和模型。已存在但不合规的文件（权限过宽、符号链接、JSON 无效）不会被覆盖，设置页会提示修复或删除。
 
-`voice-provider.json` 同样可以在设置页「语音输入」里写入：识别和润色各有一组凭据输入框，按上方选中的服务商、模型、接口地址（豆包还有资源 ID、鉴权方式和旧式鉴权的 App Key）写进 provider 要求的 `asr`/`polish` 与 `asr_profiles`/`polish_profiles` 布局。语音 provider 没有 ASR 配置就拒绝启动，所以只有润色凭据的文件不会被写出；首次保存识别凭据后宿主执行 `systemctl --user enable --now msime-client-voice.socket`（并先 `reset-failed` 之前因缺配置而失败的服务），清除最后一个识别凭据时删除文件并停用 socket。用户服务管理器不可达时文件照常保存，设置页给出需要手动执行的命令。
+`voice-provider.json` 同样可以在设置页「语音输入」里写入：识别和润色各有一组凭据输入框，按上方选中的服务商、模型、接口地址（豆包还有资源 ID、鉴权方式和旧式鉴权的 App Key）写进 provider 要求的 `asr`/`polish` 与 `asr_profiles`/`polish_profiles` 布局。语音 provider 没有 ASR 配置就拒绝启动，所以只有润色凭据的文件不会被写出；首次保存识别凭据后宿主执行 `systemctl --user enable --now msime-client-voice.socket`（并先 `reset-failed` 之前因缺配置而失败的服务），清除最后一个识别凭据时删除文件并停用 socket。用户服务管理器不可达时文件照常保存，设置页给出需要手动执行的命令。豆包识别凭据上方与 Windows 一样提供「流式接口」选择：整句流式（`bigmodel_nostream`）或双向流式（`bigmodel_async`），选中后写入凭据的接口地址；地址留空时 provider 默认使用双向流式。
 
 随包在线服务启动器通过 `--config-directory` 固定配置目录，即使启动时尚无 `ai-provider.json` 或 `tencent-provider.json`，后续创建或修复文件也会在下次请求生效，无需重启服务。目录模式下缺失、损坏或权限不合规的配置只会停用相应功能；每次请求仍执行 owner-only 文件校验。手动传入 `--ai-config` 或 `--tencent-config` 时保留原有启动校验，并优先于配置目录中的默认文件。
 
