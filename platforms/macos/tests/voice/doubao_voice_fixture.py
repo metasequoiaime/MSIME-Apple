@@ -8,6 +8,10 @@ import struct
 import subprocess
 import sys
 import threading
+import time
+T0 = time.monotonic()
+marks = []
+def mark(what): marks.append(f"{time.monotonic() - T0:7.2f} {what}")
 
 errors = []
 counts = {}
@@ -61,6 +65,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            mark(f"connect {self.path}")
             counts[self.path] = counts.get(self.path, 0) + 1
             assert self.path != "/leaked"
             if self.path == "/redirect":
@@ -110,6 +115,7 @@ class Handler(BaseHTTPRequestHandler):
                     kind, sequence, pcm = self.receive()
                     assert kind == 0x23 and sequence == -3 and pcm == b"\xff\x1f" * 19
                     self.transcript("synthetic final", True)
+            mark(f"done {self.path}")
             self.close_connection = True
         except (EOFError, ConnectionError):
             self.close_connection = True
@@ -118,7 +124,9 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
 
 
+mark("bind start")
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+mark("bind done")
 # A handler can sit in a 40 s socket read; joining it on close outlived ctest's limit, so a hang was killed before this script could say anything.
 server.daemon_threads = True
 server.block_on_close = False
@@ -127,6 +135,7 @@ try:
     client = subprocess.Popen([sys.argv[1], f"ws://127.0.0.1:{server.server_port}"])
     try:
         returncode = client.wait(timeout=60)
+        mark(f"client exit {returncode}")
     except subprocess.TimeoutExpired:
         # Every wait in the client fails on its own deadline, so reaching this means a thread is stuck; its stack is the only useful output.
         subprocess.run(["sample", str(client.pid), "3"], stdout=sys.stderr, stderr=sys.stderr)
@@ -140,3 +149,6 @@ try:
 finally:
     server.shutdown()
     server.server_close()
+    mark("closed")
+    print("\n".join(marks), file=sys.stderr)
+    raise SystemExit("timing probe, not a real failure")
