@@ -763,6 +763,13 @@ public:
     preferences_snapshot_ = std::move(snapshot);
     voice_enabled_ = enabled;
     if (!enabled && voice_loading_) cancelVoice();
+    if (engine_) {
+      if (enabled)
+        ic_.statusArea().addAction(fcitx::StatusGroup::InputMethod, &engine_->voice_action_);
+      else
+        ic_.statusArea().removeAction(&engine_->voice_action_);
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+    }
     saveNestedBooleanPreference("voice_input", "enabled", enabled);
     render();
     return true;
@@ -1406,6 +1413,13 @@ public:
             wave_overlay_.light_theme = msime_voice_overlay_light_theme(
                 preferences_.value("voice_theme", "follow"),
                 preferences_.value("theme", "dark"), system_dark_);
+            if (engine_) {
+              if (voice_enabled_)
+                ic_.statusArea().addAction(fcitx::StatusGroup::InputMethod, &engine_->voice_action_);
+              else
+                ic_.statusArea().removeAction(&engine_->voice_action_);
+              ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+            }
             preferences_snapshot_ = std::move(snapshot);
             render();
           }
@@ -4341,7 +4355,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_search_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_category_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_group_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_action_);
+    // Added after preferences load so a disabled voice input has no dead action.
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_cancel_action_);
     // Rebuilt from the current preferences rather than assembled once: the
     // switches are a shared document that can change while a context is focused,
@@ -4367,7 +4381,14 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &translation_language_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_candidates_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &ai_candidates_action_);
-    try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
+    try {
+      if (state->ensure()) {
+        if (state->voice_enabled_)
+          event.inputContext()->statusArea().addAction(
+              fcitx::StatusGroup::InputMethod, &voice_action_);
+        state->render();
+      }
+    } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
