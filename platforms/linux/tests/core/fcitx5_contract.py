@@ -64,6 +64,9 @@ assert 'state_.session_ != item->session()' in source
 assert '!state_.ic_.hasFocus() || !state_.input_enabled_' in source
 assert 'state_.privateInput() || state_.session_ != item->session()' in source
 assert 'voice_cancelled_' in source
+assert 'msime_voice_stream_inline_enabled(' in source
+assert 'voice_preedit_' in source and 'voice_transcript_' in source
+assert 'msime_voice_result_or_transcript(' in source
 assert 'clipboard_generation_' in source
 assert 'result.value("_path", std::string{}) == clipboard_path_' in source
 assert 'result.value("_generation", uint64_t{}) == clipboard_generation_' in source

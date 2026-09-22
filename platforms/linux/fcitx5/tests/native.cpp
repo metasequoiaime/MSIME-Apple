@@ -712,6 +712,7 @@ int main(int argc, char **argv) {
     engine.keyEvent(entry, voiceHotkey);
     require(voiceHotkey.accepted(), "Ctrl+F9 starts voice input");
     bool observedVoicePartial = false;
+    bool observedVoicePreedit = false;
     const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (ic.committed.find("语音测试") == std::string::npos &&
            std::chrono::steady_clock::now() < voiceDeadline) {
@@ -721,11 +722,17 @@ int main(int argc, char **argv) {
         observedVoicePartial = observedVoicePartial || state->voice_mailbox_->partial == "语音中";
       }
       state->refreshVoice();
+      observedVoicePreedit = observedVoicePreedit ||
+                             ic.inputPanel().clientPreedit().toString() == "语音中";
     }
     require(observedVoicePartial || state->voice_partial_seen_, "voice action receives provider partial text");
+    require(observedVoicePreedit,
+            "streaming Doubao text reaches preedit in tsf commit mode");
     require(state->voice_phase_seen_ && state->voice_level_seen_,
             "voice action receives provider status and level");
     require(ic.committed.find("语音测试") != std::string::npos, "voice action commits provider text");
+    require(ic.inputPanel().clientPreedit().empty(),
+            "final voice result clears streaming preedit");
     require(voiceProvider.get(), "voice socket protocol");
     Json statistics;
     const auto statisticsDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);

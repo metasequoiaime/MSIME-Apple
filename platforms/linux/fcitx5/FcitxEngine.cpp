@@ -340,6 +340,8 @@ public:
     voice_rctrl_ralt_held_ = false;
     voice_space_consumed_ = false;
     voice_space_locked_ = false;
+    voice_preedit_.clear();
+    voice_transcript_.clear();
     if (voice_job_.valid()) {
       if (voice_job_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         try { voice_job_.get(); } catch (...) {}
@@ -1865,6 +1867,21 @@ public:
           voice_partial_seen_ = true;
           voice_phase_seen_ = voice_phase_seen_ || phaseSeen;
           voice_level_seen_ = voice_level_seen_ || levelSeen;
+          partial = msime_voice_bound_result(std::move(partial));
+          if (!partial.empty()) {
+            const bool inlinePreedit = msime_voice_stream_inline_enabled(
+                voice_options_.value("stream_inline_preedit", false),
+                voice_options_.value("asr_provider", std::string{}),
+                voice_options_.value("commit_mode", std::string("tsf")));
+            if (inlinePreedit) {
+              voice_preedit_ = partial;
+              voice_transcript_.clear();
+            } else {
+              voice_transcript_ = partial;
+              voice_preedit_.clear();
+            }
+            render();
+          }
           const char *phaseLabel[] = {"录音中", "识别中", "整理中"};
           std::string status = phaseSeen ? phaseLabel[std::min<size_t>(phase, 2)] : "录音中";
           if (levelSeen) status += " " + std::string(level, '#');
@@ -1883,25 +1900,50 @@ public:
       voice_space_consumed_ = false;
       voice_space_locked_ = false;
       if (cancelled) {
+        voice_preedit_.clear();
+        voice_transcript_.clear();
         voice_mailbox_.reset();
+        render();
         return false;
       }
       if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
         auto text = result.value("text", std::string{});
+        std::string latestPartial;
         if (mailbox) {
           std::lock_guard lock(mailbox->mutex);
           if (text.empty() && mailbox->final_ready) text = mailbox->final;
+          latestPartial = mailbox->partial;
         }
+        if (voice_preedit_.empty() && voice_transcript_.empty() && !latestPartial.empty()) {
+          latestPartial = msime_voice_bound_result(std::move(latestPartial));
+          const bool inlinePreedit = msime_voice_stream_inline_enabled(
+              voice_options_.value("stream_inline_preedit", false),
+              voice_options_.value("asr_provider", std::string{}),
+              voice_options_.value("commit_mode", std::string("tsf")));
+          (inlinePreedit ? voice_preedit_ : voice_transcript_) = std::move(latestPartial);
+        }
+        text = msime_voice_result_or_transcript(
+            std::move(text), voice_transcript_, voice_preedit_);
+        voice_preedit_.clear();
+        voice_transcript_.clear();
+        render();
         ic_.inputPanel().setAuxUp(fcitx::Text());
         ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
         voice_mailbox_.reset();
         if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Voice); return true; }
       }
+      voice_preedit_.clear();
+      voice_transcript_.clear();
+      voice_mailbox_.reset();
+      render();
     } catch (...) {
       voice_loading_ = false;
       voice_space_consumed_ = false;
       voice_space_locked_ = false;
+      voice_preedit_.clear();
+      voice_transcript_.clear();
       voice_mailbox_.reset();
+      render();
     }
     return false;
   }
@@ -1920,6 +1962,8 @@ public:
     const auto options = voice_options_;
     voice_generation_ = generation;
     voice_mailbox_ = std::make_shared<FcitxVoiceMailbox>();
+    voice_preedit_.clear();
+    voice_transcript_.clear();
     voice_partial_seen_ = false;
     voice_phase_seen_ = false;
     voice_level_seen_ = false;
@@ -1957,6 +2001,9 @@ public:
     voice_partial_seen_ = false;
     voice_phase_seen_ = false;
     voice_level_seen_ = false;
+    voice_preedit_.clear();
+    voice_transcript_.clear();
+    render();
     ic_.inputPanel().setAuxUp(fcitx::Text());
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     return true;
@@ -2373,6 +2420,8 @@ public:
   std::chrono::steady_clock::time_point modifier_toggle_deadline_{};
   std::shared_future<Json> voice_job_;
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
+  std::string voice_preedit_;
+  std::string voice_transcript_;
   uint64_t voice_generation_ = 0;
   bool voice_partial_seen_ = false;
   bool voice_phase_seen_ = false;
@@ -4290,7 +4339,14 @@ void FcitxState::render() {
   ic_.inputPanel().reset();
   const auto editing = view_.value("editing_text", std::string());
   const auto style = preferences_.value("tsf_preedit_style", std::string("raw"));
-  if (style != "empty") {
+  if (!voice_preedit_.empty()) {
+    fcitx::Text preedit(voice_preedit_, fcitx::TextFormatFlag::Underline);
+    preedit.setCursor(static_cast<int>(voice_preedit_.size()));
+    if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::Preedit))
+      ic_.inputPanel().setClientPreedit(preedit);
+    else
+      ic_.inputPanel().setPreedit(preedit);
+  } else if (style != "empty") {
     auto reading = style == "pinyin" ? view_.value("preedit", editing) : editing;
     // A Japanese composition is かな, not the letters that produced it; see
     // ../src/core/PhrasePreedit.h for the one case that keeps the letters.
