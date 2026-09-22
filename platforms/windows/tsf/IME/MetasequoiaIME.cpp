@@ -4,7 +4,7 @@
 #include "CandidateListUIPresenter.h"
 #include "CompositionProcessorEngine.h"
 #include "Compartment.h"
-#include "define.h"
+#include "Define.h"
 #include <debugapi.h>
 #include <namedpipeapi.h>
 #include <winnt.h>

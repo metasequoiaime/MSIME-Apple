@@ -8,7 +8,7 @@
 #include "Compartment.h"
 #include "LanguageBar.h"
 #include "RegKey.h"
-#include "define.h"
+#include "Define.h"
 #include "../HostOptionsPaths.h"
 #include <msctf.h>
 #include <string>

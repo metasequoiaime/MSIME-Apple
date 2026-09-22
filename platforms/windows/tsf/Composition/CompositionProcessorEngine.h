@@ -5,7 +5,7 @@
 #include "KeyHandlerEditSession.h"
 #include "MetasequoiaIMEBaseStructure.h"
 #include "Compartment.h"
-#include "define.h"
+#include "Define.h"
 #include "../EngineSessionAdapter.h"
 #include <memory>
 
