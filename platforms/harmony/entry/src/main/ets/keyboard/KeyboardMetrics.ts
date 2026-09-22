@@ -38,14 +38,18 @@ export class KeyboardMetrics {
    * KeyboardGeometry. They are passed in rather than read here so this stays a pure calculation the
    * ability and the view can both do and agree on.
    */
-  static totalHeightVp(rowSpacingTenths: number = KeyboardMetrics.ROW_SPACING_VP * 10,
-                       heightAdjustmentVp: number = 0, glossRows: number = 0,
-                       candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE): number {
+  static totalHeightVp(
+    rowSpacingTenths: number = KeyboardMetrics.ROW_SPACING_VP * 10,
+    heightAdjustmentVp: number = 0,
+    glossRows: number = 0,
+    candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE,
+  ): number {
     const strip: number =
-      KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP + KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
-      + KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize);
-    const keys: number = KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS
-      + heightAdjustmentVp;
+      KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP +
+      KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP +
+      KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize);
+    const keys: number =
+      KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS + heightAdjustmentVp;
     // One gap between the strip and the first key row, and one between each pair of key rows.
     const gaps: number = (rowSpacingTenths / 10) * KeyboardMetrics.KEY_ROWS;
     return strip + keys + gaps + KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2;
@@ -67,26 +71,36 @@ export class KeyboardMetrics {
    * No key rows and therefore none of the gaps between them: what is left is the composition line,
    * the candidate line and the padding that frames them.
    */
-  static candidateHeightVp(layout: string = 'horizontal', candidateCount: number = 0,
-                           showPreedit: boolean = true,
-                           decorationTopVp: number = 0, glossRows: number = 0,
-                           candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE): number {
-    const rows: number = layout === 'vertical'
-      ? Math.max(1, Math.min(9, candidateCount)) : 1;
-    const decoration: number = Number.isFinite(decorationTopVp) && decorationTopVp > 0
-      ? Math.min(512, decorationTopVp) : 0;
-    return decoration + (showPreedit ? KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP : 0)
-      + KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * rows
-      + (layout === 'vertical' ? 0 : KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize))
-      + KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2;
+  static candidateHeightVp(
+    layout: string = "horizontal",
+    candidateCount: number = 0,
+    showPreedit: boolean = true,
+    decorationTopVp: number = 0,
+    glossRows: number = 0,
+    candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE,
+  ): number {
+    const rows: number = layout === "vertical" ? Math.max(1, Math.min(9, candidateCount)) : 1;
+    const decoration: number =
+      Number.isFinite(decorationTopVp) && decorationTopVp > 0 ? Math.min(512, decorationTopVp) : 0;
+    return (
+      decoration +
+      (showPreedit ? KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP : 0) +
+      KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * rows +
+      (layout === "vertical" ? 0 : KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize)) +
+      KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2
+    );
   }
 
-  static glossHeightVp(rows: number,
-                       candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE): number {
+  static glossHeightVp(
+    rows: number,
+    candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE,
+  ): number {
     if (!Number.isFinite(rows)) return 0;
     const font: number = Number.isFinite(candidateFontSize) ? Math.max(1, candidateFontSize) : 1;
-    const line: number = Math.max(KeyboardMetrics.CANDIDATE_GLOSS_LINE_HEIGHT_VP,
-      Math.ceil(font * 0.78));
+    const line: number = Math.max(
+      KeyboardMetrics.CANDIDATE_GLOSS_LINE_HEIGHT_VP,
+      Math.ceil(font * 0.78),
+    );
     return Math.max(0, Math.floor(rows)) * line;
   }
 }

@@ -53,10 +53,13 @@ export function ChatPage({
   client,
   onLogin,
   autoFocus = false,
+  touch = false,
 }: {
   client: ChatClient;
   onLogin?: () => void;
   autoFocus?: boolean;
+  /** A host with no hardware keyboard: the chord still works if one is attached, but naming it is noise. */
+  touch?: boolean;
 }) {
   const [catalog, setCatalog] = useState<ChatModels | null>(null);
   const [selectedModel, setSelectedModel] = useState("");
@@ -282,7 +285,9 @@ export function ChatPage({
             </button>
           )}
         </div>
-        <small>Ctrl/⌘ + Enter 发送 · 最多保留最近 14 条消息</small>
+        <small>
+          {touch ? "最多保留最近 14 条消息" : "Ctrl/⌘ + Enter 发送 · 最多保留最近 14 条消息"}
+        </small>
       </div>
     </section>
   );

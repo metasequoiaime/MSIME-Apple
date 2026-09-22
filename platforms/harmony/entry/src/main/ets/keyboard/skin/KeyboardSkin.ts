@@ -463,29 +463,35 @@ export class KeyboardSkin {
     return alpha(this.accent, value);
   }
 
-  patternColor(): string { return alpha(this.accent, this.patternOpacity); }
-  photoShadeColor(): string { return alpha('#000000', this.photoShade); }
-  shadowColor(): string { return alpha('#000000', this.shadowOpacity); }
+  patternColor(): string {
+    return alpha(this.accent, this.patternOpacity);
+  }
+  photoShadeColor(): string {
+    return alpha("#000000", this.photoShade);
+  }
+  shadowColor(): string {
+    return alpha("#000000", this.shadowOpacity);
+  }
   keySurfaceBackground(emphasized: boolean): string {
     return emphasized ? this.actionBackground : alpha(this.keyBackground, this.keyOpacity);
   }
   keyCornerRadius(): number {
-    if (this.keyShape === 'capsule') return 999;
-    if (this.keyShape === 'ticket') return Math.min(3, this.cornerRadius);
-    if (this.keyShape === 'pebble') return Math.max(12, this.cornerRadius);
+    if (this.keyShape === "capsule") return 999;
+    if (this.keyShape === "ticket") return Math.min(3, this.cornerRadius);
+    if (this.keyShape === "pebble") return Math.max(12, this.cornerRadius);
     return this.cornerRadius;
   }
   materialTop(): string {
-    if (this.keyMaterial === 'glass') return '#3DFFFFFF';
-    if (this.keyMaterial === 'raised') return '#21FFFFFF';
-    if (this.keyMaterial === 'paper') return '#0AFFFFFF';
-    return '#00FFFFFF';
+    if (this.keyMaterial === "glass") return "#3DFFFFFF";
+    if (this.keyMaterial === "raised") return "#21FFFFFF";
+    if (this.keyMaterial === "paper") return "#0AFFFFFF";
+    return "#00FFFFFF";
   }
   materialBottom(): string {
-    if (this.keyMaterial === 'glass') return '#08000000';
-    if (this.keyMaterial === 'raised') return '#1A000000';
-    if (this.keyMaterial === 'paper') return '#0F000000';
-    return '#00000000';
+    if (this.keyMaterial === "glass") return "#08000000";
+    if (this.keyMaterial === "raised") return "#1A000000";
+    if (this.keyMaterial === "paper") return "#0F000000";
+    return "#00000000";
   }
 
   /** Identity for caching a rendered skin, including the custom design it was built from. */

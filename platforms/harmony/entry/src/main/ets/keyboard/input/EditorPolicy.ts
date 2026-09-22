@@ -31,8 +31,12 @@ export class EditorPolicy {
   }
 
   /** A late editor-attribute callback must not reset text typed while the query was in flight. */
-  static appliesDelayedLanguage(composing: boolean, currentEnglish: boolean,
-                                wantedEnglish: boolean, manuallyChosen: boolean = false): boolean {
+  static appliesDelayedLanguage(
+    composing: boolean,
+    currentEnglish: boolean,
+    wantedEnglish: boolean,
+    manuallyChosen: boolean = false,
+  ): boolean {
     return !composing && !manuallyChosen && currentEnglish !== wantedEnglish;
   }
 
