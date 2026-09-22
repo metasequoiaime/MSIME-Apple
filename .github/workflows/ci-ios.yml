@@ -118,7 +118,10 @@ jobs:
           # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。缺 pyjwt 时它自己跳过。
           if [[ -f platforms/ios/tests/TestFlightSubmissionTests.py ]]; then python3 platforms/ios/tests/TestFlightSubmissionTests.py; fi
       - name: Package iOS dictionary
-        run: if [[ -f platforms/ios/scripts/prepare_dictionary.py ]]; then python3 platforms/ios/scripts/prepare_dictionary.py; else echo 'iOS dictionary preparation script is not present in this branch; skipped'; fi
+        run: |
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/ios/stage-resources.sh "$resource_dir"
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
@@ -203,7 +206,10 @@ jobs:
           # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。缺 pyjwt 时它自己跳过。
           if [[ -f platforms/ios/tests/TestFlightSubmissionTests.py ]]; then python3 platforms/ios/tests/TestFlightSubmissionTests.py; fi
       - name: Package iOS dictionary
-        run: if [[ -f platforms/ios/scripts/prepare_dictionary.py ]]; then python3 platforms/ios/scripts/prepare_dictionary.py; else echo 'iOS dictionary preparation script is not present in this branch; skipped'; fi
+        run: |
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/ios/stage-resources.sh "$resource_dir"
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
@@ -273,7 +279,10 @@ jobs:
       - name: Prepare the locked Engine archive
         run: python3 scripts/fetch_engine.py
       - name: Package iOS dictionary
-        run: if [[ -f platforms/ios/scripts/prepare_dictionary.py ]]; then python3 platforms/ios/scripts/prepare_dictionary.py; else echo 'iOS dictionary preparation script is not present in this branch; skipped'; fi
+        run: |
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/ios/stage-resources.sh "$resource_dir"
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
