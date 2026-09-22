@@ -4,28 +4,117 @@ on:
     inputs:
       version: {description: Semantic version (defaults to platforms/windows/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+      publish: {description: Publish the installer as a windows-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-windows, cancel-in-progress: false}
 jobs:
   release:
     runs-on: windows-2025
+    timeout-minutes: 150
+    env:
+      VCPKG_DISABLE_METRICS: '1'
     steps:
-      - uses: actions/checkout@v7
-        with: {fetch-depth: 0}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
       - id: version
         shell: pwsh
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
+          # Build-Client.ps1 stamps this into the Tauri and Server metadata, which take three numeric components only.
           $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
-      - name: Build Windows native host
-        shell: bash
-        run: bash platforms/windows/build-cross.sh x64
-      - name: Package Windows release
+          $baseline = (Get-Content platforms/windows/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'; "vcpkg-baseline=$baseline" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: {node-version: 24}
+      # Reads the pnpm version from packageManager in package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - name: Install Rust MSVC targets
+        shell: pwsh
+        # rust-toolchain.toml pins the compiler; adding targets from the repository root installs that toolchain first.
+        run: rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
+      - name: Prepare the locked Engine archive and settled-rerank model
+        run: |
+          python scripts/fetch_engine.py
+          python scripts/fetch_settled_model.py
+      # Build-Client.ps1 takes installed dependency prefixes rather than a vcpkg toolchain, so the manifest is installed into one prefix per architecture: x64 for the Server, Watchdog and 64-bit TSF DLL, x86 for the 32-bit TSF DLL.
+      - id: vcpkg-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/msime-deps
+          key: windows-deps-${{ hashFiles('platforms/windows/vcpkg.json') }}-${{ steps.version.outputs.vcpkg-baseline }}
+      - name: Install native dependencies
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        env: {BASELINE: "${{ steps.version.outputs.vcpkg-baseline }}"}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkg = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git clone --quiet --filter=blob:none https://github.com/microsoft/vcpkg.git $vcpkg
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg clone failed' }
+          git -C $vcpkg checkout --quiet $env:BASELINE
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg baseline checkout failed' }
+          & (Join-Path $vcpkg 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
+          foreach ($triplet in @('x64-windows', 'x86-windows')) {
+            & (Join-Path $vcpkg 'vcpkg.exe') install --triplet $triplet --x-manifest-root=platforms/windows "--x-install-root=$(Join-Path $env:RUNNER_TEMP "msime-deps/$triplet")"
+            if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed for $triplet" }
+          }
+      - name: Download desktop resources
+        shell: pwsh
+        run: |
+          # Fetches and verifies the files resources/desktop-dictionary.lock.json pins; prints the directory holding them.
+          $resources = cargo run --quiet --locked -p msime-client-core --example install_resources -- (Join-Path $env:RUNNER_TEMP 'desktop-resources')
+          if ($LASTEXITCODE -ne 0) { throw 'desktop resource download failed' }
+          "MSIME_DESKTOP_RESOURCES=$(@($resources)[-1].Trim())" >> $env:GITHUB_ENV
+      - name: Build Windows client
         shell: pwsh
         env: {VERSION: "${{ steps.version.outputs.value }}"}
-        run: Compress-Archive -Path target/windows-full/x64/* -DestinationPath "msime-windows-$env:VERSION.zip"
+        run: |
+          $deps = Join-Path $env:RUNNER_TEMP 'msime-deps'
+          ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION
+      - name: Collect third-party notices
+        shell: pwsh
+        run: |
+          $deps = Join-Path $env:RUNNER_TEMP 'msime-deps'
+          ./platforms/windows/Collect-Notices.ps1 -DependencyPrefixes (Join-Path $deps 'x64-windows/x64-windows'), (Join-Path $deps 'x86-windows/x86-windows')
+      - name: Stage package files
+        shell: pwsh
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        # The same arguments Package-SimplySign.ps1 passes.
+        run: >-
+          ./platforms/windows/installer/Prepare-PackageFiles.ps1 -TargetVersion $env:VERSION
+          -NoticesDirectory target/windows-notices
+          -DesktopResourcesDirectory $env:MSIME_DESKTOP_RESOURCES
+          -ServerReleaseDirectory target/windows-full/x64/bin
+          -Tsf32ReleaseDirectory target/windows-full/x86/bin
+          -Tsf64ReleaseDirectory target/windows-full/x64/bin
+          -DesktopExecutable target/windows-full/x64/bin/msime-client-settings.exe
+      - name: Compile installer
+        shell: pwsh
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        # Unsigned: the code-signing certificate is a Certum SimplySign card that only exists on the release machine, so signing stays a local step (installer/Package-SimplySign.ps1). This job produces the installer that step would sign.
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup install failed' }
+          }
+          ./platforms/windows/installer/Compile-Installer.ps1
+          $installer = "platforms/windows/installer/Output/MetasequoiaIME_Setup_v$env:VERSION.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "installer missing: $installer" }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -LiteralPath $installer -Destination dist/
+          $name = Split-Path -Leaf $installer
+          $hash = (Get-FileHash -LiteralPath "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $PWD "dist/$name.sha256"), "$hash  $name`n")
+          Get-ChildItem dist | Format-Table Name, Length
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-windows-${{ steps.version.outputs.value }}
+          path: dist/
+          if-no-files-found: error
       - name: Publish independent Windows release
+        if: inputs.publish
         shell: bash
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
-          tag="windows-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "msime-windows-${VERSION}.zip" --target "$GITHUB_SHA" --title "Windows ${VERSION}" --generate-notes "${flags[@]}"
+          tag="windows-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "Windows ${VERSION}" --generate-notes "${flags[@]}"
