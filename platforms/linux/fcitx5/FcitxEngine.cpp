@@ -1236,8 +1236,8 @@ public:
       }
     }
     resources_ = options.value("resources", std::string());
-    auto clipboard_path = options.value("preferences_directory", std::string());
-    if (clipboard_path.empty()) clipboard_path = options.value("clipboard_history_path", std::string());
+    auto clipboard_path = options.value("clipboard_history_path", std::string());
+    if (clipboard_path.empty()) clipboard_path = options.value("preferences_directory", std::string());
     if (clipboard_path != clipboard_path_) {
       ++clipboard_generation_;
       clipboard_items_.clear();
@@ -1399,9 +1399,9 @@ public:
       // Runtime options can move the shared clipboard history while this
       // input context remains focused. Keep the same path precedence as the
       // initial session setup and fence an in-flight read from the old file.
-      auto nextClipboard = options.value("preferences_directory", std::string{});
+      auto nextClipboard = options.value("clipboard_history_path", std::string{});
       if (nextClipboard.empty())
-        nextClipboard = options.value("clipboard_history_path", std::string{});
+        nextClipboard = options.value("preferences_directory", std::string{});
       if (nextClipboard != clipboard_path_) {
         ++clipboard_generation_;
         clipboard_items_.clear();
