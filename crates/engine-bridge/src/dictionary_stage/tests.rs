@@ -189,6 +189,74 @@ fn correction_types_are_independent_for_real_candidates() {
     }
 }
 
+#[test]
+fn quanpin_autocorrection_keeps_windows_cost_and_composition_rules() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = resources(root.path());
+    Connection::open(Path::new(&options.resources).join("msime.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_1_g VALUES('gua','g','挂',10),('gai','g','该',1000);
+             CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_1_s VALUES('shang','s','上',100);
+             CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_1_n VALUES('nve','n','虐',100);
+             CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_2_h VALUES('hua''zhong','hz','华中',100);",
+        )
+        .unwrap();
+    options = stage(
+        &options,
+        &root.path().join("quanpin-autocorrect"),
+        Vec::new(),
+    )
+    .unwrap();
+    options.autocorrect_transposition = true;
+    options.autocorrect_neighbor = true;
+
+    let read = |input: &str| {
+        let mut session = Session::new(&options).unwrap();
+        for byte in input.bytes() {
+            session.character(byte, false).unwrap();
+        }
+        session.snapshot().unwrap()
+    };
+
+    let gau = read("gau");
+    let gua = gau.candidates.iter().position(|word| word == "挂").unwrap();
+    let gai = gau.candidates.iter().position(|word| word == "该").unwrap();
+    assert!(
+        gua < gai,
+        "a costlier neighbor correction outranked the cheaper transposition: {:?}",
+        gau.candidates
+    );
+
+    for (input, word) in [("hauzh", "华中"), ("shng", "上"), ("sshang", "上")] {
+        let view = read(input);
+        assert!(
+            view.candidates.iter().any(|candidate| candidate == word),
+            "{input} did not reach {word}: {:?}",
+            view.candidates
+        );
+    }
+
+    let alias = read("nue");
+    let alias_index = alias
+        .candidates
+        .iter()
+        .position(|word| word == "虐")
+        .unwrap();
+    assert_eq!(alias.candidate_annotations[alias_index], "nue");
+    let canonical = read("nve");
+    let canonical_index = canonical
+        .candidates
+        .iter()
+        .position(|word| word == "虐")
+        .unwrap();
+    assert!(canonical.candidate_annotations[canonical_index].is_empty());
+}
+
 fn records() -> Vec<DictionaryStateRecord> {
     use DictionaryStateRecord::*;
     vec![

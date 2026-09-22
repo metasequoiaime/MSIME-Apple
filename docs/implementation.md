@@ -816,6 +816,12 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 
 本地验证：client-core 11、engine-bridge 3、host-api 12 项测试通过，前端 5 项测试、TypeScript/Vite 构建、Rust fmt/clippy 通过。覆盖旧配置读取、关闭后持久化、活动组合延迟更新及设置页保存。尚未验证 Windows 编辑器中的端到端纠错行为；完整 Windows 功能复刻仍未完成。
 
+### Windows 功能复刻：全拼纠错算法增量
+
+固定来源后续的七个 Engine 提交不在锁定共享 Engine 中。通过 `apply_engine_quanpin_autocorrect_parity.py` 在既有 lattice、学习、候选缓存和 Google ü 边界 overlay 之后做严格上下文合并，加入漏字/多字纠错、k-best 去重与缓存、按编辑代价分层、纠错头与简拼尾组合、ü 别名标记和双拼置顶键修复。纠错表不提交到 vendor：固定来源生成器读取 `intact_pinyin_list()` 重建四类表，生成器与上下文 patch 作为 `overlay_assets` 一并参与 Engine 锁标记和 Cargo 重建追踪。
+
+验证分两层：合成词库单测让昂贵的 `gai` 具有更高词频，仍要求 `gau -> gua` 领先，并覆盖 `hauzh -> hua'zh`、`shng -> shang`、`sshang -> shang` 与 `nue -> nve` 的标记语义；`quanpin_autocorrect_dictionary` 使用固定发布词库确认首候选和真实词组。反向使用改动前 Engine 时，真实探针分别只得到“噶”和“哈”，证明新增断言不是既有路径的重复覆盖。
+
 ### Windows 功能复刻：全拼与双拼辅助码配置通路
 
 来源为 Windows 远端默认分支 develop 的固定提交 `0eaa35eed1dd699b28883068f2909afe3a5902da`，核对 `server/assets/config/config.toml` 及设置页 `helpcode.ts`、`helpcode.html`。共享设置分别保存全拼和双拼辅助码开关与五种方案；默认开启、自然码，按上游随包配置（不是旧 UI 静态占位的蓝天值）。缺省旧 JSON 按该默认值读取，不改写文件；未知方案拒绝保存。设置按当前输入方案传入 Engine，组合结束后重建时生效，保留另一个方案的选择。client-core 不依赖 Engine，筛选算法仍只在 Engine。

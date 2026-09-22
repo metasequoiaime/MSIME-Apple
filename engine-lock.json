@@ -13,7 +13,12 @@
     "scripts/apply_engine_google_umlaut.py",
     "scripts/apply_engine_jiajia_helpcode.py",
     "scripts/apply_engine_lattice_reading.py",
-    "scripts/apply_engine_standalone_sentence_learning.py"
+    "scripts/apply_engine_standalone_sentence_learning.py",
+    "scripts/apply_engine_quanpin_autocorrect_parity.py"
+  ],
+  "overlay_assets": [
+    "scripts/engine-overlays/generate_quanpin_autocorrect.py",
+    "scripts/engine-overlays/quanpin-autocorrect-parity.patch"
   ],
   "dependencies": [
     {
