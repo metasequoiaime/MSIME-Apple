@@ -24,7 +24,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          commit="$(git ls-remote https://github.com/metasequoiaime/MSIME-Engine.git refs/heads/main | cut -f1)"
+          commit="$(git ls-remote https://github.com/metasequoiaime/msime-engine.git refs/heads/main | cut -f1)"
           current="$(python3 -c 'import json; print(json.load(open("engine-lock.json"))["commit"])')"
           if [ "$commit" = "$current" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"

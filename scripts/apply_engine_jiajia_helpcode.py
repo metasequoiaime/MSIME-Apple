@@ -2,7 +2,7 @@
 """Add the sixth helpcode scheme, 加加 (jiajia), to the locked Engine.
 
 The reference ships six helpcode tables; the Engine archive this repository locks carries five. The
-sixth was added to the reference *after* `metasequoiaime/MSIME-Engine` stopped taking commits - that
+sixth was added to the reference *after* `metasequoiaime/msime-engine` stopped taking commits - that
 repository's HEAD is the very commit `engine-lock.json` pins, because the Engine moved in-repo to
 the reference - so there is no newer Engine to bump the lock to. The table therefore travels with
 this repository, in `resources/helpcodes/`, and is injected here.

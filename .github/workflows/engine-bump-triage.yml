@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 10
     env:
       LOCK: engine-lock.json
-      ENGINE: metasequoiaime/MSIME-Engine
+      ENGINE: metasequoiaime/msime-engine
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PR_URL: ${{ github.event.pull_request.html_url }}
     steps:

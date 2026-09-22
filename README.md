@@ -1,6 +1,6 @@
 # 水杉输入法
 
-水杉输入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 与 HarmonyOS 的多平台中文输入法。React 管理界面通过 Tauri 调用普通 Rust 业务库；各平台原生输入法宿主接入共享输入运行时；输入算法继续由 MSIME-Engine 提供。
+水杉输入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 与 HarmonyOS 的多平台中文输入法。React 管理界面通过 Tauri 调用普通 Rust 业务库；各平台原生输入法宿主接入共享输入运行时；输入算法继续由 msime-engine 提供。
 
 > **关于名称**：MSIME 是 Metasequoia IME（水杉输入法）的缩写，与 Microsoft IME 无关，也与微软没有任何关联。代码、包名和仓库名中的 `msime` 一律是这个含义。设置中的 `shuangpin_profile: microsoft` 是「微软双拼」方案，与小鹤、自然码、首道并列的四个键位方案之一，供习惯该键位的用户选择，同样不代表任何关联。
 

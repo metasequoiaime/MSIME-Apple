@@ -15,7 +15,7 @@ crates/input-runtime           会话编排、焦点、候选分页、带代次�
     ↓
 crates/engine-bridge           CXX 桥接
     ↓
-MSIME-Engine (C++, 固定版本)   输入算法与组合状态
+msime-engine (C++, 固定版本)   输入算法与组合状态
 ```
 
 `crates/client-core` 与上面这条链路平行，负责本地配置和固定资源的分代安装，不参与按键处理。`packages/ui` 与 `apps/desktop` 是共享的 React 设置页和承载它们的 Tauri 层，各平台共用同一个 Rust 入口库与同一套页面。

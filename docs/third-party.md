@@ -14,7 +14,7 @@
 
 | 组件 | 许可证 | 说明 |
 | --- | --- | --- |
-| `metasequoiaime/MSIME-Engine` | GPL-3.0 | 输入算法与组合状态 |
+| `metasequoiaime/msime-engine` | GPL-3.0 | 输入算法与组合状态 |
 | `metasequoiaime/Google-PinyinIME-Rev` | Apache-2.0 | Google Pinyin IME 的修订分支 |
 | `nemtrif/utfcpp` | BSL-1.0 | UTF-8 处理 |
 | `mackron/miniaudio` | 上游为公有领域 / MIT-0 双许可 | 音频采集；GitHub 分类器未给出单一标识，以归档内许可证文本为准 |
@@ -24,7 +24,7 @@
 
 ## 随包资源（`resources/desktop-dictionary.lock.json`）
 
-锁文件固定十个产物的 URL、长度和 SHA-256，全部可匿名下载。其中八个来自 `metasequoiaime/MSIME-Engine` 的 `dict-v2.0.0` 发布，`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。**锁文件本身不记录许可证字段**，来源信息分散在别处：
+锁文件固定十个产物的 URL、长度和 SHA-256，全部可匿名下载。其中八个来自 `metasequoiaime/msime-engine` 的 `dict-v2.0.0` 发布，`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。**锁文件本身不记录许可证字段**，来源信息分散在别处：
 
 | 产物 | 大小 | 已知来源 |
 | --- | --- | --- |
