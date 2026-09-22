@@ -145,3 +145,27 @@ test("Linux polishing credential names the provider and model selected above", a
   fireEvent.click(screen.getByRole("button", { name: "清除润色凭据" }));
   await waitFor(() => expect(credentials.clearVoice).toHaveBeenCalledWith("polish", "deepseek"));
 });
+
+test("Linux offers the Doubao streaming interfaces in the credential it saves", async () => {
+  const credentials = credentialClient(empty);
+  await openVoice(credentials);
+  const stream = screen.getByLabelText("流式接口") as HTMLSelectElement;
+  // No stored address means the provider default, the bidirectional endpoint.
+  expect(stream.value).toBe("async");
+  fireEvent.change(stream, { target: { value: "nostream" } });
+  expect((screen.getByLabelText("识别接口地址") as HTMLInputElement).value).toBe(
+    "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+  );
+  fireEvent.change(screen.getByLabelText("识别 API Token"), { target: { value: "access" } });
+  fireEvent.change(screen.getByLabelText("Doubao App Key"), { target: { value: "app-1" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存识别凭据" }));
+  await waitFor(() =>
+    expect(credentials.saveVoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+      }),
+    ),
+  );
+  // Only one picker: the Windows one writes the shared preference Linux does not read.
+  expect(screen.getAllByLabelText("流式接口")).toHaveLength(1);
+});

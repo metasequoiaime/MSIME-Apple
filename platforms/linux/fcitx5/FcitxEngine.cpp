@@ -31,6 +31,7 @@
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/core/CandidateSkinCatalog.h"
 #include "../src/core/DictionaryQuiesceLease.h"
+#include "../src/core/InputModeIndicator.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
 #endif
@@ -492,6 +493,31 @@ public:
     ic_.inputPanel().reset();
     ic_.updatePreedit();
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    refreshModeIndicator();
+  }
+  // The label Fcitx5 shows for the input method in its tray and panel (FcitxEngine::subModeLabelImpl), in the same words as the mode HUD.
+  std::string modeIndicatorLabel() const {
+    const bool japanese =
+        scheme_override_.value_or(preferences_.value("scheme", std::string("quanpin"))) == "japanese";
+    switch (msime::linux_host::input_mode_indicator(input_enabled_, japanese, caps_lock_)) {
+    case msime::linux_host::InputModeIndicator::Chinese: return "中";
+    case msime::linux_host::InputModeIndicator::Japanese: return "日";
+    case msime::linux_host::InputModeIndicator::English: return "英";
+    case msime::linux_host::InputModeIndicator::CapsLock: return "⇪";
+    }
+    return "中";
+  }
+  // Called wherever the mode can change; the status area is asked to redraw only when the label actually does.
+  void refreshModeIndicator() {
+    auto label = modeIndicatorLabel();
+    if (label == mode_indicator_label_) return;
+    mode_indicator_label_ = std::move(label);
+    ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+  }
+  // Fcitx5 sends no event when the lock changes; pressing CapsLock carries the old state and releasing it the new one, so every key event reports it.
+  void noteCapsLock(bool caps_lock) {
+    caps_lock_ = caps_lock;
+    refreshModeIndicator();
   }
   bool restricted() const {
     return ic_.capabilityFlags().testAny(fcitx::CapabilityFlags{
@@ -2556,6 +2582,8 @@ public:
   std::string dictionary_user_data_;
   std::string resources_;
   std::optional<std::string> scheme_override_;
+  bool caps_lock_ = false;
+  std::string mode_indicator_label_;
   std::optional<std::string> shuangpin_profile_override_;
   std::optional<std::string> helpcode_schema_override_;
   std::optional<std::string> skin_override_;
@@ -4249,7 +4277,7 @@ private:
 };
 
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
-class FcitxEngine : public fcitx::InputMethodEngine {
+class FcitxEngine : public fcitx::InputMethodEngineV2 {
 public:
   fcitx::Instance *instance() const { return instance_; }
   // Fcitx5 draws the candidate list in its classic UI, which takes one Pango font description for
@@ -4681,8 +4709,12 @@ public:
   }
   void keyEvent(const fcitx::InputMethodEntry &, fcitx::KeyEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+    state->noteCapsLock(event.rawKey().states().test(fcitx::KeyState::CapsLock));
     try { if (state->ensure() && state->key(event)) event.filterAndAccept(); }
     catch (...) { unavailable(*state); }
+  }
+  std::string subModeLabelImpl(const fcitx::InputMethodEntry &, fcitx::InputContext &ic) override {
+    return ic.propertyFor(&factory_)->modeIndicatorLabel();
   }
   static void unavailable(FcitxState &state) {
     // The label names the host operation only; the error itself can carry input
@@ -4878,6 +4910,7 @@ void FcitxState::render() {
     engine_->english_action_.update(&ic_);
     engine_->width_action_.update(&ic_);
   }
+  refreshModeIndicator();
   ic_.inputPanel().reset();
   const auto editing = view_.value("editing_text", std::string());
   const auto style = preferences_.value("tsf_preedit_style", std::string("raw"));
