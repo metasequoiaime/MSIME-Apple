@@ -3512,9 +3512,10 @@ export function SettingsPage({
     const item = availablePages.find((page) => page.id === id);
     return item ? [item] : [];
   });
-  // Physical-keyboard shortcuts and a desktop floating toolbar have no mobile
-  // surface. HarmonyOS keeps its hardware shortcuts and keyboard toolbar in the
-  // input-method panel, so neither is hidden there.
+  // Physical-keyboard shortcuts and a desktop floating toolbar have no phone
+  // surface. HarmonyOS keeps those controls in the input-method panel on a 2-in-1,
+  // but its phone panel is still a touch keyboard, so the settings entry must not
+  // leak the PC key descriptions into the phone's "全部设置" list.
   //
   // Helper codes are per-host rather than per-form-factor. The Android keyboard
   // sends them: Shift during a quanpin or shuangpin composition passes the next
@@ -3526,13 +3527,11 @@ export function SettingsPage({
   //
   // HarmonyOS was in the hidden list while shipping the same input: its
   // ChineseHelpcodePolicy is the Android one, ported, and the session calls it
-  // on every shifted key. So it had the feature and no way to configure it —
-  // the very state this comment already describes as the reason Android is not
-  // in the list. It also keeps its hardware shortcuts and keyboard toolbar in
-  // the input-method panel, so neither of those is hidden there either.
-  const mobileHiddenPageIds: readonly SettingsPageId[] = harmonyPlatform
-    ? []
-    : androidPlatform
+  // on every shifted key. So it keeps the helper-code page, while the physical
+  // keyboard shortcut page is only available on the 2-in-1 branch where the
+  // corresponding capability projection is true.
+  const mobileHiddenPageIds: readonly SettingsPageId[] =
+    androidPlatform || harmonyPlatform
       ? ["shortcuts", "floating-toolbar"]
       : ["helpcode", "shortcuts", "floating-toolbar"];
   const mobileSecondaryPages = availablePages.filter(
