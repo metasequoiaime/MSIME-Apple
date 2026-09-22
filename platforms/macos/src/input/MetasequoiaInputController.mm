@@ -101,7 +101,7 @@ SessionPreferences ReadSessionPreferences()
             static_cast<int>([MetasequoiaPreferencesWindowController storedFrequencyTriggerCount]),
             static_cast<int>([MetasequoiaPreferencesWindowController storedFrequencyLinearStep])),
         [MetasequoiaPreferencesWindowController storedWubiAutoCommitUniqueEnabled] == YES,
-        [MetasequoiaPreferencesWindowController storedWubiMixedPinyinEnabled] == YES,
+        [MSIMEAppearancePreferences sharedPreferences].wubiMixedPinyinEnabled,
     };
 }
 
