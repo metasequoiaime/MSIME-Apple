@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 import css from "../../../../packages/ui/src/styles.css?raw";
 
@@ -83,20 +83,34 @@ test("the desktop home card keeps the full keyboard", async () => {
   expect(keys).toContain("Tab");
 });
 
-// The hero art is resolved relative to the module that asks for it, and home-page.tsx sits one
-// directory deeper than index.tsx. The same relative path in both places left a broken image on the
-// phone's first screen.
-test("the home hero image resolves to a real asset", async () => {
+// A phone opens on the headline and carries no brand mark: the source shows none there, and the app
+// is already the thing being looked at. Desktop keeps it, and there the path still has to resolve —
+// home-page.tsx sits one directory deeper than index.tsx, and the same relative path written in both
+// left a broken image on this very screen once already.
+//
+// Queried through the landmark rather than a class, because the home page's styling is Tailwind
+// utilities: a class name there is a styling detail with no reason to stay put.
+test("the home hero image is a desktop-only mark, and resolves", async () => {
   renderSettings("android");
   await screen.findByRole("button", { name: "保存设置" });
 
-  // Queried through the landmark rather than a class, because the home page's styling is Tailwind
-  // utilities: a class name there is a styling detail with no reason to stay put.
   const home = screen.getByRole("region", { name: "首页" });
-  const hero = home.querySelector("header img") as HTMLImageElement;
-  expect(hero).toBeTruthy();
-  expect(hero.src).not.toContain("/keyboard/assets/");
-  expect(hero.src).toContain("msime.svg");
+  expect(home.querySelector("header img")).toBeNull();
+
+  cleanup();
+  renderSettings("windows");
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "首页" }));
+  const desktopHero = screen
+    .getByRole("region", { name: "首页" })
+    .querySelector("header img") as HTMLImageElement;
+  expect(desktopHero).toBeTruthy();
+  expect(desktopHero.src).not.toContain("/keyboard/assets/");
+  // Either form is a resolved asset: a path to the file, or the file itself once it is small enough
+  // for the bundler to inline. What this guards against is a path that resolves to nothing.
+  expect(
+    desktopHero.src.includes("msime.svg") || desktopHero.src.startsWith("data:image/svg+xml"),
+  ).toBe(true);
 });
 
 // A phone's primary navigation has to stay reachable by thumb, and it is a bottom tab bar on every
@@ -119,9 +133,10 @@ test("the phone navigation leads the content but is seated below it", async () =
   // rather than from a computed style. `max-phone` is the project's own 600px breakpoint.
   const utilities = primary.className.split(/\s+/);
   expect(utilities).toContain("max-phone:order-2");
-  expect(utilities).toContain("max-phone:border-t");
-  expect(utilities).toContain("max-phone:pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]");
-  expect(utilities.some((name) => name.includes("border-b"))).toBe(false);
+  // A capsule floating clear of the edges, the way the source draws it, rather than a full-width
+  // strip ruled off with a top hairline. The bottom inset still clears the gesture area.
+  expect(utilities).toContain("max-phone:rounded-[26px]");
+  expect(utilities).toContain("max-phone:mb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]");
 });
 
 // The breakpoint the phone layout keys on has to keep meaning what the stylesheet used to say, or
@@ -129,4 +144,31 @@ test("the phone navigation leads the content but is seated below it", async () =
 // the rendering of `@media (max-width: 600px)`.
 test("the phone breakpoint is the 600px one the layout was written for", () => {
   expect(css).toContain("--breakpoint-phone: 601px");
+});
+
+// A phone has no Ctrl, no Alt and no Win key, and no panel window to theme. Both blocks were gated
+// on `!androidPlatform` — a platform name, not a capability — so they reached every host that was
+// not Android, and HarmonyOS and iOS were both being shown `Ctrl+F9 切换语音`. Asserted for the two
+// hosts that were wrong and for one that is right, because a gate that hides it everywhere passes
+// the first half of this on its own.
+test("a phone is not offered the desktop's modifier-chord voice shortcuts", async () => {
+  for (const platform of ["harmony", "ios"]) {
+    renderSettings(platform);
+    await screen.findByRole("button", { name: "保存设置" });
+    fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+    const list = screen.getByRole("region", { name: "全部设置" });
+    const row = [...list.querySelectorAll("button")].find(
+      (item) => item.querySelector("strong")?.textContent === "语音输入",
+    );
+    if (!row) throw new Error(`no 语音输入 row on ${platform}`);
+    fireEvent.click(row);
+    expect(screen.queryByText("语音快捷键")).toBeNull();
+    expect(screen.queryByText("语音输入弹出条主题")).toBeNull();
+    cleanup();
+  }
+
+  renderSettings("windows");
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  expect(screen.getByText("语音快捷键")).toBeTruthy();
 });

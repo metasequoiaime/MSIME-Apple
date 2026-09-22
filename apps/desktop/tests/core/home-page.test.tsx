@@ -50,14 +50,16 @@ test("routes home shortcuts to the shared settings pages", () => {
   fireEvent.click(screen.getByRole("button", { name: /皮肤/ }));
   fireEvent.click(screen.getByRole("button", { name: /输入方案/ }));
   fireEvent.click(screen.getByRole("button", { name: /按键/ }));
-  fireEvent.click(screen.getByRole("button", { name: /键盘设置/ }));
+  // The row used to land on 外观 alone; it opens the 全部设置 list now, which is where every page
+  // without a tab of its own is reached.
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
   fireEvent.click(screen.getByRole("button", { name: /高情商回复/ }));
 
   expect(onOpenPage.mock.calls).toEqual([
     ["skin"],
     ["input"],
     ["screen-keyboard"],
-    ["appearance"],
+    ["more"],
     ["input"],
   ]);
 });

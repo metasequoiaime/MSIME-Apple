@@ -43,7 +43,7 @@ export class EnglishSuggestionPolicy {
    */
   static currentWord(beforeCursor: string | null): string {
     if (beforeCursor === null || beforeCursor.length === 0) {
-      return '';
+      return "";
     }
     const letters: string[] = [];
     const characters: string[] = Array.from(beforeCursor);
@@ -55,10 +55,10 @@ export class EnglishSuggestionPolicy {
       letters.unshift(normalized);
       if (letters.length > MAX_WORD_LENGTH) {
         // Longer than any word the dictionary holds; the query would be refused anyway.
-        return '';
+        return "";
       }
     }
-    return letters.join('');
+    return letters.join("");
   }
 
   /**
@@ -85,19 +85,23 @@ export class EnglishSuggestionPolicy {
    * A word the user has already typed in full is not a completion, and deleting it to insert the
    * same characters would move the cursor for no reason.
    */
-  static replacement(typed: string, candidate: string,
-                     startedCapitalized: boolean): EnglishReplacement | null {
+  static replacement(
+    typed: string,
+    candidate: string,
+    startedCapitalized: boolean,
+  ): EnglishReplacement | null {
     if (candidate.length === 0 || candidate.length > MAX_WORD_LENGTH) {
       return null;
     }
     const word: string = startedCapitalized
-      ? candidate.charAt(0).toUpperCase() + candidate.substring(1) : candidate;
+      ? candidate.charAt(0).toUpperCase() + candidate.substring(1)
+      : candidate;
     return word === typed ? null : { deleteCount: typed.length, insert: word };
   }
 
   /** Whether the typed prefix asks for a capitalised completion. */
   static startedCapitalized(typed: string): boolean {
-    return typed.length > 0 && typed.charAt(0) >= 'A' && typed.charAt(0) <= 'Z';
+    return typed.length > 0 && typed.charAt(0) >= "A" && typed.charAt(0) <= "Z";
   }
 
   /**
@@ -108,8 +112,7 @@ export class EnglishSuggestionPolicy {
    * something upstream produced a megabyte of text.
    */
   static decode(response: string | null): EnglishCompletions | null {
-    if (response === null || response.length === 0
-        || response.length > MAX_RESPONSE_LENGTH) {
+    if (response === null || response.length === 0 || response.length > MAX_RESPONSE_LENGTH) {
       return null;
     }
     let reply: CompletionsReply;
@@ -122,7 +125,7 @@ export class EnglishSuggestionPolicy {
       return null;
     }
     const prefix: string = reply.value.prefix;
-    if (typeof prefix !== 'string' || prefix.length === 0 || prefix.length > MAX_WORD_LENGTH) {
+    if (typeof prefix !== "string" || prefix.length === 0 || prefix.length > MAX_WORD_LENGTH) {
       return null;
     }
     const source: string[] = reply.value.items;
@@ -131,7 +134,7 @@ export class EnglishSuggestionPolicy {
     }
     const items: string[] = [];
     for (const item of source) {
-      if (typeof item !== 'string' || item.length === 0 || item.length > MAX_WORD_LENGTH) {
+      if (typeof item !== "string" || item.length === 0 || item.length > MAX_WORD_LENGTH) {
         return null;
       }
       items.push(item);
@@ -150,10 +153,10 @@ export class EnglishSuggestionPolicy {
     if ((code >= 0xff21 && code <= 0xff3a) || (code >= 0xff41 && code <= 0xff5a)) {
       return String.fromCharCode(code - 0xfee0);
     }
-    return '';
+    return "";
   }
 
   private static isAsciiLetter(character: string): boolean {
-    return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z');
+    return (character >= "A" && character <= "Z") || (character >= "a" && character <= "z");
   }
 }

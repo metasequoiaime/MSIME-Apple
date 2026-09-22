@@ -20,14 +20,19 @@ export class HandwritingStrokePolicy {
   static point(x: number, y: number): HandwritingPoint {
     return {
       x: Math.min(HANDWRITING_CANVAS_SIZE, Math.max(0, Number.isFinite(x) ? x : 0)),
-      y: Math.min(HANDWRITING_CANVAS_SIZE, Math.max(0, Number.isFinite(y) ? y : 0))
+      y: Math.min(HANDWRITING_CANVAS_SIZE, Math.max(0, Number.isFinite(y) ? y : 0)),
     };
   }
 
   static canRecognize(strokes: HandwritingStroke[]): boolean {
-    return strokes.length > 0 && strokes.length <= HANDWRITING_MAX_STROKES
-      && strokes.every((stroke: HandwritingStroke): boolean =>
-        stroke.points.length > 0 && stroke.points.length <= HANDWRITING_MAX_POINTS);
+    return (
+      strokes.length > 0 &&
+      strokes.length <= HANDWRITING_MAX_STROKES &&
+      strokes.every(
+        (stroke: HandwritingStroke): boolean =>
+          stroke.points.length > 0 && stroke.points.length <= HANDWRITING_MAX_POINTS,
+      )
+    );
   }
 
   static candidates(value: string, limit: number = HANDWRITING_MAX_CANDIDATES): string[] {
@@ -36,7 +41,7 @@ export class HandwritingStrokePolicy {
     }
     const count: number = Math.min(Math.floor(limit), HANDWRITING_MAX_CANDIDATES);
     const output: string[] = [];
-    for (const character of Array.from(value.replace(/[\u0000-\u001f\u007f]/g, ''))) {
+    for (const character of Array.from(value.replace(/[\u0000-\u001f\u007f]/g, ""))) {
       if (/\s/u.test(character) || output.includes(character)) {
         continue;
       }

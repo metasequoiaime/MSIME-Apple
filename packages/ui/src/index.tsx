@@ -79,7 +79,7 @@ import {
   type AppIconClient,
 } from "./account/account-page";
 import { ChatPage, type ChatClient } from "./chat/chat-page";
-import { HomePage, type HomePageActions } from "./keyboard/home-page";
+import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
 import { candidateSkinPalette } from "./skin/skin-preview-palette";
 import {
@@ -126,7 +126,7 @@ export {
   type ChatModel,
   type ChatModels,
 } from "./chat/chat-page";
-export { HomePage, type HomePageActions } from "./keyboard/home-page";
+export { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
 export {
   WelcomeFlowPage,
   type OnboardingActions,
@@ -469,6 +469,14 @@ const pages = [
     id: "floating-toolbar",
     title: "悬浮工具栏",
     icon: new URL("./assets/floating-toolbar.svg", import.meta.url).href,
+  },
+  // Mobile only, and the one page that is a list of the other pages. The phone bar carries the
+  // source's four tabs, so everything else is reached the way the source reaches it: through the
+  // 键盘 tab, down one level, into a list.
+  {
+    id: "more",
+    title: "全部设置",
+    icon: new URL("./assets/utilities.svg", import.meta.url).href,
   },
   { id: "help", title: "帮助", icon: new URL("./assets/help.svg", import.meta.url).href },
   { id: "about", title: "关于", icon: new URL("./assets/about.svg", import.meta.url).href },
@@ -1570,6 +1578,32 @@ function message(error: unknown): string {
   return "无法访问设置，请重试。原有设置不会被自动重置。";
 }
 
+/**
+ * The 键盘 tab draws a keyboard, not the app.
+ *
+ * Its page icon is the app logo, which the source does not put in the bar either — its first tab is
+ * `systemImage: "keyboard"`. Three of the four tabs would otherwise be a subject and the fourth a
+ * brand.
+ */
+const keyboardTabIcon = new URL("./assets/screen-keyboard.svg", import.meta.url).href;
+
+function mobileTabIcon(id: string, icon: string): string {
+  return id === "home" ? keyboardTabIcon : icon;
+}
+
+/**
+ * What a tab is called, which is not always what its page is called.
+ *
+ * The source names these four 键盘 / 社区 / 统计 / 我的 and nothing else appears in the bar. The page
+ * titles are longer because they also head the page they open.
+ */
+function mobileTabTitle(id: string, title: string): string {
+  if (id === "home") return "键盘";
+  if (id === "typing-statistics") return "统计";
+  if (id === "account") return "我的";
+  return title;
+}
+
 type SettingsPageId = (typeof pages)[number]["id"];
 // A host can ask for the section its menu entry names. An unknown id keeps the
 // default page rather than opening an empty one.
@@ -2030,6 +2064,18 @@ export function SettingsPage({
             ? "为 iPhone 与 iPad 触屏输入体验打造的开放中文输入法。"
             : "为现代 Windows 桌面体验打造的开放中文输入法。";
   const mobilePlatform = iosPlatform || androidPlatform || harmonyPlatform;
+
+  // Whether this host draws the shared panels as windows of its own — `panel_windows` is the
+  // injected projection of `host_surface::is_desktop`.
+  //
+  // The modifier-chord voice shortcuts and the voice popup bar's theme were both gated on
+  // `!androidPlatform`, so they reached every host that was not Android — including HarmonyOS and
+  // iOS, neither of which has a Ctrl, an Alt or a Win key to press or a panel window to theme. A
+  // phone was being shown `Ctrl+F9 切换语音`.
+  //
+  // Falls back to the form factor when the host answers without the flag: a partial capability
+  // record would otherwise read as "not a desktop" and hide these from Windows too.
+  const desktopPanels = host ? (host.panel_windows ?? !mobilePlatform) : true;
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
@@ -3390,11 +3436,14 @@ export function SettingsPage({
       (item.id !== "account" || Boolean(client.account || client.appIcon)) &&
       (item.id !== "chat" || Boolean(client.chat)) &&
       (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)) &&
-      (item.id !== "floating-toolbar" || showFloatingToolbar),
+      (item.id !== "floating-toolbar" || showFloatingToolbar) &&
+      (item.id !== "more" || mobilePlatform),
   );
+  // The sidebar is the list this page duplicates, so it does not list it.
+  const sidebarPages = availablePages.filter((item) => item.id !== "more");
   const sidebarGroups = ((): (typeof availablePages)[] => {
-    if (!macosPlatform) return [availablePages];
-    const remaining = new Map(availablePages.map((item) => [item.id, item]));
+    if (!macosPlatform) return [sidebarPages];
+    const remaining = new Map(sidebarPages.map((item) => [item.id, item]));
     const groups = macosSidebarGroups
       .map((ids) =>
         ids.flatMap((id) => {
@@ -3415,9 +3464,18 @@ export function SettingsPage({
     "typing-statistics",
     "account",
   ];
-  const mobilePrimaryPages = availablePages.filter((item) =>
-    mobilePrimaryPageIds.includes(item.id),
-  );
+  // Walked in tab order rather than filtered out of `availablePages`, which is in the order the
+  // pages happen to be declared in — that put 我的 second, and the bar read 键盘 / 我的 / 社区 / 统计
+  // against the source's 键盘 / 社区 / 统计 / 我的.
+  // A page without a tab of its own was reached from inside the 键盘 tab, so that is the tab still
+  // standing on. Keyed off the page alone, the bar went blank the moment anyone opened one — nothing
+  // lit, and no way to read where in the app you were.
+  const mobileActiveTab: SettingsPageId = mobilePrimaryPageIds.includes(page) ? page : "home";
+  const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
+  const mobilePrimaryPages = mobilePrimaryPageIds.flatMap((id) => {
+    const item = availablePages.find((page) => page.id === id);
+    return item ? [item] : [];
+  });
   // Physical-keyboard shortcuts and a desktop floating toolbar have no mobile
   // surface. HarmonyOS keeps its hardware shortcuts and keyboard toolbar in the
   // input-method panel, so neither is hidden there.
@@ -3442,7 +3500,10 @@ export function SettingsPage({
       ? ["shortcuts", "floating-toolbar"]
       : ["helpcode", "shortcuts", "floating-toolbar"];
   const mobileSecondaryPages = availablePages.filter(
-    (item) => !mobilePrimaryPageIds.includes(item.id) && !mobileHiddenPageIds.includes(item.id),
+    (item) =>
+      item.id !== "more" &&
+      !mobilePrimaryPageIds.includes(item.id) &&
+      !mobileHiddenPageIds.includes(item.id),
   );
   const selectPage = (next: SettingsPageId) => {
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
@@ -3542,6 +3603,9 @@ export function SettingsPage({
     <div
       className={settings.shell}
       data-settings-shell=""
+      // The phone hosts read as one product with the Apple app, which is where the palette below
+      // comes from. The inherited one is the Windows settings accent.
+      data-mobile={mobilePlatform ? "" : undefined}
       onPointerDownCapture={(event) => {
         pendingTitlebarDrag.current = null;
         if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
@@ -3695,48 +3759,30 @@ export function SettingsPage({
             padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
         {mobilePlatform && (
           <nav
-            className="hidden max-phone:order-2 max-phone:grid max-phone:grid-cols-5 max-phone:gap-1.5 max-phone:border-t max-phone:border-edge max-phone:bg-chrome max-phone:px-2 max-phone:pt-2 max-phone:pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]"
+            className="hidden max-phone:order-2 max-phone:mx-3 max-phone:mb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] max-phone:grid max-phone:grid-cols-4 max-phone:gap-1 max-phone:rounded-[26px] max-phone:border max-phone:border-edge max-phone:bg-card max-phone:p-1.5 max-phone:shadow-card"
             aria-label="主要功能"
           >
             {mobilePrimaryPages.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                className={`min-h-[42px] min-w-0 cursor-pointer rounded-xl border bg-card text-[13px] ${
-                  page === item.id
-                    ? "border-accent font-semibold text-accent"
-                    : "border-edge text-body"
+                className={`flex min-h-[46px] min-w-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[20px] border-0 px-1 py-1 text-[11px] ${
+                  mobileActiveTab === item.id
+                    ? "bg-accent-soft font-semibold text-accent"
+                    : "bg-transparent text-muted"
                 }`}
-                aria-current={page === item.id ? "page" : undefined}
+                aria-current={mobileActiveTab === item.id ? "page" : undefined}
                 onClick={() => selectPage(item.id)}
               >
-                {item.id === "home"
-                  ? "键盘"
-                  : item.id === "typing-statistics"
-                    ? "统计"
-                    : item.id === "account"
-                      ? "账号"
-                      : item.title}
+                <img
+                  src={mobileTabIcon(item.id, item.icon)}
+                  alt=""
+                  aria-hidden="true"
+                  className={`size-[22px] ${mobileActiveTab === item.id ? "opacity-100" : "opacity-60"}`}
+                />
+                {mobileTabTitle(item.id, item.title)}
               </button>
             ))}
-            <label className="flex min-h-[42px] min-w-0 flex-col justify-center gap-px rounded-xl border border-edge bg-card px-2 py-[3px] text-[10px] text-muted">
-              更多设置
-              <select
-                className="min-w-0 border-0 bg-transparent text-xs text-body outline-none"
-                aria-label="更多设置"
-                value={mobileSecondaryPages.some((item) => item.id === page) ? page : ""}
-                onChange={(event) => {
-                  if (event.target.value) selectPage(event.target.value as SettingsPageId);
-                }}
-              >
-                <option value="">选择页面</option>
-                {mobileSecondaryPages.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.title}
-                  </option>
-                ))}
-              </select>
-            </label>
           </nav>
         )}
         <nav className={settings.sidebar} aria-label="设置分类">
@@ -3776,7 +3822,14 @@ export function SettingsPage({
           aria-labelledby="page-title"
         >
           <div className="mx-auto mt-0.5 mb-0 w-full max-w-[900px] p-3 max-phone:px-1 max-phone:py-3">
-            <header className="mb-2 flex items-center gap-2.5 pt-0 pr-6 pb-3 pl-[0.5em]">
+            {/* Three of the four tabs open on something that already names them — a headline, a
+                profile card, a row of figures — and the source prints no page title over any of
+                them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
+            <header
+              className={`mb-2 flex items-center gap-2.5 pt-0 pr-6 pb-3 pl-[0.5em] ${
+                mobilePlatform && untitledOnPhone.includes(page) ? "max-phone:sr-only" : ""
+              }`}
+            >
               <h1 className="m-0 text-lg font-medium" id="page-title">
                 {availablePages.find((item) => item.id === page)?.title ?? "外观"}
               </h1>
@@ -3800,6 +3853,16 @@ export function SettingsPage({
                 onSelectScheme={selectHomeScheme}
                 onOpenChat={client.chat ? () => selectPage("chat") : undefined}
                 touchLayout={mobilePlatform}
+              />
+            )}
+            {page === "more" && (
+              <MoreSettingsPage
+                pages={mobileSecondaryPages.map((item) => ({
+                  id: item.id,
+                  title: item.title,
+                  icon: item.icon,
+                }))}
+                onOpenPage={(value) => selectPage(value as SettingsPageId)}
               />
             )}
             {(client.account || client.appIcon) && page === "account" && (
@@ -3846,6 +3909,7 @@ export function SettingsPage({
               <ChatPage
                 client={client.chat}
                 autoFocus={iosPlatform}
+                touch={mobilePlatform}
                 onLogin={() => selectPage("account")}
               />
             )}
@@ -3895,6 +3959,7 @@ export function SettingsPage({
               page !== "typing-statistics" &&
               page !== "account" &&
               page !== "chat" &&
+              page !== "more" &&
               page !== "community" && (
                 <form
                   onSubmit={(event) => {
@@ -4376,7 +4441,7 @@ export function SettingsPage({
                         </select>
                       </label>
                     </div>
-                    {!androidPlatform && (
+                    {desktopPanels && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -4828,7 +4893,12 @@ export function SettingsPage({
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
                     <div className={settings.skinIntro}>
-                      选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。
+                      {/* A touch host draws a candidate row inside the keyboard and has no floating
+                          toolbar at all, so naming either here describes a window the reader cannot
+                          see. Same switch the helper-code labels already make. */}
+                      {mobilePlatform
+                        ? "选择候选栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"
+                        : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
                     </div>
                     {snapshot?.candidate_skin_catalog && (
                       <div className={settings.externalMeta} role="status">
@@ -8742,7 +8812,7 @@ export function SettingsPage({
                           )}
                       </div>
                     )}
-                    {!androidPlatform && (
+                    {desktopPanels && (
                       <div className="section">
                         <div className="section-title">
                           {linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}

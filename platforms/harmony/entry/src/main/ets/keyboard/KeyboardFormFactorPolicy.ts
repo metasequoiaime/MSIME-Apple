@@ -7,6 +7,6 @@
  */
 export class KeyboardFormFactorPolicy {
   static isDesktop(deviceType: string | null | undefined): boolean {
-    return deviceType === '2in1';
+    return deviceType === "2in1";
   }
 }
