@@ -152,6 +152,8 @@ public final class KeyboardFragment extends HomeTabFragment {
         tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_dictionary, R.color.badge_field,
             "词库", dictionarySummary(preferences), preferences == null ? null
                 : () -> KeyboardSheets.showInputFeatures(this, snapshot, this::reload)));
+        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_dictionary, R.color.badge_field,
+            "个人词库", "查询、编辑和导入用户词条", this::openPersonalDictionary));
         tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_ai, R.color.badge_field,
             "AI", aiSummary(preferences), preferences == null ? null
                 : () -> KeyboardSheets.showAi(this, snapshot, this::reload)));
@@ -160,6 +162,14 @@ public final class KeyboardFragment extends HomeTabFragment {
             () -> startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))));
 
         this.features.set(tiles);
+    }
+
+    /** Keep the dictionary editor in the shared Tauri UI while exposing it from the native shell. */
+    private void openPersonalDictionary() {
+        Intent intent = new Intent();
+        intent.setClassName(requireContext(), "app.msime.client.MainActivity");
+        intent.putExtra("msime_settings_page", "dictionary");
+        startActivity(intent);
     }
 
     private String keysSummary(@Nullable JSONObject preferences) {
