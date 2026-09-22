@@ -6346,6 +6346,63 @@ group("an AI skin run releases what it started, whichever way it ends", () => {
       check(idle.created.length === 0, "and nothing was requested");
     });
 
+  // Cancelling while the service is answering a poll must not wait for that HTTP request to time
+  // out before releasing its jobs. The requests may still complete in the system stack, but no
+  // caller waits on them and the upstream work is deleted immediately.
+  let inFlightSequence = 0;
+  let inFlightReads = 0;
+  const interruptedFixture = aiSkinRunner({
+    createJob: async () => ({
+      id: `${++inFlightSequence}`.repeat(48),
+      state: "running",
+    }),
+    wait: async () => {},
+    readJob: async () => {
+      inFlightReads += 1;
+      if (inFlightReads === 3) interrupted.cancel();
+      return await new Promise<ArtworkJob>(() => {});
+    },
+  });
+  const interrupted = new AiSkinRun(interruptedFixture.runner);
+  void interrupted
+    .generate("晨雾", () => {})
+    .then(() => check(false, "an interrupted poll must not resolve"))
+    .catch((error) => {
+      check(error instanceof AiSkinCancelled, "an in-flight poll observes cancellation");
+      check(inFlightReads === 3, "all three artwork jobs had reached their poll");
+      check(interruptedFixture.deleted.length === 3, "cancellation releases every in-flight job");
+    });
+
+  // One failed picture is a generation failure, not a user cancellation, but it still interrupts
+  // the two polls that otherwise have no reason to finish.
+  let siblingSequence = 3;
+  const siblingReads: { id: string; resolve: (job: ArtworkJob) => void }[] = [];
+  const siblingFixture = aiSkinRunner({
+    createJob: async () => ({
+      id: `${++siblingSequence}`.repeat(48),
+      state: "running",
+    }),
+    wait: async () => {},
+    readJob: async (id: string) =>
+      await new Promise<ArtworkJob>((resolve) => {
+        siblingReads.push({ id, resolve });
+        if (siblingReads.length === 3) {
+          siblingReads[1].resolve({ id: siblingReads[1].id, state: "failed" });
+        }
+      }),
+  });
+  const siblingFailure = new AiSkinRun(siblingFixture.runner);
+  void siblingFailure
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a failed sibling must not resolve"))
+    .catch((error) => {
+      check(
+        error instanceof AiSkinFailure && error.message === "ai_skin_unavailable",
+        "the real artwork failure is preserved after sibling cancellation",
+      );
+      check(siblingFixture.deleted.length === 3, "a failed picture releases its stalled siblings");
+    });
+
   // A job the service never finishes is given the shared 200 seconds and then abandoned, rather
   // than polled until the page is closed.
   let clock = 0;
