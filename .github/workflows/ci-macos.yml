@@ -134,6 +134,9 @@ jobs:
       - name: Prepare the locked Engine archive
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: python3 scripts/fetch_engine.py
+      - name: Build the Rust host library
+        if: ${{ needs.changes.outputs.build == 'true' }}
+        run: cargo build --locked -p msime-host-api
       - name: Validate the product lock
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: |
@@ -210,6 +213,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/dictionary"
           if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime.db"; else touch "$RUNNER_TEMP/dictionary/msime.db"; fi
+      - name: Build the Rust host library
+        run: cargo build --locked -p msime-host-api
       - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
         run: >
           cmake -S platforms/macos -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
