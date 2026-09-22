@@ -351,8 +351,14 @@ impl HostCapabilities {
             // macOS shows it from a non-activating panel. Harmony shows the same badge from a
             // status-bar panel on a 2in1, which is the one form factor with a hardware keyboard and
             // therefore the one where nothing else on screen says the mode changed; its phone
-            // keyboard says so on its own key faces and needs no badge.
-            input_mode_hud: matches!(platform, HostPlatform::Macos | HostPlatform::Harmony),
+            // keyboard says so on its own key faces and needs no badge. Linux does not draw the
+            // badge itself either - the Fcitx5 panel offers exactly this popup for "input method
+            // that has internal switches", which is what the Chinese/English mode is, so the host
+            // asks the panel rather than placing a window of its own.
+            input_mode_hud: matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Harmony | HostPlatform::Linux
+            ),
             // Windows draws Latin from its own family, macOS and Android name it ahead of the
             // primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the
             // same result the same way. Linux leaves the panel's typeface to the desktop.
@@ -852,7 +858,7 @@ mod tests {
         // the mode on its own key faces, and Windows/Linux draw nothing of the kind.
         assert!(macos.input_mode_hud);
         assert!(!windows.input_mode_hud);
-        assert!(!linux.input_mode_hud);
+        assert!(linux.input_mode_hud);
         assert!(!HostCapabilities::for_platform(HostPlatform::Android).input_mode_hud);
         assert!(!HostCapabilities::for_platform(HostPlatform::Ios).input_mode_hud);
         // Mobile hosts draw no toolbar at all.

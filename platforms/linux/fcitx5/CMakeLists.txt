@@ -9,6 +9,11 @@ include(CTest)
 unset(CMAKE_CXX_STANDARD)
 unset(CMAKE_CXX_STANDARD_REQUIRED)
 find_package(Fcitx5Core 5.0.20 REQUIRED)
+# 中英文切换提示用的 showCustomInputMethodInformation 是 5.1.11 才有的；低于这个版本
+# 时不声明这个宏，提示静默缺席而不是让插件在老发行版上编不出来。
+if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.11)
+  set(MSIME_FCITX5_CUSTOM_IM_INFORMATION ON)
+endif()
 find_package(nlohmann_json 3.11 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ICU REQUIRED IMPORTED_TARGET icu-i18n icu-uc)
@@ -17,12 +22,64 @@ if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Build msime-host-api for Linux first")
 endif()
 set(MSIME_FCITX5_ADDON_DIR "${CMAKE_INSTALL_LIBDIR}/fcitx5" CACHE PATH "Fcitx5 addon directory")
-add_library(msime-fcitx5 MODULE FcitxEngine.cpp ../src/system/ChineseTextConversion.cpp ../src/system/DiagnosticLog.cpp)
+# 中英文切换徽章：自绘的 layer-shell 浮层，需要 wayland-client、pangocairo 和 wlr-layer-shell
+# 的协议代码。缺其中任何一样就不编译它，宿主回退到面板自己的文字提示，插件照常可用。
+pkg_check_modules(MSIME_BADGE_WAYLAND QUIET IMPORTED_TARGET wayland-client pangocairo)
+find_program(MSIME_BADGE_WAYLAND_SCANNER wayland-scanner)
+set(MSIME_BADGE_SOURCES "")
+if(MSIME_BADGE_WAYLAND_FOUND AND MSIME_BADGE_WAYLAND_SCANNER)
+  # 协议代码是 C。这个子工程声明的是 LANGUAGES CXX，不打开 C 的话生成的 .c 不会被编译，
+  # 插件照常链接成功却在加载时报 undefined symbol: zwlr_layer_surface_v1_interface。
+  enable_language(C)
+  set(MSIME_BADGE_PROTOCOL_DIR "${CMAKE_CURRENT_BINARY_DIR}/wayland-protocols")
+  add_custom_command(
+    OUTPUT "${MSIME_BADGE_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-client-protocol.h"
+           "${MSIME_BADGE_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-protocol.c"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${MSIME_BADGE_PROTOCOL_DIR}"
+    COMMAND "${MSIME_BADGE_WAYLAND_SCANNER}" client-header
+            "${CMAKE_CURRENT_SOURCE_DIR}/../data/wayland/wlr-layer-shell-unstable-v1.xml"
+            "${MSIME_BADGE_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-client-protocol.h"
+    COMMAND "${MSIME_BADGE_WAYLAND_SCANNER}" private-code
+            "${CMAKE_CURRENT_SOURCE_DIR}/../data/wayland/wlr-layer-shell-unstable-v1.xml"
+            "${MSIME_BADGE_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-protocol.c"
+    DEPENDS ../data/wayland/wlr-layer-shell-unstable-v1.xml)
+  # layer-shell 的协议引用了 xdg_popup，所以 xdg-shell 的生成代码必须一起编进来，
+  # 否则插件链接得过、加载时报 undefined symbol: xdg_popup_interface。
+  find_path(MSIME_BADGE_XDG_SHELL_DIR NAMES xdg-shell.xml
+            PATHS /usr/share/wayland-protocols/stable/xdg-shell
+                  /usr/local/share/wayland-protocols/stable/xdg-shell)
+  if(MSIME_BADGE_XDG_SHELL_DIR)
+    add_custom_command(
+      OUTPUT "${MSIME_BADGE_PROTOCOL_DIR}/xdg-shell-client-protocol.h"
+             "${MSIME_BADGE_PROTOCOL_DIR}/xdg-shell-protocol.c"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${MSIME_BADGE_PROTOCOL_DIR}"
+      COMMAND "${MSIME_BADGE_WAYLAND_SCANNER}" client-header
+              "${MSIME_BADGE_XDG_SHELL_DIR}/xdg-shell.xml"
+              "${MSIME_BADGE_PROTOCOL_DIR}/xdg-shell-client-protocol.h"
+      COMMAND "${MSIME_BADGE_WAYLAND_SCANNER}" private-code
+              "${MSIME_BADGE_XDG_SHELL_DIR}/xdg-shell.xml"
+              "${MSIME_BADGE_PROTOCOL_DIR}/xdg-shell-protocol.c"
+      DEPENDS "${MSIME_BADGE_XDG_SHELL_DIR}/xdg-shell.xml")
+    set(MSIME_BADGE_SOURCES ../src/overlay/ModeBadgeWaylandSurface.cpp
+        "${MSIME_BADGE_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-protocol.c"
+        "${MSIME_BADGE_PROTOCOL_DIR}/xdg-shell-protocol.c")
+  endif()
+endif()
+add_library(msime-fcitx5 MODULE FcitxEngine.cpp ../src/system/ChineseTextConversion.cpp ../src/system/DiagnosticLog.cpp ${MSIME_BADGE_SOURCES})
+if(MSIME_BADGE_SOURCES)
+  target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_MODE_BADGE
+      MSIME_MODE_BADGE_ICON="${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/128x128/apps/msime-client.png")
+  target_include_directories(msime-fcitx5 PRIVATE ../src/overlay "${MSIME_BADGE_PROTOCOL_DIR}")
+  target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::MSIME_BADGE_WAYLAND)
+endif()
 target_compile_features(msime-fcitx5 PRIVATE cxx_std_17)
 target_compile_options(msime-fcitx5 PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-fcitx5 PRIVATE ../../../crates/host-api/include)
 target_link_libraries(msime-fcitx5 PRIVATE Fcitx5::Core PkgConfig::ICU nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
 target_compile_definitions(msime-fcitx5 PRIVATE MSIME_SYSTEM_OPTIONS="${CMAKE_INSTALL_FULL_SYSCONFDIR}/msime-client/runtime-options.json")
+if(MSIME_FCITX5_CUSTOM_IM_INFORMATION)
+  target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_CUSTOM_IM_INFORMATION)
+endif()
 file(RELATIVE_PATH MSIME_FCITX5_HOST_RELATIVE "${CMAKE_INSTALL_PREFIX}/${MSIME_FCITX5_ADDON_DIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
 set_target_properties(msime-fcitx5 PROPERTIES INSTALL_RPATH "$ORIGIN/${MSIME_FCITX5_HOST_RELATIVE}")
 install(TARGETS msime-fcitx5 LIBRARY DESTINATION "${MSIME_FCITX5_ADDON_DIR}")
