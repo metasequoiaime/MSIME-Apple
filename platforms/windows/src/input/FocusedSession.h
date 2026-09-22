@@ -11,6 +11,7 @@ namespace msime::windows {
 // without touching the shared store; the default writes it there.
 using TypingStatisticsSink =
     std::function<void(const std::string &, TypingSource)>;
+enum class HideCandidateDisposition { Rejected, Cancelled, Suppressed };
 
 // One registered client's queue-owned adapter. No pipe I/O runs here; the
 // controller prepares on the input queue, writes the focus fence on an I/O
@@ -88,6 +89,7 @@ public:
   bool cancel_focus_token(uint64_t token);
   // Explicit host composition termination, preserving the active focus lease.
   bool cancel_composition(const FocusLease &lease);
+  HideCandidateDisposition hide_candidate(const FocusLease &lease);
   // Queue-owned maintenance operation; it is available without a focus lease.
   bool reset_cache();
   bool set_input_enabled(const FocusLease &lease, bool enabled);
@@ -125,5 +127,6 @@ private:
   std::optional<FocusLease> lease_;
   std::optional<ReplyComposer> composer_;
   std::optional<nlohmann::json> preferences_retry_;
+  bool auto_commit_hide_pending_ = false;
 };
 } // namespace msime::windows

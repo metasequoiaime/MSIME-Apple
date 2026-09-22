@@ -23,6 +23,16 @@ def apply(root: Path) -> None:
     wubi_scheme_header = root / "schemes/wubi_scheme.h"
     public_session_header = root / "include/metasequoia/session.h"
     public_session_source = root / "core/session.cpp"
+    windows_ipc = root / "contracts/windows_ipc.h"
+
+    replace(windows_ipc, """constexpr std::uint32_t CancelKeyboardComposition = 22;
+constexpr std::uint32_t MaxKnown = CancelKeyboardComposition;
+""", """constexpr std::uint32_t CancelKeyboardComposition = 22;
+// Commit a completed Wubi code while preserving letters already buffered after it.
+// Payload: \"<consumed>\\t<text>\".
+constexpr std::uint32_t CommitCandidateAndContinue = 27;
+constexpr std::uint32_t MaxKnown = CommitCandidateAndContinue;
+""")
 
     replace(wubi_scheme_header, """    void set_mixed_pinyin_allowed(bool allowed);
 

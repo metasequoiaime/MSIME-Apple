@@ -320,11 +320,10 @@ EncodedReply partial_selection(uint64_t request, std::string_view raw,
                         std::string(display));
 }
 namespace {
-std::vector<uint8_t> candidate_worker(const EncodedReply &text) {
+std::vector<uint8_t> worker_from_text(uint32_t type, const EncodedReply &text) {
   std::vector<uint8_t> bytes(sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 0);
   for (size_t i = 0; i < 4; ++i)
-    bytes[i] = static_cast<uint8_t>(
-        FanyImeWorkerReplyType::CommitCurCandidate >> (8 * i));
+    bytes[i] = static_cast<uint8_t>(type >> (8 * i));
   for (size_t i = 0; i < FanyImePipeLimits::CandidateTextCapacity; ++i) {
     const auto unit = static_cast<uint16_t>(text.packet.candidate_string[i]);
     bytes[4 + 2 * i] = static_cast<uint8_t>(unit);
@@ -332,12 +331,34 @@ std::vector<uint8_t> candidate_worker(const EncodedReply &text) {
   }
   return bytes;
 }
+std::vector<uint8_t> candidate_worker(const EncodedReply &text) {
+  return worker_from_text(FanyImeWorkerReplyType::CommitCurCandidate, text);
+}
 UiSelectionFrames triggered_selection(EncodedReply reply) {
   reply.packet.request_id = 0; // Dedicated UI encoding, never wire_bytes().
   return {packet_bytes(reply.packet),
           candidate_worker(candidate_commit(1, {}))};
 }
 } // namespace
+std::optional<std::vector<uint8_t>>
+commit_candidate_and_continue_bytes(size_t consumed, std::string_view text) {
+  constexpr size_t maximum_consumed = 1u << 20;
+  if (consumed > maximum_consumed)
+    return std::nullopt;
+  std::array<char, 20> decimal{};
+  const auto converted =
+      std::to_chars(decimal.data(), decimal.data() + decimal.size(), consumed);
+  if (converted.ec != std::errc{})
+    return std::nullopt;
+  std::string payload(decimal.data(), converted.ptr);
+  payload.push_back('\t');
+  payload.append(text);
+  const auto encoded = candidate_commit(1, payload);
+  if (!encoded)
+    return std::nullopt;
+  return worker_from_text(FanyImeWorkerReplyType::CommitCandidateAndContinue,
+                          encoded);
+}
 std::optional<UiSelectionFrames> ui_complete_selection(std::string_view text) {
   // Empty worker text is a trigger to consume id 0, not an empty commit.
   if (text.empty())

@@ -117,10 +117,15 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
         if (!enqueue([&, route, packet = *packet](InputState &state) {
               if (!transport_.current(ticket))
                 return;
+              auto delivered_packet = packet;
               if (route.route &&
-                  packet.event_type == FanyImePipeEventType::HideCandidateWnd &&
-                  !state.cancel_composition(*route.route))
-                return;
+                  packet.event_type == FanyImePipeEventType::HideCandidateWnd) {
+                const auto disposition = state.hide_candidate(*route.route);
+                if (disposition == HideCandidateDisposition::Rejected)
+                  return;
+                if (disposition == HideCandidateDisposition::Suppressed)
+                  delivered_packet.modifiers_down |= internal_continuation_hide;
+              }
               if (route.route &&
                   (packet.event_type == FanyImePipeEventType::IMESwitch ||
                    packet.event_type == FanyImePipeEventType::PuncSwitch ||
@@ -130,7 +135,6 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                    packet.event_type == FanyImePipeEventType::FocusRestored) &&
                   !state.synchronize_input_mode(*route.route, packet))
                 return;
-              auto delivered_packet = packet;
               if (delivered_packet.event_type ==
                       FanyImePipeEventType::HideCandidateWnd &&
                   input_.current_task_wait() >= std::chrono::milliseconds(24))
@@ -171,6 +175,18 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
           (reply->encoded &&
            reply->encoded->packet.request_id != packet->request_id))
         return PumpResult::DispatchFailed;
+      if (reply->worker) {
+        bool sent = false;
+        const bool eligible = focus_.with_active(*route.route, [&] {
+          sent = transport_.send(ticket,
+                                 FanyImePipeRole::ToTsfWorkerThread,
+                                 *reply->worker) == KeyEventSendResult::Sent;
+        });
+        if (!eligible)
+          continue;
+        if (!sent)
+          return PumpResult::WriteFailed;
+      }
       if (reply->encoded) {
         const auto bytes = wire_bytes(*reply->encoded);
         if (!bytes)
