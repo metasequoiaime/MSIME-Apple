@@ -473,6 +473,19 @@ fn unique_complete_wubi_code_auto_commits_unless_a_phrase_is_being_built() {
     assert_eq!(last.commit.as_deref(), Some("合成候选"));
     assert!(last.view.editing_text.is_empty());
 
+    // The next physical key belongs to a new composition. Windows carries the
+    // committed prefix through its TSF continuation payload, then replays this
+    // key into the fresh composition instead of dropping it with the automatic
+    // four-code commit.
+    let fifth = unique
+        .dispatch(Action::Character {
+            value: b'b',
+            shift: false,
+        })
+        .unwrap();
+    assert!(fifth.commit.is_none());
+    assert_eq!(fifth.view.editing_text, "b");
+
     let mut ambiguous = create(Fixture {
         scheme: 2,
         words: vec!["合成甲".into(), "合成乙".into()],
