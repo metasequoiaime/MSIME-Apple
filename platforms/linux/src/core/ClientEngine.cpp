@@ -626,12 +626,9 @@ struct State {
                         preferences.value("clipboard_history", false));
     online_provider_socket = provider_socket_fallback(
         options, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
-    translation_provider_socket =
-        options.value("translation_provider_socket", std::string{});
-    if (translation_provider_socket.empty()) {
-      if (const auto *socket = g_getenv("MSIME_TRANSLATION_PROVIDER_SOCKET"))
-        translation_provider_socket = socket;
-    }
+    translation_provider_socket = provider_socket_fallback(
+        options, "translation_provider_socket", "MSIME_TRANSLATION_PROVIDER_SOCKET",
+        "translation.sock");
     if (translation_provider_socket.empty())
       translation_provider_socket = online_provider_socket;
     voice_provider_socket = provider_socket_fallback(
@@ -890,11 +887,9 @@ struct State {
     const auto online = provider_socket_fallback(
         configured, "online_provider_socket", "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
     const auto translation = [&] {
-      auto socket = configured.value("translation_provider_socket", std::string{});
-      if (socket.empty()) {
-        if (const auto *value = g_getenv("MSIME_TRANSLATION_PROVIDER_SOCKET"))
-          socket = value;
-      }
+      auto socket = provider_socket_fallback(
+          configured, "translation_provider_socket", "MSIME_TRANSLATION_PROVIDER_SOCKET",
+          "translation.sock");
       return socket.empty() ? online : socket;
     }();
     const auto voice = provider_socket_fallback(
