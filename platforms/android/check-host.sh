@@ -96,6 +96,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/core/DeclinedKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardInputContextSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardGeometrySmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardFormFactorPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutAdjustPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/VoiceResultStoreSmoke.java" \
   "$repo_root/platforms/android/tests/voice/AiPolishClientSmoke.java" \
@@ -154,6 +155,7 @@ java -cp "$output_dir" FullWidthInputPolicySmoke
 java -cp "$output_dir" DeclinedKeyPolicySmoke
 java -cp "$output_dir" KeyboardInputContextSmoke
 java -cp "$output_dir" KeyboardGeometrySmoke
+java -cp "$output_dir" KeyboardFormFactorPolicySmoke
 java -cp "$output_dir" KeyboardLayoutAdjustPolicySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke
 java -cp "$output_dir" AiPolishClientSmoke

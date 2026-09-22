@@ -97,6 +97,7 @@ public final class MSIMEInputService extends InputMethodService {
     private EditorBridge bridge = new EditorBridge();
     private JSONObject view;
     private FrameLayout keyboardRoot;
+    private FrameLayout keyboardSurface;
     private LinearLayout candidates;
     private LinearLayout verticalCandidates;
     private FrameLayout candidateViewport;
@@ -757,6 +758,7 @@ public final class MSIMEInputService extends InputMethodService {
         dismissNineKeyHoldOptions();
         hideJapaneseFlickPreview();
         if (keyboardRoot == null) return;
+        applyKeyboardSurfaceGeometry();
         if (skinChanged) applySkin();
         applyKeyboardGeometry();
         renderLayoutSettingsState();
@@ -2714,7 +2716,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applySkin() {
         if (keyboardRoot == null) return;
-        applySkinBackground(keyboardRoot);
+        keyboardRoot.setBackgroundColor(Color.parseColor(skin.background()));
+        if (keyboardSurface != null) applySkinBackground(keyboardSurface);
         if (candidateViewport != null)
             candidateViewport.setBackgroundColor(candidateAppearance.surface());
         if (candidatePaging != null)
@@ -2797,6 +2800,19 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject customDesign = preferences == null ? null
             : preferences.optJSONObject("custom_touch_keyboard_skin");
         return KeyboardSkin.from(identifier, dark, customDesign);
+    }
+
+    /** Keep phone keys edge-to-edge while a tablet or two-in-one gets a bounded, centred surface. */
+    private void applyKeyboardSurfaceGeometry() {
+        if (keyboardSurface == null) return;
+        Configuration configuration = getResources().getConfiguration();
+        int widthDp = KeyboardFormFactorPolicy.surfaceWidthDp(
+            configuration.smallestScreenWidthDp, configuration.screenWidthDp);
+        int width = widthDp == 0 ? FrameLayout.LayoutParams.MATCH_PARENT : pixels(widthDp);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+            width, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        keyboardSurface.setLayoutParams(params);
+        keyboardSurface.setElevation(widthDp == 0 ? 0 : pixels(10));
     }
 
     /**
@@ -6285,13 +6301,16 @@ public final class MSIMEInputService extends InputMethodService {
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
         if (!clipboardHistoryEnabled) clipboardHistory.clear();
         keyboardRoot = new FrameLayout(this);
+        keyboardSurface = new FrameLayout(this);
+        keyboardRoot.addView(keyboardSurface);
+        applyKeyboardSurfaceGeometry();
         LinearLayout keyboard = new LinearLayout(this);
         keyboard.setOrientation(LinearLayout.VERTICAL);
         WindowLayout.fitSystemBars(keyboard);
-        keyboardRoot.addView(keyboard, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(keyboard, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         japaneseFlickPreview = new JapaneseFlickPreview(this);
-        keyboardRoot.addView(japaneseFlickPreview, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(japaneseFlickPreview, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         LinearLayout candidateRegion = new LinearLayout(this);
         candidateRegion.setOrientation(LinearLayout.VERTICAL);
@@ -6510,7 +6529,7 @@ public final class MSIMEInputService extends InputMethodService {
         expandedCandidateScroll = new ScrollView(this);
         expandedCandidateScroll.addView(expandedCandidates);
         expandedCandidateScroll.setVisibility(View.GONE);
-        keyboardRoot.addView(expandedCandidateScroll, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(expandedCandidateScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         clipboardPanel = new LinearLayout(this);
         clipboardPanel.setOrientation(LinearLayout.VERTICAL);
@@ -6520,7 +6539,7 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardScroll = new ScrollView(this);
         clipboardScroll.addView(clipboardPanel);
         clipboardScroll.setVisibility(View.GONE);
-        keyboardRoot.addView(clipboardScroll, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(clipboardScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         schemePanel = new LinearLayout(this);
         schemePanel.setOrientation(LinearLayout.VERTICAL);
@@ -6532,7 +6551,7 @@ public final class MSIMEInputService extends InputMethodService {
             ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
         schemeScroll.setFillViewport(true);
         schemeScroll.setVisibility(View.GONE);
-        keyboardRoot.addView(schemeScroll, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(schemeScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         skinPanel = new LinearLayout(this);
         skinPanel.setOrientation(LinearLayout.VERTICAL);
@@ -6544,7 +6563,7 @@ public final class MSIMEInputService extends InputMethodService {
             ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
         skinScroll.setFillViewport(true);
         skinScroll.setVisibility(View.GONE);
-        keyboardRoot.addView(skinScroll, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(skinScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         layoutSettingsPanel = new LinearLayout(this);
         layoutSettingsPanel.setOrientation(LinearLayout.VERTICAL);
@@ -6616,7 +6635,7 @@ public final class MSIMEInputService extends InputMethodService {
         layoutSettingsScroll = new ScrollView(this);
         layoutSettingsScroll.addView(layoutSettingsPanel);
         layoutSettingsScroll.setVisibility(View.GONE);
-        keyboardRoot.addView(layoutSettingsScroll, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(layoutSettingsScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         layoutAdjustView = new KeyboardLayoutAdjustView(this,
             new KeyboardLayoutAdjustView.Listener() {
@@ -6648,7 +6667,7 @@ public final class MSIMEInputService extends InputMethodService {
                 @Override public void close() { closeLayoutSettings(); }
             });
         layoutAdjustView.setVisibility(View.GONE);
-        keyboardRoot.addView(layoutAdjustView, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(layoutAdjustView, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         voiceResultPanel = new LinearLayout(this);
         voiceResultPanel.setOrientation(LinearLayout.VERTICAL);
@@ -6658,7 +6677,7 @@ public final class MSIMEInputService extends InputMethodService {
         voiceResultScroll = new ScrollView(this);
         voiceResultScroll.addView(voiceResultPanel);
         voiceResultScroll.setVisibility(View.GONE);
-        keyboardRoot.addView(voiceResultScroll, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(voiceResultScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         aiPolishContainer = new LinearLayout(this);
         aiPolishContainer.setOrientation(LinearLayout.VERTICAL);
@@ -6679,7 +6698,7 @@ public final class MSIMEInputService extends InputMethodService {
         aiPolishContainer.addView(aiPolishActions, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         aiPolishContainer.setVisibility(View.GONE);
-        keyboardRoot.addView(aiPolishContainer, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(aiPolishContainer, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         moreToolsPanel = new LinearLayout(this);
         moreToolsPanel.setOrientation(LinearLayout.VERTICAL);
@@ -6691,7 +6710,7 @@ public final class MSIMEInputService extends InputMethodService {
         moreToolsScroll.setContentDescription("更多工具");
         moreToolsScroll.addView(moreToolsPanel);
         moreToolsScroll.setVisibility(View.GONE);
-        keyboardRoot.addView(moreToolsScroll, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(moreToolsScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         emojiPreferences = getSharedPreferences(EMOJI_RECENTS_PREFERENCES, MODE_PRIVATE);
         emojiRecents = loadEmojiRecents();
@@ -6744,7 +6763,7 @@ public final class MSIMEInputService extends InputMethodService {
         emojiPanel.addView(emojiGridScroll, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         emojiPanel.setVisibility(View.GONE);
-        keyboardRoot.addView(emojiPanel, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(emojiPanel, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         symbolPanel = new SymbolPanelView(this,
             (title, description, action, actionStyle) -> {
@@ -6772,7 +6791,7 @@ public final class MSIMEInputService extends InputMethodService {
                 @Override public void close() { closeSymbolPanel(); }
             });
         symbolPanel.setVisibility(View.GONE);
-        keyboardRoot.addView(symbolPanel, new FrameLayout.LayoutParams(
+        keyboardSurface.addView(symbolPanel, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         renderLayoutSettingsState();
         render();
