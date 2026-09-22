@@ -5378,11 +5378,13 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** Keep a candidate word intact; the surrounding strip/panel owns scrolling and wrapping. */
-    private void configureCandidateTextLayout(Button button, boolean hasAnnotation) {
+    private void configureCandidateTextLayout(Button button, String annotation) {
         // Reserve extra rows only when this candidate actually carries a gloss. A globally
         // enabled translation target is not evidence that every candidate has one; keeping the
         // empty case single-line prevents long candidate words from wrapping inside the chip.
-        int lines = hasAnnotation ? Math.max(1, candidateGlossLineCount()) : 1;
+        // Likewise, a second requested language may be unavailable for this particular result;
+        // only an actual newline in the rendered annotation warrants a second row.
+        int lines = annotation != null && annotation.indexOf('\n') >= 0 ? 2 : 1;
         // A two-language gloss deliberately occupies two rows. Do not turn the whole label into
         // a single-line TextView in that case, or the second gloss is silently clipped. With no
         // gloss row the chip can scroll horizontally as one intact candidate word.
@@ -5478,9 +5480,10 @@ public final class MSIMEInputService extends InputMethodService {
         // numeric prefix. The slot remains available through contentDescription and the shared
         // session/generation/index identity for accessibility and hardware number-row selection.
         button.setText(candidateLabel("", text, annotation, highlighted));
-        button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
-        button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
-        configureCandidateTextLayout(button, !annotation.isEmpty());
+        int labelLines = annotation.indexOf('\n') >= 0 ? 2 : 1;
+        button.setMinLines(labelLines);
+        button.setMaxLines(labelLines);
+        configureCandidateTextLayout(button, annotation);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleCandidateButton(button);
@@ -5504,9 +5507,10 @@ public final class MSIMEInputService extends InputMethodService {
         String annotation = candidateAnnotation(candidate, typed);
         button.setAllCaps(false);
         button.setText(candidateLabel("", text, annotation, highlighted));
-        button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
-        button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
-        configureCandidateTextLayout(button, !annotation.isEmpty());
+        int labelLines = annotation.indexOf('\n') >= 0 ? 2 : 1;
+        button.setMinLines(labelLines);
+        button.setMaxLines(labelLines);
+        configureCandidateTextLayout(button, annotation);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleCandidateButton(button);
