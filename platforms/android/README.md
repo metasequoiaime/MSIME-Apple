@@ -1,10 +1,12 @@
-# Android 输入宿主预览
+# Android 输入宿主
 
 ## 目录结构与验证边界
 
 Java/Kotlin 宿主按 `java/app/msime/client/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。Tauri/React 设置仍复用 `packages/ui` 和 `apps/desktop/src-tauri/src/platform/android/`，不会在 Android 复制一套页面或 Rust 业务。
 
 API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享设置和部分统计/手写流程。arm64-v8a 与 x86_64 两个 ABI 均已按固定 NDK 与 vcpkg 完成原生构建并通过 `verify-native.sh`，包括在线候选的五个 host 导出与五个 JNI 方法；x86_64 仍只有构建证据，没有设备运行证据。源码检查、JVM 测试和 APK 签名/对齐不等于真机、旋转、系统回收、权限或长期生命周期验收，发布说明必须分别列出这些缺口。
+
+本目录的正式 Android applicationId 是 `app.msime.android`，原生类所在的 namespace 是 `app.msime.client`；两者不同但都属于同一个 Android 宿主。设备 smoke 使用独立的 `app.msime.client.test` instrumentation APK。尚未上线的其他包名不属于本目录的构建、安装或验收范围。
 
 ### 手机、大屏与二合一布局边界
 
@@ -159,7 +161,7 @@ Apple 的社区资源入口已迁移到同一页的“皮肤 / 词库 / 回复�
 
 共享设置的“屏幕键盘”页面在 Android 上通过 `android_open_keyboard_tryout` 打开原生 `KeyboardTryoutActivity`；Tauri 只提供公共配置和入口，实际输入仍走 Android 原生试用键盘与 `InputConnection`，不在 WebView 内伪造输入法。
 
-此合包是本地开发产物，使用原开发签名和 versionCode 1，便于覆盖安装同一预览包，不代表正式发行的版本策略；不得发布开发密钥。`build-apk.sh` 不是被取代的旧入口，而是本目录原生宿主自己的构建入口，验证本目录改动时用它。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。
+此合包是本地开发构建，使用原开发签名和 versionCode 1，便于覆盖安装同一开发包，不代表正式发行的版本策略；不得发布开发密钥。`build-apk.sh` 不是被取代的旧入口，而是本目录原生宿主自己的构建入口，验证本目录改动时用它。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。
 
 在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --statistics --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、内置与自定义键盘皮肤、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。设置套件先确认“我的”入口存在，再选择内置霓虹夜航并打开真实编辑器应用“奶油桃桃”模板，通过 Tauri IPC 对独立命名图库执行新建、重命名、更新、应用和删除，并确认图库写入不会提前修改普通 preferences；随后检查 `custom` 选择及卵石、立体、圆角、纹理字段落盘，并在重绑的 `:ime` 进程中通过皮肤按钮无障碍状态确认实际消费“我的皮肤”。独立 fixture 还验证 Keystore 加密会话的往返、密文不含固定明文 marker、清除与 16 KiB 上限，不向生产账号服务发送验证码。测试前后恢复图库、偏好及 fixture 会话文件。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。统计套件通过真实 InputConnection 与 React 页面验证聚合文件、启停、清空和跨进程读写，固定失败阶段不输出编辑器内容，并恢复测试前文件。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案和偏好文件，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
 
@@ -203,11 +205,11 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 
 预先安装 `system-images;android-35;default;arm64-v8a`，在一个终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/start-emulator.sh`。脚本在忽略的 target/android/avd-home 中创建 msime-client-test，固定 emulator-5580，不使用已有个人 AVD；目标端口属于其他 AVD 时拒绝运行。需要额外磁盘空间，测试结束后应停止该专用模拟器以释放内存；脚本不会下载系统镜像、自动接受许可或启动 CI。
 
-完成上述 APK 构建、等待系统启动后，在另一终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580`。该命令会安装预览包和独立合成编辑器、准备资源，并在专用 AVD 上启用和选择 MSIME；拒绝非模拟器或名称不符的设备，不对现有真机执行操作。测试不会清空应用数据，重复执行覆盖已有配置路径而非重新模拟首次安装。
+完成上述 APK 构建、等待系统启动后，在另一终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580`。该命令会安装 `app.msime.android` 开发包和独立合成编辑器，准备资源，并在专用 AVD 上启用和选择 MSIME；拒绝非模拟器或名称不符的设备，不对现有真机执行操作。测试不会清空应用数据，重复执行覆盖已有配置路径而非重新模拟首次安装。
 
 独立 instrumentation 读取编辑器与输入法的交互窗口，等待窗口稳定后重新定位并注入触摸，断言“你好”提交、退格、“直接输入”状态和密码框字符长度；不记录编辑器原文。普通 uiautomator dump 只用于准备 Activity，不能用它缺少输入法节点推断键盘未显示。APK fixture 不随产品打包。
 
-同一 smoke 脚本还执行同开发签名的 PreferencesDeviceSmoke，instrumentation 以预览应用为目标，直接在其私有测试目录原子发布合成设置，无需给产品增加导出的测试写接口。目标进程重启后重新绑定专用 AVD 的 IME；测试组词延迟、提交保留、页大小与标点生效、损坏文件保护以及恢复重试。结束时恢复原偏好文件（原本不存在则删除测试文件），不清空资源和用户数据。该测试必须经专用 AVD 检查的 smoke 脚本执行，不安装在个人设备。
+同一 smoke 脚本还执行同开发签名的 PreferencesDeviceSmoke；instrumentation 通过独立的 `app.msime.client.test` 测试包，在 `app.msime.android` 的私有测试目录原子发布合成设置，无需给产品增加导出的测试写接口。目标进程重启后重新绑定专用 AVD 的 IME；测试组词延迟、提交保留、页大小与标点生效、损坏文件保护以及恢复重试。结束时恢复原偏好文件（原本不存在则删除测试文件），不清空资源和用户数据。该测试必须经专用 AVD 检查的 smoke 脚本执行，不安装在个人设备。
 
 KeyboardHeightDeviceSmoke 通过键盘内真实无障碍调节动作验证 -12、0 和 +48 dp 档位：正负调整必须改变实际字母键边界，调节和保存期间已有 Engine 组合不得丢失，保存值在 IME 进程重启后必须继续生效。`--settings` 还让 SettingsDeviceSmoke 在真实 React WebView 中修改并保存同一高度字段，再由独立输入法进程消费；两项测试结束时都恢复原偏好文件。
 
