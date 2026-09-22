@@ -17,6 +17,7 @@
 #include "../overlay/WaveOverlayModel.h"
 #include "../overlay/WaveOverlayIbusSurface.h"
 #include "../overlay/WaveOverlaySurfaceFactory.h"
+#include "../candidates/CandidateColors.h"
 #include "../candidates/CandidatePalette.h"
 #include "../candidates/CandidateFontPolicy.h"
 #include "../candidates/CandidateActionPolicy.h"
@@ -90,47 +91,10 @@ void apply_candidate_panel_font(const Json &preferences) {
 
 bool system_dark = false;
 Json skin_display_preferences(Json preferences) {
-  if (preferences.value("candidate_theme", "follow") == "follow")
-    preferences["candidate_theme"] = system_dark ? "dark" : "light";
-  const auto selected = preferences.value("candidate_skin", default_candidate_skin());
-  if (msime::linux_host::candidate_skin_title(builtin_skins(), selected) != "外部：" + selected)
-    return preferences;
-  const auto catalog = configured.find("candidate_skin_catalog");
-  if (catalog == configured.end() || !catalog->is_object())
-    return preferences;
-  const auto packages = catalog->find("packages");
-  if (packages == catalog->end() || !packages->is_array())
-    return preferences;
-  for (const auto &package : *packages) {
-    if (!package.is_object() || package.value("id", std::string{}) != selected)
-      continue;
-    const auto candidate = package.value("candidate", Json::object());
-    if (!candidate.is_object()) break;
-    const auto theme = preferences.value("candidate_theme", "follow") == "dark" ? "dark" : "light";
-    const auto palette = candidate.value(theme, Json::object());
-    if (!palette.is_object()) break;
-    if (!preferences.value("candidate_text_color", Json(nullptr)).is_string() &&
-        palette.contains("text"))
-      preferences["candidate_text_color"] = palette["text"];
-    if (!preferences.value("candidate_number_color", Json(nullptr)).is_string() &&
-        palette.contains("number"))
-      preferences["candidate_number_color"] = palette["number"];
-    if (!preferences.value("candidate_accent_color", Json(nullptr)).is_string() &&
-        palette.contains("accent"))
-      preferences["candidate_accent_color"] = palette["accent"];
-    if (!preferences.value("candidate_selected_color", Json(nullptr))
-             .is_string() &&
-        palette.contains("selected"))
-      preferences["candidate_selected_color"] = palette["selected"];
-    const bool custom_surface =
-        preferences.value("candidate_background_color", Json(nullptr))
-            .is_string() ||
-        preferences.value("candidate_surface_color", Json(nullptr)).is_string();
-    if (!custom_surface && palette.contains("surface"))
-      preferences["candidate_background_color"] = palette["surface"];
-    break;
-  }
-  return preferences;
+  const auto catalog =
+      configured.is_object() ? configured.value("candidate_skin_catalog", Json(nullptr)) : Json(nullptr);
+  return msime::linux_host::candidate_display_preferences(std::move(preferences), system_dark, builtin_skins(),
+                                                          default_candidate_skin(), catalog);
 }
 std::optional<bool> global_input_enabled;
 // The shared preference defaults, read once from the Host API rather than
@@ -206,13 +170,6 @@ bool listed_skin(const std::string &id) {
     if (skin.id == id) return true;
   return false;
 }
-std::optional<guint> candidate_text_color(const Json &preferences);
-std::optional<guint> candidate_number_color(const Json &preferences);
-std::optional<guint> candidate_accent_color(const Json &preferences);
-std::optional<guint> candidate_background_color(const Json &preferences);
-std::optional<guint> candidate_selected_color(const Json &preferences);
-std::optional<guint> candidate_selected_text_color(const Json &preferences);
-std::optional<guint> candidate_selected_number_color(const Json &preferences);
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
@@ -735,15 +692,15 @@ struct State {
     else if (punctuation_lock == "english")
       chinese_punctuation = false;
     const auto display_preferences = skin_display_preferences(options.at("preferences"));
-    candidate_text_color = ::candidate_text_color(display_preferences);
-    candidate_number_color = ::candidate_number_color(display_preferences);
-    candidate_accent_color = ::candidate_accent_color(display_preferences);
-    candidate_background_color = ::candidate_background_color(display_preferences);
-    candidate_selected_color = ::candidate_selected_color(display_preferences);
-    candidate_selected_text_color =
-        ::candidate_selected_text_color(display_preferences);
-    candidate_selected_number_color =
-        ::candidate_selected_number_color(display_preferences);
+    const auto colors =
+        msime::linux_host::resolve_candidate_colors(display_preferences, default_candidate_skin());
+    candidate_text_color = colors.text;
+    candidate_number_color = colors.number;
+    candidate_accent_color = colors.accent;
+    candidate_background_color = colors.background;
+    candidate_selected_color = colors.selected;
+    candidate_selected_text_color = colors.selected_text;
+    candidate_selected_number_color = colors.selected_number;
     candidate_orientation = ::candidate_orientation(options.at("preferences"));
     preedit_style = ::preedit_style(options.at("preferences"));
     candidate_preedit_style =
@@ -859,15 +816,15 @@ struct State {
     if (skin_override)
       display_preferences["candidate_skin"] = *skin_override;
     display_preferences = skin_display_preferences(std::move(display_preferences));
-    candidate_text_color = ::candidate_text_color(display_preferences);
-    candidate_number_color = ::candidate_number_color(display_preferences);
-    candidate_accent_color = ::candidate_accent_color(display_preferences);
-    candidate_background_color = ::candidate_background_color(display_preferences);
-    candidate_selected_color = ::candidate_selected_color(display_preferences);
-    candidate_selected_text_color =
-        ::candidate_selected_text_color(display_preferences);
-    candidate_selected_number_color =
-        ::candidate_selected_number_color(display_preferences);
+    const auto colors =
+        msime::linux_host::resolve_candidate_colors(display_preferences, default_candidate_skin());
+    candidate_text_color = colors.text;
+    candidate_number_color = colors.number;
+    candidate_accent_color = colors.accent;
+    candidate_background_color = colors.background;
+    candidate_selected_color = colors.selected;
+    candidate_selected_text_color = colors.selected_text;
+    candidate_selected_number_color = colors.selected_number;
     candidate_orientation = ::candidate_orientation(display_preferences);
     preedit_style = preedit_override.value_or(::preedit_style(display_preferences));
     candidate_preedit_style = preferences.value("candidate_preedit_style", "pinyin");
@@ -1426,117 +1383,6 @@ std::string fullwidth_text(const std::string &text) {
     }
   }
   return result;
-}
-std::optional<guint> palette_color(const Json &value) {
-  if (!value.is_string()) return std::nullopt;
-  const auto hex = value.get<std::string>();
-  if (hex.size() != 7 || hex.front() != '#') return std::nullopt;
-  guint color = 0;
-  for (size_t index = 1; index < hex.size(); ++index) {
-    const auto c = static_cast<unsigned char>(hex[index]);
-    guint digit;
-    if (c >= '0' && c <= '9') digit = c - '0';
-    else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
-    else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
-    else return std::nullopt;
-    color = (color << 4) | digit;
-  }
-  return color;
-}
-std::optional<guint> contrasting_color(std::optional<guint> background) {
-  if (!background) return std::nullopt;
-  const auto linear = [](guint channel) {
-    const double value = channel / 255.0;
-    return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
-  };
-  const auto luminance = 0.2126 * linear((*background >> 16) & 0xff) +
-                         0.7152 * linear((*background >> 8) & 0xff) +
-                         0.0722 * linear(*background & 0xff);
-  const auto black_contrast = (luminance + 0.05) / 0.05;
-  const auto white_contrast = 1.05 / (luminance + 0.05);
-  return black_contrast >= white_contrast ? 0x000000u : 0xffffffu;
-}
-std::optional<guint> candidate_text_color(const Json &preferences) {
-  if (const auto custom =
-          palette_color(preferences.value("candidate_text_color", Json(nullptr))))
-    return custom;
-  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
-  const auto theme = preferences.value("candidate_theme", "follow");
-  if (msime::linux_host::candidate_builtin_skin(skin))
-    return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").text;
-  return contrasting_color(candidate_background_color(preferences));
-}
-std::optional<guint> candidate_number_color(const Json &preferences) {
-  if (const auto custom =
-          palette_color(preferences.value("candidate_number_color", Json(nullptr))))
-    return custom;
-  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
-  const auto theme = preferences.value("candidate_theme", "follow");
-  if (msime::linux_host::candidate_builtin_skin(skin))
-    return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").number;
-  return std::nullopt;
-}
-std::optional<guint> candidate_accent_color(const Json &preferences) {
-  if (const auto custom =
-          palette_color(preferences.value("candidate_accent_color", Json(nullptr))))
-    return custom;
-  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
-  const auto theme = preferences.value("candidate_theme", "follow");
-  if (msime::linux_host::candidate_builtin_skin(skin))
-    return msime::linux_host::candidate_builtin_accent(skin, theme == "dark");
-  return std::nullopt;
-}
-std::optional<guint> candidate_background_color(const Json &preferences) {
-  if (const auto custom = palette_color(preferences.value("candidate_background_color", Json(nullptr))))
-    return custom;
-  if (const auto custom = palette_color(preferences.value("candidate_surface_color", Json(nullptr))))
-    return custom;
-  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
-  const auto theme = preferences.value("candidate_theme", "follow");
-  const bool dark = theme == "dark";
-  if (msime::linux_host::candidate_builtin_skin(skin))
-    return msime::linux_host::candidate_builtin_palette(skin, dark).surface;
-  if (theme == "dark") return 0x202124u;
-  if (theme == "light") return 0xffffffu;
-  return std::nullopt;
-}
-std::optional<guint> candidate_selected_color(const Json &preferences) {
-  if (const auto custom =
-          palette_color(preferences.value("candidate_selected_color", Json(nullptr))))
-    return custom;
-  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
-  const auto theme = preferences.value("candidate_theme", "follow");
-  if (msime::linux_host::candidate_builtin_skin(skin))
-    return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").selected;
-  return std::nullopt;
-}
-std::optional<guint> candidate_selected_text_color(const Json &preferences) {
-  if (const auto custom =
-          palette_color(preferences.value("candidate_text_color", Json(nullptr))))
-    return custom;
-  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
-  const auto theme = preferences.value("candidate_theme", "follow");
-  if (msime::linux_host::candidate_builtin_skin(skin)) {
-    const auto palette =
-        msime::linux_host::candidate_builtin_palette(skin, theme == "dark");
-    if (palette.selected_text) return palette.selected_text;
-    return candidate_text_color(preferences);
-  }
-  return candidate_text_color(preferences);
-}
-std::optional<guint> candidate_selected_number_color(const Json &preferences) {
-  if (const auto custom =
-          palette_color(preferences.value("candidate_number_color", Json(nullptr))))
-    return custom;
-  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
-  const auto theme = preferences.value("candidate_theme", "follow");
-  if (msime::linux_host::candidate_builtin_skin(skin)) {
-    const auto palette =
-        msime::linux_host::candidate_builtin_palette(skin, theme == "dark");
-    if (palette.selected_number) return palette.selected_number;
-    return candidate_number_color(preferences);
-  }
-  return candidate_number_color(preferences);
 }
 IBusOrientation candidate_orientation(const Json &preferences) {
   return preferences.value("candidate_layout", "vertical") == "horizontal"

@@ -176,6 +176,8 @@ IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到
 
 Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳青的 surface、正文、序号、accent 与选中行颜色；外部皮肤的 `candidate.*.selected` 也会应用到高亮候选。IBus 的候选属性只携带 RGB 前景/背景，不能表达原生窗口的 alpha、圆角、边框、hover、选中条或布局间距，因此这些装饰继续由各平台实现，Linux 只发布可表达的行级颜色。石墨的透明选中填充保留为无背景属性，改用选中正文和序号颜色；微信绿与杨柳青的实色选中行使用白色正文和序号。
 
+Fcitx5 的候选表由 classicui 插件按主题绘制，宿主把同一套解析结果（内置皮肤、外部皮肤、自定义颜色、`follow` 跟随系统明暗）写成用户数据目录下的主题 `$XDG_DATA_HOME/fcitx5/themes/msime/theme.conf`（默认 `~/.local/share/fcitx5/themes/msime/`），再通过 classicui 自己的配置把 `Theme` 和 `DarkTheme` 指向它；配置一写入插件就重新读取主题，改皮肤或系统明暗切换后无需重启。只有当前主题是 Fcitx5 自带的 `default`、`default-dark`、未设置或已经是 `msime` 时宿主才接管，用户在 fcitx5-configtool 里选过的第三方主题保持不变，此时 MSIME 的候选颜色不生效。主题文件只在内容变化时原子替换。classicui 主题没有序号、accent 的独立颜色，也没有与选中分开的 hover 状态，因此序号跟随正文颜色、固定候选不单独着色；石墨的透明选中填充写成透明高亮，只靠选中正文颜色区分。Plasma 的 kimpanel 和 GNOME Shell 面板不使用 classicui 主题。
+
 `tsf_preedit_style` 在 Linux IBus 中映射为：`raw` 显示 Engine 的 ASCII `editing_text`，`pinyin` 显示 Engine 的 `preedit`，`empty` 隐藏预编辑；设置热重载会更新当前会话的显示样式。候选与上屏仍由 Engine 的共享状态决定。
 
 `candidate_preedit_style` 在 Linux 中映射为候选面板辅助文本：`pinyin` 在页码后显示当前拼音，`empty` 只显示页码和模式标签；设置热重载立即更新现有会话。
