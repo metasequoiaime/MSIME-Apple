@@ -881,7 +881,7 @@ function HarmonySettings({
     return (
       <WelcomeFlowPage
         actions={{
-          platform: "android",
+          platform: "harmony",
           // Resources are staged by the keyboard when it starts, and there is no separate step to
           // run here; the flow expects the promise, not work.
           prepareResources: async () => {},
@@ -916,7 +916,7 @@ function HarmonySettings({
   }
   return (
     <>
-      <SettingsPage client={client} />
+      <SettingsPage client={client} onReplayOnboarding={() => setBootstrapRequired(true)} />
       {cloudClipboardOpen && (
         <CloudClipboardPanel
           client={cloudClipboardClient(native, () => setCloudClipboardOpen(false))}
