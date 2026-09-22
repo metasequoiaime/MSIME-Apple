@@ -43,6 +43,20 @@ if rg -n 'VariantGroup|showJapaneseVariants' \
   echo "Android must not duplicate Engine-owned Japanese kana variant tables" >&2
   exit 1
 fi
+# Hardware navigation must use the shared command numbers through one named policy. Keep the
+# service from growing another inline key-code table that can drift from the FFI mapping.
+if ! rg -q 'HardwareKeyPolicy\.commandFor' \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+  echo "Android hardware navigation must route through HardwareKeyPolicy" >&2
+  exit 1
+fi
+if ! rg -q 'KEYCODE_FORWARD_DEL.*-> 8' \
+    "$repo_root/platforms/android/java/app/msime/client/policy/HardwareKeyPolicy.java" \
+    || ! rg -q '^\s*8 => Action::Command\(Command::DeleteForward\),' \
+    "$repo_root/crates/host-api/src/ffi/input.rs"; then
+  echo "Android forward-delete mapping no longer matches the shared Host API" >&2
+  exit 1
+fi
 # Double-pinyin labels belong to the Engine profile tables. Android may gate visibility and
 # decode the bounded response, but it must not carry a second profile keymap that can drift.
 if rg -n 'PROFILES|uai=k|ing=;' \
@@ -177,6 +191,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/community/CommunityRequestSmoke.java" \
   "$repo_root/platforms/android/tests/settings/AppIconStyleSmoke.java" \
   "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" PhrasePreeditSmoke
@@ -236,6 +251,7 @@ java -cp "$output_dir" InputFeatureToggleSmoke
 java -cp "$output_dir" CommunityRequestSmoke
 java -cp "$output_dir" AppIconStyleSmoke
 java -cp "$output_dir" SmartPunctuationContextSmoke
+java -cp "$output_dir" HardwareKeyPolicySmoke
 java -cp "$output_dir" SymbolPanelModelSmoke
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed

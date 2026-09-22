@@ -2324,7 +2324,8 @@ public final class MSIMEInputService extends InputMethodService {
             deleteFromHandwriting();
             return true;
         }
-        if (keyCode == KeyEvent.KEYCODE_DEL) return command(0) || super.onKeyDown(keyCode, event);
+        int engineCommand = HardwareKeyPolicy.commandFor(keyCode);
+        if (engineCommand >= 0) return command(engineCommand) || super.onKeyDown(keyCode, event);
         if (keyCode == KeyEvent.KEYCODE_SPACE && dedicatedEnglish) { space(); return true; }
         if (keyCode == KeyEvent.KEYCODE_SPACE && handwritingActive()) { space(); return true; }
         if (keyCode == KeyEvent.KEYCODE_SPACE) return command(1) || super.onKeyDown(keyCode, event);
