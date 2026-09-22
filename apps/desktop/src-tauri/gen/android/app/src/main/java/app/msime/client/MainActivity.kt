@@ -8,16 +8,19 @@ import app.msime.client.TauriActivity
 
 class MainActivity : TauriActivity() {
   private var settingsWebView: WebView? = null
+  private var pendingMobilePanel: String? = null
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     settingsWebView = webView
     WindowLayout.fitSystemBars(webView)
     webView.post { webView.requestApplyInsets() }
+    dispatchPendingMobilePanel(webView)
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
+    pendingMobilePanel = intent.getStringExtra("msime_mobile_panel")
     super.onCreate(savedInstanceState)
     // Preparation used to sit behind a button on a development launcher screen. That screen is
     // gone, so each launcher triggers it; the call is idempotent and never overwrites an existing
@@ -40,6 +43,25 @@ class MainActivity : TauriActivity() {
         isEnabled = true
       }
     })
+  }
+
+  override fun onNewIntent(intent: android.content.Intent?) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    pendingMobilePanel = intent?.getStringExtra("msime_mobile_panel")
+    settingsWebView?.let { dispatchPendingMobilePanel(it) }
+  }
+
+  private fun dispatchPendingMobilePanel(webView: WebView) {
+    val panel = pendingMobilePanel ?: return
+    if (panel != "cloud-dictionary") return
+    pendingMobilePanel = null
+    webView.postDelayed({
+      webView.evaluateJavascript(
+        "window.dispatchEvent(new CustomEvent('msime-mobile-panel',{detail:'cloud-dictionary'}));",
+        null,
+      )
+    }, 250)
   }
 
   override fun onDestroy() {

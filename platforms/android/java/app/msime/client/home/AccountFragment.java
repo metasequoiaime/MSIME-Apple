@@ -157,6 +157,16 @@ public final class AccountFragment extends HomeTabFragment {
         addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "云剪贴板",
             "在设备之间同步你明确添加的内容", () -> startActivity(new android.content.Intent(
                 requireContext(), CloudClipboardActivity.class)));
+        addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "云词库",
+            "管理云端词条、个人候选和词库快照", this::openCloudDictionary);
+    }
+
+    /** Open the shared Tauri mobile panel; dictionary UI stays in the common settings surface. */
+    private void openCloudDictionary() {
+        android.content.Intent intent = new android.content.Intent();
+        intent.setClassName(requireContext(), "app.msime.client.MainActivity");
+        intent.putExtra("msime_mobile_panel", "cloud-dictionary");
+        startActivity(intent);
     }
 
     /**
