@@ -68,7 +68,7 @@ if (google != result.end() && google != result.begin())
 
 ## 结局
 
-排序修复是 MSIME-Engine PR #154，`dict_pinyin.dat` 随本次提交进入词库锁。两者一起落地后，用真实 Engine 与真实资源跑出来的最终数字：
+排序修复是 msime-engine PR #154，`dict_pinyin.dat` 随本次提交进入词库锁。两者一起落地后，用真实 Engine 与真实资源跑出来的最终数字：
 
 | | 修复前 | 现在 |
 |---|---|---|
