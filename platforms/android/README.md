@@ -112,7 +112,7 @@ Android 账号设置中的云词典现通过同一认证会话访问 HTTPS API�
 
 ## 两个 APK 入口，不要选错
 
-`platforms/android` 有两个构建脚本，产物**同名同路径**（`target/android/msime-client-preview.apk`），装到设备上也是同一个包名，但内容完全不同：
+`platforms/android` 有两个构建脚本，产物**同名同路径**（`target/android/msime-client.apk`），装到设备上也是同一个包名，但内容完全不同：
 
 - `build-apk.sh <已锁定词库目录>` —— 本目录自己的原生 IME 包。Java 宿主来自 `platforms/android/java`，manifest 是 `platforms/android/AndroidManifest.xml`，图标是 `platforms/android/res/drawable/app_icon_*`，不含任何 Tauri/WebView/React。装真机验证本目录的改动用这个。
 - `build-client-apk.sh <已锁定词库目录> [abi]` —— Tauri 合包。走 Gradle，从 `apps/desktop/src-tauri/gen/android/` 构建，把原生 IME 和 React 设置界面装进同一个包。
@@ -123,7 +123,7 @@ Android 账号设置中的云词典现通过同一认证会话访问 HTTPS API�
 
 ## Tauri + React 共享设置合包
 
-需要管理 UI 时的本地构建入口（不是本目录的默认入口，见上节）：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-client-apk.sh <已锁定词库目录> [arm64-v8a|x86_64]`。默认 arm64-v8a，产物仍为 target/android/msime-client-preview.apk；需要先完成根目录 pnpm install --frozen-lockfile，准备 JDK 21、Android API 36、build-tools 35、固定 NDK/vcpkg 与 Rust Android target。Gradle 8.14.3 使用官方分发摘要固定，AGP/Kotlin 版本由项目固定。参数 --ci 仅用于 Tauri CLI 的非交互模式，不运行 GitHub CI。
+需要管理 UI 时的本地构建入口（不是本目录的默认入口，见上节）：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-client-apk.sh <已锁定词库目录> [arm64-v8a|x86_64]`。默认 arm64-v8a，产物仍为 target/android/msime-client.apk；需要先完成根目录 pnpm install --frozen-lockfile，准备 JDK 21、Android API 36、build-tools 35、固定 NDK/vcpkg 与 Rust Android target。Gradle 8.14.3 使用官方分发摘要固定，AGP/Kotlin 版本由项目固定。参数 --ci 仅用于 Tauri CLI 的非交互模式，不运行 GitHub CI。
 
 apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入口，Android 调用同一个 client-core PreferencesStore，指向应用私有 files/bootstrap/state，与 bootstrap 和 IME 监控目录一致。packages/ui 的 React 页没有 Android 副本。生成的 Android 工程已纳入源码，Gradle 直接引用 platforms/android/java、共享图标与暂存的锁定资源；不把原生宿主代码复制到 gen。不要重复执行 tauri android init 覆盖本仓定制。受版本控制的 Gradle 设置会从 `TAURI_ANDROID_DIR` 或 Cargo registry 定位锁定 Tauri Android 工程，合包脚本通过 `cargo metadata --locked` 注入精确路径；生成 Kotlin 绑定、native symlink、构建输出和本机配置仍忽略。
 
@@ -167,7 +167,7 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 
 ## 开发 APK 与首次准备
 
-本地构建：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-apk.sh <已锁定词库目录>`。需要前述 NDK/vcpkg/JDK/Rust 工具及 zip；脚本先通过共享 ResourceStore 校验资源，再构建双 ABI 库，用 SDK aapt2/d8/zipalign/apksigner 生成并验证 `target/android/msime-client-preview.apk`。APK 含六份锁定资源和原生许可声明；仅供本地开发测试，完整分发许可审计仍未完成，不发布到应用商店。签名前进行 16 KB zip 对齐，签名后再验证。
+本地构建：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-apk.sh <已锁定词库目录>`。需要前述 NDK/vcpkg/JDK/Rust 工具及 zip；脚本先通过共享 ResourceStore 校验资源，再构建双 ABI 库，用 SDK aapt2/d8/zipalign/apksigner 生成并验证 `target/android/msime-client.apk`。APK 含六份锁定资源和原生许可声明；仅供本地开发测试，完整分发许可审计仍未完成，不发布到应用商店。签名前进行 16 KB zip 对齐，签名后再验证。
 
 开发密钥在忽略的 `target/android/development.keystore`，不得用于正式发行；清理该文件会改变后续开发签名，不能直接覆盖安装由旧密钥签名的包。构建临时文件留在 target/android 便于排查，不触碰任何设备。
 

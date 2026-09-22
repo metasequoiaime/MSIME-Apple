@@ -17,13 +17,11 @@ val clientRoot = rootProject.file("../../../../..")
 
 android {
     compileSdk = 36
-    namespace = "app.msime.client.preview"
+    // Use the native client package for generated Tauri Kotlin and Android resources.
+    namespace = "app.msime.client"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        // The package the device installs under. It is deliberately not the same as `namespace`:
-        // namespace is the code identity -- the R class, the manifest's relative names, and the
-        // package wry looks its generated Kotlin up by -- and moving that would mean moving the
-        // generated sources with it.
+        // Keep the installed package stable for the Android client.
         applicationId = "app.msime.android"
         minSdk = 28
         targetSdk = 35
@@ -82,6 +80,9 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")

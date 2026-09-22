@@ -1,9 +1,10 @@
-package app.msime.client.preview
+package app.msime.client
 
 import android.os.Bundle
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.OnBackPressedCallback
+import app.msime.client.TauriActivity
 
 class MainActivity : TauriActivity() {
   private var settingsWebView: WebView? = null
@@ -11,7 +12,7 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     settingsWebView = webView
-    app.msime.client.WindowLayout.fitSystemBars(webView)
+    WindowLayout.fitSystemBars(webView)
     webView.post { webView.requestApplyInsets() }
   }
 
@@ -21,7 +22,7 @@ class MainActivity : TauriActivity() {
     // Preparation used to sit behind a button on a development launcher screen. That screen is
     // gone, so each launcher triggers it; the call is idempotent and never overwrites an existing
     // configuration. Without this the bundle would ship a keyboard that cannot reach the Engine.
-    app.msime.client.FirstRunPreparation.startIfNeeded(this)
+    FirstRunPreparation.startIfNeeded(this)
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
         val webView = settingsWebView

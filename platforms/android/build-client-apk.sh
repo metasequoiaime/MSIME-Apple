@@ -55,7 +55,7 @@ if [[ ! -f "$keystore" ]]; then
   keytool -genkeypair -keystore "$keystore" -storepass android -keypass android \
     -alias androiddebugkey -dname "CN=MSIME Development" -keyalg RSA -keysize 2048 -validity 3650
 fi
-output="$repo_root/target/android/msime-client-preview.apk"
+output="$repo_root/target/android/msime-client.apk"
 "$android_sdk/build-tools/35.0.0/apksigner" sign --ks "$keystore" --ks-key-alias androiddebugkey \
   --ks-pass pass:android --key-pass pass:android --out "$output" "$unsigned"
 "$android_sdk/build-tools/35.0.0/apksigner" verify "$output"
