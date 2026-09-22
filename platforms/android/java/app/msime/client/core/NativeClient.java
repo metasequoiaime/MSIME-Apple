@@ -24,6 +24,8 @@ public final class NativeClient {
     /** The shared provider FFI rejects an online query document larger than this. */
     private static final int ONLINE_QUERY_LIMIT = 16_384;
     private static final int ENGLISH_COMPLETION_RESPONSE_LIMIT = 262_144;
+    private static final int SHUANGPIN_PROFILE_LIMIT = 64;
+    private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
@@ -98,6 +100,17 @@ public final class NativeClient {
         } catch (org.json.JSONException error) {
             throw new IllegalArgumentException("Invalid English completion request", error);
         }
+    }
+    /** Reads one bounded double-pinyin key-hint map from the Engine profile tables. */
+    public static String shuangpinKeyHints(String profile) {
+        if (profile == null) throw new IllegalArgumentException("Missing double-pinyin profile");
+        byte[] profileBytes = profile.getBytes(StandardCharsets.UTF_8);
+        if (profileBytes.length == 0 || profileBytes.length > SHUANGPIN_PROFILE_LIMIT)
+            throw new IllegalArgumentException("Double-pinyin profile is too large");
+        byte[] result = shuangpinKeyHintsRaw(profileBytes);
+        if (result == null || result.length > SHUANGPIN_HINT_RESPONSE_LIMIT)
+            throw new IllegalStateException("Double-pinyin hint response is too large");
+        return text(result);
     }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String savePreferences(String directory, long expectedRevision, String snapshot) {
@@ -213,6 +226,7 @@ public final class NativeClient {
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
+    private static native byte[] shuangpinKeyHintsRaw(byte[] profile);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] personalDictionarySyncRaw(byte[] options);
     private static native byte[] focusRaw(long session, boolean focused);
