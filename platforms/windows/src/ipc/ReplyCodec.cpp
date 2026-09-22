@@ -276,8 +276,7 @@ voice_composition_bytes(uint32_t message, std::wstring_view text,
       message != FanyImeWorkerReplyType::CommitVoiceComposition &&
       message != FanyImeWorkerReplyType::CancelVoiceComposition)
     return std::nullopt;
-  if (!generation || text.size() > FanyImeVoiceCompositionPipe::kMaxSnapshotChars ||
-      text.find(L'\0') != std::wstring_view::npos)
+  if (!generation || text.find(L'\0') != std::wstring_view::npos)
     return std::nullopt;
   const auto frames = FanyImeVoiceCompositionPipe::EncodeSnapshot(
       std::wstring(text), generation);
