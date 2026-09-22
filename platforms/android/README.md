@@ -157,6 +157,8 @@ Apple 的社区资源入口已迁移到同一页的“皮肤 / 词库 / 回复�
 
 “键盘”页另有“个人词库”入口，打开共享设置页的 `dictionary` 分类，覆盖 Apple 个人词库的查询、编辑、导入和导出；原生 Android 只提供入口和系统返回，词条校验及 Engine 写入仍由公共 Tauri/Rust 流程负责。入口通过 `msime_settings_page=dictionary` 传给 `MainActivity`，由 WebView 派发受控页面事件。
 
+Android“我的”页的“关于水杉”入口打开同包 Tauri 的共享 `about` 页面；页面内的使用帮助和反馈继续通过 `help` / `feedback` 分类切换，复用公共版本、隐私、开源、帮助和反馈 UI。原生宿主不再为这条公开设置链路维护另一套 About/Help/Feedback 页面。
+
 “我的”页的“社区作品”入口打开共享账户页。Android Tauri 宿主现在注入账号命令客户端，复用公共登录、昵称、发布/收藏作品和账号管理流程；原生匿名身份仍只用于无需登录的社区目录浏览，账号会话由 Android 插件安全存储。
 
 共享设置的“屏幕键盘”页面在 Android 上通过 `android_open_keyboard_tryout` 打开原生 `KeyboardTryoutActivity`；Tauri 只提供公共配置和入口，实际输入仍走 Android 原生试用键盘与 `InputConnection`，不在 WebView 内伪造输入法。
