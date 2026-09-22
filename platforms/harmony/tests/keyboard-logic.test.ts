@@ -6139,6 +6139,34 @@ group("uploading keeps what other devices wrote", () => {
     refusedType = error instanceof AccountPreferenceError && error.message === "account_invalid";
   }
   check(refusedType, "and so is the right key with the wrong type");
+
+  const photo = "A".repeat(4 * Math.floor((512000 + 2) / 3));
+  const design = JSON.stringify({ photo });
+  const designKey = "platform.harmony.custom_keyboard_skin";
+  const photoSchema: AccountPreferenceSchema = {
+    fields: { [designKey]: { type: "string" } },
+    maximumBytes: 1024 * 1024,
+    updateMode: "replace",
+    revisionRequired: true,
+  };
+  const withPhoto = mergeAccountPreferences(
+    { revision: 1, settings: {} },
+    { [designKey]: design },
+    photoSchema,
+  );
+  check(withPhoto.settings[designKey] === design, "a photo-sized private setting stays intact");
+  let refusedLegacyLimit = false;
+  try {
+    mergeAccountPreferences(
+      { revision: 1, settings: {} },
+      { [designKey]: design },
+      { ...photoSchema, maximumBytes: 64 * 1024 },
+    );
+  } catch (error) {
+    refusedLegacyLimit =
+      error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedLegacyLimit, "the same photo is refused by an older negotiated 64 KiB limit");
 });
 
 group("applying writes only what the schema declares", () => {

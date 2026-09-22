@@ -16,7 +16,9 @@ const ACCOUNT_ORIGIN: &str = "https://api.msime.app";
 const MAX_JSON_BYTES: usize = 1024 * 1024;
 const MAX_ACCOUNT_PREFERENCE_FIELDS: usize = 512;
 const MAX_ACCOUNT_PREFERENCE_KEY_BYTES: usize = 128;
-const MAX_ACCOUNT_PREFERENCE_STRING_BYTES: usize = 256 * 1024;
+// A custom keyboard skin can carry roughly 512 KiB of image bytes as base64. The negotiated
+// document limit is the real bound, so one string may occupy almost the full 1 MiB envelope.
+const MAX_ACCOUNT_PREFERENCE_STRING_BYTES: usize = MAX_JSON_BYTES;
 const MAX_DICTIONARY_PAGE_ENTRIES: usize = 100;
 const MAX_DICTIONARY_EXPORT_BYTES: usize = 384 * 1024 * 1024;
 const MAX_DICTIONARY_SNAPSHOT_BYTES: usize = 512 * 1024 * 1024;

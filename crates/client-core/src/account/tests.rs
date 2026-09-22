@@ -450,6 +450,38 @@ fn account_preferences_validate_and_merge_preserves_other_platforms() {
 }
 
 #[test]
+fn account_preferences_keep_photo_sized_strings_within_the_negotiated_limit() {
+    let photo = "A".repeat(4 * 512_000_usize.div_ceil(3));
+    let design = format!(r#"{{"photo":"{photo}"}}"#);
+    let key = "platform.harmony.custom_keyboard_skin";
+    let base = AccountPreferences {
+        revision: 1,
+        settings: BTreeMap::new(),
+    };
+    let mut schema = AccountPreferenceSchema {
+        fields: BTreeMap::from([(
+            key.into(),
+            AccountPreferenceField {
+                value_type: "string".into(),
+            },
+        )]),
+        maximum_bytes: MAX_JSON_BYTES,
+        update_mode: "replace".into(),
+        revision_required: true,
+    };
+    let replacing = BTreeMap::from([(key.into(), AccountPreferenceValue::String(design.clone()))]);
+
+    let merged = merge_account_preferences(&base, &replacing, &schema).unwrap();
+    assert_eq!(merged.settings[key], AccountPreferenceValue::String(design));
+
+    schema.maximum_bytes = 65_536;
+    assert_eq!(
+        merge_account_preferences(&base, &replacing, &schema),
+        Err(AccountError::Invalid)
+    );
+}
+
+#[test]
 fn account_preferences_refresh_after_unauthorized_and_preserve_revision_conflicts() {
     let storage = MemoryStorage::default();
     installed(&storage, u64::MAX);
