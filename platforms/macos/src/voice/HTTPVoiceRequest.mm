@@ -32,7 +32,13 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
             String(options, @"polish_prompt"), String(options, @"polish_prompt_custom_1"),
             String(options, @"polish_prompt_custom_2"), String(options, @"polish_prompt_custom_3")});
         if (Endpoint(endpoint)) {
-            if (polishing) dispatch_async(dispatch_get_main_queue(), ^{ if (!cancelled->load()) polishing(); });
+            // A block captures a C++ reference as the reference, not as a copy of what it names. This one
+            // runs on main after Polish has returned, when the request owning `cancelled` may already be
+            // gone, so it has to hold its own share of the flag - reading through the parameter crashed.
+            if (polishing) {
+                std::shared_ptr<std::atomic_bool> flag = cancelled;
+                dispatch_async(dispatch_get_main_queue(), ^{ if (!flag->load()) polishing(); });
+            }
             // 30s, the budget the reference host uses and for the reason it measured: a chat completion
             // cleaning up to a minute of transcript does not answer inside the 3s default, and the catch
             // below keeps the ASR text without telling anyone - so the transcript reached the provider and

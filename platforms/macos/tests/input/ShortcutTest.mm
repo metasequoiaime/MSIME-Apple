@@ -50,7 +50,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
         @"selectChineseMode:", @"selectEnglishMode:", @"toggleDedicatedEnglishMode:", @"",
         @"selectSimplifiedOutput:", @"selectTraditionalOutput:", @"",
         @"toggleFloatingToolbar:", @"showEmoji:", @"showScreenKeyboard:", @"showHandwriting:",
-        @"showVoicePanel", @"", @"showAppearance:"
+        @"showVoicePanel", @"", @"showAppearance:", @"showAbout:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
     for (NSUInteger index = 0; index < actions.count; ++index) {
@@ -2769,7 +2769,7 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     CheckMenu(menu, controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
-    assert(menu.numberOfItems == 14);
+    assert(menu.numberOfItems == 15);
     assert([[menu itemAtIndex:7].title isEqual:@"悬浮工具栏"]);
     NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
     NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
@@ -2780,6 +2780,8 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert([menu itemAtIndex:12].separatorItem);
     assert([[menu itemAtIndex:13].title isEqual:@"水杉输入法设置…"] &&
            [menu itemAtIndex:13].action == @selector(showAppearance:));
+    assert([[menu itemAtIndex:14].title isEqual:@"关于水杉输入法…"] &&
+           [menu itemAtIndex:14].action == @selector(showAbout:));
     client.marked = @"ceshi";
     panel.visible = YES;
     [NSApp sendAction:[menu itemAtIndex:1].action to:controller from:[menu itemAtIndex:1]];

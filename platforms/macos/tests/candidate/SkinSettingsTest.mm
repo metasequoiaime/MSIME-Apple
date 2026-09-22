@@ -51,7 +51,9 @@ int main(int argc, const char **argv) {
         NSTextField *diagnostics = [cards valueForKey:@"diagnosticsLabel"];
         NSTextField *empty = [cards valueForKey:@"emptyLabel"];
         assert(switches.count == 4 && previews.count == 4 && !empty.hidden && diagnostics.hidden);
-        assert(switches[0].state == NSControlStateValueOn);
+        // A fresh install selects 杨柳青, the default the candidate window resolves an unset skin to.
+        for (NSSwitch *card in switches)
+            assert(card.state == ([card.identifier isEqual:@"willow_green"] ? NSControlStateValueOn : NSControlStateValueOff));
         [window.contentView layoutSubtreeIfNeeded];
         assert(!cards.hasAmbiguousLayout && ![[cards valueForKey:@"externalCards"] hasAmbiguousLayout]);
         __block NSUInteger changes = 0;

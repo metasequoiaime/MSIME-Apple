@@ -2030,6 +2030,12 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showAppearance:) keyEquivalent:@""];
     settings.target = self;
     [menu addItem:settings];
+    // The reference tray menu ends with 关于, which opens the settings window on its about page. One row
+    // does not make the menu too tall, and without it the version and licence notices are only reachable
+    // by knowing to open settings and scroll to the last page.
+    NSMenuItem *about = [[NSMenuItem alloc] initWithTitle:@"关于水杉输入法…" action:@selector(showAbout:) keyEquivalent:@""];
+    about.target = self;
+    [menu addItem:about];
     return menu;
 }
 - (void)showAccount:(id)sender {
