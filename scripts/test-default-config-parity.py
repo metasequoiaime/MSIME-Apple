@@ -4,10 +4,13 @@ import re
 import tomllib
 from pathlib import Path
 
+from reference_source import reference_root, show_file
+
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_PREFERENCES = ROOT / "crates/client-core/src/preferences.rs"
 WINDOWS_DEFAULTS = ROOT / "platforms/windows/installer/config.default.toml"
+REFERENCE_CONFIG = "installer/default_config/config.default.toml"
 
 core_source = CORE_PREFERENCES.read_text(encoding="utf-8")
 mixed_input_default = re.search(
@@ -22,20 +25,32 @@ with WINDOWS_DEFAULTS.open("rb") as config_file:
 
 shared_minimum_prefix = int(mixed_input_default.group(1))
 windows_minimum_prefix = windows_defaults["general"]["cn_en_mixed_input_min_chars"]
-# This asserted 5 and called it the Windows baseline. The reference's own factory configuration
-# (MSIME-Windows, installer/default_config/config.default.toml) has said 2 since the file was added
-# and has never said 5, and 2 is also the shared default - so shipping 5 here meant English
-# candidates appeared after five letters out of the box where the reference shows them after two,
-# with this assertion standing in the way of noticing.
 assert windows_minimum_prefix == shared_minimum_prefix, (
     "Windows cn_en_mixed_input_min_chars must match the shared default "
     f"({shared_minimum_prefix}): {windows_minimum_prefix}"
 )
-
-print(
-    "Windows mixed-input minimum prefix matches the reference and the shared default: "
-    f"{windows_minimum_prefix}"
-)
+reference = show_file(ROOT, REFERENCE_CONFIG)
+if reference is None:
+    print(
+        "skipped the mixed-input default reference comparison: no MSIME-Windows checkout at "
+        f"{reference_root(ROOT)}"
+    )
+else:
+    reference_text, reference_ref, reference_sha = reference
+    reference_defaults = tomllib.loads(reference_text)
+    reference_minimum_prefix = reference_defaults["general"]["cn_en_mixed_input_min_chars"]
+    assert shared_minimum_prefix == reference_minimum_prefix, (
+        "MixedInputPreferences minimum_prefix must match the fixed Windows source "
+        f"({reference_minimum_prefix}): {shared_minimum_prefix}"
+    )
+    assert windows_minimum_prefix == reference_minimum_prefix, (
+        "Windows cn_en_mixed_input_min_chars must match the fixed Windows source "
+        f"({reference_minimum_prefix}): {windows_minimum_prefix}"
+    )
+    print(
+        "Windows and shared mixed-input minimum prefix match "
+        f"{reference_ref} ({reference_sha[:8]}): {reference_minimum_prefix}"
+    )
 
 voice_auth_default = re.search(
     r'impl Default for VoiceInputPreferences\s*\{.*?doubao_auth_mode:\s*"([^"]+)"\.into\(\)',

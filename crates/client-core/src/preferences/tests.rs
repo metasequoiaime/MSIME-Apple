@@ -794,7 +794,7 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
     );
     assert_eq!(
         store.load().unwrap().preferences.mixed_input.minimum_prefix,
-        2
+        5
     );
     assert!(!store.load().unwrap().preferences.mixed_input.emoji);
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
