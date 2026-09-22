@@ -1358,6 +1358,18 @@ public:
     try {
       if (!session_ || !ic_.hasFocus() || restricted()) return;
       const auto options = readOptions();
+      const auto nextPreferencesDirectory =
+          options.value("preferences_directory", std::string{});
+      if (nextPreferencesDirectory != options_path_) {
+        // A runtime-options switch can move the shared store while this
+        // context stays focused. Invalidate both an in-flight read and any
+        // retry belonging to the old store; refreshPreferences() will queue
+        // a fresh read from the new directory on its next tick.
+        options_path_ = nextPreferencesDirectory;
+        preferences_job_session_ = 0;
+        preferences_snapshot_ = Json();
+        preferences_save_retry_.reset();
+      }
       candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
       // Runtime options can move the shared clipboard history while this
       // input context remains focused. Keep the same path precedence as the
