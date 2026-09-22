@@ -26,6 +26,7 @@
 #include "../src/candidates/CandidateColors.h"
 #include "../src/candidates/CandidateFcitxTheme.h"
 #include "../src/candidates/CandidateFontPolicy.h"
+#include "../src/candidates/CandidateWheelPaging.h"
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/core/CandidateSkinCatalog.h"
@@ -4274,6 +4275,16 @@ public:
     classicui->setConfig(config);
     candidate_theme_applied_ = std::move(theme);
   }
+  void applyCandidateWheelPaging(const Json &preferences) {
+    const auto enabled =
+        candidate_wheel_paging_sync_.next(msime::linux_host::read_candidate_wheel_paging(preferences));
+    if (!enabled) return;
+    auto *classicui = instance_->addonManager().addon("classicui", true);
+    if (!classicui) return;
+    fcitx::RawConfig config;
+    config.setValueByPath("WheelForPaging", *enabled ? "True" : "False");
+    classicui->setConfig(config);
+  }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
@@ -4670,6 +4681,7 @@ public:
   fcitx::Instance *instance_;
   msime::linux_host::CandidateFontSync candidate_font_sync_;
   std::string candidate_theme_applied_;
+  msime::linux_host::CandidateWheelPagingSync candidate_wheel_paging_sync_;
   fcitx::FactoryFor<FcitxState> factory_{[this](fcitx::InputContext &ic) {
     return new FcitxState(ic, this, instance_->eventLoop());
   }};
@@ -4828,7 +4840,9 @@ void FcitxState::syncVoiceAction() {
 }
 
 void FcitxState::syncCandidatePanelFont() {
-  if (engine_) engine_->applyCandidatePanelFont(preferences_);
+  if (!engine_) return;
+  engine_->applyCandidatePanelFont(preferences_);
+  engine_->applyCandidateWheelPaging(preferences_);
 }
 
 void FcitxState::syncCandidatePanelTheme() {
@@ -5231,6 +5245,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (composing) command(MSIME_COMMIT_RAW);
     return toggleEnglish();
   }
+  // Ctrl+. switches Chinese and English punctuation, as it does on Windows and in the IBus engine. The composition is left alone: only punctuation typed from here on changes.
+  if (sym == FcitxKey_period && ctrl && !shift && !alt &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper}))
+    return toggleChinesePunctuation();
   if (emoji_search_mode_) {
     if (sym == FcitxKey_Escape) {
       endEmojiSearch();

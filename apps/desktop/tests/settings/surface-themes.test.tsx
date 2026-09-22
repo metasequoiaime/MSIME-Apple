@@ -58,3 +58,9 @@ test("the desktop keeps the menu theme", async () => {
 
   expect(screen.getByLabelText("菜单主题")).toBeTruthy();
 });
+
+// The IBus property menu and the Fcitx5 status menu are drawn by the desktop panel, which applies its own theme.
+test("Linux does not offer a menu theme it cannot apply", async () => {
+  await openAppearance("linux");
+  expect(screen.queryByLabelText("菜单主题")).toBeNull();
+});
