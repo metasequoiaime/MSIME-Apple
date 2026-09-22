@@ -73,8 +73,11 @@ assert 'result.value("_path", std::string{}) == clipboard_path_' in source
 assert 'result.value("_generation", uint64_t{}) == clipboard_generation_' in source
 assert 'const auto generation = clipboard_generation_' in source
 assert 'cloud_clipboard_generation_' in source
+assert 'cloud_clipboard_enabled_' in source
 assert 'result.value("_socket", std::string{}) == cloud_clipboard_socket_' in source
 assert 'result.value("_generation", uint64_t{}) == cloud_clipboard_generation_' in source
+assert 'cloud_clipboard_enabled_ = result.value("enabled", true)' in source
+assert 'if (!cloud_clipboard_enabled_) return false;' in source
 assert 'emoji_generation_' in source
 assert 'result.value("_generation", uint64_t{}) == emoji_generation_' in source
 assert 'result["_generation"] = generation' in source
