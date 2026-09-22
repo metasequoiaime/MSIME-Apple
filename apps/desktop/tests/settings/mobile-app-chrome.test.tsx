@@ -137,6 +137,37 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
 });
 
+test("Harmony appearance names only the surfaces the form factor actually has", async () => {
+  renderSettings("harmony", {
+    mobile_settings: true,
+    panel_windows: false,
+    floating_toolbar: false,
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "键盘" }));
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "全部设置" })).getByRole("button", {
+      name: "外观",
+    }),
+  );
+  expect(screen.getByRole("combobox", { name: "候选栏主题" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "候选窗口主题" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "悬浮工具栏主题" })).toBeNull();
+
+  cleanup();
+  renderSettings("harmony", {
+    mobile_settings: false,
+    panel_windows: true,
+    floating_toolbar: true,
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  expect(screen.getByRole("combobox", { name: "候选窗口主题" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "悬浮工具栏主题" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "候选栏主题" })).toBeNull();
+});
+
 test("a desktop host keeps its window titlebar", async () => {
   renderSettings("windows");
   await screen.findByRole("button", { name: "保存设置" });

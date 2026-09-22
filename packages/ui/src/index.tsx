@@ -4405,13 +4405,15 @@ export function SettingsPage({
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
-                          候选窗口主题
+                          {mobilePlatform ? "候选栏主题" : "候选窗口主题"}
                           <small>
-                            预览跟随主题模式；Linux IBus panel 支持时使用，跟随时由桌面主题决定
+                            {mobilePlatform
+                              ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
+                              : "预览跟随主题模式；Linux IBus panel 支持时使用，跟随时由桌面主题决定"}
                           </small>
                         </span>
                         <select
-                          aria-label="候选窗口主题"
+                          aria-label={mobilePlatform ? "候选栏主题" : "候选窗口主题"}
                           value={draft.candidate_theme ?? "follow"}
                           onChange={(event) =>
                             setDraft({
@@ -4426,28 +4428,32 @@ export function SettingsPage({
                         </select>
                       </label>
                     </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          悬浮工具栏主题
-                          <small>覆盖主题模式；当前影响工具栏设置预览，原生工具栏需宿主支持</small>
-                        </span>
-                        <select
-                          aria-label="悬浮工具栏主题"
-                          value={draft.toolbar_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              toolbar_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
+                    {showFloatingToolbar && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            悬浮工具栏主题
+                            <small>
+                              覆盖主题模式；当前影响工具栏设置预览，原生工具栏需宿主支持
+                            </small>
+                          </span>
+                          <select
+                            aria-label="悬浮工具栏主题"
+                            value={draft.toolbar_theme ?? "follow"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                toolbar_theme: event.target.value as SurfaceTheme,
+                              })
+                            }
+                          >
+                            <option value="follow">跟随全局</option>
+                            <option value="dark">深色</option>
+                            <option value="light">浅色</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     {!mobilePlatform && (
                       <div className="section">
                         <label className="section-header">
