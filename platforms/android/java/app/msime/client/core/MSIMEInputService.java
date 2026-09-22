@@ -120,6 +120,9 @@ public final class MSIMEInputService extends InputMethodService {
     private final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
     private java.util.List<Integer> nineKeySpellingIndices = java.util.List.of();
     private long nineKeySpellingGeneration = -1;
+    private long candidateScrollSession = -1;
+    private long candidateScrollGeneration = -1;
+    private int candidateScrollPage = -1;
     private Button expandCandidates;
     private boolean candidatePanelOpen;
     private JSONObject candidatePanelSnapshot;
@@ -7292,10 +7295,36 @@ public final class MSIMEInputService extends InputMethodService {
             pagingKey("取消", "取消本次组词", () -> command(3));
         }
         if (hasDiagnostic) closeCandidatePanel();
+        resetCandidateScrollIfViewChanged();
         renderExpandedCandidates();
         if (moreToolsScroll != null && moreToolsScroll.getVisibility() == View.VISIBLE)
             renderMoreTools();
         applySkin();
+    }
+
+    /**
+     * A new Engine page must start at its first visible candidate. Keeping the old horizontal
+     * offset makes a page change look like a reordered or missing candidate list, especially when
+     * the previous page had a long sentence at the leading edge. Gloss-only redraws keep the
+     * offset because session/generation/page are unchanged.
+     */
+    private void resetCandidateScrollIfViewChanged() {
+        if (horizontalCandidateScroll == null || view == null) {
+            candidateScrollSession = -1;
+            candidateScrollGeneration = -1;
+            candidateScrollPage = -1;
+            if (horizontalCandidateScroll != null) horizontalCandidateScroll.scrollTo(0, 0);
+            return;
+        }
+        long nextSession = view.optLong("session", session);
+        long nextGeneration = view.optLong("generation", -1);
+        int nextPage = view.optInt("page", -1);
+        if (!CandidateScrollPolicy.changed(candidateScrollSession, candidateScrollGeneration,
+                candidateScrollPage, nextSession, nextGeneration, nextPage)) return;
+        candidateScrollSession = nextSession;
+        candidateScrollGeneration = nextGeneration;
+        candidateScrollPage = nextPage;
+        horizontalCandidateScroll.post(() -> horizontalCandidateScroll.scrollTo(0, 0));
     }
 
     private void renderSharedHandwritingCandidates(LinearLayout activeCandidates) {
