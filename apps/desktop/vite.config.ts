@@ -30,5 +30,6 @@ export default defineConfig({
     // it is not.
     testTimeout: 60000,
     hookTimeout: 60000,
+    setupFiles: ["tests/support/reset-history.ts"],
   },
 });

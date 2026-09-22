@@ -164,12 +164,8 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   expect(screen.queryByRole("combobox", { name: "候选窗口主题" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "悬浮工具栏主题" })).toBeNull();
 
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  expect(
-    screen.getByText(
-      "输入法快捷键仅在对应输入状态或候选栏显示时生效。翻页方式可在“输入”中启用或关闭。",
-    ),
-  ).toBeTruthy();
+  // The phone hides the physical-keyboard shortcut page everywhere, the sidebar included: a sidebar entry here was a button `selectPage` refused, and asserting the page's text passed only because the hidden fieldset stays in the DOM.
+  expect(screen.queryByRole("button", { name: "快捷键" })).toBeNull();
 
   cleanup();
   renderSettings("harmony", {
@@ -186,6 +182,15 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   expect(screen.getByRole("combobox", { name: "候选窗口主题" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "悬浮工具栏主题" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "候选栏主题" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  const shortcuts = screen.getByRole("group", { name: "快捷键" }) as HTMLFieldSetElement;
+  expect(shortcuts.hidden).toBe(false);
+  expect(
+    within(shortcuts).getByText(
+      "输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“输入”中启用或关闭。",
+    ),
+  ).toBeTruthy();
 });
 
 test("Harmony handwriting instructions do not leak 2-in-1 controls onto phones", async () => {
