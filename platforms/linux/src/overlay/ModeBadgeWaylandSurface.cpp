@@ -1,8 +1,9 @@
 #include "ModeBadgeWaylandSurface.h"
 
 #include <fcntl.h>
+#include "ModeBadgePainter.h"
+
 #include <cairo/cairo.h>
-#include <pango/pangocairo.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -146,67 +147,7 @@ void ModeBadgeWaylandSurface::draw(const std::string &text, const std::string &i
   auto *image = cairo_image_surface_create_for_data(static_cast<unsigned char *>(pixels_),
                                                     CAIRO_FORMAT_ARGB32, kWidth, kHeight, kStride);
   auto *cairo = cairo_create(image);
-  cairo_set_operator(cairo, CAIRO_OPERATOR_SOURCE);
-  cairo_set_source_rgba(cairo, 0, 0, 0, 0);
-  cairo_paint(cairo);
-  cairo_set_operator(cairo, CAIRO_OPERATOR_OVER);
-
-  // 圆角底板。深浅跟随共享偏好的候选主题，与面板观感一致。
-  const double radius = 14.0;
-  const double w = kWidth, h = kHeight;
-  cairo_new_sub_path(cairo);
-  cairo_arc(cairo, w - radius, radius, radius, -1.5708, 0);
-  cairo_arc(cairo, w - radius, h - radius, radius, 0, 1.5708);
-  cairo_arc(cairo, radius, h - radius, radius, 1.5708, 3.1416);
-  cairo_arc(cairo, radius, radius, radius, 3.1416, 4.7124);
-  cairo_close_path(cairo);
-  if (light_theme)
-    cairo_set_source_rgba(cairo, 0.96, 0.97, 0.98, 0.96);
-  else
-    cairo_set_source_rgba(cairo, 0.125, 0.129, 0.141, 0.96);
-  cairo_fill_preserve(cairo);
-  cairo_set_source_rgba(cairo, light_theme ? 0.85 : 0.22, light_theme ? 0.87 : 0.23,
-                        light_theme ? 0.91 : 0.25, 1.0);
-  cairo_set_line_width(cairo, 1.0);
-  cairo_stroke(cairo);
-
-  // logo。读不到就只画文字：提示缺一半也比不显示强。
-  double text_left = kIconLeft;
-  if (!icon_path.empty()) {
-    if (auto *logo = cairo_image_surface_create_from_png(icon_path.c_str())) {
-      if (cairo_surface_status(logo) == CAIRO_STATUS_SUCCESS) {
-        const double source_w = cairo_image_surface_get_width(logo);
-        const double source_h = cairo_image_surface_get_height(logo);
-        if (source_w > 0 && source_h > 0) {
-          const double scale = kIconSize / (source_w > source_h ? source_w : source_h);
-          cairo_save(cairo);
-          cairo_translate(cairo, kIconLeft, (kHeight - source_h * scale) / 2.0);
-          cairo_scale(cairo, scale, scale);
-          cairo_set_source_surface(cairo, logo, 0, 0);
-          cairo_paint(cairo);
-          cairo_restore(cairo);
-          text_left = kIconLeft + source_w * scale + 12;
-        }
-      }
-      cairo_surface_destroy(logo);
-    }
-  }
-
-  auto *layout = pango_cairo_create_layout(cairo);
-  auto *font = pango_font_description_from_string("Noto Sans CJK SC 26");
-  pango_layout_set_font_description(layout, font);
-  pango_font_description_free(font);
-  pango_layout_set_text(layout, text.c_str(), -1);
-  int text_w = 0, text_h = 0;
-  pango_layout_get_pixel_size(layout, &text_w, &text_h);
-  cairo_move_to(cairo, text_left, (kHeight - text_h) / 2.0);
-  if (light_theme)
-    cairo_set_source_rgb(cairo, 0.13, 0.13, 0.14);
-  else
-    cairo_set_source_rgb(cairo, 0.96, 0.97, 0.98);
-  pango_cairo_show_layout(cairo, layout);
-  g_object_unref(layout);
-
+  paint_mode_badge(cairo, kWidth, kHeight, text, icon_path, light_theme, kIconSize, kIconLeft);
   cairo_destroy(cairo);
   cairo_surface_destroy(image);
 }

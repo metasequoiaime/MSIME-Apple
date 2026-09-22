@@ -60,17 +60,33 @@ if(MSIME_BADGE_WAYLAND_FOUND AND MSIME_BADGE_WAYLAND_SCANNER)
               "${MSIME_BADGE_XDG_SHELL_DIR}/xdg-shell.xml"
               "${MSIME_BADGE_PROTOCOL_DIR}/xdg-shell-protocol.c"
       DEPENDS "${MSIME_BADGE_XDG_SHELL_DIR}/xdg-shell.xml")
-    set(MSIME_BADGE_SOURCES ../src/overlay/ModeBadgeWaylandSurface.cpp
+    set(MSIME_BADGE_WAYLAND_SOURCES ../src/overlay/ModeBadgeWaylandSurface.cpp
         "${MSIME_BADGE_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-protocol.c"
         "${MSIME_BADGE_PROTOCOL_DIR}/xdg-shell-protocol.c")
   endif()
 endif()
-add_library(msime-fcitx5 MODULE FcitxEngine.cpp ../src/system/ChineseTextConversion.cpp ../src/system/DiagnosticLog.cpp ${MSIME_BADGE_SOURCES})
-if(MSIME_BADGE_SOURCES)
+add_library(msime-fcitx5 MODULE FcitxEngine.cpp ../src/system/ChineseTextConversion.cpp ../src/system/DiagnosticLog.cpp ${MSIME_BADGE_WAYLAND_SOURCES})
+# X11 会话下的后端。两个后端互不依赖：只有一种可用时徽章照常工作，都没有时宿主只发
+# 面板那半文字提示。
+pkg_check_modules(MSIME_BADGE_X11 QUIET IMPORTED_TARGET x11 xext cairo-xlib pangocairo)
+set(MSIME_BADGE_X11_SOURCES "")
+if(MSIME_BADGE_X11_FOUND)
+  set(MSIME_BADGE_X11_SOURCES ../src/overlay/ModeBadgeX11Surface.cpp)
+endif()
+if(MSIME_BADGE_WAYLAND_SOURCES OR MSIME_BADGE_X11_SOURCES)
+  target_sources(msime-fcitx5 PRIVATE ../src/overlay/ModeBadgeSurfaceFactory.cpp
+      ${MSIME_BADGE_X11_SOURCES})
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_MODE_BADGE
       MSIME_MODE_BADGE_ICON="${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/128x128/apps/msime-client.png")
   target_include_directories(msime-fcitx5 PRIVATE ../src/overlay "${MSIME_BADGE_PROTOCOL_DIR}")
-  target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::MSIME_BADGE_WAYLAND)
+  if(MSIME_BADGE_WAYLAND_SOURCES)
+    target_compile_definitions(msime-fcitx5 PRIVATE MSIME_BADGE_HAS_WAYLAND)
+    target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::MSIME_BADGE_WAYLAND)
+  endif()
+  if(MSIME_BADGE_X11_SOURCES)
+    target_compile_definitions(msime-fcitx5 PRIVATE MSIME_BADGE_HAS_X11)
+    target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::MSIME_BADGE_X11)
+  endif()
 endif()
 target_compile_features(msime-fcitx5 PRIVATE cxx_std_17)
 target_compile_options(msime-fcitx5 PRIVATE -Wall -Wextra -Werror)
