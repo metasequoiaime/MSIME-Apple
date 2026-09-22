@@ -1715,6 +1715,12 @@ export class KeyboardSession implements HardwareKeyTarget {
    * Asking for the one already open closes it, the way tapping its icon does on the keyboard.
    */
   private requestSurface(surface: DesktopSurface): void {
+    // Toolbar surfaces belong to the 2-in-1 candidate window. Keep this invariant in the session as
+    // well as at the toolbar/host boundary: a phone may have an attached physical keyboard, but it
+    // must never acquire the desktop surface state or ask its fixed touch panel to become one.
+    if (!KeyboardFormFactor.isDesktop()) {
+      return;
+    }
     this.desktopSurface = this.desktopSurface === surface ? DesktopSurface.NONE : surface;
     // The view first: the window is sized around what it drew, so drawing it second would leave one
     // frame of a keyboard-sized window with a candidate strip in it.

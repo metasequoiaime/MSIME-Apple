@@ -50,7 +50,10 @@ export class PanelShortcutPolicy {
    * Decided on the press. The release of a chord that has already acted must not act again, and it
    * is still claimed by the caller so the bare `K` never reaches the editor.
    */
-  static shortcut(key: PanelShortcutKey): PanelShortcut {
+  static shortcut(key: PanelShortcutKey, desktop: boolean = true): PanelShortcut {
+    if (!desktop) {
+      return PanelShortcut.NONE;
+    }
     if (key.keyCode !== KEYCODE_K) {
       return PanelShortcut.NONE;
     }
@@ -84,7 +87,10 @@ export class PanelShortcutPolicy {
    * The release carries the same modifiers as the press, and letting it through would deliver a
    * stray `K` to the editor after the panel had already opened.
    */
-  static claims(key: PanelShortcutKey): boolean {
+  static claims(key: PanelShortcutKey, desktop: boolean = true): boolean {
+    if (!desktop) {
+      return false;
+    }
     return key.keyCode === KEYCODE_K && key.ctrlKey && key.shiftKey && key.logoKey && !key.altKey;
   }
 }

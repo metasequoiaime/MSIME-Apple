@@ -407,9 +407,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       keyCode: event.key.code, down: event.action === KeyAction.DOWN, ctrlKey: event.ctrlKey,
       shiftKey: event.shiftKey, altKey: event.altKey, logoKey: event.logoKey
     };
-    if (PanelShortcutPolicy.claims(panelKey)) {
+    if (PanelShortcutPolicy.claims(panelKey, KeyboardFormFactor.isDesktop())) {
       const surface: PanelSurfaceAction =
-        PanelShortcutPolicy.action(PanelShortcutPolicy.shortcut(panelKey));
+        PanelShortcutPolicy.action(PanelShortcutPolicy.shortcut(panelKey,
+          KeyboardFormFactor.isDesktop()));
       if (surface !== PanelSurfaceAction.NONE) {
         // Through the same entry the toolbar button uses, not the window helper underneath it. That
         // helper shows and sizes a panel but never records which surface is open, so the view went

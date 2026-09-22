@@ -7205,6 +7205,10 @@ group("the panel chord opens the screen keyboard", () => {
     PanelShortcutPolicy.shortcut(chord()) === PanelShortcut.SCREEN_KEYBOARD,
     "Ctrl+Shift+Super+K asks for the screen keyboard, as Windows binds it",
   );
+  check(
+    PanelShortcutPolicy.shortcut(chord(), false) === PanelShortcut.NONE,
+    "a phone does not expose the 2-in-1 screen-keyboard shortcut",
+  );
   // A chord that fires on a superset would swallow a combination the editor was meant to receive.
   check(
     PanelShortcutPolicy.shortcut(chord({ altKey: true })) === PanelShortcut.NONE,
@@ -7238,6 +7242,10 @@ group("the panel chord is claimed on release as well as press", () => {
     "the release does not open the panel a second time",
   );
   check(PanelShortcutPolicy.claims(release), "but it is still claimed, so no stray K is typed");
+  check(
+    !PanelShortcutPolicy.claims(release, false),
+    "a phone leaves the same physical chord untouched",
+  );
   check(
     !PanelShortcutPolicy.claims({ ...release, logoKey: false }),
     "a key that is not part of the chord is left to the editor",
