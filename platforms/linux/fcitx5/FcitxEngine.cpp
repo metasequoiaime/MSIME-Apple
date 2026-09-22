@@ -4168,6 +4168,8 @@ public:
     desktop_tools_menu_.addAction(&desktop_cloud_clipboard_action_);
     desktop_tools_menu_.addAction(&settings_action_);
     desktop_tools_menu_.addAction(&about_action_);
+    desktop_tools_menu_.addAction(&help_action_);
+    desktop_tools_menu_.addAction(&feedback_action_);
     desktop_tools_menu_.addAction(&preference_save_retry_action_);
     emoji_action_.setMenu(&emoji_menu_);
     emoji_menu_.addAction(&emoji_item1_);
@@ -4480,6 +4482,8 @@ public:
   bool toolbarEnabled(fcitx::InputContext *ic);
   void rebuildToolbarMenu(fcitx::InputContext *ic);
   FcitxDesktopPanelAction about_action_{&factory_, "about", "关于"};
+  FcitxDesktopPanelAction help_action_{&factory_, "help", "帮助"};
+  FcitxDesktopPanelAction feedback_action_{&factory_, "feedback", "反馈"};
   FcitxPreferenceSaveRetryAction preference_save_retry_action_{&factory_};
   fcitx::Menu emoji_menu_;
   FcitxEmojiItemAction emoji_item1_{&factory_, 0};
