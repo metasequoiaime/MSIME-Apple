@@ -5471,7 +5471,10 @@ public final class MSIMEInputService extends InputMethodService {
         boolean highlighted = candidate.optBoolean("highlighted");
         String typed = view == null ? "" : view.optString("preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
-        button.setText(candidateLabel((slot + 1) + " ", text, annotation, highlighted));
+        // Touch candidates follow Apple's chip surface: show the word without a numeric prefix.
+        // The slot remains available through contentDescription and the shared
+        // session/generation/index identity for accessibility and hardware number-row selection.
+        button.setText(candidateLabel("", text, annotation, highlighted));
         button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         configureCandidateTextLayout(button);
