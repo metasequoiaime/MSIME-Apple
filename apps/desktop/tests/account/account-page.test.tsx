@@ -117,6 +117,36 @@ test("Harmony uses the mobile account flow instead of desktop account controls",
   expect(await screen.findByRole("heading", { name: "编辑资料" })).not.toBeNull();
 });
 
+test("Harmony 2-in-1 uses desktop account controls even though its platform is Harmony", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} platform="harmony" mobile={false} />);
+
+  expect(await screen.findByRole("heading", { name: "个人资料" })).not.toBeNull();
+  expect(screen.getByRole("heading", { name: "账号" })).not.toBeNull();
+  expect(screen.getByRole("button", { name: "保存昵称" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "编辑个人资料" }));
+  expect(await screen.findByRole("dialog", { name: "编辑个人资料" })).not.toBeNull();
+});
+
+test("settings passes the Harmony 2-in-1 form factor into the account page", async () => {
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(
+    <SettingsPage
+      initialPage="account"
+      client={{
+        load: async () => preferences,
+        save: vi.fn(),
+        host: { platform: "harmony", mobile_settings: false } as never,
+        account: client,
+      }}
+    />,
+  );
+
+  expect(await screen.findByRole("heading", { name: "个人资料" })).not.toBeNull();
+  expect(screen.getByRole("heading", { name: "账号" })).not.toBeNull();
+});
+
 test("the mobile login sheet exposes its caller's cancel action", async () => {
   const onCancelLogin = vi.fn();
   render(<AccountPage client={account()} platform="harmony" onCancelLogin={onCancelLogin} />);

@@ -251,3 +251,9 @@ EnglishCapitalizationPolicy.shouldShift
 固定 Apple `KeyboardSurfaceUITests.testReplyKeyboardPastesChoosesStyleAndInserts` 对照发现，Harmony 原有回复键面只能粘贴、选择风格并生成；缺少来源已有的“帮你回／帮润色”模式、源文字删除与清空、取消生成、换一句和重新选择风格。该切片已补入 `KeyboardView.ets`，由 `ReplyKeyboardPolicy` 生成两种不同的提示语，并通过回复上下文 generation 使取消、清空和模式切换丢弃迟到结果；模板请求继续保留自定义提示语路径。新增策略断言覆盖润色提示不误用“对方来话”提示。
 
 验证：Harmony 逻辑套件 `1596 assertions` 全部通过，Harmony TypeScript 类型检查通过，ArkTS 子集检查通过。`hvigorw assembleHap` 仍被 develop 中既有 ArkTS 错误阻断（`KeyboardSession.ets` 的 arbitrary throw、`Settings.ets` 的字段索引、既有 `isInLocalMode` 与 `StackAttribute.justifyContent`），本切片没有新增编译错误；该结果不替代 HAP 或设备验收证据。
+
+## 延续审计补记（账户形态边界）
+
+形态审计继续发现共享 `AccountPage` 虽然已经按 Harmony 宿主声明移动平台，却仍把所有 Harmony 设备都当作手机：2-in-1 的“我的”页会进入移动资料子页、隐藏桌面资料和账号操作。现在设置页把宿主的 `mobile_settings` 能力传入账户页；Harmony 手机保持移动资料页，Harmony 2-in-1 使用桌面资料编辑与账号操作。平台名只保留给平台文案，不再决定布局。
+
+回归测试覆盖 Harmony 手机旧路径与 `mobile: false` 的 2-in-1 路径；共享 UI 构建并重新生成 Harmony settings bundle。

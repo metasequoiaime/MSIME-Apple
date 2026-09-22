@@ -3932,6 +3932,7 @@ export function SettingsPage({
                         ? "harmony"
                         : undefined
                 }
+                mobile={mobilePlatform}
                 onCancelLogin={accountLoginReturnPage ? finishAccountLogin : undefined}
                 onLoginComplete={accountLoginReturnPage ? finishAccountLogin : undefined}
                 onOpenLocalDesigns={client.customTouchKeyboardSkins ? openLocalDesigns : undefined}
