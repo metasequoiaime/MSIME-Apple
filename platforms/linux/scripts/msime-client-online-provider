@@ -22,7 +22,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from msime_provider_runtime import claim_socket
+from msime_provider_runtime import open_server
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -808,21 +808,16 @@ def main():
         parser.error("socket requires an absolute path in an owner-only directory")
     os.umask(0o077)
     try:
-        service_lock = claim_socket(args.socket)
+        server, service_lock = open_server(Server, args.socket, Handler)
     except (OSError, ValueError):
         parser.error("online service is already running or its socket cannot be recovered")
-    try:
-        server = Server(str(args.socket), Handler)
-    except Exception:
-        os.close(service_lock)
-        raise
     server.ai_config_path = args.ai_config.absolute() if args.ai_config else None
     server.tencent_config_path = args.tencent_config.absolute() if args.tencent_config else None
     server.translation_cache = {}
     server.translation_lock = threading.Lock()
     server.ai_candidate_cache = {}
     server.ai_candidate_cache_lock = threading.Lock()
-    identity = args.socket.stat()
+    identity = args.socket.stat() if service_lock is not None else None
     def stop(signum, frame):
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, stop)
@@ -833,14 +828,15 @@ def main():
     finally:
         stop_http_requests()
         server.server_close()
-        try:
-            current = args.socket.stat()
-            if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
-                args.socket.unlink()
-        except FileNotFoundError:
-            pass
-        finally:
-            os.close(service_lock)
+        if service_lock is not None:
+            try:
+                current = args.socket.stat()
+                if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+                    args.socket.unlink()
+            except FileNotFoundError:
+                pass
+            finally:
+                os.close(service_lock)
 
 
 if __name__ == "__main__":

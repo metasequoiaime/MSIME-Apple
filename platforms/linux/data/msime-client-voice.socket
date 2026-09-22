@@ -1,0 +1,11 @@
+[Unit]
+Description=MSIME voice provider socket
+
+[Socket]
+ListenStream=%t/msime-client/voice.sock
+SocketMode=0600
+DirectoryMode=0700
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target

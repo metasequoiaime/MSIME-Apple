@@ -26,7 +26,7 @@ import urllib.request
 import uuid
 import wave
 
-from msime_provider_runtime import claim_socket
+from msime_provider_runtime import open_server
 from msime_voice_doubao import normalize_doubao_auth_mode
 
 
@@ -1285,14 +1285,9 @@ def main():
         parser.error("invalid private configuration/socket directory, capture backend, recording limit, or missing websockets 15.x for Doubao")
     os.umask(0o077)
     try:
-        service_lock = claim_socket(args.socket)
+        server, service_lock = open_server(Server, args.socket, Handler)
     except (OSError, ValueError):
         parser.error("voice service is already running or its socket cannot be recovered")
-    try:
-        server = Server(str(args.socket), Handler)
-    except Exception:
-        os.close(service_lock)
-        raise
     server.mute_journal = AudioMuteJournal(args.socket.with_name(args.socket.name + ".audio-mute.json"))
     server.mute_journal.recover()
     server.config_path = args.config.absolute()
@@ -1307,7 +1302,7 @@ def main():
     server.sessions = {}
     server.pending = {}
     server.closing = False
-    identity = args.socket.stat()
+    identity = args.socket.stat() if service_lock is not None else None
 
     def stop(signum, frame):
         raise KeyboardInterrupt()
@@ -1329,14 +1324,15 @@ def main():
         for session in sessions:
             session.capture_done.wait()
         server.server_close()
-        try:
-            current = args.socket.stat()
-            if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
-                args.socket.unlink()
-        except FileNotFoundError:
-            pass
-        finally:
-            os.close(service_lock)
+        if service_lock is not None:
+            try:
+                current = args.socket.stat()
+                if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+                    args.socket.unlink()
+            except FileNotFoundError:
+                pass
+            finally:
+                os.close(service_lock)
 
 
 if __name__ == "__main__":

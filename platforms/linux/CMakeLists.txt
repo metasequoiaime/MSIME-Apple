@@ -277,6 +277,9 @@ foreach(MSIME_PROVIDER online voice clipboard)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-${MSIME_PROVIDER}.service
           DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
 endforeach()
+# Socket units keep the provider paths present from login, so the input method and the panels find the services the way the Windows server is simply there; systemd starts a provider on its first request.
+install(FILES data/msime-client-online.socket data/msime-client-voice.socket
+        DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
 install(FILES scripts/msime_voice_doubao.py scripts/msime_provider_runtime.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES scripts/requirements-voice.txt DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
 file(RELATIVE_PATH MSIME_VOICE_CUE_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"

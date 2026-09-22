@@ -95,6 +95,19 @@ def main() -> int:
         Path("/tmp/xdg-data/msime-client/resources"),
     ], resources_order
 
+    # 在线服务总是按 socket 启用；语音要等私有配置写好，剪贴板监视器只认默认位置的状态目录。
+    with tempfile.TemporaryDirectory() as directory:
+        config = Path(directory) / "msime-client"
+        config.mkdir()
+        assert setup.service_units(config, config) == ["msime-client-online.socket", "msime-client-clipboard.service"]
+        assert setup.service_units(Path(directory) / "elsewhere", config) == ["msime-client-online.socket"]
+        (config / "voice-provider.json").write_text("{}")
+        assert setup.service_units(config, config) == [
+            "msime-client-online.socket",
+            "msime-client-voice.socket",
+            "msime-client-clipboard.service",
+        ]
+
     print("setup resolution tests passed")
     return 0
 
