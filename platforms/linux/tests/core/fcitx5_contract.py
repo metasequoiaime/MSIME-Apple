@@ -128,6 +128,15 @@ assert 'options.value("clipboard_history_path", std::string{})' in source
 assert '++clipboard_generation_' in source
 assert 'clipboard_loading_ = false' in source
 
+# Cloud clipboard follows the provider socket contract: explicit options,
+# environment override, then the per-user runtime socket, and hot reload must
+# fence requests started against an old endpoint.
+assert 'cloudClipboardSocket' in source
+assert 'cloud-clipboard.sock' in source
+assert 'MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET' in source
+assert 'nextCloudClipboard' in source
+assert '++cloud_clipboard_generation_' in source
+
 # Fcitx5 menu preference writes retain the last failed field and expose a retry
 # action. A failed revision comparison must not leave the user with a silent
 # diagnostic-only failure as the old async save path did.

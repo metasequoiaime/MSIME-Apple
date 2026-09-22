@@ -241,18 +241,29 @@ std::string defaultSkin() {
   return value;
 }
 
-std::string onlineSocket(const Json &options) {
-  auto value = options.value("online_provider_socket", std::string{});
+std::string providerSocket(const Json &options, const char *option,
+                           const char *environment, const char *filename) {
+  auto value = options.value(option, std::string{});
   if (value.empty()) {
-    if (const auto *env = std::getenv("MSIME_ONLINE_PROVIDER_SOCKET")) value = env;
+    if (const auto *env = std::getenv(environment)) value = env;
   }
   if (!value.empty()) return value;
   if (const auto *runtime = std::getenv("XDG_RUNTIME_DIR")) {
-    const auto candidate = std::filesystem::path(runtime) / "msime-client" / "online.sock";
+    const auto candidate = std::filesystem::path(runtime) / "msime-client" / filename;
     std::error_code error;
     if (std::filesystem::is_socket(candidate, error)) return candidate.string();
   }
   return {};
+}
+
+std::string onlineSocket(const Json &options) {
+  return providerSocket(options, "online_provider_socket",
+                        "MSIME_ONLINE_PROVIDER_SOCKET", "online.sock");
+}
+
+std::string cloudClipboardSocket(const Json &options) {
+  return providerSocket(options, "cloud_clipboard_provider_socket",
+                        "MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET", "cloud-clipboard.sock");
 }
 
 Json voiceProviderOptions(const Json &preferences) {
@@ -1208,11 +1219,7 @@ public:
       clipboard_loading_ = false;
     }
     clipboard_path_ = std::move(clipboard_path);
-    auto cloud_clipboard_socket = options.value("cloud_clipboard_provider_socket", std::string());
-    if (cloud_clipboard_socket.empty()) {
-      if (const auto *socket = std::getenv("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET"))
-        cloud_clipboard_socket = socket;
-    }
+    auto cloud_clipboard_socket = cloudClipboardSocket(options);
     if (cloud_clipboard_socket != cloud_clipboard_socket_) {
       ++cloud_clipboard_generation_;
       cloud_clipboard_items_.clear();
@@ -1365,6 +1372,12 @@ public:
         clipboard_items_.clear();
         clipboard_loading_ = false;
         clipboard_path_ = std::move(nextClipboard);
+      }
+      auto nextCloudClipboard = cloudClipboardSocket(options);
+      if (nextCloudClipboard != cloud_clipboard_socket_) {
+        ++cloud_clipboard_generation_;
+        cloud_clipboard_items_.clear();
+        cloud_clipboard_socket_ = std::move(nextCloudClipboard);
       }
       auto nextVoice = options.value("voice_provider_socket", std::string{});
       if (nextVoice.empty()) {
