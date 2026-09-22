@@ -1678,6 +1678,24 @@ pub async fn android_open_input_method_settings(
 }
 
 #[tauri::command]
+pub async fn android_open_keyboard_tryout(
+    state: State<'_, AccountState>,
+) -> Result<(), crate::CommandError> {
+    let plugin = state.platform.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin
+            .run_mobile_plugin::<()>("openKeyboardTryout", ())
+            .map_err(|_| crate::CommandError {
+                code: "keyboard_tryout",
+            })
+    })
+    .await
+    .map_err(|_| crate::CommandError {
+        code: "keyboard_tryout",
+    })?
+}
+
+#[tauri::command]
 pub async fn android_show_input_method_picker(
     state: State<'_, AccountState>,
 ) -> Result<(), crate::CommandError> {

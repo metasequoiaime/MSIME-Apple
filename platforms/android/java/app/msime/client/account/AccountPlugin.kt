@@ -350,6 +350,20 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun openKeyboardTryout(invoke: Invoke) {
+        try {
+            val intent = Intent().setClassName(
+                hostActivity,
+                "app.msime.client.home.KeyboardTryoutActivity",
+            )
+            hostActivity.startActivity(intent)
+            invoke.resolve()
+        } catch (_: Exception) {
+            invoke.reject("keyboard_tryout", "keyboard_tryout")
+        }
+    }
+
+    @Command
     fun showInputMethodPicker(invoke: Invoke) {
         try {
             val manager = hostActivity.getSystemService(InputMethodManager::class.java)
