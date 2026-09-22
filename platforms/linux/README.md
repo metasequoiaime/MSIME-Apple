@@ -731,4 +731,6 @@ Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳�
 
 Linux key-router 现在使用与 Windows/Host API 一致的 dispatch outcome：只有 `DEFINITELY_NOT_SENT` 允许宿主执行本地 fallback；`DELIVERY_AMBIGUOUS` 必须等待 lease 恢复，不能重复注入按键。IBus focus-in 在 Engine 会话建立后安装 lease，focus-out 只撤销精确匹配的当前 lease。
 
+IBus 与 Fcitx5 也保留 Backspace 长按的物理按键所有权：若首次按下发生在活动组字中，重复键可以继续删除预编辑；最后一个组字字符消失后，同一次按住的后续重复仍由输入法吞掉，不会开始删除编辑器里已经上屏的正文。按键松开、失焦、reset 或按下其他键都会解除所有权，之后一次新的 Backspace 仍正常交给编辑器。实现复用纯策略，但输入事件仍分别走 IBus 与 Fcitx5 的原生入口。
+
 字典导入沿用 Windows 固定提交 `6e03f577` 的全拼规则：普通字典和个人字典的 Pinyin 词条在 Host API 中调用固定 Engine 的全拼切分，并按词条汉字数解决无分隔拼音歧义，例如两字词 `西安` 的 `xian` 规范化为 `xi'an`。无效音节、非法 apostrophe 或无法匹配词长的行会被跳过并报告；Wubi、快捷短语和英文导入不经过该规范化。规范化只发生在带 Engine 选项的实际导入请求中，Linux IBus 不复制输入算法。

@@ -15,7 +15,8 @@
     "scripts/apply_engine_lattice_reading.py",
     "scripts/apply_engine_standalone_sentence_learning.py",
     "scripts/apply_engine_quanpin_autocorrect_parity.py",
-    "scripts/apply_engine_manual_segmentation_cloud.py"
+    "scripts/apply_engine_manual_segmentation_cloud.py",
+    "scripts/apply_engine_wubi_prefix_learning.py"
   ],
   "overlay_assets": [
     "scripts/engine-overlays/generate_quanpin_autocorrect.py",
