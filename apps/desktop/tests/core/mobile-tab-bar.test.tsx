@@ -29,7 +29,9 @@ function mount() {
         // behind it. Harmony has all four.
         account: {} as never,
         typingStatistics: {} as never,
-        communitySkins: {} as never,
+        communitySkins: {
+          list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
+        } as never,
         host: { platform: "harmony" } as HostCapabilities,
       }}
     />,
@@ -104,4 +106,30 @@ test("the 键盘 tab stays lit on the pages reached from it", async () => {
     "page",
   );
   expect(within(bar).getByRole("button", { name: "我的" }).getAttribute("aria-current")).toBeNull();
+});
+
+// The source keeps one navigation stack per bottom tab. A flat shared route used to forget the
+// keyboard tab's leaf, so returning after visiting another tab always reset it to 首页.
+test("each phone tab remembers where the user left it", async () => {
+  mount();
+  await screen.findByRole("button", { name: "保存设置" });
+
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  const list = screen.getByRole("region", { name: "全部设置" });
+  fireEvent.click(
+    [...list.querySelectorAll("button")].find(
+      (item) => item.querySelector("strong")?.textContent === "输入",
+    )!,
+  );
+  expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
+
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  fireEvent.click(within(bar).getByRole("button", { name: "社区" }));
+  expect(await screen.findByRole("heading", { name: "社区" })).toBeTruthy();
+  fireEvent.click(within(bar).getByRole("button", { name: "键盘" }));
+
+  expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
+  expect(within(bar).getByRole("button", { name: "键盘" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
 });

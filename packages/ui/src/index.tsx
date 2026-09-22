@@ -1605,6 +1605,22 @@ function mobileTabTitle(id: string, title: string): string {
 }
 
 type SettingsPageId = (typeof pages)[number]["id"];
+type MobilePrimaryPageId = Extract<
+  SettingsPageId,
+  "home" | "community" | "typing-statistics" | "account"
+>;
+
+const mobilePrimaryPageIds: readonly MobilePrimaryPageId[] = [
+  "home",
+  "community",
+  "typing-statistics",
+  "account",
+];
+
+const mobileTabForPage = (page: SettingsPageId): MobilePrimaryPageId =>
+  mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
+    ? (page as MobilePrimaryPageId)
+    : "home";
 // A host can ask for the section its menu entry names. An unknown id keeps the
 // default page rather than opening an empty one.
 function requestedPage(value: string | undefined): SettingsPageId {
@@ -2091,6 +2107,17 @@ export function SettingsPage({
   const [page, setPage] = useState<SettingsPageId>(() =>
     requestedPage(initialPage ?? (client.home ? "home" : undefined)),
   );
+  const [accountLoginReturnPage, setAccountLoginReturnPage] = useState<SettingsPageId | null>(null);
+  // Each bottom tab owns a navigation stack in the source app. This shared page has a flat route,
+  // so remember the visible leaf for each tab: leaving 输入 for 社区 and returning to 键盘 must
+  // restore 输入 rather than reset the first tab to 首页.
+  const mobileInitialTab = mobileTabForPage(page);
+  const mobileLastPageByTab = useRef<Record<MobilePrimaryPageId, SettingsPageId>>({
+    home: mobileInitialTab === "home" ? page : "home",
+    community: mobileInitialTab === "community" ? page : "community",
+    "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
+    account: mobileInitialTab === "account" ? page : "account",
+  });
   const settingsContentRef = useRef<HTMLElement>(null);
   // Every settings category shares this one scrolling surface. Reset it after
   // the new category is committed so sidebar clicks, in-page links and mobile
@@ -2113,7 +2140,9 @@ export function SettingsPage({
     const onPopState = (event: PopStateEvent) => {
       const state = event.state;
       if (state?.msimeSettings === true && typeof state.page === "string") {
-        setPage(requestedPage(state.page));
+        const restored = requestedPage(state.page);
+        mobileLastPageByTab.current[mobileTabForPage(restored)] = restored;
+        setPage(restored);
       }
     };
     window.addEventListener("popstate", onPopState);
@@ -3458,19 +3487,13 @@ export function SettingsPage({
     if (extra.length > 0) groups.splice(Math.max(groups.length - 1, 0), 0, extra);
     return groups;
   })();
-  const mobilePrimaryPageIds: readonly SettingsPageId[] = [
-    "home",
-    "community",
-    "typing-statistics",
-    "account",
-  ];
   // Walked in tab order rather than filtered out of `availablePages`, which is in the order the
   // pages happen to be declared in — that put 我的 second, and the bar read 键盘 / 我的 / 社区 / 统计
   // against the source's 键盘 / 社区 / 统计 / 我的.
   // A page without a tab of its own was reached from inside the 键盘 tab, so that is the tab still
   // standing on. Keyed off the page alone, the bar went blank the moment anyone opened one — nothing
   // lit, and no way to read where in the app you were.
-  const mobileActiveTab: SettingsPageId = mobilePrimaryPageIds.includes(page) ? page : "home";
+  const mobileActiveTab: MobilePrimaryPageId = mobileTabForPage(page);
   const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
   const mobilePrimaryPages = mobilePrimaryPageIds.flatMap((id) => {
     const item = availablePages.find((page) => page.id === id);
@@ -3502,12 +3525,13 @@ export function SettingsPage({
   const mobileSecondaryPages = availablePages.filter(
     (item) =>
       item.id !== "more" &&
-      !mobilePrimaryPageIds.includes(item.id) &&
+      !mobilePrimaryPageIds.includes(item.id as MobilePrimaryPageId) &&
       !mobileHiddenPageIds.includes(item.id),
   );
   const selectPage = (next: SettingsPageId) => {
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
     if (next === page) return;
+    if (mobilePlatform) mobileLastPageByTab.current[mobileTabForPage(next)] = next;
     setPage(next);
     if (mobilePlatform && typeof window !== "undefined") {
       const current = window.history.state;
@@ -3520,6 +3544,26 @@ export function SettingsPage({
       window.history.pushState(state, "");
     }
     if (next === "community") setCommunityDestination("all");
+  };
+  const selectMobileTab = (tab: SettingsPageId) => {
+    if (!mobilePrimaryPageIds.includes(tab as MobilePrimaryPageId)) return;
+    const primary = tab as MobilePrimaryPageId;
+    if (primary === "account") setAccountLoginReturnPage(null);
+    const remembered = mobileLastPageByTab.current[primary];
+    const available = availablePages.some((item) => item.id === remembered);
+    selectPage(available && !mobileHiddenPageIds.includes(remembered) ? remembered : primary);
+  };
+  const openAccountLogin = () => {
+    if (mobilePlatform) setAccountLoginReturnPage(page);
+    selectPage("account");
+  };
+  const finishAccountLogin = () => {
+    const previous = accountLoginReturnPage;
+    setAccountLoginReturnPage(null);
+    if (!previous) return;
+    mobileLastPageByTab.current[mobileTabForPage(previous)] = previous;
+    setPage(previous);
+    if (mobilePlatform && typeof window !== "undefined") window.history.back();
   };
   useEffect(() => {
     const pageAvailable =
@@ -3772,7 +3816,7 @@ export function SettingsPage({
                     : "bg-transparent text-muted"
                 }`}
                 aria-current={mobileActiveTab === item.id ? "page" : undefined}
-                onClick={() => selectPage(item.id)}
+                onClick={() => selectMobileTab(item.id)}
               >
                 <img
                   src={mobileTabIcon(item.id, item.icon)}
@@ -3870,8 +3914,16 @@ export function SettingsPage({
                 client={client.account}
                 appIcon={client.appIcon}
                 platform={
-                  androidPlatform ? "android" : client.host?.platform === "ios" ? "ios" : undefined
+                  androidPlatform
+                    ? "android"
+                    : iosPlatform
+                      ? "ios"
+                      : harmonyPlatform
+                        ? "harmony"
+                        : undefined
                 }
+                onCancelLogin={accountLoginReturnPage ? finishAccountLogin : undefined}
+                onLoginComplete={accountLoginReturnPage ? finishAccountLogin : undefined}
                 onOpenLocalDesigns={client.customTouchKeyboardSkins ? openLocalDesigns : undefined}
                 onOpenCommunity={
                   client.communitySkins && client.communityResources ? openCommunity : undefined
@@ -3908,9 +3960,9 @@ export function SettingsPage({
             {client.chat && page === "chat" && (
               <ChatPage
                 client={client.chat}
-                autoFocus={iosPlatform}
+                autoFocus={mobilePlatform}
                 touch={mobilePlatform}
-                onLogin={() => selectPage("account")}
+                onLogin={openAccountLogin}
               />
             )}
             {client.communitySkins && client.communityResources && page === "community" && (
@@ -3925,7 +3977,7 @@ export function SettingsPage({
                 localDictionary={client.dictionary}
                 localSkinLibrary={client.customSkinLibrary}
                 mobile={mobilePlatform}
-                onLogin={() => selectPage("account")}
+                onLogin={openAccountLogin}
               />
             )}
             {client.communitySkins && !client.communityResources && page === "community" && (
@@ -3936,7 +3988,7 @@ export function SettingsPage({
                 localSkinLibrary={client.customSkinLibrary}
                 initialMine={communityDestination === "published-skins"}
                 mobile={mobilePlatform}
-                onLogin={() => selectPage("account")}
+                onLogin={openAccountLogin}
               />
             )}
             {!client.communitySkins && client.communityResources && page === "community" && (
