@@ -267,6 +267,9 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean numberRowSelection = true;
     /** Resolved 以词定字 binding: `disabled`, `brackets` or `minus_equal`. */
     private String wordCharacterBinding = WordCharacterPolicy.DISABLED;
+    /** Which hardware keys page the candidate list, from the shared `navigation` preferences. */
+    private CandidateNavigationPolicy.Bindings candidateNavigation =
+        CandidateNavigationPolicy.Bindings.defaults();
     private boolean hardwareLanguageCtrl;
     private long modifierTapStartedAt = -1;
     private int modifierTapKeyCode = -1;
@@ -464,6 +467,8 @@ public final class MSIMEInputService extends InputMethodService {
             preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
         if (session == 0) fullWidthInput = fullWidthPreference;
         wordCharacterBinding = wordCharacterBindingFrom(preferences);
+        candidateNavigation = candidateNavigationFrom(
+            preferences == null ? null : preferences.optJSONObject("navigation"));
         JSONObject keybindings = preferences == null ? null : preferences.optJSONObject("keybindings");
         hardwareLanguageShift = keybindings == null || keybindings.optBoolean("switch_language_shift", true);
         hardwareLanguageCtrlAltSpace = keybindings == null
@@ -1255,6 +1260,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextFullWidthPreference = CharacterWidthPolicy.preferenceIsFullWidth(
             preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
         String nextWordCharacterBinding = wordCharacterBindingFrom(preferences);
+        CandidateNavigationPolicy.Bindings nextCandidateNavigation =
+            candidateNavigationFrom(preferences.optJSONObject("navigation"));
         boolean nextLanguageCtrl = nextKeybindings != null
             && nextKeybindings.optBoolean("switch_language_ctrl", false);
         String nextDefaultImeMode = "english".equals(
@@ -1312,6 +1319,7 @@ public final class MSIMEInputService extends InputMethodService {
             CharacterWidthPolicy.overridesToggle(fullWidthPreference, nextFullWidthPreference);
         fullWidthPreference = nextFullWidthPreference;
         wordCharacterBinding = nextWordCharacterBinding;
+        candidateNavigation = nextCandidateNavigation;
         hardwareLanguageCtrl = nextLanguageCtrl;
         defaultImeMode = nextDefaultImeMode;
         imeModeScope = nextImeModeScope;
@@ -2455,6 +2463,15 @@ public final class MSIMEInputService extends InputMethodService {
             keyCode, event.isShiftPressed(), wordCharacterBinding, highlightedCandidate() != null);
         if (wordCharacterEdge != WordCharacterPolicy.Edge.NONE
                 && selectCandidateEdge(wordCharacterEdge)) return true;
+        // Paging only means something while there is a candidate list. With nothing composed these
+        // keys are the editor's: Tab moves focus, Page Down scrolls, and a comma is a comma.
+        if (hasEngineComposition()) {
+            int navigationCommand = CandidateNavigationPolicy.commandFor(
+                keyCode, event.isShiftPressed(), candidateNavigation, japaneseSchemeActive());
+            if (navigationCommand != CandidateNavigationPolicy.NONE) {
+                return command(navigationCommand) || super.onKeyDown(keyCode, event);
+            }
+        }
         int engineCommand = HardwareKeyPolicy.commandFor(keyCode);
         if (engineCommand >= 0) return command(engineCommand) || super.onKeyDown(keyCode, event);
         if (keyCode == KeyEvent.KEYCODE_SPACE && dedicatedEnglish) { space(); return true; }
@@ -5479,6 +5496,19 @@ public final class MSIMEInputService extends InputMethodService {
             return showCandidateMenu(button, slot, id, text);
         });
         return button;
+    }
+
+    /** The shared `navigation` switches, with the shared defaults for anything absent. */
+    private static CandidateNavigationPolicy.Bindings candidateNavigationFrom(JSONObject navigation) {
+        CandidateNavigationPolicy.Bindings defaults = CandidateNavigationPolicy.Bindings.defaults();
+        if (navigation == null) return defaults;
+        return new CandidateNavigationPolicy.Bindings(
+            navigation.optBoolean("minus_equal", defaults.minusEqual()),
+            navigation.optBoolean("comma_period", defaults.commaPeriod()),
+            navigation.optBoolean("brackets", defaults.brackets()),
+            navigation.optBoolean("tab", defaults.tab()),
+            navigation.optBoolean("page_up_down", defaults.pageUpDown()),
+            navigation.optBoolean("arrows", defaults.arrows()));
     }
 
     private static String wordCharacterBindingFrom(JSONObject preferences) {
