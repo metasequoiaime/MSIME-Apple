@@ -62,9 +62,9 @@ msime-client-setup --download   # 允许按随装的词库锁取回缺失词库�
 
 智能标点使用 IBus 提供的 surrounding text：逗号、句号和冒号前若是 ASCII 字母或数字，则保留 ASCII；否则交由 Engine 的中文标点表转换。正在组合时优先使用当前高亮候选的末字符，候选提交和标点在同一运行时转换中完成。重复输入的 ASCII 标点在短时间内可按设置替换为中文标点；失焦、删除或其他编辑动作会使该状态失效。无法取得有效 surrounding text 时按中文标点处理，不读取或记录完整编辑器内容。
 
-`smart_punctuation_space_convert` 现在也在 IBus 生效：Engine 刚为逗号、句号或冒号上屏中文标点、且当前没有组合时，紧接着的一次无修饰空格把该标点改回 ASCII（全角输出时改为全角形式），空格本身仍照常交给 Engine 与编辑器。判据是文档指纹而不是计时器——同一个标点在文档里通常不止一处，窗口内移动光标又不是焦点变化，所以上屏时记下标点前面的那个字符，改写前回读两个字符核对：标点必须仍是刚上屏的那个，且仍跟在同一个字符后面。上屏时取不到指纹（标点开在文档首，或宿主没有可读的 surrounding text）按匹配处理，与来源一致；其间任何其他按键都会解除该状态。指纹判定是 `src/core/SmartPunctuationSpace.h` 的纯函数并带单测（`linux-smart-punctuation-space`）。
+`smart_punctuation_space_convert` 现在也在 IBus 生效：Engine 刚单独上屏 `。，！？；：、`、单双引号的一侧、方括号、书名号或圆括号，且当前没有组合时，紧接着的一次无修饰空格把该标点改回半角 ASCII 并消费空格；全角输出模式不改变这次手势的替换结果。自动补全的成对标点不会武装改写，避免只替换左半边后留下混合对子。判据是文档指纹而不是计时器——同一个标点在文档里通常不止一处，窗口内移动光标又不是焦点变化，所以上屏时记下标点前面的那个字符，改写前回读两个字符核对：标点必须仍是刚上屏的那个，且仍跟在同一个字符后面。上屏时取不到指纹（标点开在文档首，或宿主没有可读的 surrounding text）按匹配处理，与来源一致；其间任何其他按键都会解除该状态。完整映射和指纹判定在 `src/core/SmartPunctuationSpace.h` 由两个宿主共用并带纯 C++ 单测（`linux-smart-punctuation-space`）。
 
-Fcitx5 现在也走同一条路径：它此前只在状态栏带着智能标点和重复标点两个开关，却没有任何改写实现，`smart_punctuation_space_convert` 在这个宿主上同样什么都不做。现改为共用 `SmartPunctuationSpace.h` 的指纹判定、按键集合、ASCII↔中文标点映射表和全角形式，通过 `InputContext::deleteSurroundingText` 改写，并沿用同样的解除点（任何其他按键、会话关闭）。ASCII→中文那张表原先在 IBus 宿主里单独写了一份，现由两个宿主共用，避免两条改写方向各自漂移。
+Fcitx5 现在也走同一条路径：它此前只在状态栏带着智能标点和重复标点两个开关，却没有任何改写实现，`smart_punctuation_space_convert` 在这个宿主上同样什么都不做。现改为共用 `SmartPunctuationSpace.h` 的指纹判定、直接智能按键集合与完整空格改写映射，通过 `InputContext::deleteSurroundingText` 原位替换并消费成功手势的空格，沿用同样的解除点（任何其他按键、会话关闭）。ASCII→中文的三键重复转换与中文→ASCII 的完整空格转换明确分开，避免两个不同产品规则再次漂移。
 
 Fcitx5 的「重复标点回切中文」同样从只有开关变为真的生效：智能标点把某个标点保留为 ASCII 后，两秒内再按同一个键会通过 `deleteSurroundingText` 换成中文标点，该按键被消费、不再交给 Engine。与 Windows/IBus 一致，退格删掉那个 ASCII 标点后重新按同一个键会走中文路径——Fcitx5 的这个判断在共享 Rust 路由里做，因此实现方式是不再把前一个字符交给路由，让它按「前面不是 ASCII 字母数字」处理。上屏识别用共享的 `ascii_mark_from_text`，按 Engine 实际输出的宽度匹配，宿主不另留一份按键清单。
 

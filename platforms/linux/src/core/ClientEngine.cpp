@@ -345,15 +345,15 @@ struct State {
   // A deleted ASCII smart mark keeps this caret position on the Chinese path
   // when the same key is immediately retyped, matching the Windows behavior.
   char smart_punctuation_rejected = 0;
-  // The ASCII key whose Chinese mark Engine just committed with nothing
-  // composing. A bare Space arriving next takes that mark back to ASCII; any
-  // other key disarms it. `space_convert_preceding` is the character that stood
+  // The Chinese mark Engine just committed with nothing composing. A bare
+  // Space arriving next takes that mark back to ASCII; any other key disarms
+  // it. `space_convert_preceding` is the character that stood
   // in front of the mark when it was committed - the document usually holds the
   // same mark in several places, and moving the caret inside one window is not
   // a focus change, so the rewrite re-reads both characters before touching
   // anything. An empty value means the mark was committed at the start of the
   // document and there is nothing to fingerprint.
-  char space_convert_mark = 0;
+  std::string space_convert_mark;
   std::string space_convert_preceding;
   std::string punctuation_lock = "follow";
   std::string preedit_style = "raw";
@@ -559,7 +559,7 @@ struct State {
     last_smart_punctuation = 0;
     last_smart_punctuation_time = 0;
     smart_punctuation_rejected = 0;
-    space_convert_mark = 0;
+    space_convert_mark.clear();
     space_convert_preceding.clear();
     paired_tracker.clear();
     japanese_conversion.reset();
@@ -798,7 +798,7 @@ struct State {
     }
     if (!smart_punctuation || !smart_punctuation_space_convert ||
         !chinese_punctuation) {
-      space_convert_mark = 0;
+      space_convert_mark.clear();
       space_convert_preceding.clear();
     }
     traditional_output = traditional_output_override.value_or(
@@ -1699,26 +1699,25 @@ std::optional<std::string> surrounding_following_character(const State &s) {
 // records: the same mark usually stands in more than one place, and moving the
 // caret inside a window is not a focus change, so the mark in front of the
 // caret has to still be the one that was committed and has to still follow the
-// character it followed. The Space itself is never consumed here - it reaches
-// Engine and the editor exactly as it otherwise would.
+// character it followed. A successful rewrite consumes the Space.
 bool convert_smart_punctuation_space(IBusEngine *engine) {
   auto &s = state(engine);
-  const char mark = s.space_convert_mark;
+  const auto mark = std::move(s.space_convert_mark);
   const auto expected_preceding = std::move(s.space_convert_preceding);
-  s.space_convert_mark = 0;
+  s.space_convert_mark.clear();
   s.space_convert_preceding.clear();
-  if (mark == 0 || !s.smart_punctuation || !s.smart_punctuation_space_convert ||
-      !s.chinese_punctuation)
+  if (mark.empty() || !s.smart_punctuation ||
+      !s.smart_punctuation_space_convert || !s.chinese_punctuation)
     return false;
   if (!s.view.value("editing_text", std::string{}).empty() ||
       !s.view.value("candidates", Json::array()).empty())
     return false;
-  const auto *chinese = smart_punctuation_pair(mark);
-  if (!chinese)
+  const auto replacement = msime::linux_host::space_conversion_ascii_text(mark);
+  if (replacement.empty())
     return false;
   const auto characters = surrounding_preceding_characters(s, 2);
   if (!characters || !msime::linux_host::space_conversion_matches_document(
-                         chinese, expected_preceding, *characters))
+                         mark, expected_preceding, *characters))
     return false;
   ibus_engine_delete_surrounding_text(engine, -1, 1);
   // The mark was replaced in the editor, not appended.
@@ -1729,9 +1728,6 @@ bool convert_smart_punctuation_space(IBusEngine *engine) {
       --last;
     s.ai_context.erase(last);
   }
-  auto replacement = std::string(1, mark);
-  if (s.fullwidth)
-    replacement = fullwidth_text(std::move(replacement));
   commit_text(engine, replacement);
   return true;
 }
@@ -1800,7 +1796,8 @@ struct TranslationTask {
   Json local_translations = Json::array();
 };
 bool apply(IBusEngine *engine, char *raw,
-           PunctuationPairMode pair_mode = PunctuationPairMode::None);
+           PunctuationPairMode pair_mode = PunctuationPairMode::None,
+           std::optional<std::string> space_convert_preceding = std::nullopt);
 void render(IBusEngine *engine, const Json &view);
 void exit_translation_candidates(IBusEngine *engine);
 void render_translation_candidates(IBusEngine *engine);
@@ -3541,7 +3538,8 @@ bool commit_translation_candidate(IBusEngine *engine, size_t index) {
   (void)apply(engine, msime_client_command(s.session, MSIME_CANCEL));
   return true;
 }
-bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
+bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode,
+           std::optional<std::string> space_convert_preceding) {
   auto result = response(raw);
   const auto &commit = result.at("commit");
   if (commit.is_string()) {
@@ -3549,6 +3547,12 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
     auto &s = state(engine);
     text = traditional_display(
         s, result.value("commit_context", Json(nullptr)), std::move(text));
+    const auto space_convert_ascii =
+        space_convert_preceding
+            ? msime::linux_host::smart_punctuation_ascii_mark(text)
+            : 0;
+    const auto space_convert_mark =
+        space_convert_ascii == 0 ? std::string{} : text;
     const bool inserted_pair = normalize_punctuation_pair(text, pair_mode);
     if (s.smart_punctuation && s.paired_punctuation && text.size() == 1 &&
         smart_punctuation_pair(text.front())) {
@@ -3562,6 +3566,11 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
       text = fullwidth_text(text);
     if (!text.empty()) {
       commit_text(engine, text);
+      if (space_convert_ascii != 0 && !inserted_pair) {
+        // Preserve Engine's actual half (notably opening/closing quotes).
+        s.space_convert_mark = space_convert_mark;
+        s.space_convert_preceding = std::move(*space_convert_preceding);
+      }
       if (inserted_pair) {
         if (const auto closing = paired_closing_from_text(text))
           s.paired_tracker.push(*closing);
@@ -5653,8 +5662,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   }
   // Only a Space arriving immediately after the mark, with nothing in between,
   // can take it back; anything else means the user moved on.
-  if (s.space_convert_mark != 0 && !(key == IBUS_space && modifiers == 0)) {
-    s.space_convert_mark = 0;
+  if (!s.space_convert_mark.empty() && !(key == IBUS_space && modifiers == 0)) {
+    s.space_convert_mark.clear();
     s.space_convert_preceding.clear();
   }
   bool handled = false;
@@ -6274,7 +6283,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       // a Space arriving next checks both characters before rewriting either.
       const bool arm_space_convert =
           s.smart_punctuation && s.smart_punctuation_space_convert &&
-          s.chinese_punctuation && is_smart_punctuation_key(key) &&
+          s.chinese_punctuation &&
+          msime::linux_host::is_space_conversion_key(ascii) &&
           !has_composition && !candidate_active;
       std::string armed_preceding;
       if (arm_space_convert) {
@@ -6282,16 +6292,17 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         if (preceding && !preceding->empty())
           armed_preceding = preceding->front();
       }
-      handled = apply(engine, msime_client_punctuation(
-          s.session, static_cast<uint8_t>(ascii)));
+      std::optional<std::string> space_convert_preceding;
+      if (arm_space_convert)
+        space_convert_preceding = armed_preceding;
+      handled = apply(
+          engine,
+          msime_client_punctuation(s.session, static_cast<uint8_t>(ascii)),
+          PunctuationPairMode::None, std::move(space_convert_preceding));
       if (!handled)
         handled = fullwidth_idle_commit(key);
       if (is_smart_punctuation_key(key))
         s.smart_punctuation_rejected = 0;
-      if (arm_space_convert && handled) {
-        s.space_convert_mark = ascii;
-        s.space_convert_preceding = std::move(armed_preceding);
-      }
       return;
     }
     if (!s.view.at("candidates").empty() &&
@@ -6347,8 +6358,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       command = MSIME_CANCEL;
       break;
     case IBUS_space:
-      if (modifiers == 0)
-        (void)convert_smart_punctuation_space(engine);
+      if (modifiers == 0 && convert_smart_punctuation_space(engine)) {
+        handled = true;
+        return;
+      }
       if (s.fullwidth && !has_composition && !candidate_active) {
         commit_text(engine, "\xe3\x80\x80");
         handled = true;

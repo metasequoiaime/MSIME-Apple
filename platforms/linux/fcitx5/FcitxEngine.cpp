@@ -276,7 +276,7 @@ public:
     navigation_ = Json::object();
     options_path_.clear();
     resources_.clear();
-    space_convert_mark_ = 0;
+    space_convert_mark_.clear();
     space_convert_preceding_.clear();
     last_smart_punctuation_ = 0;
     last_smart_punctuation_at_ = {};
@@ -1177,7 +1177,7 @@ public:
     }
     if (!smart_punctuation_ || !smart_punctuation_space_convert_ ||
         !chinese_punctuation_) {
-      space_convert_mark_ = 0;
+      space_convert_mark_.clear();
       space_convert_preceding_.clear();
     }
     if (!smart_punctuation_ || !smart_punctuation_repeat_ || !paired_punctuation_)
@@ -1961,12 +1961,17 @@ public:
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     return true;
   }
-  bool apply(char *raw) {
+  bool apply(char *raw,
+             std::optional<std::string> spaceConvertPreceding = std::nullopt) {
     auto result = response(raw);
     if (result.contains("commit") && result["commit"].is_string()) {
       auto text = result["commit"].get<std::string>();
       if (traditional_ && view_.value("scheme", 0u) != 3)
         text = msime_linux_simplified_to_traditional(text);
+      const auto spaceConvertAscii =
+          spaceConvertPreceding
+              ? msime::linux_host::smart_punctuation_ascii_mark(text)
+              : 0;
       // An ASCII mark smart punctuation kept can be taken back to Chinese by
       // typing the same key again. Engine applies the width itself here, so the
       // commit is matched in whichever width it went out as - and against the
@@ -1985,6 +1990,11 @@ public:
         last_smart_punctuation_at_ = {};
       }
       commitText(text);
+      if (spaceConvertAscii != 0) {
+        // Preserve Engine's actual half (notably opening/closing quotes).
+        space_convert_mark_ = text;
+        space_convert_preceding_ = std::move(*spaceConvertPreceding);
+      }
     }
     view_ = result.contains("view") ? result.at("view") : result;
     render();
@@ -2046,7 +2056,7 @@ public:
     ic_.deleteSurroundingText(-1, 1);
     commitText(std::string(chinese));
     forgetSmartPunctuationRepeat();
-    space_convert_mark_ = 0;
+    space_convert_mark_.clear();
     space_convert_preceding_.clear();
     return true;
   }
@@ -2068,7 +2078,9 @@ public:
     const auto ascii = static_cast<char>(value);
     const bool arm = smart_punctuation_ && smart_punctuation_space_convert_ &&
                      chinese_punctuation_ &&
-                     msime::linux_host::is_smart_punctuation_key(ascii) &&
+                     msime::linux_host::is_space_conversion_key(ascii) &&
+                     !(paired_punctuation_ &&
+                       msime::linux_host::is_auto_paired_opening_key(ascii)) &&
                      !composingOrCandidates();
     std::string armedPreceding;
     if (arm) {
@@ -2080,34 +2092,38 @@ public:
     // is how that route is told there is no ASCII letter or digit to stay beside.
     if (smart_punctuation_rejected_ == ascii)
       preceding = 0;
-    const bool handled = apply(msime_client_punctuation_with_context(session_, value, preceding));
-    if (arm && handled) {
-      space_convert_mark_ = ascii;
-      space_convert_preceding_ = std::move(armedPreceding);
-    }
+    std::optional<std::string> spaceConvertPreceding;
+    if (arm)
+      spaceConvertPreceding = armedPreceding;
+    const bool handled =
+        apply(msime_client_punctuation_with_context(session_, value, preceding),
+              std::move(spaceConvertPreceding));
     if (handled && smart_punctuation_rejected_ == ascii)
       forgetSmartPunctuationRepeat();
     return handled;
   }
   // A Space right after a Chinese mark the user did not want takes that mark
   // back to ASCII, mirroring the source's space conversion and the IBus host.
-  // The Space itself is never consumed: it goes on to Engine and the editor as
-  // it otherwise would.
-  void convertSmartPunctuationSpace() {
-    const auto mark = space_convert_mark_;
+  // A successful rewrite consumes the Space.
+  bool convertSmartPunctuationSpace() {
+    const auto mark = std::move(space_convert_mark_);
     const auto expected = std::move(space_convert_preceding_);
-    space_convert_mark_ = 0;
+    space_convert_mark_.clear();
     space_convert_preceding_.clear();
-    if (mark == 0 || !smart_punctuation_ || !smart_punctuation_space_convert_ ||
-        !chinese_punctuation_ || composingOrCandidates())
-      return;
-    const auto chinese = msime::linux_host::chinese_punctuation_mark(mark);
+    if (mark.empty() || !smart_punctuation_ ||
+        !smart_punctuation_space_convert_ || !chinese_punctuation_ ||
+        composingOrCandidates())
+      return false;
+    const auto replacement =
+        msime::linux_host::space_conversion_ascii_text(mark);
     const auto characters = precedingCharacters(2);
-    if (!characters || !msime::linux_host::space_conversion_matches_document(
-                           chinese, expected, *characters))
-      return;
+    if (replacement.empty() || !characters ||
+        !msime::linux_host::space_conversion_matches_document(mark, expected,
+                                                              *characters))
+      return false;
     ic_.deleteSurroundingText(-1, 1);
-    commitText(msime::linux_host::ascii_mark_text(mark, fullwidthOutput()));
+    commitText(replacement);
+    return true;
   }
   void select(uint64_t session, uint64_t generation, size_t index) {
     if (translation_candidates_active_) {
@@ -2280,7 +2296,7 @@ public:
   // bare Space arriving next takes the mark back to ASCII; any other key
   // disarms. The fingerprint is there because the same mark usually appears more
   // than once and moving the caret inside a window is not a focus change.
-  char space_convert_mark_ = 0;
+  std::string space_convert_mark_;
   std::string space_convert_preceding_;
   uint8_t punctuation_lock_ = 0;
   std::string online_socket_, online_query_;
@@ -4488,16 +4504,17 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       smart_punctuation_rejected_ = 0;
   }
   // Only a Space arriving immediately after the mark, with nothing in between,
-  // can take it back; anything else means the user moved on. The conversion
-  // itself never consumes the key.
-  if (space_convert_mark_ != 0) {
+  // can take it back; anything else means the user moved on. A successful
+  // conversion consumes the key.
+  if (!space_convert_mark_.empty()) {
     if (sym == FcitxKey_space && states.testAny(fcitx::KeyStates{
                                      fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                      fcitx::KeyState::Shift, fcitx::KeyState::Super,
                                      fcitx::KeyState::Hyper}) == false) {
-      convertSmartPunctuationSpace();
+      if (convertSmartPunctuationSpace())
+        return true;
     } else {
-      space_convert_mark_ = 0;
+      space_convert_mark_.clear();
       space_convert_preceding_.clear();
     }
   }
