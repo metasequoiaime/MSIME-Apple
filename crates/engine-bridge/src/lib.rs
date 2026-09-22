@@ -1334,10 +1334,7 @@ mod tests {
             session.character(b'o', false).unwrap();
             let snapshot = session.snapshot().unwrap();
             assert_eq!(snapshot.editing_text, "yo");
-            assert!(
-                !snapshot.preedit.is_empty(),
-                "yo did not produce a complete preedit: {snapshot:?}"
-            );
+            assert_eq!(snapshot.preedit, "yo", "yo was split: {snapshot:?}");
         }
     }
 
