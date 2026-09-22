@@ -64,7 +64,7 @@ def lock_marker(lock: dict) -> str:
 
 def prepared_at_lock(lock: dict) -> bool:
     """Whether DEST contains every source tree named by the lock and no Git metadata."""
-    if not MARKER.is_file() or MARKER.read_text() != lock_marker(lock):
+    if not MARKER.is_file() or MARKER.read_text(encoding="utf-8") != lock_marker(lock):
         return False
     if any(path.name in {".git", ".gitmodules"} for path in DEST.rglob("*") if path.is_dir()):
         return False
@@ -113,17 +113,17 @@ def apply_patches(directory: Path, lock: dict) -> None:
         target = directory / patch["path"]
         if not target.is_file():
             raise RuntimeError(f"Engine overlay target is missing: {patch['path']}")
-        contents = target.read_text()
+        contents = target.read_text(encoding="utf-8")
         before = patch["find"]
         after = patch["replace"]
         if before in contents:
-            target.write_text(contents.replace(before, after, 1))
+            target.write_text(contents.replace(before, after, 1), encoding="utf-8")
         elif after not in contents:
             raise RuntimeError(f"Engine overlay did not match: {patch['path']}")
 
 
 def main() -> int:
-    lock = json.loads(LOCK.read_text())
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
     if prepared_at_lock(lock):
         print(f"Engine already prepared at {lock['commit']}")
         return 0
@@ -152,7 +152,7 @@ def main() -> int:
             shutil.rmtree(DEST)
         DEST.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(staging), str(DEST))
-    MARKER.write_text(lock_marker(lock))
+    MARKER.write_text(lock_marker(lock), encoding="utf-8")
     print(f"Prepared Engine {lock['commit']} at {DEST}")
     return 0
 
