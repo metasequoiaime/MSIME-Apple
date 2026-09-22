@@ -164,11 +164,15 @@ set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientIn
 # LaunchServices takes the Dock and menu bar name from a localized InfoPlist.strings, not from the
 # CFBundleDisplayName in the plist; without these the Dock falls back to the executable's filename.
 # The TIS identifier keys name the entry in the system input menu.
+#
+# The location has to name the .lproj directory. Every locale's file is called InfoPlist.strings, so a
+# bare `Resources` flattens them into one file and the last locale overwrites the rest - the bundle then
+# carries only the English names and the input menu loses 水杉输入法. bundle-contents checks each locale.
 foreach(MSIME_BUNDLE_LOCALE zh-Hans en)
   target_sources(MSIMEClientInputMethod
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings")
   set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings"
-    PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/${MSIME_BUNDLE_LOCALE}.lproj")
 endforeach()
 add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"
