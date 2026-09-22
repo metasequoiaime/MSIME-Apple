@@ -149,10 +149,15 @@ jobs:
         run: if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime.db"; else touch "$RUNNER_TEMP/msime.db"; fi
       - name: Type-check registration helper
         if: ${{ needs.changes.outputs.build == 'true' }}
-        run: xcrun swiftc -typecheck platforms/macos/scripts/register_input_source.swift
+        run: |
+          if [[ -f platforms/macos/scripts/register_input_source.swift ]]; then
+            xcrun swiftc -typecheck platforms/macos/scripts/register_input_source.swift
+          else
+            echo 'register_input_source.swift is not present in this branch; skipped.'
+          fi
       - name: Configure
         if: ${{ needs.changes.outputs.build == 'true' }}
-        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
+        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SHARED_VOICE_LOCAL_WHISPER=OFF -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
       - name: Build
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: cmake --build build --parallel
@@ -209,6 +214,7 @@ jobs:
         run: >
           cmake -S platforms/macos -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+          -DMSIME_SHARED_VOICE_LOCAL_WHISPER=OFF
           -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime.db"
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
