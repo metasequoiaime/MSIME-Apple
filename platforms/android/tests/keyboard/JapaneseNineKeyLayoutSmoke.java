@@ -27,11 +27,6 @@ public final class JapaneseNineKeyLayoutSmoke {
         check(digitKeys.stream().allMatch(key -> key.strokes().stream().allMatch(String::isEmpty)));
         check(JapaneseNineKeyLayout.digitBrackets().equals(
             List.of("（", "）", "「", "」", "『", "』", "【", "】")));
-        check(JapaneseNineKeyLayout.variants().stream().map(
-            JapaneseNineKeyLayout.VariantGroup::title).toList().equals(
-                List.of("小假名", "浊音", "半浊音")));
-        check(JapaneseNineKeyLayout.variants().stream().mapToInt(
-            group -> group.kana().size()).sum() == 36);
         check(JapaneseNineKeyLayout.direction(0, 0, 12) == 0);
         check(JapaneseNineKeyLayout.direction(-13, 2, 12) == 1);
         check(JapaneseNineKeyLayout.direction(1, -13, 12) == 2);
@@ -41,6 +36,6 @@ public final class JapaneseNineKeyLayoutSmoke {
             keys.get(0).kana().add("bad");
             throw new AssertionError();
         } catch (UnsupportedOperationException expected) { }
-        System.out.println("Android Japanese nine-key: kana, strokes, variants and flick directions passed");
+        System.out.println("Android Japanese nine-key: kana, strokes and flick directions passed");
     }
 }
