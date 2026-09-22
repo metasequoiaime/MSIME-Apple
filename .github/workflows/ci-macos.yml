@@ -178,21 +178,42 @@ jobs:
       - name: Configure
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_SHARED_VOICE_LOCAL_WHISPER=OFF -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
+      # An explicit job count: with the Makefile generator a bare `--parallel` becomes `make -j` with no limit, which starts every ready compile at once. Once whisper and ggml were linked into the input method (4737c9651) that was enough to run the 7 GB arm64 runner out of memory, and the step sat swapping until the 60-minute job limit cancelled it on every run that built.
       - name: Build
         if: ${{ needs.changes.outputs.build == 'true' }}
-        run: cmake --build build --parallel
+        run: cmake --build build --parallel "$(sysctl -n hw.logicalcpu)"
+      # On the Intel runner every view SwiftUI draws through RenderBox aborted inside Metal: loading RenderBox's precompiled binary archive asks the paravirtual GPU for an architecture it does not report ("Target device architecture is nil"), and nothing of ours is on that stack. RenderBox's own switches skip the archive and the GPU, so these tests still lay out and draw there, on the CPU.
       - name: Test
         if: ${{ needs.changes.outputs.build == 'true' }}
-        run: ctest --no-tests=error --test-dir build --output-on-failure --timeout 20
+        run: |
+          if [[ "$(uname -m)" == x86_64 ]]; then export RB_USE_BINARY_ARCHIVE=0 RB_DISABLE_GPU=1; fi
+          ctest --no-tests=error --test-dir build --output-on-failure --timeout 20
+      # A test that aborts inside a system framework prints only the assertion; the stack is in the crash report, which the runner discards with the machine.
+      - name: Upload crash reports
+        if: ${{ failure() && needs.changes.outputs.build == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: crash-reports-${{ matrix.architecture }}
+          path: ~/Library/Logs/DiagnosticReports/
+          if-no-files-found: ignore
+          retention-days: 7
+      # The build leaves the bundle as the linker signed it, which codesign rejects as a bundle; scripts/install.sh re-signs a staged copy before anything registers it. Do the same here with an ad-hoc identity, so what is checked is that the bundle can be sealed - a flattened framework or stray file breaks exactly that. The product is built for the runner's architecture only; nothing here produces a universal binary.
       - name: Verify input method bundle
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: |
-          codesign --verify --deep --strict --verbose=2 build/MetasequoiaIME.app
-          lipo build/MetasequoiaIME.app/Contents/MacOS/MetasequoiaIME -verify_arch arm64 x86_64
-          plutil -lint build/MetasequoiaIME.app/Contents/Info.plist
-          test "$(/usr/libexec/PlistBuddy -c 'Print :TISInputSourceID' build/MetasequoiaIME.app/Contents/Info.plist)" = "app.msime.inputmethod.MetasequoiaIME"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :TISIntendedLanguage' build/MetasequoiaIME.app/Contents/Info.plist)" = "zh-Hans"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:tsInputModeScriptKey' build/MetasequoiaIME.app/Contents/Info.plist)" = "smSimpChinese"
+          set -euo pipefail
+          staged="$RUNNER_TEMP/verify/水杉输入法.app"
+          mkdir -p "$RUNNER_TEMP/verify"
+          ditto build/水杉输入法.app "$staged"
+          codesign --force --deep --options runtime --entitlements platforms/macos/resources/VoiceInput.entitlements --sign - "$staged"
+          codesign --verify --deep --strict --verbose=2 "$staged"
+          lipo "$staged/Contents/MacOS/水杉输入法" -verify_arch "$(uname -m)"
+          plist="$staged/Contents/Info.plist"
+          plutil -lint "$plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "app.msime.inputmethod.MetasequoiaIME"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodServerControllerClass' "$plist")" = "MSIMEInputController"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:TISInputSourceID' "$plist")" = "app.msime.inputmethod.MetasequoiaIME.Hans"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:tsInputModeScriptKey' "$plist")" = "smSimpChinese"
 
   # MSIME-Linux's ci.yml already reasons this out: "the frontend layer had none -- and that is the
   # layer that parses untrusted input", written after an audit of a sibling frontend turned up a
@@ -248,6 +269,7 @@ jobs:
           if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime.db"; else touch "$RUNNER_TEMP/dictionary/msime.db"; fi
       - name: Build the Rust host library
         run: cargo build --locked -p msime-host-api
+      # OBJCXX is its own CMake language here, so CXX flags alone left every .mm unsanitized. Templates such as vector<uint8_t> are instantiated on both sides, and the linker keeping one copy from each can let instrumented code check container annotations the uninstrumented half never wrote - a container-overflow inside nlohmann's lexer.
       - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
         run: >
           cmake -S platforms/macos -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
@@ -257,10 +279,12 @@ jobs:
           -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime.db"
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_OBJCXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
           -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
       - name: Build
-        run: cmake --build build-sanitizers --parallel
+        # Explicit job count for the same reason as the Release leg: a bare `--parallel` is an unbounded `make -j`.
+        run: cmake --build build-sanitizers --parallel "$(sysctl -n hw.logicalcpu)"
       # detect_leaks is off because Apple's runtime ships no LeakSanitizer; the Linux job in the
       # engine repository is where leak detection happens.
       - name: Test memory safety and undefined behavior

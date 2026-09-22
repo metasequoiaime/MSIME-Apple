@@ -2550,9 +2550,10 @@ static void TestInputSourceModeReset() {
         [center postNotificationName:notification object:nil];
         dispatch_semaphore_signal(posted);
     });
-    assert(dispatch_semaphore_wait(posted, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    // Both waits end as soon as the event happens; the bound is only there for a stuck run, and a loaded CI runner can take more than a second to give the main queue a turn.
+    assert(dispatch_semaphore_wait(posted, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
     monitoredSource = @{bundleKey:own};
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
     while (monitoredSourceReads == reads && deadline.timeIntervalSinceNow > 0)
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
     assert(monitoredSourceReads > reads && resets == before);

@@ -280,8 +280,13 @@ set_tests_properties(emoji-host-cursor PROPERTIES LABELS "emoji-local" TIMEOUT 3
 set(MSIME_EMOJI_SWIFT_HOST_SOURCES src/backend/emoji/BackendEmojiSymbolGroups.swift src/backend/emoji/BackendEmojiCatalog.swift
   src/backend/emoji/BackendEmojiCatalogCursor.swift tests/emoji/EmojiSwiftHostTest.swift)
 list(TRANSFORM MSIME_EMOJI_SWIFT_HOST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+# swiftc links this one itself, against apple-client, so a sanitized apple-client needs the sanitizer runtime on this link line too; CMake adds it to the ones it drives.
+set(MSIME_EMOJI_SWIFT_HOST_SANITIZE "")
+if(CMAKE_OBJCXX_FLAGS MATCHES "-fsanitize=[^ ]*address")
+  set(MSIME_EMOJI_SWIFT_HOST_SANITIZE -sanitize=address)
+endif()
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
-  COMMAND "${MSIME_XCRUN}" swiftc -Onone
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone ${MSIME_EMOJI_SWIFT_HOST_SANITIZE}
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     ${MSIME_EMOJI_SWIFT_HOST_SOURCES}
     -Xlinker -force_load -Xlinker "$<TARGET_FILE:apple-client>"
@@ -468,7 +473,8 @@ add_executable(doubao-voice-request-test tests/voice/DoubaoVoiceRequestTest.mm s
 target_compile_options(doubao-voice-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(doubao-voice-request-test PRIVATE apple-client MetasequoiaIme::Voice "-framework Foundation")
 add_test(NAME doubao-voice-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/doubao_voice_fixture.py" "$<TARGET_FILE:doubao-voice-request-test>")
-set_tests_properties(doubao-voice-request PROPERTIES TIMEOUT 65)
+# Above the fixture's own 60 s client limit plus the 3 s stack sample it takes of a hung client, so a hang reports where it is stuck instead of being killed silently.
+set_tests_properties(doubao-voice-request PROPERTIES TIMEOUT 80)
 add_executable(preference-save-state-test tests/settings/PreferenceSaveStateTest.cpp)
 target_compile_options(preference-save-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME preference-save-state COMMAND preference-save-state-test)
@@ -650,6 +656,8 @@ target_link_libraries(shortcut-test PRIVATE "-framework AudioToolbox")
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework AudioToolbox")
 target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics" "-framework CoreText" "-framework CoreAudio" "-framework UniformTypeIdentifiers")
 add_test(NAME shortcut COMMAND shortcut-test)
+# Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
+set_tests_properties(shortcut PROPERTIES TIMEOUT 90)
 add_test(NAME shortcut-translations COMMAND shortcut-test --translations)
 add_executable(voice-hold-shortcut-test tests/voice/VoiceHoldShortcutTest.mm)
 target_compile_options(voice-hold-shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
@@ -698,6 +706,8 @@ add_executable(voice-polish-request-test tests/voice/VoicePolishRequestTest.mm s
 target_compile_options(voice-polish-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-polish-request-test PRIVATE msime-voice-providers "-framework Foundation")
 add_test(NAME voice-polish-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/voice_polish_fixture.py" "$<TARGET_FILE:voice-polish-request-test>")
+# The fixture waits out two six-second stalls and gives the run 60 s; without its own limit CI's `ctest --timeout 20` killed it on every run.
+set_tests_properties(voice-polish-request PROPERTIES TIMEOUT 65)
 # Which prompt each slot resolves to. The request test above sends whatever it is handed; this one says what
 # that should be. The header is shared/voice's and this host ships it through HTTPVoiceRequest.mm, but its
 # only test ran in the Windows build - so a fallback that had drifted from the reference sat here unchecked.
@@ -712,6 +722,8 @@ if(TARGET ggml AND NOT TARGET shared-voice-backend-registry)
   add_executable(shared-voice-backend-registry ../../shared/voice/tests/backend_registry.cpp)
   target_link_libraries(shared-voice-backend-registry PRIVATE ggml)
   add_test(NAME shared-voice-backend-registry COMMAND shared-voice-backend-registry)
+  # Registering the Metal backend compiles ggml's embedded shader library: under a second with a warm Metal cache, 12-15 s on a fresh arm64 runner and past the 20 s CI default on the Intel one.
+  set_tests_properties(shared-voice-backend-registry PROPERTIES TIMEOUT 120)
 endif()
 target_sources(shortcut-test PRIVATE src/cloud/TranslationCache.mm src/input/InputModeHUDPanel.mm)
 add_executable(shuangpin-keymap-input-test tests/input/ShuangpinKeymapInputTest.mm src/settings/ShuangpinKeymapPanel.mm)

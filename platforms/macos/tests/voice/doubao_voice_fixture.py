@@ -119,10 +119,20 @@ class Handler(BaseHTTPRequestHandler):
 
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+# A handler can sit in a 40 s socket read; joining it on close outlived ctest's limit, so a hang was killed before this script could say anything.
+server.daemon_threads = True
+server.block_on_close = False
 threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
-    result = subprocess.run([sys.argv[1], f"ws://127.0.0.1:{server.server_port}"], timeout=60)
-    assert result.returncode == 0 and not errors
+    client = subprocess.Popen([sys.argv[1], f"ws://127.0.0.1:{server.server_port}"])
+    try:
+        returncode = client.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        # Every wait in the client fails on its own deadline, so reaching this means a thread is stuck; its stack is the only useful output.
+        subprocess.run(["sample", str(client.pid), "3"], stdout=sys.stderr, stderr=sys.stderr)
+        client.kill()
+        raise
+    assert returncode == 0 and not errors
     assert all(counts.get(path) == 1 for path in
                ("/api", "/legacy", "/inferred", "/masked-app", "/inferred-masked", "/trimmed", "/trimmed-legacy",
                 "/malformed", "/server-error", "/oversized", "/redirect", "/cancel", "/drop", "/silent"))
