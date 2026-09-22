@@ -103,9 +103,10 @@ private struct KeyboardVoicePreviewFixture: View {
 
 private struct MainTabView: View {
   @StateObject private var navigation = AppNavigation()
+  @Environment(\.horizontalSizeClass) private var widthClass
   var body: some View {
     TabView(selection: $navigation.tab) {
-      NavigationView { SettingsView() }.navigationViewStyle(.stack)
+      keyboardTab
         .tabItem { Label("键盘", systemImage: "keyboard") }.tag(AppNavigation.Tab.keyboard)
       NavigationView { CommunityHomeView() }.navigationViewStyle(.stack).id(navigation.communityRoot)
         .tabItem { Label("社区", systemImage: "square.grid.2x2.fill") }.tag(AppNavigation.Tab.community)
@@ -122,6 +123,12 @@ private struct MainTabView: View {
       guard url.scheme == "msime" else { return }
       navigation.tab = .keyboard
     }
+  }
+
+  // Both idiom and width class: a Max-size iPhone turned sideways is regular width but stays a phone, and an iPad in a narrow Split View or Slide Over pane gets the phone's stack.
+  @ViewBuilder private var keyboardTab: some View {
+    if UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular { TabletSettingsView() }
+    else { NavigationView { SettingsView() }.navigationViewStyle(.stack) }
   }
 }
 
