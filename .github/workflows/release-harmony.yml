@@ -1,0 +1,27 @@
+name: Release HarmonyOS
+on:
+  workflow_dispatch:
+    inputs:
+      version: {description: Semantic version (defaults to platforms/harmony/version.txt), required: false, type: string}
+      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+permissions: {contents: write}
+concurrency: {group: release-harmony, cancel-in-progress: false}
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/harmony/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      - name: Build HarmonyOS native host
+        run: bash platforms/harmony/build-native.sh arm64-v8a
+      - name: Build HarmonyOS HAP
+        working-directory: platforms/harmony
+        run: ./hvigorw assembleHap --no-daemon
+      - name: Publish independent HarmonyOS release
+        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        run: |
+          hap=$(find platforms/harmony -type f -name '*.hap' | head -1); test -n "$hap"; tag="harmony-v${VERSION}"; gh release create "$tag" "$hap" --target "$GITHUB_SHA" --title "HarmonyOS ${VERSION}" --generate-notes $([[ "$PRERELEASE" == true ]] && echo --prerelease)

@@ -1,0 +1,31 @@
+name: Release Windows
+on:
+  workflow_dispatch:
+    inputs:
+      version: {description: Semantic version (defaults to platforms/windows/version.txt), required: false, type: string}
+      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+permissions: {contents: write}
+concurrency: {group: release-windows, cancel-in-progress: false}
+jobs:
+  release:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - id: version
+        shell: pwsh
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
+      - name: Build Windows native host
+        shell: bash
+        run: bash platforms/windows/build-cross.sh x64
+      - name: Package Windows release
+        shell: pwsh
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        run: Compress-Archive -Path target/windows-full/x64/* -DestinationPath "msime-windows-$env:VERSION.zip"
+      - name: Publish independent Windows release
+        shell: bash
+        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        run: |
+          tag="windows-v${VERSION}"; gh release create "$tag" "msime-windows-${VERSION}.zip" --target "$GITHUB_SHA" --title "Windows ${VERSION}" --generate-notes $([[ "$PRERELEASE" == true ]] && echo --prerelease)

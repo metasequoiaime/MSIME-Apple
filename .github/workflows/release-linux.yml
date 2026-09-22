@@ -1,0 +1,27 @@
+name: Release Linux
+on:
+  workflow_dispatch:
+    inputs:
+      version: {description: Semantic version (defaults to platforms/linux/version.txt), required: false, type: string}
+      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+permissions: {contents: write}
+concurrency: {group: release-linux, cancel-in-progress: false}
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      - name: Build Linux native hosts
+        run: bash platforms/linux/build-container.sh
+      - name: Package Linux release
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        run: tar -czf "msime-linux-${VERSION}.tar.gz" -C target/linux-build-gate cmake
+      - name: Publish independent Linux release
+        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        run: |
+          tag="linux-v${VERSION}"; gh release create "$tag" "msime-linux-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "Linux ${VERSION}" --generate-notes $([[ "$PRERELEASE" == true ]] && echo --prerelease)
