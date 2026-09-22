@@ -173,6 +173,7 @@ const
 
 var
   VersionDirName: String;
+  DataDirPage: TInputDirWizardPage;
   NetworkPage: TInputOptionWizardPage;
   CloudCandidatesIndex: Integer;
   UserConfigExistedBeforeInstall: Boolean;
@@ -328,12 +329,9 @@ begin
           'Software\Metasequoia\MetasequoiaIME',
           'DataDir',
           Recorded)) and (Trim(Recorded) <> '') then
-      PreviousDataDir := Trim(Recorded)
+      PreviousDataDir := RemoveBackslashUnlessRoot(Trim(Recorded))
     else
       PreviousDataDir := ExpandConstant('{localappdata}\metasequoiaime');
-    while (Length(PreviousDataDir) > 3) and
-      (PreviousDataDir[Length(PreviousDataDir)] = '\') do
-      Delete(PreviousDataDir, Length(PreviousDataDir), 1);
   end;
   Result := PreviousDataDir;
 end;
@@ -344,45 +342,65 @@ var
 begin
   if DataDirValue = '' then
   begin
+#ifdef LightPackage
+    { 轻量包不携带词库和静态资源，只能原地更新已有安装。}
+    Requested := ResolvePreviousDataDir;
+#else
     Requested := Trim(ExpandConstant('{param:DATADIR|}'));
     if Requested = '' then
-      RegQueryStringValue(HKLM, 'Software\Metasequoia\MetasequoiaIME',
-        'DataDir', Requested);
-    if Trim(Requested) = '' then
-      Requested := ExpandConstant('{localappdata}\metasequoiaime');
-    DataDirValue := Trim(Requested);
-    while (Length(DataDirValue) > 3) and
-      (DataDirValue[Length(DataDirValue)] = '\') do
-      Delete(DataDirValue, Length(DataDirValue), 1);
+      Requested := ResolvePreviousDataDir;
+#endif
+    DataDirValue := RemoveBackslashUnlessRoot(Trim(Requested));
   end;
   Result := DataDirValue;
 end;
 
-function DataDirIsSafe(const Directory: String): Boolean;
+#ifdef LightPackage
+function LightPackageDataDirRejectionReason: String;
 var
-  Root: String;
+  Requested: String;
 begin
-  Result := False;
-  if (Length(Directory) < 4) or (Directory[2] <> ':') or
-    (Directory[3] <> '\') then
-    Exit;
-  Root := Copy(Directory, 1, 3);
-  if not DirExists(Root) then
-    Exit;
-  if CompareText(Directory, Root) = 0 then
-    Exit;
-  if CompareText(Directory, ExpandConstant('{win}')) = 0 then
-    Exit;
-  if CompareText(Directory, ExpandConstant('{commonpf64}')) = 0 then
-    Exit;
-  if CompareText(Directory, ExpandConstant('{commonappdata}')) = 0 then
-    Exit;
-  if CompareText(Directory, ExpandConstant('{localappdata}')) = 0 then
-    Exit;
-  if Pos(LowerCase(AddBackslash(ExpandConstant('{commonpf64}\metasequoiaime'))),
-    LowerCase(AddBackslash(Directory))) = 1 then
-    Exit;
+  Result := '';
+  Requested := Trim(ExpandConstant('{param:DATADIR|}'));
+  if (Requested <> '') and
+    (CompareText(
+       RemoveBackslashUnlessRoot(Requested), ResolvePreviousDataDir) <> 0) then
+    Result :=
+      '轻量安装包不包含词库和静态资源，不能更换数据目录。' + #13#10 +
+      '请使用完整安装包迁移数据目录。';
+end;
+#endif
+
+function IsPathInside(const Child, Parent: String): Boolean;
+begin
+  Result :=
+    (CompareText(Child, Parent) = 0) or
+    (CompareText(
+       Copy(AddBackslash(Child), 1, Length(AddBackslash(Parent))),
+       AddBackslash(Parent)) = 0);
+end;
+
+function DirectoryIsEmpty(const Directory: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
   Result := True;
+  if not DirExists(Directory) then
+    Exit;
+  if FindFirst(AddBackslash(Directory) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          Result := False;
+          Exit;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
 end;
 
 function DataDirMarkerPath(const Directory: String): String;
@@ -410,6 +428,128 @@ begin
   SaveStringsToFile(DataDirMarkerPath(Directory), Lines, False);
 end;
 
+{ 返回空串表示目录可以安全交给输入法管理；否则返回面向用户的原因。
+  卸载会递归删除带所有权标记的数据目录，因此不仅要拒绝系统目录本身，还要拒绝
+  包含系统/用户关键目录的父级。未标记的非空目录也不能接管。}
+function DataDirRejectionReason(const Directory: String): String;
+var
+  Critical: array[0..6] of String;
+  Protected: array[0..3] of String;
+  Canonical: String;
+  Index: Integer;
+  ProbePath: String;
+  WithSlash: String;
+begin
+  Result := '';
+  if (Length(Directory) < 4) or (Directory[2] <> ':') or
+    (Directory[3] <> '\') then
+  begin
+    Result := '请填写本机磁盘上的完整路径，例如 D:\MetasequoiaIME。';
+    Exit;
+  end;
+  if not DirExists(Copy(Directory, 1, 3)) then
+  begin
+    Result := '找不到驱动器 ' + Copy(Directory, 1, 2) + '，请换一个位置。';
+    Exit;
+  end;
+  if CompareText(RemoveBackslashUnlessRoot(Directory), Copy(Directory, 1, 2)) = 0 then
+  begin
+    Result := '不能直接使用驱动器根目录，请指定一个子目录。';
+    Exit;
+  end;
+
+  Canonical := RemoveBackslashUnlessRoot(ExpandFileName(Directory));
+  if CompareText(Canonical, Directory) <> 0 then
+  begin
+    Result := '请使用规范路径，不要包含重复分隔符或路径别名。';
+    Exit;
+  end;
+
+  { 字符串安全检查必须在创建目录之前完成，防止用 .. 绕过下面的边界判断。}
+  WithSlash := AddBackslash(Directory);
+  if (Pos('\..\', WithSlash) > 0) or (Pos('\.\', WithSlash) > 0) or
+    (Pos('/', Directory) > 0) then
+  begin
+    Result := '数据目录不能包含 .、.. 或正斜杠路径段。';
+    Exit;
+  end;
+
+  Protected[0] := ExpandConstant('{win}');
+  Protected[1] := ExpandConstant('{commonpf64}');
+  Protected[2] := ExpandConstant('{commonpf32}');
+  Protected[3] := ExpandConstant('{commonappdata}');
+  for Index := 0 to 3 do
+  begin
+    if (Protected[Index] <> '') and IsPathInside(Directory, Protected[Index]) then
+    begin
+      Result := '数据目录不能放在系统或程序目录里面（' + Protected[Index] + '）。';
+      Exit;
+    end;
+  end;
+
+  Critical[0] := ExpandConstant('{win}');
+  Critical[1] := ExpandConstant('{commonpf64}');
+  Critical[2] := ExpandConstant('{commonpf32}');
+  Critical[3] := ExpandConstant('{localappdata}');
+  Critical[4] := ExpandConstant('{userappdata}');
+  Critical[5] := ExpandConstant('{%USERPROFILE|}');
+  Critical[6] := ExpandConstant('{commonappdata}');
+  for Index := 0 to 6 do
+  begin
+    if (Critical[Index] <> '') and IsPathInside(Critical[Index], Directory) then
+    begin
+      Result :=
+        '这个目录包含了系统或用户的重要目录（' + Critical[Index] + '），' +
+        '卸载时可能连它一起删除。请另选一个专用目录。';
+      Exit;
+    end;
+  end;
+
+  if not ForceDirectories(Directory) then
+  begin
+    Result := '无法创建目录 ' + Directory + '，请检查权限或换一个位置。';
+    Exit;
+  end;
+  if (not DirectoryIsEmpty(Directory)) and (not OwnsDataDir(Directory)) then
+  begin
+    Result := '请选择一个空目录；这个目录已有文件且不属于水杉输入法。';
+    Exit;
+  end;
+  { 不覆盖用户恰好已有的同名文件；从空闲名称中选一个写入再删除。}
+  ProbePath := '';
+  for Index := 0 to 999 do
+  begin
+    Canonical :=
+      AddBackslash(Directory) + 'msime-write-probe-' + IntToStr(Index) + '.tmp';
+    if (not FileExists(Canonical)) and (not DirExists(Canonical)) then
+    begin
+      ProbePath := Canonical;
+      Break;
+    end;
+  end;
+  if ProbePath = '' then
+  begin
+    Result := '无法在目录 ' + Directory + ' 中创建写入探针，请换一个位置。';
+    Exit;
+  end;
+  if not SaveStringToFile(ProbePath, 'probe', False) then
+  begin
+    Result := '目录 ' + Directory + ' 不可写，请换一个位置。';
+    Exit;
+  end;
+  if not DeleteFile(ProbePath) then
+    Result := '无法清理目录 ' + Directory + ' 中的写入探针，请换一个位置。';
+end;
+
+procedure DataDirBrowseClick(Sender: TObject);
+var
+  Chosen: String;
+begin
+  Chosen := Trim(DataDirPage.Values[0]);
+  if BrowseForFolder('请选择输入法数据的存放位置：', Chosen, True) then
+    DataDirPage.Values[0] := Chosen;
+end;
+
 { 云候选是唯一一个装完就会联网的功能：输入过程中把当前拼写发给 Google 的 input-tools 服务。
   出厂默认开启，而安装器此前没有任何一屏提到过它，用户要读文档才会知道。这一页把它摆到安装
   过程里，选择写进首次生成的 config.toml。
@@ -418,9 +558,22 @@ end;
 procedure InitializeWizard;
 begin
 #ifndef LightPackage
+  { 程序本体保留在 Program Files 以满足 uiAccess；可移动的是词库、配置和皮肤。}
+  DataDirPage := CreateInputDirPage(
+    wpLicense,
+    '选择数据位置',
+    '输入法数据存放在哪里',
+    '请选择输入法数据（词库、配置、皮肤）的专用空目录。',
+    True,
+    'metasequoiaime'
+  );
+  DataDirPage.Add('');
+  DataDirPage.Values[0] := GetDataDir('');
+  DataDirPage.Buttons[0].OnClick := @DataDirBrowseClick;
+
   UserConfigExistedBeforeInstall := FileExists(UserConfigPath);
   NetworkPage := CreateInputOptionPage(
-    wpLicense,
+    DataDirPage.ID,
     '联网功能',
     '选择安装后哪些功能可以联网',
     '拼音切分、候选排序和词频学习全部在本机完成，不联网。' + #13#10 +
@@ -501,10 +654,43 @@ begin
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Chosen: String;
+  Reason: String;
 begin
   Result := True;
+
+  if (DataDirPage <> nil) and (CurPageID = DataDirPage.ID) then
+  begin
+    Chosen := RemoveBackslashUnlessRoot(Trim(DataDirPage.Values[0]));
+    Reason := DataDirRejectionReason(Chosen);
+    if Reason <> '' then
+    begin
+      MsgBox(Reason, mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    DataDirValue := Chosen;
+#ifndef LightPackage
+    { 网络选择页只应在所选目录尚无用户配置时出现。}
+    UserConfigExistedBeforeInstall := FileExists(UserConfigPath);
+#endif
+    Exit;
+  end;
+
   if (CurPageID = wpFinished) and (not WizardSilent) then
     LaunchInstalledComponents;
+end;
+
+function UpdateReadyMemo(
+  Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,
+  MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+begin
+  Result := MemoDirInfo + NewLine + NewLine +
+    '数据目录（词库、用户配置、皮肤）：' + NewLine + Space + GetDataDir('');
+  if CompareText(GetDataDir(''), ResolvePreviousDataDir) <> 0 then
+    Result := Result + NewLine + NewLine +
+      '现有数据将从这里迁移：' + NewLine + Space + ResolvePreviousDataDir;
 end;
 
 function GetVersionDir(Param: String): String;
@@ -893,15 +1079,33 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   MigrationError: String;
+  DataDirError: String;
 #ifndef LightPackage
   FailedPath: String;
 #endif
 begin
   { 先锁定本次目录名，再清理能够释放的旧版本 DLL。}
   VersionDirName := GetVersionDir('');
-  if not DataDirIsSafe(GetDataDir('')) then
+#ifdef LightPackage
+  DataDirError := LightPackageDataDirRejectionReason;
+  if DataDirError <> '' then
   begin
-    Result := '数据目录必须是本机磁盘上的安全子目录，且不能位于系统目录或程序目录内。';
+    Result := DataDirError;
+    exit;
+  end;
+#endif
+  DataDirError := DataDirRejectionReason(GetDataDir(''));
+  if DataDirError <> '' then
+  begin
+    Result := DataDirError;
+    exit;
+  end;
+  { 在复制旧数据之前取得这个空目录的所有权。否则复制或后续安装失败会留下一个
+    非空、无标记的半成品，下一次重试会按安全规则拒绝继续。}
+  WriteDataDirMarker(GetDataDir(''));
+  if not OwnsDataDir(GetDataDir('')) then
+  begin
+    Result := '无法写入数据目录所有权标记，请检查目录权限后重试。';
     exit;
   end;
   StopProcess('{#MyWatchdogName}');

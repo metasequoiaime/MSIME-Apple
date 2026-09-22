@@ -66,7 +66,7 @@
 | 悬浮工具栏、托盘菜单、入口快捷键 | 来源 `window/*presenter*`、`ui-html/webview2/ftb` / `menu` | `FloatingToolbarWindow.cpp`、`TrayMenuWindow.cpp`、`MaintenanceHotkey.cpp`、`ShellSurfaces.h` / `ShellLauncher.cpp` | 有调用链；设置/手写/键盘/语音/云剪贴板/云词库等启动共享 Tauri，低延迟不抢焦点宿主保留原生。macOS 与 Tauri 预览现消费 `floating_toolbar.english_mode` 及其余组件开关，原生共享偏好合并也保留该字段并按可见组件重算宽度；菜单项与禁用条件已逐项比对（第四十三批）：动作一一对应且目标多出手写识别板；工具栏组件与来源 README 所列六项一一对应；禁用语义是进程边界带来的有意差异，已记录。 |
 | 皮肤、主题、字体、外观预览 | 来源 `appearance.ts` / `skin.ts`、`candwnd/skins` | 共享 `packages/ui/src/upstream/`、`skin/catalog.rs`、`CandidateSkin.h`、`CandidateWindow.cpp` | Windows 已消费候选字体/回退字体、主题颜色、横竖排布局和阴影字段；`candidate_font_reload`、`candidate_palette` 与 shadow 回归覆盖非法值回退。仍需逐主题运行时截图、外部资源和字体回退逐项比较。 |
 | 更新、关于、帮助、反馈、重启 | 来源 `about-settings.ts` / `feedback-settings.ts` / `update-manifest.ts`，`restartServer` | 共享 `update-manifest.ts` / `index.tsx`，Tauri `open_external_url` / `restart_input_method` | Windows 重启使用固定 UTF-16LE `RestartServer` Aux payload 并有回归覆盖；更新 manifest/release 链接要求干净 HTTPS，外链 opener 拒绝无主机与 shell 字符。安装包信任、来源、失败反馈及原生安装仍待逐项对照。 |
-| 服务守护、安装、升级、卸载、资源打包 | 来源 README 服务守护、`installer/`、构建脚本 | `platforms/windows/installer/`、`tests/runner_regression.ps1`、TSF 注册代码 | 安装入口已限制为文件名安全的数字版本并保留现有包清单/用户数据保护回归；仍待 Windows PowerShell、TSF 注册、重启恢复、升级保留数据和卸载清理的产品级验证。 |
+| 服务守护、安装、升级、卸载、资源打包 | 来源 README 服务守护、`installer/`、构建脚本 | `platforms/windows/installer/`、`tests/runner_regression.ps1`、TSF 注册代码 | 安装入口已限制为文件名安全的数字版本并保留现有包清单/用户数据保护回归；完整安装器现提供可见的数据目录选择页，拒绝系统/用户关键目录的父级、受保护目录内部、路径穿越及未标记的非空目录，并在就绪页展示迁移源与目标；light 包固定原目录。仍待 Windows PowerShell、TSF 注册、重启恢复、升级保留数据和卸载清理的产品级验证。 |
 
 共享账号、社区、统计、云词库等已有成果继续保留；不能用它们抵消上表来源功能缺口。是否属于固定 Windows 基线及字段级等价，须另外找来源运行时证据，不能只根据目标页面名称推断。
 
@@ -2353,3 +2353,11 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 现在由共享协议负责截断和分帧，Windows ReplyCodec 只拒绝零 generation、NUL 文本和非法消息类型。回归覆盖单帧中文/Emoji、多帧重组、恰好 `kMaxChunkChars` 的边界、超限快照截断，以及上述非法输入；测试从实际 404-byte worker frame 反解并核对顺序、generation 和 first/last 标记。
 
 `bash platforms/windows/build-cross.sh x64` 已成功完成 Windows x64 GNU host/TSF DLL、Server 和原生测试目标的交叉构建，`git diff --check` 通过。Wine 执行级验证因 Docker daemon 未运行而跳过；因此本批有交叉链接和静态回归证据，但没有 Windows/Wine 运行时验收证据。
+
+### 安装器数据目录选择与删除边界（2026-09-22）
+
+此前六道 reference 门禁只盘点来源 `windows/`、`server/` 与 `ui/src`，没有覆盖 `installer/`。沿固定来源 `345cb87a` 对照安装器时确认两处真实缺口：来源有可见的数据目录选择页，目标只有隐藏的 `/DATADIR` 参数；目标的 `DataDirIsSafe` 又只拒绝与少数系统目录完全相等的路径，像 `C:\Users` 这种包含用户关键目录的父级仍会通过。安装结束后目标会写入所有权标记，卸载则递归删除带标记目录，因此这不是界面差异，而是可达的数据删除边界。
+
+目标安装器现在把程序本体继续留在 Program Files（满足 `uiAccess`），在完整安装包向导中单独选择词库、配置和皮肤目录；浏览器允许当场新建文件夹，联网选择页排在目录选择之后，就绪页同时显示迁移源与目标。交互与静默 `/DATADIR` 共用同一个判据：仅接受本机盘符下的专用目录，拒绝盘符根、`.` / `..` 绕过、系统与程序目录内部、包含 Windows / Program Files / AppData / 用户目录的父级，以及未带本产品所有权标记的非空目录；创建后还实际写入并删除探针确认可写。light 包不携带词库和静态资源，因此隐藏选择页、固定使用已登记目录，并明确拒绝改变目录的 `/DATADIR`，避免迁移出一个缺资源的数据根。这里刻意比来源更严格：来源允许接管非空目录，却会在随后写标记并于卸载时整棵删除，和它自己的“不会动原有内容”提示矛盾；本仓按数据安全要求拒绝接管。
+
+`windows-installer-launch` 现在直接读取出货的 `msime_setup.iss`，钉住选择页、前后级关系、双向关键目录边界、路径穿越、非空目录所有权、写探针、静默参数复用验证和就绪页披露；本地宿主编译执行通过。安装器 staging 与本地签名证书也恢复来源的目录级 `.gitignore`，避免数百 MiB 产物或机器私钥从短期 worktree 进入提交。尚未在真实 Windows 上编译 Inno 安装包或执行安装/迁移/卸载，因此不越级声称产品级验收。
