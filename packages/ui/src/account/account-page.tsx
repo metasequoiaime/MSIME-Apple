@@ -635,6 +635,7 @@ export function AccountPage({
   client,
   appIcon,
   platform,
+  mobile,
   onCancelLogin,
   onLoginComplete,
   onOpenPublishedSkins,
@@ -649,6 +650,8 @@ export function AccountPage({
   client?: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios" | "harmony";
+  /** Host form factor, when a platform such as HarmonyOS has both touch and desktop hosts. */
+  mobile?: boolean;
   onCancelLogin?: () => void;
   onLoginComplete?: () => void;
   onOpenPublishedSkins?: () => void;
@@ -678,6 +681,7 @@ export function AccountPage({
       client={client}
       appIcon={resolvedAppIcon}
       platform={platform}
+      mobile={mobile}
       onCancelLogin={onCancelLogin}
       onLoginComplete={onLoginComplete}
       onOpenPublishedSkins={onOpenPublishedSkins}
@@ -696,6 +700,7 @@ function AccountDetailsPage({
   client,
   appIcon,
   platform,
+  mobile: mobileOverride,
   onCancelLogin,
   onLoginComplete,
   onOpenPublishedSkins,
@@ -710,6 +715,7 @@ function AccountDetailsPage({
   client: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios" | "harmony";
+  mobile?: boolean;
   onCancelLogin?: () => void;
   onLoginComplete?: () => void;
   onOpenPublishedSkins?: () => void;
@@ -721,7 +727,8 @@ function AccountDetailsPage({
   onOpenDesktopDownload?: () => void;
   onReplayOnboarding?: () => void;
 }) {
-  const mobile = platform === "android" || platform === "ios" || platform === "harmony";
+  const mobile =
+    mobileOverride ?? (platform === "android" || platform === "ios" || platform === "harmony");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
