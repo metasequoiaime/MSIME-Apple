@@ -2464,6 +2464,38 @@ static void TestRealSessionComposition() {
     assert(client.insertions.count == 0);
 
     assert([session closeWithError:&error] && !error);
+
+    // The reference reserves the physical ANSI minus key for Japanese: it must pass through this
+    // controller into the real Engine and become the long-vowel mark, even when minus/equal paging
+    // is enabled by default.  The helper-only paging tests cannot prove the last half of that path.
+    NSMutableDictionary *japaneseOptions = [options mutableCopy];
+    NSMutableDictionary *japanesePreferences = [options[@"preferences"] mutableCopy];
+    japanesePreferences[@"scheme"] = @"japanese";
+    japaneseOptions[@"preferences"] = japanesePreferences;
+    MSIMEClientSession *japaneseSession = [[MSIMEClientSession alloc] initWithOptions:japaneseOptions error:&error];
+    assert(japaneseSession && !error);
+    NSDictionary *japaneseView = [japaneseSession setFocused:YES error:&error];
+    assert(japaneseView && !error);
+    [controller setValue:japaneseSession forKey:@"session"];
+    [controller setValue:japaneseView forKey:@"view"];
+    [client.insertions removeAllObjects];
+
+    assert([controller handleEvent:KeypadKey(27, @"-", 0, NO) client:client]);
+    assert([client.marked isEqual:@"ー"]);
+    assert([controller handleEvent:enter client:client]);
+    assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"ー"]);
+    assert(client.marked.length == 0);
+
+    // A preceding bare n must settle to ん before the same key contributes ー. This is the converter
+    // edge in the source change, exercised here through the product host instead of against the converter.
+    [client.insertions removeAllObjects];
+    assert([controller handleEvent:KeypadKey(45, @"n", 0, NO) client:client]);
+    assert([controller handleEvent:KeypadKey(27, @"-", 0, NO) client:client]);
+    assert([client.marked isEqual:@"んー"]);
+    assert([controller handleEvent:enter client:client]);
+    assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"んー"]);
+    assert([japaneseSession closeWithError:&error] && !error);
+
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
 }
