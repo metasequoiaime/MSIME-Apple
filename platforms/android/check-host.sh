@@ -119,6 +119,16 @@ if ! rg -q 'CandidateNavigationPolicy\.commandFor' \
   echo "Android candidate paging must route through CandidateNavigationPolicy" >&2
   exit 1
 fi
+# 「候选栏预编辑」 governs the spelling only. The chosen part of a phrase is held out of the
+# document at this host's request, so it must keep being drawn whatever the setting says - that is
+# the same half-state scripts/test-phrase-preedit-hosts.py guards from the other side.
+if ! rg -q 'CandidatePreeditStylePolicy\.composedText' \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+  || rg -q 'CandidatePreeditStylePolicy[^;]*phrase_prefix' \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+  echo "Android candidate preedit style must gate the spelling, never the phrase prefix" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
@@ -251,6 +261,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/WordCharacterPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/CandidateNavigationPolicySmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateTextPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/CandidatePreeditStylePolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" PhrasePreeditSmoke
@@ -319,6 +330,7 @@ java -cp "$output_dir" NumberRowSelectionPolicySmoke
 java -cp "$output_dir" WordCharacterPolicySmoke
 java -cp "$output_dir" CandidateNavigationPolicySmoke
 java -cp "$output_dir" CandidateTextPolicySmoke
+java -cp "$output_dir" CandidatePreeditStylePolicySmoke
 java -cp "$output_dir" SymbolPanelModelSmoke
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
