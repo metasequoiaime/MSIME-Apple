@@ -133,6 +133,9 @@ struct InputSettingsView: View {
           NavigationLink(destination: PunctuationSettingsView()) {
             Label("标点", systemImage: "textformat.abc.dottedunderline")
           }.accessibilityIdentifier("punctuationSettingsLink")
+          NavigationLink(destination: CandidateOptionsSettingsView()) {
+            Label("候选与纠错", systemImage: "text.badge.checkmark")
+          }.accessibilityIdentifier("candidateOptionsSettingsLink")
         }
 
         Section {

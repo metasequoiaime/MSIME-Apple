@@ -246,25 +246,27 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         self.options["preferences"] = Self.hostOverrides(applyingTo: preferences)
         self.revision = max(self.revision, revision.uint64Value)
         self.documentRevision = revision.uint64Value
-        self.applyPunctuationRules(from: preferences, over: applied)
+        self.applyAppEditedPreferences(from: preferences, over: applied)
         completion(true)
       }
     }
   }
 
-  /// The punctuation switches the settings app edits.
+  /// The fields the settings app edits on its punctuation and candidate pages.
   ///
-  /// Unlike the scheme, they are read on every keystroke rather than when the session is built, so a change made in the settings app has to reach the live session: the keyboard extension process outlives many appearances, and waiting for its next session meant a switch the user had just turned off kept working.
-  private static let punctuationRuleKeys = [
+  /// Unlike the scheme, the session applies them as soon as it is idle rather than when it is built, so a change made in the settings app has to reach the live session: the keyboard extension process outlives many appearances, and waiting for its next session meant a switch the user had just turned off kept working.
+  private static let appEditedKeys = [
     "smart_punctuation", "smart_punctuation_repeat", "smart_punctuation_space_convert",
     "smart_punctuation_direct_digit", "smart_punctuation_direct_letter",
     "paired_punctuation", "punctuation_lock",
+    // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
+    "quanpin", "mixed_input",
   ]
 
-  /// Hand the reloaded punctuation switches to the session, leaving every other field as the session has it. The session queues the change behind an open composition, so this never interrupts typing.
-  private func applyPunctuationRules(from reloaded: [String: Any], over applied: [String: Any]) {
+  /// Hand the reloaded app-edited fields to the session, leaving every other field as the session has it. The session queues the change behind an open composition, so this never interrupts typing.
+  private func applyAppEditedPreferences(from reloaded: [String: Any], over applied: [String: Any]) {
     var next = applied
-    for key in Self.punctuationRuleKeys { next[key] = reloaded[key] }
+    for key in Self.appEditedKeys { next[key] = reloaded[key] }
     guard handle != 0, !NSDictionary(dictionary: next).isEqual(to: applied) else { return }
     revision &+= 1
     let snapshot: [String: Any] = ["format_version": 1, "revision": revision, "preferences": next]
