@@ -1,6 +1,6 @@
 # 水杉输入法
 
-水杉输入法共享客户端，渐进迁移中的新工程。React 管理界面通过 Tauri 调用普通 Rust 业务库；原生输入法宿主接入共享输入运行时；输入算法继续由 MSIME-Engine 提供。
+水杉输入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 与 HarmonyOS 的多平台中文输入法。React 管理界面通过 Tauri 调用普通 Rust 业务库；各平台原生输入法宿主接入共享输入运行时；输入算法继续由 MSIME-Engine 提供。
 
 > **关于名称**：MSIME 是 Metasequoia IME（水杉输入法）的缩写，与 Microsoft IME 无关，也与微软没有任何关联。代码、包名和仓库名中的 `msime` 一律是这个含义。设置中的 `shuangpin_profile: microsoft` 是「微软双拼」方案，与小鹤、自然码、首道并列的四个键位方案之一，供习惯该键位的用户选择，同样不代表任何关联。
 
@@ -30,6 +30,12 @@
 | [HarmonyOS](platforms/harmony/README.md) | `platforms/harmony/` | ArkTS 逻辑测试和 OpenHarmony NDK 构建入口 | DevEco/HAP 设备运行和系统输入验收 |
 
 共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。Android、iOS、HarmonyOS、Linux、macOS 与 Windows 一致：产品形态是 `platforms/<os>` 的原生宿主，Tauri 只提供跨平台共享的功能与界面，不单独作为产品启动。跨进程设置变更需要明确的持久化与通知机制。
+
+## CI 与发布
+
+`develop` 上的基础检查由 `Core CI` 负责，包含 workflow 校验、依赖审查和仓库契约；iOS 与 macOS 编译测试由各自的原生宿主 workflow 负责。Linux、Windows、Android 和 HarmonyOS 的专用 SDK、交叉工具链或设备依赖缺失时，workflow 会明确跳过对应阶段，不把静态检查冒充设备验收。
+
+六个平台的发布完全独立：每个平台有自己的手动 release workflow、版本文件、并发组、构建产物和 GitHub Release tag。版本文件分别位于 `platforms/android/version.txt`、`platforms/ios/version.txt`、`platforms/macos/version.txt`、`platforms/linux/version.txt`、`platforms/windows/version.txt` 和 `platforms/harmony/version.txt`；tag 使用 `android-vX.Y.Z`、`ios-vX.Y.Z`、`macos-vX.Y.Z`、`linux-vX.Y.Z`、`windows-vX.Y.Z` 和 `harmony-vX.Y.Z`。发布 workflow 只创建 GitHub Release，不自动上传应用商店或使用签名凭据。
 
 ## 开发
 
