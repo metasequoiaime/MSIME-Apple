@@ -152,7 +152,7 @@ jobs:
         run: xcrun swiftc -typecheck platforms/macos/scripts/register_input_source.swift
       - name: Configure
         if: ${{ needs.changes.outputs.build == 'true' }}
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
+        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
       - name: Build
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: cmake --build build --parallel
@@ -207,7 +207,7 @@ jobs:
           if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime.db"; else touch "$RUNNER_TEMP/dictionary/msime.db"; fi
       - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
         run: >
-          cmake -S . -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
+          cmake -S platforms/macos -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_PREFIX_PATH="$(brew --prefix)"
           -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime.db"
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
