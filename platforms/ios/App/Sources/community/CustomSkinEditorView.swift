@@ -158,19 +158,23 @@ struct CustomSkinEditorView: View {
   private var soundControls: some View {
     Section {
       Toggle("按键音", isOn: $soundEnabled).accessibilityIdentifier("skinEditorSound")
-      Toggle("按键振动", isOn: $hapticsEnabled).accessibilityIdentifier("skinEditorHaptics")
-      Picker("振动强度", selection: $hapticStrength) {
-        ForEach(KeyboardHapticStrength.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
-      }.disabled(!hapticsEnabled)
-      Button("试一下振动") {
-        if hapticsEnabled {
-          let strength = KeyboardHapticStrength(rawValue: hapticStrength) ?? .medium
-          feedback = UIImpactFeedbackGenerator(style: strength.style)
-          feedback?.prepare(); feedback?.impactOccurred(intensity: strength.intensity)
-        }
-      }.disabled(!hapticsEnabled)
+      if KeyboardFeedbackPreference.hapticsAvailable {
+        Toggle("按键振动", isOn: $hapticsEnabled).accessibilityIdentifier("skinEditorHaptics")
+        Picker("振动强度", selection: $hapticStrength) {
+          ForEach(KeyboardHapticStrength.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+        }.disabled(!hapticsEnabled)
+        Button("试一下振动") {
+          if hapticsEnabled {
+            let strength = KeyboardHapticStrength(rawValue: hapticStrength) ?? .medium
+            feedback = UIImpactFeedbackGenerator(style: strength.style)
+            feedback?.prepare(); feedback?.impactOccurred(intensity: strength.intensity)
+          }
+        }.disabled(!hapticsEnabled)
+      }
     } header: { Text("打字反馈") } footer: {
-      Text("音效与振动是所有皮肤共用的键盘设置。按键音受系统静音状态影响，振动需在支持的真机上体验。")
+      Text(KeyboardFeedbackPreference.hapticsAvailable
+        ? "音效与振动是所有皮肤共用的键盘设置。按键音受系统静音状态影响，振动需在支持的真机上体验。"
+        : "按键音是所有皮肤共用的键盘设置，受系统静音状态影响。")
     }
   }
 

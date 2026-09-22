@@ -23,6 +23,9 @@ enum KeyboardFeedbackPreference {
     defaults.object(forKey: soundKey) as? Bool ?? true
   }
 
+  /// Only iPhones have the Taptic Engine keyboard feedback drives. Elsewhere the vibration controls are hidden, but the stored value is left alone: settings sync still carries it to the user's phone.
+  static var hapticsAvailable: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+
   static var hapticsEnabled: Bool {
     defaults.bool(forKey: hapticsKey)
   }
