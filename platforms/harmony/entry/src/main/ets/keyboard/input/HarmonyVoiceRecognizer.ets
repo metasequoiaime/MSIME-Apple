@@ -4,6 +4,7 @@ import { HarmonyDoubaoRecognizer } from './HarmonyDoubaoRecognizer';
 import { HarmonyHttpAsrRecognizer } from './HarmonyHttpAsrRecognizer';
 import { HarmonyVoicePolisher } from './HarmonyVoicePolisher';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
+import { HttpAsrConfigurationPolicy } from './HttpAsrConfigurationPolicy';
 
 export type VoiceResultHandler = (text: string, final: boolean) => void;
 export type VoiceErrorHandler = (message: string) => void;
@@ -30,8 +31,7 @@ export class HarmonyVoiceRecognizer {
     onError: VoiceErrorHandler): Promise<void> {
     const doubaoProvider: boolean = config.asr_provider === 'doubao'
       && config.asr_token.trim().length > 0;
-    const httpProvider: boolean = config.asr_provider === 'openai'
-      || config.asr_provider === 'siliconflow' || config.asr_provider === 'groq';
+    const httpProvider: boolean = HttpAsrConfigurationPolicy.supported(config.asr_provider);
     if (doubaoProvider && this.doubao.isActive()) throw new Error('豆包语音识别正在进行');
     if (httpProvider && this.httpAsr.isActive()) throw new Error('语音识别正在进行');
     if (config.asr_provider !== 'doubao' && !httpProvider && config.asr_provider !== 'system'

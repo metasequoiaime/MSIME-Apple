@@ -4,8 +4,11 @@
 
 use super::*;
 use std::collections::HashMap;
+use std::io::Read;
 use std::net::TcpListener;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 fn token(byte: u8) -> String {
@@ -447,6 +450,38 @@ fn account_preferences_validate_and_merge_preserves_other_platforms() {
 }
 
 #[test]
+fn account_preferences_keep_photo_sized_strings_within_the_negotiated_limit() {
+    let photo = "A".repeat(4 * 512_000_usize.div_ceil(3));
+    let design = format!(r#"{{"photo":"{photo}"}}"#);
+    let key = "platform.harmony.custom_keyboard_skin";
+    let base = AccountPreferences {
+        revision: 1,
+        settings: BTreeMap::new(),
+    };
+    let mut schema = AccountPreferenceSchema {
+        fields: BTreeMap::from([(
+            key.into(),
+            AccountPreferenceField {
+                value_type: "string".into(),
+            },
+        )]),
+        maximum_bytes: MAX_JSON_BYTES,
+        update_mode: "replace".into(),
+        revision_required: true,
+    };
+    let replacing = BTreeMap::from([(key.into(), AccountPreferenceValue::String(design.clone()))]);
+
+    let merged = merge_account_preferences(&base, &replacing, &schema).unwrap();
+    assert_eq!(merged.settings[key], AccountPreferenceValue::String(design));
+
+    schema.maximum_bytes = 65_536;
+    assert_eq!(
+        merge_account_preferences(&base, &replacing, &schema),
+        Err(AccountError::Invalid)
+    );
+}
+
+#[test]
 fn account_preferences_refresh_after_unauthorized_and_preserve_revision_conflicts() {
     let storage = MemoryStorage::default();
     installed(&storage, u64::MAX);
@@ -556,6 +591,44 @@ fn serve_once(response: Vec<u8>) -> String {
     format!("http://{address}")
 }
 
+fn serve_once_and_capture(response: Vec<u8>) -> (String, Receiver<Vec<u8>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        let expected_bytes = loop {
+            let read = stream.read(&mut buffer).unwrap();
+            assert_ne!(read, 0, "request ended before its headers");
+            request.extend_from_slice(&buffer[..read]);
+            let Some(header_end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") else {
+                continue;
+            };
+            let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    line.strip_prefix("content-length: ")
+                        .or_else(|| line.strip_prefix("Content-Length: "))
+                })
+                .unwrap()
+                .parse::<usize>()
+                .unwrap();
+            break header_end + 4 + content_length;
+        };
+        while request.len() < expected_bytes {
+            let read = stream.read(&mut buffer).unwrap();
+            assert_ne!(read, 0, "request ended before its body");
+            request.extend_from_slice(&buffer[..read]);
+        }
+        sender.send(request).unwrap();
+        std::io::Write::write_all(&mut stream, &response).unwrap();
+    });
+    (format!("http://{address}"), receiver)
+}
+
 #[test]
 fn transport_rejects_redirects() {
     let origin = serve_once(
@@ -609,6 +682,110 @@ fn restores_dictionary_snapshot_only_after_a_new_cloud_revision() {
     let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
     assert_eq!(
         client.restore_dictionary_snapshot(b"snapshot", 7, &token(b'a')),
+        Err(AccountError::Unavailable)
+    );
+}
+
+#[test]
+fn streams_dictionary_snapshot_file_with_exact_body_and_media_type() {
+    let body = serde_json::json!({ "revision": 8, "reset": true }).to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let (origin, request) = serve_once_and_capture(response.into_bytes());
+    let directory = tempfile::tempdir().unwrap();
+    let snapshot = directory.path().join("fixture.ndjson");
+    let contents = b"{\"type\":\"header\"}\n{\"type\":\"footer\"}\n";
+    std::fs::write(&snapshot, contents).unwrap();
+
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    assert_eq!(
+        client
+            .restore_dictionary_snapshot_file(&snapshot, 7, &token(b'a'))
+            .unwrap(),
+        AccountDictionarySnapshotRestore {
+            revision: 8,
+            reset: true,
+        }
+    );
+
+    let request = request.recv().unwrap();
+    let header_end = request
+        .windows(4)
+        .position(|bytes| bytes == b"\r\n\r\n")
+        .unwrap();
+    let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+    assert!(headers.starts_with("PUT /v1/users/me/dictionary/snapshot?revision=7 HTTP/1.1\r\n"));
+    assert!(headers.contains("content-type: application/x-ndjson\r\n"));
+    assert!(headers.contains(&format!("content-length: {}\r\n", contents.len())));
+    assert_eq!(&request[header_end + 4..], contents);
+}
+
+#[test]
+fn dictionary_snapshot_file_restore_validates_file_and_revision_bounds() {
+    let directory = tempfile::tempdir().unwrap();
+    let empty = directory.path().join("empty.ndjson");
+    std::fs::write(&empty, []).unwrap();
+    let oversized = directory.path().join("oversized.ndjson");
+    std::fs::File::create(&oversized)
+        .unwrap()
+        .set_len(MAX_DICTIONARY_SNAPSHOT_BYTES as u64 + 1)
+        .unwrap();
+    let client = BackendAccountClient::loopback("http://127.0.0.1:9").unwrap();
+
+    for path in [
+        Path::new("relative.ndjson"),
+        empty.as_path(),
+        oversized.as_path(),
+    ] {
+        assert_eq!(
+            client.restore_dictionary_snapshot_file(path, 7, &token(b'a')),
+            Err(AccountError::Invalid)
+        );
+    }
+    assert_eq!(
+        client.restore_dictionary_snapshot_file(&empty, -1, &token(b'a')),
+        Err(AccountError::Invalid)
+    );
+    assert_eq!(
+        client.restore_dictionary_snapshot_file(&empty, 7, "short"),
+        Err(AccountError::Invalid)
+    );
+}
+
+#[test]
+fn dictionary_snapshot_file_restore_rejects_nonadvancing_response() {
+    let body = serde_json::json!({ "revision": 7, "reset": true }).to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let snapshot = directory.path().join("fixture.ndjson");
+    std::fs::write(&snapshot, b"fixture\n").unwrap();
+    let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+
+    assert_eq!(
+        client.restore_dictionary_snapshot_file(&snapshot, 7, &token(b'a')),
+        Err(AccountError::Unavailable)
+    );
+}
+
+#[test]
+fn dictionary_snapshot_restore_requires_json_response_media_type() {
+    let body = serde_json::json!({ "revision": 8, "reset": true }).to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+
+    assert_eq!(
+        client.restore_dictionary_snapshot(b"fixture\n", 7, &token(b'a')),
         Err(AccountError::Unavailable)
     );
 }

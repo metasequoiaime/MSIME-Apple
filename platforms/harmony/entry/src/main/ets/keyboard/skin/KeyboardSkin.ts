@@ -62,6 +62,7 @@ export class KeyboardSkin {
   readonly gradientHorizontal: boolean;
   readonly patternOpacity: number;
   readonly photo: Uint8Array | null;
+  readonly photoSource: string | null;
   readonly photoShade: number;
   readonly photoPosition: number;
   private readonly designKey: string;
@@ -117,6 +118,7 @@ export class KeyboardSkin {
       this.gradientHorizontal = false;
       this.patternOpacity = 0.15;
       this.photo = null;
+      this.photoSource = null;
       this.photoShade = 0.25;
       this.photoPosition = 0.5;
       this.designKey = "";
@@ -130,6 +132,7 @@ export class KeyboardSkin {
       this.gradientHorizontal = design.gradientHorizontal();
       this.patternOpacity = design.patternOpacity();
       this.photo = design.photo();
+      this.photoSource = design.photoSource();
       this.photoShade = design.photoShade();
       this.photoPosition = design.photoPosition();
       this.designKey = design.key();
@@ -458,6 +461,31 @@ export class KeyboardSkin {
   /** A wash of the accent, for marking a selected card without hiding what is printed on it. */
   tintedAccent(value: number): string {
     return alpha(this.accent, value);
+  }
+
+  patternColor(): string { return alpha(this.accent, this.patternOpacity); }
+  photoShadeColor(): string { return alpha('#000000', this.photoShade); }
+  shadowColor(): string { return alpha('#000000', this.shadowOpacity); }
+  keySurfaceBackground(emphasized: boolean): string {
+    return emphasized ? this.actionBackground : alpha(this.keyBackground, this.keyOpacity);
+  }
+  keyCornerRadius(): number {
+    if (this.keyShape === 'capsule') return 999;
+    if (this.keyShape === 'ticket') return Math.min(3, this.cornerRadius);
+    if (this.keyShape === 'pebble') return Math.max(12, this.cornerRadius);
+    return this.cornerRadius;
+  }
+  materialTop(): string {
+    if (this.keyMaterial === 'glass') return '#3DFFFFFF';
+    if (this.keyMaterial === 'raised') return '#21FFFFFF';
+    if (this.keyMaterial === 'paper') return '#0AFFFFFF';
+    return '#00FFFFFF';
+  }
+  materialBottom(): string {
+    if (this.keyMaterial === 'glass') return '#08000000';
+    if (this.keyMaterial === 'raised') return '#1A000000';
+    if (this.keyMaterial === 'paper') return '#0F000000';
+    return '#00000000';
   }
 
   /** Identity for caching a rendered skin, including the custom design it was built from. */

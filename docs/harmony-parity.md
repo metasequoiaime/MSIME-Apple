@@ -10,10 +10,10 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 目标是迁移 MSIME-Apple 的完整功能，而不是只移植能编译的子集。公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态仍归 C++ Engine；平台特性按 HarmonyOS 自身的机制适配，不照搬来源的实现形态。每部分本地验证后提交合并。
 
-2026-09-21 本轮对照使用以下不可变对象：
+2026-09-22 延续审计使用以下不可变对象：
 
-- 来源：`metasequoiaime/MSIME-Apple`，本机检出 `58608929fa7f39b9aaed93b9ed3ed706212821c0`。`git status --porcelain -- platforms shared` 只有四个未跟踪的 `bigram.bin` / `trigram.bin` 构建产物，未读取未提交内容。
-- 目标：`metasequoiaime/msime` 的 `develop`，固定提交 `8011f6dda`。
+- 来源：`metasequoiaime/MSIME-Apple` 固定提交 `b93f169839c442cfa7034f3130c3dfaac11b9467`；不读取相邻检出的未提交内容。
+- 目标：本文前三轮的历史结论仍固定在 `develop` 提交 `8011f6dda`；延续的来源测试断言审计记录到本分支 `3bc1506e6`。两者分开写，避免把尚未合入 `develop` 的证据倒灌成已发布状态。
 
 来源入口是该检出的 `platforms/ios/` 与 `shared/`。HarmonyOS 的对照面是 `platforms/harmony/entry/src/main/ets`、`apps/harmony/src` 与它渲染的 `packages/ui/src`——鸿蒙的设置界面就是那份共享 React 页，所以对照面必须把它算进来，只比 ArkTS 会把一整层功能误判成缺失。
 
@@ -139,7 +139,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 脚本有两张名单，区别就是全部意义所在。`ALLOWED` 是本平台永远不会调用的——它回答的那个问题 HarmonyOS 不问，每条写明是什么差异。`PENDING` 是应该接而尚未接的，写明背后的缺口**具体是什么**；诊断清楚才能进，写"还没做"不算条目。两张都是棘轮：名单上的名字一旦变得可达就报错，没上名单的新符号直接报错。`PENDING` 应当归零，`ALLOWED` 不必。
 
-当前：252 个宿主静态方法，11 条平台差异，**0 条待接**。
+当前：277 个宿主静态方法，11 条平台差异，**0 条待接**。
 
 六条待接的去向，逐条写明而不是让它们烂在名单上：
 
@@ -192,6 +192,24 @@ EnglishCapitalizationPolicy.shouldShift
 | #3418 | 词库页「词库信息」 |
 | #3419 | 键盘无障碍标签接线 |
 
+延续审计在独立 worktree 中又落了二十四个尚未合入 `develop` 的切片：`bbba58c92`（云快照原生完整校验）、`3a1a512bc`（云快照请求持久化）、`44e3fbbba`（个人词库按 Engine 规范化并支持多行快捷短语）、`c4de95cb5`（常驻键盘按 4 条一批持续排空个人词库）、`bc3b27c27`（个人词库证据刷新）、`d2331af9e`（云词库下载进入同一持久队列）、`d226c4adb`（常驻键盘空闲轮询新入队快照）、`a0abb25b5`（候选翻译独立门控、固定释义行及面板高度）、`889033a66`（展开候选单行且不越界）、`4b5c91de4`（手写停笔去抖及最新快照串行识别）、`20a36ae73`（关闭回复面板时作废晚到结果）、`323f37d24`（自定义皮肤完整进入原生键盘渲染）、`9e1647eb8`（按 provider 获取模型目录）、`f050483ce`（EveryAPI/Mistral 进入云端语音适配器）、`2e4ac1d08`（云剪贴板资源 ID 本地校验）、`f43571353`（账号 access token 单航班刷新与失败重试）、`84b99e7d6`（取消候选固定位置时省略 position 字段）、`3ffed6471`（云词库原生保存选择器）、`42fcb0c08`（快照冲突页游标一致性校验）、`54264c7ec`（384/512 MiB 云文件流式下载和快照导出落盘）、`cdffdbd8a`（账号客户端从文件流式恢复快照）、`fb85c5cce`（C ABI 上传前重验完整文件）、`0f92c9cda`（Harmony N-API worker 上传）与 `3bc1506e6`（原生选择、预览、确认和清理流程）。这些只具有源码、单元测试与本地构建证据，不继承下面 2026-09-21 那轮模拟器结论。
+
+这四片来自继续读取固定 Apple 测试体。`JapaneseNineKeyTests` 暴露展开候选按内容无限增宽；`HandwritingTests` 暴露每笔后立即 OCR 且识别期间丢弃后续触摸，来源实际是 550 ms 停笔去抖；`KeyboardAITests` 暴露关闭面板只丢本地 generation、会话仍缓存晚到结果且销毁后回调未解除；`KeyboardSkinTests` 则抓到最典型的“模型和测试都在、产品没消费”：渐变、照片、图案、键帽形状/材质/阴影全被解析，真实 ArkUI 键盘只用了颜色和字体。`SkinCommunityTests` 的公开浏览、登录刷新、错误映射、搜索编码、大页上限与预览不改当前设计均落在共享 `AccountCloudBridge`、社区 React 页和原生试用存储中，本轮未发现另一处分叉。
+
+随后审计 `CustomServiceTests` 时又找到两条同类分叉。设置页把 `provider` 交给 Harmony，但原生模型目录桥完全忽略它：所有服务都按 Bearer、单页和 `/v1/models` 请求，因而 Anthropic 的 `x-api-key`/分页、Gemini 的 `/v1beta/openai/models`、EveryAPI 的能力过滤全部丢失；现在这些协议差异由 `AiModelCatalogPolicy` 明确建模。语音设置已经公开 EveryAPI 与 Mistral，键盘运行时却只允许 OpenAI、SiliconFlow、Groq，页面还把前两者显示成 Harmony 不支持；现在五个 OpenAI-compatible 批量转写 provider 共用一条经过 HTTPS、模型和分槽凭据校验的路径。`KeyboardSurfaceUITests`、`SettingsUITests` 与 `SkinUITests` 随后逐条映射到共享 React 页面、原生设置桥、皮肤库/试用存储和 ArkUI 键盘，未再发现另一条宿主行为缺口；应用内“试用键盘”和备用应用图标分别是 Apple 原生页面与 iOS 系统 API，不伪造为 Harmony/Tauri 产品入口。
+
+`BackendAccountClientTests` 另暴露一个边界不一致：词库变更已要求 64 位十六进制资源 ID，云剪贴板删除却接受任意非空字符串。它虽然经过 URL 编码，不构成路径穿越，但仍会把账户 token 带到一个本地即可判错的请求；现在两者共用同一资源 ID 校验，非法 ID 不进入 transport。其余账号断言——token 形状、状态码脱敏、搜索参数编码、字典 revision、固定 origin 与默认昵称——均已有对应实现。
+
+`BackendAccountSessionTests` 随后指出 Harmony 只保存 `refresh_token` 却从不使用：access token 到期就把仍可续期的账号当成退出。现在所有受保护请求共用同一状态机：到期前 30 秒刷新、并发请求共享一次刷新、保存旋转后的 refresh token、401/403 后只刷新重试一次，并以 session generation 阻止晚到登录或刷新在退出后复活账号。公开社区浏览在可选 session 失效时退回匿名；状态查询不会清除仍可刷新的账号。
+
+固定来源的四组词典后端测试最后补上了请求语义和文件边界。候选修改原本已优先发送服务端返回的 `canonical_pinyin`，catalog 删除也已显式发送 `replacement: null`；缺口有三处：取消固定位置的 DELETE 仍携带 `position: null`，现在完全省略该字段并保留服务端 context；普通云词库导出原先把整段文本封进 JSON 送过 WebView，现在 Harmony 宿主按来源的 384 MiB 上限使用 `requestInStream` 写入沙箱临时文件，等待 `dataEnd` 后再通过系统保存选择器交付，同时校验 NUL、媒体类型、`Content-Length` 与实际字节数，超限或截断响应不会产生部分文件；Harmony 以完整 Engine 快照替代逐条重放 changes，这是平台适配而不是缺实现，但入队前的冲突页现在也拒绝不前进或互相矛盾的 `next`/`has_more` 游标，不能再把畸形空页当成“没有变化”。完整快照同样按来源的 512 MiB 上限流式下载，导出会真正打开保存选择器，而不再删除唯一的私有副本后仍报告成功。
+
+同一文件页此前还藏着一个完整未接线的方向：共享 UI 会发 `snapshot_restore_preview` 与 `snapshot_restore_native`，Harmony 桥却一个都不处理；`snapshotNative: true` 又让 WebView 刻意不读文件，因此恢复必然返回 `snapshot_unavailable`。现在系统选择器只选择一份 `.ndjson`，先检查 1–512 MiB 并复制到应用私有目录，再由原生完整快照检查器验证 framing、字段、跨记录一致性、正文 checksum 与整文件 SHA-256；乐观并发 revision 与 Apple 一样取 quick catalog。确认时 N-API 在 worker 线程调用 C ABI，C ABI 紧邻上传重新检查私有文件及整文件摘要，再由 `reqwest::blocking::Body::sized` 流式 PUT，避免 512 MiB 内容进入 ArkUI 线程、WebView JSON 或整块内存。上传继承账号单航班刷新、401/403 单次重试和 session generation 作废；放弃、失败、完成或账号变化都会删除私有副本。Harmony 逻辑套件增至 1576 条断言，静态 guard 同时钉住两个 restore operation、原生 picker、异步 N-API、私有复制、上传与清理接线。
+
+## 延续审计补记（2026-09-22）
+
+固定 Apple 测试又补出三条边界：`e9209b62d` 要求快照恢复响应为 `application/json`；`67897470a` 让 Harmony 在重命名后重新读取规范 profile、保留 token 与过期时间更新本地缓存，并拒绝登出后的迟到响应；`d67dae230` 允许协商设置文档在 1 MiB 总上限内承载照片大小的自定义皮肤字符串。Harmony 逻辑套件现为 1590 条断言，client-core 全套为 292 个测试。以上仍只有源码、单元测试与本地构建证据。
+
 ## 2026-09-21 补：模拟器验收
 
 上面那份「证据边界」写完之后，在 API 21 的 `Mate 70 Pro` arm64 模拟器上实际跑了一遍，结论需要改写——不是因为结论错了，而是因为它们本来就只是没去跑。
@@ -211,5 +229,9 @@ EnglishCapitalizationPolicy.shouldShift
 - 账号、社区、AI 服务的真实往返。模拟器本身是联网的（浏览器能拉到实时内容与搜索联想），社区页显示离线预览数据是因为没有登录账号，不是因为没有网络——先前这里写成「没有网络」是错的。
 - `deleteBackwardSync(length)` 的单位（码点还是 UTF-16 单元）。AI 润色按码点计算，依据是本宿主退格路径的注释；替换前的重读是它的兜底，但单位错了仍然会表现为一次拒绝。
 - 读屏实际念出什么，以及 `accessibilityText` 挂在键容器上是否会被读到（而不是被里面的 `Text` 盖过）。
-- 个人词库队列是否真的在键盘下一次建立会话时被排空。
+- 个人词库大批导入是否在真机常驻扩展中按空闲批次持续排空，以及应用后的词条是否立即进入真实候选。共享队列已有 4/4/1 批处理、回执不重放和 Engine 规范化测试，Harmony 也有会话锁释放、组字保护、两秒续排与模式恢复的源码门禁；这里缺的是设备层证据，不再是实现路径未知。
+- 横排候选释义的第二行、设置切换后的固定高度和在线 provider 结果是否在真实 ArkUI panel 中按预期绘制。逻辑层与宿主接线门禁已覆盖，当前 worktree 没有 HAP 编译和设备画面证据。
+- 展开候选的截尾、自定义皮肤的渐变/照片/图案/键帽材质，以及连续多笔手写在真实 ArkUI/Core Vision 上的画面、触控与识别效果。当前只有 1590 条逻辑断言和宿主接线守卫，没有本轮 HAP 或设备复测。
+- Anthropic/Gemini/EveryAPI 模型目录、EveryAPI/Mistral 转写及云剪贴板删除只验证了请求策略、边界与产品接线；没有用真实凭据执行服务往返，也没有在设备上验证录音授权和 multipart 请求。
+- 账号刷新、候选排序/固定位置、云词库导出、快照冲突检查与本地快照恢复云端只验证了状态机、请求形状、文件边界和产品接线；没有对真实账号服务往返，也没有设备上的系统打开/保存选择器或流式上传证据。
 - 真机签名与麦克风授权流程。

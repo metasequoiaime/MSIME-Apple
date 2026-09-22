@@ -25,6 +25,17 @@ export interface EditorTraits {
 }
 
 export class EditorPolicy {
+  /** A text-change echo is external only when no keyboard-owned mutation is waiting for it. */
+  static isExternalTextChange(pendingOwnEdits: number): boolean {
+    return pendingOwnEdits <= 0;
+  }
+
+  /** A late editor-attribute callback must not reset text typed while the query was in flight. */
+  static appliesDelayedLanguage(composing: boolean, currentEnglish: boolean,
+                                wantedEnglish: boolean, manuallyChosen: boolean = false): boolean {
+    return !composing && !manuallyChosen && currentEnglish !== wantedEnglish;
+  }
+
   /**
    * Whether to compose through the Engine at all. A password field must never see a composition
    * buffer, and a field that asked for no suggestions has said it does not want one.

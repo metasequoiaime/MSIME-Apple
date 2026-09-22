@@ -94,26 +94,32 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
     ) {
       throw new Error(`第 ${index + 1} 条：词条格式无效。`);
     }
+    const normalizedKey =
+      kind === "pinyin" ? key.toLowerCase().replaceAll(" ", "'") : key.toLowerCase();
     const entry = {
       kind: kind as PersonalDictionaryImportEntry["kind"],
-      key,
+      key: normalizedKey,
       value: word,
       weight: weight as number,
     };
-    const keyBytes = new TextEncoder().encode(key).length;
+    const keyBytes = new TextEncoder().encode(normalizedKey).length;
     const keyValid =
       entry.kind === "pinyin"
-        ? key.length > 0 && keyBytes <= 256 && /^[a-z' ]+$/.test(key)
+        ? normalizedKey.length > 0 && keyBytes <= 512 && /^[a-z']+$/.test(normalizedKey)
         : entry.kind === "wubi"
-          ? key.length > 0 && keyBytes <= 4 && /^[a-z]+$/.test(key)
+          ? normalizedKey.length > 0 && keyBytes <= 4 && /^[a-z]+$/.test(normalizedKey)
           : entry.kind === "quickPhrase"
-            ? key.length > 0 && keyBytes <= 32 && /^[a-z0-9]+$/.test(key)
-            : key.length > 0 && keyBytes <= 64 && /^[A-Za-z]+$/.test(key);
+            ? normalizedKey.length > 0 && keyBytes <= 32 && /^[a-z0-9]+$/.test(normalizedKey)
+            : normalizedKey.length > 0 && keyBytes <= 64 && /^[a-z'-]+$/.test(normalizedKey);
     if (
       !keyValid ||
       word.length === 0 ||
-      /[\u0000-\u001f\u007f]/.test(word) ||
-      (entry.kind === "quickPhrase" && word.length > 199)
+      new TextEncoder().encode(word).length > 4096 ||
+      (entry.kind === "quickPhrase"
+        ? /[\u0000-\u0008\u000b-\u001f\u007f]/.test(word)
+        : /[\u0000-\u001f\u007f]/.test(word)) ||
+      (weight as number) < 1 ||
+      (weight as number) > 100_000_000
     ) {
       throw new Error(`第 ${index + 1} 条：词条内容不符合输入引擎规则。`);
     }

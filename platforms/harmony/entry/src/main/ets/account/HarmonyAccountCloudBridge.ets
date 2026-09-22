@@ -1,10 +1,15 @@
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import common from '@ohos.app.ability.common';
+import picker from '@ohos.file.picker';
+import util from '@ohos.util';
 import client from 'libmsimeclient.so';
-import { AccountCloudBridge, AccountSessionStore, AccountTransport, AccountTransportResponse } from './AccountCloudBridge';
+import {
+  AccountCloudBridge, AccountDownloadResponse, AccountSessionStore, AccountTransport,
+  AccountTransportResponse, MAX_DICTIONARY_EXPORT_BYTES, MAX_SNAPSHOT_DOWNLOAD_BYTES,
+  dictionaryChangePageChanged
+} from './AccountCloudBridge';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
-import { utf8Length } from '../keyboard/Utf8';
 import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
 import { HarmonyAiSkins } from './HarmonyAiSkins';
 import {
@@ -59,6 +64,17 @@ interface SnapshotAction {
   token?: string;
 }
 
+interface AccountOperation {
+  operation?: string;
+  dictionary_operation?: string;
+  kind?: string;
+  format?: string;
+}
+
+interface AccountOperationReply {
+  ok?: boolean;
+}
+
 /** One settings-sync request from the page: read the schema or document, upload, or apply. */
 interface PreferenceSyncAction {
   operation: string;
@@ -73,9 +89,42 @@ interface SnapshotRequest {
   status: string;
 }
 
-interface SnapshotLine {
-  type?: string;
-  revision?: number;
+interface NativeSnapshotRequest extends SnapshotRequest {
+  accountId: string;
+}
+
+interface SnapshotQueueState {
+  localVersion?: string;
+  request?: NativeSnapshotRequest | null;
+}
+
+interface SnapshotQueueReply {
+  ok: boolean;
+  value?: SnapshotQueueState;
+  error?: string;
+}
+
+interface SnapshotQueueStateAction {
+  operation: string;
+  directory: string;
+  options: Object;
+  acknowledge: boolean;
+}
+
+interface SnapshotQueueEnqueueAction {
+  operation: string;
+  directory: string;
+  source: string;
+  account_id: string;
+  cloud_revision: number;
+  expected_local_version: string;
+  file_sha256: string;
+}
+
+interface SnapshotQueueCancelAction {
+  operation: string;
+  directory: string;
+  account_id: string;
 }
 
 interface SnapshotValue {
@@ -86,6 +135,9 @@ interface SnapshotValue {
   saved?: boolean;
   snapshot?: SnapshotMetadata;
   previewToken?: string;
+  expectedRevision?: number;
+  revision?: number;
+  reset?: boolean;
 }
 
 interface SnapshotReply {
@@ -94,17 +146,40 @@ interface SnapshotReply {
   error?: string;
 }
 
-interface SnapshotPrepareRequest {
-  options: Object;
-  staging_root: string;
-  expected_version: string;
-  records: number;
-}
-
 interface HttpHeaders {
   Accept: string;
   Authorization?: string;
   'Content-Type': string;
+}
+
+interface DownloadHeaders {
+  Accept: string;
+  Authorization: string;
+  'Accept-Encoding': string;
+}
+
+function responseHeader(headers: Object, name: string): string | undefined {
+  const values: Record<string, Object> = headers as Record<string, Object>;
+  const keys: string[] = Object.keys(values);
+  for (const key of keys) {
+    if (key.toLowerCase() !== name) continue;
+    const raw: Object = values[key];
+    return typeof raw === 'string' ? raw : undefined;
+  }
+  return undefined;
+}
+
+/** A declared response size lets native downloads reject a connection that ended early. */
+function responseContentLength(headers: Object): number | undefined {
+  const raw: string | undefined = responseHeader(headers, 'content-length');
+  if (raw === undefined) return undefined;
+  const parsed: number = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
+}
+
+function responseContentType(headers: Object): string | undefined {
+  const raw: string | undefined = responseHeader(headers, 'content-type');
+  return raw === undefined ? undefined : raw.split(';')[0].trim().toLowerCase();
 }
 
 class HarmonyTransport implements AccountTransport {
@@ -125,9 +200,103 @@ class HarmonyTransport implements AccountTransport {
     };
     try {
       const response = await request.request(`${ACCOUNT_ORIGIN}${path}`, options);
-      return { status: response.responseCode, body: typeof response.result === 'string' ? response.result : '' };
+      return {
+        status: response.responseCode,
+        body: typeof response.result === 'string' ? response.result : '',
+        contentLength: responseContentLength(response.header)
+      };
     } finally {
       request.destroy();
+    }
+  }
+
+  async download(path: string, token: string, destination: string, maximumBytes: number,
+    mediaType: string): Promise<AccountDownloadResponse> {
+    if (!path.startsWith('/v1/') || path.includes('\\') || destination.length === 0
+      || maximumBytes <= 0 || maximumBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
+      throw new Error('account_invalid');
+    }
+    const request = http.createHttp();
+    const headers: DownloadHeaders = {
+      Accept: mediaType,
+      Authorization: `Bearer ${token}`,
+      'Accept-Encoding': 'identity'
+    };
+    const options: http.HttpRequestOptions = {
+      method: http.RequestMethod.GET,
+      header: headers,
+      connectTimeout: 30000,
+      readTimeout: 600000
+    };
+    const handle = fs.openSync(destination,
+      fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+    let bytes: number = 0;
+    let failed: boolean = false;
+    let contentLength: number | undefined = undefined;
+    let contentType: string | undefined = undefined;
+    const ended: Promise<void> = new Promise<void>((resolve: () => void): void => {
+      // `requestInStream` returns the status code; `dataEnd` is the SDK's explicit statement that
+      // the streamed body is complete. Waiting for both keeps the file open through the last chunk.
+      request.on('dataEnd', (): void => resolve());
+    });
+    request.on('headersReceive', (responseHeaders: Object): void => {
+      contentLength = responseContentLength(responseHeaders);
+      contentType = responseContentType(responseHeaders);
+      if (contentLength !== undefined && (contentLength < 0 || contentLength > maximumBytes)) {
+        failed = true;
+      }
+    });
+    request.on('dataReceive', (chunk: ArrayBuffer): void => {
+      const view: Uint8Array = new Uint8Array(chunk);
+      if (failed || bytes + view.byteLength > maximumBytes || view.includes(0)) {
+        failed = true;
+        return;
+      }
+      try {
+        const written: number = fs.writeSync(handle.fd, chunk);
+        if (written !== view.byteLength) {
+          failed = true;
+          return;
+        }
+        bytes += written;
+      } catch {
+        failed = true;
+      }
+    });
+    try {
+      const status: number = await request.requestInStream(`${ACCOUNT_ORIGIN}${path}`, options);
+      await ended;
+      if (status < 200 || status >= 300) {
+        return { status: status, bytes: bytes, contentLength: contentLength, contentType: contentType };
+      }
+      if (failed || bytes === 0 || contentType !== mediaType
+        || (contentLength !== undefined && contentLength !== bytes)) {
+        return { status: 503, bytes: bytes, contentLength: contentLength, contentType: contentType };
+      }
+      return { status: status, bytes: bytes, contentLength: contentLength, contentType: contentType };
+    } finally {
+      fs.closeSync(handle);
+      request.destroy();
+    }
+  }
+
+  async uploadSnapshot(source: string, revision: number, expectedSha256: string,
+    token: string): Promise<AccountTransportResponse> {
+    try {
+      const raw: string = await client.snapshotRestore(JSON.stringify({
+        revision: revision, expected_sha256: expectedSha256, access_token: token
+      }), source);
+      const reply: SnapshotReply = JSON.parse(raw) as SnapshotReply;
+      if (reply.ok) return { status: 200, body: JSON.stringify(reply.value) };
+      switch (reply.error) {
+        case 'account_invalid': return { status: 400, body: '' };
+        case 'account_unauthorized': return { status: 401, body: '' };
+        case 'account_conflict': return { status: 409, body: '' };
+        case 'account_rate_limited': return { status: 429, body: '' };
+        default: return { status: 503, body: '' };
+      }
+    } catch {
+      return { status: 503, body: '' };
     }
   }
 
@@ -146,12 +315,20 @@ class HarmonyTransport implements AccountTransport {
 interface SnapshotMetadata {
   cloudRevision: number;
   sha256: string;
+  fileSha256: string;
   bytes: number;
   records: number;
   entries: number;
   overlays: number;
   positions: number;
   selections: number;
+  engineRecords: number;
+}
+
+interface SnapshotInspectReply {
+  ok: boolean;
+  value?: SnapshotMetadata;
+  error?: string;
 }
 
 /** Account and cloud clipboard state stays in the host; WebView receives only bounded DTOs. */
@@ -160,10 +337,14 @@ export class HarmonyAccountCloudBridge {
   private readonly context: common.UIAbilityContext;
   private snapshotFile: string = '';
   private snapshotToken: string = '';
-  private snapshotHandle: number = 0;
+  private snapshotAccountId: string = '';
   private snapshotExpectedVersion: string = '';
   private snapshotMetadata: SnapshotMetadata | undefined = undefined;
-  private snapshotEngineRecords: number = 0;
+  private restoreFile: string = '';
+  private restoreToken: string = '';
+  private restoreAccountId: string = '';
+  private restoreMetadata: SnapshotMetadata | undefined = undefined;
+  private restoreExpectedRevision: number = -1;
 
   constructor(context: common.UIAbilityContext) {
     this.context = context;
@@ -176,8 +357,96 @@ export class HarmonyAccountCloudBridge {
     this.bridge = new AccountCloudBridge(new HarmonyTransport(), new FileSessionStore(directory));
   }
 
-  request(action: string): Promise<string> {
-    return this.bridge.handle(action);
+  async request(action: string): Promise<string> {
+    const accountId: string | null = this.bridge.currentUserId();
+    let operation: string = '';
+    let decoded: AccountOperation | undefined = undefined;
+    try {
+      decoded = JSON.parse(action) as AccountOperation;
+      operation = typeof decoded.operation === 'string' ? decoded.operation : '';
+    } catch {
+      // The account bridge reports malformed action documents.
+    }
+    if (operation === 'logout' || operation === 'delete_account'
+      || operation === 'login' || operation === 'clear_expired') {
+      this.clearSnapshotPreview();
+      this.clearRestorePreview();
+      if (accountId !== null && !this.cancelQueueForAccount(accountId)) {
+        return this.failure('snapshot_unavailable');
+      }
+    }
+    if (decoded !== undefined && operation === 'dictionary'
+      && decoded.dictionary_operation === 'export') {
+      return this.exportDictionary(decoded);
+    }
+    const result = await this.bridge.handle(action);
+    if (accountId === null || this.bridge.currentUserId() === accountId) return result;
+    try {
+      const reply: AccountOperationReply = JSON.parse(result) as AccountOperationReply;
+      if (operation.length > 0 && reply.ok === true) {
+        this.cancelQueueForAccount(accountId);
+      }
+    } catch {
+      // The account bridge already owns malformed request and response reporting.
+    }
+    return result;
+  }
+
+  /** Download and validate privately before asking the user where the finished export should go. */
+  private async exportDictionary(action: AccountOperation): Promise<string> {
+    const kind: string = typeof action.kind === 'string' ? action.kind : '';
+    const format: string = typeof action.format === 'string' ? action.format : '';
+    if (!['pinyin', 'wubi', 'quick', 'english'].includes(kind)
+      || !['standard', 'windows'].includes(format)) {
+      return this.failure('account_invalid');
+    }
+    const directory: string = `${this.context.filesDir}/state/dictionary-exports`;
+    const staging: string = `${directory}/${util.generateRandomUUID(false)}.tsv`;
+    let destination: string = '';
+    try {
+      if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      const downloaded = await this.bridge.downloadAuthenticated(
+        `/v1/users/me/dictionaries/${kind}/export?format=${format}`,
+        staging, MAX_DICTIONARY_EXPORT_BYTES, 'text/plain');
+      if (downloaded.bytes === undefined) {
+        return this.failure(downloaded.error ?? 'account_unavailable');
+      }
+      const options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
+      options.newFileNames = [`msime-${kind}-dictionary.tsv`];
+      options.fileSuffixChoices = ['TSV|.tsv'];
+      const selected: string[] = await new picker.DocumentViewPicker(this.context).save(options);
+      if (selected.length === 0) return this.success({ saved: false });
+      destination = selected[0];
+      fs.copyFileSync(staging, destination);
+      return this.success({ saved: true });
+    } catch {
+      try {
+        if (destination.length > 0 && fs.accessSync(destination)) fs.unlinkSync(destination);
+      } catch {
+        // Refusing the export matters more than a picker URI which has already disappeared.
+      }
+      return this.failure('account_storage');
+    } finally {
+      try {
+        if (fs.accessSync(staging)) fs.unlinkSync(staging);
+      } catch {
+        // A missing staging file is already the desired postcondition.
+      }
+    }
+  }
+
+  private cancelQueueForAccount(accountId: string): boolean {
+    try {
+      const action: SnapshotQueueCancelAction = {
+        operation: 'cancel', directory: `${this.context.filesDir}/state/dictionary-snapshots`,
+        account_id: accountId
+      };
+      const reply: SnapshotQueueReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
+      return reply.ok;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -428,10 +697,17 @@ export class HarmonyAccountCloudBridge {
         return this.exportSnapshot(resources, stateRoot);
       case 'snapshot_preview':
         return this.preview(resources, stateRoot);
+      case 'snapshot_restore_preview':
+        return this.restorePreview(stateRoot);
+      case 'snapshot_restore_native':
+        return this.restoreNative(String(action.token ?? ''));
+      case 'snapshot_restore_cancel':
+        this.clearRestorePreview();
+        return this.success({});
       case 'snapshot_enqueue':
-        return this.enqueue(String(action.token ?? ''), resources, stateRoot);
+        return this.enqueue(String(action.token ?? ''), stateRoot);
       case 'snapshot_cancel':
-        return this.cancel();
+        return this.cancel(stateRoot);
       default:
         return this.failure('snapshot_unavailable');
     }
@@ -456,143 +732,300 @@ export class HarmonyAccountCloudBridge {
     }
   }
 
-  private localVersion(resources: string, stateRoot: string): string | null {
+  private queueDirectory(stateRoot: string): string {
+    return `${stateRoot}/dictionary-snapshots`;
+  }
+
+  private queueState(resources: string, stateRoot: string,
+    acknowledge: boolean): SnapshotQueueState | null {
     const options = this.options(resources, stateRoot);
     if (options === null) return null;
     try {
-      const reply: SnapshotReply = JSON.parse(client.snapshotVersion(JSON.stringify(options))) as SnapshotReply;
-      const version: string | undefined = reply.value?.version;
-      return reply.ok && typeof version === 'string' && /^[0-9a-f]{64}$/.test(version) ? version : null;
+      const action: SnapshotQueueStateAction = {
+        operation: 'state', directory: this.queueDirectory(stateRoot),
+        options: options, acknowledge: acknowledge
+      };
+      const reply: SnapshotQueueReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
+      return reply.ok && reply.value !== undefined ? reply.value : null;
     } catch {
       return null;
     }
   }
 
-  private async status(resources: string, stateRoot: string): Promise<string> {
-    const version = this.localVersion(resources, stateRoot);
-    if (version === null) return this.failure('snapshot_unavailable');
-    const applied = this.tryActivate(resources, stateRoot);
-    const request: SnapshotRequest | null = this.snapshotHandle === 0 ? null : {
-      id: this.snapshotToken, cloudRevision: this.snapshotMetadata?.cloudRevision ?? 0,
-      expectedLocalVersion: this.snapshotExpectedVersion, fileSha256: '',
-      status: applied ? 'applied' : 'queued'
+  private publicRequest(request: NativeSnapshotRequest | null | undefined): SnapshotRequest | null {
+    if (request === undefined || request === null) return null;
+    return {
+      id: request.id,
+      cloudRevision: request.cloudRevision,
+      expectedLocalVersion: request.expectedLocalVersion,
+      fileSha256: request.fileSha256,
+      status: request.status
     };
-    if (applied) {
-      this.snapshotHandle = 0;
-      this.snapshotToken = '';
-      this.snapshotMetadata = undefined;
-      this.snapshotEngineRecords = 0;
-      try { if (this.snapshotFile.length > 0 && fs.accessSync(this.snapshotFile)) fs.unlinkSync(this.snapshotFile); } catch { /* best effort cleanup */ }
-      this.snapshotFile = '';
+  }
+
+  private async status(resources: string, stateRoot: string): Promise<string> {
+    const state = this.queueState(resources, stateRoot, true);
+    if (state === null || typeof state.localVersion !== 'string') {
+      return this.failure('snapshot_unavailable');
     }
-    return this.success({ localVersion: version, request: request });
+    return this.success({
+      localVersion: state.localVersion,
+      request: this.publicRequest(state.request)
+    });
   }
 
   private async exportSnapshot(resources: string, stateRoot: string): Promise<string> {
     const result = await this.downloadSnapshot(stateRoot);
-    return result === null ? this.failure('snapshot_unavailable') : this.success({ saved: true, snapshot: result });
+    if (result === null) return this.failure('snapshot_unavailable');
+    let destination: string = '';
+    try {
+      const options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
+      options.newFileNames = ['msime-dictionary-snapshot.ndjson'];
+      options.fileSuffixChoices = ['NDJSON|.ndjson'];
+      const selected: string[] = await new picker.DocumentViewPicker(this.context).save(options);
+      if (selected.length === 0) return this.success({ saved: false, snapshot: result });
+      destination = selected[0];
+      fs.copyFileSync(this.snapshotFile, destination);
+      return this.success({ saved: true, snapshot: result });
+    } catch {
+      try {
+        if (destination.length > 0 && fs.accessSync(destination)) fs.unlinkSync(destination);
+      } catch {
+        // The selected URI may disappear with the picker; no partial export is still the goal.
+      }
+      return this.failure('account_storage');
+    } finally {
+      this.clearSnapshotPreview();
+    }
   }
 
   private async preview(resources: string, stateRoot: string): Promise<string> {
+    const accountId: string | null = this.bridge.currentUserId();
+    if (accountId === null) return this.failure('account_unauthorized');
     const result = await this.downloadSnapshot(stateRoot);
-    const version = this.localVersion(resources, stateRoot);
-    if (result === null || version === null) return this.failure('snapshot_unavailable');
-    this.snapshotExpectedVersion = version;
-    this.snapshotToken = `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+    const state = this.queueState(resources, stateRoot, false);
+    if (result === null || state === null || typeof state.localVersion !== 'string') {
+      this.clearSnapshotPreview();
+      return this.failure('snapshot_unavailable');
+    }
+    if (this.bridge.currentUserId() !== accountId) {
+      this.clearSnapshotPreview();
+      return this.failure('account_cancelled');
+    }
+    this.snapshotAccountId = accountId;
+    this.snapshotExpectedVersion = state.localVersion;
+    this.snapshotToken = util.generateRandomUUID(false);
     return this.success({ previewToken: this.snapshotToken, snapshot: result });
   }
 
-  private async downloadSnapshot(stateRoot: string): Promise<SnapshotMetadata | null> {
-    const response = await this.bridge.rawAuthenticated('GET', '/v1/users/me/dictionary/snapshot');
-    if (response.status < 200 || response.status >= 300 || response.body.length === 0) return null;
-    if (utf8Length(response.body) > 512 * 1024 * 1024) return null;
+  private inspectSnapshot(file: string): SnapshotMetadata | null {
     try {
-      const directory = `${stateRoot}/cloud-snapshot`;
-      if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
-      this.snapshotFile = `${directory}/snapshot.ndjson`;
-      const handle = fs.openSync(this.snapshotFile, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      try { fs.writeSync(handle.fd, response.body); } finally { fs.closeSync(handle); }
-      let revision = 0;
-      let records = 0;
-      let engineRecords = 0;
-      let entries = 0;
-      let overlays = 0;
-      let positions = 0;
-      let selections = 0;
-      for (const line of response.body.split('\n')) {
-        if (!line) continue;
-        const value: SnapshotLine = JSON.parse(line) as SnapshotLine;
-        if (value.type === 'header' && typeof value.revision === 'number') revision = value.revision;
-        if (value.type === 'header' || value.type === 'entry' || value.type === 'overlay' || value.type === 'position' || value.type === 'selection') records++;
-        if (value.type === 'entry') { entries++; }
-        if (value.type === 'overlay') { engineRecords++; overlays++; }
-        if (value.type === 'position') { engineRecords++; positions++; }
-        if (value.type === 'selection') { engineRecords++; selections++; }
-      }
-      this.snapshotMetadata = { cloudRevision: revision, sha256: '', bytes: response.body.length,
-        records: records, entries: entries, overlays: overlays, positions: positions, selections: selections };
-      this.snapshotEngineRecords = engineRecords;
-      if (engineRecords === 0 || revision < 0) {
-        try { if (fs.accessSync(this.snapshotFile)) fs.unlinkSync(this.snapshotFile); } catch { /* best effort cleanup */ }
-        this.snapshotFile = '';
-        this.snapshotMetadata = undefined;
-        this.snapshotEngineRecords = 0;
-        return null;
-      }
-      return this.snapshotMetadata;
+      const reply: SnapshotInspectReply = JSON.parse(client.snapshotInspect(file)) as SnapshotInspectReply;
+      return reply.ok && reply.value !== undefined ? reply.value : null;
     } catch {
       return null;
     }
   }
 
-  private enqueue(token: string, resources: string, stateRoot: string): string {
-    if (token.length === 0 || token !== this.snapshotToken || this.snapshotFile.length === 0
-      || this.snapshotMetadata === undefined || this.snapshotExpectedVersion.length !== 64) {
+  private clearSnapshotPreview(): void {
+    try {
+      if (this.snapshotFile.length > 0 && fs.accessSync(this.snapshotFile)) fs.unlinkSync(this.snapshotFile);
+    } catch {
+      // A failed or already absent download has nothing left to remove.
+    }
+    this.snapshotToken = '';
+    this.snapshotAccountId = '';
+    this.snapshotFile = '';
+    this.snapshotExpectedVersion = '';
+    this.snapshotMetadata = undefined;
+  }
+
+  private clearRestorePreview(): void {
+    try {
+      if (this.restoreFile.length > 0 && fs.accessSync(this.restoreFile)) {
+        fs.unlinkSync(this.restoreFile);
+      }
+    } catch {
+      // A missing private copy is already the desired postcondition.
+    }
+    this.restoreFile = '';
+    this.restoreToken = '';
+    this.restoreAccountId = '';
+    this.restoreMetadata = undefined;
+    this.restoreExpectedRevision = -1;
+  }
+
+  private async restorePreview(stateRoot: string): Promise<string> {
+    const accountId: string | null = this.bridge.currentUserId();
+    if (accountId === null) return this.failure('account_unauthorized');
+    this.clearRestorePreview();
+    try {
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.maxSelectNumber = 1;
+      options.fileSuffixFilters = ['NDJSON|.ndjson'];
+      const selected: string[] = await new picker.DocumentViewPicker(this.context).select(options);
+      if (selected.length === 0) return this.success({ saved: false });
+      if (this.bridge.currentUserId() !== accountId) return this.failure('account_cancelled');
+      const source: string = selected[0];
+      const sourceBytes: number = fs.statSync(source).size;
+      if (sourceBytes <= 0 || sourceBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
+        return this.failure('snapshot_invalid');
+      }
+      const directory: string = `${stateRoot}/cloud-restore`;
+      if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      this.restoreFile = `${directory}/${util.generateRandomUUID(false)}.ndjson`;
+      fs.copyFileSync(source, this.restoreFile);
+      const copiedBytes: number = fs.statSync(this.restoreFile).size;
+      if (copiedBytes !== sourceBytes || copiedBytes <= 0
+        || copiedBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
+        this.clearRestorePreview();
+        return this.failure('snapshot_invalid');
+      }
+      const metadata: SnapshotMetadata | null = this.inspectSnapshot(this.restoreFile);
+      if (metadata === null || metadata.bytes !== copiedBytes) {
+        this.clearRestorePreview();
+        return this.failure('snapshot_invalid');
+      }
+      const current = await this.bridge.currentDictionaryRevision();
+      if (current.revision === undefined) {
+        this.clearRestorePreview();
+        return this.failure(current.error ?? 'account_unavailable');
+      }
+      if (this.bridge.currentUserId() !== accountId) {
+        this.clearRestorePreview();
+        return this.failure('account_cancelled');
+      }
+      this.restoreAccountId = accountId;
+      this.restoreMetadata = metadata;
+      this.restoreExpectedRevision = current.revision;
+      this.restoreToken = util.generateRandomUUID(false);
+      return this.success({
+        saved: true, previewToken: this.restoreToken, snapshot: metadata,
+        expectedRevision: this.restoreExpectedRevision
+      });
+    } catch {
+      this.clearRestorePreview();
+      return this.failure('snapshot_unavailable');
+    }
+  }
+
+  private async restoreNative(token: string): Promise<string> {
+    if (token.length === 0 || token !== this.restoreToken || this.restoreFile.length === 0
+      || this.restoreMetadata === undefined || this.restoreExpectedRevision < 0
+      || this.restoreAccountId.length === 0) {
       return this.failure('snapshot_invalid');
     }
-    const options: Object | null = this.options(resources, stateRoot);
-    if (options === null) return this.failure('snapshot_unavailable');
+    if (this.bridge.currentUserId() !== this.restoreAccountId) {
+      this.clearRestorePreview();
+      return this.failure('account_cancelled');
+    }
+    const file: string = this.restoreFile;
+    const revision: number = this.restoreExpectedRevision;
+    const sha256: string = this.restoreMetadata.fileSha256;
     try {
-      const staging = `${this.context.cacheDir}/msime-snapshot-staging`;
-      if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
-      const request: SnapshotPrepareRequest = {
-        options: options, staging_root: staging, expected_version: this.snapshotExpectedVersion,
-        records: this.snapshotEngineRecords
+      const restored = await this.bridge.restoreSnapshotAuthenticated(file, revision, sha256);
+      if (restored.value === undefined) {
+        return this.failure(restored.error ?? 'account_unavailable');
+      }
+      return this.success(restored.value as SnapshotValue);
+    } catch {
+      return this.failure('account_unavailable');
+    } finally {
+      this.clearRestorePreview();
+    }
+  }
+
+  private async downloadSnapshot(stateRoot: string): Promise<SnapshotMetadata | null> {
+    try {
+      this.clearSnapshotPreview();
+      const directory = `${stateRoot}/cloud-snapshot`;
+      if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      this.snapshotFile = `${directory}/snapshot.ndjson`;
+      const downloaded = await this.bridge.downloadAuthenticated(
+        '/v1/users/me/dictionary/snapshot', this.snapshotFile,
+        MAX_SNAPSHOT_DOWNLOAD_BYTES, 'application/x-ndjson');
+      if (downloaded.bytes === undefined) {
+        this.clearSnapshotPreview();
+        return null;
+      }
+      const metadata = this.inspectSnapshot(this.snapshotFile);
+      if (metadata === null) {
+        this.clearSnapshotPreview();
+        return null;
+      }
+      this.snapshotMetadata = metadata;
+      return this.snapshotMetadata;
+    } catch {
+      this.clearSnapshotPreview();
+      return null;
+    }
+  }
+
+  private async enqueue(token: string, stateRoot: string): Promise<string> {
+    if (token.length === 0 || token !== this.snapshotToken || this.snapshotFile.length === 0
+      || this.snapshotMetadata === undefined || this.snapshotExpectedVersion.length === 0
+      || this.snapshotAccountId.length === 0
+      || this.bridge.currentUserId() !== this.snapshotAccountId) {
+      return this.failure('snapshot_invalid');
+    }
+    try {
+      const changes = await this.bridge.rawAuthenticated('GET',
+        `/v1/users/me/dictionary/changes?after=${this.snapshotMetadata.cloudRevision}&limit=1`);
+      if (changes.status < 200 || changes.status >= 300 || changes.body.length === 0) {
+        return this.failure('snapshot_unavailable');
+      }
+      const changed: boolean | null = dictionaryChangePageChanged(
+        changes.body, this.snapshotMetadata.cloudRevision);
+      if (changed === null) return this.failure('snapshot_unavailable');
+      if (changed || token !== this.snapshotToken
+        || this.snapshotMetadata === undefined || this.snapshotFile.length === 0
+        || this.bridge.currentUserId() !== this.snapshotAccountId) {
+        this.clearSnapshotPreview();
+        return this.failure('snapshot_conflict');
+      }
+      const inspected = this.inspectSnapshot(this.snapshotFile);
+      if (inspected === null || inspected.fileSha256 !== this.snapshotMetadata.fileSha256
+        || inspected.sha256 !== this.snapshotMetadata.sha256
+        || inspected.engineRecords !== this.snapshotMetadata.engineRecords) {
+        this.clearSnapshotPreview();
+        return this.failure('snapshot_invalid');
+      }
+      const action: SnapshotQueueEnqueueAction = {
+        operation: 'enqueue', directory: this.queueDirectory(stateRoot), source: this.snapshotFile,
+        account_id: this.snapshotAccountId, cloud_revision: this.snapshotMetadata.cloudRevision,
+        expected_local_version: this.snapshotExpectedVersion,
+        file_sha256: this.snapshotMetadata.fileSha256
       };
-      const reply: SnapshotReply = JSON.parse(client.snapshotPrepare(JSON.stringify(request), this.snapshotFile)) as SnapshotReply;
-      const handle: number | undefined = reply.value?.handle;
-      if (!reply.ok || typeof handle !== 'number' || handle <= 0) return this.failure('snapshot_unavailable');
-      this.snapshotHandle = handle;
-      return this.success({ request: { id: token, cloudRevision: this.snapshotMetadata.cloudRevision,
-        expectedLocalVersion: this.snapshotExpectedVersion, fileSha256: '', status: 'queued' } });
+      const reply: SnapshotQueueReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
+      if (!reply.ok || reply.value === undefined) {
+        return this.failure(reply.error ?? 'snapshot_unavailable');
+      }
+      const request: SnapshotRequest | null = this.publicRequest(reply.value.request);
+      this.clearSnapshotPreview();
+      return this.success({ request: request });
     } catch {
       return this.failure('snapshot_unavailable');
     }
   }
 
-  private tryActivate(resources: string, stateRoot: string): boolean {
-    if (this.snapshotHandle === 0) return false;
-    const result = KeyboardSession.shared.snapshotActivate(this.snapshotHandle, this.snapshotExpectedVersion);
+  private cancel(stateRoot: string): string {
+    const accountId: string | null = this.bridge.currentUserId();
+    if (accountId === null) return this.failure('account_unauthorized');
     try {
-      const reply: SnapshotReply = JSON.parse(result) as SnapshotReply;
-      return reply.ok;
+      const action: SnapshotQueueCancelAction = {
+        operation: 'cancel', directory: this.queueDirectory(stateRoot), account_id: accountId
+      };
+      const reply: SnapshotQueueReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
+      if (!reply.ok || reply.value === undefined) {
+        return this.failure(reply.error ?? 'snapshot_unavailable');
+      }
+      this.clearSnapshotPreview();
+      return this.success({ request: this.publicRequest(reply.value.request) });
     } catch {
-      return false;
+      return this.failure('snapshot_unavailable');
     }
-  }
-
-  private cancel(): string {
-    if (this.snapshotHandle !== 0) {
-      try { client.snapshotDiscard(this.snapshotHandle); } catch { /* best effort cleanup */ }
-    }
-    try {
-      if (this.snapshotFile.length > 0 && fs.accessSync(this.snapshotFile)) fs.unlinkSync(this.snapshotFile);
-    } catch { /* best effort cleanup */ }
-    this.snapshotHandle = 0;
-    this.snapshotToken = '';
-    this.snapshotFile = '';
-    this.snapshotMetadata = undefined;
-    this.snapshotEngineRecords = 0;
-    return this.success({ request: null });
   }
 }

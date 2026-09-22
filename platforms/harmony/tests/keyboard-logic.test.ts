@@ -9,6 +9,10 @@
 import { KeyboardGeometry } from "../entry/src/main/ets/keyboard/KeyboardGeometry";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import {
+  KeyboardLayoutDragAxis,
+  KeyboardLayoutDragPolicy,
+} from "../entry/src/main/ets/keyboard/input/KeyboardLayoutDragPolicy";
+import {
   ClipboardHistoryStore,
   ClipboardHistoryItem,
   ClipboardHistoryError,
@@ -24,7 +28,12 @@ import {
   normalizeSymbolGroups,
 } from "../entry/src/main/ets/keyboard/emoji/EmojiCatalogModel";
 import { CandidateWrapPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy";
+import { ExpandedCandidateLayout } from "../entry/src/main/ets/keyboard/candidate/ExpandedCandidateLayout";
 import { CandidateChipWidth } from "../entry/src/main/ets/keyboard/candidate/CandidateChipWidth";
+import {
+  CandidateGlossLayoutPolicy,
+  CandidateGlossProviderState,
+} from "../entry/src/main/ets/keyboard/candidate/CandidateGlossLayoutPolicy";
 import {
   KeyboardScheme,
   SchemeDefinition,
@@ -73,7 +82,10 @@ import {
   SmartPunctuationRepeatSnapshot,
 } from "../entry/src/main/ets/keyboard/input/SmartPunctuationRepeatPolicy";
 import { PairedPunctuationPolicy } from "../entry/src/main/ets/keyboard/input/PairedPunctuationPolicy";
-import { ReturnKeyAction } from "../entry/src/main/ets/keyboard/input/ReturnKeyAction";
+import {
+  ReturnDispatch,
+  ReturnKeyAction,
+} from "../entry/src/main/ets/keyboard/input/ReturnKeyAction";
 import { SpaceCursorMovement } from "../entry/src/main/ets/keyboard/input/SpaceCursorMovement";
 import {
   CandidateManagementAction,
@@ -160,7 +172,24 @@ import {
   HandwritingStrokePolicy,
   HANDWRITING_CANVAS_SIZE,
   HANDWRITING_MAX_CANDIDATES,
+  HANDWRITING_MAX_POINTS,
+  HANDWRITING_MAX_STROKES,
 } from "../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy";
+import {
+  HandwritingRecognitionQueue,
+  HandwritingRecognitionTicket,
+} from "../entry/src/main/ets/keyboard/input/HandwritingRecognitionQueue";
+import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
+import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
+import {
+  BackspaceHoldAction,
+  BackspaceHoldPolicy,
+} from "../entry/src/main/ets/keyboard/input/BackspaceHoldPolicy";
+import {
+  CompositionBoundary,
+  CompositionBoundaryAction,
+  CompositionBoundaryPolicy,
+} from "../entry/src/main/ets/keyboard/input/CompositionBoundaryPolicy";
 import {
   VoiceRecognitionPolicy,
   VOICE_MAX_TEXT,
@@ -174,6 +203,10 @@ import {
   AccountCloudBridge,
   AccountSessionStore,
   AccountTransport,
+  AccountTransportResponse,
+  MAX_DICTIONARY_EXPORT_BYTES,
+  MAX_SNAPSHOT_DOWNLOAD_BYTES,
+  dictionaryChangePageChanged,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
   AiSkinCancelled,
@@ -222,6 +255,11 @@ import {
 import { PanelSurfaceAction } from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
 import { PreferenceRevisionPolicy } from "../entry/src/main/ets/keyboard/input/PreferenceRevisionPolicy";
 import { PreferencesErrorCode } from "../entry/src/main/ets/keyboard/settings/PreferencesErrorCode";
+import {
+  AiCatalogPage,
+  AiModelCatalogPolicy,
+} from "../entry/src/main/ets/keyboard/settings/AiModelCatalogPolicy";
+import { HttpAsrConfigurationPolicy } from "../entry/src/main/ets/keyboard/input/HttpAsrConfigurationPolicy";
 import { SkinImportPolicy } from "../entry/src/main/ets/keyboard/skin/SkinImportPolicy";
 import {
   SmartPunctuationSpacePolicy,
@@ -297,6 +335,8 @@ console.log("KeyboardGeometry");
 console.log("DictionaryMaintenancePolicy");
 
 console.log("HandwritingStrokePolicy");
+
+console.log("KeyboardFormFactorPolicy");
 
 console.log("VoiceRecognitionPolicy");
 
@@ -448,8 +488,99 @@ group("voice input preference gates every Harmony entry point", () => {
   check(VoiceInputConfigurationPolicy.enabled(true), "an explicit true enables voice input");
 });
 
+group("keeps desktop-only chrome off touch devices", () => {
+  check(KeyboardFormFactorPolicy.isDesktop("2in1"), "a 2-in-1 gets the desktop candidate window");
+  check(!KeyboardFormFactorPolicy.isDesktop("phone"), "a phone keeps the touch keyboard");
+  check(!KeyboardFormFactorPolicy.isDesktop("tablet"), "a tablet keeps the touch keyboard");
+  check(!KeyboardFormFactorPolicy.isDesktop("default"), "an unknown form factor fails closed");
+  check(!KeyboardFormFactorPolicy.isDesktop(null), "missing device information fails closed");
+});
+
+group("SymbolPanelPolicy", () => {
+  const symbolCategories = SymbolPanelPolicy.categories();
+  check(
+    symbolCategories.map((category) => category.id).join(",") ===
+      "common,chinese,english,number,network",
+    "the symbol panel keeps its stable category order",
+  );
+  check(
+    symbolCategories.map((category) => category.symbols.length).join(",") === "30,50,40,50,30",
+    "the complete committed symbol catalog is present",
+  );
+  check(
+    symbolCategories.every((category) => category.title.length > 0 && category.symbols.length > 0),
+    "every symbol panel category has a title and entries",
+  );
+  check(
+    symbolCategories.every(
+      (category) => category.symbols.length <= SymbolPanelPolicy.maxSymbolsPerCategory(),
+    ),
+    "the symbol panel bounds each category",
+  );
+  check(
+    symbolCategories.every((category) =>
+      category.symbols.every((symbol) => SymbolPanelPolicy.isValidSymbol(symbol)),
+    ),
+    "the symbol panel rejects no catalog symbol",
+  );
+  check(
+    SymbolPanelPolicy.select(false).returnToKeyboard && !SymbolPanelPolicy.select(false).locked,
+    "a normal symbol tap returns to the keyboard",
+  );
+  check(
+    !SymbolPanelPolicy.select(true).returnToKeyboard && SymbolPanelPolicy.select(true).locked,
+    "a locked symbol panel stays open for continuous input",
+  );
+});
+
+group("a held Delete never crosses from composition into committed text", () => {
+  check(
+    BackspaceHoldPolicy.firstRepeat(true) === BackspaceHoldAction.CANCEL_COMPOSITION,
+    "the first repeat clears an unfinished composition as one operation",
+  );
+  check(
+    BackspaceHoldPolicy.firstRepeat(false) === BackspaceHoldAction.DELETE,
+    "without a composition the hold keeps deleting editor text",
+  );
+  check(
+    BackspaceHoldPolicy.deletesEditor(false),
+    "an unhandled backspace falls through to the editor",
+  );
+  check(
+    !BackspaceHoldPolicy.deletesEditor(true),
+    "a handled backspace never also deletes editor text",
+  );
+});
+
+group("composition boundaries preserve Japanese as kana", () => {
+  check(
+    CompositionBoundaryPolicy.action(false, true, CompositionBoundary.DEACTIVATE) ===
+      CompositionBoundaryAction.NONE,
+    "an idle boundary sends no Engine command",
+  );
+  check(
+    CompositionBoundaryPolicy.action(true, false, CompositionBoundary.MODE_SWITCH) ===
+      CompositionBoundaryAction.COMMIT_RAW,
+    "Chinese spelling keeps the established raw-commit boundary",
+  );
+  check(
+    CompositionBoundaryPolicy.action(true, true, CompositionBoundary.MODE_SWITCH) ===
+      CompositionBoundaryAction.FINISH_COMPOSITION,
+    "Japanese finishes kana instead of exposing its romaji strokes",
+  );
+  check(
+    CompositionBoundaryPolicy.action(true, false, CompositionBoundary.DEACTIVATE) ===
+      CompositionBoundaryAction.FINISH_COMPOSITION,
+    "deactivation finishes the highlighted composition before Runtime focus cancellation",
+  );
+});
+
 group("bounds handwriting points and rejects empty recognition requests", () => {
   const point = HandwritingStrokePolicy.point(999, -4);
+  check(
+    HANDWRITING_MAX_STROKES === 64 && HANDWRITING_MAX_POINTS === 512,
+    "the Harmony canvas preserves the fixed Apple stroke and point budgets",
+  );
   check(
     point.x === HANDWRITING_CANVAS_SIZE && point.y === 0,
     "handwriting points stay inside the canvas",
@@ -459,15 +590,68 @@ group("bounds handwriting points and rejects empty recognition requests", () => 
     HandwritingStrokePolicy.canRecognize([{ points: [point] }]),
     "a bounded stroke is recognisable",
   );
+  const maximumStrokes = Array.from({ length: HANDWRITING_MAX_STROKES }, () => ({
+    points: [point],
+  }));
+  check(
+    HandwritingStrokePolicy.canRecognize(maximumStrokes),
+    "the last supported stroke is accepted",
+  );
+  check(
+    !HandwritingStrokePolicy.canRecognize([...maximumStrokes, { points: [point] }]),
+    "one stroke past the source limit is refused",
+  );
+  const maximumPoints = Array.from({ length: HANDWRITING_MAX_POINTS }, () => point);
+  check(
+    HandwritingStrokePolicy.canRecognize([{ points: maximumPoints }]),
+    "the last supported point in a stroke is accepted",
+  );
+  check(
+    !HandwritingStrokePolicy.canRecognize([{ points: [...maximumPoints, point] }]),
+    "one point past the source limit is refused",
+  );
 });
 
 group("normalizes OCR candidates without leaking control text or duplicates", () => {
   const candidates = HandwritingStrokePolicy.candidates(" 水\n水\u0000永木未未 ");
   check(candidates.join("") === "水永木未", "OCR candidates are unique and trimmed");
   check(
-    HandwritingStrokePolicy.candidates("甲乙丙丁戊己庚辛").length === HANDWRITING_MAX_CANDIDATES,
-    "OCR candidates are bounded",
+    HANDWRITING_MAX_CANDIDATES === 12,
+    "the Harmony recognizer preserves all twelve alternatives from the fixed Apple source",
   );
+  const fullCandidateSet = "甲乙丙丁戊己庚辛壬癸子丑";
+  check(
+    HandwritingStrokePolicy.candidates(fullCandidateSet).length === HANDWRITING_MAX_CANDIDATES,
+    "OCR candidates are bounded without dropping the final four alternatives",
+  );
+  check(
+    HandwritingStrokePolicy.candidates("甲乙丙", 0).length === 0 &&
+      HandwritingStrokePolicy.candidates("甲乙丙", -1).length === 0,
+    "zero and negative candidate limits do not leak one result",
+  );
+  check(
+    HandwritingStrokePolicy.candidates(fullCandidateSet + "寅卯", 99).length ===
+      HANDWRITING_MAX_CANDIDATES,
+    "custom candidate limits cannot exceed the platform cap",
+  );
+});
+
+group("new handwriting stays writable while an older OCR request runs", () => {
+  const queue = new HandwritingRecognitionQueue();
+  queue.changed();
+  const first: HandwritingRecognitionTicket | null = queue.request();
+  check(first !== null, "the first settled canvas starts recognition");
+  queue.changed();
+  check(first !== null && !queue.accepts(first), "a new stroke invalidates the old OCR result");
+  check(queue.request() === null, "platform OCR remains serial while the old request finishes");
+  queue.changed();
+  check(queue.request() === null, "more strokes collapse into the same pending request");
+  const latest: HandwritingRecognitionTicket | null = queue.finish();
+  check(
+    latest !== null && queue.accepts(latest),
+    "completion immediately starts the latest canvas",
+  );
+  check(queue.finish() === null, "the queue drains after the newest canvas is recognised");
 });
 
 group("allows reads during composition without restarting the session", () => {
@@ -493,21 +677,22 @@ group("refuses every mutation while composition is active", () => {
   }
 });
 
-group("importing a file is queued, so the keyboard being open cannot refuse it", () => {
+group("personal imports and cloud downloads are queued while the keyboard is open", () => {
   // The user chooses when to import, and they are as likely to do it with the keyboard up as with
   // it down. "dictionary maintenance busy" is not an answer to "add these words".
-  for (const composing of [false, true]) {
-    const decision = DictionaryMaintenancePolicy.decide("import_personal", composing);
-    check(decision.queued, `import_personal goes to the queue (composing: ${composing})`);
-    check(decision.allowed, `and is allowed (composing: ${composing})`);
-    // It writes its own file and never the Engine, so there is nothing to take a window for and
-    // nothing for a live session to be stopped over.
-    check(!decision.maintenance, `without asking for the Engine (composing: ${composing})`);
-    check(decision.error === "", `and without a refusal (composing: ${composing})`);
+  for (const operation of ["import_personal", "queue_edit"]) {
+    for (const composing of [false, true]) {
+      const decision = DictionaryMaintenancePolicy.decide(operation, composing);
+      check(decision.queued, `${operation} goes to the queue (composing: ${composing})`);
+      check(decision.allowed, `and is allowed (composing: ${composing})`);
+      // It writes its own file and never the Engine, so there is nothing to take a window for and
+      // nothing for a live session to be stopped over.
+      check(!decision.maintenance, `without asking for the Engine (composing: ${composing})`);
+      check(decision.error === "", `and without a refusal (composing: ${composing})`);
+    }
   }
-  // Only this one. A single edit made in the settings window is a word the user is watching for in
-  // the list beside it; queueing that would leave the list unchanged until the keyboard next
-  // started, which looks exactly like the edit having been lost.
+  // Ordinary settings edits still go directly to the Engine: the user is watching the list beside
+  // that form, and queueing them would look exactly like the edit having been lost.
   for (const operation of ["list", "edit", "import", "export", "retry", "dismiss_failure"]) {
     check(
       !DictionaryMaintenancePolicy.decide(operation, false).queued,
@@ -599,21 +784,27 @@ group("a key says what it does, not what it draws", () => {
     "and names the other direction when it is pointing back",
   );
   check(KeyAccessibilityPolicy.punctuation() === "常用标点", "the comma key names its long press");
+  check(
+    KeyAccessibilityPolicy.symbolPanel() === "符号面板",
+    "the compact symbol key names its panel",
+  );
 });
 
 group("every tool in the shortcut bar has a name", () => {
   // The bar is drawn entirely in icons, so a button with no name is announced as nothing at all.
-  // Four of the seven were in that state: the policy had names for three and none for the rest.
+  // The eighth tool is conditional, but needs a stable name when the thoughtful-reply scheme adds
+  // it to the same bar.
   const names: string[] = [
     KeyAccessibilityPolicy.tools(),
     KeyAccessibilityPolicy.emoji(),
     KeyAccessibilityPolicy.voice(),
+    KeyAccessibilityPolicy.reply(),
     KeyAccessibilityPolicy.skin(),
     KeyAccessibilityPolicy.scheme(),
     KeyAccessibilityPolicy.geometry(),
     KeyAccessibilityPolicy.dismiss(),
   ];
-  check(names.length === 7, "seven buttons, seven names");
+  check(names.length === 8, "all eight possible buttons have names");
   for (const name of names) {
     check(name.trim().length > 0, "no button is left nameless");
     check(
@@ -802,6 +993,37 @@ group("display strings match the Java formatting", () => {
   check(KeyboardGeometry.halfGapPixels(60, 3) === 9, "half gap rounds to whole pixels");
   check(KeyboardGeometry.halfGapPixels(60, 0) === 0, "a non-positive density yields no gap");
   check(KeyboardGeometry.halfGapPixels(60, Number.NaN) === 0, "a non-finite density yields no gap");
+});
+
+group("layout adjustment follows the first drag axis", () => {
+  check(
+    KeyboardLayoutDragPolicy.axis(20, 5) === KeyboardLayoutDragAxis.KEY_SPACING,
+    "a mostly horizontal drag adjusts key spacing",
+  );
+  check(
+    KeyboardLayoutDragPolicy.axis(5, 20) === KeyboardLayoutDragAxis.ROW_SPACING,
+    "a mostly vertical drag adjusts row spacing",
+  );
+  check(
+    KeyboardLayoutDragPolicy.axis(10, 10) === KeyboardLayoutDragAxis.ROW_SPACING,
+    "a diagonal tie follows the source's vertical preference",
+  );
+  check(
+    KeyboardLayoutDragPolicy.keySpacing(40, 18) === 50,
+    "eighteen vp moves key spacing by one visible point",
+  );
+  check(
+    KeyboardLayoutDragPolicy.rowSpacing(60, -18) === 50,
+    "row spacing uses the same scaled gesture",
+  );
+  check(
+    KeyboardLayoutDragPolicy.height(0, -12) === 12,
+    "dragging the top edge upward increases keyboard height one-for-one",
+  );
+  check(
+    KeyboardLayoutDragPolicy.height(48, -100) === KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP,
+    "height remains inside the shared preference bounds",
+  );
 });
 
 console.log("CandidateWrapPolicy");
@@ -1058,6 +1280,34 @@ group("the engine scheme id names the scheme the policies compare against", () =
   );
 });
 
+group("special touch faces yield to modes that need literal keys", () => {
+  check(
+    KeyboardScheme.usesHandwritingFace(KeyboardScheme.HANDWRITING, false, false, "none"),
+    "Chinese handwriting shows its canvas",
+  );
+  check(
+    !KeyboardScheme.usesHandwritingFace(KeyboardScheme.HANDWRITING, true, false, "none"),
+    "English leaves handwriting for alphabetic keys",
+  );
+  check(
+    !KeyboardScheme.usesHandwritingFace(KeyboardScheme.HANDWRITING, false, true, "none"),
+    "the symbol layer leaves handwriting for symbol rows",
+  );
+  check(
+    !KeyboardScheme.usesHandwritingFace(KeyboardScheme.HANDWRITING, false, false, "unicode"),
+    "a local utility leaves handwriting for literal alphabetic keys",
+  );
+  check(
+    !KeyboardScheme.usesHandwritingFace(KeyboardScheme.QUANPIN, false, false, "none"),
+    "an alphabetic scheme never borrows the handwriting canvas",
+  );
+  check(KeyboardScheme.usesNineKeyFace(true, "none"), "the saved nine-key layout keeps its grid");
+  check(
+    !KeyboardScheme.usesNineKeyFace(true, "unicode"),
+    "a local utility overrides nine-key with literal alphabetic keys",
+  );
+});
+
 group("a runtime selection that changes nothing produces no update", () => {
   check(
     KeyboardScheme.mappingForRuntimeSelection(
@@ -1132,6 +1382,20 @@ group("the digit layer re-labels the grid instead of handing over ten across", (
       (symbol: string) => !NineKeyLayout.punctuation().includes(symbol),
     ),
     "and offers marks the letter layer does not already carry",
+  );
+});
+
+group("a long press exposes the literal digit and letters", () => {
+  const rows: NineKey[][] = NineKeyLayout.rows();
+  check(NineKeyLayout.holdOptions(rows[0][1]).join("") === "2abc", "ABC offers 2, a, b and c");
+  check(NineKeyLayout.holdOptions(rows[2][0]).join("") === "7pqrs", "PQRS keeps all four letters");
+  check(
+    NineKeyLayout.holdOptions(rows[0][0]).length === 0,
+    "the word-split cell has no literal menu",
+  );
+  check(
+    NineKeyLayout.holdOptions(NineKeyLayout.digits()[0][1]).length === 0,
+    "the digit face does not duplicate its own tap",
   );
 });
 
@@ -1981,6 +2245,54 @@ group("a chip is as wide as its column, whether or not the gloss has arrived", (
   );
 });
 
+group("candidate gloss layout follows both independent switches before answers arrive", () => {
+  const none: CandidateGlossProviderState = {
+    customEnabled: false,
+    customEndpoint: "",
+    niuTransEnabled: false,
+    niuTransAppId: "",
+    niuTransApiKey: "",
+    tencentEnabled: false,
+    tencentSecretId: "",
+    tencentSecretKey: "",
+  };
+  check(
+    CandidateGlossLayoutPolicy.displays(true, false),
+    "the packaged English gloss switch displays its own results",
+  );
+  check(
+    CandidateGlossLayoutPolicy.displays(false, true),
+    "online translations do not depend on the packaged English gloss switch",
+  );
+  check(
+    CandidateGlossLayoutPolicy.rows(true, ["ja", "en"], false, none) === 1,
+    "an English secondary target reserves the packaged gloss line",
+  );
+  check(
+    CandidateGlossLayoutPolicy.rows(true, ["ja"], false, none) === 0,
+    "the English dictionary does not reserve a wrong-language line",
+  );
+  const custom: CandidateGlossProviderState = {
+    ...none,
+    customEnabled: true,
+    customEndpoint: "https://translation.example.invalid",
+  };
+  check(
+    CandidateGlossLayoutPolicy.rows(false, ["ja"], true, custom) === 1,
+    "a usable online provider reserves one merged Harmony gloss line",
+  );
+  const placeholder: CandidateGlossProviderState = {
+    ...none,
+    tencentEnabled: true,
+    tencentSecretId: "<secret-id>",
+    tencentSecretKey: "FAKESECRET_fixture",
+  };
+  check(
+    CandidateGlossLayoutPolicy.rows(false, ["en"], true, placeholder) === 0,
+    "placeholder credentials do not leave a permanently empty row",
+  );
+});
+
 group("the expanded panel offers the same gloss the strip does", () => {
   // MSIME-Apple's TheExpandedPanelAnswersALongPressToo and TheExpandedPanelDrawsTheSameGlossesAsThe
   // Strip. Here allCandidates() kept only the text, so the panel listed words while the strip
@@ -2002,6 +2314,36 @@ group("the expanded panel offers the same gloss the strip does", () => {
   const widthOf = (text: string): number => Array.from(text).length * 20 + 8;
   check(widthOf("你好") === 48, "two CJK characters are two columns");
   check(widthOf("\u{1F600}") === 28, "and an emoji is one, not two");
+});
+
+group("expanded candidates stay on one line and inside their row", () => {
+  const available = 320 - KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP * 2;
+  const ordinary = ExpandedCandidateLayout.width(
+    "日本",
+    0,
+    18,
+    KeyboardMetrics.CANDIDATE_PADDING_VP,
+    available,
+  );
+  const long = ExpandedCandidateLayout.width(
+    "とてもながいこうほごがここにはいります",
+    6,
+    18,
+    KeyboardMetrics.CANDIDATE_PADDING_VP,
+    available,
+  );
+  check(ordinary < available, "ordinary candidates retain their natural compact width");
+  check(long === available, "one long candidate is capped to the whole visible row");
+  check(
+    ExpandedCandidateLayout.width("😀", 9, 18, 12, available) <
+      ExpandedCandidateLayout.width("😀😀", 9, 18, 12, available),
+    "width estimation counts code points rather than UTF-16 halves",
+  );
+  const assignment = CandidateWrapPolicy.rows(available, 0, [ordinary, long, ordinary]);
+  check(
+    assignment[0] === 0 && assignment[1] === 1 && assignment[2] === 2,
+    "a full-width long candidate owns one row without pushing outside it",
+  );
 });
 
 group("a candidate with a gloss offers the gloss as something to type", () => {
@@ -2034,6 +2376,18 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
   check(
     long?.announcement.includes("x".repeat(200)) === true,
     "while the announcement keeps the whole thing, which is read aloud rather than laid out",
+  );
+
+  const touch = CandidateManagementAction.touchActions("hello", true);
+  check(touch.length === 1, "a touch long press offers one action, not desktop management");
+  check(touch[0].title === "hello", "the touch action is the bare gloss, as the source draws it");
+  check(
+    CandidateManagementAction.touchActions("hello", false).length === 0,
+    "an Engine annotation is not offered as translated text",
+  );
+  check(
+    CandidateManagementAction.touchActions("", true).length === 0,
+    "a candidate without a gloss has no touch long-press menu",
   );
 
   const distinct = CandidateManagementAction.actionsForFixedPosition(0).map(
@@ -2529,6 +2883,16 @@ group("maps hardware composition editing commands like Windows", () => {
       .action === HardwareKeyAction.RELEASE,
     "Shift+minus stays ordinary editor punctuation in Japanese",
   );
+  check(
+    HardwareKeyRouter.route(key(2050), true, true, false, navigation, false, true).action ===
+      HardwareKeyAction.JAPANESE_CONVERT,
+    "Japanese Space starts or advances conversion without committing",
+  );
+  check(
+    HardwareKeyRouter.route(key(2054), true, true, false, navigation, false, true).action ===
+      HardwareKeyAction.JAPANESE_COMMIT,
+    "Japanese Return commits conversion state rather than raw romaji",
+  );
 });
 
 group("routes Chinese hardware punctuation without stealing editor navigation", () => {
@@ -2827,6 +3191,26 @@ group("return performs an editor action only when nothing else claimed it", () =
   check(ReturnKeyAction.title(send, false) === "发送", "the key says what it will do");
   check(ReturnKeyAction.title(send, true) === "换行", "a disabled action falls back to newline");
   check(ReturnKeyAction.title(0, false) === "换行", "an unspecified action is a newline");
+  check(
+    ReturnKeyAction.dispatch(true, true, 0) === ReturnDispatch.COMMIT_READING,
+    "Japanese Return commits unconverted kana as its reading",
+  );
+  check(
+    ReturnKeyAction.dispatch(true, true, 3, false) === ReturnDispatch.COMMIT_READING,
+    "visible Japanese candidates do not imply that Space started conversion",
+  );
+  check(
+    ReturnKeyAction.dispatch(true, true, 3, true) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "Japanese Return commits the selected conversion when candidates exist",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "a candidate-less non-Japanese composition is still finished before Return",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, false, 0) === ReturnDispatch.EDITOR,
+    "an idle Return belongs to the editor",
+  );
 
   // Kept as a description of the Android split rather than of this host: HarmonyOS hands the enter
   // key type to sendKeyFunction and the framework resolves it, newline included, so nothing here
@@ -3334,8 +3718,16 @@ group("the word being completed is read backwards from the caret", () => {
   check(EnglishSuggestionPolicy.currentWord("") === "", "an empty editor has no word");
   check(EnglishSuggestionPolicy.currentWord(null) === "", "nor has an unreadable one");
   check(
-    EnglishSuggestionPolicy.currentWord("a".repeat(200)) === "",
-    "something longer than any word is refused rather than queried",
+    EnglishSuggestionPolicy.CONTEXT_CHARACTERS === 129,
+    "the editor read includes one character beyond the longest accepted word",
+  );
+  check(
+    EnglishSuggestionPolicy.currentWord("a".repeat(128)) === "a".repeat(128),
+    "the longest accepted word remains intact",
+  );
+  check(
+    EnglishSuggestionPolicy.currentWord("a".repeat(129)) === "",
+    "one letter beyond the limit is refused rather than querying its trailing suffix",
   );
 });
 
@@ -3938,6 +4330,14 @@ function recordingTarget(log: string[]): HardwareKeyTarget {
     previousPage: () => log.push("previousPage"),
     nextCandidate: () => log.push("nextCandidate"),
     previousCandidate: () => log.push("previousCandidate"),
+    convertJapanese: () => {
+      log.push("convertJapanese");
+      return true;
+    },
+    commitJapanese: () => {
+      log.push("commitJapanese");
+      return true;
+    },
   };
 }
 
@@ -4015,6 +4415,14 @@ group("every routed hardware key reaches the method that means it", () => {
     "and moving the highlight is not paging",
   );
   check(dispatched(HardwareKeyAction.PREVIOUS_CANDIDATE)[0] === "previousCandidate", "both ways");
+  check(
+    dispatched(HardwareKeyAction.JAPANESE_CONVERT)[0] === "convertJapanese",
+    "Japanese Space reaches conversion state",
+  );
+  check(
+    dispatched(HardwareKeyAction.JAPANESE_COMMIT)[0] === "commitJapanese",
+    "Japanese Return reaches conversion-aware commit",
+  );
 });
 
 group("word-character keys take the end of the candidate they name", () => {
@@ -4217,6 +4625,40 @@ const URI: EditorTraits = traits(true, false, true, false, false);
 const EMAIL: EditorTraits = traits(true, false, false, true, false);
 const NO_SUGGESTIONS: EditorTraits = traits(true, false, false, false, true);
 const NUMERIC: EditorTraits = traits(false, false, false, false, false);
+
+group("a delayed editor callback never interrupts typing", () => {
+  check(
+    EditorPolicy.appliesDelayedLanguage(false, false, true),
+    "an idle keyboard adopts the editor's Latin override",
+  );
+  check(
+    !EditorPolicy.appliesDelayedLanguage(true, false, true),
+    "a composition typed while attributes load is not reset",
+  );
+  check(
+    !EditorPolicy.appliesDelayedLanguage(false, true, true),
+    "an unchanged mode does not issue a redundant Engine reset",
+  );
+  check(
+    !EditorPolicy.appliesDelayedLanguage(false, false, true, true),
+    "a delayed Latin preference cannot undo a manual Chinese choice in this editor",
+  );
+  check(
+    EditorPolicy.appliesDelayedLanguage(false, false, true, false),
+    "the same field preference still applies in a fresh editor generation",
+  );
+});
+
+group("editor change echoes preserve keyboard-owned composition", () => {
+  check(
+    !EditorPolicy.isExternalTextChange(1),
+    "a pending keyboard edit consumes its own asynchronous text-change echo",
+  );
+  check(
+    EditorPolicy.isExternalTextChange(0),
+    "a text change with no pending keyboard mutation came from the host",
+  );
+});
 
 group("a password field never sees a composition buffer", () => {
   check(EditorPolicy.useEngine(PLAIN) === true, "prose composes through the Engine");
@@ -4489,6 +4931,33 @@ group("only real image bytes are accepted as a photo", () => {
     CustomKeyboardSkin.from(document({}), huge).photo() === null,
     "an oversized photo is dropped even when it is a real PNG",
   );
+  const encoded = CustomKeyboardSkin.from(document({ photo: "iVBORw0KGgo=" }));
+  check(encoded.photo()?.length === 8, "the shared base64 photo is decoded and bounded");
+  check(
+    encoded.photoSource() === "data:image/png;base64,iVBORw0KGgo=",
+    "a validated photo becomes an ArkUI image source",
+  );
+  check(
+    CustomKeyboardSkin.from(document({ photo: "not-base64" })).photoSource() === null,
+    "invalid preference text never reaches the image decoder",
+  );
+});
+
+group("custom key treatments reach native surface values", () => {
+  const capsule = KeyboardSkin.from(
+    "custom",
+    false,
+    CustomKeyboardSkin.from(
+      document({ keyShape: "capsule", keyMaterial: "glass", keyOpacity: 0.45, shadow: 0.3 }),
+    ),
+  );
+  check(capsule.keyCornerRadius() === 999, "a capsule asks ArkUI for a pill radius");
+  check(capsule.materialTop() === "#3DFFFFFF", "glass carries a visible top highlight");
+  check(
+    capsule.keySurfaceBackground(false).startsWith("#73"),
+    "key opacity changes only the fill alpha",
+  );
+  check(capsule.shadowColor().startsWith("#4D"), "the configured shadow reaches its ARGB colour");
 });
 
 group("the design key changes whenever the drawing would", () => {
@@ -4524,6 +4993,26 @@ group("the panel is as tall as what the view stacks inside it", () => {
     "four rows are separated by four gaps, not three",
   );
   check(KeyboardMetrics.totalHeightVp() > 0, "a panel given a height of zero never appears");
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 1, 18) - KeyboardMetrics.totalHeightVp(70, 0, 0, 18) ===
+      KeyboardMetrics.glossHeightVp(1, 18),
+    "one reserved gloss row grows the panel instead of taking height from the keys",
+  );
+  check(
+    KeyboardMetrics.candidateHeightVp("horizontal", 3, true, 0, 1, 18) -
+      KeyboardMetrics.candidateHeightVp("horizontal", 3, true, 0, 0, 18) ===
+      KeyboardMetrics.glossHeightVp(1, 18),
+    "a horizontal desktop strip also reserves the asynchronous gloss row",
+  );
+  check(
+    KeyboardMetrics.candidateHeightVp("vertical", 3, true, 0, 1) ===
+      KeyboardMetrics.candidateHeightVp("vertical", 3, true, 0, 0),
+    "a vertical 2-in-1 list keeps its beside-the-candidate adaptation",
+  );
+  check(
+    KeyboardMetrics.glossHeightVp(1, 32) > KeyboardMetrics.glossHeightVp(1, 18),
+    "a large candidate font grows its gloss line instead of clipping it",
+  );
 
   // The user's settings move both, and the panel has to move with them or the bottom row is clipped.
   check(
@@ -4803,22 +5292,6 @@ group("a clipboard history document is not trusted because we wrote it", () => {
   check(good.length === 1 && good[0].text === "a", "a sound document round-trips");
 });
 
-group("pinning and removing", () => {
-  const items = [clip("a", 100), clip("b", 200)];
-  const pinned = ClipboardHistoryStore.togglePin(items, "a");
-  check(pinned[0].text === "a" && pinned[0].pinned, "pinning moves the entry to the top");
-  check(
-    !ClipboardHistoryStore.togglePin(pinned, "a")[0].pinned ||
-      ClipboardHistoryStore.togglePin(pinned, "a")[0].text === "b",
-    "pinning again releases it",
-  );
-  check(ClipboardHistoryStore.remove(items, "a").length === 1, "removing takes one entry");
-  check(
-    ClipboardHistoryStore.remove(items, "missing").length === 2,
-    "removing something absent changes nothing",
-  );
-});
-
 group("account and cloud clipboard bridge keeps secrets native", () => {
   let stored: string | null = null;
   const store: AccountSessionStore = {
@@ -4875,6 +5348,40 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
     .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
     .then((result) => {
       check(JSON.parse(result).ok === true && stored !== null, "login stores a native session");
+      const beforeInvalidDelete = calls.length;
+      void bridge
+        .handle(
+          JSON.stringify({
+            operation: "clipboard",
+            clipboard_operation: "delete",
+            id: "../auth/logout",
+          }),
+        )
+        .then((reply) => {
+          check(
+            JSON.parse(reply).error === "account_invalid",
+            "a path-like clipboard id is rejected locally",
+          );
+          check(
+            calls.length === beforeInvalidDelete,
+            "an invalid clipboard id never carries the session to transport",
+          );
+          void bridge
+            .handle(
+              JSON.stringify({
+                operation: "clipboard",
+                clipboard_operation: "delete",
+                id: "c".repeat(64),
+              }),
+            )
+            .then((validReply) => {
+              check(JSON.parse(validReply).ok === true, "a digest clipboard id can be deleted");
+              check(
+                calls.some((call) => call.path === `/v1/users/me/clipboard/${"c".repeat(64)}`),
+                "the validated id occupies exactly one path segment",
+              );
+            });
+        });
     });
   void bridge.handle('{"operation":"unknown"}').then((result) => {
     check(JSON.parse(result).ok === false, "unknown clipboard shape is rejected");
@@ -4885,6 +5392,20 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
       check(
         JSON.parse(result).error === "account_invalid",
         "control characters never reach transport",
+      );
+    });
+  void bridge
+    .handle(
+      JSON.stringify({
+        operation: "clipboard",
+        clipboard_operation: "add",
+        text: "😀".repeat(2001),
+      }),
+    )
+    .then((result) => {
+      check(
+        JSON.parse(result).error === "account_invalid",
+        "clipboard text is bounded in UTF-16 units before transport",
       );
     });
   void bridge.handle('{"operation":"profile"}').then((result) => {
@@ -4929,6 +5450,577 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
         "dictionary offsets are bounded before transport",
       );
     });
+});
+
+group("cloud candidate mutations preserve the service protocol", () => {
+  const stored = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const calls: { method: string; body?: Record<string, unknown> }[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (method, path, _token, body) => {
+        if (path === "/v1/users/me/dictionary/positions") calls.push({ method, body });
+        return { status: 200, body: '{"revision":43}' };
+      },
+    },
+    { load: () => stored, save: () => {}, clear: () => {} },
+  );
+  const mutate = (position: number | null) =>
+    bridge.handle(
+      JSON.stringify({
+        operation: "dictionary",
+        dictionary_operation: "set_fixed_position",
+        context: "server:context",
+        code: "ni'hao",
+        word: "你好",
+        position,
+        revision: 42,
+      }),
+    );
+  void mutate(null).then((reply) => {
+    check(JSON.parse(reply).ok === true, "a fixed position can be removed");
+    check(calls[0]?.method === "DELETE", "removal uses DELETE");
+    check(calls[0]?.body?.context === "server:context", "removal preserves server context");
+    check(
+      calls[0]?.body !== undefined && !("position" in calls[0].body),
+      "removal omits position instead of serializing null",
+    );
+    void mutate(3).then((assigned) => {
+      check(JSON.parse(assigned).ok === true, "a fixed position can be assigned");
+      check(calls[1]?.method === "PUT", "assignment uses PUT");
+      check(calls[1]?.body?.position === 3, "assignment sends the requested position");
+    });
+  });
+});
+
+group("cloud dictionary exports are bounded before a native host saves them", () => {
+  const stored = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  let response: AccountTransportResponse = { status: 200, body: "A" };
+  let calls = 0;
+  const bridge = new AccountCloudBridge(
+    {
+      request: async () => {
+        calls += 1;
+        return response;
+      },
+    },
+    { load: () => stored, save: () => {}, clear: () => {} },
+  );
+  const ordinaryJsonLimit = "A".repeat(2 * 1024 * 1024);
+  response = { status: 200, body: ordinaryJsonLimit, contentLength: ordinaryJsonLimit.length };
+  void bridge.downloadDictionary("quick", "standard").then((reply) => {
+    check(
+      reply.body?.length === ordinaryJsonLimit.length,
+      "a 2 MiB export reaches the native saver",
+    );
+    response = { status: 200, body: "A".repeat(3 * 1024 * 1024 + 1) };
+    void bridge.downloadDictionary("quick", "standard").then((oversized) => {
+      check(oversized.body === undefined, "an export above 3 MiB is refused before saving");
+      response = { status: 200, body: "short", contentLength: 3000000 };
+      void bridge.downloadDictionary("quick", "standard").then((truncated) => {
+        check(truncated.body === undefined, "a truncated export is refused before saving");
+        const beforeInvalid = calls;
+        void bridge.downloadDictionary("quick", "hans").then((invalid) => {
+          check(invalid.error === "account_invalid", "an unsupported export format is refused");
+          check(
+            calls === beforeInvalid,
+            "an invalid export never carries the session to transport",
+          );
+        });
+      });
+    });
+  });
+});
+
+group("large account files use the authenticated streaming transport", () => {
+  const stored = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const downloads: { path: string; maximum: number; media: string; token: string }[] = [];
+  let response = {
+    status: 200,
+    bytes: MAX_DICTIONARY_EXPORT_BYTES,
+    contentLength: MAX_DICTIONARY_EXPORT_BYTES,
+    contentType: "text/plain",
+  };
+  const bridge = new AccountCloudBridge(
+    {
+      request: async () => ({ status: 500, body: "" }),
+      download: async (path, token, _destination, maximum, media) => {
+        downloads.push({ path, maximum, media, token });
+        return response;
+      },
+    },
+    { load: () => stored, save: () => {}, clear: () => {} },
+  );
+  void bridge
+    .downloadAuthenticated(
+      "/v1/users/me/dictionaries/quick/export?format=standard",
+      "/private/export.tsv",
+      MAX_DICTIONARY_EXPORT_BYTES,
+      "text/plain",
+    )
+    .then((downloaded) => {
+      check(
+        downloaded.bytes === MAX_DICTIONARY_EXPORT_BYTES,
+        "the full 384 MiB dictionary contract is accepted without a bridged string",
+      );
+      check(
+        downloads[0]?.maximum === MAX_DICTIONARY_EXPORT_BYTES &&
+          downloads[0]?.media === "text/plain",
+        "the native transport receives the source limit and media type",
+      );
+      response = {
+        status: 200,
+        bytes: 100,
+        contentLength: 101,
+        contentType: "application/x-ndjson",
+      };
+      void bridge
+        .downloadAuthenticated(
+          "/v1/users/me/dictionary/snapshot",
+          "/private/snapshot.ndjson",
+          MAX_SNAPSHOT_DOWNLOAD_BYTES,
+          "application/x-ndjson",
+        )
+        .then((truncated) => {
+          check(truncated.bytes === undefined, "a truncated streamed snapshot is refused");
+          const beforeInvalid = downloads.length;
+          void bridge
+            .downloadAuthenticated(
+              "/v1/users/me/dictionary/snapshot",
+              "/private/snapshot.ndjson",
+              MAX_SNAPSHOT_DOWNLOAD_BYTES + 1,
+              "application/x-ndjson",
+            )
+            .then((invalid) => {
+              check(invalid.error === "account_invalid", "download bounds stop at 512 MiB");
+              check(
+                downloads.length === beforeInvalid,
+                "an invalid streaming request never carries the session to transport",
+              );
+            });
+        });
+    });
+});
+
+group("snapshot restores stream privately and retry one rejected access token", () => {
+  let stored = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const uploads: { source: string; revision: number; sha256: string; token: string }[] = [];
+  const digest = "c".repeat(64);
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (method, path) => {
+        check(method === "POST" && path === "/v1/auth/refresh", "a rejected upload refreshes once");
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: "d".repeat(64),
+            refresh_token: "e".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+          }),
+        };
+      },
+      uploadSnapshot: async (source, revision, sha256, token) => {
+        uploads.push({ source, revision, sha256, token });
+        return token.startsWith("a")
+          ? { status: 401, body: "" }
+          : { status: 200, body: '{"revision":10,"reset":true}' };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = "";
+      },
+    },
+  );
+
+  void bridge
+    .restoreSnapshotAuthenticated("/private/restore.ndjson", 9, digest)
+    .then((restored) => {
+      check(restored.value?.revision === 10, "the advancing reset response is accepted");
+      check(uploads.length === 2, "the private file upload is attempted exactly twice");
+      check(
+        uploads[0]?.source === "/private/restore.ndjson" &&
+          uploads[0]?.sha256 === digest &&
+          uploads[1]?.token === "d".repeat(64),
+        "the file identity survives access-token rotation",
+      );
+      const beforeInvalid = uploads.length;
+      void bridge.restoreSnapshotAuthenticated("relative.ndjson", 9, digest).then((invalid) => {
+        check(invalid.error === "account_invalid", "only absolute private files may be uploaded");
+        check(uploads.length === beforeInvalid, "invalid restore input never reaches transport");
+      });
+    });
+
+  const deferred: { resolve?: (response: AccountTransportResponse) => void } = {};
+  const cancelled = new AccountCloudBridge(
+    {
+      request: async () => ({ status: 500, body: "" }),
+      uploadSnapshot: async () =>
+        await new Promise<AccountTransportResponse>((resolve) => {
+          deferred.resolve = resolve;
+        }),
+    },
+    { load: () => stored, save: () => {}, clear: () => {} },
+  );
+  void cancelled
+    .restoreSnapshotAuthenticated("/private/restore.ndjson", 9, digest)
+    .then((result) => {
+      check(result.error === "account_cancelled", "logout invalidates an in-flight restore reply");
+    });
+  void cancelled.handle('{"operation":"clear_expired"}').then(() => {
+    check(deferred.resolve !== undefined, "the upload had started before the session changed");
+    deferred.resolve?.({ status: 200, body: '{"revision":10,"reset":true}' });
+  });
+});
+
+group("snapshot conflict pages cannot lie about their cursor", () => {
+  const changed = JSON.stringify({
+    changes: [
+      {
+        revision: 2,
+        ranking: [
+          {
+            id: "",
+            kind: "pinyin",
+            code: "ni",
+            word: "你",
+            weight: 8,
+            revision: 2,
+            user_inserted: false,
+          },
+        ],
+        selection: { context: "pinyin", code: "ni", word: "你", count: 0 },
+        position: { context: "pinyin", code: "ni", word: "你", position: 0 },
+        reset: true,
+      },
+    ],
+    next: 2,
+    has_more: true,
+  });
+  check(
+    dictionaryChangePageChanged(changed, 0) === true,
+    "any well-formed change conflicts with a prepared snapshot",
+  );
+  check(
+    dictionaryChangePageChanged('{"changes":[],"next":4,"has_more":false}', 4) === false,
+    "an empty stationary final page keeps the snapshot current",
+  );
+  for (const invalid of [
+    '{"changes":[{"revision":5}],"next":5,"has_more":false}',
+    '{"changes":[],"next":7,"has_more":false}',
+    '{"changes":[],"next":7,"has_more":true}',
+  ]) {
+    check(
+      dictionaryChangePageChanged(invalid, invalid.includes("5") ? 5 : 6) === null,
+      "a non-advancing or inconsistent cursor is refused",
+    );
+  }
+});
+
+group("account access tokens rotate once and cannot outlive logout", () => {
+  const savedSession = (access: string, refresh: string, expiresAt: number) =>
+    JSON.stringify({
+      access_token: access.repeat(64),
+      refresh_token: refresh.repeat(64),
+      token_type: "Bearer",
+      expires_at: expiresAt,
+      user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+    });
+  const refreshBody = (access: string) =>
+    JSON.stringify({
+      access_token: access.repeat(64),
+      refresh_token: "f".repeat(64),
+      token_type: "Bearer",
+      expires_in: 900,
+      user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+    });
+
+  let stored: string | null = savedSession("a", "b", Date.now() - 1);
+  const refreshDeferred: { resolve?: (response: AccountTransportResponse) => void } = {};
+  let refreshCalls = 0;
+  const transport: AccountTransport = {
+    request: async (_method, path, token) => {
+      if (path === "/v1/auth/refresh") {
+        refreshCalls += 1;
+        return await new Promise<AccountTransportResponse>((resolve) => {
+          refreshDeferred.resolve = resolve;
+        });
+      }
+      check(token === "c".repeat(64), "authenticated work receives the rotated access token");
+      return {
+        status: 200,
+        body: '{"user":{"id":"synthetic-user","display_name":"Test","created_at":"2026-01-01"},"identities":[]}',
+      };
+    },
+  };
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: (value) => {
+      stored = value;
+    },
+    clear: () => {
+      stored = null;
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  void bridge.handle('{"operation":"status"}').then((reply) => {
+    check(
+      JSON.parse(reply).value.user.id === "synthetic-user",
+      "an expired access token does not erase the refreshable account",
+    );
+  });
+  const first = bridge.handle('{"operation":"profile"}');
+  const second = bridge.handle('{"operation":"profile"}');
+  check(refreshCalls === 1, "concurrent account callers share one refresh request");
+  refreshDeferred.resolve?.({ status: 200, body: refreshBody("c") });
+  void Promise.all([first, second]).then((replies) => {
+    check(
+      replies.every((reply) => JSON.parse(reply).ok === true),
+      "both callers resume after rotation",
+    );
+    check(
+      stored !== null && JSON.parse(stored).access_token === "c".repeat(64),
+      "rotated credentials replace the persisted session",
+    );
+  });
+
+  let lateStored: string | null = savedSession("d", "e", Date.now() - 1);
+  const lateDeferred: { resolve?: (response: AccountTransportResponse) => void } = {};
+  const lateBridge = new AccountCloudBridge(
+    {
+      request: async () =>
+        await new Promise<AccountTransportResponse>((resolve) => {
+          lateDeferred.resolve = resolve;
+        }),
+    },
+    {
+      load: () => lateStored,
+      save: (value) => {
+        lateStored = value;
+      },
+      clear: () => {
+        lateStored = null;
+      },
+    },
+  );
+  const late = lateBridge.handle('{"operation":"profile"}');
+  void lateBridge.handle('{"operation":"clear_expired"}').then(() => {
+    lateDeferred.resolve?.({ status: 200, body: refreshBody("f") });
+  });
+  void late.then((reply) => {
+    check(JSON.parse(reply).error === "account_cancelled", "logout rejects a late refresh result");
+    check(lateStored === null, "a late refresh cannot restore cleared storage");
+  });
+});
+
+group("profile updates preserve the session and cannot outlive logout", () => {
+  const expiresAt = Date.now() + 600000;
+  const original = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: expiresAt,
+    user: { id: "synthetic-user", display_name: "Before", created_at: "2026-01-01" },
+  });
+  let stored: string | null = original;
+  const calls: string[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (method, path, token) => {
+        calls.push(`${method} ${path}`);
+        check(token === "a".repeat(64), "profile updates keep credentials inside the host");
+        if (method === "PATCH") return { status: 204, body: "" };
+        return {
+          status: 200,
+          body: JSON.stringify({
+            user: {
+              id: "synthetic-user",
+              display_name: "Canonical name",
+              created_at: "2026-01-01",
+            },
+            identities: [{ provider: "email", subject: "synthetic@example.test" }],
+          }),
+        };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+    },
+  );
+  void bridge
+    .handle(JSON.stringify({ operation: "rename", display_name: "Requested name" }))
+    .then(async (reply) => {
+      check(
+        JSON.parse(reply).value.user.display_name === "Canonical name",
+        "rename returns the canonical profile",
+      );
+      check(
+        JSON.stringify(calls) === JSON.stringify(["PATCH /v1/users/me", "GET /v1/users/me"]),
+        "rename reads the canonical profile after the no-content update",
+      );
+      const saved = stored === null ? null : JSON.parse(stored);
+      check(
+        saved?.user.display_name === "Canonical name",
+        "the canonical user replaces the cached user",
+      );
+      check(saved?.expires_at === expiresAt, "updating the cached user preserves session expiry");
+      check(
+        saved?.access_token === "a".repeat(64) && saved?.refresh_token === "b".repeat(64),
+        "updating the cached user preserves both tokens",
+      );
+      const status = JSON.parse(await bridge.handle('{"operation":"status"}'));
+      check(
+        status.value.user.display_name === "Canonical name",
+        "status immediately sees the updated cache",
+      );
+      const beforeInvalid = calls.length;
+      const invalid = await bridge.handle(
+        JSON.stringify({ operation: "rename", display_name: "😀".repeat(65) }),
+      );
+      check(
+        JSON.parse(invalid).error === "account_invalid",
+        "native rename enforces the 64-character limit",
+      );
+      check(calls.length === beforeInvalid, "an oversized nickname never reaches transport");
+    });
+
+  let lateStored: string | null = original;
+  let resolveProfile: ((response: AccountTransportResponse) => void) | undefined;
+  let markProfileStarted: (() => void) | undefined;
+  const profileStarted = new Promise<void>((resolve) => {
+    markProfileStarted = resolve;
+  });
+  const lateBridge = new AccountCloudBridge(
+    {
+      request: async (method) => {
+        if (method === "PATCH") return { status: 204, body: "" };
+        markProfileStarted?.();
+        return await new Promise<AccountTransportResponse>((resolve) => {
+          resolveProfile = resolve;
+        });
+      },
+    },
+    {
+      load: () => lateStored,
+      save: (value) => {
+        lateStored = value;
+      },
+      clear: () => {
+        lateStored = null;
+      },
+    },
+  );
+  const lateRename = lateBridge.handle(
+    JSON.stringify({ operation: "rename", display_name: "Late name" }),
+  );
+  void profileStarted.then(async () => {
+    await lateBridge.handle('{"operation":"clear_expired"}');
+    resolveProfile?.({
+      status: 200,
+      body: JSON.stringify({
+        user: { id: "synthetic-user", display_name: "Late name", created_at: "2026-01-01" },
+        identities: [],
+      }),
+    });
+  });
+  void lateRename.then((reply) => {
+    check(JSON.parse(reply).error === "account_cancelled", "logout rejects a late profile result");
+    check(lateStored === null, "a late profile cannot restore cleared storage");
+  });
+});
+
+group("a rejected account token refreshes and retries once", () => {
+  let stored: string | null = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const tokens: string[] = [];
+  let refreshCalls = 0;
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path, token) => {
+        if (path === "/v1/auth/refresh") {
+          refreshCalls += 1;
+          return {
+            status: 200,
+            body: JSON.stringify({
+              access_token: "c".repeat(64),
+              refresh_token: "d".repeat(64),
+              token_type: "Bearer",
+              expires_in: 900,
+              user: {
+                id: "synthetic-user",
+                display_name: "Test",
+                created_at: "2026-01-01",
+              },
+            }),
+          };
+        }
+        tokens.push(token ?? "");
+        return token === "a".repeat(64)
+          ? { status: 401, body: "private failure" }
+          : {
+              status: 200,
+              body: '{"user":{"id":"synthetic-user","display_name":"Test","created_at":"2026-01-01"},"identities":[]}',
+            };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+    },
+  );
+  void bridge.handle('{"operation":"profile"}').then((reply) => {
+    check(JSON.parse(reply).ok === true, "one unauthorized response is retried after refresh");
+    check(refreshCalls === 1, "a rejected access token rotates exactly once");
+    check(
+      JSON.stringify(tokens) === JSON.stringify(["a".repeat(64), "c".repeat(64)]),
+      "the retry uses the new token and never repeats the rejected one",
+    );
+  });
 });
 
 /** A schema declaring everything this host maps, which is what a caught-up server would send. */
@@ -5047,6 +6139,34 @@ group("uploading keeps what other devices wrote", () => {
     refusedType = error instanceof AccountPreferenceError && error.message === "account_invalid";
   }
   check(refusedType, "and so is the right key with the wrong type");
+
+  const photo = "A".repeat(4 * Math.floor((512000 + 2) / 3));
+  const design = JSON.stringify({ photo });
+  const designKey = "platform.harmony.custom_keyboard_skin";
+  const photoSchema: AccountPreferenceSchema = {
+    fields: { [designKey]: { type: "string" } },
+    maximumBytes: 1024 * 1024,
+    updateMode: "replace",
+    revisionRequired: true,
+  };
+  const withPhoto = mergeAccountPreferences(
+    { revision: 1, settings: {} },
+    { [designKey]: design },
+    photoSchema,
+  );
+  check(withPhoto.settings[designKey] === design, "a photo-sized private setting stays intact");
+  let refusedLegacyLimit = false;
+  try {
+    mergeAccountPreferences(
+      { revision: 1, settings: {} },
+      { [designKey]: design },
+      { ...photoSchema, maximumBytes: 64 * 1024 },
+    );
+  } catch (error) {
+    refusedLegacyLimit =
+      error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedLegacyLimit, "the same photo is refused by an older negotiated 64 KiB limit");
 });
 
 group("applying writes only what the schema declares", () => {
@@ -5224,6 +6344,63 @@ group("an AI skin run releases what it started, whichever way it ends", () => {
     .catch((error) => {
       check(error instanceof AiSkinCancelled, "cancelling is not a failure");
       check(idle.created.length === 0, "and nothing was requested");
+    });
+
+  // Cancelling while the service is answering a poll must not wait for that HTTP request to time
+  // out before releasing its jobs. The requests may still complete in the system stack, but no
+  // caller waits on them and the upstream work is deleted immediately.
+  let inFlightSequence = 0;
+  let inFlightReads = 0;
+  const interruptedFixture = aiSkinRunner({
+    createJob: async () => ({
+      id: `${++inFlightSequence}`.repeat(48),
+      state: "running",
+    }),
+    wait: async () => {},
+    readJob: async () => {
+      inFlightReads += 1;
+      if (inFlightReads === 3) interrupted.cancel();
+      return await new Promise<ArtworkJob>(() => {});
+    },
+  });
+  const interrupted = new AiSkinRun(interruptedFixture.runner);
+  void interrupted
+    .generate("晨雾", () => {})
+    .then(() => check(false, "an interrupted poll must not resolve"))
+    .catch((error) => {
+      check(error instanceof AiSkinCancelled, "an in-flight poll observes cancellation");
+      check(inFlightReads === 3, "all three artwork jobs had reached their poll");
+      check(interruptedFixture.deleted.length === 3, "cancellation releases every in-flight job");
+    });
+
+  // One failed picture is a generation failure, not a user cancellation, but it still interrupts
+  // the two polls that otherwise have no reason to finish.
+  let siblingSequence = 3;
+  const siblingReads: { id: string; resolve: (job: ArtworkJob) => void }[] = [];
+  const siblingFixture = aiSkinRunner({
+    createJob: async () => ({
+      id: `${++siblingSequence}`.repeat(48),
+      state: "running",
+    }),
+    wait: async () => {},
+    readJob: async (id: string) =>
+      await new Promise<ArtworkJob>((resolve) => {
+        siblingReads.push({ id, resolve });
+        if (siblingReads.length === 3) {
+          siblingReads[1].resolve({ id: siblingReads[1].id, state: "failed" });
+        }
+      }),
+  });
+  const siblingFailure = new AiSkinRun(siblingFixture.runner);
+  void siblingFailure
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a failed sibling must not resolve"))
+    .catch((error) => {
+      check(
+        error instanceof AiSkinFailure && error.message === "ai_skin_unavailable",
+        "the real artwork failure is preserved after sibling cancellation",
+      );
+      check(siblingFixture.deleted.length === 3, "a failed picture releases its stalled siblings");
     });
 
   // A job the service never finishes is given the shared 200 seconds and then abandoned, rather
@@ -6200,6 +7377,14 @@ group("the candidate window does not swallow the other mouse buttons", () => {
 });
 
 group("the candidate number keeps its proportion, as the source states it", () => {
+  check(
+    !CandidateNumberFontPolicy.visible(false),
+    "a touch candidate does not draw an ordinal with no number key to answer it",
+  );
+  check(
+    CandidateNumberFontPolicy.visible(true),
+    "a 2-in-1 candidate keeps the ordinal for its physical number row",
+  );
   // `.num { font-size: 0.8em }` in every candidate stylesheet. The host used to subtract a
   // constant with a floor, which agrees with the ratio at no size at all.
   check(
@@ -6460,6 +7645,135 @@ group("rewriting a reply touches only the refusals", () => {
     "an unreadable reply is forwarded",
   );
   check(PreferencesErrorCode.rewrite("null") === "null", "and so is a reply that is not a record");
+});
+
+group("AI model catalogs keep each provider's protocol and path", () => {
+  check(
+    AiModelCatalogPolicy.modelsUrl("https://api.everyapi.ai/v1/chat/completions") ===
+      "https://api.everyapi.ai/v1/models",
+    "an OpenAI-compatible chat endpoint keeps its version prefix",
+  );
+  check(
+    AiModelCatalogPolicy.modelsUrl(
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    ) === "https://generativelanguage.googleapis.com/v1beta/openai/models",
+    "Gemini does not get rewritten to a different API version",
+  );
+  check(
+    AiModelCatalogPolicy.modelsUrl("https://user:secret@example.test/v1/chat/completions") === null,
+    "embedded credentials are rejected",
+  );
+  check(
+    AiModelCatalogPolicy.modelsUrl("http://example.test/v1/chat/completions") === null,
+    "catalog credentials are never sent over HTTP",
+  );
+  const anthropic = "https://api.anthropic.com/v1/models";
+  check(
+    AiModelCatalogPolicy.isAnthropic("anthropic", anthropic),
+    "the Anthropic preset selects its native authentication",
+  );
+  check(
+    AiModelCatalogPolicy.pageUrl(anthropic, true, "") ===
+      "https://api.anthropic.com/v1/models?limit=1000",
+    "the first Anthropic page asks for the bounded maximum",
+  );
+  check(
+    AiModelCatalogPolicy.pageUrl(anthropic, true, "claude/first") ===
+      "https://api.anthropic.com/v1/models?limit=1000&after_id=claude%2Ffirst",
+    "the next Anthropic cursor is encoded",
+  );
+});
+
+group("AI model catalogs filter capabilities and paginate safely", () => {
+  const page: AiCatalogPage = {
+    data: [
+      { id: "chat-model", supported_endpoint_types: ["openai"] },
+      { id: "speech-model", supported_endpoint_types: ["audio-transcription"] },
+      { id: "chat-model", supported_endpoint_types: ["openai"] },
+      { id: "disabled", active: false },
+      {
+        id: "response-model",
+        supported_endpoint_types: ["openai-response"],
+        chat_completions_bridge: true,
+      },
+    ],
+    has_more: true,
+    last_id: "response-model",
+  };
+  const models: string[] = [];
+  check(AiModelCatalogPolicy.append(models, page), "a well-formed page is accepted");
+  check(
+    JSON.stringify(models) === JSON.stringify(["chat-model", "response-model"]),
+    "duplicates, inactive rows and voice-only models are removed",
+  );
+  check(
+    AiModelCatalogPolicy.nextCursor(page, true, []) === "response-model",
+    "Anthropic can continue with a fresh cursor",
+  );
+  check(
+    AiModelCatalogPolicy.nextCursor(page, false, []) === null,
+    "a non-Anthropic pagination envelope is refused",
+  );
+  check(
+    AiModelCatalogPolicy.nextCursor(page, true, ["response-model"]) === null,
+    "a repeated cursor cannot loop forever",
+  );
+  check(
+    AiModelCatalogPolicy.append([], { data: [{ id: "first" }, { id: "second" }] }, 1) === false,
+    "the aggregate model bound is enforced across pages",
+  );
+});
+
+group("Harmony batch transcription accepts every shared cloud preset", () => {
+  const everyapi: VoiceInputConfiguration = {
+    ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+    asr_provider: "everyapi",
+    asr_endpoint: "",
+    asr_model: "",
+    asr_token: "",
+    asr_tokens: { everyapi: "synthetic-everyapi-key" },
+  };
+  check(
+    HttpAsrConfigurationPolicy.endpoint(everyapi) ===
+      "https://api.everyapi.ai/v1/audio/transcriptions",
+    "EveryAPI resolves to its transcription endpoint",
+  );
+  check(
+    HttpAsrConfigurationPolicy.model(everyapi) === "openai/whisper-large-v3-turbo",
+    "EveryAPI resolves to its shared default model",
+  );
+  check(
+    HttpAsrConfigurationPolicy.token(everyapi) === "synthetic-everyapi-key",
+    "a provider token survives switching away and back",
+  );
+  check(HttpAsrConfigurationPolicy.valid(everyapi), "the complete EveryAPI preset can record");
+
+  const mistral: VoiceInputConfiguration = {
+    ...everyapi,
+    asr_provider: "mistral",
+    asr_tokens: { mistral: "synthetic-mistral-key" },
+  };
+  check(
+    HttpAsrConfigurationPolicy.endpoint(mistral) ===
+      "https://api.mistral.ai/v1/audio/transcriptions",
+    "Mistral resolves to its transcription endpoint",
+  );
+  check(
+    HttpAsrConfigurationPolicy.model(mistral) === "voxtral-mini-latest",
+    "Mistral resolves to its shared default model",
+  );
+  check(HttpAsrConfigurationPolicy.valid(mistral), "the complete Mistral preset can record");
+  check(
+    !HttpAsrConfigurationPolicy.valid({
+      ...mistral,
+      asr_endpoint: "https://user:secret@example.test/v1/audio/transcriptions",
+    }),
+    "embedded endpoint credentials are refused before recording",
+  );
+  check(
+    !HttpAsrConfigurationPolicy.valid({ ...mistral, asr_provider: "local" }),
+    "a provider without the HTTP adapter cannot fall through to it",
+  );
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

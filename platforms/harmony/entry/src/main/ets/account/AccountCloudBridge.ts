@@ -1,6 +1,12 @@
 import { utf8Length } from "../keyboard/Utf8";
 
-export type AccountTransportResponse = { status: number; body: string };
+export type AccountTransportResponse = { status: number; body: string; contentLength?: number };
+export type AccountDownloadResponse = {
+  status: number;
+  bytes: number;
+  contentLength?: number;
+  contentType?: string;
+};
 
 export interface AccountTransport {
   /**
@@ -16,6 +22,19 @@ export interface AccountTransport {
     token?: string,
     body?: Record<string, unknown>,
     timeoutMs?: number,
+  ): Promise<AccountTransportResponse>;
+  download?(
+    path: string,
+    token: string,
+    destination: string,
+    maximumBytes: number,
+    mediaType: string,
+  ): Promise<AccountDownloadResponse>;
+  uploadSnapshot?(
+    source: string,
+    revision: number,
+    expectedSha256: string,
+    token: string,
   ): Promise<AccountTransportResponse>;
 }
 
@@ -34,6 +53,9 @@ type Session = {
 };
 
 type Action = Record<string, unknown>;
+
+type CredentialReply = { token?: string; error?: string };
+type AuthorizedReply = { response?: AccountTransportResponse; token?: string; error?: string };
 
 /**
  * The envelope ceiling, which is a first line rather than the real bound.
@@ -67,6 +89,10 @@ const CHAT_ROLES = ["user", "assistant", "system"];
 
 /** The gallery's own bounds, matching `client-core`'s community skin service. */
 const MAX_COMMUNITY_SEARCH = 128;
+/** Only the legacy JSON/WebView fallback is capped at 3 MiB; native files use the source limits. */
+export const MAX_BRIDGED_DICTIONARY_EXPORT_BYTES = 3 * 1024 * 1024;
+export const MAX_DICTIONARY_EXPORT_BYTES = 384 * 1024 * 1024;
+export const MAX_SNAPSHOT_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 
 /**
  * A publication id, checked before it is put in a path.
@@ -194,6 +220,11 @@ function validToken(value: unknown): value is string {
   return typeof value === "string" && value.length === 64 && /^[0-9a-f]+$/.test(value);
 }
 
+/** Account resources use digest ids; reject path-like input before attaching a session token. */
+function validResourceId(value: unknown): value is string {
+  return typeof value === "string" && value.length === 64 && /^[0-9a-f]+$/.test(value);
+}
+
 function boundedUtf8(value: unknown, maximumBytes: number): value is string {
   return typeof value === "string" && utf8Length(value) <= maximumBytes;
 }
@@ -230,6 +261,30 @@ function parseJson(body: string): Action | null {
   }
 }
 
+/**
+ * Validate the one-record change page used to guard a native snapshot apply.
+ *
+ * Harmony applies complete Engine snapshots rather than replaying cloud mutations, so it only
+ * needs to know whether anything changed. It still has to reject the same impossible cursors the
+ * fixed Apple client rejects; treating an inconsistent empty page as current could overwrite a
+ * newer dictionary with the preview the user saw earlier.
+ */
+export function dictionaryChangePageChanged(body: string, after: number): boolean | null {
+  if (!Number.isSafeInteger(after) || after < 0 || utf8Length(body) > 256 * 1024) return null;
+  const page = parseJson(body);
+  if (page === null || !Array.isArray(page.changes) || page.changes.length > 1) return null;
+  if (!Number.isSafeInteger(page.next) || (page.next as number) < 0) return null;
+  if (typeof page.has_more !== "boolean") return null;
+  const next = page.next as number;
+  if (page.changes.length === 0) return next === after && page.has_more === false ? false : null;
+  const change = page.changes[0];
+  if (change === null || typeof change !== "object" || Array.isArray(change)) return null;
+  const revision = (change as Action).revision;
+  if (!Number.isSafeInteger(revision) || (revision as number) <= after || revision !== next)
+    return null;
+  return true;
+}
+
 function validateUser(value: unknown): value is Session["user"] {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const user = value as Action;
@@ -253,11 +308,33 @@ function validateSession(value: unknown): value is Session {
   );
 }
 
+function sessionFromTokens(value: Action): Session | null {
+  if (
+    !validToken(value.access_token) ||
+    !validToken(value.refresh_token) ||
+    value.token_type !== "Bearer" ||
+    typeof value.expires_in !== "number" ||
+    !Number.isFinite(value.expires_in) ||
+    value.expires_in <= 0 ||
+    !validateUser(value.user)
+  ) {
+    return null;
+  }
+  return {
+    access_token: value.access_token,
+    refresh_token: value.refresh_token,
+    token_type: "Bearer",
+    expires_at: Date.now() + Math.max(1, value.expires_in) * 1000,
+    user: value.user,
+  };
+}
+
 export class AccountCloudBridge {
   private readonly transport: AccountTransport;
   private readonly store: AccountSessionStore;
   private session: Session | null = null;
   private generation = 0;
+  private refreshing: Promise<CredentialReply> | null = null;
 
   constructor(transport: AccountTransport, store: AccountSessionStore) {
     this.transport = transport;
@@ -281,7 +358,6 @@ export class AccountCloudBridge {
     try {
       switch (operation) {
         case "status":
-          if (this.session !== null && this.session.expires_at <= Date.now()) this.clearExpired();
           return success({ user: this.session?.user ?? null });
         case "providers":
           return this.requestPublic("GET", "/v1/auth/providers");
@@ -290,7 +366,7 @@ export class AccountCloudBridge {
         case "login":
           return await this.login(action);
         case "profile":
-          return await this.authenticated("GET", "/v1/users/me");
+          return await this.profile();
         case "rename":
           return await this.rename(action);
         case "logout":
@@ -333,8 +409,7 @@ export class AccountCloudBridge {
    */
   currentUserId(): string | null {
     const session = this.session;
-    if (session === null || session.expires_at <= Date.now()) return null;
-    return session.user.id;
+    return session?.user.id ?? null;
   }
 
   /**
@@ -385,13 +460,126 @@ export class AccountCloudBridge {
 
   /** Native-only raw download used for bounded snapshot files; never exposed to the WebView. */
   async rawAuthenticated(method: string, path: string): Promise<AccountTransportResponse> {
-    const session = this.session;
-    if (session === null || session.expires_at <= Date.now()) return { status: 401, body: "" };
-    const generation = this.generation;
-    const response = await this.transport.request(method, path, session.access_token);
-    if (generation !== this.generation) return { status: 499, body: "" };
-    if (response.status === 401) this.clearExpired();
-    return response;
+    const result = await this.authorizedResponse(method, path);
+    if (result.response !== undefined) return result.response;
+    const status: number =
+      result.error === "account_cancelled"
+        ? 499
+        : result.error === "account_unauthorized"
+          ? 401
+          : 503;
+    return { status, body: "" };
+  }
+
+  /** Stream a large authenticated response into a host-private file with one token retry. */
+  async downloadAuthenticated(
+    path: string,
+    destination: string,
+    maximumBytes: number,
+    mediaType: string,
+  ): Promise<{ bytes?: number; error?: string }> {
+    if (
+      !path.startsWith("/v1/") ||
+      path.includes("\\") ||
+      destination.length === 0 ||
+      !Number.isSafeInteger(maximumBytes) ||
+      maximumBytes <= 0 ||
+      maximumBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES ||
+      !["text/plain", "application/x-ndjson"].includes(mediaType) ||
+      this.transport.download === undefined
+    )
+      return { error: "account_invalid" };
+    const result = await this.authorizedDownload(path, destination, maximumBytes, mediaType);
+    if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
+    const response = result.response;
+    if (response.status < 200 || response.status >= 300)
+      return { error: mapStatus(response.status) };
+    if (
+      response.bytes <= 0 ||
+      response.bytes > maximumBytes ||
+      response.contentType !== mediaType ||
+      (response.contentLength !== undefined && response.contentLength !== response.bytes)
+    )
+      return { error: "account_unavailable" };
+    return { bytes: response.bytes };
+  }
+
+  /** Read the dictionary revision used by snapshot restore's optimistic concurrency check. */
+  async currentDictionaryRevision(): Promise<{ revision?: number; error?: string }> {
+    const result = await this.authenticatedJson(
+      "GET",
+      "/v1/users/me/dictionaries/quick/catalog?q=&offset=0&limit=100&scheme=pinyin&profile=xiaohe",
+    );
+    if (result.error !== undefined || result.value === undefined)
+      return { error: result.error ?? "account_unavailable" };
+    const revision = result.value.revision;
+    if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
+      return { error: "account_unavailable" };
+    return { revision };
+  }
+
+  /** Stream one already-inspected private snapshot with token refresh and generation checks. */
+  async restoreSnapshotAuthenticated(
+    source: string,
+    revision: number,
+    expectedSha256: string,
+  ): Promise<{ value?: Action; error?: string }> {
+    if (
+      !source.startsWith("/") ||
+      source.length > 16384 ||
+      source.includes("\u0000") ||
+      !Number.isSafeInteger(revision) ||
+      revision < 0 ||
+      !validResourceId(expectedSha256) ||
+      this.transport.uploadSnapshot === undefined
+    )
+      return { error: "account_invalid" };
+    const result = await this.authorizedSnapshotUpload(source, revision, expectedSha256);
+    if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
+    const response = result.response;
+    if (response.status < 200 || response.status >= 300)
+      return { error: mapStatus(response.status) };
+    const value = parseJson(response.body);
+    if (
+      value === null ||
+      value.reset !== true ||
+      typeof value.revision !== "number" ||
+      !Number.isSafeInteger(value.revision) ||
+      value.revision <= revision
+    )
+      return { error: "account_unavailable" };
+    return { value };
+  }
+
+  /** Native hosts save exports themselves so multi-megabyte text never crosses a WebView bridge. */
+  async downloadDictionary(
+    kind: unknown,
+    format: unknown,
+  ): Promise<{ body?: string; error?: string }> {
+    const acceptedKind = this.kind(kind);
+    if (
+      acceptedKind === null ||
+      typeof format !== "string" ||
+      !["standard", "windows"].includes(format)
+    )
+      return { error: "account_invalid" };
+    const result = await this.authorizedResponse(
+      "GET",
+      `/v1/users/me/dictionaries/${acceptedKind}/export?format=${format}`,
+    );
+    if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
+    const response = result.response;
+    if (response.status < 200 || response.status >= 300)
+      return { error: mapStatus(response.status) };
+    const bytes = utf8Length(response.body);
+    if (
+      bytes === 0 ||
+      bytes > MAX_BRIDGED_DICTIONARY_EXPORT_BYTES ||
+      response.body.includes("\u0000") ||
+      (response.contentLength !== undefined && response.contentLength !== bytes)
+    )
+      return { error: "account_unavailable" };
+    return { body: response.body };
   }
 
   private async requestCode(action: Action): Promise<string> {
@@ -418,43 +606,79 @@ export class AccountCloudBridge {
       !/^\d{6}$/.test(action.credential)
     )
       return error("account_invalid");
+    this.generation++;
+    this.refreshing = null;
+    const generation = this.generation;
     const response = await this.transport.request("POST", "/v1/auth/login", undefined, {
       challenge_id: action.challenge_id,
       credential: action.credential,
     });
+    if (generation !== this.generation) return error("account_cancelled");
     if (response.status < 200 || response.status >= 300) return error(mapStatus(response.status));
     const value = parseJson(response.body);
-    if (
-      value === null ||
-      !validToken(value.access_token) ||
-      !validToken(value.refresh_token) ||
-      value.token_type !== "Bearer" ||
-      typeof value.expires_in !== "number" ||
-      !validateUser(value.user)
-    ) {
-      return error("account_unavailable");
-    }
-    const session: Session = {
-      access_token: value.access_token,
-      refresh_token: value.refresh_token,
-      token_type: "Bearer",
-      expires_at: Date.now() + Math.max(1, value.expires_in) * 1000,
-      user: value.user,
-    };
+    if (value === null) return error("account_unavailable");
+    const session: Session | null = sessionFromTokens(value);
+    if (session === null) return error("account_unavailable");
     this.session = session;
     this.store.save(JSON.stringify(session));
-    this.generation++;
     return success({ user: session.user });
   }
 
   private async rename(action: Action): Promise<string> {
     if (
       !validString(action.display_name, 256) ||
+      [...action.display_name].length > 64 ||
       action.display_name.trim() !== action.display_name
     ) {
       return error("account_invalid");
     }
-    return this.authenticated("PATCH", "/v1/users/me", { display_name: action.display_name });
+    const generation = this.generation;
+    const userId = this.session?.user.id ?? null;
+    const renamed = await this.authorizedResponse("PATCH", "/v1/users/me", {
+      display_name: action.display_name,
+    });
+    if (renamed.response === undefined) return error(renamed.error ?? "account_unavailable");
+    if (renamed.response.status < 200 || renamed.response.status >= 300) {
+      return error(mapStatus(renamed.response.status));
+    }
+    // PATCH is a no-content operation in the shared service. Read the canonical profile back so
+    // the page and the persisted native session agree even if the service normalizes the name.
+    return await this.profile(generation, userId);
+  }
+
+  /** Read the canonical profile and bind its user to the session that authorized this reply. */
+  private async profile(
+    expectedGeneration: number = this.generation,
+    expectedUserId: string | null = this.session?.user.id ?? null,
+  ): Promise<string> {
+    if (expectedGeneration !== this.generation) {
+      return error("account_cancelled");
+    }
+    const result = await this.authorizedResponse("GET", "/v1/users/me");
+    if (result.response === undefined || result.token === undefined) {
+      return error(result.error ?? "account_unavailable");
+    }
+    if (result.response.status < 200 || result.response.status >= 300) {
+      return error(mapStatus(result.response.status));
+    }
+    const value = parseJson(result.response.body);
+    if (value === null || !validateUser(value.user) || !Array.isArray(value.identities)) {
+      return error("account_unavailable");
+    }
+    const current = this.session;
+    if (
+      current === null ||
+      expectedGeneration !== this.generation ||
+      current.access_token !== result.token ||
+      current.user.id !== expectedUserId ||
+      value.user.id !== expectedUserId
+    ) {
+      return error("account_cancelled");
+    }
+    const updated: Session = { ...current, user: value.user };
+    this.store.save(JSON.stringify(updated));
+    this.session = updated;
+    return success(value);
   }
 
   private async logout(action: Action): Promise<string> {
@@ -485,11 +709,8 @@ export class AccountCloudBridge {
       return this.authenticated("POST", "/v1/users/me/clipboard", { text: action.text });
     }
     if (operation === "delete") {
-      if (!validString(action.id, 256)) return error("account_invalid");
-      return this.authenticated(
-        "DELETE",
-        `/v1/users/me/clipboard/${encodeURIComponent(action.id)}`,
-      );
+      if (!validResourceId(action.id)) return error("account_invalid");
+      return this.authenticated("DELETE", `/v1/users/me/clipboard/${action.id}`);
     }
     if (operation === "set_enabled") {
       if (typeof action.enabled !== "boolean") return error("account_invalid");
@@ -703,16 +924,34 @@ export class AccountCloudBridge {
     authenticated: boolean,
     body?: Record<string, unknown>,
   ): Promise<string> {
-    const session = this.session;
-    const signedIn = session !== null && session.expires_at > Date.now();
-    if (authenticated && !signedIn) return error("community_unauthorized");
-    const generation = this.generation;
-    const token = signedIn && session !== null ? session.access_token : undefined;
-    const response = await this.transport.request(method, path, token, body);
-    if (generation !== this.generation) return error("community_cancelled");
-    if (response.status === 401 && signedIn) {
-      this.clearExpired();
-      return error("community_unauthorized");
+    let response: AccountTransportResponse;
+    if (authenticated) {
+      const result: AuthorizedReply = await this.authorizedResponse(method, path, body);
+      if (result.response === undefined) {
+        return error(
+          result.error === "account_cancelled"
+            ? "community_cancelled"
+            : result.error === "account_unauthorized"
+              ? "community_unauthorized"
+              : "community_unavailable",
+        );
+      }
+      response = result.response;
+    } else {
+      const generation: number = this.generation;
+      const currentToken: string | null = this.usableToken();
+      const credential: CredentialReply =
+        currentToken === null ? await this.credential() : { token: currentToken };
+      const token: string | undefined = credential.token;
+      response = await this.transport.request(method, path, token, body);
+      if (generation !== this.generation && credential.error !== "account_unauthorized") {
+        return error("community_cancelled");
+      }
+      // A public gallery stays public when an optional session expires. Retry without credentials
+      // rather than turning a browse into a sign-in error.
+      if ((response.status === 401 || response.status === 403) && token !== undefined) {
+        response = await this.transport.request(method, path, undefined, body);
+      }
     }
     if (response.status < 200 || response.status >= 300) {
       return error(communityStatus(response.status));
@@ -898,8 +1137,7 @@ export class AccountCloudBridge {
     if (operation === "update" || operation === "delete") {
       if (
         kind === null ||
-        !validString(action.id, 64) ||
-        !/^[0-9a-f]{64}$/.test(action.id) ||
+        !validResourceId(action.id) ||
         !this.boundedNumber(action.revision, 1, 2147483647)
       )
         return error("account_invalid");
@@ -1046,16 +1284,19 @@ export class AccountCloudBridge {
         (action.position !== null && !this.boundedNumber(action.position, 1, 5))
       )
         return error("account_invalid");
+      const body: Record<string, unknown> = {
+        context: action.context,
+        code: action.code,
+        word: action.word,
+        revision: action.revision,
+      };
+      // DELETE means removing the fixed position. The service distinguishes an absent position
+      // from a JSON null, so only PUT carries this field (the fixed Apple client does the same).
+      if (action.position !== null) body.position = action.position;
       return this.authenticated(
         action.position === null ? "DELETE" : "PUT",
         "/v1/users/me/dictionary/positions",
-        {
-          context: action.context,
-          code: action.code,
-          word: action.word,
-          position: action.position,
-          revision: action.revision,
-        },
+        body,
       );
     }
     if (operation === "import") {
@@ -1079,17 +1320,12 @@ export class AccountCloudBridge {
       return this.authenticated("POST", path, body);
     }
     if (operation === "export") {
-      if (
-        kind === null ||
-        !validString(action.format, 16) ||
-        !["standard", "windows"].includes(action.format)
-      )
-        return error("account_invalid");
-      return this.authenticatedRaw(
-        "GET",
-        `/v1/users/me/dictionaries/${kind}/export?format=${action.format}`,
-        { text: true, filename: `dictionary-${kind}.tsv` },
-      );
+      const downloaded = await this.downloadDictionary(action.kind, action.format);
+      if (downloaded.body === undefined) return error(downloaded.error ?? "account_unavailable");
+      return success({
+        text: downloaded.body,
+        filename: `dictionary-${kind}.tsv`,
+      });
     }
     return error("account_invalid");
   }
@@ -1103,22 +1339,185 @@ export class AccountCloudBridge {
     return this.response(response);
   }
 
+  /** Returns one current access token, sharing refresh-token rotation across concurrent callers. */
+  private async credential(rejectedToken?: string): Promise<CredentialReply> {
+    const usable: string | null = this.usableToken(rejectedToken);
+    if (usable !== null) return { token: usable };
+    const current = this.session;
+    if (current === null) return { error: "account_unauthorized" };
+    if (this.refreshing !== null) return await this.refreshing;
+    const generation = this.generation;
+    const flight: Promise<CredentialReply> = this.refresh(current.refresh_token, generation);
+    this.refreshing = flight;
+    try {
+      return await flight;
+    } finally {
+      if (this.refreshing === flight) this.refreshing = null;
+    }
+  }
+
+  private usableToken(rejectedToken?: string): string | null {
+    const current: Session | null = this.session;
+    if (
+      current === null ||
+      current.expires_at <= Date.now() + 30000 ||
+      rejectedToken === current.access_token
+    )
+      return null;
+    return current.access_token;
+  }
+
+  private async refresh(refreshToken: string, generation: number): Promise<CredentialReply> {
+    let response: AccountTransportResponse;
+    try {
+      response = await this.transport.request("POST", "/v1/auth/refresh", undefined, {
+        refresh_token: refreshToken,
+      });
+    } catch {
+      return { error: "account_unavailable" };
+    }
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status === 401 || response.status === 403) {
+      this.clearExpired();
+      return { error: "account_unauthorized" };
+    }
+    if (response.status < 200 || response.status >= 300) {
+      return { error: mapStatus(response.status) };
+    }
+    const value = parseJson(response.body);
+    if (value === null) return { error: "account_unavailable" };
+    const next: Session | null = sessionFromTokens(value);
+    if (next === null) return { error: "account_unavailable" };
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    this.store.save(JSON.stringify(next));
+    this.session = next;
+    return { token: next.access_token };
+  }
+
+  /** Sends once with current credentials and retries one rejected token after rotation. */
+  private async authorizedResponse(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<AuthorizedReply> {
+    const currentToken: string | null = this.usableToken();
+    let credential: CredentialReply =
+      currentToken === null ? await this.credential() : { token: currentToken };
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    let token: string = credential.token;
+    let generation: number = this.generation;
+    let response: AccountTransportResponse = await this.transport.request(
+      method,
+      path,
+      token,
+      body,
+      timeoutMs,
+    );
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status !== 401 && response.status !== 403) return { response, token };
+    credential = await this.credential(token);
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    token = credential.token;
+    generation = this.generation;
+    response = await this.transport.request(method, path, token, body, timeoutMs);
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status === 401 || response.status === 403) {
+      this.clearExpired();
+      return { error: "account_unauthorized" };
+    }
+    return { response, token };
+  }
+
+  /** The file equivalent of `authorizedResponse`, including refresh and generation invalidation. */
+  private async authorizedDownload(
+    path: string,
+    destination: string,
+    maximumBytes: number,
+    mediaType: string,
+  ): Promise<{ response?: AccountDownloadResponse; error?: string }> {
+    const download = this.transport.download;
+    if (download === undefined) return { error: "account_unavailable" };
+    const currentToken: string | null = this.usableToken();
+    let credential: CredentialReply =
+      currentToken === null ? await this.credential() : { token: currentToken };
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    let token: string = credential.token;
+    let generation: number = this.generation;
+    let response: AccountDownloadResponse = await download.call(
+      this.transport,
+      path,
+      token,
+      destination,
+      maximumBytes,
+      mediaType,
+    );
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status !== 401 && response.status !== 403) return { response };
+    credential = await this.credential(token);
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    token = credential.token;
+    generation = this.generation;
+    response = await download.call(
+      this.transport,
+      path,
+      token,
+      destination,
+      maximumBytes,
+      mediaType,
+    );
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status === 401 || response.status === 403) {
+      this.clearExpired();
+      return { error: "account_unauthorized" };
+    }
+    return { response };
+  }
+
+  /** The snapshot-upload equivalent of `authorizedResponse`, including one token rotation. */
+  private async authorizedSnapshotUpload(
+    source: string,
+    revision: number,
+    expectedSha256: string,
+  ): Promise<AuthorizedReply> {
+    const upload = this.transport.uploadSnapshot;
+    if (upload === undefined) return { error: "account_unavailable" };
+    const currentToken: string | null = this.usableToken();
+    let credential: CredentialReply =
+      currentToken === null ? await this.credential() : { token: currentToken };
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    let token: string = credential.token;
+    let generation: number = this.generation;
+    let response = await upload.call(this.transport, source, revision, expectedSha256, token);
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status !== 401 && response.status !== 403) return { response };
+    credential = await this.credential(token);
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    token = credential.token;
+    generation = this.generation;
+    response = await upload.call(this.transport, source, revision, expectedSha256, token);
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status === 401 || response.status === 403) {
+      this.clearExpired();
+      return { error: "account_unauthorized" };
+    }
+    return { response };
+  }
+
   private async authenticated(
     method: string,
     path: string,
     body?: Record<string, unknown>,
   ): Promise<string> {
-    const session = this.session;
-    if (session === null) return error("account_unauthorized");
-    const generation = this.generation;
-    if (session.expires_at <= Date.now()) return error("account_unauthorized");
-    const response = await this.transport.request(method, path, session.access_token, body);
-    if (generation !== this.generation) return error("account_cancelled");
-    if (response.status === 401 && generation === this.generation) {
-      this.clearExpired();
-      return error("account_unauthorized");
-    }
-    return this.response(response);
+    const result = await this.authorizedResponse(method, path, body);
+    if (result.response === undefined) return error(result.error ?? "account_unavailable");
+    return this.response(result.response);
   }
 
   /**
@@ -1136,52 +1535,14 @@ export class AccountCloudBridge {
     body?: Record<string, unknown>,
     timeoutMs?: number,
   ): Promise<{ value?: Action; error?: string }> {
-    const session = this.session;
-    if (session === null) return { error: "account_unauthorized" };
-    const generation = this.generation;
-    if (session.expires_at <= Date.now()) return { error: "account_unauthorized" };
-    const response = await this.transport.request(
-      method,
-      path,
-      session.access_token,
-      body,
-      timeoutMs,
-    );
-    if (generation !== this.generation) return { error: "account_cancelled" };
-    if (response.status === 401) {
-      this.clearExpired();
-      return { error: "account_unauthorized" };
-    }
+    const result = await this.authorizedResponse(method, path, body, timeoutMs);
+    if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
+    const response: AccountTransportResponse = result.response;
     if (response.status < 200 || response.status >= 300)
       return { error: mapStatus(response.status) };
     const value = parseJson(response.body);
     if (value === null) return { error: "account_unavailable" };
     return { value };
-  }
-
-  private async authenticatedRaw(
-    method: string,
-    path: string,
-    value: Record<string, unknown>,
-  ): Promise<string> {
-    const session = this.session;
-    if (session === null) return error("account_unauthorized");
-    const generation = this.generation;
-    if (session.expires_at <= Date.now()) return error("account_unauthorized");
-    const response = await this.transport.request(method, path, session.access_token);
-    if (generation !== this.generation) return error("account_cancelled");
-    if (response.status === 401) {
-      this.clearExpired();
-      return error("account_unauthorized");
-    }
-    if (
-      response.status < 200 ||
-      response.status >= 300 ||
-      response.body.length === 0 ||
-      response.body.includes("\u0000")
-    )
-      return error(mapStatus(response.status));
-    return success({ ...value, text: response.body });
   }
 
   private response(response: AccountTransportResponse): string {
@@ -1195,6 +1556,7 @@ export class AccountCloudBridge {
   private clearExpired(): void {
     this.session = null;
     this.generation++;
+    this.refreshing = null;
     this.store.clear();
   }
 }

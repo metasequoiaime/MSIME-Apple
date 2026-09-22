@@ -6,6 +6,14 @@ export interface VoicePolishTokens {
   groq?: string;
 }
 
+export interface VoiceAsrTokens {
+  openai?: string;
+  siliconflow?: string;
+  groq?: string;
+  everyapi?: string;
+  mistral?: string;
+}
+
 export interface VoiceInputConfiguration {
   /** Shared privacy/availability switch; omitted by older prepared preference documents. */
   enabled: boolean;
@@ -29,6 +37,7 @@ export interface VoiceInputConfiguration {
   stream_inline_preedit?: boolean;
   asr_endpoint: string;
   asr_token: string;
+  asr_tokens?: VoiceAsrTokens;
   asr_app_key: string;
   doubao_auth_mode: string;
   asr_resource_id: string;
@@ -53,10 +62,10 @@ export interface VoiceInputConfiguration {
 
 export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   enabled: true,
-  asr_provider: 'doubao',
-  language: 'zh-cn',
-  capture_backend: '',
-  capture_device: '',
+  asr_provider: "doubao",
+  language: "zh-cn",
+  capture_backend: "",
+  capture_device: "",
   hotkey_ralt: true,
   hotkey_ctrl_win: false,
   hotkey_rctrl_ralt: false,
@@ -67,28 +76,29 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   end_sound: true,
   mute_system_audio: false,
   stream_inline_preedit: false,
-  asr_endpoint: 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
-  asr_token: '',
-  asr_app_key: '',
-  doubao_auth_mode: 'api_key',
-  asr_resource_id: 'volc.seedasr.sauc.duration',
-  asr_model: '',
+  asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+  asr_token: "",
+  asr_tokens: {},
+  asr_app_key: "",
+  doubao_auth_mode: "api_key",
+  asr_resource_id: "volc.seedasr.sauc.duration",
+  asr_model: "",
   polish_enabled: false,
   polish_text: false,
-  polish_provider: 'siliconflow',
-  polish_token: '',
+  polish_provider: "siliconflow",
+  polish_token: "",
   polish_tokens: {},
-  polish_endpoint: 'https://api.siliconflow.cn/v1/chat/completions',
-  polish_model: 'Qwen/Qwen3-8B',
-  polish_prompt_id: 'cleanup',
-  polish_prompt: '',
-  polish_prompt_custom_1: '',
-  polish_prompt_custom_2: '',
-  polish_prompt_custom_3: '',
+  polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions",
+  polish_model: "Qwen/Qwen3-8B",
+  polish_prompt_id: "cleanup",
+  polish_prompt: "",
+  polish_prompt_custom_1: "",
+  polish_prompt_custom_2: "",
+  polish_prompt_custom_3: "",
   doubao_enable_itn: true,
   doubao_enable_punc: true,
   doubao_enable_ddc: false,
-  doubao_boosting_table_id: ''
+  doubao_boosting_table_id: "",
 };
 
 /** Keeps legacy prepared documents enabled unless they explicitly opt out. */

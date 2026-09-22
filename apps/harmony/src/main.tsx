@@ -577,6 +577,16 @@ function cloudDictionaryClient(
     openApply: async () => setPage("apply"),
     snapshot: true,
     snapshotNative: true,
+    exportNative: true,
+    chooseSnapshotRestore: async () => {
+      const snapshot = await bridgeRequest(
+        native,
+        "cloud_dictionary_snapshot",
+        JSON.stringify({ operation: "snapshot_restore_preview", text: "" }),
+        600000,
+      );
+      return unwrap<Response>(snapshot);
+    },
     downloadToLocal: async (entry) => {
       unwrap<{ applied: boolean }>(native.cloudDictionaryDownload(JSON.stringify(entry)));
     },
@@ -587,6 +597,7 @@ function cloudDictionaryClient(
           native,
           "cloud_dictionary_snapshot",
           JSON.stringify(action),
+          600000,
         );
         return unwrap<Response>(snapshot);
       }
@@ -854,12 +865,10 @@ function HarmonySettings({
     () => setCloudDictionaryOpen(false),
     setCloudDictionaryPage,
   );
-  // Harmony's native snapshot path is an apply-to-device flow. The shared Files panel's
-  // restore-to-cloud controls need a different provider capability and must stay hidden here.
   const filesClient: CloudDictionaryPanelClient = {
     ...dictionaryClient,
-    snapshot: false,
-    snapshotNative: false,
+    snapshot: true,
+    snapshotNative: true,
   };
   if (bootstrapRequired) {
     return (

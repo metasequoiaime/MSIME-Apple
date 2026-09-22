@@ -17,6 +17,11 @@
 const NUMBER_RATIO: number = 0.8;
 
 export class CandidateNumberFontPolicy {
+  /** A visible ordinal answers a physical number key; touch keyboards only speak the position. */
+  static visible(desktop: boolean): boolean {
+    return desktop;
+  }
+
   /**
    * The number's size for a given candidate size, rounded to whole units as ArkUI lays out in.
    *

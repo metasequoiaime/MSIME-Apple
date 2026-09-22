@@ -189,12 +189,80 @@ TEXT_ENTRY(CommunityResourceLibrary, msime_client_community_resource_library)
 TEXT_ENTRY(AiSkinPlan, msime_client_ai_skin_plan)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
+TEXT_ENTRY(MobileClipboardHistory, msime_client_mobile_clipboard_history)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
 TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
+TEXT_ENTRY(SnapshotInspect, msime_client_snapshot_inspect)
+TEXT_ENTRY(SnapshotQueue, msime_client_snapshot_queue)
 TEXT_ENTRY(CloudRequestUrl, msime_client_cloud_request_url)
 TEXT_ENTRY(Create, msime_client_create)
+
+struct SnapshotRestoreWork {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    std::string request;
+    std::string file;
+    char *result = nullptr;
+};
+
+static void executeSnapshotRestore(napi_env, void *data) {
+    auto *work = static_cast<SnapshotRestoreWork *>(data);
+    work->result = msime_client_snapshot_restore(
+        reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size(),
+        reinterpret_cast<const uint8_t *>(work->file.data()), work->file.size());
+}
+
+static void completeSnapshotRestore(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<SnapshotRestoreWork *>(data);
+    napi_value value = nullptr;
+    bool resolved = status == napi_ok && work->result != nullptr
+        && napi_create_string_utf8(env, work->result, std::strlen(work->result), &value) == napi_ok;
+    if (work->result) msime_client_string_free(work->result);
+    if (resolved) {
+        napi_resolve_deferred(env, work->deferred, value);
+    } else {
+        napi_value message = nullptr;
+        napi_value error = nullptr;
+        if (napi_create_string_utf8(env, "Snapshot restore worker failed", NAPI_AUTO_LENGTH,
+                &message) == napi_ok
+                && napi_create_error(env, nullptr, message, &error) == napi_ok) {
+            napi_reject_deferred(env, work->deferred, error);
+        } else {
+            napi_get_undefined(env, &error);
+            napi_reject_deferred(env, work->deferred, error);
+        }
+    }
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+static napi_value SnapshotRestore(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    auto *work = new SnapshotRestoreWork();
+    if (!arguments(env, info, 2, argv) || !argumentText(env, argv[0], work->request)
+            || !argumentText(env, argv[1], work->file)) {
+        delete work;
+        return invalid(env, "Expected a snapshot restore request and private file path");
+    }
+    napi_value promise = nullptr;
+    napi_value resource = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
+            || napi_create_string_utf8(env, "MSIME snapshot restore", NAPI_AUTO_LENGTH,
+                &resource) != napi_ok
+            || napi_create_async_work(env, nullptr, resource, executeSnapshotRestore,
+                completeSnapshotRestore, work, &work->work) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create snapshot restore worker");
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        return invalid(env, "Unable to queue snapshot restore worker");
+    }
+    return promise;
+}
 
 #define PAIR_ENTRY(name, call)                                                                     \
     static napi_value name(napi_env env, napi_callback_info info) {                                 \
@@ -645,6 +713,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("savePreferences", SavePreferences),
         ENTRY("updatePreferences", UpdatePreferences),
         ENTRY("typingStatistics", TypingStatistics),
+        ENTRY("mobileClipboardHistory", MobileClipboardHistory),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),
         ENTRY("englishCompletions", EnglishCompletions),
@@ -668,6 +737,9 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("personalDictionaryRequest", PersonalDictionaryRequest),
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
+        ENTRY("snapshotInspect", SnapshotInspect),
+        ENTRY("snapshotQueue", SnapshotQueue),
+        ENTRY("snapshotRestore", SnapshotRestore),
         ENTRY("snapshotPrepare", SnapshotPrepare),
         ENTRY("snapshotDiscard", SnapshotDiscard),
         ENTRY("snapshotActivate", SnapshotActivate),

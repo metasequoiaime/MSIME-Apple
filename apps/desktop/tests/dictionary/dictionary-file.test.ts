@@ -3,6 +3,8 @@ import {
   DICTIONARY_PAGE_SIZE,
   decodeDictionaryBytes,
   dictionaryPageStatus,
+  parsePersonalDictionaryImport,
+  personalDictionaryExample,
 } from "../../../../packages/ui/src/dictionary/dictionary-file";
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
@@ -40,5 +42,34 @@ describe("dictionary pagination status", () => {
   it("says so when a page came back empty", () => {
     expect(dictionaryPageStatus(0, 0, false)).toBe("没有更多结果");
     expect(dictionaryPageStatus(300, 0, true)).toBe("没有更多结果");
+  });
+});
+
+describe("personal dictionary JSON", () => {
+  it("normalizes Engine codes and accepts the multiline example", () => {
+    const entries = parsePersonalDictionaryImport(personalDictionaryExample);
+    expect(entries[0].key).toBe("ni'hao");
+    expect(entries[3]).toMatchObject({
+      kind: "quickPhrase",
+      key: "greeting",
+      value: "你好！\n很高兴认识你。",
+    });
+  });
+
+  it("allows tabs only in quick phrases and enforces the Engine byte bound", () => {
+    const envelope = (kind: string, value: string) =>
+      JSON.stringify({
+        format: "msime-personal-dictionary",
+        version: 1,
+        entries: [{ kind, key: "fixture", value, weight: 100000 }],
+      });
+    expect(parsePersonalDictionaryImport(envelope("quickPhrase", "first\tsecond"))).toHaveLength(1);
+    expect(parsePersonalDictionaryImport(envelope("quickPhrase", "你好\n".repeat(300)))).toHaveLength(
+      1,
+    );
+    expect(() => parsePersonalDictionaryImport(envelope("english", "first\tsecond"))).toThrow();
+    expect(() =>
+      parsePersonalDictionaryImport(envelope("quickPhrase", "字".repeat(1_366))),
+    ).toThrow();
   });
 });

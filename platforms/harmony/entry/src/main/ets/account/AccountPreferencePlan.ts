@@ -65,7 +65,9 @@ function refuse(code: string): never {
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_FIELDS = 512;
 const MAX_KEY_BYTES = 128;
-const MAX_STRING_BYTES = 256 * 1024;
+// A custom keyboard skin can carry roughly 512 KiB of image bytes as base64. The negotiated
+// document limit is the real bound, so one string may occupy almost the full 1 MiB envelope.
+const MAX_STRING_BYTES = MAX_JSON_BYTES;
 
 const SCHEMES = ["quanpin", "shuangpin", "wubi", "japanese"];
 const SHUANGPIN_PROFILES = ["xiaohe", "ziranma", "shoudao", "microsoft"];

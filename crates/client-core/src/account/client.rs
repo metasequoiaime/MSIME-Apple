@@ -454,6 +454,56 @@ impl BackendAccountClient {
             .body(snapshot.to_vec())
             .send()
             .map_err(|_| AccountError::Unavailable)?;
+        Self::decode_snapshot_restore(response, revision)
+    }
+
+    /// Stream a validated private snapshot file as the request body without loading it in memory.
+    pub fn restore_dictionary_snapshot_file(
+        &self,
+        snapshot: &Path,
+        revision: i64,
+        access_token: &str,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        if revision < 0 || !snapshot.is_absolute() || !valid_token(access_token) {
+            return Err(AccountError::Invalid);
+        }
+        let file = std::fs::File::open(snapshot).map_err(|_| AccountError::Invalid)?;
+        let bytes = file.metadata().map_err(|_| AccountError::Invalid)?.len();
+        if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
+            return Err(AccountError::Invalid);
+        }
+        let url = self
+            .origin
+            .join(&format!(
+                "/v1/users/me/dictionary/snapshot?revision={revision}"
+            ))
+            .map_err(|_| AccountError::Invalid)?;
+        let response = self
+            .client
+            .put(url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/x-ndjson")
+            .bearer_auth(access_token)
+            .timeout(Duration::from_secs(600))
+            .body(reqwest::blocking::Body::sized(file, bytes))
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        Self::decode_snapshot_restore(response, revision)
+    }
+
+    fn decode_snapshot_restore(
+        response: Response,
+        revision: i64,
+    ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        let media_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .map(str::trim);
+        if !media_type.is_some_and(|value| value.eq_ignore_ascii_case("application/json")) {
+            return Err(AccountError::Unavailable);
+        }
         let bytes = read_bounded_response(response, MAX_JSON_BYTES)?;
         let result: AccountDictionarySnapshotRestore =
             serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)?;

@@ -26,6 +26,8 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 共享皮肤页的「我的设计」也由 Harmony 承载，对应 MSIME-Apple 的 `CustomSkinEditorView` 与 `CustomKeyboardSkin`。它不是设置文档里那份 `custom_touch_keyboard_skin`（那只有一套，是当前正在用的那一套），而是最多十二套具名设计的独立文件——命名、改名、覆盖、删除。
 
+来源断言审计补上了原生键盘最后一段渲染链。此前 `CustomKeyboardSkin` 虽然解析渐变、照片、图案、键帽形状/材质、阴影和透明度，真正的 `KeyboardView` 却只读取基础颜色与等宽字体，导致共享设置预览会变、系统键盘不变。现在共享 Base64 照片先经过 512 KB 与 JPEG/PNG/GIF/WebP 魔数校验，再作为 ArkUI 图片源进入根背景；渐变、照片位置/压暗和三种固定图案在键盘背板绘制，键帽消费形状半径、材质高光、阴影与填充 alpha。填充透明度不再施加到整个容器，因此不会把键文字一起淡化。`scripts/test-harmony-custom-skin-rendering.py` 固定这些产品调用点；本轮没有 HAP 或设备截图证据。
+
 这条没有像账号那样在 ArkTS 里重写一份，而是走新的 C ABI `msime_client_custom_skin_library`：Tauri 宿主把 `CustomSkinLibraryStore` 当 Rust 直接调，只通过 C ABI 到达这个 crate 的宿主（本宿主就是）否则就得把同一个文件的锁、原子替换、名称规范化和十二条上限再实现一遍，而一个库两个 store 正是两边开始对"里面有什么"意见不一致的起点。请求不带 `action` 是读，带了就先改再读，两种都回整个库——每个调用方改完都要重画列表，只回自己那一条会让页面猜改名对排序做了什么。
 
 失败码用共享社区页面已经有措辞的那几个 `community_*`，不是 `Display` 文本：后者是写给日志的英文句子，不该出现在中文对话框里。
@@ -68,9 +70,11 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 这一条走队列而不是 Engine，是这里唯一这么做的词库操作。其余操作（列表、单条编辑、导入词库文件、导出）直接取 Engine 的维护锁，那对"在设置窗口里改一个词、并盯着旁边的列表看结果"是对的。导入个人词库文件不是那种操作：用户什么时候导入由他自己决定，键盘开着的可能性和关着的一样大，而"dictionary maintenance busy"不是"请把这些词加进去"的回答。
 
-队列是 Apple 与 Android 宿主已经给出的答案：词条写进 `<preferences_directory>/PersonalDictionary`，键盘在下一次建立会话之前把它们应用掉——那是键盘一生中唯一确定没有会话开着的时刻，和 Android 在 `scheduleEngineStartup` 里选的边界是同一个。这也是卡片上写"已加入同步队列"而不是"已导入"的原因：在本宿主上那句话同样是实话。
+队列是 Apple 与 Android 宿主已经给出的答案：词条写进 `<preferences_directory>/PersonalDictionary`，键盘在建立 Engine 会话之前先应用一批——那是确定没有会话开着的边界，和 Android 在 `scheduleEngineStartup` 里选的边界相同。每批最多四条；仍有待处理项时，宿主每两秒等一个非组字、非本地模式的空闲点，释放会话、应用下一批、重建会话并恢复中英文、九键与焦点状态。这也是卡片上写"已加入同步队列"而不是"已导入"的原因：在本宿主上那句话同样是实话。
 
-排空是尽力而为的。store 会保留没能应用的词条，失败只是推迟而不是丢失；为一个词库问题拒绝启动键盘，会把它变成"没有键盘"。
+排空是尽力而为的。store 会保留没能应用的词条，失败只是推迟而不是丢失；为一个词库问题拒绝启动键盘，会把它变成"没有键盘"。请求 UUID 是 Engine 的持久回执，同一批在共享状态写回前中断也不会重复应用；损坏状态文件原样保留，读取不存在的队列不会创建目录。
+
+个人词库 JSON 在预览和入队边界按 Engine 规则规范化：`NI HAO` 变成 `ni'hao` 后再参与重复检查，快捷短语允许换行和制表符，其它词条仍拒绝控制字符。Apple 示例里的多行短语以及大于旧 199 UTF-16 单元限制、但不超过 Engine 4096 字节上限的快捷短语都可导入；普通 Tab 文本词库格式原有的 199 单元限制没有因此放宽。
 
 `personal_dictionary_request_json` 此前只有 Tauri 宿主当 Rust 直接调，本次以 `msime_client_personal_dictionary_request` 发布给通过 C ABI 到达这个 crate 的宿主。NAPI 侧的 `personalDictionarySync`（排空那一半）本来就已经导出，只是没有人调用。
 
@@ -184,7 +188,9 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 预留看的是**设置**而不是「答案到没到」——`KeyboardSession.glossesExpected()`。按到达与否来留，等于又把宽度交还给网络。
 
-**这一片只修了宽度这一半。** 另一半是来源把释义放在候选**下面**自成一行、并为此把候选条加高（`GlossTakesItsOwnLineUnderTheCandidate`、`TheKeyboardGrowsByTheRowsTheStripReserves`）。这边释义在旁边，与来源**纵向**样式表的 `margin-left: 0.65em` 一致（`CandidateTranslationStyle` 里已经照它移植过），所以纵向列表这一侧本来就对；横排要改成两行是一次看得见的改版，而模拟器现在起不来、改完没法看，所以没有在盲改的情况下动它。
+后续按来源 `GlossTakesItsOwnLineUnderTheCandidate`、`AChipKeepsItsHeightWhileTheTranslationIsStillOnItsWay` 与 `TheKeyboardGrowsByTheRowsTheStripReserves` 补齐了另一半：手机和横排 2-in-1 候选把释义放在词条下方，按设置与可用 provider 在请求发出前预留固定第二行，原生 panel 同步增加同样的高度；大候选字号会把释义行一起撑高，不截字。纵向 2-in-1 列表仍按来源纵向样式把释义放在旁边，不额外增高。
+
+这次断言审计还找出两处比样式更直接的错误。第一，在线 `candidate_translations` 的结果被误绑到独立的 `candidate_english_gloss` 开关；关掉随包英文释义后，网络结果已经写回 Engine 却永远不画。现在展示门控是两者的并集，是否预留空行则分别按「目标语言含英语」和「已配置可用 provider」判断。第二，无释义时实现返回的是 `width('100%')`，与“按词宽”的注释和 `CandidateChipWidth.content(..., false, ...)` 测试相反，横排因此一屏只有一个候选；现在走同一份词宽算术。`scripts/test-harmony-candidate-translation.py` 固定这条宿主接线，纯逻辑套件固定 provider、空占位、面板高度和纵向适配。这里没有新增 HAP 或设备画面证据。
 
 ## 展开候选面板里没有释义，长按也没有反应
 
@@ -306,7 +312,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 键盘在第三方应用里同样可用：华为浏览器的搜索框上打 `nihao` 得到候选 `你好`，上屏后浏览器据此拉取了联想词，说明文字确实到达了那个编辑器。回车键在那里读作「搜索」而在本应用的搜索框读作「前往」，两次都取自编辑器自己声明的动作。
 
-仍然没有证据的：账号、社区与 AI 服务的真实往返（模拟器本身联网，社区页显示离线预览数据是因为没有登录账号）、`deleteBackwardSync(length)` 的单位、读屏实际念出的内容、个人词库队列在下一次会话启动时是否真的被排空。真机签名与麦克风授权流程同样未验。
+仍然没有证据的：账号、社区与 AI 服务的真实往返（模拟器本身联网，社区页显示离线预览数据是因为没有登录账号）、`deleteBackwardSync(length)` 的单位、读屏实际念出的内容、个人词库大批导入在真机常驻扩展中跨批排空并进入真实候选。队列的 4/4/1 批处理、回执不重放、Engine 规范化、空闲续排和会话状态恢复已有源码与单元测试证据，但本轮没有重建 HAP 或设备复测。真机签名与麦克风授权流程同样未验。
 
 按键音与振动现在也能从设置页调整，而不只是键盘内那张卡片：共享 `mobileKeyboardFeedback` 客户端读写键盘自己的 `key-feedback.json`，两个进程共用同一份文件（这项设置属于当前设备而非账号，所以不进共享偏好）。设置页是第二个写入者，改动在键盘下次启动时生效。强度预览直接振一下。共享 DTO 把最强一档叫 `strong`，键盘自己的枚举叫 `heavy`，两边由 `KeyboardFeedbackBridge` 转换——直接赋值会写入键盘不认识的值，`KeyboardFeedback.parse` 会静默回退，表现为"保存了但手感没变"。
 
