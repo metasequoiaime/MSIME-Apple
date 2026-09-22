@@ -1,0 +1,84 @@
+name: Platform CI
+
+# Native-host gates for the four platforms that do not use the Apple runners.
+# Release workflows remain separate; this workflow only builds and tests.
+on:
+  push:
+    branches: [develop, main]
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.en.md
+      - README.md
+      - docs/**
+  pull_request:
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.en.md
+      - README.md
+      - docs/**
+  workflow_dispatch:
+  merge_group:
+
+concurrency:
+  group: platform-ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check Android host contracts and JVM smoke tests
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: bash platforms/android/check-host.sh
+
+  linux:
+    name: Linux native host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build IBus and Fcitx5 hosts in the pinned container
+        run: bash platforms/linux/build-container.sh
+
+  harmonyos:
+    name: HarmonyOS host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Node dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Type-check and run Harmony keyboard logic tests
+        run: bash platforms/harmony/tests/run.sh
+
+  windows:
+    name: Windows GNU cross build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install MinGW cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+      - name: Build Windows host, TSF DLL and native tests
+        run: bash platforms/windows/build-cross.sh x64
