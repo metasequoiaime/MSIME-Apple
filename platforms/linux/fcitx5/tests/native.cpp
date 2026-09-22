@@ -623,12 +623,34 @@ int main(int argc, char **argv) {
       std::this_thread::sleep_for(std::chrono::milliseconds(600));
       capsLockShift();
       require(state->input_enabled_, "and switches back");
-      // 刚打完字就来的松开不算手势：那是组合键的尾巴，误切会在正常打字时换掉输入模式。
-      require(key(FcitxKey_a), "an ordinary key before the release");
-      require(key(FcitxKey_Escape), "cancel what it composed");
+      // 判据是按键自己的修饰位，不是时间：按住 Shift 打出的字母带 Shift 位，那次松开是
+      // 组合键的尾巴；而敲完拼音再点一下 Shift 不带，那是手势。后者正是「组字途中切英
+      // 文」，最常用的一个操作，按时间窗口判会把它误杀。
+      const auto shiftedKey = [&](fcitx::KeySym sym) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym, shiftHeld));
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      shiftedKey(FcitxKey_A);
       capsLockShift();
-      require(state->input_enabled_, "a release right after typing is not a gesture");
+      require(state->input_enabled_, "a release after a Shift-modified key is not a gesture");
+      key(FcitxKey_Escape);
+
+      // 组字途中切英文，上屏的必须是读入串。敲 ni 再按 Shift 要得到 ni，不是「你」——
+      // Windows 是这个语义，IBus 宿主也照它写着，而这个宿主此前调的是结束组合。
       std::this_thread::sleep_for(std::chrono::milliseconds(600));
+      require(state->input_enabled_, "raw-commit check starts in Chinese");
+      require(key(FcitxKey_n) && key(FcitxKey_i), "compose before switching to English");
+      {
+        const auto before = ic.committed;
+        capsLockShift();
+        require(!state->input_enabled_, "the gesture switched to English");
+        const auto added = ic.committed.substr(before.size());
+        require(added == "ni", ("switching to English commits the reading string, got: " + added).c_str());
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(600));
+      capsLockShift();
+      require(state->input_enabled_, "back to Chinese for the rest of the suite");
 
       // 裸 Ctrl 跟随自己的开关，默认关闭时不动。
       require(!state->mode_ctrl_enabled_, "bare Ctrl is off by default");
