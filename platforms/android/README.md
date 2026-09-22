@@ -151,6 +151,8 @@ Apple 的社区资源入口已迁移到同一页的“皮肤 / 词库 / 回复�
 
 应用首次启动、缺少运行配置时由宿主自己准备词库：两个 launcher（原生宿主的 HomeActivity 与合包的 MainActivity）都调用幂等的 `FirstRunPreparation.startIfNeeded`，已有配置只报告不覆盖。准备中与失败在“键盘”页顶部显示，失败可点击重试；就绪时不占屏幕。原先那个只有一排系统按钮的 SetupActivity 开发页已删除——把唯一的词库准备入口藏在一个用户找不到的脚手架页后面，等于允许键盘停在够不到 Engine 的状态。切换输入法的入口移到“试用键盘”页，系统输入法设置仍在“键盘”页的“系统设置”格。不会自动启用或选择输入法。系统输入法设置入口也可打开共享设置页。Tauri 使用主进程，InputMethodService 使用同 UID 的独立 :ime 进程，通过文件锁和 revision 协作，不依赖设置窗口存活。这样 Tauri 退出最后一个窗口不会结束输入服务；不是通过让隐藏设置窗口常驻来维持输入。
 
+“我的”页的“云词库”入口打开同包 Tauri 的共享云词库面板，继续复用 `packages/ui` 的目录、个人候选、文件和应用流程；原生页只负责启动路由，不复制词库编辑逻辑。入口通过 `msime_mobile_panel=cloud-dictionary` 传给 `MainActivity`，由 WebView 派发受控面板事件，返回键仍由共享面板历史处理。这样 Android 用户无需先进入桌面式设置页，也能到达 Apple 对应的云词库功能。
+
 此合包是本地开发产物，使用原开发签名和 versionCode 1，便于覆盖安装同一预览包，不代表正式发行的版本策略；不得发布开发密钥。`build-apk.sh` 不是被取代的旧入口，而是本目录原生宿主自己的构建入口，验证本目录改动时用它。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。
 
 在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --statistics --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、内置与自定义键盘皮肤、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。设置套件先确认“我的”入口存在，再选择内置霓虹夜航并打开真实编辑器应用“奶油桃桃”模板，通过 Tauri IPC 对独立命名图库执行新建、重命名、更新、应用和删除，并确认图库写入不会提前修改普通 preferences；随后检查 `custom` 选择及卵石、立体、圆角、纹理字段落盘，并在重绑的 `:ime` 进程中通过皮肤按钮无障碍状态确认实际消费“我的皮肤”。独立 fixture 还验证 Keystore 加密会话的往返、密文不含固定明文 marker、清除与 16 KiB 上限，不向生产账号服务发送验证码。测试前后恢复图库、偏好及 fixture 会话文件。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。统计套件通过真实 InputConnection 与 React 页面验证聚合文件、启停、清空和跨进程读写，固定失败阶段不输出编辑器内容，并恢复测试前文件。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案和偏好文件，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
