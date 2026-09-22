@@ -11,15 +11,17 @@ int main() {
   try {
     const auto executable = root / "用户目录" / "installed server";
     fs::create_directories(executable / "resources");
+    const auto state = root / "用户目录" / "new user state";
     int calls = 0;
     auto host = [&](const std::string &request) {
       ++calls;
       const auto options = nlohmann::json::parse(request);
       if (options.at("resources") != fs::canonical(executable / "resources").u8string())
         throw std::runtime_error("Incorrect packaged resource path");
+      if (options.at("state_root") != state.u8string())
+        throw std::runtime_error("Incorrect Unicode state path");
       return nlohmann::json{{"ok", true}, {"value", options}}.dump();
     };
-    const auto state = root / "用户目录" / "new user state";
     if (!msime::windows::prepare_first_run(executable, state, host) || calls != 1 ||
         !fs::is_regular_file(state / "runtime-options.json"))
       throw std::runtime_error("First launch did not publish configuration");
