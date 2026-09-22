@@ -90,6 +90,8 @@ IBus 属性菜单中的“候选翻译”在配置绝对共享偏好目录时按
 
 语音波形展示通过 `WaveOverlaySurface` 注入宿主。Wayland 且系统提供 `wayland-client`、`wayland-scanner` 和 `xdg-shell` 协议文件时，宿主优先使用 `wlr-layer-shell` 底部居中的 overlay layer；不支持该协议的 compositor 会回退到 IBus 辅助栏。X11 且同时提供 `x11`、`xfixes` 开发模块时使用不抢焦点的原生浮层，优先按当前 EWMH 桌面工作区底部居中定位，无法取得工作区时回退到 root 屏幕尺寸并保留多屏负坐标；录音阶段浮层两侧的取消、结束按钮仅接收按钮区域输入，其余区域保持输入透明，连接失败也会回退到 IBus。Wayland 后端继续不请求键盘焦点，仅在浮层两侧动作按钮区域接收鼠标输入；没有可用指针设备时仍可通过 IBus 菜单完成动作。可用 `MSIME_WAVE_OVERLAY_BACKEND=wayland`、`x11` 或 `ibus` 请求指定后端。Wayland 后端使用固定尺寸双缓冲共享内存，不请求键盘焦点，也不占用工作区 exclusive zone；检测到 `pangocairo` 时会在同一缓冲区绘制状态和实时转写文字，否则保留波形与转写长度指示。
 
+Fcitx5 对同一组流式语音设置采用同样语义：豆包流式识别且 `stream_inline_preedit=true`、`commit_mode=tsf` 时把 partial 写入原生预编辑；其他提交模式或关闭开关时只在辅助区域显示。最终响应为空但已经收到有效 partial 时，保留最后一份有界中间转写作为最终提交；完成、取消、失焦和会话关闭都会清除预编辑与缓存，避免旧代次重新出现。
+
 同一个 socket 也承载候选翻译请求。候选视图更新后，宿主发送一行 JSON：
 
 ```json
