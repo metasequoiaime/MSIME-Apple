@@ -181,7 +181,7 @@ struct TypingStatisticsView: View {
       // 开关、刷新和清空挪到了右上角的菜单:这一页是给人看数的,三个管理项挂在每一屏下面,每换一个标签都要再滚过它们一次。说明留在原处 —— 它解释的是屏幕上这些数字怎么来的。
       Section {
       } footer: {
-        Text("仅统计水杉键盘提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存分类计数，不保存输入内容。每日明细保留最近 366 个有记录的日期，累计分类持续保留。")
+        Text("仅统计水杉键盘提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存分类计数，不保存输入内容。每日明细默认保留最近 366 个有记录的日期，可在右上角菜单里缩短为 30 至 365 天，超期的每日记录随即删除；累计总数和分类持续保留，要全部删除请用“清空统计”。")
       }
       if let advice = storageAdvice {
         Section("统计没有数据") {
@@ -207,6 +207,16 @@ struct TypingStatisticsView: View {
             else { Text("记录打字统计") }
           }
           .accessibilityIdentifier("typingStatisticsEnabled")
+          Picker(selection: Binding(get: { statistics.retentionDays ?? 0 }, set: { days in
+            update { try store.setRetention(days == 0 ? nil : days) }
+          })) {
+            Text("永久保留").tag(0)
+            ForEach(TypingStatistics.retentionChoices, id: \.self) { Text("保留最近 \($0) 天").tag($0) }
+          } label: {
+            Label("每日记录", systemImage: "calendar.badge.clock")
+          }
+          .pickerStyle(.menu)
+          .accessibilityIdentifier("typingStatisticsRetention")
           Button("刷新统计") { reload() }
           Button("清空统计", role: .destructive) { confirmsReset = true }
             .accessibilityIdentifier("resetTypingStatistics")

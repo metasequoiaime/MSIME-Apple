@@ -139,6 +139,9 @@ struct InputSettingsView: View {
           NavigationLink(destination: HelpcodeSettingsView()) {
             Label("辅助码", systemImage: "character.magnify")
           }.accessibilityIdentifier("helpcodeSettingsLink")
+          NavigationLink(destination: LocalModeSettingsView()) {
+            Label("本地输入模式", systemImage: "textformat.123")
+          }.accessibilityIdentifier("localModeSettingsLink")
         }
 
         Section {

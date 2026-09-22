@@ -24,6 +24,8 @@ private func msimeClientPunctuationWithContext(
 private func msimeClientCommand(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select")
 private func msimeClientSelect(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_select_edge")
+private func msimeClientSelectEdge(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ edge: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_pin_candidate")
 private func msimeClientPinCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_remove_candidate")
@@ -255,7 +257,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
-  /// The fields the settings app edits on its punctuation, candidate and helpcode pages.
+  /// The fields the settings app edits on its punctuation, candidate, helpcode and local-mode pages.
   ///
   /// Unlike the scheme, the session applies them as soon as it is idle rather than when it is built, so a change made in the settings app has to reach the live session: the keyboard extension process outlives many appearances, and waiting for its next session meant a switch the user had just turned off kept working.
   private static let appEditedKeys = [
@@ -263,7 +265,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "smart_punctuation_direct_digit", "smart_punctuation_direct_letter",
     "paired_punctuation", "punctuation_lock",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
-    "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode",
+    "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
   ]
 
   /// Hand the reloaded app-edited fields to the session, leaving every other field as the session has it. The session queues the change behind an open composition, so this never interrupts typing.
@@ -576,6 +578,20 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func selectCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
     guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
     return dispatch { msimeClientSelect(handle, generation, index) }
+  }
+
+  /// Commit only the first or the last Han character of a candidate (以词定字); the Engine ends the composition with it.
+  func selectCandidateEdge(at index: UInt, last: Bool) -> MetasequoiaInputSnapshot {
+    guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
+          let identity = rows[Int(index)]["id"] as? [String: Any],
+          let generation = identity["generation"] as? NSNumber,
+          let globalIndex = identity["index"] as? NSNumber else { return diagnostic("候选已失效") }
+    return selectCandidateEdge(generation: generation.uint64Value, globalIndex: globalIndex.uint64Value, last: last)
+  }
+
+  func selectCandidateEdge(generation: UInt64, globalIndex: UInt64, last: Bool) -> MetasequoiaInputSnapshot {
+    guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
+    return dispatch { msimeClientSelectEdge(handle, generation, index, last ? 1 : 0) }
   }
 
   func allCandidates() throws -> [String: Any] {

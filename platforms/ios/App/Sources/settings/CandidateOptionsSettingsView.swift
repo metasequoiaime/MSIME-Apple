@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Pinyin typo correction and what gets mixed into the Chinese candidates.
+/// Pinyin typo correction, 以词定字, and what gets mixed into the Chinese candidates.
 ///
-/// Like the punctuation page, these live only in the shared preference document, nested under `quanpin` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. The keyboard hands a change to its live session the next time it appears.
+/// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. The keyboard hands a change to its live session the next time it appears.
 struct CandidateOptionsSettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var transposition = false
@@ -11,6 +11,7 @@ struct CandidateOptionsSettingsView: View {
   @State private var minimumPrefix = 5
   @State private var emoji = false
   @State private var kaomoji = false
+  @State private var wordCharacter = true
   @State private var saveFailed = false
 
   var body: some View {
@@ -26,6 +27,11 @@ struct CandidateOptionsSettingsView: View {
         Text("全拼纠错")
       } footer: {
         Text("分别控制字母错位和邻键误触的拼音纠错，只对全拼生效。")
+      }
+      Section {
+        Toggle(isOn: stored("word_character", "enabled", $wordCharacter)) {
+          labelled("以词定字", "长按两个字以上的候选，可以只上屏它的首字或末字")
+        }.accessibilityIdentifier("wordCharacter")
       }
       Section {
         Toggle(isOn: stored("mixed_input", "english", $english)) {
@@ -83,5 +89,6 @@ struct CandidateOptionsSettingsView: View {
     minimumPrefix = (mixed["minimum_prefix"] as? NSNumber)?.intValue ?? minimumPrefix
     emoji = mixed["emoji"] as? Bool ?? emoji
     kaomoji = mixed["kaomoji"] as? Bool ?? kaomoji
+    wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
   }
 }
