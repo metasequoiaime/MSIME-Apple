@@ -32,6 +32,18 @@
             android:text="@string/tryout_dismiss_keyboard"
             android:textSize="13sp"
             app:cornerRadius="18dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/tryout_ai_load"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minHeight="0dp"
+            android:text="加载 AI"
+            android:textSize="13sp" />
     </com.google.android.material.appbar.MaterialToolbar>
 
     <androidx.core.widget.NestedScrollView
@@ -78,6 +90,17 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/tryout_chat"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:background="@color/mist"
+                    android:padding="12dp"
+                    android:textColor="@color/ink"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
@@ -109,12 +132,19 @@
         </com.google.android.material.card.MaterialCardView>
     </androidx.core.widget.NestedScrollView>
 
-    <com.google.android.material.textfield.TextInputLayout
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
         android:layout_marginBottom="12dp"
+        android:gravity="bottom"
+        android:orientation="horizontal">
+
+      <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
         app:boxBackgroundColor="@color/surface"
         app:boxCornerRadiusBottomEnd="14dp"
         app:boxCornerRadiusBottomStart="14dp"
@@ -139,5 +169,14 @@
             android:textColor="@color/ink"
             android:textColorHint="@color/text_secondary"
             android:textSize="16sp" />
-    </com.google.android.material.textfield.TextInputLayout>
+      </com.google.android.material.textfield.TextInputLayout>
+      <com.google.android.material.button.MaterialButton
+          android:id="@+id/tryout_ai_send"
+          style="@style/Widget.Material3.Button.TonalButton"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_marginStart="6dp"
+          android:text="发送"
+          android:enabled="false" />
+    </LinearLayout>
 </LinearLayout>
