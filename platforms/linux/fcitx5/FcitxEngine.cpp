@@ -34,6 +34,7 @@
 #include "../src/core/PhrasePreedit.h"
 #include "../src/core/JapaneseConversion.h"
 #include "../src/system/TypingStatistics.h"
+#include "SystemTheme.h"
 #include "../src/voice/VoiceAction.h"
 #include "../src/overlay/WaveOverlayModel.h"
 #include "../src/overlay/WaveOverlaySurface.h"
@@ -306,6 +307,7 @@ public:
           refreshClipboard();
           refreshCloudClipboard();
           refreshEmoji();
+          refreshSystemTheme();
           refreshVoice();
           timer->setNextInterval(250000);
           timer->setOneShot();
@@ -1307,7 +1309,7 @@ public:
     voice_options_ = voiceProviderOptions(preferences_);
     wave_overlay_.light_theme = msime_voice_overlay_light_theme(
         preferences_.value("voice_theme", "follow"),
-        preferences_.value("theme", "dark"), false);
+        preferences_.value("theme", "dark"), system_dark_);
     online_socket_ = onlineSocket(options);
     translation_socket_ = options.value("translation_provider_socket", std::string{});
     if (translation_socket_.empty()) {
@@ -1407,7 +1409,7 @@ public:
             voice_options_ = voiceProviderOptions(preferences_);
             wave_overlay_.light_theme = msime_voice_overlay_light_theme(
                 preferences_.value("voice_theme", "follow"),
-                preferences_.value("theme", "dark"), false);
+                preferences_.value("theme", "dark"), system_dark_);
             preferences_snapshot_ = std::move(snapshot);
             render();
           }
@@ -1930,6 +1932,18 @@ public:
     if (wave_overlay_surface_ && wave_overlay_visible_)
       wave_overlay_surface_->hide();
     wave_overlay_visible_ = false;
+  }
+  void refreshSystemTheme() {
+    const auto now = std::chrono::steady_clock::now();
+    if (now < system_theme_probe_due_) return;
+    system_theme_probe_due_ = now + std::chrono::seconds(5);
+    const auto dark = fcitx_system_dark_theme();
+    if (!dark || *dark == system_dark_) return;
+    system_dark_ = *dark;
+    wave_overlay_.light_theme = msime_voice_overlay_light_theme(
+        preferences_.value("voice_theme", "follow"),
+        preferences_.value("theme", "dark"), system_dark_);
+    if (voice_loading_) updateVoiceOverlay();
   }
   void updateVoiceOverlay() {
     wave_overlay_.status = voice_phase_;
@@ -2561,6 +2575,8 @@ public:
   msime::linux_host::WaveOverlayModel wave_overlay_;
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface_;
   bool wave_overlay_visible_ = false;
+  bool system_dark_ = false;
+  std::chrono::steady_clock::time_point system_theme_probe_due_{};
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
   bool translation_candidates_active_ = false;
