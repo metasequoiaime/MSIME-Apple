@@ -12,6 +12,12 @@ macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/
 
 **2026-09-20 更新：这条限制对本项目已经不生效了。** #3270 之后预览版的 `CFBundleIdentifier` 继承 `app.msime.inputmethod.MetasequoiaIME`，而它在本次登录会话开始时就在输入源列表里，于是命中的是上面那条判据的另一半——已在列表中的 identifier 原地更新是正常的。实测从当前 develop 构建并 `install.sh` 安装之后，`check_input_source.swift` 稳定报 `app.msime.inputmethod.MetasequoiaIME` 与 `.Hans` 两条 enabled，连续 15 次查询全部命中，不必注销登录。上面记的那些排除项仍然有效，只是它们描述的是「给预览版一个全新标识」那条路——那条路依旧走不通，这也正是继承标识的理由。
 
+### 当前标识与数据目录
+
+这里有两个不同产品进程，不能用同一个概念混写：输入法本体是 InputMethodKit bundle，继续使用系统已经登记的 `app.msime.inputmethod.MetasequoiaIME`；承载共享 React 设置页的设置应用使用 `app.msime.client`。设置应用的默认状态根和输入法读取的原生定位器都在 `~/Library/Application Support/app.msime.client/`，外部皮肤、偏好、统计与 `runtime-options.json` 以此为当前默认来源。
+
+旧版本用过的 `app.msime.client.preview` 和 `app.msime.inputmethod.MetasequoiaIME.settings` 不是当前产品标识。升级时设置应用只把它们当迁移来源：默认状态复制进 `app.msime.client` 后重建所有路径字段，原目录保留为降级备份；用户通过“数据目录”明确选过的外部路径不会被擅自搬回，只迁移指向它的定位文件。新安装不会创建或写入这两个旧目录。
+
 同一天的后续实测推翻了一条一度写在这里的话。当时写的是「在别的 worktree 裸跑 `cmake --build` 会把注册顶掉，只有重新登录能恢复」——**不对**。那次读到的 0/12 是真的，但过一段时间之后，不做任何操作也没有重新登录，连查 15 次全部命中，直接枚举 TIS 也能看到两条都 enabled。真正的现象是：`TISCreateInputSourceList` 在 bundle 被替换或重新注册之后会有分钟级的一段时间按 bundle id 查不到东西，然后自己回来。
 
 注册结果在刚替换 bundle、刚调用 `--register-input-source` 之后有一段不稳定的窗口：同一条 `check_input_source.swift` 隔几秒跑，会先报 not in the registry，再报 enabled。`install.sh` 只查一次就下结论，两个方向的误判都可能出现——判断安装结果时多查几次再看。
@@ -45,7 +51,7 @@ macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/
 
 候选设置现提供 Apple 固定提交 `b637828e15eafcb5e459edd270a962dd14517285` 的四套内置皮肤：Fluent、微信绿、石墨 Graphite、杨柳青。`CandidateSkin.h/.cpp` 的内置 token 与 `CandidateChrome.h` 的绘制来自该提交，保留明暗配色、边框、圆角、内边距、独立编号颜色及选中标记。跟随系统外观变化重新着色；设置变更立即重绘但不改变组合、候选 ID 或高亮。设置存入新宿主自身偏好域。
 
-外部皮肤读取同一固定来源的 `skin.toml` schema 1：元数据、内置 base、supports 布局/主题列表、明暗候选颜色、最小宽度和顶部装饰图。新宿主只扫描 `~/Library/Application Support/app.msime.client.preview/skins/<id>/skin.toml`，不读取或改写旧 Apple 产品目录。开发时将包放入该目录后，打开“候选设置…”或点击“重新读取皮肤”；内置项在前，外部项按名称排序，按 ID 保存选择。无效/缺失包使用 Fluent 渲染但保留用户选择的安全 ID。候选配色与图片缓存于设置快照，不在按键重绘时扫描磁盘。
+外部皮肤读取同一固定来源的 `skin.toml` schema 1：元数据、内置 base、supports 布局/主题列表、明暗候选颜色、最小宽度和顶部装饰图。宿主只扫描 `~/Library/Application Support/app.msime.client/skins/<id>/skin.toml`，不读取或改写旧 Apple 产品目录。开发时将包放入该目录后，打开“候选设置…”或点击“重新读取皮肤”；内置项在前，外部项按名称排序，按 ID 保存选择。无效/缺失包使用 Fluent 渲染但保留用户选择的安全 ID。候选配色与图片缓存于设置快照，不在按键重绘时扫描磁盘。
 
 候选装饰沿用 Apple 顶部右对齐和等比例缩放，宽度与顶部留白来自 manifest；缺失或无法解码的图片不绘制，保留声明的布局。外部 manifest 限 64 KiB，拒绝非普通文件、越界或经符号链接逃逸的包/manifest/资源路径；非法颜色忽略并保留基础配色。`toolbar_stylesheet` 在 macOS 原生悬浮工具栏中采用受限适配：支持颜色、圆角、边框宽度和内边距，以及 `:hover`/`:active` 状态的颜色；布局、脚本、图片、滤镜和其他 WebView 专属 CSS 会被忽略，不会注入 AppKit。
 

@@ -3,6 +3,10 @@ import base from "../../src-tauri/tauri.conf.json";
 import windows from "../../src-tauri/tauri.windows.conf.json";
 import capability from "../../src-tauri/capabilities/default.json";
 
+test("shared settings uses the canonical client identifier", () => {
+  expect(base.identifier).toBe("app.msime.client");
+});
+
 test("Windows custom titlebar disables native decorations without losing window constraints", () => {
   // Platform config replaces the windows array rather than merging its items.
   expect(windows.app.windows).toEqual(

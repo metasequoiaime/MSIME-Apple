@@ -2602,7 +2602,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
                                   appropriateForURL:nil
                                              create:NO
                                               error:nil];
-    NSURL *defaultState = [support URLByAppendingPathComponent:@"app.msime.client.preview" isDirectory:YES];
+    NSURL *defaultState = [support URLByAppendingPathComponent:@"app.msime.client" isDirectory:YES];
     NSString *userData = configuredState ?: defaultState.path;
     BOOL ok = msime_macos_uninstall_input_source(bundle.path.fileSystemRepresentation,
                                                   userData.fileSystemRepresentation,

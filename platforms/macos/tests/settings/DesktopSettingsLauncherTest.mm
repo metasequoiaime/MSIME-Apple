@@ -10,7 +10,7 @@
 
 @implementation TestWorkspace
 - (NSURL *)URLForApplicationWithBundleIdentifier:(NSString *)identifier {
-    assert([identifier isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.settings"]);
+    assert([identifier isEqualToString:@"app.msime.client"]);
     return self.installed ? [NSURL fileURLWithPath:@"/synthetic/Settings.app"] : nil;
 }
 - (void)openApplicationAtURL:(NSURL *)url configuration:(NSWorkspaceOpenConfiguration *)configuration

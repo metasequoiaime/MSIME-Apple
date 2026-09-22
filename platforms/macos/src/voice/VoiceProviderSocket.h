@@ -29,7 +29,7 @@ static inline NSString *MSIMEVoiceProviderSocketFromOptionsPath(NSString *option
     if (!optionsPath) {
         NSURL *support = [[fileManager URLsForDirectory:NSApplicationSupportDirectory
                                                                    inDomains:NSUserDomainMask] firstObject];
-        optionsPath = [[support URLByAppendingPathComponent:@"app.msime.client.preview/runtime-options.json"] path];
+        optionsPath = [[support URLByAppendingPathComponent:@"app.msime.client/runtime-options.json"] path];
     }
     NSData *data = optionsPath.length ? [NSData dataWithContentsOfFile:optionsPath] : nil;
     NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
