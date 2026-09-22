@@ -114,6 +114,11 @@ assert source.index("return toggleInputMode();") < source.index(
 assert "ime_mode_chosen_" in source
 assert 'preferences_.value("default_ime_mode", "chinese")' in source
 assert 'voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_)' in source
+assert 'fcitx_system_dark_theme()' in source
+assert 'refreshSystemTheme()' in source
+assert 'system_theme_probe_due_' in source
+assert 'pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)' in (root / "fcitx5/CMakeLists.txt").read_text()
+assert 'fcitx_system_dark_theme' in (root / "fcitx5/SystemTheme.cpp").read_text()
 
 # Native Fcitx5 sessions use the same non-focus-stealing X11/Wayland voice
 # surface as IBus when one is available, while the auxiliary panel remains the
