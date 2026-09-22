@@ -166,3 +166,9 @@ if(MSVC)
   target_compile_options(msime-tsf PRIVATE /W4 /Zc:__cplusplus /Zc:threadSafeInit-)
   set_property(TARGET msime-tsf PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
+add_executable(msime-tsf-commit-and-continue-payload-test
+  tests/commit_candidate_and_continue_payload.cpp)
+target_include_directories(msime-tsf-commit-and-continue-payload-test PRIVATE .)
+target_compile_features(msime-tsf-commit-and-continue-payload-test PRIVATE cxx_std_17)
+add_test(NAME msime-tsf-commit-and-continue-payload
+  COMMAND msime-tsf-commit-and-continue-payload-test)

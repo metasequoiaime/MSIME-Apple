@@ -10,6 +10,7 @@ use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 use std::time::Duration;
+#[derive(Default)]
 struct Fixture {
     scheme: u8,
     dedicated_english: bool,
@@ -376,6 +377,9 @@ impl InputEngine for Fixture {
             microsoft_shuangpin: false,
             shuangpin_profile: "xiaohe".into(),
             answered_by_pinyin_fallback: false,
+            wubi_unique_four_code: self.scheme == 2
+                && self.text.len() == 4
+                && self.words.len() == 1,
             local_mode: self.local_mode.clone(),
             dedicated_english: self.dedicated_english,
             preedit: self.text.clone(),
@@ -440,6 +444,66 @@ impl InputEngine for Fixture {
         });
         Ok(result)
     }
+}
+
+#[test]
+fn unique_complete_wubi_code_auto_commits_unless_a_phrase_is_being_built() {
+    let create = |fixture| {
+        let mut runtime = Runtime::new(fixture, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let mut unique = create(Fixture {
+        scheme: 2,
+        words: vec!["合成候选".into()],
+        ..Fixture::default()
+    });
+    let mut last = None;
+    for value in b"wqaa" {
+        last = Some(
+            unique
+                .dispatch(Action::Character {
+                    value: *value,
+                    shift: false,
+                })
+                .unwrap(),
+        );
+    }
+    let last = last.unwrap();
+    assert_eq!(last.commit.as_deref(), Some("合成候选"));
+    assert!(last.view.editing_text.is_empty());
+
+    let mut ambiguous = create(Fixture {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        ..Fixture::default()
+    });
+    for value in b"wqab" {
+        ambiguous
+            .dispatch(Action::Character {
+                value: *value,
+                shift: false,
+            })
+            .unwrap();
+    }
+    assert_eq!(ambiguous.view().editing_text, "wqab");
+
+    let mut phrase = create(Fixture {
+        scheme: 2,
+        words: vec!["合成候选".into()],
+        ..Fixture::default()
+    });
+    phrase.phrase_prefix = "合成前缀".into();
+    for value in b"wqaa" {
+        phrase
+            .dispatch(Action::Character {
+                value: *value,
+                shift: false,
+            })
+            .unwrap();
+    }
+    assert_eq!(phrase.view().editing_text, "wqaa");
+    assert_eq!(phrase.view().phrase_prefix, "合成前缀");
 }
 fn runtime() -> Runtime<Fixture> {
     Runtime::new(
@@ -770,6 +834,7 @@ impl InputEngine for PhraseEngine {
             microsoft_shuangpin: false,
             shuangpin_profile: "xiaohe".into(),
             answered_by_pinyin_fallback: false,
+            wubi_unique_four_code: false,
             local_mode: "none".into(),
             dedicated_english: false,
             preedit: self.reading.clone(),

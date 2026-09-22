@@ -60,6 +60,10 @@ enum class WorkerMode {
 };
 // Only six mode commands, never arbitrary opcodes or unsolicited text.
 std::optional<std::vector<uint8_t>> worker_mode_bytes(WorkerMode mode);
+// Commit text through the worker endpoint and trim only the named count from
+// the TSF-local key buffer, preserving any keys typed ahead of delivery.
+std::optional<std::vector<uint8_t>>
+commit_candidate_and_continue_bytes(size_t consumed, std::string_view text);
 
 // The TSF-local settings the TIP keeps in its own globals.
 //

@@ -109,6 +109,7 @@ bool FocusedSession::prepare(const FocusLease &lease) {
       if (composer_)
         composer_->cancel();
       preferences_retry_.reset();
+      auto_commit_hide_pending_ = false;
       session_.activate(lease.epoch);
       composer_.emplace(client_, lease.epoch);
       lease_ = lease;
@@ -196,6 +197,7 @@ bool FocusedSession::confirm(const FocusLease &lease, uint64_t request) {
   // recorded only if it went through: a throw leaves the commit unconfirmed,
   // and an unconfirmed commit is not in the document.
   const auto delivered = pending_commit();
+  const bool auto_commit = composer_->pending().worker.has_value();
   const bool confirmed = gate_.with_active(lease, [&] {
     composer_->confirm_delivery(client_, lease.epoch, request);
     if (preferences_retry_) {
@@ -203,8 +205,11 @@ bool FocusedSession::confirm(const FocusLease &lease, uint64_t request) {
       preferences_retry_.reset();
     }
   });
-  if (confirmed)
+  if (confirmed) {
+    if (auto_commit)
+      auto_commit_hide_pending_ = true;
     record_commit(delivered);
+  }
   return confirmed;
 }
 std::optional<PendingReply>
@@ -331,7 +336,30 @@ bool FocusedSession::cancel_composition(const FocusLease &lease) {
       throw std::logic_error("Composition cancelled before reply delivery");
     session_.cancel_composition(lease.epoch);
     composer_->cancel();
+    auto_commit_hide_pending_ = false;
   });
+}
+HideCandidateDisposition
+FocusedSession::hide_candidate(const FocusLease &lease) {
+  check_thread();
+  if (!prepared(lease))
+    return HideCandidateDisposition::Rejected;
+  HideCandidateDisposition disposition = HideCandidateDisposition::Rejected;
+  gate_.with_active(lease, [&] {
+    if (composer_->has_pending())
+      throw std::logic_error("Composition hidden before reply delivery");
+    if (auto_commit_hide_pending_) {
+      auto_commit_hide_pending_ = false;
+      if (!session_.view().at("editing_text").get<std::string>().empty()) {
+        disposition = HideCandidateDisposition::Suppressed;
+        return;
+      }
+    }
+    session_.cancel_composition(lease.epoch);
+    composer_->cancel();
+    disposition = HideCandidateDisposition::Cancelled;
+  });
+  return disposition;
 }
 bool FocusedSession::reset_cache() {
   check_thread();
@@ -350,6 +378,7 @@ bool FocusedSession::cancel(const FocusLease &lease) {
   gate_.deactivate(lease);
   composer_->cancel();
   preferences_retry_.reset();
+  auto_commit_hide_pending_ = false;
   session_.deactivate(lease.epoch);
   composer_.reset();
   lease_.reset();

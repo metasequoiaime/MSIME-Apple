@@ -130,6 +130,23 @@ int main() {
     require(payload(empty_fallback.stage(result(1, "", "", ""),
         ReplyPath::CandidatePunctuationFallback)).empty());
     confirm(empty_fallback);
+    ReplyComposer auto_commit(42, 7);
+    auto automatic = result(2, "", "", "合成候选");
+    automatic.transition["commit_context"] = {{"scheme", 2}, {"local_mode", "none"}};
+    const auto &continued =
+        auto_commit.stage(automatic, ReplyPath::AutoCommitAndContinue);
+    require(continued.worker && !continued.encoded &&
+            continued.committed_text == "合成候选" &&
+            continued.worker->at(0) ==
+                FanyImeWorkerReplyType::CommitCandidateAndContinue &&
+            continued.worker->at(4) == '4' && continued.worker->at(6) == '\t');
+    confirm(auto_commit);
+    automatic.transition["view"]["editing_text"] = "x";
+    const auto &invalid_continue =
+        auto_commit.stage(automatic, ReplyPath::AutoCommitAndContinue);
+    require(invalid_continue.encoded && !*invalid_continue.encoded &&
+            !invalid_continue.worker);
+    auto_commit.cancel();
     for (bool fallback : {false, true}) {
       ReplyComposer prefixed(42, 7);
       prefixed.stage(result(1, "hao", "hao", "你"), ReplyPath::Selection);
