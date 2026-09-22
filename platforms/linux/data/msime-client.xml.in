@@ -16,7 +16,7 @@
       <language>zh</language>
       <license>GPL-3.0-only</license>
       <author>MSIME contributors</author>
-      <icon>input-keyboard</icon>
+      <icon>msime-client</icon>
       <layout>us</layout>
     </engine>
   </engines>

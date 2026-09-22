@@ -23,6 +23,9 @@
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/core/CandidateSkinCatalog.h"
+#ifdef MSIME_FCITX5_MODE_BADGE
+#include "../src/overlay/ModeBadgeWaylandSurface.h"
+#endif
 #include "../src/core/BackspaceHoldPolicy.h"
 #include "../src/core/SmartPunctuationSpace.h"
 #include "../src/system/DiagnosticLog.h"
@@ -250,7 +253,7 @@ bool launchDesktopPanel(const char *panel) {
 class FcitxState : public fcitx::InputContextProperty {
 public:
   explicit FcitxState(fcitx::InputContext &ic, FcitxEngine *engine, fcitx::EventLoop &loop)
-      : ic_(ic), engine_(engine) {
+      : ic_(ic), engine_(engine), loop_(&loop) {
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
           refreshProviderSockets();
@@ -647,6 +650,22 @@ public:
     return true;
   }
   void refreshToolbar();
+  // 中英文切换后在光标附近短暂显示「中」或「英」，由 Fcitx5 面板绘制；定义在
+  // FcitxEngine 之后，它需要那个类型完整。
+  void showInputModeHud();
+#ifdef MSIME_FCITX5_MODE_BADGE
+  // 徽章显示约 1 秒后自行消失。用事件循环的定时器而不是线程：绘制和销毁都必须回到这条
+  // 线程上，Wayland 连接不是线程安全的。
+  void scheduleModeBadgeHide() {
+    if (!loop_) return;
+    mode_badge_timer_ = loop_->addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1200000, 0,
+        [this](fcitx::EventSourceTime *, uint64_t) {
+          if (mode_badge_) mode_badge_->hide();
+          return true;
+        });
+  }
+#endif
   bool toggleInputMode() {
     if (!session_ || restricted() || privateInput() || !ic_.hasFocus()) return false;
     input_enabled_ = !input_enabled_;
@@ -661,6 +680,8 @@ public:
     } else {
       render();
     }
+    // 提示放在面板更新之后：clearPanel()/render() 会刷新输入面板，先弹再刷会把它收掉。
+    showInputModeHud();
     return true;
   }
   bool toggleWordCharacter() {
@@ -2358,6 +2379,12 @@ public:
   bool shift_down_ = false;
   bool shift_in_combination_ = false;
   bool ctrl_in_combination_ = false;
+  fcitx::EventLoop *loop_ = nullptr;
+#ifdef MSIME_FCITX5_MODE_BADGE
+  std::unique_ptr<msime::linux_host::ModeBadgeWaylandSurface> mode_badge_;
+  bool mode_badge_unavailable_ = false;
+  std::unique_ptr<fcitx::EventSourceTime> mode_badge_timer_;
+#endif
   bool ctrl_down_ = false;
   std::chrono::steady_clock::time_point modifier_toggle_deadline_{};
   std::shared_future<Json> voice_job_;
@@ -3832,6 +3859,7 @@ private:
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngine {
 public:
+  fcitx::Instance *instance() const { return instance_; }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
@@ -4349,6 +4377,33 @@ void FcitxState::maintenance(int operation) {
     if (raw) apply(raw);
     return;
   }
+}
+
+void FcitxState::showInputModeHud() {
+#ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+  // 共享偏好 input_mode_hud 控制，默认开启。不自己画窗口——Fcitx5 的面板本来就提供这个
+  // 弹出物，而且它明说是给「输入法内部开关」用的：由面板负责定位、不抢焦点、到时自动
+  // 消失，正是这个提示需要的三件事。
+  if (!preferences_.value("input_mode_hud", true)) return;
+  if (restricted() || privateInput() || !ic_.hasFocus()) return;
+  const std::string label = input_enabled_ ? "中" : "英";
+#ifdef MSIME_FCITX5_MODE_BADGE
+  // 自绘徽章带产品 logo，面板那个提示只能显示文字。连不上合成器或没有 layer-shell 时
+  // 记下来不再重试，回退到文字提示——提示少一张图，好过没有提示。
+  if (!mode_badge_ && !mode_badge_unavailable_) {
+    mode_badge_ = msime::linux_host::ModeBadgeWaylandSurface::create();
+    mode_badge_unavailable_ = !mode_badge_;
+  }
+  // 两个提示各补一半：面板那个由合成器按光标矩形定位，跟着输入点走，但只能显示文字；
+  // 自绘徽章带得了 logo，却只能用屏幕坐标固定在一个角上。两者同时发是所有者的选择。
+  if (mode_badge_ &&
+      mode_badge_->show(label, MSIME_MODE_BADGE_ICON,
+                        preferences_.value("candidate_theme", std::string()) == "light"))
+    scheduleModeBadgeHide();
+#endif
+  if (auto *instance = engine_->instance())
+    instance->showCustomInputMethodInformation(&ic_, label);
+#endif
 }
 
 bool FcitxState::key(fcitx::KeyEvent &event) {

@@ -25,7 +25,24 @@ packaging = (root / "cmake/packaging.cmake").read_text()
 assert "if(MSIME_ENABLE_FCITX5)" in packaging
 assert "fcitx5 (>= 5.0.20)" in packaging
 
+cmake_fcitx5 = (root / "fcitx5/CMakeLists.txt").read_text()
+# 徽章浮层用的是 wayland-scanner 生成的 C 代码。这个子工程声明 LANGUAGES CXX，不打开 C
+# 的话生成的 .c 不参与编译，插件链接得过却在加载时报 undefined symbol，fcitx5 静默不加载
+# ——表现是整个输入法没反应。同理 layer-shell 的协议引用了 xdg_popup，两份生成代码必须
+# 一起编。这两条都发生过。
+assert "enable_language(C)" in cmake_fcitx5
+assert "xdg-shell.xml" in cmake_fcitx5
+assert "wlr-layer-shell-unstable-v1.xml" in cmake_fcitx5
+
 source = (root / "fcitx5/FcitxEngine.cpp").read_text()
+# 中英文切换提示：面板那个弹出物必须排在面板更新之后，先弹再刷会被 clearPanel()/render()
+# 收掉，表现为提示时有时无。
+assert "showCustomInputMethodInformation" in source
+toggle = source[source.index("bool toggleInputMode()"):]
+toggle = toggle[:toggle.index("bool toggleWordCharacter()")]
+assert toggle.index("clearPanel();") < toggle.index("showInputModeHud();")
+assert toggle.index("render();") < toggle.index("showInputModeHud();")
+assert "input_mode_hud" in source
 assert 'tsf_preedit_style' in source
 assert 'candidate_preedit_style' in source
 assert 'FcitxSchemeBooleanAction' in source
