@@ -42,7 +42,7 @@ use platform::desktop::desktop_preferences_monitor;
 use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
 use platform::linux::{
-    linux_account, linux_audio_devices, linux_process, linux_provider_credentials,
+    linux_account, linux_audio_devices, linux_process, linux_provider_credentials, linux_setup,
 };
 #[cfg(target_os = "macos")]
 use platform::macos::{
@@ -3652,6 +3652,8 @@ pub fn run() {
             // their own native plugins and never build this module.
             #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
             app.manage(voice_sessions::VoiceSessions::default());
+            #[cfg(target_os = "linux")]
+            app.manage(linux_setup::LinuxSetupState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
             // Webview input never controls resource or state paths.
             #[cfg(target_os = "android")]
@@ -3681,7 +3683,16 @@ pub fn run() {
                     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
                         candidates.push(PathBuf::from(local).join("MSIME-Client/runtime-options.json"));
                     }
-                    candidates.into_iter().find(|path| path.is_file())
+                    // Without any prepared file the Linux window opens on the first-run page, which prepares exactly the fixed user locator every Linux frontend reads.
+                    #[cfg(target_os = "linux")]
+                    let user_locator = linux_setup::user_runtime_options();
+                    #[cfg(not(target_os = "linux"))]
+                    let user_locator: Option<PathBuf> = None;
+                    candidates.extend(user_locator.clone());
+                    candidates
+                        .into_iter()
+                        .find(|path| path.is_file())
+                        .or(user_locator)
                 })
                 .ok_or_else(|| {
                     "MSIME_CLIENT_HOST_OPTIONS or MSIME_IBUS_OPTIONS must point to a prepared HostOptions JSON"
@@ -3725,7 +3736,24 @@ pub fn run() {
                 {
                     macos_launch.document
                 }
-                #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+                #[cfg(target_os = "linux")]
+                {
+                    match fs::read_to_string(&host_options_path) {
+                        Ok(host_options) => serde_json::from_str(&host_options)
+                            .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?,
+                        // The first-run page prepares this file; until then every resource-backed command fails closed on the empty document, and the snapshot re-reads the file once it exists.
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            serde_json::json!({})
+                        }
+                        Err(_) => return Err("Cannot read prepared HostOptions JSON".into()),
+                    }
+                }
+                #[cfg(not(any(
+                    target_os = "android",
+                    target_os = "ios",
+                    target_os = "macos",
+                    target_os = "linux"
+                )))]
                 {
                     let host_options = fs::read_to_string(&host_options_path)
                         .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
@@ -3913,6 +3941,10 @@ pub fn run() {
             windows_account::account_status,
             #[cfg(target_os = "linux")]
             linux_account::account_status,
+            #[cfg(target_os = "linux")]
+            linux_setup::linux_setup_status,
+            #[cfg(target_os = "linux")]
+            linux_setup::run_linux_setup,
             #[cfg(target_os = "macos")]
             macos_account::account_status,
             #[cfg(target_os = "android")]

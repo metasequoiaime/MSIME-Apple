@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """Static contract checks for desktop settings panel aliases."""
+import os
+import subprocess
+import tempfile
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
@@ -33,4 +36,31 @@ assert 'shuangpin_preedit_uses_raw' in engine
 assert '"WubiCodeHint"' in engine
 assert 'wubi_code_hint' in engine
 assert "MenuPreference::WubiCodeHint" in engine
+
+# Without a prepared file the launcher still opens the window, which shows the first-run page for the user locator; an installed system configuration keeps precedence over that page.
+with tempfile.TemporaryDirectory() as scratch:
+    scratch = Path(scratch)
+    system_config = scratch / "system/runtime-options.json"
+    script = scratch / "bin/msime-client-settings"
+    script.parent.mkdir()
+    script.write_text(launcher.replace("@MSIME_SETTINGS_SYSTEM_CONFIG@", str(system_config)))
+    desktop_binary = scratch / "bin/msime-client-desktop"
+    desktop_binary.write_text('#!/bin/sh\nprintf %s "$MSIME_CLIENT_HOST_OPTIONS"\n')
+    for path in (script, desktop_binary):
+        path.chmod(0o755)
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in ("MSIME_CLIENT_HOST_OPTIONS", "MSIME_IBUS_OPTIONS", "MSIME_CLIENT_PANEL")
+    }
+    environment["XDG_CONFIG_HOME"] = str(scratch / "config")
+
+    def launched() -> str:
+        return subprocess.run([str(script)], env=environment, check=True, capture_output=True, text=True).stdout
+
+    assert launched() == str(scratch / "config/msime-client/runtime-options.json")
+    system_config.parent.mkdir()
+    system_config.write_text("{}")
+    assert launched() == str(system_config)
+
 print("settings launcher contract: ok")
