@@ -83,8 +83,6 @@ public final class MSIMEInputService extends InputMethodService {
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
     private static final String EMOJI_RECENTS_PREFERENCES = "android-emoji-recents";
     private static final String EMOJI_RECENTS_KEY = "items";
-    private static final String KEYBOARD_LAYOUT_PREFERENCES = "keyboard-layout";
-    private static final String FULL_WIDTH_INPUT_KEY = "full-width-input";
     private static final String SPACE_CURSOR_DESCRIPTION =
         "空格；轻点输入空格或选词，左右滑动移动光标";
     private static final int CAPITALIZATION_CONTEXT_LIMIT = 128;
@@ -211,7 +209,6 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardScheme.enabledFromPreferenceIds(null);
     private boolean sharedSchemePreferences;
     private SharedPreferences schemeHostPreferences;
-    private SharedPreferences keyboardLayoutPreferences;
     private boolean soundEnabled = true;
     private boolean hapticsEnabled;
     private KeyboardFeedbackPreferences.HapticStrength hapticStrength =
@@ -276,7 +273,10 @@ public final class MSIMEInputService extends InputMethodService {
     private String imeModeScope = "app";
     private String currentEditorPackage = "";
     private InputModeStore inputModeStore;
+    /** Mirrors the runtime's own character width; the toolbar card and the chord move it. */
     private boolean fullWidthInput;
+    /** The shared preference this session started from, so only a change to it overrides the toggle. */
+    private boolean fullWidthPreference;
     private boolean traditionalChineseOutput;
     private int editorInputType;
     private long currentDocumentIdentifier;
@@ -456,6 +456,11 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyEditorPreferences(JSONObject preferences) throws JSONException {
         numberRowSelection = preferences == null
             || preferences.optBoolean("number_row_selection", true);
+        // The width a session starts at. Applied to the runtime once there is one to tell; this
+        // method also runs for editors that never get a session, and those only commit directly.
+        fullWidthPreference = preferences != null && CharacterWidthPolicy.preferenceIsFullWidth(
+            preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
+        if (session == 0) fullWidthInput = fullWidthPreference;
         JSONObject keybindings = preferences == null ? null : preferences.optJSONObject("keybindings");
         hardwareLanguageShift = keybindings == null || keybindings.optBoolean("switch_language_shift", true);
         hardwareLanguageCtrlAltSpace = keybindings == null
@@ -667,7 +672,6 @@ public final class MSIMEInputService extends InputMethodService {
             inputModeStore = InputModeStore.from(
                 getSharedPreferences(INPUT_MODE_PREFERENCES, MODE_PRIVATE));
         }
-        loadKeyboardLayoutPreferences();
         sharedSchemePreferences = false;
         enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null);
         letterCase.reset();
@@ -947,6 +951,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
             apply(NativeClient.focus(session, true));
             view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
+            applyCharacterWidth(fullWidthPreference);
             refreshEnglishSuggestions();
             render();
             message = "MSIME Preview";
@@ -1244,6 +1249,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextFullWidth = nextKeybindings == null
             || nextKeybindings.optBoolean("toggle_fullwidth_option_shift_h", true);
         boolean nextNumberRowSelection = preferences.optBoolean("number_row_selection", true);
+        boolean nextFullWidthPreference = CharacterWidthPolicy.preferenceIsFullWidth(
+            preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
         boolean nextLanguageCtrl = nextKeybindings != null
             && nextKeybindings.optBoolean("switch_language_ctrl", false);
         String nextDefaultImeMode = "english".equals(
@@ -1295,6 +1302,11 @@ public final class MSIMEInputService extends InputMethodService {
         hardwareCharacterSet = nextCharacterSet;
         hardwareFullWidth = nextFullWidth;
         numberRowSelection = nextNumberRowSelection;
+        // Only a change to 「全角输入」 itself overrides a toggle the user made from the toolbar
+        // card or the chord; saving any other setting must not quietly drop it.
+        boolean characterWidthChanged =
+            CharacterWidthPolicy.overridesToggle(fullWidthPreference, nextFullWidthPreference);
+        fullWidthPreference = nextFullWidthPreference;
         hardwareLanguageCtrl = nextLanguageCtrl;
         defaultImeMode = nextDefaultImeMode;
         imeModeScope = nextImeModeScope;
@@ -1309,6 +1321,8 @@ public final class MSIMEInputService extends InputMethodService {
             closeClipboardHistory();
         }
         view = nextView;
+        // After the view is in place, because this replaces it with the runtime's answer.
+        if (characterWidthChanged) applyCharacterWidth(nextFullWidthPreference);
         if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) letterCase.reset();
         if (rebuildLayout) rebuildKeyRows();
         else if (geometryChanged) applyKeyboardGeometry();
@@ -1324,11 +1338,10 @@ public final class MSIMEInputService extends InputMethodService {
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(next);
         String commit = result.isNull("commit") ? null : result.getString("commit");
         if (commit != null) {
+            // The runtime widened this already - it holds the character width now, and applies it
+            // to everything it finishes. Widening again here would be the second pass over text
+            // that is already fullwidth, and would put this host's own rule ahead of the shared one.
             commit = chineseOutput(commit, result.optJSONObject("commit_context"));
-            // Android's dedicated-English path is Engine-owned, while Apple commits those
-            // letters directly. Apply the keyboard's direct-output width at this boundary only;
-            // Chinese, Japanese, local-mode and handwriting commits stay canonical.
-            if (fullWidthInput && dedicatedEnglish) commit = fullWidthOutput(commit);
         }
         String composing = PhrasePreeditPolicy.composing(
             next.optString("phrase_prefix", ""), next.getString("editing_text"));
@@ -3057,20 +3070,39 @@ public final class MSIMEInputService extends InputMethodService {
         vibrator = getSystemService(Vibrator.class);
     }
 
-    private void loadKeyboardLayoutPreferences() {
-        keyboardLayoutPreferences = getSharedPreferences(KEYBOARD_LAYOUT_PREFERENCES, MODE_PRIVATE);
-        fullWidthInput = keyboardLayoutPreferences.getBoolean(FULL_WIDTH_INPUT_KEY, false);
-    }
-
+    /** Width for the text this host commits itself, which never passes through the runtime. */
     private String fullWidthOutput(String text) {
         return FullWidthInputPolicy.output(text, fullWidthInput);
     }
 
-    private void toggleFullWidthInput() {
-        fullWidthInput = !fullWidthInput;
-        if (keyboardLayoutPreferences != null) {
-            keyboardLayoutPreferences.edit().putBoolean(FULL_WIDTH_INPUT_KEY, fullWidthInput).apply();
+    /**
+     * Hand the width to the runtime and take the answer back from the view it returns.
+     *
+     * <p>Without a session there is nothing to tell, and the value is simply remembered: the
+     * next session start replays it, and the host's own commits already honour it.
+     */
+    private void applyCharacterWidth(boolean fullwidth) {
+        fullWidthInput = fullwidth;
+        if (session == 0) return;
+        try {
+            view = value(NativeClient.setCharacterWidth(session, fullwidth));
+            fullWidthInput = CharacterWidthPolicy.viewIsFullWidth(
+                view.optString(CharacterWidthPolicy.VIEW_KEY, "Halfwidth"));
+        } catch (JSONException | LinkageError error) {
+            // The width the host applies to its own commits stands; the runtime keeps the old one.
+            showDiagnostic("全角状态未能同步到输入引擎");
         }
+    }
+
+    /**
+     * The toolbar card and the hardware chord switch the width for this session only.
+     *
+     * <p>「全角输入」 in the shared settings is the default a session starts from, the same way the
+     * other hosts treat it; changing it there is what makes a new value stick.
+     */
+    private void toggleFullWidthInput() {
+        applyCharacterWidth(!fullWidthInput);
+        render();
         renderMoreTools();
     }
 
@@ -6529,7 +6561,6 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeySpellingIndices = java.util.List.of();
         nineKeySpellingGeneration = -1;
         loadFeedbackPreferences();
-        loadKeyboardLayoutPreferences();
         clipboardHistory = new ClipboardHistoryStore(this);
         File files = getFilesDir();
         voiceResultStore = files == null ? null

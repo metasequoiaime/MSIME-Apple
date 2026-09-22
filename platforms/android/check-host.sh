@@ -85,6 +85,22 @@ if ! rg -q 'smartPunctuationArmRaw|smartPunctuationDecideRaw' \
   echo "Android smart punctuation must cross the shared Host API through JNI" >&2
   exit 1
 fi
+# The fullwidth state belongs to the runtime, not to a private SharedPreferences file: the Engine
+# widens what it commits, and it can only do that if the host has told it the width. The second
+# guard is the reason the first one matters - this host used to keep its own latch, and the shared
+# settings page's 全角输入 switch did nothing here at all.
+if ! rg -q 'setCharacterWidthRaw' \
+    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+  || ! rg -q 'msime_client_set_character_width' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android fullwidth input must cross the shared Host API through JNI" >&2
+  exit 1
+fi
+if rg -n 'full-width-input|keyboardLayoutPreferences' \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+  echo "Android must read the fullwidth state from the shared preference, not a private store" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
@@ -154,6 +170,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/MicrosoftShuangpinKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/ChineseOutputPolicySmoke.java" \
   "$repo_root/platforms/android/tests/core/FullWidthInputPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/core/CharacterWidthPolicySmoke.java" \
   "$repo_root/platforms/android/tests/core/DeclinedKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardInputContextSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardGeometrySmoke.java" \
@@ -218,6 +235,7 @@ java -cp "$output_dir" app.msime.client.test.ChineseHelpcodePolicySmoke
 java -cp "$output_dir" MicrosoftShuangpinKeyPolicySmoke
 java -cp "$output_dir" ChineseOutputPolicySmoke
 java -cp "$output_dir" FullWidthInputPolicySmoke
+java -cp "$output_dir" CharacterWidthPolicySmoke
 java -cp "$output_dir" DeclinedKeyPolicySmoke
 java -cp "$output_dir" KeyboardInputContextSmoke
 java -cp "$output_dir" KeyboardGeometrySmoke
