@@ -40,7 +40,7 @@ Engine 由 `engine-lock.json` 固定：锁文件记录 Engine 及其第三方源
 
 ## 验证
 
-GitHub Actions 负责 macOS、iOS、仓库契约、workflow 质量和依赖审查；本地验证仍作为提交前的快速反馈：
+GitHub Actions 负责 macOS、iOS、仓库契约、workflow 质量和依赖审查；`ci-platforms.yml` 在对应平台或共享层有改动时检查 Android（宿主契约与 JVM 冒烟）、Linux（固定容器内构建并跑 ctest）、HarmonyOS（类型检查与键盘逻辑测试）和 Windows（MinGW x64 交叉构建）。Rust workspace 测试和桌面前端测试目前不在 CI 里，只由本地验证覆盖；本地验证也是提交前的快速反馈：
 
 ```sh
 bash scripts/verify-local.sh --quick   # 只编译，合并前的门禁

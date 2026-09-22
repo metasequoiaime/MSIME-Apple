@@ -3481,8 +3481,32 @@ export function SettingsPage({
       (item.id !== "floating-toolbar" || showFloatingToolbar) &&
       (item.id !== "more" || mobilePlatform),
   );
-  // The sidebar is the list this page duplicates, so it does not list it.
-  const sidebarPages = availablePages.filter((item) => item.id !== "more");
+  // Physical-keyboard shortcuts and a desktop floating toolbar have no phone
+  // surface. HarmonyOS keeps those controls in the input-method panel on a 2-in-1,
+  // but its phone panel is still a touch keyboard, so the settings entry must not
+  // leak the PC key descriptions into the phone's "全部设置" list.
+  //
+  // Helper codes are per-host rather than per-form-factor. The Android keyboard
+  // sends them: Shift during a quanpin or shuangpin composition passes the next
+  // letter to the Engine as a helper code, and the Engine reads the schema and
+  // the candidate-row hint from these very preferences. Hiding the page left
+  // that shipping feature with no way to pick a schema or turn it off. The
+  // Apple keyboard extension has no helper-code input at all, so iOS keeps the
+  // page hidden.
+  //
+  // HarmonyOS was in the hidden list while shipping the same input: its
+  // ChineseHelpcodePolicy is the Android one, ported, and the session calls it
+  // on every shifted key. So it keeps the helper-code page, while the physical
+  // keyboard shortcut page is only available on the 2-in-1 branch where the
+  // corresponding capability projection is true.
+  const mobileHiddenPageIds: readonly SettingsPageId[] =
+    androidPlatform || harmonyPlatform
+      ? ["shortcuts", "floating-toolbar"]
+      : ["helpcode", "shortcuts", "floating-toolbar"];
+  // The sidebar is the list this page duplicates, so it does not list it. A mobile host above phone width still shows the sidebar, and `selectPage` refuses the pages hidden above, so listing them there left buttons that did nothing when tapped.
+  const sidebarPages = availablePages.filter(
+    (item) => item.id !== "more" && !(mobilePlatform && mobileHiddenPageIds.includes(item.id)),
+  );
   const sidebarGroups = ((): (typeof availablePages)[] => {
     if (!macosPlatform) return [sidebarPages];
     const remaining = new Map(sidebarPages.map((item) => [item.id, item]));
@@ -3512,28 +3536,6 @@ export function SettingsPage({
     const item = availablePages.find((page) => page.id === id);
     return item ? [item] : [];
   });
-  // Physical-keyboard shortcuts and a desktop floating toolbar have no phone
-  // surface. HarmonyOS keeps those controls in the input-method panel on a 2-in-1,
-  // but its phone panel is still a touch keyboard, so the settings entry must not
-  // leak the PC key descriptions into the phone's "全部设置" list.
-  //
-  // Helper codes are per-host rather than per-form-factor. The Android keyboard
-  // sends them: Shift during a quanpin or shuangpin composition passes the next
-  // letter to the Engine as a helper code, and the Engine reads the schema and
-  // the candidate-row hint from these very preferences. Hiding the page left
-  // that shipping feature with no way to pick a schema or turn it off. The
-  // Apple keyboard extension has no helper-code input at all, so iOS keeps the
-  // page hidden.
-  //
-  // HarmonyOS was in the hidden list while shipping the same input: its
-  // ChineseHelpcodePolicy is the Android one, ported, and the session calls it
-  // on every shifted key. So it keeps the helper-code page, while the physical
-  // keyboard shortcut page is only available on the 2-in-1 branch where the
-  // corresponding capability projection is true.
-  const mobileHiddenPageIds: readonly SettingsPageId[] =
-    androidPlatform || harmonyPlatform
-      ? ["shortcuts", "floating-toolbar"]
-      : ["helpcode", "shortcuts", "floating-toolbar"];
   const mobileSecondaryPages = availablePages.filter(
     (item) =>
       item.id !== "more" &&

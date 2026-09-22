@@ -58,6 +58,10 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) highlighted: usize,
     pub(crate) translations: HashMap<String, String>,
     pub(crate) cached: EngineSnapshot,
+    /// The Engine's own index for each seat of `cached`.
+    ///
+    /// `rerank`, `demote_runner_up_readings` and `normalize_online_slots` reorder the cached list, but the Engine knows nothing of that and selects by its own order. Every call that names a candidate to the Engine goes through [`Self::engine_index`]; without it, an AI candidate seated in slot 1 committed whatever the Engine held at 1.
+    pub(crate) engine_order: Vec<usize>,
     pub(crate) snapshot_valid: bool,
     pub(crate) character_width: CharacterWidth,
     pub(crate) touch_keyboard_layout: TouchKeyboardLayout,
@@ -342,6 +346,7 @@ impl<E: InputEngine> Runtime<E> {
             page_size: page_size.into(),
             highlighted: 0,
             translations: HashMap::new(),
+            engine_order: (0..cached.candidates.len()).collect(),
             cached,
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
@@ -483,7 +488,7 @@ impl<E: InputEngine> Runtime<E> {
     pub fn all_candidates(&mut self) -> CandidateSnapshot {
         if self.engine.expand_initial_candidates().unwrap_or(false) {
             if let Ok(snapshot) = self.engine.snapshot() {
-                self.cached = snapshot;
+                self.load_snapshot(snapshot);
                 self.rerank();
                 self.demote_runner_up_readings();
             }
@@ -609,7 +614,7 @@ impl<E: InputEngine> Runtime<E> {
         let cached = engine.snapshot()?;
         self.advance()?;
         self.engine = engine;
-        self.cached = cached;
+        self.load_snapshot(cached);
         self.snapshot_valid = true;
         self.page_size = page_size.into();
         self.highlighted = 0;
@@ -675,11 +680,23 @@ impl<E: InputEngine> Runtime<E> {
         if !self.engine.expand_initial_candidates()? {
             return Ok(false);
         }
-        self.cached = self.engine.snapshot()?;
+        let snapshot = self.engine.snapshot()?;
+        self.load_snapshot(snapshot);
         self.rerank();
         self.demote_runner_up_readings();
         self.normalize_online_slots();
         Ok(true)
+    }
+
+    /// Take a snapshot straight from the Engine, whose seats are still in the Engine's order.
+    fn load_snapshot(&mut self, snapshot: EngineSnapshot) {
+        self.engine_order = (0..snapshot.candidates.len()).collect();
+        self.cached = snapshot;
+    }
+
+    /// The Engine's index for the candidate sitting at `seat` of the cached list. A seat past the end is passed through unchanged, so the Engine keeps answering for an empty page exactly as it did.
+    fn engine_index(&self, seat: usize) -> usize {
+        self.engine_order.get(seat).copied().unwrap_or(seat)
     }
 
     fn advance(&mut self) -> Result<(), RuntimeError> {
@@ -965,6 +982,9 @@ impl<E: InputEngine> Runtime<E> {
         apply_order(&mut snapshot.candidate_sources, &order);
         apply_order(&mut snapshot.candidate_positions, &order);
         apply_order(&mut snapshot.candidate_corrected, &order);
+        if self.engine_order.len() == count {
+            apply_order(&mut self.engine_order, &order);
+        }
     }
 
     fn rerank(&mut self) {
@@ -994,6 +1014,9 @@ impl<E: InputEngine> Runtime<E> {
         rotate_to_front(&mut snapshot.candidate_sources, promote);
         rotate_to_front(&mut snapshot.candidate_positions, promote);
         rotate_to_front(&mut snapshot.candidate_corrected, promote);
+        if self.engine_order.len() == count {
+            rotate_to_front(&mut self.engine_order, promote);
+        }
     }
 
     /// Move the runner-up sentence readings behind the rest of the list.
@@ -1053,6 +1076,9 @@ impl<E: InputEngine> Runtime<E> {
         move_to_back(&mut snapshot.candidate_sources, &demote);
         move_to_back(&mut snapshot.candidate_positions, &demote);
         move_to_back(&mut snapshot.candidate_corrected, &demote);
+        if self.engine_order.len() == count {
+            move_to_back(&mut self.engine_order, &demote);
+        }
     }
 
     pub(crate) fn refresh(&mut self) -> Result<(), RuntimeError> {
@@ -1084,9 +1110,11 @@ impl<E: InputEngine> Runtime<E> {
                 candidates: Vec::new(),
             },
         );
+        self.engine_order.clear();
         let previous_highlight = self.highlighted;
         self.highlighted = 0;
-        self.cached = self.engine.snapshot()?;
+        let snapshot = self.engine.snapshot()?;
+        self.load_snapshot(snapshot);
         self.rerank();
         self.demote_runner_up_readings();
         self.normalize_online_slots();
@@ -1129,7 +1157,7 @@ impl<E: InputEngine> Runtime<E> {
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         // Finish through Engine with the host highlight BEFORE asking it to translate.
         // Calling Engine punctuation on an active composition would choose candidate zero.
-        let mut finished = self.engine.finish(self.highlighted)?;
+        let mut finished = self.engine.finish(self.engine_index(self.highlighted))?;
         let punctuation = match self.engine.punctuation(value) {
             Ok(result) => result,
             Err(error) if finished.has_commit => {
@@ -1166,7 +1194,7 @@ impl<E: InputEngine> Runtime<E> {
         // Keep the same highlighted-candidate completion semantics as normal
         // punctuation, but do not ask Engine to translate the trailing mark.
         // The Linux host has already applied its surrounding-text policy.
-        let mut finished = self.engine.finish(self.highlighted)?;
+        let mut finished = self.engine.finish(self.engine_index(self.highlighted))?;
         if !finished.has_commit {
             return Ok(finished);
         }
@@ -1286,7 +1314,7 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::Punctuation(value) => self.punctuation(value),
             Action::PunctuationAscii(value) => self.punctuation_ascii(value),
-            Action::Finish => self.engine.finish(self.highlighted),
+            Action::Finish => self.engine.finish(self.engine_index(self.highlighted)),
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
                     // The nine-key separator is a layout action, not Chinese quote punctuation.
@@ -1310,29 +1338,38 @@ impl<E: InputEngine> Runtime<E> {
                         return Ok(empty_result(true));
                     }
                     selected_by_digit = true;
-                    self.engine.select(page_start + slot)
+                    self.engine.select(self.engine_index(page_start + slot))
                 })
             }
             Action::Command(command) => self.engine.command(command),
             Action::SegmentBackspace => self.engine.segment_command(SegmentCommand::Backspace),
             Action::SegmentMoveLeft => self.engine.segment_command(SegmentCommand::MoveLeft),
             Action::SegmentMoveRight => self.engine.segment_command(SegmentCommand::MoveRight),
-            Action::Select(id) => self.engine.select(id.index),
-            Action::SelectAnyCandidate(id) => self.engine.select(id.index),
-            Action::SelectEdge(id, edge) => self.engine.select_edge(id.index, edge),
-            Action::PinCandidate(id) => self.engine.pin_candidate(id.index),
-            Action::RemoveCandidate(id) => self.engine.remove_candidate(id.index),
+            Action::Select(id) => self.engine.select(self.engine_index(id.index)),
+            Action::SelectAnyCandidate(id) => self.engine.select(self.engine_index(id.index)),
+            Action::SelectEdge(id, edge) => {
+                self.engine.select_edge(self.engine_index(id.index), edge)
+            }
+            Action::PinCandidate(id) => self.engine.pin_candidate(self.engine_index(id.index)),
+            Action::RemoveCandidate(id) => {
+                self.engine.remove_candidate(self.engine_index(id.index))
+            }
             Action::FixCandidatePosition(id, position) => {
                 if !(1..=5).contains(&position) {
                     return Err(RuntimeError::Engine(
                         "Candidate position must be between 1 and 5".into(),
                     ));
                 }
-                self.engine.fix_candidate_position(id.index, position)
+                self.engine
+                    .fix_candidate_position(self.engine_index(id.index), position)
             }
-            Action::ClearCandidatePosition(id) => self.engine.clear_candidate_position(id.index),
+            Action::ClearCandidatePosition(id) => self
+                .engine
+                .clear_candidate_position(self.engine_index(id.index)),
             Action::ChooseNineKeySpelling(id) => self.engine.choose_nine_key_spelling(id.index),
-            Action::SelectHighlighted if len > 0 => self.engine.select(self.highlighted),
+            Action::SelectHighlighted if len > 0 => {
+                self.engine.select(self.engine_index(self.highlighted))
+            }
             Action::SelectHighlighted => self.engine.command(Command::CommitCandidate),
             _ => return Ok(self.transition(empty_result(false))),
         };
@@ -1351,7 +1388,7 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.wubi_unique_four_code
             && self.phrase_prefix.is_empty()
         {
-            result = self.engine.select(0)?;
+            result = self.engine.select(self.engine_index(0))?;
             self.refresh()?;
         }
         // The Engine takes what it used off the front of the reading, so what is gone from the

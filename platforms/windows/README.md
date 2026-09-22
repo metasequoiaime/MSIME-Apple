@@ -121,7 +121,7 @@ PreviousCandidate/NextCandidate/PreviousPage/NextPage 路径消费共享导航�
 
 ## 下一步
 
-固定帧回复桥接、production Server 监听/握手装配、注册路由及 voice control 双端点已接入；`KeyResult.transition` 仍只是内部共享结果，最终发送继续通过 `ReplyCodec` 生成既有 TSF 帧。剩余工作是 Windows 原生 TSF/DLL 消费、断管恢复、x86/x64 编辑器验证、候选 HWND、设置自动重读、打包和安装。CI 保持关闭，Windows 优先于 macOS、iOS、Linux。
+固定帧回复桥接、production Server 监听/握手装配、注册路由及 voice control 双端点已接入；`KeyResult.transition` 仍只是内部共享结果，最终发送继续通过 `ReplyCodec` 生成既有 TSF 帧。剩余工作是 Windows 原生 TSF/DLL 消费、断管恢复、x86/x64 编辑器验证，候选 HWND（`src/candidate/CandidateWindow.cpp`）与设置自动重读（`src/system/PreferenceMonitor.cpp`）已实现但未在 Windows 上运行，以及打包和安装。CI 只做 MinGW x64 交叉构建，Windows 优先于 macOS、iOS、Linux。
 
 ## 管道 I/O 与进程身份绑定
 

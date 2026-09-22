@@ -2145,3 +2145,30 @@ fn an_engine_withholding_nothing_pages_exactly_as_before() {
     }
     assert_eq!(runtime.view().page_count, 3);
 }
+
+// The runtime seats online candidates and reranks the Engine's list, so the page a host renders is not in the Engine's order. A selection names a seat on that page; the Engine has to be asked for the candidate sitting there, not for whatever it holds at the same number. fcitx5-native-ai caught this as an AI candidate shown in slot 1 committing the Engine's own second candidate.
+#[test]
+fn selecting_a_reseated_candidate_commits_that_candidate() {
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words: vec!["本地一".into(), "本地二".into(), "AI".into()],
+            codes: (0..3).map(|n| format!("code-{n}")).collect(),
+            sources: vec![0, 0, 3],
+            ..Fixture::default()
+        },
+        9,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    let page = type_key(&mut runtime).view.candidates;
+    assert_eq!(
+        page.iter()
+            .map(|candidate| candidate.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["本地一", "AI", "本地二"]
+    );
+
+    let done = runtime.dispatch(Action::Select(page[1].id)).unwrap();
+    assert_eq!(done.commit.as_deref(), Some("AI"));
+}

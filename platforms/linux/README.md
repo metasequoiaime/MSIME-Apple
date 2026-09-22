@@ -274,7 +274,7 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 运行中发现并修掉一个真实的宿主缺陷：嵌套偏好对象整体可以省略（共享 `Preferences` 会给默认值），但它的成员一个都不能少。宿主把单个键补进一个 runtime-options 文档里本来没有的 `mixed_input` / `local_modes` 时，写出的是残缺对象，Host API 直接判为 invalid options document——也就是说没有配置共享偏好目录的部署里，从 IBus 菜单切一下 Emoji/颜文字混输候选或任一本地输入模式，会话就再也建不起来，该输入上下文彻底不能输入。现在这些默认值由新的 `msime_client_default_preferences` 从共享层发布，宿主据此补全缺失成员，不在 C++ 里另写一份契约。
 
-已验证 Debian bookworm arm64、IBus 1.5.27 的容器链路，以及 Arch x86_64（Hyprland/Wayland、Fcitx5 5.1.22、IBus 1.5.34）上的一次真实安装：`cmake --install` 到 `/usr` 后，Fcitx5 加载 addon（日志中的 `Loaded addon msime`）、输入法出现在可用列表与当前输入法组、`msime-client-settings` 拉起的设置窗口实际映射。仍需真实 GTK/Qt 编辑器里的逐键输入与选区、panel 位置、其他架构与发行版、cpack 安装包以及 Tauri 设置自动重读。安装到系统入口不等于编辑器验收，按证据分级前者到第四级、后者仍缺。CI 保持禁用。
+已验证 Debian bookworm arm64、IBus 1.5.27 的容器链路，以及 Arch x86_64（Hyprland/Wayland、Fcitx5 5.1.22、IBus 1.5.34）上的一次真实安装：`cmake --install` 到 `/usr` 后，Fcitx5 加载 addon（日志中的 `Loaded addon msime`）、输入法出现在可用列表与当前输入法组、`msime-client-settings` 拉起的设置窗口实际映射。仍需真实 GTK/Qt 编辑器里的逐键输入与选区、panel 位置、其他架构与发行版、cpack 安装包以及 Tauri 设置自动重读。安装到系统入口不等于编辑器验收，按证据分级前者到第四级、后者仍缺。CI 只在固定容器里构建并跑 ctest，不覆盖这些验收。
 
 系统行为依据 [IBus Engine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html) 和 [IBus InputContext API](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html)。
 
