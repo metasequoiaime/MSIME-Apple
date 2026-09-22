@@ -1494,3 +1494,7 @@ iOS 真机装机走的是产品宿主 `MSIMEClientApp`，不是 Tauri CLI：`bui
 固定 Windows 来源把外部皮肤目录挂成 `candidate-skins` 虚拟来源，浏览器因此会按每份样式表的位置解析相对 `@import` 与 `url()`。共享 Tauri 预览改用 constructed stylesheet 后，`@import` 会被浏览器直接丢弃；导入表位于子目录时，它的资源地址还会被误当成相对 skin 根目录。这使合法皮肤只显示基础样式并报告 partial。
 
 共享 UI 现在先在 host 边界读取同一 skin 包内的 CSS，再递归展开导入并把每份样式表的资源路径归一到包根。保留 `layer`、`supports()` 与 media 条件；远程、绝对和越出包根的导入会被删除并报告 partial。循环、深度、文件数与总字节均有上限，导入后的字体、图片、动画与作用域隔离继续走既有准备链。Tauri 新命令只接受 package id 与已归一化相对路径，Rust 核心重新验证当前 manifest、目录 containment、CSS MIME、8 MiB 单文件限制与 UTF-8，不向 webview 暴露文件系统路径。
+
+### Android 包名范围：排除尚未上线的 preview 包
+
+Android 迁移只覆盖已经上线范围内的正式宿主 `app.msime.android`、其原生 namespace `app.msime.client`，以及设备 smoke 使用的 `app.msime.client.test` instrumentation 包。`app.msime.client.preview` 尚未上线，因此明确排除在源码迁移、构建产物、安装验收、入口路由和完成度统计之外；它不是 Android 正式包名的别名，也不需要补做兼容或重命名工作。后续若该包正式立项，应另开范围明确的迁移切片，不把本记录当作其实现承诺。
