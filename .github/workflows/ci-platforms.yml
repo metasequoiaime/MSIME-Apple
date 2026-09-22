@@ -29,7 +29,53 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Decide platform scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      android: ${{ steps.decide.outputs.android }}
+      linux: ${{ steps.decide.outputs.linux }}
+      harmonyos: ${{ steps.decide.outputs.harmonyos }}
+      windows: ${{ steps.decide.outputs.windows }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: decide
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]] ||
+             [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null; then
+            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          shared=false
+          android=false; linux=false; harmonyos=false; windows=false
+          while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+            case "$path" in
+              platforms/android/*) android=true ;;
+              platforms/linux/*) linux=true ;;
+              platforms/harmony/*) harmonyos=true ;;
+              platforms/windows/*) windows=true ;;
+              shared/*|vendor/*|crates/*|packages/*|apps/*|engine-lock.json|product-lock.json|scripts/*|cmake/*|CMakeLists.txt)
+                shared=true ;;
+            esac
+          done <<< "$changed"
+          if [[ "$shared" == true ]]; then
+            android=true; linux=true; harmonyos=true; windows=true
+          fi
+          printf 'android=%s\nlinux=%s\nharmonyos=%s\nwindows=%s\n' \
+            "$android" "$linux" "$harmonyos" "$windows" >> "$GITHUB_OUTPUT"
+
   android:
+    needs: changes
     name: Android host
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -38,11 +84,16 @@ jobs:
         with:
           persist-credentials: false
       - name: Check Android host contracts and JVM smoke tests
+        if: ${{ needs.changes.outputs.android == 'true' }}
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: bash platforms/android/check-host.sh
+      - name: Android platform unchanged
+        if: ${{ needs.changes.outputs.android != 'true' }}
+        run: echo 'No Android or shared-platform changes; platform gate skipped.'
 
   linux:
+    needs: changes
     name: Linux native host
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -51,9 +102,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Build IBus and Fcitx5 hosts in the pinned container
+        if: ${{ needs.changes.outputs.linux == 'true' }}
         run: bash platforms/linux/build-container.sh
+      - name: Linux platform unchanged
+        if: ${{ needs.changes.outputs.linux != 'true' }}
+        run: echo 'No Linux or shared-platform changes; platform gate skipped.'
 
   harmonyos:
+    needs: changes
     name: HarmonyOS host
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -62,13 +118,19 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Node dependencies
+        if: ${{ needs.changes.outputs.harmonyos == 'true' }}
         run: |
           corepack enable
           pnpm install --frozen-lockfile --ignore-scripts
       - name: Type-check and run Harmony keyboard logic tests
+        if: ${{ needs.changes.outputs.harmonyos == 'true' }}
         run: bash platforms/harmony/tests/run.sh
+      - name: HarmonyOS platform unchanged
+        if: ${{ needs.changes.outputs.harmonyos != 'true' }}
+        run: echo 'No HarmonyOS or shared-platform changes; platform gate skipped.'
 
   windows:
+    needs: changes
     name: Windows GNU cross build
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -77,8 +139,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Install MinGW cross toolchain
+        if: ${{ needs.changes.outputs.windows == 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install --yes g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
       - name: Build Windows host, TSF DLL and native tests
+        if: ${{ needs.changes.outputs.windows == 'true' }}
         run: bash platforms/windows/build-cross.sh x64
+      - name: Windows platform unchanged
+        if: ${{ needs.changes.outputs.windows != 'true' }}
+        run: echo 'No Windows or shared-platform changes; platform gate skipped.'
