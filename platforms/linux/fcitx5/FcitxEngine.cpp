@@ -29,6 +29,7 @@
 #include "../src/core/HelpcodeDefaults.h"
 #include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
+#include "../src/core/ClientInputModeMemory.h"
 #include "../src/core/JapaneseConversion.h"
 #include "../src/system/TypingStatistics.h"
 #include "SystemTheme.h"
@@ -213,6 +214,12 @@ Json readOptions() {
 }
 
 using CandidateSkinCatalog = std::vector<msime::linux_host::CandidateSkin>;
+
+// Fcitx5 gives each input context its own property, so keep the mode memory
+// at addon scope just as the IBus host keeps it at engine scope.  The shared
+// policy bounds this table and provides an anonymous fallback.
+msime::linux_host::ClientInputModeMemory fcitx_app_input_modes;
+std::optional<bool> fcitx_global_input_mode;
 
 CandidateSkinCatalog parseCandidateSkinCatalog(const Json &options) {
   return msime::linux_host::parse_configured_skins(options);
@@ -1086,6 +1093,8 @@ public:
     applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveStringPreference("ime_mode_scope", next);
+    if (next == "global") fcitx_global_input_mode = input_enabled_;
+    else fcitx_app_input_modes.remember(ic_.program(), input_enabled_);
     render();
     return true;
   }
@@ -1146,6 +1155,21 @@ public:
   bool reloadService() {
     if (!ic_.hasFocus() || restricted() || privateInput()) return false;
     return reloadFcitxService();
+  }
+  void rememberInputMode() {
+    if (preferences_.value("ime_mode_scope", std::string("app")) == "global")
+      fcitx_global_input_mode = input_enabled_;
+    else
+      fcitx_app_input_modes.remember(ic_.program(), input_enabled_);
+  }
+  void restoreInputMode() {
+    const auto fallback = preferences_.value("default_ime_mode", "chinese") != "english";
+    if (preferences_.value("ime_mode_scope", std::string("app")) == "global")
+      input_enabled_ = fcitx_global_input_mode.value_or(fallback);
+    else
+      input_enabled_ = fcitx_app_input_modes.restore(ic_.program(), fallback);
+    ime_mode_chosen_ = true;
+    mode_restore_pending_ = false;
   }
   void applyContextOverrides(Json &preferences) const {
     if (scheme_override_) preferences["scheme"] = *scheme_override_;
@@ -1252,8 +1276,12 @@ public:
     // rebuilding the Engine session must keep the mode the user chose rather than
     // putting the startup default back.
     if (!ime_mode_chosen_) {
-      input_enabled_ = preferences_.value("default_ime_mode", "chinese") != "english";
-      ime_mode_chosen_ = true;
+      if (mode_restore_pending_)
+        restoreInputMode();
+      else {
+        input_enabled_ = preferences_.value("default_ime_mode", "chinese") != "english";
+        ime_mode_chosen_ = true;
+      }
     }
     if (!smart_punctuation_ || !smart_punctuation_space_convert_ ||
         !chinese_punctuation_) {
@@ -2591,6 +2619,7 @@ public:
   // A bare modifier switches on release, and only if nothing else was typed
   // while it was held. Windows measures the same gesture; so does the IBus host.
   bool ime_mode_chosen_ = false;
+  bool mode_restore_pending_ = false;
   bool pure_shift_candidate_ = false;
   bool pure_ctrl_candidate_ = false;
   bool shift_down_ = false;
@@ -4319,6 +4348,9 @@ public:
           auto *ic = static_cast<fcitx::InputContextEvent &>(event).inputContext();
           auto *state = ic->propertyFor(&factory_);
           if (!state->session_) return;
+          state->rememberInputMode();
+          state->ime_mode_chosen_ = false;
+          state->mode_restore_pending_ = true;
           state->close();
           state->clearPanel();
         });
