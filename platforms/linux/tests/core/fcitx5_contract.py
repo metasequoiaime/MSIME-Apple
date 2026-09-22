@@ -138,6 +138,16 @@ assert 'system_theme_probe_due_' in source
 assert 'pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)' in (root / "fcitx5/CMakeLists.txt").read_text()
 assert 'fcitx_system_dark_theme' in (root / "fcitx5/SystemTheme.cpp").read_text()
 
+# Fcitx5 menu preference writes retain the last failed field and expose a retry
+# action. A failed revision comparison must not leave the user with a silent
+# diagnostic-only failure as the old async save path did.
+assert 'struct PendingPreferenceSave' in source
+assert 'startPreferenceSave' in source
+assert 'retryPreferenceSave' in source
+assert 'preferences_save_retry_' in source
+assert 'FcitxPreferenceSaveRetryAction' in source
+assert '重试保存设置' in source
+
 # Native Fcitx5 sessions use the same non-focus-stealing X11/Wayland voice
 # surface as IBus when one is available, while the auxiliary panel remains the
 # explicit fallback for headless or unsupported desktops.
