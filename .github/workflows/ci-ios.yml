@@ -122,7 +122,7 @@ jobs:
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
-          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
+          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root platforms/ios
           if [ "${MSIME_IOS_SKIP_HANDWRITING}" != "1" ]; then
             pod install --deployment --project-directory=platforms/ios
           fi
@@ -207,7 +207,7 @@ jobs:
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
-          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
+          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root platforms/ios
           if [ "${MSIME_IOS_SKIP_HANDWRITING}" != "1" ]; then
             pod install --deployment --project-directory=platforms/ios
           fi
@@ -277,7 +277,7 @@ jobs:
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
-          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
+          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root platforms/ios
           pod install --deployment --project-directory=platforms/ios
       - name: Test handwriting recognition
         run: bash platforms/ios/scripts/run_ui_tests.sh
