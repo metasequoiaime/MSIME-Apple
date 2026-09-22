@@ -22,9 +22,14 @@ const initial: Snapshot = {
   },
 };
 
-function renderSettings(platform: string, host: Record<string, unknown> = {}) {
+function renderSettings(
+  platform: string,
+  host: Record<string, unknown> = {},
+  initialPage?: string,
+) {
   render(
     <SettingsPage
+      initialPage={initialPage}
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn().mockResolvedValue(undefined),
@@ -181,6 +186,18 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   expect(screen.getByRole("combobox", { name: "候选窗口主题" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "悬浮工具栏主题" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "候选栏主题" })).toBeNull();
+});
+
+test("Harmony handwriting instructions do not leak 2-in-1 controls onto phones", async () => {
+  renderSettings("harmony", { mobile_settings: true }, "handwriting");
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByText(/再从键盘的方案选择器切换到“手写”/)).toBeTruthy();
+  expect(screen.queryByText(/2-in-1|2in1|候选窗不绘制键面/)).toBeNull();
+
+  cleanup();
+  renderSettings("harmony", { mobile_settings: false }, "handwriting");
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByText(/2-in-1 候选窗不绘制键面/)).toBeTruthy();
 });
 
 test("a desktop host keeps its window titlebar", async () => {

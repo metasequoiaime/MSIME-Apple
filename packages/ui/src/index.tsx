@@ -8051,8 +8051,9 @@ export function SettingsPage({
                       <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">HarmonyOS 键盘手写</div>
                         <p className={settings.panelPreviewLabel}>
-                          请在系统输入法设置中启用水杉输入法，再从键盘的方案选择器切换到“手写”。2in1
-                          上候选窗不绘制键面，先从工具栏打开屏幕键盘，方案选择器在那里。
+                          {mobilePlatform
+                            ? "请在系统输入法设置中启用水杉输入法，再从键盘的方案选择器切换到“手写”。"
+                            : "请在系统输入法设置中启用水杉输入法；2-in-1 候选窗不绘制键面，请先从悬浮工具栏打开屏幕键盘，再从方案选择器切换到“手写”。"}
                         </p>
                         <p className={settings.panelPreviewLabel}>
                           识别由系统的 Core Vision Kit
