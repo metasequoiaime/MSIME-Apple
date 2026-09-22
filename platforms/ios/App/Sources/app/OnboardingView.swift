@@ -136,6 +136,9 @@ struct InputSettingsView: View {
           NavigationLink(destination: CandidateOptionsSettingsView()) {
             Label("候选与纠错", systemImage: "text.badge.checkmark")
           }.accessibilityIdentifier("candidateOptionsSettingsLink")
+          NavigationLink(destination: HelpcodeSettingsView()) {
+            Label("辅助码", systemImage: "character.magnify")
+          }.accessibilityIdentifier("helpcodeSettingsLink")
         }
 
         Section {

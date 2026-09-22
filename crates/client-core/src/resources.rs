@@ -181,6 +181,10 @@ impl ResourceStore {
                     directory.display()
                 )));
             };
+            // The Engine reads its helpcode tables from `helpcodes/` under this same directory. They are an Engine asset rather than part of the pinned dictionary release, so a host that ships them puts them here; only the directory itself is let through, and every pinned file is still checked below.
+            if name == HELPCODE_DIRECTORY && kind.is_dir() {
+                continue;
+            }
             if !kind.is_file() {
                 return Err(ResourceError::ExistingGeneration(format!(
                     "{name} in {} is a {}, not a file",
@@ -217,6 +221,9 @@ impl ResourceStore {
         Ok(())
     }
 }
+
+/// Where the Engine looks for helpcode tables, relative to the resource directory (`helpcodes/…` in its asset contract).
+const HELPCODE_DIRECTORY: &str = "helpcodes";
 
 fn describe(kind: std::fs::FileType) -> &'static str {
     if kind.is_dir() {
@@ -414,6 +421,23 @@ mod tests {
             .install(&spec, |_| Err(std::io::Error::other("offline")))
             .is_err());
         assert_eq!(fs::read(old.join("msime.db")).unwrap(), b"fixture");
+    }
+    #[test]
+    fn verification_admits_the_engine_helpcode_directory_only() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ResourceStore::new(root.path());
+        let spec = specification();
+        let path = store.install(&spec, |_| Ok(source(b"fixture"))).unwrap();
+        fs::create_dir(path.join("helpcodes")).unwrap();
+        fs::write(path.join("helpcodes/helpcode.txt"), b"a=aa").unwrap();
+        assert!(store.verify(&path, &spec).is_ok());
+        // A file by that name, or any other extra directory, is still not in the pinned set.
+        fs::remove_dir_all(path.join("helpcodes")).unwrap();
+        fs::write(path.join("helpcodes"), b"").unwrap();
+        assert!(store.verify(&path, &spec).is_err());
+        fs::remove_file(path.join("helpcodes")).unwrap();
+        fs::create_dir(path.join("extra")).unwrap();
+        assert!(store.verify(&path, &spec).is_err());
     }
     #[test]
     fn rejects_path_aliases_and_duplicate_names() {

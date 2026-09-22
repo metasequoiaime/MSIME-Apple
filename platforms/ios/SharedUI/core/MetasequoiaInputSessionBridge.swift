@@ -102,6 +102,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidates: [String]
   let candidateCodes: [String]
   let candidateGlosses: [String]
+  /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, or the spelling a typo correction replaced. Never part of the committed text.
+  let candidateAnnotations: [String]
   let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
@@ -119,7 +121,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
        phrasePrefix: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
-       candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
+       candidateAnnotations: [String] = [], candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
        nineKeySpellings: [String] = []) {
     self.isHandled = isHandled
@@ -130,6 +132,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.candidates = candidates
     self.candidateCodes = candidateCodes
     self.candidateGlosses = candidateGlosses
+    self.candidateAnnotations = candidateAnnotations
     self.candidatePageCount = candidatePageCount
     self.answeredByPinyinFallback = answeredByPinyinFallback
     self.diagnosticText = diagnosticText
@@ -252,7 +255,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
-  /// The fields the settings app edits on its punctuation and candidate pages.
+  /// The fields the settings app edits on its punctuation, candidate and helpcode pages.
   ///
   /// Unlike the scheme, the session applies them as soon as it is idle rather than when it is built, so a change made in the settings app has to reach the live session: the keyboard extension process outlives many appearances, and waiting for its next session meant a switch the user had just turned off kept working.
   private static let appEditedKeys = [
@@ -260,7 +263,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "smart_punctuation_direct_digit", "smart_punctuation_direct_letter",
     "paired_punctuation", "punctuation_lock",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
-    "quanpin", "mixed_input",
+    "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode",
   ]
 
   /// Hand the reloaded app-edited fields to the session, leaving every other field as the session has it. The session queues the change behind an open composition, so this never interrupts typing.
@@ -1004,6 +1007,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidates: rows.compactMap { $0["text"] as? String },
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
+      candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
       candidatePageCount: max(0, (view["page_count"] as? NSNumber)?.intValue ?? 0),
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
       diagnosticText: value["diagnostic"] as? String,
