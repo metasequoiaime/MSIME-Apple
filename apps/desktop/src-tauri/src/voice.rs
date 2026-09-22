@@ -18,24 +18,24 @@ pub(crate) struct VoiceRecognitionResult {
     pub(crate) text: String,
 }
 
-#[cfg(any(target_os = "ios", test))]
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct IosVoiceProviderConfiguration {
+pub(crate) struct MobileVoiceProviderConfiguration {
     pub(crate) provider: String,
     pub(crate) endpoint: String,
     pub(crate) model: String,
     pub(crate) token: String,
-    pub(crate) headers: Vec<IosVoiceRequestHeader>,
+    pub(crate) headers: Vec<MobileVoiceRequestHeader>,
     pub(crate) enable_itn: bool,
     pub(crate) enable_punctuation: bool,
     pub(crate) enable_ddc: bool,
     pub(crate) boosting_table_id: String,
 }
 
-#[cfg(any(target_os = "ios", test))]
-pub(crate) fn ios_voice_provider_configuration(
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+pub(crate) fn mobile_voice_provider_configuration(
     preferences: &Preferences,
-) -> Result<IosVoiceProviderConfiguration, HostActionError> {
+) -> Result<MobileVoiceProviderConfiguration, HostActionError> {
     let voice = &preferences.voice_input;
     let (default_endpoint, default_model) = match voice.asr_provider.as_str() {
         "doubao" => (
@@ -114,7 +114,7 @@ pub(crate) fn ios_voice_provider_configuration(
             code: "invalid_voice",
         })?
         .into_iter()
-        .map(|(name, value)| IosVoiceRequestHeader {
+        .map(|(name, value)| MobileVoiceRequestHeader {
             name: name.into(),
             value,
         })
@@ -122,7 +122,7 @@ pub(crate) fn ios_voice_provider_configuration(
     } else {
         Vec::new()
     };
-    Ok(IosVoiceProviderConfiguration {
+    Ok(MobileVoiceProviderConfiguration {
         provider: voice.asr_provider.clone(),
         endpoint: endpoint.to_owned(),
         model: model.to_owned(),
@@ -312,8 +312,32 @@ pub(crate) async fn recognize_voice(
             .state::<AndroidVoicePlatform<tauri::Wry>>()
             .inner()
             .clone();
+        // A configured transcription provider is used when there is one, and its absence is not an
+        // error: this host has a platform recognizer that works with no account at all, and that
+        // stays the default. `unsupported_voice` is what an unset or unknown provider produces, and
+        // a provider whose credentials do not validate is dropped the same way.
+        let store = store.inner().clone();
+        let provider = tauri::async_runtime::spawn_blocking(move || {
+            let snapshot = store.load().ok()?;
+            mobile_voice_provider_configuration(&snapshot.preferences).ok()
+        })
+        .await
+        .ok()
+        .flatten()
+        .map(|configuration| MobileVoiceTranscriptionRequest {
+            request_id: request.request_id.clone(),
+            provider: configuration.provider,
+            endpoint: configuration.endpoint,
+            model: configuration.model,
+            token: configuration.token,
+            headers: configuration.headers,
+            enable_itn: configuration.enable_itn,
+            enable_punctuation: configuration.enable_punctuation,
+            enable_ddc: configuration.enable_ddc,
+            boosting_table_id: configuration.boosting_table_id,
+        });
         let text = platform
-            .recognize_voice(&request.request_id, &request.language)
+            .recognize_voice(&request.request_id, &request.language, provider)
             .await
             .map_err(|_| HostActionError {
                 code: "unavailable",
@@ -429,7 +453,7 @@ pub(crate) async fn recognize_voice(
             let snapshot = store.load().map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
-            ios_voice_provider_configuration(&snapshot.preferences)
+            mobile_voice_provider_configuration(&snapshot.preferences)
         })
         .await
         .map_err(|_| HostActionError {
@@ -448,7 +472,7 @@ pub(crate) async fn recognize_voice(
         );
         let platform = app.state::<MobilePlatform<tauri::Wry>>().inner().clone();
         let response = platform
-            .recognize_voice(IosVoiceTranscriptionRequest {
+            .recognize_voice(MobileVoiceTranscriptionRequest {
                 request_id,
                 provider: configuration.provider,
                 endpoint: configuration.endpoint,

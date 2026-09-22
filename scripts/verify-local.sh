@@ -198,6 +198,13 @@ python3 scripts/test-settings-action-guard.py || fail "settings action guard"
 note "host dialogs"
 python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 
+# The Android voice plugin is Kotlin, and nothing on this machine or on a runner compiles it: the
+# APK build does, and that runs in neither place. These assertions are what stands in for a
+# compiler on its wiring. The file existed for that reason and was not being run at all, so when
+# the voice commands moved out of lib.rs it went red and stayed red unnoticed.
+note "android voice project config"
+python3 scripts/test-android-voice-project-config.py || fail "android voice project config"
+
 # The reference ships one file with a default for every setting it has. Comparing the two settings
 # pages by eye has been done repeatedly and keeps producing the same false results in both
 # directions, so the mapping is written down and checked instead - including, when a reference

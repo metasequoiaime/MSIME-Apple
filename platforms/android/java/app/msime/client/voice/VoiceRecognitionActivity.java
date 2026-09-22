@@ -13,18 +13,34 @@ import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-/** Platform-owned voice capture. Android's SpeechRecognizer owns the microphone;
- * this activity persists only its bounded text result for the isolated IME process.
+/**
+ * Voice capture, by whichever engine the user's settings call for.
+ *
+ * <p>Two of them. Android's SpeechRecognizer owns the microphone itself and needs no account, no
+ * token and no network of the user's choosing; it is what this activity uses when nothing has been
+ * configured, and it stays the default. A user who configured a transcription provider has chosen
+ * a different transcriber, and reaching it means holding the audio here and uploading it - that is
+ * {@link HttpAsrRecognizer}.
+ *
+ * <p>Either way this activity persists only the bounded text result for the isolated IME process.
  */
 public final class VoiceRecognitionActivity extends Activity {
     private static final int REQUEST_RECORD_AUDIO = 1;
     private static final String EXTRA_LANGUAGE = "app.msime.client.voice.LANGUAGE";
     private static final String EXTRA_REQUEST_ID = "app.msime.client.voice.REQUEST_ID";
+    private static final String EXTRA_PROVIDER = "app.msime.client.voice.PROVIDER";
+    private static final String EXTRA_ENDPOINT = "app.msime.client.voice.ENDPOINT";
+    private static final String EXTRA_MODEL = "app.msime.client.voice.MODEL";
+    private static final String EXTRA_TOKEN = "app.msime.client.voice.TOKEN";
     private static volatile WeakReference<VoiceRecognitionActivity> active =
         new WeakReference<>(null);
     private static volatile String activeRequestId;
     private SpeechRecognizer recognizer;
+    private HttpAsrRecognizer provider;
+    private ExecutorService providerWorker;
     private boolean stopping;
     private boolean finished;
 
@@ -45,11 +61,25 @@ public final class VoiceRecognitionActivity extends Activity {
     }
 
     public static void launch(Context context, String requestId, String language) {
+        launch(context, requestId, language, null, null, null, null);
+    }
+
+    /**
+     * Launch with a configured transcription provider, or without one to use the platform
+     * recognizer. The three provider values are resolved and validated by the shared layer; this
+     * activity only checks that it can speak that protocol before using them.
+     */
+    public static void launch(Context context, String requestId, String language,
+                              String provider, String endpoint, String model, String token) {
         markLaunched(requestId);
         Intent intent = new Intent(context, VoiceRecognitionActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.putExtra(EXTRA_REQUEST_ID, requestId);
         intent.putExtra(EXTRA_LANGUAGE, safeLanguage(language));
+        if (provider != null) intent.putExtra(EXTRA_PROVIDER, provider);
+        if (endpoint != null) intent.putExtra(EXTRA_ENDPOINT, endpoint);
+        if (model != null) intent.putExtra(EXTRA_MODEL, model);
+        if (token != null) intent.putExtra(EXTRA_TOKEN, token);
         context.startActivity(intent);
     }
 
@@ -58,7 +88,9 @@ public final class VoiceRecognitionActivity extends Activity {
         active = new WeakReference<>(this);
         String requestId = getIntent().getStringExtra(EXTRA_REQUEST_ID);
         if (requestId != null) activeRequestId = requestId;
-        if (!available(this)) {
+        // Only the platform recognizer needs the system service. A configured provider records
+        // here, so a device without that service can still use voice input through one.
+        if (!usesProvider() && !available(this)) {
             fail("设备没有可用的系统语音识别服务");
             finish();
             return;
@@ -100,6 +132,16 @@ public final class VoiceRecognitionActivity extends Activity {
 
     @Override protected void onDestroy() {
         finished = true;
+        if (provider != null) {
+            // The recorder holds the microphone until it is told to stop, and a worker outliving
+            // this window would keep it past the point anything can use the result.
+            provider.cancel();
+            provider = null;
+        }
+        if (providerWorker != null) {
+            providerWorker.shutdownNow();
+            providerWorker = null;
+        }
         if (recognizer != null) {
             recognizer.destroy();
             recognizer = null;
@@ -116,8 +158,21 @@ public final class VoiceRecognitionActivity extends Activity {
         super.onDestroy();
     }
 
+    /** Whether this request carries a provider configuration this host can actually speak. */
+    private boolean usesProvider() {
+        Intent intent = getIntent();
+        return HttpAsrPolicy.usable(intent.getStringExtra(EXTRA_PROVIDER),
+            intent.getStringExtra(EXTRA_ENDPOINT), intent.getStringExtra(EXTRA_MODEL),
+            intent.getStringExtra(EXTRA_TOKEN));
+    }
+
     private void startRecognition() {
-        if (finished || recognizer != null) return;
+        if (finished) return;
+        if (usesProvider()) {
+            startProviderRecognition();
+            return;
+        }
+        if (recognizer != null) return;
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle params) { }
@@ -145,15 +200,62 @@ public final class VoiceRecognitionActivity extends Activity {
             getIntent().getStringExtra(EXTRA_LANGUAGE)));
     }
 
+    /**
+     * Record, upload and hand back the text, off the main thread.
+     *
+     * <p>The recording runs until the user stops it, then the upload waits on a network round
+     * trip; neither belongs on the thread drawing this window.
+     */
+    private void startProviderRecognition() {
+        if (provider != null) return;
+        Intent intent = getIntent();
+        String requestId = intent.getStringExtra(EXTRA_REQUEST_ID);
+        String language = intent.getStringExtra(EXTRA_LANGUAGE);
+        String endpoint = intent.getStringExtra(EXTRA_ENDPOINT);
+        String model = intent.getStringExtra(EXTRA_MODEL);
+        String token = intent.getStringExtra(EXTRA_TOKEN);
+        provider = new HttpAsrRecognizer();
+        providerWorker = Executors.newSingleThreadExecutor();
+        HttpAsrRecognizer running = provider;
+        providerWorker.execute(() -> {
+            String text = null;
+            String message = null;
+            try {
+                text = running.recognize(requestId, language, endpoint, model, token);
+            } catch (HttpAsrRecognizer.Refused refused) {
+                message = switch (refused.failure()) {
+                    case PERMISSION -> "语音识别需要麦克风权限";
+                    case UNAVAILABLE -> "麦克风被其他应用占用";
+                    case NETWORK -> "语音服务未响应，请检查网络与密钥";
+                    case EMPTY -> "没有听到内容";
+                    case CANCELLED -> null;
+                };
+            }
+            String finalText = text;
+            String finalMessage = message;
+            runOnUiThread(() -> {
+                if (finished) return;
+                if (finalText != null) saveResult(finalText);
+                else if (finalMessage != null) fail(finalMessage);
+                finishRequest();
+            });
+        });
+    }
+
     private void stopRecognition() {
-        if (finished || recognizer == null) return;
+        if (finished) return;
         stopping = true;
-        recognizer.stopListening();
+        if (provider != null) {
+            provider.stop();
+            return;
+        }
+        if (recognizer != null) recognizer.stopListening();
     }
 
     private void cancelRecognition() {
         if (finished) return;
         finished = true;
+        if (provider != null) provider.cancel();
         if (recognizer != null) recognizer.cancel();
         clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
         finish();
@@ -163,6 +265,7 @@ public final class VoiceRecognitionActivity extends Activity {
         if (finished) return;
         finished = true;
         if (recognizer != null) recognizer.stopListening();
+        if (provider != null) provider.stop();
         clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
         finish();
     }

@@ -70,12 +70,15 @@ use msime_client_core::typing_statistics::TypingSource;
 use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
 #[cfg(target_os = "android")]
 use msime_tauri_mobile_platform::AndroidVoicePlatform;
+// Both mobile hosts build the same transcription request; only the transport differs.
 #[cfg(any(target_os = "ios", test))]
-use msime_tauri_mobile_platform::IosVoiceRequestHeader;
+use msime_tauri_mobile_platform::IosKeyboardAiPreferences;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::MobilePlatform;
-#[cfg(any(target_os = "ios", test))]
-use msime_tauri_mobile_platform::{IosKeyboardAiPreferences, IosVoiceTranscriptionRequest};
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+use msime_tauri_mobile_platform::MobileVoiceRequestHeader;
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+use msime_tauri_mobile_platform::MobileVoiceTranscriptionRequest;
 // The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use msime_input_runtime::UnixSocketProvider;

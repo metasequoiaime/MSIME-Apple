@@ -15,6 +15,22 @@ import java.util.concurrent.atomic.AtomicReference
 class VoiceRecognitionArgs {
     lateinit var language: String
     lateinit var requestId: String
+
+    /**
+     * The configured transcription provider, absent when the user has not set one up.
+     *
+     * The shared layer resolves and validates it; absent means the platform recognizer, which is
+     * this host's default and works with no account at all.
+     */
+    var provider: VoiceProviderArgs? = null
+}
+
+@InvokeArg
+class VoiceProviderArgs {
+    var provider: String = ""
+    var endpoint: String = ""
+    var model: String = ""
+    var token: String = ""
 }
 
 @InvokeArg
@@ -61,14 +77,22 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
             invoke.reject("busy", "busy")
             return
         }
-        if (!VoiceRecognitionActivity.available(hostActivity)) {
+        // Only one of the two engines needs the system service. A provider records in the
+        // activity itself, so a device without that service still has voice input through one.
+        val provider = args.provider?.takeIf {
+            HttpAsrPolicy.usable(it.provider, it.endpoint, it.model, it.token)
+        }
+        if (provider == null && !VoiceRecognitionActivity.available(hostActivity)) {
             activeJob.compareAndSet(job, null)
             invoke.reject("unavailable", "unavailable")
             return
         }
         try {
             VoiceRecognitionActivity.markLaunched(args.requestId)
-            VoiceRecognitionActivity.launch(hostActivity, args.requestId, args.language)
+            VoiceRecognitionActivity.launch(
+                hostActivity, args.requestId, args.language,
+                provider?.provider, provider?.endpoint, provider?.model, provider?.token,
+            )
         } catch (_: RuntimeException) {
             VoiceRecognitionActivity.clearRequest(args.requestId)
             activeJob.compareAndSet(job, null)
