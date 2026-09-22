@@ -368,6 +368,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.synchronizeSharedTouchPreferences()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
+      // The local-mode menu follows the modes the settings app leaves on.
+      self.updatePreeditButton()
     }
     candidateGlossEpoch &+= 1
     candidateGlossRequestedGeneration = nil
@@ -958,7 +960,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         KeyboardTool(title: "语音结果", symbol: "waveform") { [weak self] in
           self?.closeKeyboardPicker(); self?.showKeyboardVoice()
         },
-        KeyboardTool(title: "本地输入", symbol: "textformat.123", enabled: supportsLocalTools) { [weak self] in
+        KeyboardTool(title: "本地输入", symbol: "textformat.123",
+                     enabled: supportsLocalTools && !enabledLocalInputModes.isEmpty) { [weak self] in
           self?.showMoreToolsPage(.localInput)
         },
         // 键盘里改得了的只有这一面板上这些。皮肤、词库、账号、统计都在应用里,而用户正打着字,没有别的路走过去。
@@ -1024,7 +1027,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     [
       backToToolsSection(),
       KeyboardToolSection(title: "本地输入", kind: .opens, columns: 2,
-                          tools: Self.localInputModes.map { mode in
+                          tools: enabledLocalInputModes.map { mode in
         KeyboardTool(title: mode.title, enabled: supportsLocalTools) { [weak self] in
           self?.closeKeyboardPicker()
           self?.openLocalInputMode(mode.trigger)
@@ -2272,16 +2275,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // keyboard has no key for. While nothing is being composed the strip's own name is dead space, so
   // it doubles as the way in; during a composition it goes back to showing the preedit and the menu
   // is withdrawn, because a mode cannot open on top of a composition anyway.
+  // `key` is the mode's field in the shared `local_modes` preference.
   private static let localInputModes = [
-    (trigger: "U", title: "Unicode 码点"),
-    (trigger: "T", title: "日期时间"),
-    (trigger: "J", title: "超级简拼"),
-    (trigger: "K", title: "快捷短语"),
-    (trigger: "Y", title: "英文补全"),
-    (trigger: "E", title: "表情"),
-    (trigger: "M", title: "颜文字"),
-    (trigger: "R", title: "临时日语"),
+    (trigger: "U", title: "Unicode 码点", key: "unicode"),
+    (trigger: "T", title: "日期时间", key: "date_time"),
+    (trigger: "J", title: "超级简拼", key: "super_jianpin"),
+    (trigger: "K", title: "快捷短语", key: "quick_phrase"),
+    (trigger: "Y", title: "英文补全", key: "temporary_english"),
+    (trigger: "E", title: "表情", key: "emoji"),
+    (trigger: "M", title: "颜文字", key: "kaomoji"),
+    (trigger: "R", title: "临时日语", key: "temporary_japanese"),
   ]
+
+  /// The modes the settings app leaves on. The Engine refuses to open a mode turned off there, so offering one would be a menu entry that does nothing.
+  private var enabledLocalInputModes: [(trigger: String, title: String, key: String)] {
+    let stored = session.sharedPreferences?["local_modes"] as? [String: Any] ?? [:]
+    return Self.localInputModes.filter { stored[$0.key] as? Bool ?? true }
+  }
 
   private func updatePreeditButton() {
     let idle = visiblePreedit.isEmpty
@@ -2294,12 +2304,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       preeditButton.configuration = configuration
     }
 
-    let offersModes = idle && supportsLocalTools
+    let modes = enabledLocalInputModes
+    let offersModes = idle && supportsLocalTools && !modes.isEmpty
     preeditButton.menu =
       offersModes
       ? UIMenu(
         title: "本地输入",
-        children: Self.localInputModes.map { mode in
+        children: modes.map { mode in
           UIAction(title: mode.title) { [weak self] _ in
             self?.openLocalInputMode(mode.trigger)
           }
