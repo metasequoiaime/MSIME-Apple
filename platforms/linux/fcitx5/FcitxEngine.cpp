@@ -783,13 +783,7 @@ public:
     preferences_snapshot_ = std::move(snapshot);
     voice_enabled_ = enabled;
     if (!enabled && voice_loading_) cancelVoice();
-    if (engine_) {
-      if (enabled)
-        ic_.statusArea().addAction(fcitx::StatusGroup::InputMethod, &engine_->voice_action_);
-      else
-        ic_.statusArea().removeAction(&engine_->voice_action_);
-      ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
-    }
+    syncVoiceAction();
     saveNestedBooleanPreference("voice_input", "enabled", enabled);
     render();
     return true;
@@ -806,6 +800,7 @@ public:
     return true;
   }
   void refreshToolbar();
+  void syncVoiceAction();
   // 中英文切换后在光标附近短暂显示「中」或「英」，由 Fcitx5 面板绘制；定义在
   // FcitxEngine 之后，它需要那个类型完整。
   void showInputModeHud();
@@ -1458,13 +1453,7 @@ public:
             wave_overlay_.light_theme = msime_voice_overlay_light_theme(
                 preferences_.value("voice_theme", "follow"),
                 preferences_.value("theme", "dark"), system_dark_);
-            if (engine_) {
-              if (voice_enabled_)
-                ic_.statusArea().addAction(fcitx::StatusGroup::InputMethod, &engine_->voice_action_);
-              else
-                ic_.statusArea().removeAction(&engine_->voice_action_);
-              ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
-            }
+            syncVoiceAction();
             preferences_snapshot_ = std::move(snapshot);
             render();
           }
@@ -4679,6 +4668,16 @@ public:
   FcitxEmojiPageAction emoji_previous_action_{&factory_, false};
   FcitxEmojiPageAction emoji_next_action_{&factory_, true};
 };
+
+// Defined here rather than in the class body because FcitxEngine is only forward-declared there, and the voice action it owns cannot be named until the definition above.
+void FcitxState::syncVoiceAction() {
+  if (!engine_) return;
+  if (voice_enabled_)
+    ic_.statusArea().addAction(fcitx::StatusGroup::InputMethod, &engine_->voice_action_);
+  else
+    ic_.statusArea().removeAction(&engine_->voice_action_);
+  ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+}
 
 void FcitxState::refreshToolbar() {
   if (!engine_) return;

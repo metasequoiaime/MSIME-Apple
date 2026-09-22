@@ -23,6 +23,11 @@ updates:
       prefix: build
     labels: [dependencies]
     groups:
+      # Families whose members share types across crate boundaries, so upgrading one alone does not compile: windows 0.61 exposes windows-numerics 0.2 types, and hmac 0.13 needs a sha2 and md-5 on the same digest release. Separate pull requests for these (#535, #536) could never pass. They come together, whatever the update type, and ahead of cargo-minor because a dependency joins the first group it matches.
+      rustcrypto:
+        patterns: [digest, hmac, sha2, md-5]
+      windows-rs:
+        patterns: ['windows', 'windows-*']
       cargo-minor:
         update-types: [minor, patch]
 
