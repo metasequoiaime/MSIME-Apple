@@ -6,6 +6,14 @@ Java/Kotlin 宿主按 `java/app/msime/client/<feature>/` 分为 `account`、`can
 
 API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享设置和部分统计/手写流程。arm64-v8a 与 x86_64 两个 ABI 均已按固定 NDK 与 vcpkg 完成原生构建并通过 `verify-native.sh`，包括在线候选的五个 host 导出与五个 JNI 方法；x86_64 仍只有构建证据，没有设备运行证据。源码检查、JVM 测试和 APK 签名/对齐不等于真机、旋转、系统回收、权限或长期生命周期验收，发布说明必须分别列出这些缺口。
 
+### 手机、大屏与二合一布局边界
+
+原生输入面依据 Android 的 `Configuration.smallestScreenWidthDp` 区分设备形态，而不是依据旋转后的当前窗口宽度。小于 600 dp 的手机始终让键盘铺满可用窗口；因此一台 411 dp 的手机即使横屏后当前宽度超过 600 dp，也不会突然切换成平板键盘。600 dp 起的平板、展开态折叠屏和二合一进入大屏布局：整套键盘表面在窗口底部水平居中，宽度取当前可用宽度与 720 dp 的较小值。左右空出的区域使用当前键盘皮肤的背景色，避免十列按键被拉伸到桌面宽度。
+
+“整套键盘表面”包括候选区、字母/符号/九键/手写主键区、展开候选、剪贴板、输入方案、皮肤、布局调整、语音结果、AI 润色、更多工具、表情和符号面板；这些层必须共用同一 720 dp 外框，不能只限制字母键而让覆盖面板重新铺满屏幕。系统发生旋转、折叠展开、自由窗口缩放或外接显示器配置变化时，`MSIMEInputService.onConfigurationChanged` 只重新计算外框，再重算按键高度和间距；不会重建 Engine session，也不会清空当前组合、候选代次或面板状态。
+
+这条原生键盘策略与共享设置页的响应式布局彼此独立：`platforms/android` 负责系统 IME 窗口，Tauri/React 设置页仍按自身 600 px CSS 断点在手机底部标签栏与大屏侧栏之间切换。`KeyboardFormFactorPolicySmoke` 固定验证 599/600 dp 边界、手机横屏、600 dp 折叠展开态、1280 dp 二合一的 720 dp 上限，以及配置暂时缺失当前宽度时的安全回退；`check-host.sh` 会编译并执行该回归。设备级旋转、分屏、自由窗口和真实折叠铰链切换仍需在对应硬件或模拟器产品流程中验收，不能由 JVM 回归冒充。
+
 `check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg 和 Engine，这一步不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
 
 宿主 Java 以 API 35 的 `android.jar` 编译，而 manifest 声明 minSdk 28，因此比真实 APK 构建宽松；`Files.readString`/`writeString` 属于 API 34，本宿主不使用，`check-host.sh` 对这两个方法有定向检查，其余 API 级别问题仍由 Gradle lint 覆盖。`scripts/verify-local.sh` 另有 `compile: android target` 阶段，在固定 NDK、Rust `aarch64-linux-android` 目标与 vcpkg 依赖前缀齐备时检查 `msime-desktop` 的 Android 分支；宿主的 `cargo check --workspace` 只覆盖宿主目标。
