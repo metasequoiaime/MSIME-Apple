@@ -857,6 +857,7 @@ EngineSnapshot EngineSession::snapshot() const {
     output.scheme = static_cast<std::uint8_t>(value.scheme);
     output.shuangpin_profile = rust::String(shuangpin_profile_);
     output.answered_by_pinyin_fallback = value.answered_by_pinyin_fallback;
+    output.wubi_unique_four_code = value.wubi_unique_four_code;
     output.preedit = value.preedit;
     output.reading = value.scheme == SchemeType::JapaneseRomaji
                          ? value.normalized_segmentation

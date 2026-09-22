@@ -116,6 +116,10 @@ public:
         break;
       [[fallthrough]];
     case FanyImePipeEventType::HideCandidateWnd:
+      if ((packet.modifiers_down & internal_continuation_hide) != 0) {
+        pending_hide_.reset();
+        break;
+      }
       // Only a hide delivered behind a congested input queue describes state
       // already superseded by a later key. Normal commits and focus changes
       // must disappear immediately, preserving the typing snap.

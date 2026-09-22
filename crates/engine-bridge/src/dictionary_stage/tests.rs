@@ -146,6 +146,38 @@ fn wubi_candidate_codes_stay_aligned_with_candidates() {
 }
 
 #[test]
+fn wubi_unique_four_code_excludes_ambiguous_short_and_fallback_queries() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = resources(root.path());
+    options.scheme = 2;
+    options.wubi_mixed_pinyin = true;
+    Connection::open(Path::new(&options.dictionaries).join("msime.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+             INSERT INTO wubi86 VALUES('wqaa','合成甲',100),('wqab','合成乙',90),('wqab','合成丙',80);
+             CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_1_x VALUES('xiao','x','合成丁',100);",
+        )
+        .unwrap();
+
+    let snapshot = |input: &[u8]| {
+        let mut session = Session::new(&options).unwrap();
+        for value in input {
+            session.character(*value, false).unwrap();
+        }
+        session.snapshot().unwrap()
+    };
+    assert!(snapshot(b"wqaa").wubi_unique_four_code);
+    assert!(!snapshot(b"wqab").wubi_unique_four_code);
+    assert!(!snapshot(b"wq").wubi_unique_four_code);
+    let fallback = snapshot(b"xiao");
+    assert!(fallback.answered_by_pinyin_fallback);
+    assert!(!fallback.wubi_unique_four_code);
+    assert!(!snapshot(b"nihao").wubi_unique_four_code);
+}
+
+#[test]
 fn wubi_prefix_query_is_bounded_before_it_reaches_the_host() {
     let root = tempfile::tempdir().unwrap();
     let mut options = resources(root.path());

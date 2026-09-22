@@ -286,6 +286,12 @@ bool InputState::cancel_composition(const FocusLease &lease) {
   auto *owner = session(lease.transport);
   return owner && owner->cancel_composition(lease);
 }
+HideCandidateDisposition InputState::hide_candidate(const FocusLease &lease) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->hide_candidate(lease)
+               : HideCandidateDisposition::Rejected;
+}
 std::optional<nlohmann::json>
 InputState::rerank_settled(const FocusLease &lease) {
   check_thread();

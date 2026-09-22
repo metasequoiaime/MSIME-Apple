@@ -11,6 +11,7 @@ namespace msime::windows {
 // e.g. a digit in Unicode mode is composition, not candidate selection.
 enum class ReplyPath {
   Composition,
+  AutoCommitAndContinue,
   Selection,
   Punctuation,
   CandidatePunctuationFallback,
@@ -28,6 +29,8 @@ struct PendingReply {
   std::optional<EncodedReply> encoded;
   std::string next_prefix;
   std::optional<UiSelectionFrames> ui_selection = std::nullopt;
+  // Unsolicited worker delivery for a commit produced by a character key.
+  std::optional<std::vector<uint8_t>> worker = std::nullopt;
   // A copied, bounded query for the optional asynchronous cloud provider.
   // It is submitted only after this reply has been delivered and confirmed.
   std::optional<std::string> online_query = std::nullopt;

@@ -31,6 +31,18 @@ void error(const EncodedReply &reply, ReplyError expected) {
 int main() {
   try {
     {
+      const auto continued = commit_candidate_and_continue_bytes(4, "合成候选");
+      require(continued && continued->size() == 404);
+      require(continued->at(0) ==
+              FanyImeWorkerReplyType::CommitCandidateAndContinue);
+      require(continued->at(4) == '4' && continued->at(5) == 0 &&
+              continued->at(6) == '\t' && continued->at(7) == 0);
+      require(!commit_candidate_and_continue_bytes((1u << 20) + 1,
+                                                   "合成候选"));
+      require(!commit_candidate_and_continue_bytes(
+          4, std::string(1, static_cast<char>(0xff))));
+      require(!commit_candidate_and_continue_bytes(4, std::string(200, 'a')));
+
       require(!ui_complete_selection(""));
       require(!ui_complete_selection(std::string(200, 'a')));
       require(!ui_complete_selection(std::string("a\0b", 3)));
