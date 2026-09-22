@@ -54,6 +54,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateGlossEpoch: UInt64 = 0
   private var candidateGlossRequestedGeneration: UInt64?
   private let translations = CandidateTranslationStore()
+  private lazy var onlineCandidates: OnlineCandidateProvider = {
+    let provider = OnlineCandidateProvider(session: session)
+    provider.onApplied = { [weak self] in self?.render($0) }
+    return provider
+  }()
   private var servicePanel: UIViewController?
   private var replyPanel: UIHostingController<ReplyKeyboardView>?
   private weak var compositionContainer: UIView?
@@ -374,6 +379,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateGlossEpoch &+= 1
     candidateGlossRequestedGeneration = nil
     translations.cancel()
+    onlineCandidates.cancel()
     renderCandidateStrip()
     scheduleCandidateGlosses()
     applyKeyboardSkin()
@@ -419,6 +425,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateGlossEpoch &+= 1
     candidateGlossRequestedGeneration = nil
     translations.cancel()
+    onlineCandidates.cancel()
     closeKeyboardService()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
@@ -2793,6 +2800,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     refreshCandidatePanelAnnotations()
     updateSpellingStrip()
     scheduleCandidateGlosses()
+    onlineCandidates.refresh(allowed: hasFullAccess && hasComposition && !isInLocalMode)
   }
 
   // A diagnostic means the key was handled but something behind it failed, so input keeps working
