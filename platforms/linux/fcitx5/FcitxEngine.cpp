@@ -7,6 +7,7 @@
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
 #include <fcitx/addoninstance.h>
+#include <fcitx-config/configuration.h>
 #include <fcitx-config/rawconfig.h>
 #include <fcitx/action.h>
 #include <fcitx/statusarea.h>
@@ -22,6 +23,8 @@
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
 #include "../src/candidates/CandidatePalette.h"
+#include "../src/candidates/CandidateColors.h"
+#include "../src/candidates/CandidateFcitxTheme.h"
 #include "../src/candidates/CandidateFontPolicy.h"
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
@@ -805,6 +808,7 @@ public:
   }
   void refreshToolbar();
   void syncCandidatePanelFont();
+  void syncCandidatePanelTheme();
   void syncVoiceAction();
   // 中英文切换后在光标附近短暂显示「中」或「英」，由 Fcitx5 面板绘制；定义在
   // FcitxEngine 之后，它需要那个类型完整。
@@ -1274,6 +1278,7 @@ public:
     if (session_) return true;
     auto options = readOptions();
     candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
+    candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
     // The skin catalogue is for this host's own menu; the Host API rejects an
     // options document carrying a field it does not know, so leaving it in
     // means no session can ever open on a deployment that installed skins.
@@ -1379,6 +1384,7 @@ public:
     // 一份 preferences_ 回填了。
     options["preferences"] = preferences_;
     syncCandidatePanelFont();
+    syncCandidatePanelTheme();
     // This front end draws view.phrase_prefix ahead of the reading, so a phrase assembled out of
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
@@ -1441,6 +1447,7 @@ public:
             // next focus change, the way the IBus property menu does.
             refreshToolbar();
             syncCandidatePanelFont();
+            syncCandidatePanelTheme();
             const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
             punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
             navigation_ = preferences_.value("navigation", Json::object());
@@ -1493,6 +1500,8 @@ public:
         preferences_save_retry_.reset();
       }
       candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
+      candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
+      syncCandidatePanelTheme();
       // Runtime options can move the shared clipboard history while this
       // input context remains focused. Keep the same path precedence as the
       // initial session setup and fence an in-flight read from the old file.
@@ -2035,6 +2044,7 @@ public:
         preferences_.value("voice_theme", "follow"),
         preferences_.value("theme", "dark"), system_dark_);
     if (voice_loading_) updateVoiceOverlay();
+    syncCandidatePanelTheme();
   }
   void updateVoiceOverlay() {
     wave_overlay_.status = voice_phase_;
@@ -2535,6 +2545,8 @@ public:
   std::optional<std::string> helpcode_schema_override_;
   std::optional<std::string> skin_override_;
   CandidateSkinCatalog candidate_skin_catalog_;
+  // The catalogue as runtime-options.json carries it, palettes included: an installed skin's colours are read from here when the classic UI theme is built.
+  Json candidate_skin_document_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
@@ -4238,6 +4250,30 @@ public:
     config.setValueByPath("Font", *description);
     classicui->setConfig(config);
   }
+  // The candidate colours reach the classic UI as a theme named "msime" in the user's Fcitx5 data directory (see candidates/CandidateFcitxTheme.h). The addon is pointed at it only while it shows one of Fcitx5's stock themes or MSIME's own; a theme the user chose is left in place and MSIME's colours simply don't apply. Setting the configuration also makes the addon read the theme file again, which is how a changed palette appears without a restart.
+  void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog) {
+    namespace host = msime::linux_host;
+    const auto display =
+        host::candidate_display_preferences(preferences, system_dark, builtinSkins(), defaultSkin(), catalog);
+    auto theme = host::fcitx_candidate_theme(host::resolve_candidate_colors(display, defaultSkin()));
+    if (theme == candidate_theme_applied_) return;
+    auto *classicui = instance_->addonManager().addon("classicui", true);
+    if (!classicui || !classicui->getConfig()) return;
+    fcitx::RawConfig current;
+    classicui->getConfig()->save(current);
+    const auto *selected = current.valueByPath("Theme");
+    const auto *selected_dark = current.valueByPath("DarkTheme");
+    if (!host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
+    const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
+    if (!file || !host::write_fcitx_theme(*file, theme)) return;
+    fcitx::RawConfig config;
+    config.setValueByPath("Theme", std::string(host::kFcitxCandidateTheme));
+    // Fcitx5 releases with a separate dark-mode theme would otherwise switch to their stock dark theme; MSIME already resolves "follow" against the system appearance itself.
+    if (selected_dark && host::fcitx_theme_replaceable(*selected_dark))
+      config.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
+    classicui->setConfig(config);
+    candidate_theme_applied_ = std::move(theme);
+  }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
@@ -4633,6 +4669,7 @@ public:
   }
   fcitx::Instance *instance_;
   msime::linux_host::CandidateFontSync candidate_font_sync_;
+  std::string candidate_theme_applied_;
   fcitx::FactoryFor<FcitxState> factory_{[this](fcitx::InputContext &ic) {
     return new FcitxState(ic, this, instance_->eventLoop());
   }};
@@ -4792,6 +4829,10 @@ void FcitxState::syncVoiceAction() {
 
 void FcitxState::syncCandidatePanelFont() {
   if (engine_) engine_->applyCandidatePanelFont(preferences_);
+}
+
+void FcitxState::syncCandidatePanelTheme() {
+  if (engine_ && session_) engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_);
 }
 
 void FcitxState::refreshToolbar() {
