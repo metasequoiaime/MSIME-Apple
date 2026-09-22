@@ -71,11 +71,11 @@ class MainActivity : TauriActivity() {
 
   private fun dispatchPendingSettingsPage(webView: WebView) {
     val page = pendingSettingsPage ?: return
-    if (page != "dictionary") return
+    if (page != "dictionary" && page != "account") return
     pendingSettingsPage = null
     webView.postDelayed({
       webView.evaluateJavascript(
-        "window.dispatchEvent(new CustomEvent('msime-settings-page',{detail:'dictionary'}));",
+        "window.dispatchEvent(new CustomEvent('msime-settings-page',{detail:'$page'}));",
         null,
       )
     }, 250)
