@@ -9,7 +9,7 @@ int main() {
           std::chrono::steady_clock::now().time_since_epoch().count()));
   if (!fs::create_directory(root)) return 1;
   try {
-    const auto executable = root / "installed server";
+    const auto executable = root / "用户目录" / "installed server";
     fs::create_directories(executable / "resources");
     int calls = 0;
     auto host = [&](const std::string &request) {
@@ -19,7 +19,7 @@ int main() {
         throw std::runtime_error("Incorrect packaged resource path");
       return nlohmann::json{{"ok", true}, {"value", options}}.dump();
     };
-    const auto state = root / "new user state";
+    const auto state = root / "用户目录" / "new user state";
     if (!msime::windows::prepare_first_run(executable, state, host) || calls != 1 ||
         !fs::is_regular_file(state / "runtime-options.json"))
       throw std::runtime_error("First launch did not publish configuration");

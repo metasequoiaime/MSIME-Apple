@@ -2354,6 +2354,10 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 
 `bash platforms/windows/build-cross.sh x64` 已成功完成 Windows x64 GNU host/TSF DLL、Server 和原生测试目标的交叉构建，`git diff --check` 通过。Wine 执行级验证因 Docker daemon 未运行而跳过；因此本批有交叉链接和静态回归证据，但没有 Windows/Wine 运行时验收证据。
 
+### 首次启动路径支持非 ASCII 用户目录（2026-09-22）
+
+Windows 的安装位置、资源目录和用户状态目录可能包含中文、日文等非 ASCII 字符。首次启动准备流程已经使用 UTF-8 JSON 将这些路径交给共享 Host API；此前回归只使用 ASCII 合成路径，无法证明这一条实际保持不变。`windows-first-run` 现把安装资源与新用户状态放在合成的 `用户目录` 下，验证资源路径、生成的状态文件和后续拒绝规则仍然成立。测试不记录真实用户路径或输入，也不改变生产路径。
+
 ### TSF 类工厂复制赋值契约清理（2026-09-22）
 
 `CClassFactory` 的私有复制赋值运算符原本声明为返回引用，却没有返回值；这会在 Windows x64 交叉构建中产生 `-Wreturn-type` 警告，也让一个不可复制的 COM 类保留了未定义行为入口。现改为显式删除复制赋值操作，保持类工厂不可复制并消除该警告。x64 TSF DLL/Server 交叉构建、Windows 合成测试和 i686 语法门禁均通过；没有把这些证据表述为真实 Windows COM、TSF 注册或编辑器验收。
