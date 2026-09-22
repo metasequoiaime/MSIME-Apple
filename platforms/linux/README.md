@@ -15,6 +15,8 @@ Fcitx5 的状态栏现在按共享 `floating_toolbar` 的八个组件开关提�
 
 Fcitx5 现在也消费共享 `keybindings` 的四个模式快捷键与 `default_ime_mode`。此前这个宿主只在状态栏上提供中英文开关：设置页按 `mode_switch_shortcuts` 能力位把四个开关全都显示出来，而它们在这里一个都不生效，选了「英文」启动的用户照样得到中文。裸 Shift 与裸 Ctrl 按 Windows 的手势判定——按下只是布防，松开才切换，且期间不能打其他键、不能带别的修饰键、按住不超过 500ms；Ctrl+Space 与（开启时）Ctrl+Alt+Space 切换中英文，Ctrl+Shift+F 切换简繁。中英文切换位于英文透传门禁之前，因此用快捷键切到英文后仍能用同一个快捷键切回中文；屏幕键盘与语音的宿主快捷键也不随拼音输入一起被停用。`default_ime_mode` 按输入上下文只套用一次，重新聚焦或重建 Engine 会话保留用户已经选择的状态，与 IBus 一致。契约由 `tests/core/fcitx5_contract.py` 静态钉住。
 
+Fcitx5 的 `ime_mode_scope` 也真正决定中英文状态的记忆范围：`app` 按输入上下文报告的程序名保存有界的应用级状态，`global` 在当前 Fcitx5 进程内共享一个状态；失焦时先记录再关闭会话，重新聚焦并重建会话时恢复，而不是重新套用 `default_ime_mode`。匿名或缺失程序名使用共享的匿名槽位，不把状态写入偏好文件。
+
 Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 status action（旧版本兼容入口）提供固定、取消固定和删除动作；动作携带候选身份，适配 Linux 面板而不依赖 IBus 兼容前端或 Windows 原生窗口。
 
 候选页显示时，Home/End 将当前高亮移动到该页首项或末项；没有候选页时仍交给编辑器处理。

@@ -290,6 +290,11 @@ int main(int argc, char **argv) {
     engine.mode_scope_action_.activate(&ic);
     require(state->preferences_.value("ime_mode_scope", std::string{}) == "app",
             "mode scope action restores application scope");
+    state->input_enabled_ = false;
+    state->rememberInputMode();
+    state->input_enabled_ = true;
+    state->restoreInputMode();
+    require(!state->input_enabled_, "application input mode is restored for the client");
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects preference");
