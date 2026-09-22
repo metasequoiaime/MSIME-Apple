@@ -31,6 +31,15 @@
 #include "../src/core/PhrasePreedit.h"
 #include "../src/core/JapaneseConversion.h"
 #include "../src/system/TypingStatistics.h"
+#include "../src/voice/VoiceAction.h"
+#include "../src/overlay/WaveOverlayModel.h"
+#include "../src/overlay/WaveOverlaySurface.h"
+#ifdef MSIME_LINUX_HAS_X11_SURFACE
+#include "../src/overlay/WaveOverlayX11Surface.h"
+#endif
+#ifdef MSIME_LINUX_HAS_WAYLAND_SURFACE
+#include "../src/overlay/WaveOverlayWaylandSurface.h"
+#endif
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <array>
@@ -93,6 +102,33 @@ struct FcitxVoiceMailbox {
   bool level_seen = false;
   bool final_ready = false;
 };
+
+std::unique_ptr<msime::linux_host::WaveOverlaySurface>
+create_fcitx_wave_overlay_surface(
+    msime::linux_host::WaveOverlaySurface::ActionHandler handler) {
+  const auto *requested = std::getenv("MSIME_WAVE_OVERLAY_BACKEND");
+  const bool force_auxiliary = requested &&
+      (std::strcmp(requested, "ibus") == 0 ||
+       std::strcmp(requested, "auxiliary") == 0);
+  const bool wayland_requested = requested && std::strcmp(requested, "wayland") == 0;
+  const bool x11_requested = requested && std::strcmp(requested, "x11") == 0;
+#ifdef MSIME_LINUX_HAS_WAYLAND_SURFACE
+  if (!force_auxiliary &&
+      (wayland_requested || (!x11_requested && std::getenv("WAYLAND_DISPLAY"))))
+    return std::make_unique<msime::linux_host::WaveOverlayWaylandSurface>(
+        std::move(handler));
+#else
+  (void)wayland_requested;
+#endif
+#ifdef MSIME_LINUX_HAS_X11_SURFACE
+  if (!force_auxiliary && (x11_requested || std::getenv("DISPLAY")))
+    return std::make_unique<msime::linux_host::WaveOverlayX11Surface>(
+        std::move(handler));
+#else
+  (void)x11_requested;
+#endif
+  return nullptr;
+}
 
 extern "C" void fcitxVoiceUpdate(const uint8_t *text, size_t length,
                                   bool final, void *context) noexcept {
@@ -251,6 +287,13 @@ class FcitxState : public fcitx::InputContextProperty {
 public:
   explicit FcitxState(fcitx::InputContext &ic, FcitxEngine *engine, fcitx::EventLoop &loop)
       : ic_(ic), engine_(engine) {
+    wave_overlay_surface_ = create_fcitx_wave_overlay_surface(
+        [this](msime::linux_host::WaveOverlayModel::Action action) {
+          if (action == msime::linux_host::WaveOverlayModel::Action::Cancel)
+            cancelVoice();
+          else
+            stopVoice();
+        });
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
           refreshProviderSockets();
@@ -268,6 +311,8 @@ public:
   }
   ~FcitxState() override { close(); }
   void close() {
+    hideVoiceOverlay();
+    wave_overlay_.reset();
     if (session_) msime_linux_diagnostic_write("focus_out");
     if (session_) msime_client_string_free(msime_client_destroy(session_));
     session_ = 0;
@@ -1233,6 +1278,9 @@ public:
     voice_hotkey_rctrl_ralt_ = voicePreferences.value("hotkey_rctrl_ralt", false);
     voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
     voice_options_ = voiceProviderOptions(preferences_);
+    wave_overlay_.light_theme = msime_voice_overlay_light_theme(
+        preferences_.value("voice_theme", "follow"),
+        preferences_.value("theme", "dark"), false);
     online_socket_ = onlineSocket(options);
     translation_socket_ = options.value("translation_provider_socket", std::string{});
     if (translation_socket_.empty()) {
@@ -1330,6 +1378,9 @@ public:
                 voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
             voice_language_ = voicePreferences.value("language", voice_language_);
             voice_options_ = voiceProviderOptions(preferences_);
+            wave_overlay_.light_theme = msime_voice_overlay_light_theme(
+                preferences_.value("voice_theme", "follow"),
+                preferences_.value("theme", "dark"), false);
             preferences_snapshot_ = std::move(snapshot);
             render();
           }
@@ -1848,6 +1899,30 @@ public:
     emoji_previous_offsets_.clear();
     return requestEmojiPage(0);
   }
+  void hideVoiceOverlay() {
+    if (wave_overlay_surface_ && wave_overlay_visible_)
+      wave_overlay_surface_->hide();
+    wave_overlay_visible_ = false;
+  }
+  void updateVoiceOverlay() {
+    wave_overlay_.status = voice_phase_;
+    wave_overlay_.set_transcript(voice_transcript_);
+    wave_overlay_.set_input_level(static_cast<float>(voice_level_) / 10.0f);
+    if (wave_overlay_surface_) {
+      if (wave_overlay_visible_)
+        wave_overlay_surface_->update(wave_overlay_);
+      else
+        wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
+      return;
+    }
+    if (voice_loading_) {
+      std::string status = voice_phase_;
+      if (voice_level_ != 0) status += " " + std::string(voice_level_, '#');
+      if (!voice_transcript_.empty()) status += "：" + voice_transcript_;
+      ic_.inputPanel().setAuxUp(fcitx::Text("语音：" + status));
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    }
+  }
   bool refreshVoice() {
     try {
       const auto mailbox = voice_mailbox_;
@@ -1883,11 +1958,10 @@ public:
             render();
           }
           const char *phaseLabel[] = {"录音中", "识别中", "整理中"};
-          std::string status = phaseSeen ? phaseLabel[std::min<size_t>(phase, 2)] : "录音中";
-          if (levelSeen) status += " " + std::string(level, '#');
-          if (!partial.empty()) status += "：" + partial;
-          ic_.inputPanel().setAuxUp(fcitx::Text("语音：" + status));
-          ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+          if (phaseSeen) voice_phase_ = phaseLabel[std::min<size_t>(phase, 2)];
+          if (levelSeen) voice_level_ = level;
+          if (!partial.empty()) voice_transcript_ = std::move(partial);
+          updateVoiceOverlay();
         }
       }
       if (!voice_job_.valid()) return false;
@@ -1904,6 +1978,7 @@ public:
         voice_transcript_.clear();
         voice_mailbox_.reset();
         render();
+        hideVoiceOverlay();
         return false;
       }
       if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
@@ -1927,6 +2002,7 @@ public:
         voice_preedit_.clear();
         voice_transcript_.clear();
         render();
+        hideVoiceOverlay();
         ic_.inputPanel().setAuxUp(fcitx::Text());
         ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
         voice_mailbox_.reset();
@@ -1944,6 +2020,7 @@ public:
       voice_transcript_.clear();
       voice_mailbox_.reset();
       render();
+      hideVoiceOverlay();
     }
     return false;
   }
@@ -1967,6 +2044,13 @@ public:
     voice_partial_seen_ = false;
     voice_phase_seen_ = false;
     voice_level_seen_ = false;
+    voice_phase_ = "录音中";
+    voice_level_ = 0;
+    wave_overlay_.reset();
+    wave_overlay_.listening = true;
+    wave_overlay_.show_transcript = true;
+    wave_overlay_.actions_visible = true;
+    updateVoiceOverlay();
     const auto mailbox = voice_mailbox_;
     voice_job_ = std::async(std::launch::async, [socket, generation, language, options, mailbox] {
       const auto query = Json{{"language", language}, {"generation", generation},
@@ -1984,6 +2068,11 @@ public:
     const auto socket = voice_socket_;
     msime_client_string_free(msime_client_voice_provider_stop(
         reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), voice_generation_));
+    voice_phase_ = "识别中";
+    wave_overlay_.listening = false;
+    wave_overlay_.compact_status =
+        msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
+    updateVoiceOverlay();
     return true;
   }
   bool cancelVoice() {
@@ -2004,6 +2093,10 @@ public:
     voice_preedit_.clear();
     voice_transcript_.clear();
     render();
+    voice_transcript_.clear();
+    voice_phase_ = "录音中";
+    voice_level_ = 0;
+    hideVoiceOverlay();
     ic_.inputPanel().setAuxUp(fcitx::Text());
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     return true;
@@ -2428,6 +2521,12 @@ public:
   bool voice_level_seen_ = false;
   bool voice_loading_ = false;
   bool voice_cancelled_ = false;
+  std::string voice_transcript_;
+  std::string voice_phase_ = "录音中";
+  uint8_t voice_level_ = 0;
+  msime::linux_host::WaveOverlayModel wave_overlay_;
+  std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface_;
+  bool wave_overlay_visible_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
   bool translation_candidates_active_ = false;
@@ -4391,6 +4490,8 @@ void FcitxState::render() {
   }
   if (emoji_search_mode_)
     ic_.inputPanel().setAuxUp(fcitx::Text("Emoji 搜索：" + emoji_search_));
+  if (voice_loading_ && !wave_overlay_surface_)
+    updateVoiceOverlay();
   ic_.updatePreedit();
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
