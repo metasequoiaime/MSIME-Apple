@@ -39,7 +39,8 @@ function account(overrides: Partial<AccountClient> = {}): AccountClient {
 
 test("code login trims the target, requires six ASCII digits and loads the profile", async () => {
   const client = account();
-  render(<AccountPage client={client} />);
+  const onLoginComplete = vi.fn();
+  render(<AccountPage client={client} onLoginComplete={onLoginComplete} />);
   fireEvent.click(await screen.findByRole("button", { name: "邮箱登录" }));
   fireEvent.change(screen.getByRole("textbox", { name: "邮箱地址" }), {
     target: { value: "  fixture@example.test  " },
@@ -59,6 +60,7 @@ test("code login trims the target, requires six ASCII digits and loads the profi
   fireEvent.click(screen.getByRole("button", { name: "登录" }));
   await waitFor(() => expect(client.login).toHaveBeenCalledWith("fixture-challenge", "123456"));
   expect(await screen.findByText("水杉测试用户")).not.toBeNull();
+  expect(onLoginComplete).toHaveBeenCalledOnce();
   expect(screen.getByText("邮箱")).not.toBeNull();
   expect(screen.queryByText("fixture-challenge")).toBeNull();
 });
@@ -98,6 +100,55 @@ test("mobile accounts keep profile editing and session actions on the pushed pro
   expect(screen.getByRole("alertdialog", { name: "确认重新登录" })).not.toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "确认" }));
   await waitFor(() => expect(client.clearExpired).toHaveBeenCalledTimes(1));
+});
+
+test("Harmony uses the mobile account flow instead of desktop account controls", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} platform="harmony" />);
+
+  const profileCard = await screen.findByRole("button", { name: "编辑个人资料" });
+  expect(screen.queryByRole("heading", { name: "个人资料" })).toBeNull();
+  expect(screen.queryByText("账号操作")).toBeNull();
+  fireEvent.click(profileCard);
+  expect(await screen.findByRole("heading", { name: "编辑资料" })).not.toBeNull();
+});
+
+test("the mobile login sheet exposes its caller's cancel action", async () => {
+  const onCancelLogin = vi.fn();
+  render(<AccountPage client={account()} platform="harmony" onCancelLogin={onCancelLogin} />);
+
+  expect(await screen.findByRole("heading", { name: "登录水杉" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(onCancelLogin).toHaveBeenCalledOnce();
+});
+
+test("Harmony chat login focuses the tryout and cancel returns to it", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "chat" }, "");
+  render(
+    <SettingsPage
+      initialPage="chat"
+      client={{
+        load: async () => preferences,
+        save: vi.fn(),
+        host: { platform: "harmony" } as never,
+        home: {},
+        chat: {
+          models: vi.fn().mockRejectedValue({ code: "account_unauthorized" }),
+          complete: vi.fn(),
+        },
+        account: account(),
+      }}
+    />,
+  );
+
+  const composer = await screen.findByRole("textbox", { name: "聊天消息" });
+  await waitFor(() => expect(document.activeElement).toBe(composer));
+  fireEvent.click(await screen.findByRole("button", { name: "登录使用 AI" }));
+  expect(await screen.findByRole("heading", { name: "登录水杉" })).not.toBeNull();
+  expect(screen.queryByText("账号操作")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(await screen.findByRole("button", { name: "登录使用 AI" })).not.toBeNull();
 });
 
 // Apple's account detail rows are 账号 ID, 登录方式 and 加入水杉, and the ID row is

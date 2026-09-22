@@ -89,8 +89,14 @@ test("prompts for login when the account backend rejects model loading", async (
     />,
   );
   expect(await screen.findByText("登录后即可与 AI 对话。")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "登录使用 AI" }));
+  const composer = screen.getByRole("textbox", { name: "聊天消息" });
+  expect((composer as HTMLTextAreaElement).disabled).toBe(false);
+  fireEvent.change(composer, { target: { value: "未登录也能试键盘" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   expect(onLogin).toHaveBeenCalledOnce();
+  expect((composer as HTMLTextAreaElement).value).toBe("未登录也能试键盘");
+  fireEvent.click(screen.getByRole("button", { name: "登录使用 AI" }));
+  expect(onLogin).toHaveBeenCalledTimes(2);
 });
 
 test("can autofocus the composer for the mobile keyboard tryout", async () => {

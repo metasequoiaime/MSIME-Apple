@@ -2107,6 +2107,7 @@ export function SettingsPage({
   const [page, setPage] = useState<SettingsPageId>(() =>
     requestedPage(initialPage ?? (client.home ? "home" : undefined)),
   );
+  const [accountLoginReturnPage, setAccountLoginReturnPage] = useState<SettingsPageId | null>(null);
   // Each bottom tab owns a navigation stack in the source app. This shared page has a flat route,
   // so remember the visible leaf for each tab: leaving 输入 for 社区 and returning to 键盘 must
   // restore 输入 rather than reset the first tab to 首页.
@@ -3547,9 +3548,22 @@ export function SettingsPage({
   const selectMobileTab = (tab: SettingsPageId) => {
     if (!mobilePrimaryPageIds.includes(tab as MobilePrimaryPageId)) return;
     const primary = tab as MobilePrimaryPageId;
+    if (primary === "account") setAccountLoginReturnPage(null);
     const remembered = mobileLastPageByTab.current[primary];
     const available = availablePages.some((item) => item.id === remembered);
     selectPage(available && !mobileHiddenPageIds.includes(remembered) ? remembered : primary);
+  };
+  const openAccountLogin = () => {
+    if (mobilePlatform) setAccountLoginReturnPage(page);
+    selectPage("account");
+  };
+  const finishAccountLogin = () => {
+    const previous = accountLoginReturnPage;
+    setAccountLoginReturnPage(null);
+    if (!previous) return;
+    mobileLastPageByTab.current[mobileTabForPage(previous)] = previous;
+    setPage(previous);
+    if (mobilePlatform && typeof window !== "undefined") window.history.back();
   };
   useEffect(() => {
     const pageAvailable =
@@ -3900,8 +3914,16 @@ export function SettingsPage({
                 client={client.account}
                 appIcon={client.appIcon}
                 platform={
-                  androidPlatform ? "android" : client.host?.platform === "ios" ? "ios" : undefined
+                  androidPlatform
+                    ? "android"
+                    : iosPlatform
+                      ? "ios"
+                      : harmonyPlatform
+                        ? "harmony"
+                        : undefined
                 }
+                onCancelLogin={accountLoginReturnPage ? finishAccountLogin : undefined}
+                onLoginComplete={accountLoginReturnPage ? finishAccountLogin : undefined}
                 onOpenLocalDesigns={client.customTouchKeyboardSkins ? openLocalDesigns : undefined}
                 onOpenCommunity={
                   client.communitySkins && client.communityResources ? openCommunity : undefined
@@ -3938,9 +3960,9 @@ export function SettingsPage({
             {client.chat && page === "chat" && (
               <ChatPage
                 client={client.chat}
-                autoFocus={iosPlatform}
+                autoFocus={mobilePlatform}
                 touch={mobilePlatform}
-                onLogin={() => selectPage("account")}
+                onLogin={openAccountLogin}
               />
             )}
             {client.communitySkins && client.communityResources && page === "community" && (
@@ -3955,7 +3977,7 @@ export function SettingsPage({
                 localDictionary={client.dictionary}
                 localSkinLibrary={client.customSkinLibrary}
                 mobile={mobilePlatform}
-                onLogin={() => selectPage("account")}
+                onLogin={openAccountLogin}
               />
             )}
             {client.communitySkins && !client.communityResources && page === "community" && (
@@ -3966,7 +3988,7 @@ export function SettingsPage({
                 localSkinLibrary={client.customSkinLibrary}
                 initialMine={communityDestination === "published-skins"}
                 mobile={mobilePlatform}
-                onLogin={() => selectPage("account")}
+                onLogin={openAccountLogin}
               />
             )}
             {!client.communitySkins && client.communityResources && page === "community" && (

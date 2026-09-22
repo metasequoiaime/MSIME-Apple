@@ -138,7 +138,12 @@ export function ChatPage({
 
   const send = () => {
     const content = draft.trim();
-    if (!content || sending || !selectedModel) return;
+    if (!content || sending) return;
+    if (loginNeeded) {
+      onLogin?.();
+      return;
+    }
+    if (!selectedModel) return;
     const next = [...messages, { id: nextMessageId.current++, role: "user" as const, content }];
     setMessages(next);
     setDraft("");
@@ -239,7 +244,7 @@ export function ChatPage({
           aria-label="聊天消息"
           value={draft}
           maxLength={16_384}
-          disabled={sending || !selectedModel}
+          disabled={sending}
           placeholder="输入消息，试试键盘"
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -278,7 +283,7 @@ export function ChatPage({
             <button
               type="button"
               className="primary"
-              disabled={!draft.trim() || !selectedModel}
+              disabled={!draft.trim() || (!loginNeeded && !selectedModel)}
               onClick={send}
             >
               发送
