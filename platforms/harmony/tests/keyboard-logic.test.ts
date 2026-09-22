@@ -5619,6 +5619,89 @@ group("large account files use the authenticated streaming transport", () => {
     });
 });
 
+group("snapshot restores stream privately and retry one rejected access token", () => {
+  let stored = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const uploads: { source: string; revision: number; sha256: string; token: string }[] = [];
+  const digest = "c".repeat(64);
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (method, path) => {
+        check(method === "POST" && path === "/v1/auth/refresh", "a rejected upload refreshes once");
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: "d".repeat(64),
+            refresh_token: "e".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+          }),
+        };
+      },
+      uploadSnapshot: async (source, revision, sha256, token) => {
+        uploads.push({ source, revision, sha256, token });
+        return token.startsWith("a")
+          ? { status: 401, body: "" }
+          : { status: 200, body: '{"revision":10,"reset":true}' };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = "";
+      },
+    },
+  );
+
+  void bridge
+    .restoreSnapshotAuthenticated("/private/restore.ndjson", 9, digest)
+    .then((restored) => {
+      check(restored.value?.revision === 10, "the advancing reset response is accepted");
+      check(uploads.length === 2, "the private file upload is attempted exactly twice");
+      check(
+        uploads[0]?.source === "/private/restore.ndjson" &&
+          uploads[0]?.sha256 === digest &&
+          uploads[1]?.token === "d".repeat(64),
+        "the file identity survives access-token rotation",
+      );
+      const beforeInvalid = uploads.length;
+      void bridge.restoreSnapshotAuthenticated("relative.ndjson", 9, digest).then((invalid) => {
+        check(invalid.error === "account_invalid", "only absolute private files may be uploaded");
+        check(uploads.length === beforeInvalid, "invalid restore input never reaches transport");
+      });
+    });
+
+  const deferred: { resolve?: (response: AccountTransportResponse) => void } = {};
+  const cancelled = new AccountCloudBridge(
+    {
+      request: async () => ({ status: 500, body: "" }),
+      uploadSnapshot: async () =>
+        await new Promise<AccountTransportResponse>((resolve) => {
+          deferred.resolve = resolve;
+        }),
+    },
+    { load: () => stored, save: () => {}, clear: () => {} },
+  );
+  void cancelled
+    .restoreSnapshotAuthenticated("/private/restore.ndjson", 9, digest)
+    .then((result) => {
+      check(result.error === "account_cancelled", "logout invalidates an in-flight restore reply");
+    });
+  void cancelled.handle('{"operation":"clear_expired"}').then(() => {
+    check(deferred.resolve !== undefined, "the upload had started before the session changed");
+    deferred.resolve?.({ status: 200, body: '{"revision":10,"reset":true}' });
+  });
+});
+
 group("snapshot conflict pages cannot lie about their cursor", () => {
   const changed = JSON.stringify({
     changes: [

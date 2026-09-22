@@ -135,6 +135,9 @@ interface SnapshotValue {
   saved?: boolean;
   snapshot?: SnapshotMetadata;
   previewToken?: string;
+  expectedRevision?: number;
+  revision?: number;
+  reset?: boolean;
 }
 
 interface SnapshotReply {
@@ -277,6 +280,26 @@ class HarmonyTransport implements AccountTransport {
     }
   }
 
+  async uploadSnapshot(source: string, revision: number, expectedSha256: string,
+    token: string): Promise<AccountTransportResponse> {
+    try {
+      const raw: string = await client.snapshotRestore(JSON.stringify({
+        revision: revision, expected_sha256: expectedSha256, access_token: token
+      }), source);
+      const reply: SnapshotReply = JSON.parse(raw) as SnapshotReply;
+      if (reply.ok) return { status: 200, body: JSON.stringify(reply.value) };
+      switch (reply.error) {
+        case 'account_invalid': return { status: 400, body: '' };
+        case 'account_unauthorized': return { status: 401, body: '' };
+        case 'account_conflict': return { status: 409, body: '' };
+        case 'account_rate_limited': return { status: 429, body: '' };
+        default: return { status: 503, body: '' };
+      }
+    } catch {
+      return { status: 503, body: '' };
+    }
+  }
+
   private method(value: string): http.RequestMethod {
     switch (value) {
       case 'POST': return http.RequestMethod.POST;
@@ -317,6 +340,11 @@ export class HarmonyAccountCloudBridge {
   private snapshotAccountId: string = '';
   private snapshotExpectedVersion: string = '';
   private snapshotMetadata: SnapshotMetadata | undefined = undefined;
+  private restoreFile: string = '';
+  private restoreToken: string = '';
+  private restoreAccountId: string = '';
+  private restoreMetadata: SnapshotMetadata | undefined = undefined;
+  private restoreExpectedRevision: number = -1;
 
   constructor(context: common.UIAbilityContext) {
     this.context = context;
@@ -339,9 +367,13 @@ export class HarmonyAccountCloudBridge {
     } catch {
       // The account bridge reports malformed action documents.
     }
-    if (accountId !== null && (operation === 'logout' || operation === 'delete_account'
-      || operation === 'login' || operation === 'clear_expired')) {
-      if (!this.cancelQueueForAccount(accountId)) return this.failure('snapshot_unavailable');
+    if (operation === 'logout' || operation === 'delete_account'
+      || operation === 'login' || operation === 'clear_expired') {
+      this.clearSnapshotPreview();
+      this.clearRestorePreview();
+      if (accountId !== null && !this.cancelQueueForAccount(accountId)) {
+        return this.failure('snapshot_unavailable');
+      }
     }
     if (decoded !== undefined && operation === 'dictionary'
       && decoded.dictionary_operation === 'export') {
@@ -665,6 +697,13 @@ export class HarmonyAccountCloudBridge {
         return this.exportSnapshot(resources, stateRoot);
       case 'snapshot_preview':
         return this.preview(resources, stateRoot);
+      case 'snapshot_restore_preview':
+        return this.restorePreview(stateRoot);
+      case 'snapshot_restore_native':
+        return this.restoreNative(String(action.token ?? ''));
+      case 'snapshot_restore_cancel':
+        this.clearRestorePreview();
+        return this.success({});
       case 'snapshot_enqueue':
         return this.enqueue(String(action.token ?? ''), stateRoot);
       case 'snapshot_cancel':
@@ -800,6 +839,101 @@ export class HarmonyAccountCloudBridge {
     this.snapshotFile = '';
     this.snapshotExpectedVersion = '';
     this.snapshotMetadata = undefined;
+  }
+
+  private clearRestorePreview(): void {
+    try {
+      if (this.restoreFile.length > 0 && fs.accessSync(this.restoreFile)) {
+        fs.unlinkSync(this.restoreFile);
+      }
+    } catch {
+      // A missing private copy is already the desired postcondition.
+    }
+    this.restoreFile = '';
+    this.restoreToken = '';
+    this.restoreAccountId = '';
+    this.restoreMetadata = undefined;
+    this.restoreExpectedRevision = -1;
+  }
+
+  private async restorePreview(stateRoot: string): Promise<string> {
+    const accountId: string | null = this.bridge.currentUserId();
+    if (accountId === null) return this.failure('account_unauthorized');
+    this.clearRestorePreview();
+    try {
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.maxSelectNumber = 1;
+      options.fileSuffixFilters = ['NDJSON|.ndjson'];
+      const selected: string[] = await new picker.DocumentViewPicker(this.context).select(options);
+      if (selected.length === 0) return this.success({ saved: false });
+      if (this.bridge.currentUserId() !== accountId) return this.failure('account_cancelled');
+      const source: string = selected[0];
+      const sourceBytes: number = fs.statSync(source).size;
+      if (sourceBytes <= 0 || sourceBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
+        return this.failure('snapshot_invalid');
+      }
+      const directory: string = `${stateRoot}/cloud-restore`;
+      if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      this.restoreFile = `${directory}/${util.generateRandomUUID(false)}.ndjson`;
+      fs.copyFileSync(source, this.restoreFile);
+      const copiedBytes: number = fs.statSync(this.restoreFile).size;
+      if (copiedBytes !== sourceBytes || copiedBytes <= 0
+        || copiedBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
+        this.clearRestorePreview();
+        return this.failure('snapshot_invalid');
+      }
+      const metadata: SnapshotMetadata | null = this.inspectSnapshot(this.restoreFile);
+      if (metadata === null || metadata.bytes !== copiedBytes) {
+        this.clearRestorePreview();
+        return this.failure('snapshot_invalid');
+      }
+      const current = await this.bridge.currentDictionaryRevision();
+      if (current.revision === undefined) {
+        this.clearRestorePreview();
+        return this.failure(current.error ?? 'account_unavailable');
+      }
+      if (this.bridge.currentUserId() !== accountId) {
+        this.clearRestorePreview();
+        return this.failure('account_cancelled');
+      }
+      this.restoreAccountId = accountId;
+      this.restoreMetadata = metadata;
+      this.restoreExpectedRevision = current.revision;
+      this.restoreToken = util.generateRandomUUID(false);
+      return this.success({
+        saved: true, previewToken: this.restoreToken, snapshot: metadata,
+        expectedRevision: this.restoreExpectedRevision
+      });
+    } catch {
+      this.clearRestorePreview();
+      return this.failure('snapshot_unavailable');
+    }
+  }
+
+  private async restoreNative(token: string): Promise<string> {
+    if (token.length === 0 || token !== this.restoreToken || this.restoreFile.length === 0
+      || this.restoreMetadata === undefined || this.restoreExpectedRevision < 0
+      || this.restoreAccountId.length === 0) {
+      return this.failure('snapshot_invalid');
+    }
+    if (this.bridge.currentUserId() !== this.restoreAccountId) {
+      this.clearRestorePreview();
+      return this.failure('account_cancelled');
+    }
+    const file: string = this.restoreFile;
+    const revision: number = this.restoreExpectedRevision;
+    const sha256: string = this.restoreMetadata.fileSha256;
+    try {
+      const restored = await this.bridge.restoreSnapshotAuthenticated(file, revision, sha256);
+      if (restored.value === undefined) {
+        return this.failure(restored.error ?? 'account_unavailable');
+      }
+      return this.success(restored.value as SnapshotValue);
+    } catch {
+      return this.failure('account_unavailable');
+    } finally {
+      this.clearRestorePreview();
+    }
   }
 
   private async downloadSnapshot(stateRoot: string): Promise<SnapshotMetadata | null> {

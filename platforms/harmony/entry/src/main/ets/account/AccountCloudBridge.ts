@@ -30,6 +30,12 @@ export interface AccountTransport {
     maximumBytes: number,
     mediaType: string,
   ): Promise<AccountDownloadResponse>;
+  uploadSnapshot?(
+    source: string,
+    revision: number,
+    expectedSha256: string,
+    token: string,
+  ): Promise<AccountTransportResponse>;
 }
 
 export interface AccountSessionStore {
@@ -496,6 +502,53 @@ export class AccountCloudBridge {
     )
       return { error: "account_unavailable" };
     return { bytes: response.bytes };
+  }
+
+  /** Read the dictionary revision used by snapshot restore's optimistic concurrency check. */
+  async currentDictionaryRevision(): Promise<{ revision?: number; error?: string }> {
+    const result = await this.authenticatedJson(
+      "GET",
+      "/v1/users/me/dictionaries/quick/catalog?q=&offset=0&limit=100&scheme=pinyin&profile=xiaohe",
+    );
+    if (result.error !== undefined || result.value === undefined)
+      return { error: result.error ?? "account_unavailable" };
+    const revision = result.value.revision;
+    if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
+      return { error: "account_unavailable" };
+    return { revision };
+  }
+
+  /** Stream one already-inspected private snapshot with token refresh and generation checks. */
+  async restoreSnapshotAuthenticated(
+    source: string,
+    revision: number,
+    expectedSha256: string,
+  ): Promise<{ value?: Action; error?: string }> {
+    if (
+      !source.startsWith("/") ||
+      source.length > 16384 ||
+      source.includes("\u0000") ||
+      !Number.isSafeInteger(revision) ||
+      revision < 0 ||
+      !validResourceId(expectedSha256) ||
+      this.transport.uploadSnapshot === undefined
+    )
+      return { error: "account_invalid" };
+    const result = await this.authorizedSnapshotUpload(source, revision, expectedSha256);
+    if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
+    const response = result.response;
+    if (response.status < 200 || response.status >= 300)
+      return { error: mapStatus(response.status) };
+    const value = parseJson(response.body);
+    if (
+      value === null ||
+      value.reset !== true ||
+      typeof value.revision !== "number" ||
+      !Number.isSafeInteger(value.revision) ||
+      value.revision <= revision
+    )
+      return { error: "account_unavailable" };
+    return { value };
   }
 
   /** Native hosts save exports themselves so multi-megabyte text never crosses a WebView bridge. */
@@ -1370,6 +1423,38 @@ export class AccountCloudBridge {
       maximumBytes,
       mediaType,
     );
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status === 401 || response.status === 403) {
+      this.clearExpired();
+      return { error: "account_unauthorized" };
+    }
+    return { response };
+  }
+
+  /** The snapshot-upload equivalent of `authorizedResponse`, including one token rotation. */
+  private async authorizedSnapshotUpload(
+    source: string,
+    revision: number,
+    expectedSha256: string,
+  ): Promise<AuthorizedReply> {
+    const upload = this.transport.uploadSnapshot;
+    if (upload === undefined) return { error: "account_unavailable" };
+    const currentToken: string | null = this.usableToken();
+    let credential: CredentialReply =
+      currentToken === null ? await this.credential() : { token: currentToken };
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    let token: string = credential.token;
+    let generation: number = this.generation;
+    let response = await upload.call(this.transport, source, revision, expectedSha256, token);
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status !== 401 && response.status !== 403) return { response };
+    credential = await this.credential(token);
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    token = credential.token;
+    generation = this.generation;
+    response = await upload.call(this.transport, source, revision, expectedSha256, token);
     if (generation !== this.generation) return { error: "account_cancelled" };
     if (response.status === 401 || response.status === 403) {
       this.clearExpired();

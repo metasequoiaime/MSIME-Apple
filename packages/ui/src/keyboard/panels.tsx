@@ -119,6 +119,7 @@ export type CloudDictionaryAction =
   | { operation: "snapshot_restore_preview"; text: string }
   | { operation: "snapshot_restore"; text: string; expected_sha256: string; revision: number }
   | { operation: "snapshot_restore_native"; token: string }
+  | { operation: "snapshot_restore_cancel" }
   | { operation: "snapshot_enqueue"; token: string }
   | { operation: "snapshot_status" }
   | { operation: "snapshot_cancel" }
@@ -269,6 +270,7 @@ export interface CloudDictionaryPanelClient extends PanelClient {
   snapshot?: boolean;
   snapshotNative?: boolean;
   exportNative?: boolean;
+  chooseSnapshotRestore?(): Promise<CloudDictionaryResponse>;
   downloadToLocal?(entry: CloudDictionaryEntry): Promise<void>;
   openCatalog?(): Promise<void>;
   openCandidates?(): Promise<void>;
@@ -2917,6 +2919,47 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     }
   }
 
+  async function chooseNativeRestoreSnapshot() {
+    if (!client.chooseSnapshotRestore) return;
+    setRestorePreview(null);
+    setSnapshotBusy(true);
+    try {
+      const result = await client.chooseSnapshotRestore();
+      if (result.saved === false) {
+        setNotice("已取消选择快照");
+        return;
+      }
+      if (
+        !result.snapshot ||
+        typeof result.expectedRevision !== "number" ||
+        typeof result.previewToken !== "string"
+      )
+        throw new Error("invalid native snapshot preview");
+      setRestorePreview({
+        text: result.previewToken,
+        snapshot: result.snapshot,
+        expectedRevision: result.expectedRevision,
+      });
+      setNotice("快照已校验，请确认后替换云端词库");
+    } catch {
+      setNotice("无法校验快照，云端词库未改变");
+    } finally {
+      setSnapshotBusy(false);
+    }
+  }
+
+  async function abandonRestoreSnapshot() {
+    setRestorePreview(null);
+    if (client.snapshotNative) {
+      setSnapshotBusy(true);
+      try {
+        await client.request({ operation: "snapshot_restore_cancel" });
+      } finally {
+        setSnapshotBusy(false);
+      }
+    }
+  }
+
   async function restoreSnapshot() {
     const prepared = restorePreview;
     if (!prepared) return;
@@ -2951,7 +2994,9 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   useEffect(
     () => () => {
       requestRevision.current++;
-      setRestorePreview(null);
+      if (client.snapshotNative) {
+        void client.request({ operation: "snapshot_restore_cancel" });
+      }
     },
     [],
   );
@@ -3081,21 +3126,32 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
             >
               导出完整快照
             </button>
-            <label className="secondary">
-              选择快照恢复到云端
-              <input
-                className={cloud.dictionaryInput}
-                hidden
-                type="file"
-                accept=".ndjson,application/x-ndjson"
+            {client.chooseSnapshotRestore ? (
+              <button
+                type="button"
+                className="secondary"
                 disabled={busy || snapshotBusy}
-                onChange={(event) => {
-                  const selected = event.target.files?.[0];
-                  if (selected) void chooseRestoreSnapshot(selected);
-                  event.currentTarget.value = "";
-                }}
-              />
-            </label>
+                onClick={() => void chooseNativeRestoreSnapshot()}
+              >
+                选择快照恢复到云端
+              </button>
+            ) : (
+              <label className="secondary">
+                选择快照恢复到云端
+                <input
+                  className={cloud.dictionaryInput}
+                  hidden
+                  type="file"
+                  accept=".ndjson,application/x-ndjson"
+                  disabled={busy || snapshotBusy}
+                  onChange={(event) => {
+                    const selected = event.target.files?.[0];
+                    if (selected) void chooseRestoreSnapshot(selected);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+            )}
             {restorePreview && (
               <div className={cloud.dictionaryFilePreview}>
                 <strong>已校验快照</strong>
@@ -3114,7 +3170,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
                 <button
                   type="button"
                   className="secondary"
-                  onClick={() => setRestorePreview(null)}
+                  onClick={() => void abandonRestoreSnapshot()}
                   disabled={busy || snapshotBusy}
                 >
                   放弃恢复

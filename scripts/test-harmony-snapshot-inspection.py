@@ -14,6 +14,7 @@ ACCOUNT = ROOT / "platforms/harmony/entry/src/main/ets/account/HarmonyAccountClo
 NATIVE = ROOT / "platforms/harmony/native/client_napi.cpp"
 TYPES = ROOT / "platforms/harmony/entry/src/main/cpp/types/libmsimeclient/index.d.ts"
 HEADER = ROOT / "crates/host-api/include/msime_client.h"
+APP = ROOT / "apps/harmony/src/main.tsx"
 
 
 def main() -> int:
@@ -21,6 +22,7 @@ def main() -> int:
     native = NATIVE.read_text(encoding="utf-8")
     types = TYPES.read_text(encoding="utf-8")
     header = HEADER.read_text(encoding="utf-8")
+    app = APP.read_text(encoding="utf-8")
     start = account.index("  private async downloadSnapshot(")
     download = account[start : account.index("\n  private async enqueue(", start)]
     export_start = account.index("  private async exportSnapshot(")
@@ -32,12 +34,16 @@ def main() -> int:
     required = {
         "C ABI declaration": "msime_client_snapshot_inspect" in header,
         "queue C ABI declaration": "msime_client_snapshot_queue" in header,
+        "restore C ABI declaration": "msime_client_snapshot_restore" in header,
         "NAPI call": "TEXT_ENTRY(SnapshotInspect, msime_client_snapshot_inspect)" in native,
         "NAPI export": 'ENTRY("snapshotInspect", SnapshotInspect)' in native,
         "queue NAPI call": "TEXT_ENTRY(SnapshotQueue, msime_client_snapshot_queue)" in native,
         "queue NAPI export": 'ENTRY("snapshotQueue", SnapshotQueue)' in native,
+        "restore async NAPI export": 'ENTRY("snapshotRestore", SnapshotRestore)' in native
+        and "napi_create_async_work" in native,
         "ArkTS declaration": "export const snapshotInspect:" in types,
         "queue ArkTS declaration": "export const snapshotQueue:" in types,
+        "restore ArkTS declaration": "export const snapshotRestore:" in types,
         "download inspection": "this.inspectSnapshot(this.snapshotFile)" in download,
         "streamed private download": "this.bridge.downloadAuthenticated(" in download
         and "MAX_SNAPSHOT_DOWNLOAD_BYTES" in download,
@@ -48,6 +54,16 @@ def main() -> int:
         "UUID preview token": "util.generateRandomUUID(false)" in account,
         "file identity replay guard": "inspected.fileSha256 !== this.snapshotMetadata.fileSha256"
         in account,
+        "native restore picker": "DocumentViewPicker(this.context).select(options)" in account
+        and "snapshot_restore_preview" in account,
+        "private restore copy": "fs.copyFileSync(source, this.restoreFile)" in account,
+        "native restore upload": "restoreSnapshotAuthenticated(file, revision, sha256)" in account
+        and "snapshot_restore_native" in account,
+        "restore cleanup": "this.clearRestorePreview();" in account,
+        "shared native-picker capability": "chooseSnapshotRestore: async ()" in app
+        and 'operation: "snapshot_restore_preview"' in app,
+        "files page restore enabled": "snapshot: true" in app
+        and "snapshotNative: true" in app,
         "durable enqueue": "operation: 'enqueue'" in account
         and "client.snapshotQueue(JSON.stringify(action))" in account,
         "cloud revision replay guard": "/dictionary/changes?after=${this.snapshotMetadata.cloudRevision}&limit=1"
