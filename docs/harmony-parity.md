@@ -216,6 +216,8 @@ EnglishCapitalizationPolicy.shouldShift
 
 `WelcomeUITests.testReplayedWelcomeStartRespondsOutsideText` 随后暴露了 Harmony 设置宿主没有把共享账号页的“重新查看新手引导”入口接回引导状态；同时宿主把自己的平台身份硬编码成 Android，导致首次设置逐字显示 Android 系统说明。现在共享引导显式识别 HarmonyOS，保留该平台确实提供的“打开系统设置”和“选择输入法”两个动作，并说明系统页面由 HarmonyOS 管理；账号页重播入口会重新显示同一引导，跳过或完成后返回设置页。Harmony 是否需要首次引导仍继续由原生输入法启用/当前状态决定，不引入 Apple 的持久化完成标志。
 
+同一用例还要求重播后“稍后设置”返回发起位置。共享移动设置页虽然把当前页写入 WebView history，重新挂载时却只读默认首页，因此 Harmony 从“我的”重播后会回到“键盘”。现在 Android、iOS 与 HarmonyOS 都会在重挂载时读取并白名单校验已有移动页；回归测试完整覆盖“我的 → 重新查看新手引导 → 稍后设置 → 我的仍选中”。
+
 ## 2026-09-21 补：模拟器验收
 
 上面那份「证据边界」写完之后，在 API 21 的 `Mate 70 Pro` arm64 模拟器上实际跑了一遍，结论需要改写——不是因为结论错了，而是因为它们本来就只是没去跑。

@@ -2104,8 +2104,15 @@ export function SettingsPage({
   const [dataDirectory, setDataDirectory] = useState<{ path: string; isDefault: boolean }>();
   const [dataDirectoryBusy, setDataDirectoryBusy] = useState(false);
   const [dataDirectoryResult, setDataDirectoryResult] = useState("");
+  const restoredMobilePage =
+    mobilePlatform &&
+    typeof window !== "undefined" &&
+    window.history.state?.msimeSettings === true &&
+    typeof window.history.state.page === "string"
+      ? window.history.state.page
+      : undefined;
   const [page, setPage] = useState<SettingsPageId>(() =>
-    requestedPage(initialPage ?? (client.home ? "home" : undefined)),
+    requestedPage(initialPage ?? restoredMobilePage ?? (client.home ? "home" : undefined)),
   );
   const [accountLoginReturnPage, setAccountLoginReturnPage] = useState<SettingsPageId | null>(null);
   // Each bottom tab owns a navigation stack in the source app. This shared page has a flat route,

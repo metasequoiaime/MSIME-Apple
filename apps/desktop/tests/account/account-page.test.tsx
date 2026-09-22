@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   AccountPage,
   SettingsPage,
+  WelcomeFlowPage,
   type AccountClient,
   type AccountProfile,
   type AccountUser,
@@ -13,6 +15,7 @@ import {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  window.history.replaceState({}, "");
 });
 
 const user: AccountUser = {
@@ -337,6 +340,48 @@ test("mobile accounts can replay the onboarding flow without account state", asy
   render(<AccountPage client={account()} onReplayOnboarding={replayOnboarding} />);
   fireEvent.click(await screen.findByRole("button", { name: "重新查看新手引导" }));
   expect(replayOnboarding).toHaveBeenCalledTimes(1);
+});
+
+test("mobile settings return to My after replaying and skipping onboarding", async () => {
+  window.history.replaceState({}, "");
+  const client = {
+    load: async () => preferences,
+    save: vi.fn(),
+    host: { platform: "harmony" } as never,
+    home: {},
+    account: account(),
+  };
+  function ReplayHarness() {
+    const [replaying, setReplaying] = useState(false);
+    if (replaying) {
+      return (
+        <WelcomeFlowPage
+          actions={{
+            platform: "harmony",
+            prepareResources: vi.fn().mockResolvedValue(undefined),
+            openSystemKeyboardSettings: vi.fn().mockResolvedValue(undefined),
+            showInputMethodPicker: vi.fn().mockResolvedValue(undefined),
+          }}
+          onComplete={async () => setReplaying(false)}
+          onSkip={async () => setReplaying(false)}
+        />
+      );
+    }
+    return <SettingsPage client={client} onReplayOnboarding={() => setReplaying(true)} />;
+  }
+
+  render(<ReplayHarness />);
+  const mobileTabs = within(screen.getByRole("navigation", { name: "主要功能" }));
+  fireEvent.click(mobileTabs.getByRole("button", { name: "我的" }));
+  fireEvent.click(await screen.findByRole("button", { name: "重新查看新手引导" }));
+  fireEvent.click(await screen.findByRole("button", { name: "稍后设置" }));
+
+  expect(
+    within(await screen.findByRole("navigation", { name: "主要功能" })).getByRole("button", {
+      name: "我的",
+      current: "page",
+    }),
+  ).not.toBeNull();
 });
 
 test("mobile accounts group published and saved community resources", async () => {
