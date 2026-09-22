@@ -5379,9 +5379,13 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** Keep a candidate word intact; the surrounding strip/panel owns scrolling and wrapping. */
     private void configureCandidateTextLayout(Button button) {
-        button.setSingleLine(true);
+        int lines = Math.max(1, candidateGlossLineCount());
+        // A two-language gloss deliberately occupies two rows. Do not turn the whole label into
+        // a single-line TextView in that case, or the second gloss is silently clipped. With no
+        // gloss row the chip can scroll horizontally as one intact candidate word.
+        button.setSingleLine(lines == 1);
         button.setEllipsize(null);
-        button.setHorizontallyScrolling(true);
+        button.setHorizontallyScrolling(lines == 1);
     }
 
     private String candidateAnnotation(JSONObject candidate) {
