@@ -8,6 +8,7 @@
 #include "ClipboardHistory.h"
 #include "DiagnosticListener.h"
 #include "DedicatedEnglishMailbox.h"
+#include "DiagnosticLog.h"
 #include "FloatingToolbarVisibilityPolicy.h"
 #include "FirstRun.h"
 #include "FloatingToolbarWindow.h"
@@ -133,6 +134,8 @@ resolve_skin_assets(const msime::windows::PreviewConfig &config) {
 }
 std::atomic<bool> stopping{false};
 std::atomic<bool> restart_requested{false};
+// Set by the maintenance stop shortcut. The Watchdog reads any other exit as a crash and starts the Server again, so a user's stop has to leave with stop_exit_code, as the reference's window hook does.
+std::atomic<bool> stop_requested{false};
 static_assert(std::atomic<bool>::is_always_lock_free);
 BOOL WINAPI console_control(DWORD event) {
   if (event != CTRL_C_EVENT && event != CTRL_BREAK_EVENT)
@@ -147,6 +150,17 @@ struct ConsoleControl {
   }
   ~ConsoleControl() { SetConsoleCtrlHandler(console_control, FALSE); }
 };
+// The Server is a windows-subsystem program, so a managed launch (Watchdog or TSF DLL) never opens a console window. A preview or --help run from a terminal attaches to that terminal instead, so its status lines and Ctrl+C still work there. A managed launch never attaches: the TSF DLL starts the Server from inside whatever application has focus, and that may itself be a console program whose window must not receive our output.
+void attach_launching_console(const msime::windows::ServerLaunch &launch) {
+  if (launch.kind == msime::windows::ServerLaunchKind::Managed ||
+      !AttachConsole(ATTACH_PARENT_PROCESS))
+    return;
+  FILE *stream = nullptr;
+  freopen_s(&stream, "CONOUT$", "w", stdout);
+  freopen_s(&stream, "CONOUT$", "w", stderr);
+  std::cout.clear();
+  std::cerr.clear();
+}
 bool contains(const std::filesystem::path &parent,
               const std::filesystem::path &child) {
   auto p = parent.begin(), c = child.begin();
@@ -409,6 +423,13 @@ msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preference
   return config;
 }
 
+void apply_diagnostic_log(msime::windows::DiagnosticLog &log,
+                          const nlohmann::json &preferences) {
+  const auto switches =
+      preferences.value("diagnostic_log", nlohmann::json::object());
+  log.set_enabled(switches.value("server", false), switches.value("tsf", false));
+}
+
 // Mirror the CN/EN and 简繁 hotkeys into the shared config.toml.
 //
 // These four do not ride the worker pipe: the TIP reads them straight off disk
@@ -526,14 +547,15 @@ int wmain(int argc, wchar_t **argv) {
   msime::telemetry::start("windows", "0.1.0-dev");
   std::set_terminate([] { msime::telemetry::crash("windows", "0.1.0-dev", "std::terminate"); std::abort(); });
   using namespace msime::windows;
-  if (argc == 2 && std::wstring(argv[1]) == L"--help") {
+  const auto launch = parse_server_arguments(argc, argv);
+  attach_launching_console(launch);
+  if (launch.kind == ServerLaunchKind::Help) {
     std::cout << "MSIME Client Server: --config <absolute-json-path>\n"
                  "Managed launches use the installed TSF pipe names; preview "
                  "launches use names from the config. Ctrl+C stops.\n"
                  "Unsupported routes (including unobserved Enter) disconnect.\n";
     return 0;
   }
-  const auto launch = parse_server_arguments(argc, argv);
   const bool production = launch.kind == ServerLaunchKind::Managed;
   if (launch.kind == ServerLaunchKind::Invalid)
     return 2;
@@ -570,6 +592,12 @@ int wmain(int argc, wchar_t **argv) {
         contains(config.state_root, config.resources))
       throw std::invalid_argument("Resources and state must be disjoint");
     StateRootLease lease(config.state_root);
+    DiagnosticLog diagnostic_log(config.state_root / L"logs" / L"server.log");
+    // Operator notices go to the terminal of a preview run and, when the server switch is on, to the diagnostic file - the only place a managed Server's notices can be read.
+    const auto notice = [&diagnostic_log](const std::string &line) {
+      std::cerr << line << "\n";
+      diagnostic_log.server(line);
+    };
     ConsoleControl console;
     const auto bootstrap =
         nlohmann::json{{"resources", config.resources.u8string()},
@@ -587,6 +615,9 @@ int wmain(int argc, wchar_t **argv) {
       throw std::runtime_error("Host preparation failed");
     if (stopping.load())
       return 0;
+    apply_diagnostic_log(diagnostic_log, prepared.at("value").at("preferences"));
+    diagnostic_log.server(std::string(production ? "Production" : "Preview") +
+                          " Server starting");
     auto traditional_output = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("traditional_chinese_output", false));
@@ -674,6 +705,7 @@ int wmain(int argc, wchar_t **argv) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           candidate_theme->publish(preferences);
+          apply_diagnostic_log(diagnostic_log, preferences);
           if (auto settings = floating_toolbar_settings(preferences))
             toolbar_settings->publish(snapshot.revision(), *settings);
           if (auto fonts = candidate_font_settings(preferences))
@@ -837,8 +869,7 @@ int wmain(int argc, wchar_t **argv) {
         voice_controller_mailbox, legacy_voice_controller_error,
         FanyImeVoiceController::PipeName);
     if (!voice_controller)
-      std::cerr
-          << "Voice controller unavailable; native input remains enabled\n";
+      notice("Voice controller unavailable; native input remains enabled");
     configure_audio_mute_state_path(
         (config.state_root / "voice_system_audio_mute_state.txt").wstring());
     (void)voice->init_cues(voice_audio_path(config, L"start.mp3"),
@@ -867,7 +898,7 @@ int wmain(int argc, wchar_t **argv) {
     // here used to cost the user all text input because a message-only window
     // or a class registration failed.
     if (!clipboard_monitor.start())
-      std::cerr << "Clipboard history unavailable; continuing without it\n";
+      notice("Clipboard history unavailable; continuing without it");
     CandidateClickWorker clicks([&](const CandidateClick &click) {
       if (click.action == CandidateAction::Select) {
         if (server.request_selection(click.lease, click.session,
@@ -1158,20 +1189,22 @@ int wmain(int argc, wchar_t **argv) {
     DWORD diagnostic_error = ERROR_SUCCESS;
     auto diagnostics = DiagnosticListener::create(
         FANY_IME_TSF_DIAGNOSTIC_NAMED_PIPE,
-        [](const DiagnosticBatch &batch) {
-          std::cerr << "TSF diagnostics pid=" << batch.source_process_id
-                    << " records=" << batch.record_count;
+        [&diagnostic_log](const DiagnosticBatch &batch) {
+          std::string header = "TSF diagnostics pid=" +
+                               std::to_string(batch.source_process_id) +
+                               " records=" + std::to_string(batch.record_count);
           // A gap in the log is worth saying out loud rather than leaving the
           // reader to wonder why the sequence jumps.
           if (batch.dropped_count)
-            std::cerr << " dropped=" << batch.dropped_count;
-          std::cerr << "\n" << batch.payload << "\n";
+            header += " dropped=" + std::to_string(batch.dropped_count);
+          std::cerr << header << "\n" << batch.payload << "\n";
+          diagnostic_log.tsf(header + "\r\n" + batch.payload);
         },
         diagnostic_error);
     if (!diagnostics)
-      std::cerr << "TSF diagnostics unavailable; continuing without them\n";
+      notice("TSF diagnostics unavailable; continuing without them");
     if (!aux)
-      std::cerr << "Tray menu unavailable: language bar endpoint not started\n";
+      notice("Tray menu unavailable: language bar endpoint not started");
     // The four shortcuts the shared settings page documents. They must work
     // while another application has focus, so they sit on a low-level keyboard
     // hook rather than the TSF key sink.
@@ -1182,6 +1215,7 @@ int wmain(int argc, wchar_t **argv) {
         stopping.store(true);
         return true;
       case MaintenanceAction::Stop:
+        stop_requested.store(true);
         stopping.store(true);
         return true;
       case MaintenanceAction::ClearCache: {
@@ -1214,7 +1248,7 @@ int wmain(int argc, wchar_t **argv) {
       caps_lock_dirty.store(true, std::memory_order_release);
     });
     if (!maintenance.installed())
-      std::cerr << "Maintenance shortcuts unavailable; continuing without them\n";
+      notice("Maintenance shortcuts unavailable; continuing without them");
     uint64_t tray_shown_at = 0;
     uint64_t pointer_left_at = 0;
     HWND tray_foreground = nullptr;
@@ -1457,14 +1491,20 @@ int wmain(int argc, wchar_t **argv) {
     character_set_clicks.stop();
     mode_clicks.stop();
     english_reads.stop();
-    if (restart_requested.load())
+    if (restart_requested.load()) {
+      diagnostic_log.server("Server stopping: restart requested");
       return msime::windows::watchdog::restart_exit_code;
-    return server.failure() == ControllerFailure::None &&
-                   !candidates.failed() && !clicks.failed() &&
-                   !mode_clicks.failed() &&
-                   !character_set_clicks.failed() && !english_reads.failed()
-               ? 0
-               : 1;
+    }
+    if (stop_requested.load()) {
+      diagnostic_log.server("Server stopping: stop requested");
+      return msime::windows::watchdog::stop_exit_code;
+    }
+    const bool clean = server.failure() == ControllerFailure::None &&
+                       !candidates.failed() && !clicks.failed() &&
+                       !mode_clicks.failed() &&
+                       !character_set_clicks.failed() && !english_reads.failed();
+    diagnostic_log.server(clean ? "Server stopping" : "Server stopping: a component failed");
+    return clean ? 0 : 1;
   } catch (...) {
     std::cerr << "Preview Server failed; verify configuration, resources, "
                  "state ownership and pipe availability.\n";
