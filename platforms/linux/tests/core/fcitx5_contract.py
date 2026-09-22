@@ -93,6 +93,7 @@ assert 'cloud_clipboard_generation_' in source
 assert 'cloud_clipboard_enabled_' in source
 assert 'help_action_{&factory_, "help", "帮助"}' in source
 assert 'feedback_action_{&factory_, "feedback", "反馈"}' in source
+assert '(std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_)' in source
 assert 'result.value("_socket", std::string{}) == cloud_clipboard_socket_' in source
 assert 'result.value("_generation", uint64_t{}) == cloud_clipboard_generation_' in source
 assert 'cloud_clipboard_enabled_ = result.value("enabled", true)' in source
