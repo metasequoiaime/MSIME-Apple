@@ -191,6 +191,17 @@ public final class NativeClient {
         if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
         return text(removeCandidateRaw(session, generation, index));
     }
+    /**
+     * 以词定字: ask the Engine for one Han character from a candidate on the current page.
+     *
+     * <p>Unhandled for a candidate with no Han text, which leaves the composition untouched; the
+     * caller falls back to the candidate's own text, as the source's host does.
+     */
+    public static String selectEdge(long session, long generation, long index, int edge) {
+        if (index < 0) throw new IllegalArgumentException("Invalid candidate index");
+        if (edge != 0 && edge != 1) throw new IllegalArgumentException("Invalid candidate edge");
+        return text(selectEdgeRaw(session, generation, index, edge));
+    }
     public static String chooseNineKeySpelling(long session, long generation, long index) {
         if (index < 0) throw new IllegalArgumentException("Invalid nine-key spelling index");
         return text(chooseNineKeySpellingRaw(session, generation, index));
@@ -269,6 +280,7 @@ public final class NativeClient {
         int position);
     private static native byte[] clearCandidatePositionRaw(long session, long generation, long index);
     private static native byte[] removeCandidateRaw(long session, long generation, long index);
+    private static native byte[] selectEdgeRaw(long session, long generation, long index, int edge);
     private static native byte[] chooseNineKeySpellingRaw(long session, long generation, long index);
     private static native byte[] allCandidatesRaw(long session);
     private static native byte[] applyTranslationsRaw(long session, long generation,

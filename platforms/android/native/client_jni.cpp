@@ -354,6 +354,17 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_removeCandidateR
     }
     return response(env, msime_client_remove_candidate(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_selectEdgeRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jlong index, jint edge) {
+    if (index < 0 || static_cast<uint64_t>(index) > std::numeric_limits<size_t>::max()) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid candidate index");
+        return nullptr;
+    }
+    if (edge != MSIME_FIRST_HAN && edge != MSIME_LAST_HAN) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid candidate edge");
+        return nullptr;
+    }
+    return response(env, msime_client_select_edge(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index), static_cast<uint8_t>(edge)));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_chooseNineKeySpellingRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jlong index) {
     if (index < 0 || static_cast<uint64_t>(index) > std::numeric_limits<size_t>::max()) {
         env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid nine-key spelling index");

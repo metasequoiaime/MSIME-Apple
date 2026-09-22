@@ -101,6 +101,16 @@ if rg -n 'full-width-input|keyboardLayoutPreferences' \
   echo "Android must read the fullwidth state from the shared preference, not a private store" >&2
   exit 1
 fi
+# 以词定字 belongs to the Engine: it picks the Han character and decides whether the candidate has
+# one at all. This host may route the key and commit the fallback the source's host commits, but it
+# must not grow its own idea of which candidates qualify.
+if ! rg -q 'selectEdgeRaw' \
+    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+  || ! rg -q 'msime_client_select_edge' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android word-to-character must cross the shared Host API through JNI" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
@@ -230,6 +240,8 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareShortcutPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/NumberRowSelectionPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/WordCharacterPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/CandidateTextPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" PhrasePreeditSmoke
@@ -295,6 +307,8 @@ java -cp "$output_dir" SmartPunctuationContextSmoke
 java -cp "$output_dir" HardwareKeyPolicySmoke
 java -cp "$output_dir" app.msime.client.HardwareShortcutPolicySmoke
 java -cp "$output_dir" NumberRowSelectionPolicySmoke
+java -cp "$output_dir" WordCharacterPolicySmoke
+java -cp "$output_dir" CandidateTextPolicySmoke
 java -cp "$output_dir" SymbolPanelModelSmoke
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed

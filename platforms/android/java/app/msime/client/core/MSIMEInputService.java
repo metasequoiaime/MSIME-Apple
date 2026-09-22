@@ -265,6 +265,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean hardwareCharacterSet = true;
     private boolean hardwareFullWidth = true;
     private boolean numberRowSelection = true;
+    /** Resolved 以词定字 binding: `disabled`, `brackets` or `minus_equal`. */
+    private String wordCharacterBinding = WordCharacterPolicy.DISABLED;
     private boolean hardwareLanguageCtrl;
     private long modifierTapStartedAt = -1;
     private int modifierTapKeyCode = -1;
@@ -461,6 +463,7 @@ public final class MSIMEInputService extends InputMethodService {
         fullWidthPreference = preferences != null && CharacterWidthPolicy.preferenceIsFullWidth(
             preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
         if (session == 0) fullWidthInput = fullWidthPreference;
+        wordCharacterBinding = wordCharacterBindingFrom(preferences);
         JSONObject keybindings = preferences == null ? null : preferences.optJSONObject("keybindings");
         hardwareLanguageShift = keybindings == null || keybindings.optBoolean("switch_language_shift", true);
         hardwareLanguageCtrlAltSpace = keybindings == null
@@ -1251,6 +1254,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextNumberRowSelection = preferences.optBoolean("number_row_selection", true);
         boolean nextFullWidthPreference = CharacterWidthPolicy.preferenceIsFullWidth(
             preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
+        String nextWordCharacterBinding = wordCharacterBindingFrom(preferences);
         boolean nextLanguageCtrl = nextKeybindings != null
             && nextKeybindings.optBoolean("switch_language_ctrl", false);
         String nextDefaultImeMode = "english".equals(
@@ -1307,6 +1311,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean characterWidthChanged =
             CharacterWidthPolicy.overridesToggle(fullWidthPreference, nextFullWidthPreference);
         fullWidthPreference = nextFullWidthPreference;
+        wordCharacterBinding = nextWordCharacterBinding;
         hardwareLanguageCtrl = nextLanguageCtrl;
         defaultImeMode = nextDefaultImeMode;
         imeModeScope = nextImeModeScope;
@@ -2446,6 +2451,10 @@ public final class MSIMEInputService extends InputMethodService {
             deleteFromHandwriting();
             return true;
         }
+        WordCharacterPolicy.Edge wordCharacterEdge = WordCharacterPolicy.edgeFor(
+            keyCode, event.isShiftPressed(), wordCharacterBinding, highlightedCandidate() != null);
+        if (wordCharacterEdge != WordCharacterPolicy.Edge.NONE
+                && selectCandidateEdge(wordCharacterEdge)) return true;
         int engineCommand = HardwareKeyPolicy.commandFor(keyCode);
         if (engineCommand >= 0) return command(engineCommand) || super.onKeyDown(keyCode, event);
         if (keyCode == KeyEvent.KEYCODE_SPACE && dedicatedEnglish) { space(); return true; }
@@ -5470,6 +5479,59 @@ public final class MSIMEInputService extends InputMethodService {
             return showCandidateMenu(button, slot, id, text);
         });
         return button;
+    }
+
+    private static String wordCharacterBindingFrom(JSONObject preferences) {
+        JSONObject wordCharacter = preferences == null ? null
+            : preferences.optJSONObject("word_character");
+        if (wordCharacter == null) return WordCharacterPolicy.DISABLED;
+        return WordCharacterPolicy.binding(wordCharacter.optBoolean("enabled", true),
+            wordCharacter.optString("keys", WordCharacterPolicy.BRACKETS));
+    }
+
+    /** The candidate the strip is showing as highlighted, which 以词定字 takes its character from. */
+    private JSONObject highlightedCandidate() {
+        JSONArray entries = view == null ? null : view.optJSONArray("candidates");
+        if (entries == null) return null;
+        for (int index = 0; index < entries.length(); index++) {
+            JSONObject candidate = entries.optJSONObject(index);
+            if (candidate != null && candidate.optBoolean("highlighted")) return candidate;
+        }
+        return null;
+    }
+
+    /**
+     * 以词定字: commit one Han character from the highlighted candidate.
+     *
+     * <p>Two steps, because the Engine only owns the first. It takes a candidate that has Han text,
+     * commits the requested end and clears the composition. A candidate with none — the English
+     * word offered for the same spelling — it refuses and leaves the composition alone, and the
+     * host resolves that case itself: extract the character from the candidate's own text, or
+     * commit the whole candidate when it has no Han character at all. The text used is the one the
+     * strip is showing, so a user reading 繁体 candidates gets the 繁体 character.
+     *
+     * <p>Returns false when there is nothing to act on, which lets the key type its own symbol.
+     */
+    private boolean selectCandidateEdge(WordCharacterPolicy.Edge edge) {
+        JSONObject candidate = highlightedCandidate();
+        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+        if (id == null || session == 0 || id.optLong("session") != session) return false;
+        String displayed = chineseOutput(candidate.optString("text"), view);
+        try {
+            candidatePanelOpen = false;
+            if (apply(NativeClient.selectEdge(session, id.getLong("generation"),
+                                              id.getLong("index"), edge.code()))) return true;
+            // Declined: the Engine kept the composition, so end it here before the host commits.
+            String fallback = CandidateTextPolicy.fallbackCommit(displayed, edge);
+            if (fallback == null || fallback.isEmpty()) return false;
+            command(3);
+            commitText(fallback);
+            render();
+            return true;
+        } catch (JSONException | LinkageError error) {
+            fail();
+            return true;
+        }
     }
 
     private JSONObject visibleCandidate(int slot) {
