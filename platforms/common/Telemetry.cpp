@@ -1,0 +1,58 @@
+#include "Telemetry.h"
+#include <curl/curl.h>
+#include <nlohmann/json.hpp>
+#include <filesystem>
+#include <fstream>
+#include <mutex>
+#include <random>
+#include <sstream>
+#include <cstdlib>
+
+namespace msime::telemetry {
+namespace {
+std::mutex lock;
+std::filesystem::path file() {
+#ifdef _WIN32
+  const char *base = std::getenv("LOCALAPPDATA");
+  return (base ? std::filesystem::path(base) : std::filesystem::temp_directory_path()) / "MSIME" / "telemetry.json";
+#else
+  const char *base = std::getenv("XDG_STATE_HOME");
+  if (!base) { const char *home = std::getenv("HOME"); base = home ? home : "/tmp"; }
+  return std::filesystem::path(base) / (std::getenv("XDG_STATE_HOME") ? "msime/telemetry.json" : ".local/state/msime/telemetry.json");
+#endif
+}
+std::string id() { static std::random_device random; std::ostringstream out; out << std::hex << random() << random(); return out.str(); }
+void append(nlohmann::json event) {
+  std::lock_guard guard(lock); auto path = file(); std::error_code error; std::filesystem::create_directories(path.parent_path(), error);
+  nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { in >> all; } catch (...) {} }
+  if (!all.is_array())
+    all = nlohmann::json::array();
+  all.push_back(std::move(event));
+  while (all.size() > 64)
+    all.erase(all.begin());
+  std::ofstream out(path);
+  if (out)
+    out << all.dump();
+}
+bool send(const nlohmann::json &event) {
+  CURL *handle = curl_easy_init(); if (!handle) return false; std::string body = event.dump();
+  struct curl_slist *headers = nullptr; headers = curl_slist_append(headers, "Content-Type: application/json");
+  curl_easy_setopt(handle, CURLOPT_URL, "https://api.msime.app/v1/telemetry/events"); curl_easy_setopt(handle, CURLOPT_POST, 1L);
+  curl_easy_setopt(handle, CURLOPT_POSTFIELDS, body.c_str()); curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 8000L);
+  curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, 3000L); curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 0L);
+  curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers); long status = 0; curl_easy_perform(handle); curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &status);
+  curl_slist_free_all(headers); curl_easy_cleanup(handle); return status >= 200 && status < 300;
+}
+void remove(const std::string &eventID) {
+  std::lock_guard guard(lock); auto path = file(); nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { in >> all; } catch (...) { return; } }
+  nlohmann::json kept = nlohmann::json::array(); for (const auto &event : all) if (event.value("id", "") != eventID) kept.push_back(event);
+  std::ofstream out(path); if (out) out << kept.dump();
+}
+}
+void start(const std::string &platform, const std::string &version) {
+  nlohmann::json event{{"id", id()}, {"kind", "download"}, {"platform", platform}, {"version", version}}; append(event); if (send(event)) remove(event["id"]);
+}
+void crash(const std::string &platform, const std::string &version, const std::string &message) {
+  nlohmann::json event{{"id", id()}, {"kind", "crash"}, {"platform", platform}, {"version", version}, {"message", message.substr(0, 2048)}}; append(event); if (send(event)) remove(event["id"]);
+}
+}

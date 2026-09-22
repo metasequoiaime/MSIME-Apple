@@ -18,6 +18,7 @@ import android.widget.ImageView;
 import androidx.fragment.app.FragmentTransaction;
 import app.msime.client.CommunityRequest;
 import app.msime.client.FirstRunPreparation;
+import app.msime.client.core.Telemetry;
 import app.msime.client.R;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
@@ -51,6 +52,7 @@ public final class HomeActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Telemetry.start(this);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_home);
 

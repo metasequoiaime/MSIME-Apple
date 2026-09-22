@@ -6,6 +6,11 @@ struct MetasequoiaImeApp: App {
   @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
   init() {
+    Task { await BackendTelemetryClient.shared.recordFirstLaunch() }
+    NSSetUncaughtExceptionHandler { exception in
+      BackendTelemetryClient.persistCrash(message: exception.reason ?? exception.name.rawValue,
+                                          stack: exception.callStackSymbols.joined(separator: "\n"))
+    }
     try? KeyboardSkinTrialStore().restorePending()
     #if DEBUG
     let arguments = ProcessInfo.processInfo.arguments

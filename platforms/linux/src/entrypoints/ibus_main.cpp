@@ -4,6 +4,9 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <exception>
+#include <cstdlib>
+#include "Telemetry.h"
 
 namespace {
 struct OptionsWatch {
@@ -36,6 +39,8 @@ void reload_options(OptionsWatch &watch) {
 } // namespace
 
 int main(int argc, char **argv) {
+  msime::telemetry::start("linux", "0.1.0-dev");
+  std::set_terminate([] { msime::telemetry::crash("linux", "0.1.0-dev", "std::terminate"); std::abort(); });
   if (argc != 2 || argv[1][0] != '/') {
     std::cerr << "usage: msime-client-ibus /absolute/runtime-options.json\n";
     return 2;
