@@ -747,7 +747,8 @@ function makeClient(
       unwrap<SkinImage>(native.readSkinImage(id, relative)),
     readSkinFont: async (id: string, relative: string) =>
       unwrap<SkinFont>(native.readSkinFont(id, relative)),
-    readSkinToolbarCss: async (id: string) => unwrap<string | null>(native.readSkinToolbarCss(id)),
+    readSkinToolbarCss: async (id: string, relative?: string) =>
+      relative ? null : unwrap<string | null>(native.readSkinToolbarCss(id)),
     openExternalUrl: async (url: string) => native.openExternalUrl(url),
     copyText: async (text: string) => native.copyText(text),
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),

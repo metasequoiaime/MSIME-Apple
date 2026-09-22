@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 
 const heading = "m-0 text-[15px] font-semibold text-body";
@@ -6,6 +6,9 @@ const metric = "flex min-w-0 flex-col gap-1";
 const metricValue = "text-[30px] font-[650] leading-tight break-anywhere tabular-nums text-accent";
 const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed text-muted";
 const privacy = "mt-4 mb-0 text-xs leading-[1.7] text-muted";
+const overviewPollMs = 5_000;
+const overviewMinIntervalMs = 1_000;
+const overviewStaleMs = 15_000;
 // The phone's overflow menu: a details/summary disclosure, because it closes on an outside tap
 // without any state to keep in sync.
 const menuSummary =
@@ -884,6 +887,10 @@ export function TypingStatisticsPage({
   );
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
+  const requestRef = useRef<Promise<TypingStatisticsStatus> | null>(null);
+  const requestStartedAtRef = useRef(0);
+  const lastRequestAtRef = useRef(0);
+  const statusSignatureRef = useRef("");
   const mobileTrendDays = useMemo(
     () => recentDays(mobileTrendLength(status?.statistics.days ?? {})),
     [status?.statistics.days],
@@ -891,34 +898,76 @@ export function TypingStatisticsPage({
   const desktopTrendDays = useMemo(() => recentDays(period === 0 ? 30 : period), [period]);
   const trendDays = mobile ? mobileTrendDays : desktopTrendDays;
 
-  async function update(operation: () => Promise<TypingStatisticsStatus>) {
+  async function update(operation: () => Promise<TypingStatisticsStatus>, overview = false) {
+    if (requestRef.current) return;
     setBusy(true);
     setError("");
+    const request = operation();
+    requestRef.current = request;
+    requestStartedAtRef.current = Date.now();
+    if (overview) lastRequestAtRef.current = requestStartedAtRef.current;
     try {
-      setStatus(await operation());
+      const next = await request;
+      if (requestRef.current !== request) return;
+      statusSignatureRef.current = JSON.stringify(next);
+      setStatus(next);
     } catch {
-      setError("无法读取或保存统计，请稍后重试。原有统计不会被自动重置。");
+      if (requestRef.current === request)
+        setError("无法读取或保存统计，请稍后重试。原有统计不会被自动重置。");
     } finally {
-      setBusy(false);
+      if (requestRef.current === request) {
+        requestRef.current = null;
+        setBusy(false);
+      }
     }
   }
 
   useEffect(() => {
-    void update(() => client.load());
-  }, [client]);
-
-  useEffect(() => {
-    if (!mobile) return;
+    let active = true;
     const refreshWhenVisible = () => {
-      if (document.visibilityState !== "hidden") void update(() => client.load());
+      const now = Date.now();
+      if (
+        document.visibilityState === "hidden" ||
+        (requestRef.current && now - requestStartedAtRef.current <= overviewStaleMs) ||
+        now - lastRequestAtRef.current < overviewMinIntervalMs
+      )
+        return;
+      lastRequestAtRef.current = now;
+      setError("");
+      const request = client.load();
+      requestRef.current = request;
+      requestStartedAtRef.current = now;
+      void request
+        .then((next) => {
+          if (!active || requestRef.current !== request) return;
+          const signature = JSON.stringify(next);
+          if (signature !== statusSignatureRef.current) {
+            statusSignatureRef.current = signature;
+            setStatus(next);
+          }
+        })
+        .catch(() => {
+          if (active && requestRef.current === request)
+            setError("无法读取或保存统计，请稍后重试。原有统计不会被自动重置。");
+        })
+        .finally(() => {
+          if (requestRef.current === request) {
+            requestRef.current = null;
+            if (active) setBusy(false);
+          }
+        });
     };
+    refreshWhenVisible();
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
+    const poll = window.setInterval(refreshWhenVisible, overviewPollMs);
     return () => {
+      active = false;
+      window.clearInterval(poll);
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [client, mobile]);
+  }, [client]);
 
   if (!status)
     return (
@@ -1075,7 +1124,7 @@ export function TypingStatisticsPage({
                 type="button"
                 role="menuitem"
                 disabled={busy}
-                onClick={() => void update(() => client.load())}
+                onClick={() => void update(() => client.load(), true)}
               >
                 {busy ? "处理中…" : "刷新统计"}
               </button>
@@ -1387,7 +1436,7 @@ export function TypingStatisticsPage({
               type="button"
               className="secondary m-0"
               disabled={busy}
-              onClick={() => void update(() => client.load())}
+              onClick={() => void update(() => client.load(), true)}
             >
               {busy ? "处理中…" : "刷新统计"}
             </button>

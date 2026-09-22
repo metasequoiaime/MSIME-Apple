@@ -19,13 +19,18 @@ fn prepare_engine() {
     // dependency of its own, and what is wanted is one array of file names out of a file this
     // repository writes.
     if let Ok(lock) = std::fs::read_to_string("../../engine-lock.json") {
-        if let Some(rest) = lock.split_once("\"overlay_scripts\"").map(|(_, rest)| rest) {
-            if let Some(list) = rest
-                .split_once('[')
-                .and_then(|(_, rest)| rest.split_once(']'))
+        for field in ["overlay_scripts", "overlay_assets"] {
+            if let Some(rest) = lock
+                .split_once(&format!("\"{field}\""))
+                .map(|(_, rest)| rest)
             {
-                for name in list.0.split('"').filter(|piece| piece.ends_with(".py")) {
-                    println!("cargo:rerun-if-changed=../../{name}");
+                if let Some(list) = rest
+                    .split_once('[')
+                    .and_then(|(_, rest)| rest.split_once(']'))
+                {
+                    for name in list.0.split('"').filter(|piece| piece.contains('/')) {
+                        println!("cargo:rerun-if-changed=../../{name}");
+                    }
                 }
             }
         }

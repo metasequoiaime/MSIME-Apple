@@ -565,6 +565,11 @@ impl TypingStatisticsStore {
         if text.len() > MAX_COMMIT_BYTES || text.chars().count() > MAX_COMMIT_SCALARS {
             return Err(TypingStatisticsError::CommitTooLarge);
         }
+        let _lock = self.lock()?;
+        let mut value = self.read_locked()?;
+        if !value.enabled {
+            return Ok(0);
+        }
         let mut addition = TypingBreakdown::default();
         let mut count = 0_u64;
         for grapheme in text.graphemes(true) {
@@ -575,11 +580,6 @@ impl TypingStatisticsStore {
             count += 1;
         }
         if count == 0 {
-            return Ok(0);
-        }
-        let _lock = self.lock()?;
-        let mut value = self.read_locked()?;
-        if !value.enabled {
             return Ok(0);
         }
         value.total = value

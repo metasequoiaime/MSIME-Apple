@@ -765,9 +765,18 @@ mod tests {
         })
         .unwrap();
         assert_eq!(normalized.key, "ni'hao");
+        let english = dictionary_validate(&DictionaryEntry {
+            kind: DictionaryKind::English,
+            key: "dont".into(),
+            value: "don't".into(),
+            weight: 100_000,
+        })
+        .unwrap();
+        assert_eq!(english.key, "dont");
+        assert_eq!(english.value, "don't");
         assert!(dictionary_validate(&DictionaryEntry {
             kind: DictionaryKind::English,
-            key: "wrong".into(),
+            key: "wrong_code".into(),
             value: "Word".into(),
             weight: 100_000,
         })

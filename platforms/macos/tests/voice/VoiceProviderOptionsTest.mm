@@ -7,6 +7,15 @@ int main() {
     @autoreleasepool {
         NSString *suite = [@"app.msime.test.provider." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        // Every provider offered as an HTTPS multipart preset must use the batch request path.
+        // Falling through starts macOS Speech and silently ignores the selected endpoint and token.
+        for (NSString *provider in @[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"cloud"])
+            assert(MSIMEVoiceUsesNativeHTTPProvider(provider, NO, NO));
+        for (NSString *provider in @[@"doubao", @"system", @"unknown", @""])
+            assert(!MSIMEVoiceUsesNativeHTTPProvider(provider, NO, NO));
+        assert(!MSIMEVoiceUsesNativeHTTPProvider(@"everyapi", YES, NO));
+        assert(!MSIMEVoiceUsesNativeHTTPProvider(@"local", NO, NO));
+        assert(MSIMEVoiceUsesNativeHTTPProvider(@"local", NO, YES));
         NSDictionary *base = @{@"generation": @42, @"language": @"en-us", @"asr_provider": @"doubao"};
         NSDictionary *query = MSIMEVoiceProviderOptions(base, defaults);
         assert([query[@"commit_mode"] isEqual:@"tsf"]);

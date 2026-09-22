@@ -184,6 +184,11 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
  * omit it rather than guess, and the day keeps its counts with no hourly split.
  */
 char *msime_client_typing_statistics(const uint8_t *request, size_t length);
+/* Read only the aggregate-statistics master switch from an absolute UTF-8
+ * directory. Returns 1 when enabled, 0 when disabled/missing, and -1 for an
+ * invalid directory or unreadable document. Intended for native capture gates:
+ * call on activation or a settings-change notification, never per keystroke. */
+int32_t msime_client_typing_statistics_enabled(const uint8_t *directory, size_t length);
 /* Scan an absolute UTF-8 skin root and return the catalog the settings page
  * sees: {packages:[...],issues:[...]}. Reads the directory: use a worker.
  * An unreadable root is an empty catalog; an invalid package becomes an issue

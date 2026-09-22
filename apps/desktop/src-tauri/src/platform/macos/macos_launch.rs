@@ -10,6 +10,7 @@ pub(crate) struct LaunchState {
     pub options_path: PathBuf,
     pub preferences_directory: PathBuf,
     pub document: Value,
+    pub publish_native_locator: bool,
 }
 
 #[cfg(test)]
@@ -83,7 +84,76 @@ pub(crate) fn resolve_with_resources(
         options_path,
         preferences_directory,
         document,
+        publish_native_locator: using_default_options,
     })
+}
+
+pub(crate) fn native_locator_root() -> Result<PathBuf, &'static str> {
+    let home = std::env::var_os("HOME").ok_or("Cannot resolve native HostOptions locator")?;
+    let home = PathBuf::from(home);
+    if !home.is_absolute() {
+        return Err("Cannot resolve native HostOptions locator");
+    }
+    Ok(home
+        .join("Library/Application Support")
+        .join("app.msime.client.preview"))
+}
+
+pub(crate) fn publish_native_options(document: &Value) -> Result<PathBuf, &'static str> {
+    let path = native_locator_root()?.join("runtime-options.json");
+    replace_options(&path, document)?;
+    Ok(path)
+}
+
+/// Restore the settings bundle's locator from the IMK bundle's copy after a settings-app reinstall.
+/// A malformed, oversized or symlinked native locator is ignored and normal first-run preparation
+/// takes over; it is never allowed to choose a relative state path.
+pub(crate) fn recover_default_options(application_directory: &Path, native_options: &Path) -> bool {
+    let local = application_directory.join("runtime-options.json");
+    if local.exists() {
+        return false;
+    }
+    let Ok(metadata) = std::fs::symlink_metadata(native_options) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return false;
+    }
+    let Ok(file) = std::fs::File::open(native_options) else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    if file
+        .take(MAX_OPTIONS_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > MAX_OPTIONS_BYTES
+    {
+        return false;
+    }
+    let Ok(document) = serde_json::from_slice::<Value>(&bytes) else {
+        return false;
+    };
+    let Some(preferences) = document
+        .get("preferences_directory")
+        .and_then(Value::as_str)
+    else {
+        return false;
+    };
+    if !document.is_object()
+        || !Path::new(preferences).is_absolute()
+        || ["resources", "user_data", "cache", "dictionaries"]
+            .into_iter()
+            .any(|key| {
+                !document
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|path| Path::new(path).is_absolute())
+            })
+    {
+        return false;
+    }
+    replace_options(&local, &document).is_ok()
 }
 
 fn prepare_default_options(
@@ -122,6 +192,25 @@ fn publish_options(options_path: &Path, document: &Value) -> Result<(), &'static
     }
 }
 
+pub(crate) fn replace_options(options_path: &Path, document: &Value) -> Result<(), &'static str> {
+    let parent = options_path
+        .parent()
+        .ok_or("Cannot publish prepared HostOptions JSON")?;
+    std::fs::create_dir_all(parent).map_err(|_| "Cannot publish prepared HostOptions JSON")?;
+    let serialized = serde_json::to_vec_pretty(document)
+        .map_err(|_| "Cannot publish prepared HostOptions JSON")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|_| "Cannot publish prepared HostOptions JSON")?;
+    temporary
+        .write_all(&serialized)
+        .and_then(|_| temporary.as_file().sync_all())
+        .map_err(|_| "Cannot publish prepared HostOptions JSON")?;
+    temporary
+        .persist(options_path)
+        .map(|_| ())
+        .map_err(|_| "Cannot publish prepared HostOptions JSON")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +227,7 @@ mod tests {
         assert_eq!(launch.options_path, path);
         assert_eq!(launch.preferences_directory, root.path());
         assert_eq!(launch.document, document);
+        assert!(launch.publish_native_locator);
     }
 
     #[test]
@@ -244,5 +334,48 @@ mod tests {
             assert!(!error.contains("synthetic-private-config"));
             assert!(!error.contains(&root.path().to_string_lossy().to_string()));
         }
+    }
+
+    #[test]
+    fn replace_options_atomically_updates_a_locator() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("native/runtime-options.json");
+        replace_options(&path, &json!({"preferences_directory":"/synthetic/old"})).unwrap();
+        replace_options(&path, &json!({"preferences_directory":"/synthetic/new"})).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap()
+                ["preferences_directory"],
+            "/synthetic/new"
+        );
+    }
+
+    #[test]
+    fn missing_settings_locator_recovers_only_a_valid_native_absolute_state() {
+        let root = tempfile::tempdir().unwrap();
+        let application = root.path().join("settings");
+        let native = root.path().join("native/runtime-options.json");
+        replace_options(
+            &native,
+            &json!({
+                "preferences_directory":"/synthetic/preserved-state",
+                "resources":"/synthetic/resources",
+                "user_data":"/synthetic/preserved-state/user",
+                "cache":"/synthetic/preserved-state/cache",
+                "dictionaries":"/synthetic/preserved-state/dictionaries"
+            }),
+        )
+        .unwrap();
+        assert!(recover_default_options(&application, &native));
+        assert_eq!(
+            serde_json::from_slice::<Value>(
+                &std::fs::read(application.join("runtime-options.json")).unwrap()
+            )
+            .unwrap()["preferences_directory"],
+            "/synthetic/preserved-state"
+        );
+        std::fs::remove_file(application.join("runtime-options.json")).unwrap();
+        replace_options(&native, &json!({"preferences_directory":"relative"})).unwrap();
+        assert!(!recover_default_options(&application, &native));
+        assert!(!application.join("runtime-options.json").exists());
     }
 }

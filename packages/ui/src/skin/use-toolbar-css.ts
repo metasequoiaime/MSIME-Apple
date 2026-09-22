@@ -4,8 +4,9 @@ import { prepareToolbarImages } from "./toolbar-images";
 import { skinImageUrl, type SkinImageReader } from "./skin-image";
 import { skinFontBytes, type SkinFontReader } from "./skin-font";
 import { prepareToolbarFonts } from "./toolbar-fonts";
+import { prepareToolbarImports } from "./toolbar-imports";
 
-export type ToolbarCssReader = (id: string) => Promise<string | null>;
+export type ToolbarCssReader = (id: string, relative?: string) => Promise<string | null>;
 export function useToolbarCss(
   read: ToolbarCssReader | undefined,
   id: string,
@@ -26,12 +27,19 @@ export function useToolbarCss(
           const css = await read(id);
           if (!active) return;
           if (css !== null) {
+            const imports = await prepareToolbarImports(css, filename, async (relative) => {
+              if (!active) throw new Error("stale request");
+              const imported = await read(id, relative);
+              if (imported === null) throw new Error("missing import");
+              return imported;
+            });
+            if (!active) return;
             const fonts = readFont
-              ? await prepareToolbarFonts(css, async (relative) => {
+              ? await prepareToolbarFonts(imports.css, async (relative) => {
                   if (!active) throw new Error("stale request");
                   return skinFontBytes(await readFont(id, relative));
                 })
-              : { css, partial: false, install: () => () => {} };
+              : { css: imports.css, partial: false, install: () => () => {} };
             if (!active) return;
             const prepared = readImage
               ? await prepareToolbarImages(fonts.css, async (relative) => {
@@ -51,7 +59,11 @@ export function useToolbarCss(
               result.remove();
               throw new Error("font installation failed");
             }
-            setState(result.partial || prepared.partial || fonts.partial ? "partial" : "ready");
+            setState(
+              result.partial || prepared.partial || fonts.partial || imports.partial
+                ? "partial"
+                : "ready",
+            );
           } else setState("ready");
         } catch {
           if (active) setState("failed");

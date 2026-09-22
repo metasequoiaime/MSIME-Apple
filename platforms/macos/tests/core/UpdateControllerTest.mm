@@ -72,6 +72,51 @@ int main()
         // inside a bundle's directory has.
         assert(!MSIMEUpdateHostCanStartSparkle(@"app.example", @"/Applications/Example.app/Contents/MacOS/example", feed));
 
+        assert(MSIMEUpdateRouteForHost(@"app.example", @"/Applications/Example.app", feed) ==
+               MetasequoiaUpdateRouteSparkle);
+        assert(MSIMEUpdateRouteForHost(@"app.example", @"/Applications/Example.app", nil) ==
+               MetasequoiaUpdateRouteReleasePage);
+        assert(MSIMEUpdateRouteForHost(@"app.example", @"/usr/local/bin/example", nil) ==
+               MetasequoiaUpdateRouteUnavailable);
+
+        __block NSInteger confirmations = 0;
+        __block NSInteger opens = 0;
+        __block NSInteger failures = 0;
+        NSURL *releaseURL = [NSURL URLWithString:@"https://github.com/metasequoiaime/msime/releases"];
+        MetasequoiaReleasePageUpdateDriver *releaseDriver =
+            [[MetasequoiaReleasePageUpdateDriver alloc]
+                initWithReleaseURL:releaseURL
+                     confirmation:^NSModalResponse(NSURL *url) {
+                       assert([url isEqual:releaseURL]);
+                       confirmations += 1;
+                       return NSAlertFirstButtonReturn;
+                     }
+                           opener:^BOOL(NSURL *url) {
+                             assert([url isEqual:releaseURL]);
+                             opens += 1;
+                             return NO;
+                           }
+                          failure:^{ failures += 1; }];
+        assert(releaseDriver.canCheckForUpdates && !releaseDriver.automaticallyChecksForUpdates);
+        [releaseDriver checkForUpdates:nil];
+        assert(confirmations == 1 && opens == 1 && failures == 1);
+
+        MetasequoiaReleasePageUpdateDriver *cancelledDriver =
+            [[MetasequoiaReleasePageUpdateDriver alloc]
+                initWithReleaseURL:releaseURL
+                     confirmation:^NSModalResponse(NSURL *url) {
+                       assert([url isEqual:releaseURL]);
+                       return NSAlertSecondButtonReturn;
+                     }
+                           opener:^BOOL(NSURL *url) {
+                             (void)url;
+                             opens += 1;
+                             return YES;
+                           }
+                          failure:^{ failures += 1; }];
+        [cancelledDriver checkForUpdates:nil];
+        assert(opens == 1 && failures == 1);
+
         // This binary is exactly the case the guard exists for, so the shared controller must not have
         // started Sparkle - and must still answer rather than crash the caller.
         assert(!MSIMEUpdateHostCanStartSparkle(NSBundle.mainBundle.bundleIdentifier,

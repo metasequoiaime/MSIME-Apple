@@ -28,7 +28,7 @@ function Probe({
   readImage,
   readFont,
 }: {
-  read?: (id: string) => Promise<string | null>;
+  read?: (id: string, relative?: string) => Promise<string | null>;
   revision?: number;
   filename?: string | null;
   readImage?: SkinImageReader;
@@ -125,6 +125,19 @@ test("loads declared source by id and cleans up on refresh and unmount", async (
   expect(remove).toHaveBeenCalledTimes(1);
   mounted.unmount();
   expect(remove).toHaveBeenCalledTimes(2);
+});
+test("loads package-local imports through the same stylesheet reader", async () => {
+  const read = vi.fn(async (_id: string, relative?: string) =>
+    relative ? ".imported {}" : '@import "parts.css"; .root {}',
+  );
+  vi.mocked(installToolbarCss).mockReturnValue({ remove: vi.fn(), partial: false });
+  const mounted = render(<Probe read={read} />);
+  await waitFor(() => expect(mounted.container.textContent).toBe("ready"));
+  expect(read.mock.calls).toEqual([["sample"], ["sample", "parts.css"]]);
+  const installed = vi.mocked(installToolbarCss).mock.calls[0][1];
+  expect(installed).toContain(".imported");
+  expect(installed).toContain(".root");
+  expect(installed).not.toContain("@import");
 });
 test("stale source never installs and failures are sanitized", async () => {
   let resolve!: (css: string) => void;

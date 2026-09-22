@@ -304,6 +304,34 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
     })
 }
 
+/// Read the typing-statistics master switch without accepting committed text.
+///
+/// Native hosts cache this result and refresh it when settings change, so an opt-out can stop at
+/// the capture boundary instead of serializing text merely to discover that recording is off.
+/// # Safety
+/// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_typing_statistics_enabled(
+    directory: *const u8,
+    length: usize,
+) -> i32 {
+    if directory.is_null() || length > 16_384 {
+        return -1;
+    }
+    // SAFETY: guaranteed by the documented caller contract.
+    let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+    let Ok(directory) = std::str::from_utf8(bytes) else {
+        return -1;
+    };
+    if !std::path::Path::new(directory).is_absolute() {
+        return -1;
+    }
+    match TypingStatisticsStore::new(directory).load() {
+        Ok(statistics) => i32::from(statistics.enabled),
+        Err(_) => -1,
+    }
+}
+
 /// Scan a skin root so native presenters read the same catalog the settings
 /// page edits. Unreadable roots return an empty catalog, not an error; a
 /// package that fails validation is reported as an issue and never rendered.

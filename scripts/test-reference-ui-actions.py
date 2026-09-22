@@ -25,39 +25,18 @@ passes, the same as every other stage that depends on something not every machin
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 import re
 import subprocess
 import sys
 
+from reference_source import reference_root, show_file
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTRACT = "engine/contracts/webview/messages.json"
 
 
-def reference_root() -> pathlib.Path:
-    """Where the reference checkout is.
-
-    Beside the *main* worktree, not beside this one: development here happens in short-lived
-    worktrees under `~/worktrees`, so resolving against the current checkout would make this check
-    skip forever and look like it was passing. `MSIME_REFERENCE_DIR` overrides it.
-    """
-    override = os.environ.get("MSIME_REFERENCE_DIR")
-    if override:
-        return pathlib.Path(override)
-    common = subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if common.returncode == 0 and common.stdout.strip():
-        main = pathlib.Path(common.stdout.strip()).parent
-        return main.parent / "MSIME-Windows"
-    return ROOT.parent / "MSIME-Windows"
-
-
-REFERENCE = reference_root()
+REFERENCE = reference_root(ROOT)
 
 # Every client action in the reference's contract, and what answers it here.
 #
@@ -160,42 +139,15 @@ SEARCH_PATHS = [
 
 
 def contract_actions() -> tuple[dict[str, list[str]], str, str] | None:
-    if not (REFERENCE / ".git").exists():
+    shown = show_file(ROOT, CONTRACT)
+    if shown is None:
         return None
-    symref = subprocess.run(
-        ["git", "ls-remote", "--symref", "origin", "HEAD"],
-        cwd=REFERENCE,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    candidates = []
-    if symref.returncode == 0:
-        match = re.search(r"^ref:\s+refs/heads/(\S+)\s+HEAD$", symref.stdout, re.M)
-        if match:
-            candidates.append(f"origin/{match.group(1)}")
-    # Offline, or a remote that does not advertise one. `origin/HEAD` is a symbolic ref written once
-    # at clone time and can point at a release branch that lags; it is the last resort and the ref
-    # actually used is always printed.
-    candidates += ["origin/develop", "origin/HEAD"]
-    for ref in candidates:
-        revision = subprocess.run(
-            ["git", "rev-parse", ref], cwd=REFERENCE, capture_output=True, text=True
-        )
-        if revision.returncode != 0:
-            continue
-        sha = revision.stdout.strip()
-        shown = subprocess.run(
-            ["git", "show", f"{sha}:{CONTRACT}"], cwd=REFERENCE, capture_output=True, text=True
-        )
-        if shown.returncode != 0:
-            continue
-        contract = json.loads(shown.stdout)
-        actions = {
-            name: body.get("surfaces", []) for name, body in contract.get("client", {}).items()
-        }
-        return actions, ref, sha
-    return None
+    text, ref, sha = shown
+    contract = json.loads(text)
+    actions = {
+        name: body.get("surfaces", []) for name, body in contract.get("client", {}).items()
+    }
+    return actions, ref, sha
 
 
 def implemented(token: str) -> bool:

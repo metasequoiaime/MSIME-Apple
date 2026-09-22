@@ -2,11 +2,17 @@
 #import <AppKit/AppKit.h>
 NS_ASSUME_NONNULL_BEGIN
 FOUNDATION_EXPORT NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification;
+FOUNDATION_EXPORT NSArray<NSString *> *MSIMEVoiceASRProviderIDs(void);
+FOUNDATION_EXPORT NSArray<NSString *> *MSIMEVoiceASRProviderTitles(void);
+FOUNDATION_EXPORT NSString *MSIMEVoiceASRProviderDefaultEndpoint(NSString *provider);
+FOUNDATION_EXPORT NSString *MSIMEVoiceASRProviderDefaultModel(NSString *provider);
+FOUNDATION_EXPORT BOOL MSIMEVoiceASRProviderUsesService(NSString *provider);
 @interface MetasequoiaVoiceProviderSettings : NSObject
 @property(nonatomic, copy) NSString *provider;
 @property(nonatomic, copy) NSString *endpoint;
 @property(nonatomic, copy) NSString *model;
 @property(nonatomic, copy) NSString *token;
+@property(nonatomic, copy) NSDictionary<NSString *, NSString *> *tokenSlots;
 @property(nonatomic, copy) NSString *modelPath;
 @property(nonatomic) BOOL polishEnabled;
 @property(nonatomic, copy) NSString *polishEndpoint;

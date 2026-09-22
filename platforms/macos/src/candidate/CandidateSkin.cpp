@@ -16,6 +16,8 @@ namespace msime::mac
 {
 namespace
 {
+std::filesystem::path ConfiguredSkinsRoot;
+
 constexpr Rgba Rgb(unsigned rgb, float alpha = 1.0f)
 {
     return {((rgb >> 16) & 0xFFu) / 255.0f, ((rgb >> 8) & 0xFFu) / 255.0f, (rgb & 0xFFu) / 255.0f, alpha};
@@ -1220,11 +1222,20 @@ ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::
 
 std::filesystem::path DefaultSkinsRoot()
 {
+    if (!ConfiguredSkinsRoot.empty())
+    {
+        return ConfiguredSkinsRoot;
+    }
     const char *home = std::getenv("HOME");
     if (home == nullptr || home[0] == '\0')
     {
         return {};
     }
     return std::filesystem::path(home) / "Library" / "Application Support" / "app.msime.client.preview" / "skins";
+}
+
+void SetDefaultSkinsRoot(std::filesystem::path root)
+{
+    ConfiguredSkinsRoot = std::move(root);
 }
 } // namespace msime::mac

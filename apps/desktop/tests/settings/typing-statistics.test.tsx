@@ -202,6 +202,8 @@ test("mobile trend includes a calendar heatmap that selects a day", async () => 
 });
 
 test("mobile statistics refresh when the settings surface returns to the foreground", async () => {
+  let now = 10_000;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
   const load = vi.fn().mockResolvedValue(status());
   const typingStatistics = { load, setEnabled: vi.fn(), reset: vi.fn() };
   render(
@@ -217,8 +219,30 @@ test("mobile statistics refresh when the settings surface returns to the foregro
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   await screen.findByRole("heading", { name: /每日趋势/ });
   load.mockClear();
+  now += 1_001;
   window.dispatchEvent(new Event("focus"));
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+});
+
+test("desktop statistics refresh when the settings window regains focus", async () => {
+  let now = 10_000;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  const load = vi.fn().mockResolvedValue(status());
+  render(
+    <SettingsPage
+      client={{ ...baseClient(), typingStatistics: { load, setEnabled: vi.fn(), reset: vi.fn() } }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  await screen.findByLabelText("当前范围输入字符数");
+  load.mockClear();
+  let finish!: (value: TypingStatisticsStatus) => void;
+  load.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+  now += 1_001;
+  window.dispatchEvent(new Event("focus"));
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+  finish(status());
 });
 
 test("statistics toggle refreshes immediately and reset requires confirmation without re-enabling", async () => {

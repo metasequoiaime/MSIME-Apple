@@ -23,7 +23,7 @@ macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/
 
 输入源菜单迁移固定 Apple `InputMenu.h` / `InputModeRouting.h` 的中文、英文和“表情与符号…”入口。默认中文；英文模式不准备 Engine 会话，按键直接放行。切到英文先用共享 Engine finish 完成当前组合并隐藏候选；失败时保留原模式。Shift+空格默认切换中英文，设置中可关闭；竞争 Command/Control/Option 修饰键不触发切换，重复事件消费但不反复更改偏好。英文模式激活后切回中文会恢复保留会话焦点与设置轮询。英文模式与快捷键偏好保存在新宿主域，不复用混合输入选项或算法状态。macOS 还提供可由 Tauri 设置页开关的非激活 HUD：切换成功后在当前光标附近短暂显示“中”或“英”，自动避让屏幕边缘，不抢焦点、不吞鼠标事件，失活输入源时隐藏。
 
-打开字符面板同样先完成组合，再请求系统 Character Viewer；测试以替身记录系统入口，不实际打开面板。原生测试覆盖菜单勾选、偏好保存、组合完成/失败、英文按键旁路、七种竞争修饰组合、重复/禁用快捷键、无会话懒加载与焦点恢复。输入法菜单和悬浮工具栏的“检查更新…”现优先打开 Tauri 共享 About 页，Tauri 不可用时回退 Sparkle 原生更新控制器；语音输入及其设置已接入；候选设置仍是渐进迁移入口，不是完整上游偏好窗口。共享 `theme` 与 `candidate_theme` 现已接入实际 IMK 候选窗：`dark`/`light` 表面覆盖全局主题，`follow` 继承全局，`system` 通过 `NSPanel.appearance = nil` 交给 AppKit 跟随系统；偏好热更新会保留当前 Engine 组合并重绘候选皮肤。
+打开字符面板同样先完成组合，再请求系统 Character Viewer；测试以替身记录系统入口，不实际打开面板。原生测试覆盖菜单勾选、偏好保存、组合完成/失败、英文按键旁路、七种竞争修饰组合、重复/禁用快捷键、无会话懒加载与焦点恢复。输入法菜单和悬浮工具栏的“检查更新…”现优先打开 Tauri 共享 About 页；Tauri 不可用时，有 `SUFeedURL` 的发布包回退 Sparkle 原生更新控制器，未配置 feed 的构建会明确说明不能应用内检查，并在用户确认后打开固定的官方发布页，打开失败也会显示错误，而不是静默无动作。语音输入及其设置已接入；候选设置仍是渐进迁移入口，不是完整上游偏好窗口。共享 `theme` 与 `candidate_theme` 现已接入实际 IMK 候选窗：`dark`/`light` 表面覆盖全局主题，`follow` 继承全局，`system` 通过 `NSPanel.appearance = nil` 交给 AppKit 跟随系统；偏好热更新会保留当前 Engine 组合并重绘候选皮肤。
 
 原生菜单提供“简体输出”（默认）与“繁体输出”，保存到新宿主的 `MSIMEClientTraditionalOutput` 偏好。按固定 Apple 来源使用 `CFStringTransform` 的 `Simplified-Traditional` 转换候选显示、完整 tooltip 和最终上屏文本；日语方案与 Unicode 精确码点模式不转换。转换只发生在原生展示/插入边界，Engine 原文、候选 ID、组合与运行时视图保持不变。
 
@@ -80,6 +80,8 @@ macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直�
 成对标点和标点锁定跟随 Windows 基线迁移到候选设置。成对标点默认开启，标点锁定默认跟随中文标点，也可固定为中文或英文；设置值分别写入新宿主偏好域，并按共享 `paired_punctuation`、`punctuation_lock` 字段同步。输入会话只通过 `MSIMEClientSession` 调用 Engine 的运行时覆盖，重建会话时恢复覆盖值；原生控件和替身会话测试覆盖默认、持久化、非法值和同步路径。
 
 智能标点和重复标点转中文按 Windows 基线适配到 macOS 编辑器上下文：空闲态通过 NSTextInputClient 光标前一个 Unicode scalar 判断逗号、句号和冒号前是否为 ASCII 字母/数字，并按「数字后直出」「字母后直出」两个开关分别决定是否保留 ASCII；两个开关按 Windows 基线默认关闭，此前宿主不读它们，等同于始终开启。组合态依据高亮候选末尾走 Engine 的 ASCII 标点入口。短时间在同一编辑器重复输入同一标点时，将前一个 ASCII 或全角标点替换为对应中文标点；切换客户端、退格、关闭选项或不满足上下文时清除重复状态。全角输入仍优先转换为全角标点，小键盘物理键路由优先于智能标点。测试使用合成 NSTextInputClient，不保存或记录真实输入，也不替代安装输入源后的编辑器验收。
+
+「中文标点后按空格转换」使用空格作为改写手势：成功时把刚上屏的 `。，！？；：、` 或单独出现的引号、方括号、书名号和圆括号替换成对应 ASCII 字符，并消费空格，不向正文追加空白。宿主在改写前重新读取光标前字符；切换编辑器、夹入其它按键、移动到不同字符、存在组合、全角输入或成对标点仍有自动补全尾部时均放弃改写。该规则与共享 `client-core` 策略及固定 Windows 来源一致。
 
 中英、Emoji 和颜文字混输设置跟随 Windows 的 `mixed_input` 偏好迁移到 macOS。中英混输默认开启，触发阈值默认 5 个字符，Emoji 默认开启、颜文字混输默认关闭；阈值限制为 1–8，关闭中英混输时控件保留数值但暂时禁用。设置写入新宿主偏好域，活动组合期间由共享 host-api 延迟应用，平台不复制 Engine 的候选混排算法；原生测试覆盖共享读取、持久化、控件联动和非法值保护。
 
@@ -191,6 +193,8 @@ platforms/macos/stage-resources.sh <已校验资源目录>
 `tauri.macos.conf.json` 会把 `target/macos/EngineResources` 嵌入为 `EngineResources`；不要直接把未校验的词库目录配置到 bundle。资源目录缺少 `others.db` 或 `dict_japanese.dat` 时，宿主会安全关闭对应的 Emoji、颜文字或临时日语触发键，而不会吞掉普通大写字母。
 
 Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `runtime-options.json`，会从 bundle 内的 `EngineResources` 调用共享 Host API 准备默认用户词库、缓存和配置，并以同目录原子发布配置；已有配置不会被覆盖。`MSIME_CLIENT_HOST_OPTIONS`（兼容 `MSIME_IBUS_OPTIONS`）显式指定配置时不会触发自动准备，`MSIME_CLIENT_STATE_DIR` 仍可指定偏好与用户状态根目录。资源校验或准备失败会以通用错误终止本次设置宿主启动，不泄露路径、输入或 Host API 诊断内容。
+
+发行设置页的“关于 → 数据目录”可以把词库、学习记录、偏好、统计、剪贴板历史、皮肤和缓存移动到另一块磁盘。设置 bundle 与 IMK bundle 各自在固定 Application Support 目录保留一个小型 `runtime-options.json` 定位器，二者指向同一个可移动状态根；bundle 内只读资源不搬。迁移会先停掉 IMK 进程，只接受真实的空目录，在目标卷完成复制和按最终路径重新准备后原子切换两个定位器，最后才清理旧目录。失败保持旧目录有效；无 `.metasequoiaime-data` 所有权标记的非默认源目录不会自动删除。成功后设置窗口关闭，重新打开即可从新目录继续。
 
 产物为 `target/macos/水杉输入法（预览）.app`。可选开发配置包含本机绝对路径，不得对外分发。未嵌入开发配置时从新客户端的应用数据目录读取 `runtime-options.json`；配置缺失时不拦截输入。Tauri macOS bundle 会把同一 IMK bundle 随应用资源打包；设置页的“安装 / 更新”先在 staging 目录完成校验和原子替换到 `~/Library/Input Methods/水杉输入法（预览）.app`，再直接启动 bundle 的 `--register-input-source`，失败不会删除旧安装，也不会替用户切换当前输入源。静态库与宿主均以 macOS 13 为最低构建目标，必须使用同一架构。
 

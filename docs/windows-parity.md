@@ -1,6 +1,6 @@
 # Windows 功能迁移对照
 
-## 现在到哪一步了（2026-09-21）
+## 现在到哪一步了（2026-09-22）
 
 这份文件有两千行，结论散在一批批增量记录里。这一节只回答「现在到哪一步」，细节仍以下面各批为准。
 
@@ -12,7 +12,7 @@
 | 每一项设定对应共享层的哪个字段 | `scripts/test-reference-config-coverage.py` | 178 项全部有着落，6 项写明为什么没有字段 |
 | 来源界面能对宿主发起的每个动作 | `scripts/test-reference-ui-actions.py` | 46 个动作全部有人答 |
 | 来源发布日志里的每一条 | `scripts/test-reference-feature-log.py` | 19 条全部过过一遍 |
-| 来源源码树里的每个文件 | `scripts/test-reference-source-inventory.py` | 274 个：159 个同名、103 个改名、12 个写明不需要 |
+| 来源源码树里的每个文件 | `scripts/test-reference-source-inventory.py` | 274 个：161 个同名、101 个改名、12 个写明不需要 |
 
 **刻意与来源不同、且理由写在对应批次里的：** 候选窗、悬浮工具栏与输入法菜单本仓由各平台原生绘制（来源画在 WebView2 里），设置页与各类面板走 Tauri + 共享 React；简繁转换用 ICU 而非 OpenCC；偏好文件每次整份写出而不做三方合并。这些是「适配平台特性」的取舍，不是欠账。
 
@@ -28,8 +28,8 @@
 
 2026-09-17 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
 
-- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref origin HEAD` 确认默认分支 `develop`，固定提交 `e1d53dd8f01fd351633f08374f189157f5cb47e9`（2026-09-20 审计）。
-- 目标：`metasequoiaime/msime` 的 `develop`，固定提交 `71008a3f9c905e7bc880d83f97e4a0d46d623ab5`（2026-09-20 当前远端默认分支；完整对象以远端 `origin/develop` 为准）。
+- 来源：`metasequoiaime/MSIME-Windows` 的固定提交 `467b9804dac9bcea7dfac654d293dc9f99f57b09`。五道 reference 门禁统一从 `scripts/reference_source.py` 读取这个对象，不跟随相邻检出的当前分支或可变远端 tip；`MSIME_REFERENCE_DIR` 只覆盖检出位置，不能覆盖版本。
+- 目标：`metasequoiaime/msime` 的 `develop`；各增量以实际 PR merge commit 为证，不把一个会随迁移继续推进的目标 SHA 伪装成全程不变的基线。
 - 来源 Engine 已内嵌为 `engine/`，其 `UPSTREAM.md` 记录导入提交 `c810d201f549b337ae0c4a65a9d694103f1c1754`。目标通过 `engine-lock.json` 和 `scripts/fetch_engine.py` 获取并校验独立的 `vendor/MSIME-Engine` 源码归档，不使用 `.gitmodules`、递归 Git checkout 或 gitlink。两者不能因目录名或协议名相同而视为内容相同，也不能把来源 Server 的新接口记为目标已接入。
 
 来源功能入口以该提交的 `README.md`「功能简介」「核心功能指南」、`ui-html/webview2/settings/ime-settings/src/modules/sidebar.ts`、`server/src/settings/settings_app.cpp` 和 `engine/contracts/webview/messages.json` 交叉核对。README 只是入口索引，后续仍须逐字段、逐动作下钻；本表不是穷尽行为的完成证明。
@@ -119,7 +119,7 @@
 2. 终端里改写不了的标点改走输入队列（#3099，来源 `1640cb35`）。「中文标点后按空格转英文」与两秒内同键撤回都是编辑会话里的 `ITfRange::SetText` 就地改写，而终端类宿主的 TSF 上下文只是代理、不保存已上屏文字，会照单全收 ShiftStart 与 SetText 并报告成功，屏幕上什么都没变。判据不看进程名，看改写前能不能把待改写字符读回来；读不回就改走本仓库早已有的 SendInput 改写队列（执行前校验焦点 token、前台窗口与期限，合成事件带自生成标记）。期限单列常量 500ms，因为它约束的是消息投递而非用户按键窗口。注意来源那次回归本仓库没有：来源在 #413 里把 SendInput 整个换掉了，而这边「数字/字母后直出再按同键」一直走 SendInput，缺的只是按空格转换与其撤回在终端下的兜底。
 3. 安装前检查 WebView2 与 VC 运行库（#3100，来源 `1ac904da`）。两者都不随包分发，缺任一装完即坏且故障现场在安装结束之后。`InitializeSetup` 在第一屏之前查注册表（不做文件探测：Setup.exe 是 32 位进程，`FileExists` 会被 WOW64 重定向，只装 x64 redist 的机器会被误判），VC 要求 14.20 以上而非只看 `Installed=1`，静默安装默认继续并把缺失写进日志。文案按本产品改过：这边候选窗是 Direct2D 绘制、不受 WebView2 影响，受影响的是设置窗口与表情 / 手写 / 屏幕键盘 / 语音面板——照抄来源的「候选窗口打不开」会是错的。新增 `scripts/test-installer-prerequisites.py` 挂进 `--quick` 钉住上述判据；Inno 的 Pascal Script 在非 Windows 机器上无从编译，该脚本不替代 Windows 上的编译与交互验证。
 
-其余 15 个提交不移植，理由记下以免下次重新判断：`ccbaa3a6`（Google 解码器前把 ü 换成 nue/lue/ju 写法）、`80b1fc42` / `03a5b4fe` / `e2a5f5f9`（词格整句改用 kenlm 三元模型并重排优先级）、`01c5bca3` / `663f7230`（选中的整句候选落成用户词组）、`b4728fdb` 都在 Engine 及其 Server 消费侧。来源把 Engine 以 `engine/` 在树内维护，本仓库由 `engine-lock.json` 固定独立 `MSIME-Engine` 归档加本地 overlay 获取，两条路径不同：这些行为要进来只能是提 Engine 锁，而不是照抄 C++。本批没有提锁——提锁的影响面覆盖全部平台，且整句重排在本仓库正由 Rust 侧的 `chinese-ime-lm` 另行推进（见 #3088），两边同时动同一块行为会互相盖掉。`d30d2946` / `bc1a1c7a` 是给上述 Engine 产物打包（sc.lm、Google 解码器系统词典），随锁一起考虑。另外尝试用 engine-bridge 的真引擎直接判定 ü 拼写在本仓库是否同样出错，未能得出结论：该测试装置用的是空词库临时目录，`qu`、`xu` 这类无 ü 的音节同样出不了候选，要判定必须带真实系统词典，属于提锁时一并验证的范围。
+其余提交当时不移植，理由记下以免下次重新判断：`ccbaa3a6`（Google 解码器前把 ü 换成 nue/lue/ju 写法）、`80b1fc42` / `03a5b4fe` / `e2a5f5f9`（词格整句改用 kenlm 三元模型并重排优先级）、`01c5bca3` / `663f7230`（选中的整句候选落成用户词组）、`b4728fdb` 都在 Engine 及其 Server 消费侧。来源把 Engine 以 `engine/` 在树内维护，本仓库由 `engine-lock.json` 固定独立 `MSIME-Engine` 归档加本地 overlay 获取，两条路径不同。本批没有提锁——提锁的影响面覆盖全部平台，且整句重排在本仓库正由 Rust 侧的 `chinese-ime-lm` 另行推进（见 #3088），两边同时动同一块行为会互相盖掉。`d30d2946` / `bc1a1c7a` 是给上述 Engine 产物打包（sc.lm、Google 解码器系统词典），随锁一起考虑。另外尝试用 engine-bridge 的真引擎直接判定 ü 拼写在本仓库是否同样出错，未能得出结论：该测试装置用的是空词库临时目录，`qu`、`xu` 这类无 ü 的音节同样出不了候选，要判定必须带真实系统词典，属于提锁时一并验证的范围。**后续已经证明“只能提锁”不成立；`01c5bca3` 的共享 Engine 路径已由 2026-09-22 的独立整句学习 overlay 迁入，`663f7230` 是来源绕开 Engine 的 Server 专用旁路，本仓各宿主不走那条路。**
 
 ## HarmonyOS 逐条对照（2026-09-20）
 
@@ -256,7 +256,7 @@ composing key produced no composition: scheme=quanpin local=none english=false c
 
 1. 智能标点在 Windows 上的首次默认（#3105）。Windows 安装包发的 `config.default.toml` 五个开关全为关，来源也已把整族改成默认关；但那只是安装模板，运行中的 Server 读的是共享偏好文档，而共享默认里主开关与同键转回都是开——Windows 上的实际首次默认与它自己随包发出去的基线正好相反。默认函数改为 `!cfg!(windows)`：只动 Windows，其余宿主一直是开着发的，让偏好在老用户脚下变掉比按平台不同更糟；两边都不影响已存下来的值。判据放进 `test-default-config-parity.py`，它比对安装模板 TOML 与 Rust 源码两份互相独立的来源，把默认函数改回 `true` 会指名报错——不像单测断言实现等于实现那样自证。
 2. x86（#3108）。32 位 TSF DLL 会被加载进每个 32 位宿主，但这个架构从来没被构建过：`build-cross.sh x86` 的 Rust 侧要 DWARF 展开，而 macOS 上常见的 i686 MinGW 是 SJLJ。查下去发现一处只在 x86_64 成立的代码：`CandidateWindow.cpp` 把无捕获 lambda 直接传给 `EnumFontFamiliesExW`，而 `FONTENUMPROCW` 是 `__stdcall`、lambda 转出来的是 `__cdecl`——x86_64 上只有一种调用约定所以同型，x86 上是不同类型，直接编译错误。改成具名 `CALLBACK` 函数（`ShellLauncher` 的 `EnumWindows` 回调本来就是这个写法）。新增 `scripts/test-windows-32bit-compile.py` 挂进 `--quick`：编译参数取自 x64 构建产出的 `compile_commands.json` 而不是另一份手工清单，往 CMake 加源文件或 include 自动被覆盖；只换编译器且 `-fsyntax-only`，不链接因此不需要 32 位库。当前 247 个源文件全部通过。x86 的**链接**仍未覆盖，那要等一套 DWARF 展开的 i686 工具链。
-3. Engine 锁（结论：现在提锁拿不到那些行为，不是暂缓）。来源基线之后的 Engine 侧提交（ü 换 nue/lue/ju 写法再送进 Google 解码器、词格整句改 kenlm 三元模型、整句候选落用户词组）只存在于来源自己树内的 `engine/`。本仓库跟踪的是独立仓库 `metasequoiaime/MSIME-Engine`，克隆后核对：它比本仓库锁定的 `0531d421` 只多 5 个提交（`e25f2b8`、`5eab393`、`d45268d` 及两个 release chore），全部是词格 ngram 表的构建与落盘；全仓搜不到 kenlm / `sc.lm`，也搜不到把 ü 改写成 nue/lue/ju 再交给 Google 解码器的那段。也就是说提锁既拿不到上述任何一项 Windows 对照项，又会把词格 ngram 表的改动带进来，而整句重排在本仓库正由 Rust 侧的 `chinese-ime-lm` 另行推进（#3088）——两边同时动同一块行为会互相盖掉。因此本批不提锁，且这次是有依据的结论：等那些改动发布到独立 Engine 仓库之后再议。附带一提，本仓库的 Engine 是否同样存在 ü 拼写问题，仍未判定：engine-bridge 的测试装置用空词库临时目录，`qu`、`xu` 这类无 ü 的音节同样出不了候选，要判定必须带真实系统词典。（第七批已用锁定词库判定：不存在该问题，两种写法都通。）
+3. Engine 锁（结论：只提锁拿不到那些行为）。来源基线之后的 Engine 侧提交（ü 换 nue/lue/ju 写法再送进 Google 解码器、词格整句改 kenlm 三元模型、整句候选落用户词组）只存在于来源自己树内的 `engine/`。本仓库跟踪的是独立仓库 `metasequoiaime/MSIME-Engine`，当时克隆后核对：它比本仓库锁定的 `0531d421` 只多 5 个提交（`e25f2b8`、`5eab393`、`d45268d` 及两个 release chore），全部是词格 ngram 表的构建与落盘；全仓搜不到 kenlm / `sc.lm`，也搜不到把 ü 改写成 nue/lue/ju 再交给 Google 解码器的那段。也就是说当时提锁拿不到上述 Windows 对照项，而整句重排又正由 Rust 侧的 `chinese-ime-lm` 另行推进（#3088）。**这不再是等待条件：本仓已经用 overlay 承接来源树内但独立 Engine 不再发布的改动；独立整句学习见 2026-09-22 记录。**附带一提，本仓库的 Engine 是否同样存在 ü 拼写问题，第七批已用锁定词库判定为不存在：两种写法都通。
 
 增量记录（2026-09-20，Windows 第七批：用锁定词库逐项核对输入方案，并结掉 ü 那条「未判定」）：本批不改产品代码，新增 `crates/engine-bridge/examples/schemes_dictionary.rs`，按本仓库既有的真词库探针约定（同 `local_modes_dictionary`）接收一个按 `resources/desktop-dictionary.lock.json` 备齐的资源目录。起因是方案类的单测全部建在合成 sqlite 词库上：那能证明拼写解析器切对了音节，却证明不了这个方案够得着真实词条——空表对正确和错误的拼写一律回答「没有候选」。
 
@@ -1605,6 +1605,8 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 本批查出但**未动**的一处，记下判据以免下次重新推导：新增词条的默认权重，设置页用 100000，而共享导入用 10000、来源的编辑路径缺省是 10。100000 高出一个量级看着像有意为之（手工加的词应当压过批量导入的词），但没有任何地方写明；更要紧的是设置页在宿主没有提供批量导入命令时会走一条逐条 `edit` 的回退循环，那条路径也用 100000——同一个文件在两种宿主上会得到相差十倍的权重。目前 desktop 与 HarmonyOS 都提供了 `import`，所以这条回退是潜在而非现行的。判定它是不是缺口需要来源设置页发送的权重，本批没有取到，因此不下结论也不改动。
 
+  **（2026-09-22 更正：已从固定来源 `467b9804` 取到判据并修正。）** 来源设置页 `ui-html/webview2/settings/ime-settings/src/modules/dict.ts` 的新增对话框明确把缺省权重填成 10，Server 四条创建路径的 `IntValue(request, "weight", 10)` 也以 10 兜底；批量 coded import 则由 `server/src/settings/dictionary_validation.h` 的 `kDefaultCodedImportWeight = 10000` 定义。共享设置页现分别对齐这两个语义：手工新增为 10，无批量导入能力时的逐条 fallback 为 10000；fallback 同时不再用 `Number(weight) || default`，因此文件里合法的显式权重 0 会原样保留。
+
 本行至此四项走完三项，剩「保留用户数据」。
 
 增量记录（2026-09-21，Windows 第十二批：维护期间保留用户数据）：对照表「词库」一行的最后一项。目标起点 `a5833c5cb`。
@@ -1759,7 +1761,7 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 当前结果：**来源 180 个键在本仓全部有对应物，本仓另有 30 个**。也就是说配置契约这一层的迁移是完整的——这比此前「逐项读过」的记录强，因为它每次 `--quick` 都会重新回答。
 
-写这个检查时踩了两个会造成**假通过**的坑，记下来：参照检出按当前 checkout 的同级目录找，而本仓惯例是在 `~/worktrees` 下干活，于是它永远「skipped」、看起来像通过；用本地 `origin/HEAD` 定位参照修订，而那个符号引用是克隆时写一次的、这台机器上指向发布分支 `origin/main`，比默认分支少 30 个键——照它比会在上游多出 30 个键时报告「全部齐备」。现在问远端要默认分支，并始终打印用的是哪个 ref 和哪个 SHA。
+写这个检查时踩了两个会造成**假通过**的坑，记下来：参照检出按当前 checkout 的同级目录找，而本仓惯例是在 `~/worktrees` 下干活，于是它永远「skipped」、看起来像通过；用本地 `origin/HEAD` 定位参照修订，而那个符号引用是克隆时写一次的、这台机器上指向发布分支 `origin/main`，比默认分支少 30 个键——照它比会在上游多出 30 个键时报告「全部齐备」。当时的修法是问远端要默认分支，并打印实际 ref 和 SHA；迁移范围后来固定为 `467b9804`，现在进一步改成所有 reference 门禁只读取这个不可变对象，远端 tip 不再参与判定。
 
 **加加辅助码这条要改一下此前的记法。** 前几批把它记为「在 Engine 里，只能提锁」，这不准确：本仓的 `engine-lock.json` 已经带 overlay 脚本机制（当前有两个），技术上完全可以再加一个把 `assets::helpcodes` 从五项扩到六项。真正的阻塞点是那张 7968 行码表本身——来源 `engine/helpcode/NOTICE.md` 写明它是从拼音加加 5.x 安装包内 `fzm.bin` **重建**的非官方数据。把它引进本仓是一次第三方数据的分发决定，而 ARCHITECTURE.md 要求引入新上游资产时连同来源提交、许可证文本、通知位置和分发限制一并提交。这该由仓库所有者定，不是实现层面能顺手做掉的事。记准阻塞点，比记一个听起来更技术性的理由有用。
 
@@ -2248,3 +2250,73 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 共享 Tauri 设置页也是同样的结构：全部子页复用 `#settings-content`，此前 `selectPage` 只改 React 状态，没有重置这个元素。修复放在 `packages/ui`，不是 macOS 原生窗口里：页面状态提交后以布局 effect 把共享容器归零。因此侧栏、首页卡片、移动端选择器以及浏览器返回造成的页面变化都遵守同一条规则，也不会在切换后的第一帧短暂画出旧偏移。
 
 设置页回归用例先把共享 `main` 容器滚到 480，再从「外观」切到「辅助码」，同时断言目的页标题与 `scrollTop == 0`。这项是 Windows 来源行为迁入公共 UI；macOS 通过承载同一 Tauri 页面直接获得，不复制平台专用实现。
+
+### 独立选择的整句候选也要学习（2026-09-22）
+
+来源仍固定为远端默认分支 `develop` 的 `467b9804dac9bcea7dfac654d293dc9f99f57b09`。复核 `01c5bca3` / `663f7230` 后确认当前目标只覆盖了其中一种形状：用户先选一段、再用 Generated/Fallback 整句完成余下组合时，`InputSession::commit` 会把两段合成用户词组；用户直接选择一条完整整句时，`learn_candidate` 把它当成非词库候选跳过。实测锁定资源上的 `haitanpaobu`：直接选择来源 9（Fallback）的「海滩跑步」后，简拼 `htpb` 仍然找不到它，证明这不是静态差异而是可达缺口。
+
+修复沿用来源 Engine 的语义，通过 `apply_engine_standalone_sentence_learning.py` 进入锁定 Engine：Generated/Fallback 没有 SQLite 行可调权重，因此选中时按 canonical quanpin 创建用户词组；仅限全拼/双拼式候选，要求完整读音与汉字数一致，最多 7 音节，并服从统一的 `learning` 开关。本仓的所有原生宿主都通过公共 Engine session 选择候选，所以来源 `663f7230` 那条绕开 Engine 的 Windows Server 旁路不复制；macOS 直接得到公共实现。
+
+`phrase_creation_dictionary` 现在覆盖三种真实词库往返：分段造词照旧可由简拼找回；独立选择来源 8/9 的整句后也能由简拼找回；关闭学习时两种选择都不写。加 overlay 前新增断言稳定失败在「直接选择来源 9 后没有存入」，应用后通过，因此测试确实覆盖本批行为而不是只证明候选本来存在。
+
+### 整句词格只接收精确读音（2026-09-22）
+
+来源 `e2a5f5f9` 修了两个互相放大的缺口：跨度查不到精确键时不应把前缀/简拼降级行塞进词格；语言模型只看汉字时还要用词条权重压住零权重的生僻读音。目标 Engine 的打分器不是来源的 KenLM：它用 `bigram.bin` / `trigram.bin` 加 `edge_log_prob`，后者已经把每条词库权重放进边分数，零权重的「卷(gun)」「而(neng)」天然比常见读音低十多个自然对数单位。因此不再叠加来源的 reading-prior 参数，避免破坏本仓已经用句集标定的 bigram/trigram 权重；真实资源打开整句 alternatives 后，`gunqi` 没有生成「卷七」，`nengfasheng` 也没有生成「而发生」。
+
+真正仍缺的是精确跨度边界。修复前真实资源把 `gun'qiu` 的「滚球/棍球」当作 `gun'qi` 的数据库命中放在最前，因为 `query_segments_keyed_flat` 在精确键为空时会扫前缀范围，而插入位置又只按汉字/音节数判断“完整命中”。`apply_engine_lattice_reading.py` 把全拼与双拼共用的词格 lookup 改为批量精确键查询，并在查询前把 `jv/jve/lue` 等 ü 的等价拼法归一到词库存法；整句门槛降到两个完整音节，插入边界改为比较 canonical key。修复后两条错误前缀候选仍作为普通低位候选保留，首位变为 fallback「滚其」，Generated alternatives 只从 `gun'qi` 的行组成（「滚起/滚气/滚奇…」）。
+
+`lattice_reading_dictionary` 用锁定发布资源同时检查默认排序和所有整句 alternatives；Engine 侧的表驱动回归还钉住两音节合并、prefix row 不得挡住 Generated，以及 `jv/lue` 精确查询归一化。公共 Engine session 是 macOS 原生宿主的唯一拼音候选通路，所以平台层无需复制词格算法。
+
+### Google 解码器边界使用它认识的 ü 拼写（2026-09-22）
+
+来源 `ccbaa3a6` 指出的边界在目标 Engine 同样存在：词库与词格把小鹤 `nt` 转成 canonical `nve`，但本地 `googlepinyinime-rev` 和云候选 InputTools 只认 `nue`；原样送入会把它重新切成 `nv + e`。锁定发布资源上的修复前证据是 `ntdddswu`：数据库能给出“虐待动物”，来源 9 的 Google fallback 却是“女儿带动物”。
+
+`apply_engine_google_umlaut.py` 新增唯一的边界转换函数，按完整音节把 `nve/lve` 转成 `nue/lue`，把 `jv/jve` 等转成 `ju/jue`；词库 key、候选 canonical pinyin、缓存 key 和已提交拼音都不改。全拼/双拼整句 fallback 与全拼/双拼云查询统一在送出前调用它，手动分隔符继续保留，所以 `nu'e` 不会被拼成 `nue`。修复后同一真实资源探针不再出现错误 fallback；跨平台 `InputSession` 回归同时断言小鹤云查询发送 `nue'dai'dong'wu` 而缓存仍使用原始 `ntdddswu`。macOS 原生宿主通过公共 Engine 的 online query 与候选 session 自动获得这项行为。
+
+### 统计页回到前台时刷新（2026-09-22）
+
+来源 `f743cc8f` 修的是拉取式统计页的生命周期：窗口一直开着，用户切到其他程序输入再回来时，页面既没有重建也没有重新切换模块，旧数据会永久留在屏幕上。共享 React 页此前只给 `mobile=true` 的 iOS/Android 分支监听 focus 与 visibility；macOS 原生宿主承载的桌面 Tauri 页面没有这条路径，存在同样缺口。
+
+刷新协调现在属于共享 `TypingStatisticsPage`：桌面与移动端都在窗口重新聚焦、文档重新可见时刷新，并在页面挂载期间每 5 秒做一次可见性兜底。所有自动触发共用 1 秒节流与单一在途请求；超过 15 秒的请求视为失联，新请求可以接管，迟到响应不会覆盖新数据。相同 JSON 快照不提交 React 状态，卸载时清理 focus、visibility 与 interval。桌面回归用例先渲染统计页，再模拟回到前台并连续发送两次 focus，断言只读一次；移动端原有回前台用例继续通过。
+
+### 词库翻页回到结果顶部（2026-09-22）
+
+来源 `fcf594e2` 同时修了 WebView2 设置页的浮层定位与词库翻页。目标的浮层问题已经由共享 React 页内确认框消除：它不调用宿主 `window.confirm`，支持遮罩取消、Esc 与焦点还原，在 macOS 的 WKWebView 中也可用。翻页行为却仍有同一缺口：每页 100 条结果随设置主页面滚动，用户在底部点下一页后会保留旧滚动位置，新页第一条留在屏幕上方。
+
+共享词库管理现在与来源一样给结果区独立的有界滚动面，并让上一页、下一页统一在请求前把该滚动面归零。回归用例把首屏结果区滚到 480，再点下一页，断言滚动位置立即回到 0，并继续验证第二页请求与状态。该实现属于共享 Tauri/React，macOS 原生宿主承载的设置页直接获得同样行为。
+
+### 关闭统计时在 macOS 采集入口短路（2026-09-22）
+
+来源 `94df9a79` 修复的八项里，管道监听唤醒、`ERROR_FILE_NOT_FOUND` 重连、IPC 尾部填充、TSF range 克隆与同 tick 去重都属于 Windows 的 Server / DLL / TSF 形态，macOS 没有对应对象；不能为了字面一致照搬。跨平台语义是统计关闭后采集入口直接短路，不读取或分类上屏文本，也不接触传输与存储。
+
+macOS 此前每次上屏仍会计算本地日期与来源、把完整文本序列化成 JSON、投递后台队列并跨 FFI 读取统计文件，最后才在共享 store 里发现 `enabled=false`。现在 IMK 进程以默认关闭的原子位守住 `MSIMERecordTypingStatistics` 第一行：启动或激活时通过只读 FFI 从共享统计文档恢复开关，Tauri 设置进程写入成功后只用 `NSDistributedNotificationCenter` 跨进程发送一个布尔值，不发送路径、统计或输入内容。共享 store 也在构造字符分类前读取开关，守住通知与后台任务之间的竞态。关闭时不再检查、分类、序列化或排队任何上屏文本；开启时原有聚合存储路径不变。
+
+### 长按 Backspace 清空组字后不删除正文（2026-09-22）
+
+来源 `62c9f5cf` 修复的是按键所有权跨越组字终点的问题：一次 Backspace 长按从活动组字里开始，自动重复删掉最后一个预编辑字符后，后续 repeat 仍属于输入法；如果这时按“当前有没有组字”重新判断，它会落回编辑器并开始删除已经上屏的正文。
+
+macOS 原生宿主此前存在同一条可达路径。`MSIMEInputController` 把第一个 Backspace 送进共享 Engine，应用返回的空 `view`；下一次 `isARepeat` 再送 Engine时得到未处理，`handleEvent` 返回 `NO`，同一次物理按住便交给当前 `NSTextInputClient`。现在控制器在非 repeat 的 Backspace 到达时记录这次 hold 是否始于活动组字；组字已空但 hold 仍 armed 时直接吞掉 repeat，不再请求 Engine，也不让客户端收到。新的非 repeat 会重新判定，因此用户松开后再次按 Backspace 仍能正常删除正文；空 sender、客户端切换和有效的 `deactivateServer` 都清掉状态，所有权不会跨焦点泄漏。
+
+### 自定义数据目录与安全迁移（2026-09-22）
+
+来源 `bc37ac9a` 解决的是产品数据根目录不能离开系统盘：安装器让用户选择目录，三个进程通过环境变量／注册表／默认目录的同一优先级找到它；改位置时先停输入法，迁移用户词库、配置与皮肤，并以 `.metasequoiaime-data` 标记目录所有权，避免把用户原有文件夹整棵删掉。
+
+此前第 1306 行把 macOS 的 `preferences_directory` 开发 override 记成“已有对应实现”，结论过早：它只证明 HostOptions 能承载绝对路径，发行设置页没有选择入口，设置 Tauri bundle 与 IMK bundle 也各自在自己的 Application Support 路径找配置，用户无法实际完成迁移。现在共享“关于”页提供数据目录状态、原生 AppKit 文件夹选择器和明确确认；平台适配层把两个固定 `runtime-options.json` 当作定位器，两边始终指向同一个可移动状态根，不照搬 Windows 注册表。
+
+迁移覆盖整个状态根（用户词库及 journal、偏好、统计、剪贴板历史、皮肤和缓存），应用 bundle 中只读的已校验资源不搬。开始前终止独立 IMK 进程；目标必须是绝对、真实、非符号链接的空目录，不得是当前目录、其父子目录、两个定位器目录或卷根。宿主先在目标卷暂存完整副本，拒绝源树内的符号链接，按最终路径重新调用 Host API 生成 HostOptions；两个定位器均原子发布成功后才清理旧数据。准备或发布任一步失败会恢复旧定位器和空目标，旧目录继续有效。只有默认专用目录或带所有权标记的目录会自动清理；显式开发配置指向的无标记目录只复制并向用户报告保留旧副本。
+
+IMK 启动时从 HostOptions 的 `preferences_directory/skins` 设置候选窗与悬浮工具栏皮肤根目录，因此皮肤不再滞留在旧的固定 Application Support 路径。Rust 回归覆盖成功切换、准备失败回滚、非空／嵌套／符号链接目标拒绝和无标记源目录保留；共享设置页回归覆盖路径显示、选择、确认及移动调用，AppKit 目录选择器另由原生构建覆盖。尚未在真实外置卷上执行安装后迁移与编辑器输入验收，不能把本地文件事务和原生构建表述为该层证据。
+
+`ShortcutTest.mm` 以宿主事件序列钉住三个方向：第一键清空组字、随后 repeat 被消费且 Engine 调用数不增加、下一次新按键重新交还客户端；另验证切换文本客户端会解除 armed 状态。反向移除 repeat 栅栏时用例稳定失败在第二次 Engine 调用。实现只落在 `Info.plist` 指定的 `MSIMEInputController`；保留的旧 `MetasequoiaInputController` 不是当前产品入口，不复制一份状态机。
+
+### 中文标点后的空格是改写手势，不是正文空格（2026-09-22）
+
+固定来源 `d4a07964` 重构智能标点后，「中文标点后按空格转换」成功时只把刚上屏的中文标点改成对应 ASCII，空格本身被消费；转换表覆盖 `。，！？；：、` 和单独出现的引号、方括号、书名号、圆括号。macOS 此前只认逗号、句号、冒号三项，改写后还把空格继续交给编辑器，并在全角模式下改成全角英文符号，三处都与来源及本仓已有共享策略相反。
+
+macOS 原生宿主现在按完整映射回读光标前的实际中文标点，只有它与刚按下的 ASCII 键相符才原位替换并消费空格。Shift 不再把 `! ? :` 等本来就靠 Shift 输入的字符误判成竞争快捷键。全角模式、活动组合、跨文本客户端、插入其它按键、光标已移到不同字符，以及宿主仍持有自动补全右半边的成对标点都会放弃改写；后者避免产生 `(<右半边>` 这类混合对子。原生 `smart-punctuation-space` 回归用合成文本客户端覆盖完整映射、单次消费、失效条件、全角与成对补全边界，不记录真实输入。
+
+### 日语减号从物理按键走到真实 Engine（2026-09-22）
+
+固定来源 `5a5dea6b` 的产品行为此前已经落地：macOS 在固定日语方案和临时日语模式下都按物理 ANSI `-` / `=` 键绕开候选翻页与以词定字，锁定 Engine 也已支持 `- → ー`、`n- → んー`、单独 `-` 的「ー / -」候选。复核 `b149a500` 时也确认数字键与空格选择使用候选窗已绘制按钮携带的 `(session, generation, index)`；窗口仍是旧代次时按键会被消费，不会按后台新列表误选。高亮候选的辅助码和翻译颜色同样已经跟随 selected text token，`a54e2e08` 没有剩余缺口。
+
+原有日语回归只证明了辅助分类器和替身会话收到 ASCII，不能证明真实产品链路最后得到长音符。本批把这一证据补在 macOS 原生 `ShortcutTest` 的真实会话夹具中：从物理 keyCode 27 进入 `handleEvent:`，经过 `MSIMEClientSession` 与锁定 Engine，再由 `NSTextInputClient` 看到预编辑并按回车提交；分别断言单独 `-` 得到 `ー`，`n-` 得到 `んー`。该夹具不需要词库，使用合成文本客户端，不记录真实输入。

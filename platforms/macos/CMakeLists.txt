@@ -475,6 +475,12 @@ add_executable(typing-statistics-test tests/core/TypingStatisticsTest.cpp)
 target_compile_options(typing-statistics-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(typing-statistics-test PRIVATE apple-client)
 add_test(NAME typing-statistics COMMAND typing-statistics-test)
+add_executable(typing-statistics-notification-test
+    tests/core/TypingStatisticsNotificationTest.mm
+    ../../crates/host-macos/native/dictionary.mm)
+target_compile_options(typing-statistics-notification-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(typing-statistics-notification-test PRIVATE "-framework Foundation")
+add_test(NAME typing-statistics-notification COMMAND typing-statistics-notification-test)
 add_executable(toolbar-visibility-preferences-test tests/settings/ToolbarVisibilityPreferencesTest.mm src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/settings/PreferencesWindowController.mm src/candidate/CandidateSkinAppearance.mm src/core/AISettingsWindow.mm)
 target_compile_options(toolbar-visibility-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(toolbar-visibility-preferences-test PRIVATE "-framework AppKit")

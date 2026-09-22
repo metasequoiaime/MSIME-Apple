@@ -38,11 +38,12 @@
 - (void)ensureAppearance {}
 @end
 
-static NSEvent *Key(NSString *characters) {
-    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+static NSEvent *KeyWithFlags(NSString *characters, NSEventModifierFlags flags) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0
                         windowNumber:0 context:nil characters:characters
      charactersIgnoringModifiers:characters isARepeat:NO keyCode:0];
 }
+static NSEvent *Key(NSString *characters) { return KeyWithFlags(characters, 0); }
 
 // Arm the controller the way a committed Chinese mark does, without running the Engine.
 static void Arm(SpaceConvertController *controller, unichar mark, id client) {
@@ -79,13 +80,24 @@ int main() {
         appearance.smartPunctuationSpaceConvert = YES;
         assert(appearance.smartPunctuationSpaceConvert);
 
-        // Enabled: the Chinese mark becomes its ASCII form, and the space itself is left to the editor -
-        // the controller reports the key unhandled so nothing swallows it.
-        for (NSString *pair in @[ @",，", @".。", @":：" ]) {
+        // Shift is part of typing several mapped marks, not a competing chord. Prove the real key path
+        // arms one of the newly covered marks before Engine commits its Chinese form.
+        SpaceConvertClient *shifted = ClientWith(@"abc");
+        assert(![controller handleSmartPunctuation:KeyWithFlags(@"!", NSEventModifierFlagShift) client:shifted]);
+        shifted.document = @"abc！";
+        shifted.selection = NSMakeRange(4, 0);
+        assert([controller convertSmartPunctuationSpace:Key(@" ") client:shifted]);
+        assert([shifted.document isEqual:@"abc!"] && shifted.replacements == 1);
+
+        // Enabled: every standalone Chinese mark from the source mapping becomes its ASCII form. The
+        // space is the gesture and is consumed; it is not document content after a successful rewrite.
+        for (NSString *pair in @[ @",，", @".。", @":：", @"!！", @"?？", @";；", @"/、",
+                                  @"\"“", @"\"”", @"'‘", @"'’", @"[【", @"]】", @"<《",
+                                  @">》", @"(（", @")）" ]) {
             const unichar ascii = [pair characterAtIndex:0];
             SpaceConvertClient *editor = ClientWith([@"abc" stringByAppendingString:[pair substringFromIndex:1]]);
             Arm(controller, ascii, editor);
-            assert(![controller convertSmartPunctuationSpace:Key(@" ") client:editor]);
+            assert([controller convertSmartPunctuationSpace:Key(@" ") client:editor]);
             NSString *expected = [@"abc" stringByAppendingString:[NSString stringWithCharacters:&ascii length:1]];
             assert([editor.document isEqual:expected]);
             assert(editor.replacements == 1);
@@ -94,7 +106,7 @@ int main() {
         // One space only. A second finds nothing armed and leaves the ASCII mark alone.
         SpaceConvertClient *once = ClientWith(@"abc，");
         Arm(controller, ',', once);
-        assert(![controller convertSmartPunctuationSpace:Key(@" ") client:once]);
+        assert([controller convertSmartPunctuationSpace:Key(@" ") client:once]);
         assert([once.document isEqual:@"abc,"]);
         assert(![controller convertSmartPunctuationSpace:Key(@" ") client:once]);
         assert([once.document isEqual:@"abc,"] && once.replacements == 1);
@@ -129,16 +141,22 @@ int main() {
         assert([composing.document isEqual:@"abc，"] && composing.replacements == 0);
         [controller setValue:@{@"editing_text" : @"", @"candidates" : @[]} forKey:@"view"];
 
-        // With full-width input on, the mark the user asked for is the full-width one, so that is what
-        // replaces the Chinese form - U+FF0E for the period. The comma and colon are the same code point
-        // either way (U+FF0C, U+FF1A), so for those the rewrite is a no-op by arithmetic rather than by
-        // accident; asserting the period is what distinguishes the two.
+        // Full-width mode owns the punctuation form and does not run the ASCII conversion gesture.
         appearance.fullWidthInput = YES;
         SpaceConvertClient *wide = ClientWith(@"abc\u3002");
         Arm(controller, '.', wide);
         assert(![controller convertSmartPunctuationSpace:Key(@" ") client:wide]);
-        assert([wide.document isEqual:@"abc\uFF0E"] && wide.replacements == 1);
+        assert([wide.document isEqual:@"abc\u3002"] && wide.replacements == 0);
         appearance.fullWidthInput = NO;
+
+        // An auto-completed pair sits around the caret. Rewriting only its left half would produce a
+        // mixed pair, so the gesture is disabled while the host owns a pending closing mark.
+        SpaceConvertClient *paired = ClientWith(@"abc（");
+        Arm(controller, '(', paired);
+        [controller setValue:@"）" forKey:@"pendingPairedClosing"];
+        assert(![controller convertSmartPunctuationSpace:Key(@" ") client:paired]);
+        assert([paired.document isEqual:@"abc（"] && paired.replacements == 0);
+        [controller setValue:nil forKey:@"pendingPairedClosing"];
 
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }

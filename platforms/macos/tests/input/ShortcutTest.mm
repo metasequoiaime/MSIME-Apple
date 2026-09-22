@@ -118,6 +118,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
 @property(nonatomic) NSUInteger settledRerankCalls;
 @property(nonatomic) NSUInteger rawCommitCalls;
+@property(nonatomic) NSUInteger commandCalls;
 @property(nonatomic, copy) NSDictionary *rawTransition;
 @end
 @implementation ShortcutSession
@@ -233,6 +234,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 }
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
+    ++self.commandCalls;
     self.lastCommand = command;
     if (command == MSIME_COMMIT_RAW) ++self.rawCommitCalls;
     if (self.failFinish && command == MSIME_FINISH_COMPOSITION) return nil;
@@ -258,6 +260,48 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSRect caret;
 @property(nonatomic, strong) NSMutableArray<NSString *> *insertions;
 @end
+
+static void TestBackspaceHoldDoesNotEscapeComposition() {
+    NSString *suite = [@"msime.backspace-hold." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"n", @"candidates": @[] } forKey:@"view"];
+    session.nextTransition = @{ @"handled": @YES, @"commit": NSNull.null,
+                                @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    NSEvent *(^backspace)(BOOL) = ^NSEvent *(BOOL repeat) {
+        return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                            windowNumber:0 context:nil characters:@"\b" charactersIgnoringModifiers:@"\b"
+                               isARepeat:repeat keyCode:51];
+    };
+
+    assert([controller handleEvent:backspace(NO) client:client]);
+    assert(session.commandCalls == 1 && session.lastCommand == MSIME_BACKSPACE);
+    assert([controller handleEvent:backspace(YES) client:client]);
+    assert(session.commandCalls == 1); // Repeat is swallowed without touching Engine or document text.
+
+    // Releasing and pressing Backspace again starts a new hold. With no
+    // composition it belongs to the client, so the old guard must not claim it.
+    session.nextTransition = @{ @"handled": @NO, @"commit": NSNull.null,
+                                @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    assert(![controller handleEvent:backspace(NO) client:client]);
+    assert(session.commandCalls == 2);
+
+    // Focus loss also ends ownership; a repeat must never carry into another
+    // text client even if AppKit delivers it after the switch.
+    [controller setValue:@YES forKey:@"backspaceHoldArmed"];
+    ShortcutClient *nextClient = [ShortcutClient new];
+    NSUInteger callsBeforeSwitch = session.commandCalls;
+    assert(![controller handleEvent:backspace(YES) client:nextClient]);
+    assert(session.commandCalls == callsBeforeSwitch + 1);
+    assert(![[controller valueForKey:@"backspaceHoldArmed"] boolValue]);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
 @implementation ShortcutClient
 - (NSRange)selectedRange { return self.selection; }
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
@@ -2100,6 +2144,32 @@ static void TestPreferenceRevisionSkipsUnchangedDocuments() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+@interface VoiceSettingsPersistenceController : AsyncPreferencesController
+@property(nonatomic) NSUInteger persistenceRequests;
+@end
+@implementation VoiceSettingsPersistenceController
+- (void)persistAppearancePreferences { ++self.persistenceRequests; }
+@end
+
+static void TestProviderSettingsPersistTheSharedSnapshot() {
+    VoiceSettingsPersistenceController *controller = [VoiceSettingsPersistenceController alloc];
+    ControlledPreferenceRead *read = [ControlledPreferenceRead new];
+    read.snapshot = @{@"revision":@7, @"preferences":@{@"voice_input":@{@"asr_provider":@"openai"}}};
+    controller.reads = @[read];
+    controller.appliedPreferences = [NSMutableArray array];
+    AsyncPreferenceSession *session = [AsyncPreferenceSession new];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:@"/synthetic-preferences" forKey:@"preferencesDirectory"];
+    [controller reloadPreferences];
+    assert(dispatch_semaphore_wait(read.started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    [controller voiceProviderSettingsChanged:nil];
+    assert(controller.persistenceRequests == 1);
+    dispatch_semaphore_signal(read.released);
+    WaitForPreferenceCompletions(controller, 1);
+    assert(controller.appliedPreferences.count == 0 && session.updates == 0);
+}
+
 // The synthetic keyboard these cases drive: a key is held between its down and its up, which is what
 // the detector now asks about instead of trusting its own record. The record can lose a release -
 // focus moves while a key is down, or the host is told about fewer event kinds - and a stale entry
@@ -2394,6 +2464,38 @@ static void TestRealSessionComposition() {
     assert(client.insertions.count == 0);
 
     assert([session closeWithError:&error] && !error);
+
+    // The reference reserves the physical ANSI minus key for Japanese: it must pass through this
+    // controller into the real Engine and become the long-vowel mark, even when minus/equal paging
+    // is enabled by default.  The helper-only paging tests cannot prove the last half of that path.
+    NSMutableDictionary *japaneseOptions = [options mutableCopy];
+    NSMutableDictionary *japanesePreferences = [options[@"preferences"] mutableCopy];
+    japanesePreferences[@"scheme"] = @"japanese";
+    japaneseOptions[@"preferences"] = japanesePreferences;
+    MSIMEClientSession *japaneseSession = [[MSIMEClientSession alloc] initWithOptions:japaneseOptions error:&error];
+    assert(japaneseSession && !error);
+    NSDictionary *japaneseView = [japaneseSession setFocused:YES error:&error];
+    assert(japaneseView && !error);
+    [controller setValue:japaneseSession forKey:@"session"];
+    [controller setValue:japaneseView forKey:@"view"];
+    [client.insertions removeAllObjects];
+
+    assert([controller handleEvent:KeypadKey(27, @"-", 0, NO) client:client]);
+    assert([client.marked isEqual:@"ー"]);
+    assert([controller handleEvent:enter client:client]);
+    assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"ー"]);
+    assert(client.marked.length == 0);
+
+    // A preceding bare n must settle to ん before the same key contributes ー. This is the converter
+    // edge in the source change, exercised here through the product host instead of against the converter.
+    [client.insertions removeAllObjects];
+    assert([controller handleEvent:KeypadKey(45, @"n", 0, NO) client:client]);
+    assert([controller handleEvent:KeypadKey(27, @"-", 0, NO) client:client]);
+    assert([client.marked isEqual:@"んー"]);
+    assert([controller handleEvent:enter client:client]);
+    assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"んー"]);
+    assert([japaneseSession closeWithError:&error] && !error);
+
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
 }
@@ -5337,6 +5439,7 @@ int main(int argc, char **argv) {
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestPreferenceRevisionSkipsUnchangedDocuments();
+        TestProviderSettingsPersistTheSharedSnapshot();
         TestFullWidth(defaults, appearance);
         TestSessionOptions();
         TestKeypadDecimal(appearance);
@@ -5344,6 +5447,7 @@ int main(int argc, char **argv) {
         TestJapaneseConversionKeys(appearance);
         TestGlossSensePage(appearance);
         TestSegmentEditingChords(appearance);
+        TestBackspaceHoldDoesNotEscapeComposition();
         TestKeypadOperators(appearance);
         TestSmartPunctuationPreferences();
         TestSharedCharacterWidth();
