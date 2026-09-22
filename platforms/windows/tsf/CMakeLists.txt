@@ -102,6 +102,15 @@ add_test(NAME msime-tsf-engine-response COMMAND msime-tsf-engine-response-test)
 if(NOT WIN32)
   return()
 endif()
+add_executable(msime-tsf-class-factory-test tests/runtime/class_factory.cpp)
+target_compile_features(msime-tsf-class-factory-test PRIVATE cxx_std_17)
+target_link_libraries(msime-tsf-class-factory-test PRIVATE ole32)
+if(MSVC)
+  target_compile_options(msime-tsf-class-factory-test PRIVATE /UNDEBUG /W4 /WX)
+else()
+  target_compile_options(msime-tsf-class-factory-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+endif()
+add_test(NAME msime-tsf-class-factory COMMAND msime-tsf-class-factory-test)
 add_executable(msime-tsf-paired-punctuation-policy-test tests/input/paired_punctuation_policy.cpp)
 target_compile_features(msime-tsf-paired-punctuation-policy-test PRIVATE cxx_std_17)
 add_test(NAME msime-tsf-paired-punctuation-policy COMMAND msime-tsf-paired-punctuation-policy-test)
@@ -136,6 +145,7 @@ add_library(msime-tsf SHARED
   IME/MetasequoiaIME.rc
   IME/MetasequoiaIME.def
 )
+add_dependencies(msime-tsf-class-factory-test msime-tsf)
 
 find_package(fmt CONFIG REQUIRED)
 find_path(UTF8CPP_INCLUDE_DIR NAMES utf8cpp/utf8.h REQUIRED)

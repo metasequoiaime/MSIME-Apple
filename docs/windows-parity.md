@@ -2384,6 +2384,10 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 
 `ClipboardHistory` 原有用例只覆盖文本边界和持久化策略，没有触及生产 `ClipboardMonitor` 的 `AddClipboardFormatListener`、消息窗口创建与停止清理。新增 Windows-only `windows-clipboard-monitor` 合成用例，实际注册消息监听器、验证重复 `start` 幂等，并验证重复 `stop` 不崩溃；测试不改写系统剪贴板，也不记录用户内容。它补的是 Win32 注册生命周期证据，不宣称已经完成真实复制、粘贴或第三方编辑器上屏验收。
 
+### TSF DLL 类工厂与 TIP 对象边界（2026-09-22）
+
+新增 Windows-only `msime-tsf-class-factory` 回归：从测试进程同目录加载出货 DLL，解析导出的 `DllGetClassObject`，用固定 CLSID 取得 `IClassFactory`，实例化对象并确认它实现 `ITfTextInputProcessor`，随后完整释放 COM 对象和模块。该测试不调用 `DllRegisterServer`、不写 TSF 注册表，也不调用 `ITfTextInputProcessor::Activate`；因此交叉链接证明了 DLL/类工厂/对象 ABI 边界，仍不等于 TIP 注册、激活或真实编辑器验收。
+
 ### Windows 偏好发布回调的生效时序（2026-09-22）
 
 偏好监视器的生产链路先在输入队列应用 `PreferenceSnapshot`，再从监视线程通知 `SessionController` 的发布回调；回调会清理并按新配置重新发起当前候选页的翻译查询。原有用例已经覆盖延迟到未确认回复完成后应用，本批另加一个顺序断言：回调提交的观察任务必须看到新的导航绑定和以词定字状态，防止未来把“发布任务已入队”误当成“偏好已经生效”。测试只使用合成 JSON 和队列状态，不触碰用户配置；这仍是源码/交叉构建证据，不是 Windows 原生编辑器验收。
