@@ -212,6 +212,8 @@ EnglishCapitalizationPolicy.shouldShift
 
 `WelcomeUITests.testMainTabsKeepIndependentNavigation` 又指出 #3503 只复刻了四个底部 tab 的外观和入口，没有复刻每个 tab 独立的导航栈：从「键盘」进入「输入」，切去社区后再回来会被重置到首页。共享 UI 仍保持扁平路由以适配 WebView，但现在按 tab 记住各自最后一个叶页面，浏览器返回恢复页面时也同步更新该记录；回归测试按来源同样走「全部设置 → 输入 → 社区 → 键盘」，确认回到的仍是「输入」。
 
+紧接着的 `WelcomeUITests.testChatLoginIsFocusedAndCancelReturnsToTryout` 暴露了两层移动端分叉。第一层是 `AccountPage` 只把 Android/iOS 判作移动平台，Harmony 因而显示桌面账号操作；现在三种触屏宿主共用移动资料页。第二层是未登录的共享 AI 对话把输入框禁用了，而来源明确允许先唤起键盘和保留草稿，登录只是发送前置条件。现在 Harmony 进入试用页会聚焦可编辑输入框，从对话进入登录时带着返回来源，取消或登录成功都会回到原对话页；账号直达 tab 不带这个临时返回入口。
+
 ## 2026-09-21 补：模拟器验收
 
 上面那份「证据边界」写完之后，在 API 21 的 `Mate 70 Pro` arm64 模拟器上实际跑了一遍，结论需要改写——不是因为结论错了，而是因为它们本来就只是没去跑。

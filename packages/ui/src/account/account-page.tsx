@@ -635,6 +635,8 @@ export function AccountPage({
   client,
   appIcon,
   platform,
+  onCancelLogin,
+  onLoginComplete,
   onOpenPublishedSkins,
   onOpenLocalDesigns,
   onOpenCommunity,
@@ -646,7 +648,9 @@ export function AccountPage({
 }: {
   client?: AccountClient;
   appIcon?: AppIconClient;
-  platform?: "android" | "ios";
+  platform?: "android" | "ios" | "harmony";
+  onCancelLogin?: () => void;
+  onLoginComplete?: () => void;
   onOpenPublishedSkins?: () => void;
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
@@ -660,7 +664,12 @@ export function AccountPage({
   if (!client) {
     return (
       <div className={account.page}>
-        {resolvedAppIcon && <AppIconSettingsCard client={resolvedAppIcon} platform={platform} />}
+        {resolvedAppIcon && (
+          <AppIconSettingsCard
+            client={resolvedAppIcon}
+            platform={platform === "harmony" ? undefined : platform}
+          />
+        )}
       </div>
     );
   }
@@ -669,6 +678,8 @@ export function AccountPage({
       client={client}
       appIcon={resolvedAppIcon}
       platform={platform}
+      onCancelLogin={onCancelLogin}
+      onLoginComplete={onLoginComplete}
       onOpenPublishedSkins={onOpenPublishedSkins}
       onOpenLocalDesigns={onOpenLocalDesigns}
       onOpenCommunity={onOpenCommunity}
@@ -685,6 +696,8 @@ function AccountDetailsPage({
   client,
   appIcon,
   platform,
+  onCancelLogin,
+  onLoginComplete,
   onOpenPublishedSkins,
   onOpenLocalDesigns,
   onOpenCommunity,
@@ -696,7 +709,9 @@ function AccountDetailsPage({
 }: {
   client: AccountClient;
   appIcon?: AppIconClient;
-  platform?: "android" | "ios";
+  platform?: "android" | "ios" | "harmony";
+  onCancelLogin?: () => void;
+  onLoginComplete?: () => void;
   onOpenPublishedSkins?: () => void;
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
@@ -706,7 +721,7 @@ function AccountDetailsPage({
   onOpenDesktopDownload?: () => void;
   onReplayOnboarding?: () => void;
 }) {
-  const mobile = platform === "android" || platform === "ios";
+  const mobile = platform === "android" || platform === "ios" || platform === "harmony";
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -836,6 +851,7 @@ function AccountDetailsPage({
       setCode("");
       await loadProfile();
       setNotice("登录成功。");
+      onLoginComplete?.();
     });
 
   const signOut = (all: boolean) =>
@@ -932,10 +948,19 @@ function AccountDetailsPage({
       setUser(result.user);
       await loadProfile();
       setNotice("登录成功。");
+      onLoginComplete?.();
     });
 
   return (
     <div className={account.page}>
+      {!user && onCancelLogin && (
+        <div className={account.profilePageHeader}>
+          <button type="button" className="secondary" disabled={busy} onClick={onCancelLogin}>
+            取消
+          </button>
+          <h2 className={account.heading}>登录水杉</h2>
+        </div>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -981,7 +1006,12 @@ function AccountDetailsPage({
           </span>
         )}
       </button>
-      {appIcon && <AppIconSettingsCard client={appIcon} platform={platform} />}
+      {appIcon && (
+        <AppIconSettingsCard
+          client={appIcon}
+          platform={platform === "harmony" ? undefined : platform}
+        />
+      )}
       {onOpenLocalDesigns && (
         <section className={`${account.section} ${account.communityActions}`}>
           <div>
