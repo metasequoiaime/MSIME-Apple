@@ -312,6 +312,7 @@ struct KeyboardView {
   @State voiceEnabled: boolean = KeyboardSession.shared.voiceInputEnabled();
   @State replySource: string = '';
   @State replyStyle: string = '高情商';
+  @State replyPolish: boolean = false;
   @State replyResults: string[] = [];
   @State replyNotice: string = '';
   @State replyBusy: boolean = false;
@@ -2148,17 +2149,54 @@ struct KeyboardView {
 
   private generateReply(style: string, extraPrompt: string = ''): void {
     if (this.replyBusy) return;
+    if (this.replySource.trim().length === 0) {
+      this.replyNotice = '先点粘贴，放入对方的话';
+      return;
+    }
     this.replyStyle = style;
     const generation: number = ++this.replyGeneration;
     this.replyBusy = true;
     this.replyResults = [];
     this.replyNotice = '正在生成…';
-    KeyboardSession.shared.thoughtfulReplies(this.replySource, style, extraPrompt).then((results: string[]): void => {
+    KeyboardSession.shared.thoughtfulReplies(
+      this.replySource, style, extraPrompt, this.replyPolish && extraPrompt.length === 0).then(
+      (results: string[]): void => {
       if (generation !== this.replyGeneration) return;
       this.replyBusy = false;
       this.replyResults = results;
       this.replyNotice = results.length === 0 ? '生成失败，请检查 AI 设置或重试' : '点选回复插入输入框';
     });
+  }
+
+  private resetReplyResults(notice: string = ''): void {
+    this.replyGeneration += 1;
+    this.replyBusy = false;
+    this.replyResults = [];
+    if (notice.length > 0) this.replyNotice = notice;
+    KeyboardSession.shared.invalidateReplyContext(false);
+  }
+
+  private clearReplySource(): void {
+    this.resetReplyResults();
+    this.replySource = '';
+    this.replyNotice = '剪贴板里没有文字';
+  }
+
+  private deleteReplySourceCharacter(): void {
+    if (this.replySource.length === 0) return;
+    this.resetReplyResults();
+    const characters: string[] = Array.from(this.replySource);
+    characters.pop();
+    this.replySource = characters.join('');
+    this.replyNotice = this.replySource.length === 0 ? '剪贴板里没有文字' : '选择风格生成回复';
+  }
+
+  private toggleReplyPolish(polish: boolean): void {
+    if (this.replyPolish === polish) return;
+    this.resetReplyResults();
+    this.replyPolish = polish;
+    this.replyNotice = this.replySource.length === 0
+      ? '点击读取剪贴板中的对方文字' : '选择风格生成，内容仅在点击风格时发送';
   }
 
   @Builder
@@ -2167,6 +2205,12 @@ struct KeyboardView {
       Row() {
         Text('高情商回复').fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
           .fontColor(this.skin.keyForeground).layoutWeight(1)
+        Button('帮你回').enabled(!this.replyBusy).onClick(() => this.toggleReplyPolish(false))
+          .backgroundColor(this.replyPolish ? this.skin.keyBackground : this.skin.accent)
+          .fontColor(this.replyPolish ? this.skin.keyForeground : this.skin.keyBackground)
+        Button('帮润色').enabled(!this.replyBusy).onClick(() => this.toggleReplyPolish(true))
+          .backgroundColor(this.replyPolish ? this.skin.accent : this.skin.keyBackground)
+          .fontColor(this.replyPolish ? this.skin.keyBackground : this.skin.keyForeground)
         if (this.replyTemplates.length > 0) {
           Text(this.replyTemplateMenu ? '风格' : '模板').fontColor(this.skin.accent)
             .onClick(() => this.replyTemplateMenu = !this.replyTemplateMenu)
@@ -2176,6 +2220,10 @@ struct KeyboardView {
       Row({ space: this.keySpacing() }) {
         Text(this.replySource.length === 0 ? '点击读取剪贴板中的对方文字' : this.replySource)
           .fontSize(14).fontColor(this.skin.keyForeground).maxLines(2).layoutWeight(1)
+        Button('删除').enabled(!this.replyBusy && this.replySource.length > 0)
+          .onClick(() => this.deleteReplySourceCharacter())
+        Button('清空').enabled(!this.replyBusy && this.replySource.length > 0)
+          .onClick(() => this.clearReplySource())
         Button('粘贴').enabled(!this.replyBusy).onClick(() => this.loadReplySource())
       }.width('100%').padding(8).backgroundColor(this.skin.keyBackground)
       if (this.replyResults.length === 0 && this.replyTemplateMenu) {
@@ -2221,6 +2269,16 @@ struct KeyboardView {
             }, (reply: string) => reply)
           }.width('100%')
         }.layoutWeight(1)
+        Row({ space: this.keySpacing() }) {
+          Button('换一句').enabled(!this.replyBusy)
+            .onClick(() => this.generateReply(this.replyStyle))
+          Button('选风格').enabled(!this.replyBusy)
+            .onClick(() => this.resetReplyResults())
+        }.width('100%').height(42)
+      }
+      if (this.replyBusy) {
+        Button('取消').onClick(() => this.resetReplyResults('已取消'))
+          .width('100%').height(38)
       }
       Text(this.replyNotice).fontSize(12).fontColor(this.skin.keyForeground).opacity(0.72)
     }.width('100%').height(this.surfaceHeight())
