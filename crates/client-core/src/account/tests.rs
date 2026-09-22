@@ -743,6 +743,22 @@ fn dictionary_snapshot_file_restore_rejects_nonadvancing_response() {
 }
 
 #[test]
+fn dictionary_snapshot_restore_requires_json_response_media_type() {
+    let body = serde_json::json!({ "revision": 8, "reset": true }).to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+
+    assert_eq!(
+        client.restore_dictionary_snapshot(b"fixture\n", 7, &token(b'a')),
+        Err(AccountError::Unavailable)
+    );
+}
+
+#[test]
 fn account_dictionary_transport_maps_flattened_responses() {
     let id = "0123456789abcdef".repeat(4);
     let page_body = serde_json::json!({

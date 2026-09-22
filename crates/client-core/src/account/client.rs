@@ -495,6 +495,15 @@ impl BackendAccountClient {
         response: Response,
         revision: i64,
     ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
+        let media_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .map(str::trim);
+        if !media_type.is_some_and(|value| value.eq_ignore_ascii_case("application/json")) {
+            return Err(AccountError::Unavailable);
+        }
         let bytes = read_bounded_response(response, MAX_JSON_BYTES)?;
         let result: AccountDictionarySnapshotRestore =
             serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)?;
