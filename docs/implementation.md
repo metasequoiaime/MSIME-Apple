@@ -1534,3 +1534,9 @@ Android 横向候选条此前会保留旧页面的 `HorizontalScrollView` 偏移
 Android 候选按钮此前依赖 TextView 默认的省略与折行行为；长候选或较长释义在不同字体/屏幕宽度下可能被截断或拆成多行，用户看到的候选文字因此不完整。现在普通候选条与展开候选面板都明确关闭自动省略和候选词折行：横向条让外层滚动承载宽度，展开面板按候选格换行；释义只是附加标注，不会改变候选身份或文本。
 
 本地验证：Android host Java/API/JVM smoke 与 `scripts/verify-local.sh --quick` 通过；未执行实体设备字体和长候选视觉验收，CI 保持禁用。
+
+### Android 触屏候选 chip 不显示视觉序号
+
+Android 普通候选按钮此前把页内槽位序号直接拼到候选文字前面。Apple 的触屏候选 chip 只显示候选词本身，序号属于无障碍和硬件选择语义；视觉前缀会让用户误以为数字是候选内容。现在 Android 普通候选条移除视觉序号，content description 仍保留“候选 N”，session/generation/index 也保持不变，因此无障碍和外接数字行选择不受影响。
+
+本地验证：Android host Java/API/JVM smoke 与 `scripts/verify-local.sh --quick` 通过；未执行实体设备无障碍树和触屏视觉验收，CI 保持禁用。
