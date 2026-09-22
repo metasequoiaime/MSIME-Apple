@@ -129,15 +129,8 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
   const phoneSettings = screen.getByRole("region", { name: "全部设置" });
   expect(within(phoneSettings).queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
-  fireEvent.click(
-    within(phoneSettings).getByRole("button", {
-      name: "快捷键",
-    }),
-  );
-  expect(screen.queryByRole("group", { name: "输入模式切换快捷键" })).toBeNull();
-  expect(screen.queryByRole("group", { name: "面板快捷键" })).toBeNull();
-  expect(screen.queryByRole("checkbox", { name: "数字键选词" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  expect(within(phoneSettings).queryByRole("button", { name: "快捷键" })).toBeNull();
+  fireEvent.click(within(phoneSettings).getByRole("button", { name: "输入" }));
   expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
 });
 
