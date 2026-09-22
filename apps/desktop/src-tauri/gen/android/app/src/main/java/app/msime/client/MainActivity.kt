@@ -59,11 +59,11 @@ class MainActivity : TauriActivity() {
 
   private fun dispatchPendingMobilePanel(webView: WebView) {
     val panel = pendingMobilePanel ?: return
-    if (panel != "cloud-dictionary") return
+    if (panel != "cloud-dictionary" && panel != "cloud-clipboard") return
     pendingMobilePanel = null
     webView.postDelayed({
       webView.evaluateJavascript(
-        "window.dispatchEvent(new CustomEvent('msime-mobile-panel',{detail:'cloud-dictionary'}));",
+        "window.dispatchEvent(new CustomEvent('msime-mobile-panel',{detail:'$panel'}));",
         null,
       )
     }, 250)
@@ -71,7 +71,8 @@ class MainActivity : TauriActivity() {
 
   private fun dispatchPendingSettingsPage(webView: WebView) {
     val page = pendingSettingsPage ?: return
-    if (page != "dictionary" && page != "account") return
+    if (page != "dictionary" && page != "account" && page != "about"
+        && page != "help" && page != "feedback") return
     pendingSettingsPage = null
     webView.postDelayed({
       webView.evaluateJavascript(
