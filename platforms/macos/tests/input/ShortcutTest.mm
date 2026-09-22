@@ -49,16 +49,20 @@ static void CheckMenu(NSMenu *menu, id controller) {
     NSArray<NSString *> *actions = @[
         @"selectChineseMode:", @"selectEnglishMode:", @"toggleDedicatedEnglishMode:", @"",
         @"selectSimplifiedOutput:", @"selectTraditionalOutput:", @"",
-        @"toggleFloatingToolbar:",
-        @"openCharacterPalette:", @"showEmoji:", @"showScreenKeyboard:",
-        @"showAppearance:", @"showDictionary:", @"showAccount:",
-        @"showCloudClipboard:", @"showCloudDictionary:", @"showHandwriting:", @"prepareDictionary:", @"",
-        @"checkForUpdates:", @"openWebsite:", @"showHelp:", @"showAbout:", @"showFeedback:", @"showVoicePanel", @"showVoiceSettings:"
+        @"toggleFloatingToolbar:", @"submenu", @"", @"showAppearance:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
     for (NSUInteger index = 0; index < actions.count; ++index) {
         NSMenuItem *item = [menu itemAtIndex:index];
-        if (actions[index].length == 0) assert(item.separatorItem);
+        if ([actions[index] isEqual:@"submenu"]) {
+            assert([item.title isEqual:@"水杉工具"] && item.submenu.numberOfItems == 4);
+            NSArray<NSString *> *tools = @[@"showEmoji:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
+            for (NSUInteger toolIndex = 0; toolIndex < tools.count; ++toolIndex) {
+                NSMenuItem *tool = [item.submenu itemAtIndex:toolIndex];
+                assert(tool.action == NSSelectorFromString(tools[toolIndex]));
+                assert(tool.target == controller && [controller respondsToSelector:tool.action]);
+            }
+        } else if (actions[index].length == 0) assert(item.separatorItem);
         else {
             assert(item.action == NSSelectorFromString(actions[index]));
             assert(item.target == controller && [controller respondsToSelector:item.action]);
@@ -2772,8 +2776,19 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     CheckMenu(menu, controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
+    assert(menu.numberOfItems == 11);
     assert([[menu itemAtIndex:7].title isEqual:@"悬浮工具栏"]);
-    assert([[menu itemAtIndex:8].title isEqual:@"表情与符号…"]);
+    NSMenuItem *toolsItem = [menu itemAtIndex:8];
+    assert([toolsItem.title isEqual:@"水杉工具"] && toolsItem.submenu.numberOfItems == 4);
+    NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
+    NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
+    for (NSUInteger index = 0; index < toolTitles.count; ++index) {
+        NSMenuItem *tool = [toolsItem.submenu itemAtIndex:index];
+        assert([tool.title isEqual:toolTitles[index]] && tool.action == NSSelectorFromString(toolActions[index]));
+    }
+    assert([menu itemAtIndex:9].separatorItem);
+    assert([[menu itemAtIndex:10].title isEqual:@"水杉输入法设置…"] &&
+           [menu itemAtIndex:10].action == @selector(showAppearance:));
     client.marked = @"ceshi";
     panel.visible = YES;
     [NSApp sendAction:[menu itemAtIndex:1].action to:controller from:[menu itemAtIndex:1]];
