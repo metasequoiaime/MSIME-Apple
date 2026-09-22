@@ -53,6 +53,11 @@ public final class CandidateTranslationPolicy {
         return lines;
     }
 
+    /** Number of rows needed by one rendered candidate label, based on actual annotation text. */
+    public static int renderedGlossLines(String annotation) {
+        return annotation != null && annotation.indexOf('\n') >= 0 ? 2 : 1;
+    }
+
     private static String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
