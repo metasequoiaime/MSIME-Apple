@@ -180,6 +180,7 @@ import {
   HandwritingRecognitionTicket,
 } from "../entry/src/main/ets/keyboard/input/HandwritingRecognitionQueue";
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
+import { SettingsFormFactorCapabilities } from "../entry/src/main/ets/keyboard/settings/SettingsFormFactorCapabilities";
 import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
 import {
   BackspaceHoldAction,
@@ -494,6 +495,37 @@ group("keeps desktop-only chrome off touch devices", () => {
   check(!KeyboardFormFactorPolicy.isDesktop("tablet"), "a tablet keeps the touch keyboard");
   check(!KeyboardFormFactorPolicy.isDesktop("default"), "an unknown form factor fails closed");
   check(!KeyboardFormFactorPolicy.isDesktop(null), "missing device information fails closed");
+});
+
+group("projects the same form factor into every settings capability", () => {
+  const desktop = SettingsFormFactorCapabilities.resolve("2in1");
+  check(!desktop.mobileSettings, "2-in-1 settings use the desktop surface");
+  check(
+    desktop.panelWindows && desktop.floatingToolbar && desktop.floatingToolbarComponents,
+    "2-in-1 settings expose candidate and toolbar controls",
+  );
+  check(
+    desktop.modeSwitchShortcuts && desktop.panelShortcuts && desktop.numberRowSelection,
+    "2-in-1 settings expose physical-keyboard shortcuts",
+  );
+
+  const phone = SettingsFormFactorCapabilities.resolve("phone");
+  check(phone.mobileSettings, "phone settings use the touch surface");
+  check(
+    !phone.panelWindows &&
+      !phone.floatingToolbar &&
+      !phone.floatingToolbarAppearance &&
+      !phone.floatingToolbarComponents,
+    "phone settings hide candidate and toolbar controls",
+  );
+  check(
+    !phone.modeSwitchShortcuts &&
+      !phone.panelShortcuts &&
+      !phone.numberRowSelection &&
+      !phone.candidateFollowCursor &&
+      !phone.inputModeHud,
+    "phone settings hide physical-keyboard controls",
+  );
 });
 
 group("SymbolPanelPolicy", () => {

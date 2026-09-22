@@ -34,7 +34,8 @@ import { OsVersionPolicy } from '../keyboard/input/OsVersionPolicy';
 import {
   AiCatalogPage, AiModelCatalogPolicy
 } from '../keyboard/settings/AiModelCatalogPolicy';
-import { KeyboardFormFactorPolicy } from '../keyboard/KeyboardFormFactorPolicy';
+import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
+  from '../keyboard/settings/SettingsFormFactorCapabilities';
 
 /** One key-feedback operation from the page: load, save or preview. */
 interface KeyboardFeedbackAction {
@@ -954,20 +955,18 @@ class SettingsBridge {
       // Unlike the platform name, the form factor is not fixed: this HAP runs on both phones and
       // 2-in-1 machines. Keep phone navigation on touch devices and give a 2-in-1 the large-screen
       // settings surface that matches its physical keyboard and candidate panel.
-      const desktop: boolean = KeyboardFormFactorPolicy.isDesktop(deviceInfo.deviceType);
-      value['mobile_settings'] = !desktop;
-      // HostCapabilities::for_platform is shared by every Harmony device, but these controls are
-      // meaningful only when the host has a physical keyboard and desktop candidate surface. Keep
-      // the form-factor projection here so a phone cannot inherit the 2-in-1 settings chrome.
-      value['panel_windows'] = desktop;
-      value['floating_toolbar'] = desktop;
-      value['floating_toolbar_appearance'] = desktop;
-      value['floating_toolbar_components'] = desktop;
-      value['mode_switch_shortcuts'] = desktop;
-      value['panel_shortcuts'] = desktop;
-      value['number_row_selection'] = desktop;
-      value['candidate_follow_cursor'] = desktop;
-      value['input_mode_hud'] = desktop;
+      const projection: SettingsFormFactorProjection =
+        SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType);
+      value['mobile_settings'] = projection.mobileSettings;
+      value['panel_windows'] = projection.panelWindows;
+      value['floating_toolbar'] = projection.floatingToolbar;
+      value['floating_toolbar_appearance'] = projection.floatingToolbarAppearance;
+      value['floating_toolbar_components'] = projection.floatingToolbarComponents;
+      value['mode_switch_shortcuts'] = projection.modeSwitchShortcuts;
+      value['panel_shortcuts'] = projection.panelShortcuts;
+      value['number_row_selection'] = projection.numberRowSelection;
+      value['candidate_follow_cursor'] = projection.candidateFollowCursor;
+      value['input_mode_hud'] = projection.inputModeHud;
       if (release !== null) {
         value['os_version'] = release;
       }
