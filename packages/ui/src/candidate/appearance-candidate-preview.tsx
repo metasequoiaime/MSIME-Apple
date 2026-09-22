@@ -18,6 +18,7 @@ export function AppearanceCandidatePreview({
   resolveFonts,
   active = true,
   revision = 0,
+  mobile = false,
 }: {
   preferences: Preferences;
   scan?: () => Promise<SkinCatalog>;
@@ -25,6 +26,7 @@ export function AppearanceCandidatePreview({
   resolveFonts?: FontFamilyResolver;
   active?: boolean;
   revision?: number;
+  mobile?: boolean;
 }) {
   const preferences = useResolvedCandidateFonts(
     storedPreferences,
@@ -41,11 +43,12 @@ export function AppearanceCandidatePreview({
     (preferences.scheme === "quanpin" || preferences.scheme === "shuangpin") &&
     (schemeHelpcode?.enabled ?? true) &&
     (schemeHelpcode?.show_in_candidate_window ?? true);
+  const surfaceName = mobile ? "候选栏" : "候选窗口";
   return (
-    <section className="section" aria-label="候选窗口预览">
+    <section className="section" aria-label={`${surfaceName}预览`}>
       <div className="section-header">
         <span className="section-title">
-          候选窗口预览<small>固定样例随当前设置草稿变化，不代表实际输入候选。</small>
+          {surfaceName}预览<small>固定样例随当前设置草稿变化，不代表实际输入候选。</small>
         </span>
       </div>
       {builtin ? (

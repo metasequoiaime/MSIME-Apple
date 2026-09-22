@@ -103,6 +103,7 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
     mobile_settings: true,
     panel_windows: false,
     floating_toolbar: false,
+    candidate_font_controls: true,
     floating_toolbar_appearance: false,
     floating_toolbar_components: false,
     mode_switch_shortcuts: false,
@@ -142,6 +143,7 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
     mobile_settings: true,
     panel_windows: false,
     floating_toolbar: false,
+    candidate_font_controls: true,
   });
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "键盘" }));
@@ -152,6 +154,11 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
     }),
   );
   expect(screen.getByRole("combobox", { name: "候选栏主题" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "候选栏预览" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "候选栏字号" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "候选栏预编辑字号" })).toBeTruthy();
+  expect(screen.queryByText("候选窗口预览")).toBeNull();
+  expect(screen.queryByLabelText("候选窗字号")).toBeNull();
   expect(screen.queryByRole("combobox", { name: "候选窗口主题" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "悬浮工具栏主题" })).toBeNull();
 
@@ -160,9 +167,11 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
     mobile_settings: false,
     panel_windows: true,
     floating_toolbar: true,
+    candidate_font_controls: true,
   });
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  expect(screen.getByRole("region", { name: "候选窗口预览" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "候选窗口主题" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "悬浮工具栏主题" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "候选栏主题" })).toBeNull();
