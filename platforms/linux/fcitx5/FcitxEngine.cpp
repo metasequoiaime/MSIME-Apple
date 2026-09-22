@@ -1592,10 +1592,17 @@ public:
         auto result = clipboard_job_.get();
         clipboard_job_ = {};
         clipboard_loading_ = false;
-        if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object() &&
+        if (preferences_.value("clipboard_history", false) && session_ && ic_.hasFocus() &&
+            !restricted() && !privateInput() && result.is_object() &&
             result.value("_path", std::string{}) == clipboard_path_ &&
             result.value("_generation", uint64_t{}) == clipboard_generation_)
           clipboard_items_ = result.value("entries", Json::array());
+      }
+      if (!preferences_.value("clipboard_history", false)) {
+        if (clipboard_loading_ || !clipboard_items_.empty()) ++clipboard_generation_;
+        clipboard_items_.clear();
+        clipboard_loading_ = false;
+        return;
       }
       if (clipboard_loading_ || clipboard_path_.empty() || restricted() || privateInput() || !ic_.hasFocus()) return;
       clipboard_loading_ = true;
