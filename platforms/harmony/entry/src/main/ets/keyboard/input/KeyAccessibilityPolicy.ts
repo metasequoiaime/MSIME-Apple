@@ -112,4 +112,9 @@ export class KeyAccessibilityPolicy {
   static englishSuggestion(number: number, word: string): string {
     return `英文补全 ${number}：${word}`;
   }
+
+  /** The nine-key spelling strip is selectable, not merely a visual preview. */
+  static spelling(value: string): string {
+    return `选择拼音 ${value}`;
+  }
 }
