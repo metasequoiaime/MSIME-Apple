@@ -18,6 +18,10 @@ enum KeyboardEmojiCatalog {
   struct Category: Equatable, Sendable {
     let group: String
     let title: String
+    /// The shared catalog the group belongs to: empty for Emoji, `kaomoji` for 颜文字.
+    var catalog = ""
+
+    var isKaomoji: Bool { catalog == "kaomoji" }
   }
 
   struct Item: Equatable, Sendable {
@@ -45,10 +49,13 @@ enum KeyboardEmojiCatalog {
     Category(group: "Flags", title: "旗帜"),
   ]
 
+  /// The kaomoji catalog has no groups of its own; the shared catalog answers every row under `All`.
+  static let kaomoji = Category(group: "All", title: "颜文字", catalog: "kaomoji")
+
   static func loadPage(resources: String, category: Category, offset: Int) throws -> Page {
     guard offset >= 0, offset <= maximumCursor else { throw KeyboardEmojiCatalogError.invalidPage }
     let request = try JSONSerialization.data(withJSONObject: [
-      "category": "",
+      "category": category.catalog,
       "group": category.group,
       "offset": offset,
       "limit": pageSize,
@@ -81,7 +88,8 @@ enum KeyboardEmojiCatalog {
       guard let text = row["text"] as? String,
             let annotation = row["annotation"] as? String,
             let group = row["group"] as? String,
-            validText(text), validAnnotation(annotation), group == category.group else {
+            validText(text, kaomoji: category.isKaomoji), validAnnotation(annotation),
+            group == category.group else {
         throw KeyboardEmojiCatalogError.invalidPage
       }
       return Item(text: text, annotation: annotation, group: group)
@@ -93,8 +101,10 @@ enum KeyboardEmojiCatalog {
     validText(value)
   }
 
-  private static func validText(_ value: String) -> Bool {
-    !value.isEmpty && value.unicodeScalars.count <= 32 && value.utf8.count <= 256
+  /// A kaomoji is a short line of text rather than one pictograph; the longest in the shipped catalog is 59 characters.
+  private static func validText(_ value: String, kaomoji: Bool = false) -> Bool {
+    let scalars = kaomoji ? 96 : 32
+    return !value.isEmpty && value.unicodeScalars.count <= scalars && value.utf8.count <= scalars * 8
       && !value.unicodeScalars.contains { $0.value == 0 }
   }
 

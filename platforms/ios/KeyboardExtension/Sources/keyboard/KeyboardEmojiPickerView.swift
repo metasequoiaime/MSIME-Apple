@@ -1,6 +1,8 @@
 import UIKit
 
-/// Apple-style category browser backed by the shared paged Emoji catalog.
+/// Apple-style category browser backed by the shared paged Emoji catalog, with the kaomoji catalog as its last tab.
+///
+/// A kaomoji is a line of text, not a pictograph, so its tab lays out as many columns as fit its width: two on a phone, more on an iPad. Kaomoji stay out of 最近, whose eight-column grid is sized for Emoji.
 final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
   typealias PageLoader = @Sendable (
     KeyboardEmojiCatalog.Category, Int
@@ -26,7 +28,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   private let tabs = UIStackView()
   private let tabScroll = UIScrollView()
   private let status = UILabel()
-  private lazy var grid = UICollectionView(frame: .zero, collectionViewLayout: Self.makeLayout())
+  private lazy var grid = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
   private var tabButtons: [UIButton] = []
   private var availableTabs: [Tab]
   private var selectedTab = -1
@@ -54,7 +56,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     }
     let recents = KeyboardEmojiRecents.stored
     availableTabs = (recents.isEmpty ? [] : [.recent])
-      + KeyboardEmojiCatalog.categories.map(Tab.category)
+      + KeyboardEmojiCatalog.categories.map(Tab.category) + [.category(KeyboardEmojiCatalog.kaomoji)]
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardEmojiPicker"
     backgroundColor = skin.background
@@ -148,16 +150,30 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     return button
   }
 
-  private static func makeLayout() -> UICollectionViewCompositionalLayout {
-    let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
-      widthDimension: .fractionalWidth(1.0 / CGFloat(KeyboardEmojiCatalog.columns)),
-      heightDimension: .fractionalHeight(1)))
-    let group = NSCollectionLayoutGroup.horizontal(layoutSize: NSCollectionLayoutSize(
-      widthDimension: .fractionalWidth(1),
-      heightDimension: .fractionalWidth(1.0 / CGFloat(KeyboardEmojiCatalog.columns))),
-      subitems: [item])
-    return UICollectionViewCompositionalLayout(
-      section: NSCollectionLayoutSection(group: group))
+  private var showsKaomoji: Bool {
+    guard availableTabs.indices.contains(selectedTab),
+          case .category(let category) = availableTabs[selectedTab] else { return false }
+    return category.isKaomoji
+  }
+
+  /// Columns for the kaomoji tab: as many 170-point columns as the width holds, and never fewer than two.
+  static func kaomojiColumns(width: CGFloat) -> Int { max(2, Int(width / 170)) }
+
+  private func makeLayout() -> UICollectionViewCompositionalLayout {
+    UICollectionViewCompositionalLayout { [weak self] _, environment in
+      let kaomoji = self?.showsKaomoji ?? false
+      let columns = kaomoji
+        ? Self.kaomojiColumns(width: environment.container.effectiveContentSize.width)
+        : KeyboardEmojiCatalog.columns
+      let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
+        widthDimension: .fractionalWidth(1.0 / CGFloat(columns)),
+        heightDimension: .fractionalHeight(1)))
+      let group = NSCollectionLayoutGroup.horizontal(layoutSize: NSCollectionLayoutSize(
+        widthDimension: .fractionalWidth(1),
+        heightDimension: kaomoji ? .absolute(44) : .fractionalWidth(1.0 / CGFloat(columns))),
+        subitems: [item])
+      return NSCollectionLayoutSection(group: group)
+    }
   }
 
   private static func tabConfiguration(title: String) -> UIButton.Configuration {
@@ -243,17 +259,19 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   }
 
   private func reloadCatalog() {
+    grid.collectionViewLayout.invalidateLayout()
     grid.reloadData()
     updateStatus()
     onCatalogChange?()
   }
 
   private func updateStatus() {
-    if loading && items.isEmpty { status.text = "正在加载表情…" }
+    let noun = showsKaomoji ? "颜文字" : "表情"
+    if loading && items.isEmpty { status.text = "正在加载\(noun)…" }
     else if items.isEmpty { status.text = selectedTab >= 0 && availableTabs[selectedTab] == .recent
-      ? "暂无最近使用" : "暂无表情" }
-    else if complete { status.text = "\(items.count) 个表情" }
-    else { status.text = "\(items.count) 个表情 · 继续滚动加载" }
+      ? "暂无最近使用" : "暂无\(noun)" }
+    else if complete { status.text = "\(items.count) 个\(noun)" }
+    else { status.text = "\(items.count) 个\(noun) · 继续滚动加载" }
   }
 
   func numberOfSections(in collectionView: UICollectionView) -> Int { 1 }
@@ -267,7 +285,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   ) -> UICollectionViewCell {
     let cell = collectionView.dequeueReusableCell(
       withReuseIdentifier: KeyboardEmojiCell.reuseIdentifier, for: indexPath)
-    (cell as? KeyboardEmojiCell)?.show(items[indexPath.item])
+    (cell as? KeyboardEmojiCell)?.show(items[indexPath.item], kaomoji: showsKaomoji)
     return cell
   }
 
@@ -275,7 +293,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     guard items.indices.contains(indexPath.item) else { return }
     collectionView.deselectItem(at: indexPath, animated: false)
     let emoji = items[indexPath.item].text
-    KeyboardEmojiRecents.record(emoji)
+    if !showsKaomoji { KeyboardEmojiRecents.record(emoji) }
     onInsert(emoji)
   }
 
@@ -311,7 +329,9 @@ private final class KeyboardEmojiCell: UICollectionViewCell {
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-  func show(_ item: KeyboardEmojiCatalog.Item) {
+  func show(_ item: KeyboardEmojiCatalog.Item, kaomoji: Bool = false) {
+    label.font = .systemFont(ofSize: kaomoji ? 17 : 28)
+    label.textColor = KeyboardSkinPreference.selected.keyForeground
     label.text = item.text
     accessibilityLabel = item.annotation.isEmpty ? item.text : "\(item.text)，\(item.annotation)"
   }
