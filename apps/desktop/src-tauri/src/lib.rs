@@ -1462,8 +1462,10 @@ async fn dictionary_request(
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
         let requires_quiesce = dictionary_action_requires_quiesce(&action);
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         let _ = requires_quiesce;
+        #[cfg(target_os = "linux")]
+        let user_data = options["user_data"].as_str().map(str::to_owned);
         #[cfg(target_os = "macos")]
         if requires_quiesce {
             msime_host_macos::quiesce_input_sessions();
@@ -1499,6 +1501,21 @@ async fn dictionary_request(
                     result = msime_host_api::dictionary_request_json(&bytes);
                 }
                 return result.map_err(|reason| CommandError {
+                    code: dictionary_error_code(&reason),
+                });
+            }
+            // The IBus and Fcitx5 hosts release their sessions when they next see the lease, so the lock failure is retried under it.
+            #[cfg(target_os = "linux")]
+            if requires_quiesce {
+                let mut first = Some(first);
+                return platform::linux::linux_dictionary_quiesce::with_quiesced_hosts(
+                    user_data.as_deref(),
+                    || match first.take() {
+                        Some(result) => result,
+                        None => msime_host_api::dictionary_request_json(&bytes),
+                    },
+                )
+                .map_err(|reason| CommandError {
                     code: dictionary_error_code(&reason),
                 });
             }

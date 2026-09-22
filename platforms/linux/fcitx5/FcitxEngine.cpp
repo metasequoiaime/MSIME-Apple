@@ -30,6 +30,7 @@
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/core/CandidateSkinCatalog.h"
+#include "../src/core/DictionaryQuiesceLease.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
 #endif
@@ -366,6 +367,7 @@ public:
         });
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
+          refreshDictionaryQuiesce();
           refreshProviderSockets();
           refreshPreferences();
           refreshOnline();
@@ -1278,6 +1280,9 @@ public:
     if (session_ && private_ != privateInput()) { close(); clearPanel(); }
     if (session_) return true;
     auto options = readOptions();
+    dictionary_user_data_ = options.value("user_data", std::string{});
+    // Dictionary maintenance is running from the settings window; keys go to the application until it is done.
+    if (msime::linux_host::dictionary_quiesced(dictionary_user_data_)) return false;
     candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
     candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
     // The skin catalogue is for this host's own menu; the Host API rejects an
@@ -2034,6 +2039,14 @@ public:
       wave_overlay_surface_->hide();
     wave_overlay_visible_ = false;
   }
+  // Release the session, and with it the shared dictionary lock, when the settings window asks for maintenance (core/DictionaryQuiesceLease.h). The composition is finished first, so nothing typed is lost; ensure() opens a new session once the lease is gone.
+  void refreshDictionaryQuiesce() {
+    if (!session_ || !msime::linux_host::dictionary_quiesced(dictionary_user_data_)) return;
+    if (!view_.value("editing_text", std::string{}).empty())
+      command(MSIME_FINISH_COMPOSITION);
+    close();
+    clearPanel();
+  }
   void refreshSystemTheme() {
     const auto now = std::chrono::steady_clock::now();
     if (now < system_theme_probe_due_) return;
@@ -2540,6 +2553,7 @@ public:
   Json preferences_ = Json::object();
   Json navigation_ = Json::object();
   std::string options_path_;
+  std::string dictionary_user_data_;
   std::string resources_;
   std::optional<std::string> scheme_override_;
   std::optional<std::string> shuangpin_profile_override_;
