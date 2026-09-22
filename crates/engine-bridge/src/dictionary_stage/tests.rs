@@ -121,7 +121,7 @@ fn wubi_candidate_codes_stay_aligned_with_candidates() {
         .unwrap()
         .execute_batch(
             "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
-             INSERT INTO wubi86 VALUES('a','工',100),('ab','干',90),('abce','平',80);",
+             INSERT INTO wubi86 VALUES('a','工',100),('a','七',90),('ab','干',1000),('abce','平',900);",
         )
         .unwrap();
     let mut options = options;
@@ -129,6 +129,7 @@ fn wubi_candidate_codes_stay_aligned_with_candidates() {
     let mut session = Session::new(&options).unwrap();
     session.character(b'a', false).unwrap();
     let view = session.snapshot().unwrap();
+    assert_eq!(view.candidates.first().unwrap(), "工");
     assert_eq!(view.candidate_codes.len(), view.candidates.len());
     let work = view
         .candidates
@@ -142,6 +143,85 @@ fn wubi_candidate_codes_stay_aligned_with_candidates() {
         .position(|word| word == "干")
         .unwrap();
     assert_eq!(view.candidate_codes[dry], "ab");
+}
+
+#[test]
+fn wubi_prefix_query_is_bounded_before_it_reaches_the_host() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = resources(root.path());
+    options.scheme = 2;
+    let mut dictionary =
+        Connection::open(Path::new(&options.dictionaries).join("msime.db")).unwrap();
+    dictionary
+        .execute(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER)",
+            [],
+        )
+        .unwrap();
+    let transaction = dictionary.transaction().unwrap();
+    for index in 0..55 {
+        transaction
+            .execute(
+                "INSERT INTO wubi86 VALUES(?1,?2,?3)",
+                rusqlite::params![
+                    format!("b{index:02}"),
+                    format!("合成{index:02}"),
+                    1000 - index
+                ],
+            )
+            .unwrap();
+    }
+    transaction.commit().unwrap();
+
+    let mut session = Session::new(&options).unwrap();
+    session.character(b'b', false).unwrap();
+    let view = session.snapshot().unwrap();
+    assert_eq!(view.candidates.len(), 50);
+    assert_eq!(view.candidates.first().unwrap(), "合成00");
+    assert_eq!(view.candidates.last().unwrap(), "合成49");
+}
+
+#[test]
+fn wubi_selection_promotes_the_existing_code_and_replays_from_journal() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = resources(root.path());
+    options.learning = true;
+    options.scheme = 2;
+    let dictionary = Path::new(&options.dictionaries).join("msime.db");
+    Connection::open(&dictionary)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+             INSERT INTO wubi86 VALUES('a','工',100),('a','七',90),('ab','干',80);",
+        )
+        .unwrap();
+
+    let mut session = Session::new(&options).unwrap();
+    session.character(b'a', false).unwrap();
+    let view = session.snapshot().unwrap();
+    let selected = view
+        .candidates
+        .iter()
+        .position(|word| word == "七")
+        .unwrap();
+    session.select(selected).unwrap();
+
+    let mut reopened = Session::new(&options).unwrap();
+    reopened.character(b'a', false).unwrap();
+    assert_eq!(
+        reopened.snapshot().unwrap().candidates.first().unwrap(),
+        "七"
+    );
+
+    let journal = Connection::open(Path::new(&options.user_data).join("msime_user.db")).unwrap();
+    let count: i64 = journal
+        .query_row(
+            "SELECT COUNT(*) FROM user_dictionary_operations WHERE dictionary='wubi' AND key='a' AND value='七' AND operation='upsert'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
 }
 
 #[test]
