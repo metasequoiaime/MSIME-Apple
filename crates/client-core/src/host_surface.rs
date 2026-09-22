@@ -303,7 +303,10 @@ impl HostCapabilities {
             // Harmony 2-in-1 hardware keyboards use the same candidate number
             // row as Windows; the ArkTS router releases digits when this
             // preference is enabled, so the focused editor can consume them.
-            number_row_selection: matches!(platform, HostPlatform::Linux | HostPlatform::Harmony),
+            number_row_selection: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Android | HostPlatform::Harmony
+            ),
             // HarmonyOS records through its own AudioCapturer for the HTTP and Doubao providers, so
             // the routing manager's input devices are both enumerable and selectable there. The
             // system speech recognizer keeps its audio inside the service and is unaffected either
