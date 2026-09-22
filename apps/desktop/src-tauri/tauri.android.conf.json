@@ -1,4 +1,5 @@
 {
+  "identifier": "app.msime.client.preview",
   "bundle": {
     "android": { "minSdkVersion": 28, "versionCode": 1 }
   }
