@@ -31,6 +31,8 @@ public final class BackendAccount {
     public record Challenge(String id, String nonce) {}
     public record ChatModel(String id) {}
     public record ChatMessage(String role, String content) {}
+    public record ClipboardItem(String id, String text, String updatedAt) {}
+    public record ClipboardPage(boolean enabled, List<ClipboardItem> items) {}
 
     private final AndroidAccountSessionStorage sessions;
 
@@ -143,6 +145,57 @@ public final class BackendAccount {
         return content;
     }
 
+    public ClipboardPage clipboard(String search) throws Exception {
+        String token = accessToken();
+        if (token.isEmpty() || search == null || search.length() > 1024 || search.chars().anyMatch(Character::isISOControl))
+            throw new IllegalStateException("invalid clipboard request");
+        String encoded = java.net.URLEncoder.encode(search, StandardCharsets.UTF_8.name()).replace("+", "%20");
+        JSONObject response = request("GET", "/v1/users/me/clipboard?q=" + encoded, null, token);
+        org.json.JSONArray values = response.optJSONArray("items");
+        if (values == null || values.length() > 50) throw new IllegalStateException("invalid clipboard response");
+        List<ClipboardItem> items = new ArrayList<>();
+        for (int index = 0; index < values.length(); index++) {
+            JSONObject item = values.optJSONObject(index);
+            if (item == null) throw new IllegalStateException("invalid clipboard response");
+            String id = item.optString("id", "");
+            String text = item.optString("text", "");
+            String updated = item.optString("updated_at", "");
+            if (!id.matches("[0-9a-f]{64}") || text.isEmpty() || text.length() > 10_000
+                    || updated.isEmpty() || updated.length() > 128
+                    || updated.chars().anyMatch(Character::isISOControl))
+                throw new IllegalStateException("invalid clipboard response");
+            items.add(new ClipboardItem(id, text, updated));
+        }
+        return new ClipboardPage(response.optBoolean("enabled", false), List.copyOf(items));
+    }
+
+    public void setClipboardEnabled(boolean enabled) throws Exception {
+        String token = accessToken();
+        if (token.isEmpty()) throw new IllegalStateException("HTTP 401");
+        request("PUT", "/v1/users/me/clipboard/settings", new JSONObject().put("enabled", enabled), token);
+    }
+
+    public ClipboardItem addClipboard(String text) throws Exception {
+        String token = accessToken();
+        if (token.isEmpty() || text == null || text.trim().isEmpty() || text.length() > 10_000
+                || text.getBytes(StandardCharsets.UTF_8).length > 40_000)
+            throw new IllegalStateException("invalid clipboard request");
+        JSONObject item = request("POST", "/v1/users/me/clipboard", new JSONObject().put("text", text), token);
+        String id = item.optString("id", "");
+        String updated = item.optString("updated_at", "");
+        if (!id.matches("[0-9a-f]{64}") || updated.isEmpty() || updated.length() > 128)
+            throw new IllegalStateException("invalid clipboard response");
+        return new ClipboardItem(id, item.optString("text", text), updated);
+    }
+
+    public void deleteClipboard(String id) throws Exception {
+        String token = accessToken();
+        if (token.isEmpty() || (id != null && !id.matches("[0-9a-f]{64}")))
+            throw new IllegalStateException("invalid clipboard request");
+        request("DELETE", id == null ? "/v1/users/me/clipboard" : "/v1/users/me/clipboard/" + id,
+            null, token);
+    }
+
     /** Forget the session on this device. The account itself is untouched. */
     public void signOut() {
         try {
@@ -175,7 +228,9 @@ public final class BackendAccount {
             // 状态码带进消息里：503 是这个登录方式没配，401 是凭据不对，两件事不该长同一个样子。
             if (status / 100 != 2) throw new IllegalStateException("HTTP " + status);
             try (InputStream input = connection.getInputStream()) {
-                return new JSONObject(new String(readBounded(input), StandardCharsets.UTF_8));
+                byte[] response = readBounded(input);
+                if (response.length == 0) return new JSONObject();
+                return new JSONObject(new String(response, StandardCharsets.UTF_8));
             }
         } finally {
             if (connection != null) connection.disconnect();
