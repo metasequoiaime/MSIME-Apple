@@ -117,6 +117,23 @@ jobs:
           path: ${{ runner.temp }}/sparkle
           # 版本和摘要都写在 CMakeLists.txt 里,所以按它的哈希做键:版本一动键就变,不会用到旧归档。
           key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+      - name: Prepare pinned Sparkle
+        if: ${{ needs.changes.outputs.build == 'true' }}
+        run: |
+          set -euo pipefail
+          if [[ ! -d "$RUNNER_TEMP/sparkle/Sparkle.framework" ]]; then
+            archive="$RUNNER_TEMP/Sparkle-2.9.6.tar.xz"
+            curl --fail --location --retry 3 \
+              https://github.com/sparkle-project/Sparkle/releases/download/2.9.6/Sparkle-2.9.6.tar.xz \
+              --output "$archive"
+            printf '%s  %s\n' \
+              '52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192' \
+              "$archive" | shasum -a 256 --check
+            mkdir -p "$RUNNER_TEMP/sparkle"
+            tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
+          fi
+          test -d "$RUNNER_TEMP/sparkle/Sparkle.framework"
+          echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Remove unused runner taps
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
@@ -160,7 +177,7 @@ jobs:
           fi
       - name: Configure
         if: ${{ needs.changes.outputs.build == 'true' }}
-        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SHARED_VOICE_LOCAL_WHISPER=OFF -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
+        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_SHARED_VOICE_LOCAL_WHISPER=OFF -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
       - name: Build
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: cmake --build build --parallel
@@ -205,6 +222,22 @@ jobs:
           path: ${{ runner.temp }}/sparkle
           # 版本和摘要都写在 CMakeLists.txt 里,所以按它的哈希做键:版本一动键就变,不会用到旧归档。
           key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+      - name: Prepare pinned Sparkle
+        run: |
+          set -euo pipefail
+          if [[ ! -d "$RUNNER_TEMP/sparkle/Sparkle.framework" ]]; then
+            archive="$RUNNER_TEMP/Sparkle-2.9.6.tar.xz"
+            curl --fail --location --retry 3 \
+              https://github.com/sparkle-project/Sparkle/releases/download/2.9.6/Sparkle-2.9.6.tar.xz \
+              --output "$archive"
+            printf '%s  %s\n' \
+              '52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192' \
+              "$archive" | shasum -a 256 --check
+            mkdir -p "$RUNNER_TEMP/sparkle"
+            tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
+          fi
+          test -d "$RUNNER_TEMP/sparkle/Sparkle.framework"
+          echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Remove unused runner taps
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
@@ -219,6 +252,7 @@ jobs:
         run: >
           cmake -S platforms/macos -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+          -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT"
           -DMSIME_SHARED_VOICE_LOCAL_WHISPER=OFF
           -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime.db"
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
