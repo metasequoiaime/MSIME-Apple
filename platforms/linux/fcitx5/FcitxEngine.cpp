@@ -76,6 +76,13 @@ using Json = nlohmann::json;
 class FcitxEngine;
 class FcitxMaintenanceAction;
 
+struct PendingPreferenceSave {
+  std::string directory;
+  std::string section;
+  std::string key;
+  Json value;
+};
+
 // ABI buffers and errors never escape into diagnostics or the panel.
 Json response(char *raw) {
   std::unique_ptr<char, decltype(&msime_client_string_free)> owned(raw, msime_client_string_free);
@@ -83,6 +90,21 @@ Json response(char *raw) {
   auto value = Json::parse(raw);
   if (!value.value("ok", false)) throw std::runtime_error("MSIME request failed");
   return value.at("value");
+}
+
+Json savePreference(const PendingPreferenceSave &request) {
+  auto snapshot = response(msime_client_load_preferences(
+      reinterpret_cast<const uint8_t *>(request.directory.data()), request.directory.size()));
+  if (!snapshot.is_object() || !snapshot.contains("revision") ||
+      !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
+    return Json::object();
+  if (request.section.empty()) snapshot["preferences"][request.key] = request.value;
+  else snapshot["preferences"][request.section][request.key] = request.value;
+  const auto encoded = snapshot.dump();
+  return response(msime_client_save_preferences(
+      reinterpret_cast<const uint8_t *>(request.directory.data()), request.directory.size(),
+      snapshot.at("revision").get<uint64_t>(),
+      reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
 }
 
 std::string panelPreview(const std::string &text) {
@@ -333,6 +355,7 @@ public:
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
     preferences_save_job_ = {};
+    preferences_save_retry_.reset();
     online_socket_.clear();
     online_query_.clear();
     online_job_session_ = 0;
@@ -748,124 +771,51 @@ public:
     } catch (...) {}
     msime_linux_diagnostic_write(saved ? "menu_save_succeeded" : "menu_save_failed");
     preferences_save_job_ = {};
+    if (saved) preferences_save_retry_.reset();
+  }
+  void startPreferenceSave(PendingPreferenceSave request) {
+    waitForPreferenceSave();
+    preferences_save_retry_ = request;
+    preferences_save_job_ = std::async(std::launch::async, [request = std::move(request)] {
+      try { return savePreference(request); }
+      catch (...) { return Json::object(); }
+    }).share();
+  }
+  bool retryPreferenceSave() {
+    if (preferences_save_job_.valid()) {
+      if (preferences_save_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+        return false;
+      waitForPreferenceSave();
+    }
+    if (!preferences_save_retry_ || options_path_.empty() || private_)
+      return false;
+    startPreferenceSave(*preferences_save_retry_);
+    return true;
   }
   void saveBooleanPreference(const char *key, bool enabled) {
     if (!key || !*key || options_path_.empty() || private_) return;
-    waitForPreferenceSave();
-    const auto directory = options_path_;
-    const std::string preference(key);
-    preferences_save_job_ = std::async(std::launch::async, [directory, preference, enabled] {
-      auto snapshot = response(msime_client_load_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-      if (!snapshot.is_object() || !snapshot.contains("revision") ||
-          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
-        return Json::object();
-      snapshot["preferences"][preference] = enabled;
-      const auto encoded = snapshot.dump();
-      return response(msime_client_save_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
-          snapshot.at("revision").get<uint64_t>(),
-          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
-    }).share();
+    startPreferenceSave({options_path_, {}, key, enabled});
   }
   void saveStringPreference(const char *key, const std::string &value) {
     if (!key || !*key || options_path_.empty() || private_) return;
-    waitForPreferenceSave();
-    const auto directory = options_path_;
-    const std::string preference(key);
-    preferences_save_job_ = std::async(std::launch::async, [directory, preference, value] {
-      auto snapshot = response(msime_client_load_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-      if (!snapshot.is_object() || !snapshot.contains("revision") ||
-          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
-        return Json::object();
-      snapshot["preferences"][preference] = value;
-      const auto encoded = snapshot.dump();
-      return response(msime_client_save_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
-          snapshot.at("revision").get<uint64_t>(),
-          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
-    }).share();
+    startPreferenceSave({options_path_, {}, key, value});
   }
   void saveNumberPreference(const char *key, uint8_t value) {
     if (!key || !*key || options_path_.empty() || private_) return;
-    waitForPreferenceSave();
-    const auto directory = options_path_;
-    const std::string preference(key);
-    preferences_save_job_ = std::async(std::launch::async, [directory, preference, value] {
-      auto snapshot = response(msime_client_load_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-      if (!snapshot.is_object() || !snapshot.contains("revision") ||
-          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
-        return Json::object();
-      snapshot["preferences"][preference] = value;
-      const auto encoded = snapshot.dump();
-      return response(msime_client_save_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
-          snapshot.at("revision").get<uint64_t>(),
-          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
-    }).share();
+    startPreferenceSave({options_path_, {}, key, value});
   }
   void saveNestedBooleanPreference(const char *object, const char *key, bool enabled) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
-    waitForPreferenceSave();
-    const auto directory = options_path_;
-    const std::string section(object), preference(key);
-    preferences_save_job_ = std::async(std::launch::async,
-        [directory, section, preference, enabled] {
-      auto snapshot = response(msime_client_load_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-      if (!snapshot.is_object() || !snapshot.contains("revision") ||
-          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
-        return Json::object();
-      snapshot["preferences"][section][preference] = enabled;
-      const auto encoded = snapshot.dump();
-      return response(msime_client_save_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
-          snapshot.at("revision").get<uint64_t>(),
-          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
-    }).share();
+    startPreferenceSave({options_path_, object, key, enabled});
   }
   void saveNestedStringPreference(const char *object, const char *key,
                                  const std::string &value) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
-    waitForPreferenceSave();
-    const auto directory = options_path_;
-    const std::string section(object), preference(key);
-    preferences_save_job_ = std::async(std::launch::async,
-        [directory, section, preference, value] {
-      auto snapshot = response(msime_client_load_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-      if (!snapshot.is_object() || !snapshot.contains("revision") ||
-          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
-        return Json::object();
-      snapshot["preferences"][section][preference] = value;
-      const auto encoded = snapshot.dump();
-      return response(msime_client_save_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
-          snapshot.at("revision").get<uint64_t>(),
-          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
-    }).share();
+    startPreferenceSave({options_path_, object, key, value});
   }
   void saveNestedNumberPreference(const char *object, const char *key, uint8_t value) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
-    waitForPreferenceSave();
-    const auto directory = options_path_;
-    const std::string section(object), preference(key);
-    preferences_save_job_ = std::async(std::launch::async,
-        [directory, section, preference, value] {
-      auto snapshot = response(msime_client_load_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-      if (!snapshot.is_object() || !snapshot.contains("revision") ||
-          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
-        return Json::object();
-      snapshot["preferences"][section][preference] = value;
-      const auto encoded = snapshot.dump();
-      return response(msime_client_save_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
-          snapshot.at("revision").get<uint64_t>(),
-          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
-    }).share();
+    startPreferenceSave({options_path_, object, key, value});
   }
   bool setFrequencyNumber(const char *key, uint8_t value) {
     if (!session_ || restricted() || privateInput() || value < 1 || value > 10)
@@ -1323,8 +1273,7 @@ public:
     try {
       if (preferences_save_job_.valid()) {
         if (preferences_save_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-        preferences_save_job_.get();
-        preferences_save_job_ = {};
+        waitForPreferenceSave();
       }
       if (preferences_job_.valid()) {
         if (preferences_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
@@ -2422,6 +2371,7 @@ public:
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
   std::shared_future<Json> preferences_save_job_;
+  std::optional<PendingPreferenceSave> preferences_save_retry_;
   std::unique_ptr<fcitx::EventSourceTime> preferences_timer_;
   fcitx::InputContext &ic_;
   FcitxEngine *engine_;
@@ -3693,6 +3643,29 @@ public:
   void activate(fcitx::InputContext *) override {}
 };
 
+class FcitxPreferenceSaveRetryAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxPreferenceSaveRetryAction(fcitx::FactoryFor<FcitxState> *factory)
+      : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (ic) {
+      const auto *state = ic->propertyFor(factory_);
+      if (state && state->preferences_save_job_.valid()) return "正在保存设置…";
+      if (state && state->preferences_save_retry_) return "重试保存设置";
+    }
+    return "保存设置";
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state && state->retryPreferenceSave()) update(ic);
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxClipboardAction : public fcitx::SimpleAction {
 public:
   explicit FcitxClipboardAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -4117,6 +4090,7 @@ public:
     desktop_tools_menu_.addAction(&desktop_cloud_clipboard_action_);
     desktop_tools_menu_.addAction(&settings_action_);
     desktop_tools_menu_.addAction(&about_action_);
+    desktop_tools_menu_.addAction(&preference_save_retry_action_);
     emoji_action_.setMenu(&emoji_menu_);
     emoji_menu_.addAction(&emoji_item1_);
     emoji_menu_.addAction(&emoji_item2_);
@@ -4428,6 +4402,7 @@ public:
   bool toolbarEnabled(fcitx::InputContext *ic);
   void rebuildToolbarMenu(fcitx::InputContext *ic);
   FcitxDesktopPanelAction about_action_{&factory_, "about", "关于"};
+  FcitxPreferenceSaveRetryAction preference_save_retry_action_{&factory_};
   fcitx::Menu emoji_menu_;
   FcitxEmojiItemAction emoji_item1_{&factory_, 0};
   FcitxEmojiItemAction emoji_item2_{&factory_, 1};
