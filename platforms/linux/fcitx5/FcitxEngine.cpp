@@ -29,6 +29,7 @@
 #include "../src/core/BackspaceHoldPolicy.h"
 #include "../src/core/SmartPunctuationSpace.h"
 #include "../src/system/DiagnosticLog.h"
+#include "../src/system/PanelInputChannel.h"
 #include "../src/core/HelpcodeDefaults.h"
 #include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
@@ -4376,6 +4377,89 @@ public:
           state->close();
           state->clearPanel();
         });
+    // Any focused context counts, whichever input method it uses: the panels type through Fcitx5 itself once this addon is loaded.
+    panel_focus_watch_ = instance->watchEvent(
+        fcitx::EventType::InputContextFocusIn,
+        fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &) {
+          ++panel_input_generation_;
+          listenPanelInput();
+        });
+    listenPanelInput();
+  }
+  // The desktop panels type through the focused input context; see PanelInputChannel.h.
+  void listenPanelInput() {
+    if (panel_input_socket_.listening() ||
+        !panel_input_socket_.open(msime::linux_host::panel_input_socket_path()))
+      return;
+    panel_input_io_ = instance_->eventLoop().addIOEvent(
+        panel_input_socket_.fd(), fcitx::IOEventFlag::In,
+        [this](fcitx::EventSourceIO *, int, fcitx::IOEventFlags) {
+          if (auto accepted = panel_input_socket_.accept_request()) {
+            if (auto request = msime::linux_host::parse_panel_input_request(accepted->second))
+              panel_input_broker_.submit(accepted->first, std::move(*request),
+                                         msime::linux_host::panel_input_monotonic_us());
+            else
+              msime::linux_host::PanelInputSocket::reply_and_close(
+                  accepted->first, msime::linux_host::panel_input_error_reply("invalid"));
+            pumpPanelInput();
+          }
+          return true;
+        });
+  }
+  void pumpPanelInput() {
+    panel_input_broker_.pump(
+        msime::linux_host::panel_input_monotonic_us(),
+        [this] {
+          auto *ic = instance_->mostRecentInputContext();
+          return msime::linux_host::PanelInputFocus{ic && ic->hasFocus(), panel_input_generation_};
+        },
+        [this](const msime::linux_host::PanelInputRequest &request) { return deliverPanelInput(request); },
+        msime::linux_host::PanelInputSocket::reply_and_close);
+    if (panel_input_broker_.empty()) return;
+    if (!panel_input_timer_) {
+      panel_input_timer_ = instance_->eventLoop().addTimeEvent(
+          CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50000, 10000,
+          [this](fcitx::EventSourceTime *timer, uint64_t) {
+            pumpPanelInput();
+            if (!panel_input_broker_.empty()) {
+              timer->setNextInterval(50000);
+              timer->setOneShot();
+            }
+            return true;
+          });
+    } else if (!panel_input_timer_->isEnabled()) {
+      panel_input_timer_->setNextInterval(50000);
+      panel_input_timer_->setOneShot();
+    }
+  }
+  msime::linux_host::PanelInputDelivery deliverPanelInput(
+      const msime::linux_host::PanelInputRequest &request) {
+    using msime::linux_host::PanelInputDelivery;
+    auto *ic = instance_->mostRecentInputContext();
+    if (!ic || !ic->hasFocus()) return PanelInputDelivery::NoFocus;
+    if (ic->capabilityFlags().testAny(fcitx::CapabilityFlags{
+            fcitx::CapabilityFlag::Password, fcitx::CapabilityFlag::Disable}))
+      return PanelInputDelivery::Restricted;
+    if (request.kind == msime::linux_host::PanelInputRequest::Kind::Text) {
+      ic->commitString(request.text);
+      return PanelInputDelivery::Delivered;
+    }
+    auto sym = fcitx::Key::keySymFromString(request.key);
+    if (sym == FcitxKey_None) return PanelInputDelivery::Invalid;
+    fcitx::KeyStates states;
+    if (request.shift) {
+      states |= fcitx::KeyState::Shift;
+      if (sym >= FcitxKey_a && sym <= FcitxKey_z)
+        sym = static_cast<fcitx::KeySym>(sym - FcitxKey_a + FcitxKey_A);
+    }
+    if (request.control) states |= fcitx::KeyState::Ctrl;
+    if (request.alt) states |= fcitx::KeyState::Alt;
+    if (request.super) states |= fcitx::KeyState::Super;
+    // Fcitx5 key codes are X keycodes, the evdev code plus eight.
+    const fcitx::Key key(sym, states, request.keycode ? static_cast<int>(request.keycode) + 8 : 0);
+    ic->forwardKey(key, false);
+    ic->forwardKey(key, true);
+    return PanelInputDelivery::Delivered;
   }
   void activate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
@@ -4534,6 +4618,13 @@ public:
   }};
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
+  // Declared in this order so the event sources go before the socket and the connections they serve.
+  msime::linux_host::PanelInputSocket panel_input_socket_;
+  msime::linux_host::PanelInputBroker panel_input_broker_;
+  uint64_t panel_input_generation_ = 0;
+  std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> panel_focus_watch_;
+  std::unique_ptr<fcitx::EventSourceIO> panel_input_io_;
+  std::unique_ptr<fcitx::EventSourceTime> panel_input_timer_;
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxInputModeAction input_mode_action_{&factory_};
   FcitxSchemeAction scheme_action_{&factory_};

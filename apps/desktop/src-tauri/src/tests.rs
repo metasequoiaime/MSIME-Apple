@@ -903,9 +903,64 @@ use super::*;
 // moved out of the crate root; `use super::*` no longer reaches them.
 #[cfg(target_os = "linux")]
 use super::panel_input::{
-    focused_sway_container, panel_text_requires_clipboard, parse_xdotool_geometry,
-    sway_rect_for_container, sway_workspace_for_container, x11_window_is_owned_by_process,
+    focused_sway_container, ime_key_request, panel_text_requires_clipboard, parse_ime_reply,
+    parse_xdotool_geometry, sway_rect_for_container, sway_workspace_for_container,
+    x11_window_is_owned_by_process, ImeReply,
 };
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_input_method_reply_separates_delivery_from_refusal() {
+    assert_eq!(parse_ime_reply("{\"ok\":true}\n"), Some(ImeReply::Ok(None)));
+    assert_eq!(
+        parse_ime_reply("{\"generation\":9,\"ok\":true}\n"),
+        Some(ImeReply::Ok(Some(9)))
+    );
+    assert_eq!(
+        parse_ime_reply("{\"error\":\"no_focus\",\"ok\":false}\n"),
+        Some(ImeReply::Declined)
+    );
+    // A missing or garbled answer is not a refusal: the host may already have typed the text.
+    assert_eq!(parse_ime_reply(""), None);
+    assert_eq!(parse_ime_reply("{\"ok\":\"yes\"}"), None);
+    assert_eq!(parse_ime_reply("{}"), None);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_input_method_key_request_names_the_keysym_and_evdev_code() {
+    let request: msime_client_core::panels::KeyboardInputRequest =
+        serde_json::from_value(serde_json::json!({
+            "virtual_key": 0x41,
+            "shift": true,
+            "modifiers": { "ctrl": true, "alt": false, "win": true },
+            "include_sticky_modifiers": true,
+        }))
+        .unwrap();
+    assert_eq!(
+        ime_key_request(&request),
+        Some(serde_json::json!({
+            "op": "key", "key": "a", "keycode": 30, "shift": true,
+            "control": true, "alt": false, "super": true,
+        }))
+    );
+    // Commit and navigation keys leave the sticky modifiers behind.
+    let backspace: msime_client_core::panels::KeyboardInputRequest =
+        serde_json::from_value(serde_json::json!({
+            "virtual_key": 0x08,
+            "shift": false,
+            "modifiers": { "ctrl": true, "alt": true, "win": true },
+            "include_sticky_modifiers": false,
+        }))
+        .unwrap();
+    assert_eq!(
+        ime_key_request(&backspace),
+        Some(serde_json::json!({
+            "op": "key", "key": "BackSpace", "keycode": 14, "shift": false,
+            "control": false, "alt": false, "super": false,
+        }))
+    );
+}
 
 #[cfg(target_os = "linux")]
 #[test]

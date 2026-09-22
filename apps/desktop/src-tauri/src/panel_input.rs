@@ -129,7 +129,9 @@ pub(crate) fn panel_position(
                 logical_workspace = sway_workspace_for_container(&tree, id, None);
                 sway_rect_for_container(&tree, id)
             }),
-        PanelInputTarget::Wayland | PanelInputTarget::Ydotool => None,
+        PanelInputTarget::Wayland | PanelInputTarget::Ydotool | PanelInputTarget::InputMethod => {
+            None
+        }
     }?;
     if ![rect.0, rect.1, rect.2, rect.3]
         .iter()
@@ -227,6 +229,10 @@ fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
         if let Some(target) = sway_target() {
             return Ok(target);
         }
+    }
+    // GNOME and KDE on Wayland expose neither a virtual keyboard nor a focus query, so without ydotool the only way into the editor is the input method's own connection to it.
+    if panel_input_socket().is_some() {
+        return Ok(PanelInputTarget::InputMethod);
     }
     Err(HostActionError {
         code: "unavailable",
@@ -548,17 +554,25 @@ fn release_panel_focus(
             windows: Vec::new(),
         });
     }
-    let windows: Vec<_> = [
-        "handwriting-panel",
-        "emoji-panel",
-        "clipboard-panel",
-        "voice-panel",
-        "cloud-clipboard-panel",
-        "cloud-dictionary-panel",
-    ]
-    .into_iter()
-    .filter_map(|label| app.get_webview_window(label))
-    .collect();
+    release_focused_panels(app)
+}
+
+#[cfg(target_os = "linux")]
+const EDITABLE_PANEL_LABELS: [&str; 6] = [
+    "handwriting-panel",
+    "emoji-panel",
+    "clipboard-panel",
+    "voice-panel",
+    "cloud-clipboard-panel",
+    "cloud-dictionary-panel",
+];
+
+#[cfg(target_os = "linux")]
+fn release_focused_panels(app: &tauri::AppHandle) -> Result<PanelFocusRelease, HostActionError> {
+    let windows: Vec<_> = EDITABLE_PANEL_LABELS
+        .into_iter()
+        .filter_map(|label| app.get_webview_window(label))
+        .collect();
     let mut focused = false;
     for window in &windows {
         focused |= window.is_focused().map_err(|_| HostActionError {
@@ -605,6 +619,153 @@ fn with_panel_focus_released<T>(
     result
 }
 
+// ---- Input method route ----
+//
+// The MSIME IBus engine and Fcitx5 addon listen on a user-private socket and type into the context they have focused (platforms/linux/src/system/PanelInputChannel.h). That reaches the editor on every session type, including GNOME and KDE on Wayland where no tool can, so it is tried before xdotool, wtype and ydotool, which remain for sessions where another input method is active.
+
+#[cfg(target_os = "linux")]
+fn panel_input_socket() -> Option<std::path::PathBuf> {
+    discover_session_provider("panel-input.sock")
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ImeReply {
+    Ok(Option<u64>),
+    Declined,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, PartialEq, Eq)]
+enum ImeOutcome {
+    Delivered,
+    // The host answered that it did not type anything, or could not be reached: another route may try.
+    Declined,
+    // The request was sent and no answer came back. The host may still have typed it, so no other route may try, or the text could appear twice.
+    Unknown,
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn parse_ime_reply(line: &str) -> Option<ImeReply> {
+    let value: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    match value.get("ok")?.as_bool()? {
+        true => Some(ImeReply::Ok(
+            value.get("generation").and_then(serde_json::Value::as_u64),
+        )),
+        false => Some(ImeReply::Declined),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ime_exchange(
+    socket: &std::path::Path,
+    request: &serde_json::Value,
+) -> Result<ImeReply, ImeOutcome> {
+    use std::io::{BufRead, Write};
+    let mut stream =
+        std::os::unix::net::UnixStream::connect(socket).map_err(|_| ImeOutcome::Declined)?;
+    // The host parks a request for up to 700ms while focus moves back to the editor.
+    stream
+        .set_write_timeout(Some(std::time::Duration::from_millis(500)))
+        .and_then(|_| stream.set_read_timeout(Some(std::time::Duration::from_millis(1500))))
+        .map_err(|_| ImeOutcome::Declined)?;
+    let mut line = request.to_string();
+    line.push('\n');
+    // The host acts only on a complete line, so a failed write cannot have typed anything.
+    stream
+        .write_all(line.as_bytes())
+        .map_err(|_| ImeOutcome::Declined)?;
+    let mut reply = String::new();
+    std::io::BufReader::new(std::io::Read::take(&stream, 4096))
+        .read_line(&mut reply)
+        .map_err(|_| ImeOutcome::Unknown)?;
+    parse_ime_reply(&reply).ok_or(ImeOutcome::Unknown)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ime_key_request(request: &KeyboardInputRequest) -> Option<serde_json::Value> {
+    let key = xdotool_key_name(request.virtual_key)?;
+    let sticky = request.include_sticky_modifiers;
+    Some(serde_json::json!({
+        "op": "key",
+        "key": key,
+        "keycode": ydotool_key_code(request.virtual_key).unwrap_or(0),
+        "shift": request.shift,
+        "control": sticky && request.modifiers.ctrl,
+        "alt": sticky && request.modifiers.alt,
+        "super": sticky && request.modifiers.win,
+    }))
+}
+
+#[cfg(target_os = "linux")]
+fn send_through_input_method(app: &tauri::AppHandle, mut request: serde_json::Value) -> ImeOutcome {
+    let Some(socket) = panel_input_socket() else {
+        return ImeOutcome::Declined;
+    };
+    let focused = |window: &tauri::WebviewWindow| window.is_focused().unwrap_or(false);
+    let panel_focused = EDITABLE_PANEL_LABELS
+        .into_iter()
+        .filter_map(|label| app.get_webview_window(label))
+        .any(|window| focused(&window));
+    // Our own settings window would take the text as readily as any editor. Leave that case to the routes that address the remembered window rather than the focused one.
+    let own_window_focused = |app: &tauri::AppHandle| {
+        app.webview_windows().into_iter().any(|(label, window)| {
+            !EDITABLE_PANEL_LABELS.contains(&label.as_str()) && focused(&window)
+        })
+    };
+    if !panel_focused {
+        if own_window_focused(app) {
+            return ImeOutcome::Declined;
+        }
+        return match ime_exchange(&socket, &request) {
+            Ok(ImeReply::Ok(_)) => ImeOutcome::Delivered,
+            Ok(ImeReply::Declined) => ImeOutcome::Declined,
+            Err(outcome) => outcome,
+        };
+    }
+    // The panel holds the focus, so the input method's focused context is the panel's own web view. Note the focus generation, hide the panels, and ask for a context focused after it.
+    let generation = match ime_exchange(&socket, &serde_json::json!({ "op": "generation" })) {
+        Ok(ImeReply::Ok(Some(generation))) => generation,
+        _ => return ImeOutcome::Declined,
+    };
+    let Ok(release) = release_focused_panels(app) else {
+        return ImeOutcome::Declined;
+    };
+    let outcome = if own_window_focused(app) {
+        ImeOutcome::Declined
+    } else {
+        request["after_generation"] = generation.into();
+        match ime_exchange(&socket, &request) {
+            Ok(ImeReply::Ok(_)) => ImeOutcome::Delivered,
+            Ok(ImeReply::Declined) => ImeOutcome::Declined,
+            Err(outcome) => outcome,
+        }
+    };
+    release.restore();
+    outcome
+}
+
+// Runs the input method route and turns its outcome into the answer for the caller: Some when it settled the request, None when the tool routes should try.
+#[cfg(target_os = "linux")]
+fn settle_through_input_method(
+    app: &tauri::AppHandle,
+    target: &PanelInputTarget,
+    request: serde_json::Value,
+) -> Option<Result<(), HostActionError>> {
+    match send_through_input_method(app, request) {
+        ImeOutcome::Delivered => Some(Ok(())),
+        ImeOutcome::Unknown => Some(Err(HostActionError {
+            code: "unavailable",
+        })),
+        ImeOutcome::Declined if matches!(target, PanelInputTarget::InputMethod) => {
+            Some(Err(HostActionError {
+                code: "unavailable",
+            }))
+        }
+        ImeOutcome::Declined => None,
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn send_x11_panel_key(window: &str, key: &str) -> Result<(), HostActionError> {
     // Window IDs can be reused after the original editor exits. Re-check the
@@ -639,6 +800,12 @@ pub(crate) fn send_panel_key(
     request.validate().map_err(|_| HostActionError {
         code: "invalid_key",
     })?;
+    let ime_request = ime_key_request(&request).ok_or(HostActionError {
+        code: "invalid_key",
+    })?;
+    if let Some(result) = settle_through_input_method(app, &target, ime_request) {
+        return result;
+    }
     if let PanelInputTarget::X11(window) = &target {
         let key = xdotool_key_args(&request).ok_or(HostActionError {
             code: "invalid_key",
@@ -717,6 +884,15 @@ fn send_panel_text_to_target(
     target: &PanelInputTarget,
     text: &str,
 ) -> Result<(), HostActionError> {
+    if !text
+        .chars()
+        .any(|character| matches!(character, '\n' | '\r' | '\t'))
+    {
+        let request = serde_json::json!({ "op": "text", "text": text });
+        if let Some(result) = settle_through_input_method(app, target, request) {
+            return result;
+        }
+    }
     // ydotool types an ASCII key map, while newlines and tabs must remain
     // literal text rather than becoming application shortcuts on any backend.
     let literal_transfer = panel_text_requires_clipboard(target, text);
@@ -841,6 +1017,12 @@ pub(crate) fn send_panel_ctrl_v(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
 ) -> Result<(), HostActionError> {
+    let request = serde_json::json!({
+        "op": "key", "key": "v", "keycode": 47, "control": true,
+    });
+    if let Some(result) = settle_through_input_method(app, target, request) {
+        return result;
+    }
     with_panel_focus_released(app, target, || {
         if let PanelInputTarget::X11(window) = target {
             return send_x11_panel_key(window, "ctrl+v");

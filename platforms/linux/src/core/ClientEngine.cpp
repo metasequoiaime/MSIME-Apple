@@ -24,6 +24,7 @@
 #include "../candidates/ShuangpinProfileNames.h"
 #include "ClientInputModeMemory.h"
 #include "../system/DiagnosticLog.h"
+#include "../system/PanelInputChannel.h"
 #include "../system/TypingStatistics.h"
 #include "msime_client.h"
 #include <algorithm>
@@ -34,6 +35,7 @@
 #include <filesystem>
 #include <fstream>
 #include <fcntl.h>
+#include <glib-unix.h>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -4058,12 +4060,84 @@ void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anc
   s.surrounding_cursor = cursor;
   s.surrounding_anchor = anchor;
 }
+// The desktop panels type through this engine when it holds the focus; see PanelInputChannel.h. IBus gives every input context its own engine object, so the focused one is tracked here rather than in State.
+IBusEngine *panel_input_engine = nullptr;
+uint64_t panel_input_generation = 0;
+msime::linux_host::PanelInputSocket panel_input_socket;
+msime::linux_host::PanelInputBroker panel_input_broker;
+guint panel_input_timer = 0;
+
+msime::linux_host::PanelInputDelivery panel_input_deliver(
+    const msime::linux_host::PanelInputRequest &request) {
+  using msime::linux_host::PanelInputDelivery;
+  using msime::linux_host::PanelInputRequest;
+  auto *engine = panel_input_engine;
+  if (!engine || !state(engine).focused) return PanelInputDelivery::NoFocus;
+  if (state(engine).blocked) return PanelInputDelivery::Restricted;
+  if (request.kind == PanelInputRequest::Kind::Text) {
+    // Committed directly rather than through commit_text: the panel records its own typing statistics, as it does for every other route.
+    ibus_engine_commit_text(engine, ibus_text_new_from_string(request.text.c_str()));
+    return PanelInputDelivery::Delivered;
+  }
+  auto keyval = ibus_keyval_from_name(request.key.c_str());
+  if (keyval == IBUS_VoidSymbol) return PanelInputDelivery::Invalid;
+  guint modifiers = 0;
+  if (request.shift) {
+    modifiers |= IBUS_SHIFT_MASK;
+    keyval = ibus_keyval_to_upper(keyval);
+  }
+  if (request.control) modifiers |= IBUS_CONTROL_MASK;
+  if (request.alt) modifiers |= IBUS_MOD1_MASK;
+  if (request.super) modifiers |= IBUS_SUPER_MASK | IBUS_MOD4_MASK;
+  ibus_engine_forward_key_event(engine, keyval, request.keycode, modifiers);
+  ibus_engine_forward_key_event(engine, keyval, request.keycode, modifiers | IBUS_RELEASE_MASK);
+  return PanelInputDelivery::Delivered;
+}
+
+void panel_input_pump() {
+  panel_input_broker.pump(
+      msime::linux_host::panel_input_monotonic_us(),
+      [] {
+        return msime::linux_host::PanelInputFocus{
+            panel_input_engine && state(panel_input_engine).focused, panel_input_generation};
+      },
+      panel_input_deliver, msime::linux_host::PanelInputSocket::reply_and_close);
+  if (!panel_input_broker.empty() && !panel_input_timer)
+    panel_input_timer = g_timeout_add(50, [](gpointer) -> gboolean {
+      panel_input_pump();
+      if (!panel_input_broker.empty()) return G_SOURCE_CONTINUE;
+      panel_input_timer = 0;
+      return G_SOURCE_REMOVE;
+    }, nullptr);
+}
+
+void panel_input_listen() {
+  if (panel_input_socket.listening() ||
+      !panel_input_socket.open(msime::linux_host::panel_input_socket_path()))
+    return;
+  g_unix_fd_add(panel_input_socket.fd(), G_IO_IN, [](gint, GIOCondition, gpointer) -> gboolean {
+    if (auto accepted = panel_input_socket.accept_request()) {
+      if (auto request = msime::linux_host::parse_panel_input_request(accepted->second))
+        panel_input_broker.submit(accepted->first, std::move(*request),
+                                  msime::linux_host::panel_input_monotonic_us());
+      else
+        msime::linux_host::PanelInputSocket::reply_and_close(
+            accepted->first, msime::linux_host::panel_input_error_reply("invalid"));
+      panel_input_pump();
+    }
+    return G_SOURCE_CONTINUE;
+  }, nullptr);
+}
+
 void focus_in(IBusEngine *engine) {
   guarded(engine, "focus_in", [&] {
     auto &s = state(engine);
     const bool already_focused = s.focused;
     const auto previous_session = s.session;
     s.focused = true;
+    panel_input_engine = engine;
+    ++panel_input_generation;
+    panel_input_listen();
     msime_linux_diagnostic_write("focus_in");
     ++s.focus_epoch;
     ibus_engine_get_surrounding_text(engine, nullptr, nullptr, nullptr);
@@ -4107,6 +4181,7 @@ void focus_out(IBusEngine *engine) {
     s.voice_hold_key = 0;
     s.voice_space_consumed = false;
     s.focused = false;
+    if (panel_input_engine == engine) panel_input_engine = nullptr;
     ++s.focus_epoch;
     s.focused_context.clear();
     s.focused_client.clear();
@@ -7054,6 +7129,7 @@ void register_properties(IBusEngine *engine) {
 }
 void destroy(IBusObject *object) {
   auto self = reinterpret_cast<MsimeIbusEngine *>(object);
+  if (panel_input_engine == IBUS_ENGINE(object)) panel_input_engine = nullptr;
   if (self->state && self->state->preferences_timer)
     g_source_remove(self->state->preferences_timer);
   delete self->state;
