@@ -130,6 +130,9 @@ export function createMobileHostServices(
       removeReply: (id) => invoke("community_resource_remove_reply", { id }),
     },
     openSystemKeyboardSettings,
+    ...(platform === "android"
+      ? { openScreenKeyboard: () => invoke("android_open_keyboard_tryout").then(() => undefined) }
+      : {}),
     // iOS uses the shared Tauri settings pages for its keyboard preview and
     // quick entries; only the system-settings action crosses into native UI.
     ...(platform === "ios" ? { home: { openSystemKeyboardSettings } } : {}),
