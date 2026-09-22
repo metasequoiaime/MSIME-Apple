@@ -4608,9 +4608,11 @@ export function SettingsPage({
                     </div>
                     <div className="section">
                       <label className="section-header">
-                        <span className="section-title">候选窗预编辑</span>
+                        <span className="section-title">
+                          {mobilePlatform ? "候选栏预编辑" : "候选窗预编辑"}
+                        </span>
                         <select
-                          aria-label="候选窗预编辑"
+                          aria-label={mobilePlatform ? "候选栏预编辑" : "候选窗预编辑"}
                           value={draft.candidate_preedit_style ?? "pinyin"}
                           onChange={(event) =>
                             setDraft({
@@ -5902,7 +5904,8 @@ export function SettingsPage({
                             <div className="section-title">
                               自定义候选释义
                               <small>
-                                候选窗的中英互译来自内置词库；覆盖不全或译得不准时，可以自己加一层，不改内置词库。每行一条，用
+                                {mobilePlatform ? "候选栏" : "候选窗"}
+                                的中英互译来自内置词库；覆盖不全或译得不准时，可以自己加一层，不改内置词库。每行一条，用
                                 Tab 分隔源词和译文；以 #
                                 开头的行是注释。源词含汉字即为中译英，全是英文则为英译中。同一个源词写多次时以最后一次为准。保存后重新启动输入法生效。
                               </small>
@@ -6873,7 +6876,9 @@ export function SettingsPage({
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "shortcuts"} aria-label="快捷键">
                     <div className={`section ${settings.shortcutIntro}`}>
-                      输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“输入”中启用或关闭。
+                      {mobilePlatform
+                        ? "输入法快捷键仅在对应输入状态或候选栏显示时生效。翻页方式可在“输入”中启用或关闭。"
+                        : "输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“输入”中启用或关闭。"}
                     </div>
                     {showModeSwitchShortcuts && (
                       <div className="section" role="group" aria-label="输入模式切换快捷键">
@@ -7032,7 +7037,7 @@ export function SettingsPage({
                         )}
                         {(draft.navigation ?? defaultNavigation).mouse_wheel && (
                           <div className={settings.shortcutRow}>
-                            <span>候选窗口翻页</span>
+                            <span>{mobilePlatform ? "候选栏翻页" : "候选窗口翻页"}</span>
                             <kbd>鼠标滚轮</kbd>
                           </div>
                         )}
@@ -7719,7 +7724,12 @@ export function SettingsPage({
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
-                          屏幕键盘主题<small>覆盖主题模式；桌面屏幕键盘支持此设置</small>
+                          屏幕键盘主题
+                          <small>
+                            {mobilePlatform
+                              ? "覆盖主题模式；当前屏幕键盘支持此设置"
+                              : "覆盖主题模式；桌面屏幕键盘支持此设置"}
+                          </small>
                         </span>
                         <select
                           aria-label="屏幕键盘主题"
@@ -7743,7 +7753,11 @@ export function SettingsPage({
                       aria-labelledby="touch-keyboard-skin-title"
                     >
                       <div className="section-title" id="touch-keyboard-skin-title">
-                        键盘皮肤<small>与 Apple 内置皮肤一致；独立于桌面候选窗皮肤</small>
+                        键盘皮肤
+                        <small>
+                          与 Apple 内置皮肤一致；独立于{mobilePlatform ? "候选栏" : "桌面候选窗"}
+                          皮肤
+                        </small>
                       </div>
                       <div className={skin.skinGrid}>
                         {touchKeyboardSkinOptions.map((option) => (

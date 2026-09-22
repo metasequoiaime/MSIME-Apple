@@ -71,6 +71,7 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
     mobile_settings: false,
     panel_windows: true,
     floating_toolbar: true,
+    candidate_font_controls: true,
     floating_toolbar_appearance: true,
     floating_toolbar_components: true,
     mode_switch_shortcuts: true,
@@ -157,10 +158,18 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   expect(screen.getByRole("region", { name: "候选栏预览" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "候选栏字号" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "候选栏预编辑字号" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "候选栏预编辑" })).toBeTruthy();
   expect(screen.queryByText("候选窗口预览")).toBeNull();
   expect(screen.queryByLabelText("候选窗字号")).toBeNull();
   expect(screen.queryByRole("combobox", { name: "候选窗口主题" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "悬浮工具栏主题" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(
+    screen.getByText(
+      "输入法快捷键仅在对应输入状态或候选栏显示时生效。翻页方式可在“输入”中启用或关闭。",
+    ),
+  ).toBeTruthy();
 
   cleanup();
   renderSettings("harmony", {
@@ -172,6 +181,7 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   expect(screen.getByRole("region", { name: "候选窗口预览" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "候选窗预编辑" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "候选窗口主题" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "悬浮工具栏主题" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "候选栏主题" })).toBeNull();
