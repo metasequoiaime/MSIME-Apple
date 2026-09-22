@@ -263,6 +263,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean hardwareLanguageCtrlAltSpace = true;
     private boolean hardwareCharacterSet = true;
     private boolean hardwareFullWidth = true;
+    private boolean numberRowSelection = true;
     private boolean hardwareLanguageCtrl;
     private long modifierTapStartedAt = -1;
     private int modifierTapKeyCode = -1;
@@ -449,6 +450,8 @@ public final class MSIMEInputService extends InputMethodService {
      * keyboard, and drawing them in the factory skin makes it look like a different input method.
      */
     private void applyEditorPreferences(JSONObject preferences) throws JSONException {
+        numberRowSelection = preferences == null
+            || preferences.optBoolean("number_row_selection", true);
         JSONObject keybindings = preferences == null ? null : preferences.optJSONObject("keybindings");
         hardwareLanguageShift = keybindings == null || keybindings.optBoolean("switch_language_shift", true);
         hardwareLanguageCtrlAltSpace = keybindings == null
@@ -1236,6 +1239,7 @@ public final class MSIMEInputService extends InputMethodService {
             || nextKeybindings.optBoolean("toggle_character_set_ctrl_shift_f", true);
         boolean nextFullWidth = nextKeybindings == null
             || nextKeybindings.optBoolean("toggle_fullwidth_option_shift_h", true);
+        boolean nextNumberRowSelection = preferences.optBoolean("number_row_selection", true);
         boolean nextLanguageCtrl = nextKeybindings != null
             && nextKeybindings.optBoolean("switch_language_ctrl", false);
         String nextDefaultImeMode = "english".equals(
@@ -1286,6 +1290,7 @@ public final class MSIMEInputService extends InputMethodService {
         hardwareLanguageCtrlAltSpace = nextLanguageCtrlAltSpace;
         hardwareCharacterSet = nextCharacterSet;
         hardwareFullWidth = nextFullWidth;
+        numberRowSelection = nextNumberRowSelection;
         hardwareLanguageCtrl = nextLanguageCtrl;
         defaultImeMode = nextDefaultImeMode;
         imeModeScope = nextImeModeScope;
@@ -2386,6 +2391,13 @@ public final class MSIMEInputService extends InputMethodService {
             toggleFullWidthInput();
             return true;
         }
+        int candidateSlot = NumberRowSelectionPolicy.slotForKeyCode(keyCode, numberRowSelection);
+        if (candidateSlot >= 0 && !dedicatedEnglish && !event.isShiftPressed()
+                && !event.isCtrlPressed() && !event.isAltPressed() && !event.isMetaPressed()
+                && view != null
+                && view.optJSONArray("candidates") != null
+                && candidateSlot < view.optJSONArray("candidates").length()
+                && selectHardwareCandidate(candidateSlot)) return true;
         if (directEnglishActive() && !event.isCtrlPressed() && !event.isAltPressed()
                 && !event.isMetaPressed()) {
             if (keyCode == KeyEvent.KEYCODE_DEL) {
@@ -5424,6 +5436,20 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index")));
         } catch (JSONException | LinkageError error) { fail(); }
+    }
+
+    private boolean selectHardwareCandidate(int slot) {
+        JSONObject candidate = visibleCandidate(slot);
+        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+        if (id == null || session == 0 || id.optLong("session") != session) return false;
+        candidatePanelOpen = false;
+        try {
+            apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index")));
+            return true;
+        } catch (JSONException | LinkageError error) {
+            fail();
+            return true;
+        }
     }
 
     private void updateCandidateButton(Button button, JSONObject candidate, int slot) {

@@ -1510,3 +1510,9 @@ Android 迁移只覆盖已经上线范围内的正式宿主 `app.msime.android`�
 Android 原生 IME 此前把带 Ctrl/Alt/Meta 的硬件事件全部交回系统，虽然共享设置页已有 Shift/Ctrl 中英、Ctrl+Shift+F 简繁和全角快捷键，实际输入法没有消费者。本次增加 `HardwareShortcutPolicy` 与原生路由：Shift+Space、Ctrl+Alt+Space、修饰键单击分别切换中英，Ctrl+Shift+F 切换简繁，Alt+Shift+H 切换全角；按键状态有时间窗和“期间无其他键”约束，避免普通大写字母或编辑器组合误触发。Android `HostCapabilities.mode_switch_shortcuts` 现在报告可用，设置页因此显示这些快捷键。
 
 本地验证：`HardwareShortcutPolicySmoke`、`platforms/android/check-host.sh`、Android Java 编译和 `client-core` 能力测试通过；未执行外接实体键盘真机验收，CI 保持禁用。
+
+### Android 硬件数字行候选选择
+
+共享设置中的 `number_row_selection` 此前只在 Linux/HarmonyOS 能力上显示，Android `InputMethodService` 也没有消费该字段。现在 Android 外接硬件键盘的 1–9 会在中文 Engine 候选可用时选择对应槽位，并复用候选身份的 session/generation/index 校验；英文、敏感字段、无候选或关闭设置时不拦截数字。`HostCapabilities.number_row_selection` 已加入 Android，Tauri 设置页会显示开关。
+
+本地验证：`NumberRowSelectionPolicySmoke`、Android Java 编译、`platforms/android/check-host.sh`、client-core 能力测试和 `git diff --check` 通过；未执行实体键盘真机验收，CI 保持禁用。
