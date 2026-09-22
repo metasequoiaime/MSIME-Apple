@@ -219,10 +219,16 @@ pub fn foreground_window() -> Option<InputTarget> {
 /// when the window closed while the panel was open.
 pub fn focus(target: InputTarget) -> bool {
     use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindow, SetForegroundWindow};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, IsWindow, SetForegroundWindow,
+    };
     let window = target.0 as HWND;
-    // SAFETY: both calls validate the handle themselves.
-    unsafe { IsWindow(window) != 0 && SetForegroundWindow(window) != 0 }
+    // SAFETY: all calls validate the handle themselves. SendInput targets the
+    // foreground globally, so confirm the actual foreground immediately after
+    // requesting the transition instead of relying on the request alone.
+    unsafe {
+        IsWindow(window) != 0 && SetForegroundWindow(window) != 0 && GetForegroundWindow() == window
+    }
 }
 
 /// Is the foreground window a usable destination for synthetic input?
