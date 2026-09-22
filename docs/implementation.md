@@ -1504,3 +1504,9 @@ Android 迁移只覆盖已经上线范围内的正式宿主 `app.msime.android`�
 共享设置页已经提供 `default_ime_mode` 与 `ime_mode_scope`，但 Android 键盘此前只保留当前 `dedicatedEnglish` 内存值，切换编辑器或重启输入法后不会按 Apple 语义恢复。本次在原生 IME 增加有界的 `InputModeStore`：无历史时按默认模式初始化；`app` 范围按编辑器包名记忆手动中英切换，`global` 范围使用单一记忆值。URI、邮箱、密码等 `inputType` 触发的临时英文覆盖仍由 `KeyboardInputContext` 管理，不污染用户记忆；缺失或非法包名只走默认值。
 
 本地验证：`platforms/android/check-host.sh` 新增并通过 `InputModeStoreSmoke`，覆盖默认值、应用隔离、全局共享和非法包名回退；Android `compileDebugJavaWithJavac` 通过。未执行真机多应用切换验收，CI 保持禁用。
+
+### Android 硬件键盘快捷键
+
+Android 原生 IME 此前把带 Ctrl/Alt/Meta 的硬件事件全部交回系统，虽然共享设置页已有 Shift/Ctrl 中英、Ctrl+Shift+F 简繁和全角快捷键，实际输入法没有消费者。本次增加 `HardwareShortcutPolicy` 与原生路由：Shift+Space、Ctrl+Alt+Space、修饰键单击分别切换中英，Ctrl+Shift+F 切换简繁，Alt+Shift+H 切换全角；按键状态有时间窗和“期间无其他键”约束，避免普通大写字母或编辑器组合误触发。Android `HostCapabilities.mode_switch_shortcuts` 现在报告可用，设置页因此显示这些快捷键。
+
+本地验证：`HardwareShortcutPolicySmoke`、`platforms/android/check-host.sh`、Android Java 编译和 `client-core` 能力测试通过；未执行外接实体键盘真机验收，CI 保持禁用。

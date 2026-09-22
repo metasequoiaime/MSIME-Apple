@@ -259,6 +259,14 @@ public final class MSIMEInputService extends InputMethodService {
     private Runnable diagnosticDismissTask;
     private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
     private boolean dedicatedEnglish;
+    private boolean hardwareLanguageShift = true;
+    private boolean hardwareLanguageCtrlAltSpace = true;
+    private boolean hardwareCharacterSet = true;
+    private boolean hardwareFullWidth = true;
+    private boolean hardwareLanguageCtrl;
+    private long modifierTapStartedAt = -1;
+    private int modifierTapKeyCode = -1;
+    private boolean modifierTapInvalid;
     private String defaultImeMode = "chinese";
     private String imeModeScope = "app";
     private String currentEditorPackage = "";
@@ -441,6 +449,16 @@ public final class MSIMEInputService extends InputMethodService {
      * keyboard, and drawing them in the factory skin makes it look like a different input method.
      */
     private void applyEditorPreferences(JSONObject preferences) throws JSONException {
+        JSONObject keybindings = preferences == null ? null : preferences.optJSONObject("keybindings");
+        hardwareLanguageShift = keybindings == null || keybindings.optBoolean("switch_language_shift", true);
+        hardwareLanguageCtrlAltSpace = keybindings == null
+            || keybindings.optBoolean("switch_language_ctrl_alt_space", true);
+        hardwareCharacterSet = keybindings == null
+            || keybindings.optBoolean("toggle_character_set_ctrl_shift_f", true);
+        hardwareFullWidth = keybindings == null
+            || keybindings.optBoolean("toggle_fullwidth_option_shift_h", true);
+        hardwareLanguageCtrl = keybindings != null
+            && keybindings.optBoolean("switch_language_ctrl", false);
         defaultImeMode = preferences != null
             && "english".equals(preferences.optString("default_ime_mode", "chinese"))
             ? "english" : "chinese";
@@ -1209,6 +1227,17 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.List<String> nextTranslationTargets = translationTargetsFrom(preferences);
         boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
         boolean nextWubiMixedPinyin = preferences.optBoolean("wubi_mixed_pinyin", false);
+        JSONObject nextKeybindings = preferences.optJSONObject("keybindings");
+        boolean nextLanguageShift = nextKeybindings == null
+            || nextKeybindings.optBoolean("switch_language_shift", true);
+        boolean nextLanguageCtrlAltSpace = nextKeybindings == null
+            || nextKeybindings.optBoolean("switch_language_ctrl_alt_space", true);
+        boolean nextCharacterSet = nextKeybindings == null
+            || nextKeybindings.optBoolean("toggle_character_set_ctrl_shift_f", true);
+        boolean nextFullWidth = nextKeybindings == null
+            || nextKeybindings.optBoolean("toggle_fullwidth_option_shift_h", true);
+        boolean nextLanguageCtrl = nextKeybindings != null
+            && nextKeybindings.optBoolean("switch_language_ctrl", false);
         String nextDefaultImeMode = "english".equals(
             preferences.optString("default_ime_mode", "chinese")) ? "english" : "chinese";
         String nextImeModeScope = "global".equals(
@@ -1253,6 +1282,11 @@ public final class MSIMEInputService extends InputMethodService {
         candidateTranslationTargets = nextTranslationTargets;
         wubiCodeHint = nextWubiCodeHint;
         wubiMixedPinyin = nextWubiMixedPinyin;
+        hardwareLanguageShift = nextLanguageShift;
+        hardwareLanguageCtrlAltSpace = nextLanguageCtrlAltSpace;
+        hardwareCharacterSet = nextCharacterSet;
+        hardwareFullWidth = nextFullWidth;
+        hardwareLanguageCtrl = nextLanguageCtrl;
         defaultImeMode = nextDefaultImeMode;
         imeModeScope = nextImeModeScope;
         JSONObject nextView = result.getJSONObject("view");
@@ -2324,6 +2358,34 @@ public final class MSIMEInputService extends InputMethodService {
             closeEmojiPicker();
             return true;
         }
+        if (event.getRepeatCount() == 0
+                && (keyCode == KeyEvent.KEYCODE_SHIFT_LEFT || keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT
+                    || keyCode == KeyEvent.KEYCODE_CTRL_LEFT || keyCode == KeyEvent.KEYCODE_CTRL_RIGHT)) {
+            modifierTapStartedAt = android.os.SystemClock.uptimeMillis();
+            modifierTapKeyCode = keyCode;
+            modifierTapInvalid = false;
+            return true;
+        }
+        if (modifierTapStartedAt >= 0 && keyCode != modifierTapKeyCode) modifierTapInvalid = true;
+        HardwareShortcutPolicy.Action shortcut = HardwareShortcutPolicy.chord(
+            keyCode, event.isShiftPressed(), event.isCtrlPressed(), event.isAltPressed(),
+            event.getRepeatCount(), hardwareLanguageShift, hardwareCharacterSet, hardwareFullWidth);
+        if (keyCode == KeyEvent.KEYCODE_SPACE && event.isCtrlPressed() && event.isAltPressed()) {
+            shortcut = hardwareLanguageCtrlAltSpace
+                ? HardwareShortcutPolicy.Action.TOGGLE_LANGUAGE : HardwareShortcutPolicy.Action.NONE;
+        }
+        if (shortcut == HardwareShortcutPolicy.Action.TOGGLE_LANGUAGE) {
+            toggleInputLanguage();
+            return true;
+        }
+        if (shortcut == HardwareShortcutPolicy.Action.TOGGLE_CHARACTER_SET) {
+            toggleChineseOutput();
+            return true;
+        }
+        if (shortcut == HardwareShortcutPolicy.Action.TOGGLE_FULL_WIDTH) {
+            toggleFullWidthInput();
+            return true;
+        }
         if (directEnglishActive() && !event.isCtrlPressed() && !event.isAltPressed()
                 && !event.isMetaPressed()) {
             if (keyCode == KeyEvent.KEYCODE_DEL) {
@@ -2369,6 +2431,24 @@ public final class MSIMEInputService extends InputMethodService {
         boolean handled = unicode >= 32 && unicode <= 126
             && character(unicode, event.isShiftPressed());
         return handled || super.onKeyDown(keyCode, event);
+    }
+
+    @Override public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == modifierTapKeyCode && modifierTapStartedAt >= 0) {
+            long elapsed = android.os.SystemClock.uptimeMillis() - modifierTapStartedAt;
+            boolean valid = !modifierTapInvalid && elapsed <= 600;
+            boolean shift = keyCode == KeyEvent.KEYCODE_SHIFT_LEFT
+                || keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT;
+            modifierTapStartedAt = -1;
+            modifierTapKeyCode = -1;
+            modifierTapInvalid = false;
+            if (valid && ((shift && hardwareLanguageShift) || (!shift && hardwareLanguageCtrl))) {
+                toggleInputLanguage();
+                return true;
+            }
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     @Override public void onUpdateSelection(int oldStart, int oldEnd, int newStart, int newEnd, int composingStart, int composingEnd) {

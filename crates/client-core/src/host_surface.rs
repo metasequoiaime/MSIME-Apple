@@ -282,6 +282,7 @@ impl HostCapabilities {
                 HostPlatform::Linux
                     | HostPlatform::Windows
                     | HostPlatform::Macos
+                    | HostPlatform::Android
                     | HostPlatform::Harmony
             ),
             // Windows handles Ctrl+Shift+Win+K on its maintenance hook; Linux
@@ -890,6 +891,7 @@ mod tests {
         assert!(HostCapabilities::for_platform(HostPlatform::Macos).typing_statistics);
         assert!(linux.fuzzy_pinyin);
         assert!(android.fuzzy_pinyin);
+        assert!(android.mode_switch_shortcuts);
         assert!(HostCapabilities::for_platform(HostPlatform::Windows).fuzzy_pinyin);
     }
 
