@@ -120,10 +120,10 @@ class ProjectConfigurationTests(unittest.TestCase):
         for block in blocks:
             self.assertIn("- .build/**", block)
 
-    # XcodeGen's Info.plist detection ignores source excludes, so it finds the plist inside
-    # shared/backend/.build and writes it into INFOPLIST_FILE. No exclude pattern suppresses it and
-    # a project-level setting does not override it, because the detected value lands in the target's
-    # own build settings. Pinning an empty value there is what keeps the generated plist.
+    # XcodeGen's Info.plist detection ignores source excludes, so targets that rely entirely on a
+    # generated plist must pin an empty INFOPLIST_FILE. The application target is different: it has
+    # an explicit plist path for its URL scheme and must keep that file while generating the rest
+    # of its keys from settings.
     def test_targets_that_generate_their_plist_pin_the_file_setting(self):
         project = (IOS_ROOT / "project.yml").read_text()
         generated = [
@@ -133,7 +133,7 @@ class ProjectConfigurationTests(unittest.TestCase):
         ]
         self.assertTrue(generated, "no target asks Xcode to generate its Info.plist any more")
         for name, body in target_blocks(project):
-            if "GENERATE_INFOPLIST_FILE: YES" in body:
+            if "GENERATE_INFOPLIST_FILE: YES" in body and "info:\n      path:" not in body:
                 self.assertIn('INFOPLIST_FILE: ""', body, name)
 
     # The developer account carries app.msime.ios and app.msime.ios.keyboard with the App Group the
