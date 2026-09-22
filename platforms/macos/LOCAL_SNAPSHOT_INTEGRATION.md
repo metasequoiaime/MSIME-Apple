@@ -29,7 +29,7 @@
 - 取消、重复清理、过期句柄、重复提交和激活后的清理不损坏活动代次。
 - 当前原生 app 实际包含同步适配器且调用真实 host-api；selector 存在本身不足以证明恢复成功。
 - 隔离资源下，在已确认当前输入源 ID 的真实编辑器中，恢复前后候选/上屏变化来自目标 MSIME 会话；恢复环境和原输入源也需确认。
-- 修改 Rust 后执行测试、fmt、clippy；Swift 与原生宿主执行对应构建/测试。GitHub CI 保持暂停。
+- 修改 Rust 后执行测试、fmt、clippy；Swift 与原生宿主执行对应构建/测试。提交前跑 `bash scripts/verify-local.sh --quick`，Pull Request 上的 macOS CI 也须通过。
 
 ## 当前结论
 

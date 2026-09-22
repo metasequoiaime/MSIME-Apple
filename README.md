@@ -50,7 +50,7 @@
 
 ## CI 与发布
 
-`develop` 上的基础检查由 `Core CI` 负责，包含 workflow 校验、依赖审查和仓库契约；iOS 与 macOS 编译测试由各自的原生宿主 workflow 负责。Linux、Windows、Android 和 HarmonyOS 的专用 SDK、交叉工具链或设备依赖缺失时，workflow 会明确跳过对应阶段，不把静态检查冒充设备验收。
+`develop` 上的基础检查由 `Core CI` 负责，包含 workflow 校验、依赖审查和仓库契约；iOS 与 macOS 编译测试由各自的原生宿主 workflow 负责。Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时运行，未改动时明确跳过；这一层只到宿主契约、JVM 冒烟、容器构建和交叉编译，不把静态检查冒充设备验收。
 
 六个平台的发布完全独立：每个平台有自己的手动 release workflow、版本文件、并发组、构建产物和 GitHub Release tag。版本文件分别位于 `platforms/android/version.txt`、`platforms/ios/version.txt`、`platforms/macos/version.txt`、`platforms/linux/version.txt`、`platforms/windows/version.txt` 和 `platforms/harmony/version.txt`；tag 使用 `android-vX.Y.Z`、`ios-vX.Y.Z`、`macos-vX.Y.Z`、`linux-vX.Y.Z`、`windows-vX.Y.Z` 和 `harmony-vX.Y.Z`。发布 workflow 只创建 GitHub Release，不自动上传应用商店或使用签名凭据。
 

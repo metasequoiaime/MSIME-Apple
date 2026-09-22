@@ -28,6 +28,6 @@
 
 - 源码使用 GPL-3.0-only；第三方依赖、固定 Engine 归档、词库、模型和平台 SDK 仍须遵守各自许可证与通知要求。
 - 提交前请执行 `bash scripts/verify-local.sh --quick`，并按 [开源发布清单](docs/open-source-release.md) 检查敏感文件、来源和平台发布边界。
-- CI 按仓库策略保持停用；本地验证结果是合并和发布前的主要依据。
+- GitHub Actions 已恢复：Pull Request 上的质量、依赖审查、仓库契约以及 macOS 与 iOS 检查必须通过；Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时检查，只到契约、JVM 冒烟、容器构建和交叉编译这一级。本地 `bash scripts/verify-local.sh --quick` 仍是提交前的快速门禁。
 
 [Unreleased]: https://github.com/metasequoiaime/msime/compare/develop...HEAD
