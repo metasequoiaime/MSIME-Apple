@@ -130,6 +130,9 @@ struct InputSettingsView: View {
           NavigationLink(destination: FuzzyPinyinSettingsView()) {
             Label("模糊音", systemImage: "waveform.path")
           }.accessibilityIdentifier("fuzzyPinyinSettingsLink")
+          NavigationLink(destination: PunctuationSettingsView()) {
+            Label("标点", systemImage: "textformat.abc.dottedunderline")
+          }.accessibilityIdentifier("punctuationSettingsLink")
         }
 
         Section {
