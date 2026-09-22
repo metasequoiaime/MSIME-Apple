@@ -1,4 +1,4 @@
-name: CI
+name: Core CI
 
 # 平台无关的那两样:格式与 workflow 校验、以及只读文件做断言的契约套件。macOS 与 iOS 各自搬去了 ci-macos.yml 和 ci-ios.yml —— 一个 iOS 改动没有理由把 macOS 的编译器叫起来。
 
