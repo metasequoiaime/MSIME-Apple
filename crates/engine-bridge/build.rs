@@ -121,6 +121,21 @@ fn main() {
             .define("CMAKE_FIND_ROOT_PATH_MODE_PACKAGE", "ONLY");
         windows_include = Some(prefix.join("include"));
     }
+    let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    // Build-Client.ps1 hands MSVC builds their dependencies through CMAKE_PREFIX_PATH. CMake reads it from the environment, but the bridge below is compiled by cc and includes the Engine headers that include sqlite3.h, so it needs the prefix's headers too.
+    let msvc_includes: Vec<PathBuf> = if windows_msvc {
+        std::env::var_os("CMAKE_PREFIX_PATH")
+            .map(|paths| {
+                std::env::split_paths(&paths)
+                    .map(|prefix| prefix.join("include"))
+                    .filter(|include| include.is_dir())
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     for name in ["MSIME_ANDROID_NDK", "MSIME_ANDROID_DEPS"] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -253,6 +268,9 @@ fn main() {
         bridge.include(include);
     }
     if let Some(include) = windows_include {
+        bridge.include(include);
+    }
+    for include in msvc_includes {
         bridge.include(include);
     }
     bridge.std("c++17").compile("msime-engine-cxx");
