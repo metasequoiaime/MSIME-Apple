@@ -163,6 +163,8 @@ assert '++cloud_clipboard_generation_' in source
 # contract, including the runtime socket fallback during hot reload.
 assert 'providerSocket(options, "voice_provider_socket"' in source
 assert '"MSIME_VOICE_PROVIDER_SOCKET", "voice.sock"' in source
+assert 'preferences_.value("clipboard_history", false)' in source
+assert 'if (!preferences_.value("clipboard_history", false))' in source
 assert 'translationSocket' in source
 assert '"MSIME_TRANSLATION_PROVIDER_SOCKET", "translation.sock"' in source
 assert '"MSIME_TRANSLATION_PROVIDER_SOCKET"' in ibus_source
