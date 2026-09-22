@@ -6,6 +6,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONObject;
 
@@ -27,6 +29,8 @@ public final class BackendAccount {
 
     /** One challenge, waiting for the provider's token. */
     public record Challenge(String id, String nonce) {}
+    public record ChatModel(String id) {}
+    public record ChatMessage(String role, String content) {}
 
     private final AndroidAccountSessionStorage sessions;
 
@@ -92,6 +96,52 @@ public final class BackendAccount {
     }
 
     public boolean signedIn() { return !accessToken().isEmpty(); }
+
+    /** Loads the bounded model catalogue used by the keyboard tryout chat. */
+    public List<ChatModel> chatModels() throws Exception {
+        String token = accessToken();
+        if (token.isEmpty()) throw new IllegalStateException("HTTP 401");
+        JSONObject response = request("GET", "/v1/models", null, token);
+        org.json.JSONArray data = response.optJSONArray("data");
+        if (data == null || data.length() == 0 || data.length() > 64)
+            throw new IllegalStateException("invalid model catalogue");
+        List<ChatModel> models = new ArrayList<>();
+        for (int index = 0; index < data.length(); index++) {
+            JSONObject item = data.optJSONObject(index);
+            String id = item == null ? "" : item.optString("id", "").trim();
+            if (id.isEmpty() || id.length() > 256) throw new IllegalStateException("invalid model catalogue");
+            models.add(new ChatModel(id));
+        }
+        return List.copyOf(models);
+    }
+
+    /** Sends one bounded non-streaming chat request; callers must run it off the UI thread. */
+    public String chat(List<ChatMessage> messages, String model) throws Exception {
+        String token = accessToken();
+        if (token.isEmpty() || model == null || model.isBlank() || model.length() > 256)
+            throw new IllegalStateException("invalid chat request");
+        if (messages == null || messages.isEmpty() || messages.size() > 14)
+            throw new IllegalStateException("invalid chat request");
+        org.json.JSONArray payloadMessages = new org.json.JSONArray();
+        int bytes = 0;
+        for (ChatMessage message : messages) {
+            if (message == null || !("user".equals(message.role()) || "assistant".equals(message.role())))
+                throw new IllegalStateException("invalid chat request");
+            String content = message.content() == null ? "" : message.content();
+            if (content.isEmpty() || content.length() > 10_000 || (bytes += content.getBytes(StandardCharsets.UTF_8).length) > 48_000)
+                throw new IllegalStateException("invalid chat request");
+            payloadMessages.put(new JSONObject().put("role", message.role()).put("content", content));
+        }
+        JSONObject body = new JSONObject().put("messages", payloadMessages)
+            .put("model", model).put("max_tokens", 2048).put("stream", false);
+        JSONObject response = request("POST", "/v1/chat/completions", body, token);
+        org.json.JSONArray choices = response.optJSONArray("choices");
+        JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
+        JSONObject message = first == null ? null : first.optJSONObject("message");
+        String content = message == null ? "" : message.optString("content", "");
+        if (content.isEmpty() || content.length() > 10_000) throw new IllegalStateException("invalid chat response");
+        return content;
+    }
 
     /** Forget the session on this device. The account itself is untouched. */
     public void signOut() {

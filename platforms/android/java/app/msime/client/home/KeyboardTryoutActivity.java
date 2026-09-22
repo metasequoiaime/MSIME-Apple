@@ -5,6 +5,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -16,6 +17,12 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 import app.msime.client.R;
+import app.msime.client.BackendAccount;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * 试用键盘: an editor that exists only so the keyboard can be raised against it, matching the Apple
@@ -28,6 +35,12 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
     /** The Apple screen's draft limit, kept so the two platforms bound the same way. */
     private static final int DRAFT_LIMIT = 2000;
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final List<BackendAccount.ChatModel> models = new ArrayList<>();
+    private final List<BackendAccount.ChatMessage> messages = new ArrayList<>();
+    private Future<?> operation;
+    private int generation;
+    private boolean sending;
 
     @Override protected void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
@@ -49,6 +62,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
         TextInputEditText field = findViewById(R.id.tryout_field);
         MaterialButton dismiss = findViewById(R.id.tryout_dismiss);
+        MaterialButton loadAi = findViewById(R.id.tryout_ai_load);
+        MaterialButton sendAi = findViewById(R.id.tryout_ai_send);
 
         // The system picker belongs here rather than on the 键盘 tab: it is only useful once the
         // user is in front of an editor and finds another keyboard came up.
@@ -70,11 +85,119 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
             @Override public void afterTextChanged(@NonNull Editable text) {
                 if (text.length() > DRAFT_LIMIT) text.delete(DRAFT_LIMIT, text.length());
+                sendAi.setEnabled(!sending && !models.isEmpty() && text.length() > 0);
             }
+        });
+
+        loadAi.setOnClickListener(ignored -> {
+            if (models.isEmpty()) loadModels(loadAi, sendAi);
+            else showModelMenu(loadAi, sendAi);
+        });
+        sendAi.setOnClickListener(ignored -> {
+            if (sending) cancelChat(sendAi);
+            else sendChat(field, sendAi);
         });
 
         // Opening the screen is the user asking for the keyboard, so it is raised without a tap.
         field.requestFocus();
         WindowCompat.getInsetsController(getWindow(), field).show(WindowInsetsCompat.Type.ime());
+    }
+
+    private void loadModels(MaterialButton load, MaterialButton send) {
+        load.setEnabled(false);
+        load.setText("加载中…");
+        operation = worker.submit(() -> {
+            try {
+                List<BackendAccount.ChatModel> loaded = new BackendAccount(this).chatModels();
+                runOnUiThread(() -> {
+                    models.clear();
+                    models.addAll(loaded);
+                    load.setText("模型 " + models.get(0).id());
+                    send.setEnabled(false);
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    load.setEnabled(true);
+                    load.setText("重新加载 AI");
+                    android.widget.Toast.makeText(this,
+                        "请先登录账号，或稍后重试模型目录", android.widget.Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
+    private void showModelMenu(MaterialButton load, MaterialButton send) {
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, load);
+        for (BackendAccount.ChatModel model : models) {
+            menu.getMenu().add(model.id()).setOnMenuItemClickListener(item -> {
+                load.setText("模型 " + model.id());
+                load.setTag(model.id());
+                return true;
+            });
+        }
+        menu.show();
+    }
+
+    private void sendChat(TextInputEditText field, MaterialButton send) {
+        String text = field.getText() == null ? "" : field.getText().toString().trim();
+        if (text.isEmpty() || models.isEmpty()) return;
+        while (messages.size() >= 14) messages.remove(0);
+        messages.add(new BackendAccount.ChatMessage("user", text));
+        field.setText("");
+        appendChat("你：" + text);
+        sending = true;
+        send.setEnabled(true);
+        send.setText("停止");
+        int token = ++generation;
+        List<BackendAccount.ChatMessage> request = new ArrayList<>(messages);
+        String selected = (String) findViewById(R.id.tryout_ai_load).getTag();
+        if (selected == null || selected.isEmpty()) selected = models.get(0).id();
+        final String selectedModel = selected;
+        operation = worker.submit(() -> {
+            try {
+                String reply = new BackendAccount(this).chat(request, selectedModel);
+                runOnUiThread(() -> {
+                    if (token != generation) return;
+                    messages.add(new BackendAccount.ChatMessage("assistant", reply));
+                    appendChat("AI：" + reply);
+                    finishChat(send);
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    if (token != generation) return;
+                    appendChat("AI：请求失败，请检查登录状态或稍后重试。");
+                    finishChat(send);
+                });
+            }
+        });
+    }
+
+    private void cancelChat(MaterialButton send) {
+        generation++;
+        if (operation != null) operation.cancel(true);
+        finishChat(send);
+    }
+
+    private void finishChat(MaterialButton send) {
+        sending = false;
+        send.setText("发送");
+        TextInputEditText field = findViewById(R.id.tryout_field);
+        send.setEnabled(!models.isEmpty() && field.getText() != null && field.length() > 0);
+    }
+
+    private void appendChat(String line) {
+        TextView transcript = findViewById(R.id.tryout_chat);
+        transcript.setVisibility(View.VISIBLE);
+        String prior = transcript.getText().toString();
+        String next = prior.isEmpty() ? line : prior + "\n\n" + line;
+        if (next.length() > 24_000) next = next.substring(next.length() - 24_000);
+        transcript.setText(next);
+    }
+
+    @Override protected void onDestroy() {
+        generation++;
+        if (operation != null) operation.cancel(true);
+        worker.shutdownNow();
+        super.onDestroy();
     }
 }
