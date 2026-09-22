@@ -2010,26 +2010,21 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     toolbar.state = _appearance.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:toolbar];
 
-    // Keep the system input menu for things used while typing. Account, dictionary, update and
-    // support destinations already live in the settings window; spelling every one out here made
-    // this menu taller than the screen and duplicated the settings sidebar. The four live panels
-    // remain one click away under a single tools submenu.
-    NSMenu *tools = [[NSMenu alloc] initWithTitle:@"水杉工具"];
+    // Keep the live input tools one click away. Account, dictionary, update and support destinations
+    // stay in the settings window; listing those management pages here made this menu taller than
+    // the screen, but hiding the tools behind a second submenu made the useful part too hard to reach.
     NSMenuItem *emoji = [[NSMenuItem alloc] initWithTitle:@"水杉表情面板…" action:@selector(showEmoji:) keyEquivalent:@""];
     emoji.target = self;
-    [tools addItem:emoji];
+    [menu addItem:emoji];
     NSMenuItem *keyboard = [[NSMenuItem alloc] initWithTitle:@"水杉屏幕键盘…" action:@selector(showScreenKeyboard:) keyEquivalent:@""];
     keyboard.target = self;
-    [tools addItem:keyboard];
+    [menu addItem:keyboard];
     NSMenuItem *handwriting = [[NSMenuItem alloc] initWithTitle:@"手写输入…" action:@selector(showHandwriting:) keyEquivalent:@""];
     handwriting.target = self;
-    [tools addItem:handwriting];
+    [menu addItem:handwriting];
     NSMenuItem *voice = [[NSMenuItem alloc] initWithTitle:@"开始/结束语音输入" action:@selector(showVoicePanel) keyEquivalent:@""];
     voice.target = self;
-    [tools addItem:voice];
-    NSMenuItem *toolsItem = [[NSMenuItem alloc] initWithTitle:@"水杉工具" action:nil keyEquivalent:@""];
-    toolsItem.submenu = tools;
-    [menu addItem:toolsItem];
+    [menu addItem:voice];
 
     [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showAppearance:) keyEquivalent:@""];
