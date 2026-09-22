@@ -1922,6 +1922,21 @@ fn macos_input_source_restart_args() -> [&'static str; 5] {
     ]
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn linux_input_method_restart_command(
+    fcitx5_running: bool,
+) -> (&'static str, &'static [&'static str]) {
+    if fcitx5_running {
+        // Fcitx5 owns the process that loads the MSIME addon. Its controller's
+        // ReloadConfig request is the supported in-session refresh operation;
+        // killing and respawning the whole daemon here would also disrupt every
+        // other input method in the user's current group.
+        ("fcitx5-remote", &["-r"])
+    } else {
+        ("ibus", &["restart"])
+    }
+}
+
 #[tauri::command]
 fn restart_input_method() -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
@@ -1965,7 +1980,16 @@ fn restart_input_method() -> Result<(), HostActionError> {
     }
     #[cfg(target_os = "linux")]
     {
-        linux_process::run_status("ibus", &["restart"], std::time::Duration::from_secs(3))
+        // `--check` asks the live Fcitx5 controller without starting one through
+        // D-Bus. Prefer the framework that is actually running; an installed but
+        // inactive Fcitx5 must not steal the IBus action.
+        let fcitx5_running = linux_process::run_status(
+            "fcitx5-remote",
+            &["--check"],
+            std::time::Duration::from_secs(1),
+        );
+        let (program, arguments) = linux_input_method_restart_command(fcitx5_running);
+        linux_process::run_status(program, arguments, std::time::Duration::from_secs(3))
             .then_some(())
             .ok_or(HostActionError {
                 code: "unavailable",
