@@ -92,6 +92,39 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(snapshot.detail.sources["unknown"], 470)
   }
 
+  /// Retention prunes daily records, today included in the window, and never the lifetime counts; it survives a reset like the pause does.
+  func testRetentionPrunesDailyRecordsButNotTheLifetimeCounts() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = TypingStatisticsStore(directory: directory)
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let today = calendar.date(from: DateComponents(year: 2026, month: 9, day: 23))!
+    func day(_ offset: Int) -> Date { calendar.date(byAdding: .day, value: offset, to: today)! }
+    for offset in [-40, -30, -29, 0] { try store.record("字", at: day(offset), calendar: calendar) }
+
+    try store.setRetention(30, today: today, calendar: calendar)
+    var snapshot = try store.load()
+    XCTAssertEqual(snapshot.retentionDays, 30)
+    XCTAssertEqual(snapshot.days.keys.sorted(), ["2026-08-25", "2026-09-23"], "30 days are today and the 29 before it")
+    XCTAssertEqual(Set(snapshot.dailyDetails.keys), Set(snapshot.days.keys))
+    XCTAssertEqual(snapshot.total, 4)
+    XCTAssertEqual(snapshot.detail.characters["han"], 4)
+
+    // Recording applies the window from the day being recorded.
+    try store.record("字", at: day(30), calendar: calendar)
+    XCTAssertEqual(try store.load().days.keys.sorted(), ["2026-10-23"])
+
+    try store.reset()
+    XCTAssertEqual(try store.load().retentionDays, 30)
+    try store.setRetention(nil, today: today, calendar: calendar)
+    for offset in [-100, 0] { try store.record("字", at: day(offset), calendar: calendar) }
+    snapshot = try store.load()
+    XCTAssertNil(snapshot.retentionDays)
+    XCTAssertEqual(snapshot.days.count, 2)
+  }
+
   func testAvailabilityTellsAnEmptyRunApartFromABrokenOne() throws {
     // The three answers to "why is this empty" are different actions for the reader, so the store
     // has to distinguish them rather than return one emptiness.

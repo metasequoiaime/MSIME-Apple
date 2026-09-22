@@ -80,9 +80,14 @@ struct TypingStatistics: Codable {
   var days: [String: Int] = [:]
   var detail = TypingBreakdown()
   var dailyDetails: [String: TypingBreakdown] = [:]
+  /// How many days of daily records to keep, today included; `nil` keeps them all, up to the 366-day bound. The lifetime total and breakdown are never pruned.
+  var retentionDays: Int?
+
+  /// The retention choices the statistics page offers, as on Windows.
+  static let retentionChoices = [30, 90, 180, 365]
 
   init() {}
-  private enum CodingKeys: String, CodingKey { case enabled, total, days, detail, dailyDetails }
+  private enum CodingKeys: String, CodingKey { case enabled, total, days, detail, dailyDetails, retentionDays }
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
@@ -90,6 +95,21 @@ struct TypingStatistics: Codable {
     days = try values.decodeIfPresent([String: Int].self, forKey: .days) ?? [:]
     detail = try values.decodeIfPresent(TypingBreakdown.self, forKey: .detail) ?? TypingBreakdown()
     dailyDetails = try values.decodeIfPresent([String: TypingBreakdown].self, forKey: .dailyDetails) ?? [:]
+    retentionDays = try values.decodeIfPresent(Int.self, forKey: .retentionDays)
+  }
+
+  /// Drop daily records the retention window no longer covers, then keep at most the newest 366.
+  mutating func pruneDailyRecords(today: Date, calendar: Calendar = .current) {
+    var expired = Array(days.keys.sorted().dropLast(366))
+    if let retentionDays, retentionDays > 0, let oldest = calendar.date(byAdding: .day, value: 1 - retentionDays, to: today) {
+      let cutoff = Self.dayKey(oldest, calendar: calendar)
+      // Day keys are zero-padded, so they sort as dates do.
+      expired += days.keys.filter { $0 < cutoff }
+    }
+    for key in expired {
+      days.removeValue(forKey: key)
+      dailyDetails.removeValue(forKey: key)
+    }
   }
   static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
     let parts = calendar.dateComponents([.year, .month, .day], from: date)
@@ -210,10 +230,15 @@ struct TypingStatisticsStore {
       value.detail.merge(addition)
       value.dailyDetails[key, default: TypingBreakdown()].merge(addition)
       // Keep daily detail bounded; lifetime total is independent of retained history.
-      for key in value.days.keys.sorted().dropLast(366) {
-        value.days.removeValue(forKey: key)
-        value.dailyDetails.removeValue(forKey: key)
-      }
+      value.pruneDailyRecords(today: date, calendar: calendar)
+    }
+  }
+
+  /// Set how many days of daily records to keep (`nil` for all) and drop the ones already outside it, rather than waiting for the next keystroke as Windows does.
+  func setRetention(_ days: Int?, today: Date = Date(), calendar: Calendar = .current) throws {
+    try transaction(write: true) { value in
+      value.retentionDays = days
+      value.pruneDailyRecords(today: today, calendar: calendar)
     }
   }
 
