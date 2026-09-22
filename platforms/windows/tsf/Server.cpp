@@ -197,6 +197,12 @@ void FreeGlobalObjects(void)
 //----------------------------------------------------------------------------
 _Check_return_ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, _In_ REFIID riid, _Outptr_ void **ppv)
 {
+    if (ppv == nullptr)
+    {
+        return E_INVALIDARG;
+    }
+    *ppv = nullptr;
+
     if (classFactoryObjects[0] == nullptr)
     {
         EnterCriticalSection(&Global::CS);
@@ -210,20 +216,19 @@ _Check_return_ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, _In_ REFIID riid, 
         LeaveCriticalSection(&Global::CS);
     }
 
-    if (IsEqualIID(riid, IID_IClassFactory) || IsEqualIID(riid, IID_IUnknown))
+    for (int i = 0; i < ARRAYSIZE(classFactoryObjects); i++)
     {
-        for (int i = 0; i < ARRAYSIZE(classFactoryObjects); i++)
+        if (nullptr != classFactoryObjects[i] && IsEqualGUID(rclsid, classFactoryObjects[i]->_rclsid))
         {
-            if (nullptr != classFactoryObjects[i] && IsEqualGUID(rclsid, classFactoryObjects[i]->_rclsid))
+            if (IsEqualIID(riid, IID_IClassFactory) || IsEqualIID(riid, IID_IUnknown))
             {
                 *ppv = (void *)classFactoryObjects[i];
                 DllAddRef(); // class factory holds DLL ref count
                 return NOERROR;
             }
+            return E_NOINTERFACE;
         }
     }
-
-    *ppv = nullptr;
 
     return CLASS_E_CLASSNOTAVAILABLE;
 }

@@ -2388,6 +2388,8 @@ macOS 原生宿主现在按完整映射回读光标前的实际中文标点，�
 
 新增 Windows-only `msime-tsf-class-factory` 回归：从测试进程同目录加载出货 DLL，解析导出的 `DllGetClassObject`，用固定 CLSID 取得 `IClassFactory`，实例化对象并确认它实现 `ITfTextInputProcessor`，随后完整释放 COM 对象和模块。该测试不调用 `DllRegisterServer`、不写 TSF 注册表，也不调用 `ITfTextInputProcessor::Activate`；因此交叉链接证明了 DLL/类工厂/对象 ABI 边界，仍不等于 TIP 注册、激活或真实编辑器验收。
 
+本批把同一回归扩展到 COM 生命周期与错误路径：未知 CLSID 返回 `CLASS_E_CLASSNOTAVAILABLE`，已知 CLSID 但请求不支持的类工厂接口返回 `E_NOINTERFACE`，空输出指针返回 `E_INVALIDARG`；类工厂拒绝聚合，并由 `DllCanUnloadNow` 钉住“类工厂或 TIP 仍被引用时不可卸载、全部释放后可卸载”。生产 `DllGetClassObject` 现在先清空输出并按 CLSID 再按接口判定，避免把这两类错误混为一谈。测试不注册 TIP、不写 TSF 注册表、不调用 `ITfTextInputProcessor::Activate`；交叉构建仍不等于 Windows 原生 COM 运行时验收。
+
 ### Windows 偏好发布回调的生效时序（2026-09-22）
 
 偏好监视器的生产链路先在输入队列应用 `PreferenceSnapshot`，再从监视线程通知 `SessionController` 的发布回调；回调会清理并按新配置重新发起当前候选页的翻译查询。原有用例已经覆盖延迟到未确认回复完成后应用，本批另加一个顺序断言：回调提交的观察任务必须看到新的导航绑定和以词定字状态，防止未来把“发布任务已入队”误当成“偏好已经生效”。测试只使用合成 JSON 和队列状态，不触碰用户配置；这仍是源码/交叉构建证据，不是 Windows 原生编辑器验收。

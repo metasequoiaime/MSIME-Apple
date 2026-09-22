@@ -9,8 +9,11 @@
 namespace {
 constexpr CLSID kMetasequoiaImeClsid = {
     0xe3062e9a, 0xd834, 0x4637, {0x89, 0x58, 0xed, 0x8c, 0xfa, 0x42, 0x7d, 0x01}};
+constexpr CLSID kUnknownClsid = {
+    0x4c8a4f2b, 0x2c98, 0x4f85, {0x9e, 0x40, 0x62, 0x35, 0x8c, 0x1b, 0x91, 0x77}};
 
 using DllGetClassObjectFn = HRESULT(STDAPICALLTYPE *)(REFCLSID, REFIID, void **);
+using DllCanUnloadNowFn = HRESULT(STDAPICALLTYPE *)(void);
 
 void require(bool condition, const char *message) {
   if (!condition)
@@ -47,16 +50,46 @@ int main() {
             "COM initialization failed");
     HMODULE module = load_tip();
     const auto raw_get_class_object = GetProcAddress(module, "DllGetClassObject");
+    const auto raw_can_unload_now = GetProcAddress(module, "DllCanUnloadNow");
     DllGetClassObjectFn get_class_object = nullptr;
+    DllCanUnloadNowFn can_unload_now = nullptr;
     static_assert(sizeof(get_class_object) == sizeof(raw_get_class_object));
+    static_assert(sizeof(can_unload_now) == sizeof(raw_can_unload_now));
     std::memcpy(&get_class_object, &raw_get_class_object, sizeof(get_class_object));
+    std::memcpy(&can_unload_now, &raw_can_unload_now, sizeof(can_unload_now));
     require(get_class_object != nullptr, "TSF DLL omitted DllGetClassObject");
+    require(can_unload_now != nullptr, "TSF DLL omitted DllCanUnloadNow");
+
+    require(can_unload_now() == S_OK, "Fresh TSF DLL must be unloadable");
+    require(get_class_object(kUnknownClsid, IID_IClassFactory, nullptr) == E_INVALIDARG,
+            "DllGetClassObject must reject a null output pointer");
+
+    void *unknown_clsid_result = nullptr;
+    require(get_class_object(kUnknownClsid, IID_IClassFactory, &unknown_clsid_result) ==
+                CLASS_E_CLASSNOTAVAILABLE &&
+                unknown_clsid_result == nullptr,
+            "Unknown CLSID must be rejected without returning an interface");
+
+    void *unsupported_result = nullptr;
+    require(get_class_object(kMetasequoiaImeClsid, IID_ITfTextInputProcessor, &unsupported_result) ==
+                E_NOINTERFACE &&
+                unsupported_result == nullptr,
+            "Known CLSID must reject an unsupported class-factory interface");
 
     IClassFactory *factory = nullptr;
     require(SUCCEEDED(get_class_object(kMetasequoiaImeClsid, IID_IClassFactory,
                                        reinterpret_cast<void **>(&factory))) &&
                 factory != nullptr,
             "TSF class factory could not be created");
+    require(can_unload_now() == S_FALSE,
+            "TSF DLL must remain loaded while its class factory is referenced");
+
+    IUnknown *aggregated = nullptr;
+    require(factory->CreateInstance(reinterpret_cast<IUnknown *>(factory), IID_IUnknown,
+                                    reinterpret_cast<void **>(&aggregated)) == CLASS_E_NOAGGREGATION &&
+                aggregated == nullptr,
+            "TIP class factory must reject aggregation");
+
     IUnknown *unknown = nullptr;
     require(SUCCEEDED(factory->CreateInstance(nullptr, IID_IUnknown,
                                                reinterpret_cast<void **>(&unknown))) &&
@@ -67,10 +100,16 @@ int main() {
                                                reinterpret_cast<void **>(&processor))) &&
                 processor != nullptr,
             "TIP object does not implement ITfTextInputProcessor");
+    require(can_unload_now() == S_FALSE,
+            "TSF DLL must remain loaded while its TIP object is referenced");
 
     processor->Release();
     unknown->Release();
+    require(can_unload_now() == S_FALSE,
+            "TSF DLL must remain loaded while its class factory is referenced");
     factory->Release();
+    require(can_unload_now() == S_OK,
+            "TSF DLL must become unloadable after all COM references are released");
     FreeLibrary(module);
     CoUninitialize();
     initialized = false;
