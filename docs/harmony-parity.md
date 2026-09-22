@@ -218,6 +218,8 @@ EnglishCapitalizationPolicy.shouldShift
 
 同一用例还要求重播后“稍后设置”返回发起位置。共享移动设置页虽然把当前页写入 WebView history，重新挂载时却只读默认首页，因此 Harmony 从“我的”重播后会回到“键盘”。现在 Android、iOS 与 HarmonyOS 都会在重挂载时读取并白名单校验已有移动页；回归测试完整覆盖“我的 → 重新查看新手引导 → 稍后设置 → 我的仍选中”。
 
+形态审计随后发现键盘宿主早已按 `deviceInfo.deviceType` 区分手机软键盘与 2-in-1 候选窗，设置 WebView 却只看 `platform === harmony`，所以 2-in-1 仍被强制显示手机四栏与触屏键盘预览。共享宿主能力现在显式声明 `mobile_settings`；Harmony 在 ArkTS 桥中按真实设备形态覆盖它。手机继续使用底部主导航和触屏预览，2-in-1 改用大屏侧栏与物理键盘预览，平台名不再代替形态判断。
+
 ## 2026-09-21 补：模拟器验收
 
 上面那份「证据边界」写完之后，在 API 21 的 `Mate 70 Pro` arm64 模拟器上实际跑了一遍，结论需要改写——不是因为结论错了，而是因为它们本来就只是没去跑。

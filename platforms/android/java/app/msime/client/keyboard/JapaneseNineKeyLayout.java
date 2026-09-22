@@ -14,16 +14,6 @@ public final class JapaneseNineKeyLayout {
         }
     }
 
-    public record VariantGroup(String title, List<String> kana, List<String> strokes) {
-        public VariantGroup {
-            if (kana.size() != strokes.size() || kana.isEmpty()) {
-                throw new IllegalArgumentException("Japanese variant labels and strokes must match");
-            }
-            kana = List.copyOf(kana);
-            strokes = List.copyOf(strokes);
-        }
-    }
-
     private static final List<Key> KEYS = List.of(
         key("あ", "い", "う", "え", "お", "a", "i", "u", "e", "o"),
         key("か", "き", "く", "け", "こ", "ka", "ki", "ku", "ke", "ko"),
@@ -54,16 +44,6 @@ public final class JapaneseNineKeyLayout {
     private static final List<String> DIGIT_BRACKETS = List.of(
         "（", "）", "「", "」", "『", "』", "【", "】");
 
-    private static final List<VariantGroup> VARIANTS = List.of(
-        group("小假名", List.of("ぁ", "ぃ", "ぅ", "ぇ", "ぉ", "ゃ", "ゅ", "ょ", "っ", "ゎ"),
-            List.of("xa", "xi", "xu", "xe", "xo", "xya", "xyu", "xyo", "xtsu", "xwa")),
-        group("浊音", List.of("が", "ぎ", "ぐ", "げ", "ご", "ざ", "じ", "ず", "ぜ", "ぞ",
-                "だ", "ぢ", "づ", "で", "ど", "ば", "び", "ぶ", "べ", "ぼ", "ゔ"),
-            List.of("ga", "gi", "gu", "ge", "go", "za", "ji", "zu", "ze", "zo",
-                "da", "di", "du", "de", "do", "ba", "bi", "bu", "be", "bo", "vu")),
-        group("半浊音", List.of("ぱ", "ぴ", "ぷ", "ぺ", "ぽ"),
-            List.of("pa", "pi", "pu", "pe", "po")));
-
     private JapaneseNineKeyLayout() {}
 
     private static Key key(String center, String left, String up, String right, String down,
@@ -73,15 +53,9 @@ public final class JapaneseNineKeyLayout {
             List.of(centerStroke, leftStroke, upStroke, rightStroke, downStroke));
     }
 
-    private static VariantGroup group(String title, List<String> kana, List<String> strokes) {
-        return new VariantGroup(title, kana, strokes);
-    }
-
     public static List<Key> keys() { return KEYS; }
     public static List<Key> digitKeys() { return DIGIT_KEYS; }
     public static List<String> digitBrackets() { return DIGIT_BRACKETS; }
-    public static List<VariantGroup> variants() { return VARIANTS; }
-
     /** Center, left, up, right and down use the same direction indices as the Apple host. */
     public static int direction(float offsetX, float offsetY, float threshold) {
         if (threshold < 0) throw new IllegalArgumentException("Flick threshold cannot be negative");

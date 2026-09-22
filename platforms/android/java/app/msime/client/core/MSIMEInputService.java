@@ -92,6 +92,8 @@ public final class MSIMEInputService extends InputMethodService {
      * composition ended this way reaches the editor as 你好 rather than as the pinyin letters.
      */
     private static final int FINISH_COMPOSITION_COMMAND = 9;
+    /** Shared host command 10 delegates small-kana, dakuten and handakuten cycling to Engine. */
+    private static final int CYCLE_KANA_VARIANT_COMMAND = 10;
     private long session;
     private InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -6034,22 +6036,6 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
-    private void showJapaneseVariants(Button anchor) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        for (JapaneseNineKeyLayout.VariantGroup group : JapaneseNineKeyLayout.variants()) {
-            android.view.SubMenu submenu = popup.getMenu().addSubMenu(group.title());
-            for (int index = 0; index < group.kana().size(); index++) {
-                final String input = group.strokes().get(index);
-                submenu.add(group.kana().get(index)).setOnMenuItemClickListener(ignored -> {
-                    playFeedback(anchor);
-                    inputJapaneseStroke(input);
-                    return true;
-                });
-            }
-        }
-        popup.show();
-    }
-
     private void showJapaneseBracketOptions(Button anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
         for (String bracket : JapaneseNineKeyLayout.digitBrackets()) {
@@ -6070,7 +6056,7 @@ public final class MSIMEInputService extends InputMethodService {
         variants.setOnClickListener(ignored -> {
             playFeedback(variants);
             if (keyboardLayer == KeyboardLayout.Layer.SYMBOLS) showJapaneseBracketOptions(variants);
-            else command(10);
+            else command(CYCLE_KANA_VARIANT_COMMAND);
         });
         return variants;
     }

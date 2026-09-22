@@ -25,6 +25,24 @@ if ! rg -q 'msime_client_command' "$repo_root/crates/host-api/src/ffi/input.rs" 
   echo "Shared host command 9 is no longer Action::Finish; FINISH_COMPOSITION_COMMAND is stale" >&2
   exit 1
 fi
+# Japanese kana variants are Engine state, not a host-maintained lookup table. Keep the named
+# Android command and its shared FFI mapping together so a future enum change cannot silently
+# turn the visible 小゛゜ key into a no-op.
+if rg -n 'command\(10\)' "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+  echo "Android input service must name command 10 (CYCLE_KANA_VARIANT_COMMAND), not inline it" >&2
+  exit 1
+fi
+if ! rg -q '^\s*10 => Action::Command\(Command::CycleKanaVariant\),' \
+    "$repo_root/crates/host-api/src/ffi/input.rs"; then
+  echo "Shared host command 10 is no longer CycleKanaVariant; Android command is stale" >&2
+  exit 1
+fi
+if rg -n 'VariantGroup|showJapaneseVariants' \
+    "$repo_root/platforms/android/java/app/msime/client/keyboard/JapaneseNineKeyLayout.java" \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+  echo "Android must not duplicate Engine-owned Japanese kana variant tables" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
