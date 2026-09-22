@@ -153,9 +153,9 @@ Apple 的社区资源入口已迁移到同一页的“皮肤 / 词库 / 回复�
 
 应用首次启动、缺少运行配置时由宿主自己准备词库：两个 launcher（原生宿主的 HomeActivity 与合包的 MainActivity）都调用幂等的 `FirstRunPreparation.startIfNeeded`，已有配置只报告不覆盖。准备中与失败在“键盘”页顶部显示，失败可点击重试；就绪时不占屏幕。原先那个只有一排系统按钮的 SetupActivity 开发页已删除——把唯一的词库准备入口藏在一个用户找不到的脚手架页后面，等于允许键盘停在够不到 Engine 的状态。切换输入法的入口移到“试用键盘”页，系统输入法设置仍在“键盘”页的“系统设置”格。不会自动启用或选择输入法。系统输入法设置入口也可打开共享设置页。Tauri 使用主进程，InputMethodService 使用同 UID 的独立 :ime 进程，通过文件锁和 revision 协作，不依赖设置窗口存活。这样 Tauri 退出最后一个窗口不会结束输入服务；不是通过让隐藏设置窗口常驻来维持输入。
 
-“我的”页的“云词库”入口打开同包 Tauri 的共享云词库面板，继续复用 `packages/ui` 的目录、个人候选、文件和应用流程；原生页只负责启动路由，不复制词库编辑逻辑。入口通过 `msime_mobile_panel=cloud-dictionary` 传给 `MainActivity`，由 WebView 派发受控面板事件，返回键仍由共享面板历史处理。这样 Android 用户无需先进入桌面式设置页，也能到达 Apple 对应的云词库功能。
+Tauri 合包的“我的”页“云词库”入口打开同包共享云词库面板，继续复用 `packages/ui` 的目录、个人候选、文件和应用流程；入口通过 `msime_mobile_panel=cloud-dictionary` 传给 `MainActivity`，由 WebView 派发受控面板事件。独立原生 APK 没有 WebView，会明确提示使用管理界面合包，不伪造一个失效入口。
 
-“键盘”页另有“个人词库”入口，打开共享设置页的 `dictionary` 分类，覆盖 Apple 个人词库的查询、编辑、导入和导出；原生 Android 只提供入口和系统返回，词条校验及 Engine 写入仍由公共 Tauri/Rust 流程负责。入口通过 `msime_settings_page=dictionary` 传给 `MainActivity`，由 WebView 派发受控页面事件。
+Tauri 合包的“键盘”页另有“个人词库”入口，打开共享设置页的 `dictionary` 分类，覆盖 Apple 个人词库的查询、编辑、导入和导出；原生 Android 只提供入口和系统返回，词条校验及 Engine 写入仍由公共 Tauri/Rust 流程负责。入口通过 `msime_settings_page=dictionary` 传给 `MainActivity`，由 WebView 派发受控页面事件。
 
 Android“我的”页的“关于水杉”入口打开同包 Tauri 的共享 `about` 页面；页面内的使用帮助和反馈继续通过 `help` / `feedback` 分类切换，复用公共版本、隐私、开源、帮助和反馈 UI。原生宿主不再为这条公开设置链路维护另一套 About/Help/Feedback 页面。
 
