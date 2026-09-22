@@ -31,4 +31,4 @@ jobs:
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
           tag="ios-v${VERSION}"
-          gh release create "$tag" "dist/msime-ios-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "iOS ${VERSION}" --generate-notes $([[ "$PRERELEASE" == true ]] && echo --prerelease)
+          flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "dist/msime-ios-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "iOS ${VERSION}" --generate-notes "${flags[@]}"

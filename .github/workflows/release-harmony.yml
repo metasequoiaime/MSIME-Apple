@@ -24,4 +24,4 @@ jobs:
       - name: Publish independent HarmonyOS release
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
-          hap=$(find platforms/harmony -type f -name '*.hap' | head -1); test -n "$hap"; tag="harmony-v${VERSION}"; gh release create "$tag" "$hap" --target "$GITHUB_SHA" --title "HarmonyOS ${VERSION}" --generate-notes $([[ "$PRERELEASE" == true ]] && echo --prerelease)
+          hap=$(find platforms/harmony -type f -name '*.hap' | head -1); test -n "$hap"; tag="harmony-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "$hap" --target "$GITHUB_SHA" --title "HarmonyOS ${VERSION}" --generate-notes "${flags[@]}"

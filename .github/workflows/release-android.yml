@@ -21,4 +21,4 @@ jobs:
       - name: Publish independent Android release
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
-          tag="android-v${VERSION}"; gh release create "$tag" target/android/msime-client.apk --target "$GITHUB_SHA" --title "Android ${VERSION}" --generate-notes $([[ "$PRERELEASE" == true ]] && echo --prerelease)
+          tag="android-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" target/android/msime-client.apk --target "$GITHUB_SHA" --title "Android ${VERSION}" --generate-notes "${flags[@]}"

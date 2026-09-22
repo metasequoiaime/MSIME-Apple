@@ -24,4 +24,4 @@ jobs:
       - name: Publish independent Linux release
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
-          tag="linux-v${VERSION}"; gh release create "$tag" "msime-linux-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "Linux ${VERSION}" --generate-notes $([[ "$PRERELEASE" == true ]] && echo --prerelease)
+          tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "msime-linux-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "Linux ${VERSION}" --generate-notes "${flags[@]}"

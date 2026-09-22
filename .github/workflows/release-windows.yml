@@ -28,4 +28,4 @@ jobs:
         shell: bash
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
-          tag="windows-v${VERSION}"; gh release create "$tag" "msime-windows-${VERSION}.zip" --target "$GITHUB_SHA" --title "Windows ${VERSION}" --generate-notes $([[ "$PRERELEASE" == true ]] && echo --prerelease)
+          tag="windows-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "msime-windows-${VERSION}.zip" --target "$GITHUB_SHA" --title "Windows ${VERSION}" --generate-notes "${flags[@]}"
