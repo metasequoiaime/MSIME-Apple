@@ -2483,3 +2483,11 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 现在：`CandidateWheelRouting.h` 新增纯函数 `ConsumeCandidateWheelDelta`。精确位移（`hasPreciseScrollingDeltas`）累计满 40 点才翻一页（WebKit 一格滚轮对应的像素距离，作为 macOS 上的「一格」），多格拆成多次翻页并逐次检查是否还有上/下一页；惯性阶段（`momentumPhase` 非 None）不翻页并清空残留；反向、手势开始（began/may begin）、面板 `orderOut:`、以及非滚轮翻页引起的候选刷新都会清零。传统滚轮（非精确）仍是一个事件一格一页，不受加速后的行数影响。
 - 差异：来源的累加器以整数 notch 计，macOS 用点数阈值替代 `WHEEL_DELTA`；来源没有惯性概念，macOS 显式忽略惯性事件。仍保留的 Apple 快照适配器 `CandidatePanel.mm` 的 `MetasequoiaCandidateWindow` 滚轮逻辑未改（不属于当前宿主）。
 - 证据：`CandidatePaginationTest.cpp` 覆盖短滑动只翻一页并保留残留、惯性不翻页、反向清零、手势开始清零、多格拆分、传统滚轮一格一页；macOS 原生构建与 ctest 全部通过。未在真实触控板上目视确认翻页手感。
+
+### macOS 候选行圆角取自皮肤，不再写死 6（2026-09-23）
+
+- 来源：Server `candidate_presenter.cpp` 每个皮肤有一个行圆角 `tokens.itemRadius`（默认 4、`graphite` 2、`willow_green` 4），赋给 `appearance.cornerRadius`；`ui/src/Controls.cpp` 用这同一个半径绘制选中、按下和悬停三种行背景，不区分选中与悬停。`willow_green` 的 CSS 行圆角是 0、靠容器 clip-path 裁出窗口圆角，来源 D2D 端卡片不裁剪子控件，因此有意沿用 4px。
+- 原来：macOS 实际上屏的 `MSIMECandidateButton`（`CandidateChrome.h`）把行背景写死为 `xRadius:6 yRadius:6`，`InputController.mm` 只把皮肤的卡片圆角 `tokens.radius` 交给面板，`CandidateSkin.cpp` 解析出的 `candidateRadius`/`selectedRadius` 只有未上屏的 `CandidatePanel.mm` 和皮肤预览在用；而这两个值又沿用 Apple 快照的 CSS 取值，`wechat` 选中为 5、`willow_green` 为 0，与来源不符。
+- 现在：`CandidateSkin.h` 新增 `CandidateRowRadius`（高亮行取 `selectedRadius`，悬停及其余取 `candidateRadius`），`refreshCandidateSkin` 按它给每个候选按钮设置 `cornerRadius`，自定义皮肤包沿用其 `base` 内置皮肤的解析结果，同样生效。内置皮肤的两个值都改为来源 `itemRadius`：`fluent` 4/4、`wechat` 4/4、`graphite` 2/2、`willow_green` 4/4（macOS 的候选卡片同样不裁剪行）。
+- 差异：macOS 候选按钮没有单独的按下态背景，来源按下时用选中色与同一圆角，这一点未改。
+- 证据：`CandidateSkinTest.cpp` 覆盖四个内置皮肤明暗两套的行圆角与 `CandidateRowRadius` 的选中/悬停取值；macOS 原生构建与 ctest 全部通过。未在真实编辑器中目视确认。

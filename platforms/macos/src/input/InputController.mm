@@ -4349,6 +4349,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateNumberColorWithDefault:SkinColor(tokens.number)];
         button.barColor = [_appearance candidateAccentColorWithDefault:SkinColor(tokens.accent)];
         button.showSelectedBar = tokens.showSelectedBar;
+        button.cornerRadius = msime::mac::CandidateRowRadius(tokens, button.candidateHighlighted);
         button.contentTintColor = SkinColor(tokens.text);
         button.needsDisplay = YES;
     }
