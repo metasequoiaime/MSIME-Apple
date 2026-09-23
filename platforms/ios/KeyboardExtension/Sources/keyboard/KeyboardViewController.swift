@@ -1185,7 +1185,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           updateShortcutButtons()
         }),
       ].compactMap { $0 }),
+      // Windows 用 Ctrl+Shift+Alt+C 清除候选缓存。iOS 不把硬件键交给第三方键盘,那组快捷键在这里按不出来,所以放成面板里的一张卡。
+      KeyboardToolSection(title: "维护", kind: .opens, columns: 2, tools: [
+        KeyboardTool(title: "清除候选缓存", symbol: "arrow.counterclockwise") { [weak self] in
+          self?.closeKeyboardPicker(); self?.resetCandidateCache()
+        },
+      ]),
     ]
+  }
+
+  private func resetCandidateCache() {
+    let snapshot = session.resetCache()
+    render(snapshot)
+    guard snapshot.diagnosticText == nil else { return }
+    showDiagnostic("已清除候选缓存")
+    renderCandidateStrip()
   }
 
   /// Vibration controls only where there is a Taptic Engine to drive; an iPad would show switches that do nothing.

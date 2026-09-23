@@ -22,6 +22,8 @@ private func msimeClientPunctuationWithContext(
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_command")
 private func msimeClientCommand(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_reset_cache")
+private func msimeClientResetCache(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select")
 private func msimeClientSelect(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select_any_candidate")
@@ -675,6 +677,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func moveCaretToStart() -> MetasequoiaInputSnapshot { command(6) }
   func moveCaretToEnd() -> MetasequoiaInputSnapshot { command(7) }
   func deleteForward() -> MetasequoiaInputSnapshot { command(8) }
+  /// Drops the Engine's cached candidate lookups, which Windows does on Ctrl+Shift+Alt+C.
+  func resetCache() -> MetasequoiaInputSnapshot { dispatch { msimeClientResetCache(handle) } }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),

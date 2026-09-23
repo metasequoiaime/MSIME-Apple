@@ -55,6 +55,28 @@ final class MorePanelFoldTests: XCTestCase {
     }
   }
 
+  /// The Windows Ctrl+Shift+Alt+C chord has no key to press on iOS, so the panel carries it; the card closes the panel and says it worked.
+  func testTheClearCacheCardClearsAndSaysSo() throws {
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(
+      x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.layoutIfNeeded()
+
+    try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    try button("moreCard-清除候选缓存", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+
+    XCTAssertFalse(
+      descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" },
+      "the panel stayed open over the message")
+    let label = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "diagnosticLabel" } as? UILabel)
+    XCTAssertEqual(label.text, "已清除候选缓存")
+    XCTAssertFalse(label.isHidden)
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
