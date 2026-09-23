@@ -2486,6 +2486,40 @@ test("the iOS skin page hands the candidate strip to the desktop candidate skin"
   );
 });
 
+test("iOS offers 行内预编辑 as its own keyboard switch instead of the shared preedit style", async () => {
+  const load = vi.fn().mockResolvedValue({
+    soundEnabled: true,
+    hapticsEnabled: false,
+    hapticStrength: "medium",
+    englishSuggestions: true,
+    candidatePaletteFollowsDesktop: false,
+    inlinePreedit: false,
+  });
+  const saveFeedback = vi.fn().mockImplementation(async (settings) => settings);
+  const save = vi.fn().mockImplementation(async (value) => value);
+  const client = {
+    load: vi.fn().mockResolvedValue(initial),
+    save,
+    host: { platform: "ios" } as HostCapabilities,
+    home: { openKeyboard: vi.fn() },
+    mobileKeyboardFeedback: { load, save: saveFeedback },
+  };
+  render(<SettingsPage initialPage="appearance" client={client} />);
+  const inline = (await screen.findByLabelText("行内预编辑", undefined, {
+    timeout: 3000,
+  })) as HTMLInputElement;
+  expect(inline.type).toBe("checkbox");
+  expect(inline.checked).toBe(false);
+  expect(screen.queryByRole("option", { name: "原始按键" })).toBeNull();
+  fireEvent.click(inline);
+  await waitFor(() =>
+    expect(saveFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ inlinePreedit: true, candidatePaletteFollowsDesktop: false }),
+    ),
+  );
+  expect(save).not.toHaveBeenCalled();
+});
+
 test("iOS describes local modes and 以词定字 the way its keyboard reaches them", async () => {
   const client = {
     load: vi.fn().mockResolvedValue(initial),

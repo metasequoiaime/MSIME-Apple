@@ -193,6 +193,9 @@ pub struct IosKeyboardPreferences {
     /// The candidate strip draws the shared desktop candidate skin and colours instead of the keyboard skin's; the switch lives in the App Group because the keyboard reads it on every redraw.
     #[serde(default)]
     pub candidate_palette_follows_desktop: bool,
+    /// 行内预编辑: the keyboard also writes the composition into the text field as marked text. Off by default and kept in the App Group, because the shared `tsf_preedit_style` defaults to raw in every document and would switch every existing iOS user over.
+    #[serde(default)]
+    pub inline_preedit: bool,
     pub dictionary_learning: bool,
     pub keyboard_skin: String,
     pub custom_keyboard_skin: Option<String>,
@@ -989,6 +992,7 @@ mod tests {
             haptic_strength: "strong".into(),
             english_suggestions: true,
             candidate_palette_follows_desktop: true,
+            inline_preedit: true,
             dictionary_learning: false,
             keyboard_skin: "custom".into(),
             custom_keyboard_skin: Some(r#"{"background":15269867}"#.into()),
@@ -1029,6 +1033,18 @@ mod tests {
             .remove("candidatePaletteFollowsDesktop");
         let decoded: IosKeyboardPreferences = serde_json::from_value(legacy).unwrap();
         assert!(!decoded.candidate_palette_follows_desktop);
+    }
+
+    #[test]
+    fn ios_keyboard_preferences_round_trip_the_inline_preedit_switch() {
+        let encoded = serde_json::to_value(keyboard_preferences()).unwrap();
+        assert_eq!(encoded["inlinePreedit"], true);
+
+        // A snapshot from a plugin that predates the switch keeps the composition on the strip only.
+        let mut legacy = encoded;
+        legacy.as_object_mut().unwrap().remove("inlinePreedit");
+        let decoded: IosKeyboardPreferences = serde_json::from_value(legacy).unwrap();
+        assert!(!decoded.inline_preedit);
     }
 
     #[test]

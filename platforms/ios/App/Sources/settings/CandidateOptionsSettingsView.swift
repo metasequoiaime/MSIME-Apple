@@ -24,6 +24,8 @@ struct CandidateOptionsSettingsView: View {
   @State private var fontFamilies: [String] = []
   @State private var preeditStyle = CandidatePreeditStyle.pinyin.rawValue
   @State private var shuangpinRaw = true
+  @AppStorage(InlinePreeditPreference.key, store: InlinePreeditPreference.defaults)
+  private var inlinePreedit = false
   @AppStorage(CandidatePalette.followsDesktopKey, store: CandidatePalette.defaults)
   private var followsDesktopPalette = false
   @State private var candidateSkin = CandidatePalette.defaultSkin
@@ -79,6 +81,9 @@ struct CandidateOptionsSettingsView: View {
       }
       paletteSection
       Section {
+        Toggle(isOn: $inlinePreedit) {
+          labelled("行内预编辑", "把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示")
+        }.accessibilityIdentifier("inlinePreedit")
         Picker("候选栏预编辑", selection: storedTop(CandidatePreeditStyle.key, $preeditStyle)) {
           ForEach(CandidatePreeditStyle.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
         }.accessibilityIdentifier("candidatePreeditStyle")
@@ -88,7 +93,7 @@ struct CandidateOptionsSettingsView: View {
       } header: {
         Text("预编辑")
       } footer: {
-        Text("选「不显示」时，候选栏不再显示正在拼写的编码，把位置留给候选；已选定的半个词和本地输入模式的名称仍会显示。")
+        Text("行内预编辑默认关闭；个别 App 显示输入框里的组字不完整时可以关掉。候选栏预编辑选「不显示」时，候选栏不再显示正在拼写的编码，把位置留给候选；已选定的半个词和本地输入模式的名称仍会显示。")
       }
       Section {
         Toggle(isOn: stored("quanpin", "autocorrect_transposition", $transposition)) {

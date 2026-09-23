@@ -1606,6 +1606,8 @@ export type MobileKeyboardFeedback = {
   englishSuggestions?: boolean;
   /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
   candidatePaletteFollowsDesktop?: boolean;
+  /** iOS writes the composition into the text field as marked text only when this App Group switch is on; it has no raw/pinyin/empty choice because the strip already carries that one. */
+  inlinePreedit?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -5100,26 +5102,53 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">行内预编辑</span>
-                        <select
-                          aria-label="行内预编辑"
-                          value={draft.tsf_preedit_style ?? "raw"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              tsf_preedit_style: event.target
-                                .value as Preferences["tsf_preedit_style"],
-                            })
-                          }
-                        >
-                          <option value="raw">原始按键</option>
-                          <option value="pinyin">拼音分词</option>
-                          <option value="empty">不显示</option>
-                        </select>
-                      </label>
-                    </div>
+                    {mobileKeyboardFeedback?.inlinePreedit !== undefined ? (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            行内预编辑
+                            <small>
+                              把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示。默认关闭；个别
+                              App 显示不完整时可以关掉。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="行内预编辑"
+                            className="toggle"
+                            type="checkbox"
+                            disabled={mobileKeyboardFeedbackBusy}
+                            checked={mobileKeyboardFeedback.inlinePreedit}
+                            onChange={(event) =>
+                              void saveMobileKeyboardFeedback({
+                                ...mobileKeyboardFeedback,
+                                inlinePreedit: event.target.checked,
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">行内预编辑</span>
+                          <select
+                            aria-label="行内预编辑"
+                            value={draft.tsf_preedit_style ?? "raw"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                tsf_preedit_style: event.target
+                                  .value as Preferences["tsf_preedit_style"],
+                              })
+                            }
+                          >
+                            <option value="raw">原始按键</option>
+                            <option value="pinyin">拼音分词</option>
+                            <option value="empty">不显示</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
