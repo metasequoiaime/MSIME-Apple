@@ -71,6 +71,28 @@ test("macOS voice shortcuts use native key names and space-lock semantics", asyn
   expect(screen.getByText(/首次授权后请重新按键/)).toBeTruthy();
 });
 
+// The Windows host records while a modifier shortcut is held, the two-key chord takes the right Ctrl specifically, and Space locks a held recording. The labels used to read as toggles on a plain Ctrl.
+test("Windows voice shortcuts describe hold-to-record, the right Ctrl chord and space lock", async () => {
+  render(
+    <SettingsPage
+      initialPage="voice"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await screen.findByRole("checkbox", { name: "长按右 Alt 录音" });
+  expect(screen.getByRole("checkbox", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "长按录音时按空格锁定" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Ctrl+F9 切换语音" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "Ctrl+右 Alt 切换语音" })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "右 Alt 切换语音" })).toBeNull();
+  expect(screen.getByText(/按住期间按空格锁定录音/)).toBeTruthy();
+});
+
 test("macOS exposes the non-activating input-mode HUD preference", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
