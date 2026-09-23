@@ -25,7 +25,7 @@ struct VoicePolishSettings: Equatable {
   var customPrompts = ["", "", ""]
   var language = "zh-cn"
   var soundEnabled = true
-  /// The desktop's per-cue switches; this page only shows the master switch, and a cue plays when both are on.
+  /// The desktop's per-cue switches under the master switch; a cue plays when both are on.
   var startSound = true
   var endSound = true
 
@@ -57,6 +57,8 @@ struct VoicePolishSettings: Equatable {
     }
     voice["language"] = language
     voice["sound_enabled"] = soundEnabled
+    voice["start_sound"] = startSound
+    voice["end_sound"] = endSound
     preferences["voice_input"] = voice
   }
 

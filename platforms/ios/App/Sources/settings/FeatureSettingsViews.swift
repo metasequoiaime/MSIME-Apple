@@ -451,10 +451,17 @@ struct ServiceSettingsView: View {
       .accessibilityIdentifier("voiceLanguage")
       Toggle("录音提示音", isOn: $voiceSettings.soundEnabled)
         .accessibilityIdentifier("voiceSoundEnabled")
+      // 和桌面「开始录音提示音」「结束录音提示音」同两个键。总开关关着时两项都不响,收起来免得看着像还开着。
+      if voiceSettings.soundEnabled {
+        Toggle("开始录音时", isOn: $voiceSettings.startSound)
+          .padding(.leading, 16).accessibilityIdentifier("voiceStartSound")
+        Toggle("结束录音时", isOn: $voiceSettings.endSound)
+          .padding(.leading, 16).accessibilityIdentifier("voiceEndSound")
+      }
     } footer: {
       Text(configuration.voiceProvider == .doubao || configuration.voiceProvider == .siliconFlow
-        ? "当前服务自动判断语言，不使用这里的选择。开始和结束录音时播放系统提示音。"
-        : "识别语言随录音一起发送；选“自动识别”时由服务判断。开始和结束录音时播放系统提示音。")
+        ? "当前服务自动判断语言，不使用这里的选择。开始和结束录音时各有一声系统提示音，可以分别关掉。"
+        : "识别语言随录音一起发送；选“自动识别”时由服务判断。开始和结束录音时各有一声系统提示音，可以分别关掉。")
     }
   }
 

@@ -44,6 +44,8 @@ final class VoicePolishTests: XCTestCase {
     settings.promptID = "custom_1"
     settings.customPrompts[0] = "  \n"
     settings.polishEnabled = false
+    settings.startSound = false
+    settings.endSound = true
     settings.write(into: &document)
     let voice = document["voice_input"] as? [String: Any]
     XCTAssertEqual(voice?["polish_text"] as? Bool, false)
@@ -52,7 +54,9 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(voice?["polish_prompt_custom_1"] as? String, "")
     XCTAssertEqual(voice?["polish_prompt_custom_3"] as? String, "三")
     XCTAssertEqual(voice?["asr_provider"] as? String, "doubao")
-    XCTAssertEqual(voice?["end_sound"] as? Bool, false)
+    XCTAssertEqual(voice?["start_sound"] as? Bool, false)
+    XCTAssertEqual(voice?["end_sound"] as? Bool, true)
+    XCTAssertEqual(voice?["sound_enabled"] as? Bool, false)
   }
 
   func testUnknownValuesFallBackToTheDefaults() {
