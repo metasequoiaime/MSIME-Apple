@@ -153,6 +153,15 @@ if ! rg -q 'NativeClient\.doubaoStartFrame|NativeClient\.doubaoAudioFrame' \
   echo "Android streaming recognition must build its frames through the shared Host API" >&2
   exit 1
 fi
+# The Engine decides what a punctuation key produces, so the Chinese/English state has to reach it.
+# A toggle that only changed this keyboard's key faces would show one mark and commit the other.
+if ! rg -q 'setChinesePunctuationRaw' \
+    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+  || ! rg -q 'msime_client_set_chinese_punctuation' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android punctuation switching must cross the shared Host API through JNI" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
