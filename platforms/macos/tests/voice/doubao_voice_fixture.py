@@ -109,6 +109,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.receive()  # The native finish deadline must close the socket.
             elif self.path == "/invalid-pcm":
                 self.receive()
+            elif self.path == "/long":
+                # A stream well past the old 60 s cap arrives whole, as the MSIME-Windows client sends it.
+                samples = 0
+                while True:
+                    kind, sequence, pcm = self.receive()
+                    assert kind in (0x21, 0x23)
+                    samples += len(pcm) // 2
+                    if kind == 0x23:
+                        break
+                self.transcript(f"synthetic long {samples}", True)
             else:
                 kind, sequence, pcm = self.receive()
                 assert kind == 0x21 and sequence == 2 and pcm == b"\xff\x1f" * 3200
@@ -144,7 +154,7 @@ try:
     assert returncode == 0 and not errors
     assert all(counts.get(path) == 1 for path in
                ("/api", "/legacy", "/inferred", "/masked-app", "/inferred-masked", "/trimmed", "/trimmed-legacy",
-                "/malformed", "/server-error", "/oversized", "/redirect", "/cancel", "/drop", "/silent"))
+                "/malformed", "/server-error", "/oversized", "/redirect", "/cancel", "/drop", "/silent", "/long"))
     assert "/leaked" not in counts
 finally:
     server.shutdown()

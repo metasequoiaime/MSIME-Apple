@@ -183,6 +183,8 @@
 
 **诊断日志固定写数据目录。** 来源先写桌面、失败再退回数据目录；这边固定写数据目录下的 `logs\server.log`，因为输入法在桌面上凭空出现文件不是用户预期的副作用。设置页的「Server 端日志」「TSF 端日志」两个开关（`diagnostic_log.server` / `diagnostic_log.tsf`）分别控制写入，内容只有 Server 启停原因、各组件是否就绪、退出码与 TIP 上报的诊断批次，不记按键、输入内容或候选文本；4 MiB 轮转为 `server.log.1`，最多保留两份；UTF-8 BOM 与 CRLF 行尾与来源一致；偏好发布时立即生效，无需重启 Server。
 
+**macOS 语音有三处刻意与来源不同。** 静音其他声音是整台默认输出设备而不是按进程，因为 macOS 13 没有公开接口，时序上改为开始提示音播完再静音、先恢复再播结束提示音，以保证提示音听得见；录音录满上传上限时自动结束并提交已录部分，而不是像来源那样提交时报超限并丢掉整段；提示音文件缺失时回落到系统声音而不是不出声。细节见 `platforms/macos/README.md` 的「语音输入」。
+
 **简繁转换由 Windows、Linux 与共享层走 OpenCC 词级，macOS 仍是逐字。** Linux 的 `platforms/linux/src/system/ChineseTextConversion.cpp` 调同一个 `msime_client_simplified_to_traditional` 导出，两个宿主因此都不再依赖 `libicu`；macOS 的 `CFStringTransform` 是系统提供的逐字转换，要改成同一条路径只需把调用换成共享层那个导出。逐字转换解决不了一对多的字，「头发」会成「頭發」。
 
 **设置页有几处措辞与控件刻意与来源不同**：「始终使用英文标点」与这边的「中文标点」绑同一个 `chinese_punctuation` 但极性相反，只改名不反转控件即是错标；剪贴板管理来源写「关闭后立即清空」，这边写「保存关闭设置后清空」，因为这边的清空发生在偏好保存时；候选窗字体一项 Windows 显示的是「候选窗英文字体 + 补充字体」而非来源的「主字体 + 中文补充字体」，是 Windows 字体路径上的既有取舍。

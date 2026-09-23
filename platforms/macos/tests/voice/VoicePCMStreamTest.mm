@@ -1,5 +1,6 @@
 #import "../../src/voice/VoiceInputService.h"
 #import "../../src/voice/VoicePCMBuffer.h"
+#include "../../../../shared/voice/VoiceProviders.h"
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -30,7 +31,7 @@ static AVAudioPCMBuffer *Audio(double rate, AVAudioFrameCount frames) {
 int main() {
     @autoreleasepool {
         for (NSNumber *rate in @[@16000, @44100, @48000, @96000]) {
-            MSIMEVoicePCMBuffer *recording = [MSIMEVoicePCMBuffer new];
+            MSIMEVoicePCMBuffer *recording = [[MSIMEVoicePCMBuffer alloc] initWithSampleLimit:NSUIntegerMax];
             NSMutableData *streamed = [NSMutableData data];
             AVAudioPCMBuffer *chunk = Audio(rate.doubleValue, 137);
             for (NSUInteger i = 0; i < 101; ++i) {
@@ -42,13 +43,28 @@ int main() {
                 assert([recording drainWithError:nil].length == 0);
             }
             assert(streamed.length > 0); // Data is available before finish.
-            NSData *whole = [recording finishWithError:nil];
-            [streamed appendData:[recording drainWithError:nil]];
-            assert([streamed isEqual:whole] && [recording drainWithError:nil].length == 0);
-            assert([[recording finishWithError:nil] isEqual:whole]);
+            // Drained samples are released, so finish holds only the undelivered tail, which drain then hands over once.
+            NSData *tail = [recording finishWithError:nil];
+            assert(tail && [[recording drainWithError:nil] isEqual:tail]);
+            [streamed appendData:tail];
+            assert([recording drainWithError:nil].length == 0 && [recording finishWithError:nil].length == 0);
+            MSIMEVoicePCMBuffer *whole = [MSIMEVoicePCMBuffer new];
+            for (NSUInteger i = 0; i < 101; ++i) assert([whole append:chunk error:nil]);
+            assert([streamed isEqual:[whole finishWithError:nil]]);
             [recording cancel];
             assert(![recording drainWithError:nil]);
         }
+        // A stream has no length cap, as the MSIME-Windows Doubao client has none: well past the batch limit every sample is still delivered, while the buffer only ever holds what has not been drained.
+        MSIMEVoicePCMBuffer *endless = [[MSIMEVoicePCMBuffer alloc] initWithSampleLimit:NSUIntegerMax];
+        AVAudioPCMBuffer *second = Audio(16000, 16000);
+        NSUInteger endlessSamples = 0;
+        const NSUInteger endlessSeconds = msime::voice::batch_capture_sample_limit / 16000 + 2;
+        for (NSUInteger i = 0; i < endlessSeconds; ++i) {
+            assert([endless append:second error:nil]);
+            endlessSamples += [endless drainWithError:nil].length / sizeof(float);
+        }
+        endlessSamples += [endless finishWithError:nil].length / sizeof(float);
+        assert(endlessSamples == endlessSeconds * 16000);
         PCMStreamCapture *service = [PCMStreamCapture new];
         AVAudioPCMBuffer *chunk = Audio(48000, 4800);
         NSMutableData *streamed = [NSMutableData data];

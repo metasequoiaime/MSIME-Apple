@@ -66,7 +66,8 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
             userInfo:@{NSLocalizedDescriptionKey:@"无法开始流式录音"}];
         return NO;
     }
-    MSIMEVoicePCMBuffer *recording = [MSIMEVoicePCMBuffer new];
+    // The stream is not capped, as the MSIME-Windows Doubao client is not: every chunk is drained as it is delivered, so the buffer only ever holds what has not been sent yet.
+    MSIMEVoicePCMBuffer *recording = [[MSIMEVoicePCMBuffer alloc] initWithSampleLimit:NSUIntegerMax];
     auto live = std::make_shared<PCMStreamAdmission>();
     _pcmRecording = recording; _pcmStreamLive = live;
     // Both recording and admission token belong to this tap, never its successor.

@@ -1,13 +1,19 @@
 #import "HTTPVoiceRequest.h"
+#import "VoiceFailureMessages.h"
 #include "../../../../shared/voice/VoiceProviders.h"
 #include "../../../../shared/voice/PolishPrompt.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
 namespace {
-NSError *Failure() {
-    return [NSError errorWithDomain:@"app.msime.client.voice" code:6
-        userInfo:@{NSLocalizedDescriptionKey: @"语音请求失败，请检查识别服务设置"}];
+NSError *Failure(const std::string &detail = {}) {
+    NSMutableDictionary *info = [@{NSLocalizedDescriptionKey: @"语音请求失败，请检查识别服务设置"} mutableCopy];
+    // The shared provider layer builds the detail from the answer, never from the token or the upload; a body that is not UTF-8 is simply not shown.
+    NSString *text = detail.empty() ? nil
+        : [[NSString alloc] initWithBytes:detail.data() length:detail.size() encoding:NSUTF8StringEncoding];
+    if (text.length) info[MSIMEVoiceFailureDetailKey] = text;
+    return [NSError errorWithDomain:@"app.msime.client.voice" code:6 userInfo:info];
 }
 std::string String(NSDictionary *options, NSString *key) {
     NSString *value = options[key];
@@ -121,14 +127,20 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     _options = [snapshot copy];
     return self;
 }
+- (NSUInteger)sampleLimit {
+    return String(_options, @"asr_provider") == "local"
+        ? msime::voice::local_asr_sample_limit : msime::voice::batch_capture_sample_limit;
+}
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error {
     @synchronized(self) {
         if (!_recognitionRequired || _started || _cancelled->load() || !completion || !pcm.length ||
-            pcm.length % sizeof(float) || pcm.length > 16000 * 60 * sizeof(float)) {
+            pcm.length % sizeof(float)) {
             if (error) *error = Failure(); return NO;
         }
-        std::vector<float> samples(pcm.length / sizeof(float));
-        std::memcpy(samples.data(), pcm.bytes, pcm.length);
+        // Submit what was captured up to what the provider can take, as the capture buffer does.
+        const std::size_t limit = self.sampleLimit;
+        std::vector<float> samples(std::min<std::size_t>(pcm.length / sizeof(float), limit));
+        std::memcpy(samples.data(), pcm.bytes, samples.size() * sizeof(float));
         for (float value : samples) if (!std::isfinite(value) || std::fabs(value) > 1) {
             if (error) *error = Failure(); return NO;
         }
@@ -150,7 +162,8 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
                 text = Polish(std::move(text), options, cancelled, polishing);
                 result = [[NSString alloc] initWithBytes:text.data() length:text.size() encoding:NSUTF8StringEncoding];
                 if (!result.length) failure = Failure();
-            } catch (const std::exception &) { failure = Failure(); }
+            } catch (const msime::voice::CloudAsrError &cloudError) { failure = Failure(cloudError.user_message()); }
+            catch (const std::exception &) { failure = Failure(); }
             dispatch_async(dispatch_get_main_queue(), ^{ if (!cancelled->load()) completion(failure ? nil : result, failure); });
         });
         return YES;
