@@ -186,6 +186,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visiblePreedit = ""
   /// The already-chosen half of a phrase at the front of `visiblePreedit`, which 「候选栏预编辑」 never hides.
   private var visiblePhrasePrefix = ""
+  /// The spelling with the Engine's caret drawn in, while the user has moved that caret off the end.
+  private var visibleCaretSpelling: String?
+  /// Whether the current space-bar drag moves the caret inside the composition rather than in the document.
+  private var spaceDragEditsComposition = false
   /// The desktop candidate skin the strip draws with, or nil while it follows the keyboard skin (see CandidatePalette).
   private var candidatePalette: CandidatePalette?
   private var candidateRevision: UInt64 = 0
@@ -2514,9 +2518,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       ? (modeName ?? visiblePreedit)
       : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
     // 「候选栏预编辑」 only changes what is drawn: `visiblePreedit` still says a composition is running, which keeps the strip up while a spelling has no candidates yet, and VoiceOver still reads the full title. The setting names pinyin, so a Japanese reading is left as it is.
+    let style = CandidatePreeditStyle(in: session.sharedPreferences)
+    // A caret moved into the spelling is drawn even under 「不显示」: the next key acts at that caret, and a hidden one leaves no way to tell where.
     let drawnTitle = idle || title != visiblePreedit || inputScheme.isJapanese
       ? title
-      : CandidatePreeditStyle(in: session.sharedPreferences).title(
+      : visibleCaretSpelling.map { visiblePhrasePrefix + $0 } ?? style.title(
         composition: visiblePreedit, phrasePrefix: visiblePhrasePrefix,
         localModeName: isInLocalMode ? modeName : nil)
     if var configuration = preeditButton.configuration {
@@ -2860,6 +2866,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return abs(velocity.x) > abs(velocity.y)
   }
 
+  private func moveCompositionCaret(by offset: Int) {
+    guard offset != 0 else { return }
+    var snapshot: MetasequoiaInputSnapshot?
+    for _ in 0..<min(abs(offset), 64) {
+      snapshot = offset < 0 ? session.moveCaretLeft() : session.moveCaretRight()
+    }
+    if let snapshot { render(snapshot) }
+  }
+
   private func moveCursor(by offset: Int) {
     guard offset != 0 else { return }
     guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else { return }
@@ -2877,14 +2892,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     switch pan.state {
     case .began:
       cursorMovement.begin(at: pan.translation(in: view).x, document: document)
-      if hasComposition { render(session.finishComposition()) }
-      spaceButton?.configuration?.title = "移动光标"
+      // While spelling, the drag edits the spelling: the caret walks through the pinyin as ← / → do in the Windows composition, and typing or backspace then acts there. A Japanese reading keeps ending the composition, because its conversion owns the space key.
+      spaceDragEditsComposition = hasComposition && !inputScheme.isJapanese
+      if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
+      spaceButton?.configuration?.title = spaceDragEditsComposition ? "移动拼音光标" : "移动光标"
       if KeyboardFeedbackPreference.hapticsEnabled {
         keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
       }
     case .changed:
-      moveCursor(by: cursorMovement.advance(to: pan.translation(in: view).x,
-                                           document: document))
+      let steps = cursorMovement.advance(to: pan.translation(in: view).x, document: document)
+      if spaceDragEditsComposition && hasComposition {
+        moveCompositionCaret(by: steps)
+      } else {
+        moveCursor(by: steps)
+      }
       if !cursorMovement.isActive { updateSpaceKeyTitle() }
     case .ended, .cancelled, .failed:
       cursorMovement.cancel()
@@ -3100,6 +3121,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let composing = snapshot.phrasePrefix
       + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
     visiblePhrasePrefix = snapshot.phrasePrefix
+    visibleCaretSpelling = inputScheme.isJapanese ? nil : snapshot.editingTextWithCaret
     showInlineComposition(hasComposition && InlinePreeditPreference.isEnabled ? composing : "")
     updateCandidateStrip(
                          preedit: composing,

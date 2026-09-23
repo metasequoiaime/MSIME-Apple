@@ -160,15 +160,25 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// paying for that several times over.
   let localMode: String
   let nineKeySpellings: [String]
+  /// The Engine's ASCII spelling and the caret inside it, as a byte offset. The caret leaves the end only when the user moves it (dragging the space bar while composing), which is the Windows host's ← / → editing of the input string.
+  let editingText: String
+  let caretPosition: Int
 
   var isInLocalMode: Bool { !localMode.isEmpty && localMode != "none" }
+
+  /// The spelling with a bar where the caret sits, or nil while the caret is at the end, where the strip keeps showing the segmented pinyin. Windows draws the same caret inside the composition. The offset indexes characters directly because the editing text is ASCII; anything else is not split.
+  var editingTextWithCaret: String? {
+    guard caretPosition >= 0, caretPosition < editingText.count, editingText.allSatisfy(\.isASCII) else { return nil }
+    let caret = editingText.index(editingText.startIndex, offsetBy: caretPosition)
+    return editingText[..<caret] + "|" + editingText[caret...]
+  }
 
   init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
        phrasePrefix: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
        candidateAnnotations: [String] = [], candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
-       nineKeySpellings: [String] = []) {
+       nineKeySpellings: [String] = [], editingText: String = "", caretPosition: Int = 0) {
     self.isHandled = isHandled
     self.commitText = commitText
     self.preedit = preedit
@@ -183,6 +193,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.diagnosticText = diagnosticText
     self.localMode = localMode
     self.nineKeySpellings = nineKeySpellings
+    self.editingText = editingText
+    self.caretPosition = caretPosition
   }
 }
 
@@ -647,6 +659,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func finishComposition() -> MetasequoiaInputSnapshot { command(9) }
   func cycleKanaVariant() -> MetasequoiaInputSnapshot { command(10) }
   func commitReading() -> MetasequoiaInputSnapshot { command(11) }
+  func moveCaretLeft() -> MetasequoiaInputSnapshot { command(4) }
+  func moveCaretRight() -> MetasequoiaInputSnapshot { command(5) }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
@@ -1267,7 +1281,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
       diagnosticText: value["diagnostic"] as? String,
       localMode: view["local_mode"] as? String ?? "none",
-      nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [])
+      nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [],
+      editingText: view["editing_text"] as? String ?? "",
+      caretPosition: (view["caret_position"] as? NSNumber)?.intValue ?? 0)
   }
 
   private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {
