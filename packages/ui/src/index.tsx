@@ -3520,6 +3520,10 @@ export function SettingsPage({
   }
   const voiceInput = { ...defaultVoiceInput, ...draft?.voice_input };
   const systemVoice = nativeVoicePlatform && voiceInput.asr_provider === "system";
+  // Naming the host rather than assuming macOS. This read `harmonyPlatform ? "HarmonyOS" : "macOS"`
+  // and was correct while those were the only two; Android gained a system recogniser of its own
+  // and the card then announced itself as macOS on an Android phone.
+  const systemVoiceHostName = harmonyPlatform ? "HarmonyOS" : androidPlatform ? "Android" : "macOS";
   // On-device Whisper. Like the system recognizer it has no service behind it, so it hides the same endpoint, token and model rows - but unlike it, the user has to say which model file to load.
   const localVoice = macosPlatform && voiceInput.asr_provider === "local";
   const serviceVoice = !systemVoice && !localVoice;
@@ -8757,9 +8761,7 @@ export function SettingsPage({
                       </div>
                     ) : systemVoice ? (
                       <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">
-                          {harmonyPlatform ? "HarmonyOS" : "macOS"} 系统语音
-                        </div>
+                        <div className="section-title">{systemVoiceHostName} 系统语音</div>
                         <p className={settings.panelPreviewLabel}>
                           保存设置后，在目标应用中启用水杉输入法，使用键盘内的语音入口录音。不需要识别
                           API
@@ -8768,9 +8770,13 @@ export function SettingsPage({
                       </div>
                     ) : androidPlatform ? (
                       <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">Android 系统语音</div>
+                        <div className="section-title">
+                          {showVoiceProviderSettings ? "Android 语音输入" : "Android 系统语音"}
+                        </div>
                         <p className={settings.panelPreviewLabel}>
-                          从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。
+                          {showVoiceProviderSettings
+                            ? "键盘工具栏的“语音”入口按这里配置的服务商录音并转写；没有配置可用的服务商时回退到设备自带的系统语音识别，不需要任何 API Key。识别结果会回到键盘，确认后才插入当前输入框。"
+                            : "从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。"}
                         </p>
                       </div>
                     ) : iosPlatform ? (
