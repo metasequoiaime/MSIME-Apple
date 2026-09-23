@@ -3631,7 +3631,7 @@ public:
   std::string shortText(fcitx::InputContext *ic) const override {
     if (!ic) return "候选主题";
     const auto theme = ic->propertyFor(factory_)->preferences_.value("candidate_theme", std::string("follow"));
-    return theme == "light" ? "候选主题：浅色" : theme == "dark" ? "候选主题：深色" : "候选主题：跟随系统";
+    return theme == "light" ? "候选主题：浅色" : theme == "dark" ? "候选主题：深色" : "候选主题：跟随全局";
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {

@@ -11,6 +11,7 @@ fn invoke(service: &str, config: Value) -> Value {
         .manage(RuntimeOptionsState {
             path: None,
             document: Arc::new(Mutex::new(json!({}))),
+            skins: None,
         })
         .invoke_handler(tauri::generate_handler![test_api_credential])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))

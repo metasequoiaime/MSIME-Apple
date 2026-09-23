@@ -2831,7 +2831,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto theme_menu = ibus_prop_list_new();
   const std::pair<const char *, const char *> theme_options[] = {
-      {"follow", "跟随系统"}, {"light", "浅色"}, {"dark", "深色"}};
+      {"follow", "跟随全局"}, {"light", "浅色"}, {"dark", "深色"}};
   for (const auto &[value, label] : theme_options) {
     auto item = ibus_property_new(
         (std::string("CandidateTheme/") + value).c_str(), PROP_TYPE_RADIO,
