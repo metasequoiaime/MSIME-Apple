@@ -82,6 +82,12 @@ struct SkinSettingsView: View {
   /// 「键盘明暗」 from the shared document (see KeyboardAppearancePreference). iPad lists the panels beside the keyboard; the phone folds them away, since most people only ever set the keyboard.
   private var appearanceSection: some View {
     Section {
+      Picker("主题模式", selection: theme(AppAppearancePreference.globalKey, fallback: "system")) {
+        ForEach(AppAppearancePreference.globalOptions, id: \.id) { Text($0.title).tag($0.id) }
+      }.accessibilityIdentifier("globalTheme")
+      Picker("设置界面", selection: theme(AppAppearancePreference.settingsKey)) {
+        ForEach(AppAppearancePreference.settingsOptions, id: \.id) { Text($0.title).tag($0.id) }
+      }.accessibilityIdentifier("settingsTheme")
       Picker("键盘", selection: theme(KeyboardAppearancePreference.keyboardKey)) {
         ForEach(KeyboardAppearancePreference.options, id: \.id) { Text($0.title).tag($0.id) }
       }.accessibilityIdentifier("keyboardTheme")
@@ -95,7 +101,7 @@ struct SkinSettingsView: View {
     } footer: {
       Text(themeSaveFailed
         ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
-        : "与电脑版的屏幕键盘、手写、表情和语音主题同步。选“跟随系统”时先看共享的主题设置，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。下次打开水杉键盘时应用。")
+        : "与电脑版的主题模式、设置界面、屏幕键盘、手写、表情和语音主题同步。主题模式是各处选“跟随”时的默认值；设置界面就是这个 App，立即生效。键盘选“跟随系统”时先看主题模式，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。键盘和面板下次打开水杉键盘时应用。")
     }
   }
 
@@ -107,11 +113,14 @@ struct SkinSettingsView: View {
     }
   }
 
-  private func theme(_ key: String) -> Binding<String> {
-    Binding(get: { themes[key] ?? "follow" }, set: { value in
+  private func theme(_ key: String, fallback: String = "follow") -> Binding<String> {
+    Binding(get: { themes[key] ?? fallback }, set: { value in
       themes[key] = value
       themeSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
       if themeSaveFailed { reloadThemes() }
+      if key == AppAppearancePreference.globalKey || key == AppAppearancePreference.settingsKey {
+        NotificationCenter.default.post(name: AppAppearancePreference.didChange, object: nil)
+      }
       // The preview shows what the keyboard will draw, so an explicit keyboard theme turns it to match.
       if key == KeyboardAppearancePreference.keyboardKey, value != "follow" { previewsDark = value == "dark" }
     })
@@ -119,8 +128,9 @@ struct SkinSettingsView: View {
 
   private func reloadThemes() {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
-    let keys = [KeyboardAppearancePreference.keyboardKey] + KeyboardAppearancePreference.panels.map(\.key)
+    let keys = [AppAppearancePreference.settingsKey, KeyboardAppearancePreference.keyboardKey] + KeyboardAppearancePreference.panels.map(\.key)
     themes = keys.reduce(into: [:]) { themes, key in themes[key] = preferences[key] as? String ?? "follow" }
+    themes[AppAppearancePreference.globalKey] = preferences[AppAppearancePreference.globalKey] as? String ?? "system"
   }
 }
 
