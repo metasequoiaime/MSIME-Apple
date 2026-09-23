@@ -444,12 +444,12 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.List<String> ids = new java.util.ArrayList<>();
         if (values != null) {
             for (int index = 0; index < values.length(); index++) {
-                String value = values.optString(index, null);
+                String value = values.isNull(index) ? null : values.optString(index, null);
                 if (value != null) ids.add(value);
             }
         }
         java.util.List<KeyboardScheme> enabled = KeyboardScheme.enabledFromPreferenceIds(ids);
-        String selected = shared.has("selected") ? shared.optString("selected", null) : null;
+        String selected = shared.isNull("selected") ? null : shared.optString("selected", null);
         return new SchemeConfiguration(enabled,
             KeyboardScheme.resolveEnabledSelection(engineScheme, selected, enabled), true);
     }
@@ -598,7 +598,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private TypingSource typingSource() {
         return TypingSource.resolve(selectedScheme, dedicatedEnglish,
-            view == null ? null : view.optString("local_mode", null));
+            view == null || view.isNull("local_mode") ? null : view.optString("local_mode", null));
     }
 
     private String typingStatisticsDirectory() {
@@ -1093,7 +1093,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyClipboardPreference(JSONObject preferences) {
         clipboardHistoryEnabled = preferences != null
             && preferences.optBoolean("clipboard_history", false);
-        if (!clipboardHistoryEnabled && clipboardHistory != null) clipboardHistory.clear();
+        if (!clipboardHistoryEnabled && clipboardHistory != null) clipboardHistory.clearQuietly();
     }
 
     private void applyChineseOutputPreference(JSONObject preferences) {
@@ -1350,7 +1350,7 @@ public final class MSIMEInputService extends InputMethodService {
         sharedSchemePreferences = nextSchemeConfiguration.shared();
         preferencesSnapshot = accepted;
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
-            clipboardHistory.clear();
+            clipboardHistory.clearQuietly();
             closeClipboardHistory();
         }
         view = nextView;
@@ -1979,7 +1979,11 @@ public final class MSIMEInputService extends InputMethodService {
         int preceding = SmartPunctuationContext.precedingCodePoint(before);
         try {
             JSONObject decision = smartPunctuationDecision((char) ascii, before);
-            String replacement = decision == null ? null : decision.optString("replace_with", null);
+            // `isNull` first: org.json's optString hands back the four-letter string "null" for a
+            // JSON null, not the fallback. Reading it without this asked the editor to delete the
+            // character before the cursor and commit "null" - on every punctuation key.
+            String replacement = decision == null || decision.isNull("replace_with")
+                ? null : decision.optString("replace_with", null);
             if (replacement != null && !replacement.isEmpty()) {
                 if (connection == null || !connection.deleteSurroundingText(1, 0)) return false;
                 smartRepeatSnapshot = null;
@@ -4988,9 +4992,14 @@ public final class MSIMEInputService extends InputMethodService {
         MenuItem remove = popup.getMenu().add("删除");
         popup.setOnMenuItemClickListener(selected -> {
             if (clipboardHistory == null) return false;
-            if (selected == pin) clipboardHistory.setPinned(item.text(), !item.pinned());
-            else if (selected == remove) clipboardHistory.remove(item.text());
-            else return false;
+            try {
+                if (selected == pin) clipboardHistory.setPinned(item.text(), !item.pinned());
+                else if (selected == remove) clipboardHistory.remove(item.text());
+                else return false;
+            } catch (IllegalStateException error) {
+                Toast.makeText(this, "无法修改剪贴板历史", Toast.LENGTH_SHORT).show();
+                return true;
+            }
             renderClipboardHistory();
             return true;
         });
@@ -5003,7 +5012,12 @@ public final class MSIMEInputService extends InputMethodService {
             .setMessage("将删除全部历史，包括固定项。")
             .setNegativeButton("取消", null)
             .setPositiveButton("清空", (dialog, which) -> {
-                if (clipboardHistory != null) clipboardHistory.clear();
+                // The user asked for this one, so a refusal is reported rather than swallowed.
+                try {
+                    if (clipboardHistory != null) clipboardHistory.clear();
+                } catch (IllegalStateException error) {
+                    Toast.makeText(this, "无法清空剪贴板历史", Toast.LENGTH_SHORT).show();
+                }
                 renderClipboardHistory();
             })
             .show();
@@ -5113,6 +5127,10 @@ public final class MSIMEInputService extends InputMethodService {
         card.setContentDescription(title);
         card.setSelected(active);
         card.setEnabled(enabled);
+        // A disabled card swallows the press, and the 工具 section draws no state text, so without
+        // this 剪贴板历史 and AI 润色 looked exactly like the cards that work and did nothing when
+        // pressed. A screen reader was told "不可用"; nobody else was.
+        card.setAlpha(enabled ? 1f : .45f);
         if (Build.VERSION.SDK_INT >= 30) card.setStateDescription(state);
         styleButton(card, true);
         card.setOnClickListener(ignored -> {
@@ -6761,7 +6779,7 @@ public final class MSIMEInputService extends InputMethodService {
         voiceResultStore = files == null ? null
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
-        if (!clipboardHistoryEnabled) clipboardHistory.clear();
+        if (!clipboardHistoryEnabled) clipboardHistory.clearQuietly();
         keyboardRoot = new FrameLayout(this);
         keyboardSurface = new FrameLayout(this);
         keyboardRoot.addView(keyboardSurface);

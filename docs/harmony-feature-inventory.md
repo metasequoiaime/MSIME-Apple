@@ -113,7 +113,7 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core�
 | 来源 | 去处 |
 | --- | --- |
 | `CandidateGlossPreference`、`CandidateTranslationPreference` | `CandidateAnnotationPreferencePolicy.ts`、`TranslationPolicy.ts` |
-| `ChineseOutputPreference`、`ChineseTextConversion` | `ChineseOutputPolicy.ts`（简繁转换由 Engine 完成） |
+| `ChineseOutputPreference`、`ChineseTextConversion` | `ChineseOutputPolicy.ts` 决定是否转换，转换本身经 NAPI `simplifiedToTraditional` 调共享导出 `msime_client_simplified_to_traditional`（OpenCC s2t 词级转换） |
 | `DictionaryLearningPreference`、`FrequencyAdjustmentPreference` | 共享 `learning` / `frequency` 偏好 |
 | `EnglishMixedCandidatesPreference`、`EnglishSuggestionsPreference` | 共享 `mixed_input` / `english_suggestions`；`EnglishSuggestionPolicy.ts` |
 | `FuzzyPinyinPreference`、`InputSchemePreference` | 共享 `fuzzy_pinyin` / `scheme`；`KeyboardScheme.ts` |

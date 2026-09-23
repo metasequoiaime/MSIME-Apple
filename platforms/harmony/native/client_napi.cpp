@@ -624,6 +624,23 @@ static napi_value HostCapabilities(napi_env env, napi_callback_info info) {
         reinterpret_cast<const uint8_t *>(platform.data()), platform.size()));
 }
 
+// The shared OpenCC s2t conversion every other host uses. Unlike the JSON entry points this one answers with the converted text itself, and with null when the C ABI refuses the input, so the caller keeps its own text.
+static napi_value SimplifiedToTraditional(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string text;
+    char *converted = nullptr;
+    if (arguments(env, info, 1, argv) && argumentText(env, argv[0], text)) {
+        converted = msime_client_simplified_to_traditional(
+            reinterpret_cast<const uint8_t *>(text.data()), text.size());
+    }
+    if (!converted) {
+        napi_value none = nullptr;
+        napi_get_null(env, &none);
+        return none;
+    }
+    return response(env, converted);
+}
+
 static napi_value DoubaoEncodeFrame(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     int32_t message_type = 0;
@@ -699,6 +716,7 @@ static napi_value Init(napi_env env, napi_value exports) {
     napi_property_descriptor properties[] = {
         ENTRY("abiVersion", AbiVersion),
         ENTRY("hostCapabilities", HostCapabilities),
+        ENTRY("simplifiedToTraditional", SimplifiedToTraditional),
         ENTRY("loadPreferences", LoadPreferences),
         ENTRY("skinCatalog", SkinCatalog),
         ENTRY("dictionaryManifest", DictionaryManifest),

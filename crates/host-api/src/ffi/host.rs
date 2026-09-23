@@ -1163,7 +1163,11 @@ fn apple_clipboard_migration_lock(root: &std::path::Path) -> Result<std::fs::Fil
     let lock = options
         .open(lock_path)
         .map_err(|_| "clipboard migration unavailable")?;
-    lock.lock().map_err(|_| "clipboard migration unavailable")?;
+    // Not `File::lock`: std has no implementation of it on Android, so it fails outright there and
+    // takes every shared clipboard operation with it. `client-core` already owns the per-target
+    // answer, and this is the only place in the workspace that had its own.
+    msime_client_core::file_lock::exclusive(&lock)
+        .map_err(|_| "clipboard migration unavailable")?;
     Ok(lock)
 }
 

@@ -24,7 +24,7 @@ pub mod cloud;
 pub mod community;
 pub mod credential;
 pub mod dictionary;
-mod file_lock;
+pub mod file_lock;
 pub mod host_surface;
 pub mod panels;
 pub mod preferences;

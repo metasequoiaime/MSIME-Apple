@@ -15,8 +15,8 @@ namespace msime::windows {
 struct CandidateItemWidths {
   double text = 0.0, annotation = 0.0, translation = 0.0;
 };
-enum class CandidateRun { annotation, translation };
-// Height of candidate `index`'s run once wrapped to `width` DIPs. The window answers with DirectWrite; without one the layout estimates from the single-line width.
+enum class CandidateRun { text, annotation, translation };
+// Height of candidate `index`'s run once wrapped to `width` DIPs. The text run is the candidate text with its badge, at the candidate size. The window answers with DirectWrite; without one the layout estimates from the single-line width.
 using CandidateWrapMeasure =
     std::function<double(size_t index, CandidateRun run, double width)>;
 struct CandidateCardInput {
@@ -103,11 +103,15 @@ struct CandidateRunBox {
 };
 struct CandidateItemLayout {
   double text_width = 0.0;
+  // Height of the text's box from the row top: one candidate_row, or the measured wrapped height when the text is wider than the column. The text is centred in it, and runs placed below the first line start under it.
+  double text_height = 0.0;
+  // Whether the text is wider than the column and so is drawn wrapped.
+  bool text_wrapped = false;
   CandidateRunBox annotation, translation;
   // At least one candidate_row; grows by every run placed below the first line.
   double height = 0.0;
 };
-// Port of the shipped presenter's per-item geometry. Short runs stay on the text's line; a run that does not fit moves under it and wraps to the column. A horizontal list always puts the translation under the text, and a translation never goes back up once the annotation has moved down.
+// Port of the shipped presenter's per-item geometry (CandidateList::MeasureItem). Text wider than the column wraps inside it and the row takes the measured height, at least one candidate_row. Short runs stay on the text's line; a run that does not fit moves under the text and wraps to the column. A horizontal list always puts the translation under the text, and a translation never goes back up once the annotation has moved down.
 inline CandidateItemLayout
 candidate_item_layout(const CandidateItemWidths &item, double content_width,
                       const CandidateCardMetrics &metrics, bool horizontal,
@@ -115,15 +119,28 @@ candidate_item_layout(const CandidateItemWidths &item, double content_width,
   content_width = (std::max)(content_width, 1.0);
   CandidateItemLayout layout;
   layout.text_width = (std::min)(item.text, content_width);
-  layout.height = metrics.candidate_row;
-  double line_end = layout.text_width;
-  auto below = [&](CandidateRun run, double natural, double width, double line) {
+  // Height of a run of `natural` single-line width once it sits in `width`: one `line` unless it has to wrap.
+  auto run_height = [&](CandidateRun run, double natural, double width,
+                        double line) {
     double height = line;
     if (natural > width)
       height = wrapped ? wrapped(run, width)
                        : std::ceil(natural / width) * line;
     // A failed or nonsense measurement still reserves the single line.
-    height = std::isfinite(height) ? (std::max)(height, line) : line;
+    return std::isfinite(height) ? (std::max)(height, line) : line;
+  };
+  // Without a measure a wrapped text line is estimated at the candidate size's line height, like an annotation line.
+  layout.text_wrapped = item.text > content_width;
+  layout.text_height =
+      layout.text_wrapped
+          ? (std::max)(run_height(CandidateRun::text, item.text,
+                                  content_width, metrics.annotation_line),
+                       metrics.candidate_row)
+          : metrics.candidate_row;
+  layout.height = layout.text_height;
+  double line_end = layout.text_width;
+  auto below = [&](CandidateRun run, double natural, double width, double line) {
+    const double height = run_height(run, natural, width, line);
     CandidateRunBox box{0.0, layout.height, width, height, true};
     layout.height += height;
     return box;
@@ -172,7 +189,7 @@ struct CandidateRowLayout {
   CandidateRowBounds bounds;
   CandidateItemLayout item;
 };
-// Rows for a whole page at the card width actually drawn. A vertical list stacks rows of their own heights. A horizontal list is the shipped presenter's CandidateList::Measure: each column is its candidate's natural width, columns run left to right, and one that would pass the card's inner edge starts a new line; only a candidate wider than a whole line is narrowed to it, and its runs wrap inside that. Every column on a line takes the line's tallest height, so the selection fills evenly. Sizing, painting and hit testing all read this one result.
+// Rows for a whole page at the card width actually drawn. A vertical list stacks rows of their own heights. A horizontal list is the shipped presenter's CandidateList::Measure: each column is its candidate's natural width, columns run left to right, and one that would pass the card's inner edge starts a new line; only a candidate wider than a whole line is narrowed to it, and its text and runs wrap inside that. Every column on a line takes the line's tallest height, so the selection fills evenly. Sizing, painting and hit testing all read this one result.
 inline std::vector<CandidateRowLayout>
 candidate_page_layout(const std::vector<CandidateItemWidths> &items,
                       double width, const CandidateCardMetrics &metrics,
