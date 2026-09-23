@@ -16,7 +16,7 @@ try {
         if ($global:NoticeProbeFail) { $global:LASTEXITCODE = 1; return }
         return "synthetic committed notice $($args[3])"
     }
-    $entry = Join-Path $PSScriptRoot '../Collect-Notices.ps1'
+    $entry = Join-Path $PSScriptRoot '../../Collect-Notices.ps1'
     & $entry -RepoRoot $root -DependencyPrefixes @($prefix) -SupplementalNotices @($supplement)
     $output = Join-Path $root 'target/windows-notices/THIRD_PARTY_NOTICES.txt'
     $first = [IO.File]::ReadAllText($output)
