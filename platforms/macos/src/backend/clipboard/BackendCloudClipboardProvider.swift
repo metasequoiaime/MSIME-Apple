@@ -83,7 +83,11 @@ final class BackendCloudClipboardProvider: NSObject {
   @objc func request(_ request: NSDictionary, completion: @escaping (NSDictionary) -> Void) -> Progress {
     let progress = Progress(totalUnitCount: 1)
     let task = Task {
-      do { completion(["ok":true, "value":try await execute(request)]) }
+      // Progress.cancel() sets isCancelled synchronously but dispatches cancellationHandler asynchronously, so the handler's task.cancel() can land after this body has already run past execute's first checkCancellation. A caller that cancels before the work starts would then still see the request sent. Read the flag the caller set synchronously rather than racing the handler; cancellation arriving mid-flight is still the handler's job, and an already-sent request cannot be recalled anyway.
+      do {
+        guard !progress.isCancelled else { throw CancellationError() }
+        completion(["ok":true, "value":try await execute(request)])
+      }
       catch { completion(["ok":false, "error":"unavailable"]) }
       progress.completedUnitCount = 1
       progress.cancellationHandler = nil

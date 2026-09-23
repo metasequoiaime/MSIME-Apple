@@ -22,7 +22,7 @@ on:
 # merge_group is absent on purpose: ci.yml takes that event with no path filter at all, so the merge queue always gets the real matrix and never two workflows reporting one check name.
 
 concurrency:
-  group: ci-docs-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: ci-docs-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
