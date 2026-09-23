@@ -470,6 +470,33 @@ fn second_launch_routes_are_taken_from_explicit_arguments() {
     assert_eq!(super::launch_route_from_args(&["--other".into()]), None);
 }
 
+/// On macOS only settings launches share the running instance; every panel keeps its own per-session process.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_single_instance_admits_only_settings_launches() {
+    use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
+
+    for route in [
+        None,
+        Some(SurfaceRoute::Settings(None)),
+        Some(SurfaceRoute::Settings(Some(SettingsCategory::About))),
+        Some(SurfaceRoute::Settings(Some(SettingsCategory::Skin))),
+    ] {
+        assert!(super::macos_settings_launch(route), "{route:?}");
+    }
+    for route in [
+        SurfaceRoute::Keyboard,
+        SurfaceRoute::Emoji,
+        SurfaceRoute::Handwriting,
+        SurfaceRoute::Voice,
+        SurfaceRoute::Clipboard,
+        SurfaceRoute::CloudClipboard,
+        SurfaceRoute::CloudDictionary,
+    ] {
+        assert!(!super::macos_settings_launch(Some(route)), "{route:?}");
+    }
+}
+
 /// A second launch that names nothing still has to raise the window.
 ///
 /// Every route this product asks for itself is explicit, so no route means a person started the

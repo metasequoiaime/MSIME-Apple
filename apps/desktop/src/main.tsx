@@ -39,6 +39,7 @@ import {
   type PanelClient,
   type VoicePanelClient,
   type Preferences,
+  type PreferencesRecovery,
   type SettingsClient,
   type Snapshot,
   type DictionaryClient,
@@ -572,6 +573,19 @@ function DesktopSettings() {
                 }
               : {}),
             ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
+            // iOS has no recover_preferences command: its keyboard mirrors the AI settings natively and only a save keeps that mirror in step.
+            ...(host.platform !== "ios"
+              ? {
+                  recoverPreferences: () => invoke<PreferencesRecovery>("recover_preferences"),
+                }
+              : {}),
+            ...(host.platform === "macos" ||
+            host.platform === "linux" ||
+            host.platform === "windows"
+              ? {
+                  openPreferencesDirectory: () => invoke<void>("open_preferences_directory"),
+                }
+              : {}),
             ...(host.platform === "ios" || host.platform === "android"
               ? createMobileHostServices(host.platform, {
                   invoke,

@@ -943,6 +943,68 @@ async fn restored_default_preferences(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+/// What the settings page's 修复配置文件 produced.
+#[cfg(not(target_os = "ios"))]
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreferencesRecovery {
+    snapshot: PreferencesSnapshot,
+    /// Absent when the document already loaded and nothing was written.
+    backup_path: Option<String>,
+    salvaged: bool,
+}
+
+/// Repair a preferences document that `load_preferences` rejects, as the Windows source repairs a config.toml that does not parse.
+///
+/// `PreferencesStore::recover` backs the damaged file up beside it before anything is written and keeps every setting and service key the current schema still accepts. The runtime options are republished like a save, so hosts that read them see the repaired values. iOS is left out: its keyboard keeps a native mirror of the AI settings that only the save path updates, and a repair there would leave the two describing different services.
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+async fn recover_preferences(
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+) -> Result<PreferencesRecovery, CommandError> {
+    let store = store.inner().clone();
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let recovery = match store.recover().map_err(CommandError::from)? {
+            msime_client_core::preferences::RecoveryOutcome::NotNeeded(snapshot) => {
+                PreferencesRecovery {
+                    snapshot,
+                    backup_path: None,
+                    salvaged: false,
+                }
+            }
+            msime_client_core::preferences::RecoveryOutcome::Recovered {
+                snapshot,
+                backup_path,
+                salvaged,
+            } => PreferencesRecovery {
+                snapshot,
+                backup_path: Some(backup_path.to_string_lossy().into_owned()),
+                salvaged,
+            },
+        };
+        sync_runtime_options(&runtime, &recovery.snapshot.preferences)
+            .map_err(|_| CommandError { code: "storage" })?;
+        Ok(recovery)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+/// Open the folder holding the preferences document, where a repair leaves its backup. The page passes no path; the host opens its own store's directory.
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn open_preferences_directory(
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+) -> Result<(), CommandError> {
+    let root = store.directory().to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || skin_directory::open(&root))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+        .map_err(|code| CommandError { code })
+}
+
 #[tauri::command]
 async fn load_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -2666,6 +2728,14 @@ fn second_launch_route(args: &[String]) -> SurfaceRoute {
     launch_route_from_args(args).unwrap_or(SurfaceRoute::Settings(None))
 }
 
+/// Whether this macOS launch joins the single settings instance.
+///
+/// Only the settings window is one per user, as on Windows where `settings_launcher.cpp` re-routes the existing window instead of starting another. Panel launches carry a per-session identity and options path in their environment and exit with their panel, so each keeps its own process. A launch without a route is Finder or Launchpad opening the application, which means the settings window.
+#[cfg(target_os = "macos")]
+fn macos_settings_launch(route: Option<SurfaceRoute>) -> bool {
+    route.is_none_or(|route| route.panel().is_none())
+}
+
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn cancel_settings_linger(app: &tauri::AppHandle) {
     if let Some(state) = app.try_state::<DesktopSettingsLinger>() {
@@ -2673,9 +2743,13 @@ fn cancel_settings_linger(app: &tauri::AppHandle) {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
+    // macOS has no settings linger: its settings process exits when the window closes.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     cancel_settings_linger(app);
+    // On macOS only settings launches reach the running instance (see `macos_settings_launch`), so a forwarded route always names the settings window.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     if let Some(surface) = route.panel() {
         let state = app.state::<PanelInputState>();
         #[cfg(target_os = "linux")]
@@ -3675,6 +3749,17 @@ pub fn run() {
         let callback_app = app.clone();
         let _ = app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));
     }));
+    // A second settings launch forwards its `--route=` to the running settings window and exits inside the plugin's setup; panel launches never register, so they neither receive nor forward.
+    #[cfg(target_os = "macos")]
+    let builder = if macos_settings_launch(requested_surface_route()) {
+        builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let route = second_launch_route(&args);
+            let callback_app = app.clone();
+            let _ = app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));
+        }))
+    } else {
+        builder
+    };
     #[cfg(target_os = "android")]
     let builder = builder.plugin(android_account::init());
     #[cfg(target_os = "ios")]
@@ -4087,6 +4172,10 @@ pub fn run() {
             ai_test,
             load_preferences,
             restored_default_preferences,
+            #[cfg(not(target_os = "ios"))]
+            recover_preferences,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            open_preferences_directory,
             load_custom_skin_library,
             mutate_custom_skin_library,
             load_typing_statistics,

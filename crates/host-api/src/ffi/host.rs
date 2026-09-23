@@ -1515,6 +1515,52 @@ pub unsafe extern "C" fn msime_client_try_load_preferences(
     })
 }
 
+/// Repair a preferences document that is not well-formed JSON, backing it up first.
+/// See `PreferencesStore::recover_malformed`; a valid or missing document is left untouched.
+/// # Safety
+/// `directory` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_recover_preferences(
+    directory: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length > 16384 {
+            return Err("invalid preferences directory buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory =
+            std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory encoding")?;
+        if !std::path::Path::new(directory).is_absolute() {
+            return Err("preferences directory must be absolute".into());
+        }
+        let outcome = PreferencesStore::new(directory)
+            .recover_malformed()
+            .map_err(|e| e.to_string())?;
+        Ok(match outcome {
+            msime_client_core::preferences::RecoveryOutcome::NotNeeded(snapshot) => json!({
+                "recovered": false,
+                "snapshot": snapshot,
+            }),
+            msime_client_core::preferences::RecoveryOutcome::Recovered {
+                snapshot,
+                backup_path,
+                salvaged,
+            } => json!({
+                "recovered": true,
+                "snapshot": snapshot,
+                "backup_path": backup_path.to_string_lossy(),
+                "backup_name": backup_path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                "salvaged": salvaged,
+            }),
+        })
+    })
+}
+
 /// Compare-and-swap save for a validated PreferencesSnapshot.
 /// A successful save with clipboard history disabled clears the default history
 /// under the shared preference/history locks, matching the desktop settings path.

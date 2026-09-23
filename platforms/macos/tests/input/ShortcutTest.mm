@@ -1298,7 +1298,8 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
     assert(!appearance.runtimeFullWidthInput && appearance.englishMode);
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
-    assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    client.committed = nil;
+    assert([controller handleEvent:ModeKey(0, 0, NO) client:client] && [client.committed isEqual:@"ａ"]); // English mode applies full-width too.
     assert(appearance.runtimeFullWidthInput && appearance.fullWidthInput);
     appearance.englishMode = NO;
     NSDictionary *idle = @{@"handled": @NO, @"view": @{@"editing_text": @"", @"candidates": @[]}};
@@ -2205,6 +2206,88 @@ static void TestPreferenceRevisionSkipsUnchangedDocuments() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// A preferences document that is not JSON is repaired by the host and the repaired snapshot applied, once per directory: a failure that repair cannot fix must not turn the one-second poll into a repair attempt every second.
+@interface RecoveringPreferencesController : ModeController
+@property(nonatomic, copy) NSDictionary *readSnapshot;
+@property(nonatomic, copy) NSDictionary *recovery;
+@property(nonatomic) NSUInteger readCalls;
+@property(nonatomic) NSUInteger recoverCalls;
+@property(nonatomic) NSUInteger completions;
+@property(nonatomic, strong) NSMutableArray<NSDictionary *> *appliedPreferences;
+@end
+@implementation RecoveringPreferencesController
+- (NSDictionary *)readPreferencesSnapshotInDirectory:(NSString *)directory error:(NSError **)error {
+    (void)directory;
+    assert(!NSThread.isMainThread);
+    @synchronized(self) { ++self.readCalls; }
+    if (self.readSnapshot) return self.readSnapshot;
+    if (error) *error = [NSError errorWithDomain:@"test" code:1 userInfo:@{NSLocalizedDescriptionKey: @"invalid preferences document: EOF"}];
+    return nil;
+}
+- (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
+    (void)directory; (void)error;
+    assert(!NSThread.isMainThread);
+    @synchronized(self) { ++self.recoverCalls; }
+    return self.recovery;
+}
+- (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
+                       session:(MSIMEClientSession *)session client:(id)client {
+    [super completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+    ++self.completions;
+}
+- (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    [self.appliedPreferences addObject:preferences];
+    [super applySharedToolbarPreferences:preferences];
+}
+@end
+
+static void WaitForRecoveringCompletions(RecoveringPreferencesController *controller, NSUInteger count) {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (controller.completions < count && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(controller.completions == count);
+}
+
+static void TestUnreadablePreferencesAreRecoveredOnce() {
+    NSString *suite = [@"msime.preference-recovery." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    enum Case { Repaired, Refused, Readable };
+    for (int kase : {Repaired, Refused, Readable}) {
+        RecoveringPreferencesController *controller = [RecoveringPreferencesController alloc];
+        controller.appliedPreferences = [NSMutableArray array];
+        NSDictionary *repaired = @{@"format_version":@1, @"revision":@1758620000, @"preferences":@{@"chinese_punctuation":@NO}};
+        if (kase == Readable) controller.readSnapshot = @{@"revision":@3, @"preferences":@{@"chinese_punctuation":@YES}};
+        controller.recovery = kase == Repaired
+            ? @{@"recovered":@YES, @"snapshot":repaired, @"backup_name":@"preferences.json.corrupt-20260923-101500", @"salvaged":@NO}
+            : nil;
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+        [controller setValue:[@"/synthetic-recovery-" stringByAppendingString:NSUUID.UUID.UUIDString] forKey:@"preferencesDirectory"];
+
+        [controller reloadPreferences];
+        WaitForRecoveringCompletions(controller, 1);
+        assert(controller.readCalls == 1);
+        assert(controller.recoverCalls == (kase == Readable ? 0u : 1u));
+        if (kase == Repaired) {
+            assert(controller.appliedPreferences.count == 1);
+            assert([controller.appliedPreferences[0][@"chinese_punctuation"] isEqual:@NO]);
+        } else if (kase == Refused) {
+            assert(controller.appliedPreferences.count == 0);
+        } else {
+            assert(controller.appliedPreferences.count == 1);
+        }
+
+        // The poll comes round with the document failing: a directory gets one repair attempt in all, whether or not the first one found anything to repair.
+        controller.readSnapshot = nil;
+        [controller reloadPreferences];
+        WaitForRecoveringCompletions(controller, 2);
+        assert(controller.readCalls == 2);
+        assert(controller.recoverCalls == 1);
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 @interface VoiceSettingsPersistenceController : AsyncPreferencesController
 @property(nonatomic) NSUInteger persistenceRequests;
 @end
@@ -2740,6 +2823,98 @@ static void TestPerApplicationPunctuationAndWidth() {
     prefs.fullWidthInput = NO; // The settings checkbox is a new starting value too.
     assert(!prefs.runtimeFullWidthInput);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static NSEvent *EnglishKey(NSString *characters, unsigned short code, NSEventModifierFlags flags) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+}
+
+// English mode is the reference's closed IME, whose punctuation and double/single-byte compartments still shape what is typed (KeyEventSink.cpp, ResolvePunctuationOpen).
+static void TestEnglishModePunctuationAndWidthOutput() {
+    NSString *suite = [@"msime.english-output." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ApplicationShortcutClient *client = [ApplicationShortcutClient new];
+    client.bundleIdentifier = @"org.example.english-output";
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+    [prefs activateInputModeForApplication:client.bundleIdentifier];
+    NSString *(^type)(NSEvent *) = ^NSString *(NSEvent *event) {
+        client.committed = nil;
+        return [controller handleEvent:event client:client] ? (client.committed ?: @"") : nil;
+    };
+    NSEvent *comma = EnglishKey(@",", 43, 0), *letter = EnglishKey(@"a", 0, 0), *space = EnglishKey(@" ", 49, 0);
+    NSEvent *quote = EnglishKey(@"\"", 39, NSEventModifierFlagShift);
+    NSEvent *less = EnglishKey(@"<", 43, NSEventModifierFlagShift), *greater = EnglishKey(@">", 47, NSEventModifierFlagShift);
+    NSEvent *keypadPeriod = EnglishKey(@".", 65, NSEventModifierFlagNumericPad);
+    NSEvent *toggle = EnglishKey(@".", 47, NSEventModifierFlagControl);
+    NSEvent *widthToggle = EnglishKey(@" ", 49, NSEventModifierFlagControl | NSEventModifierFlagShift);
+
+    // A Chinese lock converts English-mode punctuation with the Engine's forward table.
+    prefs.punctuationLock = @"chinese";
+    [controller setEnglishInputMode:YES];
+    assert(prefs.englishMode && prefs.runtimeChinesePunctuation);
+    assert([type(comma) isEqual:@"，"]);
+    assert([type(quote) isEqual:@"“"] && [type(quote) isEqual:@"”"]);
+    assert([type(less) isEqual:@"《"] && [type(less) isEqual:@"〈"] && [type(greater) isEqual:@"〉"] && [type(greater) isEqual:@"》"]);
+    assert(type(letter) == nil && type(space) == nil);
+    assert(type(keypadPeriod) == nil); // The keypad never turns Chinese.
+    assert(type(EnglishKey(@",", 43, NSEventModifierFlagCommand)) == nil);
+    assert(type(EnglishKey(@"a", 0, NSEventModifierFlagControl)) == nil);
+    // A mode switch starts the quote pair over.
+    assert([type(quote) isEqual:@"“"]);
+    [controller setEnglishInputMode:NO];
+    [controller setEnglishInputMode:YES];
+    assert([type(quote) isEqual:@"“"]);
+    [controller setEnglishInputMode:NO];
+
+    // Follow: English mode starts with English punctuation, and Ctrl+. turns Chinese on for this app without saving it.
+    prefs.punctuationLock = @"follow";
+    [controller setEnglishInputMode:YES];
+    assert(!prefs.runtimeChinesePunctuation && type(comma) == nil);
+    assert([controller handleEvent:toggle client:client]);
+    assert(prefs.runtimeChinesePunctuation && [defaults objectForKey:@"MSIMEClientChinesePunctuation"] == nil);
+    assert([type(comma) isEqual:@"，"]);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(!prefs.runtimeChinesePunctuation && type(comma) == nil);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert([type(comma) isEqual:@"，"]);
+    [controller setEnglishInputMode:NO];
+    [controller setEnglishInputMode:YES]; // The round trip drops the English-mode choice.
+    assert(!prefs.runtimeChinesePunctuation && type(comma) == nil);
+    [controller setEnglishInputMode:NO];
+
+    // A pinned lock holds against Ctrl+. and the toolbar, as ResolvePunctuationOpen does.
+    prefs.punctuationLock = @"english";
+    [controller setEnglishInputMode:YES];
+    assert([controller handleEvent:toggle client:client] && !prefs.runtimeChinesePunctuation);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(!prefs.runtimeChinesePunctuation && type(comma) == nil);
+    prefs.punctuationLock = @"chinese";
+    assert([controller handleEvent:toggle client:client] && prefs.runtimeChinesePunctuation);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(prefs.runtimeChinesePunctuation && [type(comma) isEqual:@"，"]);
+    [controller setEnglishInputMode:NO];
+
+    // Full width in English mode: printable ASCII widens, Space becomes U+3000, Chinese punctuation wins where both apply.
+    prefs.punctuationLock = @"follow";
+    [controller setEnglishInputMode:YES];
+    assert([controller handleEvent:widthToggle client:client] && prefs.runtimeFullWidthInput && prefs.englishMode);
+    assert([type(letter) isEqual:@"ａ"] && [type(space) isEqual:@"\u3000"] && [type(comma) isEqual:@"，"]);
+    assert([type(keypadPeriod) isEqual:@"．"]);
+    assert([controller handleEvent:toggle client:client] && prefs.runtimeChinesePunctuation);
+    assert([type(comma) isEqual:@"，"] && [type(keypadPeriod) isEqual:@"．"]);
+    assert(type(EnglishKey(@",", 43, NSEventModifierFlagCommand)) == nil);
+    assert(type(EnglishKey(@"a", 0, NSEventModifierFlagControl)) == nil);
+    assert(type(EnglishKey(@"\t", 48, 0)) == nil && type(EnglishKey(@"é", 14, 0)) == nil);
+    assert([defaults objectForKey:@"MSIMEClientFullWidthInput"] == nil);
+    assert([controller handleEvent:widthToggle client:client] && !prefs.runtimeFullWidthInput);
+    [controller setEnglishInputMode:NO];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -5498,14 +5673,13 @@ int main(int argc, char **argv) {
         // Paging is routed by physical key code, not by the glyph the layout produces, so comma and period
         // need theirs - 43 and 47. With 0 they could only ever fall through to ASCII, which is what the
         // disabled half of this loop asserts, so both halves were passing for the same wrong reason.
-        // The last element is what the key does once its shortcut is off, which is not the same for all of
-        // them: comma and period are ordinary characters and go to the Engine, while Tab is never consumed
-        // and never forwarded - it belongs to the application - and Page Down and the arrows carry no
-        // character to forward at all.
+        // The last element is what the key does once its shortcut is off, which is not the same for all of them: comma and period are ordinary characters and go to the Engine, while Tab, Page Up/Page Down and Up/Down are navigation keys that Windows routes to the server whenever candidates are showing (CompositionProcessorEngine.cpp), where a disabled one gets NavigationIgnored - so with the panel up they are consumed with no command at all, neither a page move nor FINISH_COMPOSITION, and the composition stays.
         for (NSArray *entry in @[@[@"comma_period", @",", @43, @(MSIME_PREVIOUS_PAGE), @1],
                                  @[@"comma_period", @".", @47, @(MSIME_NEXT_PAGE), @1],
                                  @[@"tab", @"\t", @48, @(MSIME_NEXT_PAGE), @0],
+                                 @[@"page_up_down", @"", @116, @(MSIME_PREVIOUS_PAGE), @0],
                                  @[@"page_up_down", @"", @121, @(MSIME_NEXT_PAGE), @0],
+                                 @[@"arrows", @"", @126, @(MSIME_PREVIOUS_CANDIDATE), @0],
                                  @[@"arrows", @"", @125, @(MSIME_NEXT_CANDIDATE), @0]]) {
             for (NSNumber *enabled in @[@NO, @YES]) {
                 [appearance applySharedCandidatePreferences:@{@"navigation": @{entry[0]:enabled}}];
@@ -5520,13 +5694,21 @@ int main(int argc, char **argv) {
                     // Turned off means no paging command, whatever else happens to the key.
                     assert(session.lastCommand == UINT32_MAX);
                     assert(session.asciiCalls == [entry[4] unsignedIntegerValue]);
-                    if (![entry[4] unsignedIntegerValue]) assert(!handled);
+                    if (![entry[4] unsignedIntegerValue]) assert(handled);
                 }
             }
         }
         layoutPanel.requestedVisible = YES;
         NSEvent *reverseTab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0 context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
         assert([controller handleEvent:reverseTab client:client] && session.lastCommand == MSIME_PREVIOUS_PAGE);
+        // Shift+Tab with tab paging off is eaten while the panel is up, like plain Tab above.
+        [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @NO}}];
+        layoutPanel.requestedVisible = YES;
+        session.lastCommand = UINT32_MAX;
+        session.asciiCalls = 0;
+        assert([controller handleEvent:reverseTab client:client] && session.lastCommand == UINT32_MAX && session.asciiCalls == 0);
+        [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @YES}}];
+        // With no candidates showing, Tab goes back to the application.
         layoutPanel.requestedVisible = NO;
         session.lastCommand = UINT32_MAX;
         assert(![controller handleEvent:reverseTab client:client] && session.lastCommand == UINT32_MAX);
@@ -5681,6 +5863,7 @@ int main(int argc, char **argv) {
         TestControlOptionSpace();
         TestInputModePolicy();
         TestPerApplicationPunctuationAndWidth();
+        TestEnglishModePunctuationAndWidthOutput();
         TestInputSourceModeReset();
         TestRealSessionComposition();
         TestModifierTaps();
@@ -5688,6 +5871,7 @@ int main(int argc, char **argv) {
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestPreferenceRevisionSkipsUnchangedDocuments();
+        TestUnreadablePreferencesAreRecoveredOnce();
         TestProviderSettingsPersistTheSharedSnapshot();
         TestFullWidth(defaults, appearance);
         TestSessionOptions();

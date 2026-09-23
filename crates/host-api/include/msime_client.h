@@ -283,6 +283,8 @@ char *msime_client_mobile_clipboard_history(const uint8_t *request, size_t lengt
  * Does not wait for the writer lock. Disk I/O may still block: use a worker.
  * Busy is not missing/corrupt and must not reset preferences to defaults. */
 char *msime_client_try_load_preferences(const uint8_t *directory, size_t length);
+/* Repair a preferences.json that is not well-formed JSON (truncated, empty, overwritten). May block on disk and the writer lock: use a worker. Backup first: the damaged bytes are copied verbatim to <directory>/preferences.json.corrupt-YYYYMMDD-HHMMSS (UTC, -N suffix when taken) and nothing is rewritten if that copy fails. Then every setting and service key the schema still accepts is carried onto the defaults. A valid or missing document is a no-op: {recovered:false, snapshot}. A repair returns {recovered:true, snapshot, backup_path, backup_name, salvaged}. A well-formed document the schema rejects (unknown fields, newer format_version) is most likely a newer build's and returns the load error unchanged; the settings page repairs it explicitly. Storage errors are returned and never lead to a rewrite. */
+char *msime_client_recover_preferences(const uint8_t *directory, size_t length);
 /* Compare-and-swap save of PreferencesSnapshot.preferences. The snapshot's
  * format_version is validated; expected_revision must match the store.
  * A disabled clipboard-history save clears the default history file if history

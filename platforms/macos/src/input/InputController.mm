@@ -55,6 +55,7 @@
 #import "../voice/VoiceInputLevel.h"
 #include "../../../../shared/voice/CaptureDuration.h"
 #include "../../../../shared/voice/VoiceProviders.h"
+#include "../../../../shared/input/EnglishModeOutput.h"
 #import "../voice/VoiceCuePlayer.h"
 #import "../voice/VoiceAudioMuter.h"
 #import "../voice/VoiceProviderSettings.h"
@@ -656,6 +657,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 @implementation MSIMEInputController {
     MSIMEClientSession *_session;
+    // Quote alternation and book-title nesting for Chinese punctuation typed in English mode; see shared/input/EnglishModeOutput.h.
+    msime::input::EnglishPunctuationState _englishPunctuation;
     MSIMEVoiceInputService *_voiceService;
     MSIMEVoiceWaveOverlay *_voiceOverlay;
     MSIMEVoiceCuePlayer *_voiceCuePlayer;
@@ -2321,6 +2324,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     }
     // A Chinese/English switch puts punctuation back in step with the mode, as the reference's SyncPunctuationWithImeMode does: English mode gets English punctuation unless punctuation_lock pins Chinese. Returning to Chinese goes back to the saved starting value, the macOS adaptation for the shared chinese_punctuation setting. Set before the mode is saved so the resulting sync and toolbar refresh already see it.
     if (changed) {
+        _englishPunctuation = {};
         if (enabled) _appearance.runtimeChinesePunctuation = [_appearance.punctuationLock isEqual:@"chinese"];
         else [_appearance resetRuntimePunctuationForActiveApplication];
     }
@@ -3011,6 +3015,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     // the previous document, which cannot be written into this one.
     _pendingPairedClosing = nil;
     _pairedPunctuation.clear();
+    _englishPunctuation = {};
     [self clearSmartPunctuationSpaceConversion];
     [_voiceOverlay dismissFailure];
     _voicePermissionToken = nil;
@@ -3173,6 +3178,22 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     return [MSIMEClientSession loadPreferencesInDirectory:directory error:error];
 }
 
+- (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
+    return [MSIMEClientSession recoverPreferencesInDirectory:directory error:error];
+}
+
+// The Windows source repairs an unparseable config.toml as the IME starts (InitImeConfig before LoadImeConfig). Here the document is polled, so the repair is tried once per directory per process: a document that cannot be repaired, or a read that keeps failing for another reason, is not retried every second.
+static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
+    static NSMutableSet<NSString *> *claimed;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ claimed = [NSMutableSet set]; });
+    @synchronized(claimed) {
+        if ([claimed containsObject:directory]) return NO;
+        [claimed addObject:directory];
+        return YES;
+    }
+}
+
 - (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
                        session:(MSIMEClientSession *)session client:(id)client {
     if (!_preferenceLoadState.finish(generation)) return;
@@ -3234,8 +3255,22 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSError *error = nil;
         NSDictionary *snapshot = [weakSelf readPreferencesSnapshotInDirectory:directory error:&error];
+        // A document that is not JSON at all is backed up and repaired here, so the IME comes back on the salvaged values instead of running on whatever it last applied. The host refuses a well-formed document it cannot read - most likely a newer build's - and leaves that to the settings page's explicit repair.
+        NSString *backupName = nil;
+        if ((!snapshot || error) && MSIMEClaimPreferenceRecovery(directory)) {
+            NSDictionary *recovery = [weakSelf recoverPreferencesInDirectory:directory error:nil];
+            NSDictionary *recovered = recovery[@"snapshot"];
+            if ([recovery[@"recovered"] isEqual:@YES] && [recovered isKindOfClass:NSDictionary.class]) {
+                snapshot = recovered;
+                error = nil;
+                backupName = [recovery[@"backup_name"] isKindOfClass:NSString.class] ? recovery[@"backup_name"] : @"";
+            }
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             [weakSelf completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+            // After the completion, which is what configures the diagnostic log from the repaired document.
+            if (backupName)
+                msime_macos_diagnostic_write(std::string("preferences_recovered backup=") + (backupName.UTF8String ?: ""));
         });
     });
 }
@@ -3390,8 +3425,10 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         if (!finished) return;
         [self apply:finished];
     }
-    // Like the reference's compartment, the toggle is this app's runtime state; the saved value stays the starting point.
-    _appearance.runtimeChinesePunctuation = !_appearance.runtimeChinesePunctuation;
+    // Like the reference's compartment, the toggle is this app's runtime state; the saved value stays the starting point. In English mode a pinned punctuation_lock wins over the toggle, as the reference's ResolvePunctuationOpen does; Chinese mode leaves that to the Engine, which applies the lock itself.
+    if (_appearance.englishMode && ![_appearance.punctuationLock isEqual:@"follow"])
+        _appearance.runtimeChinesePunctuation = [_appearance.punctuationLock isEqual:@"chinese"];
+    else _appearance.runtimeChinesePunctuation = !_appearance.runtimeChinesePunctuation;
     [self syncPunctuation];
     [self refreshFloatingToolbarState];
 }
@@ -3674,7 +3711,24 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         }
         return YES;
     }
-    if (_appearance.englishMode) return NO;
+    if (_appearance.englishMode) {
+        // The reference keeps its punctuation and double/single-byte compartments working while the IME is closed (KeyEventSink.cpp's FUNCTION_PUNCTUATION and FUNCTION_DOUBLE_SINGLE_BYTE branches), so English mode still converts plain printable ASCII when either runtime state asks for it. Chords and everything outside printable ASCII stay the application's.
+        if (!(event.modifierFlags & competing) && event.characters.length == 1) {
+            NSString *lock = _appearance.punctuationLock;
+            const BOOL chinese = [lock isEqual:@"chinese"] || ([lock isEqual:@"follow"] && _appearance.runtimeChinesePunctuation);
+            const bool keypad = (event.modifierFlags & NSEventModifierFlagNumericPad) || msime::mac::KeypadPunctuation(event.keyCode);
+            const std::string output = msime::input::english_mode_output(
+                [event.characters characterAtIndex:0], keypad, chinese, _appearance.runtimeFullWidthInput, _englishPunctuation);
+            NSString *text = output.empty() ? nil : [NSString stringWithUTF8String:output.c_str()];
+            if (text.length) {
+                [(id<MSIMETextClient>)sender insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+                MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text,
+                                            MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), YES));
+                return YES;
+            }
+        }
+        return NO;
+    }
     if (MSIMECapsLockFreshUppercaseBypass(event, _view)) return NO;
     if (!_session) [self prepareSession];
     if (!_session) return NO;
@@ -3948,8 +4002,9 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     // Japanese converts with Space and commits with Enter; every other scheme keeps the mapping
     // below. See handleJapaneseConversionKey: for why the two keys cannot be the shared ones.
     if ([self handleJapaneseConversionKey:event client:sender]) return YES;
+    // While candidates are showing, a navigation key whose shortcut is off is eaten and the composition stays, as Windows routes Tab/PageUp/PageDown/Up/Down to the server in any candidate mode (CompositionProcessorEngine.cpp) and the server answers NavigationIgnored; with no candidates the key still belongs to the application.
     switch (event.keyCode) {
-        case 48: return NO;
+        case 48: return _panel.isVisible;
         case 51: command = MSIME_BACKSPACE; break;
         case 36: case 76: command = MSIME_COMMIT_RAW; break;
         case 53: [self flushPendingPairedClosing]; _pairedPunctuation.clear(); command = MSIME_CANCEL; break;
@@ -3959,10 +4014,10 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         case 115: command = _panel.isVisible ? MSIME_FIRST_CANDIDATE : MSIME_MOVE_HOME; break;
         case 119: command = _panel.isVisible ? MSIME_LAST_CANDIDATE : MSIME_MOVE_END; break;
         case 117: command = MSIME_DELETE_FORWARD; break;
-        case 116: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_PREVIOUS_PAGE; break;
-        case 121: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_NEXT_PAGE; break;
-        case 126: if (![_appearance navigationEnabled:@"arrows"]) return NO; command = MSIME_PREVIOUS_CANDIDATE; break;
-        case 125: if (![_appearance navigationEnabled:@"arrows"]) return NO; command = MSIME_NEXT_CANDIDATE; break;
+        case 116: if (![_appearance navigationEnabled:@"page_up_down"]) return _panel.isVisible; command = MSIME_PREVIOUS_PAGE; break;
+        case 121: if (![_appearance navigationEnabled:@"page_up_down"]) return _panel.isVisible; command = MSIME_NEXT_PAGE; break;
+        case 126: if (![_appearance navigationEnabled:@"arrows"]) return _panel.isVisible; command = MSIME_PREVIOUS_CANDIDATE; break;
+        case 125: if (![_appearance navigationEnabled:@"arrows"]) return _panel.isVisible; command = MSIME_NEXT_CANDIDATE; break;
     }
     NSDictionary *transition = nil;
     if (command != UINT32_MAX) transition = [_session command:command error:nil];
