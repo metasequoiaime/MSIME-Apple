@@ -492,6 +492,125 @@ int main() {
     require(near(candidate_card_size(capped_runs).height,
                  base + stacked_lines[0].item.height + row));
 
+    // Candidate text wider than the column wraps inside it instead of being clipped, as the shipped presenter's CandidateList::MeasureItem draws it: the row takes the wrapped height, sizing grows the card by it, and the row painted is the row hit testing reads.
+    {
+      const double text_line = 16.0 * 1.25;
+      CandidateCardInput long_text;
+      long_text.preedit_width = 40.0;
+      long_text.max_width = 150.0;
+      long_text.items = {{400.0}};
+      // Without a measure the lines are estimated from the single-line width at the candidate size's line height.
+      const auto estimated_text = candidate_card_size(long_text);
+      require(near(estimated_text.width, 150.0));
+      require(near(estimated_text.height,
+                   base + std::ceil(400.0 / content) * text_line));
+      const auto wrapped_rows =
+          candidate_page_layout(long_text.items, 150.0, metrics, false);
+      const auto &wrapped_item = wrapped_rows[0].item;
+      require(wrapped_item.text_wrapped && near(wrapped_item.text_width, content) &&
+              near(wrapped_item.text_height, 4.0 * text_line) &&
+              near(wrapped_item.height, wrapped_item.text_height));
+      require(near(wrapped_rows[0].bounds.bottom - wrapped_rows[0].bounds.top,
+                   wrapped_item.height));
+
+      // The measured height wins, asked for the text run at the column width the text is drawn in; a measurement below one row, or none, still keeps the row.
+      size_t text_index = 99;
+      CandidateRun text_run = CandidateRun::annotation;
+      double text_width = 0.0;
+      long_text.wrapped = [&](size_t index, CandidateRun run, double width) {
+        text_index = index;
+        text_run = run;
+        text_width = width;
+        return 70.0;
+      };
+      require(near(candidate_card_size(long_text).height, base + 70.0));
+      require(text_index == 0 && text_run == CandidateRun::text &&
+              near(text_width, content));
+      long_text.wrapped = [](size_t, CandidateRun, double) { return 2.0; };
+      require(near(candidate_card_size(long_text).height, base + row));
+      long_text.wrapped = [](size_t, CandidateRun, double) {
+        return std::numeric_limits<double>::infinity();
+      };
+      require(near(candidate_card_size(long_text).height, base + row));
+      long_text.wrapped = {};
+
+      // Text that fits keeps one line and is not measured wrapped at all.
+      bool measured_short = false;
+      const auto short_rows = candidate_page_layout(
+          {{60.0}}, 150.0, metrics, false,
+          [&](size_t, CandidateRun, double) {
+            measured_short = true;
+            return 70.0;
+          });
+      require(!measured_short && !short_rows[0].item.text_wrapped &&
+              near(short_rows[0].item.text_height, row) &&
+              near(short_rows[0].item.height, row));
+
+      // Wrapped text fills the column, so an annotation moves under it and starts where the text's box ends.
+      const auto text_then_runs = candidate_page_layout(
+          {{400.0, 20.0, 10.0}}, 150.0, metrics, false)[0].item;
+      require(text_then_runs.annotation.below &&
+              text_then_runs.translation.below);
+      require(near(text_then_runs.annotation.y, text_then_runs.text_height) &&
+              near(text_then_runs.translation.y,
+                   text_then_runs.text_height + text_line) &&
+              near(text_then_runs.height,
+                   text_then_runs.text_height + text_line + translation_line));
+
+      // A vertical page stacks the grown row, and a click anywhere in the wrapped text is that candidate; the next row starts under it.
+      long_text.items = {{400.0}, {60.0}};
+      const auto two = candidate_card_size(long_text);
+      require(near(two.height, base + 4.0 * text_line + row));
+      const auto stacked_text =
+          candidate_page_layout(long_text.items, two.width, metrics, false);
+      const auto one_line_row = candidate_row_bounds(0, 2, two.width, metrics, false);
+      require(near(stacked_text[0].bounds.top, one_line_row.top) &&
+              near(stacked_text[0].bounds.bottom,
+                   one_line_row.top + 4.0 * text_line) &&
+              near(stacked_text[1].bounds.top, stacked_text[0].bounds.bottom));
+      // The paint rectangle of every row (its bounds, with the text box inside it) is exactly what hit testing resolves: its corners and centre select that row and nothing else, and the text box never leaves it.
+      for (size_t index = 0; index < stacked_text.size(); ++index) {
+        const auto &bounds = stacked_text[index].bounds;
+        const auto &item = stacked_text[index].item;
+        require(bounds.top + item.text_height <= bounds.bottom + 0.001);
+        require(bounds.left + metrics.number_and_bar + item.text_width <=
+                bounds.right + 0.001);
+        for (double x : {bounds.left, (bounds.left + bounds.right) / 2.0,
+                         bounds.right - 0.01})
+          for (double y : {bounds.top, (bounds.top + bounds.bottom) / 2.0,
+                           bounds.bottom - 0.01})
+            require(candidate_card_hit(x, y, two.width, two.height,
+                                       stacked_text) ==
+                    std::optional<size_t>(index));
+      }
+      require(candidate_card_hit(20.0, one_line_row.bottom + 1.0, two.width,
+                                 two.height, stacked_text) ==
+              std::optional<size_t>(0));
+
+      // Horizontal: a candidate wider than a whole line is narrowed to the line and its text wraps there; the line takes that height, the next candidate starts a new line under it, and the card grows by both.
+      long_text.horizontal = true;
+      const auto across = candidate_card_size(long_text);
+      require(near(across.width, 150.0));
+      require(near(across.height, base + 4.0 * text_line + row));
+      const auto columns_text =
+          candidate_page_layout(long_text.items, across.width, metrics, true);
+      require(columns_text[0].item.text_wrapped &&
+              near(columns_text[0].bounds.right - columns_text[0].bounds.left,
+                   150.0 - metrics.pad_x) &&
+              near(columns_text[0].bounds.bottom - columns_text[0].bounds.top,
+                   4.0 * text_line));
+      require(!columns_text[1].item.text_wrapped &&
+              near(columns_text[1].bounds.top, columns_text[0].bounds.bottom) &&
+              near(columns_text[1].bounds.left, metrics.pad_x / 2.0));
+      for (size_t index = 0; index < columns_text.size(); ++index) {
+        const auto &bounds = columns_text[index].bounds;
+        require(candidate_card_hit((bounds.left + bounds.right) / 2.0,
+                                   bounds.bottom - 0.01, across.width,
+                                   across.height, columns_text) ==
+                std::optional<size_t>(index));
+      }
+    }
+
     // Pages are bounded like the card.
     bool caught = false;
     try {

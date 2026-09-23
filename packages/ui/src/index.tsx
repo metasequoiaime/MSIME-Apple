@@ -1667,6 +1667,10 @@ export interface SettingsClient {
   readSkinFont?: SkinFontReader;
   readSkinToolbarCss?: (id: string, relative?: string) => Promise<string | null>;
   openSkinDirectory?: () => Promise<void>;
+  /**
+   * Write an exported document into the user's Downloads folder and resolve to the absolute path written, which may carry a " (2)" suffix when the name was taken. A host whose webview drops download links (the macOS WKWebView cancels them) offers this; without it the page falls back to a download link.
+   */
+  saveExport?: (name: string, contents: string) => Promise<string>;
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
@@ -3224,6 +3228,32 @@ export function SettingsPage({
       setPhraseBusy(false);
     }
   }
+  /**
+   * Hand an exported dictionary to the user as a file.
+   *
+   * Resolves to the path when the host wrote the file, to null when a download link was used instead (the host reports nothing back, so there is no path to show), and to undefined when the host refused the write, in which case the error has already been shown and no success may be reported.
+   */
+  async function deliverDictionaryExport(
+    name: string,
+    body: string,
+  ): Promise<string | null | undefined> {
+    if (client.saveExport) {
+      try {
+        return await client.saveExport(name, body);
+      } catch {
+        setPhraseNotice("");
+        setPhraseError("无法写入“下载”文件夹，词库未导出。");
+        return undefined;
+      }
+    }
+    const url = URL.createObjectURL(new Blob([body], { type: "text/plain;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = name;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    return null;
+  }
   async function exportPhrases() {
     if (!client.dictionary) return;
     if (dictionaryFormat === "hans") {
@@ -3264,15 +3294,16 @@ export function SettingsPage({
         setPhraseError("当前没有可导出的用户新增词条。");
         return;
       }
-      const url = URL.createObjectURL(
-        new Blob([payload.body], { type: "text/plain;charset=utf-8" }),
+      const path = await deliverDictionaryExport(
+        dictionaryExportName(dictionaryKind),
+        payload.body,
       );
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = dictionaryExportName(dictionaryKind);
-      anchor.click();
-      URL.revokeObjectURL(url);
-      setPhraseNotice(`已导出 ${payload.rows} 条用户词条。`);
+      if (path === undefined) return;
+      setPhraseNotice(
+        path === null
+          ? `已导出 ${payload.rows} 条用户词条。`
+          : `已导出 ${payload.rows} 条用户词条到 ${path}。`,
+      );
     } catch (error) {
       setPhraseError(dictionaryErrorMessage(error, "词库导出失败，请稍后重试。"));
     } finally {
@@ -3292,15 +3323,13 @@ export function SettingsPage({
         setPhraseNotice("当前没有可导出的用户词条。");
         return;
       }
-      const url = URL.createObjectURL(
-        new Blob([payload.body], { type: "text/plain;charset=utf-8" }),
+      const path = await deliverDictionaryExport(personalDictionaryExportName(), payload.body);
+      if (path === undefined) return;
+      setPhraseNotice(
+        path === null
+          ? `已导出全部 ${payload.rows} 条用户词条。`
+          : `已导出全部 ${payload.rows} 条用户词条到 ${path}。`,
       );
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = personalDictionaryExportName();
-      anchor.click();
-      URL.revokeObjectURL(url);
-      setPhraseNotice(`已导出全部 ${payload.rows} 条用户词条。`);
     } catch (error) {
       setPhraseError(dictionaryErrorMessage(error, "全部词库导出失败，请稍后重试。"));
     } finally {
