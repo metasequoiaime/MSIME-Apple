@@ -4042,7 +4042,12 @@ export function SettingsPage({
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const touchKeyboardHeightAdjustment = draft?.touch_keyboard_height_adjustment ?? 0;
-  const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
+  const installerTrust = availableUpdate
+    ? describeInstallerTrust(
+        availableUpdate,
+        client.host?.platform ?? (linuxPlatform ? "linux" : null),
+      )
+    : null;
   const [clipboardEntries, setClipboardEntries] = useState<ClipboardHistoryEntry[]>([]);
   const [clipboardClearArmed, setClipboardClearArmed] = useState(false);
   const availablePages = pages.filter(
@@ -8265,9 +8270,14 @@ export function SettingsPage({
                             <p className={doc.updateWarning}>{installerTrust.warning}</p>
                           )}
                           {installerTrust?.verify && (
-                            <p>
-                              下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code>
-                            </p>
+                            <>
+                              <p>
+                                下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code>
+                              </p>
+                              <p>
+                                核对命令：<code>{installerTrust.verify.command}</code>
+                              </p>
+                            </>
                           )}
                           <button
                             type="button"
