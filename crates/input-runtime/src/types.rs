@@ -162,6 +162,9 @@ pub struct OnlineQuery {
     pub session_id: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai_assistant: Option<AiAssistantProviderConfig>,
+    /// Ask a provider for its cached AI candidates only, never the network. Windows shows a cached AI answer as soon as the input changes and fetches only after the idle delay; the Linux hosts send this probe immediately and the ordinary request after the delay. Hosts never receive it from `online_query`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ai_cache_only: bool,
 }
 
 fn default_cloud_candidates() -> bool {

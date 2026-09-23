@@ -454,6 +454,7 @@ struct State {
   std::array<bool, 2> online_loading{};
   bool translation_loading = false;
   guint online_delay_source = 0;
+  guint ai_delay_source = 0;
   guint translation_delay_source = 0;
   guint settled_rerank_source = 0;
   bool cloud_candidates = true;
@@ -468,6 +469,11 @@ struct State {
     if (online_delay_source) {
       const auto source = online_delay_source;
       online_delay_source = 0;
+      g_source_remove(source);
+    }
+    if (ai_delay_source) {
+      const auto source = ai_delay_source;
+      ai_delay_source = 0;
       g_source_remove(source);
     }
     if (translation_delay_source) {
@@ -1613,6 +1619,7 @@ struct OnlineTask {
   std::string socket;
   std::string provider_query;
   uint8_t source;
+  bool ai_cache_only = false;
 };
 struct TranslationTask {
   uint64_t session;
@@ -1831,7 +1838,8 @@ bool online_request_is_stale(IBusEngine *engine, const std::string &encoded) {
     return false;
   }
 }
-void online_dispatch(IBusEngine *engine) {
+// Send one source's provider request. The AI source is sent twice per input change: a cache-only probe at once, then the network request after its own idle delay.
+void online_dispatch(IBusEngine *engine, uint8_t only_source, bool ai_cache_only = false) {
   auto &s = state(engine);
   if (s.online_provider_socket.empty() || !s.session ||
       !s.focused || s.blocked || !s.input_enabled)
@@ -1873,8 +1881,8 @@ void online_dispatch(IBusEngine *engine) {
     // request enables only one source. Fast cloud results need not wait for AI.
     std::vector<std::unique_ptr<OnlineTask>> requests;
     for (uint8_t source = 0; source < 2; ++source) {
-      // Each source has one in-flight request and its own duplicate guard.
-      // A pending AI result must not delay cloud for a newer composition.
+      if (source != only_source) continue;
+      // Each source has one in-flight request and its own duplicate guard. A pending AI result must not delay cloud for a newer composition.
       if (s.online_loading[source] || encoded == s.online_dispatched_query[source]) continue;
       if (source == 0 && !(s.cloud_candidates && query.value("cloud_eligible", false))) continue;
       if (source == 1 && !ai_requested) continue;
@@ -1884,10 +1892,11 @@ void online_dispatch(IBusEngine *engine) {
         provider_query.erase("ai_context");
       } else {
         provider_query["cloud_candidates"] = false;
+        if (ai_cache_only) provider_query["ai_cache_only"] = true;
       }
       requests.push_back(std::make_unique<OnlineTask>(OnlineTask{
           s.session, s.provider_epoch, encoded, s.online_provider_socket,
-          provider_query.dump(), source}));
+          provider_query.dump(), source, ai_cache_only}));
     }
     for (auto &request : requests) {
       s.online_dispatched_query[request->source] = encoded;
@@ -1909,27 +1918,41 @@ void online_dispatch(IBusEngine *engine) {
     }
   } catch (...) {}
 }
-// Match Windows cloud_ime's 500ms idle delay without sleeping on the
-// IBus input thread. Read the latest Engine query only when the timer fires.
+// Match Windows cloud_ime's 500ms and ai_assistant's 650ms idle delays without sleeping on the IBus input thread. Read the latest Engine query only when a timer fires.
+constexpr guint kCloudIdleDelayMs = 500;
+constexpr guint kAiIdleDelayMs = 650;
 void online_schedule(IBusEngine *engine) {
   auto &s = state(engine);
-  if (s.online_delay_source) {
-    const auto source = s.online_delay_source;
-    s.online_delay_source = 0;
-    g_source_remove(source);
+  for (auto *pending : {&s.online_delay_source, &s.ai_delay_source}) {
+    if (*pending) {
+      const auto source = *pending;
+      *pending = 0;
+      g_source_remove(source);
+    }
   }
   if (s.online_provider_socket.empty() || !s.session || !s.focused ||
       s.blocked || !s.input_enabled)
     return;
   s.online_delay_source = g_timeout_add_full(
-      G_PRIORITY_DEFAULT, 500,
+      G_PRIORITY_DEFAULT, kCloudIdleDelayMs,
       [](gpointer data) -> gboolean {
         auto *engine = IBUS_ENGINE(data);
         state(engine).online_delay_source = 0;
-        online_dispatch(engine);
+        online_dispatch(engine, 0);
         return G_SOURCE_REMOVE;
       },
       g_object_ref(engine), [](gpointer data) { g_object_unref(data); });
+  s.ai_delay_source = g_timeout_add_full(
+      G_PRIORITY_DEFAULT, kAiIdleDelayMs,
+      [](gpointer data) -> gboolean {
+        auto *engine = IBUS_ENGINE(data);
+        state(engine).ai_delay_source = 0;
+        online_dispatch(engine, 1);
+        return G_SOURCE_REMOVE;
+      },
+      g_object_ref(engine), [](gpointer data) { g_object_unref(data); });
+  // Windows AiAssistant shows a cached answer without waiting for the idle delay. The probe never reaches the network, so it needs no debounce.
+  online_dispatch(engine, 1, true);
 }
 void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
   auto engine = IBUS_ENGINE(source);
@@ -2004,8 +2027,12 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
     return;
   const auto retry_empty_ai = [&] {
     if (request->source == 1 &&
-        s.online_dispatched_query[1] == request->query)
+        s.online_dispatched_query[1] == request->query) {
       s.online_dispatched_query[1].clear();
+      // A missed cache probe hands over to the network request. If the AI idle timer fired while the probe was still in flight, that request was skipped, so send it now.
+      if (request->ai_cache_only && !s.ai_delay_source)
+        online_dispatch(engine, 1);
+    }
   };
   if (online_request_is_stale(engine, request->query)) {
     online_schedule(engine);

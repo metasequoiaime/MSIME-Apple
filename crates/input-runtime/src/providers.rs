@@ -192,13 +192,15 @@ impl UnixSocketProvider {
         if query.query_text.len() > 4096 || query.identity.len() > 4096 {
             return None;
         }
-        let timeout =
-            if query.ai_eligible && query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
-                // Windows ai_assistant.cpp permits eight seconds for model inference.
-                std::time::Duration::from_secs(8)
-            } else {
-                std::time::Duration::from_millis(500)
-            };
+        let timeout = if query.ai_eligible
+            && !query.ai_cache_only
+            && query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled)
+        {
+            // Windows ai_assistant.cpp permits eight seconds for model inference, and the provider holds that budget itself. The extra second covers its worker start-up so a reply it accepted at the deadline is not dropped here; a cache probe never waits on the network.
+            std::time::Duration::from_secs(9)
+        } else {
+            std::time::Duration::from_millis(500)
+        };
         let mut stream = self.connect()?;
         stream
             .set_write_timeout(Some(std::time::Duration::from_millis(500)))

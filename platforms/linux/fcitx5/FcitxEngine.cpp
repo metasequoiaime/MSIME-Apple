@@ -402,6 +402,7 @@ public:
     online_job_session_ = 0;
     ++online_epoch_;
     online_due_ = {};
+    ai_due_ = {};
     translation_query_.clear();
     translation_pending_.clear();
     translation_socket_.clear();
@@ -1602,26 +1603,31 @@ public:
                       aiConfig.is_object() && aiConfig.value("enabled", false);
       if (!cloud && !ai) return;
       const auto encoded = query.dump();
-      if (encoded != online_query_) {
+      const auto now = std::chrono::steady_clock::now();
+      const bool changed = encoded != online_query_;
+      if (changed) {
+        // Match Windows cloud_ime's 500ms and ai_assistant's 650ms idle delays.
         online_query_ = encoded;
-        online_due_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
-        return;
+        online_due_ = now + std::chrono::milliseconds(500);
+        ai_due_ = now + std::chrono::milliseconds(650);
       }
-      if (std::chrono::steady_clock::now() < online_due_) return;
-      online_query_ = encoded;
-      online_job_session_ = session_;
       for (uint8_t source = 0; source < 2; ++source) {
         const bool enabled = source == 0 ? cloud : ai;
         auto &slot = online_slots_[source];
         if (!enabled || slot.job.valid()) continue;
+        // Windows AiAssistant shows a cached answer as soon as the input changes; only the network request waits for the idle delay. The probe never leaves the provider.
+        const bool cacheOnly = source == 1 && changed;
+        if (!cacheOnly && now < (source == 0 ? online_due_ : ai_due_)) continue;
         auto providerQuery = query;
         if (source == 0) {
           providerQuery.erase("ai_assistant");
           providerQuery.erase("ai_context");
         } else {
           providerQuery["cloud_candidates"] = false;
+          if (cacheOnly) providerQuery["ai_cache_only"] = true;
         }
         const auto providerEncoded = providerQuery.dump();
+        online_job_session_ = session_;
         slot.query = encoded;
         slot.epoch = online_epoch_;
         slot.job = std::async(std::launch::async,
@@ -2784,6 +2790,7 @@ public:
   } online_slots_[2];
   uint64_t online_epoch_ = 0;
   std::chrono::steady_clock::time_point online_due_{};
+  std::chrono::steady_clock::time_point ai_due_{};
   std::string translation_query_, translation_pending_, translation_socket_;
   std::chrono::steady_clock::time_point translation_due_{};
   uint64_t translation_session_ = 0;

@@ -176,6 +176,7 @@ impl Runtime<Session> {
             session_id: query.session_id,
             ai_context: self.ai_context.clone(),
             ai_assistant: None,
+            ai_cache_only: false,
         }))
     }
 
