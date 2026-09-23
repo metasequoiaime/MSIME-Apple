@@ -374,15 +374,17 @@ impl HostCapabilities {
             // candidate size into the panel's font: the IBus panel settings or
             // the Fcitx5 classic UI.
             candidate_font_controls: true,
+            // The iOS strip scales its composition line by `candidate_preedit_font_size`.
             candidate_preedit_font: matches!(
                 platform,
                 HostPlatform::Windows
                     | HostPlatform::Macos
                     | HostPlatform::Harmony
                     | HostPlatform::Android
+                    | HostPlatform::Ios
             ),
             // IBus exposes candidate and label foreground/background RGB
-            // attributes, but not native hover state or card borders.
+            // attributes, but not native hover state or card borders. The iOS strip resolves every candidate colour once the keyboard's 「使用桌面候选皮肤」 switch is on, which the shared skin page now carries.
             candidate_row_colors: matches!(
                 platform,
                 HostPlatform::Windows
@@ -390,6 +392,7 @@ impl HostCapabilities {
                     | HostPlatform::Linux
                     | HostPlatform::Harmony
                     | HostPlatform::Android
+                    | HostPlatform::Ios
             ),
             candidate_selection_appearance: matches!(
                 platform,
@@ -397,6 +400,7 @@ impl HostCapabilities {
                     | HostPlatform::Macos
                     | HostPlatform::Harmony
                     | HostPlatform::Android
+                    | HostPlatform::Ios
             ),
             // macOS CandidatePanel and the HarmonyOS candidate panel track the current insertion
             // rect themselves; expose the shared toggle on both hosts.
@@ -460,9 +464,8 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Android | HostPlatform::Harmony | HostPlatform::Ios
             ),
-            // The skin folder is inside the sandbox on HarmonyOS, where no file
-            // manager reaches it, so the skin is picked and copied in instead.
-            skin_directory_import: platform == HostPlatform::Harmony,
+            // The skin folder is inside the sandbox on HarmonyOS and in the App Group container on iOS, where no file manager reaches it, so the skin is picked and copied in instead.
+            skin_directory_import: matches!(platform, HostPlatform::Harmony | HostPlatform::Ios),
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
@@ -962,9 +965,14 @@ mod tests {
         // The candidate bar cascades the Latin face, the family and its fallbacks.
         assert!(ios.candidate_font_controls);
         assert!(ios.candidate_english_font);
+        assert!(ios.candidate_preedit_font);
+        assert!(ios.candidate_row_colors);
+        assert!(ios.candidate_selection_appearance);
         // The Engine expands shuangpin keys for the candidate bar's spelling, and Shift marks a helper code in a quanpin or shuangpin composition, so both rows describe something the keyboard does.
         assert!(ios.shuangpin_preedit);
         assert!(ios.helpcode_shift_entry);
+        // Files cannot reach the App Group skin folder, so the skin button imports a picked folder.
+        assert!(ios.skin_directory_import);
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);

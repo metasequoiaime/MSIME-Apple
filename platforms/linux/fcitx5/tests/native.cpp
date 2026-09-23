@@ -298,6 +298,51 @@ int main(int argc, char **argv) {
     changedPreferences["smart_punctuation_repeat"] = true;
     changedPreferences["learning"] = true;
     const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
+    // The host's statistics gate, not the store, is what keeps an opt-out from reaching the statistics file. First with statistics off after a preference tick, then with them turned on in the store while the host has not ticked since: a commit or passthrough key that slipped past the host would be recorded by that open store and replace the document, so only the host's cached switch can keep it untouched. The preference reload below is the tick that opens the gate, and the check after it proves recording resumes.
+    const auto setStatistics = [&](bool enabled) {
+      const auto request = Json{{"directory", preferenceDirectory},
+                                {"action", Json{{"operation", "set_enabled"}, {"enabled", enabled}}}}.dump();
+      const auto result = response(msime_client_typing_statistics(
+          reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+      require(result.value("enabled", !enabled) == enabled, "typing statistics store switch");
+    };
+    const auto statisticsTotal = [&] {
+      const auto request = Json{{"directory", preferenceDirectory}, {"action", Json{{"operation", "load"}}}}.dump();
+      return response(msime_client_typing_statistics(reinterpret_cast<const uint8_t *>(request.data()), request.size()))
+          .value("total", uint64_t{});
+    };
+    const auto statisticsDocument = preferenceDirectory + "/typing-statistics.json";
+    const auto statisticsIdentity = [&] {
+      struct stat info {};
+      require(::stat(statisticsDocument.c_str(), &info) == 0, "typing statistics document exists");
+      return std::make_tuple(info.st_ino, info.st_size, info.st_mtim.tv_sec, info.st_mtim.tv_nsec);
+    };
+    // Three committed characters and one English-mode letter handed back to the application.
+    const auto commitAndPassthrough = [&] {
+      state->commitText("输入法");
+      state->input_enabled_ = false;
+      fcitx::KeyEvent letter(&ic, fcitx::Key(FcitxKey_a));
+      engine.keyEvent(entry, letter);
+      state->input_enabled_ = true;
+      require(!letter.accepted(), "an English-mode letter is handed back to the application");
+    };
+    const auto typeWhileGateShut = [&](const char *message) {
+      const auto before = statisticsIdentity();
+      commitAndPassthrough();
+      // Longer than a detached record thread needs to rewrite the document.
+      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      require(statisticsIdentity() == before, message);
+    };
+    setStatistics(false);
+    state->refreshPreferences();
+    require(state->preferences_job_.valid(), "a preference tick is queued");
+    state->preferences_job_.wait();
+    require(!fcitx_typing_statistics.enabled(), "the preference tick reads statistics as off");
+    typeWhileGateShut("with statistics off, a commit and a passthrough key leave the statistics document untouched");
+    setStatistics(true);
+    typeWhileGateShut("before the next preference tick, commits are not recorded even though the store is on");
+    require(!fcitx_typing_statistics.enabled(), "no tick ran, so the host switch is still off");
+    require(statisticsTotal() == 0, "nothing was recorded while the host switch was off");
     // 聚合打字统计是用户显式开启的本地功能，存储层默认关闭，record 在关闭时如实不计。
     // 下面那条「提交计入统计」的断言此前建立在一个从未开启过的存储上，于是无论宿主做
     // 了什么都必然为 0——它从没被执行到，因为这个测试一直挂在更前面的皮肤断言上。
@@ -328,6 +373,12 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
+    require(fcitx_typing_statistics.enabled(), "the preference reload also opens the statistics gate");
+    commitAndPassthrough();
+    const auto resumedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (statisticsTotal() < 4 && std::chrono::steady_clock::now() < resumedDeadline)
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    require(statisticsTotal() == 4, "after that tick a commit and a passthrough key are recorded again");
     // One per addAction() in activate(), plus the toolbar entry the host adds
     // once it has a session. Adding or removing a status action changes this on
     // purpose; the count is here so one going missing is noticed.

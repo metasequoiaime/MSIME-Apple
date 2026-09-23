@@ -182,6 +182,69 @@ pub extern "C" fn msime_client_default_preferences() -> *mut c_char {
 /// 宿主原先各写了一份表。这类副本已经漂过：Linux 的 IBus 与 Fcitx5 两个并列宿主对同
 /// 一个 `graphite` 给出的名字不同。和上面的默认偏好同理，这份契约在共享层发布一次，
 /// 宿主只消费。顺序即宿主的展示顺序和循环顺序。
+/// The transcription provider and the optional rewrite, resolved from a preferences directory.
+///
+/// The Android keyboard has its own voice entry and never goes through the desktop shell, so the
+/// resolution it needs is here rather than in that shell. Contains credentials: never log the
+/// response; release with `msime_client_string_free`.
+/// # Safety
+/// `directory` points to `length` readable UTF-8 bytes naming an absolute path. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
+    directory: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length == 0 || length > 16_384 {
+            return Err("invalid preferences directory".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory = std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory")?;
+        if !std::path::Path::new(directory).is_absolute() {
+            return Err("invalid preferences directory".into());
+        }
+        let store = msime_client_core::preferences::PreferencesStore::new(directory);
+        let snapshot = store.load().map_err(|_| "preferences unavailable")?;
+        let provider = msime_client_core::voice::provider::mobile_voice_provider_configuration(
+            &snapshot.preferences,
+        )
+        .map(|value| {
+            json!({
+                "provider": value.provider,
+                "endpoint": value.endpoint,
+                "model": value.model,
+                "token": value.token,
+                "headers": value
+                    .headers
+                    .iter()
+                    .map(|header| json!({"name": header.name, "value": header.value}))
+                    .collect::<Vec<_>>(),
+                "enableItn": value.enable_itn,
+                "enablePunctuation": value.enable_punctuation,
+                "enableDdc": value.enable_ddc,
+                "boostingTableId": value.boosting_table_id,
+            })
+        });
+        let polish = msime_client_core::voice::provider::mobile_voice_polish_configuration(
+            &snapshot.preferences,
+        )
+        .map(|value| {
+            json!({
+                "endpoint": value.endpoint,
+                "model": value.model,
+                "token": value.token,
+                "promptId": value.prompt_id,
+                "promptLegacy": value.prompt_legacy,
+                "promptCustom1": value.prompt_custom_1,
+                "promptCustom2": value.prompt_custom_2,
+                "promptCustom3": value.prompt_custom_3,
+            })
+        });
+        Ok(json!({ "provider": provider, "polish": polish }))
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_builtin_skins() -> *mut c_char {
     response(|| {

@@ -39,7 +39,7 @@ try {
     function global:cargo { Invoke-ClientCommandProbe cargo $args }
     function global:cmake { Invoke-ClientCommandProbe cmake $args }
     function global:pnpm { Invoke-ClientCommandProbe pnpm $args }
-    $entry = Join-Path $PSScriptRoot '../Build-Client.ps1'
+    $entry = Join-Path $PSScriptRoot '../../Build-Client.ps1'
     $global:ClientBuildCalls = [Collections.Generic.List[object]]::new()
     $global:ClientBuildFailAt = 0
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -TargetVersion '2026.9.1'
@@ -50,7 +50,7 @@ try {
         throw 'Tauri version override missing or incorrect'
     }
     foreach ($arch in @('x86', 'x64')) {
-        & (Join-Path $PSScriptRoot '../Test-PortableExecutable.ps1') `
+        & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
     if ($count -ne 16) { throw "Unexpected build stage count: $count" }

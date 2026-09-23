@@ -375,6 +375,16 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setEnglishModeRa
 // Returns the converted text directly rather than a JSON envelope, which is why it reuses the
 // same response helper: both are NUL-terminated strings this side must free. A null answer means
 // the text was not convertible and the caller keeps the original.
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_mobileVoiceConfigurationRaw(JNIEnv *env, jclass, jbyteArray directory) {
+    if (!directory) return response(env, msime_client_mobile_voice_configuration(nullptr, 0));
+    jsize length = env->GetArrayLength(directory);
+    jbyte *bytes = env->GetByteArrayElements(directory, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_mobile_voice_configuration(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(directory, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_simplifiedToTraditionalRaw(JNIEnv *env, jclass, jbyteArray text) {
     if (!text) return nullptr;
     jsize length = env->GetArrayLength(text);

@@ -295,6 +295,8 @@ export function ExternalSkins({
     setOpenFailed(false);
     try {
       await openDirectory();
+      // List what the import brought in rather than make the user refresh for something they just did. iOS answers once the copy is in place; HarmonyOS answers as the picker opens, so there the list catches up on the user's own refresh. A host that opens a folder has only started the user's own copy.
+      if (importsSkin && current === openGeneration.current) void refresh();
     } catch {
       if (current === openGeneration.current) setOpenFailed(true);
     } finally {
@@ -342,7 +344,9 @@ export function ExternalSkins({
         <div>
           <div className="section-title">外部皮肤</div>
           <p className="skin-card-description">
-            把包含 skin.toml 的皮肤文件夹复制到下面的目录，然后刷新。
+            {importsSkin
+              ? "点“导入皮肤”，选中包含 skin.toml 的皮肤文件夹。文件夹名只能用小写字母、数字和 . _ -，同名皮肤会被替换。"
+              : "把包含 skin.toml 的皮肤文件夹复制到下面的目录，然后刷新。"}
           </p>
           <code className="external-skin-directory">
             {catalog?.directory || "扫描后显示客户端皮肤目录"}

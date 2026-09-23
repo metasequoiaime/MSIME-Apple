@@ -148,6 +148,50 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("streaming.cancel()", activity)
         self.assertIn("socket.close()", recognizer)
 
+    def test_the_keyboards_own_voice_entry_reads_the_same_configuration_as_the_settings_app(self):
+        """The keyboard has its own voice button and never goes through the settings app. It used
+        to launch the platform recogniser unconditionally, so the same device transcribed one way
+        from the keyboard and another from the panel. The resolution is shared; a second copy of
+        the provider rules in Java is how the two would drift apart again."""
+        service = (
+            ROOT / "platforms/android/java/app/msime/client/core/MSIMEInputService.java"
+        ).read_text()
+        configuration = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoiceConfiguration.java"
+        ).read_text()
+        shared = (ROOT / "crates/host-api/src/ffi/host.rs").read_text()
+        header = (ROOT / "crates/host-api/include/msime_client.h").read_text()
+        client_core = (ROOT / "crates/client-core/src/voice/provider.rs").read_text()
+        shell = (ROOT / "apps/desktop/src-tauri/src/voice.rs").read_text()
+
+        # One resolver, in the shared crate, reached two ways.
+        self.assertIn("pub fn mobile_voice_provider_configuration(", client_core)
+        self.assertIn("pub fn mobile_voice_polish_configuration(", client_core)
+        self.assertIn("use msime_client_core::voice::provider::{", shell)
+        self.assertIn("msime_client_mobile_voice_configuration", shared)
+        self.assertIn("msime_client_mobile_voice_configuration", header)
+
+        # The keyboard asks for it and passes the answer to its own voice entry.
+        self.assertIn("VoiceConfiguration.read(preferencesDirectory, requestId)", service)
+        self.assertIn("configured.providerName(), configured.endpoint(), configured.model()",
+                      service)
+        self.assertIn("configured.streaming(), configured.polish()", service)
+        # A configured provider must not be refused for want of the platform recogniser.
+        self.assertIn(
+            "configured.provider() == null && !VoiceRecognitionActivity.available(this)", service
+        )
+        # Nothing configured stays the platform recogniser rather than a failure.
+        self.assertIn("return none();", configuration)
+        # The provider rules stay in the two policies rather than being restated here.
+        self.assertIn("DoubaoAsrPolicy.usable(", configuration)
+        self.assertIn("HttpAsrPolicy.usable(", configuration)
+        # The keyboard's own copy must not name an engine the request may not use. It said
+        # "系统语音识别" on the button that now honours a configured provider, which was wrong for
+        # exactly the users who had configured one.
+        self.assertNotIn("开始系统语音识别", service)
+        self.assertNotIn("点击下方按钮使用系统语音识别", service)
+        self.assertIn("开始语音识别", service)
+
 
 if __name__ == "__main__":
     unittest.main()

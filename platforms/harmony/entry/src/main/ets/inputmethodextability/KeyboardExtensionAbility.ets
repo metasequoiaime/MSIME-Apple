@@ -377,11 +377,14 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
    * the router does not claim. Only key-down is acted on: a key that was claimed going down must be
    * claimed coming up too, or the application sees half of it.
    */
+  /** Key codes whose key-down went back to the application, so their key-up must follow it. */
+  private readonly releasedKeys: Set<number> = new Set<number>();
+
   private readonly typed: (event: InputKeyEvent) => boolean = (event: InputKeyEvent): boolean => {
-    const key: HardwareKey = {
+    const key: HardwareKey = HardwareKeyRouter.normalizeLetterCase({
       keyCode: event.key.code, unicodeChar: event.unicodeChar, ctrlKey: event.ctrlKey,
       altKey: event.altKey, logoKey: event.logoKey, shiftKey: event.shiftKey
-    };
+    }, event.capsLock);
     const session: KeyboardSession = KeyboardSession.shared;
     session.setCapsLock(event.capsLock);
     const mode: ModeKey = {
@@ -446,6 +449,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (event.action === KeyAction.DOWN && session.convertPunctuationSpace(event.unicodeChar)) {
       return true;
     }
+    // The other half of a letter the Engine declined going down: the application saw that key-down, so it gets the key-up too.
+    if (event.action !== KeyAction.DOWN && this.releasedKeys.delete(event.key.code)) {
+      return false;
+    }
     if (!session.composes()) {
       return false;
     }
@@ -461,7 +468,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (event.action !== KeyAction.DOWN) {
       return true;
     }
-    HardwareKeyDispatch.apply(decision, key.shiftKey, session);
+    if (!HardwareKeyDispatch.apply(decision, key.shiftKey, session)) {
+      // Declined rather than swallowed, the way TSF treats a key the Windows host did not eat: a capital letter with nothing composed is the application's to type.
+      this.releasedKeys.add(event.key.code);
+      return false;
+    }
     return true;
   };
 
