@@ -1921,6 +1921,44 @@ fn smart_punctuation_first_run_follows_the_windows_baseline() {
     assert_eq!(loaded.smart_punctuation_repeat, !expected);
 }
 
+// The source ships muting, DDC and text polishing on; `config.default.toml` says so for Windows, and macOS follows the desktop product it ports. Each is a plain voice switch, so no platform reason keeps them off there. The other hosts keep what they have shipped, and a stored value is never reinterpreted.
+#[test]
+fn voice_first_run_follows_the_source_on_desktop_ports() {
+    let expected = cfg!(any(windows, target_os = "macos"));
+    let voice = Preferences::default().voice_input;
+    assert_eq!(voice.mute_system_audio, expected);
+    assert_eq!(voice.doubao_enable_ddc, expected);
+    assert_eq!(voice.polish_text, expected);
+    // Polishing the text is not the same switch as the separate polish pass; that one stays off.
+    assert!(!voice.polish_enabled);
+
+    let keys = ["mute_system_audio", "doubao_enable_ddc", "polish_text"];
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let section = legacy["preferences"]["voice_input"]
+        .as_object_mut()
+        .unwrap();
+    for key in keys {
+        section.remove(key).unwrap();
+    }
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.voice_input;
+    assert_eq!(loaded.mute_system_audio, expected);
+    assert_eq!(loaded.doubao_enable_ddc, expected);
+    assert_eq!(loaded.polish_text, expected);
+
+    let mut stored = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    for key in keys {
+        stored["preferences"]["voice_input"][key] = (!expected).into();
+    }
+    fs::write(store.path(), serde_json::to_vec(&stored).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.voice_input;
+    assert_eq!(loaded.mute_system_audio, !expected);
+    assert_eq!(loaded.doubao_enable_ddc, !expected);
+    assert_eq!(loaded.polish_text, !expected);
+}
+
 /// The HarmonyOS host has no way to match on this type.
 ///
 /// Its settings page reaches this store through the C ABI, whose error channel is a single string

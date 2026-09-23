@@ -86,7 +86,7 @@ static inline NSString *MSIMEPolishPromptIdentifierForIndex(NSInteger index)
         _loadedASRProvider = [selectedASRProvider copy];
         [_provider selectItemAtIndex:IndexOrZero(asrProviders, selectedASRProvider)];
         [_doubaoAuthMode selectItemAtIndex:[NormalizedDoubaoAuthMode(defaults) isEqualToString:@"legacy"] ? 1 : 0];
-        _polish.state = ([defaults boolForKey:@"MSIMEClientVoicePolish"] || [defaults boolForKey:@"MSIMEClientVoicePolishText"]) ? NSControlStateValueOn : NSControlStateValueOff;
+        _polish.state = ([defaults boolForKey:@"MSIMEClientVoicePolish"] || [defaults objectForKey:@"MSIMEClientVoicePolishText"] == nil || [defaults boolForKey:@"MSIMEClientVoicePolishText"]) ? NSControlStateValueOn : NSControlStateValueOff;
         NSArray *polishProviders = @[@"deepseek", @"openai", @"siliconflow", @"groq"];
         NSString *selectedPolishProvider = polishProviders[IndexOrZero(polishProviders, [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"deepseek")];
         _loadedPolishProvider = [selectedPolishProvider copy];
@@ -108,7 +108,7 @@ static inline NSString *MSIMEPolishPromptIdentifierForIndex(NSInteger index)
         _muteAudio = [NSButton checkboxWithTitle:@"语音输入时静音系统音频" target:self action:@selector(voiceOptionsChanged:)];
         _streamInline = [NSButton checkboxWithTitle:@"实时显示语音中间结果" target:self action:@selector(voiceOptionsChanged:)];
         _streamInline.state = [defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"] ? NSControlStateValueOn : NSControlStateValueOff;
-        _muteAudio.state = [defaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"] ? NSControlStateValueOn : NSControlStateValueOff;
+        _muteAudio.state = MSIMEVoiceMuteSystemAudioEnabled(defaults) ? NSControlStateValueOn : NSControlStateValueOff;
         _provider.target = self; _provider.action = @selector(voiceOptionsChanged:);
         _polish.target = self; _polish.action = @selector(polishChanged:);
         _polishProvider.target = self; _polishProvider.action = @selector(polishProviderChanged:);

@@ -2478,3 +2478,15 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - provider：`translations()` 按 `provider` 分派。`none`、未知值、所选的 NiuTrans 或自定义服务没有随请求带来配置，都返回空结果，不访问网络；只有 `provider=tencent` 时才读取腾讯文件。后续发请求也按所选服务分派，请求里夹带的其他服务配置不会改变去向。缺少该字段的请求来自旧版宿主，这时沿用旧规则（NiuTrans、自定义、腾讯依次取第一个可用的），混用新旧版本时行为不变。
 - 宿主侧：`UnixSocketProvider::translate` 遇到 `none` 直接返回空结果，连本地 socket 都不连接，候选文字不会离开输入法进程。IBus 与 Fcitx5 引擎代码没有改动：它们转发的是 host-api 生成的查询，`provider` 变化会让去重键变化，从而重新发起请求。
 - 证据：`platforms/linux/tests/dictionary/translation_provider_selection.py` 放了一份有效的腾讯凭据，断言关闭、NiuTrans 缺凭据、自定义缺 endpoint、未知服务这几种情况都不会发出网络请求，并断言只会请求所选的那一家，旧版宿主的请求保持原来的选择。该用例在改动前的脚本上失败 8 项，改动后全部通过。input-runtime 单测覆盖 `provider` 在 JSON 往返中不丢失、缺省时仍为缺省、`none` 不连接 socket；host-api 单测经 `msime_client_translation_provider_request` 走真实 socket，确认腾讯、NiuTrans（凭据不全）、自定义（endpoint 为空）三种选择原样到达 provider，关闭时不发生连接。未在 Linux 桌面上连接真实翻译服务做验收。
+
+### 三个语音开关的首启默认值跟上来源（2026-09-23）
+
+接 2026-09-21「出厂默认值逐项比对」那条记录里待定夺的四处。这一轮定下其中三处，第四处保留：
+
+- `voice_input.mute_system_audio`、`voice_input.doubao_enable_ddc`、`voice_input.polish_text`：在 Windows 与 macOS 上首启默认改为 `true`，与来源一致。三项都与平台无关：静音在 macOS 上走 CoreAudio，DDC 只是随豆包请求发出的一个标志，润色没有润色 token 时什么都不会发出。做法沿用智能标点的先例，`client-core` 的 `source_voice_default()` 按 `cfg!(any(windows, target_os = "macos"))` 取值，同时用作 serde 的缺键默认值；Linux、Android、iOS、HarmonyOS 保持已发布的 `false`。
+- Windows 也在这次范围内，因为它同样受影响：`config.default.toml` 只是安装模板，运行中的宿主读的是共享文档，所以 Windows 实际的首启值此前也是 `false`，和它自己附带的模板相反。
+- macOS 原生侧的兜底同步改为「没有存储值即开启」：`VoiceProviderOptions.h` 里 `polish_text` 与 `doubao_enable_ddc` 的兜底、新增的 `MSIMEVoiceMuteSystemAudioEnabled`（录音起点与原生语音设置窗共用），以及原生设置窗的润色勾选框。共享快照写入 NSUserDefaults 之前的那段窗口里，原生侧与共享默认值不再相反。
+- 已存储的值一律不重新解释：老用户文档里这三个键都是显式写出的，行为不变；只有新装、或文档缺这些键时才取新默认值。
+- `input.default_ime_mode` 保持 `chinese`。这是平台适配：macOS 上用户是明确从输入菜单选中本输入法才开始打字的，起手英文与这个动作相悖；Windows 模板仍是 `english`，与来源一致。
+
+证据：`client-core` 新增 `voice_first_run_follows_the_source_on_desktop_ports`，钉住默认值、缺键时的默认值，以及显式相反值被保留；`voice-provider-options` 用例改为钉住新的原生兜底和静音开关。

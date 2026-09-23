@@ -565,7 +565,7 @@ pub struct VoiceInputPreferences {
     pub start_sound: bool,
     #[serde(default = "enabled_by_default")]
     pub end_sound: bool,
-    #[serde(default)]
+    #[serde(default = "source_voice_default")]
     pub mute_system_audio: bool,
     #[serde(default)]
     pub language: String,
@@ -606,7 +606,7 @@ pub struct VoiceInputPreferences {
     pub asr_resource_id: String,
     #[serde(default)]
     pub polish_enabled: bool,
-    #[serde(default)]
+    #[serde(default = "source_voice_default")]
     pub polish_text: bool,
     #[serde(default)]
     pub polish_provider: String,
@@ -646,7 +646,7 @@ pub struct VoiceInputPreferences {
     pub doubao_enable_itn: bool,
     #[serde(default = "enabled_by_default")]
     pub doubao_enable_punc: bool,
-    #[serde(default)]
+    #[serde(default = "source_voice_default")]
     pub doubao_enable_ddc: bool,
     #[serde(default)]
     pub doubao_boosting_table_id: String,
@@ -659,7 +659,7 @@ impl Default for VoiceInputPreferences {
             sound_enabled: true,
             start_sound: true,
             end_sound: true,
-            mute_system_audio: false,
+            mute_system_audio: source_voice_default(),
             language: "zh-cn".into(),
             capture_backend: String::new(),
             capture_device: String::new(),
@@ -674,7 +674,7 @@ impl Default for VoiceInputPreferences {
             asr_model_path: String::new(),
             asr_resource_id: "volc.seedasr.sauc.duration".into(),
             polish_enabled: false,
-            polish_text: false,
+            polish_text: source_voice_default(),
             polish_provider: "siliconflow".into(),
             polish_token: String::new(),
             polish_tokens: BTreeMap::new(),
@@ -693,7 +693,7 @@ impl Default for VoiceInputPreferences {
             hotkey_ctrl_f9: true,
             doubao_enable_itn: true,
             doubao_enable_punc: true,
-            doubao_enable_ddc: false,
+            doubao_enable_ddc: source_voice_default(),
             doubao_boosting_table_id: String::new(),
         }
     }
@@ -1106,6 +1106,15 @@ fn enabled_by_default() -> bool {
 /// for a document that does not have the key yet.
 fn smart_punctuation_default() -> bool {
     !cfg!(windows)
+}
+
+/// Three voice switches the source ships on and the shared document had off: muting other audio while recording, Doubao's semantic smoothing (DDC), and polishing the recognized text.
+///
+/// `platforms/windows/installer/config.default.toml` has all three `true`, matching the source's factory configuration, but like smart punctuation that file is only the installed template - the running host reads this document - so the effective first-run value on Windows was `false`. macOS is the port of that desktop product and follows it. None of the three depends on the platform: muting uses CoreAudio on macOS, DDC is a Doubao request flag, and polishing still needs a polish token before anything is sent.
+///
+/// The other hosts keep what they have shipped. A stored value is untouched either way; this answers only for a document that does not have the key yet.
+fn source_voice_default() -> bool {
+    cfg!(any(windows, target_os = "macos"))
 }
 
 fn default_candidate_font_size() -> u8 {
