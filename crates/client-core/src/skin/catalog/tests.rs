@@ -576,3 +576,82 @@ fn rejects_manifest_id_mismatch_and_unsupported_base() {
     assert!(catalog.packages.is_empty());
     assert_eq!(catalog.issues.len(), 2);
 }
+
+#[test]
+fn host_catalog_keeps_only_what_candidate_hosts_draw() {
+    let body = "schema_version = 1\nid = 'sample'\nname = '樱花'\nversion = '1.0'\nbase = 'fluent'\ntoolbar_stylesheet = 'toolbar.css'\n[supports]\nlayouts = ['vertical']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n[candidate.light]\nsurface = '#FFF0F5'\ntext = '#123'\nhover = '#abcdef'\nborder = 'rgba(0,0,0,0.1)'\nshow_selected_bar = true\n[candidate.dark]\nselected = '#ff69b4'\nborder = '#ff000080'\n";
+    let root = tempdir().unwrap();
+    let skin = root.path().join("sample");
+    fs::create_dir(&skin).unwrap();
+    fs::write(skin.join("skin.toml"), body).unwrap();
+    fs::write(skin.join("toolbar.css"), ".bar {}").unwrap();
+    let catalog = scan(root.path());
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    // The title is the manifest name; paths, stylesheets, hover, the selected bar and colour forms the hosts do not parse stay out.
+    assert_eq!(
+        host_candidate_catalog(&catalog, "fluent"),
+        serde_json::json!({"packages": [{
+            "id": "sample",
+            "title": "樱花",
+            "candidate": {
+                "light": {"surface": "#FFF0F5"},
+                "dark": {"selected": "#ff69b4", "border": "#ff000080"},
+            },
+        }]})
+    );
+}
+
+#[test]
+fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
+    // manifest() declares only the light theme, as Windows would not draw this skin in dark.
+    let body = format!(
+        "{}\n[candidate.light]\nborder = 'transparent'\n[candidate.dark]\nsurface = '#000000'\n",
+        manifest("sample")
+    );
+    let catalog = scan_manifest(&body);
+    assert_eq!(
+        host_candidate_catalog(&catalog, "")["packages"][0]["candidate"],
+        serde_json::json!({"light": {"border": "transparent"}})
+    );
+    // A package without colours for a declared theme still lists, with no candidate table at all.
+    let bare = host_candidate_catalog(&scan_manifest(&manifest("sample")), "sample");
+    assert_eq!(
+        bare,
+        serde_json::json!({"packages": [{"id": "sample", "title": "Sample"}]})
+    );
+
+    let root = tempdir().unwrap();
+    for index in 0..HOST_CATALOG_MAX_PACKAGES + 3 {
+        let id = format!("skin{index:02}");
+        fs::create_dir(root.path().join(&id)).unwrap();
+        fs::write(root.path().join(&id).join("skin.toml"), manifest(&id)).unwrap();
+    }
+    let catalog = scan(root.path());
+    assert_eq!(catalog.packages.len(), HOST_CATALOG_MAX_PACKAGES + 3);
+    let ids = |published: serde_json::Value| {
+        published["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|package| package["id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let listed: Vec<_> = catalog
+        .packages
+        .iter()
+        .map(|package| package.id.clone())
+        .collect();
+    assert_eq!(
+        ids(host_candidate_catalog(&catalog, "fluent")),
+        listed[..HOST_CATALOG_MAX_PACKAGES]
+    );
+    // A selected skin beyond the cap takes the last place instead of disappearing from the host's menu and colours.
+    let beyond = listed[HOST_CATALOG_MAX_PACKAGES + 1].clone();
+    let published = ids(host_candidate_catalog(&catalog, &beyond));
+    assert_eq!(published.len(), HOST_CATALOG_MAX_PACKAGES);
+    assert_eq!(
+        published[..HOST_CATALOG_MAX_PACKAGES - 1],
+        listed[..HOST_CATALOG_MAX_PACKAGES - 1]
+    );
+    assert_eq!(published.last(), Some(&beyond));
+}

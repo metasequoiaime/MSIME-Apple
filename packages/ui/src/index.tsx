@@ -4795,7 +4795,7 @@ export function SettingsPage({
                           <small>
                             {mobilePlatform
                               ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
-                              : "预览跟随主题模式；Linux IBus panel 支持时使用，跟随时由桌面主题决定"}
+                              : "预览跟随主题模式；Linux IBus panel 支持时使用"}
                           </small>
                         </span>
                         <select

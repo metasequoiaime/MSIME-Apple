@@ -187,7 +187,7 @@ IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到
 
 Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳青的 surface、正文、序号、accent 与选中行颜色；外部皮肤的 `candidate.*.selected` 也会应用到高亮候选。IBus 的候选属性只携带 RGB 前景/背景，不能表达原生窗口的 alpha、圆角、边框、hover、选中条或布局间距，因此这些装饰继续由各平台实现，Linux 只发布可表达的行级颜色。石墨的透明选中填充保留为无背景属性，改用选中正文和序号颜色；微信绿与杨柳青的实色选中行使用白色正文和序号。
 
-Fcitx5 的候选表由 classicui 插件按主题绘制，宿主把同一套解析结果（内置皮肤、外部皮肤、自定义颜色、`follow` 跟随系统明暗）写成用户数据目录下的主题 `$XDG_DATA_HOME/fcitx5/themes/msime/theme.conf`（默认 `~/.local/share/fcitx5/themes/msime/`），再通过 classicui 自己的配置把 `Theme` 和 `DarkTheme` 指向它；配置一写入插件就重新读取主题，改皮肤或系统明暗切换后无需重启。只有当前主题是 Fcitx5 自带的 `default`、`default-dark`、未设置或已经是 `msime` 时宿主才接管，用户在 fcitx5-configtool 里选过的第三方主题保持不变，此时 MSIME 的候选颜色不生效。主题文件只在内容变化时原子替换。classicui 主题没有序号、accent 的独立颜色，也没有与选中分开的 hover 状态，因此序号跟随正文颜色、固定候选不单独着色；石墨的透明选中填充写成透明高亮，只靠选中正文颜色区分。Plasma 的 kimpanel 和 GNOME Shell 面板不使用 classicui 主题。
+Fcitx5 的候选表由 classicui 插件按主题绘制，宿主把同一套解析结果（内置皮肤、外部皮肤、自定义颜色、`follow` 跟随全局主题）写成用户数据目录下的主题 `$XDG_DATA_HOME/fcitx5/themes/msime/theme.conf`（默认 `~/.local/share/fcitx5/themes/msime/`），再通过 classicui 自己的配置把 `Theme` 和 `DarkTheme` 指向它；配置一写入插件就重新读取主题，改皮肤或系统明暗切换后无需重启。只有当前主题是 Fcitx5 自带的 `default`、`default-dark`、未设置或已经是 `msime` 时宿主才接管，用户在 fcitx5-configtool 里选过的第三方主题保持不变，此时 MSIME 的候选颜色不生效。主题文件只在内容变化时原子替换。classicui 主题没有序号、accent 的独立颜色，也没有与选中分开的 hover 状态，因此序号跟随正文颜色、固定候选不单独着色；石墨的透明选中填充写成透明高亮，只靠选中正文颜色区分。Plasma 的 kimpanel 和 GNOME Shell 面板不使用 classicui 主题。
 
 `tsf_preedit_style` 在 Linux IBus 中映射为：`raw` 显示 Engine 的 ASCII `editing_text`，`pinyin` 显示 Engine 的 `preedit`，`empty` 隐藏预编辑；设置热重载会更新当前会话的显示样式。候选与上屏仍由 Engine 的共享状态决定。
 
@@ -477,9 +477,9 @@ Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和
 
 “候选操作”按当前页候选分组，一级菜单显示候选序号与完整 UTF-8 字符预览，子菜单包含固定、删除、固定位置和取消固定。操作仍绑定会话与候选代次。九键拼音分支及外部皮肤选项在原生 IBus 菜单中可见并沿用既有选择回调。
 
-外部皮肤目录只由 Linux 展示层消费，不传给严格校验的 HostOptions。启动、菜单皮肤/主题选择及设置热更新均按最终选择计算外部配色；目录内容变化也会刷新当前展示。自定义候选文字颜色优先于皮肤文字色，外部背景色不写入共享 preferences。
+外部皮肤目录只由 Linux 展示层消费，不传给严格校验的 HostOptions。目录由桌面设置写入运行配置的 `candidate_skin_catalog`：保存设置，或设置的外观页、皮肤页扫描皮肤目录时，读取状态目录下的 `skins/`，每个包只保留 id、标题（清单 `name`）和清单声明的明暗主题下宿主会画的颜色（`#rrggbb`，边框另收 `#rrggbbaa` 与 `transparent`），最多 32 个，当前选中的皮肤总在其中；IBus 与 Fcitx5 整读运行配置，上限 16 KiB，写入时整份文件超过 15 KiB 就从目录末尾删包，当前选中的皮肤保留。只把包拷进 `skins/` 而不打开设置时，宿主看不到它。启动、菜单皮肤/主题选择及设置热更新均按最终选择计算外部配色；目录内容变化也会刷新当前展示。自定义候选文字颜色优先于皮肤文字色，外部背景色不写入共享 preferences。
 
-候选主题 `follow` 通过桌面门户的 `org.freedesktop.appearance/color-scheme` 获取系统明暗偏好，并监听后续变化；异步读取不阻塞 IBus，门户重启后重新接入。明确的 `light`/`dark` 设置优先，门户缺失或未表达偏好时使用浅色。内置及外部皮肤共用此解析，切换不会重建输入组合。接口依据 [XDG Desktop Portal Settings](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Settings.html)。
+候选主题 `follow` 跟随全局主题（与 Windows 的 `theme_cand` 跟随 `theme_mode` 一致）：全局为浅色或深色时直接取用；全局为“跟随系统”（缺省值）时，才通过桌面门户的 `org.freedesktop.appearance/color-scheme` 获取系统明暗偏好，并监听后续变化；异步读取不阻塞 IBus，门户重启后重新接入。明确的 `light`/`dark` 设置优先，门户缺失或未表达偏好时使用浅色。内置及外部皮肤共用此解析，切换不会重建输入组合。接口依据 [XDG Desktop Portal Settings](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Settings.html)。
 
 候选配色没有明确文字色时，会根据实际背景的相对亮度选择对比度更高的黑色或白色，避免系统主题与 IBus 面板主题不一致时出现深底深字或浅底浅字。有效的用户文字色和外部皮肤文字色仍优先。
 
@@ -697,7 +697,7 @@ IBus 菜单的云联想和候选翻译开关在配置绝对 preferences_director
 
 翻译目标语言菜单同样使用共享偏好存储，支持英语、法语、日语、西班牙语、俄语、德语和韩语。只响应单选项的选中事件，忽略旧选项取消选中的通知；保存期间禁止重复提交，成功后通过现有偏好更新路径清除旧语言翻译并调度新请求。版本冲突或存储失败不改变选择；无偏好目录的预览保留临时语言选择。
 
-候选主题（跟随系统、浅色、深色）、候选排列方向和预编辑显示菜单接入共享偏好保存。配置绝对 preferences_directory 时，后台按版本比较写入单个字段，成功后通过已有偏好热重载更新显示，不为外观修改主动提交当前组合或重建输入会话。保存期间禁用选项，忽略单选取消通知；失败不改变当前设置。无偏好目录的预览保留原有会话级行为。
+候选主题（跟随全局、浅色、深色）、候选排列方向和预编辑显示菜单接入共享偏好保存。配置绝对 preferences_directory 时，后台按版本比较写入单个字段，成功后通过已有偏好热重载更新显示，不为外观修改主动提交当前组合或重建输入会话。保存期间禁用选项，忽略单选取消通知；失败不改变当前设置。无偏好目录的预览保留原有会话级行为。
 
 候选皮肤菜单使用统一的 CandidateSkin 单选动作分派内置和已加载的外部皮肤，按 ID 去重，并在点击时复查皮肤仍在可用目录。当前配置已不可用的皮肤只作禁用提示。配置共享偏好目录时，选择通过后台 revision 比较保存，成功后热重载显示；失败保持原皮肤。保存期间禁用选择，取消选中通知不触发切换。无存储目录的预览继续使用原有会话级切换。
 

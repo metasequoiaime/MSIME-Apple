@@ -1,16 +1,19 @@
 #include "../src/core/CandidateSkinCatalog.h"
+#include "../src/candidates/CandidateColors.h"
 
 #include <cassert>
 #include <string>
 #include <vector>
 
 using msime::linux_host::CandidateSkin;
+using msime::linux_host::candidate_display_preferences;
 using msime::linux_host::candidate_skin_list;
 using msime::linux_host::candidate_skin_title;
 using msime::linux_host::default_skin;
 using msime::linux_host::next_candidate_skin;
 using msime::linux_host::parse_builtin_skins;
 using msime::linux_host::parse_configured_skins;
+using msime::linux_host::resolve_candidate_colors;
 using msime::linux_host::safe_skin_id;
 
 int main() {
@@ -64,5 +67,36 @@ int main() {
 
   // 列表为空时不改变当前选择。
   assert(next_candidate_skin({}, "willow_green") == "willow_green");
+
+  // The document the desktop settings write (sync_runtime_options in apps/desktop/src-tauri/src/lib.rs, pinned by runtime_options_sync_publishes_the_installed_skin_catalog): the manifest name under `title` and only the colours the hosts draw, per declared theme.
+  const auto synced = nlohmann::json::parse(
+      R"({"api_version":1,"preferences":{"candidate_skin":"sakura","candidate_theme":"follow","theme":"dark"},)"
+      R"("candidate_skin_catalog":{"packages":[{"id":"sakura","title":"樱花","candidate":{)"
+      R"("light":{"surface":"#fff0f5","selected":"#ff69b4","text":"#301020"},)"
+      R"("dark":{"surface":"#301020","text":"#ffe4e1","border":"#ff000080"}}}]}})");
+  const auto synced_skins = parse_configured_skins(synced);
+  assert(synced_skins.size() == 1);
+  assert(candidate_skin_title(candidate_skin_list(builtin, synced_skins, "sakura"), "sakura") == "樱花");
+  const auto &catalog = synced["candidate_skin_catalog"];
+  // Following a dark global theme on a light desktop still takes the skin's dark palette.
+  const auto dark = resolve_candidate_colors(
+      candidate_display_preferences(synced["preferences"], false, builtin, "willow_green", catalog), "willow_green");
+  assert(dark.background == 0x301020u);
+  assert(dark.text == 0xffe4e1u);
+  assert(!dark.selected);
+  assert(dark.border == msime::linux_host::composite_color(0xff0000u, 0x80, 0x301020u));
+  auto light_preferences = synced["preferences"];
+  light_preferences["theme"] = "light";
+  const auto light = resolve_candidate_colors(
+      candidate_display_preferences(light_preferences, true, builtin, "willow_green", catalog), "willow_green");
+  assert(light.background == 0xfff0f5u);
+  assert(light.selected == 0xff69b4u);
+  assert(light.text == 0x301020u);
+  // A colour the user set keeps winning over the skin's.
+  light_preferences["candidate_text_color"] = "#000000";
+  const auto custom = resolve_candidate_colors(
+      candidate_display_preferences(light_preferences, true, builtin, "willow_green", catalog), "willow_green");
+  assert(custom.text == 0x000000u);
+  assert(custom.background == 0xfff0f5u);
   return 0;
 }

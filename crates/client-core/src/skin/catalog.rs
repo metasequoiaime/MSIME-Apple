@@ -501,5 +501,80 @@ pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {
     out
 }
 
+/// Most installed skins published to hosts that draw the candidate panel from `candidate_skin_catalog` (the Linux IBus and Fcitx5 hosts). Beyond this a skin menu is no longer usable, and every entry costs the document those hosts read whole.
+pub const HOST_CATALOG_MAX_PACKAGES: usize = 32;
+
+/// The installed skins in the shape a native candidate host reads (`candidate_skin_catalog` in the Linux runtime options): the id, the manifest name as `title`, and per theme only the colours such a host draws, in the forms it parses.
+///
+/// Everything else in a package - paths, stylesheets, decoration, hover and the selected bar - stays out: the host has no use for it and every byte counts against the size limit of the document it reads. A palette is kept only for a theme the package declares, since Windows drops an external skin for a theme it does not support rather than drawing its colours there. Ids and names are already bounded by `scan`; the hosts re-check both.
+///
+/// At most `HOST_CATALOG_MAX_PACKAGES` are listed, in the catalog's order. The `selected` skin is always among them when installed, taking the last place if it falls beyond the cap, because its colours are the ones on screen.
+pub fn host_candidate_catalog(catalog: &SkinCatalog, selected: &str) -> serde_json::Value {
+    let mut listed = catalog
+        .packages
+        .iter()
+        .enumerate()
+        .filter(|(index, package)| *index < HOST_CATALOG_MAX_PACKAGES || package.id == selected)
+        .map(|(_, package)| package)
+        .collect::<Vec<_>>();
+    if listed.len() > HOST_CATALOG_MAX_PACKAGES {
+        listed.remove(HOST_CATALOG_MAX_PACKAGES - 1);
+    }
+    let packages = listed
+        .into_iter()
+        .map(|package| {
+            let mut entry = serde_json::json!({ "id": package.id, "title": package.name });
+            let mut candidate = serde_json::Map::new();
+            for (theme, palette) in [
+                ("light", &package.candidate.light),
+                ("dark", &package.candidate.dark),
+            ] {
+                if !package.themes.iter().any(|value| value == theme) {
+                    continue;
+                }
+                let colors = host_palette(palette);
+                if !colors.is_empty() {
+                    candidate.insert(theme.to_owned(), serde_json::Value::Object(colors));
+                }
+            }
+            if !candidate.is_empty() {
+                entry["candidate"] = serde_json::Value::Object(candidate);
+            }
+            entry
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({ "packages": packages })
+}
+
+fn host_palette(palette: &CandidatePalette) -> serde_json::Map<String, serde_json::Value> {
+    let mut colors = serde_json::Map::new();
+    for (key, value) in [
+        ("text", &palette.text),
+        ("number", &palette.number),
+        ("accent", &palette.accent),
+        ("selected", &palette.selected),
+        ("surface", &palette.surface),
+    ] {
+        if let Some(value) = value.as_deref().filter(|value| hex_color(value, &[6])) {
+            colors.insert(key.to_owned(), value.into());
+        }
+    }
+    // A border may also carry alpha or be transparent (CandidateColors.h candidate_border_color).
+    if let Some(value) = palette
+        .border
+        .as_deref()
+        .filter(|value| *value == "transparent" || hex_color(value, &[6, 8]))
+    {
+        colors.insert("border".to_owned(), value.into());
+    }
+    colors
+}
+
+fn hex_color(value: &str, digits: &[usize]) -> bool {
+    value.strip_prefix('#').is_some_and(|hex| {
+        digits.contains(&hex.len()) && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+    })
+}
+
 #[cfg(test)]
 mod tests;
