@@ -3894,7 +3894,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardPicker()
     playInputClick()
     render(session.finishComposition())
-    let panel = KeyboardSymbolPanelView(onInsert: { [weak self] symbol in
+    // Without staged resources the phone categories still work; only the Engine catalog's categories are missing.
+    let catalog = session.candidateGlossResources().flatMap { $0.isEmpty ? nil : KeyboardSymbolPanelView.Catalog.engine(resources: $0) }
+    let panel = KeyboardSymbolPanelView(catalog: catalog, onInsert: { [weak self] symbol in
       self?.playInputClick()
       self?.insertOwnText(symbol, source: .local)
     }, onDelete: { [weak self] in
