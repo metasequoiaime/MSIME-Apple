@@ -3594,6 +3594,30 @@ fn open_third_party_licenses(app: tauri::AppHandle) -> Result<(), HostActionErro
     })
 }
 
+// The Server launches this shell with MSIME_CLIENT_STATE_DIR and MSIME_CLIENT_HOST_OPTIONS pointing into its state directory. A launch without them, such as the Start Menu settings shortcut, otherwise fell back to this shell's own application directory and opened on a state the Server never reads. Use the Server's directory once the Server has prepared its runtime options there.
+#[cfg(target_os = "windows")]
+fn windows_server_state_directory() -> Option<PathBuf> {
+    msime_host_windows::server_state_directory()
+        .filter(|directory| directory.join("runtime-options.json").is_file())
+}
+
+// The Server's state root is the options' preferences_directory when one is set, and its state directory otherwise (production_preview_document in server_main.cpp); it is what the Server passes as MSIME_CLIENT_STATE_DIR.
+#[cfg(target_os = "windows")]
+fn windows_server_preferences_directory() -> Option<PathBuf> {
+    let directory = windows_server_state_directory()?;
+    let configured = fs::read_to_string(directory.join("runtime-options.json"))
+        .ok()
+        .and_then(|options| serde_json::from_str::<Value>(&options).ok())
+        .and_then(|options| {
+            options
+                .get("preferences_directory")
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+        })
+        .filter(|path| path.is_absolute());
+    Some(configured.unwrap_or(directory))
+}
+
 #[cfg(target_os = "linux")]
 fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
     let Some(options_path) = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
@@ -3824,7 +3848,9 @@ pub fn run() {
                 None => {
                     #[cfg(target_os = "linux")]
                     let runtime_directory = linux_runtime_state_directory()?;
-                    #[cfg(not(target_os = "linux"))]
+                    #[cfg(target_os = "windows")]
+                    let runtime_directory = windows_server_preferences_directory();
+                    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
                     let runtime_directory: Option<PathBuf> = None;
                     match runtime_directory {
                         Some(path) => path,
@@ -4001,6 +4027,11 @@ pub fn run() {
                 })
                 .or_else(|| {
                     let mut candidates = Vec::new();
+                    #[cfg(target_os = "windows")]
+                    candidates.extend(
+                        windows_server_state_directory()
+                            .map(|directory| directory.join("runtime-options.json")),
+                    );
                     if let Ok(dir) = app.path().app_data_dir() {
                         candidates.push(dir.join("runtime-options.json"));
                     }

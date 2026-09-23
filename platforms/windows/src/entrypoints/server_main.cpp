@@ -553,6 +553,21 @@ private:
   HANDLE handle_ = nullptr;
   bool already_running_ = false;
 };
+// A Server that TSF revived after a crash (--production) has no Watchdog above it, so it starts the one packaged beside it, as the reference Server does. The Watchdog adopts this running Server instead of launching a second one, holds its own single-instance mutex, and exits on its own when the TIP profile is not enabled.
+void start_watchdog(const std::filesystem::path &directory) {
+  const auto watchdog = directory / L"MetasequoiaImeWatchdog.exe";
+  if (directory.empty() || GetFileAttributesW(watchdog.c_str()) == INVALID_FILE_ATTRIBUTES)
+    return;
+  std::wstring command = L"\"" + watchdog.wstring() + L"\"";
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  PROCESS_INFORMATION process{};
+  if (CreateProcessW(watchdog.c_str(), command.data(), nullptr, nullptr, FALSE, 0,
+                     nullptr, directory.c_str(), &startup, &process)) {
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+  }
+}
 } // namespace
 int wmain(int argc, wchar_t **argv) {
   // Before any thread exists: libcurl's global init is not thread-safe, and the startup event's thread, a crash report on any thread and the online workers all use it.
@@ -582,6 +597,8 @@ int wmain(int argc, wchar_t **argv) {
       instance = std::make_unique<ProductionInstance>();
       if (instance->already_running())
         return 0;
+      if (!launch.supervised)
+        start_watchdog(executable_directory());
       prepare_first_run(executable_directory(), default_state,
                        [](const std::string &request) {
         std::unique_ptr<char, decltype(&msime_client_string_free)> response(
