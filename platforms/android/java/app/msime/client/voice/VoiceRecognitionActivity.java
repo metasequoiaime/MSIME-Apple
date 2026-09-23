@@ -8,6 +8,11 @@ import android.os.Bundle;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 import java.io.File;
 import java.lang.ref.WeakReference;
@@ -259,6 +264,7 @@ public final class VoiceRecognitionActivity extends Activity {
      */
     private void startProviderRecognition() {
         if (provider != null) return;
+        showRecordingControls();
         Intent intent = getIntent();
         String requestId = intent.getStringExtra(EXTRA_REQUEST_ID);
         String language = intent.getStringExtra(EXTRA_LANGUAGE);
@@ -300,8 +306,58 @@ public final class VoiceRecognitionActivity extends Activity {
      * <p>Interim results are not shown yet: this activity has no surface for them, and inventing
      * one here would put partial text on screen that the final result may contradict.
      */
+    /**
+     * A window that says it is recording, and a way to end the recording and keep the result.
+     *
+     * <p>This activity draws nothing at all: it is a dialog theme that never sets a content view,
+     * so all three paths put a blank box on screen. The platform recogniser gets away with it
+     * because it stops itself when the speaker stops; a provider or the streaming socket records
+     * until a sixty-second cap. Without this the only way out was Back, which cancels and throws
+     * the transcript away — there was no way to say "I am done, transcribe it".
+     *
+     * <p>Built in code rather than as a layout, which is how this host builds its keyboard: the
+     * two buttons are the whole surface, and a resource file for them would be one more place for
+     * the wording to drift out of step with what the buttons do.
+     */
+    private void showRecordingControls() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = Math.round(getResources().getDisplayMetrics().density * 20);
+        root.setPadding(pad, pad, pad, pad);
+        TextView title = new TextView(this);
+        title.setText("正在录音");
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18);
+        root.addView(title);
+        TextView hint = new TextView(this);
+        hint.setText("说完后点「完成」开始转写；「取消」会丢弃这次录音。");
+        hint.setPadding(0, pad / 2, 0, pad);
+        root.addView(hint);
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.END);
+        Button cancel = new Button(this);
+        cancel.setText("取消");
+        cancel.setContentDescription("取消录音并丢弃结果");
+        cancel.setOnClickListener(ignored -> cancelRecognition());
+        actions.addView(cancel);
+        Button done = new Button(this);
+        done.setText("完成");
+        done.setContentDescription("结束录音并开始转写");
+        done.setOnClickListener(ignored -> {
+            done.setEnabled(false);
+            title.setText("正在转写");
+            hint.setText("正在把录音交给识别服务，请稍候。");
+            stopRecognition();
+        });
+        actions.addView(done);
+        root.addView(actions, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        setContentView(root);
+    }
+
     private void startStreamingRecognition() {
         if (streaming != null) return;
+        showRecordingControls();
         Intent intent = getIntent();
         String endpoint = intent.getStringExtra(EXTRA_STREAM_ENDPOINT);
         String[] headers = intent.getStringArrayExtra(EXTRA_STREAM_HEADERS);
