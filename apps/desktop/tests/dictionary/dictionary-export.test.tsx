@@ -117,6 +117,20 @@ test("complete personal dictionary reads every kind page with an empty query", a
   expect(list).toHaveBeenNthCalledWith(5, 0, 100, "english", "");
 });
 
+test("complete personal dictionary treats a kind with no entries as finished, not as over the limit", async () => {
+  const list = vi
+    .fn()
+    .mockImplementation(async (_offset: number, _limit: number, kind: string) => ({
+      entries:
+        kind === "wubi" ? [{ kind: "wubi" as const, key: "wq", value: "你", weight: 3 }] : [],
+      has_more: false,
+    }));
+  await expect(loadAllPersonalDictionaryEntries({ list })).resolves.toEqual([
+    { kind: "wubi", key: "wq", value: "你", weight: 3 },
+  ]);
+  expect(list).toHaveBeenCalledTimes(4);
+});
+
 test("complete personal dictionary reports an empty export without rows", () => {
   expect(personalDictionaryExportPayload([])).toEqual({
     rows: 0,
