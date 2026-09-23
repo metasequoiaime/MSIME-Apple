@@ -22,7 +22,7 @@ struct PresentationCandidate {
   std::string translation;
   bool actions_available = true;
   // The Wubi code left after the typed prefix; shown only when the `wubi_code_hint` preference is on, see with_wubi_code_hints.
-  std::string wubi_code_hint;
+  std::string wubi_code_hint{};
 };
 struct CandidatePresentation {
   FocusLease lease;
