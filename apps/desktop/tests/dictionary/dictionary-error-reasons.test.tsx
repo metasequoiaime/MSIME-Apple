@@ -27,6 +27,9 @@ test("the remaining host reasons are distinguished too", () => {
   expect(dictionaryErrorMessage({ code: "dictionary_pinyin_unavailable" }, FALLBACK)).toContain(
     "拼音表",
   );
+  expect(dictionaryErrorMessage({ code: "dictionary_bundled_readonly" }, FALLBACK)).toContain(
+    "内置",
+  );
 });
 
 test("an unknown or absent code keeps the caller's sentence", () => {

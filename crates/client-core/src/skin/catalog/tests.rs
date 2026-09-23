@@ -589,7 +589,7 @@ fn host_catalog_keeps_only_what_candidate_hosts_draw() {
     assert!(catalog.issues.is_empty(), "{catalog:?}");
     // The title is the manifest name; paths, stylesheets, hover, the selected bar and colour forms the hosts do not parse stay out.
     assert_eq!(
-        host_candidate_catalog(&catalog, "fluent"),
+        host_candidate_catalog(&catalog, root.path(), "fluent"),
         serde_json::json!({"packages": [{
             "id": "sample",
             "title": "樱花",
@@ -602,6 +602,71 @@ fn host_catalog_keeps_only_what_candidate_hosts_draw() {
 }
 
 #[test]
+fn host_catalog_carries_a_decoration_only_for_decorated_packages() {
+    let root = tempdir().unwrap();
+    let decorated = root.path().join("sakura");
+    fs::create_dir_all(decorated.join("images")).unwrap();
+    fs::write(decorated.join("images/ears.png"), b"png").unwrap();
+    let body = format!("preview = 'images/ears.png'\n{}", manifest("sakura"))
+        .replace("top_inset_dip = 0", "top_inset_dip = 24.5")
+        .replace("width_dip = 0", "width_dip = 180");
+    fs::write(decorated.join("skin.toml"), body).unwrap();
+    // A preview without a decoration is only a picture for the settings page.
+    let plain = root.path().join("plain");
+    fs::create_dir(&plain).unwrap();
+    fs::write(plain.join("preview.png"), b"png").unwrap();
+    let body = format!("preview = 'preview.png'\n{}", manifest("plain"));
+    fs::write(plain.join("skin.toml"), body).unwrap();
+    // A decoration whose preview is not an image has nothing a host could draw.
+    let styled = root.path().join("styled");
+    fs::create_dir(&styled).unwrap();
+    fs::write(styled.join("look.css"), ".x {}").unwrap();
+    let body = format!("preview = 'look.css'\n{}", manifest("styled"))
+        .replace("top_inset_dip = 0", "top_inset_dip = 10")
+        .replace("width_dip = 0", "width_dip = 10");
+    fs::write(styled.join("skin.toml"), body).unwrap();
+    let catalog = scan(root.path());
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    let published = host_candidate_catalog(&catalog, root.path(), "");
+    let package = |id: &str| {
+        published["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|package| package["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    let expected = decorated.join("images/ears.png");
+    assert_eq!(
+        package("sakura"),
+        serde_json::json!({
+            "id": "sakura",
+            "title": "Sample",
+            "decoration_top_dip": 24.5,
+            "decoration_width_dip": 180.0,
+            "decoration_image": expected.to_str().unwrap(),
+        })
+    );
+    assert_eq!(
+        package("plain"),
+        serde_json::json!({"id": "plain", "title": "Sample"})
+    );
+    assert_eq!(
+        package("styled"),
+        serde_json::json!({"id": "styled", "title": "Sample"})
+    );
+    // The host opens the path as published, so a relative root publishes none.
+    assert!(
+        host_candidate_catalog(&catalog, Path::new("skins"), "")["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|package| package.get("decoration_image").is_none())
+    );
+}
+
+#[test]
 fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
     // manifest() declares only the light theme, as Windows would not draw this skin in dark.
     let body = format!(
@@ -610,11 +675,15 @@ fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
     );
     let catalog = scan_manifest(&body);
     assert_eq!(
-        host_candidate_catalog(&catalog, "")["packages"][0]["candidate"],
+        host_candidate_catalog(&catalog, Path::new("/skins"), "")["packages"][0]["candidate"],
         serde_json::json!({"light": {"border": "transparent"}})
     );
     // A package without colours for a declared theme still lists, with no candidate table at all.
-    let bare = host_candidate_catalog(&scan_manifest(&manifest("sample")), "sample");
+    let bare = host_candidate_catalog(
+        &scan_manifest(&manifest("sample")),
+        Path::new("/skins"),
+        "sample",
+    );
     assert_eq!(
         bare,
         serde_json::json!({"packages": [{"id": "sample", "title": "Sample"}]})
@@ -642,12 +711,12 @@ fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
         .map(|package| package.id.clone())
         .collect();
     assert_eq!(
-        ids(host_candidate_catalog(&catalog, "fluent")),
+        ids(host_candidate_catalog(&catalog, root.path(), "fluent")),
         listed[..HOST_CATALOG_MAX_PACKAGES]
     );
     // A selected skin beyond the cap takes the last place instead of disappearing from the host's menu and colours.
     let beyond = listed[HOST_CATALOG_MAX_PACKAGES + 1].clone();
-    let published = ids(host_candidate_catalog(&catalog, &beyond));
+    let published = ids(host_candidate_catalog(&catalog, root.path(), &beyond));
     assert_eq!(published.len(), HOST_CATALOG_MAX_PACKAGES);
     assert_eq!(
         published[..HOST_CATALOG_MAX_PACKAGES - 1],

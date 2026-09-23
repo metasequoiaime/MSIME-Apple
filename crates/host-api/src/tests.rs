@@ -1708,6 +1708,42 @@ fn save_preferences_uses_compare_and_swap_and_rejects_invalid_snapshots() {
     assert_eq!(std::fs::read_to_string(file).unwrap(), original);
 }
 #[test]
+#[cfg(not(target_os = "android"))]
+fn a_document_holding_a_custom_skin_photo_can_still_be_saved_and_applied() {
+    // base64 of a PNG signature followed by zero bytes: about 40 KiB, well past the 16 KiB other buffers are held to.
+    let photo = format!("iVBORw0KGgoA{}", "AAAA".repeat(10_000));
+    let mut preferences = Preferences::default();
+    preferences.custom_touch_keyboard_skin.photo = Some(photo.clone());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_string_lossy().into_owned();
+    let snapshot = serde_json::to_string(&PreferencesSnapshot {
+        format_version: 1,
+        revision: 0,
+        preferences: preferences.clone(),
+    })
+    .unwrap();
+    assert!(snapshot.len() > 16_384);
+    let saved = read(unsafe {
+        msime_client_save_preferences(
+            path.as_ptr(),
+            path.len(),
+            0,
+            snapshot.as_ptr(),
+            snapshot.len(),
+        )
+    });
+    assert_eq!(saved["ok"], true, "{saved}");
+    let loaded = PreferencesStore::new(directory.path()).load().unwrap();
+    assert_eq!(
+        loaded.preferences.custom_touch_keyboard_skin.photo,
+        Some(photo)
+    );
+
+    let handle = test_host(&directory.path().join("host"));
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    read(msime_client_destroy(handle));
+}
+#[test]
 fn background_preferences_reader_uses_shared_store_and_preserves_bad_files() {
     let directory = tempfile::tempdir().unwrap();
     let saved = PreferencesStore::new(directory.path())
@@ -4621,6 +4657,33 @@ fn published_defaults_complete_every_nested_preference_object() {
             );
         }
     }
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn personal_dictionary_sync_reads_the_same_options_as_create() {
+    // Both keyboard hosts hand this entry the options they create a session with. Reading them as a request envelope refused every call: Android dropped the error, and HarmonyOS retried by rebuilding its Engine session every two seconds for as long as the keyboard was up.
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap().to_owned();
+    let options = json!({
+        "api_version": 1,
+        "resources": format!("{root}/resources"),
+        "user_data": format!("{root}/user"),
+        "cache": format!("{root}/cache"),
+        "dictionaries": format!("{root}/dictionaries"),
+        "preferences": msime_client_core::preferences::Preferences::default(),
+        "preferences_directory": root,
+    })
+    .to_string();
+    let synced =
+        read(unsafe { msime_client_personal_dictionary_sync(options.as_ptr(), options.len()) });
+    assert_eq!(synced["ok"], true, "{synced}");
+    assert_eq!(synced["value"]["pending_count"], 0);
+
+    let envelope = json!({ "options": serde_json::from_str::<serde_json::Value>(&options).unwrap(), "action": {"operation": "retry", "request_id": "x"} }).to_string();
+    let refused =
+        read(unsafe { msime_client_personal_dictionary_sync(envelope.as_ptr(), envelope.len()) });
+    assert_eq!(refused["error"], "invalid dictionary request");
 }
 
 #[test]

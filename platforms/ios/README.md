@@ -82,7 +82,7 @@ App 的「键盘」标签页同样分形态：iPad 在 regular 宽度下是侧�
 
 iOS 26 会默认在滚动视图边缘叠加渐隐和模糊。键盘内的候选、拼写、方案、皮肤、工具、表情、手写、AI、语音和回复面板统一通过共享 UIKit/SwiftUI 适配关闭该效果，避免短面板首尾内容被遮盖；iOS 25 及更早版本保持原行为。
 
-繁体输出只在显示与上屏边界转换：候选显示、Engine 提交和手写结果经过 `SharedUI/preferences/ChineseTextConversion.swift`，Engine 的候选原文、候选身份和组合文本保持简体。转换调共享导出 `msime_client_simplified_to_traditional`，即 `crates/client-core/src/chinese_conversion.rs` 的 OpenCC s2t 词级转换，与 Windows、macOS、Linux、Android、HarmonyOS 逐字一致——「头发」出「頭髮」、「发展」出「發展」，`CFStringTransform` 这类逐字转换分不开这两个「发」。日语方案和 R 本地模式保留原文；C ABI 拒绝的输入（内嵌 NUL）保留原文，不丢字。回归测试是 `KeyboardTests/input/ChineseTextConversionTests.swift`。
+繁体输出只在显示与上屏边界转换：候选显示、Engine 提交和手写结果经过 `SharedUI/preferences/ChineseTextConversion.swift`，Engine 的候选原文、候选身份和组合文本保持简体。转换调共享导出 `msime_client_simplified_to_traditional`，即 `crates/client-core/src/chinese_conversion.rs` 的 OpenCC s2t 词级转换，与 Windows、macOS、Linux、Android、HarmonyOS 逐字一致——「头发」出「頭髮」、「发展」出「發展」，`CFStringTransform` 这类逐字转换分不开这两个「发」。日语方案和 R 本地模式保留原文；C ABI 拒绝的输入（内嵌 NUL）保留原文，不丢字。回归测试是 `tests/dictionary/ChineseTextConversionTests.swift`。
 
 “更多”工具面板使用显式分组模型，不从中文标题推断布局或开关语义。根页是表情、剪贴板、AI、语音、本地输入五个入口，加上直接摆在同一页的「设置」分组开关——繁体输出、按键音、按键振动、全角输入和振动强度；这些开关原先藏在「键盘设置」卡片后面，打开面板只看得到六张一样的入口卡，要再点一次才知道按键音开没开。本地输入仍然是二级页：八个模式是一份列表而不是一组开关，摊到根页会把首屏内容挤出键盘高度。
 

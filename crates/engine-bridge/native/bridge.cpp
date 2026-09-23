@@ -524,6 +524,43 @@ DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offs
     for (const auto& entry : page.entries) result.entries.push_back(entry_for(entry));
     return result;
 }
+DictionaryPage dictionary_export_entries(const EngineOptions& options, std::size_t offset, std::size_t limit,
+                                         bool include_learned_pinyin) {
+    auto page = metasequoia::personal_dictionary_entries(paths_for(options), offset, limit, include_learned_pinyin);
+    if (!page.error.empty()) throw std::runtime_error(page.error);
+    DictionaryPage result;
+    result.has_more = page.has_more;
+    for (const auto& entry : page.entries) result.entries.push_back(entry_for(entry));
+    return result;
+}
+DictionaryTablePage dictionary_table_entries(const EngineOptions& options, std::uint8_t kind, rust::Str query,
+                                             std::size_t offset, std::size_t limit) {
+    using Kind = metasequoia::PersonalDictionaryKind;
+    Kind engine_kind;
+    switch (kind) {
+        case 0: engine_kind = Kind::Pinyin; break;
+        case 1: engine_kind = Kind::Wubi; break;
+        case 2: engine_kind = Kind::QuickPhrase; break;
+        case 3: engine_kind = Kind::English; break;
+        default: throw std::invalid_argument("Unsupported dictionary kind");
+    }
+    auto page = metasequoia::dictionary_table_entries(paths_for(options), engine_kind, std::string(query), offset,
+                                                      limit);
+    if (!page.error.empty()) throw std::runtime_error(page.error);
+    DictionaryTablePage result;
+    result.has_more = page.has_more;
+    for (const auto& row : page.entries) result.entries.push_back({entry_for(row.entry), row.user_inserted});
+    return result;
+}
+void dictionary_edit_bundled(const EngineOptions& options, const DictionaryEntry& previous,
+                             rust::Slice<const std::int64_t> weight, rust::Str request_id) {
+    if (weight.size() > 1) throw std::invalid_argument("Expected at most one weight");
+    std::optional<std::int64_t> target;
+    if (!weight.empty()) target = weight[0];
+    auto result = metasequoia::edit_bundled_dictionary_entry(paths_for(options), entry_for(previous), target,
+                                                             std::string(request_id));
+    if (!result.success) throw std::runtime_error(result.error);
+}
 rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefix, std::size_t limit) {
     if (limit == 0 || limit > 32) throw std::invalid_argument("Invalid English completion limit");
     std::string lowered(prefix);

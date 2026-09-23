@@ -18,7 +18,7 @@ import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
-import { HardwareNavigationPreferences } from './HardwareKeyRouter';
+import { HardwareNavigationPreferences, HardwareSpelling } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import common from '@ohos.app.ability.common';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
@@ -87,6 +87,7 @@ import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
+import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
 import {
   CompositionBoundary, CompositionBoundaryAction, CompositionBoundaryPolicy
 } from './input/CompositionBoundaryPolicy';
@@ -134,8 +135,10 @@ interface EngineView {
    * 候选只吃掉部分输入时，引擎会继续组字并把选中的那一段交回来。留住它的宿主必须把它画出来：
    * 请求了却不画，用户已经选中的字既不在文档里也不在屏幕上，而组字在他取消之前不会结束
    * （scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
+   *
+   * Absent rather than empty when nothing is held: the runtime skips serializing an empty prefix, so reading it bare throws on every ordinary keystroke.
    */
-  phrase_prefix: string;
+  phrase_prefix?: string;
   /** Byte offset into `editing_text`, which for this ASCII text is also the character index. */
   caret_position: number;
   generation: number;
@@ -156,6 +159,8 @@ interface EngineView {
   /** The Engine's own numbering, which the ported display policies are written against. */
   scheme: number;
   shuangpin_profile: string;
+  /** Whether `;` can be the `ing` final, which only the Microsoft layout has. */
+  microsoft_shuangpin?: boolean;
   /** 'none' unless a local utility mode is consuming the keys. */
   local_mode: string;
   dedicated_english: boolean;
@@ -516,6 +521,8 @@ const NO_CANDIDATE_SKIN_IMAGE: CandidateSkinImage = { image: null, aspectRatio: 
 // ended the last sentence. A caret further than this from one is in the middle of a sentence by any
 // reading, and the call is made on every text change, so it stays bounded.
 const MAX_CAPITALIZATION_CONTEXT_CHARACTERS: number = 64;
+// setPreviewText's range for "whatever preview text is shown now, or the caret when there is none".
+const PREVIEW_REPLACE_CURRENT: inputMethodEngine.Range = { start: -1, end: -1 };
 
 interface SkinResourceResponse {
   ok: boolean;
@@ -592,6 +599,8 @@ interface PreparedPreferences {
   navigation: PreparedNavigationPreferences;
   candidate_layout: string;
   candidate_preedit_style: string;
+  /** Inline spelling in the document; the 2in1 draws it as editor preview text. */
+  tsf_preedit_style?: string;
   candidate_font_size: number;
   candidate_preedit_font_size: number;
   candidate_font_family: string;
@@ -616,6 +625,8 @@ interface PreparedPreferences {
   emoji_theme?: string;
   /** 'follow', 'dark' or 'light' for the handwriting panel; it falls back to the global theme. */
   handwriting_theme?: string;
+  /** 'follow', 'dark' or 'light' for the candidate context menu; it falls back to the global theme. */
+  menu_theme?: string;
   theme: string;
   traditional_chinese_output: boolean;
   chinese_punctuation: boolean;
@@ -679,7 +690,11 @@ interface PreparedFloatingToolbar {
   fullwidth: boolean;
   character_set: boolean;
   emoji: boolean;
+  /** Absent in documents written before the 2in1 toolbar carried it; shown there, as the shared default is. */
+  handwriting?: boolean;
   screen_keyboard: boolean;
+  /** Absent in documents written before the 2in1 toolbar carried it; shown there, as the shared default is. */
+  voice?: boolean;
   /** Shared switch for the settings button; absent in older documents, where it was always shown. */
   settings?: boolean;
   scale_percent: number;
@@ -716,6 +731,7 @@ export interface KeyboardPreferences {
   readonly voiceTheme: string;
   readonly emojiTheme: string;
   readonly handwritingTheme: string;
+  readonly menuTheme: string;
   readonly globalTheme: string;
   readonly scheme: string;
   readonly shuangpinProfile: string;
@@ -813,7 +829,8 @@ enum InputCommand {
   PREVIOUS_PAGE = 101,
   NEXT_CANDIDATE = 102,
   PREVIOUS_CANDIDATE = 103,
-  FIRST_CANDIDATE = 104
+  FIRST_CANDIDATE = 104,
+  LAST_CANDIDATE = 105
 }
 
 const JAPANESE_SCHEME: number = 3;
@@ -839,6 +856,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   // count raised until those callbacks arrive so our own commit cannot be mistaken for a host edit
   // and finish a residual composition that the Engine deliberately left active.
   private pendingOwnEdits: number = 0;
+  private inlinePreeditStyle: InlinePreeditStyle = 'raw';
+  /** Whether the focused editor said it takes preview text; learned from its attribute. */
+  private previewSupported: boolean = false;
+  /** The preview text the editor holds now, empty when it holds none. */
+  private previewText: string = '';
   private replyContextGeneration: number = 0;
   private replyResultEditorGeneration: number = -1;
   private replyResultContextGeneration: number = -1;
@@ -913,6 +935,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     globalTheme: 'system',
     emojiTheme: 'follow',
     handwritingTheme: 'follow',
+    menuTheme: 'follow',
     voiceTheme: 'follow',
     // Everything, which is what an absent shared list means; the prepared record narrows it.
     enabledSchemes: KeyboardScheme.SCHEMES.map(
@@ -977,6 +1000,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   onCandidateWidth: ((widthVp: number) => void) | undefined = undefined;
   /** The native host owns panel geometry; the touch view reports its newly requested total height. */
   onTouchHeight: ((heightVp: number) => void) | undefined = undefined;
+  /** The ability's half of a preference reload: status panels and key bindings. */
+  onPreferencesReloaded: (() => void) | undefined = undefined;
+  /** The view's half of a preference reload: skins, geometry and the scheme face. */
+  onViewPreferencesReloaded: (() => void) | undefined = undefined;
   /**
    * Whether a composition is open, for the host that owns the panel.
    *
@@ -1091,6 +1118,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.stateDirectory = stateRoot;
     this.systemDark = systemDark;
     this.feedbackSettings = this.feedback();
+    this.preferencesRevision = this.storedRevision(stateRoot);
     const request: PrepareRequest = { resources: resources, state_root: stateRoot };
     let options: string;
     try {
@@ -1108,6 +1136,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const preferences: PreparedPreferences = prepared.value.preferences;
       this.clipboardHistoryEnabled = ClipboardHistoryPreferencePolicy.enabled(
         preferences.clipboard_history);
+      this.inlinePreeditStyle = InlinePreeditPolicy.style(preferences.tsf_preedit_style);
       this.wubiCodeHint = CandidateAnnotationPreferencePolicy.wubiCodeHint(
         preferences.wubi_code_hint);
       this.candidateEnglishGloss = CandidateAnnotationPreferencePolicy.englishGloss(
@@ -1202,6 +1231,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         voiceTheme: preferences.voice_theme ?? 'follow',
         emojiTheme: preferences.emoji_theme ?? 'follow',
         handwritingTheme: preferences.handwriting_theme ?? 'follow',
+        menuTheme: preferences.menu_theme ?? 'follow',
         globalTheme: preferences.theme,
         scheme: preferences.scheme,
         shuangpinProfile: preferences.shuangpin_profile,
@@ -1314,7 +1344,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const reply: PersonalDictionarySyncResponse =
         JSON.parse(client.personalDictionarySync(options)) as PersonalDictionarySyncResponse;
       if (!reply.ok) {
-        KeyboardLog.error('personal dictionary queue not applied; it will be retried');
+        KeyboardLog.error(`personal dictionary queue not applied; it will be retried: ${reply.error}`);
         return false;
       }
       return reply.value.pending_count === 0;
@@ -1390,6 +1420,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const attached: inputMethodEngine.InputClient | undefined = this.inputClient;
     const english: boolean = this.englishMode;
     const nineKey: boolean = this.nineKeyMode;
+    const revision: number = this.preferencesRevision;
     this.stop();
     if (!this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
       KeyboardLog.error(`${reason} left the session unavailable`);
@@ -1401,6 +1432,43 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.apply(client.focus(this.handle, true));
       this.applyView(client.setEnglishMode(this.handle, english));
       this.applyView(client.setNineKeyMode(this.handle, nineKey));
+    }
+    // Any rebuild reads the document afresh, whatever it was for, so the surfaces follow whenever the stored preferences moved underneath it.
+    if (this.preferencesRevision !== revision) {
+      if (this.onViewPreferencesReloaded !== undefined) {
+        this.onViewPreferencesReloaded();
+      }
+      if (this.onPreferencesReloaded !== undefined) {
+        this.onPreferencesReloaded();
+      }
+    }
+  }
+
+  /**
+   * Pick up what the settings page saved since this session was built.
+   *
+   * The settings page is another process writing the same document. Windows pushes a change to the running server and polls as a fallback (`WM_APPLY_IME_CONFIG`, `TIMER_ID_CONFIG_SYNC`); here the keyboard compares the stored revision each time an editor takes focus, which is the first moment anyone could type with the new settings, and costs one small read rather than a timer. A composition in progress is left alone and the next focus picks the change up.
+   */
+  reloadChangedPreferences(): void {
+    if (this.handle === 0 || this.composing() || this.localMode !== 'none') {
+      return;
+    }
+    const revision: number = this.storedRevision(this.stateDirectory);
+    if (revision < 0 || revision === this.preferencesRevision) {
+      return;
+    }
+    KeyboardLog.info(`preferences moved from revision ${this.preferencesRevision} to ${revision}`);
+    this.restartIdleSession('preferences reload');
+  }
+
+  /** The revision of the stored preference document, or -1 when it cannot be read. */
+  private storedRevision(stateRoot: string): number {
+    try {
+      const loaded: SnapshotResponse = JSON.parse(client.loadPreferences(stateRoot)) as SnapshotResponse;
+      return loaded.ok ? loaded.value.revision : -1;
+    } catch (error) {
+      KeyboardLog.error(`preferences revision unreadable: ${describeError(error)}`);
+      return -1;
     }
   }
 
@@ -1554,6 +1622,37 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.englishMode;
   }
 
+  /**
+   * True in the Windows Ctrl+Shift+E mode: English, but a hardware letter spells a word from the English candidate list instead of going straight to the editor.
+   *
+   * The Engine side is the same dedicated-English flag either way; what differs is only whether a hardware key reaches it. The touch keyboard always sends its letters through, so on a phone the two are one mode.
+   */
+  isEnglishCandidates(): boolean {
+    return this.englishMode && this.englishCandidates;
+  }
+
+  /**
+   * Ctrl+Shift+E, as `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState` on Windows.
+   *
+   * Unlike the Shift tap it commits nothing: the TSF side answers this chord with `FUNCTION_CANCEL`, and the Engine drops its composition when the dedicated-English flag flips. Leaving the mode goes back to Chinese, as the macOS host's `toggleDedicatedEnglishMode:` does.
+   */
+  toggleEnglishCandidates(): boolean {
+    if (this.handle === 0) {
+      return this.isEnglishCandidates();
+    }
+    const enabled: boolean = !this.isEnglishCandidates();
+    if (this.composing() && this.englishMode === enabled) {
+      // Direct English with a local-mode composition open: the flag does not flip, so the Engine would keep it.
+      this.cancel();
+    }
+    this.englishCandidates = enabled;
+    this.englishMode = enabled;
+    this.manualLanguageGeneration = this.editorGeneration;
+    this.modeScope.remember(this.englishMode);
+    this.applyView(client.setEnglishMode(this.handle, this.englishMode));
+    return enabled;
+  }
+
   /** True when the editor now attached needs the full letter face instead of a nine-key grid. */
   prefersFullFace(): boolean {
     return EditorPolicy.prefersFullFace(this.traits);
@@ -1619,7 +1718,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     return {
       englishMode: this.toolbar.english_mode, punctuation: this.toolbar.punctuation,
       fullwidth: this.toolbar.fullwidth, characterSet: this.toolbar.character_set,
-      emoji: this.toolbar.emoji, screenKeyboard: this.toolbar.screen_keyboard,
+      emoji: this.toolbar.emoji, handwriting: this.toolbar.handwriting !== false,
+      screenKeyboard: this.toolbar.screen_keyboard, voice: this.toolbar.voice !== false,
       settings: this.toolbar.settings !== false
     };
   }
@@ -1631,7 +1731,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const state: ToolbarState = {
       english: this.englishMode,
-      temporaryEnglish: this.localMode === 'temporary_english',
+      temporaryEnglish: this.localMode === 'temporary_english' || this.isEnglishCandidates(),
       japanese: !this.englishMode && this.schemeName === 'japanese',
       capsLock: this.capsLock,
       chinesePunctuation: this.chinesePunctuation,
@@ -1681,16 +1781,19 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.toggleCharacterWidth();
         break;
       case ToolbarButton.CHARACTER_SET:
-        this.traditional = !this.traditional;
-        this.writePreference('traditional_chinese_output', this.traditional);
-        // The candidate bar shows converted text, so the list on screen follows the switch at once.
-        this.publishCurrentCandidates();
+        this.toggleCharacterSet();
         break;
       case ToolbarButton.EMOJI:
         this.requestSurface(DesktopSurface.EMOJI);
         break;
       case ToolbarButton.SCREEN_KEYBOARD:
         this.requestSurface(DesktopSurface.SCREEN_KEYBOARD);
+        break;
+      case ToolbarButton.HANDWRITING:
+        this.requestSurface(DesktopSurface.HANDWRITING);
+        break;
+      case ToolbarButton.VOICE:
+        this.requestSurface(DesktopSurface.VOICE);
         break;
       default:
         if (this.onToolbarSettings !== undefined) {
@@ -1699,6 +1802,14 @@ export class KeyboardSession implements HardwareKeyTarget {
         break;
     }
     this.refreshToolbar();
+  }
+
+  /** Simplified output becomes traditional and back, saved as the preference the settings page shows. */
+  toggleCharacterSet(): void {
+    this.traditional = !this.traditional;
+    this.writePreference('traditional_chinese_output', this.traditional);
+    // The candidate bar shows converted text, so the list on screen follows the switch at once.
+    this.publishCurrentCandidates();
   }
 
   /** One value, through the same store the settings page writes, revision check and all. */
@@ -1789,6 +1900,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.finishCompositionBoundary(CompositionBoundary.MODE_SWITCH);
     this.englishMode = !this.englishMode;
+    // The Shift tap and the toolbar button go between Chinese and direct English; out of the Ctrl+Shift+E mode they go back to Chinese.
+    this.englishCandidates = false;
     this.manualLanguageGeneration = this.editorGeneration;
     // The user asked for this one, so it is the choice this application is remembered by.
     this.modeScope.remember(this.englishMode);
@@ -1962,6 +2075,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   attach(inputClient: inputMethodEngine.InputClient): void {
     const editorGeneration: number = ++this.editorGeneration;
     this.pendingOwnEdits = 0;
+    this.previewSupported = false;
+    this.previewText = '';
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
@@ -1970,6 +2085,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         return;
       }
       this.enterKey = attribute.enterKeyType;
+      this.previewSupported = attribute.isTextPreviewSupported === true;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
       this.capitalization = EditorPolicy.capitalizationMode(this.traits,
         KeyboardSession.capitalizationFor(attribute.capitalizeMode));
@@ -1991,6 +2107,12 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.englishMode = english;
         this.applyView(client.setEnglishMode(this.handle, english));
       }
+      if (EditorPolicy.prefersLatin(this.traits)) {
+        // A password or address field takes its letters as typed, never through a candidate list.
+        this.englishCandidates = false;
+      }
+      // A composition carried into this editor was rendered before its attribute said whether it takes preview text.
+      this.syncPreview();
       if (this.onEditorChanged !== undefined) {
         this.onEditorChanged();
       }
@@ -2002,6 +2124,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.applyView(client.setEnglishMode(this.handle, this.englishMode));
       this.applyView(client.setNineKeyMode(this.handle, this.nineKeyMode));
     }
+    this.reloadChangedPreferences();
   }
 
   detach(): void {
@@ -2019,6 +2142,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
       this.apply(client.focus(this.handle, false));
     }
+    this.previewSupported = false;
+    this.previewText = '';
     this.inputClient = undefined;
   }
 
@@ -2116,6 +2241,15 @@ export class KeyboardSession implements HardwareKeyTarget {
   private insertEditorText(text: string): void {
     const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
     if (inputClient === undefined) return;
+    if (this.previewText.length > 0) {
+      // The insertion takes the preview text's place. It has to land before the next preview update, which is synchronous, and an asynchronous insert gives no such order.
+      try {
+        this.insertEditorTextSync(text);
+      } catch (error) {
+        KeyboardLog.error(`editor insertion unavailable: ${describeError(error)}`);
+      }
+      return;
+    }
     const generation: number = this.editorGeneration;
     this.pendingOwnEdits++;
     inputClient.insertText(text).catch((error: Object): void => {
@@ -2136,6 +2270,47 @@ export class KeyboardSession implements HardwareKeyTarget {
     } catch (error) {
       this.pendingOwnEdits--;
       throw new Error(describeError(error));
+    }
+    // An insertion replaces preview text and ends the preview.
+    this.previewText = '';
+  }
+
+  /**
+   * Bring the editor's preview text in line with the composition the Engine last reported.
+   *
+   * Every change is a document edit the editor echoes back like an insertion, so it is reserved the same way; otherwise the echo would read as the user editing the field and end the composition it came from.
+   */
+  private syncPreview(): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    const view: EngineView | undefined = this.lastView;
+    const wanted: string = view === undefined ? '' : InlinePreeditPolicy.text(this.inlinePreeditStyle,
+      KeyboardFormFactor.isDesktop(), this.previewSupported, view.editing_text, view.preedit,
+      view.phrase_prefix ?? '');
+    if (inputClient === undefined || wanted === this.previewText) return;
+    const shown: string = this.previewText;
+    this.pendingOwnEdits++;
+    try {
+      inputClient.setPreviewTextSync(wanted, PREVIEW_REPLACE_CURRENT);
+      if (wanted.length === 0) inputClient.finishTextPreviewSync();
+      this.previewText = wanted;
+      return;
+    } catch (error) {
+      this.pendingOwnEdits--;
+      KeyboardLog.error(`editor preview unavailable: ${describeError(error)}`);
+    }
+    // The editor refused preview text after saying it took it; stop offering it for this focus.
+    this.previewSupported = false;
+    this.previewText = '';
+    if (shown.length === 0) return;
+    // Letters of a composition must not stay behind in the document: end the preview and take them out, the way a cancelled composition leaves nothing.
+    try {
+      inputClient.finishTextPreviewSync();
+      // Only when the letters are still there as plain text: an editor that dropped them with the preview must not lose what precedes them.
+      if (inputClient.getForwardSync(shown.length) === shown) {
+        this.deleteEditorBackwardSync(shown.length);
+      }
+    } catch (error) {
+      KeyboardLog.error(`editor preview cleanup unavailable: ${describeError(error)}`);
     }
   }
 
@@ -2239,28 +2414,29 @@ export class KeyboardSession implements HardwareKeyTarget {
     return result;
   }
 
-  press(ascii: number, shift: boolean): void {
+  /** Whether the key did anything. The touch keyboard ignores the answer; the hardware path hands a declined letter back to the application. */
+  press(ascii: number, shift: boolean): boolean {
     // Checked before the repeat arming is cleared: the space that converts is the key immediately
     // after the mark, so this is the one press where both armings are live at once.
     if (this.convertPunctuationSpace(ascii)) {
-      return;
+      return true;
     }
     this.clearSmartPunctuationRepeat();
     if (!this.composes()) {
       // Straight to the editor, with no composition and nothing learned. A password or a one-time
       // code is not something an input method should be holding, let alone remembering.
       this.insert(shift ? String.fromCharCode(ascii).toUpperCase() : String.fromCharCode(ascii));
-      return;
+      return true;
     }
     if (this.handle === 0) {
       // Deliberately without the character: hilog is readable by tooling, and what the user types
       // does not belong in it. The refusal itself is the diagnostic.
       KeyboardLog.error('key ignored: no session');
-      return;
+      return false;
     }
     this.tapFeedback();
-    const before: number = this.editing.length;
-    this.apply(client.character(this.handle, ascii, shift));
+    const before: string = this.editing;
+    const handled: boolean = this.apply(client.character(this.handle, ascii, shift));
     // A letter that leaves the composition exactly as it was is the one failure this path cannot
     // otherwise report: the key was claimed, so the application never sees it, and the Engine
     // answered `ok`, so apply() has nothing to complain about. The result is a key that silently
@@ -2270,10 +2446,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     // What is logged is the shape of the failure, never the key: a character in hilog is the user's
     // text. The scheme and the local mode are the two host-side inputs that decide whether a letter
     // should have composed at all, and both are already public state.
-    if (before === 0 && this.editing.length === 0) {
+    const consumed: boolean = handled || this.editing !== before;
+    // A capital with nothing composed is declined by design and handed back to the application, so only a lower-case letter that composed nothing is a failure worth reporting.
+    const capital: boolean = ascii >= 0x41 && ascii <= 0x5a;
+    if (!consumed && before.length === 0 && !capital) {
       KeyboardLog.error(`composing key produced no composition: scheme=${this.schemeName}`
-        + ` local=${this.localMode} english=${this.englishMode} candidates=${this.currentCandidates.length}`);
+        + ` local=${this.localMode} english=${this.englishMode} candidates=${this.currentCandidates.length}`
+        + ` shift=${shift} caps=${this.capsLock}`);
     }
+    return consumed;
   }
 
   /** Route an ASCII punctuation key through the shared editor-context policy. */
@@ -2282,7 +2463,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     let preceding: number = 0;
     try {
       // Harmony's getForwardSync returns the bounded text immediately before the cursor.
-      preceding = SmartPunctuationContext.precedingCodePoint(this.inputClient.getForwardSync(2));
+      preceding = SmartPunctuationContext.precedingCodePoint(InlinePreeditPolicy.beforePreview(
+        this.inputClient.getForwardSync(2 + this.previewText.length), this.previewText));
     } catch (error) {
       // Editor context is optional; zero deliberately falls back to Engine punctuation.
       KeyboardLog.error(`editor punctuation context unavailable: ${describeError(error)}`);
@@ -2404,6 +2586,18 @@ export class KeyboardSession implements HardwareKeyTarget {
       && candidate.translation.length > 0);
   }
 
+  /** What a hardware `'`, `;`, digit or `+` is being typed into; see `HardwareSpelling`. */
+  hardwareSpelling(): HardwareSpelling {
+    return {
+      localMode: this.localMode,
+      editing: this.editing,
+      caret: this.editingCaret,
+      wubi: this.schemeName === 'wubi',
+      microsoftShuangpin: this.lastView?.microsoft_shuangpin === true,
+      englishCandidates: this.isEnglishCandidates(),
+    };
+  }
+
   hasHighlightedCandidate(): boolean {
     return this.currentCandidates.some((candidate: Candidate): boolean => candidate.highlighted);
   }
@@ -2513,12 +2707,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.command(InputCommand.MOVE_RIGHT);
   }
 
+  /**
+   * Home and End go to the ends of the whole candidate list while there are candidates, as the Windows source's `FUNCTION_MOVE_PAGE_TOP`/`BOTTOM` do and the other hosts' shared `FirstCandidate`/`LastCandidate` actions now do; with none on screen they move the caret in the spelling instead.
+   */
   moveHome(): void {
-    this.command(InputCommand.MOVE_HOME);
+    this.command(this.currentCandidates.length > 0 ? InputCommand.FIRST_CANDIDATE : InputCommand.MOVE_HOME);
   }
 
   moveEnd(): void {
-    this.command(InputCommand.MOVE_END);
+    this.command(this.currentCandidates.length > 0 ? InputCommand.LAST_CANDIDATE : InputCommand.MOVE_END);
   }
 
   deleteForward(): void {
@@ -2689,11 +2886,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   private lastView: EngineView | undefined = undefined;
   private scheme: number = 0;
   private localMode: string = 'none';
+  /** Revision of the preference document the session was last built from; -1 before the first. */
+  private preferencesRevision: number = -1;
+  /** Set by Ctrl+Shift+E; only meaningful while `englishMode` is on. */
+  private englishCandidates: boolean = false;
 
   private render(view: EngineView): void {
     this.generation = view.generation;
     this.currentCandidates = view.candidates.slice();
     this.lastView = view;
+    this.syncPreview();
     if (this.japaneseConversionIndex >= 0
         && view.editing_text !== this.japaneseConversionReading) {
       this.japaneseConversionIndex = -1;
@@ -2737,8 +2939,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.onChanged({
         candidates: entries,
         // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。
-        editing: view.phrase_prefix + view.editing_text,
-        editingCaret: view.caret_position + view.phrase_prefix.length,
+        editing: (view.phrase_prefix ?? '') + view.editing_text,
+        editingCaret: view.caret_position + (view.phrase_prefix ?? '').length,
         spellings: view.nine_key_spellings,
         scheme: view.scheme,
         shuangpinProfile: view.shuangpin_profile,
@@ -2783,8 +2985,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         candidate.translation ?? null, this.candidateGlossEnabled)
     }));
     this.onChanged({
-      candidates: entries, editing: view.phrase_prefix + view.editing_text,
-      editingCaret: view.caret_position + view.phrase_prefix.length,
+      candidates: entries, editing: (view.phrase_prefix ?? '') + view.editing_text,
+      editingCaret: view.caret_position + (view.phrase_prefix ?? '').length,
       spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
       english: view.dedicated_english, diagnostic: this.diagnostic
@@ -3757,6 +3959,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         // The session already has them; only the write failed. Say so rather than pretending the
         // change did not happen, because on screen it plainly did.
         KeyboardLog.error(`preferences not persisted: ${saved.error}`);
+      } else {
+        // Our own write, already applied; the next focus must not rebuild the session for it.
+        this.preferencesRevision = expected + 1;
       }
       this.clipboardHistoryEnabled = nextClipboardHistory;
       if (changes.has('voice_input')) {
@@ -4113,7 +4318,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     let preceding: number = 0;
     try {
-      preceding = SmartPunctuationContext.precedingCodePoint(this.inputClient.getForwardSync(2));
+      preceding = SmartPunctuationContext.precedingCodePoint(InlinePreeditPolicy.beforePreview(
+        this.inputClient.getForwardSync(2 + this.previewText.length), this.previewText));
     } catch (error) {
       KeyboardLog.error(`punctuation space context unavailable: ${describeError(error)}`);
       this.clearSmartPunctuationSpace();

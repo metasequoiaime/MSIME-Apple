@@ -47,9 +47,13 @@ def main() -> int:
         and "ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode)" in convert,
         # The candidate bar, the flat list it is built from and the expanded panel all show converted text.
         "candidate display converts": session.count("text: this.asTraditional(candidate.text)") == 3,
-        "switch republishes the candidates": "this.writePreference('traditional_chinese_output', this.traditional);\n"
-        "        // The candidate bar shows converted text, so the list on screen follows the switch at once.\n"
-        "        this.publishCurrentCandidates();" in session,
+        "switch republishes the candidates": re.search(
+            r"toggleCharacterSet\(\): void \{\s*this\.traditional = !this\.traditional;\s*"
+            r"this\.writePreference\('traditional_chinese_output', this\.traditional\);\s*"
+            r"(?://[^\n]*\s*)?this\.publishCurrentCandidates\(\);",
+            session,
+        )
+        is not None,
     }
     problems = [name for name, present in required.items() if not present]
 

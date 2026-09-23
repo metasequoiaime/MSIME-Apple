@@ -85,7 +85,9 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertThrowsError(try PersonalWord(key: "nihao", value: "你好").validated())
     XCTAssertThrowsError(try PersonalWord(key: "ni'hao", value: "你").validated())
     XCTAssertThrowsError(try PersonalWord(kind: .wubi, key: "abcde", value: "词").validated())
-    XCTAssertThrowsError(try PersonalWord(kind: .english, key: "wrong", value: "Word").validated())
+    // An English code may differ from its word (dont types don't), but stays letters, hyphens and apostrophes.
+    XCTAssertEqual(try PersonalWord(kind: .english, key: "dont", value: "don't").validated().value, "don't")
+    XCTAssertThrowsError(try PersonalWord(kind: .english, key: "dont1", value: "don't").validated())
     XCTAssertThrowsError(try PersonalWord(key: "ni", value: "a\0b").validated())
     XCTAssertEqual(try PersonalWord(kind: .quickPhrase, key: "HELLO1", value: "第一行\n第二行").validated().key, "hello1")
   }

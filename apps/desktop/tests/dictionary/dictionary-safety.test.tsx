@@ -105,6 +105,34 @@ test("deleting the only row on a later page steps back instead of showing nothin
   expect(dictionary.list.mock.calls[2][0]).toBe(0);
 });
 
+test("a bundled row is badged and its edit only changes the weight", async () => {
+  const bundled: DictionaryEntry = {
+    kind: "quick_phrase",
+    key: "dh",
+    value: "电话",
+    weight: 500,
+    source: "bundled",
+  };
+  const user: DictionaryEntry = { ...bundled, key: "wd", value: "我的", source: "user" };
+  const dictionary = dictionaryClient({
+    list: vi.fn().mockResolvedValue({ entries: [bundled, user], has_more: false }),
+  });
+  await openDictionary(dictionary);
+  expect(screen.getAllByText("内置")).toHaveLength(1);
+  // A user row keeps the full editor; the bundled one offers only a weight change.
+  expect(screen.getByRole("button", { name: "编辑" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "调权重" }));
+  const code = screen.getByDisplayValue("dh") as HTMLInputElement;
+  const phrase = screen.getByDisplayValue("电话") as HTMLInputElement;
+  expect(code.readOnly && phrase.readOnly).toBe(true);
+  fireEvent.change(screen.getByDisplayValue("500"), { target: { value: "1" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(dictionary.edit).toHaveBeenCalled());
+  const [previous, replacement] = dictionary.edit.mock.calls[0];
+  expect(previous).toEqual(bundled);
+  expect(replacement).toEqual({ ...bundled, weight: 1 });
+});
+
 test("Android personal dictionary JSON import previews and queues only after confirmation", async () => {
   const importPersonal = vi.fn().mockResolvedValue({ queued: true, pending_count: 2 });
   const dictionary = dictionaryClient({ importPersonal });

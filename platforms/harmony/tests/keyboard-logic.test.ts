@@ -236,6 +236,8 @@ import {
   HardwareKeyRouter,
   HardwareKeyAction,
   HardwareKey,
+  HardwareSpelling,
+  PLAIN_SPELLING,
 } from "../entry/src/main/ets/keyboard/HardwareKeyRouter";
 import {
   CandidateTextPolicy,
@@ -289,6 +291,7 @@ import {
   ToolbarComponents,
 } from "../entry/src/main/ets/keyboard/FloatingToolbarLayout";
 import { FloatingToolbarDragPolicy } from "../entry/src/main/ets/keyboard/FloatingToolbarDragPolicy";
+import { InlinePreeditPolicy } from "../entry/src/main/ets/keyboard/input/InlinePreeditPolicy";
 
 function selectedBarVisible(value: boolean | null): boolean {
   return value !== false;
@@ -518,6 +521,10 @@ group("projects the same form factor into every settings capability", () => {
     "2-in-1 settings expose candidate and toolbar controls",
   );
   check(
+    desktop.floatingToolbarHandwriting && desktop.floatingToolbarVoice,
+    "2-in-1 settings offer the pad and microphone switches its toolbar honours",
+  );
+  check(
     desktop.modeSwitchShortcuts && desktop.panelShortcuts && desktop.numberRowSelection,
     "2-in-1 settings expose physical-keyboard shortcuts",
   );
@@ -528,7 +535,9 @@ group("projects the same form factor into every settings capability", () => {
     !phone.panelWindows &&
       !phone.floatingToolbar &&
       !phone.floatingToolbarAppearance &&
-      !phone.floatingToolbarComponents,
+      !phone.floatingToolbarComponents &&
+      !phone.floatingToolbarHandwriting &&
+      !phone.floatingToolbarVoice,
     "phone settings hide candidate and toolbar controls",
   );
   check(
@@ -3244,12 +3253,18 @@ group("with pairing on every quote press opens a fresh pair, as the reference do
     PairedPunctuationPolicy.completion(reopened, true)?.closing === "”",
     "and the rewritten quote is then completed to a pair",
   );
-  check(PairedPunctuationPolicy.reopenQuote("’", 0x27, true) === "‘", "single quotes are rewritten the same way");
+  check(
+    PairedPunctuationPolicy.reopenQuote("’", 0x27, true) === "‘",
+    "single quotes are rewritten the same way",
+  );
   check(
     PairedPunctuationPolicy.reopenQuote("你好”", 0x22, true) === "你好“",
     "a composition committed ahead of the quote keeps its text",
   );
-  check(PairedPunctuationPolicy.reopenQuote("“", 0x22, true) === "“", "an opening quote is left as it is");
+  check(
+    PairedPunctuationPolicy.reopenQuote("“", 0x22, true) === "“",
+    "an opening quote is left as it is",
+  );
   check(
     PairedPunctuationPolicy.reopenQuote("”", 0x22, false) === "”",
     "with pairing off the Engine's alternation reaches the editor unchanged",
@@ -3262,7 +3277,10 @@ group("with pairing on every quote press opens a fresh pair, as the reference do
     PairedPunctuationPolicy.reopenQuote("）", 0x29, true) === "）",
     "other closing marks are not quotes and stay closing",
   );
-  check(PairedPunctuationPolicy.reopenQuote(null, 0x22, true) === null, "no commit stays no commit");
+  check(
+    PairedPunctuationPolicy.reopenQuote(null, 0x22, true) === null,
+    "no commit stays no commit",
+  );
 });
 
 group("return performs an editor action only when nothing else claimed it", () => {
@@ -3719,10 +3737,90 @@ group("every toolbar button is optional, the settings gear included", () => {
     fullwidth: false,
     characterSet: false,
     emoji: false,
+    handwriting: false,
     screenKeyboard: false,
+    voice: false,
     settings: false,
   };
   check(FloatingToolbarLayout.buttons(none).length === 0, "turning everything off leaves nothing");
+});
+
+group("the 2in1 toolbar carries the pad and the microphone, as the macOS one does", () => {
+  const all: ToolbarComponents = FloatingToolbarLayout.allComponents();
+  const order: ToolbarButton[] = FloatingToolbarLayout.buttons(all);
+  check(order.length === 9, "all nine buttons are drawn when every switch is on");
+  check(
+    order.indexOf(ToolbarButton.EMOJI) < order.indexOf(ToolbarButton.HANDWRITING) &&
+      order.indexOf(ToolbarButton.HANDWRITING) < order.indexOf(ToolbarButton.SCREEN_KEYBOARD) &&
+      order.indexOf(ToolbarButton.SCREEN_KEYBOARD) < order.indexOf(ToolbarButton.VOICE) &&
+      order.indexOf(ToolbarButton.VOICE) < order.indexOf(ToolbarButton.SETTINGS),
+    "emoji, pad, keyboard, microphone, then the gear last",
+  );
+  check(
+    !FloatingToolbarLayout.buttons({ ...all, handwriting: false }).includes(
+      ToolbarButton.HANDWRITING,
+    ),
+    "the shared handwriting switch hides the pad button",
+  );
+  check(
+    !FloatingToolbarLayout.buttons({ ...all, voice: false }).includes(ToolbarButton.VOICE),
+    "the shared voice switch hides the microphone button",
+  );
+  check(
+    FloatingToolbarLayout.widthVp(order.length) > FloatingToolbarLayout.widthVp(order.length - 2),
+    "the bar grows to hold both rather than clipping at the old seven",
+  );
+  const idle = FloatingToolbarLayout.idleState();
+  check(
+    FloatingToolbarLayout.face(ToolbarButton.HANDWRITING, idle) !==
+      FloatingToolbarLayout.face(ToolbarButton.SETTINGS, idle) &&
+      FloatingToolbarLayout.face(ToolbarButton.VOICE, idle) !==
+        FloatingToolbarLayout.face(ToolbarButton.SETTINGS, idle),
+    "neither new button falls through to the gear's face",
+  );
+  check(
+    (ToolbarButton.SCREEN_KEYBOARD as number) === (PanelSurfaceAction.SCREEN_KEYBOARD as number),
+    "adding them did not renumber the button the panel chord mirrors",
+  );
+});
+
+group("toolbar surfaces route candidates and end their own work on the 2in1", () => {
+  check(
+    SurfaceRoutingPolicy.showsHandwritingCandidates(true, DesktopSurface.HANDWRITING, false),
+    "the toolbar pad shows its results whatever the scheme",
+  );
+  check(
+    SurfaceRoutingPolicy.showsHandwritingCandidates(true, DesktopSurface.SCREEN_KEYBOARD, true),
+    "a handwriting scheme's screen keyboard still shows them",
+  );
+  check(
+    !SurfaceRoutingPolicy.showsHandwritingCandidates(true, DesktopSurface.NONE, true),
+    "the bare candidate window belongs to the physical keys",
+  );
+  check(
+    !SurfaceRoutingPolicy.showsHandwritingCandidates(true, DesktopSurface.SCREEN_KEYBOARD, false),
+    "a letter screen keyboard does not show ink results",
+  );
+  check(
+    SurfaceRoutingPolicy.showsHandwritingCandidates(false, DesktopSurface.NONE, true) &&
+      !SurfaceRoutingPolicy.showsHandwritingCandidates(false, DesktopSurface.HANDWRITING, false),
+    "a phone follows its scheme alone",
+  );
+  check(
+    SurfaceRoutingPolicy.endsVoice(DesktopSurface.VOICE, DesktopSurface.NONE) &&
+      SurfaceRoutingPolicy.endsVoice(DesktopSurface.VOICE, DesktopSurface.HANDWRITING),
+    "leaving the voice face by any route ends the recording",
+  );
+  check(
+    !SurfaceRoutingPolicy.endsVoice(DesktopSurface.VOICE, DesktopSurface.VOICE) &&
+      !SurfaceRoutingPolicy.endsVoice(DesktopSurface.NONE, DesktopSurface.VOICE),
+    "opening or re-asserting it does not",
+  );
+  check(
+    SurfaceRoutingPolicy.endsHandwriting(DesktopSurface.HANDWRITING, DesktopSurface.NONE) &&
+      !SurfaceRoutingPolicy.endsHandwriting(DesktopSurface.EMOJI, DesktopSurface.NONE),
+    "closing the pad drops its ink, closing something else does not",
+  );
 });
 
 group("the other Windows maintenance chord clears the engine cache", () => {
@@ -4007,12 +4105,12 @@ group("the Windows mode chords are answered on a hardware keyboard", () => {
   routing.use(DEFAULT_MODE_BINDINGS);
   check(
     routing.accept(modeKey(KEY_E, true, 0, { ctrlKey: true, shiftKey: true })) ===
-      ModeGesture.SWITCH_LANGUAGE,
-    "Ctrl+Shift+E switches the composing language",
+      ModeGesture.ENGLISH_CANDIDATES,
+    "Ctrl+Shift+E switches the English candidate mode, as Windows IsEnglishModeToggleKey does",
   );
   check(
     routing.accept(modeKey(KEY_SPACE, true, 0, { ctrlKey: true, shiftKey: true })) ===
-      ModeGesture.TOGGLE_CHARACTER_SET,
+      ModeGesture.TOGGLE_WIDTH,
     "Ctrl+Shift+Space switches halfwidth and fullwidth",
   );
   check(
@@ -4049,7 +4147,7 @@ group("the Windows chords are fixed rather than following the four optional bind
   // Turning off the Shift tap says nothing about Ctrl+Shift+E, and Windows binds these fixed.
   check(
     routing.accept(modeKey(KEY_E, true, 0, { ctrlKey: true, shiftKey: true })) ===
-      ModeGesture.SWITCH_LANGUAGE,
+      ModeGesture.ENGLISH_CANDIDATES,
     "Ctrl+Shift+E still answers",
   );
   check(
@@ -4398,7 +4496,10 @@ group("an AsyncCallback failure is described without inventing a code", () => {
 
 function recordingTarget(log: string[]): HardwareKeyTarget {
   return {
-    press: (character: number, shifted: boolean) => log.push(`press ${character} ${shifted}`),
+    press: (character: number, shifted: boolean) => {
+      log.push(`press ${character} ${shifted}`);
+      return true;
+    },
     punctuation: (character: number) => log.push(`punctuation ${character}`),
     backspace: () => log.push("backspace"),
     cancel: () => log.push("cancel"),
@@ -4964,6 +5065,14 @@ group("a non-finite value falls back rather than clamping", () => {
   );
   check(broken.cornerRadius() === 8, "NaN takes the default corner radius");
   check(broken.shadow() === 0, "and the default shadow");
+});
+
+group("a design saved without a photo carries photo: null and still loads", () => {
+  // The shared preference document serializes a missing photo as JSON null; reading it used to throw inside onCreate and left the input method with no session at all.
+  const saved = CustomKeyboardSkin.from(document({ background: 0x102030, photo: null }));
+  check(saved.background() === "#102030", "the rest of the design is kept");
+  check(saved.photo() === null, "no photo is drawn");
+  check(saved.photoSource() === null, "and no photo source is offered");
 });
 
 group("an unknown enum value takes the first choice", () => {
@@ -7299,6 +7408,81 @@ group("the panel chord is claimed on release as well as press", () => {
   );
 });
 
+group(
+  "a hardware letter takes its case from shift and caps lock, not from the resolved character",
+  () => {
+    const key = (over: Record<string, unknown> = {}) => ({
+      keyCode: 2030,
+      unicodeChar: 0x4e,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      logoKey: false,
+      ...over,
+    });
+    // A 2in1 resolves a bare N as 'N'. The Engine reads a capital as a help code, so the first letter on a hardware keyboard never started a composition.
+    check(
+      HardwareKeyRouter.normalizeLetterCase(key(), false).unicodeChar === 0x6e,
+      "a bare letter is lower case",
+    );
+    check(
+      HardwareKeyRouter.normalizeLetterCase(key({ unicodeChar: 0x6e, shiftKey: true }), false)
+        .unicodeChar === 0x4e,
+      "shift makes it a capital",
+    );
+    check(
+      HardwareKeyRouter.normalizeLetterCase(key(), true).unicodeChar === 0x4e,
+      "so does caps lock",
+    );
+    check(
+      HardwareKeyRouter.normalizeLetterCase(key({ shiftKey: true }), true).unicodeChar === 0x6e,
+      "and shift with caps lock cancels out",
+    );
+    const digit = HardwareKeyRouter.normalizeLetterCase(
+      key({ keyCode: 2001, unicodeChar: 0x31 }),
+      true,
+    );
+    check(digit.unicodeChar === 0x31, "a digit is left alone");
+    check(
+      HardwareKeyRouter.normalizeLetterCase(key({ unicodeChar: 0x40, shiftKey: true }), false)
+        .unicodeChar === 0x40,
+      "so is the mark just below the capitals",
+    );
+    check(
+      HardwareKeyRouter.normalizeLetterCase(key({ unicodeChar: 0x5b }), true).unicodeChar === 0x5b,
+      "and the one just above them",
+    );
+  },
+);
+
+group("a letter the Engine declines is handed back rather than swallowed", () => {
+  const declining: HardwareKeyTarget = { ...recordingTarget([]), press: () => false };
+  check(
+    !HardwareKeyDispatch.apply(
+      { action: HardwareKeyAction.COMPOSE, character: 0x4e, index: 0 },
+      true,
+      declining,
+    ),
+    "a declined letter reports that it was not consumed",
+  );
+  check(
+    HardwareKeyDispatch.apply(
+      { action: HardwareKeyAction.COMPOSE, character: 0x6e, index: 0 },
+      false,
+      recordingTarget([]),
+    ),
+    "an accepted one reports that it was",
+  );
+  check(
+    HardwareKeyDispatch.apply(
+      { action: HardwareKeyAction.IGNORED, character: 0, index: 0 },
+      false,
+      recordingTarget([]),
+    ),
+    "a deliberately ignored key is still consumed",
+  );
+});
+
 group("a numeric keypad is a number row", () => {
   const key = (over: Record<string, unknown> = {}) => ({
     keyCode: 2104,
@@ -7367,6 +7551,138 @@ group("keypad digits reach both digit paths", () => {
   check(
     select.action === HardwareKeyAction.SELECT && select.index === 2,
     "keypad 3 picks the third candidate",
+  );
+});
+
+group("Ctrl+Shift+F switches simplified and traditional, not the character width", () => {
+  const routing: InputModeRouting = new InputModeRouting();
+  routing.use(DEFAULT_MODE_BINDINGS);
+  // Windows `HandleImeKey` answers `IsCharacterSetShortcut` with `SetConfiguredCharacterSet`; the settings page labels the binding 切换简繁.
+  check(
+    routing.accept(modeKey(2022, true, 0, { ctrlKey: true, shiftKey: true })) ===
+      ModeGesture.TOGGLE_CHARACTER_SET,
+    "Ctrl+Shift+F is the simplified/traditional chord",
+  );
+  routing.use({ ...DEFAULT_MODE_BINDINGS, toggleCharacterSetCtrlShiftF: false });
+  check(
+    routing.accept(modeKey(2022, true, 0, { ctrlKey: true, shiftKey: true })) === ModeGesture.NONE,
+    "turning the binding off leaves the chord to the application",
+  );
+});
+
+group("a hardware key spells or punctuates depending on what is being spelled", () => {
+  const route = (over: Record<string, unknown>, spelling: Partial<HardwareSpelling>) =>
+    HardwareKeyRouter.route(
+      {
+        keyCode: 0,
+        unicodeChar: 0,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        logoKey: false,
+        ...over,
+      } as HardwareKey,
+      true,
+      true,
+      false,
+      undefined,
+      false,
+      false,
+      "disabled",
+      true,
+      { ...PLAIN_SPELLING, ...spelling },
+    );
+  const unicode: Partial<HardwareSpelling> = { localMode: "unicode", editing: "u4e", caret: 3 };
+  const digit = route({ keyCode: 2000, unicodeChar: 0x30 }, unicode);
+  check(
+    digit.action === HardwareKeyAction.COMPOSE && digit.character === 0x30,
+    "in U mode a plain 0 is part of the code point",
+  );
+  const four = route({ keyCode: 2004, unicodeChar: 0x34 }, unicode);
+  check(
+    four.action === HardwareKeyAction.COMPOSE && four.character === 0x34,
+    "and so is a plain 4, which would otherwise pick the fourth candidate",
+  );
+  const pick = route({ keyCode: 2002, unicodeChar: 0x40, shiftKey: true }, unicode);
+  check(
+    pick.action === HardwareKeyAction.SELECT && pick.index === 1,
+    "Shift+2 picks the second candidate in U mode, as on Windows",
+  );
+  const plus = route(
+    { keyCode: 2058, unicodeChar: 0x2b, shiftKey: true },
+    { localMode: "unicode", editing: "U", caret: 1 },
+  );
+  check(
+    plus.action === HardwareKeyAction.COMPOSE && plus.character === 0x2b,
+    "the + of U+ is spelled rather than taken as a paging key or a mark",
+  );
+  check(
+    route({ keyCode: 2058, unicodeChar: 0x2b, shiftKey: true }, unicode).action !==
+      HardwareKeyAction.COMPOSE,
+    "a + anywhere else in the code point is not part of it",
+  );
+  check(
+    route({ keyCode: 2004, unicodeChar: 0x34 }, { editing: "ni", caret: 2 }).action ===
+      HardwareKeyAction.SELECT,
+    "outside U mode a digit still picks",
+  );
+
+  const separator = route({ keyCode: 2063, unicodeChar: 0x27 }, { editing: "xi", caret: 2 });
+  check(
+    separator.action === HardwareKeyAction.COMPOSE && separator.character === 0x27,
+    "' separates pinyin syllables mid-composition",
+  );
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, { editing: "xi", caret: 0 }).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "with the caret at the start there is nothing to separate",
+  );
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, { editing: "abcd", caret: 4, wubi: true })
+      .action === HardwareKeyAction.PUNCTUATION,
+    "Wubi codes have no syllables, so ' stays a mark",
+  );
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, { localMode: "emoji", editing: "xiao", caret: 4 })
+      .action === HardwareKeyAction.COMPOSE,
+    "emoji spellings are separated the same way",
+  );
+
+  const microsoft: Partial<HardwareSpelling> = { microsoftShuangpin: true };
+  const ing = route({ keyCode: 2062, unicodeChar: 0x3b }, { ...microsoft, editing: "x", caret: 1 });
+  check(
+    ing.action === HardwareKeyAction.COMPOSE && ing.character === 0x3b,
+    "Microsoft shuangpin spells ing with ; as the second key of a syllable",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { ...microsoft, editing: "xm", caret: 2 })
+      .action === HardwareKeyAction.PUNCTUATION,
+    "as the first key of the next syllable it is a mark",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { ...microsoft, editing: "xm'x", caret: 4 })
+      .action === HardwareKeyAction.COMPOSE,
+    "syllables are counted from the last separator",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { editing: "x", caret: 1 }).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "other layouts never spell with ;",
+  );
+
+  const english: Partial<HardwareSpelling> = { editing: "don", caret: 3, englishCandidates: true };
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, english).action === HardwareKeyAction.PUNCTUATION,
+    "in the English candidate mode ' ends the word instead of being spelled into it",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { ...english, microsoftShuangpin: true }).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "and ; is not a shuangpin final there",
+  );
+  check(
+    route({ keyCode: 2004, unicodeChar: 0x34 }, english).action === HardwareKeyAction.SELECT,
+    "a digit still picks an English word",
   );
 });
 
@@ -7876,6 +8192,57 @@ group("Harmony batch transcription accepts every shared cloud preset", () => {
     !HttpAsrConfigurationPolicy.valid({ ...mistral, asr_provider: "local" }),
     "a provider without the HTTP adapter cannot fall through to it",
   );
+});
+
+group("the 2in1 draws the composition inline as tsf_preedit_style says", () => {
+  check(
+    InlinePreeditPolicy.style(undefined) === "raw",
+    "a document without the field shows raw letters",
+  );
+  check(InlinePreeditPolicy.style("pinyin") === "pinyin", "pinyin is read");
+  check(InlinePreeditPolicy.style("empty") === "empty", "empty is read");
+  check(InlinePreeditPolicy.style("local") === "raw", "an unknown style falls back to raw");
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "nihao", "ni'hao", "") === "nihao",
+    "raw shows the letters as typed",
+  );
+  check(
+    InlinePreeditPolicy.text("pinyin", true, true, "nihao", "ni'hao", "") === "ni'hao",
+    "pinyin shows the segmented spelling",
+  );
+  check(
+    InlinePreeditPolicy.text("pinyin", true, true, "nihao", "", "") === "nihao",
+    "pinyin without a segmented spelling falls back to the letters",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "hao", "hao", "你") === "你hao",
+    "a held phrase piece leads the spelling",
+  );
+  check(
+    InlinePreeditPolicy.text("empty", true, true, "nihao", "ni'hao", "") === "",
+    "empty leaves the document alone",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", false, true, "nihao", "ni'hao", "") === "",
+    "a phone keeps the spelling above its keys",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, false, "nihao", "ni'hao", "") === "",
+    "an editor without preview text gets none",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "", "", "") === "",
+    "no composition, no preview",
+  );
+  check(
+    InlinePreeditPolicy.beforePreview("好nihao", "nihao") === "好",
+    "context before the caret skips the preview the editor counts as text",
+  );
+  check(
+    InlinePreeditPolicy.beforePreview("好a", "nihao") === "好a",
+    "an editor that keeps preview text out of its content is read as is",
+  );
+  check(InlinePreeditPolicy.beforePreview("好a", "") === "好a", "no preview, nothing removed");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

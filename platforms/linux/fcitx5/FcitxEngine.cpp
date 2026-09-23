@@ -403,6 +403,7 @@ public:
     japanese_conversion_.reset();
     backspace_hold_.reset();
     maintenance_reload_held_ = false;
+    toggle_chord_held_ = FcitxKey_None;
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
     // A failed status-bar save outlives the focus change, as the IBus host keeps its failed menu save; settle one still in flight so the retry records whether it landed.
@@ -865,6 +866,7 @@ public:
   // Windows re-resolves punctuation on every Chinese/English switch: under the "follow" lock (0) it tracks the mode, and a pinned lock keeps its value. Session-only - the saved chinese_punctuation preference is not rewritten, so the next preference refresh restates it.
   void resyncPunctuationForMode() {
     english_punctuation_ = {};
+    english_chinese_punctuation_ = false;
     if (punctuation_lock_ != 0) return;
     chinese_punctuation_ = input_enabled_;
     syncSessionChinesePunctuation();
@@ -1382,10 +1384,13 @@ public:
     // Applied once per input context, not once per session: refocusing or
     // rebuilding the Engine session must keep the mode the user chose rather than
     // putting the startup default back.
+    bool restore_changed_mode = false;
     if (!ime_mode_chosen_) {
-      if (mode_restore_pending_)
+      if (mode_restore_pending_) {
+        const bool before = input_enabled_;
         restoreInputMode();
-      else {
+        restore_changed_mode = input_enabled_ != before;
+      } else {
         input_enabled_ = preferences_.value("default_ime_mode", "chinese") != "english";
         ime_mode_chosen_ = true;
       }
@@ -1490,6 +1495,8 @@ public:
     session_chinese_punctuation_ =
         options.at("preferences").value("chinese_punctuation", true);
     syncSessionChinesePunctuation();
+    // A mode the focus restores is a Chinese/English switch like any other; resolved here, once the lock is read and the session exists.
+    if (restore_changed_mode) resyncPunctuationForMode();
     view_ = response(msime_client_focus(session_, true)).at("view");
     return true;
   }
@@ -2346,6 +2353,10 @@ public:
       if (voice_job_.valid()) return false;
     }
     if (voice_loading_) return false;
+    // Voice text takes the composition's place: Windows purges the typed keys when the voice composition starts, and the IBus host cancels the composition in voice_start. Left in place, the pinyin came back as preedit after the voice result was committed.
+    if (session_ && (!view_.value("editing_text", std::string{}).empty() ||
+                     !view_.value("candidates", Json::array()).empty()))
+      command(MSIME_CANCEL);
     voice_loading_ = true;
     voice_cancelled_ = false;
     const auto socket = voice_socket_;
@@ -2854,8 +2865,10 @@ public:
   bool paired_punctuation_ = true;
   // Closing marks this host inserted after the caret, innermost last; whether the last apply() completed a pair.
   msime::linux_host::PairedPunctuationTracker paired_tracker_;
-  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock; reset on every mode switch.
+  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock or after Ctrl+.; reset on every mode switch.
   msime::linux_host::EnglishPunctuationState english_punctuation_;
+  // Ctrl+. pressed in English mode under the "follow" lock: English mode types Chinese punctuation until the next Chinese/English switch, as Windows does with its punctuation compartment on and the IME closed. Session-only and kept apart from chinese_punctuation_, which a preference refresh re-derives from the saved preference.
+  bool english_chinese_punctuation_ = false;
   bool pair_inserted_ = false;
   // Japanese converts with Space and commits with Enter; see ../src/core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion_;
@@ -2931,6 +2944,8 @@ public:
   bool voice_ralt_held_ = false;
   bool voice_f9_held_ = false;
   bool maintenance_reload_held_ = false;
+  // The key of the toggle chord being held (Ctrl+Space, Ctrl+Alt+Space, Ctrl+Shift+Space, Ctrl+Shift+F); FcitxKey_None when none is.
+  fcitx::KeySym toggle_chord_held_ = FcitxKey_None;
   bool voice_ctrl_win_held_ = false;
   bool voice_rctrl_ralt_held_ = false;
   bool voice_space_consumed_ = false;
@@ -3643,7 +3658,11 @@ public:
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
     if (!state->session_) return false;
-    return mode_ == Mode::Chinese ? state->chinese_punctuation_ : state->paired_punctuation_;
+    if (mode_ == Mode::Paired) return state->paired_punctuation_;
+    // English mode types what its own flags say, not the saved chinese_punctuation preference.
+    return state->input_enabled_ ? state->chinese_punctuation_
+        : state->punctuation_lock_ == 1 ||
+          (state->punctuation_lock_ == 0 && state->english_chinese_punctuation_);
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
@@ -3651,7 +3670,11 @@ public:
     if (!state->session_ || state->restricted()) return;
     try {
       if (!state->ensure()) return;
-      if (mode_ == Mode::Chinese) state->toggleChinesePunctuation();
+      if (mode_ == Mode::Chinese && !state->input_enabled_) {
+        // Same as Ctrl+. in English mode: session-only, and a pinned lock holds.
+        if (state->punctuation_lock_ == 0)
+          state->english_chinese_punctuation_ = !state->english_chinese_punctuation_;
+      } else if (mode_ == Mode::Chinese) state->toggleChinesePunctuation();
       else state->togglePairedPunctuation();
       update(ic);
     } catch (...) {
@@ -4556,7 +4579,11 @@ public:
     namespace host = msime::linux_host;
     const auto display =
         host::candidate_display_preferences(preferences, system_dark, builtinSkins(), defaultSkin(), catalog);
-    auto theme = host::fcitx_candidate_theme(host::resolve_candidate_colors(display, defaultSkin()));
+    const auto colors = host::resolve_candidate_colors(display, defaultSkin());
+    const auto decoration = host::candidate_skin_decoration(
+        catalog, display.value("candidate_skin", defaultSkin()), builtinSkins());
+    // The decoration's stamp stands in for its image, so an unchanged skin costs a stat per refresh, not a copy.
+    auto theme = host::fcitx_candidate_theme(colors) + host::fcitx_overlay_stamp(decoration);
     if (theme == candidate_theme_applied_) return;
     auto *classicui = instance_->addonManager().addon("classicui", true);
     if (!classicui || !classicui->getConfig()) return;
@@ -4566,7 +4593,7 @@ public:
     const auto *selected_dark = current.valueByPath("DarkTheme");
     if (!host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
     const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
-    if (!file || !host::write_fcitx_theme(*file, theme)) return;
+    if (!file || !host::write_fcitx_candidate_theme(*file, colors, decoration)) return;
     fcitx::RawConfig config;
     config.setValueByPath("Theme", std::string(host::kFcitxCandidateTheme));
     // Fcitx5 releases with a separate dark-mode theme would otherwise switch to their stock dark theme; MSIME already resolves "follow" against the system appearance itself.
@@ -4999,6 +5026,7 @@ public:
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
     state->backspace_hold_.reset();
+    state->toggle_chord_held_ = FcitxKey_None;
     try { if (state->session_) state->command(MSIME_CANCEL); } catch (...) { state->close(); }
     state->clearPanel();
   }
@@ -5361,6 +5389,12 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (event.isRelease()) maintenance_reload_held_ = false;
     return true;
   }
+  // A toggle chord flips its setting once per press, as on Windows: auto-repeat while it is held is swallowed instead of flipping the setting back and forth, and the release ends the hold. F and f are one key, because letting go of Shift first changes the keysym of the release.
+  if (toggle_chord_held_ != FcitxKey_None &&
+      (sym == FcitxKey_F ? FcitxKey_f : sym) == toggle_chord_held_) {
+    if (event.isRelease()) toggle_chord_held_ = FcitxKey_None;
+    return true;
+  }
   if (sym == FcitxKey_Alt_R && voice_ralt_held_) {
     if (event.isRelease()) {
       voice_ralt_held_ = false;
@@ -5595,14 +5629,28 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (sym == FcitxKey_space && ctrl && !shift &&
       (alt ? mode_ctrl_alt_space_enabled_ : true)) {
     if (composing) command(MSIME_COMMIT_RAW);
-    return toggleInputMode();
+    if (!toggleInputMode()) return false;
+    toggle_chord_held_ = sym;
+    return true;
   }
   if (sym == FcitxKey_space && ctrl && shift && !alt) {
     if (composing) command(MSIME_COMMIT_RAW);
-    return toggleWidth();
+    if (!toggleWidth()) return false;
+    toggle_chord_held_ = sym;
+    return true;
+  }
+  // Windows eats Ctrl+. with the IME closed too and flips its punctuation compartment, which a pinned lock holds in place. Nothing is saved: the next Chinese/English switch (resyncPunctuationForMode) undoes it.
+  if (!input_enabled_ && sym == FcitxKey_period && ctrl && !shift && !alt &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
+    if (!ic_.hasFocus() || restricted()) return false;
+    if (punctuation_lock_ == 0) {
+      english_chinese_punctuation_ = !english_chinese_punctuation_;
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+    }
+    return true;
   }
   if (!input_enabled_) {
-    // English mode still honours fullwidth output and the "always Chinese punctuation" lock, as Windows does with the IME closed; everything else passes through.
+    // English mode still honours fullwidth output, the "always Chinese punctuation" lock and a Ctrl+. choice made in English mode, as Windows does with the IME closed; everything else passes through.
     if (ctrl || alt ||
         states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper,
                                         fcitx::KeyState::Meta}) ||
@@ -5611,15 +5659,18 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     const bool keypad = sym >= FcitxKey_KP_Space && sym <= FcitxKey_KP_9;
     const auto text = msime::linux_host::english_mode_output(
         static_cast<char32_t>(fcitx::Key::keySymToUnicode(sym)), keypad,
-        punctuation_lock_ == 1, fullwidthOutput(), english_punctuation_);
+        punctuation_lock_ == 1 || (punctuation_lock_ == 0 && english_chinese_punctuation_),
+        fullwidthOutput(), english_punctuation_);
     if (text.empty()) return false;
     commitText(text, msime::linux_host::TypingSource::English);
     return true;
   }
   if (character_set_shortcut_enabled_ && ctrl && shift && !alt &&
       (sym == FcitxKey_f || sym == FcitxKey_F)) {
-    if (composing) command(MSIME_COMMIT_RAW);
-    return toggleTraditional();
+    // The composition stays: the character set only changes how its candidates are written, as on Windows.
+    if (!toggleTraditional()) return false;
+    toggle_chord_held_ = FcitxKey_f;
+    return true;
   }
   if (ctrl && shift && !alt && (sym == FcitxKey_e || sym == FcitxKey_E)) {
     if (composing) command(MSIME_COMMIT_RAW);

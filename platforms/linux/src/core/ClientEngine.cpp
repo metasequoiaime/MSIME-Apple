@@ -308,6 +308,8 @@ struct State {
   bool right_ctrl_down = false;
   bool left_ctrl_down = false;
   bool mode_chord_held = false;
+  // Ctrl+Shift+F owns its stroke the way mode_chord_held owns Space: repeats while it is held toggle nothing, even while the first toggle's save is still pending.
+  bool character_set_chord_held = false;
   std::set<guint> host_shortcut_strokes;
   gint64 modifier_toggle_deadline = 0;
   void reset_mode_modifiers() {
@@ -319,6 +321,7 @@ struct State {
     left_ctrl_down = false;
     modifier_toggle_deadline = 0;
     mode_chord_held = false;
+    character_set_chord_held = false;
     host_shortcut_strokes.clear();
   }
   bool mode_shift_enabled = true;
@@ -353,8 +356,10 @@ struct State {
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
   msime::linux_host::PairedPunctuationTracker paired_tracker;
-  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock; reset on every mode switch.
+  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock or after Ctrl+.; reset on every mode switch.
   msime::linux_host::EnglishPunctuationState english_punctuation;
+  // Ctrl+. pressed in English mode under the "follow" lock: English mode types Chinese punctuation until the next Chinese/English switch, as Windows does with its punctuation compartment on and the IME closed. Kept apart from chinese_punctuation, which a focus or preference refresh re-derives from the saved preference.
+  bool english_chinese_punctuation = false;
   // Japanese converts with Space and commits with Enter; see core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion;
   msime::linux_host::BackspaceHoldPolicy backspace_hold;
@@ -1147,7 +1152,8 @@ void commit_text(
   if (text.empty())
     return;
   auto &s = state(engine);
-  const auto source = source_override.value_or(typing_source(s));
+  // Only derive the source from the Engine view when the caller did not name one: English mode and sessionless voice commits have no view, and value_or would evaluate typing_source eagerly and throw on it.
+  const auto source = source_override ? *source_override : typing_source(s);
   ibus_engine_commit_text(engine, ibus_text_new_from_string(text.c_str()));
   record_typing_statistics(engine, text, source);
   s.remember_commit(text);
@@ -1186,6 +1192,8 @@ bool launch_desktop_panel(const char *panel) {
     g_error_free(error);
   return started != FALSE;
 }
+// Set by the maintenance stop shortcut so main() can tell the launcher's supervisor not to restart this process.
+bool maintenance_stop_requested = false;
 bool restart_ibus_service() {
   gchar *argv[] = {const_cast<gchar *>("ibus"),
                    const_cast<gchar *>("restart"), nullptr};
@@ -2386,14 +2394,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
       "VoiceInput", PROP_TYPE_TOGGLE,
       ibus_text_new_from_string(voice_label.c_str()), "",
       ibus_text_new_from_static_string("点击开始录音，再次点击结束录音并提交识别结果；Esc 取消"),
-      s.focused && !s.blocked && s.input_enabled && s.voice_enabled &&
+      s.focused && !s.blocked && s.voice_enabled &&
           !s.voice_provider_socket.empty() && !(s.voice_active && s.voice_stopping),
       TRUE, s.voice_active ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto voice_cancel_property = ibus_property_new(
       "VoiceCancel", PROP_TYPE_NORMAL,
       ibus_text_new_from_static_string("取消语音输入"), "",
       ibus_text_new_from_static_string("取消当前录音、识别或润色，不提交语音结果"),
-      s.focused && !s.blocked && s.input_enabled && s.session && s.voice_active,
+      s.focused && !s.blocked && s.voice_active,
       s.voice_active, PROP_STATE_UNCHECKED, nullptr);
   auto cloud = ibus_property_new(
       "CloudCandidates", PROP_TYPE_TOGGLE,
@@ -3096,6 +3104,7 @@ void clear(IBusEngine *engine) {
 void resync_punctuation_for_mode(IBusEngine *engine) {
   auto &s = state(engine);
   s.english_punctuation = {};
+  s.english_chinese_punctuation = false;
   if (s.punctuation_lock != "follow")
     return;
   s.punctuation_override.reset();
@@ -3172,6 +3181,14 @@ void sync_global_input_mode(IBusEngine *engine) {
     ibus_engine_update_property(engine, property);
     }
 }
+// A composition is drawn single-underlined, the IBus convention and what the Fcitx5 host does with TextFormatFlag::Underline; it is this platform's form of the dotted TF_LS_DOT attribute Windows gives its composition. Empty text and the clear paths carry no attribute.
+void underline_preedit(IBusText *text, guint length) {
+  if (length == 0)
+    return;
+  ibus_text_append_attribute(text, IBUS_ATTR_TYPE_UNDERLINE,
+                             IBUS_ATTR_UNDERLINE_SINGLE, 0,
+                             static_cast<gint>(length));
+}
 void render(IBusEngine *engine, const Json &view) {
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
@@ -3179,11 +3196,13 @@ void render(IBusEngine *engine, const Json &view) {
   const auto style = state(engine).preedit_style;
   if (state(engine).voice_active) {
     auto &s = state(engine);
+    const auto voice_length =
+        static_cast<guint>(g_utf8_strlen(s.voice_preedit.c_str(), -1));
+    auto voice_text = ibus_text_new_from_string(s.voice_preedit.c_str());
+    underline_preedit(voice_text, voice_length);
     ibus_engine_update_preedit_text_with_mode(
-        engine,
-        ibus_text_new_from_string(s.voice_preedit.c_str()),
-        static_cast<guint>(g_utf8_strlen(s.voice_preedit.c_str(), -1)),
-        !s.voice_preedit.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
+        engine, voice_text, voice_length, !s.voice_preedit.empty(),
+        IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
     s.rendered_candidates = Json::array();
     s.rendered_scheme = 255;
@@ -3232,8 +3251,12 @@ void render(IBusEngine *engine, const Json &view) {
       view.value("phrase_prefix", std::string{}), text, caret);
   text = composed.text;
   // IBus counts the cursor in Unicode scalars, and the piece is not ASCII.
+  auto preedit_text = ibus_text_new_from_string(text.c_str());
+  if (style != "empty")
+    underline_preedit(preedit_text, static_cast<guint>(
+                                        msime::linux_host::utf8_scalar_count(text)));
   ibus_engine_update_preedit_text_with_mode(
-      engine, ibus_text_new_from_string(text.c_str()),
+      engine, preedit_text,
       static_cast<guint>(style == "raw"
                              ? composed.caret_scalars
                              : msime::linux_host::utf8_scalar_count(text)),
@@ -3532,8 +3555,43 @@ extern "C" void voice_provider_stream_update(const uint8_t *text,
                        std::string(reinterpret_cast<const char *>(text), length)),
                    final);
 }
+// English mode has no Engine session to issue a voice generation, so the host numbers those recordings itself. The top bit keeps them apart from Engine generations, which count up from 1 in every session, so a late callback of one kind can never match a recording of the other.
+uint64_t next_sessionless_voice_generation() {
+  static uint64_t counter = 0;
+  return (uint64_t{1} << 63) | (++counter & ~(uint64_t{1} << 63));
+}
+// A callback still belongs to the recording on screen. A recording bound to an Engine session also ends with that session; one started in English mode has no session, and its host-issued generation is enough. The input mode is deliberately not checked: switching between Chinese and English does not end a recording, as on Windows.
+bool voice_result_current(const State &s, uint64_t generation, uint64_t session,
+                          uint64_t focus_epoch) {
+  return s.voice_active && s.voice_generation == generation &&
+         (session == 0 || s.session == session) &&
+         s.focus_epoch == focus_epoch && s.focused && !s.blocked;
+}
+// A recording can end in English mode with no Engine view to draw; then the voice preedit and the wave overlay have to come down here, since clear() does not touch the overlay the way render() does.
+void render_after_voice(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.session) {
+    render(engine, s.view);
+    return;
+  }
+  if (s.wave_overlay_surface && s.wave_overlay_visible) {
+    s.wave_overlay_surface->hide();
+    s.wave_overlay_visible = false;
+  }
+  s.wave_overlay.reset();
+  clear(engine);
+}
+// The scheme decides whether the traditional-output conversion applies. Without an Engine view (English mode) it comes from the configured scheme, so Japanese text is still left alone.
+Json voice_commit_context(const State &s) {
+  if (s.view.is_object())
+    return Json{{"scheme", s.view.value("scheme", 0)}, {"local_mode", "none"}};
+  const auto scheme = s.scheme_override.value_or(
+      configured.at("preferences").value("scheme", std::string("quanpin")));
+  return Json{{"scheme", scheme == "japanese" ? 3 : 0}, {"local_mode", "none"}};
+}
 void voice_cancel(IBusEngine *engine) {
   auto &s = state(engine);
+  const bool was_active = s.voice_active;
   if (s.voice_active && !s.voice_provider_socket.empty())
     msime_client_string_free(msime_client_voice_provider_cancel(
         reinterpret_cast<const uint8_t *>(s.voice_provider_socket.data()),
@@ -3556,8 +3614,8 @@ void voice_cancel(IBusEngine *engine) {
   s.wave_overlay.transcript.clear();
   s.voice_space_locked = false;
   s.voice_worker.cancel_async();
-  if (s.session)
-    render(engine, s.view);
+  if (s.session || was_active)
+    render_after_voice(engine);
   publish_mode(engine);
 }
 void show_voice_failure(IBusEngine *engine, const char *message) {
@@ -3631,19 +3689,25 @@ void voice_stop(IBusEngine *engine) {
 }
 void voice_start_impl(IBusEngine *engine) {
   auto &s = state(engine);
-  if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
-      !s.focused || s.blocked || !s.input_enabled || s.voice_active)
+  // Voice input stays available in English mode, as on Windows, where it is not part of the IME's open state.
+  if (!s.voice_enabled || s.voice_provider_socket.empty() ||
+      !s.focused || s.blocked || s.voice_active)
     return;
   const auto provider_options = msime::linux_host::voice_provider_options(
       configured.value("preferences", Json::object()));
-  const auto editing_text =
-      s.view.value("editing_text", std::string{});
-  const auto candidates = s.view.value("candidates", Json::array());
-  if (!editing_text.empty() ||
-      (candidates.is_array() && !candidates.empty()))
-    apply(engine, msime_client_command(s.session, MSIME_CANCEL));
-  const auto started = response(msime_client_voice_start(s.session));
-  const auto generation = started.get<uint64_t>();
+  uint64_t generation = 0;
+  if (s.session) {
+    const auto editing_text =
+        s.view.value("editing_text", std::string{});
+    const auto candidates = s.view.value("candidates", Json::array());
+    if (!editing_text.empty() ||
+        (candidates.is_array() && !candidates.empty()))
+      apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+    generation = response(msime_client_voice_start(s.session)).get<uint64_t>();
+  } else {
+    // English mode has no composition to cancel and no Engine to hand the result to; the result is committed as recognised.
+    generation = next_sessionless_voice_generation();
+  }
   const auto session_id = s.session;
   const auto focus_epoch = s.focus_epoch;
   s.voice_active = true;
@@ -3682,10 +3746,8 @@ void voice_start_impl(IBusEngine *engine) {
             std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
             if (!result->alive->load()) return G_SOURCE_REMOVE;
             auto &s = state(result->engine);
-            if (!s.voice_active || s.voice_generation != result->generation ||
-                s.session != result->session ||
-                s.focus_epoch != result->focus_epoch ||
-                !s.session || !s.focused || s.blocked || !s.input_enabled)
+            if (!voice_result_current(s, result->generation, result->session,
+                                      result->focus_epoch))
               return G_SOURCE_REMOVE;
             if (s.voice_stopping && result->text == "正在录音…") return G_SOURCE_REMOVE;
             s.voice_phase = std::move(result->text);
@@ -3708,10 +3770,9 @@ void voice_start_impl(IBusEngine *engine) {
             std::unique_ptr<VoiceResult> result(static_cast<VoiceResult *>(data));
             if (!result->alive->load()) return G_SOURCE_REMOVE;
             auto &s = state(result->engine);
-            if (!s.voice_active || s.voice_stopping || s.voice_generation != result->generation ||
-                s.session != result->session ||
-                s.focus_epoch != result->focus_epoch ||
-                !s.session || !s.focused || s.blocked || !s.input_enabled)
+            if (s.voice_stopping ||
+                !voice_result_current(s, result->generation, result->session,
+                                      result->focus_epoch))
               return G_SOURCE_REMOVE;
             if (s.voice_level != result->level) {
               s.voice_level = result->level;
@@ -3758,10 +3819,8 @@ void voice_start_impl(IBusEngine *engine) {
               if (!result->alive->load())
                 return G_SOURCE_REMOVE;
               auto &s = state(result->engine);
-              if (!s.voice_active || s.voice_generation != result->generation ||
-                s.session != result->session ||
-                s.focus_epoch != result->focus_epoch ||
-                  !s.session || !s.focused || s.blocked || !s.input_enabled)
+              if (!voice_result_current(s, result->generation, result->session,
+                                        result->focus_epoch))
                 return G_SOURCE_REMOVE;
               auto text = msime_voice_bound_result(std::move(result->text));
               if (result->inline_preedit) {
@@ -3788,12 +3847,9 @@ void voice_start_impl(IBusEngine *engine) {
               if (!result->alive->load())
                 return G_SOURCE_REMOVE;
               auto &s = state(result->engine);
-              if (!s.voice_active || s.voice_generation != result->generation ||
-                s.session != result->session ||
-                s.focus_epoch != result->focus_epoch ||
-                  !s.session || !s.focused || s.blocked || !s.input_enabled) {
+              if (!voice_result_current(s, result->generation, result->session,
+                                        result->focus_epoch))
                 return G_SOURCE_REMOVE;
-              }
               auto text = msime_voice_result_or_transcript(
                   std::move(result->text), s.voice_transcript, s.voice_preedit);
               try {
@@ -3805,7 +3861,7 @@ void voice_start_impl(IBusEngine *engine) {
                   s.voice_transcript.clear();
                   s.wave_overlay.transcript.clear();
                   s.voice_space_locked = false;
-                  render(result->engine, s.view);
+                  render_after_voice(result->engine);
                   publish_mode(result->engine);
                   show_voice_failure(result->engine,
                                      result->provider_failed
@@ -3813,11 +3869,16 @@ void voice_start_impl(IBusEngine *engine) {
                                          : "未识别到文字，请重新录音");
                   return G_SOURCE_REMOVE;
                 }
-                auto applied = response(msime_client_voice_apply(
-                    s.session, result->generation,
-                    reinterpret_cast<const uint8_t *>(text.data()), text.size()));
-                if (!applied.is_string())
-                  throw std::runtime_error("Voice result was rejected");
+                // A recording started in English mode has no Engine session to confirm its generation, so the provider text is committed as recognised; the currency check above already stands in for the Engine's.
+                auto recognised = text;
+                if (result->session != 0) {
+                  auto applied = response(msime_client_voice_apply(
+                      s.session, result->generation,
+                      reinterpret_cast<const uint8_t *>(text.data()), text.size()));
+                  if (!applied.is_string())
+                    throw std::runtime_error("Voice result was rejected");
+                  recognised = applied.get<std::string>();
+                }
                 s.voice_active = false;
                 s.voice_generation = 0;
                 s.voice_preedit.clear();
@@ -3825,14 +3886,12 @@ void voice_start_impl(IBusEngine *engine) {
                 s.wave_overlay.transcript.clear();
                 s.voice_space_locked = false;
                 auto committed = traditional_display(
-                    s, Json{{"scheme", s.view.value("scheme", 0)},
-                            {"local_mode", "none"}},
-                    applied.get<std::string>());
+                    s, voice_commit_context(s), std::move(recognised));
                 if (s.fullwidth)
                   committed = fullwidth_text(std::move(committed));
                 commit_text(result->engine, committed,
                             msime::linux_host::TypingSource::Voice);
-                render(result->engine, s.view);
+                render_after_voice(result->engine);
                 publish_mode(result->engine);
               } catch (...) {
                 // The shared Engine route can be refused after recognition
@@ -3840,9 +3899,7 @@ void voice_start_impl(IBusEngine *engine) {
                 // transcript rather than losing the completed recording.
                 try {
                   auto fallback = traditional_display(
-                      s, Json{{"scheme", s.view.value("scheme", 0)},
-                              {"local_mode", "none"}},
-                      std::move(text));
+                      s, voice_commit_context(s), std::move(text));
                   if (s.fullwidth)
                     fallback = fullwidth_text(std::move(fallback));
                   commit_text(result->engine, fallback,
@@ -3854,7 +3911,7 @@ void voice_start_impl(IBusEngine *engine) {
                   s.wave_overlay.transcript.clear();
                   s.voice_space_locked = false;
                   msime_client_string_free(msime_client_voice_cancel(s.session));
-                  render(result->engine, s.view);
+                  render_after_voice(result->engine);
                   publish_mode(result->engine);
                 } catch (...) {
                   s.voice_active = false;
@@ -3864,7 +3921,7 @@ void voice_start_impl(IBusEngine *engine) {
                   s.wave_overlay.transcript.clear();
                   s.voice_space_locked = false;
                   msime_client_string_free(msime_client_voice_cancel(s.session));
-                  render(result->engine, s.view);
+                  render_after_voice(result->engine);
                   publish_mode(result->engine);
                   show_voice_failure(result->engine,
                                      "语音结果处理失败，请重新录音");
@@ -4007,8 +4064,15 @@ void focus_in(IBusEngine *engine) {
     ibus_engine_get_surrounding_text(engine, nullptr, nullptr, nullptr);
     // Host shortcuts and presentation also apply before a runtime is needed.
     s.refresh_host_preferences(configured.at("preferences"));
+    // open() only resolves provider sockets when it creates a session, so an English-mode context would otherwise wait for the reload timer before voice input is reachable.
+    if (!s.session)
+      s.refresh_provider_sockets(engine);
+    const bool mode_before_restore = s.input_enabled;
     s.restore_app_input_mode();
     s.open();
+    // Windows re-resolves punctuation on every OPENCLOSE change, including one the focus brings, so a Ctrl+. choice or override from the previous app does not outlive the switch.
+    if (s.input_enabled != mode_before_restore)
+      resync_punctuation_for_mode(engine);
     s.key_router.set_lease(
         {s.client_token, s.focus_epoch,
          msime::linux_host::KeyRouterAdapter::lease_token(s.client_token,
@@ -4168,7 +4232,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   auto &s = state(engine);
   const std::string property_name = name ? name : "";
   if (property_name == "VoiceCancel") {
-    if (s.focused && !s.blocked && s.input_enabled && s.session && s.voice_active)
+    if (s.focused && !s.blocked && s.voice_active)
       guarded(engine, "voice_menu_cancel", [&] { voice_cancel(engine); });
     return;
   }
@@ -4314,8 +4378,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         (!s.clipboard_enabled || !s.input_enabled))
       return;
     if (property_name == "VoiceInput") {
-      if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
-          !s.input_enabled)
+      if (!s.voice_enabled || s.voice_provider_socket.empty())
         return;
       if (value == PROP_STATE_CHECKED)
         voice_start(engine);
@@ -5101,8 +5164,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (enabled != s.input_enabled) {
-      if (!enabled && s.voice_active)
-        voice_cancel(engine);
+      // A recording survives the switch, as with the mode shortcuts in toggle_input_mode.
       s.invalidate_providers();
       if (!enabled && s.session)
         apply(engine,
@@ -5115,6 +5177,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       if (s.session)
         apply(engine, msime_client_focus(s.session, enabled));
       clear(engine);
+      if (s.voice_active)
+        render(engine, s.view);
     }
     publish_mode(engine);
   });
@@ -5122,6 +5186,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
 void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
     state(engine).host_shortcut_strokes.clear();
+    // A chord release that never arrives must not swallow the next stroke of the same key.
+    state(engine).mode_chord_held = false;
+    state(engine).character_set_chord_held = false;
     state(engine).ai_context.clear();
     state(engine).native_compose.reset();
     state(engine).backspace_hold.reset();
@@ -5313,8 +5380,7 @@ void toggle_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
   s.native_compose.reset();
   s.paired_tracker.clear();
-  if (s.voice_active)
-    voice_cancel(engine);
+  // A recording survives the switch, as on Windows: voice input does not depend on the input mode.
   s.invalidate_providers();
   // Windows mode switching commits the reading string, not the candidate.
   if (s.input_enabled && s.session)
@@ -5328,6 +5394,8 @@ void toggle_input_mode(IBusEngine *engine) {
   if (s.session)
     apply(engine, msime_client_focus(s.session, s.input_enabled));
   clear(engine);
+  if (s.voice_active)
+    render(engine, s.view);
   publish_mode(engine);
   show_input_mode_hint(engine);
 }
@@ -5453,6 +5521,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (release) s.mode_chord_held = false;
     return TRUE;
   }
+  if ((key == IBUS_f || key == IBUS_F) && s.character_set_chord_held) {
+    if (release) s.character_set_chord_held = false;
+    return TRUE;
+  }
   if (flags & IBUS_RELEASE_MASK) {
     if (key == IBUS_space && s.voice_space_consumed) {
       s.voice_space_consumed = false;
@@ -5507,8 +5579,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
   if (!release && maintenance_exit_key && s.focused && !s.blocked) {
     s.host_shortcut_strokes.insert(host_stroke);
-    // Match the Windows maintenance shortcut: stop this user-owned IBus
-    // preview process without touching another IBus daemon or input source.
+    // Match the Windows maintenance shortcut: stop this user-owned IBus preview process without touching another IBus daemon or input source. main() turns the flag into msime_ibus_maintenance_stop_exit so the launcher's crash supervisor lets it stay stopped.
+    maintenance_stop_requested = true;
     ibus_quit();
     return TRUE;
   }
@@ -5526,6 +5598,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         ctrl_alt_space));
   const bool fullwidth_toggle = key == IBUS_space &&
                                 modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
+  const bool punctuation_toggle = modifiers == IBUS_CONTROL_MASK && key == IBUS_period;
   const bool character_set_chord =
       (key == IBUS_f || key == IBUS_F) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
@@ -5544,19 +5617,26 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       s.native_compose.reset();
     }
   }
-  // English mode still honours fullwidth output and the "always Chinese punctuation" lock, as Windows does with the IME closed; everything else passes through.
+  // English mode still honours fullwidth output, the "always Chinese punctuation" lock and a Ctrl+. choice made in English mode, as Windows does with the IME closed; everything else passes through.
   if (s.focused && !s.blocked && !s.input_enabled && !release &&
       (modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
     const bool keypad = key >= IBUS_KP_Space && key <= IBUS_KP_9;
     const auto text = msime::linux_host::english_mode_output(
-        ibus_keyval_to_unicode(key), keypad, s.punctuation_lock == "chinese",
+        ibus_keyval_to_unicode(key), keypad,
+        s.punctuation_lock == "chinese" ||
+            (s.punctuation_lock == "follow" && s.english_chinese_punctuation),
         s.fullwidth, s.english_punctuation);
     if (!text.empty()) {
       commit_text(engine, text, msime::linux_host::TypingSource::English);
       return TRUE;
     }
   }
-  if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle && !fullwidth_toggle) ||
+  // Voice shortcuts, Esc during a recording and the hold-to-record Space lock stay live in English mode, as on Windows.
+  const bool voice_key =
+      (s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers)) ||
+      (s.voice_active && (key == IBUS_Escape || (key == IBUS_space && s.voice_hold_key != 0)));
+  if (!s.focused || s.blocked ||
+      (!s.input_enabled && !mode_toggle && !fullwidth_toggle && !punctuation_toggle && !voice_key) ||
       (flags & IBUS_RELEASE_MASK))
     return FALSE;
   // Windows locks an active hold-to-record shortcut when Space is pressed.
@@ -5587,6 +5667,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return FALSE;
     if (menu_save_pending)
       return FALSE;
+    s.character_set_chord_held = true;
     const bool next = !s.traditional_output;
     const auto directory = configured.value("preferences_directory", std::string{});
     if (!directory.empty() && directory.front() == '/') {
@@ -5605,6 +5686,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return TRUE;
   }
   if (fullwidth_toggle) {
+    s.mode_chord_held = true;
     s.fullwidth = !s.fullwidth;
     s.paired_tracker.clear();
     guarded(engine, "toggle_character_width", [&] {
@@ -5776,8 +5858,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (mode_toggle) {
-      if (ctrl_alt_space)
-        s.mode_chord_held = true;
+      // Plain Ctrl+Space owns its stroke too: its auto-repeat used to flip the input mode on every repeat.
+      s.mode_chord_held = true;
       toggle_input_mode(engine);
       handled = true;
       return;
@@ -5794,8 +5876,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     } else {
       s.native_compose.reset();
     }
-    if (!s.input_enabled)
-      return;
     if (voice_hotkey(s, key, modifiers) && s.voice_enabled &&
         !s.voice_provider_socket.empty()) {
       // Windows keeps one active hold chord; another hold shortcut cannot
@@ -5825,6 +5905,24 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = true;
       return;
     }
+    // Windows eats Ctrl+. with the IME closed too and flips its punctuation compartment, which a pinned lock holds in place. The choice is session-only: it is never saved, and the next Chinese/English switch (resync_punctuation_for_mode) undoes it.
+    if (punctuation_toggle && !s.input_enabled) {
+      if (s.punctuation_lock == "follow") {
+        s.english_chinese_punctuation = !s.english_chinese_punctuation;
+        s.chinese_punctuation = s.english_chinese_punctuation;
+        s.punctuation_override = s.chinese_punctuation;
+        if (s.session) {
+          s.view = response(msime_client_set_chinese_punctuation(
+              s.session, s.chinese_punctuation));
+          s.session_chinese_punctuation = s.chinese_punctuation;
+        }
+        publish_mode(engine);
+      }
+      handled = true;
+      return;
+    }
+    if (!s.input_enabled)
+      return;
     if (!s.view.at("focused").get<bool>())
       apply(engine, msime_client_focus(s.session, true));
     if (try_skip_paired_closing(engine, key, flags)) {
@@ -6573,6 +6671,9 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
       publish_mode(engine);
     }
     sync_global_input_mode(engine);
+    // An English-mode recording has no session but still ends when voice input is turned off.
+    if (s.voice_active && !s.voice_enabled)
+      voice_cancel(engine);
     return;
   }
   if (preferences == s.applied_preferences_snapshot) {
@@ -7160,6 +7261,7 @@ void msime_ibus_configure(const std::string &options) {
                                          : std::string{});
   }
 }
+bool msime_ibus_maintenance_stop_requested() { return maintenance_stop_requested; }
 void msime_ibus_set_system_dark(bool dark) {
   if (system_dark != dark) {
     system_dark = dark;

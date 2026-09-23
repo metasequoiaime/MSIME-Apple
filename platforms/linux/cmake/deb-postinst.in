@@ -1,0 +1,33 @@
+#!/bin/sh
+# Debian postinst for msime-client, configured by CMakeLists.txt and shipped through CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA.
+#
+# The Windows installer stops the IME processes on upgrade and its post-install step starts the new ones. On Linux dpkg replaces the files under running user services, which keep executing the old programs until something restarts them. After an upgrade this reloads the systemd user manager of every user logind knows about, so it reads the new unit files, and restarts those of the MSIME services that are running. Services that are not running stay stopped, and socket units are not restarted: they run no program, and restarting a socket whose service is active is refused by systemd and would leave its path removed. A first installation has nothing running and does nothing.
+#
+# Nothing here may fail the package transaction. Without systemctl or loginctl (containers, non-systemd systems) it does nothing; a user manager that cannot be reached gets the command that user has to run.
+
+case "$1" in
+  configure) ;;
+  *) exit 0 ;;
+esac
+[ -n "$2" ] || exit 0
+
+command -v systemctl >/dev/null 2>&1 || exit 0
+command -v loginctl >/dev/null 2>&1 || exit 0
+users=$(loginctl list-users --no-legend 2>/dev/null) || exit 0
+
+while read -r uid name _; do
+  case "$uid" in
+    ''|*[!0-9]*) continue ;;
+  esac
+  if systemctl --user -M "$uid@" daemon-reload </dev/null >/dev/null 2>&1; then
+    for unit in @MSIME_USER_SERVICE_LIST@; do
+      systemctl --user -M "$uid@" try-restart "$unit" </dev/null >/dev/null 2>&1 || true
+    done
+  else
+    echo "msime-client: could not reach the systemd user manager of ${name:-uid $uid}; that user should restart its services: systemctl --user daemon-reload && systemctl --user try-restart @MSIME_USER_SERVICE_LIST@" >&2
+  fi
+done <<EOF
+$users
+EOF
+
+exit 0

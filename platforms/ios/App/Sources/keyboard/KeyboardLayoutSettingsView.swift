@@ -10,6 +10,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
+  @State private var saveFailed = false
 
   private enum Axis { case vertical, horizontal }
   private static let spacingDragScale: Double = 18
@@ -52,7 +53,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityValue(format(height))
       .accessibilityAdjustableAction { direction in
         height = clamp(height + (direction == .increment ? 2 : -2), -12, 48)
-        KeyboardLayoutPreference.heightAdjustment = height
+        save()
       }
   }
 
@@ -70,9 +71,11 @@ struct KeyboardLayoutSettingsView: View {
         let base = dragBase ?? snapshot()
         if dragBase == nil { dragBase = base }
         height = clamp(base.height - Double(value.translation.height), -12, 48)
-        KeyboardLayoutPreference.heightAdjustment = height
       }
-      .onEnded { _ in dragBase = nil }
+      .onEnded { _ in
+        dragBase = nil
+        save()
+      }
   }
 
   private var spacingDrag: some Gesture {
@@ -86,15 +89,14 @@ struct KeyboardLayoutSettingsView: View {
         switch axis {
         case .vertical:
           rowSpacing = clamp(base.rowSpacing + Double(value.translation.height) / Self.spacingDragScale, 4, 10)
-          KeyboardLayoutPreference.rowSpacing = rowSpacing
         case .horizontal:
           keySpacing = clamp(base.keySpacing + Double(value.translation.width) / Self.spacingDragScale, 3, 6)
-          KeyboardLayoutPreference.keySpacing = keySpacing
         }
       }
       .onEnded { _ in
         dragBase = nil
         dragAxis = nil
+        save()
       }
   }
 
@@ -114,21 +116,15 @@ struct KeyboardLayoutSettingsView: View {
     Form {
       Section {
         spacingRow("键盘高度", value: $height, range: -12...48, identifier: "appKeyboardHeightSlider",
-                   format: { $0 > 0 ? "+\(Int($0))" : "\(Int($0))" }) {
-          KeyboardLayoutPreference.heightAdjustment = $0
-        }
+                   format: { $0 > 0 ? "+\(Int($0))" : "\(Int($0))" })
       } header: {
         Text("键盘高度")
       } footer: {
-        Text("在系统键盘高度的基础上增减，按键会跟着变高。上面的预览实时跟着走；已经打开的键盘要重新唤出才生效。")
+        Text(saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : "在系统键盘高度的基础上增减，按键会跟着变高。上面的预览实时跟着走；已经打开的键盘要重新唤出才生效。")
       }
       Section {
-        spacingRow("按键间距", value: $keySpacing, range: 3...6, identifier: "appKeySpacingSlider") {
-          KeyboardLayoutPreference.keySpacing = $0
-        }
-        spacingRow("行间距", value: $rowSpacing, range: 4...10, identifier: "appRowSpacingSlider") {
-          KeyboardLayoutPreference.rowSpacing = $0
-        }
+        spacingRow("按键间距", value: $keySpacing, range: 3...6, identifier: "appKeySpacingSlider")
+        spacingRow("行间距", value: $rowSpacing, range: 4...10, identifier: "appRowSpacingSlider")
       } header: {
         Text("按键间距")
       } footer: {
@@ -137,7 +133,7 @@ struct KeyboardLayoutSettingsView: View {
       Section {
         Toggle("顶部语音入口", isOn: $voice)
           .accessibilityIdentifier("appVoiceShortcutSwitch")
-          .onChange(of: voice) { KeyboardLayoutPreference.voiceShortcutEnabled = $0 }
+          .onChange(of: voice) { _ in save() }
         NavigationLink(destination: ServiceSettingsView(kind: .voice)) {
           Label("语音设置", systemImage: "waveform")
         }.accessibilityIdentifier("voiceSettingsLink")
@@ -159,7 +155,7 @@ struct KeyboardLayoutSettingsView: View {
       }
       Section {
         Button("恢复默认", role: .destructive) {
-          KeyboardLayoutPreference.resetToDefaults()
+          saveFailed = !KeyboardLayoutPreference.resetGeometry()
           readPreferences()
         }
         .accessibilityIdentifier("appResetKeyboardSettings")
@@ -167,6 +163,13 @@ struct KeyboardLayoutSettingsView: View {
         Text("把这一页的间距和高度恢复成默认值。")
       }
     }
+  }
+
+  /// The drags and sliders only move the preview while they run; the settled value is saved here, into the shared document the keyboard reloads. A save the document refuses puts the page back to what is stored.
+  private func save() {
+    saveFailed = !KeyboardLayoutPreference.saveGeometry(
+      keySpacing: keySpacing, rowSpacing: rowSpacing, heightAdjustment: height, voiceShortcut: voice)
+    if saveFailed { readPreferences() }
   }
 
   private func readPreferences() {
@@ -177,6 +180,19 @@ struct KeyboardLayoutSettingsView: View {
     nineKey = InputSchemePreference.scheme == .nineKey
     voice = KeyboardLayoutPreference.voiceShortcutEnabled
     tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
+    // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
+    guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
+    if let tenths = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
+      keySpacing = clamp(tenths / 10, 3, 6)
+    }
+    if let tenths = (preferences["touch_row_spacing_tenths"] as? NSNumber)?.doubleValue {
+      rowSpacing = clamp(tenths / 10, 4, 10)
+    }
+    if let adjustment = (preferences["touch_keyboard_height_adjustment"] as? NSNumber)?.doubleValue,
+       adjustment.isFinite {
+      height = clamp(adjustment, -12, 48)
+    }
+    voice = preferences["touch_voice_shortcut"] as? Bool ?? voice
   }
 
   private func spacingRow(
@@ -184,8 +200,7 @@ struct KeyboardLayoutSettingsView: View {
     value: Binding<Double>,
     range: ClosedRange<Double>,
     identifier: String,
-    format: @escaping (Double) -> String = { String(format: "%.1f", $0) },
-    store: @escaping (Double) -> Void
+    format: @escaping (Double) -> String = { String(format: "%.1f", $0) }
   ) -> some View {
     VStack(alignment: .leading, spacing: 4) {
       HStack {
@@ -194,10 +209,10 @@ struct KeyboardLayoutSettingsView: View {
         Text(format(value.wrappedValue)).font(.callout).monospacedDigit()
           .foregroundStyle(.secondary)
       }
-      Slider(
-        value: Binding(get: { value.wrappedValue }, set: { value.wrappedValue = $0; store($0) }),
-        in: range
-      ).accessibilityIdentifier(identifier).accessibilityLabel(title)
+      // Written once the thumb is let go: the slider reports every frame, and each write takes the shared document's lock.
+      Slider(value: value, in: range) { editing in
+        if !editing { save() }
+      }.accessibilityIdentifier(identifier).accessibilityLabel(title)
     }
   }
 }

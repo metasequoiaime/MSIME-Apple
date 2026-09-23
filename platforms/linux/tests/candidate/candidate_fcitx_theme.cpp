@@ -7,6 +7,7 @@
 #include <iterator>
 #include <string>
 #include <unistd.h>
+#include <vector>
 
 namespace {
 
@@ -29,6 +30,36 @@ host::CandidateColors resolve(Json preferences, bool system_dark = false, const 
 std::string read(const std::filesystem::path &file) {
   std::ifstream in(file, std::ios::binary);
   return std::string(std::istreambuf_iterator<char>(in), {});
+}
+
+void write(const std::filesystem::path &file, const std::string &bytes) {
+  std::ofstream out(file, std::ios::binary | std::ios::trunc);
+  out << bytes;
+}
+
+// A PNG signature and IHDR chunk header, which is as much of the image as the host reads.
+std::string png(std::uint32_t height, char fill = 0) {
+  std::string bytes("\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x10", 20);
+  for (int shift = 24; shift >= 0; shift -= 8) bytes.push_back(static_cast<char>((height >> shift) & 0xffu));
+  bytes.append(16, fill);
+  return bytes;
+}
+
+// The value of the Overlay key in a theme, empty when it has none.
+std::string overlay_of(const std::string &theme) {
+  const auto start = theme.find("\nOverlay=");
+  if (start == std::string::npos) return {};
+  const auto value = start + std::string_view("\nOverlay=").size();
+  return theme.substr(value, theme.find('\n', value) - value);
+}
+
+std::vector<std::string> staged(const std::filesystem::path &directory) {
+  std::vector<std::string> names;
+  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
+    const auto name = entry.path().filename().string();
+    if (name.rfind("decoration-", 0) == 0) names.push_back(name);
+  }
+  return names;
 }
 
 }  // namespace
@@ -154,6 +185,92 @@ int main() {
   assert(host::write_fcitx_theme(file, graphite));
   assert(read(file) == graphite);
   assert(!std::filesystem::exists(file.string() + ".new"));
+
+  // A plain skin's theme has no overlay and keeps its content margin; one with a decoration names the image, pins it top right inside the outline, and reserves the band above the candidates.
+  assert(!contains(theme, "Overlay"));
+  assert(!contains(theme, "Gravity"));
+  const auto decorated = host::fcitx_candidate_theme(wechat_dark, host::FcitxThemeOverlay{"decoration-ab.png", 25, 15});
+  assert(contains(decorated, "[InputPanel/Background]\nColor=#151515\nBorderColor=#292929\nBorderWidth=1\n"
+                             "Overlay=decoration-ab.png\nGravity=Top Right\nOverlayOffsetX=1\nOverlayOffsetY=7\n"
+                             "HideOverlayIfOversize=False\n\n"
+                             "[InputPanel/Background/OverlayClipMargin]\nLeft=1\nRight=1\nTop=1\nBottom=1\n\n"
+                             "[InputPanel/Background/Margin]\nLeft=2\nRight=2\nTop=2\nBottom=2\n\n"
+                             "[InputPanel/ContentMargin]\nLeft=2\nRight=2\nTop=27\nBottom=2\n\n"));
+  // Taller than the band, the image is anchored to the band's bottom and cut at the panel's top; of unknown height it starts at the band's top.
+  assert(contains(host::fcitx_candidate_theme(wechat_dark, host::FcitxThemeOverlay{"decoration-ab.png", 25, 40}),
+                  "OverlayOffsetY=-13\n"));
+  assert(contains(host::fcitx_candidate_theme(wechat_dark, host::FcitxThemeOverlay{"decoration-ab.svg", 25, std::nullopt}),
+                  "OverlayOffsetY=2\n"));
+  // Without an outline the image reaches the panel's edge.
+  assert(contains(host::fcitx_candidate_theme(willow, host::FcitxThemeOverlay{"decoration-ab.png", 25, 25}),
+                  "OverlayOffsetX=0\nOverlayOffsetY=2\n"));
+  assert(host::fcitx_png_height(png(48)) == 48);
+  assert(!host::fcitx_png_height("GIF89a" + std::string(32, '\0')));
+  assert(!host::fcitx_png_height(png(0)));
+
+  // Staging copies the image next to theme.conf under a content-hash name, and the theme names that copy.
+  const auto skins = root / "skins";
+  std::filesystem::create_directories(skins);
+  write(skins / "ears.png", png(15, 'a'));
+  write(skins / "tall.PNG", png(40, 'b'));
+  write(skins / "halo.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+  write(skins / "notes.txt", "not an image");
+  const auto directory = file.parent_path();
+  const host::CandidateSkinDecoration ears{(skins / "ears.png").string(), 24.5, 180};
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, ears));
+  const auto ears_theme = read(file);
+  const auto ears_copy = overlay_of(ears_theme);
+  assert(ears_copy.rfind("decoration-", 0) == 0 && ears_copy.size() == 11 + 16 + 4);
+  assert(ears_copy.compare(ears_copy.size() - 4, 4, ".png") == 0);
+  assert(read(directory / ears_copy) == png(15, 'a'));
+  assert(contains(ears_theme, "OverlayOffsetY=7\n") && contains(ears_theme, "Top=27\n"));
+  assert(staged(directory) == std::vector<std::string>{ears_copy});
+  // An unchanged image is not written again.
+  const auto copied = std::filesystem::last_write_time(directory / ears_copy);
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, ears));
+  assert(std::filesystem::last_write_time(directory / ears_copy) == copied);
+  // A changed image gets a new name, so the classic UI cannot keep showing the old picture, and the old copy goes.
+  write(skins / "ears.png", png(15, 'c'));
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, ears));
+  const auto repainted = overlay_of(read(file));
+  assert(repainted != ears_copy && staged(directory) == std::vector<std::string>{repainted});
+
+  // Switching skins removes the previous skin's image; the extension is kept lower-cased, since it picks the loader.
+  const host::CandidateSkinDecoration tall{(skins / "tall.PNG").string(), 24.5, 180};
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, tall));
+  const auto tall_theme = read(file);
+  const auto tall_copy = overlay_of(tall_theme);
+  assert(tall_copy.compare(tall_copy.size() - 4, 4, ".png") == 0);
+  assert(contains(tall_theme, "OverlayOffsetY=-13\n"));
+  assert(staged(directory) == std::vector<std::string>{tall_copy});
+  const host::CandidateSkinDecoration halo{(skins / "halo.svg").string(), 30, 100};
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, halo));
+  const auto halo_theme = read(file);
+  assert(contains(halo_theme, "OverlayOffsetY=2\n") && contains(halo_theme, "Top=32\n"));
+  assert(staged(directory) == std::vector<std::string>{overlay_of(halo_theme)});
+
+  // A plain skin, or an image that cannot be staged, leaves MSIME's colours with no overlay and no copy behind.
+  for (const auto &unusable : {host::CandidateSkinDecoration{(skins / "notes.txt").string(), 24, 180},
+                               host::CandidateSkinDecoration{(skins / "missing.png").string(), 24, 180},
+                               host::CandidateSkinDecoration{skins.string(), 24, 180}}) {
+    assert(host::write_fcitx_candidate_theme(file, wechat_dark, halo));
+    assert(host::write_fcitx_candidate_theme(file, wechat_dark, unusable));
+    assert(read(file) == theme && staged(directory).empty());
+  }
+  write(skins / "empty.png", "");
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, host::CandidateSkinDecoration{(skins / "empty.png").string(), 24, 180}));
+  assert(read(file) == theme && staged(directory).empty());
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, halo));
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, std::nullopt));
+  assert(read(file) == theme && staged(directory).empty());
+
+  // The stamp stands in for the image between refreshes: nothing without a decoration, and a different one once the image changes.
+  assert(host::fcitx_overlay_stamp(std::nullopt).empty());
+  const auto before = host::fcitx_overlay_stamp(ears);
+  assert(contains(before, (skins / "ears.png").string()));
+  assert(host::fcitx_overlay_stamp(ears) == before);
+  write(skins / "ears.png", png(15, 'c') + "longer");
+  assert(host::fcitx_overlay_stamp(ears) != before);
   std::filesystem::remove_all(root);
   return 0;
 }
