@@ -109,11 +109,14 @@ int main(int argc, char **argv) {
     options["voice_provider_socket"] = voiceSocketPath;
     const auto path = std::string(directory) + "/runtime-options.json";
     std::ofstream(path) << options.dump();
+    // The online, cloud clipboard and voice steps come many seconds after these providers start listening (the whole run takes 8 to 15 seconds in the build-gate container, more under load), and the Fcitx5 host only dispatches the online request once the test polls for it, so each accept window spans the run instead of its first few seconds.
+    constexpr int kProviderAcceptMs = 30000;
     std::thread provider([providerServer, ai, suggestion] {
       const auto reply = Json{{"text", suggestion}, {"source", ai ? 1 : 0}}.dump() + "\n";
-      for (int attempt = 0; attempt < 1; ++attempt) {
+      // AI input sends a cache-only probe on every change before the real request (#594). The probe is answered with no candidates, as the provider does on a cache miss, and does not use up the one real request this fixture serves; the connection cap only bounds a runaway host.
+      for (int served = 0, connections = 0; served < 1 && connections < 64; ++connections) {
         pollfd descriptor{providerServer, POLLIN, 0};
-        if (poll(&descriptor, 1, 7000) <= 0) break;
+        if (poll(&descriptor, 1, kProviderAcceptMs) <= 0) break;
         const int client = accept(providerServer, nullptr, nullptr);
         if (client < 0) break;
         std::string request;
@@ -127,18 +130,25 @@ int main(int argc, char **argv) {
           if (count <= 0) break;
           request.append(chunk, count);
         }
+        bool cacheOnly = false;
+        try {
+          cacheOnly = Json::parse(request.substr(0, request.find('\n')))
+                          .at("query").value("ai_cache_only", false);
+        } catch (...) {}
+        const auto answer = cacheOnly ? std::string("{\"candidates\":[]}\n") : reply;
         if (request.find('\n') == std::string::npos ||
-            send(client, reply.data(), reply.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(reply.size())) {
+            send(client, answer.data(), answer.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(answer.size())) {
           close(client); break;
         }
         close(client);
+        if (!cacheOnly) ++served;
       }
       close(providerServer);
     });
     struct ProviderJoiner { std::thread &thread; ~ProviderJoiner() { if (thread.joinable()) thread.join(); } } providerJoiner{provider};
     auto cloudProvider = std::async(std::launch::async, [cloudServer] {
       pollfd ready{cloudServer, POLLIN, 0};
-      if (poll(&ready, 1, 5000) <= 0) { close(cloudServer); return false; }
+      if (poll(&ready, 1, kProviderAcceptMs) <= 0) { close(cloudServer); return false; }
       const int client = accept(cloudServer, nullptr, nullptr);
       if (client < 0) { close(cloudServer); return false; }
       char request[4096]{};
@@ -151,7 +161,7 @@ int main(int argc, char **argv) {
     });
     auto voiceProvider = std::async(std::launch::async, [voiceServer] {
       pollfd ready{voiceServer, POLLIN, 0};
-      if (poll(&ready, 1, 5000) <= 0) { close(voiceServer); return false; }
+      if (poll(&ready, 1, kProviderAcceptMs) <= 0) { close(voiceServer); return false; }
       const int client = accept(voiceServer, nullptr, nullptr);
       if (client < 0) { close(voiceServer); return false; }
       char request[4096]{};
@@ -448,6 +458,9 @@ int main(int argc, char **argv) {
     state->input_enabled_ = true;
     state->restoreInputMode();
     require(!state->input_enabled_, "application input mode is restored for the client");
+    // Put Chinese mode back for this client: everything below types into the Engine, and leaving the remembered English mode in place made the first of those keys (the nine-key digit) pass straight through to the application.
+    state->input_enabled_ = true;
+    state->rememberInputMode();
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects preference");
@@ -730,11 +743,16 @@ int main(int argc, char **argv) {
     fcitx::KeyEvent passthrough(&ic, fcitx::Key(FcitxKey_n));
     engine.keyEvent(entry, passthrough);
     require(!passthrough.accepted(), "disabled input mode passes keys through");
+    // A toggle chord owns its stroke until the release, so every press here is followed by one.
     const auto ctrlSpace = [&] {
       fcitx::KeyEvent event(
           &ic, fcitx::Key(FcitxKey_space, fcitx::KeyStates(fcitx::KeyState::Ctrl)));
       engine.keyEvent(entry, event);
-      return event.accepted();
+      const bool accepted = event.accepted();
+      fcitx::KeyEvent release(
+          &ic, fcitx::Key(FcitxKey_space, fcitx::KeyStates(fcitx::KeyState::Ctrl)), true);
+      engine.keyEvent(entry, release);
+      return accepted;
     };
     require(ctrlSpace(), "Ctrl+Space is handled during English passthrough");
     require(state->input_enabled_, "Ctrl+Space restores Chinese input");
@@ -744,6 +762,11 @@ int main(int argc, char **argv) {
         &ic, fcitx::Key(FcitxKey_space,
                         fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}));
     engine.keyEvent(entry, ctrlAltSpace);
+    fcitx::KeyEvent ctrlAltSpaceRelease(
+        &ic, fcitx::Key(FcitxKey_space,
+                        fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}),
+        true);
+    engine.keyEvent(entry, ctrlAltSpaceRelease);
     require(ctrlAltSpace.accepted(),
             "enabled Ctrl+Alt+Space is handled during English passthrough");
     require(state->input_enabled_, "Ctrl+Alt+Space restores Chinese input");
@@ -752,6 +775,41 @@ int main(int argc, char **argv) {
       engine.keyEvent(entry, event);
       return event.accepted();
     };
+    // Ctrl+Shift+F flips the character set once per press and leaves the composition in place, as on Windows: auto-repeat while it is held is swallowed, and the release (a lowercase f once Shift is let go first) ends the hold.
+    {
+      require(key(FcitxKey_h) && key(FcitxKey_a) && key(FcitxKey_n) && key(FcitxKey_y) && key(FcitxKey_u),
+              "Ctrl+Shift+F test composes hanyu");
+      const auto preedit = ic.inputPanel().clientPreedit().toString();
+      const auto committed = ic.committed;
+      require(ic.inputPanel().candidateList() && ic.inputPanel().candidateList()->size() > 0,
+              "Ctrl+Shift+F test has candidates");
+      const auto first = ic.inputPanel().candidateList()->candidate(0).text().toString();
+      require(!state->traditional_, "Ctrl+Shift+F test starts simplified");
+      const fcitx::KeyStates ctrlShift{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift};
+      for (int press = 0; press < 3; ++press) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_F, ctrlShift));
+        engine.keyEvent(entry, event);
+        require(event.accepted(), "a held Ctrl+Shift+F press is consumed");
+        require(state->traditional_, "a held Ctrl+Shift+F flips the character set only once");
+      }
+      fcitx::KeyEvent release(&ic, fcitx::Key(FcitxKey_f, fcitx::KeyStates(fcitx::KeyState::Ctrl)), true);
+      engine.keyEvent(entry, release);
+      require(release.accepted(), "the Ctrl+Shift+F release is consumed after Shift is let go");
+      require(ic.inputPanel().clientPreedit().toString() == preedit && ic.committed == committed,
+              "Ctrl+Shift+F keeps the composition instead of committing it");
+      require(ic.inputPanel().candidateList() && ic.inputPanel().candidateList()->size() > 0 &&
+                  ic.inputPanel().candidateList()->candidate(0).text().toString().rfind(
+                      msime_linux_simplified_to_traditional(first), 0) == 0,
+              "Ctrl+Shift+F rewrites the open candidates in traditional characters");
+      fcitx::KeyEvent back(&ic, fcitx::Key(FcitxKey_F, ctrlShift));
+      engine.keyEvent(entry, back);
+      fcitx::KeyEvent backRelease(&ic, fcitx::Key(FcitxKey_F, ctrlShift), true);
+      engine.keyEvent(entry, backRelease);
+      require(back.accepted() && backRelease.accepted() && !state->traditional_,
+              "the next Ctrl+Shift+F press switches back to simplified");
+      require(key(FcitxKey_Escape) && ic.inputPanel().clientPreedit().toString().empty(),
+              "Escape clears the Ctrl+Shift+F test composition");
+    }
     // English mode keeps the "always Chinese punctuation" lock and fullwidth output, as Windows does with the IME closed; without either, keys pass through. The lock is set on the host field directly so no preference save races the checks.
     {
       require(ctrlSpace() && !state->input_enabled_, "English output test starts in English");
@@ -778,6 +836,9 @@ int main(int argc, char **argv) {
       fcitx::KeyEvent widen(&ic, fcitx::Key(FcitxKey_space,
                                             fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}));
       engine.keyEvent(entry, widen);
+      fcitx::KeyEvent widenRelease(&ic, fcitx::Key(FcitxKey_space,
+                                                   fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}), true);
+      engine.keyEvent(entry, widenRelease);
       require(widen.accepted() && state->fullwidthOutput(), "Ctrl+Shift+Space turns on fullwidth in English mode");
       require(committedBy(FcitxKey_a) == std::make_pair(true, std::string("ａ")),
               "fullwidth English mode widens a letter");
@@ -788,6 +849,9 @@ int main(int argc, char **argv) {
       fcitx::KeyEvent narrow(&ic, fcitx::Key(FcitxKey_space,
                                              fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}));
       engine.keyEvent(entry, narrow);
+      fcitx::KeyEvent narrowRelease(&ic, fcitx::Key(FcitxKey_space,
+                                                    fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}), true);
+      engine.keyEvent(entry, narrowRelease);
       require(narrow.accepted() && !state->fullwidthOutput(), "Ctrl+Shift+Space restores halfwidth");
       require(ctrlSpace() && state->input_enabled_, "English output test returns to Chinese");
       // Under the follow lock a mode switch re-resolves punctuation: English mode takes ASCII marks, and coming back restores Chinese ones even after a Ctrl+. choice.
@@ -939,79 +1003,6 @@ int main(int argc, char **argv) {
     engine.cloud_clipboard_item2_.activate(&ic);
     require(ic.committed == beforeCloudSecond + "云剪贴板第二条",
             "cloud clipboard menu commits selected provider entry");
-    fcitx::KeyEvent voiceHotkey(&ic,
-        fcitx::Key(FcitxKey_F9, fcitx::KeyStates{fcitx::KeyState::Ctrl}));
-    engine.keyEvent(entry, voiceHotkey);
-    require(voiceHotkey.accepted(), "Ctrl+F9 starts voice input");
-    require(state->wave_overlay_.actions_visible && state->wave_overlay_.listening,
-            "voice start arms the native wave overlay actions");
-    bool observedVoicePartial = false;
-    bool observedVoicePreedit = false;
-    const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (ic.committed.find("语音测试") == std::string::npos &&
-           std::chrono::steady_clock::now() < voiceDeadline) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      if (state->voice_mailbox_) {
-        std::lock_guard lock(state->voice_mailbox_->mutex);
-        observedVoicePartial = observedVoicePartial || state->voice_mailbox_->partial == "语音中";
-      }
-      state->refreshVoice();
-      observedVoicePreedit = observedVoicePreedit ||
-                             ic.inputPanel().clientPreedit().toString() == "语音中";
-    }
-    require(observedVoicePartial || state->voice_partial_seen_, "voice action receives provider partial text");
-    require(observedVoicePreedit,
-            "streaming Doubao text reaches preedit in tsf commit mode");
-    require(state->voice_phase_seen_ && state->voice_level_seen_,
-            "voice action receives provider status and level");
-    require(ic.committed.find("语音测试") != std::string::npos, "voice action commits provider text");
-    require(ic.inputPanel().clientPreedit().empty(),
-            "final voice result clears streaming preedit");
-    require(!state->wave_overlay_visible_, "voice completion hides the native wave overlay");
-    require(voiceProvider.get(), "voice socket protocol");
-    Json statistics;
-    const auto statisticsDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (std::chrono::steady_clock::now() < statisticsDeadline) {
-      const auto request = Json{{"directory", preferenceDirectory},
-                                {"action", Json{{"operation", "load"}}}}.dump();
-      statistics = response(msime_client_typing_statistics(
-          reinterpret_cast<const uint8_t *>(request.data()), request.size()));
-      if (statistics.value("total", uint64_t{}) > 0) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    require(statistics.value("total", uint64_t{}) > 0,
-            "committed Fcitx text is recorded in aggregate typing statistics");
-    state->voice_loading_ = true;
-    state->voice_ralt_held_ = true;
-    state->voice_hotkey_hold_space_lock_ = true;
-    fcitx::KeyEvent voiceLockDown(&ic, fcitx::Key(FcitxKey_space));
-    engine.keyEvent(entry, voiceLockDown);
-    require(voiceLockDown.accepted() && state->voice_space_locked_ &&
-                state->voice_space_consumed_,
-            "Space locks an active hold-to-record voice shortcut");
-    state->voice_loading_ = false;
-    state->voice_ralt_held_ = false;
-    state->voice_space_consumed_ = false;
-    state->voice_space_locked_ = false;
-    const auto committedBeforeCancel = ic.committed;
-    state->voice_job_ = std::async(std::launch::async, [] {
-      std::this_thread::sleep_for(std::chrono::milliseconds(250));
-      return Json{{"text", "已取消语音"}};
-    }).share();
-    state->voice_loading_ = true;
-    state->voice_socket_.clear();
-    state->voice_generation_ = 0;
-    const auto cancelStarted = std::chrono::steady_clock::now();
-    require(state->cancelVoice(), "voice cancellation accepts an active delayed provider");
-    require(std::chrono::steady_clock::now() - cancelStarted < std::chrono::milliseconds(100),
-            "voice cancellation does not wait for the provider future");
-    const auto cancelDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (state->voice_job_.valid() && std::chrono::steady_clock::now() < cancelDeadline) {
-      state->refreshVoice();
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    require(!state->voice_job_.valid(), "cancelled voice future is reclaimed asynchronously");
-    require(ic.committed == committedBeforeCancel, "cancelled voice result is not committed");
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
       require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");
@@ -1077,7 +1068,88 @@ int main(int argc, char **argv) {
     require(ic.committed == beforePunctuation + "，", "Unicode scalar cursor context");
     ic.surroundingText().setText("A", 1, 1);
     require(key(FcitxKey_apostrophe), "ASCII apostrophe enters punctuation routing");
-    require(ic.committed == beforePunctuation + "，‘", "apostrophe follows shared punctuation policy");
+    // Paired completion is on by default (#579), so the opening quote arrives with its closing mark, as on Windows.
+    require(ic.committed == beforePunctuation + "，‘’", "apostrophe follows shared punctuation policy");
+    // Voice input replaces an open composition, as on Windows and in the IBus host, so this runs after the checks that need the refocus composition and brings a composition of its own.
+    require(key(FcitxKey_n) && key(FcitxKey_i) &&
+                ic.inputPanel().clientPreedit().toString() == "ni",
+            "composition before voice input");
+    const auto committedBeforeVoice = ic.committed;
+    fcitx::KeyEvent voiceHotkey(&ic,
+        fcitx::Key(FcitxKey_F9, fcitx::KeyStates{fcitx::KeyState::Ctrl}));
+    engine.keyEvent(entry, voiceHotkey);
+    require(voiceHotkey.accepted(), "Ctrl+F9 starts voice input");
+    require(state->wave_overlay_.actions_visible && state->wave_overlay_.listening,
+            "voice start arms the native wave overlay actions");
+    bool observedVoicePartial = false;
+    bool observedVoicePreedit = false;
+    const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (ic.committed.find("语音测试") == std::string::npos &&
+           std::chrono::steady_clock::now() < voiceDeadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      if (state->voice_mailbox_) {
+        std::lock_guard lock(state->voice_mailbox_->mutex);
+        observedVoicePartial = observedVoicePartial || state->voice_mailbox_->partial == "语音中";
+      }
+      state->refreshVoice();
+      observedVoicePreedit = observedVoicePreedit ||
+                             ic.inputPanel().clientPreedit().toString() == "语音中";
+    }
+    require(observedVoicePartial || state->voice_partial_seen_, "voice action receives provider partial text");
+    require(observedVoicePreedit,
+            "streaming Doubao text reaches preedit in tsf commit mode");
+    require(state->voice_phase_seen_ && state->voice_level_seen_,
+            "voice action receives provider status and level");
+    require(ic.committed == committedBeforeVoice + "语音测试",
+            "voice action commits provider text in place of the composition");
+    // render() always writes one segment, empty when nothing is composing, and fcitx::Text::empty() counts segments rather than text, so the check is on the text the client shows.
+    require(ic.inputPanel().clientPreedit().toString().empty(),
+            "final voice result clears streaming preedit");
+    require(!state->wave_overlay_visible_, "voice completion hides the native wave overlay");
+    require(voiceProvider.get(), "voice socket protocol");
+    Json statistics;
+    const auto statisticsDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < statisticsDeadline) {
+      const auto request = Json{{"directory", preferenceDirectory},
+                                {"action", Json{{"operation", "load"}}}}.dump();
+      statistics = response(msime_client_typing_statistics(
+          reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+      if (statistics.value("total", uint64_t{}) > 0) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(statistics.value("total", uint64_t{}) > 0,
+            "committed Fcitx text is recorded in aggregate typing statistics");
+    state->voice_loading_ = true;
+    state->voice_ralt_held_ = true;
+    state->voice_hotkey_hold_space_lock_ = true;
+    fcitx::KeyEvent voiceLockDown(&ic, fcitx::Key(FcitxKey_space));
+    engine.keyEvent(entry, voiceLockDown);
+    require(voiceLockDown.accepted() && state->voice_space_locked_ &&
+                state->voice_space_consumed_,
+            "Space locks an active hold-to-record voice shortcut");
+    state->voice_loading_ = false;
+    state->voice_ralt_held_ = false;
+    state->voice_space_consumed_ = false;
+    state->voice_space_locked_ = false;
+    const auto committedBeforeCancel = ic.committed;
+    state->voice_job_ = std::async(std::launch::async, [] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+      return Json{{"text", "已取消语音"}};
+    }).share();
+    state->voice_loading_ = true;
+    state->voice_socket_.clear();
+    state->voice_generation_ = 0;
+    const auto cancelStarted = std::chrono::steady_clock::now();
+    require(state->cancelVoice(), "voice cancellation accepts an active delayed provider");
+    require(std::chrono::steady_clock::now() - cancelStarted < std::chrono::milliseconds(100),
+            "voice cancellation does not wait for the provider future");
+    const auto cancelDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (state->voice_job_.valid() && std::chrono::steady_clock::now() < cancelDeadline) {
+      state->refreshVoice();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(!state->voice_job_.valid(), "cancelled voice future is reclaimed asynchronously");
+    require(ic.committed == committedBeforeCancel, "cancelled voice result is not committed");
     require(key(FcitxKey_n), "restart composition");
     ic.setCapabilityFlags(fcitx::CapabilityFlag::Password);
     require(state->session_ == 0, "password capability immediately closes session");

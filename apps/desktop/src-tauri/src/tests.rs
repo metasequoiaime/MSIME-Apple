@@ -588,6 +588,11 @@ fn an_invalid_dictionary_entry_keeps_its_own_code() {
         super::dictionary_error_code("dictionary edit rejected"),
         "storage"
     );
+    // A bundled word refused a new code or text is told it can only be re-weighted or deleted.
+    assert_eq!(
+        super::dictionary_error_code("bundled dictionary entry is read-only"),
+        "dictionary_bundled_readonly"
+    );
 }
 
 #[test]

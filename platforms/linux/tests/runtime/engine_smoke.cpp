@@ -328,6 +328,8 @@ int main(int argc, char **argv) {
     ibus_init();
     auto bus = g_test_dbus_new(G_TEST_DBUS_NONE);
     g_test_dbus_up(bus);
+    // g_test_dbus_up() calls g_test_dbus_unset(), which clears XDG_RUNTIME_DIR so a test never reaches the user's bus. Set it again, or the host has no runtime directory and the panel input socket never opens.
+    g_setenv("XDG_RUNTIME_DIR", runtime.c_str(), TRUE);
     auto connect = [&] {
       return g_dbus_connection_new_for_address_sync(
           g_test_dbus_get_bus_address(bus),
@@ -537,6 +539,106 @@ int main(int argc, char **argv) {
       invoke("FocusOut");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
+      // Voice input is not part of the input mode, as on Windows: it records in English mode, where no Engine session exists yet, and switching modes mid-recording does not cancel it.
+      auto english_voice = options;
+      english_voice.erase("preferences_directory");
+      english_voice["preferences"]["ime_mode_scope"] = "app";
+      english_voice["preferences"]["default_ime_mode"] = "english";
+      english_voice["preferences"]["keybindings"]["switch_language_shift"] = true;
+      msime_ibus_configure(english_voice.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      require(!seen.input_enabled, "English voice fixture did not start in English mode");
+      // The menu entry records too, and Esc still cancels, without an Engine session.
+      auto voice_starts = voice_provider.started.load();
+      auto voice_cancels = voice_provider.cancelled.load();
+      auto voice_finals = voice_provider.finished.load();
+      invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Voice menu did not start recording in English mode");
+      voice_provider.release_partial = true;
+      require(wait_until([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
+              "English-mode recording did not show streaming preedit");
+      require(key(IBUS_Escape) && !seen.preedit_visible && seen.committed.empty(),
+              "Esc did not cancel an English-mode recording");
+      require(wait_until([&] { return voice_provider.cancelled.load() == voice_cancels + 1; }),
+              "Esc did not cancel English-mode capture at the provider");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return voice_provider.finished.load() == voice_finals + 1; }),
+              "Cancelled English-mode provider did not finish");
+      // Ctrl+F9 starts, stops and commits a recording without ever leaving English mode, so the result lands with no Engine session or view to render.
+      voice_starts = voice_provider.started.load();
+      voice_cancels = voice_provider.cancelled.load();
+      auto voice_stops = voice_provider.stop_requests.load();
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 was not consumed in English mode");
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Ctrl+F9 did not start recording in English mode");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 did not stop an English-mode recording");
+      require(wait_until([&] { return voice_provider.stop_requests.load() == voice_stops + 1; }),
+              "Ctrl+F9 stop did not reach the provider in English mode");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return !seen.committed.empty(); }),
+              "English-mode recording without a mode switch did not commit");
+      require(seen.committed == "synthetic voice" && !seen.preedit_visible &&
+                  !seen.input_enabled && voice_provider.cancelled.load() == voice_cancels,
+              "English-mode recording did not commit the provider text once and stay in English mode");
+      seen.committed.clear();
+      // Ctrl+F9 starts a recording in English mode; a Shift switch to Chinese leaves it running, and the provider text is committed without an Engine session to confirm it.
+      voice_starts = voice_provider.started.load();
+      voice_cancels = voice_provider.cancelled.load();
+      voice_stops = voice_provider.stop_requests.load();
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 was not consumed in English mode");
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Ctrl+F9 did not start recording in English mode");
+      voice_provider.release_partial = true;
+      require(wait_until([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
+              "Ctrl+F9 English-mode recording did not show streaming preedit");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Shift did not switch to Chinese during an English-mode recording");
+      require(seen.preedit == "测试😀" && seen.preedit_visible,
+              "Switching modes took down the voice preedit");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 did not stop the recording after the mode switch");
+      require(wait_until([&] { return voice_provider.stop_requests.load() == voice_stops + 1; }),
+              "Ctrl+F9 stop did not reach the provider after the mode switch");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return seen.committed == "synthetic voice"; }),
+              "English-mode recording did not commit the provider text");
+      require(voice_provider.cancelled.load() == voice_cancels && !seen.preedit_visible,
+              "Switching modes cancelled an English-mode recording");
+      seen.committed.clear();
+      // A recording bound to the Engine session in Chinese mode survives a switch to English and still goes through the Engine.
+      voice_starts = voice_provider.started.load();
+      voice_stops = voice_provider.stop_requests.load();
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 was not consumed in Chinese mode");
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Ctrl+F9 did not start recording in Chinese mode");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && !seen.input_enabled,
+              "Shift did not switch to English during a Chinese-mode recording");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 did not stop the Chinese-mode recording in English mode");
+      require(wait_until([&] { return voice_provider.stop_requests.load() == voice_stops + 1; }),
+              "Ctrl+F9 stop did not reach the provider in English mode");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return seen.committed == "synthetic voice"; }),
+              "Chinese-mode recording did not commit after switching to English");
+      require(voice_provider.cancelled.load() == voice_cancels,
+              "Switching to English cancelled a Chinese-mode recording");
+      seen.committed.clear();
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
       // Under the "follow" lock the mode switch re-resolves punctuation: a Ctrl+. choice made in Chinese mode does not survive a round trip through English mode, and English mode leaves ASCII marks alone.
       auto follow = options;
       follow.erase("preferences_directory");
@@ -708,7 +810,12 @@ int main(int argc, char **argv) {
       for (char c : std::string("zaijian"))
         require(key(c), "AI-only fixture input was not consumed");
       settle_online();
-      require(provider.online_requests == 4, "Disabling cloud also disabled configured AI requests");
+      require(provider.online_requests == 4,
+              ("Disabling cloud also disabled configured AI requests: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
+      // Windows AiAssistant shows a cached answer before the idle delay, so every input change also sends an immediate cache-only probe; those never reach the network and are not part of the debounced count above.
+      require(provider.ai_cache_probes > 0, "AI input did not send the immediate cache probe");
       // Private and no-spellcheck fields keep their pinyin and committed text on the machine, as Fcitx5 does: no cloud, AI or translation request while typing there, and nothing committed there reaches the next field's AI context.
       require(provider.requests > 0, "Ordinary field did not request candidate translations");
       auto content_hints = [&](guint hints) {
@@ -717,6 +824,7 @@ int main(int argc, char **argv) {
       };
       content_hints(IBUS_INPUT_HINT_PRIVATE);
       const auto translations_before = provider.requests.load();
+      const auto probes_before = provider.ai_cache_probes.load();
       const auto private_before = seen.committed;
       phrase();
       require(key(IBUS_space) && seen.committed == private_before + "你好",
@@ -730,6 +838,8 @@ int main(int argc, char **argv) {
                   .c_str());
       require(provider.requests == translations_before,
               "Private field dispatched a candidate translation request");
+      require(provider.ai_cache_probes == probes_before,
+              "Private field dispatched an AI cache probe");
       content_hints(0);
       for (char c : std::string("zaijian"))
         require(key(c), "Ordinary field input was not consumed after a private field");
@@ -1492,9 +1602,22 @@ int main(int argc, char **argv) {
             "Ctrl+Alt+Space restore release was not consumed");
     require(key(IBUS_space, IBUS_CONTROL_MASK), "Ctrl+Space was not consumed");
     require(!seen.input_enabled, "Ctrl+Space did not enter English mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Space release was not consumed");
     require(key(IBUS_space, IBUS_CONTROL_MASK),
             "Ctrl+Space could not restore input mode");
     require(seen.input_enabled, "Ctrl+Space did not restore input mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Space restore release was not consumed");
+    // Holding Ctrl+Space auto-repeats the press; the mode flips once for the whole stroke, as on Windows.
+    for (int press = 0; press < 3; ++press)
+      require(key(IBUS_space, IBUS_CONTROL_MASK) && !seen.input_enabled,
+              "Held Ctrl+Space toggled the input mode more than once");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK) && !seen.input_enabled,
+            "Held Ctrl+Space release was not consumed");
+    require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK) && seen.input_enabled,
+            "Ctrl+Space after a held stroke did not toggle again");
     // Once Ctrl+Alt+Space is consumed, the entire Space stroke belongs to
     // the shortcut even if its modifiers or configured binding change.
     for (guint remaining : {0u, guint(IBUS_CONTROL_MASK), guint(IBUS_MOD1_MASK),
@@ -1604,8 +1727,12 @@ int main(int argc, char **argv) {
       }
       return ready();
     };
+    // The English-mode voice cases above already used the shared provider fixture, whose counters only grow.
+    const auto base_voice_starts = voice_provider.started.load();
+    const auto base_voice_cancels = voice_provider.cancelled.load();
+    const auto base_voice_finals = voice_provider.finished.load();
     invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
-    require(wait_voice([&] { return voice_provider.started.load() == 1; }),
+    require(wait_voice([&] { return voice_provider.started.load() == base_voice_starts + 1; }),
             "Synthetic voice capture did not start");
     require(seen.first_candidate_fix_name.empty() &&
                 seen.first_candidate_clear_name.empty(),
@@ -1618,13 +1745,19 @@ int main(int argc, char **argv) {
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
     require(seen.preedit == "测试😀" && seen.preedit_cursor == 3 && seen.preedit_visible,
             "Voice preedit redraw used a UTF-8 byte offset");
+    // Switching modes through the menu keeps the recording, like the mode shortcuts.
     mode(PROP_STATE_UNCHECKED);
-    require(!seen.preedit_visible, "Voice cancellation left streaming preedit visible");
-    require(wait_voice([&] { return voice_provider.cancelled.load() == 1; }),
-            "Disabling input through the menu did not cancel voice capture");
+    require(!seen.input_enabled && seen.preedit == "测试😀" && seen.preedit_visible,
+            "Disabling input through the menu took down the voice recording");
     mode(PROP_STATE_CHECKED);
+    require(seen.input_enabled && seen.preedit == "测试😀" && seen.preedit_visible,
+            "Re-enabling input through the menu took down the voice recording");
+    require(key(IBUS_Escape) && !seen.preedit_visible,
+            "Voice cancellation left streaming preedit visible");
+    require(wait_voice([&] { return voice_provider.cancelled.load() == base_voice_cancels + 1; }),
+            "Esc did not cancel voice capture after the menu mode switches");
     voice_provider.release_final = true;
-    require(wait_voice([&] { return voice_provider.finished.load() == 1; }),
+    require(wait_voice([&] { return voice_provider.finished.load() == base_voice_finals + 1; }),
             "Synthetic late voice result did not finish");
     const auto voice_settle = g_get_monotonic_time() + 100000;
     while (g_get_monotonic_time() < voice_settle) {
@@ -1632,14 +1765,14 @@ int main(int argc, char **argv) {
       g_usleep(1000);
     }
     require(seen.committed.empty() && seen.input_enabled,
-            "Cancelled voice result committed after input was re-enabled");
+            "Cancelled voice result committed late");
     invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
-    require(wait_voice([&] { return voice_provider.started.load() == 2; }),
-            "Voice capture could not restart after mode cancellation");
+    require(wait_voice([&] { return voice_provider.started.load() == base_voice_starts + 2; }),
+            "Voice capture could not restart after cancellation");
     voice_provider.release_final = true;
     const bool fresh_committed = wait_voice([&] { return seen.committed == "synthetic voice"; });
     require(fresh_committed,
-            "Fresh voice result did not commit after mode cancellation");
+            "Fresh voice result did not commit after cancellation");
     seen.committed.clear();
     // Recreating the Engine session on the same IBus object must invalidate
     // callbacks from the old session, even when the voice generation resets.
@@ -2426,17 +2559,20 @@ int main(int argc, char **argv) {
             "Shortcut was intercepted or left stale composition");
     require(seen.committed == committed,
             "Shortcut unexpectedly committed input");
-    require(key(IBUS_space, IBUS_CONTROL_MASK),
+    require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
             "Control-space toggle was not handled");
     require(!key('n'), "Disabled input consumed a character");
     invoke("PropertyActivate",
            g_variant_new("(su)", "InputEnabled", PROP_STATE_CHECKED));
     require(key('n'), "InputEnabled property did not re-enable input");
     invoke("Reset");
-    require(key(IBUS_space, IBUS_CONTROL_MASK),
+    require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
             "Control-space disable was not handled");
     require(!key('n'), "Disabled input consumed a character after property toggle");
-    require(key(IBUS_space, IBUS_CONTROL_MASK),
+    require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
             "Control-space re-enable was not handled");
     require(key('n'), "Re-enabled input did not consume a character");
     invoke("Reset");
@@ -2496,8 +2632,19 @@ int main(int argc, char **argv) {
       }
     };
     require(!seen.traditional_output, "Traditional output did not start disabled");
+    // Holding Ctrl+Shift+F auto-repeats the press. A repeat while the first toggle's save is pending belongs to the shortcut instead of reaching the editor, and one after the save landed does not flip the setting back.
     require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
             "Ctrl+Shift+F was not consumed");
+    require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+F repeat during the pending save reached the editor");
+    settle();
+    require(seen.traditional_output, "First Ctrl+Shift+F did not apply traditional output");
+    require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+F repeat after the save was not consumed");
+    settle();
+    require(seen.traditional_output, "Held Ctrl+Shift+F repeat toggled the character set back");
+    require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Shift+F release was not consumed");
     settle();
     std::ifstream saved_preferences(root / "preferences.json");
     nlohmann::json saved_snapshot;
@@ -2869,11 +3016,14 @@ int main(int argc, char **argv) {
       require(panel_key("n", 49) && panel_key("i", 23) && panel_key("h", 35) &&
                   panel_key("a", 30) && panel_key("o", 24),
               "Screen keyboard letters were refused");
-      require(wait_until([&] { return seen.preedit_visible && seen.preedit == "nihao"; }),
+      require(wait_until([&] { return seen.preedit_visible && seen.preedit == "nihao"; }) &&
+                  !seen.candidates.empty(),
               "Screen keyboard letters did not compose");
+      // Earlier sections select and learn nihao candidates, so the first one is whatever the ranking now puts there, as every other phrase() check in this file assumes.
+      const auto composed = before + seen.candidates.front();
       require(panel_key("space", 57), "Screen keyboard Space was refused");
       require(wait_until([&] { return seen.committed != before; }) &&
-                  seen.committed == before + "你好" && seen.forwarded.empty(),
+                  seen.committed == composed && seen.forwarded.empty(),
               "Screen keyboard typed raw letters instead of composing");
       // A composition started on the physical keyboard: the screen keyboard's digits select from it and its BackSpace edits it.
       phrase();
@@ -2917,7 +3067,8 @@ int main(int argc, char **argv) {
       key(IBUS_Escape);
       key(IBUS_Escape, IBUS_RELEASE_MASK);
       // In English mode the engine passes the letter on untouched, as one whole stroke.
-      require(key(IBUS_space, IBUS_CONTROL_MASK) && !seen.input_enabled,
+      require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                  key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK) && !seen.input_enabled,
               "Ctrl+Space did not enter English mode for the screen keyboard");
       seen.forwarded.clear();
       require(panel_key("n", 49), "Screen keyboard letter in English mode was refused");
@@ -2927,7 +3078,8 @@ int main(int argc, char **argv) {
                   seen.forwarded[1].keyval == 'n' &&
                   (seen.forwarded[1].state & IBUS_RELEASE_MASK) != 0 && !seen.preedit_visible,
               "Screen keyboard letter in English mode did not reach the editor as one stroke");
-      require(key(IBUS_space, IBUS_CONTROL_MASK) && seen.input_enabled,
+      require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                  key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK) && seen.input_enabled,
               "Ctrl+Space did not restore Chinese mode after the screen keyboard");
     }
     invoke("Disable");

@@ -185,6 +185,31 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # The provider rules stay in the two policies rather than being restated here.
         self.assertIn("DoubaoAsrPolicy.usable(", configuration)
         self.assertIn("HttpAsrPolicy.usable(", configuration)
+        # The keyboard's own copy must not name an engine the request may not use. It said
+        # "系统语音识别" on the button that now honours a configured provider, which was wrong for
+        # exactly the users who had configured one.
+        self.assertNotIn("开始系统语音识别", service)
+        self.assertNotIn("点击下方按钮使用系统语音识别", service)
+        self.assertIn("开始语音识别", service)
+
+    def test_the_recording_window_can_be_ended_without_losing_the_transcript(self):
+        """This activity never set a content view, so every path put a blank dialog on screen. The
+        platform recogniser stops itself when the speaker stops; a provider and the streaming
+        socket run to a sixty-second cap, and Back cancels. Without a Done button there was no way
+        to end a recording and keep what was said."""
+        activity = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+        ).read_text()
+        self.assertIn("private void showRecordingControls()", activity)
+        self.assertIn("setContentView(root)", activity)
+        # Both paths that cannot end themselves show it.
+        streaming = activity.index("private void startStreamingRecognition()")
+        provider = activity.index("private void startProviderRecognition()")
+        self.assertIn("showRecordingControls();", activity[streaming:streaming + 400])
+        self.assertIn("showRecordingControls();", activity[provider:provider + 400])
+        # Done ends the recording and keeps the result; Cancel is the one that discards.
+        self.assertIn("stopRecognition();", activity)
+        self.assertIn("cancel.setOnClickListener(ignored -> cancelRecognition());", activity)
 
 
 if __name__ == "__main__":

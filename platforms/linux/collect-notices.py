@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Collect the license texts of third-party code built into the Linux release.
+"""Collect the license texts of third-party code built into the Linux and Windows releases.
 
-The shared host library is a Rust cdylib and the desktop settings binary is a Rust binary, so both statically link their crate graphs; the desktop binary also embeds a web frontend bundled from npm packages. MIT, Apache-2.0 and the other licenses in those graphs require their notices to travel with binary copies, and no distribution copyright file covers them because nothing is linked dynamically. package-container.sh runs this script and hands the output to CMake as MSIME_RUST_NOTICES and MSIME_FRONTEND_NOTICES.
+The shared host library is a Rust cdylib and the desktop settings binary is a Rust binary, so both statically link their crate graphs; the desktop binary also embeds a web frontend bundled from npm packages. MIT, Apache-2.0 and the other licenses in those graphs require their notices to travel with binary copies, and no distribution copyright file covers them because nothing is linked dynamically. package-container.sh runs this script and hands the output to CMake as MSIME_RUST_NOTICES and MSIME_FRONTEND_NOTICES; the Windows release workflow runs it on the Windows runner, so Cargo resolves the Windows graph, and hands the output to Collect-Notices.ps1 as supplemental notices.
 
   collect-notices.py cargo OUTPUT PACKAGE[:FEATURES] ...   crates reachable through normal, non-proc-macro edges from each workspace package, as Cargo resolves them for the host target
   collect-notices.py npm OUTPUT PACKAGE_DIR                npm packages reachable through dependencies/optionalDependencies from PACKAGE_DIR, resolved through node_modules the way Node resolves them
@@ -64,7 +64,7 @@ def collect_cargo(output: Path, roots: list[str]) -> None:
             if declared.is_file() and declared not in {path.resolve() for path in files}:
                 files.append(declared)
         entries.append((key[0], key[1], package.get("license") or "no license declared", files))
-    write_notices(output, "Rust crates statically linked into the MSIME Linux host library and desktop binary", entries)
+    write_notices(output, "Rust crates statically linked into the MSIME host library and binaries", entries)
 
 
 def resolve_node_package(name: str, start: Path) -> Path | None:
