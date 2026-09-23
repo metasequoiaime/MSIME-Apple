@@ -1916,6 +1916,8 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 
 **AI 那一半的时序。** 来源防抖 650ms、连接 2500ms、总计 8000ms，命中缓存时跳过防抖直接出；缓存键是 provider + endpoint + model + 分段拼音。macOS 的 `_aiTimer` 是 0.65 秒，`client-core/src/ai.rs` 的 descriptor 是 2500/8000，`MSIMEAICacheKey` 是同样四项，命中时也是直接 apply 不等防抖。唯一差别是本仓给缓存加了 4096 条上限而来源不清（只在 Stop 时清），方向是更严。
 
+**Linux 的 AI 时序后补对齐（2026-09-23）。** 上一段只核了 macOS，Linux 当时并不一致：IBus 与 Fcitx5 两个引擎把云候选和 AI 共用一个 500ms 防抖，provider 的 AI 请求总计 7 秒且不单独限连接，缓存命中也要等满防抖。现在两个引擎分开计时（云 500ms、AI 650ms）；输入一变就先向 provider 发一次只查缓存的探测（`OnlineQuery.ai_cache_only`，provider 在这种请求上连云候选也不查、未命中也绝不出网），命中立刻上屏，未命中才在 650ms 后发真请求。provider 的 AI 请求改为总计 8 秒、连接 2.5 秒（`ConnectBoundedHTTPSConnection` 只在握手阶段用 2.5 秒，读响应仍是 8 秒），引擎侧等 AI 回包的 socket 期限相应放到 9 秒，多出的一秒留给子进程启动，云候选与缓存探测仍是 500ms。顺带修掉设置页「润色测试」永远失败的问题：它向 HTTP 子进程要 8 秒，而子进程的上限写死 7 秒、超限直接拒绝，于是每次都返回空；原有用例全部 mock 了 `fetch`，走不到这道校验，所以一直没被发现。现在上限与调用方共用 `AI_REQUEST_TIMEOUT`，`ai_candidate_cache.py` 用真实的子进程校验逻辑跑一遍候选请求与润色测试，`scripts/test-cloud-request-budget.py` 把 Linux 的这几个数钉在 `client-core/src/ai.rs` 的 descriptor 上。
+
 **本批唯一真动的地方**：macOS 在建会话时额外请求 `phrase_preedit`（第二十七批加的），此前没有任何用例钉住——这个请求一旦丢了，半截词会退回逐段上屏，而那看起来就是普通打字，没有别的东西会发现。把这一步抽成 `MSIMESessionOptions` 并在 `ShortcutTest` 钉住：请求被加上、文件原有的键原样透传、不修改调用方的字典、以及「文件里写着 `phrase_preedit: false` 也不作数」——旧文件根本早于这个行为。反向验证过。
 
 增量记录（2026-09-21，Windows 第三十四批：给「半截词」的分期推广加一道守卫）：目标起点 `d49536d18`。

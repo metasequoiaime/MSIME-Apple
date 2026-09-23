@@ -42,6 +42,64 @@ HOSTS = [
 # worker fetches over WinHTTP and gives resolve, connect, send and receive 2000 ms each.
 REFERENCE = {"CONNECT": 2000, "REQUEST": 2000}
 
+# The AI candidate has its own budget. client-core's AI descriptor carries the reference's 2500 ms connect and 8000 ms total, and Windows AiAssistant waits 650 ms of idle input before asking (the cloud candidate waits 500 ms). The Linux hosts do not read the descriptor: the online provider fetches with its own Python constants and both engines hold their own idle timers, so those literals are pinned here against the descriptor.
+AI_DESCRIPTOR = ROOT / "crates/client-core/src/ai.rs"
+LINUX_PROVIDER = ROOT / "platforms/linux/scripts/msime-client-online-provider"
+LINUX_TRANSPORT = ROOT / "crates/input-runtime/src/providers.rs"
+LINUX_IBUS = ROOT / "platforms/linux/src/core/ClientEngine.cpp"
+LINUX_FCITX = ROOT / "platforms/linux/fcitx5/FcitxEngine.cpp"
+AI_IDLE_DELAY_MS = 650
+CLOUD_IDLE_DELAY_MS = 500
+
+
+def linux_ai_budget(failures: list[str]) -> bool:
+    paths = [AI_DESCRIPTOR, LINUX_PROVIDER, LINUX_TRANSPORT, LINUX_IBUS, LINUX_FCITX]
+    if not all(path.is_file() for path in paths):
+        return False
+    descriptor = AI_DESCRIPTOR.read_text(encoding="utf-8")
+    match = re.search(r'"timeout_ms":(\d+),"connect_timeout_ms":(\d+)', descriptor)
+    if not match:
+        failures.append("client-core's AI descriptor no longer declares timeout_ms and connect_timeout_ms")
+        return True
+    total_ms, connect_ms = int(match.group(1)), int(match.group(2))
+
+    provider = LINUX_PROVIDER.read_text(encoding="utf-8")
+    for name, expected_ms in (("AI_REQUEST_TIMEOUT", total_ms), ("AI_CONNECT_TIMEOUT", connect_ms)):
+        found = re.search(rf"^{name} = ([0-9.]+)$", provider, re.M)
+        if not found or round(float(found.group(1)) * 1000) != expected_ms:
+            failures.append(
+                f"the Linux online provider's {name} is {found.group(1) if found else None} s, and client-core's AI descriptor asks for {expected_ms} ms"
+            )
+    # The worker refuses any deadline above its cap, so a cap below the caller's budget silently rejects every request (ai_polish_test once asked for 8 s against a 7 s cap).
+    if "not 0 < timeout <= AI_REQUEST_TIMEOUT" not in provider:
+        failures.append("the Linux HTTP worker no longer caps its deadline at AI_REQUEST_TIMEOUT")
+    if not re.search(r"fetch\(config\[\"endpoint\"\], AI_REQUEST_TIMEOUT,[^)]*connect_timeout=AI_CONNECT_TIMEOUT\)", provider):
+        failures.append("the Linux AI candidate request does not use AI_REQUEST_TIMEOUT and AI_CONNECT_TIMEOUT")
+
+    # The engine's socket deadline must outlast the provider's budget, or a reply the provider accepts at the edge is dropped on the way back.
+    transport = LINUX_TRANSPORT.read_text(encoding="utf-8")
+    found = re.search(r"ai_cache_only[^{]*\{[^}]*Duration::from_secs\((\d+)\)", transport)
+    if not found or int(found.group(1)) * 1000 <= total_ms:
+        failures.append(
+            f"the Linux online transport waits {found.group(1) if found else None} s for an AI reply, which does not outlast the {total_ms} ms budget"
+        )
+
+    ibus = LINUX_IBUS.read_text(encoding="utf-8")
+    for name, expected in (("kAiIdleDelayMs", AI_IDLE_DELAY_MS), ("kCloudIdleDelayMs", CLOUD_IDLE_DELAY_MS)):
+        found = re.search(rf"constexpr guint {name} = (\d+);", ibus)
+        if not found or int(found.group(1)) != expected:
+            failures.append(
+                f"the IBus engine's {name} is {found.group(1) if found else None}, and the reference waits {expected} ms"
+            )
+    fcitx = LINUX_FCITX.read_text(encoding="utf-8")
+    for name, expected in (("ai_due_", AI_IDLE_DELAY_MS), ("online_due_", CLOUD_IDLE_DELAY_MS)):
+        found = re.search(rf"{name} = now \+ std::chrono::milliseconds\((\d+)\);", fcitx)
+        if not found or int(found.group(1)) != expected:
+            failures.append(
+                f"the Fcitx5 engine's {name} delay is {found.group(1) if found else None} ms, and the reference waits {expected} ms"
+            )
+    return True
+
 
 def declared(path: pathlib.Path, pattern: str) -> dict[str, int]:
     text = path.read_text(encoding="utf-8")
@@ -90,6 +148,8 @@ def main() -> int:
         # *set* this request's deadline count: a line that checks a value the shared layer declared
         # in a descriptor is the host holding the contract, which is the opposite of drift.
 
+    linux_ai = linux_ai_budget(failures)
+
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
@@ -98,6 +158,10 @@ def main() -> int:
         f"cloud request budget: connect {REFERENCE['CONNECT']} ms, total {REFERENCE['REQUEST']} ms, "
         f"read from the shared declaration by {len(HOSTS)} hosts"
     )
+    if linux_ai:
+        print(
+            f"linux AI candidate budget: idle {AI_IDLE_DELAY_MS} ms (cloud {CLOUD_IDLE_DELAY_MS} ms), matching client-core's AI descriptor"
+        )
     return 0
 
 

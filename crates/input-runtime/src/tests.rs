@@ -136,6 +136,50 @@ fn credential_test_provider_keeps_request_and_response_bounded() {
 
 #[cfg(unix)]
 #[test]
+fn online_provider_forwards_the_ai_cache_probe_flag() {
+    let mut query: OnlineQuery = serde_json::from_value(json!({
+        "scheme": 0, "generation": 3, "identity": "identity", "query_text": "nihao",
+        "cache_key": "cache", "pinyin_segments": ["ni", "hao"], "cloud_eligible": true,
+        "ai_eligible": true, "cloud_candidates": false, "session_id": 5,
+        "ai_assistant": {"enabled": true, "provider": "synthetic", "model": "synthetic-model",
+                         "endpoint": "https://ai.invalid/v1/chat/completions"},
+    }))
+    .unwrap();
+    // Absent in every document a host already produces, so only the Linux probe carries it.
+    assert!(!query.ai_cache_only);
+    assert!(serde_json::to_value(&query)
+        .unwrap()
+        .get("ai_cache_only")
+        .is_none());
+    query.ai_cache_only = true;
+
+    let directory = private_tempdir();
+    let socket = directory.path().join("online.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+        let mut line = String::new();
+        std::io::BufRead::read_line(&mut reader, &mut line).unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["kind"], "online");
+        assert_eq!(request["query"]["ai_cache_only"], true);
+        let mut stream = stream;
+        std::io::Write::write_all(
+            &mut stream,
+            "{\"candidates\":[{\"text\":\"你好\",\"source\":1}]}\n".as_bytes(),
+        )
+        .unwrap();
+    });
+    assert_eq!(
+        UnixSocketProvider::new(socket).query_candidates(query),
+        Some(vec![("你好".to_owned(), 1)])
+    );
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn translation_provider_rejects_controls_at_the_socket_boundary() {
     let directory = private_tempdir();
     let request_socket = directory.path().join("translation-request.sock");
@@ -1079,6 +1123,7 @@ fn online_provider_worker_is_bounded_and_filters_invalid_results() {
         session_id: 9,
         ai_context: String::new(),
         ai_assistant: None,
+        ai_cache_only: false,
     };
     let worker = OnlineProviderWorker::spawn(1, |query| {
         if query.query_text == "nihao" {
@@ -1123,6 +1168,7 @@ fn cloud_request_requires_eligible_query() {
         session_id: 1,
         ai_context: String::new(),
         ai_assistant: None,
+        ai_cache_only: false,
     };
     assert!(cloud_request_url(&query).is_none());
     query.cloud_eligible = true;
