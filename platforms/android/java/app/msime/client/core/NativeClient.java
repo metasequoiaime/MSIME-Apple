@@ -175,6 +175,15 @@ public final class NativeClient {
      * <p>The host still widens what it commits on its own, but anything the Engine finishes -
      * candidates, local input modes, Japanese kana - is only reachable here.
      */
+    /**
+     * Route the Chinese/English punctuation state through the runtime.
+     *
+     * <p>The Engine decides what a punctuation key produces, so a toggle that only changed the key
+     * faces on this keyboard would show one mark and commit the other.
+     */
+    public static String setChinesePunctuation(long session, boolean enabled) {
+        return text(setChinesePunctuationRaw(session, enabled));
+    }
     public static String setCharacterWidth(long session, boolean fullwidth) {
         return text(setCharacterWidthRaw(session, fullwidth));
     }
@@ -312,6 +321,7 @@ public final class NativeClient {
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
+    private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
     private static native byte[] punctuationWithContextRaw(long session, int ascii,

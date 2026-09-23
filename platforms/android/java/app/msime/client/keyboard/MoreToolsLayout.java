@@ -51,6 +51,7 @@ public final class MoreToolsLayout {
             case "语音结果" -> "◉";
             case "繁体输出" -> "繁";
             case "全角输入" -> "Ａ";
+            case "中文标点" -> "，";
             case "按键音" -> "♪";
             case "按键振动" -> "◌";
             case "振动强度" -> "↕";

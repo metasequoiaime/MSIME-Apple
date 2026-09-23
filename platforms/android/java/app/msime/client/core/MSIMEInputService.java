@@ -284,6 +284,9 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean fullWidthInput;
     /** The shared preference this session started from, so only a change to it overrides the toggle. */
     private boolean fullWidthPreference;
+    /** Mirrors the runtime's Chinese/English punctuation state; the card and the chord move it. */
+    private boolean chinesePunctuation = true;
+    private boolean chinesePunctuationPreference = true;
     private boolean traditionalChineseOutput;
     private int editorInputType;
     private long currentDocumentIdentifier;
@@ -468,6 +471,9 @@ public final class MSIMEInputService extends InputMethodService {
         fullWidthPreference = preferences != null && CharacterWidthPolicy.preferenceIsFullWidth(
             preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
         if (session == 0) fullWidthInput = fullWidthPreference;
+        chinesePunctuationPreference = preferences == null
+            || preferences.optBoolean("chinese_punctuation", true);
+        if (session == 0) chinesePunctuation = chinesePunctuationPreference;
         wordCharacterBinding = wordCharacterBindingFrom(preferences);
         candidatePreeditStyle = CandidatePreeditStylePolicy.style(preferences == null ? null
             : preferences.optString("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
@@ -964,6 +970,7 @@ public final class MSIMEInputService extends InputMethodService {
             apply(NativeClient.focus(session, true));
             view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
             applyCharacterWidth(fullWidthPreference);
+            applyChinesePunctuation(chinesePunctuationPreference);
             refreshEnglishSuggestions();
             render();
             message = "MSIME Preview";
@@ -1263,6 +1270,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextNumberRowSelection = preferences.optBoolean("number_row_selection", true);
         boolean nextFullWidthPreference = CharacterWidthPolicy.preferenceIsFullWidth(
             preferences.optString(CharacterWidthPolicy.PREFERENCE_KEY, "halfwidth"));
+        boolean nextChinesePunctuation = preferences.optBoolean("chinese_punctuation", true);
         String nextWordCharacterBinding = wordCharacterBindingFrom(preferences);
         String nextCandidatePreeditStyle = CandidatePreeditStylePolicy.style(
             preferences.optString("candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
@@ -1324,6 +1332,11 @@ public final class MSIMEInputService extends InputMethodService {
         boolean characterWidthChanged =
             CharacterWidthPolicy.overridesToggle(fullWidthPreference, nextFullWidthPreference);
         fullWidthPreference = nextFullWidthPreference;
+        // Same rule as the width: only a change to 中文标点 itself overrides a toggle the user
+        // made, so saving any other setting cannot quietly drop it.
+        boolean punctuationChanged =
+            CharacterWidthPolicy.overridesToggle(chinesePunctuationPreference, nextChinesePunctuation);
+        chinesePunctuationPreference = nextChinesePunctuation;
         wordCharacterBinding = nextWordCharacterBinding;
         candidatePreeditStyle = nextCandidatePreeditStyle;
         candidateNavigation = nextCandidateNavigation;
@@ -1343,6 +1356,7 @@ public final class MSIMEInputService extends InputMethodService {
         view = nextView;
         // After the view is in place, because this replaces it with the runtime's answer.
         if (characterWidthChanged) applyCharacterWidth(nextFullWidthPreference);
+        if (punctuationChanged) applyChinesePunctuation(nextChinesePunctuation);
         if (displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT) letterCase.reset();
         if (rebuildLayout) rebuildKeyRows();
         else if (geometryChanged) applyKeyboardGeometry();
@@ -2102,7 +2116,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean sendsChinesePunctuation() {
         return view != null && ChineseSymbolFaces.shouldUseChineseFaces(dedicatedEnglish,
-            view.optInt("scheme", -1), view.optString("local_mode", "none"));
+            view.optInt("scheme", -1), view.optString("local_mode", "none"), chinesePunctuation);
     }
 
     private java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
@@ -2426,6 +2440,10 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (shortcut == HardwareShortcutPolicy.Action.TOGGLE_FULL_WIDTH) {
             toggleFullWidthInput();
+            return true;
+        }
+        if (shortcut == HardwareShortcutPolicy.Action.TOGGLE_PUNCTUATION) {
+            toggleChinesePunctuation();
             return true;
         }
         int candidateSlot = NumberRowSelectionPolicy.slotForKeyCode(keyCode, numberRowSelection);
@@ -3133,6 +3151,30 @@ public final class MSIMEInputService extends InputMethodService {
      * <p>「全角输入」 in the shared settings is the default a session starts from, the same way the
      * other hosts treat it; changing it there is what makes a new value stick.
      */
+    /** Hand the punctuation state to the runtime and take the answer from the view it returns. */
+    private void applyChinesePunctuation(boolean enabled) {
+        chinesePunctuation = enabled;
+        if (session == 0) return;
+        try {
+            view = value(NativeClient.setChinesePunctuation(session, enabled));
+        } catch (JSONException | LinkageError error) {
+            showDiagnostic("标点状态未能同步到输入引擎");
+        }
+    }
+
+    /**
+     * 中文标点 for this session only, from the toolbar card or 「Ctrl + .」.
+     *
+     * <p>The shared setting is the state a session starts in, the same way the width is; changing
+     * it there is what makes a new value stick.
+     */
+    private void toggleChinesePunctuation() {
+        applyChinesePunctuation(!chinesePunctuation);
+        rebuildKeyRows();
+        render();
+        renderMoreTools();
+    }
+
     private void toggleFullWidthInput() {
         applyCharacterWidth(!fullWidthInput);
         render();
@@ -5285,6 +5327,8 @@ public final class MSIMEInputService extends InputMethodService {
                 traditionalOutputToolAvailable(), true, null, this::toggleChineseOutput),
             moreToolsCard("全角输入", MoreToolsLayout.Section.SETTINGS, fullWidthInput,
                 true, false, this::toggleFullWidthInput),
+            moreToolsCard("中文标点", MoreToolsLayout.Section.SETTINGS, chinesePunctuation,
+                true, false, this::toggleChinesePunctuation),
             moreToolsCard("按键音", MoreToolsLayout.Section.SETTINGS, soundEnabled,
                 true, false, this::toggleSoundFromMoreTools),
             moreToolsCard("按键振动", MoreToolsLayout.Section.SETTINGS, hapticsEnabled,

@@ -352,6 +352,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setNineKeyModeRa
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setEnglishModeRaw(JNIEnv *env, jclass, jlong handle, jboolean enabled) {
     return response(env, msime_client_set_english_mode(static_cast<uint64_t>(handle), enabled == JNI_TRUE));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setChinesePunctuationRaw(JNIEnv *env, jclass, jlong handle, jboolean enabled) {
+    return response(env, msime_client_set_chinese_punctuation(static_cast<uint64_t>(handle), enabled == JNI_TRUE));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setCharacterWidthRaw(JNIEnv *env, jclass, jlong handle, jboolean fullwidth) {
     return response(env, msime_client_set_character_width(static_cast<uint64_t>(handle), fullwidth == JNI_TRUE));
 }
