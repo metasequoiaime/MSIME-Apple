@@ -154,6 +154,8 @@ public final class KeyboardFragment extends HomeTabFragment {
                 : () -> KeyboardSheets.showInputFeatures(this, snapshot, this::reload)));
         tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_dictionary, R.color.badge_field,
             "个人词库", "查询、编辑和导入用户词条", this::openPersonalDictionary));
+        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_dictionary, R.color.badge_field,
+            "背单词", "导入词表，按间隔复习", this::openVocabularyReview));
         tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_ai, R.color.badge_field,
             "AI", aiSummary(preferences), preferences == null ? null
                 : () -> KeyboardSheets.showAi(this, snapshot, this::reload)));
@@ -175,6 +177,28 @@ public final class KeyboardFragment extends HomeTabFragment {
         Intent intent = new Intent();
         intent.setClassName(requireContext(), "app.msime.client.MainActivity");
         intent.putExtra("msime_settings_page", "dictionary");
+        startActivity(intent);
+    }
+
+    /**
+     * Keep the review page in the shared UI while exposing it from the native shell.
+     *
+     * <p>The same handoff the personal dictionary uses, and for the same reason: the page is one
+     * shared React screen that every other host already renders, and a second hand-written copy
+     * here would be a second set of rules about intervals and counts to keep in step. The rules
+     * themselves are not duplicated either way — they live in `client-core::vocabulary` and this
+     * host reaches them through {@code NativeClient.vocabularyReview} — but the screen would be.
+     */
+    private void openVocabularyReview() {
+        if (!tauriAvailable()) {
+            android.widget.Toast.makeText(requireContext(),
+                "背单词需要管理界面合包，请使用 Tauri 合包打开。", android.widget.Toast.LENGTH_LONG)
+                .show();
+            return;
+        }
+        Intent intent = new Intent();
+        intent.setClassName(requireContext(), "app.msime.client.MainActivity");
+        intent.putExtra("msime_settings_page", "vocabulary");
         startActivity(intent);
     }
 

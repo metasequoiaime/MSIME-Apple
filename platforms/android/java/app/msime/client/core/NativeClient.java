@@ -27,6 +27,8 @@ public final class NativeClient {
     private static final int SHUANGPIN_PROFILE_LIMIT = 64;
     private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
     private static final int SMART_PUNCTUATION_REQUEST_LIMIT = 4_096;
+    /** An imported word list is the one request here that carries a whole file. */
+    private static final int VOCABULARY_REQUEST_LIMIT = 8 * 1024 * 1024;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
@@ -60,6 +62,21 @@ public final class NativeClient {
     /** Classifies committed text in native memory and persists only aggregate counts. Call on a worker. */
     public static String typingStatistics(String request) {
         return text(typingStatisticsRaw(request.getBytes(StandardCharsets.UTF_8)));
+    }
+    /**
+     * 背单词: one review action, answered with the whole status. Takes the shared file lock and may
+     * read a multi-megabyte wordbook, so call on a worker and never from the input path.
+     *
+     * <p>The limit is larger than every other request here because this one can carry an imported
+     * word list: a five-thousand-word CET book is a few hundred kilobytes of text. The shared
+     * parser applies its own row and entry ceilings underneath.
+     */
+    public static String vocabularyReview(String request) {
+        byte[] bytes = request.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length == 0 || bytes.length > VOCABULARY_REQUEST_LIMIT) {
+            return "{\"ok\":false,\"error\":\"invalid vocabulary review request\"}";
+        }
+        return text(vocabularyReviewRaw(bytes));
     }
     /** Reads one bounded page from the verified packaged emoji catalog. Call on a worker. */
     public static String emojiCatalog(String query, String resources) {
@@ -331,6 +348,7 @@ public final class NativeClient {
     private static native byte[] snapshotActivateRaw(long handle, byte[] expectedVersion);
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] typingStatisticsRaw(byte[] request);
+    private static native byte[] vocabularyReviewRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
