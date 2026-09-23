@@ -195,13 +195,15 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
 
   /// Columns for the kaomoji tab: as many 170-point columns as the width holds, and never fewer than two.
   static func kaomojiColumns(width: CGFloat) -> Int { max(2, Int(width / 170)) }
+  /// Columns for emoji: the catalog's eight on a phone, and as many 56-point cells as a wider keyboard holds, so an iPad shows several rows instead of two rows of oversized cells.
+  static func emojiColumns(width: CGFloat) -> Int { max(KeyboardEmojiCatalog.columns, Int(width / 56)) }
 
   private func makeLayout() -> UICollectionViewCompositionalLayout {
     UICollectionViewCompositionalLayout { [weak self] _, environment in
       let kaomoji = self?.showsKaomoji ?? false
       let columns = kaomoji
         ? Self.kaomojiColumns(width: environment.container.effectiveContentSize.width)
-        : KeyboardEmojiCatalog.columns
+        : Self.emojiColumns(width: environment.container.effectiveContentSize.width)
       let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
         widthDimension: .fractionalWidth(1.0 / CGFloat(columns)),
         heightDimension: .fractionalHeight(1)))
@@ -291,7 +293,9 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     nextOffset = page.nextOffset
     complete = page.complete
     reloadCatalog()
-    if page.items.isEmpty && !complete { loadNextPage() }
+    // More pages load on scroll, so a page that does not fill the grid (a wide iPad keyboard) would otherwise never be followed.
+    grid.layoutIfNeeded()
+    if !complete && (page.items.isEmpty || grid.contentSize.height <= grid.bounds.height) { loadNextPage() }
   }
 
   private func reloadCatalog() {

@@ -311,6 +311,12 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertEqual(KeyboardEmojiPickerView.kaomojiColumns(width: 1012), 5)
   }
 
+  func testEmojiColumnsStayAtEightOnAPhoneAndGrowOnAnIPad() {
+    XCTAssertEqual(KeyboardEmojiPickerView.emojiColumns(width: 378), 8)
+    XCTAssertEqual(KeyboardEmojiPickerView.emojiColumns(width: 430), 8)
+    XCTAssertEqual(KeyboardEmojiPickerView.emojiColumns(width: 1012), 18)
+  }
+
   func testSharedBridgeReadsPackagedKaomoji() throws {
     let state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-kaomoji-catalog-\(UUID().uuidString)", isDirectory: true)
