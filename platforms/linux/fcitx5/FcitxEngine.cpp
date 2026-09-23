@@ -4648,6 +4648,11 @@ public:
         msime_linux_diagnostic_write("dictionary_generation_refreshed");
     } catch (const OptionsNotConfigured &) {
       // Nothing to refresh before first-run setup; activation shows the setup hint.
+    } catch (const msime::linux_host::DictionaryOutdated &) {
+      // Downloaded dictionaries an upgrade did not replace: the previous generation keeps working, and the guide script (throttled to once per login session) tells the user how to fetch the new ones.
+      msime_linux_diagnostic_write("operation_failed operation=dictionary_generation_refresh reason=dictionary_outdated");
+      const auto guide = std::string(MSIME_BINDIR "/") + std::string(msime::linux_host::kFirstRunGuideProgram);
+      if (access(guide.c_str(), X_OK) == 0) fcitx::startProcess({guide, "--reason", "dictionary-outdated"});
     } catch (...) {
       msime_linux_diagnostic_write("operation_failed operation=dictionary_generation_refresh");
     }

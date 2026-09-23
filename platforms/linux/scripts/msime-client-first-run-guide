@@ -3,13 +3,25 @@
 #
 # Both frontends may call this repeatedly: ibus-daemon starts the component again every time the engine is selected, and Fcitx5 activates the input method on every focus change. A stamp outside the state directory limits the guidance to once per login session across both frontends; a window that keeps reappearing while the user types elsewhere is worse than none. The state directory itself is never created here, because msime-client-setup refuses to prepare a directory that already exists.
 #
-# Usage: msime-client-first-run-guide [--host ibus|fcitx5]. The host only selects the recovery step named in the notification.
+# The same hosts also call it with --reason dictionary-outdated when the runtime options refresh at startup finds that the dictionaries the user downloaded are older than the installed version. A package upgrade replaces the dictionary lock but not downloaded dictionaries, so the host keeps the previous generation and this only posts a notification naming the command that fetches the new ones; it opens no window. That reason keeps its own stamp, so being told about an outdated dictionary never uses up the first-run guidance or the other way round.
+#
+# Usage: msime-client-first-run-guide [--host ibus|fcitx5] [--reason first-run|dictionary-outdated]. The host only selects the recovery step named in the first-run notification.
 set -u
 
 host=
-if [ "${1:-}" = "--host" ]; then
-  host=${2:-}
-fi
+reason=first-run
+while [ $# -ge 2 ]; do
+  case "$1" in
+    --host) host=$2 ;;
+    --reason) reason=$2 ;;
+    *) break ;;
+  esac
+  shift 2
+done
+case "$reason" in
+  first-run|dictionary-outdated) ;;
+  *) exit 2 ;;
+esac
 
 # Only used when the session has no XDG_RUNTIME_DIR, so there is no per-session place for the stamp.
 cooldown_seconds=300
@@ -35,6 +47,7 @@ esac
 umask 077
 mkdir -p "$guide_dir" 2>/dev/null || exit 0
 stamp=$guide_dir/first-run-guide.stamp
+[ "$reason" = dictionary-outdated ] && stamp=$guide_dir/dictionary-outdated.stamp
 
 now=$(date +%s 2>/dev/null) || exit 0
 case "$now" in ''|*[!0-9]*) exit 0 ;; esac
@@ -67,6 +80,14 @@ detach() {
     nohup "$@" </dev/null >/dev/null 2>&1 &
   fi
 }
+
+if [ "$reason" = dictionary-outdated ]; then
+  if command -v notify-send >/dev/null 2>&1; then
+    detach notify-send -a "水杉输入法" -i msime-client "水杉输入法词库需要更新" \
+      "已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-client-setup --update --download 取回新词库并切换，用户词库会一并迁移。"
+  fi
+  exit 0
+fi
 
 # Same override the IBus and Fcitx5 hosts honour; otherwise prefer the settings launcher installed beside this script, then PATH.
 settings=${MSIME_CLIENT_SETTINGS_COMMAND:-}

@@ -327,6 +327,42 @@ int main(int argc, char **argv) {
       FcitxEngine::refreshOptions();
       require(diagnosticText().find("operation_failed operation=dictionary_generation_refresh") != std::string::npos,
               "diagnostic log records a real refresh failure");
+      require(diagnosticText().find("reason=dictionary_outdated") == std::string::npos,
+              "an invalid options path is not reported as outdated dictionaries");
+      // The guide is spawned asynchronously, so a stray spawn would only reach the log later.
+      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      require(guideCalls().size() == 1, "an ordinary refresh failure does not open the guide");
+      {
+        // Downloaded dictionaries an upgrade did not replace: options in the prepared layout whose resource directory holds files the compiled lock does not pin. The refresh reports it by name and hands the notification to the guide script; the options file is not touched.
+        const auto outdated = std::filesystem::path(directory) / "outdated";
+        std::filesystem::create_directories(outdated / "resources");
+        std::filesystem::create_directories(outdated / "state");
+        std::ofstream(outdated / "resources/msime.db") << "previous generation";
+        const auto outdatedOptions = outdated / "state/runtime-options.json";
+        const auto document = Json{{"api_version", 1},
+                                   {"resources", (outdated / "resources").string()},
+                                   {"user_data", (outdated / "state/user").string()},
+                                   {"cache", (outdated / "state/cache").string()},
+                                   {"dictionaries", (outdated / "state/user/dictionaries/previous").string()},
+                                   {"preferences_directory", (outdated / "state").string()},
+                                   {"preferences", Json::object()}}.dump(2);
+        std::ofstream(outdatedOptions) << document;
+        setenv("MSIME_FCITX5_OPTIONS", outdatedOptions.c_str(), 1);
+        FcitxEngine::refreshOptions();
+        require(diagnosticText().find("operation_failed operation=dictionary_generation_refresh reason=dictionary_outdated") !=
+                    std::string::npos,
+                "outdated dictionaries are named in the diagnostic log");
+        const auto outdatedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (guideCalls().size() < 2 && std::chrono::steady_clock::now() < outdatedDeadline)
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        require(guideCalls().size() == 2 && guideCalls().back() == "--reason dictionary-outdated",
+                "outdated dictionaries hand the notification to the guide script");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        require(guideCalls().size() == 2, "outdated dictionaries open the guide exactly once");
+        std::ifstream written(outdatedOptions);
+        require(std::string(std::istreambuf_iterator<char>(written), std::istreambuf_iterator<char>()) == document,
+                "outdated dictionaries leave the runtime options unchanged");
+      }
       msime_linux_diagnostic_configure(std::string(), false);
       unsetenv("MSIME_TEST_FIRST_RUN_LOG");
       if (savedConfigHome) setenv("XDG_CONFIG_HOME", savedConfigHome->c_str(), 1);
