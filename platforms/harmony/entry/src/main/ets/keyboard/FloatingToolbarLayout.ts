@@ -35,7 +35,7 @@ export enum ToolbarButton {
 /** What the keyboard is doing, which is what the faces below report. */
 export interface ToolbarState {
   readonly english: boolean;
-  /** Temporary English candidate input keeps the Chinese IME active and is shown as En. */
+  /** English candidate input — the temporary Shift+letter mode or the Ctrl+Shift+E mode — keeps the Chinese IME active and is shown as En, as on Windows and macOS. */
   readonly temporaryEnglish: boolean;
   /** Japanese is a distinct input scheme; English still takes precedence when dedicated mode is on. */
   readonly japanese: boolean;

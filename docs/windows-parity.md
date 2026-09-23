@@ -1876,3 +1876,67 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 顺带修复：表情面板的「‹」和语音面板的「返回」原来只调用 `show(SURFACE_NONE)`，那只改得了手机面板的状态。2in1 上由工具栏打开的是 desktop surface，这两个键点了没有任何反应，只能再点一次工具栏才能关掉。现在当前 desktop surface 正是这张面时，返回会关掉它；如果是在 2in1 屏幕键盘里打开的同一张面，返回仍然只退回键盘。
 - `ToolbarButton` 新成员加在枚举末尾：`PanelSurfaceAction.SCREEN_KEYBOARD = 5` 按数值镜像屏幕键盘按钮，插到中间会让屏幕键盘快捷键打开别的面。按钮的显示顺序由 `buttons()` 决定，和枚举顺序无关。
 - Rust 与前端依赖的通知：发布工作流在 Windows runner 上用 `platforms/linux/collect-notices.py`（与 Linux 发布同一个收集器）从 Cargo 解析出的 Windows 依赖图收集 `msime-host-api`、`msime-engine-bridge`（词库回放工具）和 `msime-desktop` 静态链接的 crate 许可证文件，再从 `apps/desktop` 的 `node_modules` 收集前端打包进去的 npm 包，两份文件作为 `-SupplementalNotices` 交给 `Collect-Notices.ps1`，随 `THIRD_PARTY_NOTICES.txt` 进安装包。
+
+### HarmonyOS 2in1 硬件键盘：Ctrl+Shift+F 简繁、U 模式、音节分隔符与微软双拼的 ing（2026-09-23）
+
+对照来源 `server/src/ipc/event_listener.cpp` 与 `input_key_policy.h` 逐键核查 2in1 硬件键盘，查实四处与 Windows 行为不一致，均在 `HardwareKeyRouter` / `InputModeRouting` 里修正。手机软键盘走 `Action::Character`，不受影响。
+
+- Ctrl+Shift+F：来源 `HandleImeKey` 在 `IsCharacterSetShortcut` 上调 `SetConfiguredCharacterSet`，切换的是简繁；设置页这一项也写着「Ctrl+Shift+F 切换简繁」。本宿主原来把它和 Ctrl+Shift+Space 一样当成全角/半角。现在 `ModeGesture.TOGGLE_CHARACTER_SET` 只表示简繁，全角/半角改用 `TOGGLE_WIDTH`。简繁切换与工具栏「简/繁」按钮共用 `KeyboardSession.toggleCharacterSet`，写回 `traditional_chinese_output`。和来源一样，只在中文状态下切换，但开关打开时英文状态下也会吃掉这个组合键。
+- U 模式：组字进行中数字 1–9 一律被当成选词、0 放给应用、`+` 被当成标点，于是 `u4e00`、`U+1F600` 都打不出来。现在 `local_mode` 为 `unicode` 时，不带 Shift 的 0–9 进入组字，Shift+1–9 选词（来源注释 “U-mode: Shift+1..9”），`+` 只在输入恰好是 `U` 时进入组字。规则与 Linux 宿主的 `unicode_digit` / `unicode_plus_key` 一致。
+- 拼音分隔符 `'`：来源 `IsManualPinyinSeparatorKey` 把它送进输入串，本宿主原来把它当成标点，先上屏高亮候选再插一个引号。现在组字中、光标不在开头时进入组字，范围与 Linux 的 `accepted_apostrophe` 相同：非五笔的普通输入，或者 emoji、kaomoji、临时日语三种本地模式。
+- 微软双拼 `;`：来源 `IsMicrosoftShuangpinIngKey` 把它当作 ing 韵母。现在视图报告 `microsoft_shuangpin` 时，只要它是本音节的第二键（从最后一个 `'` 数起按键数为奇数），就进入组字；否则仍是标点。
+
+路由所需的状态由 `KeyboardSession.hardwareSpelling()` 从最近一次引擎视图中读出，通过 `HardwareSpelling` 传给 `HardwareKeyRouter.route`。这几条规则放在翻页键判断和数字选词之前，因为 Shift+= 本身就是 `U+` 里的 `+`。
+
+### HarmonyOS：设置页保存后键盘立即生效（2026-09-23）
+
+来源里设置程序保存后发 `WM_APPLY_IME_CONFIG`（`server/src/config/ime_config.cpp:1566`），服务端收到后重读配置并刷新候选窗与工具栏，另有 300 ms 的 `TIMER_ID_CONFIG_SYNC` 兜底（`server/src/window/ime_windows.cpp:2199`、`2673`）。本宿主的设置页（EntryAbility）与键盘（InputMethodExtensionAbility）是两个进程，键盘只在 `onCreate` 读一次偏好，所以设置页改了方案、皮肤、键盘高度、工具栏或模式切换键后，要等输入法进程被系统回收重建才会生效。
+
+适配方式不照搬定时器：键盘记住建会话时读到的偏好文档 `revision`，每次编辑框获得焦点（`attach`）时比对一次存储中的 `revision`，这正是用户能用新设置打字的最早时刻，代价只是一次小文件读取。变了就走现有的 `restartIdleSession` 重建引擎会话（保留中英文与九宫格状态），随后通知两处：
+
+- 视图（`onViewPreferencesReloaded`）：重读皮肤、几何、方案与键面，手机上按新高度调整面板；
+- 输入法扩展（`onPreferencesReloaded`）：重新绑定模式切换键；2in1 上按新设置开关浮动工具栏与模式角标（两者共用唯一的 STATUS_BAR 面板，工具栏优先），已开的工具栏按新按钮集重排。
+
+正在组字或处于本地模式（U 模式、emoji 等）时不重建，下次获得焦点再取。云同步把偏好写入同一文档，同样通过这条路径生效。键盘自己经 `changePreferences` 写入时会同步记下新 `revision`，不会因此触发重建。
+
+### HarmonyOS 2in1 硬件键盘：Ctrl+Shift+E 英文候选模式（2026-09-23）
+
+纠正上文「`Ctrl+Shift+E` ……`InputModeRouting` 已实现」的判断：本宿主原来把它和 Shift 轻点一样当成中英切换，进入的是直接英文，硬件字母原样交给应用。来源里这是两件事：Shift 由 TSF 切中英（`FUNCTION_TOGGLE_IME_MODE`，上屏原始字母），`Ctrl+Shift+E` 是 `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState`，打开服务端的英文输入模式，字母进入组字、候选框列英文词（`UpdateEnglishInput`），TSF 侧按 `FUNCTION_CANCEL` 处理，什么都不上屏。macOS 宿主也区分两者（`toggleDedicatedEnglishMode:`，工具栏显示 En）。
+
+本宿主的引擎侧本来就是 dedicated-English 标志，差别只在硬件键是否送进引擎。现在 `ModeGesture.ENGLISH_CANDIDATES` 调 `KeyboardSession.toggleEnglishCandidates()`：打开英文模式并记下英文候选子模式，`HardwareKeyRouter` 此时把字母送进组字，音节分隔符、U 模式和微软双拼的特殊键规则都不生效（引擎在该模式只收字母），标点和中文态一样结束组字后按标点设置输出。再按一次、Shift 轻点或工具栏语言按钮都回到中文；密码与网址类编辑框强制直接英文。工具栏语言按钮显示 `En`，与来源和 macOS 一致。手机软键盘的字母一直走引擎，两种英文在手机上本就是同一个模式，不受影响。
+
+### HarmonyOS 2in1：表情面板的剪贴板页（2026-09-23）
+
+来源的表情面板最后一页是剪贴板历史（`server/src/emoji-panel/EmojiPanel.h` 的 `Page::Clipboard`）。本宿主的剪贴板历史原来只能从手机键盘的工具面板进入，2in1 没有入口。现在 2in1 的表情面板（工具栏 ☺ 打开的 `DesktopSurface.EMOJI`）在「表情 / 颜文字 / 符号」之后多一个「剪贴板」页：点条目上屏，可固定、删除、清空（二次确认）。手机不加这一页，仍从工具面板进入，两处共用同一份条目列表 `clipboardEntries()`。
+
+与来源的差异：来源由 `ClipboardMonitor` 在后台记录每次复制；HarmonyOS 只把剪贴板读取权限给系统应用，本宿主也不在后台记录，所以这一页和手机一样用「保存当前」按钮手动保存。设置里关闭剪贴板历史时这一页只显示提示，来源的「启用」按钮不照搬，开关统一留在设置页。
+
+### HarmonyOS 2in1：全屏应用上隐藏悬浮工具栏
+
+来源的窗口钩子（`window_hook.cpp` 的 `OnWinEvent`）在前台窗口全屏时隐藏悬浮工具栏，退出全屏后按配置恢复，游戏或视频画面上不会压着一条没人在用的状态栏。HarmonyOS 以前在 2in1 上始终显示工具栏。
+
+- 现在编辑框每次获得焦点时，都用 `InputClient.getCallingWindowInfo()` 查询所在窗口的状态：`WindowStatusType.FULL_SCREEN` 时隐藏工具栏，焦点回到非全屏窗口时再显示。
+- HarmonyOS 不会主动通知输入法窗口状态的变化，只能在查询时拿到，所以编辑框保持焦点期间才进入全屏的窗口，要到下一次聚焦时才会生效。
+- 工具栏被设置关闭后再重新打开时，隐藏标记会随之清掉，不会把新开的工具栏误当成已隐藏。
+- 手机没有悬浮工具栏，这一改动不涉及手机。
+
+### HarmonyOS 2in1：行内预编辑（`tsf_preedit_style`）
+
+来源用 TSF 在文档里画正在拼写的内容：`raw` 是按下的字母，`pinyin` 是分好词的拼音，`empty` 则不画。Linux 的 IBus 和 Fcitx5 读的是同一个字段。HarmonyOS 以前在任何形态下都只在候选区显示拼写，文档里什么也没有，「行内预编辑」这个设置在鸿蒙上也就不起作用。
+
+- 2in1 现在通过编辑框的预上屏文本（`InputClient.setPreviewTextSync`）按设置显示拼写。已经选定的半个词（`phrase_prefix`）排在拼写前面，和候选窗的画法一致。提交时用 `insertText` 替换预上屏文本；取消或拼写清空时写入空预上屏，再 `finishTextPreview`。
+- 只有编辑框的属性声明了 `isTextPreviewSupported` 才启用。编辑框接口报错（例如 12800011）时，这次聚焦期间停用预上屏；这时如果文档里还留着拼写字母，就结束预上屏，并在确认光标前正是这些字母之后删掉它们。
+- 每次预上屏变更都和插入一样登记为键盘自己的编辑，所以编辑框回传的 textChange 不会被当成用户改了文本，也就不会结束组字。
+- 预上屏期间，提交一律走同步插入，保证它排在下一次预上屏更新之前；智能标点读取光标前的字符时会去掉预上屏部分，读到的是用户写下的文字，而不是拼写字母。
+- 手机不变：拼写仍显示在按键上方那一条，手机没有贴着光标的候选窗，这个设置在手机上不生效。
+- 未在真机或模拟器上验证预上屏的回声和替换行为，上面的处理依据的是 SDK 文档中的接口约定。
+
+### HarmonyOS 2in1 硬件键盘：Home / End 跳到候选列表首尾
+
+- Windows 在有候选时把 Home / End 映射成 `FUNCTION_MOVE_PAGE_TOP` / `FUNCTION_MOVE_PAGE_BOTTOM`，焦点跳到候选列表的第一项和最后一项。2in1 现在也这样处理：有候选时 Home 发 `FIRST_CANDIDATE`（104），End 发 `LAST_CANDIDATE`（105，host-api 会先展开整张列表再取最后一项）；没有候选时仍然是移动编辑光标。
+- 手机不受影响：Home / End 只从硬件键盘分发进来，手机的软键盘没有这两个键。
+
+### HarmonyOS 2in1：菜单主题（`menu_theme`）
+
+- Windows 的 `menu_theme` 决定托盘菜单和候选右键菜单是深色还是浅色。鸿蒙 2in1 没有托盘；和候选右键菜单对应的是候选词管理条，所以现在这条按 `menu_theme` 配色，跟随全局时和其他面板一样回落到全局主题。常用标点、括弧、释义这几条属于键盘本身，仍然用键盘配色。
+- 手机的设置页不显示这一项（`mobile_settings` 为真），手机上的管理条也继续用键盘配色。

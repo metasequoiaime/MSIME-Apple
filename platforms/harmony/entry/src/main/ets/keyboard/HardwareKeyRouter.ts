@@ -91,6 +91,33 @@ export interface HardwareNavigationPreferences {
   readonly arrows: boolean;
 }
 
+/**
+ * What is being spelled, for the keys whose meaning depends on it.
+ *
+ * `'`, `;`, the digits and `+` are punctuation or candidate picks for most compositions and part of the spelling for a few. The Windows host decides per key (`IsManualPinyinSeparatorKey`, `IsMicrosoftShuangpinIngKey`, the U-mode digits), and so does the Linux host's `candidate_input`; the rules below are theirs.
+ */
+export interface HardwareSpelling {
+  /** The Engine's `local_mode`, 'none' outside a local utility mode. */
+  readonly localMode: string;
+  /** The Engine's `editing_text`. */
+  readonly editing: string;
+  /** Index into `editing`, which is ASCII. */
+  readonly caret: number;
+  readonly wubi: boolean;
+  readonly microsoftShuangpin: boolean;
+  /** Ctrl+Shift+E's English candidate mode, where the Engine spells letters only. */
+  readonly englishCandidates: boolean;
+}
+
+export const PLAIN_SPELLING: HardwareSpelling = {
+  localMode: "none",
+  editing: "",
+  caret: 0,
+  wubi: false,
+  microsoftShuangpin: false,
+  englishCandidates: false,
+};
+
 const KEYCODE_SPACE: number = 2050;
 const KEYCODE_ENTER: number = 2054;
 const KEYCODE_DEL: number = 2055;
@@ -116,6 +143,7 @@ const KEYCODE_MOVE_END: number = 2082;
 // the system resolves nothing useful, and Shift alone would already have turned 1 into '!'.
 const KEYCODE_1: number = 2001;
 const KEYCODE_8: number = 2008;
+const KEYCODE_9: number = 2009;
 const KEYCODE_C: number = 2019;
 // The numeric keypad. A keypad digit is the same digit, and a 2in1 keyboard that has one is exactly
 // the machine whose user reaches for it: the digits are the whole point of these shortcuts, and
@@ -125,6 +153,13 @@ const KEYCODE_NUMPAD_0: number = 2103;
 const KEYCODE_NUMPAD_9: number = 2112;
 const KEYCODE_0: number = 2000;
 const DIGIT_ZERO: number = 0x30;
+const KEYCODE_SEMICOLON: number = 2062;
+const KEYCODE_APOSTROPHE: number = 2063;
+const PLUS: number = 0x2b;
+const SEMICOLON: number = 0x3b;
+const APOSTROPHE: number = 0x27;
+// Local modes whose own spellings are split with `'`, as the Linux host's `accepted_apostrophe` lists them.
+const APOSTROPHE_LOCAL_MODES: string[] = ["emoji", "kaomoji", "temporary_japanese"];
 
 const RELEASE: HardwareKeyDecision = {
   action: HardwareKeyAction.RELEASE,
@@ -215,6 +250,7 @@ export class HardwareKeyRouter {
     japanese: boolean = false,
     wordCharacter: string = "disabled",
     hasHighlightedCandidate: boolean = false,
+    spelling: HardwareSpelling = PLAIN_SPELLING,
   ): HardwareKeyDecision {
     // Applied once, before anything reads the key, so no digit path can be left out of it. The
     // resolved character is filled in as well as the code: with Ctrl+Shift+Alt held the system
@@ -338,6 +374,14 @@ export class HardwareKeyRouter {
         // what Enter does when nothing is being composed, and that is the untouched path below.
         return decision(HardwareKeyAction.COMMIT_RAW);
       }
+      // Ahead of navigation and of the number row, both of which would otherwise claim these keys: Shift+= is the `+` of `U+`, and a digit in U mode is part of the code point rather than a pick.
+      const spellingDecision: HardwareKeyDecision | undefined = HardwareKeyRouter.spellingKey(
+        key,
+        spelling,
+      );
+      if (spellingDecision !== undefined) {
+        return spellingDecision;
+      }
       const navigationDecision: HardwareKeyDecision | undefined = HardwareKeyRouter.navigation(
         key,
         navigation,
@@ -379,6 +423,56 @@ export class HardwareKeyRouter {
       return RELEASE;
     }
     return decision(HardwareKeyAction.COMPOSE, key.unicodeChar);
+  }
+
+  private static spellingKey(
+    key: HardwareKey,
+    spelling: HardwareSpelling,
+  ): HardwareKeyDecision | undefined {
+    // An English word has no syllables, code points or shuangpin finals; the Engine takes letters only there, so these keys stay punctuation.
+    if (spelling.englishCandidates) {
+      return undefined;
+    }
+    if (spelling.localMode === "unicode") {
+      // U mode spells a hexadecimal code point, so the plain digits are input and Shift+1..9 picks, as on Windows.
+      if (!key.shiftKey && key.unicodeChar >= DIGIT_ZERO && key.unicodeChar <= DIGIT_ZERO + 9) {
+        return decision(HardwareKeyAction.COMPOSE, key.unicodeChar);
+      }
+      if (key.shiftKey && key.keyCode >= KEYCODE_1 && key.keyCode <= KEYCODE_9) {
+        return decision(HardwareKeyAction.SELECT, 0, key.keyCode - KEYCODE_1);
+      }
+      // `U+1F600` as well as `u1f600`: the plus is only part of the spelling straight after the U.
+      if (key.unicodeChar === PLUS && spelling.editing === "U") {
+        return decision(HardwareKeyAction.COMPOSE, PLUS);
+      }
+      return undefined;
+    }
+    if (key.shiftKey) {
+      return undefined;
+    }
+    // The manual syllable separator, `xi'an` rather than `xian`. Wubi codes have no syllables to separate, and at the very start there is nothing to separate yet.
+    if (
+      key.keyCode === KEYCODE_APOSTROPHE &&
+      key.unicodeChar === APOSTROPHE &&
+      spelling.caret > 0 &&
+      ((spelling.localMode === "none" && !spelling.wubi) ||
+        APOSTROPHE_LOCAL_MODES.indexOf(spelling.localMode) >= 0)
+    ) {
+      return decision(HardwareKeyAction.COMPOSE, APOSTROPHE);
+    }
+    // Microsoft shuangpin puts the `ing` final on `;`, so it is a letter exactly when it would be the second key of a syllable: an odd number of keys since the last separator.
+    if (
+      spelling.microsoftShuangpin &&
+      key.keyCode === KEYCODE_SEMICOLON &&
+      key.unicodeChar === SEMICOLON
+    ) {
+      const caret: number = Math.min(spelling.caret, spelling.editing.length);
+      const separator: number = caret === 0 ? -1 : spelling.editing.lastIndexOf("'", caret - 1);
+      if ((caret - (separator + 1)) % 2 === 1) {
+        return decision(HardwareKeyAction.COMPOSE, SEMICOLON);
+      }
+    }
+    return undefined;
   }
 
   private static navigation(
