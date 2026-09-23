@@ -4,10 +4,19 @@ import base64
 import gzip
 import hashlib
 import json
+import socketserver
 import struct
 import subprocess
 import sys
 import threading
+
+
+# HTTPServer.server_bind resolves the bound address with socket.getfqdn, which waits on reverse DNS before this loopback server exists - 35 s on the macOS CI runners. Nothing reads server_name, so bind without it.
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
 
 errors = []
 counts = {}
@@ -118,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
 
 
-server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
 # A handler can sit in a 40 s socket read; joining it on close outlived ctest's limit, so a hang was killed before this script could say anything.
 server.daemon_threads = True
 server.block_on_close = False

@@ -3,9 +3,17 @@ import collections
 import http.server
 import json
 import os
+import socketserver
 import subprocess
 import sys
 import threading
+
+
+# HTTPServer.server_bind resolves the bound address with socket.getfqdn, which waits on reverse DNS before this loopback server exists - 35 s on the macOS CI runners. Nothing reads server_name, so bind without it.
+class LoopbackHTTPServer(http.server.HTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 class SharedVoiceHandler(http.server.BaseHTTPRequestHandler):
@@ -44,7 +52,7 @@ class SharedVoiceHandler(http.server.BaseHTTPRequestHandler):
             pass  # The response-size guard may close the connection early.
 
 
-with http.server.HTTPServer(("127.0.0.1", 0), SharedVoiceHandler) as server:
+with LoopbackHTTPServer(("127.0.0.1", 0), SharedVoiceHandler) as server:
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     environment = dict(os.environ, NO_PROXY="127.0.0.1", no_proxy="127.0.0.1")

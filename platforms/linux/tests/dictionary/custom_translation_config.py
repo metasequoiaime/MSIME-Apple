@@ -4,12 +4,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import socket
+import socketserver
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+
+
+# HTTPServer.server_bind resolves the bound address with socket.getfqdn, which waits on reverse DNS before this loopback server exists - 35 s on the macOS CI runners. Nothing reads server_name, so bind without it.
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -33,7 +42,7 @@ class CustomTranslationConfig(unittest.TestCase):
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)
-        http = ThreadingHTTPServer(("127.0.0.1", 0), HTTPHandler)
+        http = LoopbackHTTPServer(("127.0.0.1", 0), HTTPHandler)
         thread = threading.Thread(target=http.serve_forever, daemon=True)
         thread.start()
         def stop_http():
