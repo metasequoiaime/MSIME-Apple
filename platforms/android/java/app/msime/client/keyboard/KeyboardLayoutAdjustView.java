@@ -122,7 +122,11 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
             View child = bar.getChildAt(index);
             if (child instanceof Button) {
                 Button button = (Button) child;
-                button.setTextColor(accent);
+                // These sit on the keyboard's action-key fill, which is where the host's own skin
+                // pass puts them, so they take the colour that fill is paired with. `accent` is
+                // that same fill in the shipped skins: 恢复默认 and 完成 were dark green text on a
+                // dark green button, and the bar read as three blank tiles.
+                button.setTextColor(color(skin.actionForeground()));
                 button.setAllCaps(false);
             }
         }

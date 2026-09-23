@@ -2,6 +2,7 @@ package app.msime.client;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +24,7 @@ import org.json.JSONObject;
  * whatever the old private document still held.
  */
 public final class ClipboardHistoryStore {
+    private static final String TAG = "MSIMEClipboard";
     private static final String LEGACY_DOCUMENT = "clipboard-history";
     private static final String LEGACY_ITEMS_KEY = "items";
     private static final String LEGACY_MIGRATED_KEY = "migrated-to-shared";
@@ -65,6 +67,25 @@ public final class ClipboardHistoryStore {
         request("clear", null, false);
     }
 
+    /**
+     * Clear without being able to stop the caller.
+     *
+     * <p>The keyboard drops the history as housekeeping - when the preference goes off, and again
+     * on every `onCreateInputView` while it is off. None of those is the user asking for anything,
+     * and a store that cannot be written is not a reason to refuse to draw a keyboard. It was:
+     * `onCreateInputView` threw `IllegalStateException` out of the framework's `showWindow`, so the
+     * input method died and Android fell back to another keyboard.
+     *
+     * <p>The `清空` button keeps {@link #clear()}: there the user asked, and silence would be a lie.
+     */
+    public void clearQuietly() {
+        try {
+            clear();
+        } catch (IllegalStateException error) {
+            Log.w(TAG, "Clipboard history could not be cleared", error);
+        }
+    }
+
     /** The request document the shared entry takes: one internally tagged `operation`. */
     private JSONObject request(String operation, String text, boolean pinned) {
         if (directory == null) return null;
@@ -78,11 +99,17 @@ public final class ClipboardHistoryStore {
             JSONObject response = new JSONObject(
                 NativeClient.mobileClipboardHistory(payload.toString()));
             if (!response.optBoolean("ok", false)) {
-                throw new IllegalStateException("Clipboard history cannot be read");
+                // Name the operation and carry the shared entry's own reason. Without them a
+                // refusal reaches the log as one indistinguishable sentence, which is how an
+                // Android-only file-locking failure read as "the clipboard is broken somehow"
+                // for as long as it did.
+                throw new IllegalStateException("Clipboard history " + operation
+                    + " refused: " + response.optString("error", "no reason given"));
             }
             return response.optJSONObject("value");
         } catch (JSONException | LinkageError error) {
-            throw new IllegalStateException("Clipboard history cannot be read", error);
+            throw new IllegalStateException(
+                "Clipboard history " + operation + " could not reach the shared store", error);
         }
     }
 
