@@ -588,6 +588,7 @@ const releasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
 const linuxReleasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
 const updateManifestUrl = "https://msime.app/update.json";
 const clientReleasesUrl = "https://api.github.com/repos/metasequoiaime/msime/releases";
+const UPDATE_CHECK_TIMEOUT_MS = 10_000;
 const licenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
@@ -3060,13 +3061,16 @@ export function SettingsPage({
     setUpdateBusy(true);
     setUpdateStatus("");
     setAvailableUpdate(null);
+    // A stalled connection would otherwise leave the button busy indefinitely; the shipped settings page gives up after ten seconds.
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS);
     try {
       const releasePlatform = client.host?.platform ?? (linuxPlatform ? "linux" : null);
       const endpoint =
         clientHostedPlatform && releasePlatform
           ? `${clientReleasesUrl}?per_page=100&t=${Date.now()}`
           : `${updateManifestUrl}?t=${Date.now()}`;
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await fetch(endpoint, { cache: "no-store", signal: controller.signal });
       if (!response.ok) throw new Error(`update manifest returned ${response.status}`);
       const manifest = (await response.json()) as UpdateManifest | GitHubRelease[];
       let update: ValidatedUpdate | null;
@@ -3091,6 +3095,7 @@ export function SettingsPage({
     } catch {
       setUpdateStatus("检查失败，请稍后重试");
     } finally {
+      window.clearTimeout(timeout);
       setUpdateBusy(false);
     }
   }
