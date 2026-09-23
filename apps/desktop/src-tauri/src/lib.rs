@@ -3344,19 +3344,11 @@ async fn send_voice_text(
     }
     #[cfg(target_os = "linux")]
     {
+        let _ = &store;
         let target = panel_input_target(&state, window.label())?;
-        let store = store.inner().clone();
         let typing_statistics = typing_statistics.0.clone();
         return tauri::async_runtime::spawn_blocking(move || {
-            let commit_mode = store
-                .load()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?
-                .preferences
-                .voice_input
-                .commit_mode;
-            let result = send_panel_voice_text(&app, &target, &text, &commit_mode);
+            let result = send_panel_voice_text(&app, &target, &text);
             if result.is_ok() {
                 record_panel_typing_statistics(&typing_statistics, &text, TypingSource::Voice);
             }

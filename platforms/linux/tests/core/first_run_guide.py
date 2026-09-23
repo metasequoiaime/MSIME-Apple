@@ -4,6 +4,7 @@
 用桩代替 msime-client-settings、notify-send 和 msime-client-ibus，只看谁被调用了几次，不联网、不需要词库，也不起任何桌面进程。
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,11 @@ def main() -> int:
         assert "尚未完成首次配置" in calls(log, "notify")[0], calls(log, "notify")
         # IBus 组件已经退出，恢复步骤是切走再切回，必要时 ibus restart。
         assert "切换到其他输入法" in calls(log, "notify")[0] and "ibus restart" in calls(log, "notify")[0], calls(log, "notify")
+        # 切回时要找的名字就是 IBus 输入源列表里显示的 longname：组件 XML 与 msime-client-ibus 自报的描述都得是这一个。
+        longname = re.search(r"<longname>([^<]+)</longname>", (ROOT / "data/msime-client.xml.in").read_text()).group(1)
+        assert longname == "Metasequoia 水杉输入法", longname
+        assert f'"{longname}"' in (ROOT / "src/entrypoints/ibus_main.cpp").read_text()
+        assert f"切回「{longname}」" in calls(log, "notify")[0], calls(log, "notify")
         assert calls(log, "ibus") == []
         # 状态目录必须仍不存在：msime-client-setup 拒绝准备一个已存在的目录。
         assert not (config_home / "msime-client").exists()

@@ -425,16 +425,9 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Harmony | HostPlatform::Linux
             ),
-            // macOS draws its own composition, and the HarmonyOS keyboard draws the Engine's
-            // editing text on its composition row, so both show the difference. The other hosts
-            // hand the text to the application or to the desktop, which decides how it looks.
-            // Windows chooses between TSF, SendInput and a paste; macOS between system events and
-            // its input session; Linux hands the choice to the user's provider service. A keyboard
-            // extension commits through its input client and has nothing to choose between.
-            voice_commit_mode: matches!(
-                platform,
-                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
-            ),
+            // macOS draws its own composition, and the HarmonyOS keyboard draws the Engine's editing text on its composition row, so both show the difference. The other hosts hand the text to the application or to the desktop, which decides how it looks.
+            // Windows chooses between TSF, SendInput and a paste; macOS between system events and its input session. The Linux hosts commit through the IBus or Fcitx5 input context, the desktop voice panel hands its text to the active host the way every panel does, and the voice provider only recognizes, so a stored mode would change nothing there. A keyboard extension commits through its input client and has nothing to choose between either.
+            voice_commit_mode: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
             // The Linux hosts write the snapshot's `preedit` into the IBus and
             // Fcitx5 preedit themselves, and both already carry their own
             // toggle for this in the native status menu - a setting the shared
@@ -1070,7 +1063,6 @@ mod tests {
         assert!(harmony.shuangpin_preedit);
         // One commit path, so there is nothing to choose between and no control for it.
         assert!(!harmony.voice_commit_mode);
-        assert!(HostCapabilities::for_platform(HostPlatform::Windows).voice_commit_mode);
         assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_preedit);
         assert!(!HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_preedit);
         assert!(!HostCapabilities::for_platform(HostPlatform::Ios).english_suggestions);
@@ -1155,5 +1147,20 @@ mod tests {
         assert!(harmony.input_mode_hud);
         // Typing statistics are unconditional across every host.
         assert!(harmony.typing_statistics);
+    }
+
+    /// The commit strategy is offered only where the host acts on it. Windows and macOS each have more than one way to put a result into the editor; the Linux hosts commit through IBus or Fcitx5 and ignore the stored mode, so a selector there would save a choice nothing reads.
+    #[test]
+    fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
+        assert!(HostCapabilities::for_platform(HostPlatform::Windows).voice_commit_mode);
+        assert!(HostCapabilities::for_platform(HostPlatform::Macos).voice_commit_mode);
+        for platform in [
+            HostPlatform::Linux,
+            HostPlatform::Android,
+            HostPlatform::Ios,
+            HostPlatform::Harmony,
+        ] {
+            assert!(!HostCapabilities::for_platform(platform).voice_commit_mode);
+        }
     }
 }
