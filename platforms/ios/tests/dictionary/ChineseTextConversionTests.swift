@@ -1,32 +1,23 @@
-import Foundation
+import XCTest
 
-private func expect(
-  _ expected: String,
-  _ text: String,
-  traditional: Bool,
-  file: StaticString = #file,
-  line: UInt = #line
-) {
-  let actual = ChineseTextConversion.outputString(text, traditional: traditional)
-  precondition(
-    actual == expected,
-    "Expected \(expected) for \(text) with traditional \(traditional), got \(actual)",
-    file: file,
-    line: line)
-}
+final class ChineseTextConversionTests: XCTestCase {
+  func testSimplifiedOutputIsUntouched() {
+    XCTAssertEqual(ChineseTextConversion.outputString("水杉输入法", traditional: false), "水杉输入法")
+  }
 
-@main
-struct ChineseTextConversionTests {
-  static func main() {
-    expect("水杉输入法", "水杉输入法", traditional: false)
-    expect("水杉輸入法", "水杉输入法", traditional: true)
+  func testTraditionalOutputUsesTheSharedPhraseTables() {
+    XCTAssertEqual(ChineseTextConversion.outputString("水杉输入法", traditional: true), "水杉輸入法")
+    // 发 is 發 or 髮 depending on the word; a character-by-character transform cannot tell.
+    XCTAssertEqual(ChineseTextConversion.outputString("头发", traditional: true), "頭髮")
+    XCTAssertEqual(ChineseTextConversion.outputString("发现", traditional: true), "發現")
+  }
 
-    expect("", "", traditional: true)
-    expect("metasequoia", "metasequoia", traditional: true)
-    expect("，。！", "，。！", traditional: true)
-
+  func testTextWithoutSimplifiedCharactersPassesThrough() {
+    XCTAssertEqual(ChineseTextConversion.outputString("", traditional: true), "")
+    XCTAssertEqual(ChineseTextConversion.outputString("metasequoia", traditional: true), "metasequoia")
+    XCTAssertEqual(ChineseTextConversion.outputString("，。！", traditional: true), "，。！")
     // Already-traditional and mixed text stays readable instead of being mangled.
-    expect("輸入法", "輸入法", traditional: true)
-    expect("輸入 abc 法", "输入 abc 法", traditional: true)
+    XCTAssertEqual(ChineseTextConversion.outputString("輸入法", traditional: true), "輸入法")
+    XCTAssertEqual(ChineseTextConversion.outputString("输入 abc 法", traditional: true), "輸入 abc 法")
   }
 }

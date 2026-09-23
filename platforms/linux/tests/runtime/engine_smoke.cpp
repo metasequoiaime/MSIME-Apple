@@ -29,10 +29,18 @@ struct ForwardedKey {
   guint keycode = 0;
   guint state = 0;
 };
+struct PreeditAttribute {
+  guint type = 0;
+  guint value = 0;
+  guint start = 0;
+  guint end = 0;
+};
 struct Observation {
   std::string committed;
   std::vector<ForwardedKey> forwarded;
   std::string preedit;
+  // Attributes carried by the last UpdatePreeditText, as the client receives them over D-Bus.
+  std::vector<PreeditAttribute> preedit_attributes;
   std::string auxiliary;
   std::vector<std::string> candidates;
   std::vector<std::string> labels;
@@ -71,6 +79,16 @@ struct Observation {
   gint delete_surrounding_offset = 0;
   guint delete_surrounding_count = 0;
 };
+// The whole composition carries one single underline, as the Fcitx5 host draws it.
+bool preedit_underlined(const Observation &seen) {
+  const auto length = static_cast<guint>(g_utf8_strlen(seen.preedit.c_str(), -1));
+  if (length == 0 || seen.preedit_attributes.size() != 1)
+    return false;
+  const auto &attribute = seen.preedit_attributes.front();
+  return attribute.type == IBUS_ATTR_TYPE_UNDERLINE &&
+         attribute.value == IBUS_ATTR_UNDERLINE_SINGLE && attribute.start == 0 &&
+         attribute.end == length;
+}
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
   auto &seen = *static_cast<Observation *>(data);
@@ -192,6 +210,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   if (std::string(name) == "UpdatePreeditText") {
     g_variant_get_child(parameters, 1, "u", &seen.preedit_cursor);
     seen.preedit = ibus_text_get_text(IBUS_TEXT(object));
+    seen.preedit_attributes.clear();
+    if (auto attributes = ibus_text_get_attributes(IBUS_TEXT(object)))
+      for (guint i = 0; auto attribute = ibus_attr_list_get(attributes, i); ++i)
+        seen.preedit_attributes.push_back(
+            {ibus_attribute_get_attr_type(attribute), ibus_attribute_get_value(attribute),
+             ibus_attribute_get_start_index(attribute), ibus_attribute_get_end_index(attribute)});
     gboolean visible;
     g_variant_get_child(parameters, 2, "b", &visible);
     seen.preedit_visible = visible;
@@ -328,6 +352,8 @@ int main(int argc, char **argv) {
     ibus_init();
     auto bus = g_test_dbus_new(G_TEST_DBUS_NONE);
     g_test_dbus_up(bus);
+    // g_test_dbus_up() calls g_test_dbus_unset(), which clears XDG_RUNTIME_DIR so a test never reaches the user's bus. Set it again, or the host has no runtime directory and the panel input socket never opens.
+    g_setenv("XDG_RUNTIME_DIR", runtime.c_str(), TRUE);
     auto connect = [&] {
       return g_dbus_connection_new_for_address_sync(
           g_test_dbus_get_bus_address(bus),
@@ -530,6 +556,12 @@ int main(int argc, char **argv) {
                   seen.committed == "“”",
               "Chinese punctuation lock did not alternate quotes in English mode");
       seen.committed.clear();
+      // A pinned lock holds the punctuation in place, as Windows resolves Ctrl+. through the lock: the chord is eaten and changes nothing.
+      require(key(IBUS_period, IBUS_CONTROL_MASK) && seen.committed.empty(),
+              "English-mode Ctrl+. was not consumed under the Chinese punctuation lock");
+      require(key(IBUS_comma) && seen.committed == "，",
+              "English-mode Ctrl+. overrode the Chinese punctuation lock");
+      seen.committed.clear();
       require(!key(IBUS_a, IBUS_CONTROL_MASK) && seen.committed.empty(),
               "English mode output swallowed a Ctrl shortcut");
       require(!key('a', IBUS_RELEASE_MASK) && seen.committed.empty(),
@@ -558,6 +590,7 @@ int main(int argc, char **argv) {
       voice_provider.release_partial = true;
       require(wait_until([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
               "English-mode recording did not show streaming preedit");
+      require(preedit_underlined(seen), "Streaming voice preedit was not single-underlined");
       require(key(IBUS_Escape) && !seen.preedit_visible && seen.committed.empty(),
               "Esc did not cancel an English-mode recording");
       require(wait_until([&] { return voice_provider.cancelled.load() == voice_cancels + 1; }),
@@ -668,6 +701,64 @@ int main(int argc, char **argv) {
               "Bare Shift release was consumed or did not restore Chinese mode");
       require(seen.punctuation_enabled,
               "Switching back to Chinese mode under the follow lock did not restore Chinese punctuation");
+      // Ctrl+. in English mode turns Chinese punctuation on for English mode too, as Windows does with the IME closed; a refocus keeps it and the next mode switch drops it.
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  !seen.input_enabled && !seen.punctuation_enabled,
+              "Follow fixture did not return to English mode with ASCII punctuation");
+      require(key(IBUS_period, IBUS_CONTROL_MASK) && seen.committed.empty() &&
+                  seen.punctuation_enabled,
+              "English-mode Ctrl+. was not consumed or did not turn Chinese punctuation on");
+      require(!key(IBUS_period, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "English-mode Ctrl+. release was consumed");
+      require(key(IBUS_comma) && seen.committed == "，",
+              "English mode did not convert a comma after Ctrl+.");
+      seen.committed.clear();
+      invoke("FocusOut");
+      invoke("FocusIn");
+      require(!seen.input_enabled && key(IBUS_comma) && seen.committed == "，",
+              "Refocus dropped the English-mode Ctrl+. choice");
+      seen.committed.clear();
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  seen.input_enabled,
+              "Bare Shift did not switch to Chinese after English-mode Ctrl+.");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  !seen.input_enabled,
+              "Bare Shift did not switch back to English after English-mode Ctrl+.");
+      require(!key(IBUS_comma) && seen.committed.empty() && !seen.punctuation_enabled,
+              "A mode round trip did not drop the English-mode Ctrl+. choice");
+#if IBUS_CHECK_VERSION(1, 5, 27)
+      // A mode the focus restores is a mode switch too: toggling Ctrl+. twice in an English app leaves nothing behind for a Chinese app focused next.
+      invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/english-app", "msime-english-app"));
+      require(!seen.input_enabled, "Naming the English-mode focus changed its mode");
+      for (int press = 0; press < 2; ++press) {
+        require(key(IBUS_period, IBUS_CONTROL_MASK) &&
+                    !key(IBUS_period, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+                "English-mode Ctrl+. was not consumed in a named app");
+        require(seen.punctuation_enabled == (press == 0),
+                "English-mode Ctrl+. did not toggle punctuation in a named app");
+      }
+      require(!seen.punctuation_enabled,
+              "Two English-mode Ctrl+. presses did not return to ASCII punctuation");
+      invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/chinese-app", "msime-chinese-app"));
+      require(seen.input_enabled && seen.punctuation_enabled,
+              "An app restored to Chinese inherited the English-mode Ctrl+. choice of the previous app");
+#endif
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // The "always English punctuation" lock keeps English mode ASCII whatever Ctrl+. says.
+      auto english_lock = follow;
+      english_lock["preferences"]["default_ime_mode"] = "english";
+      english_lock["preferences"]["punctuation_lock"] = "english";
+      msime_ibus_configure(english_lock.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      require(!seen.input_enabled, "English lock fixture did not start in English mode");
+      require(key(IBUS_period, IBUS_CONTROL_MASK) && seen.committed.empty(),
+              "English-mode Ctrl+. was not consumed under the English punctuation lock");
+      require(!key(IBUS_comma) && seen.committed.empty(),
+              "English punctuation lock converted a comma after Ctrl+. in English mode");
       invoke("FocusOut");
     }
     for (const auto *scope : {"app", "global"}) {
@@ -704,6 +795,7 @@ int main(int argc, char **argv) {
       require(seen.input_enabled && !seen.english_mode && seen.preedit == "nihao" &&
                   !seen.candidates.empty() && seen.candidates.front() == "你好",
               "Chinese default did not restore Chinese candidates");
+      require(preedit_underlined(seen), "Typed composition preedit was not single-underlined");
       invoke("Reset");
       invoke("FocusOut");
       invoke("FocusIn");
@@ -808,7 +900,12 @@ int main(int argc, char **argv) {
       for (char c : std::string("zaijian"))
         require(key(c), "AI-only fixture input was not consumed");
       settle_online();
-      require(provider.online_requests == 4, "Disabling cloud also disabled configured AI requests");
+      require(provider.online_requests == 4,
+              ("Disabling cloud also disabled configured AI requests: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
+      // Windows AiAssistant shows a cached answer before the idle delay, so every input change also sends an immediate cache-only probe; those never reach the network and are not part of the debounced count above.
+      require(provider.ai_cache_probes > 0, "AI input did not send the immediate cache probe");
       // Private and no-spellcheck fields keep their pinyin and committed text on the machine, as Fcitx5 does: no cloud, AI or translation request while typing there, and nothing committed there reaches the next field's AI context.
       require(provider.requests > 0, "Ordinary field did not request candidate translations");
       auto content_hints = [&](guint hints) {
@@ -817,6 +914,7 @@ int main(int argc, char **argv) {
       };
       content_hints(IBUS_INPUT_HINT_PRIVATE);
       const auto translations_before = provider.requests.load();
+      const auto probes_before = provider.ai_cache_probes.load();
       const auto private_before = seen.committed;
       phrase();
       require(key(IBUS_space) && seen.committed == private_before + "你好",
@@ -830,6 +928,8 @@ int main(int argc, char **argv) {
                   .c_str());
       require(provider.requests == translations_before,
               "Private field dispatched a candidate translation request");
+      require(provider.ai_cache_probes == probes_before,
+              "Private field dispatched an AI cache probe");
       content_hints(0);
       for (char c : std::string("zaijian"))
         require(key(c), "Ordinary field input was not consumed after a private field");
@@ -1592,9 +1692,22 @@ int main(int argc, char **argv) {
             "Ctrl+Alt+Space restore release was not consumed");
     require(key(IBUS_space, IBUS_CONTROL_MASK), "Ctrl+Space was not consumed");
     require(!seen.input_enabled, "Ctrl+Space did not enter English mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Space release was not consumed");
     require(key(IBUS_space, IBUS_CONTROL_MASK),
             "Ctrl+Space could not restore input mode");
     require(seen.input_enabled, "Ctrl+Space did not restore input mode");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Space restore release was not consumed");
+    // Holding Ctrl+Space auto-repeats the press; the mode flips once for the whole stroke, as on Windows.
+    for (int press = 0; press < 3; ++press)
+      require(key(IBUS_space, IBUS_CONTROL_MASK) && !seen.input_enabled,
+              "Held Ctrl+Space toggled the input mode more than once");
+    require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK) && !seen.input_enabled,
+            "Held Ctrl+Space release was not consumed");
+    require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK) && seen.input_enabled,
+            "Ctrl+Space after a held stroke did not toggle again");
     // Once Ctrl+Alt+Space is consumed, the entire Space stroke belongs to
     // the shortcut even if its modifiers or configured binding change.
     for (guint remaining : {0u, guint(IBUS_CONTROL_MASK), guint(IBUS_MOD1_MASK),
@@ -2536,17 +2649,20 @@ int main(int argc, char **argv) {
             "Shortcut was intercepted or left stale composition");
     require(seen.committed == committed,
             "Shortcut unexpectedly committed input");
-    require(key(IBUS_space, IBUS_CONTROL_MASK),
+    require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
             "Control-space toggle was not handled");
     require(!key('n'), "Disabled input consumed a character");
     invoke("PropertyActivate",
            g_variant_new("(su)", "InputEnabled", PROP_STATE_CHECKED));
     require(key('n'), "InputEnabled property did not re-enable input");
     invoke("Reset");
-    require(key(IBUS_space, IBUS_CONTROL_MASK),
+    require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
             "Control-space disable was not handled");
     require(!key('n'), "Disabled input consumed a character after property toggle");
-    require(key(IBUS_space, IBUS_CONTROL_MASK),
+    require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
             "Control-space re-enable was not handled");
     require(key('n'), "Re-enabled input did not consume a character");
     invoke("Reset");
@@ -2606,8 +2722,19 @@ int main(int argc, char **argv) {
       }
     };
     require(!seen.traditional_output, "Traditional output did not start disabled");
+    // Holding Ctrl+Shift+F auto-repeats the press. A repeat while the first toggle's save is pending belongs to the shortcut instead of reaching the editor, and one after the save landed does not flip the setting back.
     require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
             "Ctrl+Shift+F was not consumed");
+    require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+F repeat during the pending save reached the editor");
+    settle();
+    require(seen.traditional_output, "First Ctrl+Shift+F did not apply traditional output");
+    require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK),
+            "Ctrl+Shift+F repeat after the save was not consumed");
+    settle();
+    require(seen.traditional_output, "Held Ctrl+Shift+F repeat toggled the character set back");
+    require(key(IBUS_f, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+            "Ctrl+Shift+F release was not consumed");
     settle();
     std::ifstream saved_preferences(root / "preferences.json");
     nlohmann::json saved_snapshot;
@@ -2979,11 +3106,14 @@ int main(int argc, char **argv) {
       require(panel_key("n", 49) && panel_key("i", 23) && panel_key("h", 35) &&
                   panel_key("a", 30) && panel_key("o", 24),
               "Screen keyboard letters were refused");
-      require(wait_until([&] { return seen.preedit_visible && seen.preedit == "nihao"; }),
+      require(wait_until([&] { return seen.preedit_visible && seen.preedit == "nihao"; }) &&
+                  !seen.candidates.empty(),
               "Screen keyboard letters did not compose");
+      // Earlier sections select and learn nihao candidates, so the first one is whatever the ranking now puts there, as every other phrase() check in this file assumes.
+      const auto composed = before + seen.candidates.front();
       require(panel_key("space", 57), "Screen keyboard Space was refused");
       require(wait_until([&] { return seen.committed != before; }) &&
-                  seen.committed == before + "你好" && seen.forwarded.empty(),
+                  seen.committed == composed && seen.forwarded.empty(),
               "Screen keyboard typed raw letters instead of composing");
       // A composition started on the physical keyboard: the screen keyboard's digits select from it and its BackSpace edits it.
       phrase();
@@ -3027,7 +3157,8 @@ int main(int argc, char **argv) {
       key(IBUS_Escape);
       key(IBUS_Escape, IBUS_RELEASE_MASK);
       // In English mode the engine passes the letter on untouched, as one whole stroke.
-      require(key(IBUS_space, IBUS_CONTROL_MASK) && !seen.input_enabled,
+      require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                  key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK) && !seen.input_enabled,
               "Ctrl+Space did not enter English mode for the screen keyboard");
       seen.forwarded.clear();
       require(panel_key("n", 49), "Screen keyboard letter in English mode was refused");
@@ -3037,7 +3168,8 @@ int main(int argc, char **argv) {
                   seen.forwarded[1].keyval == 'n' &&
                   (seen.forwarded[1].state & IBUS_RELEASE_MASK) != 0 && !seen.preedit_visible,
               "Screen keyboard letter in English mode did not reach the editor as one stroke");
-      require(key(IBUS_space, IBUS_CONTROL_MASK) && seen.input_enabled,
+      require(key(IBUS_space, IBUS_CONTROL_MASK) &&
+                  key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK) && seen.input_enabled,
               "Ctrl+Space did not restore Chinese mode after the screen keyboard");
     }
     invoke("Disable");

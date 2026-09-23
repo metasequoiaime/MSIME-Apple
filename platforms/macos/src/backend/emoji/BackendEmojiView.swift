@@ -171,7 +171,7 @@ struct MacEmojiView: View {
           }.frame(height: 24)
           MacEmojiScroll(resetID: scrollID) {
             if loadedQuery == queryID && items.isEmpty && category != "clipboard" {
-              MacEmojiEmptyStateView(category: category, search: search, group: group, palette: palette)
+              MacEmojiEmptyStateView(category: category, search: search, group: group, hasRecents: !recent.items.isEmpty, palette: palette)
             } else if category == "kaomoji" {
               if loadedQuery == queryID && (!items.isEmpty || search.isEmpty) {
               MacEmojiDetailSection(title: "All", palette: palette) {

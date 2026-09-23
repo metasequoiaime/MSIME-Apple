@@ -215,6 +215,12 @@ pub struct HostCapabilities {
     /// to know which of the two it is, because the button says so.
     #[serde(default)]
     pub skin_directory_import: bool,
+    /// The one candidate page size the host draws, when it offers no choice. The iOS keyboard numbers its strip's chips 1-9 to match the digits on its symbol layer and lays the expanded panel out in nines, so it holds the Engine to nine whatever the shared setting says; the page shows the count instead of a selector that would do nothing. Absent on a host that pages by the setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_candidate_page_size: Option<u8>,
+    /// The one candidate layout the host draws, when it offers no choice. The iOS candidate strip is a horizontal row above the keys, so an external skin is adopted there only for its horizontal layout; the skin page has to judge compatibility by that rather than by the shared setting, which defaults to vertical. Absent on a host that follows the setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
@@ -444,9 +450,7 @@ impl HostCapabilities {
             // Every host calls `msime_client_set_character_width` when its session starts and
             // from its own width switch, so the preference always has something to act on.
             character_width: true,
-            // The Android recognition window shows the transcript once it is settled and has no
-            // row for a partial one; putting half-written text there that the final result may
-            // contradict is worse than waiting for it. Every other host draws its own composition.
+            // The Android recognition window shows the transcript once it is settled and has no row for a partial one; putting half-written text there that the final result may contradict is worse than waiting for it. iOS records in the app, because a keyboard extension cannot use the microphone, and hands the keyboard only the final transcript, so it has no row for one either. Every other host draws its own composition.
             // Every host reaches its provider one way or another: the desktops and both mobile
             // hosts call it themselves, and Linux hands the same configuration to its provider
             // service. None of them wants these controls hidden.
@@ -457,7 +461,7 @@ impl HostCapabilities {
             // for its own Alt+Shift+H. No other host binds that chord.
             fullwidth_chord: matches!(platform, HostPlatform::Macos | HostPlatform::Android),
             voice_provider_settings: true,
-            voice_stream_preedit: platform != HostPlatform::Android,
+            voice_stream_preedit: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
             helpcode_shift_entry: matches!(
@@ -466,6 +470,9 @@ impl HostCapabilities {
             ),
             // The skin folder is inside the sandbox on HarmonyOS and in the App Group container on iOS, where no file manager reaches it, so the skin is picked and copied in instead.
             skin_directory_import: matches!(platform, HostPlatform::Harmony | HostPlatform::Ios),
+            fixed_candidate_page_size: (platform == HostPlatform::Ios).then_some(9),
+            fixed_candidate_layout: (platform == HostPlatform::Ios)
+                .then_some(crate::preferences::CandidateLayout::Horizontal),
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
@@ -973,6 +980,23 @@ mod tests {
         assert!(ios.helpcode_shift_entry);
         // Files cannot reach the App Group skin folder, so the skin button imports a picked folder.
         assert!(ios.skin_directory_import);
+        // The strip pages in nines and is always a horizontal row, whatever the shared document says.
+        assert_eq!(ios.fixed_candidate_page_size, Some(9));
+        assert_eq!(
+            ios.fixed_candidate_layout,
+            Some(crate::preferences::CandidateLayout::Horizontal)
+        );
+        for platform in [
+            HostPlatform::Windows,
+            HostPlatform::Macos,
+            HostPlatform::Linux,
+            HostPlatform::Android,
+            HostPlatform::Harmony,
+        ] {
+            let other = HostCapabilities::for_platform(platform);
+            assert_eq!(other.fixed_candidate_page_size, None);
+            assert_eq!(other.fixed_candidate_layout, None);
+        }
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);
@@ -1066,10 +1090,11 @@ mod tests {
         ] {
             assert!(HostCapabilities::for_platform(platform).character_width);
         }
-        // Android runs the configured transcription provider, streaming one included, but draws
-        // no interim text, so it is the one host without that switch.
-        assert!(!HostCapabilities::for_platform(HostPlatform::Android).voice_stream_preedit);
-        assert!(HostCapabilities::for_platform(HostPlatform::Android).voice_provider_settings);
+        // Android and iOS run the configured transcription provider, streaming one included, but draw no interim text, so they are the hosts without that switch.
+        for platform in [HostPlatform::Android, HostPlatform::Ios] {
+            assert!(!HostCapabilities::for_platform(platform).voice_stream_preedit);
+            assert!(HostCapabilities::for_platform(platform).voice_provider_settings);
+        }
         // The two chords exist wherever a keyboard can send them and the host routes them.
         assert!(HostCapabilities::for_platform(HostPlatform::Android).maintenance_shortcuts);
         assert!(HostCapabilities::for_platform(HostPlatform::Windows).maintenance_shortcuts);
@@ -1088,7 +1113,6 @@ mod tests {
             HostPlatform::Windows,
             HostPlatform::Macos,
             HostPlatform::Linux,
-            HostPlatform::Ios,
             HostPlatform::Harmony,
         ] {
             assert!(HostCapabilities::for_platform(platform).voice_stream_preedit);

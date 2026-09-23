@@ -57,7 +57,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic, copy) NSString *imeModeScope;
 - (void)activateInputModeForApplication:(NSString *)identifier;
 - (void)lockActiveInputMode;
-- (void)resetGlobalInputMode;
+- (void)resetRememberedInputModes;
 @property(nonatomic) BOOL inputModeShortcut;
 @property(nonatomic) BOOL shiftTapShortcut;
 @property(nonatomic) BOOL controlTapShortcut;
@@ -67,6 +67,14 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL traditionalOutput;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
+/// The punctuation and width the active application is typing with. They start from the saved `chinesePunctuation` / `fullWidthInput` and the toggles (toolbar, Ctrl+., Ctrl+Shift+Space, Option+Shift+H) change only the active app, in memory: setting them never writes defaults or posts MSIMEAppearanceDidChangeNotification.
+@property(nonatomic) BOOL runtimeChinesePunctuation;
+@property(nonatomic) BOOL runtimeFullWidthInput;
+/// Drops the active app's punctuation toggle so it follows the saved value again, as a Chinese/English switch does in the reference.
+- (void)resetRuntimePunctuationForActiveApplication;
+/// Drops both toggles of the active app, the counterpart of the reference resetting its compartments on Deactivate/Activate.
+- (void)resetRuntimeInputStateForActiveApplication;
+- (void)resetAllRuntimeInputState;
 @property(nonatomic) BOOL smartPunctuation;
 @property(nonatomic) BOOL smartPunctuationRepeatToChinese;
 /// A space after a just-committed Chinese mark rewrites it as ASCII. Off by default, like the rest of the

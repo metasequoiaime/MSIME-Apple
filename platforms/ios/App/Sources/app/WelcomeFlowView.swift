@@ -79,8 +79,11 @@ struct WelcomeFlowView: View {
         Button {
           var enabled = InputSchemePreference.enabledSchemes
           if !enabled.contains(choice) { enabled.append(choice) }
-          InputSchemePreference.enabledSchemes = enabled
-          InputSchemePreference.scheme = choice
+          // The first run has no page to report a failed document write on; the App Group still holds the choice until the keyboard first records a scheme of its own.
+          if !InputSchemePreference.save(scheme: choice, enabled: enabled) {
+            InputSchemePreference.enabledSchemes = enabled
+            InputSchemePreference.scheme = choice
+          }
           scheme = choice
         } label: {
           HStack(spacing: 14) {

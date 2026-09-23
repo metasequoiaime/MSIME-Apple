@@ -236,6 +236,8 @@ import {
   HardwareKeyRouter,
   HardwareKeyAction,
   HardwareKey,
+  HardwareSpelling,
+  PLAIN_SPELLING,
 } from "../entry/src/main/ets/keyboard/HardwareKeyRouter";
 import {
   CandidateTextPolicy,
@@ -289,6 +291,7 @@ import {
   ToolbarComponents,
 } from "../entry/src/main/ets/keyboard/FloatingToolbarLayout";
 import { FloatingToolbarDragPolicy } from "../entry/src/main/ets/keyboard/FloatingToolbarDragPolicy";
+import { InlinePreeditPolicy } from "../entry/src/main/ets/keyboard/input/InlinePreeditPolicy";
 
 function selectedBarVisible(value: boolean | null): boolean {
   return value !== false;
@@ -4097,12 +4100,12 @@ group("the Windows mode chords are answered on a hardware keyboard", () => {
   routing.use(DEFAULT_MODE_BINDINGS);
   check(
     routing.accept(modeKey(KEY_E, true, 0, { ctrlKey: true, shiftKey: true })) ===
-      ModeGesture.SWITCH_LANGUAGE,
-    "Ctrl+Shift+E switches the composing language",
+      ModeGesture.ENGLISH_CANDIDATES,
+    "Ctrl+Shift+E switches the English candidate mode, as Windows IsEnglishModeToggleKey does",
   );
   check(
     routing.accept(modeKey(KEY_SPACE, true, 0, { ctrlKey: true, shiftKey: true })) ===
-      ModeGesture.TOGGLE_CHARACTER_SET,
+      ModeGesture.TOGGLE_WIDTH,
     "Ctrl+Shift+Space switches halfwidth and fullwidth",
   );
   check(
@@ -4139,7 +4142,7 @@ group("the Windows chords are fixed rather than following the four optional bind
   // Turning off the Shift tap says nothing about Ctrl+Shift+E, and Windows binds these fixed.
   check(
     routing.accept(modeKey(KEY_E, true, 0, { ctrlKey: true, shiftKey: true })) ===
-      ModeGesture.SWITCH_LANGUAGE,
+      ModeGesture.ENGLISH_CANDIDATES,
     "Ctrl+Shift+E still answers",
   );
   check(
@@ -7546,6 +7549,138 @@ group("keypad digits reach both digit paths", () => {
   );
 });
 
+group("Ctrl+Shift+F switches simplified and traditional, not the character width", () => {
+  const routing: InputModeRouting = new InputModeRouting();
+  routing.use(DEFAULT_MODE_BINDINGS);
+  // Windows `HandleImeKey` answers `IsCharacterSetShortcut` with `SetConfiguredCharacterSet`; the settings page labels the binding 切换简繁.
+  check(
+    routing.accept(modeKey(2022, true, 0, { ctrlKey: true, shiftKey: true })) ===
+      ModeGesture.TOGGLE_CHARACTER_SET,
+    "Ctrl+Shift+F is the simplified/traditional chord",
+  );
+  routing.use({ ...DEFAULT_MODE_BINDINGS, toggleCharacterSetCtrlShiftF: false });
+  check(
+    routing.accept(modeKey(2022, true, 0, { ctrlKey: true, shiftKey: true })) === ModeGesture.NONE,
+    "turning the binding off leaves the chord to the application",
+  );
+});
+
+group("a hardware key spells or punctuates depending on what is being spelled", () => {
+  const route = (over: Record<string, unknown>, spelling: Partial<HardwareSpelling>) =>
+    HardwareKeyRouter.route(
+      {
+        keyCode: 0,
+        unicodeChar: 0,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        logoKey: false,
+        ...over,
+      } as HardwareKey,
+      true,
+      true,
+      false,
+      undefined,
+      false,
+      false,
+      "disabled",
+      true,
+      { ...PLAIN_SPELLING, ...spelling },
+    );
+  const unicode: Partial<HardwareSpelling> = { localMode: "unicode", editing: "u4e", caret: 3 };
+  const digit = route({ keyCode: 2000, unicodeChar: 0x30 }, unicode);
+  check(
+    digit.action === HardwareKeyAction.COMPOSE && digit.character === 0x30,
+    "in U mode a plain 0 is part of the code point",
+  );
+  const four = route({ keyCode: 2004, unicodeChar: 0x34 }, unicode);
+  check(
+    four.action === HardwareKeyAction.COMPOSE && four.character === 0x34,
+    "and so is a plain 4, which would otherwise pick the fourth candidate",
+  );
+  const pick = route({ keyCode: 2002, unicodeChar: 0x40, shiftKey: true }, unicode);
+  check(
+    pick.action === HardwareKeyAction.SELECT && pick.index === 1,
+    "Shift+2 picks the second candidate in U mode, as on Windows",
+  );
+  const plus = route(
+    { keyCode: 2058, unicodeChar: 0x2b, shiftKey: true },
+    { localMode: "unicode", editing: "U", caret: 1 },
+  );
+  check(
+    plus.action === HardwareKeyAction.COMPOSE && plus.character === 0x2b,
+    "the + of U+ is spelled rather than taken as a paging key or a mark",
+  );
+  check(
+    route({ keyCode: 2058, unicodeChar: 0x2b, shiftKey: true }, unicode).action !==
+      HardwareKeyAction.COMPOSE,
+    "a + anywhere else in the code point is not part of it",
+  );
+  check(
+    route({ keyCode: 2004, unicodeChar: 0x34 }, { editing: "ni", caret: 2 }).action ===
+      HardwareKeyAction.SELECT,
+    "outside U mode a digit still picks",
+  );
+
+  const separator = route({ keyCode: 2063, unicodeChar: 0x27 }, { editing: "xi", caret: 2 });
+  check(
+    separator.action === HardwareKeyAction.COMPOSE && separator.character === 0x27,
+    "' separates pinyin syllables mid-composition",
+  );
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, { editing: "xi", caret: 0 }).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "with the caret at the start there is nothing to separate",
+  );
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, { editing: "abcd", caret: 4, wubi: true })
+      .action === HardwareKeyAction.PUNCTUATION,
+    "Wubi codes have no syllables, so ' stays a mark",
+  );
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, { localMode: "emoji", editing: "xiao", caret: 4 })
+      .action === HardwareKeyAction.COMPOSE,
+    "emoji spellings are separated the same way",
+  );
+
+  const microsoft: Partial<HardwareSpelling> = { microsoftShuangpin: true };
+  const ing = route({ keyCode: 2062, unicodeChar: 0x3b }, { ...microsoft, editing: "x", caret: 1 });
+  check(
+    ing.action === HardwareKeyAction.COMPOSE && ing.character === 0x3b,
+    "Microsoft shuangpin spells ing with ; as the second key of a syllable",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { ...microsoft, editing: "xm", caret: 2 })
+      .action === HardwareKeyAction.PUNCTUATION,
+    "as the first key of the next syllable it is a mark",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { ...microsoft, editing: "xm'x", caret: 4 })
+      .action === HardwareKeyAction.COMPOSE,
+    "syllables are counted from the last separator",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { editing: "x", caret: 1 }).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "other layouts never spell with ;",
+  );
+
+  const english: Partial<HardwareSpelling> = { editing: "don", caret: 3, englishCandidates: true };
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, english).action === HardwareKeyAction.PUNCTUATION,
+    "in the English candidate mode ' ends the word instead of being spelled into it",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { ...english, microsoftShuangpin: true }).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "and ; is not a shuangpin final there",
+  );
+  check(
+    route({ keyCode: 2004, unicodeChar: 0x34 }, english).action === HardwareKeyAction.SELECT,
+    "a digit still picks an English word",
+  );
+});
+
 group("space after a Chinese mark rewrites it as ASCII", () => {
   // Transcribed from SmartPunctuationAsciiFor in the source. Both quote directions map to the same
   // straight quote, as they do there.
@@ -8052,6 +8187,57 @@ group("Harmony batch transcription accepts every shared cloud preset", () => {
     !HttpAsrConfigurationPolicy.valid({ ...mistral, asr_provider: "local" }),
     "a provider without the HTTP adapter cannot fall through to it",
   );
+});
+
+group("the 2in1 draws the composition inline as tsf_preedit_style says", () => {
+  check(
+    InlinePreeditPolicy.style(undefined) === "raw",
+    "a document without the field shows raw letters",
+  );
+  check(InlinePreeditPolicy.style("pinyin") === "pinyin", "pinyin is read");
+  check(InlinePreeditPolicy.style("empty") === "empty", "empty is read");
+  check(InlinePreeditPolicy.style("local") === "raw", "an unknown style falls back to raw");
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "nihao", "ni'hao", "") === "nihao",
+    "raw shows the letters as typed",
+  );
+  check(
+    InlinePreeditPolicy.text("pinyin", true, true, "nihao", "ni'hao", "") === "ni'hao",
+    "pinyin shows the segmented spelling",
+  );
+  check(
+    InlinePreeditPolicy.text("pinyin", true, true, "nihao", "", "") === "nihao",
+    "pinyin without a segmented spelling falls back to the letters",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "hao", "hao", "你") === "你hao",
+    "a held phrase piece leads the spelling",
+  );
+  check(
+    InlinePreeditPolicy.text("empty", true, true, "nihao", "ni'hao", "") === "",
+    "empty leaves the document alone",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", false, true, "nihao", "ni'hao", "") === "",
+    "a phone keeps the spelling above its keys",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, false, "nihao", "ni'hao", "") === "",
+    "an editor without preview text gets none",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "", "", "") === "",
+    "no composition, no preview",
+  );
+  check(
+    InlinePreeditPolicy.beforePreview("好nihao", "nihao") === "好",
+    "context before the caret skips the preview the editor counts as text",
+  );
+  check(
+    InlinePreeditPolicy.beforePreview("好a", "nihao") === "好a",
+    "an editor that keeps preview text out of its content is read as is",
+  );
+  check(InlinePreeditPolicy.beforePreview("好a", "") === "好a", "no preview, nothing removed");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

@@ -117,6 +117,77 @@ test("complete personal dictionary reads every kind page with an empty query", a
   expect(list).toHaveBeenNthCalledWith(5, 0, 100, "english", "");
 });
 
+test("complete personal dictionary leaves bundled rows out of the export", async () => {
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({
+      entries: [{ kind: "pinyin" as const, key: "a", value: "甲", weight: 1 }],
+      has_more: false,
+    })
+    .mockResolvedValueOnce({
+      entries: [{ kind: "wubi" as const, key: "wq", value: "你", weight: 3 }],
+      has_more: false,
+    })
+    .mockResolvedValueOnce({
+      entries: [
+        {
+          kind: "quick_phrase" as const,
+          key: "dh",
+          value: "电话",
+          weight: 1,
+          source: "bundled" as const,
+        },
+        {
+          kind: "quick_phrase" as const,
+          key: "q",
+          value: "快捷",
+          weight: 4,
+          source: "user" as const,
+        },
+      ],
+      has_more: true,
+    })
+    .mockResolvedValueOnce({
+      entries: [
+        {
+          kind: "quick_phrase" as const,
+          key: "yx",
+          value: "邮箱",
+          weight: 1,
+          source: "bundled" as const,
+        },
+      ],
+      has_more: false,
+    })
+    .mockResolvedValueOnce({
+      entries: [{ kind: "english" as const, key: "hi", value: "Hi", weight: 5 }],
+      has_more: false,
+    });
+  const entries = await loadAllPersonalDictionaryEntries({ list });
+  expect(entries.filter((entry) => entry.kind === "quick_phrase")).toEqual([
+    { kind: "quick_phrase", key: "q", value: "快捷", weight: 4, source: "user" },
+  ]);
+  expect(entries).toHaveLength(4);
+  expect(list).toHaveBeenNthCalledWith(4, 2, 100, "quick_phrase", "");
+  expect(list).toHaveBeenNthCalledWith(5, 0, 100, "english", "");
+});
+
+test("complete personal dictionary exports when a kind has no words", async () => {
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({
+      entries: [{ kind: "pinyin" as const, key: "a", value: "甲", weight: 1 }],
+      has_more: false,
+    })
+    .mockResolvedValueOnce({ entries: [], has_more: false })
+    .mockResolvedValueOnce({ entries: [], has_more: false })
+    .mockResolvedValueOnce({ entries: [], has_more: false });
+  await expect(loadAllPersonalDictionaryEntries({ list })).resolves.toEqual([
+    { kind: "pinyin", key: "a", value: "甲", weight: 1 },
+  ]);
+  expect(list).toHaveBeenCalledTimes(4);
+});
+
 test("complete personal dictionary reports an empty export without rows", () => {
   expect(personalDictionaryExportPayload([])).toEqual({
     rows: 0,

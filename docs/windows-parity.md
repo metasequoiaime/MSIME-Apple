@@ -90,7 +90,7 @@
 | 录音设备选择 | 来源语音设置 | `src/voice/VoiceCaptureSelection.h` 与 `VoiceInputSession`，按稳定设备 ID 枚举、保存并透传给 `AudioCapture::start` |
 | 手写 | 设置 `handwriting-settings.ts` 与模型资源 | `src/system/ShellSurfaces.h` → Tauri `recognize_handwriting` / `submit_handwriting_candidate`，界面在共享 `panels.tsx` |
 | 屏幕键盘 | 来源面板 `server/src/keyboard-panel/KeyboardPanel.cpp` | Tauri keyboard route 与共享 `packages/ui/src/keyboard/`，投递走 Windows host 的 `send_key` |
-| Emoji、颜文字、符号、剪贴板历史 | README 与来源 `clipboard_history.cpp` | `src/clipboard/ClipboardMonitor.cpp`、`ClipboardHistory.cpp`、`ClipboardPaste.cpp`、`ClipboardPresentation.cpp`，面板与目录走 Tauri `load_emoji_catalog` / `paste_clipboard_text` |
+| Emoji、颜文字、符号、剪贴板历史 | README 与来源 `clipboard_history.cpp` | `src/clipboard/ClipboardMonitor.cpp`、`ClipboardHistory.cpp`、`ClipboardPaste.cpp`、`ClipboardPresentation.cpp`，面板与目录走 Tauri `load_emoji_catalog` / `paste_clipboard_text`；最近使用空状态文字与来源一致 |
 | 悬浮工具栏、托盘菜单、入口快捷键 | 来源 `window/*presenter*`、`ui-html/webview2/ftb` 与 `menu` | `src/candidate/FloatingToolbarWindow.cpp`、`src/candidate/TrayMenuWindow.cpp`、`src/input/MaintenanceHotkey.cpp`、`src/system/ShellSurfaces.h` 与 `ShellLauncher.cpp` |
 | 皮肤、主题、字体、外观预览 | 来源 `appearance.ts` / `skin.ts`、`candwnd/skins` | `src/candidate/CandidateSkin.h`、`CandidatePalette.h`、`CandidateShadow.h`、`CandidateWindow.cpp`，共享 `packages/ui/src/upstream/` 与 `crates/client-core/src/skin/catalog.rs` |
 | 打字统计 | 来源 Server 私有统计表与统计页 | 采集在 Server，存储与展示在共享 `crates/client-core/src/typing_statistics.rs` 与共享设置页 |
@@ -109,7 +109,7 @@
 - **以词定字**：`[` 上屏高亮候选的首个汉字、`]` 上屏末字，覆盖三字候选、组合被消耗、无汉字候选与越界索引。
 - **辅助码**：单码调序与双码筛选按来源规格逐条核对，全拼与双拼两套方案及候选窗显示都在；五笔的逐键提示按共享 `wubi_code_hint` 显示严格前缀的剩余编码，回退与本地模式不标注。
 - **八个快捷模式**（K/T/U/E/M/J/Y/R）：带锁定词库的 `ServerSession` 回归逐个验证 Shift 入口、候选生成与选词提交。Unicode 模式的数字键是「打码位」而不是选词序号，判断分在两层——引擎报 handled，运行时只把引擎拒绝的数字落到选词；这个组合有真引擎回归覆盖。
-- **中英文状态**：按应用 / 全局的作用域是纯决策函数并有 `windows-mode-authority` 覆盖；标点重复与成对补全随配置帧下发并由 `windows-tsf-config-frames` 钉住；CapsLock 由 Server 持有并经 `CapsLockChanged` 帧下发；热更新有 `preference_monitor` 用例。
+- **中英文状态**：按应用 / 全局的作用域是纯决策函数并有 `windows-mode-authority` 覆盖；标点重复与成对补全随配置帧下发并由 `windows-tsf-config-frames` 钉住；CapsLock 由 Server 持有并经 `CapsLockChanged` 帧下发；热更新有 `preference_monitor` 用例。macOS 上切到其他输入源（ABC 或其他输入法）会同时清空按应用与全局记忆的模式，切回时两种作用域都从 `default_ime_mode` 开始，对应来源 `ActivateEx` 重新写入 KEYBOARD_OPENCLOSE 与 `ClientDeactivated` 复位 `g_authoritative_cn_mode`；本输入法自身模式间的切换不触发复位，由 `shortcut` 原生测试的 `TestInputSourceModeReset` 钉住。
 - **日语**：`-` 交给长音符输入而不是翻页，`-`/`=` 不再用作翻页键，TSF 与 Server 两侧保持一致，且这条走的是物理按键到真实 Engine 的完整路径。
 - **凭据测试**（本仓库新增的功能）：豆包走独立 WebSocket 握手，传输可注入，生产 WSS 不跟随重定向，连接阶段 5 秒、总时限 15 秒，消息与累计响应上限 1 MiB、最多 64 条消息，只发送一秒合成 PCM 静音并要求有效终态 JSON，不回传服务端诊断或识别文本；批量 ASR（OpenAI、SiliconFlow、Groq）用内存生成的一秒 16 kHz 单声道 PCM16 静音 WAV 以 multipart 上传，不访问麦克风，HTTPS、禁止重定向、5 秒连接 / 15 秒请求、256 KiB 响应上限；翻译侧要求真实译文字段而不是把任意 HTTP 2xx 当成功，自定义服务保留 HTTP/HTTPS 但禁止重定向。新版豆包 API Key 与旧版 App ID/Access Token 互斥，新版忽略残留 App ID。
 - **语音**：五个语音快捷键开关、录音提示音与静音其他声音、豆包的整句流式与双向流式两个识别接口（设置页给带名字的下拉，选中即写入 `asr_endpoint`，地址不属于两个预设时显示「自定义地址」）都在。录音设备按稳定设备 ID 枚举、保存并透传给 `AudioCapture::start`。语音会话的代际由 `VoiceSessionEpoch.h` 持有，取消与失焦的旧结果不交付。
@@ -124,7 +124,7 @@
 - **AI 候选只看 AI 助手开关**：来源 `event_listener.cpp` 的 `ai_eligible` 由英文模式、特殊模式、全拼 / 双拼、纯完整拼音、无辅助码且不在造词组成，`UpdateAiInput` 只再加上 `ai_assistant.enabled`、输入会话存在与非空的拼音切分；`general.candidate_translations`（显示候选释义）只控制释义与翻译请求。Windows 宿主有在线查询就提交 AI，macOS 的 `synchronizeAITranslations` 同样只以 `ai_assistant.enabled` 为开关，关闭释义既不阻止也不取消在途的 AI 请求；`shortcut` 原生测试的 `TestAiCandidatesIgnoreGlossSwitch` 钉住这一点。
 - **智能标点**：重写标点前回读两个字符核对指纹（arm 时记下标点前面的字符），避免用户把光标移到文档里另一处同样的标点上时改错位置；文本存储读不出内容（终端与代理存储）判为匹配，以免在这些宿主里直接废掉该功能。读不回待改写字符时改走 SendInput 改写队列，执行前校验焦点 token、前台窗口与 500ms 期限。
 - **成对补全关闭时的引号与书名号**：来源 `GetPunctuation` 的引号轮换（“ 之后是 ”）与 `<` `>` 嵌套计数（《〈〉》）不看成对开关，被排除的宿主（Excel）因此回落到左右轮换。锁定引擎在成对关闭时只给左半边，由 overlay `scripts/apply_engine_punctuation_alternation.py` 去掉 `PunctuationPolicy::translate` 里的两处开关判断；状态随会话存活、切换开关不重置，与来源一致。各宿主都只在成对开启且未排除时自己改写 ” → “，不会重复轮换；HarmonyOS 成对开启时由 `PairedPunctuationPolicy.reopenQuote` 做同样的改写。`crates/host-api/src/tests.rs` 经 FFI 驱动真实引擎钉住“”“”、‘’、《〈〉》与不重置。
-- **候选窗绘制**：行按逐项测量而非定高，带按外观字体的回退（`ApplyFontFallback`）与卡片的显式阴影 pass。每个候选按来源 `CandidateList::MeasureItem` 分成三段：候选文字（含角标）、辅助码、译文。辅助码与候选同字号同颜色，接在文字后 4 DIP；译文字号为候选的 0.78，间隔为候选字号的 0.65，颜色是辅助码颜色的 alpha 乘 0.62，选中行两者都跟随选中文字色。竖排时放得下就同一行，放不下就移到文字下方并按列宽换行，辅助码一旦下移译文也跟着下移；横排时译文总在文字下方。几何在 `CandidateCardSize.h` 的 `candidate_item_layout` / `candidate_page_layout`：竖排各行按自身高度堆叠，横排各列取最高一行的高度，卡片高度按夹紧后的宽度计算；换行高度由 DirectWrite 以绘制同款 NEAR + WRAP 格式实测。`paint` 以实际绘制宽度排版并缓存行矩形，`hit` 用这份缓存，点击与绘制不会错位；`windows-candidate-card-size` 覆盖这些规则。合成路径复用渲染目标时刷新 DPI，语音波形浮层的定位与缩放取自同一份 per-monitor 快照。
+- **候选窗绘制**：行按逐项测量而非定高，带按外观字体的回退（`ApplyFontFallback`）与卡片的显式阴影 pass。每个候选按来源 `CandidateList::MeasureItem` 分成三段：候选文字（含角标）、辅助码、译文。辅助码与候选同字号同颜色，接在文字后 4 DIP；译文字号为候选的 0.78，间隔为候选字号的 0.65，颜色是辅助码颜色的 alpha 乘 0.62，选中行两者都跟随选中文字色。竖排时放得下就同一行，放不下就移到文字下方并按列宽换行，辅助码一旦下移译文也跟着下移；横排时译文总在文字下方。几何在 `CandidateCardSize.h` 的 `candidate_item_layout` / `candidate_page_layout`：竖排各行按自身高度堆叠；横排按来源 `CandidateList::Measure` 让每列取该候选的自然宽度（序号与分隔条、文字与辅助码那一行和译文那一行中较宽者、再加 8 DIP 列间距），从左向右排，放不下的那一列起新的一行，同一行各列取该行最高一项的高度，卡片高度按夹紧后的宽度计算；换行高度由 DirectWrite 以绘制同款 NEAR + WRAP 格式实测。`paint` 以实际绘制宽度排版并缓存行矩形，`hit` 用这份缓存，点击与绘制不会错位；`windows-candidate-card-size` 覆盖这些规则。合成路径复用渲染目标时刷新 DPI，语音波形浮层的定位与缩放取自同一份 per-monitor 快照。
 - **屏幕键盘**：普通键 450ms 首次延迟、75ms 间隔自动重复，粘滞修饰键与 Num Lock 单次切换；投递失败、失焦或关闭会停止重复且不自动重放。修饰键按下 / 释放的扩展键集合与来源逐键相同，布局为来源的超集（多出 F10–F12、PrtSc/Scroll/Pause、导航簇与 Menu 键）。
 - **剪贴板**：历史上限 50 条，文本边界为 4000 UTF-16 单位与 12000 UTF-8 字节；`normalize_clipboard_text` 只去掉 CF_UNICODETEXT 带来的东西（首个 NUL 起截断、剥掉尾部 `\r`），换行与空白是用户内容、原样往返。
 - **简繁转换**：共享层 `crates/client-core/src/chinese_conversion.rs` 按 OpenCC `data/config/s2t.json` 实现词级转换（兼容表归一化，再以 STPhrases ∪ 地区词派生表 → STCharacters 做最大正向匹配，完整 IDS 序列整体透传），数据取自来源钉的同一个 OpenCC 提交并登记在 `docs/third-party.md`。边界导出 `msime_client_simplified_to_traditional` 返回裸文本而非 JSON——它在每个候选上都要调用；Windows、Linux 与 macOS 宿主都调这一个导出，不使用系统的 `LCMapStringEx`、`libicu` 或 `CFStringTransform` 逐字转换；首次调用解析词典，之后单次约 1 µs。与该提交构建出的 OpenCC CLI 做对照，4 万行随机文本逐字节一致。
@@ -185,11 +185,15 @@
 
 **半截词的 preedit 不在 Windows 打开。** 其余五个宿主（macOS、Linux、HarmonyOS、Android、iOS）把「已选的那一段 + 读音」画在组字里，Windows 的 TSF 侧自己累积前缀，打开会重复；桌面外壳没有候选窗，不适用。
 
-**候选文字本身超宽时截断而不是换行。** 辅助码与译文已按来源在行内放不下时换到文字下方、行高随之可变（见上文「候选窗绘制」），但候选文字自身仍是单行，超出的部分截在行矩形处，与命中测试用的是同一个矩形。横排仍把卡片等分成等宽列，比列宽还宽的候选照旧被截断；来源按每项自然宽度分列，这一处尚未迁移。
+**候选文字本身超宽时截断而不是换行。** 辅助码与译文已按来源在行内放不下时换到文字下方、行高随之可变（见上文「候选窗绘制」），但候选文字自身仍是单行，超出的部分截在行矩形处，与命中测试用的是同一个矩形。横排已按来源 `CandidateList::Measure` 按每项自然宽度分列，卡片被工作区一半封顶后放不下的列换到下一行，而不是把整张卡片等分成等宽列、让长候选挤在三分之一里被截；因此横竖两种排法下，只有一个候选单独就比夹紧后的卡片内宽还宽时才会被截断，截在该宽度处。来源的文字本身按 WRAP 格式绘制、行高取实测高度，会折成多行，这边仍是单行截断，差别只剩这一处。
 
 **诊断日志固定写数据目录。** 来源先写桌面、失败再退回数据目录；这边固定写数据目录下的 `logs\server.log`，因为输入法在桌面上凭空出现文件不是用户预期的副作用。设置页的「Server 端日志」「TSF 端日志」两个开关（`diagnostic_log.server` / `diagnostic_log.tsf`）分别控制写入，内容只有 Server 启停原因、各组件是否就绪、退出码与 TIP 上报的诊断批次，不记按键、输入内容或候选文本；4 MiB 轮转为 `server.log.1`，最多保留两份；UTF-8 BOM 与 CRLF 行尾与来源一致；偏好发布时立即生效，无需重启 Server。
 
 **macOS 语音有三处刻意与来源不同。** 静音其他声音是整台默认输出设备而不是按进程，因为 macOS 13 没有公开接口，时序上改为开始提示音播完再静音、先恢复再播结束提示音，以保证提示音听得见；录音录满上传上限时自动结束并提交已录部分，而不是像来源那样提交时报超限并丢掉整段；提示音文件缺失时回落到系统声音而不是不出声。细节见 `platforms/macos/README.md` 的「语音输入」。
+
+**macOS 的中文标点与全半角是每个应用的运行时状态，保存的值只当起点。** 来源把两者放在 TSF 线程管理器的 compartment 里（`MetasequoiaIMEGuidCompartmentPunctuation` / `DoubleSingleByte`），按 UI 线程、实际上按应用各一份，从不写回配置：每次 Activate 重置为半角、标点跟随默认中英文模式，Deactivate 清空，Ctrl+.、Shift+Space 与悬浮工具栏只翻转 compartment，中英文切换时 `SyncPunctuationWithImeMode` 让标点重新跟上模式。macOS 的 `AppearancePreferences` 对应地按前台应用的 bundle id 在内存里记 `runtimeChinesePunctuation` / `runtimeFullWidthInput`，不受 `ime_mode_scope` 影响；Ctrl+.、Ctrl+Shift+Space、Option+Shift+H 与工具栏只改当前应用，不写 NSUserDefaults、共享文档或云端快照；中英文切换按新模式重定标点：进入英文模式时标点变为英文（`punctuation_lock` 固定为中文时除外），回到中文模式时丢掉当前应用的标点覆盖、回到保存的起点；从本输入法切到别的输入源时与中英文模式一起清掉所有应用的两项覆盖，对应 Deactivate 一并清空三个 compartment，普通的焦点切换不清。唯一有意保留的差别是起点：共享设置页在每个宿主上都提供 `chinese_punctuation` 与 `character_width`，于是 macOS 以保存的值为每个应用的起点（与 iOS 键盘相同），而不是像来源那样标点总从中英文模式出发；这两个保存值一旦改变（设置页、共享文档或云端恢复），所有应用的对应覆盖一并作废。`shortcut` 原生测试的 `TestPerApplicationPunctuationAndWidth` 钉住这些规则。
+
+**macOS 用两个输入模式承担来源托盘语言栏的常驻模式图标。** 来源 `LanguageBar.cpp` 以 `TF_LBI_STYLE_SHOWNINTRAY` 注册语言栏按钮，`GetIcon` 在中 / 英之间换图，大写锁定时换成 Caps 图、日语模式换成「日」，`RefreshLanguageBarIcons` 同时重画全半角与标点两个按钮，所以无论悬浮工具栏是否打开，托盘上总能看到当前状态。macOS 的输入法没有托盘，菜单栏里的输入源图标就是对应位置：`Info.plist.in` 声明中文模式 `.Hans` 与英文模式 `.Roman`，各自带「中」「英」模板图标，`InputController.mm` 在中英文切换时通过 `selectInputMode:` 选中对应模式，系统报告的模式切换（从输入法菜单选择或 Ctrl+空格 / 地球键切到另一条）经 `setValue:forTag:client:` 反过来改中英文状态，两边互不回声（`InputModeIdentifiers.h`，`input-mode-identifiers` 与 `shortcut` 原生测试）。其余托盘内容按平台分派：Caps 由系统自带的大写锁定指示承担，「日」与全半角、标点按钮在默认开启的悬浮工具栏上显示，不另占菜单栏图标。代价是英文模式在系统设置的输入源列表和 Ctrl+空格轮换里是单独一条，名称为「水杉输入法 · 英」/「Metasequoia · EN」以免与中文条目同名。
 
 **设置页有几处措辞与控件刻意与来源不同**：「始终使用英文标点」与这边的「中文标点」绑同一个 `chinese_punctuation` 但极性相反，只改名不反转控件即是错标；剪贴板管理来源写「关闭后立即清空」，这边写「保存关闭设置后清空」，因为这边的清空发生在偏好保存时；候选窗字体一项 Windows 显示的是「候选窗英文字体 + 补充字体」而非来源的「主字体 + 中文补充字体」，是 Windows 字体路径上的既有取舍。
 
@@ -1875,3 +1879,68 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 能力位：`floating_toolbar_handwriting` / `floating_toolbar_voice` 由 `SettingsFormFactorCapabilities` 投影，只在 2in1 上报 true，所以设置页只在 2in1 上显示这两个开关。手机没有悬浮工具栏，仍然是 false。
 - 顺带修复：表情面板的「‹」和语音面板的「返回」原来只调用 `show(SURFACE_NONE)`，那只改得了手机面板的状态。2in1 上由工具栏打开的是 desktop surface，这两个键点了没有任何反应，只能再点一次工具栏才能关掉。现在当前 desktop surface 正是这张面时，返回会关掉它；如果是在 2in1 屏幕键盘里打开的同一张面，返回仍然只退回键盘。
 - `ToolbarButton` 新成员加在枚举末尾：`PanelSurfaceAction.SCREEN_KEYBOARD = 5` 按数值镜像屏幕键盘按钮，插到中间会让屏幕键盘快捷键打开别的面。按钮的显示顺序由 `buttons()` 决定，和枚举顺序无关。
+- Rust 与前端依赖的通知：发布工作流在 Windows runner 上用 `platforms/linux/collect-notices.py`（与 Linux 发布同一个收集器）从 Cargo 解析出的 Windows 依赖图收集 `msime-host-api`、`msime-engine-bridge`（词库回放工具）和 `msime-desktop` 静态链接的 crate 许可证文件，再从 `apps/desktop` 的 `node_modules` 收集前端打包进去的 npm 包，两份文件作为 `-SupplementalNotices` 交给 `Collect-Notices.ps1`，随 `THIRD_PARTY_NOTICES.txt` 进安装包。
+
+### HarmonyOS 2in1 硬件键盘：Ctrl+Shift+F 简繁、U 模式、音节分隔符与微软双拼的 ing（2026-09-23）
+
+对照来源 `server/src/ipc/event_listener.cpp` 与 `input_key_policy.h` 逐键核查 2in1 硬件键盘，查实四处与 Windows 行为不一致，均在 `HardwareKeyRouter` / `InputModeRouting` 里修正。手机软键盘走 `Action::Character`，不受影响。
+
+- Ctrl+Shift+F：来源 `HandleImeKey` 在 `IsCharacterSetShortcut` 上调 `SetConfiguredCharacterSet`，切换的是简繁；设置页这一项也写着「Ctrl+Shift+F 切换简繁」。本宿主原来把它和 Ctrl+Shift+Space 一样当成全角/半角。现在 `ModeGesture.TOGGLE_CHARACTER_SET` 只表示简繁，全角/半角改用 `TOGGLE_WIDTH`。简繁切换与工具栏「简/繁」按钮共用 `KeyboardSession.toggleCharacterSet`，写回 `traditional_chinese_output`。和来源一样，只在中文状态下切换，但开关打开时英文状态下也会吃掉这个组合键。
+- U 模式：组字进行中数字 1–9 一律被当成选词、0 放给应用、`+` 被当成标点，于是 `u4e00`、`U+1F600` 都打不出来。现在 `local_mode` 为 `unicode` 时，不带 Shift 的 0–9 进入组字，Shift+1–9 选词（来源注释 “U-mode: Shift+1..9”），`+` 只在输入恰好是 `U` 时进入组字。规则与 Linux 宿主的 `unicode_digit` / `unicode_plus_key` 一致。
+- 拼音分隔符 `'`：来源 `IsManualPinyinSeparatorKey` 把它送进输入串，本宿主原来把它当成标点，先上屏高亮候选再插一个引号。现在组字中、光标不在开头时进入组字，范围与 Linux 的 `accepted_apostrophe` 相同：非五笔的普通输入，或者 emoji、kaomoji、临时日语三种本地模式。
+- 微软双拼 `;`：来源 `IsMicrosoftShuangpinIngKey` 把它当作 ing 韵母。现在视图报告 `microsoft_shuangpin` 时，只要它是本音节的第二键（从最后一个 `'` 数起按键数为奇数），就进入组字；否则仍是标点。
+
+路由所需的状态由 `KeyboardSession.hardwareSpelling()` 从最近一次引擎视图中读出，通过 `HardwareSpelling` 传给 `HardwareKeyRouter.route`。这几条规则放在翻页键判断和数字选词之前，因为 Shift+= 本身就是 `U+` 里的 `+`。
+
+### HarmonyOS：设置页保存后键盘立即生效（2026-09-23）
+
+来源里设置程序保存后发 `WM_APPLY_IME_CONFIG`（`server/src/config/ime_config.cpp:1566`），服务端收到后重读配置并刷新候选窗与工具栏，另有 300 ms 的 `TIMER_ID_CONFIG_SYNC` 兜底（`server/src/window/ime_windows.cpp:2199`、`2673`）。本宿主的设置页（EntryAbility）与键盘（InputMethodExtensionAbility）是两个进程，键盘只在 `onCreate` 读一次偏好，所以设置页改了方案、皮肤、键盘高度、工具栏或模式切换键后，要等输入法进程被系统回收重建才会生效。
+
+适配方式不照搬定时器：键盘记住建会话时读到的偏好文档 `revision`，每次编辑框获得焦点（`attach`）时比对一次存储中的 `revision`，这正是用户能用新设置打字的最早时刻，代价只是一次小文件读取。变了就走现有的 `restartIdleSession` 重建引擎会话（保留中英文与九宫格状态），随后通知两处：
+
+- 视图（`onViewPreferencesReloaded`）：重读皮肤、几何、方案与键面，手机上按新高度调整面板；
+- 输入法扩展（`onPreferencesReloaded`）：重新绑定模式切换键；2in1 上按新设置开关浮动工具栏与模式角标（两者共用唯一的 STATUS_BAR 面板，工具栏优先），已开的工具栏按新按钮集重排。
+
+正在组字或处于本地模式（U 模式、emoji 等）时不重建，下次获得焦点再取。云同步把偏好写入同一文档，同样通过这条路径生效。键盘自己经 `changePreferences` 写入时会同步记下新 `revision`，不会因此触发重建。
+
+### HarmonyOS 2in1 硬件键盘：Ctrl+Shift+E 英文候选模式（2026-09-23）
+
+纠正上文「`Ctrl+Shift+E` ……`InputModeRouting` 已实现」的判断：本宿主原来把它和 Shift 轻点一样当成中英切换，进入的是直接英文，硬件字母原样交给应用。来源里这是两件事：Shift 由 TSF 切中英（`FUNCTION_TOGGLE_IME_MODE`，上屏原始字母），`Ctrl+Shift+E` 是 `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState`，打开服务端的英文输入模式，字母进入组字、候选框列英文词（`UpdateEnglishInput`），TSF 侧按 `FUNCTION_CANCEL` 处理，什么都不上屏。macOS 宿主也区分两者（`toggleDedicatedEnglishMode:`，工具栏显示 En）。
+
+本宿主的引擎侧本来就是 dedicated-English 标志，差别只在硬件键是否送进引擎。现在 `ModeGesture.ENGLISH_CANDIDATES` 调 `KeyboardSession.toggleEnglishCandidates()`：打开英文模式并记下英文候选子模式，`HardwareKeyRouter` 此时把字母送进组字，音节分隔符、U 模式和微软双拼的特殊键规则都不生效（引擎在该模式只收字母），标点和中文态一样结束组字后按标点设置输出。再按一次、Shift 轻点或工具栏语言按钮都回到中文；密码与网址类编辑框强制直接英文。工具栏语言按钮显示 `En`，与来源和 macOS 一致。手机软键盘的字母一直走引擎，两种英文在手机上本就是同一个模式，不受影响。
+
+### HarmonyOS 2in1：表情面板的剪贴板页（2026-09-23）
+
+来源的表情面板最后一页是剪贴板历史（`server/src/emoji-panel/EmojiPanel.h` 的 `Page::Clipboard`）。本宿主的剪贴板历史原来只能从手机键盘的工具面板进入，2in1 没有入口。现在 2in1 的表情面板（工具栏 ☺ 打开的 `DesktopSurface.EMOJI`）在「表情 / 颜文字 / 符号」之后多一个「剪贴板」页：点条目上屏，可固定、删除、清空（二次确认）。手机不加这一页，仍从工具面板进入，两处共用同一份条目列表 `clipboardEntries()`。
+
+与来源的差异：来源由 `ClipboardMonitor` 在后台记录每次复制；HarmonyOS 只把剪贴板读取权限给系统应用，本宿主也不在后台记录，所以这一页和手机一样用「保存当前」按钮手动保存。设置里关闭剪贴板历史时这一页只显示提示，来源的「启用」按钮不照搬，开关统一留在设置页。
+
+### HarmonyOS 2in1：全屏应用上隐藏悬浮工具栏
+
+来源的窗口钩子（`window_hook.cpp` 的 `OnWinEvent`）在前台窗口全屏时隐藏悬浮工具栏，退出全屏后按配置恢复，游戏或视频画面上不会压着一条没人在用的状态栏。HarmonyOS 以前在 2in1 上始终显示工具栏。
+
+- 现在编辑框每次获得焦点时，都用 `InputClient.getCallingWindowInfo()` 查询所在窗口的状态：`WindowStatusType.FULL_SCREEN` 时隐藏工具栏，焦点回到非全屏窗口时再显示。
+- HarmonyOS 不会主动通知输入法窗口状态的变化，只能在查询时拿到，所以编辑框保持焦点期间才进入全屏的窗口，要到下一次聚焦时才会生效。
+- 工具栏被设置关闭后再重新打开时，隐藏标记会随之清掉，不会把新开的工具栏误当成已隐藏。
+- 手机没有悬浮工具栏，这一改动不涉及手机。
+
+### HarmonyOS 2in1：行内预编辑（`tsf_preedit_style`）
+
+来源用 TSF 在文档里画正在拼写的内容：`raw` 是按下的字母，`pinyin` 是分好词的拼音，`empty` 则不画。Linux 的 IBus 和 Fcitx5 读的是同一个字段。HarmonyOS 以前在任何形态下都只在候选区显示拼写，文档里什么也没有，「行内预编辑」这个设置在鸿蒙上也就不起作用。
+
+- 2in1 现在通过编辑框的预上屏文本（`InputClient.setPreviewTextSync`）按设置显示拼写。已经选定的半个词（`phrase_prefix`）排在拼写前面，和候选窗的画法一致。提交时用 `insertText` 替换预上屏文本；取消或拼写清空时写入空预上屏，再 `finishTextPreview`。
+- 只有编辑框的属性声明了 `isTextPreviewSupported` 才启用。编辑框接口报错（例如 12800011）时，这次聚焦期间停用预上屏；这时如果文档里还留着拼写字母，就结束预上屏，并在确认光标前正是这些字母之后删掉它们。
+- 每次预上屏变更都和插入一样登记为键盘自己的编辑，所以编辑框回传的 textChange 不会被当成用户改了文本，也就不会结束组字。
+- 预上屏期间，提交一律走同步插入，保证它排在下一次预上屏更新之前；智能标点读取光标前的字符时会去掉预上屏部分，读到的是用户写下的文字，而不是拼写字母。
+- 手机不变：拼写仍显示在按键上方那一条，手机没有贴着光标的候选窗，这个设置在手机上不生效。
+- 未在真机或模拟器上验证预上屏的回声和替换行为，上面的处理依据的是 SDK 文档中的接口约定。
+
+### HarmonyOS 2in1 硬件键盘：Home / End 跳到候选列表首尾
+
+- Windows 在有候选时把 Home / End 映射成 `FUNCTION_MOVE_PAGE_TOP` / `FUNCTION_MOVE_PAGE_BOTTOM`，焦点跳到候选列表的第一项和最后一项。2in1 现在也这样处理：有候选时 Home 发 `FIRST_CANDIDATE`（104），End 发 `LAST_CANDIDATE`（105，host-api 会先展开整张列表再取最后一项）；没有候选时仍然是移动编辑光标。
+- 手机不受影响：Home / End 只从硬件键盘分发进来，手机的软键盘没有这两个键。
+
+### HarmonyOS 2in1：菜单主题（`menu_theme`）
+
+- Windows 的 `menu_theme` 决定托盘菜单和候选右键菜单是深色还是浅色。鸿蒙 2in1 没有托盘；和候选右键菜单对应的是候选词管理条，所以现在这条按 `menu_theme` 配色，跟随全局时和其他面板一样回落到全局主题。常用标点、括弧、释义这几条属于键盘本身，仍然用键盘配色。
+- 手机的设置页不显示这一项（`mobile_settings` 为真），手机上的管理条也继续用键盘配色。

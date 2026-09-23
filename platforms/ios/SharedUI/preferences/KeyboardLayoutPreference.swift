@@ -60,6 +60,33 @@ enum KeyboardLayoutPreference {
       defaults.removeObject(forKey: stored)
     }
   }
+  /// Save the geometry where the keyboard reads it. The keyboard copies the shared document's `touch_*` fields over the App Group every time it appears, so a value written only to the App Group lasted until then. The App Group is written after the document, and only when the document took the change.
+  @discardableResult
+  static func saveGeometry(keySpacing: Double, rowSpacing: Double, heightAdjustment: Double,
+                           voiceShortcut: Bool, stateRoot: URL? = nil) -> Bool {
+    guard let mapping = MetasequoiaInputSessionBridge.geometryMapping(
+      keySpacing: keySpacing, rowSpacing: rowSpacing, heightAdjustment: heightAdjustment, voiceEnabled: voiceShortcut),
+      MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, mapping) else { return false }
+    self.keySpacing = keySpacing
+    self.rowSpacing = rowSpacing
+    self.heightAdjustment = heightAdjustment
+    voiceShortcutEnabled = voiceShortcut
+    return true
+  }
+
+  /// `resetToDefaults`, for the shared document as well.
+  @discardableResult
+  static func resetGeometry(stateRoot: URL? = nil) -> Bool {
+    let written = MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot) { preferences in
+      for key in ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
+                  "touch_voice_shortcut"] {
+        preferences.removeValue(forKey: key)
+      }
+    }
+    guard written else { return false }
+    resetToDefaults()
+    return true
+  }
   static var voiceShortcutEnabled: Bool {
     get { defaults.object(forKey: voiceShortcutKey) == nil ? selected == .doubao : defaults.bool(forKey: voiceShortcutKey) }
     set { defaults.set(newValue, forKey: voiceShortcutKey) }

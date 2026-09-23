@@ -588,6 +588,11 @@ fn an_invalid_dictionary_entry_keeps_its_own_code() {
         super::dictionary_error_code("dictionary edit rejected"),
         "storage"
     );
+    // A bundled word refused a new code or text is told it can only be re-weighted or deleted.
+    assert_eq!(
+        super::dictionary_error_code("bundled dictionary entry is read-only"),
+        "dictionary_bundled_readonly"
+    );
 }
 
 #[test]
@@ -1223,7 +1228,7 @@ fn runtime_options_skin_catalog_stays_within_what_the_hosts_read() {
     // The last package by name: beyond the package cap and the first to go when trimming, were the selection not protected in both.
     preferences["candidate_skin"] = "skin39".into();
     let mut document = serde_json::json!({"api_version": 1, "preferences": preferences});
-    let bytes = runtime_options_with_skin_catalog(&mut document, &catalog).unwrap();
+    let bytes = runtime_options_with_skin_catalog(&mut document, &skins, &catalog).unwrap();
     assert!(
         bytes.len() <= LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET,
         "{}",
@@ -1243,7 +1248,7 @@ fn runtime_options_skin_catalog_stays_within_what_the_hosts_read() {
 
     // A document already too large for the hosts is not made larger by the catalog.
     let mut crowded = serde_json::json!({"preferences": {}, "padding": "x".repeat(LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET)});
-    runtime_options_with_skin_catalog(&mut crowded, &catalog).unwrap();
+    runtime_options_with_skin_catalog(&mut crowded, &skins, &catalog).unwrap();
     assert!(crowded.get("candidate_skin_catalog").is_none());
 }
 

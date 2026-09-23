@@ -629,6 +629,10 @@ export interface HostCapabilities {
   english_suggestions?: boolean;
   helpcode_shift_entry?: boolean;
   skin_directory_import?: boolean;
+  /** The one candidate page size the host draws; set when the host offers no choice. */
+  fixed_candidate_page_size?: number;
+  /** The one candidate layout the host draws; set when the host offers no choice. */
+  fixed_candidate_layout?: "horizontal" | "vertical";
   shuangpin_preedit?: boolean;
   /** The host routes the Ctrl+Shift+Alt maintenance chords. */
   maintenance_shortcuts?: boolean;
@@ -1120,6 +1124,8 @@ export type DictionaryEntry = {
   key: string;
   value: string;
   weight: number;
+  /** Set by hosts that also list the packaged dictionary: a bundled row can only be re-weighted or deleted. */
+  source?: "user" | "bundled";
 };
 export type DictionaryFailure = { request_id: string; label: string; error: string };
 /** Mirrors the import response from `client-core::dictionary_import`. */
@@ -1240,7 +1246,7 @@ export function personalDictionaryExportPayload(entries: DictionaryEntry[]): {
   };
 }
 
-/** Read every dictionary kind in bounded pages, preserving host ordering. */
+/** Read every user-owned dictionary entry of every kind in bounded pages, preserving host ordering. */
 export async function loadAllPersonalDictionaryEntries(
   dictionary: Pick<DictionaryClient, "list">,
 ): Promise<DictionaryEntry[]> {
@@ -1250,9 +1256,16 @@ export async function loadAllPersonalDictionaryEntries(
     let hasMore = true;
     while (hasMore && offset <= 1_000_000) {
       const page = await dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, "");
-      const pageEntries = page.entries.filter((entry) => entry.kind === kind);
+      // Hosts that list the packaged dictionary return bundled rows too; the export holds the user's own words only. Paging still advances by the unfiltered page length.
+      const pageEntries = page.entries.filter(
+        (entry) => entry.kind === kind && entry.source !== "bundled",
+      );
       entries.push(...pageEntries);
-      if (!page.entries.length) break;
+      // An empty page ends the kind whatever has_more says, so a kind the user never added words to is not mistaken for a truncated export.
+      if (!page.entries.length) {
+        hasMore = false;
+        break;
+      }
       offset += page.entries.length;
       hasMore = page.has_more;
     }
@@ -1364,6 +1377,8 @@ export function dictionaryErrorMessage(
       return "词库拒绝了这次写入，请检查编码与词是否匹配。";
     case "dictionary_read_rejected":
       return "词库拒绝了这次读取，请稍后重试。";
+    case "dictionary_bundled_readonly":
+      return "内置词条只能调整权重或删除，不能修改编码和词。";
     case "dictionary_pinyin_unavailable":
       return "拼音表不可用，无法校验这条词的读音。";
     case "dictionary_reset_rejected":
@@ -1607,6 +1622,8 @@ export type MobileKeyboardFeedback = {
   englishSuggestions?: boolean;
   /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
   candidatePaletteFollowsDesktop?: boolean;
+  /** iOS writes the composition into the text field as marked text only when this App Group switch is on; it has no raw/pinyin/empty choice because the strip already carries that one. */
+  inlinePreedit?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -2185,9 +2202,7 @@ export function SettingsPage({
   // Every host's Engine honours the preference; this is about which of them draw the composition
   // themselves, and so show the user a difference between the raw keys and the expanded pinyin.
   const showShuangpinPreedit = host?.shuangpin_preedit ?? macosPlatform;
-  // Was hidden for every touch platform, on the reading that a phone keyboard has no width to
-  // switch. It has: the keyboards route it to the runtime the same way the desktop hosts do, and
-  // reach it from their own surfaces. iOS is the one host that never tells the runtime a width.
+  // Was hidden for every touch platform, on the reading that a phone keyboard has no width to switch. It has: every keyboard, iOS included, routes it to the runtime the same way the desktop hosts do, and reaches it from its own surfaces.
   const showCharacterWidth = host?.character_width ?? !mobilePlatform;
   // The host's provider holds the AI credential, so the page does not ask for a token and does not
   // withhold the service controls for want of one. Reaching the service still works - through that
@@ -3100,12 +3115,16 @@ export function SettingsPage({
   }
   async function savePhrase() {
     if (!client.dictionary || !phraseForm) return;
-    const replacement: DictionaryEntry = {
-      kind: dictionaryKind,
-      key: phraseForm.key.trim(),
-      value: phraseForm.value,
-      weight: phraseForm.weight,
-    };
+    const bundled = phraseForm.previous?.source === "bundled" ? phraseForm.previous : null;
+    // A bundled row keeps its code and word; only the weight is the user's to change.
+    const replacement: DictionaryEntry = bundled
+      ? { ...bundled, weight: phraseForm.weight }
+      : {
+          kind: dictionaryKind,
+          key: phraseForm.key.trim(),
+          value: phraseForm.value,
+          weight: phraseForm.weight,
+        };
     if (!replacement.key || !replacement.value) {
       setPhraseError("编码和短语不能为空。");
       return;
@@ -4859,24 +4878,30 @@ export function SettingsPage({
                         </div>
                       </div>
                     </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">每页候选项数量</span>
-                        <select
-                          aria-label="每页候选项数量"
-                          value={draft.candidate_page_size}
-                          onChange={(event) =>
-                            setDraft({ ...draft, candidate_page_size: Number(event.target.value) })
-                          }
-                        >
-                          {candidatePageSizes.map((size) => (
-                            <option key={size} value={size}>
-                              {size}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
+                    {/* The iOS strip pages in nines whatever this says, so a selector there would change nothing. */}
+                    {host?.fixed_candidate_page_size === undefined && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">每页候选项数量</span>
+                          <select
+                            aria-label="每页候选项数量"
+                            value={draft.candidate_page_size}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                candidate_page_size: Number(event.target.value),
+                              })
+                            }
+                          >
+                            {candidatePageSizes.map((size) => (
+                              <option key={size} value={size}>
+                                {size}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
@@ -5052,25 +5077,27 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">候选项排列方式</span>
-                        <select
-                          aria-label="候选项排列方式"
-                          value={draft.candidate_layout ?? "vertical"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              candidate_layout: event.target
-                                .value as Preferences["candidate_layout"],
-                            })
-                          }
-                        >
-                          <option value="horizontal">横向</option>
-                          <option value="vertical">纵向</option>
-                        </select>
-                      </label>
-                    </div>
+                    {host?.fixed_candidate_layout === undefined && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">候选项排列方式</span>
+                          <select
+                            aria-label="候选项排列方式"
+                            value={draft.candidate_layout ?? "vertical"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                candidate_layout: event.target
+                                  .value as Preferences["candidate_layout"],
+                              })
+                            }
+                          >
+                            <option value="horizontal">横向</option>
+                            <option value="vertical">纵向</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     {showShuangpinPreedit && (
                       <div className="section">
                         <label className="section-header">
@@ -5096,26 +5123,53 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">行内预编辑</span>
-                        <select
-                          aria-label="行内预编辑"
-                          value={draft.tsf_preedit_style ?? "raw"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              tsf_preedit_style: event.target
-                                .value as Preferences["tsf_preedit_style"],
-                            })
-                          }
-                        >
-                          <option value="raw">原始按键</option>
-                          <option value="pinyin">拼音分词</option>
-                          <option value="empty">不显示</option>
-                        </select>
-                      </label>
-                    </div>
+                    {mobileKeyboardFeedback?.inlinePreedit !== undefined ? (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            行内预编辑
+                            <small>
+                              把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示。默认关闭；个别
+                              App 显示不完整时可以关掉。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="行内预编辑"
+                            className="toggle"
+                            type="checkbox"
+                            disabled={mobileKeyboardFeedbackBusy}
+                            checked={mobileKeyboardFeedback.inlinePreedit}
+                            onChange={(event) =>
+                              void saveMobileKeyboardFeedback({
+                                ...mobileKeyboardFeedback,
+                                inlinePreedit: event.target.checked,
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">行内预编辑</span>
+                          <select
+                            aria-label="行内预编辑"
+                            value={draft.tsf_preedit_style ?? "raw"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                tsf_preedit_style: event.target
+                                  .value as Preferences["tsf_preedit_style"],
+                              })
+                            }
+                          >
+                            <option value="raw">原始按键</option>
+                            <option value="pinyin">拼音分词</option>
+                            <option value="empty">不显示</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
@@ -5159,7 +5213,8 @@ export function SettingsPage({
                             本地词库管理
                             <small>
                               查询、新增、编辑、导入、导出和删除 Engine
-                              用户词库。导入支持标准、Windows TSV、Rime 和纯汉字自动注音。
+                              用户词库。导入支持标准、Windows TSV、Rime
+                              和纯汉字自动注音。标有「内置」的是随输入法附带的词条，只能调整权重或删除。
                             </small>
                           </span>
                           <span>
@@ -5340,6 +5395,7 @@ export function SettingsPage({
                               编码{" "}
                               <input
                                 value={phraseForm.key}
+                                readOnly={phraseForm.previous?.source === "bundled"}
                                 onChange={(event) =>
                                   setPhraseForm({ ...phraseForm, key: event.target.value })
                                 }
@@ -5352,6 +5408,7 @@ export function SettingsPage({
                               {dictionaryKind === "quick_phrase" ? "短语" : "词条"}{" "}
                               <input
                                 value={phraseForm.value}
+                                readOnly={phraseForm.previous?.source === "bundled"}
                                 onChange={(event) =>
                                   setPhraseForm({ ...phraseForm, value: event.target.value })
                                 }
@@ -5405,6 +5462,12 @@ export function SettingsPage({
                                 <span>
                                   <code>{entry.key}</code>　{entry.value}　
                                   <small>{entry.weight}</small>
+                                  {entry.source === "bundled" && (
+                                    <>
+                                      {" "}
+                                      <small className={settings.bundledBadge}>内置</small>
+                                    </>
+                                  )}
                                 </span>
                                 <span>
                                   <button
@@ -5420,7 +5483,7 @@ export function SettingsPage({
                                       })
                                     }
                                   >
-                                    编辑
+                                    {entry.source === "bundled" ? "调权重" : "编辑"}
                                   </button>{" "}
                                   <button
                                     type="button"
@@ -5612,7 +5675,8 @@ export function SettingsPage({
                       readFont={client.readSkinFont}
                       readToolbarCss={client.readSkinToolbarCss}
                       selected={draft.candidate_skin ?? "willow_green"}
-                      layout={draft.candidate_layout ?? "vertical"}
+                      // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
+                      layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
                       onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
                     />
                   </fieldset>
