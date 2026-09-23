@@ -3231,6 +3231,35 @@ group("completes Engine opening punctuation only when paired mode is enabled", (
   );
 });
 
+group("with pairing on every quote press opens a fresh pair, as the reference does", () => {
+  // The Engine alternates the quote keys, so after an auto-closed “” the next press arrives as ”.
+  const reopened = PairedPunctuationPolicy.reopenQuote("”", 0x22, true);
+  check(reopened === "“", "a closing double quote from the Engine is rewritten to the opening one");
+  check(
+    PairedPunctuationPolicy.completion(reopened, true)?.closing === "”",
+    "and the rewritten quote is then completed to a pair",
+  );
+  check(PairedPunctuationPolicy.reopenQuote("’", 0x27, true) === "‘", "single quotes are rewritten the same way");
+  check(
+    PairedPunctuationPolicy.reopenQuote("你好”", 0x22, true) === "你好“",
+    "a composition committed ahead of the quote keeps its text",
+  );
+  check(PairedPunctuationPolicy.reopenQuote("“", 0x22, true) === "“", "an opening quote is left as it is");
+  check(
+    PairedPunctuationPolicy.reopenQuote("”", 0x22, false) === "”",
+    "with pairing off the Engine's alternation reaches the editor unchanged",
+  );
+  check(
+    PairedPunctuationPolicy.reopenQuote("’", 0x22, true) === "’",
+    "only the quote key that was pressed is rewritten",
+  );
+  check(
+    PairedPunctuationPolicy.reopenQuote("）", 0x29, true) === "）",
+    "other closing marks are not quotes and stay closing",
+  );
+  check(PairedPunctuationPolicy.reopenQuote(null, 0x22, true) === null, "no commit stays no commit");
+});
+
 group("return performs an editor action only when nothing else claimed it", () => {
   const send = 4;
   check(ReturnKeyAction.performsEditorAction(send, false) === true, "send is an editor action");

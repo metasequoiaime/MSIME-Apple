@@ -2309,12 +2309,21 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
 
-    const raw: string = client.punctuationWithContext(this.handle, ascii, preceding);
+    let raw: string = client.punctuationWithContext(this.handle, ascii, preceding);
     let completion: PairedPunctuationCompletion | null = null;
     let committed: string | null | undefined = null;
     try {
       const response: Response = JSON.parse(raw) as Response;
-      if (response.ok) committed = response.value.commit;
+      if (response.ok) {
+        // Rewritten before apply() commits it, so the editor receives the opening quote and the completion below closes it.
+        const reopened: string | null | undefined = PairedPunctuationPolicy.reopenQuote(
+          response.value.commit, ascii, this.appearance.pairedPunctuation);
+        if (reopened !== response.value.commit) {
+          response.value.commit = reopened;
+          raw = JSON.stringify(response);
+        }
+        committed = response.value.commit;
+      }
       completion = response.ok
         ? PairedPunctuationPolicy.completion(response.value.commit,
           this.appearance.pairedPunctuation) : null;
