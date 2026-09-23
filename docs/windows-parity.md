@@ -2478,3 +2478,10 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - provider：`translations()` 按 `provider` 分派。`none`、未知值、所选的 NiuTrans 或自定义服务没有随请求带来配置，都返回空结果，不访问网络；只有 `provider=tencent` 时才读取腾讯文件。后续发请求也按所选服务分派，请求里夹带的其他服务配置不会改变去向。缺少该字段的请求来自旧版宿主，这时沿用旧规则（NiuTrans、自定义、腾讯依次取第一个可用的），混用新旧版本时行为不变。
 - 宿主侧：`UnixSocketProvider::translate` 遇到 `none` 直接返回空结果，连本地 socket 都不连接，候选文字不会离开输入法进程。IBus 与 Fcitx5 引擎代码没有改动：它们转发的是 host-api 生成的查询，`provider` 变化会让去重键变化，从而重新发起请求。
 - 证据：`platforms/linux/tests/dictionary/translation_provider_selection.py` 放了一份有效的腾讯凭据，断言关闭、NiuTrans 缺凭据、自定义缺 endpoint、未知服务这几种情况都不会发出网络请求，并断言只会请求所选的那一家，旧版宿主的请求保持原来的选择。该用例在改动前的脚本上失败 8 项，改动后全部通过。input-runtime 单测覆盖 `provider` 在 JSON 往返中不丢失、缺省时仍为缺省、`none` 不连接 socket；host-api 单测经 `msime_client_translation_provider_request` 走真实 socket，确认腾讯、NiuTrans（凭据不全）、自定义（endpoint 为空）三种选择原样到达 provider，关闭时不发生连接。未在 Linux 桌面上连接真实翻译服务做验收。
+
+### Linux 设置页文案对齐实际行为：诊断日志、帮助页、AI Token 显示按钮（2026-09-23）
+
+- 诊断日志：Linux「输入法宿主日志」的说明原来写着排查「通信、焦点会话、菜单和输入延迟」。两个 Linux 宿主实际只调用 `msime_linux_diagnostic_write` 记录焦点进出、偏好应用、菜单保存成败、Fcitx5 升级后的词库代际刷新（`dictionary_generation_refreshed`）和固定的操作失败阶段（`operation_failed operation=...`），没有 Server 通信可记，也不计时。照 macOS「输入法日志」那次的做法，说明改为按真实记录的内容写；补记延迟不在本次范围内。
+- 帮助页：Linux 的简介与「快速上手」只讲了 IBus，而 Fcitx5 插件是并列的原生宿主。现在简介写明通过 Fcitx5 或 IBus 接入，快速上手分别说明 Fcitx5 用 `fcitx5-configtool` 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组、IBus 在输入法列表中添加「MSIME Client」，名称分别与 `msime-inputmethod.conf` 的 `Name[zh_CN]` / `Name` 和 IBus 组件的 `longname`（无翻译）一致。
+- AI Token：Windows/macOS/iOS 的 AI API Token 与 Linux 写入 `ai-provider.json` 的 Token 原来都是纯密码框，粘贴后无法核对。现在与 NiuTrans、语音识别等凭据一样使用共享的 `SecretInput`，带 `aria-pressed` 的显示/隐藏按钮，接口地址无效时输入框与按钮一起禁用。
+- 证据：设置页 vitest 覆盖 Linux 帮助页同时含 Fcitx5 与 IBus、诊断说明不再出现「延迟」「通信」、两个平台的 Token 显示切换与禁用状态，并在还原实现后确认这些用例失败；`platforms/linux/tests/core/settings_launcher_contract.py`。未在真实 Linux 桌面上目视确认。

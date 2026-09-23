@@ -163,3 +163,57 @@ test("Windows keeps the shared AI token field", async () => {
   expect(screen.getByLabelText("AI API Token")).toBeTruthy();
   expect(screen.queryByText("ai-provider.json")).toBeNull();
 });
+
+function expectRevealToggle() {
+  const token = screen.getByLabelText("AI API Token") as HTMLInputElement;
+  const toggle = screen.getByRole("button", { name: "显示AI API Token" });
+  expect(token.type).toBe("password");
+  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(toggle);
+  expect(token.type).toBe("text");
+  expect(
+    screen.getByRole("button", { name: "隐藏AI API Token" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+}
+
+test("Linux lets the user reveal the AI token before saving it", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: { platform: "linux" } as never,
+        providerCredentials: credentialClient({
+          ai: [],
+          aiInvalid: false,
+          tencent: null,
+          tencentInvalid: false,
+          voiceAsr: [],
+          voicePolish: [],
+          voiceInvalid: false,
+        }),
+      }}
+    />,
+  );
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
+  await screen.findByRole("group", { name: "AI 凭据" });
+
+  expectRevealToggle();
+});
+
+test("Windows lets the user reveal the shared AI token", async () => {
+  await openAi("windows");
+
+  expectRevealToggle();
+});
+
+test("the AI token and its toggle stay disabled without an HTTPS endpoint", async () => {
+  await openAi("windows");
+  fireEvent.change(screen.getByLabelText("AI 接口地址"), { target: { value: "not a url" } });
+
+  expect((screen.getByLabelText("AI API Token") as HTMLInputElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "显示AI API Token" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});
