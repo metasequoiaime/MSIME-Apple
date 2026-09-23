@@ -29,22 +29,29 @@ jobs:
       - name: Cache the pinned Sparkle archive
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/sparkle
-          key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          path: ${{ runner.temp }}/sparkle-archive
+          # Keyed on platforms/macos/CMakeLists.txt, which is where the pinned version and the digest
+          # actually live. There is no CMakeLists.txt at the repository root, so hashFiles('CMakeLists.txt')
+          # would expand to the empty string and leave a constant key that survives a version bump.
+          key: sparkle-2.9.6-${{ runner.os }}-${{ hashFiles('platforms/macos/CMakeLists.txt') }}
       - name: Prepare pinned Sparkle
         run: |
           set -euo pipefail
-          if [[ ! -d "$RUNNER_TEMP/sparkle/Sparkle.framework" ]]; then
-            archive="$RUNNER_TEMP/Sparkle-2.9.6.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle-archive"
+          archive="$RUNNER_TEMP/sparkle-archive/Sparkle-2.9.6.tar.xz"
+          if [[ ! -f "$archive" ]]; then
             curl --fail --location --retry 3 \
               https://github.com/sparkle-project/Sparkle/releases/download/2.9.6/Sparkle-2.9.6.tar.xz \
               --output "$archive"
-            printf '%s  %s\n' \
-              '52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192' \
-              "$archive" | shasum -a 256 --check
-            mkdir -p "$RUNNER_TEMP/sparkle"
-            tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
           fi
+          # Checked on every run rather than only after a download: a restored cache entry is written
+          # by earlier runs of this workflow, which is not a stronger provenance than the download.
+          printf '%s  %s\n' \
+            '52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192' \
+            "$archive" | shasum -a 256 --check
+          rm -rf "$RUNNER_TEMP/sparkle"
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
           test -d "$RUNNER_TEMP/sparkle/Sparkle.framework"
           echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Build macOS native host
