@@ -434,7 +434,7 @@ end;
 function DataDirRejectionReason(const Directory: String): String;
 var
   Critical: array[0..6] of String;
-  Protected: array[0..3] of String;
+  ProtectedDirs: array[0..3] of String;
   Canonical: String;
   Index: Integer;
   ProbePath: String;
@@ -474,15 +474,15 @@ begin
     Exit;
   end;
 
-  Protected[0] := ExpandConstant('{win}');
-  Protected[1] := ExpandConstant('{commonpf64}');
-  Protected[2] := ExpandConstant('{commonpf32}');
-  Protected[3] := ExpandConstant('{commonappdata}');
+  ProtectedDirs[0] := ExpandConstant('{win}');
+  ProtectedDirs[1] := ExpandConstant('{commonpf64}');
+  ProtectedDirs[2] := ExpandConstant('{commonpf32}');
+  ProtectedDirs[3] := ExpandConstant('{commonappdata}');
   for Index := 0 to 3 do
   begin
-    if (Protected[Index] <> '') and IsPathInside(Directory, Protected[Index]) then
+    if (ProtectedDirs[Index] <> '') and IsPathInside(Directory, ProtectedDirs[Index]) then
     begin
-      Result := '数据目录不能放在系统或程序目录里面（' + Protected[Index] + '）。';
+      Result := '数据目录不能放在系统或程序目录里面（' + ProtectedDirs[Index] + '）。';
       Exit;
     end;
   end;
