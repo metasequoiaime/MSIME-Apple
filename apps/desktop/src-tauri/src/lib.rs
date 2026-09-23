@@ -975,7 +975,7 @@ async fn save_preferences_impl(
     #[cfg(target_os = "ios")] platform: MobilePlatform<tauri::Wry>,
 ) -> Result<PreferencesSnapshot, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "linux"))]
         let previous = store.load().map_err(CommandError::from)?;
         let snapshot = store
             .save(expected_revision, preferences)
@@ -992,6 +992,14 @@ async fn save_preferences_impl(
             let _ = store.save(snapshot.revision, previous.preferences);
             return Err(CommandError { code: "ai_storage" });
         }
+        // Published before the clipboard history is cleared, so a save refused here has not already deleted the history its restored preferences keep enabled.
+        let synced = sync_runtime_options(&runtime, &snapshot.preferences);
+        // A document the Linux hosts could not read is refused, and so is the save that produced it: the store goes back to the preferences the hosts still run with, so the page's error is the whole outcome rather than a store and a runtime options file that disagree. As with the iOS rollback above, a concurrent writer wins over the rollback.
+        #[cfg(target_os = "linux")]
+        if matches!(synced, Err(RuntimeOptionsError::TooLarge)) {
+            let _ = store.save(snapshot.revision, previous.preferences);
+        }
+        // Cleared whatever the sync's outcome: any other sync failure leaves history disabled in the store, and its captured history must not outlive that. The clear re-reads the store, so after the rollback above restored history it keeps the file.
         if clipboard_history_uses_preference(host_platform())
             && !snapshot.preferences.clipboard_history
         {
@@ -999,8 +1007,7 @@ async fn save_preferences_impl(
                 .clear_disabled_clipboard_history()
                 .map_err(CommandError::from)?;
         }
-        sync_runtime_options(&runtime, &snapshot.preferences)
-            .map_err(|_| CommandError { code: "storage" })?;
+        synced.map_err(CommandError::from)?;
         Ok(snapshot)
     })
     .await
@@ -1352,10 +1359,37 @@ async fn mutate_custom_skin_library(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+/// Why the runtime options the native hosts read were not rewritten.
+#[derive(Debug)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+enum RuntimeOptionsError {
+    /// The error itself is only ever printed, by `Debug` in a failing test; the page is told "storage".
+    Io(#[allow(dead_code)] std::io::Error),
+    /// The document would be longer than the Linux hosts read, so it was not written and the previous file stays in place.
+    TooLarge,
+}
+
+impl From<std::io::Error> for RuntimeOptionsError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
+    }
+}
+
+impl From<RuntimeOptionsError> for CommandError {
+    fn from(value: RuntimeOptionsError) -> Self {
+        Self {
+            code: match value {
+                RuntimeOptionsError::Io(_) => "storage",
+                RuntimeOptionsError::TooLarge => "runtime_options_too_large",
+            },
+        }
+    }
+}
+
 fn sync_runtime_options(
     runtime: &RuntimeOptionsState,
     preferences: &Preferences,
-) -> Result<(), std::io::Error> {
+) -> Result<(), RuntimeOptionsError> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         let Some(path) = runtime.path.as_ref() else {
@@ -1374,15 +1408,24 @@ fn sync_runtime_options(
         // Another settings process or the host may have updated endpoints and
         // resource paths since this panel started. Preserve that document.
         let mut current = read_runtime_options(path)?;
-        current["preferences"] = serde_json::to_value(preferences)
+        #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+        let mut host_preferences = serde_json::to_value(preferences)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
+        // The IBus and Fcitx5 hosts never draw the screen keyboard, and the settings app's own keyboard reads the preference store, so the base64 photo of a custom screen-keyboard skin stays out of their copy: a few hundred KiB of it would put the whole document past what they read.
+        #[cfg(target_os = "linux")]
+        if let Some(design) = host_preferences
+            .get_mut("custom_touch_keyboard_skin")
+            .and_then(Value::as_object_mut)
+        {
+            design.remove("photo");
+        }
+        current["preferences"] = host_preferences;
         #[cfg(target_os = "linux")]
         let bytes = match &catalog {
             Some((root, catalog)) => {
                 runtime_options_with_skin_catalog(&mut current, root, catalog)?
             }
-            None => serde_json::to_vec_pretty(&current)
-                .map_err(|error| std::io::Error::other(error.to_string()))?,
+            None => linux_runtime_options_bytes(&current)?,
         };
         #[cfg(target_os = "android")]
         let bytes = serde_json::to_vec_pretty(&current)
@@ -1397,19 +1440,34 @@ fn sync_runtime_options(
     Ok(())
 }
 
-/// How large the skin catalog may let runtime-options.json grow. The IBus launcher, the Fcitx5 addon and `msime_host_api::refresh_host_options` all read at most 16 KiB and keep their previous configuration (IBus) or fail (Fcitx5, the upgrade refresh) on anything longer; the last 1 KiB is left for that refresh, which rewrites the resource and dictionary paths and appends a newline without knowing about the catalog.
+/// The most runtime-options.json may hold. The IBus launcher, the Fcitx5 addon and `msime_host_api::refresh_host_options` all read at most 16 KiB and keep their previous configuration (IBus) or fail (Fcitx5, the upgrade refresh) on anything longer.
 #[cfg(target_os = "linux")]
-const LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET: usize = 16384 - 1024;
+const LINUX_RUNTIME_OPTIONS_LIMIT: usize = 16384;
+
+/// How large the skin catalog may let runtime-options.json grow: the last 1 KiB of `LINUX_RUNTIME_OPTIONS_LIMIT` is left for the upgrade refresh, which rewrites the resource and dictionary paths and appends a newline without knowing about the catalog.
+#[cfg(target_os = "linux")]
+const LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET: usize = LINUX_RUNTIME_OPTIONS_LIMIT - 1024;
+
+/// Serialize `document` as the Linux hosts will read it, refusing one longer than they read so that a save never replaces a working file with one that stops both hosts.
+#[cfg(target_os = "linux")]
+fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptionsError> {
+    let bytes = serde_json::to_vec_pretty(document)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    if bytes.len() > LINUX_RUNTIME_OPTIONS_LIMIT {
+        return Err(RuntimeOptionsError::TooLarge);
+    }
+    Ok(bytes)
+}
 
 /// Serialize `document` with the installed skins, scanned from `root`, as `candidate_skin_catalog`, dropping packages from the end until the document fits within `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET`.
 ///
-/// The currently selected skin is dropped last, since its colours are the ones on screen. When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads.
+/// The currently selected skin is dropped last, since its colours are the ones on screen. When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads; a document too large for the hosts even without it is refused.
 #[cfg(target_os = "linux")]
 fn runtime_options_with_skin_catalog(
     document: &mut Value,
     root: &std::path::Path,
     catalog: &msime_client_core::skin::catalog::SkinCatalog,
-) -> Result<Vec<u8>, std::io::Error> {
+) -> Result<Vec<u8>, RuntimeOptionsError> {
     let serialize = |document: &Value| {
         serde_json::to_vec_pretty(document)
             .map_err(|error| std::io::Error::other(error.to_string()))
@@ -1441,7 +1499,7 @@ fn runtime_options_with_skin_catalog(
     if let Some(object) = document.as_object_mut() {
         object.remove("candidate_skin_catalog");
     }
-    serialize(document)
+    linux_runtime_options_bytes(document)
 }
 
 /// Write a freshly scanned catalog into the runtime options the Linux hosts read, leaving every other key as it is on disk. Before setup there is no document to publish into, which is not an error.
@@ -1449,7 +1507,7 @@ fn runtime_options_with_skin_catalog(
 fn publish_candidate_skin_catalog(
     runtime: &RuntimeOptionsState,
     catalog: &msime_client_core::skin::catalog::SkinCatalog,
-) -> Result<(), std::io::Error> {
+) -> Result<(), RuntimeOptionsError> {
     let (Some(path), Some(root)) = (runtime.path.as_ref(), runtime.skins.as_ref()) else {
         return Ok(());
     };
@@ -1460,7 +1518,7 @@ fn publish_candidate_skin_catalog(
     let mut current = match read_runtime_options(path) {
         Ok(current) => current,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
+        Err(error) => return Err(error.into()),
     };
     let unchanged = current.get("candidate_skin_catalog").cloned();
     let bytes = runtime_options_with_skin_catalog(&mut current, root, catalog)?;
