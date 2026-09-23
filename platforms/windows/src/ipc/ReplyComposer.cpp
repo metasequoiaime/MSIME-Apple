@@ -288,6 +288,16 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     return dispatch(session, packet, epoch, ReplyPath::LocalCancel, uiless);
   if (action.kind == KeyKind::Ignore)
     return dispatch(session, packet, epoch, ReplyPath::NoReply, uiless);
+  // Ctrl+Shift+E reaches the Server as an ordinary key whose composition the TSF has already cancelled without reading a reply, the same contract as Escape. Toggle the mode here, as the reference does unconditionally, instead of letting the generic modifier fallback drop it.
+  if (is_english_mode_toggle_key(packet.keycode,
+                                 PipeMetadata::key_modifiers(packet.modifiers_down))) {
+    const bool toggle = session.input_enabled();
+    KeyResult result{client_, epoch_, packet.request_id, false,
+                     nlohmann::json{{"commit", nullptr},
+                                    {"view", toggle ? session.toggle_dedicated_english(epoch)
+                                                    : session.view()}}};
+    return stage(result, toggle ? ReplyPath::LocalCancel : ReplyPath::NoReply, uiless);
+  }
   // Control+Enter is a candidate-only translation action. It must be checked
   // before the generic modifier fallback, which intentionally forwards other
   // Control combinations to the host application.

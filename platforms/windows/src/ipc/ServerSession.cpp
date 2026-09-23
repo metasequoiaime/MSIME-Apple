@@ -101,6 +101,12 @@ nlohmann::json ServerSession::dedicated_english(uint64_t epoch, bool exit) {
   cancel_composition(epoch);
   return response(msime_client_set_english_mode(session_, false));
 }
+nlohmann::json ServerSession::toggle_dedicated_english(uint64_t epoch) {
+  check_active(epoch);
+  const bool enabled = view().at("dedicated_english").get<bool>();
+  cancel_composition(epoch);
+  return response(msime_client_set_english_mode(session_, !enabled));
+}
 KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
                              uint64_t epoch) {
   check_active(epoch);
