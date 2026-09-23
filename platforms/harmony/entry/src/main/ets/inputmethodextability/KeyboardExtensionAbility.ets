@@ -618,8 +618,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         KeyboardSession.shared.preferences().numberRowSelection,
       KeyboardSession.shared.preferences().navigation,
         session.hasHighlightedTranslation(), session.isJapanese(),
-        session.wordCharacterBinding(), session.hasHighlightedCandidate(), session.hardwareSpelling());
+        session.wordCharacterBinding(), session.hasHighlightedCandidate(), session.hardwareSpelling(),
+        session.isFullWidth());
     if (decision.action === HardwareKeyAction.RELEASE) {
+      // What the application types is still the user's typing, and Windows counts it (`stats_passthrough.h`).
+      if (event.action === KeyAction.DOWN) {
+        session.recordPassthrough(event.unicodeChar, event.ctrlKey, event.altKey, event.logoKey);
+      }
       return false;
     }
     if (event.action !== KeyAction.DOWN) {
@@ -628,6 +633,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (!HardwareKeyDispatch.apply(decision, key.shiftKey, session)) {
       // Declined rather than swallowed, the way TSF treats a key the Windows host did not eat: a capital letter with nothing composed is the application's to type.
       this.releasedKeys.add(event.key.code);
+      session.recordPassthrough(event.unicodeChar, event.ctrlKey, event.altKey, event.logoKey);
       return false;
     }
     return true;

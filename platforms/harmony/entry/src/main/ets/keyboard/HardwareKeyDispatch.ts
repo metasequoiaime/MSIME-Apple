@@ -17,6 +17,8 @@ import { HardwareKeyAction, HardwareKeyDecision } from "./HardwareKeyRouter";
 export interface HardwareKeyTarget {
   /** Whether the key did anything; a letter the Engine declines goes back to the application. */
   press(character: number, shifted: boolean): boolean;
+  /** Insert a printable ASCII character as its fullwidth form; false when fullwidth is off. */
+  widen(character: number): boolean;
   punctuation(character: number): void;
   backspace(): void;
   cancel(): void;
@@ -51,7 +53,7 @@ export class HardwareKeyDispatch {
    * reached — and IGNORED is a key deliberately consumed without an effect, which is how a disabled
    * navigation binding stops being text rather than becoming a stray character.
    *
-   * Returns whether the key was consumed. Only a letter can come back unconsumed: the Engine declines an upper-case letter with nothing composed, and a key that was claimed and then did nothing is a character the user typed and never saw.
+   * Returns whether the key was consumed. Only a letter can come back unconsumed: the Engine declines an upper-case letter with nothing composed and, with fullwidth off, nothing else takes it; and a key that was claimed and then did nothing is a character the user typed and never saw.
    */
   static apply(
     decision: HardwareKeyDecision,
@@ -60,7 +62,10 @@ export class HardwareKeyDispatch {
   ): boolean {
     switch (decision.action) {
       case HardwareKeyAction.COMPOSE:
-        return target.press(decision.character, shifted);
+        // A capital the Engine declines is still eaten in fullwidth mode, as Windows eats every printable key then.
+        return target.press(decision.character, shifted) || target.widen(decision.character);
+      case HardwareKeyAction.WIDEN:
+        return target.widen(decision.character);
       case HardwareKeyAction.PUNCTUATION:
         target.punctuation(decision.character);
         break;
