@@ -275,7 +275,6 @@ targets:
     sources:
       - path: tests
         excludes:
-          - dictionary/ChineseTextConversionTests.swift
           - input/EnglishCapitalizationPolicyTests.swift
           - settings/FrequencyAdjustmentPreferenceTests.swift
           - input/HandwritingTests.swift

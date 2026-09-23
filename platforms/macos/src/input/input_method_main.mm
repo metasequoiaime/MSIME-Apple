@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
+#import "InputModeIdentifiers.h"
 #import "InputSourceRegistration.h"
 #import "../settings/PreferencesWindowController.h"
 #import "../settings/RuntimeOptions.h"
@@ -71,7 +72,14 @@ int main(int argc, const char *argv[]) {
                 bundleIdentifier:NSBundle.mainBundle.bundleIdentifier copySource:TISCopyCurrentKeyboardInputSource
                 propertyGetter:[](TISInputSourceRef source, CFStringRef key) -> void * {
                     return (void *)TISGetInputSourceProperty(source, key);
-                } switchedAway:^{ [[MSIMEAppearancePreferences sharedPreferences] resetGlobalInputMode]; [[MSIMEFloatingToolbarPanel sharedPanel] deactivateForInputSourceSwitch]; }];
+                } switchedAway:^{
+                    // Leaving this input method is the counterpart of TSF Deactivate, which clears the open/close, punctuation and width compartments together: every app, in either ime_mode_scope, starts from default_ime_mode and the saved punctuation and width when it comes back. The shared record of the shown mode is cleared too, so picking either mode entry on the way back is adopted as a choice. Focus changes between clients never get here.
+                    MSIMEAppearancePreferences *preferences = [MSIMEAppearancePreferences sharedPreferences];
+                    [preferences resetRememberedInputModes];
+                    [preferences resetAllRuntimeInputState];
+                    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+                    [[MSIMEFloatingToolbarPanel sharedPanel] deactivateForInputSourceSwitch];
+                }];
         Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
         id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
         if ([shared respondsToSelector:@selector(startClipboardCaptureWithOptions:)]) {

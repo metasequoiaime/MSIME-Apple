@@ -1,7 +1,9 @@
 #pragma once
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -72,6 +74,45 @@ inline std::vector<CandidateSkin> parse_configured_skins(const nlohmann::json &o
     skins.push_back({std::move(id), std::move(title)});
   }
   return skins;
+}
+
+// The decoration an installed skin draws above its candidate list: an image, trailing-aligned in a band top_dip tall and width_dip wide on Windows (candidate_presenter.cpp). The shared host catalog (skin::catalog::host_candidate_catalog) publishes it only for a package that declares one, with the image as an absolute path inside that package. The bounds are the manifest's (0 < top <= 500, 0 < width <= 1000) and are checked again here, because the document is read as untrusted input. Only Fcitx5 draws it; IBus text attributes have no way to show an image, and IBus never reads these keys.
+struct CandidateSkinDecoration {
+  std::string image;
+  double top_dip = 0;
+  double width_dip = 0;
+};
+
+// One package's decoration. A package without all three keys, or with any of them out of bounds, has none; that costs the skin its decoration, not its place in the catalogue.
+inline std::optional<CandidateSkinDecoration> parse_skin_decoration(const nlohmann::json &package) {
+  if (!package.is_object()) return std::nullopt;
+  const auto top = package.find("decoration_top_dip");
+  const auto width = package.find("decoration_width_dip");
+  const auto image = package.find("decoration_image");
+  if (top == package.end() || width == package.end() || image == package.end()) return std::nullopt;
+  if (!top->is_number() || !width->is_number() || !image->is_string()) return std::nullopt;
+  const auto top_dip = top->get<double>();
+  const auto width_dip = width->get<double>();
+  if (!std::isfinite(top_dip) || !std::isfinite(width_dip) || !(top_dip > 0 && top_dip <= 500) ||
+      !(width_dip > 0 && width_dip <= 1000))
+    return std::nullopt;
+  auto path = image->get<std::string>();
+  if (path.empty() || path.size() > 4096 || path.front() != '/' || path.find('\0') != std::string::npos)
+    return std::nullopt;
+  return CandidateSkinDecoration{std::move(path), top_dip, width_dip};
+}
+
+// The decoration of the selected skin when it is an installed one. A built-in skin never takes a package's decoration, even with a package of the same id in the catalogue, as it never takes its colours (candidate_display_preferences).
+inline std::optional<CandidateSkinDecoration> candidate_skin_decoration(
+    const nlohmann::json &catalog, std::string_view selected, const std::vector<CandidateSkin> &builtin) {
+  for (const auto &skin : builtin)
+    if (skin.id == selected) return std::nullopt;
+  if (!catalog.is_object()) return std::nullopt;
+  const auto packages = catalog.find("packages");
+  if (packages == catalog.end() || !packages->is_array()) return std::nullopt;
+  for (const auto &package : *packages)
+    if (package.is_object() && package.value("id", std::string{}) == selected) return parse_skin_decoration(package);
+  return std::nullopt;
 }
 
 // 宿主实际展示和循环的那份列表：内置在前，配置目录在后，去重。

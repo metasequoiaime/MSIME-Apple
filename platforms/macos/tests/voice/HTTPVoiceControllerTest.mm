@@ -45,6 +45,11 @@
 @end
 @implementation HTTPHostFixture
 - (NSDictionary *)setFocused:(BOOL)focused error:(NSError **)error { (void)focused; (void)error; return @{}; }
+// A client switch hands the new app's punctuation and width to the session; this fixture has no Engine view to change.
+- (NSDictionary *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error { (void)enabled; (void)error; return nil; }
+- (NSDictionary *)setPairedPunctuationEnabled:(BOOL)enabled error:(NSError **)error { (void)enabled; (void)error; return nil; }
+- (NSDictionary *)setPunctuationLock:(NSString *)lock error:(NSError **)error { (void)lock; (void)error; return nil; }
+- (NSDictionary *)setCharacterWidthFull:(BOOL)full error:(NSError **)error { (void)full; (void)error; return nil; }
 - (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error {
     (void)error; assert(NSThread.isMainThread && generation == 42 && [text isEqual:@"synthetic"]);
     ++self.submissions; return @{@"commit": text};

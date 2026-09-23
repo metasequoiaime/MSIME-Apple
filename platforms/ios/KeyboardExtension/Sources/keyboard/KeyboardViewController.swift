@@ -228,6 +228,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // so the callback does not arrive inside insertText and a simple set/clear flag is already false
   // by the time it lands — the count has to stay raised until the callback consumes it.
   private var pendingOwnEdits = 0
+  /// What 行内预编辑 last wrote into the host as marked text; empty when nothing is marked.
+  private var inlineMarkedText = ""
 
   // The strip numbers its chips 1-9 to match the digits on the symbol layer, so a page is nine.
   // Not private: the expansion test asserts the panel reaches past what the strip shows.
@@ -416,6 +418,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // UIKit ever skips the delegate pair for one of our own edits: the worst case is that a single
     // host-initiated change is treated as an echo, not a counter that stays raised forever.
     pendingOwnEdits = 0
+    inlineMarkedText = ""
     if schemePicker != nil { closeKeyboardPicker() }
     synchronizeInputContext()
     synchronizeInputSchemePreference()
@@ -483,6 +486,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Our own edit coming back to us: the composition it produced is still the live one.
     if pendingOwnEdits > 0 {
       pendingOwnEdits -= 1
+      return
+    }
+    // With 行内预编辑 the host already holds the letters: moving the caret out of marked text makes them ordinary text, and clearing the field removes them. Committing the composition as well would write it a second time, so the engine lets it go instead.
+    if !inlineMarkedText.isEmpty {
+      inlineMarkedText = ""
+      textDocumentProxy.unmarkText()
+      render(session.cancel())
       return
     }
     // A genuine host-initiated change — the caret moved, the field was cleared, the document was
@@ -1608,12 +1618,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
-    let preceding = KeyboardPunctuationContext.precedingScalar(
-      textDocumentProxy.documentContextBeforeInput)
-    let snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
+    let preceding = KeyboardPunctuationContext.precedingScalar(documentContextBeforeComposition)
+    var snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
     if snapshot.isHandled {
+      let paired = session.sharedPreferences?["paired_punctuation"] as? Bool ?? true
+      let reopened = PairedPunctuationPolicy.reopenQuote(snapshot.commitText, ascii: punctuation, enabled: paired)
+      if reopened != snapshot.commitText { snapshot = snapshot.replacingCommit(reopened) }
       render(snapshot)
-      armSmartPunctuation(punctuation, commit: snapshot.commitText, editor: editor)
+      let completion = PairedPunctuationPolicy.completion(snapshot.commitText, enabled: paired)
+      if let completion { closePair(completion) }
+      armSmartPunctuation(punctuation, commit: snapshot.commitText, editor: editor, autoClosedPair: completion != nil)
       return
     }
 
@@ -1630,6 +1644,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       punctuation,
       commit: FullWidthInputPolicy.output(punctuation, enabled: fullWidthInput),
       editor: editor)
+  }
+
+  /// 成对标点自动补全: write the closing mark and put the caret back between the two. The Engine has just committed the opening mark, so nothing is composed and the caret move ends nothing.
+  private func closePair(_ completion: PairedPunctuationCompletion) {
+    insertOwnText(completion.closing)
+    if completion.opening == "<" { session.balancePairedPunctuationAfterAutoClose(opening: completion.opening) }
+    textDocumentProxy.adjustTextPosition(byCharacterOffset: -1)
   }
 
   /// Milliseconds on the host's own clock, for the two-second repeat window.
@@ -1653,22 +1674,27 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private var precedingCharacter: String? {
-    textDocumentProxy.documentContextBeforeInput?.unicodeScalars.last.map { String($0) }
+    documentContextBeforeComposition?.unicodeScalars.last.map { String($0) }
+  }
+
+  /// The text before the caret, without the letters 行内预编辑 has marked there.
+  private var documentContextBeforeComposition: String? {
+    InlineCompositionPolicy.contextBefore(textDocumentProxy.documentContextBeforeInput, marked: inlineMarkedText)
   }
 
   /// Remember what this commit makes possible next.
   ///
   /// Only a commit arms anything: a press that left a composition running has not put a mark in
   /// the document for a follow-up gesture to be about.
-  private func armSmartPunctuation(_ ascii: String, commit: String?, editor: UInt64) {
+  private func armSmartPunctuation(_ ascii: String, commit: String?, editor: UInt64, autoClosedPair: Bool = false) {
     guard let commit, !commit.isEmpty, editor != 0 else {
       clearSmartPunctuationArming()
       return
     }
     let armed = session.smartPunctuationArming(
       ascii: ascii, commit: commit, timestampMilliseconds: smartPunctuationNow,
-      // This host never auto-closes a pair, and neither does the Engine: it commits only the mark the key produced (“ or ” in turn for the quote key, （ for `(`), so no closing half is ever waiting to the right of the caret.
-      editorGeneration: editor, autoClosedPair: false)
+      // With the closing half already to the right of the caret, a space typed next is inside the pair rather than after a finished mark, so the shared layer does not arm the space conversion.
+      editorGeneration: editor, autoClosedPair: autoClosedPair)
     armedPunctuationRepeat = armed["repeat"] as? [String: Any]
     armedSpaceConversion = armed["space"] as? [String: Any]
   }
@@ -1695,6 +1721,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                                       isChinese: isChineseMode) else { return }
     // textWillChange normally finishes in the old field. If UIKit skipped that boundary, never
     // insert its remaining preedit into the new field while changing the keyboard's presentation.
+    // The marked text belonged to the old field too, so there is nothing here to clear.
+    inlineMarkedText = ""
     render(session.cancel())
     isChineseMode = chinese
     showsSymbols = false
@@ -1949,11 +1977,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     _ = session.setFrequencyAdjustmentMode(
       mode, triggerCount: triggerCount, linearStep: linearStep)
     _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
-    let legacyFuzzyPreferenceExists = FuzzyPinyinPreference.defaults.object(
-      forKey: FuzzyPinyinPreference.enabledKey) != nil
-    let fuzzyRules = legacyFuzzyPreferenceExists
-      ? FuzzyPinyinPreference.activeRules
-      : (session.sharedFuzzyPinyinRules ?? FuzzyPinyinPreference.activeRules)
+    // The document decides; the App Group only seeds a document nobody has touched yet, so a change made on the shared settings page is not shadowed by an older native selection.
+    let fuzzyRules = FuzzyPinyinPreference.resolve(document: session.sharedPreferences)?.bits
+      ?? FuzzyPinyinPreference.activeRules
     if session.fuzzyPinyinRulesApplied != fuzzyRules {
       _ = session.setFuzzyPinyinRules(fuzzyRules)
     }
@@ -2428,7 +2454,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           guard let self, indexes.indices.contains(index) else { return }
           closeKeyboardPicker()
           playInputClick()
-          render(session.selectCandidate(generation: generation, globalIndex: indexes[index]))
+          render(session.selectAnyCandidate(generation: generation, globalIndex: indexes[index]))
         },
         onClose: { [weak self] in self?.closeKeyboardPicker() })
       panel.accessibilityViewIsModal = true
@@ -2946,9 +2972,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 
-  private func insertOwnText(_ text: String, source: TypingSource? = nil) {
-    pendingOwnEdits += 1
-    textDocumentProxy.insertText(text)
+  /// `replacingComposition` is the runtime's commit, which takes the place of the letters 行内预编辑 marked; anything else inserted mid-composition goes in beside them, and the next render marks the composition again.
+  private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false) {
+    if replacingComposition && !inlineMarkedText.isEmpty {
+      // Turning the marked letters into the committed text and unmarking it is one change to the document, where removing them and then inserting would be two.
+      inlineMarkedText = ""
+      pendingOwnEdits += 1
+      textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
+      textDocumentProxy.unmarkText()
+    } else {
+      showInlineComposition("")
+      pendingOwnEdits += 1
+      textDocumentProxy.insertText(text)
+    }
     recordTypingStatistics(text, source: source ?? typingSource)
   }
 
@@ -3015,8 +3051,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func deleteOwnBackward() {
+    showInlineComposition("")
     pendingOwnEdits += 1
     textDocumentProxy.deleteBackward()
+  }
+
+  /// Bring the host's marked text in line with `text`; an empty `text` takes it out.
+  private func showInlineComposition(_ text: String) {
+    guard let edit = InlineCompositionPolicy.edit(showing: inlineMarkedText, next: text) else { return }
+    inlineMarkedText = text
+    pendingOwnEdits += 1
+    switch edit {
+    case .mark(let marked):
+      textDocumentProxy.setMarkedText(marked, selectedRange: NSRange(location: (marked as NSString).length, length: 0))
+    case .clear:
+      textDocumentProxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+      textDocumentProxy.unmarkText()
+    }
   }
 
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil) {
@@ -3030,7 +3081,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     currentNineKeySpellings = snapshot.nineKeySpellings
     updateLetterCaseControls()
     if let commitText = snapshot.commitText {
-      insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)
+      insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source,
+                    replacingComposition: true)
     }
     hasComposition = !snapshot.preedit.isEmpty
     if !hasComposition || snapshot.commitText != nil { japaneseConversionIndex = nil }
@@ -3040,11 +3092,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
-    // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。这个宿主
-    // 没有编辑框里的组字，候选条这一行就是用户唯一能看见它的地方。
+    // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。行内预编辑关闭时（默认）编辑框里没有组字，候选条这一行就是用户唯一能看见它的地方；打开后同一段文字也作为标记文本写进编辑框。
     let composing = snapshot.phrasePrefix
       + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
     visiblePhrasePrefix = snapshot.phrasePrefix
+    showInlineComposition(hasComposition && InlinePreeditPreference.isEnabled ? composing : "")
     updateCandidateStrip(
                          preedit: composing,
                          candidates: snapshot.candidates,
@@ -3564,6 +3616,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       return true
     }
+    guard session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses }
     let management = candidateMenuElements { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
@@ -3950,7 +4003,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let picker = KeyboardSkinPickerView(selected: KeyboardSkinPreference.selected, onSelect: { [weak self] skin in
       guard let self else { return }
       KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
-      _ = session.setTouchKeyboardSkin(skin)
+      _ = session.setTouchKeyboardSkin(skin, design: skin == .custom ? CustomKeyboardSkinStore.current : nil)
       closeKeyboardPicker()
       applyKeyboardSkin()
       playInputClick()

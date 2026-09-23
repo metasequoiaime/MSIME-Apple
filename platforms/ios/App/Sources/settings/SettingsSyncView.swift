@@ -25,18 +25,31 @@ private enum IOSCloudSettings {
     let custom = try plan.customSkinJSON.map { try JSONDecoder().decode(CustomKeyboardSkin.self, from: Data($0.utf8)).normalized }
     // Validate everything before writing. Unknown platforms' values stay in the
     // cloud and are never assigned to local defaults.
-    // Learning lives in the shared document, which the keyboard copies over the App Group on every reload. It is the one write that can fail, so it goes first and a failure leaves every local setting unchanged.
+    // Learning, the skin, the scheme and the output form live in the shared document, which the keyboard copies over the App Group on every reload. Those are the writes that can fail, so they go first and a failure leaves every App Group setting unchanged.
     if let learning = plan.learning, InputHabitPreference.update({ $0.learning = learning }) == nil {
       throw CocoaError(.fileWriteUnknown)
     }
-    if let scheme = plan.scheme.flatMap(ChineseInputScheme.init(rawValue:)) { InputSchemePreference.scheme = scheme }
+    let skin = plan.skin.flatMap(KeyboardSkin.init(rawValue:))
+    let scheme = plan.scheme.flatMap(ChineseInputScheme.init(rawValue:))
+    let enabled = InputSchemePreference.enabledSchemes
+    guard let skinFields = KeyboardSkinPreference.documentMapping(skin, design: custom) else {
+      throw CocoaError(.fileWriteUnknown)
+    }
+    let schemeFields = scheme.flatMap { MetasequoiaInputSessionBridge.schemeMapping($0, enabledSchemes: enabled) }
+    let written = MetasequoiaInputSessionBridge.updateSharedPreferences { document in
+      skinFields(&document)
+      schemeFields?(&document)
+      if let traditional = plan.traditional { document[ChineseOutputPreference.documentKey] = traditional }
+    }
+    guard written else { throw CocoaError(.fileWriteUnknown) }
+    if let scheme { InputSchemePreference.scheme = scheme }
     if let traditional = plan.traditional { ChineseOutputPreference.usesTraditional = traditional }
     let defaults = KeyboardFeedbackPreference.defaults
     if let sound = plan.sound { defaults.set(sound, forKey: KeyboardFeedbackPreference.soundKey) }
     if let haptics = plan.haptics { defaults.set(haptics, forKey: KeyboardFeedbackPreference.hapticsKey) }
     if let strength = plan.strength { defaults.set(strength, forKey: KeyboardFeedbackPreference.strengthKey) }
     if let custom { CustomKeyboardSkinStore.save(custom) }
-    if let skin = plan.skin { defaults.set(skin, forKey: KeyboardSkinPreference.key) }
+    if let skin { defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key) }
   }
 }
 

@@ -58,6 +58,8 @@ struct InputSettingsView: View {
   @State private var usesTraditionalOutput = ChineseOutputPreference.usesTraditional
   @State private var startsInEnglish = false
   @State private var defaultModeSaveFailed = false
+  @State private var schemeSaveFailed = false
+  @State private var outputSaveFailed = false
   @State private var remembersImeMode = false
 
   var body: some View {
@@ -66,8 +68,8 @@ struct InputSettingsView: View {
           ForEach(ChineseInputScheme.allCases, id: \.self) { scheme in
             HStack {
               Button {
-                inputScheme = scheme
-                InputSchemePreference.scheme = scheme
+                schemeSaveFailed = !InputSchemePreference.save(scheme: scheme, enabled: enabledSchemes)
+                reloadPreferences()
               } label: {
                 HStack {
                   Text(scheme.title).foregroundStyle(.primary)
@@ -87,7 +89,7 @@ struct InputSettingsView: View {
               Toggle(scheme.title, isOn: Binding(get: { enabledSchemes.contains(scheme) }, set: { enabled in
                 var selection = enabledSchemes
                 if enabled { selection.append(scheme) } else { selection.removeAll { $0 == scheme } }
-                InputSchemePreference.enabledSchemes = selection
+                schemeSaveFailed = !InputSchemePreference.save(scheme: inputScheme, enabled: selection)
                 reloadPreferences()
               }))
               .labelsHidden()
@@ -99,7 +101,9 @@ struct InputSettingsView: View {
         } header: {
           Text("输入方案")
         } footer: {
-          Text("开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。左右滑动空格可移动光标；滑动前会先完成当前输入。")
+          Text(schemeSaveFailed
+            ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+            : "开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。左右滑动空格可移动光标；滑动前会先完成当前输入。")
         }
 
         Section("手写输入") {
@@ -186,12 +190,14 @@ struct InputSettingsView: View {
           .pickerStyle(.segmented)
           .accessibilityIdentifier("chineseOutputPicker")
           .onChange(of: usesTraditionalOutput) { value in
-            ChineseOutputPreference.usesTraditional = value
+            guard value != ChineseOutputPreference.usesTraditional else { return }
+            outputSaveFailed = !ChineseOutputPreference.save(value)
+            if outputSaveFailed { reloadPreferences() }
           }
         } header: {
           Text("简繁体")
         } footer: {
-          Text("应用于候选词和输入的文字。")
+          Text(outputSaveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : "应用于候选词和输入的文字。")
         }
 
         Section {

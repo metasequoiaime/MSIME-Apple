@@ -288,11 +288,12 @@ char *msime_client_try_load_preferences(const uint8_t *directory, size_t length)
 /* Compare-and-swap save of PreferencesSnapshot.preferences. The snapshot's
  * format_version is validated; expected_revision must match the store.
  * A disabled clipboard-history save clears the default history file if history
- * is still disabled. Cleanup errors may be returned after preferences are saved. */
+ * is still disabled. Cleanup errors may be returned after preferences are saved.
+ * Directory <=16384 bytes; snapshot <=1048576 bytes, enough for a custom skin photo. */
 char *msime_client_save_preferences(const uint8_t *directory, size_t directory_length,
                                     uint64_t expected_revision,
                                     const uint8_t *snapshot, size_t snapshot_length);
-/* Call on the session thread with a PreferencesSnapshot JSON buffer (<=16384):
+/* Call on the session thread with a PreferencesSnapshot JSON buffer (<=1048576):
  * {format_version:1, revision, preferences:{...}}. Revision order is per session;
  * identical retries are allowed, older/conflicting snapshots are rejected.
  * Returns {revision, deferred, view}. Active composition defers application until

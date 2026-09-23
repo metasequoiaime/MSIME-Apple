@@ -464,12 +464,22 @@ static void TestSharedPunctuation() {
         [controller applySharedToolbarPreferences:@{@"chinese_punctuation": invalid}];
         assert(!prefs.chinesePunctuation && [toolbarToggle.title isEqual:@"."] && saves == 0);
     }
+    // The toolbar switches this app's punctuation only: nothing is saved and the settings checkbox keeps the starting value.
     [controller floatingToolbarDidRequestTogglePunctuation:toolbar];
-    assert(prefs.chinesePunctuation && toggle.state == NSControlStateValueOn && [toolbarToggle.title isEqual:@"。"] && saves == 1);
+    assert(prefs.runtimeChinesePunctuation && [toolbarToggle.title isEqual:@"。"] && saves == 0);
+    assert(!prefs.chinesePunctuation && toggle.state == NSControlStateValueOff);
+    assert([defaults objectForKey:@"MSIMEClientChinesePunctuation"] == nil);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"chinese_punctuation"] isEqual:@NO]);
     MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-    assert(reopened.chinesePunctuation);
+    assert(reopened.chinesePunctuation && reopened.runtimeChinesePunctuation); // Nothing saved, so the built-in default.
+    // Re-applying the same shared value keeps the toggle; a new one is a new starting value for every app.
     [controller applySharedToolbarPreferences:@{@"chinese_punctuation": @NO}];
-    assert(!prefs.chinesePunctuation && saves == 1);
+    assert(prefs.runtimeChinesePunctuation && [toolbarToggle.title isEqual:@"。"]);
+    [controller applySharedToolbarPreferences:@{@"chinese_punctuation": @YES}];
+    [controller floatingToolbarDidRequestTogglePunctuation:toolbar];
+    assert(!prefs.runtimeChinesePunctuation);
+    [controller applySharedToolbarPreferences:@{@"chinese_punctuation": @NO}];
+    assert(!prefs.chinesePunctuation && !prefs.runtimeChinesePunctuation && [toolbarToggle.title isEqual:@"."] && saves == 0);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
@@ -882,19 +892,20 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
     const BOOL traditional = appearance.traditionalOutput;
     session.failFinish = YES;
     [controller floatingToolbarDidRequestTogglePunctuation:nil];
-    assert(appearance.chinesePunctuation && session.punctuationCalls == 0);
+    assert(appearance.runtimeChinesePunctuation && session.punctuationCalls == 0);
     session.failFinish = NO;
     [controller floatingToolbarDidRequestTogglePunctuation:nil];
     assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
     assert([client.committed isEqual:@"测试"]);
-    assert(!appearance.chinesePunctuation && !session.chinesePunctuation);
-    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] chinesePunctuation]);
+    assert(!appearance.runtimeChinesePunctuation && !session.chinesePunctuation);
+    assert(appearance.chinesePunctuation && [defaults objectForKey:@"MSIMEClientChinesePunctuation"] == nil);
+    assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] chinesePunctuation]);
     session.chinesePunctuation = YES;
     [controller prepareSession];
     assert(!session.chinesePunctuation);
     assert(appearance.englishMode == english && appearance.fullWidthInput == fullWidth && appearance.traditionalOutput == traditional);
     [controller floatingToolbarDidRequestTogglePunctuation:nil];
-    assert(appearance.chinesePunctuation && session.chinesePunctuation);
+    assert(appearance.runtimeChinesePunctuation && session.chinesePunctuation);
     NSEvent *(^toggleEvent)(unsigned short, NSEventModifierFlags, BOOL) = ^NSEvent *(unsigned short key, NSEventModifierFlags flags, BOOL repeat) {
         return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:@"." charactersIgnoringModifiers:@"." isARepeat:repeat keyCode:key];
     };
@@ -903,22 +914,23 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
     session.failFinish = YES;
     NSUInteger calls = session.punctuationCalls;
     assert([controller handleEvent:toggle client:client]);
-    assert(appearance.chinesePunctuation && session.punctuationCalls == calls);
+    assert(appearance.runtimeChinesePunctuation && session.punctuationCalls == calls);
     session.failFinish = NO;
     assert([controller handleEvent:toggle client:client]);
-    assert(!appearance.chinesePunctuation && !session.chinesePunctuation && session.punctuationCalls > calls);
+    assert(!appearance.runtimeChinesePunctuation && !session.chinesePunctuation && session.punctuationCalls > calls);
     assert(session.lastCommand == MSIME_FINISH_COMPOSITION && [client.committed isEqual:@"测试"]);
-    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] chinesePunctuation]);
+    assert(appearance.chinesePunctuation && [defaults objectForKey:@"MSIMEClientChinesePunctuation"] == nil);
+    assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] chinesePunctuation]);
     calls = session.punctuationCalls;
     assert([controller handleEvent:toggleEvent(47, NSEventModifierFlagControl, YES) client:client]);
-    assert(!appearance.chinesePunctuation && session.punctuationCalls == calls);
+    assert(!appearance.runtimeChinesePunctuation && session.punctuationCalls == calls);
     for (NSNumber *flags in @[@0, @(NSEventModifierFlagCommand), @(NSEventModifierFlagControl | NSEventModifierFlagShift), @(NSEventModifierFlagControl | NSEventModifierFlagOption), @(NSEventModifierFlagControl | NSEventModifierFlagCommand)])
         assert(!MSIMEPunctuationToggle(toggleEvent(47, flags.unsignedIntegerValue, NO)));
     assert(!MSIMEPunctuationToggle(toggleEvent(65, NSEventModifierFlagControl, NO))); // Keypad decimal.
     // The punctuation preference can be changed while English passthrough is active.
     appearance.englishMode = YES;
     assert([controller handleEvent:toggle client:client]);
-    assert(appearance.englishMode && appearance.chinesePunctuation && session.chinesePunctuation);
+    assert(appearance.englishMode && appearance.runtimeChinesePunctuation && session.chinesePunctuation);
     appearance.englishMode = english;
     assert(appearance.fullWidthInput == fullWidth && appearance.traditionalOutput == traditional);
     // The punctuation API returns a bare View, not {view: ...} like key input.
@@ -1240,51 +1252,54 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     [controller prepareSession];
     assert(session.fullwidth && session.widthCalls > 0);
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
-    assert(!appearance.fullWidthInput);
+    // The chord switches the current app only and syncs the Engine at once; the saved starting value stays.
+    assert(!appearance.runtimeFullWidthInput && !session.fullwidth);
+    assert(appearance.fullWidthInput && [defaults boolForKey:@"MSIMEClientFullWidthInput"]);
+    assert([[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot] fullWidthInput]);
     assert([controller handleEvent:ModeKey(4, chord, YES) client:client]);
-    assert(!appearance.fullWidthInput);
+    assert(!appearance.runtimeFullWidthInput);
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
-    assert(appearance.fullWidthInput && session.asciiCalls == 0);
+    assert(appearance.runtimeFullWidthInput && session.asciiCalls == 0);
     const NSEventModifierFlags windowsChord = NSEventModifierFlagControl | NSEventModifierFlagShift;
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
-    assert(!appearance.fullWidthInput);
+    assert(!appearance.runtimeFullWidthInput);
     [controller appearanceChanged:nil];
     assert(!session.fullwidth);
     NSUInteger widthCalls = session.widthCalls;
     assert([controller handleEvent:ModeKey(49, windowsChord, YES) client:client]);
-    assert(!appearance.fullWidthInput && session.widthCalls == widthCalls);
+    assert(!appearance.runtimeFullWidthInput && session.widthCalls == widthCalls);
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
     [controller appearanceChanged:nil];
-    assert(appearance.fullWidthInput && session.fullwidth);
+    assert(appearance.runtimeFullWidthInput && session.fullwidth);
     for (NSEventModifierFlags extra : {NSEventModifierFlagCommand, NSEventModifierFlagOption})
         assert(!msime::mac::IsFullWidthInputToggle(49, windowsChord | extra));
     for (NSEventModifierFlags extra : {NSEventModifierFlagCommand, NSEventModifierFlagControl}) {
         assert(![controller handleEvent:ModeKey(4, chord | extra, NO) client:client]);
-        assert(appearance.fullWidthInput);
+        assert(appearance.runtimeFullWidthInput);
     }
     // Turning the preference off gives Option+Shift+H back to the application. Ctrl+Shift+Space is
     // not what the settings page names, so it keeps working either way.
     const BOOL restoreFullWidthShortcut = appearance.fullWidthShortcut;
-    const BOOL fullWidthBefore = appearance.fullWidthInput;
+    const BOOL fullWidthBefore = appearance.runtimeFullWidthInput;
     appearance.fullWidthShortcut = NO;
     assert(![controller handleEvent:ModeKey(4, chord, NO) client:client]);
-    assert(appearance.fullWidthInput == fullWidthBefore);
+    assert(appearance.runtimeFullWidthInput == fullWidthBefore);
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
-    assert(appearance.fullWidthInput != fullWidthBefore);
+    assert(appearance.runtimeFullWidthInput != fullWidthBefore);
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
-    assert(appearance.fullWidthInput == fullWidthBefore);
+    assert(appearance.runtimeFullWidthInput == fullWidthBefore);
     appearance.fullWidthShortcut = restoreFullWidthShortcut;
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
-    assert(appearance.fullWidthInput != fullWidthBefore);
+    assert(appearance.runtimeFullWidthInput != fullWidthBefore);
     assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
-    assert(appearance.fullWidthInput == fullWidthBefore);
+    assert(appearance.runtimeFullWidthInput == fullWidthBefore);
     appearance.englishMode = YES;
     assert(![controller handleEvent:ModeKey(4, chord, NO) client:client]);
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
-    assert(!appearance.fullWidthInput && appearance.englishMode);
+    assert(!appearance.runtimeFullWidthInput && appearance.englishMode);
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
     assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
-    assert(appearance.fullWidthInput);
+    assert(appearance.runtimeFullWidthInput && appearance.fullWidthInput);
     appearance.englishMode = NO;
     NSDictionary *idle = @{@"handled": @NO, @"view": @{@"editing_text": @"", @"candidates": @[]}};
     session.nextTransition = idle;
@@ -1411,6 +1426,44 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
 // opening the settings window and finding a checkbox, which is a long way round for something the
 // user turns on and off while typing. The item writes the same preference that checkbox writes, so
 // the two cannot disagree and the choice survives a restart.
+@interface ModeSelectingClient : ShortcutClient
+@property(nonatomic, strong) NSMutableArray<NSString *> *selectedModes;
+- (void)selectInputMode:(NSString *)identifier;
+@end
+@implementation ModeSelectingClient
+- (void)selectInputMode:(NSString *)identifier {
+    if (!self.selectedModes) self.selectedModes = [NSMutableArray array];
+    [self.selectedModes addObject:identifier];
+}
+@end
+
+// The menu bar's 中/英 icon is the selected input mode. A mode the system reports - picked from the input menu or reached with Ctrl+Space - sets the Chinese/English state, and is not selected back.
+static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ModeSelectingClient *client = [ModeSelectingClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+    const BOOL english = appearance.englishMode;
+    appearance.englishMode = NO;
+
+    [controller systemDidReportInputMode:MSIMEEnglishInputModeID client:client];
+    assert(appearance.englishMode && client.selectedModes.count == 0);
+    [controller systemDidReportInputMode:MSIMEEnglishInputModeID client:client];
+    assert(appearance.englishMode && client.selectedModes.count == 0);
+
+    // Another source is not a mode switch of this input method.
+    [controller systemDidReportInputMode:@"com.apple.keylayout.ABC" client:client];
+    [controller systemDidReportInputMode:nil client:client];
+    assert(appearance.englishMode && client.selectedModes.count == 0);
+
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert(!appearance.englishMode && client.selectedModes.count == 0);
+    appearance.englishMode = english;
+}
+
 static void TestFloatingToolbarMenuToggle(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     [controller setValue:appearance forKey:@"appearance"];
@@ -2526,7 +2579,7 @@ static void TestInputSourceModeReset() {
     __block NSUInteger resets = 0, saves = 0;
     id saveObserver = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
     MSIMEInputSourceMonitor *monitor = [[MSIMEInputSourceMonitor alloc] initWithCenter:center bundleIdentifier:own
-        copySource:CopyMonitoredSource propertyGetter:MonitoredSourceProperty switchedAway:^{ assert(NSThread.isMainThread); ++resets; [prefs resetGlobalInputMode]; }];
+        copySource:CopyMonitoredSource propertyGetter:MonitoredSourceProperty switchedAway:^{ assert(NSThread.isMainThread); ++resets; [prefs resetRememberedInputModes]; }];
     assert(monitor);
     for (NSDictionary *source in @[@{}, @{sourceKey:@42}, @{bundleKey:own}, @{sourceKey:own},
                                    @{sourceKey:[own stringByAppendingString:@".mode"]}]) {
@@ -2550,9 +2603,33 @@ static void TestInputSourceModeReset() {
     prefs.englishMode = NO;
     [center postNotificationName:notification object:nil];
     assert(prefs.englishMode); // Reset follows the configured default, not hardcoded Chinese.
+    // App scope: switching between this method's own modes keeps each app's choice, and leaving for another source drops every app's choice so the next activation starts from default_ime_mode, as TIP re-activation does in the reference.
     prefs.imeModeScope = @"app";
+    prefs.defaultImeMode = @"chinese";
+    [prefs activateInputModeForApplication:@"org.example.other-app"];
+    prefs.englishMode = YES;
     [prefs activateInputModeForApplication:@"org.example.fixture"];
-    assert(prefs.englishMode); // A source change did not erase the separate app choice.
+    prefs.englishMode = YES;
+    NSUInteger appResets = resets;
+    for (NSDictionary *source in @[@{bundleKey:own}, @{sourceKey:[own stringByAppendingString:@".mode"]}]) {
+        monitoredSource = source;
+        [center postNotificationName:notification object:nil];
+        [prefs activateInputModeForApplication:@"org.example.fixture"];
+        assert(resets == appResets && prefs.englishMode);
+    }
+    monitoredSource = @{sourceKey:@"com.apple.keylayout.US"};
+    [center postNotificationName:notification object:nil];
+    assert(resets == appResets + 1);
+    [prefs activateInputModeForApplication:@"org.example.fixture"];
+    assert(!prefs.englishMode);
+    [prefs activateInputModeForApplication:@"org.example.other-app"];
+    assert(!prefs.englishMode); // Apps other than the one the user switched away in are cleared too.
+    prefs.defaultImeMode = @"english";
+    [prefs activateInputModeForApplication:@"org.example.fixture"];
+    prefs.englishMode = NO;
+    [center postNotificationName:notification object:nil];
+    [prefs activateInputModeForApplication:@"org.example.fixture"];
+    assert(prefs.englishMode); // The app-scope reset follows the configured default too.
     NSUInteger before = resets;
     // A delayed background notification must re-read the selected source on
     // the main thread, not reset from an obsolete source captured at receipt.
@@ -2579,6 +2656,92 @@ static void TestInputSourceModeReset() {
     [NSNotificationCenter.defaultCenter removeObserver:saveObserver];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     monitoredSource = nil;
+}
+
+// Punctuation and width are runtime state of each app, like the reference's per-thread TSF compartments: the toggles never save, another app starts from the saved value, a Chinese/English switch puts punctuation back in step with the mode, and a new saved starting value applies everywhere.
+static void TestPerApplicationPunctuationAndWidth() {
+    NSString *suite = [@"msime.runtime-punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.imeModeScope = @"global"; // The toggles stay per app whatever the Chinese/English scope says.
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ApplicationShortcutClient *a = [ApplicationShortcutClient new], *b = [ApplicationShortcutClient new];
+    a.bundleIdentifier = @"org.example.runtime-a"; b.bundleIdentifier = @"org.example.runtime-b";
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:a forKey:@"activeClient"];
+    [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+    [prefs activateInputModeForApplication:a.bundleIdentifier];
+    assert(prefs.chinesePunctuation && !prefs.fullWidthInput && !prefs.englishMode);
+    __block NSUInteger saves = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
+    NSEvent *period = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagControl timestamp:0 windowNumber:0 context:nil characters:@"." charactersIgnoringModifiers:@"." isARepeat:NO keyCode:47];
+    const NSEventModifierFlags widthChord = NSEventModifierFlagControl | NSEventModifierFlagShift;
+    assert([controller handleEvent:period client:a]);
+    assert([controller handleEvent:ModeKey(49, widthChord, NO) client:a]);
+    assert(!prefs.runtimeChinesePunctuation && prefs.runtimeFullWidthInput);
+    assert(!session.chinesePunctuation && session.fullwidth && saves == 0);
+    assert([defaults objectForKey:@"MSIMEClientChinesePunctuation"] == nil && [defaults objectForKey:@"MSIMEClientFullWidthInput"] == nil);
+    assert(prefs.chinesePunctuation && !prefs.fullWidthInput);
+    NSDictionary *shared = [prefs sharedPreferencesByMerging:@{}];
+    assert([shared[@"chinese_punctuation"] isEqual:@YES] && [shared[@"character_width"] isEqual:@"halfwidth"]);
+
+    // Focus moving to another app gives it the saved values and tells the Engine before it types.
+    session.nextTransition = @{@"handled": @NO, @"view": @{@"editing_text": @"", @"candidates": @[]}};
+    [controller handleEvent:ModeKey(0, 0, NO) client:b];
+    assert(prefs.runtimeChinesePunctuation && !prefs.runtimeFullWidthInput);
+    assert(session.chinesePunctuation && !session.fullwidth);
+    [controller handleEvent:ModeKey(0, 0, NO) client:a];
+    assert(!prefs.runtimeChinesePunctuation && prefs.runtimeFullWidthInput);
+    assert(!session.chinesePunctuation && session.fullwidth);
+    session.nextTransition = nil;
+
+    // A Chinese/English switch resolves punctuation from the new mode (SyncPunctuationWithImeMode); width is independent of the mode.
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(prefs.runtimeChinesePunctuation);
+    [controller setEnglishInputMode:YES];
+    assert(prefs.englishMode && !prefs.runtimeChinesePunctuation && prefs.runtimeFullWidthInput);
+    [controller setEnglishInputMode:NO]; // Back to Chinese: the saved starting value.
+    assert(!prefs.englishMode && prefs.runtimeChinesePunctuation);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(!prefs.runtimeChinesePunctuation);
+    [controller setEnglishInputMode:NO]; // Not a switch, so the toggle stays.
+    assert(!prefs.runtimeChinesePunctuation);
+    prefs.punctuationLock = @"chinese";
+    [controller setEnglishInputMode:YES]; // A Chinese punctuation lock keeps Chinese punctuation in English mode.
+    assert(prefs.runtimeChinesePunctuation);
+    [controller setEnglishInputMode:NO];
+    prefs.punctuationLock = @"follow";
+    prefs.runtimeChinesePunctuation = NO;
+
+    // Leaving the input method (the TSF Deactivate counterpart) clears the toggles of every app together, as it does the modes.
+    [prefs activateInputModeForApplication:b.bundleIdentifier];
+    prefs.runtimeFullWidthInput = YES;
+    [prefs activateInputModeForApplication:a.bundleIdentifier];
+    [prefs resetAllRuntimeInputState];
+    assert(prefs.runtimeChinesePunctuation && !prefs.runtimeFullWidthInput);
+    [prefs activateInputModeForApplication:b.bundleIdentifier];
+    assert(prefs.runtimeChinesePunctuation && !prefs.runtimeFullWidthInput);
+    prefs.runtimeFullWidthInput = YES;
+
+    // Re-applying the shared document keeps the toggles; a changed starting value replaces them in every app.
+    [prefs applySharedInputPreferences:@{@"chinese_punctuation":@YES, @"character_width":@"halfwidth"}];
+    assert(prefs.runtimeFullWidthInput);
+    prefs.runtimeChinesePunctuation = NO;
+    [prefs applySharedInputPreferences:@{@"character_width":@"fullwidth"}];
+    assert(prefs.runtimeFullWidthInput && !prefs.runtimeChinesePunctuation); // Width changed, punctuation did not.
+    [prefs activateInputModeForApplication:a.bundleIdentifier];
+    prefs.runtimeFullWidthInput = NO;
+    [prefs applySharedInputPreferences:@{@"chinese_punctuation":@NO, @"character_width":@"halfwidth"}];
+    assert(!prefs.runtimeChinesePunctuation && !prefs.runtimeFullWidthInput);
+    [prefs activateInputModeForApplication:b.bundleIdentifier];
+    assert(!prefs.runtimeChinesePunctuation && !prefs.runtimeFullWidthInput);
+    prefs.runtimeFullWidthInput = YES;
+    prefs.fullWidthInput = NO; // The settings checkbox is a new starting value too.
+    assert(!prefs.runtimeFullWidthInput);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestInputModePolicy() {
@@ -5518,6 +5681,7 @@ int main(int argc, char **argv) {
         TestInputMode(defaults, appearance);
         TestControlOptionSpace();
         TestInputModePolicy();
+        TestPerApplicationPunctuationAndWidth();
         TestInputSourceModeReset();
         TestRealSessionComposition();
         TestModifierTaps();
@@ -5547,6 +5711,7 @@ int main(int argc, char **argv) {
         TestMixedInputPreferences();
         TestCharacterSetShortcut();
         TestDedicatedEnglish(appearance);
+        TestSystemInputModeReport(appearance);
         TestKeymap(defaults, appearance);
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
         assert(fontMethod);

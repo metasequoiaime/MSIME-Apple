@@ -15,6 +15,11 @@ add_executable(input-mode-hud-panel-test tests/input/InputModeHUDPanelTest.mm sr
 target_compile_options(input-mode-hud-panel-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(input-mode-hud-panel-test PRIVATE "-framework AppKit")
 add_test(NAME input-mode-hud-panel COMMAND input-mode-hud-panel-test)
+# The menu bar's 中/英 icon follows the selected input mode; this checks the mapping to the plist's mode identifiers and that a switch made by either side is not echoed back by the other.
+add_executable(input-mode-identifiers-test tests/input/InputModeIdentifiersTest.mm)
+target_compile_options(input-mode-identifiers-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(input-mode-identifiers-test PRIVATE "-framework Foundation")
+add_test(NAME input-mode-identifiers COMMAND input-mode-identifiers-test)
 add_executable(desktop-input-interop-test tests/input/DesktopInputInteropTest.mm src/core/DesktopInputSession.mm)
 target_compile_options(desktop-input-interop-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(desktop-input-interop-test PRIVATE "-framework AppKit")
@@ -155,12 +160,13 @@ set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "水杉输�
 target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns")
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns"
   PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-# The input menu's own icon, which is a template TIFF rather than the application icon: see the comment
-# beside tsInputMethodIconFileKey in Info.plist.in for why the two cannot be the same file.
-target_sources(MSIMEClientInputMethod
-  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff")
-set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff"
-  PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+# The input menu's own icons, which are template TIFFs rather than the application icon: the bundle's logo plus the 中 and 英 icons the menu bar shows for the two input modes. See the comment beside tsInputMethodIconFileKey in Info.plist.in for why the logo and the application icon cannot be the same file.
+set(MSIME_MENU_ICON_RESOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff"
+  "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconChinese.tiff"
+  "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconEnglish.tiff")
+target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_MENU_ICON_RESOURCES})
+set_source_files_properties(${MSIME_MENU_ICON_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 # The voice start/end cues are the product's own, not system sounds. They are staged straight from the Windows installer's copy rather than adding another copy to the tree; VoiceCuePlayer looks them up in Resources/audios, mirroring the assets/audios layout Windows installs.
 set(MSIME_VOICE_CUE_RESOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../windows/installer/assets/audios/start.mp3"
@@ -667,8 +673,12 @@ target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework AudioToolbox")
 target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics" "-framework CoreText" "-framework CoreAudio" "-framework UniformTypeIdentifiers")
 add_test(NAME shortcut COMMAND shortcut-test)
 # Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
-set_tests_properties(shortcut PROPERTIES TIMEOUT 90)
+# The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
+set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")
+file(MAKE_DIRECTORY "${MSIME_SHORTCUT_TEST_HOME}")
+set_tests_properties(shortcut PROPERTIES TIMEOUT 90 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_test(NAME shortcut-translations COMMAND shortcut-test --translations)
+set_tests_properties(shortcut-translations PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_executable(voice-hold-shortcut-test tests/voice/VoiceHoldShortcutTest.mm)
 target_compile_options(voice-hold-shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-hold-shortcut-test PRIVATE "-framework AppKit")

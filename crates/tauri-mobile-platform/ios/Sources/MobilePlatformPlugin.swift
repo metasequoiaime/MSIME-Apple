@@ -478,6 +478,7 @@ private struct SaveKeyboardPreferencesArgs: Decodable {
   let hapticStrength: String
   let englishSuggestions: Bool
   let candidatePaletteFollowsDesktop: Bool
+  let inlinePreedit: Bool
   let dictionaryLearning: Bool
   let keyboardSkin: String
   let customKeyboardSkin: String?
@@ -657,6 +658,7 @@ private struct IOSKeyboardPreferenceStore {
       "hapticStrength": Self.hapticStrengths.contains(strength) ? strength : "medium",
       "englishSuggestions": defaults.object(forKey: "english.suggestions") as? Bool ?? true,
       "candidatePaletteFollowsDesktop": defaults.bool(forKey: "candidate_palette_follows_desktop"),
+      "inlinePreedit": defaults.bool(forKey: "keyboard.inline_preedit"),
       "dictionaryLearning": defaults.bool(forKey: "dictionaryLearningEnabled"),
       "keyboardSkin": Self.skinOrder.contains(skin) ? skin : "forest",
       "customKeyboardSkin": customSkinJSON() as Any? ?? NSNull(),
@@ -689,6 +691,7 @@ private struct IOSKeyboardPreferenceStore {
     defaults.set(args.hapticStrength, forKey: "keyboardHapticStrength")
     defaults.set(args.englishSuggestions, forKey: "english.suggestions")
     defaults.set(args.candidatePaletteFollowsDesktop, forKey: "candidate_palette_follows_desktop")
+    defaults.set(args.inlinePreedit, forKey: "keyboard.inline_preedit")
     defaults.set(args.dictionaryLearning, forKey: "dictionaryLearningEnabled")
     defaults.set(args.keyboardSkin, forKey: "keyboardSkin")
     if let custom = args.customKeyboardSkin {
@@ -1088,6 +1091,11 @@ final class MobilePlatformPlugin: Plugin {
       skinFolderAccess = nil
       invoke.resolve()
     }
+  }
+
+  /// Installed UIKit families for the shared font picker; the Rust side sorts and bounds them.
+  @objc public func listFontFamilies(_ invoke: Invoke) {
+    invoke.resolve(["families": UIFont.familyNames])
   }
 
   @objc public func copyText(_ invoke: Invoke) {

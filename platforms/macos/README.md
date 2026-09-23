@@ -10,7 +10,7 @@ macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/
 
 `scripts/install.sh` 会停掉正在运行的实例、在暂存目录用本机 Developer ID 连同 `resources/VoiceInput.entitlements` 重签名（`--deep`，因为 Sparkle 自带其发布方的签名，hardened runtime 下 Team ID 不一致会导致进程加载失败）、原子替换并保留旧 bundle，任一步失败自动回滚，最后调用 `--register-input-source` 并用 `scripts/check_input_source.swift` 查注册表，而不是只看退出码。LaunchServices 会把每个 worktree `target/` 下的构建产物都按同一个发布 identifier 登记，`install.sh` 因此在注册前只保留已安装的那一条。bundle 本身是否装配正确由 `bundle-contents` 这项 CTest 检查（图标是否真的暂存进去、用途字符串是否每种语言都有、语音提示音 `audios/start.mp3` / `end.mp3` 是否随包、可执行文件是否链接了本地识别器）。
 
-bundle 使用系统已登记的 `app.msime.inputmethod.MetasequoiaIME`，已在列表中的 identifier 原地更新正常：`install.sh` 安装之后，`check_input_source.swift` 稳定报 `app.msime.inputmethod.MetasequoiaIME` 与 `.Hans` 两条 enabled。
+bundle 使用系统已登记的 `app.msime.inputmethod.MetasequoiaIME`，已在列表中的 identifier 原地更新正常：`install.sh` 安装之后，`check_input_source.swift` 稳定报 `app.msime.inputmethod.MetasequoiaIME`、`.Hans` 与 `.Roman` 三条 enabled。
 
 注册结果在刚替换 bundle、刚调用 `--register-input-source` 之后有一段分钟级的不稳定窗口：`TISCreateInputSourceList` 按 bundle id 查不到东西，过一会儿不做任何操作自己会回来，所以同一条 `check_input_source.swift` 隔几秒跑，会先报 not in the registry，再报 enabled。`install.sh` 只查一次就下结论，两个方向的误判都可能出现——判断安装结果时多查几次再看。
 
@@ -32,7 +32,9 @@ SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、�
 
 ## 输入源菜单与输入模式
 
-输入源菜单按 `InputController.mm` 的 `- (NSMenu *)menu` 收敛为输入模式加即时工具：中文输入 / 英文输入 / 英文候选模式（⌃⇧E）/ 简体输出 / 繁体输出 / 悬浮工具栏（带勾选态）/ 水杉表情面板… / 水杉屏幕键盘… / 手写输入… / 开始/结束语音输入 / 水杉输入法设置… / 关于水杉输入法…。账户、词库、更新、帮助这些管理页统一进设置窗口——把它们逐条列进来会让菜单高过屏幕，而收进二级子菜单又会让常用的工具太难够到。默认中文；英文模式不准备 Engine 会话，按键直接放行。切到英文先用共享 Engine finish 完成当前组合并隐藏候选；失败时保留原模式。Shift+空格默认切换中英文，设置中可关闭；竞争 Command/Control/Option 修饰键不触发切换，重复事件消费但不反复更改偏好。英文模式激活后切回中文会恢复保留会话焦点与设置轮询。英文模式与快捷键偏好保存在宿主自身偏好域，不复用混合输入选项或算法状态。macOS 还提供可由 Tauri 设置页开关的非激活 HUD：切换成功后在当前光标附近短暂显示“中”或“英”，自动避让屏幕边缘，不抢焦点、不吞鼠标事件，失活输入源时隐藏。
+输入源菜单按 `InputController.mm` 的 `- (NSMenu *)menu` 收敛为输入模式加即时工具：中文输入 / 英文输入 / 英文候选模式（⌃⇧E）/ 简体输出 / 繁体输出 / 悬浮工具栏（带勾选态）/ 水杉表情面板… / 水杉屏幕键盘… / 手写输入… / 开始/结束语音输入 / 水杉输入法设置… / 关于水杉输入法…。账户、词库、更新、帮助这些管理页统一进设置窗口——把它们逐条列进来会让菜单高过屏幕，而收进二级子菜单又会让常用的工具太难够到。默认中文；英文模式不准备 Engine 会话，按键直接放行。切到英文先用共享 Engine finish 完成当前组合并隐藏候选；失败时保留原模式。Shift+空格默认切换中英文，设置中可关闭；竞争 Command/Control/Option 修饰键不触发切换，重复事件消费但不反复更改偏好。英文模式激活后切回中文会恢复保留会话焦点与设置轮询。英文模式与快捷键偏好保存在宿主自身偏好域，不复用混合输入选项或算法状态。中英文状态按 `ime_mode_scope` 按应用或全局记忆；切到其他输入源（如 ABC）再切回时，两种作用域都从 `default_ime_mode` 重新开始，与 Windows 重新激活 TIP 时一致；在本输入法自身的模式之间切换不会清空记忆。macOS 还提供可由 Tauri 设置页开关的非激活 HUD：切换成功后在当前光标附近短暂显示“中”或“英”，自动避让屏幕边缘，不抢焦点、不吞鼠标事件，失活输入源时隐藏。
+
+菜单栏的输入源图标常驻显示当前模式，对应来源托盘语言栏的中 / 英图标：bundle 声明中文模式 `app.msime.inputmethod.MetasequoiaIME.Hans`（图标「中」）与英文模式 `app.msime.inputmethod.MetasequoiaIME.Roman`（图标「英」，名称「水杉输入法 · 英」/「Metasequoia · EN」），两者在系统设置的输入源列表里是两条，Ctrl+空格与地球键轮换也会停在英文条目上。Shift / 快捷键、输入法菜单与悬浮工具栏切换中英文时，控制器用 `selectInputMode:` 选中对应模式；从系统输入法菜单选中某一条或轮换到它时，系统经 `setValue:forTag:client:` 报告模式，控制器随之切换中英文状态。两边共享一份「当前显示的模式」记录（`src/input/InputModeIdentifiers.h`），只重复当前模式的报告和控制器自己请求引起的回报都不算用户选择，因此不会来回回声；中英文状态按 `ime_mode_scope` 按应用或全局记忆，客户端获得焦点时把菜单栏模式对齐到当前作用域的状态；输入法进程重启后各应用从 `default_ime_mode` 开始，菜单栏同样在获得焦点时对齐。英文模式在系统设置里被移除，或旧安装尚未重新登记（`install.sh` 与设置页的「安装 / 更新」以 `--register-input-source` 登记并启用两个模式，设置页的「重启输入法」以 `--reregister-input-source` 重新登记；Sparkle 应用内更新只替换 bundle，不重新登记）时，控制器不请求这个不可选的模式，菜单栏保持「中」图标，行为与只有一个模式时相同。大写锁定用系统自带的指示；日语、全半角与标点显示在悬浮工具栏上。macOS 14 起 `selectInputMode:` 可能弹出系统自己的输入源光标提示，与上面的 HUD 重复时可在设置页关掉 HUD。
 
 打开字符面板同样先完成组合，再请求系统 Character Viewer；测试以替身记录系统入口，不实际打开面板。原生测试覆盖菜单勾选、偏好保存、组合完成/失败、英文按键旁路、七种竞争修饰组合、重复/禁用快捷键、无会话懒加载与焦点恢复。输入法菜单和悬浮工具栏的“检查更新…”优先打开 Tauri 共享 About 页；Tauri 不可用时，有 `SUFeedURL` 的发布包回退 Sparkle 原生更新控制器，未配置 feed 的构建会明确说明不能应用内检查，并在用户确认后打开固定的官方发布页，打开失败也会显示错误，而不是静默无动作。共享 `theme` 与 `candidate_theme` 作用于实际 IMK 候选窗：`dark`/`light` 表面覆盖全局主题，`follow` 继承全局，`system` 通过 `NSPanel.appearance = nil` 交给 AppKit 跟随系统；偏好热更新会保留当前 Engine 组合并重绘候选皮肤。
 
@@ -54,7 +56,7 @@ SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、�
 
 ## 全角输入
 
-全角输入按同一固定 Apple 版本的 `FullWidthInput.h` 与控制器回退顺序迁移，默认关闭，存入宿主偏好 `MSIMEClientFullWidthInput`。候选设置中可勾选，中文模式下 Option + Shift + H 切换；重复按键只消费不反复切换，Command/Control 竞争修饰键及英文模式不触发。按键先交给 Engine，已处理的中文组词、选词与标点不再转换；未处理的按键先完成剩余组合，确认空闲后才将 ASCII 空格变为 U+3000、ASCII 可打印字符变为对应全角字符。无会话、失败响应或组合未完成时不插入全角回退，非 ASCII 字符不转换。原生测试覆盖 95 个字符、快捷键/偏好、Engine 优先、组合提交顺序及失败/未完成排除，使用替身会话驱动。悬浮工具栏的全角按钮走同一偏好。
+全角输入按同一固定 Apple 版本的 `FullWidthInput.h` 与控制器回退顺序迁移，默认关闭。候选设置中的勾选框（宿主偏好 `MSIMEClientFullWidthInput`，共享字段 `character_width`）是每个应用的起始值；中文模式下 Option + Shift + H、任意模式下 Control + Shift + Space（来源的 Shift + Space 在 macOS 上是中英文切换）以及悬浮工具栏的全角按钮只切换当前应用、不保存，与来源按线程保存在 TSF compartment 里一致，从本输入法切到别的输入源后所有应用回到起始值，起始值一旦改变所有应用都跟着重置；重复按键只消费不反复切换；Option + Shift + H 遇 Command/Control 竞争修饰键或在英文模式下不触发。按键先交给 Engine，已处理的中文组词、选词与标点不再转换；未处理的按键先完成剩余组合，确认空闲后才将 ASCII 空格变为 U+3000、ASCII 可打印字符变为对应全角字符。无会话、失败响应或组合未完成时不插入全角回退，非 ASCII 字符不转换。原生测试覆盖 95 个字符、快捷键/偏好、Engine 优先、组合提交顺序及失败/未完成排除，使用替身会话驱动。
 
 ## 共享运行时视图字段
 
@@ -118,7 +120,7 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 ## 标点
 
-成对标点和标点锁定跟随 Windows 基线迁移到候选设置。成对标点默认开启，标点锁定默认跟随中文标点，也可固定为中文或英文；设置值分别写入宿主偏好域，并按共享 `paired_punctuation`、`punctuation_lock` 字段同步。输入会话只通过 `MSIMEClientSession` 调用 Engine 的运行时覆盖，重建会话时恢复覆盖值；原生控件和替身会话测试覆盖默认、持久化、非法值和同步路径。
+中文标点的勾选框（宿主偏好 `MSIMEClientChinesePunctuation`，共享字段 `chinese_punctuation`）同样只是每个应用的起始值：Ctrl + . 与悬浮工具栏的标点按钮只切换当前应用、不保存，中英文切换让标点重新跟上模式，对应来源的 `SyncPunctuationWithImeMode`：进入英文模式时标点变为英文（标点锁定固定为中文时除外），回到中文模式时丢掉当前应用的切换、回到起始值；从本输入法切到别的输入源后所有应用回到起始值，普通的焦点切换不会。成对标点和标点锁定跟随 Windows 基线迁移到候选设置。成对标点默认开启，标点锁定默认跟随中文标点，也可固定为中文或英文；设置值分别写入宿主偏好域，并按共享 `paired_punctuation`、`punctuation_lock` 字段同步。输入会话只通过 `MSIMEClientSession` 调用 Engine 的运行时覆盖，重建会话时恢复覆盖值；原生控件和替身会话测试覆盖默认、持久化、非法值和同步路径。
 
 智能标点和重复标点转中文按 Windows 基线适配到 macOS 编辑器上下文：空闲态通过 NSTextInputClient 光标前一个 Unicode scalar 判断逗号、句号和冒号前是否为 ASCII 字母/数字，并按「数字后直出」「字母后直出」两个开关分别决定是否保留 ASCII。智能标点、重复标点转中文和这两个直出开关与来源一样默认关闭，需要用户主动打开。组合态依据高亮候选末尾走 Engine 的 ASCII 标点入口。短时间在同一编辑器重复输入同一标点时，将前一个 ASCII 或全角标点替换为对应中文标点；切换客户端、退格、关闭选项或不满足上下文时清除重复状态。全角输入仍优先转换为全角标点，小键盘物理键路由优先于智能标点。测试使用合成 NSTextInputClient，不保存或记录真实输入。
 
@@ -170,7 +172,8 @@ ctest --test-dir target/macos-isolated -L clipboard-local --output-on-failure
 
 ### 导航与分类
 
-表情主导航只在首页显示，顺序按固定 Windows 的 Page 枚举与图标表校正为首页、表情、贴纸、GIF、颜文字、符号、剪贴板。最近使用属于表情页二级分类：从首页入口或“更多”进入表情时，有最近记录则优先显示最近，无记录则在分类元数据载入后选择第一个分类；从最近切换具体分类保留明确选择。详情页显示返回首页及对应分类／标题，切换保留搜索文字。原生输入源剪贴板采集与来源 `NormalizeClipboardText` 规范化方式一致：剥掉尾部 NUL 与 `\r`，超过 4000 个 UTF-16 单位的复制截取前 4000 个单位保存，不拆开字符（含补充平面字符），因此始终不超过 12000 个 UTF-8 字节，不会整条丢弃；历史适配器和 Tauri 监视器按同一 4000 单位／12000 字节边界接受条目，中日韩文字不会被旧 4096 字节边界提前拒绝。NUL 以外的控制字符（换页、ESC、DEL、C1 等）作为用户内容保存、显示和粘贴，只有含 NUL 的文本被拒绝。输入源采集和 Tauri 监视器按同一份类型表跳过不含纯文本、或带 nspasteboard.org 标记类型（Concealed／Transient／AutoGenerated）及密码管理器与片段工具私有类型（如 `com.agilebits.onepassword`）的剪贴板变更，不记录其内容；读取期间剪贴板计数变化的一次不配对旧类型，留给下次轮询重读。测试覆盖入口顺序、默认路由、异步分类解析、截断与控制字符规范化以及 Unicode 容量边界。
+表情主导航只在首页显示，顺序按固定 Windows 的 Page 枚举与图标表校正为首页、表情、贴纸、GIF、颜文字、符号、剪贴板。最近使用属于表情页二级分类：从首页入口或“更多”进入表情时，有最近记录则优先显示最近，无记录则在分类元数据载入后选择第一个分类；从最近切换具体分类保留明确选择。最近使用为空时，共享 Tauri 面板与原生回退面板都按来源 `EmojiPanel.cpp` 显示 `Your recently used items will appear here`（英文原文，来源无本地化），输入搜索时也不变；已有最近记录但无搜索匹配时显示 `No results`。详情页显示返回首页及对应分类／标题，切换保留搜索文字。原生输入源剪贴板采集与来源 `NormalizeClipboardText` 规范化方式一致：剥掉尾部 NUL 与 `\r`，超过 4000 个 UTF-16 单位的复制截取前 4000 个单位保存，不拆开字符（含补充平面字符），因此始终不超过 12000 个 UTF-8 字节，不会整条丢弃；历史适配器和 Tauri 监视器按同一 4000 单位／12000 字节边界接受条目，中日韩文字不会被旧 4096 字节边界提前拒绝。NUL 以外的控制字符（换页、ESC、DEL、C1 等）作为用户内容保存、显示和粘贴，只有含 NUL 的文本被拒绝。输入源采集和 Tauri 监视器按同一份类型表跳过不含纯文本、或带 nspasteboard.org 标记类型（Concealed／Transient／AutoGenerated）及密码管理器与片段工具私有类型（如 `com.agilebits.onepassword`）的剪贴板变更，不记录其内容；读取期间剪贴板计数变化的一次不配对旧类型，留给下次轮询重读。测试覆盖入口顺序、默认路由、异步分类解析、截断与控制字符规范化以及 Unicode 容量边界。
+
 
 主标签按 `emoji_panel_icons.cpp` 的码位依次解析已安装的 Segoe Fluent Icons / Segoe MDL2 Assets，逐字检查是否存在字形；不下载、捆绑或安装字体。两者都不可用时使用原版中文回退文字，其中首页的可见回退为“最近”，但辅助功能标签及路由仍为首页。标签相对宽度、间距、高度、悬停颜色、选中下划线及字号采用原版 2/3 比例；本地测试强制覆盖缺字回退，检查两种主题的七种选中位置像素。Windows 字体图形在缺少相应字体的主机上走中文回退，不宣称与 Windows 逐像素一致。
 

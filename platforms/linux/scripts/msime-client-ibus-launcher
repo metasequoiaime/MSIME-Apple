@@ -48,4 +48,62 @@ fi
 # Resolve both the launcher and options path before handing control to IBus; daemon working directories are not stable across desktop environments.
 config_dir=$(CDPATH= cd -- "$(dirname -- "$config")" && pwd)
 config="$config_dir/$(basename -- "$config")"
-exec "$launcher_dir/msime-client-ibus" "$config"
+
+# ---- crash supervision ----
+# ibus-daemon starts this launcher when the engine is selected and never starts it again when the component dies, so a crashed host would leave the user typing into nothing until they reselect the input source or restart IBus. Stay in front of msime-client-ibus instead of exec'ing it and restart it after a crash, with the Windows watchdog's backoff (server/src/watchdog/main.cpp): the wait doubles from a 2 s floor to 30 s, and a host that ran for at least 30 s counts as healthy, so its crash waits 2 s again. A restarted host gets --recovered so it puts MSIME back on the focused context.
+# Three endings are not crashes and are never restarted: the maintenance stop shortcut (stop_status, which must match msime_ibus_maintenance_stop_exit in src/core/ClientEngine.h); exit 0, which means the bus went away because ibus-daemon is exiting or restarting (after `ibus restart` the new daemon starts this launcher again once the engine is selected; after `ibus exit` nothing runs again), or that a restarted host found no bus at all; and a configuration that can no longer be read, which a restart cannot fix.
+stop_status=77
+healthy_seconds=30
+min_delay=2
+max_delay=30
+delay=0
+child=
+pause=
+stopping=
+# ibus-daemon stops a component with SIGTERM. Pass the request on as SIGTERM whatever arrived, because a background child of a non-interactive shell starts with SIGINT ignored.
+request_stop() {
+  stopping=1
+  if [ -n "$child" ]; then kill -TERM "$child" 2>/dev/null || :; fi
+  if [ -n "$pause" ]; then kill -TERM "$pause" 2>/dev/null || :; fi
+}
+trap request_stop TERM INT HUP
+set -- "$config"
+while :; do
+  started=$(date +%s)
+  "$launcher_dir/msime-client-ibus" "$@" &
+  child=$!
+  # A signal that arrived before child was set found nothing to forward.
+  if [ -n "$stopping" ]; then kill -TERM "$child" 2>/dev/null || :; fi
+  status=0
+  wait "$child" || status=$?
+  # A trapped signal interrupts wait while the host is still shutting down; its real status comes from the next wait.
+  while kill -0 "$child" 2>/dev/null; do
+    status=0
+    wait "$child" || status=$?
+  done
+  child=
+  [ -z "$stopping" ] || exit "$status"
+  case $status in
+    0) exit 0 ;;
+    "$stop_status") exit "$status" ;;
+  esac
+  if [ $(($(date +%s) - started)) -ge "$healthy_seconds" ]; then
+    delay=$min_delay
+  else
+    delay=$((delay * 2))
+    if [ "$delay" -lt "$min_delay" ]; then delay=$min_delay; fi
+    if [ "$delay" -gt "$max_delay" ]; then delay=$max_delay; fi
+  fi
+  echo "msime-client-ibus exited with status $status; restarting in ${delay}s" >&2
+  sleep "$delay" &
+  pause=$!
+  if [ -n "$stopping" ]; then kill -TERM "$pause" 2>/dev/null || :; fi
+  wait "$pause" || :
+  pause=
+  [ -z "$stopping" ] || exit "$status"
+  if [ ! -r "$config" ]; then
+    echo "MSIME runtime options are no longer readable: $config; not restarting" >&2
+    exit 1
+  fi
+  set -- --recovered "$config"
+done

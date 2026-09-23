@@ -143,4 +143,39 @@ enum KeyboardSkinPreference {
   static var selected: KeyboardSkin {
     KeyboardSkin(rawValue: KeyboardFeedbackPreference.defaults.string(forKey: key) ?? "") ?? .forest
   }
+
+  /// Save a selection, and the custom design with it when one is given, where the keyboard reads it.
+  ///
+  /// The keyboard copies the shared document's `touch_keyboard_skin` and `custom_touch_keyboard_skin` over the App Group every time it appears, so a skin written only to the App Group lasted until then. The App Group is written after the document, and only when the document took the change.
+  @discardableResult
+  static func save(_ skin: KeyboardSkin?, design: CustomKeyboardSkin? = nil, stateRoot: URL? = nil) -> Bool {
+    guard writeDocument(skin, design: design, stateRoot: stateRoot) else { return false }
+    if let design { CustomKeyboardSkinStore.save(design) }
+    if let skin { KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: key) }
+    return true
+  }
+
+  /// The document half of `save`, for callers that keep the App Group values somewhere of their own.
+  static func writeDocument(_ skin: KeyboardSkin?, design: CustomKeyboardSkin?, stateRoot: URL? = nil) -> Bool {
+    guard let mapping = documentMapping(skin, design: design) else { return false }
+    return MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, mapping)
+  }
+
+  /// The document fields `writeDocument` sets, for a caller that writes them together with others; nil when the design cannot be encoded.
+  static func documentMapping(_ skin: KeyboardSkin?, design: CustomKeyboardSkin?) -> ((inout [String: Any]) -> Void)? {
+    let value = design.map(CustomKeyboardSkin.documentValue)
+    if design != nil, value == nil { return nil }
+    return { preferences in
+      if let skin { preferences["touch_keyboard_skin"] = skin.rawValue }
+      if let value { preferences["custom_touch_keyboard_skin"] = value }
+    }
+  }
+}
+
+extension CustomKeyboardSkin {
+  /// The design as the shared document's `custom_touch_keyboard_skin` holds it: the same camelCase fields, the photo as base64.
+  static func documentValue(_ design: CustomKeyboardSkin) -> [String: Any]? {
+    guard let data = try? JSONEncoder().encode(design.normalized) else { return nil }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+  }
 }

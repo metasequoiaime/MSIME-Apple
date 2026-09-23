@@ -1561,7 +1561,7 @@ pub unsafe extern "C" fn msime_client_save_preferences(
         if directory.is_null()
             || snapshot.is_null()
             || directory_length > 16384
-            || snapshot_length > 16384
+            || snapshot_length > PREFERENCES_DOCUMENT_LIMIT
         {
             return Err("invalid preferences save buffer".into());
         }

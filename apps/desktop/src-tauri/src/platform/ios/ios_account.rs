@@ -1764,6 +1764,8 @@ pub struct MobileKeyboardFeedback {
     pub english_suggestions: bool,
     #[serde(default)]
     pub candidate_palette_follows_desktop: bool,
+    #[serde(default)]
+    pub inline_preedit: bool,
 }
 
 #[cfg(target_os = "ios")]
@@ -1791,6 +1793,7 @@ fn keyboard_feedback(native: &IosKeyboardPreferences) -> MobileKeyboardFeedback 
         haptic_strength: native.haptic_strength.clone(),
         english_suggestions: native.english_suggestions,
         candidate_palette_follows_desktop: native.candidate_palette_follows_desktop,
+        inline_preedit: native.inline_preedit,
     }
 }
 
@@ -1841,6 +1844,7 @@ pub async fn mobile_keyboard_feedback_save(
         native.english_suggestions = request.settings.english_suggestions;
         native.candidate_palette_follows_desktop =
             request.settings.candidate_palette_follows_desktop;
+        native.inline_preedit = request.settings.inline_preedit;
         let saved =
             platform
                 .save_keyboard_preferences(&native)

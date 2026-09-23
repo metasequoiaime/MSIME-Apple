@@ -12,7 +12,8 @@ final class CloudDictionaryTransferTests: XCTestCase {
     XCTAssertEqual(try entry("english", "hello", "Hello").localWord().kind, .english)
     XCTAssertEqual(try entry("quick", "test", "合成短语").localWord().kind, .quickPhrase)
     XCTAssertThrowsError(try entry("pinyin", "nihao", "你好").localWord())
-    XCTAssertThrowsError(try entry("english", "hello", "Different").localWord())
+    XCTAssertEqual(try entry("english", "dont", "don't").localWord().kind, .english)
+    XCTAssertThrowsError(try entry("english", "hello world", "Different").localWord())
   }
   @MainActor func testDownloadedCloudWordReachesActualKeyboardCandidate() throws {
     let word = try entry("quick", "cloudfixture", "合成云词库验收").localWord()
