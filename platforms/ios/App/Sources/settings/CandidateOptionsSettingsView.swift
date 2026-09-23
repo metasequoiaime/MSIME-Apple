@@ -26,8 +26,7 @@ struct CandidateOptionsSettingsView: View {
   @State private var fallbackFamilies = CandidateFontPreference.defaultFallbackFamilies
   @State private var preeditStyle = CandidatePreeditStyle.pinyin.rawValue
   @State private var shuangpinRaw = true
-  @AppStorage(InlinePreeditPreference.key, store: InlinePreeditPreference.defaults)
-  private var inlinePreedit = false
+  @State private var inlinePreedit = InlinePreeditPreference.style
   @AppStorage(CandidatePalette.followsDesktopKey, store: CandidatePalette.defaults)
   private var followsDesktopPalette = false
   @State private var candidateSkin = CandidatePalette.defaultSkin
@@ -94,7 +93,9 @@ struct CandidateOptionsSettingsView: View {
       }
       paletteSection
       Section {
-        Toggle(isOn: $inlinePreedit) {
+        Picker(selection: Binding(get: { inlinePreedit }, set: { inlinePreedit = $0; InlinePreeditPreference.style = $0 })) {
+          ForEach(InlinePreeditPreference.Style.allCases, id: \.self) { Text($0.title).tag($0) }
+        } label: {
           labelled("行内预编辑", "把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示")
         }.accessibilityIdentifier("inlinePreedit")
         Picker("候选栏预编辑", selection: storedTop(CandidatePreeditStyle.key, $preeditStyle)) {

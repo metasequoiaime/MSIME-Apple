@@ -3247,7 +3247,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
-    // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。行内预编辑关闭时（默认）编辑框里没有组字，候选条这一行就是用户唯一能看见它的地方；打开后同一段文字也作为标记文本写进编辑框。
+    // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。行内预编辑关闭时（默认）编辑框里没有组字，候选条这一行就是用户唯一能看见它的地方；打开后按所选样式（原始按键或拼音分词）也作为标记文本写进编辑框。
     let composing = snapshot.phrasePrefix
       + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
     visiblePhrasePrefix = snapshot.phrasePrefix
@@ -3255,7 +3255,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     editableSpelling = hasComposition && !inputScheme.isJapanese && !snapshot.isInLocalMode
       && !snapshot.editingText.isEmpty && snapshot.editingText.allSatisfy(\.isASCII)
       ? (snapshot.editingText, snapshot.caretPosition) : nil
-    showInlineComposition(hasComposition && InlinePreeditPreference.isEnabled ? composing : "")
+    let japaneseReading = inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : nil
+    showInlineComposition(hasComposition
+      ? InlinePreeditPreference.style.text(phrasePrefix: snapshot.phrasePrefix, preedit: snapshot.preedit,
+                                           editingText: snapshot.editingText, japaneseReading: japaneseReading)
+      : "")
     updateCandidateStrip(
                          preedit: composing,
                          candidates: snapshot.candidates,
