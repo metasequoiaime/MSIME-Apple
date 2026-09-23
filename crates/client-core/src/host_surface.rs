@@ -399,18 +399,20 @@ impl HostCapabilities {
             // the shuangpin scheme was active.
             shuangpin_preedit: matches!(
                 platform,
-                HostPlatform::Macos | HostPlatform::Harmony | HostPlatform::Linux
+                HostPlatform::Macos
+                    | HostPlatform::Harmony
+                    | HostPlatform::Linux
+                    | HostPlatform::Ios
             ),
             // Every host calls `msime_client_set_character_width` when its session starts and
             // from its own width switch, so the preference always has something to act on.
             character_width: true,
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
-            // Android and HarmonyOS run the same ported ChineseHelpcodePolicy:
-            // Shift during a quanpin or shuangpin composition hands the next
-            // letter to the Engine as a helper code. iOS has no helper-code
-            // input at all, and the desktop hosts append the code to a finished
-            // spelling instead of marking it.
-            helpcode_shift_entry: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
+            // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
+            helpcode_shift_entry: matches!(
+                platform,
+                HostPlatform::Android | HostPlatform::Harmony | HostPlatform::Ios
+            ),
             // The skin folder is inside the sandbox on HarmonyOS, where no file
             // manager reaches it, so the skin is picked and copied in instead.
             skin_directory_import: platform == HostPlatform::Harmony,
@@ -902,6 +904,9 @@ mod tests {
         // The candidate bar cascades the Latin face, the family and its fallbacks.
         assert!(ios.candidate_font_controls);
         assert!(ios.candidate_english_font);
+        // The Engine expands shuangpin keys for the candidate bar's spelling, and Shift marks a helper code in a quanpin or shuangpin composition, so both rows describe something the keyboard does.
+        assert!(ios.shuangpin_preedit);
+        assert!(ios.helpcode_shift_entry);
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);

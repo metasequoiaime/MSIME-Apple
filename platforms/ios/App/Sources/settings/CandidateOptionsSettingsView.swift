@@ -15,6 +15,8 @@ struct CandidateOptionsSettingsView: View {
   @State private var wordCharacter = true
   @AppStorage(CloudCandidatePreference.key, store: CloudCandidatePreference.defaults)
   private var cloudCandidates = false
+  @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
+  private var englishSuggestions = true
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
   @State private var preeditSize = CandidateFontPreference.defaultPreeditSize
   @State private var fontFamily = CandidateFontPreference.defaultFamily
@@ -111,6 +113,11 @@ struct CandidateOptionsSettingsView: View {
         }.accessibilityIdentifier("cloudCandidates")
       } footer: {
         Text("默认关闭。开启后，正在输入的编码会发送到 Google 输入法服务；还需要在系统设置中允许键盘完全访问。")
+      }
+      Section {
+        Toggle(isOn: $englishSuggestions) {
+          labelled("英文单词提示", "英文输入时在候选栏提示常用单词，点选补全当前单词")
+        }.accessibilityIdentifier("englishSuggestions")
       }
       Section {
         Toggle(isOn: stored("mixed_input", "english", $english)) {
