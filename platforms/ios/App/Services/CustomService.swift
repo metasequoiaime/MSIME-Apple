@@ -321,6 +321,47 @@ enum CustomServiceClient {
         throw ServiceFailure(message: "豆包未返回可用的语音文本。")
       }
     }
+    let request = try makeRequest(kind: kind, configuration: configuration, prompt: configuration.prompt,
+                                  text: text, wav: wav, token: token)
+    let session = URLSession(configuration: sessionConfiguration, delegate: NoRedirects(), delegateQueue: nil)
+    defer { session.invalidateAndCancel() }
+    let (bytes, response) = try await session.bytes(for: request)
+    try requireSuccess(response)
+    var data = Data()
+    for try await byte in bytes {
+      guard data.count < 1024 * 1024 else { throw ServiceFailure(message: "服务响应过大。") }
+      data.append(byte)
+    }
+    try Task.checkCancellation()
+    return try AppServicesBridge.parseResponse(data, voice: kind == .voice)
+  }
+
+  /// 「测试连接」, the desktop's credential test: a one-word chat for AI and one second of silence for voice. Any 2xx proves the endpoint, model and key, whatever the reply says; for Doubao, an empty transcript means the handshake was accepted.
+  static func test(kind: CustomServiceKind, configuration: CustomServiceConfiguration, token: String,
+                   doubaoClient: DoubaoVoiceClient? = nil,
+                   sessionConfiguration: URLSessionConfiguration = .ephemeral) async throws {
+    // 16 kHz mono 16-bit, the format the recorder produces.
+    let silence = Data(count: 32_000)
+    if kind == .voice && configuration.voiceProvider == .doubao {
+      guard let doubaoClient else { throw ServiceFailure(message: "豆包语音需要原生 host codec。") }
+      let url = try configuration.validatedURL(requiresModel: false, allowWebSocket: true)
+      do {
+        _ = try await doubaoClient.transcribe(endpoint: url, handshake: configuration.doubaoHandshake(accessKey: token),
+                                              generation: 1, pcm: silence)
+      } catch DoubaoVoiceClient.Failure.emptyTranscript {}
+      return
+    }
+    var request = try makeRequest(kind: kind, configuration: configuration, prompt: "Reply OK", text: "OK",
+                                  wav: kind == .voice ? silentWAV(silence) : nil, token: token)
+    request.timeoutInterval = 20
+    let session = URLSession(configuration: sessionConfiguration, delegate: NoRedirects(), delegateQueue: nil)
+    defer { session.invalidateAndCancel() }
+    let (_, response) = try await session.bytes(for: request)
+    try requireSuccess(response)
+  }
+
+  static func makeRequest(kind: CustomServiceKind, configuration: CustomServiceConfiguration, prompt: String,
+                          text: String, wav: Data?, token: String) throws -> URLRequest {
     let url = try configuration.validatedURL()
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
@@ -333,23 +374,27 @@ enum CustomServiceClient {
       request.setValue(multipart["contentType"] as? String, forHTTPHeaderField: "Content-Type")
     } else {
       guard text.count <= 10000 else { throw ServiceFailure(message: "每次最多处理一万字。") }
-      request.httpBody = try AppServicesBridge.polishBody(configuration.model, prompt: configuration.prompt, text: text)
+      request.httpBody = try AppServicesBridge.polishBody(configuration.model, prompt: prompt, text: text)
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     }
-    let session = URLSession(configuration: sessionConfiguration, delegate: NoRedirects(), delegateQueue: nil)
-    defer { session.invalidateAndCancel() }
-    let (bytes, response) = try await session.bytes(for: request)
+    return request
+  }
+
+  private static func requireSuccess(_ response: URLResponse) throws {
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       let status = (response as? HTTPURLResponse)?.statusCode ?? 0
       throw ServiceFailure(message: "服务请求失败（HTTP \(status)），请检查地址、模型和密钥。")
     }
-    var data = Data()
-    for try await byte in bytes {
-      guard data.count < 1024 * 1024 else { throw ServiceFailure(message: "服务响应过大。") }
-      data.append(byte)
-    }
-    try Task.checkCancellation()
-    return try AppServicesBridge.parseResponse(data, voice: kind == .voice)
+  }
+
+  /// A 16 kHz mono 16-bit PCM WAV around `pcm`.
+  static func silentWAV(_ pcm: Data) -> Data {
+    func le32(_ value: UInt32) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
+    func le16(_ value: UInt16) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
+    var wav = Data("RIFF".utf8) + le32(UInt32(36 + pcm.count)) + Data("WAVEfmt ".utf8)
+    wav += le32(16) + le16(1) + le16(1) + le32(16_000) + le32(32_000) + le16(2) + le16(16)
+    wav += Data("data".utf8) + le32(UInt32(pcm.count)) + pcm
+    return wav
   }
 }
 

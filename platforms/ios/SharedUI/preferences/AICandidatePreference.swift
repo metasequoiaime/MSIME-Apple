@@ -30,6 +30,32 @@ enum AICandidatePreference {
     return assistant
   }
 
+  /// The desktop's three prompt slots (自定义一/二/三). `prompt_id` names the one in use; the shared layer sends the built-in prompt when that slot is empty.
+  static let promptSlots: [(id: String, title: String)] = [
+    ("custom_1", "自定义一"), ("custom_2", "自定义二"), ("custom_3", "自定义三"),
+  ]
+
+  static func promptID(_ preferences: [String: Any]?) -> String {
+    let id = (preferences?["ai_assistant"] as? [String: Any])?["prompt_id"] as? String
+    return promptSlots.first { $0.id == id }?.id ?? promptSlots[0].id
+  }
+
+  /// A slot's text. The first slot falls back to the older single `prompt` field, as the desktop settings page and the shared layer both do.
+  static func prompt(_ preferences: [String: Any]?, slot: String) -> String {
+    let assistant = preferences?["ai_assistant"] as? [String: Any]
+    if let text = assistant?["prompt_\(slot)"] as? String, !(slot == promptSlots[0].id && text.isEmpty) { return text }
+    return slot == promptSlots[0].id ? assistant?["prompt"] as? String ?? "" : ""
+  }
+
+  /// The document's `ai_assistant` with `slot` in use and holding `text`. Text that is only whitespace is stored empty so the built-in prompt applies.
+  static func assistant(_ existing: [String: Any]?, promptSlot slot: String, text: String) -> [String: Any] {
+    var assistant = existing ?? [:]
+    guard promptSlots.contains(where: { $0.id == slot }) else { return assistant }
+    assistant["prompt_id"] = slot
+    assistant["prompt_\(slot)"] = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : text
+    return assistant
+  }
+
   /// The endpoint a Keychain key may be handed over for: the document's own, and only while the candidate bar is on.
   static func credentialEndpoint(_ preferences: [String: Any]?, configuredEndpoint: String?) -> String? {
     guard isEnabled(preferences),

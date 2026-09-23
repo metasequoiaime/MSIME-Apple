@@ -163,6 +163,49 @@ final class CustomServiceTests: XCTestCase {
       XCTAssertFalse(error.localizedDescription.contains("private server detail"))
     }
   }
+
+  func testConnectionTestAcceptsAnySuccessAndReportsHTTPFailure() async throws {
+    let session = URLSessionConfiguration.ephemeral
+    session.protocolClasses = [FixtureProtocol.self]
+    var configuration = CustomServiceConfiguration()
+    configuration.endpoint = "https://msime-tests.invalid/success"
+    configuration.model = "fixture"
+    try await CustomServiceClient.test(kind: .ai, configuration: configuration, token: "fixture-token",
+                                       sessionConfiguration: session)
+    // The fixture's chat reply is not a transcript; a voice test still passes on the status alone.
+    try await CustomServiceClient.test(kind: .voice, configuration: configuration, token: "fixture-token",
+                                       sessionConfiguration: session)
+    configuration.endpoint = "https://msime-tests.invalid/denied"
+    do {
+      try await CustomServiceClient.test(kind: .ai, configuration: configuration, token: "fixture-token",
+                                         sessionConfiguration: session)
+      XCTFail("HTTP failure was accepted")
+    } catch {
+      XCTAssertTrue(error.localizedDescription.contains("401"))
+    }
+  }
+
+  func testConnectionTestSendsOneSecondOfSilence() throws {
+    let pcm = Data(count: 32_000)
+    let wav = CustomServiceClient.silentWAV(pcm)
+    XCTAssertEqual(wav.count, 44 + pcm.count)
+    XCTAssertEqual(WAVPCMExtractor.extract(from: wav), pcm)
+  }
+
+  func testDoubaoConnectionTestTreatsAnEmptyTranscriptAsAccepted() async throws {
+    let transport = DoubaoRequestFixtureTransport()
+    let codec = DoubaoVoiceCoordinator.FrameCodec(
+      startFrame: { Data([0x01]) },
+      audioFrame: { _, _, _ in Data([0x02]) },
+      decodeFrame: { _ in (true, "") }
+    )
+    var configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    configuration.voiceAppKey = "fixture-app"
+    configuration.voiceResourceID = "fixture-resource"
+    try await CustomServiceClient.test(kind: .voice, configuration: configuration, token: "fixture-access",
+                                       doubaoClient: DoubaoVoiceClient(transport: transport, codec: codec))
+    XCTAssertEqual(transport.handshake?.accessKey, "fixture-access")
+  }
 }
 
 private final class DoubaoRequestFixtureTransport: DoubaoVoiceTransport {

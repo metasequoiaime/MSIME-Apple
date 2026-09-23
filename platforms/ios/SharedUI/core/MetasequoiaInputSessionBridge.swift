@@ -121,8 +121,9 @@ private func msimeClientSnapshotVersion(_ options: UnsafePointer<MSIMEByte>?, _ 
 @_silgen_name("msime_client_snapshot_activate")
 private func msimeClientSnapshotActivate(_ handle: UInt64, _ expected: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
-enum MetasequoiaCandidateAction: UInt8 {
-  case promote, remove, fixFirst, clearPosition
+enum MetasequoiaCandidateAction: Equatable {
+  /// `position` is 1...5, the range the shared layer accepts and the desktop candidate menu offers.
+  case promote, remove, fix(position: UInt8), clearPosition
 }
 
 enum MetasequoiaFrequencyAdjustmentMode: UInt8 {
@@ -939,8 +940,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       return dispatch { msimeClientPinCandidate(handle, generation, indexValue) }
     case .remove:
       return dispatch { msimeClientRemoveCandidate(handle, generation, indexValue) }
-    case .fixFirst:
-      return dispatch { msimeClientFixCandidatePosition(handle, generation, indexValue, 1) }
+    case .fix(let position):
+      return dispatch { msimeClientFixCandidatePosition(handle, generation, indexValue, position) }
     case .clearPosition:
       return dispatch { msimeClientClearCandidatePosition(handle, generation, indexValue) }
     }
