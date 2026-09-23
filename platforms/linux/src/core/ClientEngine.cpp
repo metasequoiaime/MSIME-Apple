@@ -1065,6 +1065,8 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
   return removed;
 }
 State &state(IBusEngine *engine);
+// Shared by every engine in this process: the statistics store is one per preferences directory, not one per input context.
+msime::linux_host::TypingStatisticsSwitch typing_statistics_switch{msime_client_typing_statistics_enabled};
 struct TypingStatisticsTask {
   std::string directory;
   std::string text;
@@ -1075,6 +1077,9 @@ struct TypingStatisticsTask {
 
 void record_typing_statistics(IBusEngine *engine, std::string text,
                               msime::linux_host::TypingSource source) {
+  // With statistics off nothing below runs: no date, no request, no worker, no store lock.
+  if (!typing_statistics_switch.enabled())
+    return;
   // Private fields (passwords, no-spellcheck) never reach the statistics store, matching the Fcitx5 host.
   if (text.empty() || state(engine).private_input)
     return;
@@ -7006,6 +7011,7 @@ gboolean reload_preferences(gpointer data) {
       task,
       +[](GTask *task, gpointer, gpointer data, GCancellable *) {
         const auto &path = static_cast<PreferencesRead *>(data)->directory;
+        typing_statistics_switch.refresh(path);
         g_task_return_pointer(
             task,
             msime_client_try_load_preferences(
@@ -7033,7 +7039,7 @@ void destroy(IBusObject *object) {
 gboolean process_key_and_count(IBusEngine *engine, guint key, guint keycode,
                                guint flags) {
   const gboolean handled = process_key(engine, key, keycode, flags);
-  if (handled || (flags & IBUS_RELEASE_MASK))
+  if (handled || (flags & IBUS_RELEASE_MASK) || !typing_statistics_switch.enabled())
     return handled;
   const auto &s = state(engine);
   if (!s.focused || s.blocked || s.private_input)
@@ -7147,6 +7153,11 @@ void msime_ibus_configure(const std::string &options) {
   if (next != configured) {
     configured = std::move(next);
     ++configuration_generation;
+    // Startup, or runtime options that may name another store: no engine is ticking yet at startup, and the first commits should not wait a tick for the switch.
+    const auto directory = configured.find("preferences_directory");
+    typing_statistics_switch.refresh(directory != configured.end() && directory->is_string()
+                                         ? directory->get<std::string>()
+                                         : std::string{});
   }
 }
 void msime_ibus_set_system_dark(bool dark) {
