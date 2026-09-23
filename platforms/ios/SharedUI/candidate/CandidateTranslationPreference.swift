@@ -19,6 +19,8 @@ enum CandidateTranslationPreference {
     CandidateTranslationLanguage(title: "西班牙语", code: "ES"),
     CandidateTranslationLanguage(title: "法语", code: "FR"),
     CandidateTranslationLanguage(title: "德语", code: "DE"),
+    // Appended rather than sorted in: the App Group stores positions in this list.
+    CandidateTranslationLanguage(title: "俄语", code: "RU"),
   ]
   static func language(at index: Int) -> CandidateTranslationLanguage {
     languages.indices.contains(index) ? languages[index] : languages[0]

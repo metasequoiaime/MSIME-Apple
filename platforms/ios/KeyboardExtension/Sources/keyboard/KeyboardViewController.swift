@@ -1851,6 +1851,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func applyLearningPreferences() {
     let nativeMode: MetasequoiaFrequencyAdjustmentMode
     switch FrequencyAdjustmentPreference.mode {
+    case .disabled: nativeMode = .disabled
     case .pin: nativeMode = .pin
     case .halve: nativeMode = .halve
     case .linear: nativeMode = .linear
@@ -1859,9 +1860,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     var mode = nativeMode
     var triggerCount = FrequencyAdjustmentPreference.triggerCount
     var linearStep = FrequencyAdjustmentPreference.linearStep
-    // The shared PreferencesStore is the canonical source for Tauri settings.
-    // Apple’s legacy controls only expose four modes and values 1...6, while
-    // the shared document also supports `disabled` and values up to 10.
+    // The shared PreferencesStore is the canonical source; the App Group copy only stands in until the first document reload.
     if let frequency = session.sharedPreferences?["frequency"] as? [String: Any] {
       switch frequency["mode"] as? String {
       case "pin": mode = .pin
@@ -1871,10 +1870,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       case "disabled": mode = .disabled
       default: break
       }
-      if let value = Self.sharedPreferenceInt(frequency["trigger_count"], range: 1...10) {
+      if let value = Self.sharedPreferenceInt(frequency["trigger_count"], range: FrequencyAdjustmentPreference.countRange) {
         triggerCount = value
       }
-      if let value = Self.sharedPreferenceInt(frequency["linear_step"], range: 1...10) {
+      if let value = Self.sharedPreferenceInt(frequency["linear_step"], range: FrequencyAdjustmentPreference.countRange) {
         linearStep = value
       }
     }
@@ -2193,15 +2192,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
          let mode = FrequencyAdjustmentMode(rawValue: rawMode) {
         FrequencyAdjustmentPreference.mode = mode
       }
-      // Apple exposes 1...6, while the shared document accepts a wider
-      // cross-platform range. Ignore values outside the native range rather
-      // than replacing a valid native setting with a clamped surprise value.
-      if let triggerCount = Self.sharedPreferenceInt(frequency["trigger_count"]),
-         (1...6).contains(triggerCount) {
+      // Ignore values outside the shared range rather than replacing a valid setting with a clamped surprise value.
+      if let triggerCount = Self.sharedPreferenceInt(frequency["trigger_count"],
+                                                      range: FrequencyAdjustmentPreference.countRange) {
         FrequencyAdjustmentPreference.triggerCount = triggerCount
       }
-      if let linearStep = Self.sharedPreferenceInt(frequency["linear_step"]),
-         (1...6).contains(linearStep) {
+      if let linearStep = Self.sharedPreferenceInt(frequency["linear_step"],
+                                                   range: FrequencyAdjustmentPreference.countRange) {
         FrequencyAdjustmentPreference.linearStep = linearStep
       }
     }

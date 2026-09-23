@@ -119,23 +119,11 @@ struct SkinSettingsView: View {
   }
 }
 
+/// 输入习惯 is saved into the shared preference document (see InputHabitPreference), which the keyboard reloads the next time it appears; phone and iPad show the same controls.
 struct DictionarySettingsView: View {
-  @AppStorage(DictionaryLearningPreference.key, store: KeyboardFeedbackPreference.defaults)
-  private var learningEnabled = false
-  @AppStorage(CandidateGlossPreference.key, store: CandidateGlossPreference.defaults)
-  private var candidateGlossEnabled = true
-  @AppStorage(CandidateTranslationPreference.primaryKey, store: CandidateTranslationPreference.defaults)
-  private var translationPrimary = 0
-  @AppStorage(CandidateTranslationPreference.secondaryKey, store: CandidateTranslationPreference.defaults)
-  private var translationSecondary = -1
-  @AppStorage(CandidateTranslationPreference.onlineKey, store: CandidateTranslationPreference.defaults)
-  private var translationOnline = true
-  @AppStorage(FrequencyAdjustmentPreference.modeKey, store: KeyboardFeedbackPreference.defaults)
-  private var frequencyMode = FrequencyAdjustmentMode.promote.rawValue
-  @AppStorage(FrequencyAdjustmentPreference.triggerCountKey, store: KeyboardFeedbackPreference.defaults)
-  private var frequencyTriggerCount = 1
-  @AppStorage(FrequencyAdjustmentPreference.linearStepKey, store: KeyboardFeedbackPreference.defaults)
-  private var frequencyLinearStep = 1
+  @Environment(\.scenePhase) private var scenePhase
+  @State private var habits = InputHabitPreference.mirrored
+  @State private var saveFailed = false
   private var manifest: [String: Any] {
     guard let url = Bundle.main.url(forResource: "dictionary-manifest", withExtension: "json"),
           let data = try? Data(contentsOf: url),
@@ -145,40 +133,40 @@ struct DictionarySettingsView: View {
   var body: some View {
     Form {
       Section {
-        Toggle("学习常用词", isOn: $learningEnabled)
+        Toggle("学习常用词", isOn: habit(\.learning))
           .accessibilityIdentifier("dictionaryLearningToggle")
-        Picker("调频方式", selection: $frequencyMode) {
+        Picker("调频方式", selection: habit(\.frequencyMode)) {
           ForEach(FrequencyAdjustmentMode.allCases, id: \.self) { mode in
-            Text(mode.title).tag(mode.rawValue)
+            Text(mode.title).tag(mode)
           }
         }
         .accessibilityIdentifier("frequencyAdjustmentModePicker")
-        .disabled(!learningEnabled)
-        Picker("触发频次", selection: $frequencyTriggerCount) {
-          ForEach(1...6, id: \.self) { Text("\($0)").tag($0) }
+        .disabled(!habits.learning)
+        Picker("触发频次", selection: habit(\.triggerCount)) {
+          ForEach(FrequencyAdjustmentPreference.countRange, id: \.self) { Text("\($0)").tag($0) }
         }
         .accessibilityIdentifier("frequencyAdjustmentTriggerPicker")
-        .disabled(!learningEnabled)
-        Picker("线性调频步长", selection: $frequencyLinearStep) {
-          ForEach(1...6, id: \.self) { Text("\($0)").tag($0) }
+        .disabled(!habits.learning || habits.frequencyMode == .disabled)
+        Picker("线性调频步长", selection: habit(\.linearStep)) {
+          ForEach(FrequencyAdjustmentPreference.countRange, id: \.self) { Text("\($0)").tag($0) }
         }
         .accessibilityIdentifier("frequencyAdjustmentLinearStepPicker")
-        .disabled(!learningEnabled || frequencyMode != FrequencyAdjustmentMode.linear.rawValue)
-        Toggle("显示英文释义", isOn: $candidateGlossEnabled)
+        .disabled(!habits.learning || habits.frequencyMode != .linear)
+        Toggle("显示英文释义", isOn: habit(\.glossEnabled))
           .accessibilityIdentifier("candidateGlossToggle")
-        if candidateGlossEnabled {
-          Picker("第一种语言", selection: $translationPrimary) {
+        if habits.glossEnabled {
+          Picker("第一种语言", selection: habit(\.primaryLanguage)) {
             ForEach(Array(CandidateTranslationPreference.languages.enumerated()), id: \.offset) { index, language in
               Text(language.title).tag(index)
             }
           }.accessibilityIdentifier("candidateTranslationPrimaryPicker")
-          Picker("第二种语言", selection: $translationSecondary) {
+          Picker("第二种语言", selection: habit(\.secondaryLanguage)) {
             Text("不显示").tag(-1)
             ForEach(Array(CandidateTranslationPreference.languages.enumerated()), id: \.offset) { index, language in
-              Text(language.title).tag(index)
+              Text(language.title).tag(index).disabled(index == habits.primaryLanguage)
             }
           }.accessibilityIdentifier("candidateTranslationSecondaryPicker")
-          Toggle("联网补充释义", isOn: $translationOnline)
+          Toggle("联网补充释义", isOn: habit(\.onlineTranslations))
             .accessibilityIdentifier("candidateTranslationOnline")
           NavigationLink(destination: TranslationProviderSettingsView()) {
             Label("翻译服务", systemImage: "globe")
@@ -186,10 +174,14 @@ struct DictionarySettingsView: View {
           Text("离线词库只有英汉两个方向，其余语言以及词库答不上来的词要联网才有。开启后键盘会把这一页的中文候选发给所选翻译服务（默认是水杉账号的翻译接口），需要允许键盘完全访问。")
             .font(.footnote).foregroundStyle(.secondary)
         }
+        if saveFailed {
+          Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。")
+            .font(.footnote).foregroundStyle(.red)
+        }
       } header: {
         Text("输入习惯")
       } footer: {
-        Text("开启后，引擎按所选调频方式调整候选排序，并学习支持的拼音组词。一次置顶移到首位；折半移到当前名次与首位之间；线性按固定步数前移；一次置前把前五名前进一位、更靠后的提到第五名。触发频次是同一候选累计选中多少次后才调整一次。英文释义来自随键盘打包的离线词库，不联网。学习记录仅保存在设备上。关闭后停止新增学习，不清除已有记录；正在输入的内容结束后生效。")
+        Text("开启后，引擎按所选调频方式调整候选排序，并学习支持的拼音组词。不调频保留词库原有顺序，只学习新词；一次置顶移到首位；折半移到当前名次与首位之间；线性按固定步数前移；一次置前把前五名前进一位、更靠后的提到第五名。触发频次是同一候选累计选中多少次后才调整一次。英文释义来自随键盘打包的离线词库，不联网。学习记录仅保存在设备上。关闭后停止新增学习，不清除已有记录；正在输入的内容结束后生效。")
       }
       Section {
         NavigationLink(destination: PersonalDictionaryView()) {
@@ -229,6 +221,25 @@ struct DictionarySettingsView: View {
     }
     .navigationTitle("词库")
     .navigationBarTitleDisplayMode(.inline)
+    .onAppear(perform: reload)
+    .onChange(of: scenePhase) { if $0 == .active { reload() } }
+  }
+
+  private func reload() {
+    habits = InputHabitPreference.settings(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+  }
+
+  /// A binding that saves one field; a failed save reloads so the control shows what is actually stored.
+  private func habit<Value>(_ field: WritableKeyPath<InputHabitSettings, Value>) -> Binding<Value> {
+    Binding(get: { habits[keyPath: field] }, set: { value in
+      if let saved = InputHabitPreference.update({ $0[keyPath: field] = value }) {
+        habits = saved
+        saveFailed = false
+      } else {
+        saveFailed = true
+        reload()
+      }
+    })
   }
 }
 

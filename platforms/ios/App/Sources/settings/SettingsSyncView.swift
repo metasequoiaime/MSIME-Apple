@@ -12,7 +12,8 @@ private enum IOSCloudSettings {
       "platform.ios.sound_enabled": .boolean(KeyboardFeedbackPreference.soundEnabled),
       "platform.ios.haptics_enabled": .boolean(KeyboardFeedbackPreference.hapticsEnabled),
       "platform.ios.haptic_strength": .string(KeyboardFeedbackPreference.hapticStrength.rawValue),
-      "platform.ios.dictionary_learning": .boolean(DictionaryLearningPreference.enabled),
+      "platform.ios.dictionary_learning": .boolean(
+        InputHabitPreference.settings(in: MetasequoiaInputSessionBridge.loadSharedPreferences()).learning),
       "platform.ios.keyboard_skin": .string(KeyboardSkinPreference.selected.rawValue),
       "platform.ios.custom_keyboard_skin": .string(String(decoding: skinData, as: UTF8.self))
     ]
@@ -24,13 +25,16 @@ private enum IOSCloudSettings {
     let custom = try plan.customSkinJSON.map { try JSONDecoder().decode(CustomKeyboardSkin.self, from: Data($0.utf8)).normalized }
     // Validate everything before writing. Unknown platforms' values stay in the
     // cloud and are never assigned to local defaults.
+    // Learning lives in the shared document, which the keyboard copies over the App Group on every reload. It is the one write that can fail, so it goes first and a failure leaves every local setting unchanged.
+    if let learning = plan.learning, InputHabitPreference.update({ $0.learning = learning }) == nil {
+      throw CocoaError(.fileWriteUnknown)
+    }
     if let scheme = plan.scheme.flatMap(ChineseInputScheme.init(rawValue:)) { InputSchemePreference.scheme = scheme }
     if let traditional = plan.traditional { ChineseOutputPreference.usesTraditional = traditional }
     let defaults = KeyboardFeedbackPreference.defaults
     if let sound = plan.sound { defaults.set(sound, forKey: KeyboardFeedbackPreference.soundKey) }
     if let haptics = plan.haptics { defaults.set(haptics, forKey: KeyboardFeedbackPreference.hapticsKey) }
     if let strength = plan.strength { defaults.set(strength, forKey: KeyboardFeedbackPreference.strengthKey) }
-    if let learning = plan.learning { defaults.set(learning, forKey: DictionaryLearningPreference.key) }
     if let custom { CustomKeyboardSkinStore.save(custom) }
     if let skin = plan.skin { defaults.set(skin, forKey: KeyboardSkinPreference.key) }
   }

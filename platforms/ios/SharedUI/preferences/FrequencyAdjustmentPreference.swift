@@ -1,10 +1,12 @@
 import Foundation
 
+/// The shared document's `frequency.mode`, in the Windows order; `disabled` keeps the dictionary's own order while learning still records new words.
 enum FrequencyAdjustmentMode: String, CaseIterable {
-  case pin, halve, linear, promote
+  case disabled, pin, halve, linear, promote
 
   var title: String {
     switch self {
+    case .disabled: "不调频"
     case .pin: "一次置顶"
     case .halve: "折半调频"
     case .linear: "线性调频"
@@ -17,6 +19,8 @@ enum FrequencyAdjustmentPreference {
   static let modeKey = "frequencyAdjustmentMode"
   static let triggerCountKey = "frequencyAdjustmentTriggerCount"
   static let linearStepKey = "frequencyAdjustmentLinearStep"
+  /// The shared document's range for `trigger_count` and `linear_step`, the same 1-10 Windows validates.
+  static let countRange = 1...10
 
   static func resolvedMode(_ stored: String?) -> FrequencyAdjustmentMode {
     FrequencyAdjustmentMode(rawValue: stored ?? "") ?? .promote
@@ -31,7 +35,7 @@ enum FrequencyAdjustmentPreference {
     } else {
       value = nil
     }
-    guard let value, (1...6).contains(value) else { return 1 }
+    guard let value, countRange.contains(value) else { return 1 }
     return value
   }
 
