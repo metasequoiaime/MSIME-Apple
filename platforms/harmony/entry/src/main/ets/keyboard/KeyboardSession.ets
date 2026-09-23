@@ -626,6 +626,8 @@ interface PreparedPreferences {
   emoji_theme?: string;
   /** 'follow', 'dark' or 'light' for the handwriting panel; it falls back to the global theme. */
   handwriting_theme?: string;
+  /** 'follow', 'dark' or 'light' for the candidate context menu; it falls back to the global theme. */
+  menu_theme?: string;
   theme: string;
   traditional_chinese_output: boolean;
   chinese_punctuation: boolean;
@@ -730,6 +732,7 @@ export interface KeyboardPreferences {
   readonly voiceTheme: string;
   readonly emojiTheme: string;
   readonly handwritingTheme: string;
+  readonly menuTheme: string;
   readonly globalTheme: string;
   readonly scheme: string;
   readonly shuangpinProfile: string;
@@ -827,7 +830,8 @@ enum InputCommand {
   PREVIOUS_PAGE = 101,
   NEXT_CANDIDATE = 102,
   PREVIOUS_CANDIDATE = 103,
-  FIRST_CANDIDATE = 104
+  FIRST_CANDIDATE = 104,
+  LAST_CANDIDATE = 105
 }
 
 const JAPANESE_SCHEME: number = 3;
@@ -932,6 +936,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     globalTheme: 'system',
     emojiTheme: 'follow',
     handwritingTheme: 'follow',
+    menuTheme: 'follow',
     voiceTheme: 'follow',
     // Everything, which is what an absent shared list means; the prepared record narrows it.
     enabledSchemes: KeyboardScheme.SCHEMES.map(
@@ -1227,6 +1232,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         voiceTheme: preferences.voice_theme ?? 'follow',
         emojiTheme: preferences.emoji_theme ?? 'follow',
         handwritingTheme: preferences.handwriting_theme ?? 'follow',
+        menuTheme: preferences.menu_theme ?? 'follow',
         globalTheme: preferences.theme,
         scheme: preferences.scheme,
         shuangpinProfile: preferences.shuangpin_profile,
@@ -2700,12 +2706,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.command(InputCommand.MOVE_RIGHT);
   }
 
+  /**
+   * Home and End go to the ends of the whole candidate list while there are candidates, as the Windows source's `FUNCTION_MOVE_PAGE_TOP`/`BOTTOM` do and the other hosts' shared `FirstCandidate`/`LastCandidate` actions now do; with none on screen they move the caret in the spelling instead.
+   */
   moveHome(): void {
-    this.command(InputCommand.MOVE_HOME);
+    this.command(this.currentCandidates.length > 0 ? InputCommand.FIRST_CANDIDATE : InputCommand.MOVE_HOME);
   }
 
   moveEnd(): void {
-    this.command(InputCommand.MOVE_END);
+    this.command(this.currentCandidates.length > 0 ? InputCommand.LAST_CANDIDATE : InputCommand.MOVE_END);
   }
 
   deleteForward(): void {

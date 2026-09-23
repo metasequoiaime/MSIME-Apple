@@ -264,6 +264,7 @@ struct KeyboardView {
   @State voiceSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State emojiSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State handwritingSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
+  @State menuSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State english: boolean = false;
   /** Which surface the toolbar asked this window to carry, on a machine with no key faces. */
   @State desktop: DesktopSurface = DesktopSurface.NONE;
@@ -981,6 +982,9 @@ struct KeyboardView {
     this.handwritingSkin = KeyboardSession.shared.skin(choice.id,
       KeyboardSkin.resolveDark(this.settings.handwritingTheme, this.settings.globalTheme,
         this.settings.dark));
+    this.menuSkin = KeyboardSession.shared.skin(choice.id,
+      KeyboardSkin.resolveDark(this.settings.menuTheme, this.settings.globalTheme,
+        this.settings.dark));
     this.show(SURFACE_NONE);
   }
 
@@ -1175,6 +1179,9 @@ struct KeyboardView {
         this.settings.dark));
     this.handwritingSkin = KeyboardSession.shared.skin(this.settings.skinId,
       KeyboardSkin.resolveDark(this.settings.handwritingTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.menuSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.menuTheme, this.settings.globalTheme,
         this.settings.dark));
     this.candidateSkin = KeyboardSkin.from(
       CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
@@ -2177,6 +2184,12 @@ struct KeyboardView {
     }
     this.applyClipboardMutation(KeyboardSession.shared.clearClipboardHistory());
     this.confirmingClear = false;
+  }
+
+  /** On a 2in1 the candidate management strip is the candidate context menu Windows draws in `menu_theme`; the other strips, and every strip on a phone, belong to the keyboard. */
+  private overlaySkin(): KeyboardSkin {
+    return KeyboardFormFactor.isDesktop() && this.managing >= 0 && !this.punctuation && !this.brackets
+      && this.expandedGloss < 0 ? this.menuSkin : this.skin;
   }
 
   /** The phone draws clipboard history on the keyboard's own skin; a 2in1 draws it inside the emoji surface, on that surface's skin. */
@@ -3639,7 +3652,7 @@ struct KeyboardView {
     Row() {
       Text(title)
         .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-        .fontColor(this.skin.keyForeground)
+        .fontColor(this.overlaySkin().keyForeground)
         .opacity(0.55)
         .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP })
       if (this.expandedGloss >= 0) {
@@ -3647,7 +3660,7 @@ struct KeyboardView {
         ForEach(this.expandedGlossActions(), (item: ManagementAction) => {
           Text(item.title)
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.skin.accent)
+            .fontColor(this.overlaySkin().accent)
             .padding({ left: 10, right: 10 })
             .onClick(() => this.insertExpandedGloss())
         }, (item: ManagementAction) => `${item.id}:${item.title}`)
@@ -3655,7 +3668,7 @@ struct KeyboardView {
         ForEach(JapaneseNineKeyLayout.digitBrackets(), (bracket: string) => {
           Text(bracket)
             .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
-            .fontColor(this.skin.keyForeground)
+            .fontColor(this.overlaySkin().keyForeground)
             .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
               right: KeyboardMetrics.CANDIDATE_PADDING_VP })
             .onClick(() => {
@@ -3669,7 +3682,7 @@ struct KeyboardView {
           (item: PunctuationEntry) => {
             Text(item.face)
               .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
-              .fontColor(this.skin.keyForeground)
+              .fontColor(this.overlaySkin().keyForeground)
               .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                 right: KeyboardMetrics.CANDIDATE_PADDING_VP })
               .onClick(() => {
@@ -3682,8 +3695,8 @@ struct KeyboardView {
         ForEach(this.managementActions(), (item: ManagementAction) => {
           Text(item.title)
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(item.available === false ? this.skin.keyForeground :
-              item.checked === true ? this.skin.keyForeground : this.skin.accent)
+            .fontColor(item.available === false ? this.overlaySkin().keyForeground :
+              item.checked === true ? this.overlaySkin().keyForeground : this.overlaySkin().accent)
             .opacity(item.available === false ? 0.35 : 1)
             .padding({ left: 10, right: 10 })
             .onClick(() => this.manageCandidate(item, this.managing))
@@ -3692,7 +3705,7 @@ struct KeyboardView {
       Blank()
       Text('×')
         .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-        .fontColor(this.skin.keyForeground)
+        .fontColor(this.overlaySkin().keyForeground)
         .padding({ right: KeyboardMetrics.CANDIDATE_PADDING_VP })
         .onClick(() => {
           this.punctuation = false;
@@ -3704,7 +3717,7 @@ struct KeyboardView {
     }
     .width('100%')
     .height(KeyboardMetrics.ROW_HEIGHT_VP)
-    .backgroundColor(this.skin.keyBackground)
+    .backgroundColor(this.overlaySkin().keyBackground)
     .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
   }
 
