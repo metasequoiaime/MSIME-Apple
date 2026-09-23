@@ -317,7 +317,7 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 `candidate_follow_cursor` 是 Windows 候选窗口的定位选项。IBus Engine API 只提供候选表和输入上下文光标位置的通知，不提供由输入法宿主固定 panel 锚点的接口；候选 panel 的定位由桌面 panel 自己决定。因此 Linux 会读取并透传该共享配置，但不伪造 Windows 的固定候选窗口行为：在 Linux 上候选表始终交给 IBus panel 按当前输入上下文位置呈现。该限制属于 IBus/桌面环境边界，不影响候选内容、分页或选词。
 
-Linux 关于页的“输入法宿主日志”对应共享偏好中的 `diagnostic_log.server`。开启后，IBus 与 Fcitx5 宿主在偏好目录写入同一个仅用户可读的 `diagnostic.log`，记录焦点会话、偏好应用、菜单保存和固定操作失败阶段；文件达到 1 MiB 时保留一个 `.1` 轮转副本。记录经过长度和 ASCII 控制字符限制，不包含按键、输入文本、候选文本、凭据、路径或 provider 响应；关闭开关后不再写入。Windows 专用的 `diagnostic_log.tsf` 在 Linux 设置页隐藏，旧配置字段仍原样保存以保持跨平台同步。
+Linux 关于页的“输入法宿主日志”对应共享偏好中的 `diagnostic_log.server`。开启后，IBus 与 Fcitx5 宿主在偏好目录写入同一个仅用户可读的 `diagnostic.log`，记录焦点会话、偏好应用、菜单保存和固定操作失败阶段；文件达到 1 MiB 时保留一个 `.1` 轮转副本。记录经过长度和 ASCII 控制字符限制，不包含按键、输入文本、候选文本、凭据、路径或 provider 响应；关闭开关后不再写入。开关变更随偏好热重载立即生效，IBus 与 Fcitx5 都不需要切换焦点。Windows 专用的 `diagnostic_log.tsf` 在 Linux 设置页隐藏，旧配置字段仍原样保存以保持跨平台同步。
 
 Linux 关于页的“检查更新”读取水杉输入法仓库的 GitHub 发行版列表，只取 `linux-v` 标签下非草稿、非预发布的版本，按版本号取最新，不复用只发布 Windows 安装程序的 `msime.app/update.json`。发行页地址必须属于固定的 `metasequoiaime/msime` releases 路径才会显示；仓库尚无 Linux 发行版时显示正常的“暂无可用发行版”状态，网络错误或无效响应才报告检查失败。更新提示注明软件包未签名，并给出 GitHub 为 `.deb`（没有时为 `.tar.gz`）附件计算的 SHA256 和 `sha256sum <文件名>` 核对命令；GitHub 没有返回该附件的摘要、或同一发行版带有多个架构的包时不显示校验值，改为提示下载发行版里的 `SHA256SUMS`，用 `sha256sum -c SHA256SUMS --ignore-missing` 核对。
 
@@ -327,7 +327,7 @@ Linux 桌面设置页通过宿主能力显示共享的模糊音配置。总开�
 
 本地词典管理可从桌面启动器的“本地词典”动作或执行 `msime-client-settings --panel dictionary` 打开，与 Windows 桌面工具使用同一设置宿主和词典状态。
 
-全角/半角输出与 Windows 模式面板对应：`CharacterWidth` 由 `input-runtime` 和 `msime-host-api` 按会话携带，IBus 属性菜单提供该开关，可打印 ASCII 在上屏时完成全角转换。配置了共享偏好目录时，模式按 `character_width` 持久化并在新会话中恢复；没有该目录的直接预览配置保持会话级。IBus 冒烟夹具覆盖全角与半角 ASCII 上屏。
+全角/半角输出与 Windows 模式面板对应：`CharacterWidth` 由 `input-runtime` 和 `msime-host-api` 按会话携带，IBus 属性菜单和 Fcitx5 状态栏都提供该开关，可打印 ASCII 在上屏时完成全角转换。配置了共享偏好目录时，模式按 `character_width` 持久化；没有该目录的直接预览配置保持会话级。Fcitx5 与 IBus 都在会话建立时按 `character_width` 设置全角，共享偏好热重载、属性/状态菜单和快捷键切换都会立即同步到正在运行的会话；焦点切换不会丢失全角状态。Fcitx5 新会话以偏好存储中的 `character_width` 为准，另一个窗口在状态栏切换的宽度也会带过来；状态栏切换后尚未写入存储的宽度（保存失败待重试，或隐私输入窗口中本不保存的切换）不会被热重载改回，下一个会话再以存储为准。IBus 冒烟夹具和 Fcitx5 原生上下文测试覆盖全角与半角 ASCII 上屏。
 
 容器验收依赖固定 Engine 词库源码 `googlepinyinime-rev/src/share/dictbuilder.cpp`，它随 `engine-lock.json` 指向的依赖归档取回；缺少它时容器内无法完成完整 daemon 编译。
 
@@ -755,7 +755,7 @@ Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳�
 
 候选操作菜单现在根据焦点、输入启用状态和当前会话动态标记可用性；失焦、密码输入或会话尚未建立时，固定、删除、定位和取消固定动作会整体禁用，避免向已失效的 Engine 身份发送操作。候选来源和代次校验仍由宿主与 Engine 共同执行。
 
-全角/半角输出菜单和工具栏入口在配置共享偏好目录时保存 character_width（fullwidth 或 halfwidth），成功后应用共享偏好并保持 ASCII 上屏转换一致。失败保留原模式，保存期间禁用重复操作；无存储目录的预览保留会话级切换。
+全角/半角输出菜单和工具栏入口在配置共享偏好目录时保存 character_width（fullwidth 或 halfwidth），成功后应用共享偏好并把宽度同步到正在运行的会话，宿主的空闲 ASCII 转换与会话上屏的组合文本保持同一宽度。失败保留原模式，保存期间禁用重复操作；无存储目录的预览保留会话级切换。
 
 候选皮肤目录或运行配置热更新后，宿主在发布 IBus 菜单前重新验证会话级皮肤覆盖；已移除的外部皮肤会自动清除覆盖并回退到共享配置，避免菜单显示或渲染引用失效资源。
 

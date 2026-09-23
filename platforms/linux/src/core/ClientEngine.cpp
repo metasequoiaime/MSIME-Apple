@@ -270,6 +270,8 @@ struct State {
   // toggle as an override that outranks the preferences it is handed, so a
   // preference change only reaches the session when the host re-states it.
   std::optional<bool> session_chinese_punctuation;
+  // The width the session was last told. update_preferences never touches the runtime's width, so a preference or menu change reaches the session only when the host re-states it.
+  std::optional<bool> session_fullwidth;
   std::optional<bool> autocorrect_transposition_override, autocorrect_neighbor_override;
   bool show_helpcode_in_candidate_window = true;
   std::optional<bool> word_character_override;
@@ -512,6 +514,7 @@ struct State {
   }
   void close() {
     session_chinese_punctuation.reset();
+    session_fullwidth.reset();
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
@@ -698,6 +701,7 @@ struct State {
          msime::linux_host::KeyRouterAdapter::lease_token(client_token,
                                                            session)});
     view = response(msime_client_set_character_width(session, fullwidth));
+    session_fullwidth = fullwidth;
     // CN/EN passthrough defaults are independent of the English candidate mode.
     english_mode = dedicated_english_override.value_or(false);
     view = response(msime_client_set_english_mode(session, english_mode));
@@ -4919,6 +4923,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.paired_tracker.clear();
       if (s.session) {
         s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+        s.session_fullwidth = s.fullwidth;
         render(engine, s.view);
       }
       publish_mode(engine);
@@ -5759,6 +5764,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       s.open();
       if (s.session) {
         s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+        s.session_fullwidth = s.fullwidth;
         render(engine, s.view);
       }
       publish_mode(engine);
@@ -6744,12 +6750,20 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   }
   if (preferences == s.applied_preferences_snapshot) {
     sync_global_input_mode(engine);
-    if (s.applied_display_generation != configuration_generation) {
+    const bool display_changed = s.applied_display_generation != configuration_generation;
+    if (display_changed)
       s.refresh_host_preferences(preferences);
+    // A menu save whose snapshot a concurrent read already applied has set only the host flag; the session learns the width here.
+    const bool width_changed = s.session && s.session_fullwidth != s.fullwidth;
+    if (width_changed) {
+      s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+      s.session_fullwidth = s.fullwidth;
+    }
+    if (display_changed || width_changed) {
       render(engine, s.view);
       publish_mode(engine);
-      s.applied_display_generation = configuration_generation;
     }
+    s.applied_display_generation = configuration_generation;
     return;
   }
   // Store revisions belong to the store. The runtime needs an increasing
@@ -6789,6 +6803,11 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
     s.view = response(
         msime_client_set_chinese_punctuation(s.session, s.chinese_punctuation));
     s.session_chinese_punctuation = s.chinese_punctuation;
+  }
+  // The same holds for the width: without this the host maps idle ASCII at one width while the session commits its compositions at the other.
+  if (s.session_fullwidth != s.fullwidth) {
+    s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+    s.session_fullwidth = s.fullwidth;
   }
   sync_global_input_mode(engine);
   if (s.voice_active && !s.voice_enabled)
@@ -6919,8 +6938,10 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->punctuation_override.reset();
           if (request.preference == MenuPreference::CharacterWidth)
             self->state->paired_tracker.clear();
+          // Taken from the snapshot about to be applied, not the request: a newer revision another writer saved may have replaced it above, and apply_live_preferences re-states this flag to the session.
           if (request.preference == MenuPreference::CharacterWidth)
-            self->state->fullwidth = request.value.get<bool>();
+            self->state->fullwidth =
+                snapshot->at("preferences").value("character_width", "halfwidth") == "fullwidth";
           if (request.preference == MenuPreference::VoiceEnabled)
             self->state->voice_enabled = request.value.get<bool>();
           accepted_preferences_directory = request.directory;

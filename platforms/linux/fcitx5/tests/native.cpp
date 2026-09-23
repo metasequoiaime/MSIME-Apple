@@ -1582,6 +1582,112 @@ int main(int argc, char **argv) {
       state->close();
       state->clearPanel();
     }
+    // 全角 is a saved preference like any other: a session opens at the saved width, a focus change keeps it, and a reload moves the open session without one. The host's English-mode width is read back from the session's view, so the letter below proves the host and the runtime agree.
+    {
+      const auto loadStore = [&] {
+        return response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+      };
+      const auto saveStore = [&](const auto &edit) {
+        auto snapshot = loadStore();
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        edit(snapshot["preferences"]);
+        snapshot["revision"] = revision + 1;
+        const auto document = snapshot.dump();
+        const auto saved = response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        require(saved.value("revision", uint64_t{}) > revision, "store saved");
+      };
+      const auto setWidth = [&](const char *width, bool mirror) {
+        saveStore([&](Json &preferences) { preferences["character_width"] = width; });
+        if (!mirror) return;
+        options["preferences"]["character_width"] = width;
+        std::ofstream(path) << options.dump();
+      };
+      const auto sessionWidth = [&] { return state->view_.value("character_width", std::string()); };
+      // What an English-mode letter puts in the document; a letter handed back to the application reads as itself.
+      const auto englishLetter = [&] {
+        const auto before = ic.committed;
+        state->input_enabled_ = false;
+        fcitx::KeyEvent letter(&ic, fcitx::Key(FcitxKey_a));
+        engine.keyEvent(entry, letter);
+        state->input_enabled_ = true;
+        return letter.accepted() ? ic.committed.substr(before.size()) : std::string("a");
+      };
+      const auto reloadUntil = [&](const auto &ready) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!ready() && std::chrono::steady_clock::now() < deadline) {
+          state->refreshPreferences();
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return ready();
+      };
+      setWidth("fullwidth", true);
+      require(state->ensure() && sessionWidth() == "Fullwidth" && engine.width_action_.isChecked(&ic),
+              "a session opens at the saved fullwidth");
+      require(englishLetter() == "ａ", "the saved fullwidth widens an English-mode letter");
+      ic.focusOut();
+      require(state->session_ == 0, "focus out closes the fullwidth session");
+      ic.focusIn();
+      engine.activate(entry, focus);
+      require(state->session_ != 0 && sessionWidth() == "Fullwidth", "fullwidth survives a focus change");
+      require(englishLetter() == "ａ", "the refocused session still widens a letter");
+      const auto reloadedSession = state->session_;
+      setWidth("halfwidth", false);
+      require(reloadUntil([&] { return sessionWidth() == "Halfwidth"; }) && state->session_ == reloadedSession,
+              "a halfwidth store reaches the open session without a focus change");
+      require(!engine.width_action_.isChecked(&ic) && englishLetter() == "a",
+              "the reloaded halfwidth hands the letter back");
+      setWidth("fullwidth", false);
+      require(reloadUntil([&] { return sessionWidth() == "Fullwidth"; }), "fullwidth reloads into the open session");
+      // Another window's status bar reaches only the store; the runtime options file still says fullwidth from the first step, so write halfwidth there to prove the store wins.
+      options["preferences"]["character_width"] = "halfwidth";
+      std::ofstream(path) << options.dump();
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && sessionWidth() == "Fullwidth",
+              "a store width the runtime options file never saw wins on the next session");
+      setWidth("halfwidth", true);
+      require(reloadUntil([&] { return sessionWidth() == "Halfwidth"; }), "width fixture restored to halfwidth");
+      // The reload tick nearly always has a store read in flight when the status bar toggles the width. That read predates the toggle; applied after the save, it would put the session back to the old width until the next tick read the saved store.
+      const auto toggleHolds = [&](const char *expected, const char *stored) {
+        state->refreshPreferences();
+        require(state->preferences_job_.valid(), "a store read is in flight before the toggle");
+        state->preferences_job_.wait();
+        require(state->toggleWidth() && sessionWidth() == expected, "the status bar toggles the width");
+        for (int tick = 0; tick < 4; ++tick) {
+          if (state->preferences_save_job_.valid()) state->preferences_save_job_.wait();
+          if (state->preferences_job_.valid()) state->preferences_job_.wait();
+          state->refreshPreferences();
+          require(sessionWidth() == expected, "a read that predates the toggle does not undo it");
+        }
+        require(!state->preferences_save_retry_ &&
+                    loadStore().at("preferences").value("character_width", std::string()) == stored,
+                "the toggled width is saved");
+      };
+      toggleHolds("Fullwidth", "fullwidth");
+      toggleHolds("Halfwidth", "halfwidth");
+      // The diagnostic switch applies on the reload too, with the same session and no focus change.
+      const auto diagnosticLog = std::filesystem::path(preferenceDirectory) / "diagnostic.log";
+      std::filesystem::remove(diagnosticLog);
+      const auto diagnosticSession = state->session_;
+      saveStore([](Json &preferences) { preferences["diagnostic_log"]["server"] = true; });
+      require(reloadUntil([&] {
+                msime_linux_diagnostic_write("native_probe");
+                return std::filesystem::exists(diagnosticLog);
+              }) && state->session_ == diagnosticSession,
+              "turning the diagnostic log on reaches the open session");
+      saveStore([](Json &preferences) { preferences["diagnostic_log"]["server"] = false; });
+      require(reloadUntil([&] {
+                const auto before = std::filesystem::file_size(diagnosticLog);
+                msime_linux_diagnostic_write("native_probe");
+                return std::filesystem::file_size(diagnosticLog) == before;
+              }) && state->session_ == diagnosticSession,
+              "turning the diagnostic log off stops it without a focus change");
+      state->close();
+      state->clearPanel();
+    }
     options["preferences"]["scheme"] = "japanese";
     std::ofstream(path) << options.dump();
     require(key(FcitxKey_k) && key(FcitxKey_o), "Japanese romaji composition");
