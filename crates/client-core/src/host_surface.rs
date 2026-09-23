@@ -332,19 +332,12 @@ impl HostCapabilities {
                     | HostPlatform::Harmony
             ),
             // Native Windows/macOS candidate windows consume the shared font
-            // controls. Harmony's desktop candidate panel and Android's
-            // native candidate bar also apply the family chain and both
-            // candidate/preedit sizes; iOS remains touch-only here. Linux
-            // writes the family chain and candidate size into the panel's
-            // font: the IBus panel settings or the Fcitx5 classic UI.
-            candidate_font_controls: matches!(
-                platform,
-                HostPlatform::Windows
-                    | HostPlatform::Macos
-                    | HostPlatform::Harmony
-                    | HostPlatform::Android
-                    | HostPlatform::Linux
-            ),
+            // controls. Harmony's desktop candidate panel and Android's and
+            // iOS's native candidate bars also apply the family chain and both
+            // candidate/preedit sizes. Linux writes the family chain and
+            // candidate size into the panel's font: the IBus panel settings or
+            // the Fcitx5 classic UI.
+            candidate_font_controls: true,
             candidate_preedit_font: matches!(
                 platform,
                 HostPlatform::Windows
@@ -408,10 +401,9 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Harmony | HostPlatform::Linux
             ),
-            // Every host but iOS calls `msime_client_set_character_width`; the iOS keyboard
-            // extension commits through its input client and never tells the runtime a width,
-            // so the preference has nothing to act on there.
-            character_width: platform != HostPlatform::Ios,
+            // Every host calls `msime_client_set_character_width` when its session starts and
+            // from its own width switch, so the preference always has something to act on.
+            character_width: true,
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android and HarmonyOS run the same ported ChineseHelpcodePolicy:
             // Shift during a quanpin or shuangpin composition hands the next
@@ -426,13 +418,7 @@ impl HostCapabilities {
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
             ai_provider_credentials: platform == HostPlatform::Linux,
-            candidate_english_font: matches!(
-                platform,
-                HostPlatform::Windows
-                    | HostPlatform::Macos
-                    | HostPlatform::Android
-                    | HostPlatform::Harmony
-            ),
+            candidate_english_font: platform != HostPlatform::Linux,
             os_version: None,
         }
     }
@@ -913,6 +899,9 @@ mod tests {
         assert!(ios.fuzzy_pinyin);
         assert!(ios.typing_statistics);
         assert!(!ios.panel_windows);
+        // The candidate bar cascades the Latin face, the family and its fallbacks.
+        assert!(ios.candidate_font_controls);
+        assert!(ios.candidate_english_font);
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);
@@ -994,17 +983,17 @@ mod tests {
         assert!(!HostCapabilities::for_platform(HostPlatform::Linux).candidate_english_font);
         // 全角输入 was withheld from every touch platform, which was a statement about form
         // factor rather than about who can honour it. What decides is whether the host tells the
-        // runtime a width: five of the six do, from a toolbar, a menu or the keyboard's own tools.
+        // runtime a width: all six do, from a toolbar, a menu or the keyboard's own tools.
         for platform in [
             HostPlatform::Windows,
             HostPlatform::Macos,
             HostPlatform::Linux,
             HostPlatform::Android,
             HostPlatform::Harmony,
+            HostPlatform::Ios,
         ] {
             assert!(HostCapabilities::for_platform(platform).character_width);
         }
-        assert!(!HostCapabilities::for_platform(HostPlatform::Ios).character_width);
         // Drawn from the input method's status-bar panel, which scales itself by the shared
         // scale and font size, hides the buttons the user turned off, and opens the emoji panel
         // and the screen keyboard in the window its candidates otherwise occupy.

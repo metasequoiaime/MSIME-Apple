@@ -17,6 +17,7 @@ final class KeyboardCandidatePanelView: UIView {
   private static let rowSpacing: CGFloat = 6
   private let candidates: [String]
   private let candidateScale: CGFloat
+  private let candidateFamilies: [String]
   private var annotations: [KeyboardCandidateAnnotation]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
@@ -28,12 +29,13 @@ final class KeyboardCandidatePanelView: UIView {
   private var laidOutWidth: CGFloat = 0
 
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
-       candidateScale: CGFloat = 1, preeditScale: CGFloat = 1,
+       candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, candidateFamilies: [String] = [],
        display: @escaping (String) -> String,
        menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
     self.candidates = candidates
     self.candidateScale = candidateScale
+    self.candidateFamilies = candidateFamilies
     self.annotations = annotations
     self.display = display
     self.menuElements = menuElements
@@ -178,7 +180,8 @@ final class KeyboardCandidatePanelView: UIView {
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
     var title = AttributedString(text, attributes: AttributeContainer([
-      .font: CandidateFontPreference.font(.body, scale: candidateScale), .paragraphStyle: paragraph,
+      .font: CandidateFontPreference.font(.body, scale: candidateScale, families: candidateFamilies),
+      .paragraphStyle: paragraph,
     ]))
     if !annotation.text.isEmpty {
       let lines = annotation.text.split(separator: "\n", omittingEmptySubsequences: false)

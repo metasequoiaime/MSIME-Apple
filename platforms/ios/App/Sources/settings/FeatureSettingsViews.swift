@@ -11,9 +11,13 @@ struct SkinSettingsView: View {
   @State private var previewsNineKey = InputSchemePreference.scheme == .nineKey
   @State private var previewsDark = false
   @State private var savedDesigns = CustomSkinLibrary.designs.count
+  @State private var themes: [String: String] = [:]
+  @State private var themeSaveFailed = false
+  @Environment(\.horizontalSizeClass) private var sizeClass
 
   var body: some View {
     Form {
+      appearanceSection
       Section {
         NavigationLink(destination: CustomSkinEditorView()) {
           SettingsRowLabel(title: "设计我的皮肤",
@@ -66,8 +70,52 @@ struct SkinSettingsView: View {
     }
     .navigationTitle("皮肤")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear { savedDesigns = CustomSkinLibrary.designs.count }
-    .onChange(of: scenePhase) { if $0 == .active { savedDesigns = CustomSkinLibrary.designs.count } }
+    .onAppear { savedDesigns = CustomSkinLibrary.designs.count; reloadThemes() }
+    .onChange(of: scenePhase) { if $0 == .active { savedDesigns = CustomSkinLibrary.designs.count; reloadThemes() } }
+  }
+
+  /// 「键盘明暗」 from the shared document (see KeyboardAppearancePreference). iPad lists the panels beside the keyboard; the phone folds them away, since most people only ever set the keyboard.
+  private var appearanceSection: some View {
+    Section {
+      Picker("键盘", selection: theme(KeyboardAppearancePreference.keyboardKey)) {
+        ForEach(KeyboardAppearancePreference.options, id: \.id) { Text($0.title).tag($0.id) }
+      }.accessibilityIdentifier("keyboardTheme")
+      if sizeClass == .regular {
+        panelPickers
+      } else {
+        DisclosureGroup("面板明暗") { panelPickers }.accessibilityIdentifier("keyboardPanelThemes")
+      }
+    } header: {
+      Text("明暗")
+    } footer: {
+      Text(themeSaveFailed
+        ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+        : "与电脑版的屏幕键盘、手写、表情和语音主题同步。选“跟随系统”时先看共享的主题设置，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。下次打开水杉键盘时应用。")
+    }
+  }
+
+  private var panelPickers: some View {
+    ForEach(KeyboardAppearancePreference.panels, id: \.key) { panel in
+      Picker(panel.title, selection: theme(panel.key)) {
+        ForEach(KeyboardAppearancePreference.panelOptions, id: \.id) { Text($0.title).tag($0.id) }
+      }.accessibilityIdentifier(panel.key)
+    }
+  }
+
+  private func theme(_ key: String) -> Binding<String> {
+    Binding(get: { themes[key] ?? "follow" }, set: { value in
+      themes[key] = value
+      themeSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
+      if themeSaveFailed { reloadThemes() }
+      // The preview shows what the keyboard will draw, so an explicit keyboard theme turns it to match.
+      if key == KeyboardAppearancePreference.keyboardKey, value != "follow" { previewsDark = value == "dark" }
+    })
+  }
+
+  private func reloadThemes() {
+    guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
+    let keys = [KeyboardAppearancePreference.keyboardKey] + KeyboardAppearancePreference.panels.map(\.key)
+    themes = keys.reduce(into: [:]) { themes, key in themes[key] = preferences[key] as? String ?? "follow" }
   }
 }
 

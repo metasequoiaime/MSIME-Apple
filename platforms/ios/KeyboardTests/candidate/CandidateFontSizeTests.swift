@@ -29,6 +29,31 @@ final class CandidateFontSizeTests: XCTestCase {
       "the default sizes leave the keyboard height where it was")
   }
 
+  /// The chain runs Latin face, family, fallbacks, drops what the device lacks and repeats, and is empty for a document synced from Windows, which leaves the system font.
+  func testFamilyChainKeepsInstalledFacesInDesktopOrder() {
+    let has: Set<String> = ["Helvetica Neue", "PingFang SC", "Georgia"]
+    let document: [String: Any] = [
+      CandidateFontPreference.englishFamilyKey: "Georgia", CandidateFontPreference.familyKey: "PingFang SC",
+      CandidateFontPreference.fallbackFamiliesKey: ["Microsoft YaHei", "PingFang SC", "Helvetica Neue"],
+    ]
+    XCTAssertEqual(CandidateFontPreference.families(in: document, installed: has.contains),
+                   ["Georgia", "PingFang SC", "Helvetica Neue"])
+    XCTAssertEqual(CandidateFontPreference.families(in: [:], installed: has.contains), [])
+    XCTAssertEqual(CandidateFontPreference.families(in: [CandidateFontPreference.familyKey: "Noto Sans SC",
+      CandidateFontPreference.fallbackFamiliesKey: ["Noto Sans SC", "Microsoft YaHei"]]), [],
+      "the shared defaults name no face iOS ships")
+  }
+
+  /// The leading face draws the letters, the cascade the Han characters, and the size still follows the scale.
+  func testFamilyFontLeadsWithTheFirstFaceAtTheScaledSize() {
+    let font = CandidateFontPreference.font(.body, scale: 1, families: ["Georgia", "PingFang SC"])
+    XCTAssertEqual(font.familyName, "Georgia")
+    let cascade = font.fontDescriptor.fontAttributes[.cascadeList] as? [UIFontDescriptor]
+    XCTAssertEqual(cascade?.map { $0.fontAttributes[.family] as? String }, ["PingFang SC"])
+    XCTAssertEqual(font.pointSize, CandidateFontPreference.font(.body, scale: 1).pointSize, accuracy: 0.5)
+    XCTAssertEqual(CandidateFontPreference.font(.body, scale: 1, families: []), CandidateFontPreference.font(.body, scale: 1))
+  }
+
   func testAPhoneClampsADesktopSizeThatAnIPadKeeps() {
     let synced: [String: Any] = [CandidateFontPreference.candidateKey: 30, CandidateFontPreference.preeditKey: 24]
     XCTAssertEqual(CandidateFontPreference.candidateSize(in: synced, tablet: false), 24)

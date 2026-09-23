@@ -35,6 +35,7 @@ enum KeyboardLayoutPreference {
   static let rowSpacingKey = "keyboard.spacing.rows"
   static let voiceShortcutKey = "keyboard.shortcut.voice"
   static let heightAdjustmentKey = "keyboard.height.adjustment"
+  /// Where the 全角 card used to save itself before the width moved to the shared `character_width`; read only to migrate it, see `CharacterWidthPreference`.
   static let fullWidthInputKey = "keyboard.input.fullWidth"
   // Old presets supply upgrade defaults only. Key placement no longer depends on them.
   static var keySpacing: Double {
@@ -62,10 +63,6 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: voiceShortcutKey) == nil ? selected == .doubao : defaults.bool(forKey: voiceShortcutKey) }
     set { defaults.set(newValue, forKey: voiceShortcutKey) }
   }
-  static var fullWidthInputEnabled: Bool {
-    get { defaults.bool(forKey: fullWidthInputKey) }
-    set { defaults.set(newValue, forKey: fullWidthInputKey) }
-  }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing) }
   private static func spacing(key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
     guard let value = defaults.object(forKey: key) as? NSNumber, value.doubleValue.isFinite else { return fallback }
@@ -77,8 +74,38 @@ enum KeyboardLayoutPreference {
   }
 }
 
-/// Converts only text emitted directly by the keyboard host. Engine candidates, handwriting,
-/// Japanese conversion, local tools and service results must keep their original identity.
+/// 「全角输入」: the shared `character_width`, the width a keyboard session starts in.
+///
+/// The document spells it in lower case, `fullwidth` and `halfwidth` (client-core's serde rename); the runtime view spells it `Fullwidth`, so the keyboard never reads its width back from the view. As on the other hosts, the keyboard's own 全角 card switches the running keyboard only, and a reloaded document replaces that switch only when `character_width` itself changed, so saving any other setting never clears a switch the user just pressed. The card used to persist itself in the App Group; the App folds that value into the document once, and until it has, the keyboard starts from it.
+enum CharacterWidthPreference {
+  static let key = "character_width"
+  static let fullwidth = "fullwidth"
+  static let halfwidth = "halfwidth"
+
+  static func value(in preferences: [String: Any]?) -> String? { preferences?[key] as? String }
+
+  /// The width a keyboard starts in: the document's, or the old App Group switch the App has not migrated yet.
+  static func startsFullwidth(in preferences: [String: Any]?) -> Bool {
+    value(in: preferences) == fullwidth || KeyboardLayoutPreference.defaults.bool(forKey: KeyboardLayoutPreference.fullWidthInputKey)
+  }
+
+  /// Whether a reloaded document's width replaces the keyboard's current switch.
+  static func overridesToggle(previous: String?, next: String?) -> Bool { next != nil && previous != next }
+
+  /// Move the old App Group switch into the shared document, then forget it. An "on" that cannot be written stays for the next launch.
+  static func migrateLegacySwitch(stateRoot: URL? = nil) {
+    let defaults = KeyboardLayoutPreference.defaults
+    let legacy = KeyboardLayoutPreference.fullWidthInputKey
+    guard defaults.object(forKey: legacy) != nil else { return }
+    if defaults.bool(forKey: legacy),
+       !MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { $0[key] = fullwidth }) {
+      return
+    }
+    defaults.removeObject(forKey: legacy)
+  }
+}
+
+/// Converts the text the keyboard commits itself, past the runtime: symbols, spaces, quick punctuation and English letters. Whatever the runtime commits it has already converted once told the width (`setCharacterWidth`); handwriting, local tools and service results keep their original identity.
 enum FullWidthInputPolicy {
   static func output(_ text: String, enabled: Bool) -> String {
     guard enabled, !text.isEmpty else { return text }

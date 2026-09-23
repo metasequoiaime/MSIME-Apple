@@ -12,6 +12,7 @@ struct PunctuationSettingsView: View {
   @State private var directLetter = true
   @State private var paired = true
   @State private var lock = "follow"
+  @State private var width = CharacterWidthPreference.halfwidth
   @State private var saveFailed = false
 
   var body: some View {
@@ -43,6 +44,15 @@ struct PunctuationSettingsView: View {
         Toggle(isOn: stored("paired_punctuation", $paired)) {
           labelled("成对标点自动补全", "输入左侧括号或引号时同时补上右侧")
         }.accessibilityIdentifier("pairedPunctuation")
+      }
+      Section {
+        Toggle(isOn: Binding(get: { width == CharacterWidthPreference.fullwidth },
+                             set: { stored(CharacterWidthPreference.key, $width).wrappedValue =
+                                      $0 ? CharacterWidthPreference.fullwidth : CharacterWidthPreference.halfwidth })) {
+          labelled("全角输入", "将英文字符和空格提交为全角形式")
+        }.accessibilityIdentifier("characterWidth")
+      } footer: {
+        Text("键盘下次出现时生效；键盘「更多」里的全角开关只临时切换当前键盘。")
       }
       Section {
         Picker("固定标点", selection: stored("punctuation_lock", $lock)) {
@@ -87,5 +97,6 @@ struct PunctuationSettingsView: View {
     directLetter = preferences["smart_punctuation_direct_letter"] as? Bool ?? directLetter
     paired = preferences["paired_punctuation"] as? Bool ?? paired
     lock = preferences["punctuation_lock"] as? String ?? lock
+    width = CharacterWidthPreference.value(in: preferences) ?? width
   }
 }

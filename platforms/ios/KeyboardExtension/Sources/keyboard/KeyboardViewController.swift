@@ -43,6 +43,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var sharedKeyboardHeightAdjustment =
     CGFloat(KeyboardLayoutPreference.heightAdjustment)
   private let session = MetasequoiaInputSessionBridge()
+  /// 「全角输入」 for the running keyboard: starts from the shared `character_width`, then the 全角 card switches it.
+  private var fullWidthInput = false
+  /// The document's `character_width` as last applied, so a reload replaces the card's switch only when that field changed.
+  private var appliedCharacterWidth: String?
   private lazy var snapshotWorker: DictionarySnapshotWorker = {
     let worker = DictionarySnapshotWorker(session: session)
     worker.report = { [weak self] in self?.showDiagnostic($0) }
@@ -271,6 +275,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var glossLineCount = 0
   private var candidateFontScale: CGFloat = 1
   private var preeditFontScale: CGFloat = 1
+  private var candidateFontFamilies: [String] = []
   private var candidateStripHeightConstraint: NSLayoutConstraint?
   private var compositionRowHeightConstraint: NSLayoutConstraint?
   private var shortcutBarTopConstraint: NSLayoutConstraint?
@@ -322,6 +327,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
     isChineseMode = Self.startsInChinese(session.sharedPreferences)
+    appliedCharacterWidth = CharacterWidthPreference.value(in: session.sharedPreferences)
+    setFullWidthInput(CharacterWidthPreference.startsFullwidth(in: session.sharedPreferences))
+    applyKeyboardAppearance()
     configureDiagnosticLog()
     DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone")")
     if session.initializationFailed { DiagnosticLog.shared.write("runtime_initialization_failed") }
@@ -415,7 +423,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       DiagnosticLog.shared.write("preferences_applied")
       // A candidate skin, theme or colour synced from the desktop arrives with the document.
       self.refreshCandidatePalette()
+      self.applyKeyboardAppearance()
       self.synchronizeSharedTouchPreferences()
+      self.synchronizeCharacterWidth()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
       // The local-mode menu follows the modes the settings app leaves on.
@@ -1064,9 +1074,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           self?.updateShortcutButtons()
         }),
         KeyboardTool(title: "全角输入", symbol: "character.cursor.ibeam",
-                     selected: KeyboardLayoutPreference.fullWidthInputEnabled) { [weak self] in
-          KeyboardLayoutPreference.fullWidthInputEnabled = !KeyboardLayoutPreference.fullWidthInputEnabled
-          self?.updateShortcutButtons()
+                     selected: fullWidthInput) { [weak self] in
+          guard let self else { return }
+          self.setFullWidthInput(!self.fullWidthInput)
+          self.updateShortcutButtons()
         },
         withHaptics(KeyboardTool(title: "振动强度", symbol: "waveform",
                      enabled: KeyboardFeedbackPreference.hapticsEnabled,
@@ -1550,8 +1561,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // a character that is not there.
     armSmartPunctuation(
       punctuation,
-      commit: FullWidthInputPolicy.output(
-        punctuation, enabled: KeyboardLayoutPreference.fullWidthInputEnabled),
+      commit: FullWidthInputPolicy.output(punctuation, enabled: fullWidthInput),
       editor: editor)
   }
 
@@ -1899,8 +1909,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let tablet = formFactor == .tablet
     let candidateScale = CandidateFontPreference.candidateScale(in: session.sharedPreferences, tablet: tablet)
     let preeditScale = CandidateFontPreference.preeditScale(in: session.sharedPreferences, tablet: tablet)
+    let families = CandidateFontPreference.families(in: session.sharedPreferences)
     guard lines != glossLineCount || candidateScale != candidateFontScale
-      || preeditScale != preeditFontScale else { return }
+      || preeditScale != preeditFontScale || families != candidateFontFamilies else { return }
+    candidateFontFamilies = families
     glossLineCount = lines
     if preeditScale != preeditFontScale {
       preeditFontScale = preeditScale
@@ -1916,11 +1928,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private static func fontTransformer(
-    _ style: UIFont.TextStyle, scale: CGFloat
+    _ style: UIFont.TextStyle, scale: CGFloat, families: [String] = []
   ) -> UIConfigurationTextAttributesTransformer {
     UIConfigurationTextAttributesTransformer { attributes in
       var attributes = attributes
-      attributes.font = CandidateFontPreference.font(style, scale: scale)
+      attributes.font = CandidateFontPreference.font(style, scale: scale, families: families)
       return attributes
     }
   }
@@ -2098,6 +2110,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let text = try store.consume(entry.id)
         insertOwnText(text, source: .voice)
       }, close: { [weak self] in self?.closeKeyboardService() }))
+      panel.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.voiceKey, in: session.sharedPreferences)
       servicePanel = panel
       addChild(panel)
       panel.view.frame = view.bounds
@@ -2332,7 +2345,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
                                    typed: snapshot.preedit)
         },
-        candidateScale: candidateFontScale, preeditScale: preeditFontScale,
+        candidateScale: candidateFontScale, preeditScale: preeditFontScale, candidateFamilies: candidateFontFamilies,
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         menuElements: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return [] }
@@ -2840,9 +2853,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func insertDirectText(_ text: String, source: TypingSource? = nil) {
-    insertOwnText(
-      FullWidthInputPolicy.output(text, enabled: KeyboardLayoutPreference.fullWidthInputEnabled),
-      source: source)
+    insertOwnText(FullWidthInputPolicy.output(text, enabled: fullWidthInput), source: source)
+  }
+
+  /// The runtime converts what it commits and the keyboard converts what it inserts itself, so both are told together.
+  private func setFullWidthInput(_ enabled: Bool) {
+    fullWidthInput = enabled
+    session.setCharacterWidth(fullwidth: enabled)
+  }
+
+  /// A width changed in the settings app replaces the card's switch; a document that only changed something else leaves it.
+  private func synchronizeCharacterWidth() {
+    let width = CharacterWidthPreference.value(in: session.sharedPreferences)
+    defer { appliedCharacterWidth = width }
+    guard CharacterWidthPreference.overridesToggle(previous: appliedCharacterWidth, next: width) else { return }
+    setFullWidthInput(width == CharacterWidthPreference.fullwidth)
   }
 
   // Swallowing this left the settings screen showing zeros with nothing to explain them, which is
@@ -3275,7 +3300,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if annotation.isEmpty && glosses.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
       configuration.attributedTitle = nil
-      configuration.titleTextAttributesTransformer = Self.fontTransformer(.body, scale: candidateFontScale)
+      configuration.titleTextAttributesTransformer = Self.fontTransformer(
+        .body, scale: candidateFontScale, families: candidateFontFamilies)
       configuration.title = display
     } else {
       configuration.titleLineBreakMode = .byWordWrapping
@@ -3285,7 +3311,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       paragraph.alignment = .natural
       paragraph.lineBreakMode = .byTruncatingTail
       var title = AttributedString(display, attributes: AttributeContainer([
-        .font: CandidateFontPreference.font(.body, scale: candidateFontScale), .paragraphStyle: paragraph,
+        .font: CandidateFontPreference.font(.body, scale: candidateFontScale, families: candidateFontFamilies),
+        .paragraphStyle: paragraph,
       ]))
       if !annotation.isEmpty {
         title += AttributedString(" " + annotation, attributes: AttributeContainer([
@@ -3701,6 +3728,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       onDelete: { [weak self] in self?.deleteOwnBackward() },
       onClose: { [weak self] in self?.closeKeyboardPicker() })
     picker.accessibilityViewIsModal = true
+    picker.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.emojiKey, in: session.sharedPreferences)
     picker.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(picker)
     NSLayoutConstraint.activate([
@@ -3882,6 +3910,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
     for (_, _, hint) in letterButtons { hint.textColor = skin.accent }
     view.tintColor = skin.accent
+  }
+
+  /// Draw the keyboard and its panels in the light or dark form the shared themes ask for (see KeyboardAppearancePreference). A changed style reaches `traitCollectionDidChange`, which redraws the skin.
+  private func applyKeyboardAppearance() {
+    let preferences = session.sharedPreferences
+    let keyboard = KeyboardAppearancePreference.style(KeyboardAppearancePreference.keyboardKey, in: preferences)
+    if overrideUserInterfaceStyle != keyboard { overrideUserInterfaceStyle = keyboard }
+    handwriting.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.handwritingKey, in: preferences)
+    emojiPicker?.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.emojiKey, in: preferences)
   }
 
   private func currentCandidatePalette() -> CandidatePalette? {

@@ -44,6 +44,8 @@ private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, 
 private func msimeClientChooseNineKeySpelling(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_nine_key_mode")
 private func msimeClientSetNineKeyMode(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_set_character_width")
+private func msimeClientSetCharacterWidth(_ session: UInt64, _ fullwidth: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_update_preferences")
 private func msimeClientUpdatePreferences(_ session: UInt64, _ snapshot: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_load_preferences")
@@ -194,6 +196,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   // Nine-key lives on the session, not in the preferences the options carry, so a rebuilt session
   // starts back on the 26-key layout unless it is told again.
   private var nineKeyEnabled = false
+  // The width, like nine-key, is session state the options do not carry, so a rebuilt session is told it again.
+  private var fullwidth = false
 
   init(resources: URL? = nil, stateRoot: URL? = nil) {
     options = [:]
@@ -823,6 +827,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     nineKeyEnabled = true
     return dispatch { msimeClientSetNineKeyMode(handle, true) }
   }
+  /// Tell the runtime the width it commits in; from then on every commit it completes arrives already converted.
+  @discardableResult func setCharacterWidth(fullwidth: Bool) -> MetasequoiaInputSnapshot {
+    self.fullwidth = fullwidth
+    return dispatch { msimeClientSetCharacterWidth(handle, fullwidth) }
+  }
   func switchToWubi() -> MetasequoiaInputSnapshot { switchScheme("wubi", profile: nil) }
   func switchToJapanese() -> MetasequoiaInputSnapshot { switchScheme("japanese", profile: nil) }
 
@@ -929,6 +938,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     requested["phrase_preedit"] = true
     handle = try Self.callCreateFocused(requested)
     if nineKeyEnabled { _ = dispatch { msimeClientSetNineKeyMode(handle, true) } }
+    if fullwidth { _ = dispatch { msimeClientSetCharacterWidth(handle, true) } }
   }
 
   func localDictionaryStateVersion() throws -> String {

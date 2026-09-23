@@ -3636,17 +3636,17 @@ fn emoji_catalog_cursor_advances_over_invalid_rows_and_preserves_duplicates() {
     {
         db.execute(
             "INSERT INTO emoji VALUES (?1,'fixture','match','',?2)",
-            rusqlite::params![text, index],
+            rusqlite::params![text, index as i64],
         )
         .unwrap();
         db.execute(
             "INSERT INTO kaomoji_catalog VALUES (?1,'match',?2)",
-            rusqlite::params![text, index],
+            rusqlite::params![text, index as i64],
         )
         .unwrap();
         db.execute(
             "INSERT INTO symbol_catalog VALUES (?1,'fixture','fixture','match',?2)",
-            rusqlite::params![text, index],
+            rusqlite::params![text, index as i64],
         )
         .unwrap();
     }
