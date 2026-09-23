@@ -1876,3 +1876,14 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 顺带修复：表情面板的「‹」和语音面板的「返回」原来只调用 `show(SURFACE_NONE)`，那只改得了手机面板的状态。2in1 上由工具栏打开的是 desktop surface，这两个键点了没有任何反应，只能再点一次工具栏才能关掉。现在当前 desktop surface 正是这张面时，返回会关掉它；如果是在 2in1 屏幕键盘里打开的同一张面，返回仍然只退回键盘。
 - `ToolbarButton` 新成员加在枚举末尾：`PanelSurfaceAction.SCREEN_KEYBOARD = 5` 按数值镜像屏幕键盘按钮，插到中间会让屏幕键盘快捷键打开别的面。按钮的显示顺序由 `buttons()` 决定，和枚举顺序无关。
 - Rust 与前端依赖的通知：发布工作流在 Windows runner 上用 `platforms/linux/collect-notices.py`（与 Linux 发布同一个收集器）从 Cargo 解析出的 Windows 依赖图收集 `msime-host-api`、`msime-engine-bridge`（词库回放工具）和 `msime-desktop` 静态链接的 crate 许可证文件，再从 `apps/desktop` 的 `node_modules` 收集前端打包进去的 npm 包，两份文件作为 `-SupplementalNotices` 交给 `Collect-Notices.ps1`，随 `THIRD_PARTY_NOTICES.txt` 进安装包。
+
+### HarmonyOS 2in1 硬件键盘：Ctrl+Shift+F 简繁、U 模式、音节分隔符与微软双拼的 ing（2026-09-23）
+
+对照来源 `server/src/ipc/event_listener.cpp` 与 `input_key_policy.h` 逐键核查 2in1 硬件键盘，查实四处与 Windows 行为不一致，均在 `HardwareKeyRouter` / `InputModeRouting` 里修正。手机软键盘走 `Action::Character`，不受影响。
+
+- Ctrl+Shift+F：来源 `HandleImeKey` 在 `IsCharacterSetShortcut` 上调 `SetConfiguredCharacterSet`，切换的是简繁；设置页这一项也写着「Ctrl+Shift+F 切换简繁」。本宿主原来把它和 Ctrl+Shift+Space 一样当成全角/半角。现在 `ModeGesture.TOGGLE_CHARACTER_SET` 只表示简繁，全角/半角改用 `TOGGLE_WIDTH`。简繁切换与工具栏「简/繁」按钮共用 `KeyboardSession.toggleCharacterSet`，写回 `traditional_chinese_output`。和来源一样，只在中文状态下切换，但开关打开时英文状态下也会吃掉这个组合键。
+- U 模式：组字进行中数字 1–9 一律被当成选词、0 放给应用、`+` 被当成标点，于是 `u4e00`、`U+1F600` 都打不出来。现在 `local_mode` 为 `unicode` 时，不带 Shift 的 0–9 进入组字，Shift+1–9 选词（来源注释 “U-mode: Shift+1..9”），`+` 只在输入恰好是 `U` 时进入组字。规则与 Linux 宿主的 `unicode_digit` / `unicode_plus_key` 一致。
+- 拼音分隔符 `'`：来源 `IsManualPinyinSeparatorKey` 把它送进输入串，本宿主原来把它当成标点，先上屏高亮候选再插一个引号。现在组字中、光标不在开头时进入组字，范围与 Linux 的 `accepted_apostrophe` 相同：非五笔的普通输入，或者 emoji、kaomoji、临时日语三种本地模式。
+- 微软双拼 `;`：来源 `IsMicrosoftShuangpinIngKey` 把它当作 ing 韵母。现在视图报告 `microsoft_shuangpin` 时，只要它是本音节的第二键（从最后一个 `'` 数起按键数为奇数），就进入组字；否则仍是标点。
+
+路由所需的状态由 `KeyboardSession.hardwareSpelling()` 从最近一次引擎视图中读出，通过 `HardwareSpelling` 传给 `HardwareKeyRouter.route`。这几条规则放在翻页键判断和数字选词之前，因为 Shift+= 本身就是 `U+` 里的 `+`。

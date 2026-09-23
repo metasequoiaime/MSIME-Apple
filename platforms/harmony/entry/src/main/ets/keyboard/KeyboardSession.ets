@@ -18,7 +18,7 @@ import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
-import { HardwareNavigationPreferences } from './HardwareKeyRouter';
+import { HardwareNavigationPreferences, HardwareSpelling } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import common from '@ohos.app.ability.common';
 import i18n from '@ohos.i18n';
@@ -159,6 +159,8 @@ interface EngineView {
   /** The Engine's own numbering, which the ported display policies are written against. */
   scheme: number;
   shuangpin_profile: string;
+  /** Whether `;` can be the `ing` final, which only the Microsoft layout has. */
+  microsoft_shuangpin?: boolean;
   /** 'none' unless a local utility mode is consuming the keys. */
   local_mode: string;
   dedicated_english: boolean;
@@ -1689,8 +1691,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.toggleCharacterWidth();
         break;
       case ToolbarButton.CHARACTER_SET:
-        this.traditional = !this.traditional;
-        this.writePreference('traditional_chinese_output', this.traditional);
+        this.toggleCharacterSet();
         break;
       case ToolbarButton.EMOJI:
         this.requestSurface(DesktopSurface.EMOJI);
@@ -1711,6 +1712,12 @@ export class KeyboardSession implements HardwareKeyTarget {
         break;
     }
     this.refreshToolbar();
+  }
+
+  /** Simplified output becomes traditional and back, saved as the preference the settings page shows. */
+  toggleCharacterSet(): void {
+    this.traditional = !this.traditional;
+    this.writePreference('traditional_chinese_output', this.traditional);
   }
 
   /** One value, through the same store the settings page writes, revision check and all. */
@@ -2420,6 +2427,17 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.currentCandidates.some((candidate: Candidate): boolean =>
       candidate.highlighted && typeof candidate.translation === 'string'
       && candidate.translation.length > 0);
+  }
+
+  /** What a hardware `'`, `;`, digit or `+` is being typed into; see `HardwareSpelling`. */
+  hardwareSpelling(): HardwareSpelling {
+    return {
+      localMode: this.localMode,
+      editing: this.editing,
+      caret: this.editingCaret,
+      wubi: this.schemeName === 'wubi',
+      microsoftShuangpin: this.lastView?.microsoft_shuangpin === true,
+    };
   }
 
   hasHighlightedCandidate(): boolean {

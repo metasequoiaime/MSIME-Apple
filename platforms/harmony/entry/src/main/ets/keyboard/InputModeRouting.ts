@@ -1,13 +1,9 @@
 /**
  * When a key on a real keyboard means "switch mode", from the shared `keybindings` preferences.
  *
- * Four bindings, each of which the user can turn off. Three switch between Chinese and English and
- * one switches between halfwidth and fullwidth; which of them are live is the document's business,
- * not this file's, so the settings page and the keyboard cannot disagree about what is bound.
+ * Four bindings, each of which the user can turn off. Three switch between Chinese and English and one, Ctrl+Shift+F, switches between simplified and traditional output, as the Windows host's `IsCharacterSetShortcut` does; which of them are live is the document's business, not this file's, so the settings page and the keyboard cannot disagree about what is bound.
  *
- * Three more come from the Windows baseline and are fixed there, so they are fixed here: Ctrl+Shift+E
- * for the Chinese/English state, Ctrl+Shift+Space for halfwidth/fullwidth and Ctrl+. for the
- * punctuation set. Turning off the Shift tap says nothing about any of them.
+ * Three more come from the Windows baseline and are fixed there, so they are fixed here: Ctrl+Shift+E for the Chinese/English state, Ctrl+Shift+Space for halfwidth/fullwidth and Ctrl+. for the punctuation set. Turning off the Shift tap says nothing about any of them.
  *
  * Two of them are a modifier pressed and released with nothing in between, which no single event can
  * decide: Shift+A begins exactly the same way as a solitary Shift. The press only arms it and the
@@ -40,8 +36,10 @@ export interface ModeBindings {
 }
 
 export const DEFAULT_MODE_BINDINGS: ModeBindings = {
-  switchLanguageShift: true, switchLanguageCtrl: false,
-  switchLanguageCtrlAltSpace: true, toggleCharacterSetCtrlShiftF: true
+  switchLanguageShift: true,
+  switchLanguageCtrl: false,
+  switchLanguageCtrlAltSpace: true,
+  toggleCharacterSetCtrlShiftF: true,
 };
 
 export interface ModeKey {
@@ -59,10 +57,12 @@ export enum ModeGesture {
   NONE,
   /** Chinese becomes English and back. */
   SWITCH_LANGUAGE,
-  /** Halfwidth ASCII becomes its fullwidth twin and back. */
+  /** Simplified output becomes traditional and back; the Windows Ctrl+Shift+F binding. */
   TOGGLE_CHARACTER_SET,
+  /** Halfwidth ASCII becomes its fullwidth twin and back; the Windows Ctrl+Shift+Space binding. */
+  TOGGLE_WIDTH,
   /** Chinese punctuation becomes ASCII and back; the Windows Ctrl+. binding. */
-  TOGGLE_PUNCTUATION
+  TOGGLE_PUNCTUATION,
 }
 
 function isShift(keyCode: number): boolean {
@@ -99,31 +99,62 @@ export class InputModeRouting {
   accept(key: ModeKey): ModeGesture {
     // The chords are decided on the press, before the solitary tracking sees the key, because a
     // chord's own modifier would otherwise look like the start of a tap.
-    if (key.down && this.bindings.switchLanguageCtrlAltSpace
-        && key.keyCode === KEYCODE_SPACE && key.ctrlKey && key.altKey && !key.logoKey) {
+    if (
+      key.down &&
+      this.bindings.switchLanguageCtrlAltSpace &&
+      key.keyCode === KEYCODE_SPACE &&
+      key.ctrlKey &&
+      key.altKey &&
+      !key.logoKey
+    ) {
       this.disarm();
       return ModeGesture.SWITCH_LANGUAGE;
     }
-    if (key.down && this.bindings.toggleCharacterSetCtrlShiftF
-        && key.keyCode === KEYCODE_F && key.ctrlKey && key.shiftKey && !key.altKey && !key.logoKey) {
+    if (
+      key.down &&
+      this.bindings.toggleCharacterSetCtrlShiftF &&
+      key.keyCode === KEYCODE_F &&
+      key.ctrlKey &&
+      key.shiftKey &&
+      !key.altKey &&
+      !key.logoKey
+    ) {
       this.disarm();
       return ModeGesture.TOGGLE_CHARACTER_SET;
     }
     // Three chords from the Windows baseline, which the Linux host also answers. None of them is
     // one of the four the settings page can turn off: Windows binds them fixed, and a user who
     // turned Shift off has said nothing about Ctrl+Shift+E.
-    if (key.down && key.keyCode === KEYCODE_E
-        && key.ctrlKey && key.shiftKey && !key.altKey && !key.logoKey) {
+    if (
+      key.down &&
+      key.keyCode === KEYCODE_E &&
+      key.ctrlKey &&
+      key.shiftKey &&
+      !key.altKey &&
+      !key.logoKey
+    ) {
       this.disarm();
       return ModeGesture.SWITCH_LANGUAGE;
     }
-    if (key.down && key.keyCode === KEYCODE_SPACE
-        && key.ctrlKey && key.shiftKey && !key.altKey && !key.logoKey) {
+    if (
+      key.down &&
+      key.keyCode === KEYCODE_SPACE &&
+      key.ctrlKey &&
+      key.shiftKey &&
+      !key.altKey &&
+      !key.logoKey
+    ) {
       this.disarm();
-      return ModeGesture.TOGGLE_CHARACTER_SET;
+      return ModeGesture.TOGGLE_WIDTH;
     }
-    if (key.down && key.keyCode === KEYCODE_PERIOD
-        && key.ctrlKey && !key.shiftKey && !key.altKey && !key.logoKey) {
+    if (
+      key.down &&
+      key.keyCode === KEYCODE_PERIOD &&
+      key.ctrlKey &&
+      !key.shiftKey &&
+      !key.altKey &&
+      !key.logoKey
+    ) {
       this.disarm();
       return ModeGesture.TOGGLE_PUNCTUATION;
     }
@@ -139,8 +170,9 @@ export class InputModeRouting {
   }
 
   private solitary(key: ModeKey, shift: boolean): ModeGesture {
-    const enabled: boolean =
-      shift ? this.bindings.switchLanguageShift : this.bindings.switchLanguageCtrl;
+    const enabled: boolean = shift
+      ? this.bindings.switchLanguageShift
+      : this.bindings.switchLanguageCtrl;
     const armed: number = shift ? this.armedShift : this.armedCtrl;
     if (key.down) {
       // A second press while one is already down is not a tap of either, and the other modifier
@@ -161,6 +193,7 @@ export class InputModeRouting {
       this.armedCtrl = -1;
     }
     return enabled && armed >= 0 && key.timestamp - armed <= SOLITARY_INTERVAL_MS
-      ? ModeGesture.SWITCH_LANGUAGE : ModeGesture.NONE;
+      ? ModeGesture.SWITCH_LANGUAGE
+      : ModeGesture.NONE;
   }
 }

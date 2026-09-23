@@ -236,6 +236,8 @@ import {
   HardwareKeyRouter,
   HardwareKeyAction,
   HardwareKey,
+  HardwareSpelling,
+  PLAIN_SPELLING,
 } from "../entry/src/main/ets/keyboard/HardwareKeyRouter";
 import {
   CandidateTextPolicy,
@@ -4102,7 +4104,7 @@ group("the Windows mode chords are answered on a hardware keyboard", () => {
   );
   check(
     routing.accept(modeKey(KEY_SPACE, true, 0, { ctrlKey: true, shiftKey: true })) ===
-      ModeGesture.TOGGLE_CHARACTER_SET,
+      ModeGesture.TOGGLE_WIDTH,
     "Ctrl+Shift+Space switches halfwidth and fullwidth",
   );
   check(
@@ -7543,6 +7545,123 @@ group("keypad digits reach both digit paths", () => {
   check(
     select.action === HardwareKeyAction.SELECT && select.index === 2,
     "keypad 3 picks the third candidate",
+  );
+});
+
+group("Ctrl+Shift+F switches simplified and traditional, not the character width", () => {
+  const routing: InputModeRouting = new InputModeRouting();
+  routing.use(DEFAULT_MODE_BINDINGS);
+  // Windows `HandleImeKey` answers `IsCharacterSetShortcut` with `SetConfiguredCharacterSet`; the settings page labels the binding 切换简繁.
+  check(
+    routing.accept(modeKey(2022, true, 0, { ctrlKey: true, shiftKey: true })) ===
+      ModeGesture.TOGGLE_CHARACTER_SET,
+    "Ctrl+Shift+F is the simplified/traditional chord",
+  );
+  routing.use({ ...DEFAULT_MODE_BINDINGS, toggleCharacterSetCtrlShiftF: false });
+  check(
+    routing.accept(modeKey(2022, true, 0, { ctrlKey: true, shiftKey: true })) === ModeGesture.NONE,
+    "turning the binding off leaves the chord to the application",
+  );
+});
+
+group("a hardware key spells or punctuates depending on what is being spelled", () => {
+  const route = (over: Record<string, unknown>, spelling: Partial<HardwareSpelling>) =>
+    HardwareKeyRouter.route(
+      {
+        keyCode: 0,
+        unicodeChar: 0,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        logoKey: false,
+        ...over,
+      } as HardwareKey,
+      true,
+      true,
+      false,
+      undefined,
+      false,
+      false,
+      "disabled",
+      true,
+      { ...PLAIN_SPELLING, ...spelling },
+    );
+  const unicode: Partial<HardwareSpelling> = { localMode: "unicode", editing: "u4e", caret: 3 };
+  const digit = route({ keyCode: 2000, unicodeChar: 0x30 }, unicode);
+  check(
+    digit.action === HardwareKeyAction.COMPOSE && digit.character === 0x30,
+    "in U mode a plain 0 is part of the code point",
+  );
+  const four = route({ keyCode: 2004, unicodeChar: 0x34 }, unicode);
+  check(
+    four.action === HardwareKeyAction.COMPOSE && four.character === 0x34,
+    "and so is a plain 4, which would otherwise pick the fourth candidate",
+  );
+  const pick = route({ keyCode: 2002, unicodeChar: 0x40, shiftKey: true }, unicode);
+  check(
+    pick.action === HardwareKeyAction.SELECT && pick.index === 1,
+    "Shift+2 picks the second candidate in U mode, as on Windows",
+  );
+  const plus = route(
+    { keyCode: 2058, unicodeChar: 0x2b, shiftKey: true },
+    { localMode: "unicode", editing: "U", caret: 1 },
+  );
+  check(
+    plus.action === HardwareKeyAction.COMPOSE && plus.character === 0x2b,
+    "the + of U+ is spelled rather than taken as a paging key or a mark",
+  );
+  check(
+    route({ keyCode: 2058, unicodeChar: 0x2b, shiftKey: true }, unicode).action !==
+      HardwareKeyAction.COMPOSE,
+    "a + anywhere else in the code point is not part of it",
+  );
+  check(
+    route({ keyCode: 2004, unicodeChar: 0x34 }, { editing: "ni", caret: 2 }).action ===
+      HardwareKeyAction.SELECT,
+    "outside U mode a digit still picks",
+  );
+
+  const separator = route({ keyCode: 2063, unicodeChar: 0x27 }, { editing: "xi", caret: 2 });
+  check(
+    separator.action === HardwareKeyAction.COMPOSE && separator.character === 0x27,
+    "' separates pinyin syllables mid-composition",
+  );
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, { editing: "xi", caret: 0 }).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "with the caret at the start there is nothing to separate",
+  );
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, { editing: "abcd", caret: 4, wubi: true })
+      .action === HardwareKeyAction.PUNCTUATION,
+    "Wubi codes have no syllables, so ' stays a mark",
+  );
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, { localMode: "emoji", editing: "xiao", caret: 4 })
+      .action === HardwareKeyAction.COMPOSE,
+    "emoji spellings are separated the same way",
+  );
+
+  const microsoft: Partial<HardwareSpelling> = { microsoftShuangpin: true };
+  const ing = route({ keyCode: 2062, unicodeChar: 0x3b }, { ...microsoft, editing: "x", caret: 1 });
+  check(
+    ing.action === HardwareKeyAction.COMPOSE && ing.character === 0x3b,
+    "Microsoft shuangpin spells ing with ; as the second key of a syllable",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { ...microsoft, editing: "xm", caret: 2 })
+      .action === HardwareKeyAction.PUNCTUATION,
+    "as the first key of the next syllable it is a mark",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { ...microsoft, editing: "xm'x", caret: 4 })
+      .action === HardwareKeyAction.COMPOSE,
+    "syllables are counted from the last separator",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { editing: "x", caret: 1 }).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "other layouts never spell with ;",
   );
 });
 

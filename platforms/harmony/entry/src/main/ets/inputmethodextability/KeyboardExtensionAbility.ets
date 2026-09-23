@@ -435,6 +435,14 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       return true;
     }
     if (gesture === ModeGesture.TOGGLE_CHARACTER_SET) {
+      // Windows only switches while composing Chinese, but claims the chord either way (`HandleImeKey`, `IsCharacterSetInputModeToggle`).
+      if (!session.isEnglish()) {
+        session.toggleCharacterSet();
+        KeyboardSession.shared.refreshToolbar();
+      }
+      return true;
+    }
+    if (gesture === ModeGesture.TOGGLE_WIDTH) {
       session.toggleCharacterWidth();
       return true;
     }
@@ -461,7 +469,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         KeyboardSession.shared.preferences().numberRowSelection,
       KeyboardSession.shared.preferences().navigation,
         session.hasHighlightedTranslation(), session.isJapanese(),
-        session.wordCharacterBinding(), session.hasHighlightedCandidate());
+        session.wordCharacterBinding(), session.hasHighlightedCandidate(), session.hardwareSpelling());
     if (decision.action === HardwareKeyAction.RELEASE) {
       return false;
     }
