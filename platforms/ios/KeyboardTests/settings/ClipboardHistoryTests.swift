@@ -131,7 +131,7 @@ final class ClipboardHistoryTests: XCTestCase {
     XCTAssertEqual(inserted, "测试粘贴\n第二行")
     XCTAssertGreaterThan(table.bounds.height, 60)
     let header = try XCTUnwrap(panel.subviews.compactMap { $0 as? UIStackView }.first)
-    let clear = try XCTUnwrap(header.arrangedSubviews.compactMap { $0 as? UIButton }.first)
+    let clear = try XCTUnwrap(header.arrangedSubviews.first { $0.accessibilityIdentifier == "clearClipboardHistory" } as? UIButton)
     clear.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try store.load().count, 1)
     clear.sendActions(for: .primaryActionTriggered)
@@ -162,5 +162,57 @@ final class ClipboardHistoryTests: XCTestCase {
     XCTAssertEqual(ClipboardHistoryItem.matching(items, query: "会议").map(\.text), ["今天的会议记录", "会议"])
     XCTAssertEqual(ClipboardHistoryItem.matching(items, query: "o w").map(\.text), ["Hello World"])
     XCTAssertTrue(ClipboardHistoryItem.matching(items, query: "不存在").isEmpty)
+  }
+
+  /// Windows' 搜索剪贴板 on a keyboard: a letter and digit pad filters the rows, a tap inserts the match, and 返回 leaves the search before the panel.
+  @MainActor func testPanelSearchFiltersWithItsOwnPad() throws {
+    let store = try temporaryStore()
+    for text in ["会议链接 https://example.com/a1", "验证码 804512", "晚饭吃什么", "Example Draft"] { try store.add(text) }
+    var inserted = ""
+    var closed = false
+    let panel = KeyboardClipboardView(hasFullAccess: true, store: store, onInsert: { inserted = $0 }, onClose: { closed = true })
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 300)
+    panel.layoutIfNeeded()
+    let table = try XCTUnwrap(panel.subviews.compactMap { $0 as? UITableView }.first)
+    XCTAssertEqual(table.numberOfRows(inSection: 0), 4)
+
+    try view("clipboardSearch", in: panel).sendActions(for: .primaryActionTriggered)
+    panel.layoutIfNeeded()
+    let pad = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "clipboardSearchPad" })
+    XCTAssertFalse(pad.isHidden)
+    XCTAssertTrue(try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "captureClipboard" }).isHidden)
+    XCTAssertLessThanOrEqual(table.frame.maxY, pad.frame.minY)
+    XCTAssertGreaterThanOrEqual(table.bounds.height, table.rowHeight, "the pad left no room for a single row on a phone-height panel")
+    XCTAssertEqual(table.numberOfRows(inSection: 0), 4, "an empty query shows everything")
+
+    for key in ["e", "x", "a", "m"] { try view("clipboardSearchKey-" + key, in: panel).sendActions(for: .primaryActionTriggered) }
+    XCTAssertEqual(panel.searchQuery, "exam")
+    XCTAssertEqual(table.numberOfRows(inSection: 0), 2, "the match ignores case")
+    XCTAssertEqual((descendants(panel).first { $0.accessibilityIdentifier == "clipboardTitle" } as? UILabel)?.text, "搜索：exam")
+
+    for _ in 0..<4 { try view("clipboardSearchDelete", in: panel).sendActions(for: .primaryActionTriggered) }
+    for key in ["8", "0", "4"] { try view("clipboardSearchKey-" + key, in: panel).sendActions(for: .primaryActionTriggered) }
+    XCTAssertEqual(table.numberOfRows(inSection: 0), 1)
+    panel.tableView(table, didSelectRowAt: IndexPath(row: 0, section: 0))
+    XCTAssertEqual(inserted, "验证码 804512")
+
+    try view("clipboardSearchKey-q", in: panel).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(table.numberOfRows(inSection: 0), 0)
+    XCTAssertEqual((table.backgroundView as? UILabel)?.text, "没有匹配的记录")
+
+    let back = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIButton }.first { $0.title(for: .normal) == "返回" })
+    back.sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(panel.searchQuery)
+    XCTAssertFalse(closed)
+    XCTAssertTrue(pad.isHidden)
+    XCTAssertEqual(table.numberOfRows(inSection: 0), 4)
+    back.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(closed)
+  }
+
+  private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+
+  private func view(_ identifier: String, in root: UIView) throws -> UIControl {
+    try XCTUnwrap(descendants(root).first { $0.accessibilityIdentifier == identifier } as? UIControl, identifier)
   }
 }
