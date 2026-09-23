@@ -12,22 +12,12 @@ on:
     paths-ignore:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/apple-platform-architecture.md
-      - docs/backend-integration.md
-      - docs/ios-distribution.md
-      - docs/plans/**
   pull_request:
     paths-ignore:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/apple-platform-architecture.md
-      - docs/backend-integration.md
-      - docs/ios-distribution.md
-      - docs/plans/**
   workflow_dispatch:
 
   merge_group:
