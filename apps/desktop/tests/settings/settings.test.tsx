@@ -31,6 +31,7 @@ import {
   type TouchKeyboardSkinDesign,
 } from "@msime/ui";
 import {
+  describeInstallerTrust,
   selectPlatformRelease,
   validateGitHubRelease,
 } from "../../../../packages/ui/src/settings/update-manifest";
@@ -5447,8 +5448,177 @@ test("Linux offers its own newest published release, not another platform's", as
       "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
     ),
   );
-  expect(screen.queryByText(/SHA256/)).toBeNull();
+  // A release without assets has no digest to show, so the notice falls back to SHA256SUMS instead of inventing one.
+  expect(screen.queryByText(/下载后请核对 SHA256/)).toBeNull();
+  expect(
+    screen.getByText(/该软件包未签名。.*sha256sum -c SHA256SUMS --ignore-missing/),
+  ).toBeDefined();
   vi.unstubAllGlobals();
+});
+
+test("Linux update notice shows the .deb digest GitHub computed and the sha256sum command", async () => {
+  const digest = "0123456789abcdef".repeat(4);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          tag_name: "linux-v1.2.0",
+          html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
+          assets: [
+            {
+              name: "msime-client-1.2.0-linux-x86_64.tar.gz",
+              digest: `sha256:${"f".repeat(64)}`,
+              browser_download_url:
+                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-client-1.2.0-linux-x86_64.tar.gz",
+            },
+            {
+              name: "msime-client_1.2.0_amd64.deb",
+              digest: `sha256:${digest}`,
+              browser_download_url:
+                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-client_1.2.0_amd64.deb",
+            },
+            { name: "SHA256SUMS", digest: `sha256:${"e".repeat(64)}` },
+          ],
+        },
+      ],
+    }),
+  );
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "linux" } as HostCapabilities,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  expect(screen.getByText("该软件包未签名，请务必核对下面的校验值。")).toBeDefined();
+  expect(screen.getByText(digest)).toBeDefined();
+  expect(screen.getByText("sha256sum msime-client_1.2.0_amd64.deb")).toBeDefined();
+  expect(screen.queryByText(/Get-FileHash/)).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("Linux release assets yield a digest only when it is well-formed and unambiguous", () => {
+  const page = "https://github.com/metasequoiaime/msime/releases";
+  const digest = "a".repeat(64);
+  const release = (assets: unknown) => [
+    { tag_name: "linux-v1.2.0", html_url: `${page}/tag/linux-v1.2.0`, assets },
+  ];
+  const pick = (assets: unknown) => {
+    const update = selectPlatformRelease(release(assets), "linux", page);
+    return (
+      update && {
+        name: update.installerName,
+        sha256: update.installerSha256,
+        signed: update.signed,
+      }
+    );
+  };
+  expect(pick([{ name: "msime-client_1.2.0_amd64.deb", digest: `sha256:${digest}` }])).toEqual({
+    name: "msime-client_1.2.0_amd64.deb",
+    sha256: digest,
+    signed: false,
+  });
+  // The tarball is the fallback when no .deb was uploaded.
+  expect(
+    pick([{ name: "msime-client-1.2.0-linux-x86_64.tar.gz", digest: `sha256:${digest}` }]),
+  ).toEqual({ name: "msime-client-1.2.0-linux-x86_64.tar.gz", sha256: digest, signed: false });
+  // Older API responses omit the digest or return null; a wrong algorithm, uppercase hex or a short value is not trusted either.
+  for (const bad of [
+    undefined,
+    null,
+    `sha512:${digest}`,
+    `sha256:${digest.toUpperCase()}`,
+    `sha256:${digest.slice(1)}`,
+    digest,
+    42,
+  ]) {
+    expect(pick([{ name: "msime-client_1.2.0_amd64.deb", digest: bad }])).toEqual({
+      name: "msime-client_1.2.0_amd64.deb",
+      sha256: null,
+      signed: false,
+    });
+  }
+  // Two architectures would make any single digest wrong for someone.
+  expect(
+    pick([
+      { name: "msime-client_1.2.0_amd64.deb", digest: `sha256:${digest}` },
+      { name: "msime-client_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
+    ]),
+  ).toEqual({ name: null, sha256: null, signed: false });
+  // A name that would need shell quoting is never put into the copyable command.
+  expect(pick([{ name: "--x;rm -rf ~.deb", digest: `sha256:${digest}` }])).toEqual({
+    name: null,
+    sha256: null,
+    signed: false,
+  });
+  for (const assets of [undefined, null, "x", [null, 3, { digest: `sha256:${digest}` }]]) {
+    expect(pick(assets)).toEqual({ name: null, sha256: null, signed: false });
+  }
+  // Other platforms keep ignoring assets.
+  expect(
+    selectPlatformRelease(
+      [
+        {
+          tag_name: "windows-v1.2.0",
+          html_url: `${page}/tag/windows-v1.2.0`,
+          assets: [{ name: "msime-client_1.2.0_amd64.deb", digest: `sha256:${digest}` }],
+        },
+      ],
+      "windows",
+      page,
+    ),
+  ).toMatchObject({ installerName: null, installerSha256: null, signed: null });
+});
+
+test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows", () => {
+  const digest = "c".repeat(64);
+  const version = { display: "1.2.0", parts: [1, 2, 0] };
+  const releaseUrl = "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0";
+  expect(
+    describeInstallerTrust(
+      {
+        version,
+        releaseUrl,
+        installerName: "msime-client_1.2.0_amd64.deb",
+        installerSha256: digest,
+        signed: false,
+      },
+      "linux",
+    ),
+  ).toEqual({
+    warning: "该软件包未签名，请务必核对下面的校验值。",
+    verify: { command: "sha256sum msime-client_1.2.0_amd64.deb", sha256: digest },
+  });
+  expect(
+    describeInstallerTrust(
+      { version, releaseUrl, installerName: null, installerSha256: null, signed: false },
+      "linux",
+    ).verify,
+  ).toBeNull();
+  const windows = {
+    version,
+    releaseUrl: "https://github.com/metasequoiaime/msime/releases",
+    installerName: "MetasequoiaIME_Setup_v1.2.0.exe",
+    installerSha256: digest,
+    signed: false,
+  };
+  const expected = {
+    warning: "该版本未经代码签名，请务必核对下面的校验值。",
+    verify: {
+      command: "Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256",
+      sha256: digest,
+    },
+  };
+  expect(describeInstallerTrust(windows, "windows")).toEqual(expected);
+  expect(describeInstallerTrust(windows, null)).toEqual(expected);
 });
 
 test("Windows checks this repository's Windows releases rather than the reference manifest", async () => {
