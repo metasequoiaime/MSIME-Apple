@@ -88,6 +88,35 @@
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 @end
 
+// Records the audible order of cues and system-audio mute changes on a synthetic output device.
+namespace {
+NSMutableArray<NSString *> *audioEvents;
+UInt32 outputMuted;
+OSStatus OrderGet(AudioObjectID object, const AudioObjectPropertyAddress *address,
+    UInt32 qualifierSize, const void *qualifier, UInt32 *size, void *data) {
+    (void)object; (void)qualifierSize; (void)qualifier; (void)size;
+    if (address->mSelector == kAudioHardwarePropertyDefaultOutputDevice ||
+        address->mSelector == kAudioHardwarePropertyTranslateUIDToDevice) *static_cast<AudioDeviceID *>(data) = 7;
+    else if (address->mSelector == kAudioDevicePropertyDeviceUID)
+        *static_cast<CFStringRef *>(data) = static_cast<CFStringRef>(CFBridgingRetain(@"synthetic-http-output"));
+    else *static_cast<UInt32 *>(data) = outputMuted;
+    return noErr;
+}
+OSStatus OrderSet(AudioObjectID object, const AudioObjectPropertyAddress *address,
+    UInt32 qualifierSize, const void *qualifier, UInt32 size, const void *data) {
+    (void)object; (void)address; (void)qualifierSize; (void)qualifier; (void)size;
+    outputMuted = *static_cast<const UInt32 *>(data);
+    [audioEvents addObject:outputMuted ? @"mute" : @"unmute"];
+    return noErr;
+}
+}
+@interface HTTPOrderedCueFixture : MSIMEVoiceCueFixture
+@end
+@implementation HTTPOrderedCueFixture
+- (void)playStartCueThen:(void (^)(void))completion { [audioEvents addObject:@"start"]; [super playStartCueThen:completion]; }
+- (void)playStopCue { [audioEvents addObject:@"stop"]; [super playStopCue]; }
+@end
+
 int main() {
     @autoreleasepool {
         HTTPControllerFixture *controller = [HTTPControllerFixture alloc];
@@ -272,6 +301,38 @@ int main() {
             assert(session.submissions == submissions && overlay.levelUpdates == levels && overlay.phase != 3);
             [controller cancelHTTPVoiceInput];
         }
+        // Windows plays the start cue before muting other audio and unmutes before the end cue. The macOS mute covers the whole output device, so it must wait for the start cue to finish.
+        [controller setValue:client forKey:@"activeClient"];
+        audioEvents = [NSMutableArray array];
+        HTTPOrderedCueFixture *ordered = [HTTPOrderedCueFixture new];
+        [controller setValue:ordered forKey:@"voiceCuePlayer"];
+        [controller setValue:[[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{OrderGet, OrderSet, nullptr, nullptr}] forKey:@"voiceAudioMuter"];
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES, @"MSIMEClientVoiceMuteSystemAudio": @YES} forName:NSArgumentDomain];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        assert([audioEvents isEqual:@[@"start"]] && !outputMuted && ordered.startCompletion);
+        ordered.startCompletion();
+        assert([audioEvents isEqual:(@[@"start", @"mute"])] && outputMuted);
+        [controller finishHTTPVoiceInput];
+        assert([audioEvents isEqual:(@[@"start", @"mute", @"unmute", @"stop"])] && !outputMuted);
+        controller.requestFixture.completion(@"synthetic", nil);
+        // Stopping before the start cue ends leaves other audio untouched; its late completion cannot mute.
+        [audioEvents removeAllObjects];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        void (^late)(void) = ordered.startCompletion;
+        [controller cancelHTTPVoiceInput];
+        late();
+        assert([audioEvents isEqual:(@[@"start", @"stop"])] && !outputMuted);
+        // A failed start never mutes either.
+        [audioEvents removeAllObjects];
+        capture.failStart = YES;
+        assert(![controller startHTTPVoiceInputWithOptions:@{}] && !audioEvents.count && !outputMuted);
+        capture.failStart = NO;
+        // Without a start cue the mute follows the start of capture directly.
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @NO, @"MSIMEClientVoiceEndSound": @YES, @"MSIMEClientVoiceMuteSystemAudio": @YES} forName:NSArgumentDomain];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        assert([audioEvents isEqual:@[@"mute"]] && outputMuted);
+        [controller cancelHTTPVoiceInput];
+        assert([audioEvents isEqual:(@[@"mute", @"unmute", @"stop"])] && !outputMuted);
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
     }
 }

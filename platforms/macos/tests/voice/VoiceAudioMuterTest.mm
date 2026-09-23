@@ -1,6 +1,7 @@
 #import "../../src/voice/VoiceAudioMuter.h"
 #include <cassert>
 #include <map>
+#include <unistd.h>
 
 namespace {
 AudioDeviceID selected;
@@ -55,17 +56,42 @@ OSStatus Set(AudioObjectID object, const AudioObjectPropertyAddress *address,
     muted.at(object) = *static_cast<const UInt32 *>(data);
     return noErr;
 }
+AudioObjectPropertyListenerBlock listener;
+NSUInteger listenerAdds, listenerRemoves;
+OSStatus AddListener(AudioObjectID object, const AudioObjectPropertyAddress *address, dispatch_queue_t queue,
+    AudioObjectPropertyListenerBlock block) {
+    assert(object == kAudioObjectSystemObject && address->mSelector == kAudioHardwarePropertyDefaultOutputDevice);
+    assert(address->mScope == kAudioObjectPropertyScopeGlobal && address->mElement == kAudioObjectPropertyElementMain);
+    assert(queue == dispatch_get_main_queue() && block && !listener);
+    listener = block; ++listenerAdds;
+    return noErr;
+}
+OSStatus RemoveListener(AudioObjectID object, const AudioObjectPropertyAddress *address, dispatch_queue_t queue,
+    AudioObjectPropertyListenerBlock block) {
+    assert(object == kAudioObjectSystemObject && address->mSelector == kAudioHardwarePropertyDefaultOutputDevice);
+    assert(queue == dispatch_get_main_queue() && block == listener);
+    listener = nil; ++listenerRemoves;
+    return noErr;
+}
+// Models CoreAudio announcing a new default output device.
+const AudioObjectPropertyAddress changed = {kAudioHardwarePropertyDefaultOutputDevice,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+void MoveDefault(AudioDeviceID device) {
+    selected = device;
+    if (listener) listener(1, &changed);
+}
 void Reset() {
     selected = 100; muted = {{100, 0}, {200, 0}};
     identities = [@{@100:@"synthetic-output-a", @200:@"synthetic-output-b"} mutableCopy];
     reads = writes = 0; failRead = failWrite = shortRead = NO;
     missingUID = wrongTranslation = NO;
+    listener = nil; listenerAdds = listenerRemoves = 0;
 }
 }
 int main() {
     @autoreleasepool {
         Reset();
-        MSIMEVoiceAudioMuter *muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set}];
+        MSIMEVoiceAudioMuter *muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set, AddListener, RemoveListener}];
         [muter restore]; assert(!reads && !writes);
         assert([muter mute:nil] && muted[100] == 1 && writes == 1);
         selected = 200;
@@ -126,6 +152,76 @@ int main() {
         missingUID = NO;
         muter = nil;
         assert(muted[100] == 0);
+
+        // The mute follows the default output device while recording and hands each previous device back.
+        Reset();
+        muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set, AddListener, RemoveListener}];
+        assert([muter mute:nil] && muted[100] == 1 && listener && listenerAdds == 1);
+        MoveDefault(200); assert(muted[100] == 0 && muted[200] == 1 && writes == 3);
+        MoveDefault(200); assert(writes == 3); // A repeated notification for the held device must not flicker it.
+        MoveDefault(100); assert(muted[100] == 1 && muted[200] == 0 && writes == 5);
+        AudioObjectPropertyListenerBlock stale = listener;
+        [muter restore]; assert(muted[100] == 0 && muted[200] == 0 && !listener && listenerRemoves == 1);
+        selected = 200; stale(1, &changed); assert(muted[200] == 0 && writes == 6); // Queued after restore.
+        // A new default the user had already muted is neither taken nor later undone.
+        Reset();
+        assert([muter mute:nil]);
+        muted[200] = 1; MoveDefault(200); assert(muted[100] == 0 && muted[200] == 1);
+        [muter restore]; assert(muted[200] == 1 && writes == 2);
+        // A default that moves because the muted device vanished still mutes the new one; the vanished device stays owed.
+        Reset();
+        assert([muter mute:nil]);
+        [identities removeObjectForKey:@100];
+        MoveDefault(200); assert(muted[200] == 1 && muted[100] == 1);
+        [muter restore]; assert(muted[200] == 0 && muted[100] == 1);
+        // It does not block the next recording, and is handed back once it reappears.
+        assert([muter mute:nil] && muted[200] == 1);
+        [muter restore]; assert(muted[200] == 0 && muted[100] == 1);
+        identities[@100] = @"synthetic-output-a";
+        [muter restore]; assert(muted[100] == 0);
+        // A device that cannot be read at the moment of the change is left alone.
+        assert([muter mute:nil]);
+        muted[300] = 0; MoveDefault(300); assert(muted[100] == 0 && muted[300] == 0);
+        [muter restore]; assert(muted[100] == 0);
+        // Without listener functions the mute still works for the current device.
+        Reset();
+        muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set, nullptr, nullptr}];
+        assert([muter mute:nil] && muted[100] == 1 && !listenerAdds);
+        [muter restore]; assert(muted[100] == 0);
+
+        // A deferred mute (run after the start cue) is cancelled by any restore that precedes it.
+        Reset();
+        muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set, AddListener, RemoveListener}];
+        void (^cancelled)(void) = [muter deferredMute];
+        [muter restore]; cancelled(); assert(muted[100] == 0 && !writes && !listener);
+        void (^pending)(void) = [muter deferredMute];
+        pending(); assert(muted[100] == 1 && writes == 1 && listener);
+        pending(); assert(writes == 1);
+        [muter restore]; pending(); assert(muted[100] == 0 && writes == 2);
+        muter = nil; cancelled = pending = nil;
+
+        // Owing several devices is journaled as one record and trimmed as each is handed back.
+        Reset();
+        char temporary[] = "/tmp/msime-voice-muter-test-XXXXXX";
+        assert(mkdtemp(temporary));
+        NSURL *directory = [NSURL fileURLWithPath:@(temporary) isDirectory:YES];
+        NSURL *journal = [directory URLByAppendingPathComponent:@"voice-audio-recovery/pending.json"];
+        auto record = [&] {
+            NSData *data = [NSData dataWithContentsOfURL:journal];
+            return data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        };
+        muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set, AddListener, RemoveListener}
+            recoveryDirectory:[directory URLByAppendingPathComponent:@"voice-audio-recovery" isDirectory:YES]];
+        assert([muter mute:nil] && [record()[@"uid"] isEqual:@"synthetic-output-a"] && [record()[@"version"] isEqual:@1]);
+        [identities removeObjectForKey:@100];
+        MoveDefault(200);
+        assert([record()[@"version"] isEqual:@2] && [record()[@"uids"] isEqual:(@[@"synthetic-output-a", @"synthetic-output-b"])]);
+        [muter restore];
+        assert(muted[200] == 0 && [record()[@"uid"] isEqual:@"synthetic-output-a"] && [record()[@"version"] isEqual:@1]);
+        identities[@100] = @"synthetic-output-a";
+        [muter restore]; assert(muted[100] == 0 && !record());
+        muter = nil;
+        assert([NSFileManager.defaultManager removeItemAtURL:directory error:nil]);
     }
     return 0;
 }

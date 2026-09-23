@@ -2367,7 +2367,12 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)voiceCaptureDidStart {
     if (_voiceCueRecording) return;
     _voiceCueRecording = YES;
-    if (MSIMEVoiceCueEnabled(NSUserDefaults.standardUserDefaults, YES)) [_voiceCuePlayer playStartCue];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    // Windows plays the start cue and only then mutes other audio. The macOS mute is device-wide and would swallow the cue, so it waits for the cue to finish; any restore before then cancels it.
+    void (^mute)(void) = nil;
+    if ([defaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"]) mute = [_voiceAudioMuter deferredMute];
+    if (MSIMEVoiceCueEnabled(defaults, YES)) [_voiceCuePlayer playStartCueThen:mute];
+    else if (mute) mute();
 }
 - (void)voiceCaptureDidEnd {
     if (!_voiceCueRecording) return;
@@ -2811,7 +2816,6 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         }
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureSession]; return; }
-        if ([NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"]) [controller->_voiceAudioMuter mute:&error];
         [controller->_voiceOverlay setListening:YES];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = MSIMEVoiceProviderSocket();

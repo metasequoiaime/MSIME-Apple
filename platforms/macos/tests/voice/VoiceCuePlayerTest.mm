@@ -46,6 +46,26 @@ int main() {
         MSIMEVoiceCuePlayer *bare = [[MSIMEVoiceCuePlayer alloc] init];
         assert(bare && !bare.startCueIsBundled && !bare.stopCueIsBundled && bare.startSound && bare.stopSound);
 
+        // The start cue's completion (the deferred system-audio mute) runs once after the cue ends, never while it can still be heard. Restarting drops the earlier completion. Volume 0 keeps the run silent; a host without an output device fails play and runs the completion at once, which the same assertions accept.
+        player.startSound.volume = 0;
+        __block NSUInteger first = 0, second = 0;
+        [player playStartCueThen:^{ ++first; }];
+        const BOOL playing = player.startSound.isPlaying;
+        assert(playing ? !first : first == 1);
+        if (playing) {
+            [player playStartCueThen:^{ ++second; }];
+            NSDate *started = NSDate.date;
+            while (!second && -started.timeIntervalSinceNow < player.startSound.duration + 3)
+                [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            assert(second == 1 && !first);
+            assert(-started.timeIntervalSinceNow >= player.startSound.duration - 0.1);
+            // The fallback timer of a finished cue must not run the completion a second time.
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.8]];
+            assert(second == 1 && !first);
+        }
+        [player playStartCueThen:nil];
+        [player.startSound stop];
+
         [NSFileManager.defaultManager removeItemAtURL:root error:nil];
     }
     return 0;

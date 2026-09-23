@@ -13,5 +13,7 @@ NSURL *MSIMEVoiceCueResourceURL(NSBundle *bundle, BOOL start);
 @property(nonatomic, readonly) NSSound *startSound;
 @property(nonatomic, readonly) NSSound *stopSound;
 - (void)playStartCue;
+// Runs `completion` once on the main thread after the start cue has finished playing, or right away when it cannot play. Restarting the cue drops a completion that has not run yet.
+- (void)playStartCueThen:(void (^)(void))completion;
 - (void)playStopCue;
 @end
