@@ -288,6 +288,9 @@ struct ServiceSettingsView: View {
   /// The recognized text before polishing, so the user can take it instead of the polished result.
   @State private var transcript = ""
   @StateObject private var recorder = VoiceRecorder()
+  /// Doubao's partial result while a live recording runs, and whether that recording's request is still open.
+  @State private var liveText = ""
+  @State private var recognizesLive = false
 
   init(kind: CustomServiceKind) {
     self.kind = kind
@@ -344,17 +347,30 @@ struct ServiceSettingsView: View {
           Button(recorder.isRecording ? "停止录音" : "开始录音") {
             if recorder.isRecording { recorder.stop() }
             else {
+              let live = streamsLive
+              if live { guard save() else { return } }
               operation = Task {
                 // The recording session silences system sounds, so the start cue has to finish before it opens.
                 if voiceSettings.soundEnabled && voiceSettings.startSound { await VoiceCue.playStart() }
-                do { try await recorder.start() }
+                do {
+                  if live {
+                    if let pcm = try await recorder.startStreaming() { recognizeLive(pcm) }
+                  } else {
+                    try await recorder.start()
+                  }
+                }
                 catch is CancellationError {} catch { status = error.localizedDescription }
               }
             }
           }
-          .disabled(busy || recorder.isPreparing)
+          .disabled(busy || recorder.isPreparing || (recognizesLive && !recorder.isRecording))
           if recorder.isRecording { Label("正在录音，最长 60 秒", systemImage: "mic.fill").foregroundStyle(.red) }
-          if recorder.audio != nil && !recorder.isRecording {
+          if recognizesLive {
+            Text(liveText.isEmpty ? (recorder.isRecording ? "正在聆听…" : "正在识别…") : liveText)
+              .foregroundStyle(liveText.isEmpty ? .secondary : .primary)
+              .accessibilityIdentifier("voiceLiveText")
+          }
+          if recorder.audio != nil && !recorder.isRecording && !recognizesLive {
             Text("录音已准备好，尚未上传。")
             Button(busy ? "正在识别…" : "发送录音并识别") { send() }.disabled(busy)
             Button("删除录音", role: .destructive) { recorder.discard() }.disabled(busy)
@@ -460,6 +476,10 @@ struct ServiceSettingsView: View {
         ForEach(VoicePolishSettings.languages, id: \.id) { Text($0.title).tag($0.id) }
       }
       .accessibilityIdentifier("voiceLanguage")
+      if configuration.voiceProvider == .doubao {
+        Toggle("边说边识别", isOn: $voiceSettings.streamLive)
+          .accessibilityIdentifier("voiceStreamLive")
+      }
       Toggle("录音提示音", isOn: $voiceSettings.soundEnabled)
         .accessibilityIdentifier("voiceSoundEnabled")
       // 和桌面「开始录音提示音」「结束录音提示音」同两个键。总开关关着时两项都不响,收起来免得看着像还开着。
@@ -470,7 +490,9 @@ struct ServiceSettingsView: View {
           .padding(.leading, 16).accessibilityIdentifier("voiceEndSound")
       }
     } footer: {
-      Text(configuration.voiceProvider == .doubao || configuration.voiceProvider == .siliconFlow
+      Text(configuration.voiceProvider == .doubao
+        ? "豆包自动判断语言，不使用这里的选择。边说边识别时录音同步发给豆包，结果随说随显示，停止录音即得到结果；关掉则录完再发送。开始和结束录音时各有一声系统提示音，可以分别关掉。"
+        : configuration.voiceProvider == .siliconFlow
         ? "当前服务自动判断语言，不使用这里的选择。开始和结束录音时各有一声系统提示音，可以分别关掉。"
         : "识别语言随录音一起发送；选“自动识别”时由服务判断。开始和结束录音时各有一声系统提示音，可以分别关掉。")
     }
@@ -857,23 +879,7 @@ struct ServiceSettingsView: View {
           generation: generation, doubaoClient: doubaoClient)
         try Task.checkCancellation()
         guard requestID == id else { return }
-        if let polish, !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          transcript = result
-          output = result
-          status = "识别完成，正在润色…"
-          do {
-            output = try await Self.polish(result, settings: polish)
-            status = "已完成"
-          } catch is CancellationError {
-            throw CancellationError()
-          } catch {
-            guard requestID == id else { return }
-            status = "润色失败，已保留识别原文：\(error.localizedDescription)"
-          }
-        } else {
-          output = result
-          status = "已完成"
-        }
+        try await deliver(result, polish: polish, id: id)
       } catch is CancellationError {
         if requestID == id { status = "已取消" }
       } catch {
@@ -882,6 +888,78 @@ struct ServiceSettingsView: View {
       if requestID == id { busy = false }
     }
   }
+  /// Shows a recognized result, polished first when the voice page asks for it.
+  private func deliver(_ result: String, polish: VoicePolishSettings?, id: UUID) async throws {
+    if let polish, !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      transcript = result
+      output = result
+      status = "识别完成，正在润色…"
+      do {
+        output = try await Self.polish(result, settings: polish)
+        status = "已完成"
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        guard requestID == id else { return }
+        status = "润色失败，已保留识别原文：\(error.localizedDescription)"
+      }
+    } else {
+      output = result
+      status = "已完成"
+    }
+  }
+
+  /// Doubao with 边说边识别 on, the only provider that can take audio before the recording ends.
+  private var streamsLive: Bool {
+    kind == .voice && configuration.voiceProvider == .doubao && voiceSettings.streamLive
+  }
+
+  /// Recognizes while the user is still speaking. A failed request leaves the recording in place once it stops, so it can still be sent the ordinary way.
+  private func recognizeLive(_ pcm: AsyncStream<Data>) {
+    let config = configuration
+    let polish = voiceSettings.polishEnabled ? voiceSettings : nil
+    voiceGeneration &+= 1
+    let generation = voiceGeneration
+    let client = DoubaoVoiceClient(transport: DoubaoWebSocketTransport(), codec: DoubaoHostFrameCodec.make(
+      enableITN: config.doubaoEnableITN, punctuation: config.doubaoEnablePunctuation,
+      DDC: config.doubaoEnableDDC, boostingTable: config.doubaoBoostingTableID))
+    requestID = UUID()
+    let id = requestID
+    output = ""
+    transcript = ""
+    status = ""
+    liveText = ""
+    recognizesLive = true
+    operation = Task {
+      do {
+        let url = try config.validatedURL(requiresModel: false, allowWebSocket: true)
+        let token = try ServiceTokenStore.read(.voice, url: url)
+        let result = try await CustomServiceClient.streamDoubao(
+          configuration: config, token: token, generation: generation, client: client, pcm: pcm
+        ) { text in
+          Task { @MainActor in if requestID == id && recognizesLive { liveText = text } }
+        }
+        try Task.checkCancellation()
+        guard requestID == id else { return }
+        recognizesLive = false
+        liveText = ""
+        // The recording has been recognized; keeping it would offer to send it a second time.
+        recorder.discard()
+        busy = true
+        try await deliver(result, polish: polish, id: id)
+      } catch is CancellationError {
+        if requestID == id { status = "已取消" }
+      } catch {
+        if requestID == id && !Task.isCancelled { status = "实时识别失败，可停止录音后改为发送录音：\(error.localizedDescription)" }
+      }
+      if requestID == id {
+        recognizesLive = false
+        liveText = ""
+        busy = false
+      }
+    }
+  }
+
   /// The polish pass after recognition, on its own saved service or the one under 「AI 设置」.
   private static func polish(_ transcript: String, settings: VoicePolishSettings) async throws -> String {
     var (configuration, token) = try VoicePolishService.resolved()
@@ -899,6 +977,8 @@ struct ServiceSettingsView: View {
     fetchingModels = false
     testingConnection = false
     busy = false
+    recognizesLive = false
+    liveText = ""
   }
   private func cancelAndClear() {
     cancelRequest()

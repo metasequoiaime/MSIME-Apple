@@ -352,6 +352,20 @@ enum CustomServiceClient {
     return try AppServicesBridge.parseResponse(data, voice: kind == .voice)
   }
 
+  /// Doubao recognition while the recording is still running (see `DoubaoVoiceClient.transcribeLive`).
+  static func streamDoubao(configuration: CustomServiceConfiguration, token: String, generation: UInt64,
+                           client: DoubaoVoiceClient, pcm: AsyncStream<Data>,
+                           partial: @escaping (String) -> Void) async throws -> String {
+    let url = try configuration.validatedURL(requiresModel: false, allowWebSocket: true)
+    let handshake = try configuration.doubaoHandshake(accessKey: token)
+    do {
+      return try await client.transcribeLive(endpoint: url, handshake: handshake, generation: generation,
+                                             pcm: pcm, partial: partial)
+    } catch DoubaoVoiceClient.Failure.emptyTranscript {
+      throw ServiceFailure(message: "豆包未返回可用的语音文本。")
+    }
+  }
+
   /// 「测试连接」, the desktop's credential test: a one-word chat for AI and one second of silence for voice. Any 2xx proves the endpoint, model and key, whatever the reply says; for Doubao, an empty transcript means the handshake was accepted.
   static func test(kind: CustomServiceKind, configuration: CustomServiceConfiguration, token: String,
                    doubaoClient: DoubaoVoiceClient? = nil,

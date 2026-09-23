@@ -28,6 +28,8 @@ struct VoicePolishSettings: Equatable {
   /// The desktop's per-cue switches under the master switch; a cue plays when both are on.
   var startSound = true
   var endSound = true
+  /// The desktop's `stream_inline_preedit`: Doubao recognizes while the user speaks. Windows writes the partial text into the document; iOS records in the app, so the partial text shows on the page instead.
+  var streamLive = true
 
   init() {}
 
@@ -44,6 +46,7 @@ struct VoicePolishSettings: Equatable {
     soundEnabled = voice["sound_enabled"] as? Bool ?? true
     startSound = voice["start_sound"] as? Bool ?? true
     endSound = voice["end_sound"] as? Bool ?? true
+    streamLive = voice["stream_inline_preedit"] as? Bool ?? true
   }
 
   /// Writes the fields this page owns and keeps the rest of `voice_input` (desktop providers, hotkeys, Doubao settings) as it was.
@@ -59,6 +62,7 @@ struct VoicePolishSettings: Equatable {
     voice["sound_enabled"] = soundEnabled
     voice["start_sound"] = startSound
     voice["end_sound"] = endSound
+    voice["stream_inline_preedit"] = streamLive
     preferences["voice_input"] = voice
   }
 
