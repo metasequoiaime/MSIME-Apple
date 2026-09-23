@@ -614,6 +614,10 @@ export interface HostCapabilities {
   helpcode_shift_entry?: boolean;
   skin_directory_import?: boolean;
   shuangpin_preedit?: boolean;
+  /** The host runs the configured transcription provider, so its controls have an effect. */
+  voice_provider_settings?: boolean;
+  /** The host draws interim recognition text, so the streaming-preedit switch has an effect. */
+  voice_stream_preedit?: boolean;
   /** The host tells the runtime its character width, so 全角输入 has something to act on. */
   character_width?: boolean;
   ai_provider_credentials?: boolean;
@@ -2043,7 +2047,9 @@ export function SettingsPage({
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
   const macosPlatform = client.host?.platform === "macos";
-  const nativeVoicePlatform = macosPlatform || harmonyPlatform;
+  // Hosts with a system recogniser of their own. Android's is what it falls back to when nothing
+  // is configured, so `system` is a real choice there rather than a value to report unavailable.
+  const nativeVoicePlatform = macosPlatform || harmonyPlatform || androidPlatform;
   // One list for every host. macOS used to be given 5, 7 and 9 - the Apple reference's set - while its
   // own normalisation rewrote anything else to 9, so the shared default of six displayed and saved as
   // nine on that platform alone.
@@ -2106,6 +2112,12 @@ export function SettingsPage({
   // A host with one way to commit a recognized result has nothing to choose between, and a select
   // with one outcome reads as a setting being ignored.
   const showVoiceCommitMode = host?.voice_commit_mode ?? !androidPlatform;
+  // These read `!androidPlatform` because that host once had only the platform recogniser. It runs
+  // the configured provider now, uploads and streaming socket both, so keying on the name would
+  // leave a user unable to configure something the host honours. What it still cannot do is draw
+  // interim text, and that switch stays hidden for exactly that reason.
+  const showVoiceProviderSettings = host?.voice_provider_settings ?? !androidPlatform;
+  const showVoiceStreamPreedit = host?.voice_stream_preedit ?? !androidPlatform;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
@@ -8719,7 +8731,7 @@ export function SettingsPage({
                         />
                       </label>
                     </div>
-                    {!androidPlatform && (
+                    {showVoiceProviderSettings && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">识别服务</span>
@@ -8753,6 +8765,7 @@ export function SettingsPage({
                               </option>
                             )}
                             {harmonyPlatform && <option value="system">HarmonyOS 系统识别</option>}
+                            {androidPlatform && <option value="system">Android 系统识别</option>}
                             {!nativeVoicePlatform && voiceInput.asr_provider === "system" && (
                               <option value="system" disabled>
                                 系统识别（当前平台不可用）
@@ -8828,7 +8841,7 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {!androidPlatform &&
+                    {showVoiceProviderSettings &&
                       serviceVoice &&
                       providerPresetControls(
                         "识别服务",
@@ -8836,7 +8849,7 @@ export function SettingsPage({
                         voiceInput.asr_model ?? "",
                         (asr_model) => updateVoice({ asr_model }),
                       )}
-                    {!androidPlatform && serviceVoice && (
+                    {showVoiceProviderSettings && serviceVoice && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -8850,7 +8863,7 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {!androidPlatform && voiceInput.asr_provider === "doubao" && (
+                    {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -8877,7 +8890,7 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {!androidPlatform && !linuxPlatform && serviceVoice && (
+                    {showVoiceProviderSettings && !linuxPlatform && serviceVoice && (
                       <>
                         {voiceInput.asr_provider === "doubao" && (
                           <div className="section">
@@ -8965,7 +8978,7 @@ export function SettingsPage({
                         </div>
                       </>
                     )}
-                    {!androidPlatform && serviceVoice && (
+                    {showVoiceProviderSettings && serviceVoice && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -9050,7 +9063,7 @@ export function SettingsPage({
                           )}
                         </>
                       )}
-                    {!androidPlatform && (
+                    {showVoiceStreamPreedit && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -9164,6 +9177,10 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
+                    {/* Not provider configuration: these four are the host's own recording
+                        behaviour, and the Android host plays no prompt tones and does not mute
+                        system audio while it records. Four switches with nothing behind them is
+                        what this page keeps being audited for. */}
                     {!androidPlatform && (
                       <div className="section">
                         <div className="section-title">
@@ -9199,7 +9216,7 @@ export function SettingsPage({
                         ))}
                       </div>
                     )}
-                    {!androidPlatform && voiceInput.asr_provider === "doubao" && (
+                    {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
                       <div className="section">
                         <div className="section-title">
                           豆包识别选项
@@ -9241,7 +9258,7 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {!androidPlatform && (
+                    {showVoiceProviderSettings && (
                       <div className="section">
                         <div className="section-title">
                           文本润色 provider<small>识别结果可交给用户管理的服务润色</small>

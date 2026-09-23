@@ -166,6 +166,22 @@ pub struct HostCapabilities {
     /// the switch there would be a control with nothing behind it.
     #[serde(default)]
     pub character_width: bool,
+    /// The host runs the configured transcription provider itself, so the provider, model and
+    /// credential controls have something behind them.
+    ///
+    /// Was a platform name on the settings page, and it read `!android` because that host once had
+    /// only the platform recogniser. It runs the configured provider now — the OpenAI-compatible
+    /// uploads and the streaming socket both — and a page keyed on the name would still be hiding
+    /// the controls.
+    #[serde(default)]
+    pub voice_provider_settings: bool,
+    /// The host draws the recogniser's interim text while the user is still speaking.
+    ///
+    /// Every host can ask a streaming provider for partial results; this says which of them has
+    /// somewhere to put one. A host without that surface would be offering a switch whose only
+    /// effect is on a display it does not have.
+    #[serde(default)]
+    pub voice_stream_preedit: bool,
     /// The host shows read-only English word completions while typing directly
     /// in English, governed by the shared `english_suggestions` preference. iOS
     /// offers the same surface but keeps its switch in the native App Group
@@ -404,6 +420,14 @@ impl HostCapabilities {
             // Every host calls `msime_client_set_character_width` when its session starts and
             // from its own width switch, so the preference always has something to act on.
             character_width: true,
+            // The Android recognition window shows the transcript once it is settled and has no
+            // row for a partial one; putting half-written text there that the final result may
+            // contradict is worse than waiting for it. Every other host draws its own composition.
+            // Every host reaches its provider one way or another: the desktops and both mobile
+            // hosts call it themselves, and Linux hands the same configuration to its provider
+            // service. None of them wants these controls hidden.
+            voice_provider_settings: true,
+            voice_stream_preedit: platform != HostPlatform::Android,
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
             helpcode_shift_entry: matches!(
@@ -997,6 +1021,19 @@ mod tests {
             HostPlatform::Ios,
         ] {
             assert!(HostCapabilities::for_platform(platform).character_width);
+        }
+        // Android runs the configured transcription provider, streaming one included, but draws
+        // no interim text, so it is the one host without that switch.
+        assert!(!HostCapabilities::for_platform(HostPlatform::Android).voice_stream_preedit);
+        assert!(HostCapabilities::for_platform(HostPlatform::Android).voice_provider_settings);
+        for platform in [
+            HostPlatform::Windows,
+            HostPlatform::Macos,
+            HostPlatform::Linux,
+            HostPlatform::Ios,
+            HostPlatform::Harmony,
+        ] {
+            assert!(HostCapabilities::for_platform(platform).voice_stream_preedit);
         }
         // Drawn from the input method's status-bar panel, which scales itself by the shared
         // scale and font size, hides the buttons the user turned off, and opens the emoji panel
