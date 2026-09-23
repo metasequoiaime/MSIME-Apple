@@ -179,30 +179,60 @@ int main() {
   require(candidate_row_text_color(wechat_dark, normal_text, true, true) ==
           wechat_dark.selected_text);
 
-  // The toolbar follows the same skin but resolves light/dark from its own
-  // preference, and the shipped default skin uses a lighter accent than the
-  // card - the drag handle and hover tint are drawn from it.
-  require(same(toolbar_palette("fluent", true).accent, 0x8E / 255.0f,
-               0x8C / 255.0f, 0xD8 / 255.0f, 1.0f));
-  require(toolbar_palette("fluent", true).accent != defaults.accent);
-  require(same(toolbar_palette("", true).accent, 0x8E / 255.0f, 0x8C / 255.0f,
-               0xD8 / 255.0f, 1.0f));
-  // An external skin id is not a built-in, so it keeps the default accent too.
-  require(toolbar_palette("nord", true).accent ==
-          toolbar_palette("fluent", true).accent);
-  // Every shipped skin keeps its own accent, which is what makes the toolbar
-  // look like the card the user chose.
+  // The toolbar and the tray menu are native in the shipped product and draw fixed neutral colours from their presenters' ApplyTheme; the candidate skin never reaches them. Before, both took the skin, so the default willow_green tinted them green.
+  const auto toolbar_dark = toolbar_palette(true);
+  const auto toolbar_light = toolbar_palette(false);
+  require(same(toolbar_dark.surface, 0x1A / 255.0f, 0x1A / 255.0f,
+               0x1A / 255.0f, 1.0f));
+  require(same(toolbar_dark.border, 1.0f, 1.0f, 1.0f, 0.15f));
+  require(same(toolbar_dark.text, 1.0f, 1.0f, 1.0f, 1.0f));
+  require(same(toolbar_dark.hover, 1.0f, 1.0f, 1.0f, 0.10f));
+  require(same(toolbar_light.surface, 1.0f, 1.0f, 1.0f, 1.0f));
+  require(same(toolbar_light.border, 0.0f, 0.0f, 0.0f, 0.12f));
+  require(same(toolbar_light.text, 0x1A / 255.0f, 0x1A / 255.0f,
+               0x1A / 255.0f, 1.0f));
+  require(same(toolbar_light.hover, 0.0f, 0.0f, 0.0f, 0.08f));
   for (const bool dark : {false, true}) {
-    require(toolbar_palette("wechat", dark).accent ==
-            candidate_builtin_palette("wechat", dark).accent);
-    require(toolbar_palette("graphite", dark).accent ==
-            candidate_builtin_palette("graphite", dark).accent);
-    require(toolbar_palette("willow_green", dark).accent ==
-            candidate_builtin_palette("willow_green", dark).accent);
+    const auto toolbar = toolbar_palette(dark);
+    // The drag handle is 0x8E8CD8 in both themes, and a pressed button keeps the hover fill.
+    require(same(toolbar.accent, 0x8E / 255.0f, 0x8C / 255.0f, 0xD8 / 255.0f,
+                 1.0f));
+    require(toolbar.selected == toolbar.hover);
+    require(toolbar.border_width > 0.0f);
+    // Nothing of the default skin's green survives.
+    require(toolbar.accent != candidate_builtin_palette("willow_green", dark).accent);
+    require(toolbar.hover != candidate_builtin_palette("willow_green", dark).hover);
+    require(toolbar.surface != candidate_builtin_palette("willow_green", dark).surface);
   }
-  // Light and dark remain distinct surfaces.
-  require(toolbar_palette("wechat", true).surface !=
-          toolbar_palette("wechat", false).surface);
+  const auto tray_dark = tray_menu_palette(true);
+  const auto tray_light = tray_menu_palette(false);
+  require(same(tray_dark.surface, 0x2B / 255.0f, 0x2B / 255.0f, 0x2B / 255.0f,
+               1.0f));
+  require(same(tray_dark.border, 0x3A / 255.0f, 0x3A / 255.0f, 0x3A / 255.0f,
+               1.0f));
+  require(same(tray_dark.text, 0xE0 / 255.0f, 0xE0 / 255.0f, 0xE0 / 255.0f,
+               1.0f));
+  require(same(tray_dark.hover, 0x3B / 255.0f, 0x3B / 255.0f, 0x3B / 255.0f,
+               1.0f));
+  require(same(tray_light.surface, 1.0f, 1.0f, 1.0f, 1.0f));
+  require(same(tray_light.border, 0.0f, 0.0f, 0.0f, 0.10f));
+  require(same(tray_light.text, 0x1A / 255.0f, 0x1A / 255.0f, 0x1A / 255.0f,
+               1.0f));
+  require(same(tray_light.hover, 0xF0 / 255.0f, 0xF0 / 255.0f, 0xF0 / 255.0f,
+               1.0f));
+  // Switches: 0x8E8CD8 on; off is 0x555555 on the dark menu and 0xC8C8C8 on the light one.
+  require(same(tray_dark.accent, 0x8E / 255.0f, 0x8C / 255.0f, 0xD8 / 255.0f,
+               1.0f));
+  require(tray_light.accent == tray_dark.accent);
+  require(same(tray_toggle_off_color(tray_dark), 0x55 / 255.0f, 0x55 / 255.0f,
+               0x55 / 255.0f, 1.0f));
+  require(same(tray_toggle_off_color(tray_light), 0xC8 / 255.0f,
+               0xC8 / 255.0f, 0xC8 / 255.0f, 1.0f));
+  // A dimmed row stays distinct from a live one without disappearing.
+  for (const auto &tray : {tray_dark, tray_light}) {
+    require(tray.number != tray.text);
+    require(tray.number.a > 0.0f);
+  }
 
   // The right-click flyout has its own colours per skin and per theme. The
   // client used a plain OS popup, so a light system menu appeared over a dark

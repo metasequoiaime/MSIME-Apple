@@ -1032,12 +1032,11 @@ int wmain(int argc, wchar_t **argv) {
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    // The toolbar draws from the skin's own accent, not the card's overrides.
+    // The toolbar draws the shipped native presenter's fixed neutral colours; only its own light/dark preference changes them.
     bool toolbar_dark_applied = !surface_theme_is_light(
         toolbar_theme->load(std::memory_order_acquire), system_dark);
     std::string toolbar_skin_applied = config.skin_id;
-    toolbar.set_palette(
-        toolbar_palette(config.skin_id, toolbar_dark_applied));
+    toolbar.set_palette(toolbar_palette(toolbar_dark_applied));
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
@@ -1129,11 +1128,11 @@ int wmain(int argc, wchar_t **argv) {
           return request && launch_shell(*request);
         },
         [&] { return toolbar_visible; });
-    // The menu follows its own theme and the active skin, like the toolbar.
+    // The menu follows its own theme with the shipped native presenter's fixed neutral colours, like the toolbar; the candidate skin does not reach it.
     bool menu_dark_applied = !surface_theme_is_light(
         menu_theme->load(std::memory_order_acquire), system_dark);
     std::string menu_skin_applied = config.skin_id;
-    tray.set_palette(candidate_builtin_palette(config.skin_id, menu_dark_applied));
+    tray.set_palette(tray_menu_palette(menu_dark_applied));
     // The Server is the Caps Lock authority: the TIP only sampled GetKeyState
     // at activation, so pressing Caps mid-session left its indicator stale.
     ModeAuthorityState mode_authority;
@@ -1378,14 +1377,14 @@ int wmain(int argc, wchar_t **argv) {
           dark != menu_dark_applied || menu_skin_applied != candidate_skin_applied) {
         menu_dark_applied = dark;
         menu_skin_applied = candidate_skin_applied;
-        tray.set_palette(candidate_builtin_palette(menu_skin_applied, dark));
+        tray.set_palette(tray_menu_palette(dark));
       }
       if (const bool dark = !surface_theme_is_light(
               toolbar_theme->load(std::memory_order_acquire), system_dark);
           dark != toolbar_dark_applied || toolbar_skin_applied != candidate_skin_applied) {
         toolbar_dark_applied = dark;
         toolbar_skin_applied = candidate_skin_applied;
-        toolbar.set_palette(toolbar_palette(toolbar_skin_applied, dark));
+        toolbar.set_palette(toolbar_palette(dark));
       }
       // The toolbar is topmost, so without this it floats over full-screen
       // video and presentations. ShouldShowFloatingToolbar was ported long ago
@@ -1472,8 +1471,7 @@ int wmain(int argc, wchar_t **argv) {
               menu_skin_applied != candidate_skin_applied) {
             menu_dark_applied = dark;
             menu_skin_applied = candidate_skin_applied;
-            tray.set_palette(
-                candidate_builtin_palette(menu_skin_applied, dark));
+            tray.set_palette(tray_menu_palette(dark));
           }
           if (tray.open(anchor->center_x, anchor->top)) {
             tray_shown_at = now;
