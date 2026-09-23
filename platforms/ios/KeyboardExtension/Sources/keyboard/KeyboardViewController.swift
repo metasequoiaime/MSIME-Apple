@@ -320,6 +320,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
     isChineseMode = Self.startsInChinese(session.sharedPreferences)
+    configureDiagnosticLog()
+    DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone")")
+    if session.initializationFailed { DiagnosticLog.shared.write("runtime_initialization_failed") }
     glossLineCount = currentGlossLines()
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()
@@ -383,8 +386,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    DiagnosticLog.shared.write("focus_in")
     do { try session.resumeDictionarySession() }
-    catch { showDiagnostic(error.localizedDescription) }
+    catch {
+      DiagnosticLog.shared.write("dictionary_resume_failed")
+      showDiagnostic(error.localizedDescription)
+    }
     // A fresh editing session owes us no callbacks. Clearing the count here bounds the damage if
     // UIKit ever skips the delegate pair for one of our own edits: the worst case is that a single
     // host-initiated change is treated as an echo, not a counter that stays raised forever.
@@ -399,7 +406,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Reload it off-thread so a fuzzy-pinyin change is visible the next time
     // the keyboard appears without blocking UIKit's input lifecycle.
     session.reloadSharedPreferences { [weak self] loaded in
-      guard let self, loaded else { return }
+      guard let self else { return }
+      // Not applied also covers a document no newer than the one the session has, which is not a failure.
+      guard loaded else { DiagnosticLog.shared.write("preferences_not_applied"); return }
+      self.configureDiagnosticLog()
+      DiagnosticLog.shared.write("preferences_applied")
       self.synchronizeSharedTouchPreferences()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
@@ -414,6 +425,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     scheduleCandidateGlosses()
     applyKeyboardSkin()
     synchronizeReplyKeyboard()
+  }
+
+  /// iOS ends a keyboard extension that keeps using too much memory, so a warning is worth a line when a report says the keyboard vanished.
+  override func didReceiveMemoryWarning() {
+    super.didReceiveMemoryWarning()
+    DiagnosticLog.shared.write("memory_warning")
+  }
+
+  /// Point the diagnostic log at the shared directory while `diagnostic_log.server` is on, and stop it writing once it is off.
+  private func configureDiagnosticLog() {
+    let preferences = session.sharedPreferences ?? MetasequoiaInputSessionBridge.loadSharedPreferences()
+    DiagnosticLog.shared.configure(directory: session.stateDirectory ?? MetasequoiaInputSessionBridge.sharedStateDirectory,
+                                   enabled: DiagnosticLog.isEnabled(in: preferences))
   }
 
   override func selectionWillChange(_ textInput: UITextInput?) {
@@ -449,6 +473,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    DiagnosticLog.shared.write("focus_out")
     replyModel.setText("")
     handwriting.deactivate()
     snapshotWorker.stop()

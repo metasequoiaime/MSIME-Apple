@@ -229,6 +229,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     if handle != 0 { _ = try? Self.decode(msimeClientDestroy(handle)) }
   }
 
+  /// The directory this session reads its preference document from; nil when preparing the runtime failed.
+  var stateDirectory: String? { stateRoot }
+  /// Whether the runtime failed to prepare or start, the case the diagnostic log records without its (possibly path-bearing) reason.
+  var initializationFailed: Bool { initializationDiagnostic != nil }
+
   var isInLocalMode: Bool {
     guard let mode = try? localMode() else { return false }
     return !mode.isEmpty && mode != "none"
@@ -470,6 +475,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                       _ mutate: (inout [String: Any]) -> Void) -> Bool {
     persistSharedPreferences(stateRoot: sharedStateRoot(stateRoot), mutate) != nil
   }
+
+  /// The App Group directory holding the shared preference document, where the keyboard also keeps its diagnostic log.
+  static var sharedStateDirectory: String { sharedStateRoot(nil) }
 
   private static func sharedStateRoot(_ override: URL?) -> String {
     bootstrapOptions(resources: nil, stateRoot: override)["state_root"] as? String ?? ""
