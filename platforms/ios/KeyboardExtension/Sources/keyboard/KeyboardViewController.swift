@@ -174,6 +174,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visiblePreedit = ""
   /// The already-chosen half of a phrase at the front of `visiblePreedit`, which 「候选栏预编辑」 never hides.
   private var visiblePhrasePrefix = ""
+  /// The desktop candidate skin the strip draws with, or nil while it follows the keyboard skin (see CandidatePalette).
+  private var candidatePalette: CandidatePalette?
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
   private var visibleCandidateCodes: [String] = []
@@ -411,6 +413,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard loaded else { DiagnosticLog.shared.write("preferences_not_applied"); return }
       self.configureDiagnosticLog()
       DiagnosticLog.shared.write("preferences_applied")
+      // A candidate skin, theme or colour synced from the desktop arrives with the document.
+      self.refreshCandidatePalette()
       self.synchronizeSharedTouchPreferences()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
@@ -3250,9 +3254,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ) {
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }
-    configuration.background.backgroundColor = converting
-      ? KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
-      : KeyboardSkinPreference.selected.keyBackground
+    let skin = KeyboardSkinPreference.selected
+    let annotationColor = candidatePalette?.number ?? skin.keyForeground.withAlphaComponent(0.55)
+    if let palette = candidatePalette {
+      // Drawn flat like the desktop candidate window: the first candidate, the one space commits, carries the skin's highlight.
+      configuration.background.customView = nil
+      configuration.background.backgroundColor = converting ? palette.selected.withAlphaComponent(0.35)
+        : number == 1 ? palette.hover : palette.surface
+      configuration.background.cornerRadius = 9
+      configuration.background.strokeWidth = 1
+      configuration.background.strokeColor = palette.border
+      configuration.baseForegroundColor = palette.text
+      button.layer.shadowOpacity = 0
+    } else {
+      configuration.background.backgroundColor = converting
+        ? skin.accent.withAlphaComponent(0.22)
+        : skin.keyBackground
+    }
     let annotation = hint
     if annotation.isEmpty && glosses.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
@@ -3272,7 +3290,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if !annotation.isEmpty {
         title += AttributedString(" " + annotation, attributes: AttributeContainer([
           .font: CandidateFontPreference.font(.caption1, scale: candidateFontScale), .paragraphStyle: paragraph,
-          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          .foregroundColor: annotationColor,
         ]))
       }
       let content = KeyboardKeyButton.chipContentWidth(
@@ -3283,7 +3301,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
         title += AttributedString("\n" + fitted.text, attributes: AttributeContainer([
           .font: fitted.font, .paragraphStyle: paragraph,
-          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          .foregroundColor: annotationColor,
         ]))
       }
       configuration.attributedTitle = title
@@ -3824,6 +3842,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     handwriting.canvas.setNeedsDisplay()
     replyModel.objectWillChange.send()
     let skin = KeyboardSkinPreference.selected
+    candidatePalette = currentCandidatePalette()
     view.backgroundColor = skin.background
     skinBackdrop.skin = skin
     func recolor(_ node: UIView) {
@@ -3839,7 +3858,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if let color = configuration.background.backgroundColor, color.cgColor.alpha > 0 { decorateKey(button) }
       }
       if node.accessibilityIdentifier == "nineKeySidebar" || node.accessibilityIdentifier == "candidateStrip" {
-        node.backgroundColor = skin.keyBackground.withAlphaComponent(0.6)
+        node.backgroundColor = node.accessibilityIdentifier == "candidateStrip"
+          ? candidatePalette?.surface ?? skin.keyBackground.withAlphaComponent(0.6)
+          : skin.keyBackground.withAlphaComponent(0.6)
       }
       if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.accent }
       node.subviews.forEach { recolor($0) }
@@ -3856,11 +3877,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateShortcutButtons()
     renderCandidateStrip()
     updateSpellingStrip()
-    exitLocalModeButton.configuration?.baseForegroundColor = skin.accent
-    preeditButton.configuration?.baseForegroundColor = skin.accent
-    expandCandidatesButton.configuration?.baseForegroundColor = skin.accent
+    exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
+    preeditButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
+    expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
     for (_, _, hint) in letterButtons { hint.textColor = skin.accent }
     view.tintColor = skin.accent
+  }
+
+  private func currentCandidatePalette() -> CandidatePalette? {
+    CandidatePalette.active(in: session.sharedPreferences, systemDark: traitCollection.userInterfaceStyle == .dark)
+  }
+
+  /// Redraw the strip when the resolved candidate palette changed; switching it off goes back through the keyboard skin so the chips get the skin's shape again.
+  private func refreshCandidatePalette() {
+    let palette = currentCandidatePalette()
+    guard palette != candidatePalette else { return }
+    if palette == nil { applyKeyboardSkin(); return }
+    candidatePalette = palette
+    compositionContainer?.backgroundColor = palette?.surface
+    for button in [exitLocalModeButton, preeditButton, expandCandidatesButton] {
+      button.configuration?.baseForegroundColor = palette?.accent
+    }
+    renderCandidateStrip()
   }
 
   override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
