@@ -149,6 +149,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidateGlosses: [String]
   /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, or the spelling a typo correction replaced. Never part of the committed text.
   let candidateAnnotations: [String]
+  /// The Engine's `CandidateSource` for each candidate, aligned with `candidates`; -1 when a row carries none.
+  let candidateSources: [Int]
   let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
@@ -166,7 +168,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
        phrasePrefix: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
-       candidateAnnotations: [String] = [], candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
+       candidateAnnotations: [String] = [], candidateSources: [Int] = [], candidatePageCount: Int = 0,
+       answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
        nineKeySpellings: [String] = []) {
     self.isHandled = isHandled
@@ -178,6 +181,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.candidateCodes = candidateCodes
     self.candidateGlosses = candidateGlosses
     self.candidateAnnotations = candidateAnnotations
+    self.candidateSources = candidateSources
     self.candidatePageCount = candidatePageCount
     self.answeredByPinyinFallback = answeredByPinyinFallback
     self.diagnosticText = diagnosticText
@@ -1263,6 +1267,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
+      candidateSources: rows.map { ($0["source"] as? NSNumber)?.intValue ?? -1 },
       candidatePageCount: max(0, (view["page_count"] as? NSNumber)?.intValue ?? 0),
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
       diagnosticText: value["diagnostic"] as? String,

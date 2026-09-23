@@ -2058,8 +2058,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (japaneseSchemeActive() && view != null) {
             String editingText = view.optString("editing_text", "");
             JSONArray candidates = view.optJSONArray("candidates");
-            if (!editingText.isEmpty() && candidates != null && candidates.length() > 0) {
-                int count = candidates.length();
+            int count = candidates == null ? 0 : candidates.length();
+            JSONObject first = count > 0 ? candidates.optJSONObject(0) : null;
+            int firstSource = first == null ? -1 : first.optInt("source", -1);
+            if (!editingText.isEmpty() && JapaneseSpacePolicy.converts(count, firstSource)) {
                 if (japaneseConversionIndex == null
                         || !editingText.equals(japaneseConversionEditingText)) {
                     japaneseConversionIndex = 0;

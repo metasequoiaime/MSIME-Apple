@@ -6470,8 +6470,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       // later ones step through it, which is the only way to reach the second candidate.
       if (japanese_composition && has_composition) {
         using Action = msime::linux_host::JapaneseConversion::Action;
-        const auto candidates = s.view.at("candidates").size();
-        const auto action = s.japanese_conversion.space(japanese_reading, candidates);
+        const auto &candidates = s.view.at("candidates");
+        const int first_source = candidates.empty() ? -1 : candidates[0].value("source", -1);
+        const auto action =
+            s.japanese_conversion.space(japanese_reading, candidates.size(), first_source);
         if (action == Action::Start) {
           handled = true;
           return;

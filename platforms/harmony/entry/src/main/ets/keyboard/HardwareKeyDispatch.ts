@@ -131,7 +131,10 @@ export class HardwareKeyDispatch {
         target.previousCandidate();
         break;
       case HardwareKeyAction.JAPANESE_CONVERT:
-        target.convertJapanese();
+        // Space the conversion does not claim (a lone Fallback row, which is the raw composition) commits the way Space does outside Japanese.
+        if (!target.convertJapanese()) {
+          target.commitHighlighted();
+        }
         break;
       case HardwareKeyAction.JAPANESE_COMMIT:
         target.commitJapanese();

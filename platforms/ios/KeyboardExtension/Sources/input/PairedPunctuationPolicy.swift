@@ -36,7 +36,8 @@ extension MetasequoiaInputSnapshot {
     MetasequoiaInputSnapshot(
       isHandled: isHandled, commitText: text, preedit: preedit, reading: reading, phrasePrefix: phrasePrefix,
       candidates: candidates, candidateCodes: candidateCodes, candidateGlosses: candidateGlosses,
-      candidateAnnotations: candidateAnnotations, candidatePageCount: candidatePageCount,
+      candidateAnnotations: candidateAnnotations, candidateSources: candidateSources,
+      candidatePageCount: candidatePageCount,
       answeredByPinyinFallback: answeredByPinyinFallback, diagnosticText: diagnosticText, localMode: localMode,
       nineKeySpellings: nineKeySpellings)
   }
