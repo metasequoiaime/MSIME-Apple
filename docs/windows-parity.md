@@ -53,14 +53,14 @@
 
 ### 原生测试套件
 
-`platforms/windows/CMakeLists.txt` 注册 96 个 ctest，`platforms/windows/tsf/CMakeLists.txt` 注册 19 个，`platforms/windows/msimeui/tests/` 是一个聚合套件，`platforms/windows/tests/native-pipe/` 另有两个 Windows-only 管道用例（`windows-pipe-io`、`windows-aux-listener`）。源文件按职责分在 `tests/{candidate,clipboard,core,input,runtime,ui,voice}` 下。按领域看：
+`platforms/windows/CMakeLists.txt` 注册 100 个 ctest，`platforms/windows/tsf/CMakeLists.txt` 注册 19 个，`platforms/windows/msimeui/tests/` 是一个聚合套件，`platforms/windows/tests/native-pipe/` 另有两个 Windows-only 管道用例（`windows-pipe-io`、`windows-aux-listener`）。源文件按职责分在 `tests/{candidate,clipboard,core,input,runtime,ui,voice}` 下。按领域看：
 
 - 协议与会话：`windows-server`、`windows-session`、`windows-reply-codec`、`windows-reply-composer`、`windows-input-queue`、`windows-registration-inbox`、`windows-aux-message`、`windows-runner-control`。
 - 焦点与按键：`windows-focus-gate`、`windows-focus-router`、`windows-main-frame`、`windows-tsf-focus-lease-protocol`、`windows-tsf-key-dispatch`、`windows-input-key-policy`、`windows-key-event-send-result`、`windows-terminal-deactivation-policy`、`windows-mode-authority`、`windows-dedicated-english` 与 `-controller`。
 - 候选与外观：`windows-candidate-card-size`、`-shadow`、`-wheel`、`-menu`、`-menu-layout`、`-initialization`、`-palette`、`-skin`、`-appearance`、`-render-sync`、`-font-format`、`-completion-policy`、`-text-policy`、`-ui-action-policy`、`-action-availability`、`-translation-merge`，以及五个热重载用例（`windows-candidate-skin-reload`、`-theme-reload`、`-layout-reload`、`-font-reload`、`windows-floating-toolbar-reload`）。
 - 工具栏与托盘：`windows-toolbar-layout`、`-icons`、`-click`、`-coordinates`、`-mode-command`、`windows-floating-toolbar-placement`、`-visibility`、`windows-tray-menu-layout`、`-dispatch`。
 - 联网候选与翻译：`windows-cloud-candidate-worker`、`windows-ai-candidate-worker`、`windows-translation-worker`、`windows-online-request-guard`、`windows-translation-display`、`windows-provider-token`。
-- 语音：`windows-voice-controller-protocol`、`-connection`、`-listener`、`-dispatch`、`windows-voice-control-message`、`windows-voice-session-epoch`、`windows-voice-hotkey-policy`、`windows-voice-capture-selection`、`windows-voice-providers`、`windows-voice-theme`、`windows-voice-review-result`、`windows-wave-overlay-scale`、`windows-polish-prompt`。
+- 语音：`windows-voice-controller-protocol`、`-connection`、`-listener`、`-dispatch`、`windows-voice-control-message`、`windows-voice-session-epoch`、`windows-voice-hotkey-policy`、`windows-voice-session-policy`、`windows-doubao-transcript`、`windows-voice-capture-selection`、`windows-voice-providers`、`windows-voice-theme`、`windows-voice-review-result`、`windows-wave-overlay-scale`、`windows-polish-prompt`。
 - 剪贴板：`windows-clipboard-text`、`windows-clipboard-monitor`（后者实际注册 `AddClipboardFormatListener`、验证重复 `start` 幂等与重复 `stop` 不崩溃，不改写系统剪贴板、不记录用户内容）。
 - 配置、启动与守护：`windows-shared-config-keybindings`、`windows-tsf-config-frames`、`windows-preview-config`、`windows-shell-surfaces`、`windows-server-launch`、`windows-installer-launch`、`windows-first-run`、`windows-prepare-host`、`windows-watchdog-policy`、`windows-maintenance-hotkeys`、`windows-diagnostic-log`、`windows-diagnostic-batch`、`windows-typing-statistics`。
 - 输入策略：`windows-punctuation-policy`、`windows-paired-punctuation-host-policy`、`windows-edit-policy`、`windows-navigation-policy`、`windows-word-character-policy`、`windows-chinese-conversion`、`windows-preedit-caret`、`windows-fullscreen-foreground`。
@@ -192,6 +192,8 @@
 **诊断日志固定写数据目录。** 来源先写桌面、失败再退回数据目录；这边固定写数据目录下的 `logs\server.log`，因为输入法在桌面上凭空出现文件不是用户预期的副作用。设置页的「Server 端日志」「TSF 端日志」两个开关（`diagnostic_log.server` / `diagnostic_log.tsf`）分别控制写入，内容只有 Server 启停原因、各组件是否就绪、退出码与 TIP 上报的诊断批次，不记按键、输入内容或候选文本；4 MiB 轮转为 `server.log.1`，最多保留两份；UTF-8 BOM 与 CRLF 行尾与来源一致；偏好发布时立即生效，无需重启 Server。
 
 **macOS 语音有三处刻意与来源不同。** 静音其他声音是整台默认输出设备而不是按进程，因为 macOS 13 没有公开接口，时序上改为开始提示音播完再静音、先恢复再播结束提示音，以保证提示音听得见；录音录满上传上限时自动结束并提交已录部分，而不是像来源那样提交时报超限并丢掉整段；提示音文件缺失时回落到系统声音而不是不出声。细节见 `platforms/macos/README.md` 的「语音输入」。
+
+**Windows 语音的失败提示显示在语音浮层上，而不是来源的模态消息框；录满上传上限时自动结束并提交。** 来源 `voice_input_service.cpp` 用 `MessageBoxW` 报缺 Token、豆包启动失败、麦克风启动失败与识别失败；这边 `platforms/windows` 里没有任何模态对话框，已有的表面是 `WaveOverlay`，与 macOS 把失败留在浮层上的选择一致，文案沿用来源的句子（豆包那句把「请检查 config.toml」改成指向设置页的「语音输入」分区）。浮层提示由后台任务显示 4 秒，不占用控制线程；新的录音开始时旧提示随会话代际失效。批量录音的上限与 macOS 相同，取共享的 `batch_capture_sample_limit`（20 MiB WAV 上传预算），录满即结束并提交已录部分，而不是像来源那样在提交时报超限。
 
 **macOS 的中文标点与全半角是每个应用的运行时状态，保存的值只当起点。** 来源把两者放在 TSF 线程管理器的 compartment 里（`MetasequoiaIMEGuidCompartmentPunctuation` / `DoubleSingleByte`），按 UI 线程、实际上按应用各一份，从不写回配置：每次 Activate 重置为半角、标点跟随默认中英文模式，Deactivate 清空，Ctrl+.、Shift+Space 与悬浮工具栏只翻转 compartment，中英文切换时 `SyncPunctuationWithImeMode` 让标点重新跟上模式。macOS 的 `AppearancePreferences` 对应地按前台应用的 bundle id 在内存里记 `runtimeChinesePunctuation` / `runtimeFullWidthInput`，不受 `ime_mode_scope` 影响；Ctrl+.、Ctrl+Shift+Space、Option+Shift+H 与工具栏只改当前应用，不写 NSUserDefaults、共享文档或云端快照；中英文切换按新模式重定标点：进入英文模式时标点变为英文（`punctuation_lock` 固定为中文时除外），回到中文模式时丢掉当前应用的标点覆盖、回到保存的起点；从本输入法切到别的输入源时与中英文模式一起清掉所有应用的两项覆盖，对应 Deactivate 一并清空三个 compartment，普通的焦点切换不清。唯一有意保留的差别是起点：共享设置页在每个宿主上都提供 `chinese_punctuation` 与 `character_width`，于是 macOS 以保存的值为每个应用的起点（与 iOS 键盘相同），而不是像来源那样标点总从中英文模式出发；这两个保存值一旦改变（设置页、共享文档或云端恢复），所有应用的对应覆盖一并作废。`shortcut` 原生测试的 `TestPerApplicationPunctuationAndWidth` 钉住这些规则。
 
@@ -1982,3 +1984,12 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 托盘菜单：来源的「悬浮工具栏」行是开关，点了原地翻转、菜单留着（`tray_menu_presenter.cpp:175-186`），其余行先 `Hide()` 再打开对应界面（`:188-199`）。本仓以前对所有成功的命令都关菜单。现由 `TrayMenuLayout.h` 的 `tray_menu_closes_after` 决定：只有工具栏开关留着菜单，并按 Server 报告的实时状态重画这一行。`windows-tray-menu-layout` 覆盖。
 - `CandidateMenu.h` 核对后不接入真实菜单：它是扁平的一级菜单（置顶、第 1–5 位、取消固定、删除平铺），而来源和本仓实际使用的 `CandidateMenuLayout.h` 都是「固定排位」带二级子菜单的结构；两份头文件定义了同名的 `CandidateMenuCommand` / `CandidateMenuItem`，不能同时包含。目前只有 `tests/ui/candidate_menu.cpp` 引用它，保留不删。第十八批那句「`CandidateMenu.h` 的注释直接引了来源行号」说的单码点不给删除的规则，真实菜单里由 `CandidateMenuLayout.h` 的 `candidate_menu_items` 实现，行为相同。
 - 验证层级：两个菜单的规则在本机用 clang 编译并运行对应的头文件测试；Windows 窗口代码经 `build-cross.sh x64` 交叉编译通过，没有在 Windows 桌面上实际点过。
+
+### Windows 语音与来源逐项对齐：录音上限、失败提示、空格锁定、豆包数组结果、快捷键文案（2026-09-23）
+
+- **批量录音上限**：原先固定 60 秒，超过后在提交时报「录音超过 60 秒上限」并丢掉整段。现在上限取共享的 `batch_capture_sample_limit`，采集回调按 `voice_batch_capture` 只收下剩余空间并标记已满；Server 主循环每一轮调用 `VoiceInputSession::maintain()`，发现已满就走正常的 `stop()`，提交已录部分，与 macOS 相同。流式豆包不在本地缓冲音频，不受这个上限约束。
+- **失败提示**：缺 Token / 接口地址 / 模型、豆包 `Start()` 失败、麦克风打不开、录音途中采集回调失败（`AudioCapture::callback_failed()`，由 `maintain()` 在录音期间与 `stop()` 时检查）、豆包结束时的 `LastError()`，以及批量识别失败都会给出提示。批量识别失败时显示共享 `CloudAsrError::user_message()` 带出的服务商消息或 HTTP 状态，拿不到时才用「语音识别失败」。提示显示在语音浮层上（理由见「与来源刻意不同的取舍」）。原先的失败提示在控制线程上 `Sleep(1200)`，而浮层窗口也在这条线程上，显示与隐藏两条消息被连着处理，提示实际上从未出现；现在由后台任务轮询 4 秒后隐藏，控制线程不再阻塞。走 Tauri 语音面板的录音仍由面板报告失败，不弹浮层。
+- **空格锁定**：按住录音时按空格锁定，浮层显示 ✓ / ✗ 两个按钮，对应来源 `ControlLoop` 的 `set_actions_visible(true)`。
+- **豆包数组结果**：`bigmodel_nostream` 的 `result` 可以是分段数组，`DoubaoTranscript.h` 按顺序拼接各段 `text`，对象形式与 `payload_msg` 信封照旧，与来源 `ExtractTranscript` 一致。
+- **快捷键文案**：共享设置页只在 Windows 上改为「长按右 Alt 录音」「长按右 Ctrl+右 Alt 录音」「长按 Ctrl+Win 录音」「长按录音时按空格锁定」，说明文字写明松开结束、空格锁定后再按快捷键或 ✓ 结束、Escape 或 ✗ 取消；macOS 与其他平台的文案不变。
+- **验证**：新增 `windows-voice-session-policy` 与 `windows-doubao-transcript` 两个纯逻辑 ctest，在 macOS 上用宿主编译器经 `scripts/test-windows-native-run.py` 运行通过，撤掉改动（60 秒上限、只认对象形式）时会失败；x64 MinGW 交叉编译链接通过；设置页用例在 `apps/desktop` 的 vitest 下通过。没有在 Windows 上实际运行。
