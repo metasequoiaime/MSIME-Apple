@@ -175,6 +175,16 @@ fn wubi_unique_four_code_excludes_ambiguous_short_and_fallback_queries() {
     assert!(fallback.answered_by_pinyin_fallback);
     assert!(!fallback.wubi_unique_four_code);
     assert!(!snapshot(b"nihao").wubi_unique_four_code);
+
+    // The input runtime's top-commit (顶字) reads a complete, table-answered four-letter code off
+    // these fields, and it exists because the Engine drops a fifth letter after such a code.
+    let ambiguous = snapshot(b"wqab");
+    assert_eq!(ambiguous.editing_text, "wqab");
+    assert_eq!(ambiguous.caret_position, 4);
+    assert_eq!(ambiguous.local_mode, "none");
+    assert!(!ambiguous.dedicated_english && !ambiguous.answered_by_pinyin_fallback);
+    assert_eq!(ambiguous.candidates.len(), 2);
+    assert_eq!(snapshot(b"wqabx").editing_text, "wqab");
 }
 
 #[test]

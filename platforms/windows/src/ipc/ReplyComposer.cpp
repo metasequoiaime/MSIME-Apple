@@ -24,6 +24,25 @@ std::optional<NavigationReply> navigation_for(ReplyPath path) {
     return std::nullopt;
   }
 }
+// The UI-less reply for a composition: its display text and the candidate page, with the highlight the view marks.
+EncodedReply uiless_composition(uint64_t request, const std::string &display,
+                                const nlohmann::json &view) {
+  std::vector<std::string> candidates;
+  size_t highlighted = 0;
+  bool found_highlight = false;
+  for (const auto &candidate : view.at("candidates")) {
+    if (candidate.at("highlighted").get<bool>()) {
+      if (found_highlight)
+        throw std::logic_error("Ambiguous candidate highlight");
+      highlighted = candidates.size();
+      found_highlight = true;
+    }
+    candidates.push_back(candidate.at("text").get<std::string>());
+  }
+  if (!candidates.empty() && !found_highlight)
+    throw std::logic_error("Missing candidate highlight");
+  return uiless_reply(request, display, candidates, highlighted);
+}
 } // namespace
 ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch)
     : client_(client), epoch_(epoch) {
@@ -148,27 +167,13 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
                          ? navigation_reply(result.request_id, *navigation)
                          : preedit_reply(result.request_id, prefix_ + display);
     } else {
-      std::vector<std::string> candidates;
-      size_t highlighted = 0;
-      bool found_highlight = false;
-      for (const auto &candidate : view.at("candidates")) {
-        if (candidate.at("highlighted").get<bool>()) {
-          if (found_highlight)
-            throw std::logic_error("Ambiguous candidate highlight");
-          highlighted = candidates.size();
-          found_highlight = true;
-        }
-        candidates.push_back(candidate.at("text").get<std::string>());
-      }
-      if (!candidates.empty() && !found_highlight)
-        throw std::logic_error("Missing candidate highlight");
-      next.encoded = uiless_reply(result.request_id, prefix_ + display,
-                                  candidates, highlighted);
+      next.encoded = uiless_composition(result.request_id, prefix_ + display, view);
     }
     break;
   case ReplyPath::AutoCommitAndContinue: {
+    // Two Wubi commits take this path: the fourth letter of a unique code, which leaves nothing to compose, and a letter typed after a complete code (顶字), which commits the first candidate and leaves that letter composing. The worker frame tells the TIP to consume the four letters of the committed code from its own buffer and keep whatever follows, so the key reply only has to show the composition the Engine now holds.
     const auto &context = result.transition.at("commit_context");
-    if (delta.empty() || !raw.empty() || context.is_null() ||
+    if (delta.empty() || context.is_null() ||
         context.value("scheme", 255u) != 2u) {
       invalid();
       break;
@@ -180,8 +185,8 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       break;
     }
     if (result.reply_expected)
-      next.encoded = uiless ? uiless_reply(result.request_id, {}, {}, 0)
-                            : preedit_reply(result.request_id, {});
+      next.encoded = uiless ? uiless_composition(result.request_id, display, view)
+                            : preedit_reply(result.request_id, display);
     next.next_prefix.clear();
     next.committed_text = total;
     break;
