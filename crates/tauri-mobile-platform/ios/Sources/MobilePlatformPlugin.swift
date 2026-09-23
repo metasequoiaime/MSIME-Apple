@@ -880,6 +880,15 @@ final class MobilePlatformPlugin: Plugin {
   private var skinFolderAccess: (url: URL, scoped: Bool)?
   private var previewFeedback: UIImpactFeedbackGenerator?
 
+  /// Only iPhones have the Taptic Engine keyboard feedback drives, so the settings page hides the vibration controls elsewhere, as the native settings app does. The idiom is read on the main thread, where UIKit answers it.
+  private func resolveKeyboardPreferences(_ invoke: Invoke, _ snapshot: [String: Any]) {
+    onMain {
+      var snapshot = snapshot
+      snapshot["hapticsAvailable"] = UIDevice.current.userInterfaceIdiom == .phone
+      invoke.resolve(snapshot)
+    }
+  }
+
   private func onMain(_ action: @escaping () -> Void) {
     if Thread.isMainThread {
       action()
@@ -1167,13 +1176,13 @@ final class MobilePlatformPlugin: Plugin {
   }
 
   @objc public func loadKeyboardPreferences(_ invoke: Invoke) {
-    invoke.resolve(keyboardPreferences.snapshot())
+    resolveKeyboardPreferences(invoke, keyboardPreferences.snapshot())
   }
 
   @objc public func saveKeyboardPreferences(_ invoke: Invoke) {
     do {
       let args = try invoke.parseArgs(SaveKeyboardPreferencesArgs.self)
-      invoke.resolve(try keyboardPreferences.save(args))
+      resolveKeyboardPreferences(invoke, try keyboardPreferences.save(args))
     } catch {
       invoke.reject("keyboard_preferences", code: "keyboard_preferences")
     }

@@ -1627,6 +1627,8 @@ export type MobileKeyboardFeedback = {
   candidatePaletteFollowsDesktop?: boolean;
   /** iOS writes the composition into the text field as marked text only when this App Group switch is on; it has no raw/pinyin/empty choice because the strip already carries that one. */
   inlinePreedit?: boolean;
+  /** False where the device cannot vibrate for key presses (iPad has no Taptic Engine): the vibration controls are hidden and the stored choice is left for the user's other devices. */
+  hapticsAvailable?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -7445,56 +7447,60 @@ export function SettingsPage({
                             }
                           />
                         </label>
-                        <div className="input-option-divider" />
-                        <label className="section-header">
-                          <span className="section-title">
-                            按键振动<small>振动效果取决于设备与系统支持</small>
-                          </span>
-                          <input
-                            aria-label="按键振动"
-                            className="toggle"
-                            type="checkbox"
-                            disabled={mobileKeyboardFeedbackBusy}
-                            checked={mobileKeyboardFeedback.hapticsEnabled}
-                            onChange={(event) =>
-                              void saveMobileKeyboardFeedback({
-                                ...mobileKeyboardFeedback,
-                                hapticsEnabled: event.target.checked,
-                              })
-                            }
-                          />
-                        </label>
-                        {mobileKeyboardFeedback.hapticsEnabled && (
+                        {mobileKeyboardFeedback.hapticsAvailable !== false && (
                           <>
                             <div className="input-option-divider" />
                             <label className="section-header">
-                              <span className="section-title">振动强度</span>
-                              <select
-                                aria-label="振动强度"
+                              <span className="section-title">
+                                按键振动<small>振动效果取决于设备与系统支持</small>
+                              </span>
+                              <input
+                                aria-label="按键振动"
+                                className="toggle"
+                                type="checkbox"
                                 disabled={mobileKeyboardFeedbackBusy}
-                                value={mobileKeyboardFeedback.hapticStrength}
+                                checked={mobileKeyboardFeedback.hapticsEnabled}
                                 onChange={(event) =>
                                   void saveMobileKeyboardFeedback({
                                     ...mobileKeyboardFeedback,
-                                    hapticStrength: event.target
-                                      .value as MobileKeyboardFeedback["hapticStrength"],
+                                    hapticsEnabled: event.target.checked,
                                   })
                                 }
-                              >
-                                <option value="light">轻</option>
-                                <option value="medium">中</option>
-                                <option value="strong">强</option>
-                              </select>
+                              />
                             </label>
-                            {client.mobileKeyboardFeedback?.preview && (
-                              <button
-                                type="button"
-                                className="secondary"
-                                disabled={mobileKeyboardFeedbackBusy}
-                                onClick={() => void previewMobileKeyboardHaptics()}
-                              >
-                                试一下振动
-                              </button>
+                            {mobileKeyboardFeedback.hapticsEnabled && (
+                              <>
+                                <div className="input-option-divider" />
+                                <label className="section-header">
+                                  <span className="section-title">振动强度</span>
+                                  <select
+                                    aria-label="振动强度"
+                                    disabled={mobileKeyboardFeedbackBusy}
+                                    value={mobileKeyboardFeedback.hapticStrength}
+                                    onChange={(event) =>
+                                      void saveMobileKeyboardFeedback({
+                                        ...mobileKeyboardFeedback,
+                                        hapticStrength: event.target
+                                          .value as MobileKeyboardFeedback["hapticStrength"],
+                                      })
+                                    }
+                                  >
+                                    <option value="light">轻</option>
+                                    <option value="medium">中</option>
+                                    <option value="strong">强</option>
+                                  </select>
+                                </label>
+                                {client.mobileKeyboardFeedback?.preview && (
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={mobileKeyboardFeedbackBusy}
+                                    onClick={() => void previewMobileKeyboardHaptics()}
+                                  >
+                                    试一下振动
+                                  </button>
+                                )}
+                              </>
                             )}
                           </>
                         )}

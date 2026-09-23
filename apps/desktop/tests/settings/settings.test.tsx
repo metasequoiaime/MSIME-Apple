@@ -2555,6 +2555,44 @@ test("mobile input settings expose native keyboard sound and haptic feedback", a
   );
 });
 
+test("an iPad keeps key sounds but hides vibration it cannot produce", async () => {
+  const load = vi.fn().mockResolvedValue({
+    soundEnabled: true,
+    hapticsEnabled: true,
+    hapticStrength: "strong",
+    englishSuggestions: true,
+    hapticsAvailable: false,
+  });
+  const save = vi.fn().mockImplementation(async (settings) => settings);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn().mockImplementation(async (value) => value),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: { load, save, preview: vi.fn() },
+      }}
+    />,
+  );
+  const feedback = await screen.findByRole("group", { name: "按键反馈" });
+  fireEvent.click(within(feedback).getByLabelText("按键音"));
+  // The stored vibration choice travels untouched, so it still reaches the user's iPhone through settings sync.
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        soundEnabled: false,
+        hapticsEnabled: true,
+        hapticStrength: "strong",
+      }),
+    ),
+  );
+  expect(within(feedback).queryByLabelText("按键振动")).toBeNull();
+  expect(within(feedback).queryByLabelText("振动强度")).toBeNull();
+  expect(within(feedback).queryByRole("button", { name: "试一下振动" })).toBeNull();
+});
+
 test("the iOS skin page hands the candidate strip to the desktop candidate skin", async () => {
   const load = vi.fn().mockResolvedValue({
     soundEnabled: true,

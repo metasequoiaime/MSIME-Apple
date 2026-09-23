@@ -1766,10 +1766,18 @@ pub struct MobileKeyboardFeedback {
     pub candidate_palette_follows_desktop: bool,
     #[serde(default)]
     pub inline_preedit: bool,
+    /// Reported by the device, never saved: the page hides the vibration controls where it is false.
+    #[serde(default = "default_haptics_available")]
+    pub haptics_available: bool,
 }
 
 #[cfg(target_os = "ios")]
 fn default_english_suggestions() -> bool {
+    true
+}
+
+#[cfg(target_os = "ios")]
+fn default_haptics_available() -> bool {
     true
 }
 
@@ -1794,6 +1802,7 @@ fn keyboard_feedback(native: &IosKeyboardPreferences) -> MobileKeyboardFeedback 
         english_suggestions: native.english_suggestions,
         candidate_palette_follows_desktop: native.candidate_palette_follows_desktop,
         inline_preedit: native.inline_preedit,
+        haptics_available: native.haptics_available,
     }
 }
 
