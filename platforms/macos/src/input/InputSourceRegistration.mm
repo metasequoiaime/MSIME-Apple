@@ -115,6 +115,17 @@ OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleId
     CFRelease(sources); return noErr;
 }
 
+BOOL MSIMEInputSourceIsEnabled(NSString *identifier) {
+    if (!identifier.length) return NO;
+    // Without includeAllInstalled the list holds only enabled sources.
+    NSDictionary *filter = @{(__bridge NSString *)kTISPropertyInputSourceID: identifier};
+    CFArrayRef sources = TISCreateInputSourceList((__bridge CFDictionaryRef)filter, false);
+    if (!sources) return NO;
+    const BOOL enabled = CFArrayGetCount(sources) > 0;
+    CFRelease(sources);
+    return enabled;
+}
+
 void MSIMELaunchInputSourceReregistration(NSURL *bundleURL, NSWorkspace *workspace,
                                           void (^completion)(BOOL launched)) {
     if (!completion) return;

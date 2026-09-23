@@ -615,6 +615,10 @@ export interface HostCapabilities {
   english_suggestions?: boolean;
   helpcode_shift_entry?: boolean;
   skin_directory_import?: boolean;
+  /** The one candidate page size the host draws; set when the host offers no choice. */
+  fixed_candidate_page_size?: number;
+  /** The one candidate layout the host draws; set when the host offers no choice. */
+  fixed_candidate_layout?: "horizontal" | "vertical";
   shuangpin_preedit?: boolean;
   /** The host routes the Ctrl+Shift+Alt maintenance chords. */
   maintenance_shortcuts?: boolean;
@@ -1604,6 +1608,8 @@ export type MobileKeyboardFeedback = {
   englishSuggestions?: boolean;
   /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
   candidatePaletteFollowsDesktop?: boolean;
+  /** iOS writes the composition into the text field as marked text only when this App Group switch is on; it has no raw/pinyin/empty choice because the strip already carries that one. */
+  inlinePreedit?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -2184,9 +2190,7 @@ export function SettingsPage({
   // Every host's Engine honours the preference; this is about which of them draw the composition
   // themselves, and so show the user a difference between the raw keys and the expanded pinyin.
   const showShuangpinPreedit = host?.shuangpin_preedit ?? macosPlatform;
-  // Was hidden for every touch platform, on the reading that a phone keyboard has no width to
-  // switch. It has: the keyboards route it to the runtime the same way the desktop hosts do, and
-  // reach it from their own surfaces. iOS is the one host that never tells the runtime a width.
+  // Was hidden for every touch platform, on the reading that a phone keyboard has no width to switch. It has: every keyboard, iOS included, routes it to the runtime the same way the desktop hosts do, and reaches it from its own surfaces.
   const showCharacterWidth = host?.character_width ?? !mobilePlatform;
   // The host's provider holds the AI credential, so the page does not ask for a token and does not
   // withhold the service controls for want of one. Reaching the service still works - through that
@@ -4857,24 +4861,30 @@ export function SettingsPage({
                         </div>
                       </div>
                     </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">每页候选项数量</span>
-                        <select
-                          aria-label="每页候选项数量"
-                          value={draft.candidate_page_size}
-                          onChange={(event) =>
-                            setDraft({ ...draft, candidate_page_size: Number(event.target.value) })
-                          }
-                        >
-                          {candidatePageSizes.map((size) => (
-                            <option key={size} value={size}>
-                              {size}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
+                    {/* The iOS strip pages in nines whatever this says, so a selector there would change nothing. */}
+                    {host?.fixed_candidate_page_size === undefined && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">每页候选项数量</span>
+                          <select
+                            aria-label="每页候选项数量"
+                            value={draft.candidate_page_size}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                candidate_page_size: Number(event.target.value),
+                              })
+                            }
+                          >
+                            {candidatePageSizes.map((size) => (
+                              <option key={size} value={size}>
+                                {size}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
@@ -5050,25 +5060,27 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">候选项排列方式</span>
-                        <select
-                          aria-label="候选项排列方式"
-                          value={draft.candidate_layout ?? "vertical"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              candidate_layout: event.target
-                                .value as Preferences["candidate_layout"],
-                            })
-                          }
-                        >
-                          <option value="horizontal">横向</option>
-                          <option value="vertical">纵向</option>
-                        </select>
-                      </label>
-                    </div>
+                    {host?.fixed_candidate_layout === undefined && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">候选项排列方式</span>
+                          <select
+                            aria-label="候选项排列方式"
+                            value={draft.candidate_layout ?? "vertical"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                candidate_layout: event.target
+                                  .value as Preferences["candidate_layout"],
+                              })
+                            }
+                          >
+                            <option value="horizontal">横向</option>
+                            <option value="vertical">纵向</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     {showShuangpinPreedit && (
                       <div className="section">
                         <label className="section-header">
@@ -5094,26 +5106,53 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">行内预编辑</span>
-                        <select
-                          aria-label="行内预编辑"
-                          value={draft.tsf_preedit_style ?? "raw"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              tsf_preedit_style: event.target
-                                .value as Preferences["tsf_preedit_style"],
-                            })
-                          }
-                        >
-                          <option value="raw">原始按键</option>
-                          <option value="pinyin">拼音分词</option>
-                          <option value="empty">不显示</option>
-                        </select>
-                      </label>
-                    </div>
+                    {mobileKeyboardFeedback?.inlinePreedit !== undefined ? (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            行内预编辑
+                            <small>
+                              把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示。默认关闭；个别
+                              App 显示不完整时可以关掉。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="行内预编辑"
+                            className="toggle"
+                            type="checkbox"
+                            disabled={mobileKeyboardFeedbackBusy}
+                            checked={mobileKeyboardFeedback.inlinePreedit}
+                            onChange={(event) =>
+                              void saveMobileKeyboardFeedback({
+                                ...mobileKeyboardFeedback,
+                                inlinePreedit: event.target.checked,
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">行内预编辑</span>
+                          <select
+                            aria-label="行内预编辑"
+                            value={draft.tsf_preedit_style ?? "raw"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                tsf_preedit_style: event.target
+                                  .value as Preferences["tsf_preedit_style"],
+                              })
+                            }
+                          >
+                            <option value="raw">原始按键</option>
+                            <option value="pinyin">拼音分词</option>
+                            <option value="empty">不显示</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
@@ -5619,7 +5658,8 @@ export function SettingsPage({
                       readFont={client.readSkinFont}
                       readToolbarCss={client.readSkinToolbarCss}
                       selected={draft.candidate_skin ?? "willow_green"}
-                      layout={draft.candidate_layout ?? "vertical"}
+                      // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
+                      layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
                       onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
                     />
                   </fieldset>

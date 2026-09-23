@@ -36,6 +36,8 @@ jobs:
           debs=("$dist"/*.deb); tarballs=("$dist"/*.tar.gz)
           [[ ${#debs[@]} -eq 1 && ${#tarballs[@]} -eq 1 && -s "$dist/SHA256SUMS" ]] || { echo "expected one .deb, one .tar.gz and SHA256SUMS in $dist" >&2; exit 1; }
           (cd "$dist" && sha256sum -c SHA256SUMS)
+          # prerm stops the user services on removal and postinst restarts them after an upgrade; a package without them leaves services running deleted programs. The runner image ships dpkg-deb and shellcheck.
+          bash platforms/linux/tests/tools/check-deb-maintainer-scripts.sh "${debs[0]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: msime-linux-${{ steps.version.outputs.value }}

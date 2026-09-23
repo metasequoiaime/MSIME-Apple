@@ -477,6 +477,7 @@ mod tests {
             haptic_strength: "strong".into(),
             english_suggestions: true,
             candidate_palette_follows_desktop: false,
+            inline_preedit: false,
             dictionary_learning: false,
             keyboard_skin: "custom".into(),
             custom_keyboard_skin: None,

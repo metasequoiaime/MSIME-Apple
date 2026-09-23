@@ -48,6 +48,7 @@
 #import "../settings/ShuangpinKeymapPanel.h"
 #import "../core/FloatingToolbarPanel.h"
 #import "InputModeHUDPanel.h"
+#import "InputModeIdentifiers.h"
 #import "../voice/VoiceInputService.h"
 #import "../voice/VoiceProviderSocket.h"
 #import "../voice/VoiceWaveOverlay.h"
@@ -833,7 +834,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id armed = _spaceConvertClient;
     [self clearSmartPunctuationSpaceConversion];
     if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert ||
-        _appearance.fullWidthInput || armed != client || _pendingPairedClosing.length)
+        _appearance.runtimeFullWidthInput || armed != client || _pendingPairedClosing.length)
         return NO;
     if ([_view[@"editing_text"] length] ||
         ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]))
@@ -882,7 +883,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (repeat && _appearance.smartPunctuationRepeatToChinese && _appearance.pairedPunctuation &&
         ![_view[@"editing_text"] length] && [_view[@"candidates"] isKindOfClass:NSArray.class] && ![_view[@"candidates"] count]) {
         const uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
-        NSString *expected = MSIMEFullWidthSmartMark(character, _appearance.fullWidthInput);
+        NSString *expected = MSIMEFullWidthSmartMark(character, _appearance.runtimeFullWidthInput);
         if (preceding && expected.length == 1 && [expected characterAtIndex:0] == (unichar)preceding) {
             const NSRange selected = [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
             const NSUInteger length = expected.length;
@@ -915,7 +916,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (!transition) return NO;
         if (hasComposition) {
             NSString *commit = transition[@"commit"];
-            if (_appearance.fullWidthInput && [commit isKindOfClass:NSString.class] && commit.length && [commit characterAtIndex:commit.length - 1] == character) {
+            if (_appearance.runtimeFullWidthInput && [commit isKindOfClass:NSString.class] && commit.length && [commit characterAtIndex:commit.length - 1] == character) {
                 NSMutableDictionary *converted = [transition mutableCopy];
                 converted[@"commit"] = [[commit substringToIndex:commit.length - 1] stringByAppendingString:MSIMEFullWidthSmartMark(character, YES)];
                 transition = converted;
@@ -923,7 +924,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             [self apply:transition];
         } else if ([transition[@"handled"] boolValue]) {
             NSString *commit = transition[@"commit"];
-            if (_appearance.fullWidthInput && [commit isKindOfClass:NSString.class] && commit.length &&
+            if (_appearance.runtimeFullWidthInput && [commit isKindOfClass:NSString.class] && commit.length &&
                 [commit characterAtIndex:commit.length - 1] == character) {
                 NSMutableDictionary *converted = [transition mutableCopy];
                 converted[@"commit"] = [[commit substringToIndex:commit.length - 1] stringByAppendingString:MSIMEFullWidthSmartMark(character, YES)];
@@ -1941,8 +1942,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
              englishCandidateMode:englishCandidateMode
                    japaneseInputMode:japaneseInputMode
                             capsLock:_capsLock
-              chinesePunctuationEnabled:_appearance.chinesePunctuation
-                       fullWidthEnabled:_appearance.fullWidthInput
+              chinesePunctuationEnabled:_appearance.runtimeChinesePunctuation
+                       fullWidthEnabled:_appearance.runtimeFullWidthInput
         traditionalChineseOutputEnabled:_appearance.traditionalOutput];
 }
 - (void)appearanceChanged:(NSNotification *)notification {
@@ -2025,7 +2026,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 - (void)syncPunctuation {
     if (!_session) return;
-    NSDictionary *view = [_session setChinesePunctuationEnabled:_appearance.chinesePunctuation error:nil];
+    NSDictionary *view = [_session setChinesePunctuationEnabled:_appearance.runtimeChinesePunctuation error:nil];
     if (view) [self apply:@{@"view":view}];
     view = [_session setPairedPunctuationEnabled:_appearance.pairedPunctuation && !MSIMEPairedPunctuationExcludedHost() error:nil];
     if (view) [self apply:@{@"view":view}];
@@ -2034,7 +2035,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 - (void)syncCharacterWidth {
     if (!_session) return;
-    NSDictionary *view = [_session setCharacterWidthFull:_appearance.fullWidthInput error:nil];
+    NSDictionary *view = [_session setCharacterWidthFull:_appearance.runtimeFullWidthInput error:nil];
     if (view) [self apply:@{@"view":view}];
 }
 - (NSMenu *)menu {
@@ -2336,15 +2337,39 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         if (!cancelled) return; // Do not hide an unsettled composition after an Engine failure.
         [self apply:cancelled];
     }
+    // A Chinese/English switch puts punctuation back in step with the mode, as the reference's SyncPunctuationWithImeMode does: English mode gets English punctuation unless punctuation_lock pins Chinese. Returning to Chinese goes back to the saved starting value, the macOS adaptation for the shared chinese_punctuation setting. Set before the mode is saved so the resulting sync and toolbar refresh already see it.
+    if (changed) {
+        if (enabled) _appearance.runtimeChinesePunctuation = [_appearance.punctuationLock isEqual:@"chinese"];
+        else [_appearance resetRuntimePunctuationForActiveApplication];
+    }
     _appearance.englishMode = enabled;
     [self resetCandidateAnchor];
     [self hideCandidatePanel:"mode_switch"];
     [_keymapPanel orderOut:nil];
+    [self syncSystemInputModeForClient:_activeClient ?: self.client];
     if (changed && _appearance.inputModeHUD && _activeClient) {
         NSRect caret = NSZeroRect;
         [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&caret];
         [[MSIMEInputModeHUDPanel sharedPanel] showEnglishInputMode:enabled nearCaretRect:caret];
     }
+}
+// The menu bar shows the selected input mode's icon, 中 or 英, as the Windows tray's language-bar icon does. A switch the system reported is already recorded as shown, so this does not echo it back.
+- (void)syncSystemInputModeForClient:(id)client {
+    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), _appearance.englishMode, client, MSIMEInputSourceIsEnabled);
+}
+// The system reports the mode the user picked from the input menu or reached with Ctrl+Space; the controller's Chinese/English state follows it. A report that only repeats the mode already shown, or one delivered from inside this controller's own selectInputMode:, leaves the state alone.
+- (void)setValue:(id)value forTag:(long)tag client:(id)sender {
+    if (tag == kTextServiceInputModePropertyTag) [self systemDidReportInputMode:value client:sender];
+    [super setValue:value forTag:tag client:sender];
+}
+- (void)systemDidReportInputMode:(id)value client:(id)sender {
+    if (!MSIMEAdoptReportedInputMode(MSIMESharedSystemInputModeState(), value)) return;
+    [self ensureAppearance];
+    // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
+    [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
+    [self setEnglishInputMode:MSIMEEnglishForInputModeID(value)];
+    // setEnglishInputMode: can refuse the switch (an Engine cancel failure while composing) after the report was already recorded as shown; select the mode the controller actually has so the menu bar does not keep the refused one. A switch that went through makes this a no-op.
+    [self syncSystemInputModeForClient:sender];
 }
 - (void)selectChineseMode:(id)sender {
     (void)sender;
@@ -2365,6 +2390,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     NSDictionary *view = [_session setDedicatedEnglishEnabled:enabled error:&error];
     if (!view) { if (error) NSBeep(); return; }
     _appearance.englishMode = NO;
+    [self syncSystemInputModeForClient:_activeClient];
     [self apply:@{@"view":view}];
 }
 - (void)toggleDedicatedEnglishMode:(id)sender {
@@ -3019,6 +3045,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     msime_macos_diagnostic_write("focus_in");
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
+    // The Chinese/English state is remembered per application and survives a restart, while the menu bar shows whichever mode was selected last; align the two as this client takes focus. That also covers a toggle made while no client could be asked to switch.
+    [self syncSystemInputModeForClient:sender];
     _capsLock = ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock) != 0;
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
@@ -3380,11 +3408,18 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         if (!finished) return;
         [self apply:finished];
     }
-    _appearance.chinesePunctuation = !_appearance.chinesePunctuation;
+    // Like the reference's compartment, the toggle is this app's runtime state; the saved value stays the starting point.
+    _appearance.runtimeChinesePunctuation = !_appearance.runtimeChinesePunctuation;
     [self syncPunctuation];
     [self refreshFloatingToolbarState];
 }
-- (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.fullWidthInput = !_appearance.fullWidthInput; }
+- (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self toggleRuntimeFullWidthInput]; }
+- (void)toggleRuntimeFullWidthInput {
+    [self ensureAppearance];
+    _appearance.runtimeFullWidthInput = !_appearance.runtimeFullWidthInput;
+    [self syncCharacterWidth];
+    [self refreshFloatingToolbarState];
+}
 - (void)floatingToolbarDidRequestToggleTraditionalOutput:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; _appearance.traditionalOutput = !_appearance.traditionalOutput; }
 - (void)floatingToolbarDidRequestOpenCharacterPalette:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self openCharacterPalette:nil]; }
 - (void)floatingToolbarDidRequestOpenEmoji:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self showEmoji:nil]; }
@@ -3544,6 +3579,11 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         [self apply:[_session setFocused:NO error:nil]];
         _activeClient = sender;
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
+        [self syncSystemInputModeForClient:sender];
+        // Punctuation and width are per app, so the new client's values reach the Engine before it types.
+        [self syncPunctuation];
+        [self syncCharacterWidth];
+        [self refreshFloatingToolbarState];
         _focusPending = _appearance.englishMode;
         if (!_appearance.englishMode) [self apply:[_session setFocused:YES error:nil]];
     }
@@ -3653,7 +3693,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags) &&
         (event.keyCode == 49 || _appearance.fullWidthShortcut) &&
         (!_appearance.englishMode || event.keyCode == 49)) {
-        if (!event.isARepeat) _appearance.fullWidthInput = !_appearance.fullWidthInput;
+        if (!event.isARepeat) [self toggleRuntimeFullWidthInput];
         return YES;
     }
     if (event.keyCode == 40 &&
@@ -4001,7 +4041,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         if (!finished) return NO;
         [self apply:finished];
     }
-    if (_appearance.fullWidthInput && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
+    if (_appearance.runtimeFullWidthInput && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
         ![_view[@"editing_text"] length] && event.characters.length == 1 &&
         msime::mac::IsFullWidthDirectCharacter([event.characters characterAtIndex:0], event.modifierFlags)) {
         const unichar converted = msime::mac::FullWidthCharacter([event.characters characterAtIndex:0]);

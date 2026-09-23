@@ -130,8 +130,6 @@ int main() {
   const double card_height = stacked.height;
   const auto page =
       candidate_page_layout(vertical.items, card_width, metrics, false);
-  const auto columns =
-      candidate_page_layout(vertical.items, card_width, metrics, true);
   auto row_of = [&](double x, double y) {
     return candidate_card_hit(x, y, card_width, card_height, page);
   };
@@ -142,8 +140,6 @@ int main() {
   require(!row_of(-1.0, first.top + 1.0) && !row_of(card_width, first.top + 1.0));
   require(!candidate_card_hit(20.0, first.top + 1.0, card_width, card_height,
                               {}));
-  require(candidate_card_hit(column.left + 1.0, column.top + 1.0, card_width,
-                             card_height, columns) == std::optional<size_t>(1));
   // Without wrapped runs the page is exactly the one-line rows.
   for (size_t index = 0; index < 3; ++index) {
     const auto plain = candidate_row_bounds(index, 3, card_width, metrics, false);
@@ -151,6 +147,79 @@ int main() {
             near(page[index].bounds.bottom, plain.bottom) &&
             near(page[index].bounds.left, plain.left) &&
             near(page[index].bounds.right, plain.right));
+  }
+
+  // A horizontal page lays each candidate out at its own natural width, as the shipped presenter's CandidateList::Measure does, instead of splitting the card evenly. Columns sit side by side from the left padding and keep the whole text when the card got the width it asked for.
+  {
+    const auto columns = candidate_page_layout(
+        horizontal.items, inline_card.width, metrics, true);
+    for (size_t index = 0; index < 3; ++index) {
+      const auto &cell = columns[index];
+      require(near(cell.bounds.right - cell.bounds.left,
+                   horizontal.items[index].text + metrics.number_and_bar +
+                       metrics.column_gap));
+      require(near(cell.bounds.left, index == 0 ? metrics.pad_x / 2.0
+                                                : columns[index - 1].bounds.right));
+      require(near(cell.bounds.top, first.top) &&
+              near(cell.bounds.bottom, first.bottom));
+      require(near(cell.item.text_width, horizontal.items[index].text));
+    }
+    auto column_of = [&](double x) {
+      return candidate_card_hit(x, first.top + 1.0, inline_card.width,
+                                inline_card.height, columns);
+    };
+    require(column_of(columns[1].bounds.left - 1.0) == std::optional<size_t>(0));
+    require(column_of(columns[1].bounds.left + 1.0) == std::optional<size_t>(1));
+    require(column_of(columns[2].bounds.right - 1.0) == std::optional<size_t>(2));
+    require(!column_of(columns[2].bounds.right + 1.0));
+
+    // The case an even split got wrong: a long candidate between two short ones was given a third of the card and clipped, while the short ones sat in empty space.
+    CandidateCardInput uneven;
+    uneven.horizontal = true;
+    uneven.items = {{20.0}, {200.0}, {20.0}};
+    const auto uneven_card = candidate_card_size(uneven);
+    require(near(uneven_card.width,
+                 (20.0 + 200.0 + 20.0) + (24.0 + 8.0) * 3.0 + 12.0 + 14.0));
+    require((uneven_card.width - metrics.pad_x) / 3.0 - metrics.number_and_bar <
+            200.0);
+    const auto uneven_columns =
+        candidate_page_layout(uneven.items, uneven_card.width, metrics, true);
+    require(near(uneven_columns[1].item.text_width, 200.0) &&
+            near(uneven_columns[0].bounds.right - uneven_columns[0].bounds.left,
+                 20.0 + 24.0 + 8.0));
+
+    // A card capped by the work area starts a new line with the column that would pass its inner edge, rather than squeezing every column; the card grows by that line and clicks follow it.
+    uneven.max_width = 300.0;
+    const auto broken = candidate_card_size(uneven);
+    require(near(broken.width, 300.0));
+    require(near(broken.height, 8.0 + 10.0 + (16.0 * 1.4 + 6.0) +
+                                    2.0 * (16.0 * 1.45 + 6.0)));
+    const auto lines =
+        candidate_page_layout(uneven.items, broken.width, metrics, true);
+    require(near(lines[1].bounds.top, first.top) &&
+            near(lines[1].item.text_width, 200.0));
+    require(near(lines[2].bounds.left, metrics.pad_x / 2.0) &&
+            near(lines[2].bounds.top, first.bottom) &&
+            near(lines[2].bounds.bottom, first.bottom + metrics.candidate_row));
+    require(candidate_card_hit(10.0, first.bottom + 1.0, broken.width,
+                               broken.height, lines) ==
+            std::optional<size_t>(2));
+    require(candidate_card_hit(10.0, first.top + 1.0, broken.width,
+                               broken.height, lines) ==
+            std::optional<size_t>(0));
+
+    // Only a candidate wider than a whole line is still narrowed, to that line: the work area cap is the one place a horizontal candidate is clipped.
+    CandidateCardInput wide;
+    wide.horizontal = true;
+    wide.items = {{400.0}};
+    wide.max_width = 200.0;
+    const auto wide_card = candidate_card_size(wide);
+    const auto wide_rows =
+        candidate_page_layout(wide.items, wide_card.width, metrics, true);
+    require(near(wide_rows[0].bounds.right - wide_rows[0].bounds.left,
+                 200.0 - metrics.pad_x) &&
+            near(wide_rows[0].item.text_width,
+                 200.0 - metrics.pad_x - metrics.number_and_bar));
   }
 
   // Untrusted measurements and font sizes are rejected before any arithmetic.
@@ -397,16 +466,31 @@ int main() {
     require(candidate_card_hit(20.0, grown[1].bounds.top + 1.0, 150.0,
                                tall.height, grown) == std::optional<size_t>(1));
 
-    // A horizontal page gives every column the tallest row's height, so the card grows once and the selection fills evenly.
+    // Columns on one horizontal line all take the line's tallest height, so the selection fills evenly.
+    const std::vector<CandidateItemWidths> side_by_side = {{60.0, 0.0, 300.0},
+                                                           {60.0}};
     const auto spread =
-        candidate_page_layout(capped_runs.items, 150.0, metrics, true);
+        candidate_page_layout(side_by_side, 500.0, metrics, true);
     require(spread[0].item.height > row && near(spread[1].item.height, row));
-    require(near(spread[0].bounds.bottom, spread[1].bounds.bottom) &&
+    require(near(spread[1].bounds.left, spread[0].bounds.right) &&
+            near(spread[0].bounds.bottom, spread[1].bounds.bottom) &&
             near(spread[0].bounds.bottom - spread[0].bounds.top,
                  spread[0].item.height));
+
+    // Within a capped card the first candidate is narrowed to the line and its runs wrap inside that column, as in a vertical row; the second no longer fits beside it and starts the next line.
+    const auto stacked_lines =
+        candidate_page_layout(capped_runs.items, 150.0, metrics, true);
+    require(near(stacked_lines[0].bounds.right - stacked_lines[0].bounds.left,
+                 150.0 - metrics.pad_x));
+    require(stacked_lines[0].item.annotation.below &&
+            stacked_lines[0].item.translation.below);
+    require(near(stacked_lines[1].bounds.top, stacked_lines[0].bounds.bottom) &&
+            near(stacked_lines[1].bounds.left, metrics.pad_x / 2.0) &&
+            near(stacked_lines[1].bounds.bottom - stacked_lines[1].bounds.top,
+                 row));
     capped_runs.horizontal = true;
     require(near(candidate_card_size(capped_runs).height,
-                 base + spread[0].item.height));
+                 base + stacked_lines[0].item.height + row));
 
     // Pages are bounded like the card.
     bool caught = false;

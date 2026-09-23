@@ -37,31 +37,64 @@ void reload_options(OptionsWatch &watch) {
     g_warning("MSIME settings reload failed");
   }
 }
+
+// Only for a process the launcher restarted after a crash. ibus-daemon drops the dead engine from every context it served and never brings it back, so without this the focused editor stays on no input method until the user reselects MSIME. A different global engine means the user has moved on since the crash, and that choice is left alone. An empty one cannot be told apart further: when a registered component goes away the daemon also clears a global engine that came from another component's XML (an xkb layout, say), so a crash while the user was on such an engine brings them back to MSIME rather than to no input method at all.
+// Both calls are asynchronous: the synchronous getter logs an IBus warning when there is no global engine, which is the normal state after a crash, and the daemon answers SetGlobalEngine only after this process's factory has created the engine, which needs the main loop that starts after this returns.
+void restore_global_engine(IBusBus *bus) {
+  ibus_bus_get_global_engine_async(
+      bus, -1, nullptr,
+      +[](GObject *source, GAsyncResult *result, gpointer) {
+        auto bus = IBUS_BUS(source);
+        // An error here is the daemon reporting that no global engine is set.
+        auto current = ibus_bus_get_global_engine_async_finish(bus, result, nullptr);
+        const gchar *name = current ? ibus_engine_desc_get_name(current) : nullptr;
+        const bool restore = name == nullptr || *name == '\0' || g_strcmp0(name, "msime-client") == 0;
+        if (current)
+          g_object_unref(current);
+        if (!restore)
+          return;
+        ibus_bus_set_global_engine_async(
+            bus, "msime-client", -1, nullptr,
+            +[](GObject *source, GAsyncResult *result, gpointer) {
+              GError *error = nullptr;
+              if (!ibus_bus_set_global_engine_async_finish(IBUS_BUS(source), result, &error))
+                g_warning("MSIME could not reselect itself after a restart: %s",
+                          error ? error->message : "unknown error");
+              if (error)
+                g_error_free(error);
+            },
+            nullptr);
+      },
+      nullptr);
+}
 } // namespace
 
 int main(int argc, char **argv) {
   msime::telemetry::start("linux", "0.1.0-dev");
   std::set_terminate([] { msime::telemetry::crash("linux", "0.1.0-dev", "std::terminate"); std::abort(); });
-  if (argc != 2 || argv[1][0] != '/') {
-    std::cerr << "usage: msime-client-ibus /absolute/runtime-options.json\n";
+  // --recovered is passed only by the launcher's crash supervisor when it restarts this process.
+  const bool recovered = argc == 3 && g_strcmp0(argv[1], "--recovered") == 0;
+  if ((argc != 2 && !recovered) || argv[argc - 1][0] != '/') {
+    std::cerr << "usage: msime-client-ibus [--recovered] /absolute/runtime-options.json\n";
     return 2;
   }
+  const char *options_path = argv[argc - 1];
   // Panel actions launched from the IBus property menu inherit this process's
   // environment. Keep the direct binary invocation equivalent to the
   // packaged launcher, which already exports the HostOptions path.
-  if (!g_setenv("MSIME_CLIENT_HOST_OPTIONS", argv[1], FALSE)) {
+  if (!g_setenv("MSIME_CLIENT_HOST_OPTIONS", options_path, FALSE)) {
     std::cerr << "Cannot export runtime options path\n";
     return 1;
   }
   // Before any session exists: a package upgrade leaves the options on the previous dictionary generation until this re-prepares it.
   try {
-    if (msime::linux_host::refresh_runtime_options(argv[1]))
+    if (msime::linux_host::refresh_runtime_options(options_path))
       std::cerr << "Dictionary updated to the installed generation\n";
   } catch (...) {
     std::cerr << "Cannot update the dictionary to the installed generation; keeping the current one\n";
   }
   try {
-    std::ifstream file(argv[1]);
+    std::ifstream file(options_path);
     if (!file)
       throw std::runtime_error("Missing configuration");
     std::array<char, 16385> buffer;
@@ -79,7 +112,8 @@ int main(int argc, char **argv) {
   auto bus = ibus_bus_new();
   if (!ibus_bus_is_connected(bus)) {
     g_object_unref(bus);
-    return 1;
+    // A restarted host that finds no bus means ibus-daemon went away during the backoff without stopping the supervisor (SIGKILL or a daemon crash). Exit 0 like a disconnect so the supervisor ends instead of retrying forever as an orphan; a later daemon starts its own launcher. The first run still fails loudly.
+    return recovered ? 0 : 1;
   }
   auto factory = ibus_factory_new(ibus_bus_get_connection(bus));
   ibus_factory_add_engine(factory, "msime-client",
@@ -119,8 +153,10 @@ int main(int argc, char **argv) {
   g_signal_connect(bus, "disconnected",
                    G_CALLBACK(+[](IBusBus *, gpointer) { ibus_quit(); }),
                    nullptr);
-  auto config_file = g_file_new_for_path(argv[1]);
-  OptionsWatch options_watch{argv[1], config_file, 0, {}};
+  if (recovered)
+    restore_global_engine(bus);
+  auto config_file = g_file_new_for_path(options_path);
+  OptionsWatch options_watch{options_path, config_file, 0, {}};
   auto config_directory = g_file_get_parent(config_file);
   auto monitor = config_directory
       ? g_file_monitor_directory(config_directory, G_FILE_MONITOR_WATCH_MOVES, nullptr, nullptr)
@@ -164,4 +200,6 @@ int main(int argc, char **argv) {
   g_object_unref(component);
   g_object_unref(factory);
   g_object_unref(bus);
+  // 0 means the bus went away because ibus-daemon is exiting or restarting, so the supervisor must not restart this host. After `ibus restart` the new daemon starts the launcher again when the engine is selected; after `ibus exit` nothing runs again, which is intended.
+  return msime_ibus_maintenance_stop_requested() ? msime_ibus_maintenance_stop_exit : 0;
 }

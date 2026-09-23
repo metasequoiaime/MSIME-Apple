@@ -754,3 +754,31 @@ test("an import that fails does not rescan", async () => {
   expect((await screen.findByRole("alert")).textContent).toBe("导入皮肤失败，请重试。");
   expect(scan).not.toHaveBeenCalled();
 });
+
+test("a host that draws one layout judges skins by it, not by the shared setting", async () => {
+  const vertical = {
+    ...initial,
+    preferences: { ...initial.preferences, candidate_layout: "vertical" },
+  };
+  const client = (host?: { platform: string; fixed_candidate_layout?: "horizontal" }) => ({
+    load: async () => vertical as Snapshot,
+    save: vi.fn(),
+    scanSkinCatalog: vi.fn().mockResolvedValue(catalog),
+    host: host as never,
+  });
+  const mounted = render(
+    <SettingsPage
+      initialPage="skin"
+      client={client({ platform: "ios", fixed_candidate_layout: "horizontal" })}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "刷新皮肤" }));
+  const card = await screen.findByRole("article", { name: /Sample skin/ });
+  expect(within(card).queryByText(/当前布局或明暗模式不受支持/)).toBeNull();
+  mounted.unmount();
+
+  render(<SettingsPage initialPage="skin" client={client()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "刷新皮肤" }));
+  const desktopCard = await screen.findByRole("article", { name: /Sample skin/ });
+  expect(within(desktopCard).getByText(/当前布局或明暗模式不受支持/)).toBeTruthy();
+});

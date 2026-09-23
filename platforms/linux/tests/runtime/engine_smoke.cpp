@@ -29,10 +29,18 @@ struct ForwardedKey {
   guint keycode = 0;
   guint state = 0;
 };
+struct PreeditAttribute {
+  guint type = 0;
+  guint value = 0;
+  guint start = 0;
+  guint end = 0;
+};
 struct Observation {
   std::string committed;
   std::vector<ForwardedKey> forwarded;
   std::string preedit;
+  // Attributes carried by the last UpdatePreeditText, as the client receives them over D-Bus.
+  std::vector<PreeditAttribute> preedit_attributes;
   std::string auxiliary;
   std::vector<std::string> candidates;
   std::vector<std::string> labels;
@@ -71,6 +79,16 @@ struct Observation {
   gint delete_surrounding_offset = 0;
   guint delete_surrounding_count = 0;
 };
+// The whole composition carries one single underline, as the Fcitx5 host draws it.
+bool preedit_underlined(const Observation &seen) {
+  const auto length = static_cast<guint>(g_utf8_strlen(seen.preedit.c_str(), -1));
+  if (length == 0 || seen.preedit_attributes.size() != 1)
+    return false;
+  const auto &attribute = seen.preedit_attributes.front();
+  return attribute.type == IBUS_ATTR_TYPE_UNDERLINE &&
+         attribute.value == IBUS_ATTR_UNDERLINE_SINGLE && attribute.start == 0 &&
+         attribute.end == length;
+}
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
   auto &seen = *static_cast<Observation *>(data);
@@ -192,6 +210,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   if (std::string(name) == "UpdatePreeditText") {
     g_variant_get_child(parameters, 1, "u", &seen.preedit_cursor);
     seen.preedit = ibus_text_get_text(IBUS_TEXT(object));
+    seen.preedit_attributes.clear();
+    if (auto attributes = ibus_text_get_attributes(IBUS_TEXT(object)))
+      for (guint i = 0; auto attribute = ibus_attr_list_get(attributes, i); ++i)
+        seen.preedit_attributes.push_back(
+            {ibus_attribute_get_attr_type(attribute), ibus_attribute_get_value(attribute),
+             ibus_attribute_get_start_index(attribute), ibus_attribute_get_end_index(attribute)});
     gboolean visible;
     g_variant_get_child(parameters, 2, "b", &visible);
     seen.preedit_visible = visible;
@@ -532,6 +556,12 @@ int main(int argc, char **argv) {
                   seen.committed == "“”",
               "Chinese punctuation lock did not alternate quotes in English mode");
       seen.committed.clear();
+      // A pinned lock holds the punctuation in place, as Windows resolves Ctrl+. through the lock: the chord is eaten and changes nothing.
+      require(key(IBUS_period, IBUS_CONTROL_MASK) && seen.committed.empty(),
+              "English-mode Ctrl+. was not consumed under the Chinese punctuation lock");
+      require(key(IBUS_comma) && seen.committed == "，",
+              "English-mode Ctrl+. overrode the Chinese punctuation lock");
+      seen.committed.clear();
       require(!key(IBUS_a, IBUS_CONTROL_MASK) && seen.committed.empty(),
               "English mode output swallowed a Ctrl shortcut");
       require(!key('a', IBUS_RELEASE_MASK) && seen.committed.empty(),
@@ -560,6 +590,7 @@ int main(int argc, char **argv) {
       voice_provider.release_partial = true;
       require(wait_until([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
               "English-mode recording did not show streaming preedit");
+      require(preedit_underlined(seen), "Streaming voice preedit was not single-underlined");
       require(key(IBUS_Escape) && !seen.preedit_visible && seen.committed.empty(),
               "Esc did not cancel an English-mode recording");
       require(wait_until([&] { return voice_provider.cancelled.load() == voice_cancels + 1; }),
@@ -670,6 +701,64 @@ int main(int argc, char **argv) {
               "Bare Shift release was consumed or did not restore Chinese mode");
       require(seen.punctuation_enabled,
               "Switching back to Chinese mode under the follow lock did not restore Chinese punctuation");
+      // Ctrl+. in English mode turns Chinese punctuation on for English mode too, as Windows does with the IME closed; a refocus keeps it and the next mode switch drops it.
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  !seen.input_enabled && !seen.punctuation_enabled,
+              "Follow fixture did not return to English mode with ASCII punctuation");
+      require(key(IBUS_period, IBUS_CONTROL_MASK) && seen.committed.empty() &&
+                  seen.punctuation_enabled,
+              "English-mode Ctrl+. was not consumed or did not turn Chinese punctuation on");
+      require(!key(IBUS_period, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "English-mode Ctrl+. release was consumed");
+      require(key(IBUS_comma) && seen.committed == "，",
+              "English mode did not convert a comma after Ctrl+.");
+      seen.committed.clear();
+      invoke("FocusOut");
+      invoke("FocusIn");
+      require(!seen.input_enabled && key(IBUS_comma) && seen.committed == "，",
+              "Refocus dropped the English-mode Ctrl+. choice");
+      seen.committed.clear();
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  seen.input_enabled,
+              "Bare Shift did not switch to Chinese after English-mode Ctrl+.");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  !seen.input_enabled,
+              "Bare Shift did not switch back to English after English-mode Ctrl+.");
+      require(!key(IBUS_comma) && seen.committed.empty() && !seen.punctuation_enabled,
+              "A mode round trip did not drop the English-mode Ctrl+. choice");
+#if IBUS_CHECK_VERSION(1, 5, 27)
+      // A mode the focus restores is a mode switch too: toggling Ctrl+. twice in an English app leaves nothing behind for a Chinese app focused next.
+      invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/english-app", "msime-english-app"));
+      require(!seen.input_enabled, "Naming the English-mode focus changed its mode");
+      for (int press = 0; press < 2; ++press) {
+        require(key(IBUS_period, IBUS_CONTROL_MASK) &&
+                    !key(IBUS_period, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+                "English-mode Ctrl+. was not consumed in a named app");
+        require(seen.punctuation_enabled == (press == 0),
+                "English-mode Ctrl+. did not toggle punctuation in a named app");
+      }
+      require(!seen.punctuation_enabled,
+              "Two English-mode Ctrl+. presses did not return to ASCII punctuation");
+      invoke("FocusInId", g_variant_new("(ss)", "/app/msime/test/chinese-app", "msime-chinese-app"));
+      require(seen.input_enabled && seen.punctuation_enabled,
+              "An app restored to Chinese inherited the English-mode Ctrl+. choice of the previous app");
+#endif
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // The "always English punctuation" lock keeps English mode ASCII whatever Ctrl+. says.
+      auto english_lock = follow;
+      english_lock["preferences"]["default_ime_mode"] = "english";
+      english_lock["preferences"]["punctuation_lock"] = "english";
+      msime_ibus_configure(english_lock.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      require(!seen.input_enabled, "English lock fixture did not start in English mode");
+      require(key(IBUS_period, IBUS_CONTROL_MASK) && seen.committed.empty(),
+              "English-mode Ctrl+. was not consumed under the English punctuation lock");
+      require(!key(IBUS_comma) && seen.committed.empty(),
+              "English punctuation lock converted a comma after Ctrl+. in English mode");
       invoke("FocusOut");
     }
     for (const auto *scope : {"app", "global"}) {
@@ -706,6 +795,7 @@ int main(int argc, char **argv) {
       require(seen.input_enabled && !seen.english_mode && seen.preedit == "nihao" &&
                   !seen.candidates.empty() && seen.candidates.front() == "你好",
               "Chinese default did not restore Chinese candidates");
+      require(preedit_underlined(seen), "Typed composition preedit was not single-underlined");
       invoke("Reset");
       invoke("FocusOut");
       invoke("FocusIn");

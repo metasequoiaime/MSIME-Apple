@@ -204,6 +204,8 @@ const EMOJI_COLUMNS: number = 8;
 const EMOJI_PANEL: string = 'emoji';
 const KAOMOJI_PANEL: string = 'kaomoji';
 const SYMBOLS_PANEL: string = 'symbols';
+// The Windows emoji panel's last page (`EmojiPanel::Page::Clipboard`). Only a 2in1 draws it as a tab: the phone reaches clipboard history from its own tools face.
+const CLIPBOARD_PANEL: string = 'clipboard';
 
 /** The shared touch-scheme record this view writes when the picker changes scheme. */
 interface TouchKeyboardSchemes {
@@ -222,6 +224,10 @@ const EMOJI_PANEL_TABS: EmojiPanelTab[] = [
   { id: KAOMOJI_PANEL, title: '颜文字' },
   { id: SYMBOLS_PANEL, title: '符号' }
 ];
+
+const DESKTOP_EMOJI_PANEL_TABS: EmojiPanelTab[] = EMOJI_PANEL_TABS.concat([
+  { id: CLIPBOARD_PANEL, title: '剪贴板' }
+]);
 
 // Said plainly rather than as an error, because nothing is broken: the platform reserves clipboard
 // reads for system applications and this is not one.
@@ -258,6 +264,7 @@ struct KeyboardView {
   @State voiceSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State emojiSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State handwritingSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
+  @State menuSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State english: boolean = false;
   /** Which surface the toolbar asked this window to carry, on a machine with no key faces. */
   @State desktop: DesktopSurface = DesktopSurface.NONE;
@@ -443,31 +450,7 @@ struct KeyboardView {
         this.loadEmoji(this.emojiGroup);
       }
     };
-    this.settings = KeyboardSession.shared.preferences();
-    this.geometryKeySpacing = this.settings.keySpacingTenths;
-    this.geometryRowSpacing = this.settings.rowSpacingTenths;
-    this.geometryHeight = this.settings.heightAdjustment;
-    this.touchVoiceShortcut = this.settings.voiceShortcut;
-    this.feedback = KeyboardSession.shared.feedback();
-    this.traditional = KeyboardSession.shared.usesTraditional();
-    this.skin = KeyboardSession.shared.skin(this.settings.skinId, this.settings.dark);
-    this.voiceSkin = KeyboardSession.shared.skin(this.settings.skinId,
-      KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
-        this.settings.dark));
-    this.emojiSkin = KeyboardSession.shared.skin(this.settings.skinId,
-      KeyboardSkin.resolveDark(this.settings.emojiTheme, this.settings.globalTheme,
-        this.settings.dark));
-    this.handwritingSkin = KeyboardSession.shared.skin(this.settings.skinId,
-      KeyboardSkin.resolveDark(this.settings.handwritingTheme, this.settings.globalTheme,
-        this.settings.dark));
-    this.candidateSkin = KeyboardSkin.from(
-      CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
-      this.settings.candidateDark);
-    this.scheme = this.settings.thoughtfulReply ? KeyboardScheme.THOUGHTFUL_REPLY
-      : this.enabledScheme();
-    this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
-    this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
-    KeyboardSession.shared.setNineKey(this.nineKey);
+    this.applySettings();
     // The editor may already be attached by the time the view appears, in which case its override
     // never produced a callback and has to be read off the session here.
     this.applyEditorFace();
@@ -477,6 +460,16 @@ struct KeyboardView {
       this.english = KeyboardSession.shared.isEnglish();
       this.applyEditorFace();
       this.applyAutomaticCase();
+    };
+    KeyboardSession.shared.onViewPreferencesReloaded = (): void => {
+      // The settings page saved while this view was alive; draw what it saved instead of what the view read when it appeared.
+      this.applySettings();
+      this.applyEditorFace();
+      if (!KeyboardFormFactor.isDesktop()) {
+        KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
+          this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
+          this.settings.candidateFontSize));
+      }
     };
     KeyboardSession.shared.onReplyContextChanged = (): void => {
       this.replyResults = [];
@@ -525,6 +518,7 @@ struct KeyboardView {
     KeyboardSession.shared.onClipboardHistoryChanged = undefined;
     KeyboardSession.shared.onVoiceInputChanged = undefined;
     KeyboardSession.shared.onEditorChanged = undefined;
+    KeyboardSession.shared.onViewPreferencesReloaded = undefined;
     KeyboardSession.shared.onReplyContextChanged = undefined;
     KeyboardSession.shared.invalidateReplyContext(false);
     this.cancelBackspace();
@@ -740,6 +734,12 @@ struct KeyboardView {
 
   private showEmojiPanel(panel: string): void {
     this.emojiPanel = panel;
+    if (panel === CLIPBOARD_PANEL) {
+      this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
+      this.clipboardNotice = this.clipboardEnabled ? '' : '剪贴板历史已在设置中关闭';
+      this.confirmingClear = false;
+      return;
+    }
     if (panel === EMOJI_PANEL) {
       this.emojiRecents = KeyboardSession.shared.emojiRecents();
       if (this.emojiRecents.length > 0) {
@@ -982,6 +982,9 @@ struct KeyboardView {
     this.handwritingSkin = KeyboardSession.shared.skin(choice.id,
       KeyboardSkin.resolveDark(this.settings.handwritingTheme, this.settings.globalTheme,
         this.settings.dark));
+    this.menuSkin = KeyboardSession.shared.skin(choice.id,
+      KeyboardSkin.resolveDark(this.settings.menuTheme, this.settings.globalTheme,
+        this.settings.dark));
     this.show(SURFACE_NONE);
   }
 
@@ -1158,6 +1161,38 @@ struct KeyboardView {
    * settings page therefore left the keyboard on it with no card to leave by. The resolution and
    * the write-back are both ported — this reads the list, that one moves the preference.
    */
+  /** Read the stored preferences into the view's skins, geometry and scheme. */
+  private applySettings(): void {
+    this.settings = KeyboardSession.shared.preferences();
+    this.geometryKeySpacing = this.settings.keySpacingTenths;
+    this.geometryRowSpacing = this.settings.rowSpacingTenths;
+    this.geometryHeight = this.settings.heightAdjustment;
+    this.touchVoiceShortcut = this.settings.voiceShortcut;
+    this.feedback = KeyboardSession.shared.feedback();
+    this.traditional = KeyboardSession.shared.usesTraditional();
+    this.skin = KeyboardSession.shared.skin(this.settings.skinId, this.settings.dark);
+    this.voiceSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.emojiSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.emojiTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.handwritingSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.handwritingTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.menuSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.menuTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.candidateSkin = KeyboardSkin.from(
+      CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
+      this.settings.candidateDark);
+    this.scheme = this.settings.thoughtfulReply ? KeyboardScheme.THOUGHTFUL_REPLY
+      : this.enabledScheme();
+    this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
+    this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
+    KeyboardSession.shared.setNineKey(this.nineKey);
+  }
+
   private enabledScheme(): SchemeDefinition {
     const applied: SchemeDefinition = this.resolveScheme(this.settings.layout);
     const selected: SchemeDefinition = KeyboardScheme.resolveEnabledSelection(applied,
@@ -2138,6 +2173,28 @@ struct KeyboardView {
         }
       }
     })
+  }
+
+  private clearClipboard(): void {
+    // Clearing takes every pinned entry with it, which is exactly what a pin was meant to prevent, so it is worth one confirmation.
+    if (!this.confirmingClear) {
+      this.confirmingClear = true;
+      this.clipboardNotice = '再次点按将删除全部历史，包括已固定的。';
+      return;
+    }
+    this.applyClipboardMutation(KeyboardSession.shared.clearClipboardHistory());
+    this.confirmingClear = false;
+  }
+
+  /** On a 2in1 the candidate management strip is the candidate context menu Windows draws in `menu_theme`; the other strips, and every strip on a phone, belong to the keyboard. */
+  private overlaySkin(): KeyboardSkin {
+    return KeyboardFormFactor.isDesktop() && this.managing >= 0 && !this.punctuation && !this.brackets
+      && this.expandedGloss < 0 ? this.menuSkin : this.skin;
+  }
+
+  /** The phone draws clipboard history on the keyboard's own skin; a 2in1 draws it inside the emoji surface, on that surface's skin. */
+  private clipboardSkin(): KeyboardSkin {
+    return KeyboardFormFactor.isDesktop() ? this.emojiSkin : this.skin;
   }
 
   private openClipboard(): void {
@@ -3595,7 +3652,7 @@ struct KeyboardView {
     Row() {
       Text(title)
         .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-        .fontColor(this.skin.keyForeground)
+        .fontColor(this.overlaySkin().keyForeground)
         .opacity(0.55)
         .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP })
       if (this.expandedGloss >= 0) {
@@ -3603,7 +3660,7 @@ struct KeyboardView {
         ForEach(this.expandedGlossActions(), (item: ManagementAction) => {
           Text(item.title)
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.skin.accent)
+            .fontColor(this.overlaySkin().accent)
             .padding({ left: 10, right: 10 })
             .onClick(() => this.insertExpandedGloss())
         }, (item: ManagementAction) => `${item.id}:${item.title}`)
@@ -3611,7 +3668,7 @@ struct KeyboardView {
         ForEach(JapaneseNineKeyLayout.digitBrackets(), (bracket: string) => {
           Text(bracket)
             .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
-            .fontColor(this.skin.keyForeground)
+            .fontColor(this.overlaySkin().keyForeground)
             .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
               right: KeyboardMetrics.CANDIDATE_PADDING_VP })
             .onClick(() => {
@@ -3625,7 +3682,7 @@ struct KeyboardView {
           (item: PunctuationEntry) => {
             Text(item.face)
               .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
-              .fontColor(this.skin.keyForeground)
+              .fontColor(this.overlaySkin().keyForeground)
               .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                 right: KeyboardMetrics.CANDIDATE_PADDING_VP })
               .onClick(() => {
@@ -3638,8 +3695,8 @@ struct KeyboardView {
         ForEach(this.managementActions(), (item: ManagementAction) => {
           Text(item.title)
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(item.available === false ? this.skin.keyForeground :
-              item.checked === true ? this.skin.keyForeground : this.skin.accent)
+            .fontColor(item.available === false ? this.overlaySkin().keyForeground :
+              item.checked === true ? this.overlaySkin().keyForeground : this.overlaySkin().accent)
             .opacity(item.available === false ? 0.35 : 1)
             .padding({ left: 10, right: 10 })
             .onClick(() => this.manageCandidate(item, this.managing))
@@ -3648,7 +3705,7 @@ struct KeyboardView {
       Blank()
       Text('×')
         .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-        .fontColor(this.skin.keyForeground)
+        .fontColor(this.overlaySkin().keyForeground)
         .padding({ right: KeyboardMetrics.CANDIDATE_PADDING_VP })
         .onClick(() => {
           this.punctuation = false;
@@ -3660,7 +3717,7 @@ struct KeyboardView {
     }
     .width('100%')
     .height(KeyboardMetrics.ROW_HEIGHT_VP)
-    .backgroundColor(this.skin.keyBackground)
+    .backgroundColor(this.overlaySkin().keyBackground)
     .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
   }
 
@@ -4033,17 +4090,7 @@ struct KeyboardView {
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
           .fontColor(this.skin.accent)
           .padding({ right: 12 })
-          .onClick(() => {
-            // Clearing takes every pinned entry with it, which is exactly what a pin was meant to
-            // prevent, so it is worth one confirmation.
-            if (!this.confirmingClear) {
-              this.confirmingClear = true;
-              this.clipboardNotice = '再次点按将删除全部历史，包括已固定的。';
-              return;
-            }
-            this.applyClipboardMutation(KeyboardSession.shared.clearClipboardHistory());
-            this.confirmingClear = false;
-          })
+          .onClick(() => this.clearClipboard())
         Text('返回')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
           .fontColor(this.skin.accent)
@@ -4056,10 +4103,19 @@ struct KeyboardView {
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
         right: KeyboardMetrics.CANDIDATE_PADDING_VP })
 
+      this.clipboardEntries()
+    }
+    .width('100%')
+    .height(this.surfaceHeight())
+  }
+
+  /** The notice and the saved entries, shared by the phone's clipboard surface and the 2in1 emoji surface's clipboard tab. */
+  @Builder
+  clipboardEntries() {
       if (this.clipboardNotice.length > 0) {
         Text(this.clipboardNotice)
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
+          .fontColor(this.clipboardSkin().keyForeground)
           .opacity(0.7)
           .maxLines(2)
           .width('100%')
@@ -4073,21 +4129,21 @@ struct KeyboardView {
             Row() {
               Text(entry.text)
                 .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-                .fontColor(this.skin.keyForeground)
+                .fontColor(this.clipboardSkin().keyForeground)
                 .maxLines(2)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .layoutWeight(1)
                 .onClick(() => KeyboardSession.shared.insert(entry.text))
               Text(entry.pinned ? '已固定' : '固定')
                 .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-                .fontColor(entry.pinned ? this.skin.accent : this.skin.keyForeground)
+                .fontColor(entry.pinned ? this.clipboardSkin().accent : this.clipboardSkin().keyForeground)
                 .opacity(entry.pinned ? 1 : 0.55)
                 .padding({ left: 8, right: 8 })
                 .onClick(() => this.applyClipboardMutation(
                   KeyboardSession.shared.setClipboardPinned(entry.text, !entry.pinned)))
               Text('删除')
                 .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-                .fontColor(this.skin.keyForeground)
+                .fontColor(this.clipboardSkin().keyForeground)
                 .opacity(0.55)
                 .onClick(() => this.applyClipboardMutation(
                   KeyboardSession.shared.removeClipboardHistory(entry.text)))
@@ -4095,7 +4151,7 @@ struct KeyboardView {
             .width('100%')
             .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
               right: KeyboardMetrics.CANDIDATE_PADDING_VP, top: 6, bottom: 6 })
-            .backgroundColor(this.skin.keyBackground)
+            .backgroundColor(this.clipboardSkin().keyBackground)
             .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
           })
         }
@@ -4104,9 +4160,6 @@ struct KeyboardView {
       .scrollBar(BarState.Off)
       .width('100%')
       .layoutWeight(1)
-    }
-    .width('100%')
-    .height(this.surfaceHeight())
   }
 
   /** The emoji grid, with the Unicode categories down the top and the group's entries below. */
@@ -4145,7 +4198,8 @@ struct KeyboardView {
 
       Scroll() {
         Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
-          ForEach(EMOJI_PANEL_TABS, (panel: EmojiPanelTab) => {
+          ForEach(KeyboardFormFactor.isDesktop() ? DESKTOP_EMOJI_PANEL_TABS : EMOJI_PANEL_TABS,
+            (panel: EmojiPanelTab) => {
             Text(panel.title)
               .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
               .fontColor(this.emojiPanel === panel.id
@@ -4196,6 +4250,22 @@ struct KeyboardView {
                 .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
                 .onClick(() => this.loadEmojiCatalog(KAOMOJI_PANEL, group))
             }, (group: string) => `${group}:${this.emojiGroup}`)
+          } else if (this.emojiPanel === CLIPBOARD_PANEL) {
+            // Nothing is captured in the background (see captureClipboard), so saving is a button here too.
+            Text('保存当前')
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.emojiSkin.accent)
+              .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+              .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+              .onClick(() => this.captureClipboard())
+            Text(this.confirmingClear ? '确认清空' : '清空')
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.emojiSkin.accent)
+              .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+              .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+              .onClick(() => this.clearClipboard())
           } else {
             ForEach(this.emojiSymbolGroups, (group: EmojiSymbolGroup) => {
               Text(group.title)
@@ -4219,21 +4289,25 @@ struct KeyboardView {
       .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
       .align(Alignment.Start)
 
-      Grid() {
-        ForEach(this.emojiItems, (item: string) => {
-          GridItem() {
-            Text(item)
-              .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE + 4)
-              .fontColor(this.emojiSkin.keyForeground)
-              .textAlign(TextAlign.Center)
-              .width('100%')
-              .onClick(() => this.selectEmoji(item))
-          }
-        }, (item: string, index: number) => `${index}:${item}`)
+      if (this.emojiPanel === CLIPBOARD_PANEL) {
+        this.clipboardEntries()
+      } else {
+        Grid() {
+          ForEach(this.emojiItems, (item: string) => {
+            GridItem() {
+              Text(item)
+                .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE + 4)
+                .fontColor(this.emojiSkin.keyForeground)
+                .textAlign(TextAlign.Center)
+                .width('100%')
+                .onClick(() => this.selectEmoji(item))
+            }
+          }, (item: string, index: number) => `${index}:${item}`)
+        }
+        .columnsTemplate('1fr '.repeat(EMOJI_COLUMNS).trim())
+        .width('100%')
+        .layoutWeight(1)
       }
-      .columnsTemplate('1fr '.repeat(EMOJI_COLUMNS).trim())
-      .width('100%')
-      .layoutWeight(1)
     }
     .width('100%')
     .height(this.surfaceHeight())
