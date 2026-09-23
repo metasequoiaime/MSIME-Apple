@@ -194,6 +194,79 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertThrowsError(try PersonalDictionaryStore(directory: nil).read())
   }
 
+  func testTheKeyboardWritesTheRequestedExportAfterTheQueuedEdits() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let host = PersonalDictionaryStore(directory: root)
+    let keyboard = PersonalDictionaryStore(directory: root)
+    let empty: (PersonalPageRequest) throws -> PersonalWordPage = { _ in .init(entries: [], hasMore: false) }
+    XCTAssertThrowsError(try host.requestExport(kind: .pinyin, format: "rime"), "the Engine exports only the two TSV layouts")
+
+    // An edit still waiting is applied first, and the export waits for the queue to drain.
+    try host.enqueueImport((0..<5).map { PersonalWord(kind: .quickPhrase, key: "q\($0)", value: "短语\($0)") })
+    let request = try host.requestExport(kind: .quickPhrase, format: "windows")
+    var asked: [PersonalExportRequest] = []
+    let export: (PersonalExportRequest) throws -> PersonalExportText = {
+      asked.append($0)
+      return PersonalExportText(text: "q0\t短语0\t100\nq1\t短语1\t100\n", complete: true)
+    }
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: export)
+    XCTAssertEqual(try host.read().pendingCount, 1)
+    XCTAssertTrue(asked.isEmpty)
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: export)
+    XCTAssertEqual(asked, [request])
+    let result = try XCTUnwrap(host.read().exportResult)
+    XCTAssertEqual(result.request, request)
+    XCTAssertEqual(result.rows, 2)
+    XCTAssertFalse(result.truncated)
+    XCTAssertNil(result.error)
+
+    // Written once per request, and shared under the desktop's name.
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: export)
+    XCTAssertEqual(asked.count, 1)
+    let copy = try host.exportCopy(for: result)
+    XCTAssertEqual(copy.lastPathComponent, "水杉IME-快捷短语用户词库.txt")
+    XCTAssertEqual(try String(contentsOf: copy, encoding: .utf8), "q0\t短语0\t100\nq1\t短语1\t100\n")
+
+    // A failed export leaves no stale file behind and says why.
+    enum Failure: LocalizedError { case injected; var errorDescription: String? { "injected" } }
+    let failed = try host.requestExport(kind: .pinyin, format: "standard")
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: { _ in throw Failure.injected })
+    XCTAssertEqual(try host.read().exportResult?.request, failed)
+    XCTAssertEqual(try host.read().exportResult?.error, "injected")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: try XCTUnwrap(host.exportFile).path))
+    XCTAssertThrowsError(try host.exportCopy(for: try XCTUnwrap(host.read().exportResult)))
+
+    try host.requestExport(kind: .pinyin, format: "standard")
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: { _ in PersonalExportText(text: "你好\tni'hao\t1\n", complete: false) })
+    XCTAssertEqual(try host.read().exportResult?.truncated, true)
+  }
+
+  @MainActor
+  func testTheKeyboardEngineExportsTheUsersWords() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let session = MetasequoiaInputSessionBridge(resources: resources,
+                                                 stateRoot: root.appendingPathComponent("EngineState"))
+    let word = try PersonalWord(kind: .quickPhrase, key: "msimeexport", value: "export fixture", weight: 42).validated()
+    defer {
+      _ = session.cancel()
+      try? session.applyPersonalPrevious(word.bridgeValue, replacement: nil, requestID: UUID().uuidString)
+    }
+    try session.applyPersonalPrevious(nil, replacement: word.bridgeValue, requestID: UUID().uuidString)
+    let windows = try session.personalExport(kind: .quickPhrase, format: "windows")
+    XCTAssertTrue(windows.complete)
+    XCTAssertTrue(windows.text.contains("msimeexport\texport fixture\t42\n"), windows.text)
+    let standard = try session.personalExport(kind: .quickPhrase, format: "standard")
+    XCTAssertTrue(standard.text.contains("export fixture\tmsimeexport\t42\n"), standard.text)
+    // The session is reopened after the export, so typing still works.
+    _ = session.openLocalMode("K")
+    var snapshot = session.handleCharacter("m")
+    for letter in word.key.dropFirst() { snapshot = session.handleCharacter(String(letter)) }
+    XCTAssertTrue(snapshot.candidates.contains(word.value))
+  }
+
   @MainActor
   func testACodeSearchReachesTheWholeStoreThroughTheKeyboardEngine() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

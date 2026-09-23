@@ -47,6 +47,7 @@ struct PersonalDictionaryState: Codable, Sendable {
   enum CodingKeys: String, CodingKey {
     case version, requests, entries, hasMore, snapshotDate, snapshotError
     case pageOffset, requestedPageOffset, requestedKind, requestedQuery, pageKind, pageQuery
+    case exportRequest, exportResult
     case refreshID = "refreshId"
     case completedRefreshID = "completedRefreshId"
   }
@@ -69,6 +70,9 @@ struct PersonalDictionaryState: Codable, Sendable {
   var pageQuery = ""
   var refreshID = UUID()
   var completedRefreshID: UUID?
+  /// The export the host asked for, and the one the keyboard last wrote to `PersonalDictionaryStore.exportFile`. They match by `id` once the file is ready.
+  var exportRequest: PersonalExportRequest?
+  var exportResult: PersonalExportResult?
   var pendingCount: Int { requests.filter { $0.status == .pending }.count }
 
   init() {}
@@ -92,7 +96,36 @@ struct PersonalDictionaryState: Codable, Sendable {
       ?? legacy.decodeIfPresent(UUID.self, forKey: .refreshID) ?? UUID()
     completedRefreshID = try values.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
       ?? legacy.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
+    exportRequest = try values.decodeIfPresent(PersonalExportRequest.self, forKey: .exportRequest)
+    exportResult = try values.decodeIfPresent(PersonalExportResult.self, forKey: .exportResult)
   }
+}
+
+/// One dictionary written out in a shared text layout, as the desktop settings page exports it.
+///
+/// The host cannot open the Engine's dictionary while the keyboard may hold it, so the keyboard writes the file the next time it synchronizes, the same way it applies edits.
+struct PersonalExportRequest: Codable, Equatable, Sendable {
+  static let formats = ["standard", "windows"]
+  var id = UUID()
+  var kind: PersonalWordKind
+  var format: String
+  /// The name the desktop settings page gives the same export.
+  var fileName: String { "水杉IME-\(kind.title)用户词库.txt" }
+}
+
+struct PersonalExportResult: Codable, Equatable, Sendable {
+  var request: PersonalExportRequest
+  var rows = 0
+  /// The dictionary had more rows than one export writes.
+  var truncated = false
+  var error: String?
+  var date = Date()
+}
+
+/// What the keyboard's Engine returned for an export request.
+struct PersonalExportText: Sendable {
+  var text: String
+  var complete: Bool
 }
 
 /// One page of the user's own words, optionally within one dictionary and under one code prefix.
@@ -112,7 +145,7 @@ struct PersonalWordPage: Sendable {
 // with Full Access and with no active input session touching the dictionaries.
 final class PersonalDictionaryStore: @unchecked Sendable {
   enum StoreError: LocalizedError {
-    case unavailable, invalidState, busy, tooManyRequests, conflict
+    case unavailable, invalidState, busy, tooManyRequests, conflict, exportTooLarge
     var errorDescription: String? {
       switch self {
       case .unavailable: return "无法访问个人词库共享目录。"
@@ -120,6 +153,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
       case .busy: return "个人词库正在同步，请稍后重试。"
       case .tooManyRequests: return "等待同步的操作过多，请先打开键盘完成同步。"
       case .conflict: return "这个词条已有等待同步的操作，请同步后再编辑。"
+      case .exportTooLarge: return "词库超过 8 MB，键盘无法一次导出。"
       }
     }
   }
@@ -128,6 +162,11 @@ final class PersonalDictionaryStore: @unchecked Sendable {
   private let maximumBytes = 8 * 1024 * 1024
   /// The code prefix a page may be filtered by, as the Engine list accepts it.
   static let maximumQueryBytes = 256
+  /// The keyboard extension builds the export in memory, and its memory limit is far below the app's.
+  static let maximumExportBytes = 8 * 1024 * 1024
+
+  /// Where the keyboard writes the requested export. Only one is kept: a new request replaces it.
+  var exportFile: URL? { directory?.appendingPathComponent("export.txt") }
 
   private static func decoder() -> JSONDecoder {
     let decoder = JSONDecoder()
@@ -178,6 +217,9 @@ final class PersonalDictionaryStore: @unchecked Sendable {
           state.requestedPageOffset >= 0, state.requestedPageOffset <= 1_000_000,
           state.requestedQuery.utf8.count <= Self.maximumQueryBytes,
           state.pageQuery.utf8.count <= Self.maximumQueryBytes,
+          [state.exportRequest?.format, state.exportResult?.request.format].allSatisfy({
+            $0.map(PersonalExportRequest.formats.contains) ?? true
+          }),
           Set(state.requests.map(\.id)).count == state.requests.count
     else { throw StoreError.invalidState }
     return state
@@ -289,7 +331,8 @@ final class PersonalDictionaryStore: @unchecked Sendable {
   // Keep the queue lock through apply and acknowledgement. If writing sync.json is interrupted,
   // the same UUID is retried; Engine's transaction receipt makes that retry a no-op success.
   func synchronize(apply: (PersonalWordRequest) throws -> Void,
-                   page: (PersonalPageRequest) throws -> PersonalWordPage) throws {
+                   page: (PersonalPageRequest) throws -> PersonalWordPage,
+                   export: ((PersonalExportRequest) throws -> PersonalExportText)? = nil) throws {
     try update { state in
       // Each edit closes and reopens the Engine session. Limit work per keyboard timer turn
       // so a full import cannot monopolize the main thread or hold the host's queue lock.
@@ -321,6 +364,46 @@ final class PersonalDictionaryStore: @unchecked Sendable {
         // Preserve the last confirmed list and every edit acknowledgement even if refresh fails.
         state.snapshotError = String(error.localizedDescription.prefix(500))
       }
+      // Written after this turn's edits, so an import followed by an export carries the imported words.
+      if let export, let request = state.exportRequest, state.exportResult?.request.id != request.id,
+         state.pendingCount == 0, let file = exportFile {
+        var result = PersonalExportResult(request: request)
+        do {
+          let exported = try export(request)
+          let data = Data(exported.text.utf8)
+          guard data.count <= Self.maximumExportBytes else { throw StoreError.exportTooLarge }
+          try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+          result.rows = exported.text.split(separator: "\n", omittingEmptySubsequences: true).count
+          result.truncated = !exported.complete
+        } catch {
+          try? FileManager.default.removeItem(at: file)
+          result.error = String(error.localizedDescription.prefix(500))
+        }
+        state.exportResult = result
+      }
     }
+  }
+
+  /// A copy of the written export under its desktop name, for the share sheet. The shared file stays where the keyboard wrote it.
+  func exportCopy(for result: PersonalExportResult) throws -> URL {
+    guard result.error == nil, let file = exportFile else { throw StoreError.unavailable }
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("PersonalExport", isDirectory: true)
+    try? FileManager.default.removeItem(at: folder)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let copy = folder.appendingPathComponent(result.request.fileName)
+    try FileManager.default.copyItem(at: file, to: copy)
+    return copy
+  }
+
+  /// Ask the keyboard to write one dictionary out. It replaces any export not yet written, and the keyboard answers it after the edits already queued.
+  @discardableResult
+  func requestExport(kind: PersonalWordKind, format: String) throws -> PersonalExportRequest {
+    guard PersonalExportRequest.formats.contains(format) else { throw StoreError.invalidState }
+    let request = PersonalExportRequest(kind: kind, format: format)
+    try update {
+      $0.exportRequest = request
+      $0.refreshID = UUID()
+    }
+    return request
   }
 }

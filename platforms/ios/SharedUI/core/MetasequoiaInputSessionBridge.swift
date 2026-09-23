@@ -1155,6 +1155,30 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return result
   }
 
+  /// One dictionary in a shared text layout, read a page at a time inside one maintenance window so the session is reopened once rather than per page. It stops at `maximumPages` pages or `PersonalDictionaryStore.maximumExportBytes`, whichever comes first, and says so with `complete`. Pinyin carries the weights of bundled words the user changed or taught, and omits single characters, as the Windows export does.
+  func personalExport(kind: PersonalWordKind, format: String, maximumPages: Int = 200) throws -> PersonalExportText {
+    try withDictionaryMaintenance {
+      var text = ""
+      for page in 0..<maximumPages {
+        let action: [String: Any] = ["operation": "export", "kind": kind.bridgeName, "format": format,
+                                     "offset": page * 1000, "limit": 1000]
+        let result = try Self.callOptions(msimeClientDictionary, ["options": options, "action": action])
+        guard let chunk = result["text"] as? String, let hasMore = result["has_more"] as? Bool else {
+          throw InputBridgeFailure.invalidResponse
+        }
+        text += chunk
+        if text.utf8.count > PersonalDictionaryStore.maximumExportBytes {
+          // Keep whole rows up to the cap, so the file still imports.
+          let bytes = Array(text.utf8.prefix(PersonalDictionaryStore.maximumExportBytes))
+          let end = bytes.lastIndex(of: UInt8(ascii: "\n")).map { $0 + 1 } ?? 0
+          return PersonalExportText(text: String(decoding: bytes[..<end], as: UTF8.self), complete: false)
+        }
+        if !hasMore { return PersonalExportText(text: text, complete: true) }
+      }
+      return PersonalExportText(text: text, complete: false)
+    }
+  }
+
   private func withDictionaryMaintenance<T>(_ operation: () throws -> T) throws -> T {
     guard handle != 0 else { throw InputBridgeFailure.unavailable }
     guard !hasComposition else { throw InputBridgeFailure.response("请先结束当前输入再同步个人词库") }

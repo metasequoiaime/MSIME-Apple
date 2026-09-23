@@ -10,6 +10,10 @@ struct PersonalDictionaryView: View {
   @State private var trial = ""
   @State private var search = ""
   @State private var importing = false
+  @State private var exportKind = PersonalWordKind.pinyin
+  @State private var exportFormat = "standard"
+  @State private var exportCopy: (id: UUID, url: URL)?
+  @State private var exportCopyAttempt: UUID?
   private let store: PersonalDictionaryStore
   init() {
     #if DEBUG && targetEnvironment(simulator)
@@ -52,7 +56,7 @@ struct PersonalDictionaryView: View {
                         symbol: state.pendingCount > 0 ? "clock.arrow.circlepath" : "checkmark.circle.fill")
         TextField("点此打开键盘并试打", text: $trial)
           .accessibilityIdentifier("personalDictionaryTrial")
-        SettingsActionRow(title: "从文件导入词条", detail: "支持词库 JSON 文件",
+        SettingsActionRow(title: "从文件导入词条", detail: "JSON、纯中文词表或词库文件",
                           symbol: "square.and.arrow.down.fill") { importing = true }
           .accessibilityIdentifier("importPersonalDictionary")
       } header: {
@@ -60,6 +64,7 @@ struct PersonalDictionaryView: View {
       } footer: {
         Text("开启水杉键盘的「允许完全访问」，再打开键盘完成本机同步。已保存的学习记录和词条不会上传。")
       }
+      exportSection
       let requests = state.requests.filter { $0.status != .applied }
       if !requests.isEmpty {
         Section("同步进度") {
@@ -169,12 +174,61 @@ struct PersonalDictionaryView: View {
       }
     }
   }
+  /// Windows exports one dictionary at a time, word first or code first. The keyboard writes the file, because only it may open the Engine's dictionary; the page then offers it to the share sheet.
+  @ViewBuilder private var exportSection: some View {
+    Section {
+      Picker("词库类型", selection: $exportKind) {
+        ForEach(PersonalWordKind.allCases) { Text($0.title).tag($0) }
+      }.accessibilityIdentifier("personalDictionaryExportKind")
+      Picker("文件格式", selection: $exportFormat) {
+        Text("词在前（标准）").tag("standard")
+        Text("编码在前（Windows）").tag("windows")
+      }.accessibilityIdentifier("personalDictionaryExportFormat")
+      SettingsActionRow(title: "生成导出文件", detail: "由键盘在下次同步时写出",
+                        symbol: "square.and.arrow.up.on.square") {
+        perform { try store.requestExport(kind: exportKind, format: exportFormat) }
+      }
+      .accessibilityIdentifier("requestPersonalDictionaryExport")
+      if let request = state.exportRequest {
+        if let result = state.exportResult, result.request.id == request.id {
+          if let failure = result.error {
+            Text(failure).font(.footnote).foregroundStyle(.red)
+          } else {
+            Text("\(request.kind.title)词库已导出 \(result.rows) 条" + (result.truncated ? "，词库过大，只导出了前面一部分。" : "。"))
+              .font(.footnote).foregroundStyle(.secondary)
+            if let copy = exportCopy, copy.id == request.id {
+              ShareLink(item: copy.url) { Label("分享「\(request.fileName)」", systemImage: "square.and.arrow.up") }
+                .accessibilityIdentifier("sharePersonalDictionaryExport")
+            }
+          }
+        } else {
+          Text("等待键盘生成\(request.kind.title)词库文件，打开上方试打框。").font(.footnote).foregroundStyle(.secondary)
+        }
+      }
+    } header: {
+      Text("导出")
+    } footer: {
+      Text("与电脑版导出的文件相同：每行一条，用 Tab 分隔。拼音导出多字词，包括调整过权重的内置词；其他类型只导出你添加的词条。文件只保存在本机，通过分享面板存到你选择的位置。")
+    }
+  }
+
   private func refresh() {
-    do { state = try store.read(); lastReadError = nil } catch {
+    do { state = try store.read(); lastReadError = nil; prepareExportCopy() } catch {
       let message = error.localizedDescription
       if lastReadError != message { self.error = message; lastReadError = message }
     }
   }
+  /// Copies the export the keyboard just wrote, once, so the share sheet gets a file under the desktop's name.
+  private func prepareExportCopy() {
+    guard let result = state.exportResult, result.request.id == state.exportRequest?.id, result.error == nil,
+          exportCopyAttempt != result.request.id else { return }
+    // The page re-reads the queue every second; a copy that failed is reported once, not every second.
+    exportCopyAttempt = result.request.id
+    do { exportCopy = (result.request.id, try store.exportCopy(for: result)) } catch {
+      self.error = error.localizedDescription
+    }
+  }
+
   private func perform<T>(_ work: () throws -> T) {
     do { _ = try work(); refresh() } catch { self.error = error.localizedDescription }
   }

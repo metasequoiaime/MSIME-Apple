@@ -2301,6 +2301,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           throw PersonalDictionaryStore.StoreError.invalidState
         }
         return PersonalWordPage(entries: try rows.map { try PersonalWord(bridgeValue: $0) }, hasMore: hasMore)
+      }, export: { request in
+        try self.session.personalExport(kind: request.kind, format: request.format)
       })
     } catch PersonalDictionaryStore.StoreError.busy {
       // Another process owns this short transaction; the timer retries without interrupting typing.
