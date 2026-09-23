@@ -61,6 +61,7 @@
 - (void)setProcessing:(BOOL)polishing;
 - (void)setInputLevel:(float)level;
 - (void)restore;
+- (void (^)(void))deferredMute;
 - (void)playStartCue;
 @end
 @implementation DoubaoPresentationFixture
@@ -72,6 +73,7 @@
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 - (void)setInputLevel:(float)level { self.lastLevel = level; ++self.levelUpdates; }
 - (void)restore {}
+- (void (^)(void))deferredMute { return ^{}; }
 - (void)playStartCue {}
 @end
 
