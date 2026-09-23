@@ -7,6 +7,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var skin = KeyboardSkinPreference.selected
   @State private var nineKey = InputSchemePreference.scheme == .nineKey
   @State private var voice = KeyboardLayoutPreference.voiceShortcutEnabled
+  @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
 
@@ -145,6 +146,17 @@ struct KeyboardLayoutSettingsView: View {
       } footer: {
         Text("语音入口用于打开已识别的语音结果。")
       }
+      if UIDevice.current.userInterfaceIdiom == .pad {
+        Section {
+          Toggle("数字行与 Tab 键", isOn: $tabletFullKeys)
+            .accessibilityIdentifier("appTabletFullKeysSwitch")
+            .onChange(of: tabletFullKeys) { KeyboardLayoutPreference.tabletFullKeys = $0 }
+        } header: {
+          Text("iPad")
+        } footer: {
+          Text("全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。")
+        }
+      }
       Section {
         Button("恢复默认", role: .destructive) {
           KeyboardLayoutPreference.resetToDefaults()
@@ -164,6 +176,7 @@ struct KeyboardLayoutSettingsView: View {
     skin = KeyboardSkinPreference.selected
     nineKey = InputSchemePreference.scheme == .nineKey
     voice = KeyboardLayoutPreference.voiceShortcutEnabled
+    tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   }
 
   private func spacingRow(
