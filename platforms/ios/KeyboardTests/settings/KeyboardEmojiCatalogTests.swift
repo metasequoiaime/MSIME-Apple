@@ -116,6 +116,83 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertTrue(closed)
   }
 
+  func testKaomojiIsTheLastTabAndAcceptsLongerLines() throws {
+    let kaomoji = KeyboardEmojiCatalog.kaomoji
+    XCTAssertEqual(kaomoji.title, "颜文字")
+    XCTAssertTrue(kaomoji.isKaomoji)
+    XCTAssertFalse(KeyboardEmojiCatalog.categories.contains { $0.isKaomoji })
+    let line = String(repeating: "ヽ", count: 59)
+    let value: [String: Any] = [
+      "items": [["text": line, "annotation": "fixture", "group": kaomoji.group]],
+      "next_offset": 1,
+      "complete": true,
+    ]
+    XCTAssertEqual(
+      try KeyboardEmojiCatalog.decodePage(value, category: kaomoji, requestedOffset: 0).items.first?.text,
+      line)
+    let emoji = try XCTUnwrap(KeyboardEmojiCatalog.categories.first)
+    var asEmoji = value
+    asEmoji["items"] = [["text": line, "annotation": "fixture", "group": emoji.group]]
+    XCTAssertThrowsError(
+      try KeyboardEmojiCatalog.decodePage(asEmoji, category: emoji, requestedOffset: 0),
+      "the Emoji limit still applies outside the kaomoji tab")
+    XCTAssertEqual(KeyboardEmojiPickerView.kaomojiColumns(width: 378), 2)
+    XCTAssertEqual(KeyboardEmojiPickerView.kaomojiColumns(width: 200), 2)
+    XCTAssertEqual(KeyboardEmojiPickerView.kaomojiColumns(width: 1012), 5)
+  }
+
+  func testSharedBridgeReadsPackagedKaomoji() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-kaomoji-catalog-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let resources = try XCTUnwrap(bridge.candidateGlossResources())
+    let page = try KeyboardEmojiCatalog.loadPage(
+      resources: resources, category: KeyboardEmojiCatalog.kaomoji, offset: 0)
+    XCTAssertFalse(page.items.isEmpty)
+    XCTAssertFalse(page.complete)
+    XCTAssertTrue(page.items.contains { $0.text.unicodeScalars.count > 1 })
+  }
+
+  func testPickerKaomojiTabInsertsWithoutTouchingRecents() async throws {
+    let kaomoji = KeyboardEmojiCatalog.kaomoji
+    let loaded = expectation(description: "kaomoji page")
+    var inserted: String?
+    let picker = KeyboardEmojiPickerView(
+      resources: "/fixture",
+      loader: { category, _ in
+        if category == kaomoji { loaded.fulfill() }
+        return KeyboardEmojiCatalog.Page(items: [
+          .init(text: category == kaomoji ? "(*^▽^*)" : "😀", annotation: "fixture", group: category.group),
+        ], nextOffset: 1, complete: true)
+      },
+      onInsert: { inserted = $0 },
+      onDelete: {},
+      onClose: {},
+      onCatalogChange: nil)
+    picker.frame = CGRect(x: 0, y: 0, width: 390, height: 260)
+    picker.layoutIfNeeded()
+    let tabs = descendants(picker).compactMap { $0 as? UIButton }
+      .filter { $0.accessibilityIdentifier?.hasPrefix("emojiCategory-") == true }
+    let last = try XCTUnwrap(tabs.last)
+    XCTAssertEqual(last.accessibilityLabel, "颜文字")
+    last.sendActions(for: .primaryActionTriggered)
+    await fulfillment(of: [loaded], timeout: 2)
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    let grid = try XCTUnwrap(descendants(picker).first {
+      $0.accessibilityIdentifier == "emojiGrid"
+    } as? UICollectionView)
+    XCTAssertEqual(grid.numberOfItems(inSection: 0), 1)
+    picker.collectionView(grid, didSelectItemAt: IndexPath(item: 0, section: 0))
+    XCTAssertEqual(inserted, "(*^▽^*)")
+    XCTAssertTrue(KeyboardEmojiRecents.stored.isEmpty)
+    let status = try XCTUnwrap(descendants(picker).first {
+      $0.accessibilityIdentifier == "emojiCatalogStatus"
+    } as? UILabel)
+    XCTAssertEqual(status.text, "1 个颜文字")
+  }
+
   func testControllerExposesToolbarAndMoreMenuEntries() throws {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
