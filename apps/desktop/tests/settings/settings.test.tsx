@@ -1712,6 +1712,46 @@ test("Linux about page moves the data root and says the fixed configuration stay
   expect(move).toHaveBeenCalledTimes(1);
 });
 
+test("Linux data move reports busy input sessions and a restart it could not do", async () => {
+  const status = vi
+    .fn()
+    .mockResolvedValue({ path: "/synthetic/home/.config/msime-client", isDefault: true });
+  const pick = vi.fn().mockResolvedValue("/synthetic/data/msime");
+  const move = vi
+    .fn()
+    .mockRejectedValueOnce({ code: "data_directory_busy" })
+    .mockResolvedValueOnce({
+      path: "/synthetic/data/msime",
+      isDefault: false,
+      retainedOldData: false,
+      inputMethodRestarted: false,
+    });
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        dataDirectory: { status, pick, move },
+        host: { platform: "linux", panel_windows: true } as never,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText("/synthetic/home/.config/msime-client")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "选择位置…" }));
+  await answerConfirm("confirm");
+  expect(await screen.findByText("输入法仍在使用数据目录，请稍后重试。")).toBeDefined();
+  expect(screen.getByText("/synthetic/home/.config/msime-client")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "选择位置…" }));
+  await answerConfirm("confirm");
+  expect(
+    await screen.findByText(
+      "数据已移动。输入法未能自动重启，请手动重启输入法后再继续输入。设置窗口即将关闭，请重新打开后继续使用。",
+    ),
+  ).toBeDefined();
+  expect(move).toHaveBeenCalledTimes(2);
+});
+
 test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
   const preferences = {
     ...initial.preferences,

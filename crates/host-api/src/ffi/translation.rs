@@ -393,6 +393,13 @@ pub unsafe extern "C" fn msime_client_translation_gloss_save(
         }
         let mut saved = 0;
         if request.target_language == "en" {
+            // The overlay lives in the user directory, so it waits behind dictionary maintenance and a data directory move like a session does; a save refused here is only a cache entry lost.
+            let _access = DictionaryAccess::try_session(
+                std::path::Path::new(user_data),
+                std::path::Path::new(user_data),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
             use msime_client_core::translation::{
                 format_translation_gloss, is_cloud_translatable_chinese,
                 is_cloud_translatable_english, should_persist_translation,

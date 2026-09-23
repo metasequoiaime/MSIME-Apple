@@ -115,9 +115,17 @@ Json response(char *raw) {
   return value.at("value");
 }
 
+Json readOptions();
+
 Json savePreference(const PendingPreferenceSave &request) {
+  // Save where the locator points now, not where the session was opened: moving the data directory rewrites it, and a save must neither land in the old root while it is copied nor recreate it afterwards (core/DictionaryQuiesceLease.h). A held save fails and stays queued for retry.
+  const auto options = readOptions();
+  const auto directory = options.value("preferences_directory", std::string{});
+  if (directory.empty() ||
+      msime::linux_host::preference_save_held(options.value("user_data", std::string{})))
+    return Json::object();
   auto snapshot = response(msime_client_load_preferences(
-      reinterpret_cast<const uint8_t *>(request.directory.data()), request.directory.size()));
+      reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
   if (!snapshot.is_object() || !snapshot.contains("revision") ||
       !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
     return Json::object();
@@ -125,7 +133,7 @@ Json savePreference(const PendingPreferenceSave &request) {
   else snapshot["preferences"][request.section][request.key] = request.value;
   const auto encoded = snapshot.dump();
   return response(msime_client_save_preferences(
-      reinterpret_cast<const uint8_t *>(request.directory.data()), request.directory.size(),
+      reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
       snapshot.at("revision").get<uint64_t>(),
       reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
 }
