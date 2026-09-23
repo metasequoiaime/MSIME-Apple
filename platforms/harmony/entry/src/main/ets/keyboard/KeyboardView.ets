@@ -443,31 +443,7 @@ struct KeyboardView {
         this.loadEmoji(this.emojiGroup);
       }
     };
-    this.settings = KeyboardSession.shared.preferences();
-    this.geometryKeySpacing = this.settings.keySpacingTenths;
-    this.geometryRowSpacing = this.settings.rowSpacingTenths;
-    this.geometryHeight = this.settings.heightAdjustment;
-    this.touchVoiceShortcut = this.settings.voiceShortcut;
-    this.feedback = KeyboardSession.shared.feedback();
-    this.traditional = KeyboardSession.shared.usesTraditional();
-    this.skin = KeyboardSession.shared.skin(this.settings.skinId, this.settings.dark);
-    this.voiceSkin = KeyboardSession.shared.skin(this.settings.skinId,
-      KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
-        this.settings.dark));
-    this.emojiSkin = KeyboardSession.shared.skin(this.settings.skinId,
-      KeyboardSkin.resolveDark(this.settings.emojiTheme, this.settings.globalTheme,
-        this.settings.dark));
-    this.handwritingSkin = KeyboardSession.shared.skin(this.settings.skinId,
-      KeyboardSkin.resolveDark(this.settings.handwritingTheme, this.settings.globalTheme,
-        this.settings.dark));
-    this.candidateSkin = KeyboardSkin.from(
-      CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
-      this.settings.candidateDark);
-    this.scheme = this.settings.thoughtfulReply ? KeyboardScheme.THOUGHTFUL_REPLY
-      : this.enabledScheme();
-    this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
-    this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
-    KeyboardSession.shared.setNineKey(this.nineKey);
+    this.applySettings();
     // The editor may already be attached by the time the view appears, in which case its override
     // never produced a callback and has to be read off the session here.
     this.applyEditorFace();
@@ -477,6 +453,16 @@ struct KeyboardView {
       this.english = KeyboardSession.shared.isEnglish();
       this.applyEditorFace();
       this.applyAutomaticCase();
+    };
+    KeyboardSession.shared.onViewPreferencesReloaded = (): void => {
+      // The settings page saved while this view was alive; draw what it saved instead of what the view read when it appeared.
+      this.applySettings();
+      this.applyEditorFace();
+      if (!KeyboardFormFactor.isDesktop()) {
+        KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
+          this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
+          this.settings.candidateFontSize));
+      }
     };
     KeyboardSession.shared.onReplyContextChanged = (): void => {
       this.replyResults = [];
@@ -525,6 +511,7 @@ struct KeyboardView {
     KeyboardSession.shared.onClipboardHistoryChanged = undefined;
     KeyboardSession.shared.onVoiceInputChanged = undefined;
     KeyboardSession.shared.onEditorChanged = undefined;
+    KeyboardSession.shared.onViewPreferencesReloaded = undefined;
     KeyboardSession.shared.onReplyContextChanged = undefined;
     KeyboardSession.shared.invalidateReplyContext(false);
     this.cancelBackspace();
@@ -1158,6 +1145,35 @@ struct KeyboardView {
    * settings page therefore left the keyboard on it with no card to leave by. The resolution and
    * the write-back are both ported — this reads the list, that one moves the preference.
    */
+  /** Read the stored preferences into the view's skins, geometry and scheme. */
+  private applySettings(): void {
+    this.settings = KeyboardSession.shared.preferences();
+    this.geometryKeySpacing = this.settings.keySpacingTenths;
+    this.geometryRowSpacing = this.settings.rowSpacingTenths;
+    this.geometryHeight = this.settings.heightAdjustment;
+    this.touchVoiceShortcut = this.settings.voiceShortcut;
+    this.feedback = KeyboardSession.shared.feedback();
+    this.traditional = KeyboardSession.shared.usesTraditional();
+    this.skin = KeyboardSession.shared.skin(this.settings.skinId, this.settings.dark);
+    this.voiceSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.emojiSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.emojiTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.handwritingSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.handwritingTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.candidateSkin = KeyboardSkin.from(
+      CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
+      this.settings.candidateDark);
+    this.scheme = this.settings.thoughtfulReply ? KeyboardScheme.THOUGHTFUL_REPLY
+      : this.enabledScheme();
+    this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
+    this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
+    KeyboardSession.shared.setNineKey(this.nineKey);
+  }
+
   private enabledScheme(): SchemeDefinition {
     const applied: SchemeDefinition = this.resolveScheme(this.settings.layout);
     const selected: SchemeDefinition = KeyboardScheme.resolveEnabledSelection(applied,

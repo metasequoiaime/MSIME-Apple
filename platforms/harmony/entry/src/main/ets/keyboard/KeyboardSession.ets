@@ -986,6 +986,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   onCandidateWidth: ((widthVp: number) => void) | undefined = undefined;
   /** The native host owns panel geometry; the touch view reports its newly requested total height. */
   onTouchHeight: ((heightVp: number) => void) | undefined = undefined;
+  /** The ability's half of a preference reload: status panels and key bindings. */
+  onPreferencesReloaded: (() => void) | undefined = undefined;
+  /** The view's half of a preference reload: skins, geometry and the scheme face. */
+  onViewPreferencesReloaded: (() => void) | undefined = undefined;
   /**
    * Whether a composition is open, for the host that owns the panel.
    *
@@ -1100,6 +1104,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.stateDirectory = stateRoot;
     this.systemDark = systemDark;
     this.feedbackSettings = this.feedback();
+    this.preferencesRevision = this.storedRevision(stateRoot);
     const request: PrepareRequest = { resources: resources, state_root: stateRoot };
     let options: string;
     try {
@@ -1399,6 +1404,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const attached: inputMethodEngine.InputClient | undefined = this.inputClient;
     const english: boolean = this.englishMode;
     const nineKey: boolean = this.nineKeyMode;
+    const revision: number = this.preferencesRevision;
     this.stop();
     if (!this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
       KeyboardLog.error(`${reason} left the session unavailable`);
@@ -1410,6 +1416,43 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.apply(client.focus(this.handle, true));
       this.applyView(client.setEnglishMode(this.handle, english));
       this.applyView(client.setNineKeyMode(this.handle, nineKey));
+    }
+    // Any rebuild reads the document afresh, whatever it was for, so the surfaces follow whenever the stored preferences moved underneath it.
+    if (this.preferencesRevision !== revision) {
+      if (this.onViewPreferencesReloaded !== undefined) {
+        this.onViewPreferencesReloaded();
+      }
+      if (this.onPreferencesReloaded !== undefined) {
+        this.onPreferencesReloaded();
+      }
+    }
+  }
+
+  /**
+   * Pick up what the settings page saved since this session was built.
+   *
+   * The settings page is another process writing the same document. Windows pushes a change to the running server and polls as a fallback (`WM_APPLY_IME_CONFIG`, `TIMER_ID_CONFIG_SYNC`); here the keyboard compares the stored revision each time an editor takes focus, which is the first moment anyone could type with the new settings, and costs one small read rather than a timer. A composition in progress is left alone and the next focus picks the change up.
+   */
+  reloadChangedPreferences(): void {
+    if (this.handle === 0 || this.composing() || this.localMode !== 'none') {
+      return;
+    }
+    const revision: number = this.storedRevision(this.stateDirectory);
+    if (revision < 0 || revision === this.preferencesRevision) {
+      return;
+    }
+    KeyboardLog.info(`preferences moved from revision ${this.preferencesRevision} to ${revision}`);
+    this.restartIdleSession('preferences reload');
+  }
+
+  /** The revision of the stored preference document, or -1 when it cannot be read. */
+  private storedRevision(stateRoot: string): number {
+    try {
+      const loaded: SnapshotResponse = JSON.parse(client.loadPreferences(stateRoot)) as SnapshotResponse;
+      return loaded.ok ? loaded.value.revision : -1;
+    } catch (error) {
+      KeyboardLog.error(`preferences revision unreadable: ${describeError(error)}`);
+      return -1;
     }
   }
 
@@ -2021,6 +2064,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.applyView(client.setEnglishMode(this.handle, this.englishMode));
       this.applyView(client.setNineKeyMode(this.handle, this.nineKeyMode));
     }
+    this.reloadChangedPreferences();
   }
 
   detach(): void {
@@ -2729,6 +2773,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private lastView: EngineView | undefined = undefined;
   private scheme: number = 0;
   private localMode: string = 'none';
+  /** Revision of the preference document the session was last built from; -1 before the first. */
+  private preferencesRevision: number = -1;
 
   private render(view: EngineView): void {
     this.generation = view.generation;
@@ -3797,6 +3843,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         // The session already has them; only the write failed. Say so rather than pretending the
         // change did not happen, because on screen it plainly did.
         KeyboardLog.error(`preferences not persisted: ${saved.error}`);
+      } else {
+        // Our own write, already applied; the next focus must not rebuild the session for it.
+        this.preferencesRevision = expected + 1;
       }
       this.clipboardHistoryEnabled = nextClipboardHistory;
       if (changes.has('voice_input')) {

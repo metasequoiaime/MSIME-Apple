@@ -1887,3 +1887,14 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 微软双拼 `;`：来源 `IsMicrosoftShuangpinIngKey` 把它当作 ing 韵母。现在视图报告 `microsoft_shuangpin` 时，只要它是本音节的第二键（从最后一个 `'` 数起按键数为奇数），就进入组字；否则仍是标点。
 
 路由所需的状态由 `KeyboardSession.hardwareSpelling()` 从最近一次引擎视图中读出，通过 `HardwareSpelling` 传给 `HardwareKeyRouter.route`。这几条规则放在翻页键判断和数字选词之前，因为 Shift+= 本身就是 `U+` 里的 `+`。
+
+### HarmonyOS：设置页保存后键盘立即生效（2026-09-23）
+
+来源里设置程序保存后发 `WM_APPLY_IME_CONFIG`（`server/src/config/ime_config.cpp:1566`），服务端收到后重读配置并刷新候选窗与工具栏，另有 300 ms 的 `TIMER_ID_CONFIG_SYNC` 兜底（`server/src/window/ime_windows.cpp:2199`、`2673`）。本宿主的设置页（EntryAbility）与键盘（InputMethodExtensionAbility）是两个进程，键盘只在 `onCreate` 读一次偏好，所以设置页改了方案、皮肤、键盘高度、工具栏或模式切换键后，要等输入法进程被系统回收重建才会生效。
+
+适配方式不照搬定时器：键盘记住建会话时读到的偏好文档 `revision`，每次编辑框获得焦点（`attach`）时比对一次存储中的 `revision`，这正是用户能用新设置打字的最早时刻，代价只是一次小文件读取。变了就走现有的 `restartIdleSession` 重建引擎会话（保留中英文与九宫格状态），随后通知两处：
+
+- 视图（`onViewPreferencesReloaded`）：重读皮肤、几何、方案与键面，手机上按新高度调整面板；
+- 输入法扩展（`onPreferencesReloaded`）：重新绑定模式切换键；2in1 上按新设置开关浮动工具栏与模式角标（两者共用唯一的 STATUS_BAR 面板，工具栏优先），已开的工具栏按新按钮集重排。
+
+正在组字或处于本地模式（U 模式、emoji 等）时不重建，下次获得焦点再取。云同步把偏好写入同一文档，同样通过这条路径生效。键盘自己经 `changePreferences` 写入时会同步记下新 `revision`，不会因此触发重建。
