@@ -208,6 +208,12 @@ python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 # APK build does, and that runs in neither place. These assertions are what stands in for a
 # compiler on its wiring. The file existed for that reason and was not being run at all, so when
 # the voice commands moved out of lib.rs it went red and stayed red unnoticed.
+# One group number and one link, written out on four surfaces because nothing shares them. A typo in
+# any one of them sends that platform's users to a group that does not exist, and every copy is
+# correct on its own terms, so only comparing them catches it.
+note "support channels"
+python3 scripts/test-support-channels.py || fail "support channels"
+
 note "android voice project config"
 python3 scripts/test-android-voice-project-config.py || fail "android voice project config"
 
