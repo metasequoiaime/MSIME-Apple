@@ -126,6 +126,16 @@ public final class NativeClient {
      * <p>All four are the shared implementation. The protocol's framing and its auth modes are the
      * same on every host, and this one adds only the transport Android has no platform API for.
      */
+    /**
+     * The one clipboard history every mobile host shares.
+     *
+     * <p>Ordering, the fifty-entry limit, pinning and eviction are the shared store's, and the file
+     * is the one the settings page reads. A second implementation here would be a second history.
+     */
+    public static String mobileClipboardHistory(String request) {
+        return text(mobileClipboardHistoryRaw(utf8(request)));
+    }
+
     public static String doubaoDecodeFrame(byte[] frame) {
         return text(doubaoDecodeFrameRaw(frame));
     }
@@ -310,6 +320,7 @@ public final class NativeClient {
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
     private static native byte[] polishPromptRaw(byte[] id, byte[] legacy, byte[] custom1,
         byte[] custom2, byte[] custom3);
+    private static native byte[] mobileClipboardHistoryRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
         byte[] boostingTableId);

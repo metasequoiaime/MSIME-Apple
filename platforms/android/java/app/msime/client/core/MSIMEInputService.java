@@ -4951,11 +4951,14 @@ public final class MSIMEInputService extends InputMethodService {
                     Toast.LENGTH_SHORT).show();
                 return;
             }
-            clipboardHistory.add(value.toString());
+            // The shared store refuses rather than throws when every entry is pinned, which is
+            // the one refusal the user can act on: it names unpinning rather than a save failure.
+            if (!clipboardHistory.add(value.toString())) {
+                Toast.makeText(this, ClipboardHistoryPolicy.message(
+                    ClipboardHistoryPolicy.Rejection.FULL), Toast.LENGTH_SHORT).show();
+                return;
+            }
             renderClipboardHistory();
-        } catch (ClipboardHistory.FullException error) {
-            Toast.makeText(this, ClipboardHistoryPolicy.message(
-                ClipboardHistoryPolicy.Rejection.FULL), Toast.LENGTH_SHORT).show();
         } catch (IllegalArgumentException | IllegalStateException | SecurityException error) {
             Toast.makeText(this, "无法保存当前剪贴板", Toast.LENGTH_SHORT).show();
         }
@@ -4967,8 +4970,8 @@ public final class MSIMEInputService extends InputMethodService {
         MenuItem remove = popup.getMenu().add("删除");
         popup.setOnMenuItemClickListener(selected -> {
             if (clipboardHistory == null) return false;
-            if (selected == pin) clipboardHistory.togglePinned(item.id());
-            else if (selected == remove) clipboardHistory.remove(item.id());
+            if (selected == pin) clipboardHistory.setPinned(item.text(), !item.pinned());
+            else if (selected == remove) clipboardHistory.remove(item.text());
             else return false;
             renderClipboardHistory();
             return true;
@@ -6704,8 +6707,10 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeySpellingIndices = java.util.List.of();
         nineKeySpellingGeneration = -1;
         loadFeedbackPreferences();
-        clipboardHistory = new ClipboardHistoryStore(this);
         File files = getFilesDir();
+        // The shared store keeps its file under this directory, which is the same one the settings
+        // page hands the shared entry; both sides therefore read one history.
+        clipboardHistory = new ClipboardHistoryStore(this, files);
         voiceResultStore = files == null ? null
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
