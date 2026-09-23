@@ -618,6 +618,88 @@ pub fn prepare_host_configuration(
     })?)
 }
 
+/// Bring a published HostOptions file up to the installed dictionary generation.
+///
+/// A package upgrade replaces the resource bundle in place but leaves each user's options pointing at working dictionaries copied from the previous bundle, so the new dictionary never reaches the Engine and the user-dictionary replay the Windows installer runs after an upgrade never happens. When the recorded dictionaries directory is not the generation the installed lock describes, this prepares that generation (the Engine copies the new dictionaries and replays the user journal into them) and rewrites only `resources` and `dictionaries`, keeping every other key a setup or the settings app wrote. A current file is only read.
+///
+/// Returns whether the file was rewritten. Run it before the caller's own sessions exist. The previous generation is never modified, so a host still using it keeps working until it restarts. A symlink, or a document whose paths do not follow the layout `prepare_host_configuration` produces, is left alone rather than guessed at.
+pub fn refresh_host_options(path: &std::path::Path) -> Result<bool, Box<dyn std::error::Error>> {
+    use std::io::Write as _;
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.is_file() {
+        return Ok(false);
+    }
+    if metadata.len() > 16384 {
+        return Err("runtime options exceed 16 KiB".into());
+    }
+    let document: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let specification: ResourceSet = serde_json::from_str(include_str!(
+        "../../../resources/desktop-dictionary.lock.json"
+    ))?;
+    let Some(refreshed) = refreshed_host_options(
+        &document,
+        &specification.generation()?,
+        |resources, state| {
+            Ok(serde_json::from_str(&prepare_host_configuration(
+                resources, state,
+            )?)?)
+        },
+    )?
+    else {
+        return Ok(false);
+    };
+    let parent = path.parent().ok_or("runtime options have no directory")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary
+        .as_file()
+        .set_permissions(metadata.permissions())?;
+    let mut serialized = serde_json::to_vec_pretty(&refreshed)?;
+    serialized.push(b'\n');
+    temporary.write_all(&serialized)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path)?;
+    Ok(true)
+}
+
+/// The options `refresh_host_options` would publish, or `None` when the document is current or not in the prepared layout.
+fn refreshed_host_options(
+    document: &Value,
+    generation: &str,
+    prepare: impl FnOnce(&Path, &Path) -> Result<Value, Box<dyn std::error::Error>>,
+) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+    let path = |key: &str| {
+        document
+            .get(key)
+            .and_then(Value::as_str)
+            .map(Path::new)
+            .filter(|path| path.is_absolute())
+    };
+    let (Some(resources), Some(user_data), Some(dictionaries), Some(state)) = (
+        path("resources"),
+        path("user_data"),
+        path("dictionaries"),
+        path("preferences_directory"),
+    ) else {
+        return Ok(None);
+    };
+    if user_data != state.join("user")
+        || dictionaries.parent() != Some(user_data.join("dictionaries").as_path())
+        || dictionaries.file_name().and_then(|name| name.to_str()) == Some(generation)
+    {
+        return Ok(None);
+    }
+    let prepared = prepare(resources, state)?;
+    let mut refreshed = document.clone();
+    for key in ["resources", "dictionaries"] {
+        refreshed[key] = prepared
+            .get(key)
+            .filter(|value| value.is_string())
+            .cloned()
+            .ok_or("prepared options are incomplete")?;
+    }
+    Ok(Some(refreshed))
+}
+
 /// Import the mixed-input controls from the Windows installer's legacy TOML
 /// once, before the shared JSON preference file exists. The installer still
 /// carries this file for the TSF compatibility surface, and existing users

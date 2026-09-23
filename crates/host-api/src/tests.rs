@@ -4597,3 +4597,95 @@ fn the_dictionary_manifest_answers_what_is_installed_or_says_it_cannot() {
         false
     );
 }
+
+/// Options published before a package upgrade name the previous dictionary generation; only those are re-prepared, and only the generation-bearing keys change.
+#[test]
+fn stale_dictionary_generation_is_prepared_and_other_keys_survive() {
+    let document = json!({
+        "api_version": 1,
+        "resources": "/usr/share/msime-client/resources",
+        "user_data": "/home/u/.config/msime-client/user",
+        "cache": "/home/u/.config/msime-client/cache",
+        "dictionaries": "/home/u/.config/msime-client/user/dictionaries/old",
+        "preferences_directory": "/home/u/.config/msime-client",
+        "online_provider_socket": "/run/user/1000/msime-online.sock",
+    });
+    let mut requested = None;
+    let refreshed = super::refreshed_host_options(&document, "new", |resources, state| {
+        requested = Some((resources.to_owned(), state.to_owned()));
+        Ok(json!({
+            "resources": "/usr/share/msime-client/resources",
+            "dictionaries": "/home/u/.config/msime-client/user/dictionaries/new",
+            "preferences": {},
+        }))
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        requested,
+        Some((
+            PathBuf::from("/usr/share/msime-client/resources"),
+            PathBuf::from("/home/u/.config/msime-client")
+        ))
+    );
+    let mut expected = document.clone();
+    expected["dictionaries"] = json!("/home/u/.config/msime-client/user/dictionaries/new");
+    assert_eq!(refreshed, expected);
+}
+
+#[test]
+fn current_or_unfamiliar_options_are_not_prepared() {
+    let current = json!({
+        "resources": "/r",
+        "user_data": "/s/user",
+        "dictionaries": "/s/user/dictionaries/new",
+        "preferences_directory": "/s",
+    });
+    let mut unfamiliar = current.clone();
+    unfamiliar["dictionaries"] = json!("/elsewhere/dictionaries/old");
+    let mut moved = current.clone();
+    moved["user_data"] = json!("/t/user");
+    let mut relative = current.clone();
+    relative["resources"] = json!("r");
+    for document in [current, unfamiliar, moved, relative, json!({})] {
+        let refreshed = super::refreshed_host_options(&document, "new", |_, _| {
+            panic!("must not prepare {document}")
+        })
+        .unwrap();
+        assert_eq!(refreshed, None);
+    }
+}
+
+#[test]
+fn a_failed_preparation_is_reported_and_incomplete_output_rejected() {
+    let stale = json!({
+        "resources": "/r",
+        "user_data": "/s/user",
+        "dictionaries": "/s/user/dictionaries/old",
+        "preferences_directory": "/s",
+    });
+    assert!(super::refreshed_host_options(&stale, "new", |_, _| Err("busy".into())).is_err());
+    assert!(
+        super::refreshed_host_options(&stale, "new", |_, _| Ok(json!({"resources": "/r"})))
+            .is_err()
+    );
+}
+
+/// A symlinked locator is left alone: replacing it would turn the link into a private copy.
+#[cfg(unix)]
+#[test]
+fn refresh_leaves_a_symlinked_options_file_alone() {
+    let directory = tempfile::tempdir().unwrap();
+    let target = directory.path().join("target.json");
+    std::fs::write(&target, b"{}").unwrap();
+    let link = directory.path().join("runtime-options.json");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    assert!(!super::refresh_host_options(&link).unwrap());
+    assert!(std::fs::symlink_metadata(&link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    let current = directory.path().join("current.json");
+    std::fs::write(&current, b"{\"resources\":\"/r\"}").unwrap();
+    assert!(!super::refresh_host_options(&current).unwrap());
+}

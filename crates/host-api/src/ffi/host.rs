@@ -138,6 +138,29 @@ pub unsafe extern "C" fn msime_client_prepare_host(
     })
 }
 
+/// Re-prepare a published runtime options file whose working dictionaries belong to an older resource generation, as after a package upgrade. Returns whether the file was rewritten. Call before creating any session from that file.
+/// # Safety
+/// `path` points to `length` readable UTF-8 bytes naming an absolute file. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_refresh_host(path: *const u8, length: usize) -> *mut c_char {
+    response(|| {
+        if path.is_null() || length > 4096 {
+            return Err("invalid options path buffer".into());
+        }
+        // SAFETY: guaranteed by the caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(path, length) };
+        let path = std::path::Path::new(
+            std::str::from_utf8(bytes).map_err(|_| "invalid options path encoding")?,
+        );
+        if !path.is_absolute() {
+            return Err("options path must be absolute".into());
+        }
+        refresh_host_options(path)
+            .map(Value::Bool)
+            .map_err(|e| e.to_string())
+    })
+}
+
 /// The shared preference defaults, as the document a host would have to produce.
 ///
 /// A host that patches one key into a nested preference object needs the rest of

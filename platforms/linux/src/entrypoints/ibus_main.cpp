@@ -1,4 +1,5 @@
 #include "../core/ClientEngine.h"
+#include "../core/RuntimeOptionsRefresh.h"
 #include "../system/SystemTheme.h"
 #include <array>
 #include <fstream>
@@ -51,6 +52,13 @@ int main(int argc, char **argv) {
   if (!g_setenv("MSIME_CLIENT_HOST_OPTIONS", argv[1], FALSE)) {
     std::cerr << "Cannot export runtime options path\n";
     return 1;
+  }
+  // Before any session exists: a package upgrade leaves the options on the previous dictionary generation until this re-prepares it.
+  try {
+    if (msime::linux_host::refresh_runtime_options(argv[1]))
+      std::cerr << "Dictionary updated to the installed generation\n";
+  } catch (...) {
+    std::cerr << "Cannot update the dictionary to the installed generation; keeping the current one\n";
   }
   try {
     std::ifstream file(argv[1]);

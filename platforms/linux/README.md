@@ -36,6 +36,8 @@ msime-client-setup --download   # 允许按随装的词库锁取回缺失词库�
 
 不想开终端也可以直接打开应用列表里的「水杉输入法」：还没有 `runtime-options.json` 时，`msime-client-settings` 不再报错退出，而是打开首次配置页。页面运行的就是同一个随装的 `msime-client-setup`（优先取桌面二进制旁边的那份，其次 `PATH`），状态目录固定为设置窗口读取的那个 `runtime-options.json` 所在目录，输出逐行显示在页面上；下载只在勾选「词库不完整时从固定地址下载」时才加 `--download`。配置完成后直接进入设置，窗口每次读取都会重读这份文件，所以不需要重启。目录已存在但缺少 `runtime-options.json` 时页面只说明原因、不提供按钮，与脚本拒绝覆盖的规则一致；已安装系统级配置（`MSIME_SETTINGS_SYSTEM_CONFIG`）时仍以它为准，不出现首次配置页。
 
+升级安装包之后不需要重新准备状态。Windows 安装程序在升级时回放用户词库，Linux 没有这样一个按用户执行的安装步骤，所以改由输入法宿主在启动时完成：IBus 宿主和 Fcitx5 插件在建立任何会话之前调用 `msime_client_refresh_host`，它用库里编译进去的词库锁算出当前代次，与 `runtime-options.json` 中 `dictionaries` 指向的代次目录比较；不一致时校验新词库、由 Engine 复制出新代次的工作词库并把用户词库日志回放进去，再原子替换这份文件，只改 `resources` 和 `dictionaries` 两项，provider socket、模型路径等其他键原样保留。已是当前代次时只读一次文件。旧代次目录不会被改动，还在用它的另一个宿主重启前照常工作；准备失败时文件保持原样，输入法继续用旧词库，下次启动再试。符号链接、系统级 `/etc/msime-client/runtime-options.json` 以及路径不符合 `msime-client-prepare` 布局的文件都不会被改写。
+
 准备好状态后选中输入法：Fcitx5 用 `fcitx5-configtool` 把「MSIME」加入当前输入法组，IBus 执行 `ibus restart` 后在输入源里选择「MSIME Client」。
 
 **Fcitx5 的状态区入口需要桌面提供托盘宿主。** 中英文、简繁、工具栏这些动作挂在输入法状态区，由托盘（StatusNotifierItem）承载；部分发行版以 `fcitx5 --disable notificationitem` 启动，那些入口就不会出现。输入本身不受影响，设置也仍可从应用列表里的「水杉输入法」或 `msime-client-settings` 打开；要让它们显示，需要在桌面侧恢复托盘。这属于发行版与桌面的配置，输入法不代劳，也不因此改为创建脱离输入上下文的悬浮窗口。
