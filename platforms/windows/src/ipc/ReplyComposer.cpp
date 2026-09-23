@@ -740,10 +740,14 @@ std::optional<PendingReply> ReplyComposer::configured_key(
   const auto current = session.view();
   if (!session.input_enabled() || current.at("local_mode") == "unknown")
     return std::nullopt;
-  if (candidate_punctuation(packet, bindings))
+  const bool composing =
+      !current.at("editing_text").get<std::string>().empty();
+  // Checked first: the numpad decimal is also on the candidate punctuation list, where it would be translated to '。'.
+  if ((composing && literal_candidate_punctuation(packet)) ||
+      candidate_punctuation(packet, bindings))
     return dispatch(session, packet, epoch, ReplyPath::Punctuation,
                     (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
-  if (current.at("editing_text").get<std::string>().empty())
+  if (!composing)
     return std::nullopt;
   return navigate(session, packet, epoch, bindings);
 }

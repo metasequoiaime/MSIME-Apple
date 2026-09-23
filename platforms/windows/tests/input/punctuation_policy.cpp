@@ -104,6 +104,25 @@ int main() {
     REQUIRE(!candidate_punctuation(key(0x0D, '\r'), no_paging));
     REQUIRE(!candidate_punctuation(key(0x1B, '\x1b'), no_paging));
 
+    // The numpad arithmetic keys and '/' commit the highlighted candidate followed by the literal ASCII mark, never the Chinese punctuation the Engine would translate them to (reference 1d2431ad).
+    REQUIRE(literal_candidate_punctuation(key(0x6B, '+')) == '+');
+    REQUIRE(literal_candidate_punctuation(key(0x6D, '-')) == '-');
+    REQUIRE(literal_candidate_punctuation(key(0x6E, '.')) == '.');
+    REQUIRE(literal_candidate_punctuation(key(0x6F, '/')) == '/');
+    // The numpad decimal is '.' whatever the layout reports for it.
+    REQUIRE(literal_candidate_punctuation(key(0x6E, ',')) == '.');
+    REQUIRE(literal_candidate_punctuation(key(0xBF, '/')) == '/');
+    // The main-row minus and plus stay paging keys, and ordinary marks are translated.
+    REQUIRE(literal_candidate_punctuation(key(0xBD, '-')) == 0);
+    REQUIRE(literal_candidate_punctuation(key(0xBB, '=')) == 0);
+    REQUIRE(literal_candidate_punctuation(key(0xBC, ',')) == 0);
+    REQUIRE(literal_candidate_punctuation(key(0xBE, '.')) == 0);
+    REQUIRE(literal_candidate_punctuation(key(0x41, 'a')) == 0);
+    // A chord is the host's, not a mark.
+    FanyImeNamedpipeData chord = key(0x6B, '+');
+    chord.modifiers_down = 2;
+    REQUIRE(literal_candidate_punctuation(chord) == 0);
+
     std::cout << "Windows candidate punctuation checks passed\n";
     return 0;
   } catch (const std::exception &error) {
