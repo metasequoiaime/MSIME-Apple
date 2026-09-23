@@ -2207,7 +2207,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         let text = try store.consume(entry.id)
         insertOwnText(text, source: .voice)
-      }, close: { [weak self] in self?.closeKeyboardService() }))
+      }, close: { [weak self] in self?.closeKeyboardService() }, record: { [weak self] in
+        guard let self else { return }
+        closeKeyboardService()
+        KeyboardAppLauncher.open(KeyboardAppLauncher.voiceURL, from: self)
+      }))
       panel.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.voiceKey, in: session.sharedPreferences)
       servicePanel = panel
       addChild(panel)
