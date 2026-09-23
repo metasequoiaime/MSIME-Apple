@@ -27,7 +27,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     try host.retry(removal)
     try host.requestPage(offset: 100)
     try keyboard.synchronize(apply: { XCTAssertEqual($0.id, removal) }, page: {
-      XCTAssertEqual($0, 100)
+      XCTAssertEqual($0.offset, 100)
       return .init(entries: [], hasMore: false)
     })
     XCTAssertEqual(try host.read().pageOffset, 100)
@@ -58,7 +58,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         try session.applyPersonalPrevious($0.previous?.bridgeValue, replacement: $0.replacement?.bridgeValue,
                                           requestID: $0.id)
       }, page: {
-        let result = try session.personalEntries(atOffset: UInt($0))
+        let result = try session.personalEntries(atOffset: UInt($0.offset))
         let entries = try XCTUnwrap(result["entries"] as? [[String: Any]])
         return .init(entries: try entries.map { try PersonalWord(bridgeValue: $0) },
                      hasMore: try XCTUnwrap(result["hasMore"] as? Bool))
@@ -192,6 +192,184 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertThrowsError(try store.enqueue(previous: nil, replacement: .init(key: "ni", value: "拟")))
     XCTAssertEqual(try Data(contentsOf: file), original)
     XCTAssertThrowsError(try PersonalDictionaryStore(directory: nil).read())
+  }
+
+  func testTheKeyboardWritesTheRequestedExportAfterTheQueuedEdits() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let host = PersonalDictionaryStore(directory: root)
+    let keyboard = PersonalDictionaryStore(directory: root)
+    let empty: (PersonalPageRequest) throws -> PersonalWordPage = { _ in .init(entries: [], hasMore: false) }
+    XCTAssertThrowsError(try host.requestExport(kind: .pinyin, format: "rime"), "the Engine exports only the two TSV layouts")
+
+    // An edit still waiting is applied first, and the export waits for the queue to drain.
+    try host.enqueueImport((0..<5).map { PersonalWord(kind: .quickPhrase, key: "q\($0)", value: "短语\($0)") })
+    let request = try host.requestExport(kind: .quickPhrase, format: "windows")
+    var asked: [PersonalExportRequest] = []
+    let export: (PersonalExportRequest) throws -> PersonalExportText = {
+      asked.append($0)
+      return PersonalExportText(text: "q0\t短语0\t100\nq1\t短语1\t100\n", complete: true)
+    }
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: export)
+    XCTAssertEqual(try host.read().pendingCount, 1)
+    XCTAssertTrue(asked.isEmpty)
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: export)
+    XCTAssertEqual(asked, [request])
+    let result = try XCTUnwrap(host.read().exportResult)
+    XCTAssertEqual(result.request, request)
+    XCTAssertEqual(result.rows, 2)
+    XCTAssertFalse(result.truncated)
+    XCTAssertNil(result.error)
+
+    // Written once per request, and shared under the desktop's name.
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: export)
+    XCTAssertEqual(asked.count, 1)
+    let copy = try host.exportCopy(for: result)
+    XCTAssertEqual(copy.lastPathComponent, "水杉IME-快捷短语用户词库.txt")
+    XCTAssertEqual(try String(contentsOf: copy, encoding: .utf8), "q0\t短语0\t100\nq1\t短语1\t100\n")
+
+    // A failed export leaves no stale file behind and says why.
+    enum Failure: LocalizedError { case injected; var errorDescription: String? { "injected" } }
+    let failed = try host.requestExport(kind: .pinyin, format: "standard")
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: { _ in throw Failure.injected })
+    XCTAssertEqual(try host.read().exportResult?.request, failed)
+    XCTAssertEqual(try host.read().exportResult?.error, "injected")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: try XCTUnwrap(host.exportFile).path))
+    XCTAssertThrowsError(try host.exportCopy(for: try XCTUnwrap(host.read().exportResult)))
+
+    try host.requestExport(kind: .pinyin, format: "standard")
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: { _ in PersonalExportText(text: "你好\tni'hao\t1\n", complete: false) })
+    XCTAssertEqual(try host.read().exportResult?.truncated, true)
+  }
+
+  @MainActor
+  func testTheKeyboardEngineExportsTheUsersWords() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let session = MetasequoiaInputSessionBridge(resources: resources,
+                                                 stateRoot: root.appendingPathComponent("EngineState"))
+    let word = try PersonalWord(kind: .quickPhrase, key: "msimeexport", value: "export fixture", weight: 42).validated()
+    defer {
+      _ = session.cancel()
+      try? session.applyPersonalPrevious(word.bridgeValue, replacement: nil, requestID: UUID().uuidString)
+    }
+    try session.applyPersonalPrevious(nil, replacement: word.bridgeValue, requestID: UUID().uuidString)
+    let windows = try session.personalExport(kind: .quickPhrase, format: "windows")
+    XCTAssertTrue(windows.complete)
+    XCTAssertTrue(windows.text.contains("msimeexport\texport fixture\t42\n"), windows.text)
+    let standard = try session.personalExport(kind: .quickPhrase, format: "standard")
+    XCTAssertTrue(standard.text.contains("export fixture\tmsimeexport\t42\n"), standard.text)
+    // The session is reopened after the export, so typing still works.
+    _ = session.openLocalMode("K")
+    var snapshot = session.handleCharacter("m")
+    for letter in word.key.dropFirst() { snapshot = session.handleCharacter(String(letter)) }
+    XCTAssertTrue(snapshot.candidates.contains(word.value))
+  }
+
+  @MainActor
+  func testACodeSearchReachesTheWholeStoreThroughTheKeyboardEngine() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let host = PersonalDictionaryStore(directory: root)
+    let keyboard = PersonalDictionaryStore(directory: root)
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let session = MetasequoiaInputSessionBridge(resources: resources,
+                                                 stateRoot: root.appendingPathComponent("EngineState"))
+    let wanted = try PersonalWord(kind: .quickPhrase, key: "msimesearch", value: "search fixture").validated()
+    let other = try PersonalWord(kind: .quickPhrase, key: "msimeother", value: "other fixture").validated()
+    defer {
+      _ = session.cancel()
+      for word in [wanted, other] {
+        try? session.applyPersonalPrevious(word.bridgeValue, replacement: nil, requestID: UUID().uuidString)
+      }
+    }
+    for word in [wanted, other] {
+      try session.applyPersonalPrevious(nil, replacement: word.bridgeValue, requestID: UUID().uuidString)
+    }
+
+    try host.requestPage(offset: 0, kind: .quickPhrase, query: " msimes ")
+    var asked: PersonalPageRequest?
+    try keyboard.synchronize(apply: { _ in }, page: { request in
+      asked = request
+      let result = try session.personalEntries(atOffset: UInt(request.offset), kind: request.kind, query: request.query)
+      let entries = try XCTUnwrap(result["entries"] as? [[String: Any]])
+      return .init(entries: try entries.map { try PersonalWord(bridgeValue: $0) },
+                   hasMore: try XCTUnwrap(result["hasMore"] as? Bool))
+    })
+    XCTAssertEqual(asked, PersonalPageRequest(offset: 0, kind: .quickPhrase, query: "msimes"))
+    let state = try host.read()
+    XCTAssertEqual(state.entries, [wanted])
+    XCTAssertEqual(state.pageKind, .quickPhrase)
+    XCTAssertEqual(state.pageQuery, "msimes")
+
+    // The filter is written under the keys the Rust queue reads.
+    let file = root.appendingPathComponent("PersonalDictionary/sync.json")
+    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+    XCTAssertEqual(object["requestedKind"] as? String, "quickPhrase")
+    XCTAssertEqual(object["pageQuery"] as? String, "msimes")
+    XCTAssertThrowsError(try host.requestPage(offset: 0, query: String(repeating: "a", count: 257)))
+  }
+
+  @MainActor
+  func testABundledWordIsFoundReweightedAndDeletedThroughTheQueue() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let host = PersonalDictionaryStore(directory: root)
+    let keyboard = PersonalDictionaryStore(directory: root)
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let session = MetasequoiaInputSessionBridge(resources: resources,
+                                                 stateRoot: root.appendingPathComponent("EngineState"))
+    defer { _ = session.cancel() }
+    func sync() throws {
+      try keyboard.synchronize(apply: { request in
+        try session.applyPersonalPrevious(request.previous?.bridgeValue, replacement: request.replacement?.bridgeValue,
+                                          requestID: request.id)
+      }, page: { request in
+        let result = try session.personalEntries(atOffset: UInt(request.offset), kind: request.kind, query: request.query)
+        let entries = try XCTUnwrap(result["entries"] as? [[String: Any]])
+        return .init(entries: try entries.map { try PersonalWord(bridgeValue: $0) },
+                     hasMore: try XCTUnwrap(result["hasMore"] as? Bool))
+      })
+    }
+
+    // Without a kind the page stays the user's own words, as before.
+    try host.requestPage(offset: 0, query: "nihao")
+    try sync()
+    XCTAssertFalse(try host.read().entries.contains(where: \.isBundled))
+
+    try host.requestPage(offset: 0, kind: .pinyin, query: "nihao")
+    try sync()
+    let listed = try XCTUnwrap(host.read().entries.first { $0.value == "你好" })
+    XCTAssertTrue(listed.isBundled)
+    XCTAssertEqual(try PersonalWord(bridgeValue: listed.bridgeValue), listed, "the mark survives the queue")
+    var validatedCopy = listed
+    validatedCopy.source = nil
+    XCTAssertFalse(try validatedCopy.validated().isBundled)
+
+    var reweighted = listed
+    reweighted.weight = 7
+    _ = try host.enqueue(previous: listed, replacement: reweighted)
+    try sync()
+    var state = try host.read()
+    XCTAssertEqual(state.pendingCount, 0, "\(state.requests.map { $0.error ?? "" })")
+    XCTAssertEqual(state.entries.first { $0.value == "你好" }?.weight, 7)
+
+    // A bundled row's code and word are fixed; the Engine refuses anything else.
+    let current = try XCTUnwrap(state.entries.first { $0.value == "你好" })
+    var renamed = current
+    renamed.value = "拟好"
+    _ = try host.enqueue(previous: current, replacement: renamed)
+    try sync()
+    state = try host.read()
+    XCTAssertEqual(state.requests.last?.status, .failed)
+    try host.dismissFailure(try XCTUnwrap(state.requests.last?.id))
+
+    _ = try host.enqueue(previous: current, replacement: nil)
+    try sync()
+    state = try host.read()
+    XCTAssertEqual(state.pendingCount, 0, "\(state.requests.map { $0.error ?? "" })")
+    XCTAssertNil(state.entries.first { $0.value == "你好" && $0.key == current.key })
   }
 
   func testStateUsesRustCompatibleRefreshKeys() throws {

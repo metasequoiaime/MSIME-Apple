@@ -57,10 +57,13 @@ enum KeyboardEmojiCatalog {
   /// The longest search the letter pad accepts; the longest pinyin syllable run worth typing for one Emoji is far shorter.
   static let maximumSearchLength = 32
 
-  /// A search over every Emoji group for `query`, lowercased and limited to ASCII letters, or `nil` when nothing is left to search for.
-  static func search(_ query: String) -> Category? {
+  /// A search for `query`, lowercased and limited to ASCII letters, or `nil` when nothing is left to search for. It spans every Emoji group, or with `kaomoji` the kaomoji catalog, whose keywords are pinyin and English too.
+  static func search(_ query: String, kaomoji: Bool = false) -> Category? {
     let letters = String(query.lowercased().unicodeScalars.filter { ("a"..."z").contains($0) }.prefix(maximumSearchLength))
-    return letters.isEmpty ? nil : Category(group: "", title: "搜索", search: letters)
+    guard !letters.isEmpty else { return nil }
+    return kaomoji
+      ? Category(group: Self.kaomoji.group, title: "搜索", catalog: Self.kaomoji.catalog, search: letters)
+      : Category(group: "", title: "搜索", search: letters)
   }
 
   static func loadPage(resources: String, category: Category, offset: Int) throws -> Page {
@@ -147,6 +150,31 @@ enum KeyboardEmojiCatalog {
     }
   }
 
+  /// The most symbols one search shows: a single Engine page, since a short query such as one letter matches most of the catalog and the first rows are the ones worth reading.
+  static let maximumSymbolMatches = 255
+
+  /// Symbols whose keywords match `query`: the catalog files each under English words, full pinyin and pinyin initials (`arrow`, `jiantou`, `jt`), so the letters the search pad types are enough. `nil` when nothing is left to search for.
+  static func searchSymbols(resources: String, query: String) throws -> [String]? {
+    guard let letters = search(query)?.search else { return nil }
+    let request = try JSONSerialization.data(withJSONObject: [
+      "category": "symbols", "search": letters, "offset": 0, "limit": maximumSymbolMatches, "cursor": true,
+    ])
+    return try decodeSymbolMatches(try MetasequoiaInputSessionBridge.emojiCatalog(request: request, resources: resources))
+  }
+
+  static func decodeSymbolMatches(_ value: [String: Any]) throws -> [String] {
+    guard let rows = value["items"] as? [[String: Any]], rows.count <= maximumSymbolMatches else {
+      throw KeyboardEmojiCatalogError.invalidPage
+    }
+    var symbols: [String] = []
+    var seen = Set<String>()
+    for row in rows {
+      guard let text = row["text"] as? String, validText(text) else { throw KeyboardEmojiCatalogError.invalidPage }
+      if seen.insert(text).inserted { symbols.append(text) }
+    }
+    return symbols
+  }
+
   static func collectSymbols(page: (Int) throws -> [String: Any]) throws -> [String] {
     var symbols: [String] = []
     var seen = Set<String>()
@@ -171,6 +199,10 @@ enum KeyboardEmojiCatalog {
 
   static func validRecent(_ value: String) -> Bool {
     validText(value)
+  }
+
+  static func validRecentKaomoji(_ value: String) -> Bool {
+    validText(value, kaomoji: true)
   }
 
   /// A kaomoji is a short line of text rather than one pictograph; the longest in the shipped catalog is 59 characters.
@@ -207,6 +239,37 @@ enum KeyboardEmojiRecents {
     for value in values where KeyboardEmojiCatalog.validRecent(value) && seen.insert(value).inserted {
       output.append(value)
       if output.count == KeyboardEmojiCatalog.recentLimit { break }
+    }
+    return output
+  }
+}
+
+/// Kaomoji picked in the emoji picker, newest first, kept apart from the Emoji recents.
+///
+/// Windows keeps one recent list for its whole panel. On iOS the Emoji recents fill an eight-column pictograph grid, and a kaomoji is a line of text that needs the kaomoji tab's wide columns, so kaomoji get their own 最近颜文字 tab beside 颜文字.
+enum KeyboardKaomojiRecents {
+  static let key = "kaomojiRecents"
+  /// Eight rows of the two columns a phone shows.
+  static let limit = 16
+  private static var defaults: UserDefaults { KeyboardFeedbackPreference.defaults }
+
+  static var stored: [String] {
+    normalize(defaults.stringArray(forKey: key) ?? [])
+  }
+
+  static func record(_ kaomoji: String) {
+    guard KeyboardEmojiCatalog.validRecentKaomoji(kaomoji) else { return }
+    var recents = stored.filter { $0 != kaomoji }
+    recents.insert(kaomoji, at: 0)
+    defaults.set(Array(recents.prefix(limit)), forKey: key)
+  }
+
+  static func normalize(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    var output: [String] = []
+    for value in values where KeyboardEmojiCatalog.validRecentKaomoji(value) && seen.insert(value).inserted {
+      output.append(value)
+      if output.count == limit { break }
     }
     return output
   }

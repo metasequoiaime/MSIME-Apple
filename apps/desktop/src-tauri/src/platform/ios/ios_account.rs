@@ -1766,10 +1766,21 @@ pub struct MobileKeyboardFeedback {
     pub candidate_palette_follows_desktop: bool,
     #[serde(default)]
     pub inline_preedit: bool,
+    /// Reported by the device, never saved: the page hides the vibration controls where it is false.
+    #[serde(default = "default_haptics_available")]
+    pub haptics_available: bool,
+    /// iPad only; absent on a phone, so the page leaves the switch out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tablet_full_keys: Option<bool>,
 }
 
 #[cfg(target_os = "ios")]
 fn default_english_suggestions() -> bool {
+    true
+}
+
+#[cfg(target_os = "ios")]
+fn default_haptics_available() -> bool {
     true
 }
 
@@ -1794,6 +1805,8 @@ fn keyboard_feedback(native: &IosKeyboardPreferences) -> MobileKeyboardFeedback 
         english_suggestions: native.english_suggestions,
         candidate_palette_follows_desktop: native.candidate_palette_follows_desktop,
         inline_preedit: native.inline_preedit,
+        haptics_available: native.haptics_available,
+        tablet_full_keys: native.tablet_full_keys,
     }
 }
 
@@ -1845,6 +1858,9 @@ pub async fn mobile_keyboard_feedback_save(
         native.candidate_palette_follows_desktop =
             request.settings.candidate_palette_follows_desktop;
         native.inline_preedit = request.settings.inline_preedit;
+        if request.settings.tablet_full_keys.is_some() {
+            native.tablet_full_keys = request.settings.tablet_full_keys;
+        }
         let saved =
             platform
                 .save_keyboard_preferences(&native)

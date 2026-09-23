@@ -17,7 +17,14 @@ enum TauriPersonalDictionaryBridge {
     case "list":
       let offset = try boundedInteger(action["offset"], range: 0...1_000_000)
       _ = try boundedInteger(action["limit"], range: 1...1_000)
-      try store.requestPage(offset: offset)
+      // The kind and code prefix go to the keyboard with the page, which answers them from the user's whole store.
+      let kind = try (action["kind"] as? String).map {
+        guard let kind = PersonalWordKind(bridgeName: $0) else { throw Failure.invalid }
+        return kind
+      }
+      let query = action["query"] as? String ?? ""
+      guard query.utf8.count <= PersonalDictionaryStore.maximumQueryBytes else { throw Failure.invalid }
+      try store.requestPage(offset: offset, kind: kind, query: query)
       return response(try store.read())
     case "edit":
       let requestID = try requestID(action)
@@ -75,6 +82,8 @@ enum TauriPersonalDictionaryBridge {
       "snapshot_error": state.snapshotError ?? NSNull(),
       "page_offset": state.pageOffset,
       "requested_page_offset": state.requestedPageOffset,
+      "page_kind": state.pageKind?.bridgeName ?? NSNull(),
+      "page_query": state.pageQuery,
     ]
   }
 
@@ -85,7 +94,8 @@ enum TauriPersonalDictionaryBridge {
           format == "standard" || format == "windows" else { throw Failure.invalid }
     let offset = try boundedInteger(action["offset"], range: 0...1_000_000)
     let limit = try boundedInteger(action["limit"], range: 1...1_000)
-    let matching = state.entries.filter { $0.kind == kind }
+    // The export holds the user's own words; a code search may have left bundled rows on the page.
+    let matching = state.entries.filter { $0.kind == kind && !$0.isBundled }
     let page = matching.dropFirst(min(offset, matching.count)).prefix(limit)
     var text = page.map { word in
       format == "windows"
@@ -99,7 +109,9 @@ enum TauriPersonalDictionaryBridge {
   private static func word(_ value: Any?) throws -> PersonalWord? {
     if value == nil || value is NSNull { return nil }
     guard let fields = value as? [String: Any] else { throw Failure.invalid }
-    return try PersonalWord(bridgeValue: fields).validated()
+    // A bundled row goes back as listed; the keyboard's Engine refuses anything but a new weight for it.
+    let word = try PersonalWord(bridgeValue: fields)
+    return word.isBundled ? word : try word.validated()
   }
 
   private static func requestID(_ action: [String: Any]) throws -> String {

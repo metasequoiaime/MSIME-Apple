@@ -25,6 +25,13 @@ struct SpaceCursorMovement {
     return steps
   }
 
+  /// A quick flick through the spelling jumps a syllable per step, as Ctrl+← / → does in the Windows composition; a slow drag still walks letter by letter, which is what fixing one mistyped letter needs.
+  static let segmentVelocity: CGFloat = 900
+
+  static func movesBySegment(velocity: CGFloat) -> Bool {
+    velocity.isFinite && abs(velocity) >= segmentVelocity
+  }
+
   mutating func cancel() {
     document = nil
     previous = 0

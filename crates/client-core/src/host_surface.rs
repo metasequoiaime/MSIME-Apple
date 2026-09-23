@@ -221,6 +221,9 @@ pub struct HostCapabilities {
     /// The one candidate layout the host draws, when it offers no choice. The iOS candidate strip is a horizontal row above the keys, so an external skin is adopted there only for its horizontal layout; the skin page has to judge compatibility by that rather than by the shared setting, which defaults to vertical. Absent on a host that follows the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
+    /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. Only the iOS keyboard does so far; elsewhere the switches would hide nothing.
+    #[serde(default)]
+    pub touch_toolbar_components: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
@@ -466,6 +469,8 @@ impl HostCapabilities {
             fixed_candidate_page_size: (platform == HostPlatform::Ios).then_some(9),
             fixed_candidate_layout: (platform == HostPlatform::Ios)
                 .then_some(crate::preferences::CandidateLayout::Horizontal),
+            // The iOS shortcut bar is the touch counterpart of the Windows floating toolbar, and its buttons follow the same kind of per-component switches.
+            touch_toolbar_components: platform == HostPlatform::Ios,
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
@@ -989,7 +994,9 @@ mod tests {
             let other = HostCapabilities::for_platform(platform);
             assert_eq!(other.fixed_candidate_page_size, None);
             assert_eq!(other.fixed_candidate_layout, None);
+            assert!(!other.touch_toolbar_components);
         }
+        assert!(ios.touch_toolbar_components);
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);
