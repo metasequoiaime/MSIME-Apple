@@ -316,13 +316,12 @@ fn smart_punctuation_gestures_follow_their_own_switches() {
         "editor_generation": 1, "auto_closed_pair": false
     });
 
-    // The shipped defaults are not the same for the two: repeat follows smart punctuation and is
-    // on everywhere but Windows, while space conversion is off until asked for, because it
-    // rewrites a character the user already watched land.
+    // The shipped defaults are not the same for the two: repeat follows smart punctuation, which is off on Windows and macOS as the source ships it and on elsewhere, while space conversion is off everywhere until asked for, because it rewrites a character the user already watched land.
     let shipped = test_host_preferences(dir.path(), chinese_preferences());
+    let repeat_shipped = !cfg!(any(windows, target_os = "macos"));
     assert_eq!(
-        arm(shipped, comma.clone())["value"]["repeat"]["committed"],
-        ","
+        arm(shipped, comma.clone())["value"]["repeat"]["committed"] == ",",
+        repeat_shipped
     );
     assert!(
         arm(shipped, period.clone())["value"]["space"].is_null(),
@@ -333,6 +332,7 @@ fn smart_punctuation_gestures_follow_their_own_switches() {
     let repeat_off = test_host_preferences(
         dir.path(),
         Preferences {
+            smart_punctuation: true,
             smart_punctuation_repeat: false,
             smart_punctuation_space_convert: true,
             ..chinese_preferences()
@@ -530,7 +530,11 @@ fn native_preference_save_clears_history_only_after_successful_disable() {
 fn mixed_input_changes_defer_until_composition_ends() {
     use msime_client_core::preferences::MixedInputPreferences;
     let dir = tempfile::tempdir().unwrap();
-    let handle = test_host(dir.path());
+    // Start with every mixed-input switch opposite to the update below, whatever the platform's factory default is, so the deferral is observable for each one.
+    let mut initial = chinese_preferences();
+    initial.mixed_input.emoji = false;
+    initial.mixed_input.kaomoji = false;
+    let handle = test_host_preferences(dir.path(), initial);
     read(msime_client_focus(handle, true));
     read(msime_client_character(handle, b'U', true));
     let before = read(msime_client_view(handle));
@@ -2718,10 +2722,7 @@ fn contextual_punctuation_respects_editor_context_preferences_and_composition() 
     let handle = test_host_preferences(
         dir.path(),
         Preferences {
-            // Stated rather than inherited: the default is `!cfg!(windows)`, because the
-            // Windows TIP does this itself. Leaving it to the default made this a test that
-            // quietly asserted the opposite thing on Windows - and passed everywhere it was
-            // ever run, since the suite only ran for the host target.
+            // Stated rather than inherited: the default is `!cfg!(any(windows, target_os = "macos"))`, because the source ships the whole family off. Leaving it to the default made this a test that quietly asserted the opposite thing on those hosts - and passed wherever else it was run, since the suite only runs for the host target.
             smart_punctuation: true,
             smart_punctuation_direct_digit: true,
             smart_punctuation_direct_letter: true,

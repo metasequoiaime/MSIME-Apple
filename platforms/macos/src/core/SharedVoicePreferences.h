@@ -13,6 +13,11 @@ static inline BOOL MSIMEVoiceMuteSystemAudioEnabled(NSUserDefaults *defaults) {
         [defaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"];
 }
 
+// Native fallbacks for an unset polish service. They match the shared macOS first-run default (`default_polish_service` in crates/client-core/src/preferences.rs), which follows the source template: DeepSeek with `deepseek-v4-flash`.
+static NSString *const MSIMEVoicePolishDefaultProvider = @"deepseek";
+static NSString *const MSIMEVoicePolishDefaultEndpoint = @"https://api.deepseek.com/chat/completions";
+static NSString *const MSIMEVoicePolishDefaultModel = @"deepseek-v4-flash";
+
 static inline BOOL MSIMEVoiceCueEnabled(NSUserDefaults *defaults, BOOL start) {
     NSString *key = start ? @"MSIMEClientVoiceStartSound" : @"MSIMEClientVoiceEndSound";
     return ([defaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil ||

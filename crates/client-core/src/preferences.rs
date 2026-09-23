@@ -497,9 +497,7 @@ pub struct Preferences {
     pub smart_punctuation: bool,
     #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation_repeat: bool,
-    /// Space after a just-committed Chinese punctuation rewrites it as ASCII.
-    /// Off by default, like the rest of the family on the Windows baseline:
-    /// it changes a character the user already saw land.
+    /// Space after a just-committed Chinese punctuation rewrites it as ASCII. Off by default on every host, like the rest of the family in the source: it changes a character the user already saw land.
     #[serde(default)]
     pub smart_punctuation_space_convert: bool,
     /// Keep `,` `.` `:` as ASCII when they follow a digit.
@@ -654,6 +652,7 @@ pub struct VoiceInputPreferences {
 
 impl Default for VoiceInputPreferences {
     fn default() -> Self {
+        let polish = default_polish_service();
         Self {
             enabled: true,
             sound_enabled: true,
@@ -675,11 +674,11 @@ impl Default for VoiceInputPreferences {
             asr_resource_id: "volc.seedasr.sauc.duration".into(),
             polish_enabled: false,
             polish_text: source_voice_default(),
-            polish_provider: "siliconflow".into(),
+            polish_provider: polish.provider.into(),
             polish_token: String::new(),
             polish_tokens: BTreeMap::new(),
-            polish_endpoint: "https://api.siliconflow.cn/v1/chat/completions".into(),
-            polish_model: "Qwen/Qwen3-8B".into(),
+            polish_endpoint: polish.endpoint.into(),
+            polish_model: polish.model.into(),
             polish_prompt_id: "cleanup".into(),
             polish_prompt: String::new(),
             stream_inline_preedit: true,
@@ -701,7 +700,7 @@ impl Default for VoiceInputPreferences {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiAssistantPreferences {
-    #[serde(default)]
+    #[serde(default = "source_ai_default")]
     pub enabled: bool,
     #[serde(default)]
     pub provider: String,
@@ -771,13 +770,18 @@ fn default_ai_candidate_limit() -> u8 {
 
 impl Default for AiAssistantPreferences {
     fn default() -> Self {
+        let (endpoint, model) = if source_ai_default() {
+            (SOURCE_DEEPSEEK_ENDPOINT, SOURCE_DEEPSEEK_MODEL)
+        } else {
+            ("", "")
+        };
         Self {
-            enabled: false,
+            enabled: source_ai_default(),
             provider: "deepseek".into(),
-            model: String::new(),
+            model: model.into(),
             token: String::new(),
             tokens: BTreeMap::new(),
-            endpoint: String::new(),
+            endpoint: endpoint.into(),
             candidate_limit: 3,
             prompt_id: "custom_1".into(),
             prompt: String::new(),
@@ -958,7 +962,7 @@ impl Default for MixedInputPreferences {
         Self {
             english: true,
             minimum_prefix: 5,
-            emoji: false,
+            emoji: source_mixed_emoji_default(),
             kaomoji: false,
         }
     }
@@ -1091,21 +1095,13 @@ fn enabled_by_default() -> bool {
     true
 }
 
-/// Smart punctuation is off on a fresh Windows profile and on nowhere else.
+/// Smart punctuation is off on a fresh Windows or macOS profile.
 ///
-/// It rewrites a character the user already saw land, so the Windows baseline
-/// ships the whole family disabled and asks for it to be turned on
-/// deliberately - `platforms/windows/installer/config.default.toml` has every
-/// one of the five switches `false`. That file is the installed template; the
-/// running Server reads this document instead, so without this the effective
-/// first-run default on Windows was the opposite of the baseline it ships.
+/// It rewrites a character the user already saw land, so the source ships the whole family disabled and asks for it to be turned on deliberately - `platforms/windows/installer/config.default.toml` has every one of the five switches `false`. That file is only the installed template; the running host reads this document, so without this the effective first-run default would be the opposite of the baseline the source ships. macOS is the port of that desktop product and follows it.
 ///
-/// Only Windows moves. The other hosts have shipped these on and a preference
-/// that changes under existing users is worse than one that differs by
-/// platform; a stored value is untouched either way, since this answers only
-/// for a document that does not have the key yet.
+/// Linux, Android, iOS and HarmonyOS keep what they have shipped, since a preference that changes under existing users is worse than one that differs by platform. A stored value is never reinterpreted either way; this answers only for a document that does not have the key yet.
 fn smart_punctuation_default() -> bool {
-    !cfg!(windows)
+    !cfg!(any(windows, target_os = "macos"))
 }
 
 /// Three voice switches the source ships on and the shared document had off: muting other audio while recording, Doubao's semantic smoothing (DDC), and polishing the recognized text.
@@ -1114,6 +1110,45 @@ fn smart_punctuation_default() -> bool {
 ///
 /// The other hosts keep what they have shipped. A stored value is untouched either way; this answers only for a document that does not have the key yet.
 fn source_voice_default() -> bool {
+    cfg!(any(windows, target_os = "macos"))
+}
+
+/// The source's factory template turns the AI assistant on and points it at DeepSeek (`deepseek-v4-flash`); `platforms/windows/installer/config.default.toml` ships the same, but the running host reads this document, so the effective first-run value on Windows was off with no endpoint or model. macOS follows the desktop product it ports. Being on without a token sends nothing: `chat_completion_http_request` refuses to build a request until a usable key is set.
+///
+/// The other hosts keep the assistant off with an empty endpoint and model. A stored value is untouched either way; this answers only for a document that does not have the key yet.
+fn source_ai_default() -> bool {
+    cfg!(any(windows, target_os = "macos"))
+}
+
+const SOURCE_DEEPSEEK_ENDPOINT: &str = "https://api.deepseek.com/chat/completions";
+const SOURCE_DEEPSEEK_MODEL: &str = "deepseek-v4-flash";
+
+/// A polish provider with the endpoint and model that belong to it, kept together so a default never pairs one provider's URL with another's model.
+struct PolishService {
+    provider: &'static str,
+    endpoint: &'static str,
+    model: &'static str,
+}
+
+/// First-run polish service. The source template and the Windows installer template both ship DeepSeek (`deepseek-v4-flash`), and macOS follows the desktop product it ports; the other hosts keep SiliconFlow with `Qwen/Qwen3-8B`, which is what they have shipped. Stored values are never reinterpreted.
+fn default_polish_service() -> PolishService {
+    if source_voice_default() {
+        PolishService {
+            provider: "deepseek",
+            endpoint: SOURCE_DEEPSEEK_ENDPOINT,
+            model: SOURCE_DEEPSEEK_MODEL,
+        }
+    } else {
+        PolishService {
+            provider: "siliconflow",
+            endpoint: "https://api.siliconflow.cn/v1/chat/completions",
+            model: "Qwen/Qwen3-8B",
+        }
+    }
+}
+
+/// The source's `config.default.toml` ships `emoji_mixed_input = true`; Windows already receives it through the installer's config.toml and the one-time legacy import, macOS follows the desktop product it ports, the other hosts keep `false`, and a stored value is untouched either way.
+fn source_mixed_emoji_default() -> bool {
     cfg!(any(windows, target_os = "macos"))
 }
 

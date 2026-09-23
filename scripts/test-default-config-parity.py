@@ -51,6 +51,38 @@ else:
         "Windows and shared mixed-input minimum prefix match "
         f"{reference_ref} ({reference_sha[:8]}): {reference_minimum_prefix}"
     )
+    reference_mixed_emoji = reference_defaults["general"]["emoji_mixed_input"]
+    assert windows_defaults["general"]["emoji_mixed_input"] == reference_mixed_emoji, (
+        "Windows emoji_mixed_input must match the fixed Windows source "
+        f"({reference_mixed_emoji}): {windows_defaults['general']['emoji_mixed_input']}"
+    )
+
+# Emoji mixed-input ships on in the source and in the Windows template. The running host reads the shared document, so the shared default has to say the same on Windows and on macOS, which follows the source; kaomoji stays off everywhere.
+assert windows_defaults["general"]["emoji_mixed_input"] is True, (
+    "the Windows template must ship emoji_mixed_input on, as the source does"
+)
+mixed_emoji_field = re.search(
+    r"impl Default for MixedInputPreferences\s*\{.*?emoji:\s*([^,]+),.*?kaomoji:\s*([^,]+),",
+    core_source,
+    re.DOTALL,
+)
+assert mixed_emoji_field, "MixedInputPreferences emoji default was not found"
+assert mixed_emoji_field.group(1) == "source_mixed_emoji_default()", (
+    "MixedInputPreferences::default() must take emoji from source_mixed_emoji_default, not: "
+    f"{mixed_emoji_field.group(1)}"
+)
+assert mixed_emoji_field.group(2) == "false", "kaomoji mixed-input must default to off"
+source_mixed_emoji_default = re.search(
+    r"fn source_mixed_emoji_default\(\) -> bool \{\s*(.+?)\s*\}",
+    core_source,
+    re.DOTALL,
+)
+assert source_mixed_emoji_default, "source_mixed_emoji_default was not found"
+assert source_mixed_emoji_default.group(1) == 'cfg!(any(windows, target_os = "macos"))', (
+    "the shared first-run default for emoji mixed-input must be on for Windows and macOS and "
+    f"unchanged elsewhere, not: {source_mixed_emoji_default.group(1)}"
+)
+print("Windows and macOS ship emoji mixed-input on, as the source does")
 
 voice_auth_default = re.search(
     r'impl Default for VoiceInputPreferences\s*\{.*?doubao_auth_mode:\s*"([^"]+)"\.into\(\)',
@@ -188,18 +220,15 @@ print(
     f"{len(shared_fuzzy_rule_ids)} rules"
 )
 
-# Smart punctuation rewrites a character the user already saw land, so the
-# Windows baseline ships all five switches off. The installed TOML is only a
-# template — the running Server reads the shared preferences document — so the
-# two have to be checked against each other rather than assumed to agree.
+# Smart punctuation rewrites a character the user already saw land, so the source ships all five switches off. The installed TOML is only a template — the running host reads the shared preferences document — so the two have to be checked against each other rather than assumed to agree. macOS ports the same desktop product and follows it; the other hosts keep what they have shipped.
 smart_punctuation_default = re.search(
     r"fn smart_punctuation_default\(\) -> bool \{\s*(.+?)\s*\}",
     core_source,
     re.DOTALL,
 )
 assert smart_punctuation_default, "smart_punctuation_default was not found"
-assert smart_punctuation_default.group(1) == "!cfg!(windows)", (
-    "the shared first-run default for smart punctuation must be off on Windows "
+assert smart_punctuation_default.group(1) == '!cfg!(any(windows, target_os = "macos"))', (
+    "the shared first-run default for smart punctuation must be off on Windows and macOS "
     f"and unchanged elsewhere, not: {smart_punctuation_default.group(1)}"
 )
 
@@ -216,12 +245,7 @@ assert not any(windows_smart_punctuation.values()), (
     "Windows smart-punctuation switches must default to off: "
     f"{sorted(key for key, value in windows_smart_punctuation.items() if value)}"
 )
-# The space rewrite has no equivalent in the reference and changes a character the user already saw
-# land, so it is off until asked for. The two halves of 智能标点 follow the parent instead: the
-# reference has one switch there and this page shows its description verbatim - ASCII after a letter
-# or a digit - so halves that were off on their own left the parent on and doing nothing. Following
-# the parent keeps a fresh Windows profile with the whole family off, which is what the template
-# above ships and what this check exists for.
+# The space rewrite has no equivalent in the reference and changes a character the user already saw land, so it is off until asked for. The two halves of 智能标点 follow the parent instead: the reference has one switch there and this page shows its description verbatim - ASCII after a letter or a digit - so halves that were off on their own left the parent on and doing nothing. Following the parent keeps a fresh Windows or macOS profile with the whole family off, which is what the template above ships and what this check exists for.
 assert re.search(
     r"#\[serde\(default\)\]\s*pub smart_punctuation_space_convert: bool", core_source
 ), "smart_punctuation_space_convert must default to off on every host, matching the template"
@@ -229,10 +253,10 @@ for field in ("smart_punctuation_direct_digit", "smart_punctuation_direct_letter
     assert re.search(
         rf'#\[serde\(default = "smart_punctuation_default"\)\]\s*(?:///[^\n]*\n\s*)*pub {field}: bool',
         core_source,
-    ), f"{field} must follow the 智能标点 default, which is off on Windows"
+    ), f"{field} must follow the 智能标点 default, which is off on Windows and macOS"
 
 print(
-    "Windows smart punctuation is off on a fresh profile, as its template ships: "
+    "Windows and macOS smart punctuation is off on a fresh profile, as the template ships: "
     f"{len(windows_smart_punctuation)} switches"
 )
 
@@ -259,6 +283,69 @@ for field in source_voice_switches:
         f"VoiceInputPreferences::default() must take {field} from source_voice_default"
     )
 print(f"Windows and macOS ship {len(source_voice_switches)} voice switches on, as the source does")
+
+# The polish service and the AI assistant ship pointed at DeepSeek in the source and in the Windows template, with the assistant on. As with the voice switches the running host reads the shared document, so the shared first-run default has to carry the same values on Windows and macOS; the other hosts keep SiliconFlow/Qwen and the assistant off.
+source_service = {
+    ("voice_input", "polish_provider"): "deepseek",
+    ("voice_input", "polish_endpoint"): "https://api.deepseek.com/chat/completions",
+    ("voice_input", "polish_model"): "deepseek-v4-flash",
+    ("ai_assistant", "enabled"): True,
+    ("ai_assistant", "provider"): "deepseek",
+    ("ai_assistant", "endpoint"): "https://api.deepseek.com/chat/completions",
+    ("ai_assistant", "model"): "deepseek-v4-flash",
+}
+if reference is not None:
+    for (section, key), expected in source_service.items():
+        assert reference_defaults[section][key] == expected, (
+            f"the fixed Windows source changed {section}.{key}: "
+            f"{reference_defaults[section][key]!r}, expected {expected!r}"
+        )
+for (section, key), expected in source_service.items():
+    assert windows_defaults[section][key] == expected, (
+        f"the Windows template must ship {section}.{key} = {expected!r}, as the source does: "
+        f"{windows_defaults[section][key]!r}"
+    )
+source_ai_default = re.search(
+    r"fn source_ai_default\(\) -> bool \{\s*(.+?)\s*\}", core_source, re.DOTALL
+)
+assert source_ai_default, "source_ai_default was not found"
+assert source_ai_default.group(1) == 'cfg!(any(windows, target_os = "macos"))', (
+    "the AI assistant first-run default must be on for Windows and macOS and unchanged "
+    f"elsewhere, not: {source_ai_default.group(1)}"
+)
+assert re.search(
+    r'#\[serde\(default = "source_ai_default"\)\]\s*pub enabled: bool', core_source
+), "ai_assistant.enabled must use source_ai_default for a missing key"
+assert "enabled: source_ai_default()," in core_source, (
+    "AiAssistantPreferences::default() must take enabled from source_ai_default"
+)
+assert re.search(
+    r'const SOURCE_DEEPSEEK_ENDPOINT: &str = "https://api\.deepseek\.com/chat/completions";',
+    core_source,
+), "the shared DeepSeek endpoint must match the source template"
+assert re.search(
+    r'const SOURCE_DEEPSEEK_MODEL: &str = "deepseek-v4-flash";', core_source
+), "the shared DeepSeek model must match the source template"
+polish_service = re.search(
+    r"fn default_polish_service\(\) -> PolishService \{\s*if source_voice_default\(\) \{\s*"
+    r'PolishService \{\s*provider: "deepseek",\s*endpoint: SOURCE_DEEPSEEK_ENDPOINT,\s*'
+    r"model: SOURCE_DEEPSEEK_MODEL,",
+    core_source,
+)
+assert polish_service, (
+    "default_polish_service must pick DeepSeek with the source endpoint and model on the desktop ports"
+)
+ai_service = re.search(
+    r"impl Default for AiAssistantPreferences \{.*?if source_ai_default\(\) \{\s*"
+    r"\(SOURCE_DEEPSEEK_ENDPOINT, SOURCE_DEEPSEEK_MODEL\)",
+    core_source,
+    re.DOTALL,
+)
+assert ai_service, (
+    "AiAssistantPreferences::default() must ship the source endpoint and model on the desktop ports"
+)
+assert 'provider: "deepseek".into(),' in core_source, "the AI assistant provider must default to deepseek"
+print("Windows and macOS ship DeepSeek polishing and the AI assistant on, as the source does")
 
 # Statistics count what a person types, so the template and the shared default have to agree that
 # they start off. The reference says so in its own feature list, and a template that shipped them

@@ -1209,8 +1209,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (void)synchronizeAITranslations {
-    if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
-        (_appearance && !_appearance.candidateTranslations)) { [self cancelAITranslations]; return; }
+    // AI suggestions are gated by the AI assistant switch alone, like the source's ai_eligible / UpdateAiInput. The gloss switch (candidate_translations) only governs glosses and translations, so it is deliberately not checked here.
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode) { [self cancelAITranslations]; return; }
     NSDictionary *online = [_session onlineQueryWithError:nil];
     NSDictionary *config = online[@"ai_assistant"];
     // OnlineQuery serializes Engine's segmentation as pinyin_segments. Keep the
@@ -1590,6 +1590,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                         byTarget[target] = translation;
                     }
                 }
+                // Windows saves every successful English fetch to the user gloss store (cloud_translation.cpp PersistGloss), not just the committed candidate.
+                if ([target isEqual:@"en"]) [latest persistFetchedTranslations:results forQuery:query];
                 latest->_customResults = [combinedResults() copy];
                 [latest applyCandidateTranslationResults];
                 latest->_customBatch = nil;
@@ -1655,15 +1657,36 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     return items;
 }
+- (void)persistFetchedTranslations:(NSArray<NSDictionary *> *)results forQuery:(NSDictionary *)query {
+    NSString *directory = query[@"directory"] ?: _preferencesDirectory;
+    if (![MSIMETranslationTargets(query) containsObject:@"en"] || ![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) return;
+    // Reuse the query's candidates so each keeps the Engine source the plan requires; a bare {text:} would be rejected.
+    NSMutableArray *candidates = [NSMutableArray array];
+    for (NSDictionary *candidate in query[@"candidates"])
+        for (NSDictionary *result in results)
+            if ([result[@"text"] isEqual:candidate[@"text"]] && [result[@"translation"] isKindOfClass:NSString.class] && [result[@"translation"] length]) {
+                [candidates addObject:candidate];
+                break;
+            }
+    if (!candidates.count) return;
+    NSArray *items = [self learnedTranslationItems:candidates results:results];
+    if (!items.count) return;
+    NSDictionary *request = @{ @"directory":[directory copy], @"generation":query[@"generation"] ?: @0,
+        @"target_language":@"en", @"action":@"remember", @"items":items};
+    dispatch_async([MSIMEInputController learnedTranslationQueue], ^{
+        [MSIMEClientSession learnedTranslationRequest:request error:nil];
+    });
+}
 - (void)persistCommittedCandidateTranslation:(NSString *)text {
     if (![text isKindOfClass:NSString.class] || !text.length) return;
-    NSDictionary *query = _customQuery ?: _accountGlossRequest;
+    // Provider glosses are already saved when they are fetched; only hosted account glosses wait for the commit.
+    if (_customQuery) return;
+    NSDictionary *query = _accountGlossRequest;
     NSArray *targets = query ? (query[@"target_languages"] ?: @[]) : @[];
     NSString *directory = query[@"directory"] ?: _preferencesDirectory;
     if (!directory.isAbsolutePath || ![targets containsObject:@"en"]) return;
-    NSArray *available = _customResults.count ? _customResults : _accountGlossResults;
     NSDictionary *match = nil;
-    for (NSDictionary *entry in available)
+    for (NSDictionary *entry in _accountGlossResults)
         if ([entry[@"text"] isEqual:text] && [entry[@"translation"] isKindOfClass:NSString.class] && [entry[@"translation"] length]) {
             match = entry;
             break;
@@ -1911,7 +1934,6 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
     if (_appearance && !_appearance.candidateTranslations) {
         [self cancelCustomTranslations];
-        [self cancelAITranslations];
         if (!_appearance.candidateEnglishGloss) [self cancelCandidateGloss];
     }
     if (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) {
@@ -2853,7 +2875,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [controller->_voiceOverlay setListening:YES];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = MSIMEVoiceProviderSocket();
-        NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"siliconflow", @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_prompt": [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
+        NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider, @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_prompt": [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
         query = MSIMEVoiceProviderOptions(query, defaults);
         if (socket.length) {
             id token = [controller beginLiveVoiceWithOptions:query socket:socket];
@@ -3257,8 +3279,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         _niuTransConfig = [niuTrans copy];
     }
     if (translationChanged || (_glossEnabled && !_glossEnabled.boolValue)) {
+        // None of these settings feed the AI request, so a pending AI suggestion survives them; AI config changes are caught by the _aiQuery identity check on the next render.
         [self cancelCustomTranslations];
-        [self cancelAITranslations];
         if (!candidateEnglishGlossEnabled) [self cancelCandidateGloss];
         NSDictionary *view = [_session viewWithError:nil];
         if (!candidateTranslationsEnabled && !candidateEnglishGlossEnabled && view)
