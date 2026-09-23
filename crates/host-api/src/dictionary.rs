@@ -23,6 +23,14 @@ enum Kind {
     English,
 }
 
+/// Where a listed row comes from. A bundled row shipped with the dictionary (or was learned from typing rather than added): its code and word are fixed, so it can only be given another weight or deleted.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum Source {
+    User,
+    Bundled,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Entry {
@@ -30,9 +38,24 @@ struct Entry {
     key: String,
     value: String,
     weight: i64,
+    /// Set on every row a list returns, and sent back with it as `previous`. Absent means a user entry, which is what every caller predating bundled rows sends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<Source>,
 }
 
+/// The refusal for an edit that would change what a bundled row types rather than its weight.
+const BUNDLED_READ_ONLY: &str = "bundled dictionary entry is read-only";
+
 impl Entry {
+    fn is_bundled(&self) -> bool {
+        self.source == Some(Source::Bundled)
+    }
+
+    fn with_source(mut self, source: Source) -> Self {
+        self.source = Some(source);
+        self
+    }
+
     /// The entry as the Engine will store it: the code lowercased, and a weight inside the range
     /// it accepts.
     ///
@@ -112,6 +135,7 @@ impl TryFrom<DictionaryEntry> for Entry {
             key: entry.key,
             value: entry.value,
             weight: entry.weight,
+            source: None,
         })
     }
 }
@@ -126,7 +150,7 @@ enum Operation {
         /// is what older callers sent.
         #[serde(default)]
         kind: Option<Kind>,
-        /// Code prefix to search for, matched case-insensitively. Pinyin separators are ignored on both sides, so `nihao` and `nih` find `ni'hao`.
+        /// Code prefix to search for, matched case-insensitively. Pinyin separators are ignored on both sides, so `nihao` and `nih` find `ni'hao`. With a kind, a prefix searches the working dictionary itself, bundled words included, as does the quick-phrase list with no prefix; every other page lists the user's own words only.
         #[serde(default)]
         query: Option<String>,
     },
@@ -490,6 +514,35 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             if prefix.len() > 256 {
                 return Err("invalid dictionary page".into());
             }
+            // A code within one dictionary is looked up in the dictionary itself, the way the reference's manager searches, so a bundled word can be found and re-weighted. Quick phrases are few enough to list whole. Without a code the page stays the user's own words: the bundled pinyin tables alone hold hundreds of thousands of rows.
+            if let Some(kind) = kind.filter(|kind| {
+                *kind == Kind::QuickPhrase
+                    || prefix.bytes().any(|byte| {
+                        !byte.is_ascii_whitespace() && (*kind != Kind::Pinyin || byte != b'\'')
+                    })
+            }) {
+                let page = msime_engine_bridge::dictionary_table_entries(
+                    &options,
+                    kind.into(),
+                    prefix.trim(),
+                    offset,
+                    limit,
+                )
+                .map_err(|_| "dictionary read rejected")?;
+                let entries = page
+                    .entries
+                    .into_iter()
+                    .map(|row| {
+                        let source = if row.user_inserted {
+                            Source::User
+                        } else {
+                            Source::Bundled
+                        };
+                        Entry::try_from(row.entry).map(|entry| entry.with_source(source))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(json!({ "entries": entries, "has_more": page.has_more }));
+            }
             // Unfiltered pages still go straight through, so the common case
             // costs exactly what it did before.
             if kind.is_none() && prefix.is_empty() {
@@ -498,7 +551,9 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 let entries: Vec<Entry> = page
                     .entries
                     .into_iter()
-                    .map(Entry::try_from)
+                    .map(|entry| {
+                        Entry::try_from(entry).map(|entry| entry.with_source(Source::User))
+                    })
                     .collect::<Result<_, _>>()?;
                 return Ok(json!({ "entries": entries, "has_more": page.has_more }));
             }
@@ -521,7 +576,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                     .map_err(|_| "dictionary read rejected")?;
                 let count = page.entries.len();
                 for raw in page.entries {
-                    let entry = Entry::try_from(raw)?;
+                    let entry = Entry::try_from(raw)?.with_source(Source::User);
                     if !entry.matches(kind, &prefix) {
                         continue;
                     }
@@ -549,6 +604,13 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             replacement,
             request_id,
         } => {
+            if let Some(previous) = previous.as_ref().filter(|entry| entry.is_bundled()) {
+                let weight = bundled_weight(previous, replacement.as_ref())?;
+                return edit_bundled_entry(&options, previous, weight, &request_id);
+            }
+            if replacement.as_ref().is_some_and(Entry::is_bundled) {
+                return Err(BUNDLED_READ_ONLY.into());
+            }
             // The code is case-insensitive, and the Engine says so by folding it
             // (`validate_personal_dictionary_entry` lowercases the key before it checks anything
             // else); the reference's settings page lowercases it at its own boundary for the same
@@ -689,8 +751,14 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             let mut matching = Vec::new();
             let mut source_has_more = true;
             while source_has_more && matching.len() < offset.saturating_add(limit) {
-                let page = msime_engine_bridge::dictionary_entries(&options, cursor, 1000)
-                    .map_err(|_| "dictionary read rejected")?;
+                // The pinyin export also carries the weights learned or set for bundled words, and leaves out single characters, as the reference's does; the other dictionaries export the user's own words only.
+                let page = msime_engine_bridge::dictionary_export_entries(
+                    &options,
+                    cursor,
+                    1000,
+                    kind == Kind::Pinyin,
+                )
+                .map_err(|_| "dictionary read rejected")?;
                 if page.entries.is_empty() {
                     source_has_more = false;
                     break;
@@ -997,6 +1065,10 @@ fn personal_dictionary_error(error: PersonalDictionaryError) -> String {
 }
 
 fn personal_from_entry(entry: Entry) -> Result<PersonalWord, String> {
+    // The queue holds the user's own words; a bundled row is edited in place through `edit`.
+    if entry.is_bundled() {
+        return Err(BUNDLED_READ_ONLY.into());
+    }
     normalize_personal_word(PersonalWord {
         kind: personal_kind(entry.kind.into()),
         key: entry.key,
@@ -1036,7 +1108,53 @@ fn personal_to_entry(entry: PersonalWord) -> Result<Entry, String> {
         key: entry.key,
         value: entry.value,
         weight: entry.weight,
+        source: None,
     })
+}
+
+/// The weight a bundled row is set to, or `None` to delete it. Its code and word are what the dictionary shipped, so a replacement may change the weight and nothing else.
+fn bundled_weight(previous: &Entry, replacement: Option<&Entry>) -> Result<Option<i64>, String> {
+    let Some(replacement) = replacement else {
+        return Ok(None);
+    };
+    if replacement.kind != previous.kind
+        || replacement.key != previous.key
+        || replacement.value != previous.value
+    {
+        return Err(BUNDLED_READ_ONLY.into());
+    }
+    let weight = replacement.weight.max(MINIMUM_WEIGHT);
+    if weight > 100_000_000 {
+        return Err(invalid_dictionary_entry("weight is outside 1 to 100000000"));
+    }
+    Ok(Some(weight))
+}
+
+/// Re-weight or delete a bundled row under the maintenance lock, journaled so the change survives replay onto a fresh dictionary. Engine diagnostics are withheld, as for a user entry.
+fn edit_bundled_entry(
+    options: &msime_engine_bridge::EngineOptions,
+    previous: &Entry,
+    weight: Option<i64>,
+    request_id: &str,
+) -> Result<serde_json::Value, String> {
+    let _access = DictionaryAccess::try_maintenance(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    if request_id.is_empty() {
+        return Err("dictionary request id required".into());
+    }
+    let previous = DictionaryEntry {
+        kind: previous.kind.into(),
+        key: previous.key.clone(),
+        value: previous.value.clone(),
+        weight: previous.weight,
+    };
+    msime_engine_bridge::dictionary_edit_bundled(options, &previous, weight, request_id)
+        .map_err(|_| "dictionary edit rejected")?;
+    Ok(json!({ "applied": true }))
 }
 
 fn personal_kind(kind: DictionaryKind) -> PersonalWordKind {
@@ -1338,6 +1456,7 @@ mod tests {
             key: key.into(),
             value: value.into(),
             weight: 10_000,
+            source: None,
         }
     }
 
@@ -1415,6 +1534,7 @@ mod tests {
             key: "abcde".into(),
             value: "测试".into(),
             weight: 1,
+            source: None,
         };
         assert_eq!(
             edit(wubi),

@@ -6,6 +6,13 @@
 .\platforms\windows\Collect-Notices.ps1 -DependencyPrefixes C:\deps\x64,C:\deps\x86 -SupplementalNotices C:\release\rust-frontend-notices.txt
 ```
 
+The Rust crates statically linked into the host DLL, the dictionary replay tool and the settings binary, and the npm packages bundled into the settings frontend, are not in any dependency prefix. `platforms/linux/collect-notices.py` collects them from the resolved graphs; run it on Windows so Cargo resolves the Windows graph, after `Build-Client.ps1` has installed `node_modules`, and pass both outputs as supplemental notices. `.github/workflows/release-windows.yml` does exactly this:
+
+```powershell
+python -X utf8 platforms\linux\collect-notices.py cargo C:\release\rust-crates-NOTICES.txt msime-host-api msime-engine-bridge msime-desktop:tauri/custom-protocol
+python -X utf8 platforms\linux\collect-notices.py npm C:\release\frontend-npm-NOTICES.txt apps\desktop
+```
+
 The Engine revision comes from `engine-lock.json`. `Collect-Notices.ps1` reads only the prepared Engine tree whose `.msime-engine-lock` marker matches that commit; it never follows a gitlink or `.gitmodules` file. Each dependency prefix must provide at least one nonempty `share/<package>/copyright`; all such files are collected in sorted order with their SHA-256 and relative provenance. Supplemental files also carry hashes. Absolute local paths are not included. All inputs are read before an existing generated bundle is replaced, so missing inputs preserve prior output.
 
 This is a collection tool, not a completeness or redistribution approval check. It does not infer which ports/crates/npm packages were linked, fetch licenses, collect nested third-party archive licenses automatically, or grant permissions missing from upstream. The Engine helpcode notice explicitly records unresolved redistribution permissions, and its original text is retained. Supply and review the nested archive, Rust/frontend, model and distribution-specific material; retain the separate bundled Japanese model notice and application LICENSE. Missing records must not be papered over with a claim that the whole bundle has one license. Generated output is a release artifact, not a source-tree edit.

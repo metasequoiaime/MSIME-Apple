@@ -151,7 +151,7 @@ assert "event.isRelease()" in source
 # Ctrl+Space and Ctrl+Alt+Space must be able to return from English passthrough.
 # The old gate sat above the chord and made the switch one-way.
 # English mode keeps fullwidth and the Chinese punctuation lock below that gate, so the gate is found by its comment rather than by a bare return.
-assert source.index("return toggleInputMode();") < source.index(
+assert source.index("if (!toggleInputMode()) return false;") < source.index(
     "English mode still honours fullwidth output"
 )
 # The startup mode belongs to the input context, not to each Engine session, or

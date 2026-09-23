@@ -135,6 +135,8 @@ export const fieldSelect = `${fieldInput} min-w-[150px]`;
 export const managerControls = "flex flex-wrap items-end gap-2.5";
 export const phraseForm = "mt-3.5 flex flex-wrap items-end gap-2.5";
 export const keyHint = "text-[11px] text-muted";
+export const bundledBadge =
+  "rounded border border-edge px-1 py-px text-[11px] leading-none text-muted";
 const listRow =
   "flex items-center justify-between gap-3 border-t border-[var(--divider-color)] pt-2 [&>span:first-child]:min-w-0 [&>span:first-child]:break-anywhere [&_.secondary]:mt-0 [&_.secondary]:px-[9px] [&_.secondary]:py-1";
 export const phraseList =
