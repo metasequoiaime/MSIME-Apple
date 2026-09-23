@@ -3891,6 +3891,7 @@ uint64_t panel_input_generation = 0;
 msime::linux_host::PanelInputSocket panel_input_socket;
 msime::linux_host::PanelInputBroker panel_input_broker;
 guint panel_input_timer = 0;
+gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags);
 
 msime::linux_host::PanelInputDelivery panel_input_deliver(
     const msime::linux_host::PanelInputRequest &request) {
@@ -3914,8 +3915,23 @@ msime::linux_host::PanelInputDelivery panel_input_deliver(
   if (request.control) modifiers |= IBUS_CONTROL_MASK;
   if (request.alt) modifiers |= IBUS_MOD1_MASK;
   if (request.super) modifiers |= IBUS_SUPER_MASK | IBUS_MOD4_MASK;
-  ibus_engine_forward_key_event(engine, keyval, request.keycode, modifiers);
-  ibus_engine_forward_key_event(engine, keyval, request.keycode, modifiers | IBUS_RELEASE_MASK);
+  // The panel knows nothing of the lock; carry the one the last real key reported so this stroke does not flip the CapsLock indicator.
+  if (state(engine).caps_lock) {
+    modifiers |= IBUS_LOCK_MASK;
+    // The panel sends letters lowercase; apply the lock the way xkb does for a physical key, so the stroke meets the CapsLock passthrough as an uppercase letter (and Shift under the lock gives lowercase).
+    if (keyval < 0x80 && g_ascii_isalpha(static_cast<gchar>(keyval)))
+      keyval = request.shift ? ibus_keyval_to_lower(keyval) : ibus_keyval_to_upper(keyval);
+  }
+  // Through this engine first, the way SendInput passes through the IME on Windows: letters compose, and digits, Space and BackSpace act on an open composition.
+  msime::linux_host::deliver_panel_key_stroke(
+      [&](bool release) {
+        return process_key(engine, keyval, request.keycode,
+                           modifiers | (release ? IBUS_RELEASE_MASK : 0)) != FALSE;
+      },
+      [&](bool release) {
+        ibus_engine_forward_key_event(engine, keyval, request.keycode,
+                                      modifiers | (release ? IBUS_RELEASE_MASK : 0));
+      });
   return PanelInputDelivery::Delivered;
 }
 

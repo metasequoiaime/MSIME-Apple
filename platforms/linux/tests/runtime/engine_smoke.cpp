@@ -8,8 +8,12 @@
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <poll.h>
 #include <stdexcept>
+#include <cstring>
 #include <sys/file.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 #include <vector>
 #include "../voice/voice_provider_fixture.h"
@@ -20,8 +24,14 @@ void require(bool condition, const char *message) {
   if (!condition)
     throw std::runtime_error(message);
 }
+struct ForwardedKey {
+  guint keyval = 0;
+  guint keycode = 0;
+  guint state = 0;
+};
 struct Observation {
   std::string committed;
+  std::vector<ForwardedKey> forwarded;
   std::string preedit;
   std::string auxiliary;
   std::vector<std::string> candidates;
@@ -74,6 +84,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   }
   if (std::string(name) == "HideAuxiliaryText") {
     seen.auxiliary.clear();
+    return;
+  }
+  if (std::string(name) == "ForwardKeyEvent") {
+    ForwardedKey forwarded;
+    g_variant_get(parameters, "(uuu)", &forwarded.keyval, &forwarded.keycode, &forwarded.state);
+    seen.forwarded.push_back(forwarded);
     return;
   }
   if (std::string(name) == "DeleteSurroundingText") {
@@ -267,6 +283,12 @@ int main(int argc, char **argv) {
         std::filesystem::remove_all(path, error);
       }
     } cleanup{root};
+    // The panel input socket lives under the runtime directory. Give the fixture its own, so it never meets a live host's socket.
+    const auto runtime = root / "runtime";
+    std::filesystem::create_directory(runtime);
+    std::filesystem::permissions(runtime, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace);
+    g_setenv("XDG_RUNTIME_DIR", runtime.c_str(), TRUE);
     auto bootstrap = nlohmann::json{
         {"resources", argv[1]},
         {"state_root",
@@ -2736,6 +2758,106 @@ int main(int argc, char **argv) {
     require(
         seen.first_candidate_background == 0x123456,
         "Custom candidate surface color was overwritten by an external skin");
+    // Screen keyboard keys arrive over panel-input.sock and go through the engine before the editor, the way SendInput passes through the IME on Windows. Text from handwriting, emoji and voice is still committed as it is.
+    {
+      require(key(IBUS_Escape), "Screen keyboard fixture could not cancel the composition");
+      const auto panel_socket = runtime / "msime-client" / "panel-input.sock";
+      require(std::filesystem::exists(panel_socket), "Panel input socket did not open on focus");
+      // The host serves the socket from this thread's main loop, so keep iterating it until the reply arrives.
+      auto panel = [&](const nlohmann::json &request) {
+        std::string reply;
+        const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        require(fd >= 0, "Panel input client socket");
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        std::strncpy(address.sun_path, panel_socket.c_str(), sizeof(address.sun_path) - 1);
+        const auto line = request.dump() + "\n";
+        if (::connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0 &&
+            send(fd, line.data(), line.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(line.size())) {
+          const auto deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+          while (reply.find('\n') == std::string::npos && g_get_monotonic_time() < deadline) {
+            while (g_main_context_iteration(nullptr, FALSE)) {}
+            pollfd ready{fd, POLLIN, 0};
+            if (poll(&ready, 1, 1) <= 0) continue;
+            char buffer[256];
+            const auto count = recv(fd, buffer, sizeof(buffer), 0);
+            if (count <= 0) break;
+            reply.append(buffer, static_cast<size_t>(count));
+          }
+        }
+        close(fd);
+        return reply == "{\"ok\":true}\n";
+      };
+      // Evdev codes, as the panel sends them.
+      auto panel_key = [&](const char *name, guint keycode) {
+        return panel({{"op", "key"}, {"key", name}, {"keycode", keycode}});
+      };
+      seen.forwarded.clear();
+      auto before = seen.committed;
+      require(panel_key("n", 49) && panel_key("i", 23) && panel_key("h", 35) &&
+                  panel_key("a", 30) && panel_key("o", 24),
+              "Screen keyboard letters were refused");
+      require(wait_until([&] { return seen.preedit_visible && seen.preedit == "nihao"; }),
+              "Screen keyboard letters did not compose");
+      require(panel_key("space", 57), "Screen keyboard Space was refused");
+      require(wait_until([&] { return seen.committed != before; }) &&
+                  seen.committed == before + "你好" && seen.forwarded.empty(),
+              "Screen keyboard typed raw letters instead of composing");
+      // A composition started on the physical keyboard: the screen keyboard's digits select from it and its BackSpace edits it.
+      phrase();
+      require(seen.candidates.size() >= 2, "Screen keyboard selection fixture has one candidate");
+      const auto second = seen.committed + seen.candidates.at(1);
+      require(panel_key("2", 3), "Screen keyboard digit was refused");
+      require(wait_until([&] { return seen.committed == second; }) && seen.forwarded.empty(),
+              "Screen keyboard digit did not select the second candidate");
+      // A candidate shorter than the reading leaves the rest composing.
+      key(IBUS_Escape);
+      phrase();
+      require(panel_key("BackSpace", 14), "Screen keyboard BackSpace was refused");
+      require(wait_until([&] { return seen.preedit == "niha"; }) && seen.forwarded.empty(),
+              "Screen keyboard BackSpace did not edit the composition");
+      require(key(IBUS_Escape), "Screen keyboard fixture could not cancel the composition");
+      // With nothing to compose, the whole stroke goes on to the editor.
+      require(panel_key("BackSpace", 14), "Idle screen keyboard BackSpace was refused");
+      require(wait_until([&] { return seen.forwarded.size() == 2; }) &&
+                  seen.forwarded[0].keyval == IBUS_BackSpace && seen.forwarded[0].keycode == 14 &&
+                  (seen.forwarded[0].state & IBUS_RELEASE_MASK) == 0 &&
+                  seen.forwarded[1].keyval == IBUS_BackSpace &&
+                  (seen.forwarded[1].state & IBUS_RELEASE_MASK) != 0,
+              "Idle screen keyboard BackSpace did not reach the editor as one stroke");
+      before = seen.committed;
+      require(panel({{"op", "text"}, {"text", "好"}}), "Panel text was refused");
+      require(wait_until([&] { return seen.committed == before + "好"; }) &&
+                  seen.forwarded.size() == 2,
+              "Panel text did not commit as it is");
+      // Under CapsLock a physical letter arrives uppercase with the lock and goes to the editor; the screen keyboard's lowercase letter has to do the same rather than start a composition.
+      require(!key('N', IBUS_LOCK_MASK) && !key('N', IBUS_LOCK_MASK | IBUS_RELEASE_MASK) &&
+                  !seen.preedit_visible,
+              "CapsLock letter was composed");
+      seen.forwarded.clear();
+      require(panel_key("n", 49), "Screen keyboard letter under CapsLock was refused");
+      require(wait_until([&] { return seen.forwarded.size() == 2; }) &&
+                  seen.forwarded[0].keyval == 'N' && seen.forwarded[1].keyval == 'N' &&
+                  (seen.forwarded[0].state & IBUS_RELEASE_MASK) == 0 &&
+                  (seen.forwarded[1].state & IBUS_RELEASE_MASK) != 0 && !seen.preedit_visible,
+              "Screen keyboard letter under CapsLock did not reach the editor uppercase");
+      // A key without the lock reports it off again.
+      key(IBUS_Escape);
+      key(IBUS_Escape, IBUS_RELEASE_MASK);
+      // In English mode the engine passes the letter on untouched, as one whole stroke.
+      require(key(IBUS_space, IBUS_CONTROL_MASK) && !seen.input_enabled,
+              "Ctrl+Space did not enter English mode for the screen keyboard");
+      seen.forwarded.clear();
+      require(panel_key("n", 49), "Screen keyboard letter in English mode was refused");
+      require(wait_until([&] { return seen.forwarded.size() == 2; }) &&
+                  seen.forwarded[0].keyval == 'n' && seen.forwarded[0].keycode == 49 &&
+                  (seen.forwarded[0].state & IBUS_RELEASE_MASK) == 0 &&
+                  seen.forwarded[1].keyval == 'n' &&
+                  (seen.forwarded[1].state & IBUS_RELEASE_MASK) != 0 && !seen.preedit_visible,
+              "Screen keyboard letter in English mode did not reach the editor as one stroke");
+      require(key(IBUS_space, IBUS_CONTROL_MASK) && seen.input_enabled,
+              "Ctrl+Space did not restore Chinese mode after the screen keyboard");
+    }
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
     g_dbus_connection_signal_unsubscribe(client, subscription);

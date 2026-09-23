@@ -20,9 +20,12 @@ public:
   const char *frontend() const override { return "msime-test"; }
   void commitStringImpl(const std::string &text) override { committed += text; }
   void deleteSurroundingTextImpl(int, unsigned int) override {}
-  void forwardKeyImpl(const fcitx::ForwardKeyEvent &) override {}
+  void forwardKeyImpl(const fcitx::ForwardKeyEvent &event) override {
+    forwarded.emplace_back(event.rawKey(), event.isRelease());
+  }
   void updatePreeditImpl() override {}
   std::string committed;
+  std::vector<std::pair<fcitx::Key, bool>> forwarded;
 };
 void require(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 // The autocorrect marker is display-only: Windows appends '*' to the row text of a candidate whose spelling the Engine corrected, and the IBus host does the same. It sits right after the word and before the cloud/AI badge, and the text the candidate selects with stays the Engine's. Runs before the resource fixture so it needs nothing but the plugin code.
@@ -1012,6 +1015,28 @@ int main(int argc, char **argv) {
             "CapsLock does not begin composition");
     state->close();
     state->clearPanel();
+    // Screen keyboard keys go through the context's input method before the editor; the daemon test covers the MSIME composition this leads to. This fixture's instance has no input method of its own (the engine above is driven directly), so here nothing consumes the key: it has to reach the editor as one whole stroke, with the evdev code turned into an X keycode. Panel text still commits as it is.
+    {
+      using msime::linux_host::PanelInputDelivery;
+      using msime::linux_host::PanelInputRequest;
+      PanelInputRequest panelKey;
+      panelKey.kind = PanelInputRequest::Kind::Key;
+      panelKey.key = "BackSpace";
+      panelKey.keycode = 14;
+      ic.forwarded.clear();
+      require(engine.deliverPanelInput(panelKey) == PanelInputDelivery::Delivered, "panel key delivered");
+      require(ic.forwarded.size() == 2 && !ic.forwarded[0].second && ic.forwarded[1].second &&
+                  ic.forwarded[0].first.sym() == FcitxKey_BackSpace &&
+                  ic.forwarded[0].first.code() == 22 && ic.forwarded[1].first == ic.forwarded[0].first,
+              "unconsumed panel key reaches the editor as one stroke");
+      PanelInputRequest panelText;
+      panelText.kind = PanelInputRequest::Kind::Text;
+      panelText.text = "好";
+      const auto beforePanelText = ic.committed;
+      require(engine.deliverPanelInput(panelText) == PanelInputDelivery::Delivered &&
+                  ic.committed == beforePanelText + "好" && ic.forwarded.size() == 2,
+              "panel text commits as it is");
+    }
     // Real translation socket: no HTTP, credentials, or user input in this fixture.
     const auto translationPath = std::string(directory) + "/translation.sock";
     const int translationServer = socket(AF_UNIX, SOCK_STREAM, 0);
