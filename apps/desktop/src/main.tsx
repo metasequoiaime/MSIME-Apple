@@ -51,6 +51,7 @@ import {
   type LinuxSetupClient,
   type LinuxSetupLine,
   type LinuxSetupStatus,
+  UNBATCHED_DICTIONARY_FILE_BYTES,
 } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
@@ -109,6 +110,8 @@ const dictionary: DictionaryClient = {
 };
 const mobileDictionary: DictionaryClient = {
   ...dictionary,
+  // The mobile bridge sends an import to the host in one request rather than in batches.
+  maxImportFileBytes: UNBATCHED_DICTIONARY_FILE_BYTES,
   importPersonal: (text: string, request_id: string) =>
     invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
 };
