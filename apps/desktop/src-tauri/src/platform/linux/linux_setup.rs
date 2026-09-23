@@ -376,7 +376,7 @@ mod tests {
         let program = script(&root, "echo \"state $2\"; echo problem >&2");
         let lines = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&lines);
-        let arguments = setup_arguments(Path::new("/state"), false);
+        let arguments = setup_arguments(Path::new("/state"), false, true);
         run_setup(&program, &arguments, Duration::from_secs(10), move |line| {
             sink.lock().unwrap().push((line.text, line.error));
         })
