@@ -1,5 +1,11 @@
 import XCTest
 
+/// A distinct letters-only code for fixture row `index` (0..<676): quick phrase codes take letters only, as the Windows source's `valid_code` does, so a numbered fixture spells its number in letters.
+private func letterCode(_ prefix: String, _ index: Int) -> String {
+  let letters = Array("abcdefghijklmnopqrstuvwxyz")
+  return prefix + String(letters[index / 26]) + String(letters[index % 26])
+}
+
 final class PersonalDictionaryStoreTests: XCTestCase {
   func testQueueAcknowledgementFailureAndPaging() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -88,7 +94,11 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertEqual(try PersonalWord(kind: .english, key: "dont", value: "don't").validated().value, "don't")
     XCTAssertThrowsError(try PersonalWord(kind: .english, key: "w0rd", value: "Word").validated())
     XCTAssertThrowsError(try PersonalWord(key: "ni", value: "a\0b").validated())
-    XCTAssertEqual(try PersonalWord(kind: .quickPhrase, key: "HELLO1", value: "第一行\n第二行").validated().key, "hello1")
+    XCTAssertEqual(try PersonalWord(kind: .quickPhrase, key: "HELLO", value: "第一行\n第二行").validated().key, "hello")
+    // A quick phrase code takes letters only, and the refusal names that rule rather than a generic one.
+    XCTAssertThrowsError(try PersonalWord(kind: .quickPhrase, key: "hello1", value: "你好").validated()) {
+      XCTAssertEqual($0.localizedDescription, "快捷短语编码只能包含英文字母，长度 1 到 32。")
+    }
   }
 
   func testImportValidatesAllEntriesAndRejectsMalformedOrDuplicateData() throws {
@@ -130,7 +140,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: file), original)
     XCTAssertThrowsError(try store.enqueueImport([fresh, .init(key: "nihao", value: "你好")]))
     XCTAssertEqual(try Data(contentsOf: file), original)
-    let tooMany = (0..<125).map { PersonalWord(kind: .quickPhrase, key: "fixture\($0)", value: "fixture") }
+    let tooMany = (0..<125).map { PersonalWord(kind: .quickPhrase, key: letterCode("fixture", $0), value: "fixture") }
     XCTAssertThrowsError(try store.enqueueImport(tooMany))
     XCTAssertEqual(try Data(contentsOf: file), original)
     try store.synchronize(apply: { _ in }, page: { _ in .init(entries: [], hasMore: false) })
@@ -143,7 +153,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let store = PersonalDictionaryStore(directory: root)
-    try store.enqueueImport((0..<9).map { .init(kind: .quickPhrase, key: "batch\($0)", value: "fixture") })
+    try store.enqueueImport((0..<9).map { .init(kind: .quickPhrase, key: letterCode("batch", $0), value: "fixture") })
     let ids = try store.read().requests.map(\.id)
     var applied = [String]()
     try store.synchronize(apply: { applied.append($0.id) }, page: { _ in .init(entries: [], hasMore: false) })
@@ -164,7 +174,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     // Multiple read chunks, including escaped newlines and multibyte text,
     // while every entry stays under the Engine's quick-phrase limit.
     let words = (0..<128).map {
-      PersonalWord(kind: .quickPhrase, key: "file\($0)", value: String(repeating: "你好\n", count: 60))
+      PersonalWord(kind: .quickPhrase, key: letterCode("file", $0), value: String(repeating: "你好\n", count: 60))
     }
     let data = try PersonalDictionaryImport(entries: words).encoded()
     XCTAssertGreaterThan(data.count, 65_536)

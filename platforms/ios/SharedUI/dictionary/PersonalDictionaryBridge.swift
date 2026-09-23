@@ -19,7 +19,10 @@ enum PersonalDictionaryBridge {
   static func validateEntry(_ entry: [String: Any]) throws -> [String: Any] {
     // The native side answers with one internal reason for every rejection, so the guidance has to
     // come from here -- this is the layer that still knows which kind of code the user was typing.
-    let kind = (entry["kind"] as? String).flatMap(PersonalWordKind.init(rawValue:))
+    // Callers pass `PersonalWord.bridgeValue`, which spells the quick phrase kind the shared layer's way (`quick_phrase`), not as the Swift raw value.
+    let kind = (entry["kind"] as? String).flatMap {
+      PersonalWordKind(rawValue: $0 == "quick_phrase" ? PersonalWordKind.quickPhrase.rawValue : $0)
+    }
     var request = entry
     if request["kind"] as? String == "quickPhrase" { request["kind"] = "quick_phrase" }
     guard JSONSerialization.isValidJSONObject(request),
