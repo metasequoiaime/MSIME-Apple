@@ -6,10 +6,13 @@ final class VoiceRecorder: ObservableObject {
   @Published private(set) var isRecording = false
   @Published private(set) var isPreparing = false
   @Published private(set) var audio: Data?
+  /// The recent microphone levels, 0 to 1, oldest first; empty when not recording.
+  @Published private(set) var levels: [Float] = []
   var pcmAudio: Data? { audio.flatMap { WAVPCMExtractor.extract(from: $0) } }
   private var recorder: AVAudioRecorder?
   private var file: URL?
   private var limit: Task<Void, Never>?
+  private var meter: Task<Void, Never>?
   /// A live recording: the engine capturing it, where its PCM goes out, and everything captured so far.
   private var engine: AVAudioEngine?
   private var live: AsyncStream<Data>.Continuation?
@@ -28,6 +31,7 @@ final class VoiceRecorder: ObservableObject {
         AVLinearPCMIsFloatKey: false,
         AVLinearPCMIsBigEndianKey: false,
       ])
+      recorder.isMeteringEnabled = true
       self.recorder = recorder
       guard recorder.record() else { throw ServiceFailure(message: "无法开始录音，请重试。") }
       began()
@@ -98,6 +102,21 @@ final class VoiceRecorder: ObservableObject {
       do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch { return }
       self?.stop()
     }
+    // 20 samples a second, from whichever path is recording.
+    meter = Task { [weak self] in
+      while !Task.isCancelled {
+        do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return }
+        guard let self else { return }
+        let decibels: Float
+        if let recorder = self.recorder {
+          recorder.updateMeters()
+          decibels = recorder.averagePower(forChannel: 0)
+        } else {
+          decibels = self.capture?.decibels ?? VoiceLevel.floorDecibels
+        }
+        self.levels = VoiceLevel.appending(VoiceLevel.normalized(decibels: decibels), to: self.levels)
+      }
+    }
   }
 
   /// The engine's tap runs on the audio thread, so it is built outside the main actor and only touches the lock-guarded capture and the stream.
@@ -118,7 +137,7 @@ final class VoiceRecorder: ObservableObject {
       }
       guard error == nil, converted.frameLength > 0, let samples = converted.int16ChannelData else { return }
       let pcm = Data(bytes: samples[0], count: Int(converted.frameLength) * MemoryLayout<Int16>.size)
-      guard capture.append(pcm) else { return }
+      guard capture.append(pcm, decibels: VoiceLevel.decibels(pcm16: pcm)) else { return }
       continuation.yield(pcm)
     }
   }
@@ -126,6 +145,9 @@ final class VoiceRecorder: ObservableObject {
   func stop() {
     limit?.cancel()
     limit = nil
+    meter?.cancel()
+    meter = nil
+    levels = []
     recorder?.stop()
     recorder = nil
     if let engine {
@@ -161,13 +183,22 @@ private final class LiveCapture: @unchecked Sendable {
   private let lock = NSLock()
   private var pcm = Data()
   private var finished = false
+  private var latestDecibels = VoiceLevel.floorDecibels
+
+  /// The level of the latest buffer, for the waveform.
+  var decibels: Float {
+    lock.lock()
+    defer { lock.unlock() }
+    return latestDecibels
+  }
 
   /// False once the recording has stopped or reached the limit, so nothing more goes out.
-  func append(_ chunk: Data) -> Bool {
+  func append(_ chunk: Data, decibels: Float) -> Bool {
     lock.lock()
     defer { lock.unlock() }
     guard !finished, pcm.count + chunk.count <= Self.limit else { return false }
     pcm.append(chunk)
+    latestDecibels = decibels
     return true
   }
 

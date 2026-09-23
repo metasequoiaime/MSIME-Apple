@@ -364,7 +364,10 @@ struct ServiceSettingsView: View {
             }
           }
           .disabled(busy || recorder.isPreparing || (recognizesLive && !recorder.isRecording))
-          if recorder.isRecording { Label("正在录音，最长 60 秒", systemImage: "mic.fill").foregroundStyle(.red) }
+          if recorder.isRecording {
+            Label("正在录音，最长 60 秒", systemImage: "mic.fill").foregroundStyle(.red)
+            VoiceLevelWaveform(levels: recorder.levels)
+          }
           if recognizesLive {
             Text(liveText.isEmpty ? (recorder.isRecording ? "正在聆听…" : "正在识别…") : liveText)
               .foregroundStyle(liveText.isEmpty ? .secondary : .primary)
@@ -505,7 +508,7 @@ struct ServiceSettingsView: View {
       Toggle("识别后自动润色", isOn: $voiceSettings.polishEnabled)
         .accessibilityIdentifier("voicePolishEnabled")
       if voiceSettings.polishEnabled {
-        Picker("润色方式", selection: $voiceSettings.promptID) {
+        Picker("润色方式", selection: Binding(get: { voiceSettings.promptID }, set: { voiceSettings.select($0) })) {
           ForEach(VoicePolishSettings.presets, id: \.id) { Text($0.title).tag($0.id) }
         }
         .accessibilityIdentifier("voicePolishPreset")
@@ -513,9 +516,16 @@ struct ServiceSettingsView: View {
           TextEditor(text: $voiceSettings.customPrompts[slot]).frame(minHeight: 100)
             .accessibilityLabel("自定义润色提示词").accessibilityIdentifier("voicePolishCustomPrompt")
         } else {
-          DisclosureGroup("查看提示词") {
-            Text(voiceSettings.systemPrompt).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+          // The desktop's prompt box: a built-in preset can be edited too, and the edit is kept until 恢复默认 or another preset is picked.
+          DisclosureGroup(voiceSettings.legacyPrompt.isEmpty ? "查看或修改提示词" : "提示词（已修改）") {
+            TextEditor(text: $voiceSettings.presetPromptText).font(.footnote).frame(minHeight: 140)
+              .accessibilityLabel("润色提示词").accessibilityIdentifier("voicePolishPresetPrompt")
+            if !voiceSettings.legacyPrompt.isEmpty {
+              Button("恢复默认") { voiceSettings.legacyPrompt = "" }
+                .accessibilityIdentifier("voicePolishPromptReset")
+            }
           }
+          .accessibilityIdentifier("voicePolishPromptDisclosure")
         }
         NavigationLink {
           VoicePolishServiceView(service: $polishService)
@@ -531,10 +541,10 @@ struct ServiceSettingsView: View {
       Text("识别后润色")
     } footer: {
       Text(polishService.separate
-        ? "识别完成后把文字发给单独设置的润色服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”。"
+        ? "识别完成后把文字发给单独设置的润色服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”；内置方式的提示词也可以修改，换一种方式或点“恢复默认”即回到原文。"
         : CustomServiceConfiguration.load(.ai).endpoint.isEmpty
         ? "润色使用“AI 设置”里保存的服务，目前尚未设置；也可以在“润色服务”里单独设置。识别结果会原样保留。"
-        : "识别完成后把文字发给“AI 设置”里保存的服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”。")
+        : "识别完成后把文字发给“AI 设置”里保存的服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”；内置方式的提示词也可以修改，换一种方式或点“恢复默认”即回到原文。")
     }
   }
 
@@ -1056,5 +1066,25 @@ private enum VoiceCue {
   static func playEnd() {
     UIImpactFeedbackGenerator(style: .light).impactOccurred()
     AudioServicesPlaySystemSound(1114)
+  }
+}
+
+/// The live microphone level under the record button, as the Windows voice overlay draws it: one bar per sample, newest on the right, so the user can see the microphone is hearing them.
+private struct VoiceLevelWaveform: View {
+  let levels: [Float]
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 3) {
+      ForEach(0..<VoiceLevel.history, id: \.self) { index in
+        let offset = index - (VoiceLevel.history - levels.count)
+        let level = offset >= 0 ? CGFloat(levels[offset]) : 0
+        Capsule().fill(Color.red.opacity(0.75))
+          .frame(width: 4, height: 4 + 28 * level)
+      }
+    }
+    .frame(maxWidth: .infinity, minHeight: 32)
+    .animation(.linear(duration: 0.05), value: levels)
+    .accessibilityHidden(true)
+    .accessibilityIdentifier("voiceLevelWaveform")
   }
 }

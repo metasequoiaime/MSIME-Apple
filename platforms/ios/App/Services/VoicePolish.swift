@@ -20,7 +20,7 @@ struct VoicePolishSettings: Equatable {
 
   var polishEnabled = false
   var promptID = "cleanup"
-  /// The single prompt box older configurations wrote; the shared resolver still honours it.
+  /// `polish_prompt`: the desktop writes an edited built-in prompt here, and the shared resolver sends it in place of the selected preset's text (and uses it for an empty first custom slot).
   var legacyPrompt = ""
   var customPrompts = ["", "", ""]
   var language = "zh-cn"
@@ -58,6 +58,7 @@ struct VoicePolishSettings: Equatable {
     voice["polish_text"] = polishEnabled
     voice["polish_enabled"] = polishEnabled
     voice["polish_prompt_id"] = promptID
+    voice["polish_prompt"] = legacyPrompt
     for (slot, prompt) in zip(Self.customSlots, customPrompts) {
       voice["polish_prompt_\(slot)"] = prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : prompt
     }
@@ -73,8 +74,29 @@ struct VoicePolishSettings: Equatable {
   /// The index of the selected custom slot, or nil for a built-in preset.
   var customSlot: Int? { Self.customSlots.firstIndex(of: promptID) }
 
+  /// Picks a way of polishing as the desktop's menu does: moving to another built-in preset drops the edited text, which belonged to the one before.
+  mutating func select(_ id: String) {
+    guard id != promptID else { return }
+    promptID = id
+    if customSlot == nil { legacyPrompt = "" }
+  }
+
+  /// The selected preset's text as the desktop's prompt box shows it: the edit when there is one, the built-in text otherwise. Writing the built-in text back, or nothing, removes the edit.
+  var presetPromptText: String {
+    get { legacyPrompt.isEmpty ? builtInPrompt : legacyPrompt }
+    set {
+      let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+      legacyPrompt = trimmed.isEmpty || newValue == builtInPrompt ? "" : newValue
+    }
+  }
+
+  /// The selected preset's own text, what 恢复默认 goes back to.
+  var builtInPrompt: String { Self.resolve(promptID, legacy: "", customPrompts) }
+
   /// The system prompt the polish request carries, resolved by the shared header the desktop hosts use.
-  var systemPrompt: String {
+  var systemPrompt: String { Self.resolve(promptID, legacy: legacyPrompt, customPrompts) }
+
+  private static func resolve(_ promptID: String, legacy legacyPrompt: String, _ customPrompts: [String]) -> String {
     let values = [promptID, legacyPrompt] + customPrompts
     let pointers = values.map { strdup($0) }
     defer { pointers.forEach { free($0) } }
