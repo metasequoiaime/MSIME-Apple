@@ -3155,6 +3155,12 @@ void render(IBusEngine *engine, const Json &view) {
   auto text = style == "pinyin" ? view.at("preedit").get<std::string>()
                                  : view.at("editing_text").get<std::string>();
   auto caret = view.at("caret_position").get<size_t>();
+  // The check is about the letters the Engine produced, so it runs before the kana replace them
+  // below; run after, it rejected every Japanese composition in the raw style.
+  if (style == "raw" && (caret > text.size() ||
+      std::any_of(text.begin(), text.end(),
+                  [](unsigned char c) { return c < 0x20 || c > 0x7e; })))
+    throw std::runtime_error("Invalid editing text");
   // A Japanese composition is かな, not the letters that produced it; see PhrasePreedit.h for the
   // one case that keeps the letters.
   const auto reading = view.value("reading", std::string{});
@@ -3163,10 +3169,6 @@ void render(IBusEngine *engine, const Json &view) {
     text = reading;
     caret = reading.size();
   }
-  if (style == "raw" && (caret > text.size() ||
-      std::any_of(text.begin(), text.end(),
-                  [](unsigned char c) { return c < 0x20 || c > 0x7e; })))
-    throw std::runtime_error("Invalid editing text");
   // A phrase being assembled leads the reading, exactly as the reference draws
   // `word_for_creating_word`, so the piece the user has already picked is on screen instead of
   // being committed into the document a fragment at a time. It is prepended after the check above,

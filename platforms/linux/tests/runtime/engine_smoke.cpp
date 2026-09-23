@@ -2168,12 +2168,13 @@ int main(int argc, char **argv) {
                 seen.candidates.front().find("あ") != std::string::npos,
             "Japanese scheme menu did not switch the Engine");
     const auto japanese_commit = seen.committed;
-    require(key(IBUS_minus) && seen.preedit == "a-" && seen.lookup_visible &&
+    // The composition shows the kana the letters make, so the long-vowel mark joins it as ー.
+    require(key(IBUS_minus) && seen.preedit == "あー" && seen.lookup_visible &&
                 seen.committed == japanese_commit,
             "Japanese minus was intercepted by candidate paging");
     invoke("Reset");
     require(
-        key(IBUS_minus) && seen.preedit == "-" && seen.candidates.size() == 2 &&
+        key(IBUS_minus) && seen.preedit == "ー" && seen.candidates.size() == 2 &&
             seen.candidates[0] == "ー" && seen.candidates[1] == "-",
         "Bare Japanese minus did not offer long-vowel and hyphen candidates");
     const bool settled_commit_8 = key(IBUS_equal);

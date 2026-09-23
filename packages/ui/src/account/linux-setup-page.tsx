@@ -13,9 +13,18 @@ export interface LinuxSetupLine {
   error: boolean;
 }
 
+export interface LinuxSetupChoices {
+  download: boolean;
+  /** Cloud candidates are the one network feature active without any token, so the first setup asks, as the Windows installer does. */
+  cloudCandidates: boolean;
+}
+
 export interface LinuxSetupClient {
   /** Runs the packaged setup script; each output line is delivered as it is printed. */
-  run: (download: boolean, onLine: (line: LinuxSetupLine) => void) => Promise<LinuxSetupStatus>;
+  run: (
+    choices: LinuxSetupChoices,
+    onLine: (line: LinuxSetupLine) => void,
+  ) => Promise<LinuxSetupStatus>;
 }
 
 function failureMessage(error: unknown) {
@@ -38,6 +47,7 @@ export function LinuxSetupPage({
   onComplete: () => void;
 }) {
   const [download, setDownload] = useState(false);
+  const [cloudCandidates, setCloudCandidates] = useState(true);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
@@ -60,7 +70,7 @@ export function LinuxSetupPage({
     setError("");
     setLines([]);
     try {
-      const result = await client.run(download, (line) =>
+      const result = await client.run({ download, cloudCandidates }, (line) =>
         setLines((current) => [...current, line]),
       );
       if (result.prepared) setDone(true);
@@ -88,7 +98,7 @@ export function LinuxSetupPage({
           <p className={onboarding.lead}>
             {done
               ? "按输出中的下一步把「MSIME」加入 Fcitx5 或 IBus 的输入法列表，即可开始输入。"
-              : `首次使用需要校验词库，并在 ${directory} 创建输入法配置。日常输入不需要联网。`}
+              : `首次使用需要校验词库，并在 ${directory} 创建输入法配置。拼音切分、候选排序和词频学习都在本机完成。`}
           </p>
           {!done && !blocked && (
             <label className={onboarding.note}>
@@ -99,6 +109,18 @@ export function LinuxSetupPage({
                 onChange={(event) => setDownload(event.target.checked)}
               />{" "}
               词库不完整时从固定地址下载（首次约 170 MB）
+            </label>
+          )}
+          {!done && !blocked && (
+            <label className={onboarding.note}>
+              <input
+                type="checkbox"
+                checked={cloudCandidates}
+                disabled={busy}
+                onChange={(event) => setCloudCandidates(event.target.checked)}
+              />{" "}
+              启用云候选：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools
+              服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。这是唯一一项配置完就会联网的功能，之后可在设置里更改。
             </label>
           )}
           {lines.length > 0 && (

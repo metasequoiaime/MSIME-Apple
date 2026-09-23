@@ -8159,13 +8159,13 @@ export function SettingsPage({
                         <label className="section-header">
                           <span className="section-title">
                             {linuxPlatform
-                              ? "IBus 宿主日志"
+                              ? "输入法宿主日志"
                               : macosPlatform
                                 ? "输入法日志"
                                 : "Server 端日志"}
                             <small>
                               {linuxPlatform
-                                ? "排查 IBus 宿主通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。"
+                                ? "排查 IBus 或 Fcitx5 宿主的通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
                                 : macosPlatform
                                   ? "排查焦点切换和设置加载失败时开启。记录焦点进出与偏好加载、应用、保存的结果，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后可直接发送。"
                                   : "排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。"}
@@ -8174,7 +8174,7 @@ export function SettingsPage({
                           <input
                             aria-label={
                               linuxPlatform
-                                ? "IBus 宿主日志"
+                                ? "输入法宿主日志"
                                 : macosPlatform
                                   ? "输入法日志"
                                   : "Server 端日志"

@@ -108,6 +108,13 @@ def main() -> int:
             "msime-client-clipboard.service",
         ]
 
+    # 拒绝云候选时标志放在位置参数之前，这是 msime-client-prepare 唯一接受的位置。
+    command = Path("/opt/msime/bin/msime-client-prepare")
+    assert setup.prepare_command(command, Path("/r"), Path("/s"), True) == [str(command), "/r", "/s"]
+    assert setup.prepare_command(command, Path("/r"), Path("/s"), False) == [
+        str(command), "--no-cloud-candidates", "/r", "/s"
+    ]
+
     print("setup resolution tests passed")
     return 0
 

@@ -2181,7 +2181,11 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  expect(await screen.findByLabelText("IBus 宿主日志")).toBeDefined();
+  const log = await screen.findByLabelText("输入法宿主日志");
+  // Both Linux frameworks write the log, and the user needs to know which file to send.
+  const description = log.closest("label")?.textContent ?? "";
+  expect(description).toContain("Fcitx5");
+  expect(description).toContain("diagnostic.log");
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
 });
 
@@ -2201,7 +2205,7 @@ test("macOS exposes its native server logger without a Windows TSF switch", asyn
   expect(screen.getByLabelText("输入法日志")).toBeDefined();
   expect(screen.queryByLabelText("Server 端日志")).toBeNull();
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
-  expect(screen.queryByLabelText("IBus 宿主日志")).toBeNull();
+  expect(screen.queryByLabelText("输入法宿主日志")).toBeNull();
 });
 
 const initial: Snapshot = {
