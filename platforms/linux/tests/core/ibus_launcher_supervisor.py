@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""msime-client-ibus-launcher 的崩溃守护：宿主崩溃后按退避重启，维护退出、总线断开、配置失效和停止请求都不重启。
+"""msime-client-ibus-launcher 的崩溃守护：宿主崩溃后按退避重启，升级退出立即重启且不影响退避，维护退出、总线断开、配置失效、宿主程序已被删除和停止请求都不重启。
 
 用桩代替 msime-client-ibus，按预设剧本逐次崩溃或退出，只看启动器起了它几次、间隔多久、带了什么参数。不需要 IBus、D-Bus 或词库。
 """
@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "scripts/msime-client-ibus-launcher"
 STOP_STATUS = 77
+UPGRADED_STATUS = 78
 
 STUB = r'''#!{python}
 import json, os, signal, sys, time
@@ -38,6 +39,12 @@ elif action == "kill":
 elif action == "unlink-config":
     Path(sys.argv[-1]).unlink()
     os.kill(os.getpid(), signal.SIGSEGV)
+elif action == "unlink-host":
+    Path(sys.argv[0]).unlink()
+    os.kill(os.getpid(), signal.SIGSEGV)
+elif action == "chmod-host":
+    Path(sys.argv[0]).chmod(0o644)
+    os.kill(os.getpid(), signal.SIGSEGV)
 elif action == "hang":
     while True:
         time.sleep(0.05)
@@ -56,9 +63,6 @@ class Fixture:
         launcher = self.bin_dir / "msime-client-ibus-launcher"
         launcher.write_text(LAUNCHER.read_text())
         launcher.chmod(0o755)
-        stub = self.bin_dir / "msime-client-ibus"
-        stub.write_text(STUB.format(python=sys.executable, scratch=str(scratch)))
-        stub.chmod(0o755)
         self.options = scratch / "options/runtime-options.json"
         self.options.parent.mkdir()
         self.environment = {
@@ -67,6 +71,10 @@ class Fixture:
         self.environment.update(HOME=str(scratch / "home"), XDG_CONFIG_HOME=str(scratch / "config"))
 
     def reset(self, plan: list) -> None:
+        # Rewritten every time because a case may delete the stub or clear its execute bit.
+        stub = self.bin_dir / "msime-client-ibus"
+        stub.write_text(STUB.format(python=sys.executable, scratch=str(self.scratch)))
+        stub.chmod(0o755)
         for name in ("runs.log", "signals.log"):
             (self.scratch / name).unlink(missing_ok=True)
         (self.scratch / "plan.json").write_text(json.dumps(plan))
@@ -124,6 +132,31 @@ def main() -> int:
         assert [run["args"] for run in runs] == [[options], ["--recovered", options]], runs
         assert errors.count("restarting in") == 1, errors
 
+        # 升级退出：宿主发现自己的程序被升级替换后以 78 退出，守护立即带 --recovered 启动新版本，不等待、不打印退避；退避状态保持原样，所以前后两次崩溃仍按 2、4 秒，既不因升级清零，也不把升级算作第三次崩溃（那样会是 8 秒）。
+        fixture.reset(["segv", f"exit {UPGRADED_STATUS}", "segv", "exit 0"])
+        launcher = fixture.start()
+        _, errors = launcher.communicate(timeout=30)
+        assert launcher.returncode == 0, (launcher.returncode, errors)
+        runs = fixture.runs()
+        assert [run["args"] for run in runs] == [[options]] + [["--recovered", options]] * 3, runs
+        gaps = [later["time"] - earlier["time"] for earlier, later in zip(runs, runs[1:])]
+        assert 1.8 <= gaps[0] <= 3.5, gaps
+        assert gaps[1] < 1.0, gaps
+        assert 3.8 <= gaps[2] <= 5.5, gaps
+        assert errors.count("restarting in") == 2, errors
+        assert "restarting in 2s" in errors and "restarting in 4s" in errors, errors
+        assert errors.count("replaced by an upgrade") == 1, errors
+
+        # 第一次启动就是升级退出（没有先崩溃）同样立即重启。
+        fixture.reset([f"exit {UPGRADED_STATUS}", "exit 0"])
+        launcher = fixture.start()
+        _, errors = launcher.communicate(timeout=10)
+        assert launcher.returncode == 0, (launcher.returncode, errors)
+        runs = fixture.runs()
+        assert [run["args"] for run in runs] == [[options], ["--recovered", options]], runs
+        assert runs[1]["time"] - runs[0]["time"] < 1.0, runs
+        assert "restarting in" not in errors, errors
+
         # 维护退出（Ctrl+Shift+Alt+T）是有意停止：原样退出，不重启。
         fixture.reset([f"exit {STOP_STATUS}", "exit 0"])
         launcher = fixture.start()
@@ -140,6 +173,18 @@ def main() -> int:
         assert launcher.returncode == 1, (launcher.returncode, errors)
         assert "no longer readable" in errors, errors
         assert len(fixture.runs()) == 1, fixture.runs()
+
+        # apt remove 之后仍在运行的宿主崩溃了：程序已被删除（或不再可执行），重启只会得到 127/126。守护立即报错退出，不进入退避、不每 30 秒对着缺失的文件重试。
+        for action in ("unlink-host", "chmod-host"):
+            fixture.reset([action, "exit 0"])
+            started = time.monotonic()
+            launcher = fixture.start()
+            _, errors = launcher.communicate(timeout=10)
+            assert launcher.returncode == 1, (action, launcher.returncode, errors)
+            assert "no longer installed" in errors, (action, errors)
+            assert "restarting in" not in errors, (action, errors)
+            assert time.monotonic() - started < 1.5, (action, "the launcher waited for a backoff")
+            assert len(fixture.runs()) == 1, (action, fixture.runs())
 
         # ibus-daemon 用 SIGTERM 停组件；SIGINT、SIGHUP 同样当作停止请求。守护把它作为 SIGTERM 转给宿主，宿主退出后不再重启。
         for request in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):

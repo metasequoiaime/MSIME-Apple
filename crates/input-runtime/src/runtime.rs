@@ -1303,6 +1303,17 @@ impl<E: InputEngine> Runtime<E> {
         // for Select, so it can begin a phrase the same way.
         let mut selected_by_digit = false;
         let character_action = matches!(action, Action::Character { .. });
+        // Wubi top-commit (顶字): a letter typed after a complete four-letter code the Wubi table
+        // answered, unique or not, commits the first candidate and starts the next composition
+        // with that letter. The Engine caps a native Wubi code at four letters and would drop the
+        // fifth, so without this the user loses the key they typed. It is judged on the reading
+        // before the key, with the caret at its end: a caret moved back into the code is an edit
+        // of the code, not the start of the next character. A held phrase stays open, matching
+        // the reference's creating-word guard.
+        let wubi_top_commit = matches!(action, Action::Character { value, .. } if value.is_ascii_alphabetic())
+            && self.snapshot_valid
+            && self.phrase_prefix.is_empty()
+            && wubi_four_code_is_complete(&self.cached);
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -1316,6 +1327,13 @@ impl<E: InputEngine> Runtime<E> {
             Action::Punctuation(value) => self.punctuation(value),
             Action::PunctuationAscii(value) => self.punctuation_ascii(value),
             Action::Finish => self.engine.finish(self.engine_index(self.highlighted)),
+            Action::Character { value, shift } if wubi_top_commit => self
+                .engine
+                .select(self.engine_index(0))
+                .and_then(|committed| {
+                    self.engine.character(value, shift)?;
+                    Ok(committed)
+                }),
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
                     // The nine-key separator is a layout action, not Chinese quote punctuation.
@@ -1427,4 +1445,26 @@ pub(crate) fn empty_result(handled: bool) -> EngineResult {
         commit: String::new(),
         diagnostic: String::new(),
     }
+}
+
+/// The reference Engine's `wubi_four_code_is_complete`, read off the snapshot this Engine already
+/// publishes: the guards of `wubi_unique_four_code` without the candidate count. The code is a
+/// native Wubi one (not dedicated English, no local mode, not answered by the pinyin fallback), it
+/// is exactly the four letters the Wubi scheme caps a table-answered code at, the caret is at its
+/// end, and there is a candidate to commit: a four-letter spelling no row matched was not answered
+/// by the table, and committing nothing would still drop the key.
+pub(crate) fn wubi_four_code_is_complete(snapshot: &EngineSnapshot) -> bool {
+    const WUBI_COMPLETE_CODE_LENGTH: usize = 4;
+    snapshot.scheme == 2
+        && !snapshot.dedicated_english
+        && snapshot.local_mode == "none"
+        && !snapshot.nine_key
+        && !snapshot.answered_by_pinyin_fallback
+        && snapshot.editing_text.len() == WUBI_COMPLETE_CODE_LENGTH
+        && snapshot
+            .editing_text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphabetic())
+        && snapshot.caret_position == WUBI_COMPLETE_CODE_LENGTH
+        && !snapshot.candidates.is_empty()
 }

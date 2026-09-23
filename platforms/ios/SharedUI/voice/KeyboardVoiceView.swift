@@ -4,6 +4,8 @@ struct KeyboardVoiceView: View {
   let entry: VoiceTextHandoff?
   let insert: () throws -> Void
   let close: () -> Void
+  /// Opens the app's recording screen; nil where there is no app to open, as in the app's own preview.
+  var record: (() -> Void)? = nil
   @State private var error: String?
   @State private var errorID = UUID()
 
@@ -40,6 +42,10 @@ struct KeyboardVoiceView: View {
         Button("插入语音结果") {
           do { try insert(); close() } catch { self.error = error.localizedDescription; errorID = UUID() }
         }.frame(minHeight: 44).accessibilityIdentifier("keyboardVoiceInsert")
+      }
+      if let record {
+        Button(entry == nil ? "去水杉 App 录音" : "重新录音", action: record)
+          .frame(minHeight: 44).accessibilityIdentifier("keyboardVoiceRecord")
       }
     }
     .padding(.horizontal, 12)

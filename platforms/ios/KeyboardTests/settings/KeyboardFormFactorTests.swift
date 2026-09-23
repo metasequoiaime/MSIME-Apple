@@ -70,6 +70,24 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertFalse(KeyboardViewController.tabShowsMoreCandidates(["navigation": ["tab": false]]))
   }
 
+  /// The App's iPad switch writes `navigation.tab` and leaves the other paging keys where they were.
+  func testTheIPadSwitchWritesOnlyTheTabPagingKey() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-tab-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    let before = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)?["navigation"] as? [String: Any])
+
+    XCTAssertTrue(KeyboardLayoutPreference.saveTabShowsMoreCandidates(false, stateRoot: state))
+    let stored = MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)
+    XCTAssertFalse(KeyboardLayoutPreference.tabShowsMoreCandidates(stored))
+    let after = try XCTUnwrap(stored?["navigation"] as? [String: Any])
+    XCTAssertEqual(Set(after.keys), Set(before.keys))
+    for (name, value) in before where name != "tab" {
+      XCTAssertEqual(after[name] as? NSObject, value as? NSObject, name)
+    }
+  }
+
   private func tabletController() -> KeyboardViewController {
     let tablet = KeyboardViewController()
     tablet.traitOverrides.userInterfaceIdiom = .pad

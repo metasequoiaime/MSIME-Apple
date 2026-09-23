@@ -8,6 +8,8 @@ import UIKit
 enum KeyboardAppLauncher {
   /// 键盘要打开的目标。scheme 在 `platforms/ios/project.yml` 的 `CFBundleURLTypes` 里注册。
   static let settingsURL = URL(string: "msime://settings")!
+  /// 语音录音页。iOS 键盘扩展拿不到麦克风,录音只能在应用里做,识别结果再经语音交接回到键盘。
+  static let voiceURL = URL(string: "msime://voice")!
 
   /// 返回值是「找到了能打开的对象」,不是「应用已经到前台」—— 后者由系统决定,扩展这边看不到结果。
   @discardableResult

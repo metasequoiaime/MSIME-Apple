@@ -196,9 +196,19 @@ pub struct IosKeyboardPreferences {
     /// 行内预编辑: the keyboard also writes the composition into the text field as marked text. Off by default and kept in the App Group, because the shared `tsf_preedit_style` defaults to raw in every document and would switch every existing iOS user over.
     #[serde(default)]
     pub inline_preedit: bool,
+    /// Whether this device can vibrate for key presses: false on iPad, which has no Taptic Engine. Read-only; the plugin reports it and never stores it, and a plugin that predates it reads as available so iPhones keep the controls.
+    #[serde(default = "haptics_available_by_default")]
+    pub haptics_available: bool,
+    /// 数字行与 Tab 键 on the iPad full-width keyboard, kept in the App Group. The plugin reports it only on an iPad and writes it only when present, so a phone neither shows nor stores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tablet_full_keys: Option<bool>,
     pub dictionary_learning: bool,
     pub keyboard_skin: String,
     pub custom_keyboard_skin: Option<String>,
+}
+
+fn haptics_available_by_default() -> bool {
+    true
 }
 
 /// The small, native-facing AI configuration shared by the Tauri settings app
@@ -1026,6 +1036,8 @@ mod tests {
             english_suggestions: true,
             candidate_palette_follows_desktop: true,
             inline_preedit: true,
+            haptics_available: true,
+            tablet_full_keys: None,
             dictionary_learning: false,
             keyboard_skin: "custom".into(),
             custom_keyboard_skin: Some(r#"{"background":15269867}"#.into()),
@@ -1078,6 +1090,35 @@ mod tests {
         legacy.as_object_mut().unwrap().remove("inlinePreedit");
         let decoded: IosKeyboardPreferences = serde_json::from_value(legacy).unwrap();
         assert!(!decoded.inline_preedit);
+    }
+
+    #[test]
+    fn ios_keyboard_preferences_report_whether_the_device_can_vibrate() {
+        let mut encoded = serde_json::to_value(keyboard_preferences()).unwrap();
+        encoded["hapticsAvailable"] = false.into();
+        let decoded: IosKeyboardPreferences = serde_json::from_value(encoded.clone()).unwrap();
+        assert!(!decoded.haptics_available);
+
+        // A plugin that predates the field is an iPhone-era plugin: keep the vibration controls.
+        encoded.as_object_mut().unwrap().remove("hapticsAvailable");
+        let decoded: IosKeyboardPreferences = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.haptics_available);
+    }
+
+    #[test]
+    fn ios_keyboard_preferences_carry_the_ipad_digit_row_only_when_reported() {
+        // A phone snapshot has no switch, and saving it back must not write one.
+        let phone = serde_json::to_value(keyboard_preferences()).unwrap();
+        assert!(phone.get("tabletFullKeys").is_none());
+        let decoded: IosKeyboardPreferences = serde_json::from_value(phone).unwrap();
+        assert_eq!(decoded.tablet_full_keys, None);
+
+        let mut ipad = keyboard_preferences();
+        ipad.tablet_full_keys = Some(false);
+        let encoded = serde_json::to_value(&ipad).unwrap();
+        assert_eq!(encoded["tabletFullKeys"], false);
+        let decoded: IosKeyboardPreferences = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.tablet_full_keys, Some(false));
     }
 
     #[test]

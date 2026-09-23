@@ -49,11 +49,55 @@ struct PersonalDictionaryImport: Codable, Sendable {
     return Self(entries: entries)
   }
 
+  /// The file layouts the desktop settings page imports, by the name the shared Engine takes.
+  static let fileFormats: [(format: String, title: String)] = [
+    ("standard", "词在前（标准）"),
+    ("windows", "编码在前（Windows）"),
+    ("rime", "Rime userdb / dict.yaml"),
+  ]
+
+  /// A dictionary file in one of `fileFormats`, parsed by the shared Engine the way the desktop settings page parses it. Rows the Engine refuses are skipped and a file longer than the queue is queued in part, so a real file still imports; `notice` says what was left out, in the desktop's words.
+  static func file(
+    _ text: String, kind: PersonalWordKind, format: String,
+    parse: (String, String, String) throws -> (entries: [PersonalWord], report: [String: Any]) = {
+      try PersonalDictionaryBridge.importEntries(kind: $0, format: $1, text: $2)
+    }
+  ) throws -> (file: Self, notice: String) {
+    guard text.utf8.count <= maximumBytes else { throw ImportError(message: "文件不能超过 1 MB。") }
+    let parsed: (entries: [PersonalWord], report: [String: Any])
+    do { parsed = try parse(kind.bridgeName, format, text) } catch DictionaryFileImportFailure.rejected {
+      throw ImportError(message: "文件里没有能导入的\(kind.title)词条，请确认词库类型和文件格式。")
+    } catch DictionaryFileImportFailure.unavailable {
+      throw ImportError(message: "键盘词典暂时无法读取，请稍后再试。")
+    }
+    guard !parsed.entries.isEmpty, parsed.entries.count <= 128 else {
+      throw ImportError(message: "每次导入需要 1–128 条词条，请将较大的词库拆分后导入。")
+    }
+    return (Self(entries: parsed.entries), notice(parsed.report))
+  }
+
+  /// Mirrors `describeImportResult` in the shared settings page, minus the count the preview already shows.
+  static func notice(_ report: [String: Any]) -> String {
+    var parts: [String] = []
+    let failed = (report["failed"] as? NSNumber)?.intValue ?? 0
+    if failed > 0 {
+      let failures = report["first_failures"] as? [[String: Any]] ?? []
+      let lines = failures.compactMap { ($0["line"] as? NSNumber)?.intValue }.map(String.init).joined(separator: "、")
+      parts.append(lines.isEmpty ? "跳过 \(failed) 行。" : "跳过 \(failed) 行，首先出现在第 \(lines) 行。")
+      if failures.contains(where: { $0["issue"] as? String == "rejected" }) {
+        parts.append("其中部分行的编码与词不匹配，例如简拼、或音节数与汉字数不一致。")
+      }
+    }
+    if report["truncated"] as? Bool == true { parts.append("文件过长，仅导入前 128 条，其余请拆分后再导入。") }
+    if report["swapped"] as? Bool == true { parts.append("该文件的两列与所选格式相反，已按文件本身的顺序读取。") }
+    return parts.joined()
+  }
+
   static func read(from url: URL) throws -> Self {
     try decode(readData(from: url))
   }
 
-  /// A UTF-8 word list from a file, for `hans`.
+  /// A UTF-8 text file, for `hans` and `file`.
   static func readText(from url: URL) throws -> String {
     guard let text = String(data: try readData(from: url), encoding: .utf8) else {
       throw ImportError(message: "词表需要是 UTF-8 编码的文本文件。")

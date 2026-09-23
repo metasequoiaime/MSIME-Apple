@@ -207,5 +207,7 @@ int main(int argc, char **argv) {
   g_object_unref(factory);
   g_object_unref(bus);
   // 0 means the bus went away because ibus-daemon is exiting or restarting, so the supervisor must not restart this host. After `ibus restart` the new daemon starts the launcher again when the engine is selected; after `ibus exit` nothing runs again, which is intended.
-  return msime_ibus_maintenance_stop_requested() ? msime_ibus_maintenance_stop_exit : 0;
+  if (msime_ibus_maintenance_stop_requested())
+    return msime_ibus_maintenance_stop_exit;
+  return msime_ibus_upgrade_restart_requested() ? msime_ibus_upgraded_exit : 0;
 }

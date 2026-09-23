@@ -667,8 +667,54 @@ impl UnixSocketProvider {
         options: &Value,
         cancelled: Option<&AtomicBool>,
         update: &mut dyn FnMut(&str, bool),
+        status: Option<&mut dyn FnMut(&str)>,
+        level: Option<&mut dyn FnMut(f32)>,
+    ) -> Option<String> {
+        self.voice_stream_with_options_diagnosed(
+            language, generation, options, cancelled, update, status, level,
+        )
+        .ok()
+    }
+
+    /// Same stream as `voice_stream_with_options_feedback`, but a provider that refuses the recording with `voice_dependency_missing` and a known `detail` (`"websockets"` or `"recorder"`) comes back as `Err(Some(detail))`, so hosts can tell the user what to install. Every other failure, including an unknown detail, is `Err(None)`; provider-supplied text never crosses this boundary.
+    #[cfg(unix)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn voice_stream_with_options_diagnosed(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        cancelled: Option<&AtomicBool>,
+        update: &mut dyn FnMut(&str, bool),
+        status: Option<&mut dyn FnMut(&str)>,
+        level: Option<&mut dyn FnMut(f32)>,
+    ) -> Result<String, Option<&'static str>> {
+        let mut missing_dependency = None;
+        self.voice_stream_session(
+            language,
+            generation,
+            options,
+            cancelled,
+            update,
+            status,
+            level,
+            &mut missing_dependency,
+        )
+        .ok_or(missing_dependency)
+    }
+
+    #[cfg(unix)]
+    #[allow(clippy::too_many_arguments)]
+    fn voice_stream_session(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        cancelled: Option<&AtomicBool>,
+        update: &mut dyn FnMut(&str, bool),
         mut status: Option<&mut dyn FnMut(&str)>,
         mut level: Option<&mut dyn FnMut(f32)>,
+        missing_dependency: &mut Option<&'static str>,
     ) -> Option<String> {
         if generation == 0
             || language.len() > 64
@@ -729,6 +775,13 @@ impl UnixSocketProvider {
                 }
             }
             if value.get("ok").and_then(Value::as_bool) == Some(false) {
+                if value.get("error").and_then(Value::as_str) == Some("voice_dependency_missing") {
+                    *missing_dependency = match value.get("detail").and_then(Value::as_str) {
+                        Some("websockets") => Some("websockets"),
+                        Some("recorder") => Some("recorder"),
+                        _ => None,
+                    };
+                }
                 return None;
             }
             let text = value.get("text").and_then(Value::as_str).unwrap_or("");

@@ -1,4 +1,5 @@
 #pragma once
+#include "ContinuationHide.h"
 #include "FocusGate.h"
 #include "ReplyComposer.h"
 #include "TypingStatistics.h"
@@ -131,6 +132,6 @@ private:
   std::optional<FocusLease> lease_;
   std::optional<ReplyComposer> composer_;
   std::optional<nlohmann::json> preferences_retry_;
-  bool auto_commit_hide_pending_ = false;
+  ContinuationHide continuation_hide_;
 };
 } // namespace msime::windows

@@ -27,7 +27,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     try host.retry(removal)
     try host.requestPage(offset: 100)
     try keyboard.synchronize(apply: { XCTAssertEqual($0.id, removal) }, page: {
-      XCTAssertEqual($0, 100)
+      XCTAssertEqual($0.offset, 100)
       return .init(entries: [], hasMore: false)
     })
     XCTAssertEqual(try host.read().pageOffset, 100)
@@ -58,7 +58,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         try session.applyPersonalPrevious($0.previous?.bridgeValue, replacement: $0.replacement?.bridgeValue,
                                           requestID: $0.id)
       }, page: {
-        let result = try session.personalEntries(atOffset: UInt($0))
+        let result = try session.personalEntries(atOffset: UInt($0.offset))
         let entries = try XCTUnwrap(result["entries"] as? [[String: Any]])
         return .init(entries: try entries.map { try PersonalWord(bridgeValue: $0) },
                      hasMore: try XCTUnwrap(result["hasMore"] as? Bool))
