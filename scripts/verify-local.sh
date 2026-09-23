@@ -144,6 +144,10 @@ python3 scripts/test-conflict-markers.py || fail "conflict markers"
 note "tracked symlinks"
 python3 scripts/test-tracked-symlinks.py || fail "tracked symlinks"
 
+# The Linux container gates borrow another checkout's vendor/; one prepared for an older lock looks like a code break.
+note "borrowed engine tree"
+python3 scripts/test-fetch-engine-matches.py || fail "borrowed engine tree"
+
 # Same shape again, one target further out: `std::fs::File::lock` compiles for Android and then
 # fails at runtime, so only a keyboard running on a handset ever finds out.
 note "file locking helper"
@@ -508,7 +512,7 @@ elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   main_worktree="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")"
   linux_vendor=""
   for candidate in "$root/vendor" "$main_worktree/vendor"; do
-    [ -d "$candidate/MSIME-Engine" ] && linux_vendor="$candidate" && break
+    [ -d "$candidate/MSIME-Engine" ] && python3 scripts/fetch_engine.py --matches "$candidate" && linux_vendor="$candidate" && break
   done
   mkdir -p "$root/target/linux-desktop-check"
   docker run --rm \
