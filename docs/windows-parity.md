@@ -1333,9 +1333,9 @@ macOS 缺后半条。`ShouldRoutePhysicalCandidateDigit` 明确把 Unicode 模�
 
 增量记录（2026-09-19）：Fcitx5 进一步新增词频触发次数和线性调整步长入口，各自在 1–10 范围循环，使用共享偏好快照更新当前 Engine，并持久化 `frequency.trigger_count` / `frequency.linear_step`。原生 Fcitx5 菜单交互仍待 Linux 环境验证。
 
-增量记录（2026-09-19）：Fcitx5 状态栏新增候选主题循环入口，按跟随系统、浅色、深色切换并即时更新共享 `candidate_theme` 偏好。主题边框、圆角和面板配色仍由 Fcitx5/桌面 panel 决定，不伪造 IBus 或 Windows 原生窗口的不可表达装饰；原生菜单交互仍待 Linux 环境验证。
+增量记录（2026-09-19）：Fcitx5 状态栏新增候选主题循环入口，按跟随系统、浅色、深色切换并即时更新共享 `candidate_theme` 偏好。主题边框、圆角和面板配色仍由 Fcitx5/桌面 panel 决定，不伪造 IBus 或 Windows 原生窗口的不可表达装饰；原生菜单交互仍待 Linux 环境验证。（2026-09-23 更新：面板配色与边框此后改由 MSIME 生成的 `msime` classic UI 主题承载，边框见文末「Linux 候选外观补齐」；圆角仍由 Fcitx5/桌面 panel 决定。）
 
-增量记录（2026-09-19）：Fcitx5 状态栏新增候选皮肤循环入口，按 `fluent`、`wechat`、`graphite`、`willow_green` 切换并持久化共享 `candidate_skin` 偏好；切换前结束当前组合，再重建当前输入上下文的 Host API session。Fcitx5/桌面 panel 不一定能表达 Windows 原生候选窗口的全部边框、圆角、alpha、间距等装饰，本切片只同步共享 skin preference，平台 panel 保留不可表达装饰的控制权；原生菜单交互仍待 Linux 环境验证。
+增量记录（2026-09-19）：Fcitx5 状态栏新增候选皮肤循环入口，按 `fluent`、`wechat`、`graphite`、`willow_green` 切换并持久化共享 `candidate_skin` 偏好；切换前结束当前组合，再重建当前输入上下文的 Host API session。Fcitx5/桌面 panel 不一定能表达 Windows 原生候选窗口的全部边框、圆角、alpha、间距等装饰，本切片只同步共享 skin preference，平台 panel 保留不可表达装饰的控制权；原生菜单交互仍待 Linux 环境验证。（2026-09-23 更新：Fcitx5 现在按皮肤画 Windows 同源的边框色与整数宽度，见文末「Linux 候选外观补齐」；圆角、alpha 阴影和间距仍不可表达，IBus 的文本属性画不了边框。）
 
 增量记录（2026-09-19）：Fcitx5 候选皮肤入口现消费共享 `candidate_skin_catalog` 中经过主机校验的外部皮肤 ID/标题，和 IBus 一样可从内置皮肤循环到外部皮肤；Fcitx5 仅将受限字符集的 ID 与长度受控标题交给 panel，不把外部路径或 CSS 直接注入平台菜单。原生 catalog 读取与桌面交互仍待 Linux 环境验证。
 
@@ -2460,3 +2460,11 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 限流放在脚本里、两个宿主共用：`$XDG_RUNTIME_DIR/msime-client/first-run-guide.stamp` 存在就不再弹窗与通知，每个登录会话只引导一次，因为 ibus-daemon 每次选中都会重新拉起启动器、Fcitx5 每次聚焦都会激活输入法，按时间过期的冷却期会让继续打字的用户每隔几分钟被打断一次；会话没有 `XDG_RUNTIME_DIR` 时退到跨会话保留的缓存目录，只能按 5 分钟冷却期限流。Fcitx5 只在激活输入法时拉起引导，按键只显示面板提示，打字途中弹出的窗口可能抢走键盘焦点；插件另外把自身的拉起频率压到 30 秒一次。通知里的后续步骤按宿主区分：Fcitx5 下次按键就会重读配置，写「完成后即可直接输入」；IBus 组件已退出，写先切换到其他输入法再切回、仍不行就 `ibus restart`（后者未在真实 IBus 会话里验证）。脚本不创建状态目录（`msime-client-setup` 拒绝准备已存在的目录），不发起任何网络请求。
 
 证据：`platforms/linux/tests/core/first_run_guide.py` 用桩替换设置窗口、`notify-send` 与 `msime-client-ibus`，验证有图形会话时各调用一次、同一会话内（包括记录很旧时）不再调用、并发调用只引导一次、缓存目录下冷却期过后与时钟回拨后恢复、按宿主区分的通知文案、无图形会话与配置损坏时不调用、只装输入法时通知改指向终端命令；`platforms/linux/tests/core/first_run_guidance.cpp` 覆盖 Fcitx5 的配置定位与「尚未配置」判定；`fcitx5_contract.py` 钉住激活与按键两条路径都走新提示且只有激活拉起引导；`platforms/linux/fcitx5/tests/native.cpp` 在真实插件上验证面板提示、按键不被拦截、按键不拉起引导、激活只拉起一次、不写失败诊断（该测试需要校验过的资源目录，构建门禁只编译不运行）。未在真实 Linux 桌面上目视确认弹窗与通知。
+
+### Linux 候选外观补齐：纠错标记、英文字体、边框、悬浮工具栏主题（2026-09-23）
+
+- 纠错标记：Fcitx5 的候选行此前不画 `*`，IBus 与 Windows 都画。现在 `FcitxCandidate` 在（简繁转换后的）候选文本之后、云/AI 角标之前加 `*`，与 Windows `event_listener.cpp` 和 IBus `ClientEngine.cpp` 同序；只改显示文本，选词走 session/generation/index，上屏文本仍是 Engine 原文。
+- 英文字体：`candidate_english_font` 此前在 Linux 上可以保存、却没有宿主消费，`host_surface.rs` 因此对 Linux 隐藏该控件。现在两个 Linux 宿主写给桌面 panel 的 Pango 字体描述把英文字体排在主字体和补充字体之前（去重、去首尾空白），Pango 按字形逐个回落，效果与 Windows 先用英文字体、缺字再回落一致；未设置（缺省、null、空白）时描述与原来逐字节相同，仍按「未改动的默认值不覆盖桌面字体」处理，只选了英文字体也算一次字体选择。`HostCapabilities::candidate_english_font` 对 Linux 改为声明，设置页因此显示该行，未设置时说明为「跟随候选主字体」。
+- 边框：Linux 调色板补上 Windows 皮肤的容器边框——fluent 浅色为黑色 0.12、深色为 `#9B9B9B` 0.18，wechat 为 `#DEDEDE`/`#292929`，graphite 为 `#E2E5E9`/`#30353B`，willow_green 无边框。外部皮肤在 Windows 上以 fluent 为底，因此默认带 fluent 的边框；皮肤包的 `border` 字段（`#rrggbb`、`#rrggbbaa` 或 `transparent`）经 `candidate_display_preferences` 生效，用户的 `candidate_border_color` 仍优先；自定义颜色沿用皮肤宽度，willow_green 始终无边框；皮肤包里的 `rgba()` 等本宿主不解析的写法保留原边框，与 Windows 对无法解析值的处理相同。Fcitx5 classic UI 用 SOURCE 运算符绘制边框，半透明边框会把桌面透出来，所以颜色在解析时先与面板底色合成为不透明色再写入 `BorderColor`。宽度取整数：Windows 原生卡片用 Direct2D 画 1.5 DIP 的抗锯齿描边（fluent；wechat/graphite 为 1），Fcitx5 classic UI 的 `BorderWidth` 只能是整数，所以所有带边框的皮肤在这里都取 1px，作为最接近且不改变布局的近似值；Background/ContentMargin 取 `max(2, 宽度 + 1)`，在现有宽度下保持 2，布局不变。IBus 的 lookup table 属性画不了边框，IBus 继续无边框，两端的颜色解析仍共用 `resolve_candidate_colors`。
+- 悬浮工具栏主题：Linux 的悬浮工具栏是 IBus 属性菜单和 Fcitx5 状态菜单，由桌面 panel 按自己的主题绘制，没有 Linux 宿主读取 `toolbar_theme`（只有 macOS `FloatingToolbarPanel.mm`、Windows `server_main.cpp` 和 HarmonyOS `KeyboardSession.ets` 读取）。设置页照「菜单主题」的做法对 Linux 隐藏该项。
+- 证据：Linux 构建门禁容器（GCC 12，`-Wall -Wextra -Werror`）编译并运行字体策略、调色板、Fcitx 主题用例；Fcitx5 原生用例的纠错标记断言在容器内手动运行；`cargo test -p msime-client-core host_surface`、clippy；设置页 vitest 与 `tsc`。未在真实 Fcitx5/IBus 桌面上目视确认边框、字体和标记。

@@ -51,7 +51,18 @@ int main() {
     assert(willow.accent == willow.selected);
     assert(willow.selected_text == 0xFFFFFFu);
     assert(willow.selected_number == 0xFFFFFFu);
+
+    // Outlines follow the Windows skin tokens; widths are whole pixels.
+    assert(wechat.border == (dark ? 0x292929u : 0xDEDEDEu));
+    assert(wechat.border_alpha == 0xFF && wechat.border_width == 1);
+    assert(graphite.border == (dark ? 0x30353Bu : 0xE2E5E9u));
+    assert(graphite.border_alpha == 0xFF && graphite.border_width == 1);
+    assert(willow.border_width == 0 && willow.border_alpha == 0);
   }
+  assert(fluent_light.border == 0x000000u && fluent_light.border_alpha == 0x1F && fluent_light.border_width == 1);
+  assert(fluent_dark.border == 0x9B9B9Bu && fluent_dark.border_alpha == 0x2E && fluent_dark.border_width == 1);
+  // An unknown id falls back to fluent, outline included.
+  assert(candidate_builtin_palette("unknown", true).border == 0x9B9B9Bu);
 
   assert(msime::linux_host::candidate_preedit_with_caret("nihao", "nihao", 0) ==
          "|nihao");

@@ -295,6 +295,23 @@ test("macOS candidate appearance exposes the shared English face control", async
   expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
 });
 
+test("Linux candidate appearance offers the English face, which leads the panel's Pango family list", async () => {
+  mount({
+    host: capabilities({
+      platform: "linux",
+      candidate_font_controls: true,
+      candidate_english_font: true,
+      candidate_selection_appearance: false,
+    }),
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  const english = screen.getByLabelText("候选窗英文字体") as HTMLInputElement;
+  // Unset follows the primary family, which is what the panel draws until one is chosen.
+  expect(english.value).toBe("Noto Sans SC");
+  expect(screen.getByText(/未设置时跟随候选主字体/)).toBeTruthy();
+  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
+});
+
 test("Android candidate appearance exposes native font and color controls", async () => {
   mount({
     host: capabilities({

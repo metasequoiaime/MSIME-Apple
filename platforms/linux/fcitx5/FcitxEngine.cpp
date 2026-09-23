@@ -2893,6 +2893,8 @@ public:
                  bool annotations)
       : CandidateWord(fcitx::Text((traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>())
                                                : candidate.at("text").get<std::string>()) +
+          // Engine-corrected spellings carry the same light marker Windows and the IBus host draw. Only the displayed row gets it: selection goes by session/generation/index, and text_ below, which the candidate actions (dictionary removal) read, stays the Engine's text.
+          (candidate.value("corrected", false) ? "*" : "") +
           (candidate.value("source", 0u) == 2 ? "  ☁️" :
            candidate.value("source", 0u) == 3 ? "  🤖" : "") +
           (!annotations || candidate.value("annotation", std::string()).empty() ? "" :
