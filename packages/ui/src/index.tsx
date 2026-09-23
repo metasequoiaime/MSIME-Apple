@@ -592,6 +592,8 @@ const UPDATE_CHECK_TIMEOUT_MS = 10_000;
 const licenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
+// Linux links to the data-flow document that ships with this code, as the Windows reference links its own PRIVACY.md; the Linux section of msime.app/privacy/ describes a host without an update check and with Secret Service credentials, and this one has the update check and keeps provider credentials in 0600 files.
+const linuxPrivacyUrl = "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md";
 const linuxLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";
 const desktopDownloadUrl = "https://msime.app/download/";
@@ -1563,6 +1565,8 @@ const navigationOptions: [keyof NavigationPreferences, string][] = [
   ["mouse_wheel", "鼠标滚轮（候选面板支持时翻页）"],
   ["arrows", "上 / 下（移动候选项）"],
 ];
+const linuxWheelPagingNote =
+  "鼠标滚轮：开启后在 IBus 候选窗口上滚动即翻页，关闭时滚轮不做任何事。Fcitx5 经典界面的滚轮翻页是 Fcitx5 自己的设置，开启或改回关闭后会同步写入，对 Fcitx5 中的所有输入法生效；从未开启过时沿用 Fcitx5 原有设置。";
 // The Fcitx5 classic UI theme format has no label or accent colour (platforms/linux/src/candidates/CandidateFcitxTheme.h), so on Linux the number and accent pickers reach only the IBus panel.
 const linuxFcitxClassicColorNote =
   "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效";
@@ -6322,6 +6326,10 @@ export function SettingsPage({
                           </div>
                         ))}
                       </div>
+                      {/* IBus pages on the panel's cursor_up/down and button 4/5 only with the switch on; Fcitx5 classic UI pages by itself, so the host writes the switch into classicui's WheelForPaging once it leaves the default (platforms/linux/README.md). */}
+                      {linuxPlatform && (
+                        <div className="input-setting-description">{linuxWheelPagingNote}</div>
+                      )}
                     </div>
                     <div className="section">
                       <label className="section-header">
@@ -8365,7 +8373,11 @@ export function SettingsPage({
                         className={doc.linkRow}
                         onClick={() =>
                           void openExternalUrl(
-                            clientHostedPlatform ? androidPrivacyUrl : privacyUrl,
+                            linuxPlatform
+                              ? linuxPrivacyUrl
+                              : clientHostedPlatform
+                                ? androidPrivacyUrl
+                                : privacyUrl,
                           )
                         }
                       >
@@ -9879,7 +9891,7 @@ export function SettingsPage({
                           语音快捷键
                           <small>
                             {linuxPlatform
-                              ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入"
+                              ? "在当前输入上下文中生效。长按快捷键录音，松开结束；按住期间按空格锁定录音，Escape 取消。Ctrl+F9 按一次开始、再按一次结束，也能结束锁定的录音。没有 provider 时快捷键不会拦截编辑器输入"
                               : macosPlatform
                                 ? "输入法启用时按住修饰键快捷键录音，松开结束；组合键先按 Control。按住期间按空格锁定，Escape 取消。修饰键快捷键由输入法自身接收，不需要额外授权；Ctrl+F9 在输入法会话之外接收，需要在「系统设置 › 隐私与安全性 › 输入监控」中允许本输入法，否则按下没有任何反应。首次授权后请重新按键。"
                                 : windowsPlatform
@@ -9887,6 +9899,7 @@ export function SettingsPage({
                                   : "输入法运行时全局生效，用于开始和结束语音录音"}
                           </small>
                         </div>
+                        {/* Both Linux hosts record while a modifier shortcut is held and lock on Space, as Windows does, so they share its labels; only Ctrl+F9 toggles. Only IBus requires the right Ctrl in the two-key chord: Fcitx5 starts on a Right Ctrl or Right Alt press while any Ctrl or Alt is down (so left Ctrl+Right Alt also records) and stops only when Right Alt or Right Ctrl is released. The label still holds because the right-Ctrl chord works on both hosts. */}
                         {(
                           [
                             ["hotkey_ctrl_f9", "Ctrl+F9 切换语音"],
@@ -9894,7 +9907,7 @@ export function SettingsPage({
                               "hotkey_ralt",
                               macosPlatform
                                 ? "按住右 Option 录音"
-                                : windowsPlatform
+                                : windowsPlatform || linuxPlatform
                                   ? "长按右 Alt 录音"
                                   : "右 Alt 切换语音",
                             ],
@@ -9902,7 +9915,7 @@ export function SettingsPage({
                               "hotkey_rctrl_ralt",
                               macosPlatform
                                 ? "按住右 Control+右 Option 录音"
-                                : windowsPlatform
+                                : windowsPlatform || linuxPlatform
                                   ? "长按右 Ctrl+右 Alt 录音"
                                   : "Ctrl+右 Alt 切换语音",
                             ],
@@ -9910,13 +9923,15 @@ export function SettingsPage({
                               "hotkey_ctrl_win",
                               macosPlatform
                                 ? "按住 Control+Command 录音"
-                                : windowsPlatform
+                                : windowsPlatform || linuxPlatform
                                   ? "长按 Ctrl+Win 录音"
                                   : "Ctrl+Win 切换语音",
                             ],
                             [
                               "hotkey_hold_space_lock",
-                              windowsPlatform ? "长按录音时按空格锁定" : "空格锁定语音",
+                              windowsPlatform || linuxPlatform
+                                ? "长按录音时按空格锁定"
+                                : "空格锁定语音",
                             ],
                           ] as const
                         ).map(([key, label]) => (
