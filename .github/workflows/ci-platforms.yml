@@ -122,6 +122,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The settings bundle below is a committed build artefact, so the toolchain that produces it has to be the same one contributors run; the runner's default Node is not pinned to anything.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: ${{ needs.changes.outputs.harmonyos == 'true' }}
+        with:
+          node-version-file: .nvmrc
       - name: Install Node dependencies
         if: ${{ needs.changes.outputs.harmonyos == 'true' }}
         run: |
