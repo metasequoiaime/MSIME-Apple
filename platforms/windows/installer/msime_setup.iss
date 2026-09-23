@@ -312,11 +312,6 @@ begin
   end;
 end;
 
-function UserConfigPath: String;
-begin
-  Result := AddBackslash(GetDataDir('')) + 'config.toml';
-end;
-
 function ResolvePreviousDataDir: String;
 var
   Recorded: String;
@@ -353,6 +348,11 @@ begin
     DataDirValue := RemoveBackslashUnlessRoot(Trim(Requested));
   end;
   Result := DataDirValue;
+end;
+
+function UserConfigPath: String;
+begin
+  Result := AddBackslash(GetDataDir('')) + 'config.toml';
 end;
 
 #ifdef LightPackage
