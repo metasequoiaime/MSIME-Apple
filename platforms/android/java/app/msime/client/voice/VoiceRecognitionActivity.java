@@ -39,11 +39,18 @@ public final class VoiceRecognitionActivity extends Activity {
     private static final String EXTRA_POLISH_MODEL = "app.msime.client.voice.POLISH_MODEL";
     private static final String EXTRA_POLISH_TOKEN = "app.msime.client.voice.POLISH_TOKEN";
     private static final String EXTRA_POLISH_PROMPT = "app.msime.client.voice.POLISH_PROMPT";
+    private static final String EXTRA_STREAM_ENDPOINT = "app.msime.client.voice.STREAM_ENDPOINT";
+    private static final String EXTRA_STREAM_HEADERS = "app.msime.client.voice.STREAM_HEADERS";
+    private static final String EXTRA_STREAM_ITN = "app.msime.client.voice.STREAM_ITN";
+    private static final String EXTRA_STREAM_PUNC = "app.msime.client.voice.STREAM_PUNC";
+    private static final String EXTRA_STREAM_DDC = "app.msime.client.voice.STREAM_DDC";
+    private static final String EXTRA_STREAM_BOOSTING = "app.msime.client.voice.STREAM_BOOSTING";
     private static volatile WeakReference<VoiceRecognitionActivity> active =
         new WeakReference<>(null);
     private static volatile String activeRequestId;
     private SpeechRecognizer recognizer;
     private HttpAsrRecognizer provider;
+    private DoubaoRecognizer streaming;
     private ExecutorService providerWorker;
     private boolean stopping;
     private boolean finished;
@@ -67,8 +74,12 @@ public final class VoiceRecognitionActivity extends Activity {
     /** The optional rewrite, already resolved: the prompt is text here, not a slot to look up. */
     public record Polish(String endpoint, String model, String token, String prompt) {}
 
+    /** The streaming session, already authenticated: `headers` is flattened name/value pairs. */
+    public record Streaming(String endpoint, String[] headers, boolean itn, boolean punctuation,
+                            boolean ddc, String boostingTableId) {}
+
     public static void launch(Context context, String requestId, String language) {
-        launch(context, requestId, language, null, null, null, null, null);
+        launch(context, requestId, language, null, null, null, null, null, null);
     }
 
     /**
@@ -78,7 +89,7 @@ public final class VoiceRecognitionActivity extends Activity {
      */
     public static void launch(Context context, String requestId, String language,
                               String provider, String endpoint, String model, String token,
-                              Polish polish) {
+                              Streaming streaming, Polish polish) {
         markLaunched(requestId);
         Intent intent = new Intent(context, VoiceRecognitionActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -88,6 +99,14 @@ public final class VoiceRecognitionActivity extends Activity {
         if (endpoint != null) intent.putExtra(EXTRA_ENDPOINT, endpoint);
         if (model != null) intent.putExtra(EXTRA_MODEL, model);
         if (token != null) intent.putExtra(EXTRA_TOKEN, token);
+        if (streaming != null) {
+            intent.putExtra(EXTRA_STREAM_ENDPOINT, streaming.endpoint());
+            intent.putExtra(EXTRA_STREAM_HEADERS, streaming.headers());
+            intent.putExtra(EXTRA_STREAM_ITN, streaming.itn());
+            intent.putExtra(EXTRA_STREAM_PUNC, streaming.punctuation());
+            intent.putExtra(EXTRA_STREAM_DDC, streaming.ddc());
+            intent.putExtra(EXTRA_STREAM_BOOSTING, streaming.boostingTableId());
+        }
         if (polish != null) {
             intent.putExtra(EXTRA_POLISH_ENDPOINT, polish.endpoint());
             intent.putExtra(EXTRA_POLISH_MODEL, polish.model());
@@ -104,7 +123,7 @@ public final class VoiceRecognitionActivity extends Activity {
         if (requestId != null) activeRequestId = requestId;
         // Only the platform recognizer needs the system service. A configured provider records
         // here, so a device without that service can still use voice input through one.
-        if (!usesProvider() && !available(this)) {
+        if (!usesStreaming() && !usesProvider() && !available(this)) {
             fail("设备没有可用的系统语音识别服务");
             finish();
             return;
@@ -146,6 +165,10 @@ public final class VoiceRecognitionActivity extends Activity {
 
     @Override protected void onDestroy() {
         finished = true;
+        if (streaming != null) {
+            streaming.cancel();
+            streaming = null;
+        }
         if (provider != null) {
             // The recorder holds the microphone until it is told to stop, and a worker outliving
             // this window would keep it past the point anything can use the result.
@@ -173,6 +196,11 @@ public final class VoiceRecognitionActivity extends Activity {
     }
 
     /** Whether this request carries a provider configuration this host can actually speak. */
+    /** Whether this request is the streaming protocol rather than an upload. */
+    private boolean usesStreaming() {
+        return getIntent().getStringExtra(EXTRA_STREAM_ENDPOINT) != null;
+    }
+
     private boolean usesProvider() {
         Intent intent = getIntent();
         return HttpAsrPolicy.usable(intent.getStringExtra(EXTRA_PROVIDER),
@@ -182,6 +210,10 @@ public final class VoiceRecognitionActivity extends Activity {
 
     private void startRecognition() {
         if (finished) return;
+        if (usesStreaming()) {
+            startStreamingRecognition();
+            return;
+        }
         if (usesProvider()) {
             startProviderRecognition();
             return;
@@ -262,9 +294,44 @@ public final class VoiceRecognitionActivity extends Activity {
         });
     }
 
+    /**
+     * Stream while the user speaks, then deliver what the provider settled on.
+     *
+     * <p>Interim results are not shown yet: this activity has no surface for them, and inventing
+     * one here would put partial text on screen that the final result may contradict.
+     */
+    private void startStreamingRecognition() {
+        if (streaming != null) return;
+        Intent intent = getIntent();
+        String endpoint = intent.getStringExtra(EXTRA_STREAM_ENDPOINT);
+        String[] headers = intent.getStringArrayExtra(EXTRA_STREAM_HEADERS);
+        boolean itn = intent.getBooleanExtra(EXTRA_STREAM_ITN, false);
+        boolean punctuation = intent.getBooleanExtra(EXTRA_STREAM_PUNC, false);
+        boolean ddc = intent.getBooleanExtra(EXTRA_STREAM_DDC, false);
+        String boosting = intent.getStringExtra(EXTRA_STREAM_BOOSTING);
+        streaming = new DoubaoRecognizer();
+        if (providerWorker == null) providerWorker = Executors.newSingleThreadExecutor();
+        DoubaoRecognizer running = streaming;
+        providerWorker.execute(() -> {
+            String text = running.recognize(endpoint, headers, itn, punctuation, ddc, boosting,
+                null);
+            String polishedText = text == null ? null : polished(text);
+            runOnUiThread(() -> {
+                if (finished) return;
+                if (polishedText != null && !polishedText.isEmpty()) saveResult(polishedText);
+                else fail("语音识别未返回结果");
+                finishRequest();
+            });
+        });
+    }
+
     private void stopRecognition() {
         if (finished) return;
         stopping = true;
+        if (streaming != null) {
+            streaming.stop();
+            return;
+        }
         if (provider != null) {
             provider.stop();
             return;
@@ -275,6 +342,7 @@ public final class VoiceRecognitionActivity extends Activity {
     private void cancelRecognition() {
         if (finished) return;
         finished = true;
+        if (streaming != null) streaming.cancel();
         if (provider != null) provider.cancel();
         if (recognizer != null) recognizer.cancel();
         clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
@@ -286,6 +354,7 @@ public final class VoiceRecognitionActivity extends Activity {
         finished = true;
         if (recognizer != null) recognizer.stopListening();
         if (provider != null) provider.stop();
+        if (streaming != null) streaming.stop();
         clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
         finish();
     }

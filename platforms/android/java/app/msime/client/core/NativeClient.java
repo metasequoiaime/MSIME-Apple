@@ -120,6 +120,28 @@ public final class NativeClient {
         return (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
     }
 
+    /**
+     * Doubao streaming: authentication headers, and the frames that carry the audio.
+     *
+     * <p>All four are the shared implementation. The protocol's framing and its auth modes are the
+     * same on every host, and this one adds only the transport Android has no platform API for.
+     */
+    public static String doubaoDecodeFrame(byte[] frame) {
+        return text(doubaoDecodeFrameRaw(frame));
+    }
+
+    /** The session's opening frame, or null when the shared builder refused the options. */
+    public static byte[] doubaoStartFrame(boolean itn, boolean punctuation, boolean ddc,
+                                          String boostingTableId) {
+        return doubaoStartFrameRaw(itn, punctuation, ddc, utf8(boostingTableId));
+    }
+
+    /** One audio frame. `finalChunk` closes the utterance; the sequence must not repeat. */
+    public static byte[] doubaoAudioFrame(int sequence, byte[] pcm, int length, boolean finalChunk) {
+        if (length < 0) throw new IllegalArgumentException("Invalid PCM length");
+        return doubaoAudioFrameRaw(sequence, pcm, length, finalChunk);
+    }
+
     public static String shuangpinKeyHints(String profile) {
         if (profile == null) throw new IllegalArgumentException("Missing double-pinyin profile");
         byte[] profileBytes = profile.getBytes(StandardCharsets.UTF_8);
@@ -279,6 +301,11 @@ public final class NativeClient {
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
     private static native byte[] polishPromptRaw(byte[] id, byte[] legacy, byte[] custom1,
         byte[] custom2, byte[] custom3);
+    private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
+    private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
+        byte[] boostingTableId);
+    private static native byte[] doubaoAudioFrameRaw(int sequence, byte[] pcm, int length,
+        boolean finalChunk);
     private static native byte[] shuangpinKeyHintsRaw(byte[] profile);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] personalDictionarySyncRaw(byte[] options);

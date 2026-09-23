@@ -46,6 +46,19 @@ class VoiceProviderArgs {
     var endpoint: String = ""
     var model: String = ""
     var token: String = ""
+
+    /** Doubao carries its credentials as headers rather than a bearer token. */
+    var headers: List<VoiceHeaderArgs> = emptyList()
+    var enableItn: Boolean = false
+    var enablePunctuation: Boolean = false
+    var enableDdc: Boolean = false
+    var boostingTableId: String = ""
+}
+
+@InvokeArg
+class VoiceHeaderArgs {
+    var name: String = ""
+    var value: String = ""
 }
 
 @InvokeArg
@@ -94,10 +107,18 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
         }
         // Only one of the two engines needs the system service. A provider records in the
         // activity itself, so a device without that service still has voice input through one.
-        val provider = args.provider?.takeIf {
-            HttpAsrPolicy.usable(it.provider, it.endpoint, it.model, it.token)
+        // Two protocols, and a request qualifies for exactly one: the OpenAI-compatible upload or
+        // Doubao's streaming socket. Anything else configured is neither, and falls through to the
+        // platform recognizer below rather than failing.
+        val configured = args.provider
+        val streaming = configured?.takeIf {
+            DoubaoAsrPolicy.usable(it.provider, it.endpoint, it.headers.map(VoiceHeaderArgs::name))
         }
-        if (provider == null && !VoiceRecognitionActivity.available(hostActivity)) {
+        val provider = configured?.takeIf {
+            streaming == null && HttpAsrPolicy.usable(it.provider, it.endpoint, it.model, it.token)
+        }
+        if (provider == null && streaming == null
+            && !VoiceRecognitionActivity.available(hostActivity)) {
             activeJob.compareAndSet(job, null)
             invoke.reject("unavailable", "unavailable")
             return
@@ -107,6 +128,14 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
             VoiceRecognitionActivity.launch(
                 hostActivity, args.requestId, args.language,
                 provider?.provider, provider?.endpoint, provider?.model, provider?.token,
+                streaming?.let {
+                    VoiceRecognitionActivity.Streaming(
+                        it.endpoint,
+                        it.headers.flatMap { header -> listOf(header.name, header.value) }
+                            .toTypedArray(),
+                        it.enableItn, it.enablePunctuation, it.enableDdc, it.boostingTableId,
+                    )
+                },
                 args.polish?.let {
                     // The prompt itself is resolved from the shared preset table on the way in,
                     // so the activity carries text rather than a slot id to look up again.
