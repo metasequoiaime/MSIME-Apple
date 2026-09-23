@@ -1,21 +1,18 @@
 #include "ChineseTextConversion.h"
 
+#include "msime_client.h"
+
+#include <cstdint>
 #include <memory>
-#include <unicode/translit.h>
-#include <unicode/unistr.h>
 
 std::string msime_linux_simplified_to_traditional(const std::string &text) {
   if (text.empty())
     return text;
-  UErrorCode status = U_ZERO_ERROR;
-  std::unique_ptr<icu::Transliterator> converter(
-      icu::Transliterator::createInstance("Simplified-Traditional",
-                                          UTRANS_FORWARD, status));
-  if (U_FAILURE(status) || !converter)
+  // The shared OpenCC s2t tables, the same conversion Windows uses; NULL means invalid UTF-8 or an embedded NUL, where the original text is kept.
+  std::unique_ptr<char, void (*)(char *)> converted(
+      msime_client_simplified_to_traditional(reinterpret_cast<const uint8_t *>(text.data()), text.size()),
+      msime_client_string_free);
+  if (!converted)
     return text;
-  auto value = icu::UnicodeString::fromUTF8(text);
-  converter->transliterate(value);
-  std::string converted;
-  value.toUTF8String(converted);
-  return converted;
+  return std::string(converted.get());
 }
