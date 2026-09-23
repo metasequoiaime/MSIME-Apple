@@ -3106,6 +3106,11 @@ group("traditional output never loses text when conversion fails", () => {
     }) === "ab",
     "a converter that throws must not lose the text",
   );
+  // The host hands the policy the native OpenCC s2t converter, which works on phrases: 发 is 髮 in 头发 and 發 in 发展. The policy passes the whole string through rather than splitting it, which is what lets the phrase tables see the word.
+  const phrase = (text: string): string =>
+    text.replace("头发", "頭髮").replace("发展", "發展");
+  check(ChineseOutputPolicy.output("头发", true, true, phrase) === "頭髮", "头发 converts as a phrase");
+  check(ChineseOutputPolicy.output("发展", true, true, phrase) === "發展", "发展 converts as a phrase");
   check(ChineseOutputPolicy.applies(false, 0, "none") === true, "quanpin converts");
   check(ChineseOutputPolicy.applies(true, 0, "none") === false, "dedicated English does not");
   check(ChineseOutputPolicy.applies(false, 3, "none") === false, "Japanese has nothing to convert");

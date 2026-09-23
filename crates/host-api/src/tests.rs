@@ -5169,3 +5169,167 @@ fn refresh_leaves_a_symlinked_options_file_alone() {
     std::fs::write(&current, b"{\"resources\":\"/r\"}").unwrap();
     assert!(!super::refresh_host_options(&current).unwrap());
 }
+#[test]
+fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |day: &str, action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(),
+            "resources": directory.path(),
+            "day": day,
+            "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_vocabulary_review(request.as_ptr(), request.len()) })
+    };
+
+    // A fresh directory has no books and therefore no queue, rather than an error.
+    let empty = call("2026-09-23", json!({"operation": "load"}));
+    assert_eq!(empty["ok"], true);
+    assert_eq!(empty["value"]["wordbooks"].as_array().unwrap().len(), 0);
+    assert_eq!(empty["value"]["settings"]["wordbook"], "");
+    assert_eq!(empty["value"]["due"], 0);
+    assert_eq!(empty["value"]["queue"].as_array().unwrap().len(), 0);
+
+    // Importing selects the book it just created: leaving the user to pick it out of a list is a
+    // step with exactly one right answer.
+    let imported = call(
+        "2026-09-23",
+        json!({
+            "operation": "import",
+            "name": "合成词表",
+            "text": "alpha,/a/,adj. 甲\nbeta,adj. 乙\ngamma,adj. 丙\n",
+        }),
+    );
+    assert_eq!(imported["ok"], true);
+    let books = imported["value"]["wordbooks"].as_array().unwrap();
+    assert_eq!(books.len(), 1);
+    assert_eq!(books[0]["name"], "合成词表");
+    assert_eq!(books[0]["total"], 3);
+    assert_eq!(books[0]["builtin"], false);
+    let book_id = books[0]["id"].as_str().unwrap().to_owned();
+    assert!(book_id.starts_with("user-"), "the library mints the id");
+    assert_eq!(imported["value"]["settings"]["wordbook"], book_id);
+    assert_eq!(imported["value"]["introducing"], 3);
+    assert_eq!(imported["value"]["queue"].as_array().unwrap().len(), 3);
+    assert_eq!(imported["value"]["queue"][0]["word"], "alpha");
+    assert_eq!(imported["value"]["queue"][0]["phonetic"], "/a/");
+    assert_eq!(imported["value"]["queue"][1]["phonetic"], "");
+
+    // 认识 schedules the card a day out, so it leaves today's queue and the day counts one answer.
+    let answered = call(
+        "2026-09-23",
+        json!({"operation": "answer", "word": "alpha", "known": true}),
+    );
+    assert_eq!(answered["value"]["answeredToday"], 1);
+    assert_eq!(answered["value"]["queue"][0]["word"], "beta");
+
+    // 不认识 keeps the card in the same session.
+    let failed = call(
+        "2026-09-23",
+        json!({"operation": "answer", "word": "beta", "known": false}),
+    );
+    assert_eq!(failed["value"]["answeredToday"], 2);
+    let queue: Vec<&str> = failed["value"]["queue"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|card| card["word"].as_str().unwrap())
+        .collect();
+    assert!(
+        queue.contains(&"beta"),
+        "a failed card stays in its session"
+    );
+
+    // The next day the recalled card is due again and the counts start over.
+    let tomorrow = call("2026-09-24", json!({"operation": "load"}));
+    assert_eq!(tomorrow["value"]["answeredToday"], 0);
+    assert_eq!(tomorrow["value"]["due"], 2);
+
+    // Settings round-trip through the boundary.
+    let settings = call(
+        "2026-09-23",
+        json!({
+            "operation": "set_settings",
+            "wordbook": book_id,
+            "new_per_day": 1,
+            "session_limit": 50,
+        }),
+    );
+    assert_eq!(settings["value"]["settings"]["newPerDay"], 1);
+    assert_eq!(settings["value"]["settings"]["sessionLimit"], 50);
+
+    // Reset clears the progress and keeps the book and the selection: the button says 清空进度,
+    // not 删除词表.
+    let reset = call("2026-09-23", json!({"operation": "reset"}));
+    assert_eq!(reset["value"]["answeredToday"], 0);
+    assert_eq!(reset["value"]["settings"]["wordbook"], book_id);
+    assert_eq!(reset["value"]["wordbooks"].as_array().unwrap().len(), 1);
+
+    // Removing the book takes its schedule with it and clears the selection.
+    let removed = call(
+        "2026-09-23",
+        json!({"operation": "remove", "wordbook": book_id}),
+    );
+    assert_eq!(removed["value"]["wordbooks"].as_array().unwrap().len(), 0);
+    assert_eq!(removed["value"]["settings"]["wordbook"], "");
+    assert_eq!(removed["value"]["queue"].as_array().unwrap().len(), 0);
+}
+#[test]
+fn vocabulary_boundary_rejects_a_bad_envelope_without_touching_the_store() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |value: Value| {
+        let request = serde_json::to_vec(&value).unwrap();
+        read(unsafe { msime_client_vocabulary_review(request.as_ptr(), request.len()) })
+    };
+
+    assert_eq!(
+        read(unsafe { msime_client_vocabulary_review(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        call(json!({
+            "directory": "relative/path",
+            "resources": "relative/path",
+            "day": "2026-09-23",
+            "action": {"operation": "load"},
+        }))["ok"],
+        false,
+        "the directory must be absolute"
+    );
+    assert_eq!(
+        call(json!({
+            "directory": directory.path(),
+            "resources": directory.path(),
+            "day": "2026-13-01",
+            "action": {"operation": "import", "name": "坏日期", "text": "a,adj. 甲\n"},
+        }))["ok"],
+        false,
+        "an unparseable day is refused"
+    );
+    assert_eq!(
+        call(json!({
+            "directory": directory.path(),
+            "resources": directory.path(),
+            "day": "2026-09-23",
+            "action": {"operation": "import", "name": "空的", "text": "# 只有注释\n"},
+        }))["ok"],
+        false,
+        "a file with no usable rows is refused rather than stored empty"
+    );
+    // An unknown key in the envelope is a hard failure, the way every other request type treats it.
+    assert_eq!(
+        call(json!({
+            "directory": directory.path(),
+            "resources": directory.path(),
+            "day": "2026-09-23",
+            "surprise": true,
+            "action": {"operation": "load"},
+        }))["ok"],
+        false
+    );
+    assert!(
+        !directory.path().join("vocabulary-progress.json").exists(),
+        "a refused request writes nothing"
+    );
+}

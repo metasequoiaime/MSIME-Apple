@@ -91,6 +91,16 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_typingStatistics
     env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_vocabularyReviewRaw(JNIEnv *env, jclass, jbyteArray request) {
+    if (!request) return response(env, msime_client_vocabulary_review(nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_vocabulary_review(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_emojiCatalogRaw(JNIEnv *env, jclass, jbyteArray query, jbyteArray resources) {
     if (!query || !resources) {
         return response(env, msime_client_emoji_catalog_request(nullptr, 0, nullptr, 0));

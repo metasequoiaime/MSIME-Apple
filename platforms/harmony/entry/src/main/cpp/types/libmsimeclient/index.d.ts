@@ -12,6 +12,11 @@ export const abiVersion: () => number;
 /** Capabilities for a named platform, e.g. "harmony". Drives what the shared settings UI renders. */
 export const hostCapabilities: (platform: string) => string;
 
+/**
+ * Simplified to Traditional through the shared phrase-level OpenCC s2t tables, the conversion the Windows, macOS, Linux and Android hosts use. Unlike the methods around it this answers with the converted text itself rather than a JSON response, and with null for text the C ABI refuses (an embedded NUL), in which case the caller keeps its own text.
+ */
+export const simplifiedToTraditional: (text: string) => string | null;
+
 export const loadPreferences: (directory: string) => string;
 export const skinCatalog: (directory: string) => string;
 /** Staged engine resources in; `{profile,sourceCommit}` from the packaged dictionary manifest out. */
@@ -56,6 +61,7 @@ export const savePreferences: (
 export const dictionary: (request: string) => string;
 export const updatePreferences: (handle: number, snapshot: string) => string;
 export const typingStatistics: (request: string) => string;
+export const vocabularyReview: (request: string) => string;
 /**
  * Locked mobile history operations. Harmony opts into migration of its original
  * `state/clipboard-history.json`; every mutation answers with the latest complete entry list.

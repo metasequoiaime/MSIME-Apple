@@ -72,7 +72,7 @@ class MainActivity : TauriActivity() {
   private fun dispatchPendingSettingsPage(webView: WebView) {
     val page = pendingSettingsPage ?: return
     if (page != "dictionary" && page != "account" && page != "about"
-        && page != "help" && page != "feedback") return
+        && page != "help" && page != "feedback" && page != "vocabulary") return
     pendingSettingsPage = null
     webView.postDelayed({
       webView.evaluateJavascript(
