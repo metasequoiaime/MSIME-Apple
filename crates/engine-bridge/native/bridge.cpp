@@ -1245,8 +1245,21 @@ EngineResult EngineSession::command(std::uint8_t value) {
         case 8: return result_for(session_.command(Command::DeleteForward));
         case 9: return result_for(session_.command(Command::CycleKanaVariant));
         case 10: return result_for(session_.command(Command::CommitReading));
+        case 11: return commit_raw_without_learning();
         default: throw std::invalid_argument("Unsupported input command");
     }
+}
+// The letters as typed, learned as nothing. Code 2 reaches commit_raw_with_policy instead, and the Engine's own raw commit learns the word itself in dedicated English, so that mode takes the preedit and cancels, stripping the trigger letter of a temporary mode the way `InputSession` does.
+EngineResult EngineSession::commit_raw_without_learning() {
+    const auto before = session_.snapshot();
+    if (!before.dedicated_english) return result_for(session_.command(metasequoia::Command::CommitRaw));
+    std::string raw = before.preedit;
+    if ((before.local_mode == metasequoia::LocalInputMode::TemporaryEnglish ||
+         before.local_mode == metasequoia::LocalInputMode::TemporaryJapanese) &&
+        !raw.empty())
+        raw.erase(raw.begin());
+    session_.command(metasequoia::Command::Cancel);
+    return result_for(metasequoia::KeyResult{true, std::move(raw), std::nullopt});
 }
 EngineResult EngineSession::commit_raw_with_policy() {
     const auto before = session_.snapshot();
