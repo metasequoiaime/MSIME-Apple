@@ -1944,3 +1944,9 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 - Windows 的 `menu_theme` 决定托盘菜单和候选右键菜单是深色还是浅色。鸿蒙 2in1 没有托盘；和候选右键菜单对应的是候选词管理条，所以现在这条按 `menu_theme` 配色，跟随全局时和其他面板一样回落到全局主题。常用标点、括弧、释义这几条属于键盘本身，仍然用键盘配色。
 - 手机的设置页不显示这一项（`mobile_settings` 为真），手机上的管理条也继续用键盘配色。
+
+### HarmonyOS 硬件键盘：全角模式与交给应用的字符统计
+
+- 全角：Windows 开着全角且候选窗未打开时，会吃掉每个可打印 ASCII 键（`' '` 到 `'~'`，`CompositionProcessorEngine.cpp` 的 `IsDoubleSingleByte`，由 `KeyEventSink.cpp` 分类为 `FUNCTION_DOUBLE_SINGLE_BYTE`），改为插入全角形式。鸿蒙原先把这些键直接交给应用，于是英文字母、空闲时的数字和空格、英文模式的标点、引擎拒收的大写字母都以半角出现。现在路由在全角开启且未组字时返回 `WIDEN`，会话按 `FullWidthInputPolicy` 插入（空格变成 U+3000，与其他路径一致）；引擎拒收的大写字母也改为插入全角。Ctrl / Alt / Win 组合键仍交给应用；中文模式的标点仍走标点路径，那条路径本来就会把字面标点转成全角。
+- 统计：Windows 会把交给应用的字符也记进打字统计（`stats_passthrough.h` 的 `ShouldCountPassthroughChar`：可打印、未按 Ctrl / Alt / Win，Shift 可以；控制字符和 DEL 不算）。鸿蒙原先只统计自己插入的文字，硬件键盘直接交给应用的字符漏记。现在按键按下且被交给应用时按同一规则计入（`TypingStatisticsPolicy.countsPassthrough`）；键盘不组字的编辑框（例如密码框）不计，这是本仓的取舍：输入法不记录密码框里敲了多少字。
+- 手机接实体键盘时走的是同一条硬件键路径，所以行为一致；软键盘本来就由输入法自己插入文字，不受影响。
