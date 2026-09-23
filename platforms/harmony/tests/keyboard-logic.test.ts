@@ -250,6 +250,10 @@ import { CandidateNumberFontPolicy } from "../entry/src/main/ets/keyboard/candid
 import { PreeditCaretPolicy } from "../entry/src/main/ets/keyboard/candidate/PreeditCaretPolicy";
 import { CandidatePreeditStylePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePreeditStylePolicy";
 import {
+  EmojiPanelKeyAction,
+  EmojiPanelKeyPolicy,
+} from "../entry/src/main/ets/keyboard/emoji/EmojiPanelKeyPolicy";
+import {
   CandidateTranslationStyle,
   TRANSLATION_OPACITY,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateTranslationStyle";
@@ -8650,3 +8654,123 @@ setTimeout(() => {
   }
   console.log(`all groups passed (${checks} assertions)`);
 }, 0);
+
+group("the 2in1 emoji panel answers keys the way the focused Windows panel does", () => {
+  const key = (keyCode: number, unicodeChar = 0, ctrlKey = false) => ({
+    keyCode,
+    unicodeChar,
+    ctrlKey,
+    altKey: false,
+    logoKey: false,
+  });
+  const LEFT = 2014;
+  const RIGHT = 2015;
+  const UP = 2012;
+  const DOWN = 2013;
+  const HOME = 2081;
+  const END = 2082;
+  const ENTER = 2054;
+  const SPACE = 2050;
+  const ESCAPE = 2070;
+  const DEL = 2055;
+  const TAB = 2049;
+  check(EmojiPanelKeyPolicy.decide(key(RIGHT), 20, 8, 3, "").index === 4, "Right moves one item");
+  check(
+    EmojiPanelKeyPolicy.decide(key(RIGHT), 20, 8, 19, "").index === 19,
+    "Right stops at the last item",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(LEFT), 20, 8, 0, "").index === 0,
+    "Left stops at the first item",
+  );
+  check(EmojiPanelKeyPolicy.decide(key(DOWN), 20, 8, 3, "").index === 11, "Down moves one row");
+  check(
+    EmojiPanelKeyPolicy.decide(key(DOWN), 20, 8, 15, "").index === 19,
+    "Down from the last full row lands on the last item",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(UP), 20, 8, 5, "").index === 0,
+    "Up from the first row goes to the first item",
+  );
+  check(EmojiPanelKeyPolicy.decide(key(UP), 20, 8, 13, "").index === 5, "Up moves one row");
+  check(
+    EmojiPanelKeyPolicy.decide(key(HOME), 20, 8, 13, "").index === 0,
+    "Home selects the first item",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(END), 20, 8, 1, "").index === 19,
+    "End selects the last item",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(DOWN), 20, 1, 2, "").index === 3,
+    "a one-column list moves one entry per row",
+  );
+  const enter = EmojiPanelKeyPolicy.decide(key(ENTER), 20, 8, 7, "");
+  check(
+    enter.action === EmojiPanelKeyAction.ACTIVATE && enter.index === 7,
+    "Enter inserts the selection",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(SPACE), 20, 8, 7, "").action === EmojiPanelKeyAction.ACTIVATE,
+    "Space inserts the selection",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(ENTER), 0, 8, 0, "").action === EmojiPanelKeyAction.NONE,
+    "Enter over an empty panel is the editor's",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(DOWN), 0, 8, 0, "").action === EmojiPanelKeyAction.NONE,
+    "an arrow over an empty panel is the editor's",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(ENTER), 5, 8, 12, "").index === 4,
+    "a selection past the end is clamped before it is used",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(ESCAPE), 20, 8, 3, "").action === EmojiPanelKeyAction.CLOSE,
+    "Esc with no search closes the panel",
+  );
+  const cleared = EmojiPanelKeyPolicy.decide(key(ESCAPE), 20, 8, 3, "cat");
+  check(
+    cleared.action === EmojiPanelKeyAction.SEARCH && cleared.query === "",
+    "Esc first clears a search",
+  );
+  const typed = EmojiPanelKeyPolicy.decide(key(2019, 0x63), 20, 8, 3, "");
+  check(
+    typed.action === EmojiPanelKeyAction.SEARCH && typed.query === "c" && typed.index === 0,
+    "a letter starts a search from the first result",
+  );
+  const erased = EmojiPanelKeyPolicy.decide(key(DEL), 20, 8, 3, "ca");
+  check(
+    erased.action === EmojiPanelKeyAction.SEARCH && erased.query === "c",
+    "Backspace takes one letter off the search",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(DEL), 20, 8, 3, "").action === EmojiPanelKeyAction.NONE,
+    "Backspace with no search deletes in the editor",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(2019, 0x63, true), 20, 8, 3, "").action ===
+      EmojiPanelKeyAction.NONE,
+    "a chord is left alone",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(TAB), 20, 8, 3, "").action === EmojiPanelKeyAction.NONE,
+    "Tab is left alone",
+  );
+  const full = "a".repeat(32);
+  const capped = EmojiPanelKeyPolicy.decide(key(2017, 0x61), 20, 8, 3, full);
+  check(
+    capped.action === EmojiPanelKeyAction.MOVE && capped.query === full,
+    "a full search takes the key without growing",
+  );
+  check(
+    EmojiPanelKeyPolicy.matches("😺", "Grinning Cat", "cat"),
+    "keywords match without regard to case",
+  );
+  check(EmojiPanelKeyPolicy.matches("(^_^)", "", "^_^"), "the item's own text matches");
+  check(
+    !EmojiPanelKeyPolicy.matches("😺", "grinning cat", "dog"),
+    "an unrelated search does not match",
+  );
+});

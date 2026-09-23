@@ -47,6 +47,9 @@ import { SpaceCursorMovement } from './input/SpaceCursorMovement';
 import {
   EmojiCatalogModel, EmojiCategory, EmojiItem, EmojiSymbolGroup, EMOJI_PAGE_SIZE
 } from './emoji/EmojiCatalogModel';
+import {
+  EmojiPanelKey, EmojiPanelKeyAction, EmojiPanelKeyDecision, EmojiPanelKeyPolicy
+} from './emoji/EmojiPanelKeyPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { DesktopSurface } from './DesktopSurface';
@@ -208,6 +211,8 @@ const KAOMOJI_PANEL: string = 'kaomoji';
 const SYMBOLS_PANEL: string = 'symbols';
 // The Windows emoji panel's last page (`EmojiPanel::Page::Clipboard`). Only a 2in1 draws it as a tab: the phone reaches clipboard history from its own tools face.
 const CLIPBOARD_PANEL: string = 'clipboard';
+// Enough results to scroll through; a one-letter search would otherwise lay out the whole catalog.
+const EMOJI_SEARCH_LIMIT: number = 512;
 
 /** The shared touch-scheme record this view writes when the picker changes scheme. */
 interface TouchKeyboardSchemes {
@@ -287,6 +292,14 @@ struct KeyboardView {
   @State emojiKaomojiGroups: string[] = [];
   @State emojiSymbolGroups: EmojiSymbolGroup[] = [];
   @State emojiSymbolParent: string = '';
+  // What the 2in1 panel's search reads and which item the arrows have reached; see EmojiPanelKeyPolicy.
+  @State emojiQuery: string = '';
+  @State emojiSelected: number = 0;
+  @State emojiResults: string[] = [];
+  private emojiGridScroller: Scroller = new Scroller();
+  private clipListScroller: Scroller = new Scroller();
+  // Every item of a panel with its keywords, read once per panel the first time it is searched.
+  private emojiSearchIndex: Map<string, EmojiItem[]> = new Map<string, EmojiItem[]>();
   @State symbolCategory: number = 0;
   @State symbolLocked: boolean = false;
   @State nineKeyHoldOptions: string[] = [];
@@ -441,6 +454,7 @@ struct KeyboardView {
         this.voiceNotice = '已锁定录音，松开按键不会结束。';
       }
     };
+    KeyboardSession.shared.onPanelKey = (key: EmojiPanelKey): boolean => this.panelKey(key);
     KeyboardSession.shared.onSurfaceChanged = (surface: DesktopSurface): void => {
       if (SurfaceRoutingPolicy.endsVoice(this.desktop, surface) && this.voiceBusy) {
         this.cancelVoice();
@@ -449,8 +463,12 @@ struct KeyboardView {
         this.clearHandwriting();
       }
       this.desktop = surface;
-      if (surface === DesktopSurface.EMOJI && this.emojiItems.length === 0) {
-        this.loadEmoji(this.emojiGroup);
+      if (surface === DesktopSurface.EMOJI) {
+        // A search is for one visit to the panel, as it is on Windows, where the box starts empty each time the panel is shown.
+        this.resetEmojiSearch();
+        if (this.emojiItems.length === 0) {
+          this.loadEmoji(this.emojiGroup);
+        }
       }
     };
     this.applySettings();
@@ -705,7 +723,13 @@ struct KeyboardView {
   private loadEmojiCatalog(category: string, group: string, parent: string = ''): void {
     this.emojiGroup = group;
     this.emojiShowingRecents = false;
-    const collected: string[] = [];
+    this.resetEmojiSearch();
+    this.emojiItems = this.collectEmojiCatalog(category, group, parent)
+      .map((item: EmojiItem): string => item.text);
+  }
+
+  private collectEmojiCatalog(category: string, group: string, parent: string): EmojiItem[] {
+    const collected: EmojiItem[] = [];
     let offset: number = 0;
     for (let page: number = 0; page < EMOJI_MAX_PAGES; page++) {
       const result: EmojiPage | null =
@@ -726,18 +750,123 @@ struct KeyboardView {
         break;
       }
       for (const item of items) {
-        collected.push(item.text);
+        collected.push(item);
       }
       offset = result.next_offset;
       if (result.complete) {
         break;
       }
     }
-    this.emojiItems = collected;
+    return collected;
+  }
+
+  /** What the grid shows: the search results while something is typed, the chosen group otherwise. */
+  private visibleEmojiItems(): string[] {
+    return this.emojiQuery.length > 0 ? this.emojiResults : this.emojiItems;
+  }
+
+  /** The clipboard entries the search leaves; Windows matches the text without regard to case. */
+  private visibleClips(): ClipboardHistoryItem[] {
+    if (this.emojiQuery.length === 0) {
+      return this.clips;
+    }
+    return this.clips.filter((entry: ClipboardHistoryItem): boolean =>
+      EmojiPanelKeyPolicy.matches(entry.text, entry.text, this.emojiQuery));
+  }
+
+  private resetEmojiSearch(): void {
+    this.emojiQuery = '';
+    this.emojiResults = [];
+    this.emojiSelected = 0;
+  }
+
+  /**
+   * Searches the open tab across all of its groups, the way a Windows detail page searches every group on it.
+   *
+   * The whole tab is read once and kept, so each key filters in memory rather than asking the Engine again.
+   */
+  private searchEmoji(query: string): void {
+    this.emojiQuery = query;
+    this.emojiSelected = 0;
+    if (query.length === 0 || this.emojiPanel === CLIPBOARD_PANEL) {
+      this.emojiResults = [];
+      return;
+    }
+    let index: EmojiItem[] | undefined = this.emojiSearchIndex.get(this.emojiPanel);
+    if (index === undefined) {
+      let pages: EmojiItem[][] = [];
+      if (this.emojiPanel === EMOJI_PANEL) {
+        pages = EmojiCatalogModel.categories().map((category: EmojiCategory): EmojiItem[] =>
+          this.collectEmojiCatalog(EMOJI_PANEL, category.group, ''));
+      } else if (this.emojiPanel === KAOMOJI_PANEL) {
+        pages = this.emojiKaomojiGroups.map((group: string): EmojiItem[] =>
+          this.collectEmojiCatalog(KAOMOJI_PANEL, group, ''));
+      } else {
+        pages = this.emojiSymbolGroups.map((group: EmojiSymbolGroup): EmojiItem[] =>
+          this.collectEmojiCatalog(SYMBOLS_PANEL, '', group.parent));
+      }
+      const flattened: EmojiItem[] = [];
+      for (const page of pages) {
+        for (const item of page) {
+          flattened.push(item);
+        }
+      }
+      index = flattened;
+      this.emojiSearchIndex.set(this.emojiPanel, index);
+    }
+    const results: string[] = [];
+    for (const item of index) {
+      if (EmojiPanelKeyPolicy.matches(item.text, item.annotation, query) && !results.includes(item.text)) {
+        results.push(item.text);
+        if (results.length === EMOJI_SEARCH_LIMIT) {
+          break;
+        }
+      }
+    }
+    this.emojiResults = results;
+  }
+
+  /** A hardware key offered to the open 2in1 panel; false leaves it to the editor. */
+  private panelKey(key: EmojiPanelKey): boolean {
+    const clipboard: boolean = this.emojiPanel === CLIPBOARD_PANEL;
+    const clips: ClipboardHistoryItem[] = clipboard ? this.visibleClips() : [];
+    const items: string[] = clipboard ? [] : this.visibleEmojiItems();
+    const decision: EmojiPanelKeyDecision = EmojiPanelKeyPolicy.decide(key,
+      clipboard ? clips.length : items.length, clipboard ? 1 : EMOJI_COLUMNS, this.emojiSelected,
+      this.emojiQuery);
+    if (decision.action === EmojiPanelKeyAction.NONE) {
+      return false;
+    }
+    if (decision.action === EmojiPanelKeyAction.CLOSE) {
+      this.leaveSurface(DesktopSurface.EMOJI);
+    } else if (decision.action === EmojiPanelKeyAction.SEARCH) {
+      this.searchEmoji(decision.query);
+      this.revealEmojiSelection(clipboard);
+    } else if (decision.action === EmojiPanelKeyAction.ACTIVATE) {
+      if (clipboard) {
+        KeyboardSession.shared.insert(clips[decision.index].text);
+      } else {
+        this.selectEmoji(items[decision.index]);
+      }
+    } else {
+      this.emojiSelected = decision.index;
+      this.revealEmojiSelection(clipboard);
+    }
+    return true;
+  }
+
+  private revealEmojiSelection(clipboard: boolean): void {
+    try {
+      (clipboard ? this.clipListScroller : this.emojiGridScroller)
+        .scrollToIndex(this.emojiSelected, false, ScrollAlign.AUTO);
+    } catch (error) {
+      KeyboardLog.error(`emoji panel scroll unavailable: ${describeError(error)}`);
+    }
   }
 
   private showEmojiPanel(panel: string): void {
     this.emojiPanel = panel;
+    this.resetEmojiSearch();
     if (panel === CLIPBOARD_PANEL) {
       this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
       this.clipboardNotice = this.clipboardEnabled ? '' : '剪贴板历史已在设置中关闭';
@@ -766,6 +895,7 @@ struct KeyboardView {
 
   private showEmojiRecents(): void {
     this.emojiShowingRecents = true;
+    this.resetEmojiSearch();
     this.emojiRecents = KeyboardSession.shared.emojiRecents();
     this.emojiItems = this.emojiRecents.slice();
   }
@@ -4160,9 +4290,20 @@ struct KeyboardView {
             right: KeyboardMetrics.CANDIDATE_PADDING_VP })
       }
 
-      Scroll() {
-        Column({ space: KeyboardMetrics.KEY_SPACING_VP }) {
-          ForEach(this.clips, (entry: ClipboardHistoryItem) => {
+      if (this.emojiQuery.length > 0 && this.visibleClips().length === 0) {
+        Text('没有匹配的剪贴板记录')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.clipboardSkin().keyForeground)
+          .opacity(0.7)
+          .width('100%')
+          .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+            right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+      }
+
+      // A List rather than a Column in a Scroll so the 2in1 arrows can bring the selected entry into view.
+      List({ space: KeyboardMetrics.KEY_SPACING_VP, scroller: this.clipListScroller }) {
+          ForEach(this.visibleClips(), (entry: ClipboardHistoryItem, index: number) => {
+            ListItem() {
             Row() {
               Text(entry.text)
                 .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
@@ -4190,13 +4331,31 @@ struct KeyboardView {
               right: KeyboardMetrics.CANDIDATE_PADDING_VP, top: 6, bottom: 6 })
             .backgroundColor(this.clipboardSkin().keyBackground)
             .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+            .border({ width: this.panelKeySelected(index) ? 2 : 0, color: this.clipboardSkin().accent,
+              radius: KeyboardMetrics.KEY_CORNER_VP })
+            }
           })
-        }
-        .width('100%')
       }
       .scrollBar(BarState.Off)
       .width('100%')
       .layoutWeight(1)
+  }
+
+  /** Says what typing will search, the way the Windows box's placeholder follows the page. */
+  private emojiSearchPlaceholder(): string {
+    if (this.emojiPanel === CLIPBOARD_PANEL) {
+      return '键入以搜索剪贴板';
+    }
+    if (this.emojiPanel === KAOMOJI_PANEL) {
+      return '键入以搜索颜文字';
+    }
+    return this.emojiPanel === SYMBOLS_PANEL ? '键入以搜索符号' : '键入以搜索表情';
+  }
+
+  /** Whether an item carries the 2in1 keyboard selection; a phone panel is touched, so it never shows one. */
+  private panelKeySelected(index: number): boolean {
+    return KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.EMOJI
+      && index === this.emojiSelected;
   }
 
   /** The emoji grid, with the Unicode categories down the top and the group's entries below. */
@@ -4326,17 +4485,51 @@ struct KeyboardView {
       .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
       .align(Alignment.Start)
 
+      // The Windows panel's search box. Not a text field: that would ask the system for an input method inside the input method. The physical keys the panel receives spell it instead (EmojiPanelKeyPolicy), so only a 2in1, which routes them here, draws it.
+      if (KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.EMOJI) {
+        Row() {
+          Text(this.emojiQuery.length > 0 ? this.emojiQuery : this.emojiSearchPlaceholder())
+            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+            .fontColor(this.emojiSkin.keyForeground)
+            .opacity(this.emojiQuery.length > 0 ? 1 : 0.55)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+          if (this.emojiQuery.length > 0) {
+            Text('\u00d7')
+              .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+              .fontColor(this.emojiSkin.accent)
+              .padding({ left: 8, right: 8 })
+              .onClick(() => this.searchEmoji(''))
+          }
+        }
+        .width('100%')
+        .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+        .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+          right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+      }
+
       if (this.emojiPanel === CLIPBOARD_PANEL) {
         this.clipboardEntries()
+      } else if (this.emojiQuery.length > 0 && this.emojiResults.length === 0) {
+        Text('没有匹配的结果')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.emojiSkin.keyForeground)
+          .opacity(0.7)
+          .width('100%')
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
       } else {
-        Grid() {
-          ForEach(this.emojiItems, (item: string) => {
+        Grid(this.emojiGridScroller) {
+          ForEach(this.visibleEmojiItems(), (item: string, index: number) => {
             GridItem() {
               Text(item)
                 .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE + 4)
                 .fontColor(this.emojiSkin.keyForeground)
                 .textAlign(TextAlign.Center)
                 .width('100%')
+                .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+                .backgroundColor(this.panelKeySelected(index) ? this.emojiSkin.keyBackground : Color.Transparent)
                 .onClick(() => this.selectEmoji(item))
             }
           }, (item: string, index: number) => `${index}:${item}`)

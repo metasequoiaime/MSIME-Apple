@@ -527,6 +527,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
    */
   /** Key codes whose key-down went back to the application, so their key-up must follow it. */
   private readonly releasedKeys: Set<number> = new Set<number>();
+  /** Key codes whose key-down the emoji panel took, so their key-up is taken too. */
+  private readonly panelKeys: Set<number> = new Set<number>();
 
   private readonly typed: (event: InputKeyEvent) => boolean = (event: InputKeyEvent): boolean => {
     const key: HardwareKey = HardwareKeyRouter.normalizeLetterCase({
@@ -603,6 +605,17 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (gesture === ModeGesture.TOGGLE_PUNCTUATION) {
       session.togglePunctuation();
       KeyboardSession.shared.refreshToolbar();
+      return true;
+    }
+    // The 2in1 emoji panel takes navigation, activation and search keys the way the focused Windows panel does (`EmojiPanel::OnKeyDown`); its key-up follows, so the editor never sees half of one.
+    if (event.action !== KeyAction.DOWN && this.panelKeys.delete(event.key.code)) {
+      return true;
+    }
+    if (event.action === KeyAction.DOWN && session.routePanelKey({
+      keyCode: event.key.code, unicodeChar: event.unicodeChar, ctrlKey: event.ctrlKey,
+      altKey: event.altKey, logoKey: event.logoKey
+    })) {
+      this.panelKeys.add(event.key.code);
       return true;
     }
     // A space with nothing being composed is the editor's, with one exception: it is also the key

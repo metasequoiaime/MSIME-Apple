@@ -24,6 +24,7 @@ import common from '@ohos.app.ability.common';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
 import { HardwareKeyTarget } from './HardwareKeyDispatch';
+import { EmojiPanelKey } from './emoji/EmojiPanelKeyPolicy';
 import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
   VoiceKey } from './input/VoiceHotkeyPolicy';
 import { HarmonyVoiceRecordingBehaviour } from './input/HarmonyVoiceRecordingBehaviour';
@@ -1035,6 +1036,8 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   onSurfaceRequested: ((surface: DesktopSurface) => void) | undefined = undefined;
   onSurfaceChanged: ((surface: DesktopSurface) => void) | undefined = undefined;
+  /** The emoji panel's answer to a hardware key, set by the view that draws the panel; see EmojiPanelKeyPolicy. */
+  onPanelKey: ((key: EmojiPanelKey) => boolean) | undefined = undefined;
   private desktopSurface: DesktopSurface = DesktopSurface.NONE;
   private composedLast: boolean = false;
   /** The editor's traits arrive after inputStart, so the view is told when they do. */
@@ -1890,6 +1893,15 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Which of them is open, for the view that has to draw it. */
   openSurface(): DesktopSurface {
     return this.desktopSurface;
+  }
+
+  /** Offers a hardware key to the open 2in1 emoji panel, which the Windows panel receives as its focused window. False when no panel is open to take it. */
+  routePanelKey(key: EmojiPanelKey): boolean {
+    if (!KeyboardFormFactor.isDesktop() || this.desktopSurface !== DesktopSurface.EMOJI
+        || this.onPanelKey === undefined) {
+      return false;
+    }
+    return this.onPanelKey(key);
   }
 
   /** Tell whichever window is drawing the mode badge what to put on it. */
