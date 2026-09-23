@@ -182,6 +182,16 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 .collect::<Vec<_>>();
             let custom_translation = &preferences.custom_translation;
             let tencent = &preferences.tencent_tmt;
+            // The selected service, derived from the enable flags alone so an incomplete NiuTrans or custom configuration stays selected instead of reading as Tencent. A host whose Tencent secret lives outside preferences (Linux keeps it in the provider's own file) relies on this to honour 关闭.
+            let provider = if preferences.niutrans.enabled {
+                TranslationService::NiuTrans
+            } else if custom_translation.enabled {
+                TranslationService::Custom
+            } else if tencent.enabled {
+                TranslationService::Tencent
+            } else {
+                TranslationService::Off
+            };
             // Selecting custom translation must never silently fall back to TMT.
             let tencent_tmt = (!custom_translation.enabled
                 && !preferences.niutrans.enabled
@@ -220,6 +230,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                     .map(|language| serde_json::to_value(language).map_err(|e| e.to_string()))
                     .collect::<Result<Vec<_>, _>>()?,
                 "candidates": candidates,
+                "provider": provider,
                 "custom_translation": custom_translation,
                 "tencent_tmt": tencent_tmt,
                 "niutrans": niutrans,

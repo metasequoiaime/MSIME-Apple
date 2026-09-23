@@ -191,12 +191,26 @@ pub struct NiuTransProviderConfig {
     pub apikey: String,
 }
 
+/// The online translation service the user selected in 翻译服务. Exactly one is active, matching Windows `ActiveProvider()`: NiuTrans wins over the custom endpoint, which wins over Tencent, and `Off` means no online translation at all. The choice travels even when the selected service is not fully configured, so a provider never falls back to a service the user did not pick.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TranslationService {
+    #[serde(rename = "none")]
+    Off,
+    Tencent,
+    NiuTrans,
+    Custom,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct TranslationQuery {
     pub generation: u64,
     #[serde(default = "default_translation_target_language")]
     pub target_language: String,
     pub candidates: Vec<String>,
+    /// Absent only in documents from a host that predates the field; the provider then keeps its legacy choice (NiuTrans, then custom, then Tencent) so mixed versions behave as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<TranslationService>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_translation: Option<TranslationProviderConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

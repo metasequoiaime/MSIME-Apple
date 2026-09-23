@@ -12,6 +12,7 @@ python3 platforms/linux/tests/voice/doubao_auth.py
 python3 platforms/linux/tests/dictionary/niutrans_credential_normalization.py
 python3 platforms/linux/tests/dictionary/tencent_credential_normalization.py
 python3 platforms/linux/tests/dictionary/custom_translation_config.py
+python3 platforms/linux/tests/dictionary/translation_provider_selection.py
 python3 platforms/linux/tests/voice/doubao_auth_mode.py
 python3 platforms/linux/tests/voice/provider_polish_prompt.py
 python3 platforms/linux/tests/provider/credential_test_contract.py

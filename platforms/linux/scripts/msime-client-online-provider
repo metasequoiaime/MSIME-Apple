@@ -443,7 +443,14 @@ def translations(query, server):
     niutrans = niutrans if isinstance(niutrans, dict) and niutrans.get("enabled") else None
     custom = query.get("custom_translation")
     custom = custom if isinstance(custom, dict) and custom.get("enabled") else None
-    if niutrans:
+    # Match Windows ActiveProvider/WorkerLoop: only the service the user selected may be asked, and an unusable selection sends nothing rather than falling back to Tencent. A query without the field comes from a host that predates it and keeps that host's own choice.
+    selected = query.get("provider")
+    if selected is None:
+        selected = "niutrans" if niutrans else "custom" if custom else "tencent"
+    if (selected not in ("tencent", "niutrans", "custom") or
+        (selected == "niutrans" and not niutrans) or (selected == "custom" and not custom)):
+        return []
+    if selected == "niutrans":
         app_id = niutrans.get("app_id", "")
         apikey = niutrans.get("apikey", "")
         if (not isinstance(app_id, str) or not isinstance(apikey, str) or
@@ -452,7 +459,7 @@ def translations(query, server):
         app_id, apikey = app_id.strip(), apikey.strip()
         niutrans = {"enabled": True, "app_id": app_id, "apikey": apikey}
         provider = ("niutrans", hashlib.sha256((app_id + "\0" + apikey).encode()).digest())
-    elif custom:
+    elif selected == "custom":
         endpoint = custom.get("endpoint", "")
         if not isinstance(endpoint, str) or len(endpoint) > 2048:
             return []
@@ -494,13 +501,13 @@ def translations(query, server):
         else:
             groups.setdefault(direction, []).append(text)
     for (source, destination), pending in groups.items():
-        if niutrans:
+        if selected == "niutrans":
             values = []
             for text in pending:
                 remaining = min(2.5, deadline - time.monotonic())
                 values.append(safely(niutrans_translation, niutrans, text, source, destination, remaining)
                               if remaining > 0 else None)
-        elif custom:
+        elif selected == "custom":
             values = []
             for text in pending:
                 remaining = min(2.5, deadline - time.monotonic())

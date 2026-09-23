@@ -113,10 +113,10 @@ Fcitx5 每 5 秒通过 freedesktop Settings portal 读取 `org.freedesktop.appea
 同一个 socket 也承载候选翻译请求。候选视图更新后，宿主发送一行 JSON：
 
 ```json
-{"version":1,"kind":"translation","query":{"generation":9,"target_language":"en","candidates":["你好","世界"]}}
+{"version":1,"kind":"translation","query":{"generation":9,"target_language":"en","candidates":["你好","世界"],"provider":"tencent"}}
 ```
 
-服务应在一行内返回 `{"translations":[{"text":"你好","translation":"hello"}]}`；未知候选可以省略。独立入口 `msime-client-translation /absolute/provider.sock` 从标准输入读取同一 TranslationQuery JSON 并输出受界限的 JSON 响应，供 GTK/Qt 面板或其他 Linux 宿主复用。启用自定义翻译时，请求还会携带已验证的 `custom_translation` endpoint 和 API Key，provider 可据此调用兼容 DeepLX 的服务。宿主只接受最多 9 个候选、每项最多 4096 字节、每次完整响应最多 8 秒、128 KiB，并把返回的 generation 原样交给 Host API 校验；过期视图不会被更新。服务必须由用户管理绝对 Unix socket，负责所有凭据、网络访问和日志策略，输入法不会记录原始输入或 API Key。关闭 `preferences.candidate_translations` 后不会发起该请求。候选翻译会按当前候选布局附加到 IBus 候选行。
+服务应在一行内返回 `{"translations":[{"text":"你好","translation":"hello"}]}`；未知候选可以省略。独立入口 `msime-client-translation /absolute/provider.sock` 从标准输入读取同一 TranslationQuery JSON 并输出受界限的 JSON 响应，供 GTK/Qt 面板或其他 Linux 宿主复用。`provider` 是设置页「翻译服务」当前的选择（`none`、`tencent`、`niutrans`、`custom`），即使所选服务配置不全也照实填写；服务只能询问这一家，选「关闭」或所选服务不可用时不发出任何请求，不得退回腾讯。缺少该字段的请求来自旧版宿主，服务沿用旧规则（有 NiuTrans 用 NiuTrans，其次自定义，否则腾讯）。腾讯密钥只存在于服务自己的 `tencent-provider.json`，协议里不传。启用自定义翻译时，请求还会携带已验证的 `custom_translation` endpoint 和 API Key，provider 可据此调用兼容 DeepLX 的服务。宿主只接受最多 9 个候选、每项最多 4096 字节、每次完整响应最多 8 秒、128 KiB，并把返回的 generation 原样交给 Host API 校验；过期视图不会被更新。服务必须由用户管理绝对 Unix socket，负责所有凭据、网络访问和日志策略，输入法不会记录原始输入或 API Key。关闭 `preferences.candidate_translations` 后不会发起该请求。候选翻译会按当前候选布局附加到 IBus 候选行。
 
 英文候选的自定义释义沿用 Engine 的 `custom_translations.txt` sidecar。Linux 从 HostOptions 的 `user_data` 目录读取该文件，用户覆盖优先；没有用户文件时回退到已验证资源目录中的内置文件，再复制到当前可写词典代次供 Engine 加载。这样资源目录可以保持只读，用户只需在状态目录的 `user/custom_translations.txt` 中按“源词<Tab>释义”维护覆盖，重新建立输入会话后生效。
 

@@ -298,6 +298,10 @@ impl UnixSocketProvider {
         {
             return None;
         }
+        // Translation switched off: no candidate text leaves the host, not even to the local provider.
+        if query.provider == Some(TranslationService::Off) {
+            return Some(Vec::new());
+        }
         let mut stream = self.connect()?;
         stream
             .set_write_timeout(Some(std::time::Duration::from_millis(500)))
