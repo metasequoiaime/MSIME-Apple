@@ -621,6 +621,22 @@ int main(int argc, char **argv) {
                   !seen.input_enabled && voice_provider.cancelled.load() == voice_cancels,
               "English-mode recording did not commit the provider text once and stay in English mode");
       seen.committed.clear();
+      // A pending dead key does not swallow Right Alt in English mode either; real clients send it with state 0.
+      voice_starts = voice_provider.started.load();
+      voice_stops = voice_provider.stop_requests.load();
+      require(key(IBUS_dead_acute), "Dead key was not held by the system Compose table in English mode");
+      key(IBUS_dead_acute, IBUS_RELEASE_MASK);
+      require(key(IBUS_Alt_R), "Right Alt was swallowed by a pending dead key in English mode");
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Right Alt did not start recording with a dead key pending in English mode");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
+              "Right Alt release leaked after a dead-key voice hold in English mode");
+      require(wait_until([&] { return voice_provider.stop_requests.load() == voice_stops + 1; }),
+              "Right Alt release did not stop the English-mode recording");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return seen.committed == "synthetic voice"; }),
+              "English-mode dead-key voice hold did not commit");
+      seen.committed.clear();
       // Ctrl+F9 starts a recording in English mode; a Shift switch to Chinese leaves it running, and the provider text is committed without an Engine session to confirm it.
       voice_starts = voice_provider.started.load();
       voice_cancels = voice_provider.cancelled.load();
@@ -1471,6 +1487,17 @@ int main(int argc, char **argv) {
       const auto routes = panel_routes();
       require(routes[1] == "settings:help" && routes[2] == "settings:feedback",
               "Desktop help and feedback actions used incorrect settings routes");
+      // Ctrl+Shift+Super+K opens the screen keyboard whether the client reports Super as MOD4, as the virtual SUPER bit, or as both (GTK3).
+      for (guint super_bits : {guint(IBUS_MOD4_MASK), guint(IBUS_MOD4_MASK | IBUS_SUPER_MASK),
+                               guint(IBUS_SUPER_MASK)}) {
+        const auto launches = panel_routes().size();
+        const guint chord = IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | super_bits;
+        require(key(IBUS_K, chord) && key(IBUS_K, chord | IBUS_RELEASE_MASK),
+                "Ctrl+Shift+Super+K was not consumed for every Super encoding");
+        require(wait_panel([&] { return panel_routes().size() == launches + 1; }) &&
+                    panel_routes().back() == "keyboard",
+                "Ctrl+Shift+Super+K did not launch the screen keyboard");
+      }
       g_unsetenv("MSIME_CLIENT_SETTINGS_COMMAND");
     }
     auto relative_preferences = options;
@@ -2023,6 +2050,64 @@ int main(int argc, char **argv) {
       require(voice_provider.stop_requests.load() == locked_stops + 1,
               "Locked recording sent duplicate stop requests");
       seen.committed.clear();
+    }
+    // Real IBus clients (X11, GDK, mutter) report the modifier state from before the key, so a hold key's own bit is missing on its press, and GTK3 adds the virtual SUPER bit next to MOD4. The shortcuts follow the physical key, as on Windows.
+    auto physical_hold = [&](guint control, guint hold, guint state, const char *what) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      if (control) require(!key(control, IBUS_CONTROL_MASK), what);
+      require(key(hold, state), what);
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }), what);
+      require(key(hold, state | IBUS_RELEASE_MASK), what);
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }), what);
+      if (control) require(!key(control, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK), what);
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }), what);
+      seen.committed.clear();
+    };
+    physical_hold(0, IBUS_Alt_R, 0, "Right Alt without its own MOD1 bit did not hold-record");
+    // A pending dead key must not swallow the hold key: xkb_compose ignores modifier keysyms, so a state-0 Alt_R fed to it would stay "composing".
+    require(key(IBUS_dead_acute), "Dead key was not held by the system Compose table");
+    key(IBUS_dead_acute, IBUS_RELEASE_MASK);
+    physical_hold(0, IBUS_Alt_R, 0, "Right Alt did not hold-record with a dead key pending");
+    physical_hold(IBUS_Control_R, IBUS_Alt_R, IBUS_CONTROL_MASK,
+                  "RCtrl+RAlt without the MOD1 bit did not hold-record");
+    for (guint super_key : {IBUS_Super_L, IBUS_Super_R})
+      for (guint state : {guint(IBUS_CONTROL_MASK),
+                          guint(IBUS_CONTROL_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK),
+                          guint(IBUS_CONTROL_MASK | IBUS_SUPER_MASK)})
+        physical_hold(IBUS_Control_L, super_key, state,
+                      "Ctrl+Win did not hold-record for every Super encoding");
+    {
+      const auto starts = voice_provider.started.load();
+      const bool mode_before = seen.input_enabled;
+      require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) && !key(IBUS_Alt_R, IBUS_CONTROL_MASK),
+              "Left Ctrl with Right Alt matched the right-Ctrl voice shortcut");
+      key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK | IBUS_MOD1_MASK);
+      key(IBUS_Control_L, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK);
+      require(!key(IBUS_Alt_R, IBUS_SHIFT_MASK), "Shift+Right Alt matched a voice shortcut");
+      key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
+      g_usleep(50000);
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      require(voice_provider.started.load() == starts && seen.input_enabled == mode_before,
+              "Unmatched Right Alt chords changed capture or input mode");
+    }
+    {
+      auto ralt_off = options;
+      // Keep the store out of it, as with the mode chord fixture: the reload tick would otherwise restore the stored preference.
+      ralt_off.erase("preferences_directory");
+      ralt_off["preferences"]["voice_input"]["hotkey_ralt"] = false;
+      msime_ibus_configure(ralt_off.dump());
+      invoke("FocusIn");
+      const auto starts = voice_provider.started.load();
+      require(!key(IBUS_Alt_R) && !key(IBUS_Alt_R, IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
+              "Right Alt was consumed with its voice shortcut disabled");
+      g_usleep(50000);
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      require(voice_provider.started.load() == starts,
+              "Right Alt started voice with its shortcut disabled");
+      msime_ibus_configure(options.dump());
+      invoke("FocusIn");
     }
 
 

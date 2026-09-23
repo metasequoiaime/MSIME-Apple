@@ -169,7 +169,7 @@ IBus 属性面板提供 `EnglishCandidates`、`EmojiCandidates` 和 `KaomojiCand
 
 IBus 属性面板另提供 `EnglishMode` 独立英文输入模式。Ctrl+Shift+E 或属性开关调用 Engine 的 dedicated English 模式，保留中文输入法会话和 IBus 输入源边界；它与 `EnglishCandidates` 混输候选开关相互独立。状态按当前 IBus 会话保留，切换时由 Engine 清理正在进行的组合。
 
-Linux IBus 会话支持 `Ctrl+Shift+Super+K` 打开屏幕键盘面板。宿主只在当前输入上下文获得焦点且不是密码等受限字段时消费该组合，并通过现有桌面面板启动器打开键盘；Super 组合是否能到达 IBus 仍由桌面环境的全局快捷键策略决定。
+Linux IBus 会话支持 `Ctrl+Shift+Super+K` 打开屏幕键盘面板。宿主只在当前输入上下文获得焦点且不是密码等受限字段时消费该组合，并通过现有桌面面板启动器打开键盘；客户端把 Super 报告为 `MOD4`、`SUPER` 或两者同时置位时都能识别；Super 组合是否能到达 IBus 仍由桌面环境的全局快捷键策略决定。
 
 IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候选显示和提交文本经 `msime-host-api` 导出的 `msime_client_simplified_to_traditional` 转换为繁体，与 Windows 共用同一份 OpenCC `s2t` 词级表（「头发」→「頭髮」而不是逐字的「頭發」），不再依赖系统 ICU；Unicode 直接输入、日语方案和英文/Emoji 文本保持原样。配置绝对共享偏好目录时开关按 revision 保存 `traditional_chinese_output`，未配置目录时只覆盖当前会话。
 
@@ -641,7 +641,7 @@ IBus 的空格锁定仅在录音期间仍按住 RAlt、Ctrl+Win 或 RCtrl+RAlt �
 
 IBus 已消费的语音快捷键和锁定空格会保留按键记录直到抬键，停止录音、取消或服务提前返回结果不会清除该记录；期间自动重复的按下事件继续被消费，避免重新启动录音或向编辑器泄漏半个按键周期。失焦、宿主重置和会话关闭时清除记录，避免在新的输入上下文沿用旧按键状态。
 
-IBus 按住式语音快捷键与 Ctrl+F9 切换式快捷键保持不同语义：已有未锁定的录音时，按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 会继续录音，松开相应组合键才结束；空格锁定后再次按快捷键则立即结束录音。通过菜单或 Ctrl+F9 启动的录音也可由按住式快捷键接管，组合键先松开 Ctrl 同样结束录音。Ctrl+F9 始终使用开始/结束切换。
+IBus 按住式语音快捷键与 Ctrl+F9 切换式快捷键保持不同语义：已有未锁定的录音时，按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 会继续录音，松开相应组合键才结束；空格锁定后再次按快捷键则立即结束录音。通过菜单或 Ctrl+F9 启动的录音也可由按住式快捷键接管，组合键先松开 Ctrl 同样结束录音。Ctrl+F9 始终使用开始/结束切换。IBus 按物理键判断按住式快捷键：RAlt、Ctrl+Win、RCtrl+RAlt 在按下时不要求修饰位已经置上（X11/GDK/mutter 报告的是按键之前的状态），Super 的 `MOD4` 与 `SUPER` 位视为同一个键。
 
 IBus 为 Ctrl+F9 和按住式语音组合键分别保留已消费按键的抬键记录。两者重叠使用时不会覆盖彼此；同一时刻只激活一个按住式组合键。组合键先松开 Ctrl 会结束该按住状态，但仍消费随后 Win/RAlt 的抬键；空格锁定后的录音可继续，重新按下组合键可结束录音。
 
