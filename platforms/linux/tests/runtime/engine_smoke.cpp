@@ -1,6 +1,7 @@
 #include "../src/core/ClientEngine.h"
 #include "msime_client.h"
 #include <algorithm>
+#include <cstdlib>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
@@ -32,6 +33,8 @@ struct Observation {
   guint first_candidate_number_color = 0;
   std::string first_candidate_fix_name;
   std::string first_candidate_clear_name;
+  // Page positions of the rows the host offers candidate actions for, which it does only for dictionary rows (see candidate_actions in ClientEngine.cpp). Generated sentences are absent.
+  std::vector<guint> dictionary_slots;
   std::string clipboard_clear_name;
   bool desktop_help = false;
   bool desktop_feedback = false;
@@ -99,6 +102,13 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     if (key == "CandidateActions") {
       seen.first_candidate_fix_name.clear();
       seen.first_candidate_clear_name.clear();
+      seen.dictionary_slots.clear();
+    }
+    if (key.rfind("CandidateEntry/", 0) == 0) {
+      // The entry label is "<slot>. <text>" with a 1-based page slot.
+      const std::string label = ibus_text_get_text(ibus_property_get_label(property));
+      const auto slot = std::strtoul(label.c_str(), nullptr, 10);
+      if (slot > 0) seen.dictionary_slots.push_back(static_cast<guint>(slot - 1));
     }
     if (key == "ClipboardHistory") {
       seen.clipboard_clear_name.clear();
@@ -2432,20 +2442,23 @@ int main(int argc, char **argv) {
     phrase();
     require(seen.candidates.size() == 4,
             "Settings did not recover after writer unlock");
-    // Frequency ranking is scoped to the segmentation the user typed: a longer
-    // word carried on the same prefix (你好吗) is ranked among three-segment
-    // entries, never against 你好, so selecting it cannot move it to the top of
-    // this list whatever the preference says. Learn a candidate that shares
-    // nihao's two segments instead.
-    auto two_segment_index = [&] {
-      for (std::size_t index = 1; index < seen.candidates.size(); ++index)
-        if (g_utf8_strlen(seen.candidates[index].c_str(), -1) == 2)
-          return static_cast<int>(index);
+    // Only a dictionary row has a weight for the configured frequency mode to move. The lattice puts its generated sentences for nihao (倪好, 你号, ...) straight after the exact dictionary hits at the top, so the first two-character rows after 你好 are usually generated. Selecting one of those stores it as a user phrase instead (the Engine's standalone sentence learning, ported from MSIME-Windows 01c5bca3), which ignores the frequency mode and gives the row a fixed starting weight; it is not expected to come first. Learn a two-character dictionary row - one that shares nihao's two segments - wherever it is paged to. Returns its page position, or -1 if none shows up.
+    auto dictionary_two_segment_index = [&] {
+      for (int page = 0; page < 24; ++page) {
+        for (const auto slot : seen.dictionary_slots)
+          if ((page > 0 || slot > 0) && slot < seen.candidates.size() &&
+              g_utf8_strlen(seen.candidates[slot].c_str(), -1) == 2)
+            return static_cast<int>(slot);
+        const auto before = seen.candidates;
+        if (!key(IBUS_Page_Down) || seen.candidates == before)
+          break;
+      }
       return -1;
     };
     auto private_candidates = seen.candidates;
-    const int private_learn = two_segment_index();
-    require(private_learn > 0, "Private session exposed no two-segment candidate to learn");
+    const int private_learn = dictionary_two_segment_index();
+    require(private_learn >= 0,
+            "Private session exposed no two-segment dictionary candidate to learn");
     invoke("CandidateClicked",
            g_variant_new("(uuu)", static_cast<guint>(private_learn), 1, 0));
     phrase();
@@ -2457,8 +2470,9 @@ int main(int argc, char **argv) {
                          g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
     settle();
     phrase();
-    const int learn_index = two_segment_index();
-    require(learn_index > 0, "Normal session exposed no two-segment candidate to learn");
+    const int learn_index = dictionary_two_segment_index();
+    require(learn_index >= 0,
+            "Normal session exposed no two-segment dictionary candidate to learn");
     auto learned = seen.candidates.at(static_cast<std::size_t>(learn_index));
     const auto before_learning = seen.candidates;
     invoke("CandidateClicked",
