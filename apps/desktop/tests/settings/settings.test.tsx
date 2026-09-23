@@ -1608,13 +1608,13 @@ test("Linux appearance and maintenance copy names both hosts and the Fcitx5 relo
   expect(
     await screen.findByText("在当前 IBus 或 Fcitx5 输入上下文中维护候选与重启服务"),
   ).toBeDefined();
-  // fcitx5-remote -r is Fcitx5's ReloadConfig request, so the Fcitx5 half must read as a reload, not a restart.
+  // Fcitx5 hosts MSIME in process, so the Fcitx5 half must read as a plugin reset that spares other input methods, not a restart.
   const restartRow = screen.getByText("Ctrl+Shift+Alt+R").parentElement?.textContent ?? "";
   expect(restartRow).toContain("IBus 执行 ibus restart");
-  expect(restartRow).toContain("Fcitx5 执行 fcitx5-remote -r 重新加载配置");
+  expect(restartRow).toContain("Fcitx5 重置水杉插件，不影响其他输入法");
   const service = screen.getByText("输入法服务").closest(".section")?.textContent ?? "";
-  expect(service).toContain("IBus 下执行 ibus restart 重启服务");
-  expect(service).toContain("Fcitx5 下执行 fcitx5-remote -r 重新加载配置");
+  expect(service).toContain("重启 IBus 输入法服务");
+  expect(service).toContain("使用 Fcitx5 时重载水杉插件");
 });
 
 test.each(["windows", "macos"] as const)(
@@ -1666,6 +1666,30 @@ test("macOS maintenance shortcuts use the current input context and Option", asy
   fireEvent.click(screen.getByRole("button", { name: "重新注册" }));
   await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
   expect(await screen.findByText("已重新注册输入源。")).toBeDefined();
+});
+
+test("Linux restart copy covers both input method frameworks", async () => {
+  // The page cannot tell whether IBus or Fcitx5 is running, so the copy has to be true for both: IBus restarts its service, Fcitx5 resets the MSIME addon in process.
+  const restartInputMethod = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        restartInputMethod,
+        host: { platform: "linux", restart_input_method: true } as never,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(
+    await screen.findByText(
+      "重启 IBus 输入法服务；使用 Fcitx5 时重载水杉插件，关闭并重建所有输入会话，不影响其他输入法。",
+    ),
+  ).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "重启" }));
+  await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
+  expect(await screen.findByText("已请求重启输入法服务。")).toBeDefined();
 });
 
 test("macOS service page exposes installation separately from re-registration", async () => {
