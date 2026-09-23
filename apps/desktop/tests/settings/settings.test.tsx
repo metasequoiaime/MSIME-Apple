@@ -6265,3 +6265,30 @@ test("a host can open the settings window on the section its menu named", async 
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByRole("heading", { name: "外观" })).toBeDefined();
 });
+
+test("a host that fixes the candidate page size and layout does not offer them", async () => {
+  const client = (host?: HostCapabilities) => ({
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    host,
+  });
+  const { unmount } = render(
+    <SettingsPage
+      initialPage="appearance"
+      client={client({
+        platform: "ios",
+        candidate_row_colors: true,
+        fixed_candidate_page_size: 9,
+        fixed_candidate_layout: "horizontal",
+      } as HostCapabilities)}
+    />,
+  );
+  await screen.findByLabelText("候选栏预编辑", undefined, { timeout: 3000 });
+  expect(screen.queryByLabelText("每页候选项数量")).toBeNull();
+  expect(screen.queryByLabelText("候选项排列方式")).toBeNull();
+  unmount();
+
+  render(<SettingsPage initialPage="appearance" client={client()} />);
+  expect(await screen.findByLabelText("每页候选项数量", undefined, { timeout: 3000 })).toBeTruthy();
+  expect(screen.getByLabelText("候选项排列方式")).toBeTruthy();
+});

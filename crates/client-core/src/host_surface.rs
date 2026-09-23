@@ -215,6 +215,12 @@ pub struct HostCapabilities {
     /// to know which of the two it is, because the button says so.
     #[serde(default)]
     pub skin_directory_import: bool,
+    /// The one candidate page size the host draws, when it offers no choice. The iOS keyboard numbers its strip's chips 1-9 to match the digits on its symbol layer and lays the expanded panel out in nines, so it holds the Engine to nine whatever the shared setting says; the page shows the count instead of a selector that would do nothing. Absent on a host that pages by the setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_candidate_page_size: Option<u8>,
+    /// The one candidate layout the host draws, when it offers no choice. The iOS candidate strip is a horizontal row above the keys, so an external skin is adopted there only for its horizontal layout; the skin page has to judge compatibility by that rather than by the shared setting, which defaults to vertical. Absent on a host that follows the setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
@@ -458,6 +464,9 @@ impl HostCapabilities {
             ),
             // The skin folder is inside the sandbox on HarmonyOS and in the App Group container on iOS, where no file manager reaches it, so the skin is picked and copied in instead.
             skin_directory_import: matches!(platform, HostPlatform::Harmony | HostPlatform::Ios),
+            fixed_candidate_page_size: (platform == HostPlatform::Ios).then_some(9),
+            fixed_candidate_layout: (platform == HostPlatform::Ios)
+                .then_some(crate::preferences::CandidateLayout::Horizontal),
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
@@ -955,6 +964,23 @@ mod tests {
         assert!(ios.helpcode_shift_entry);
         // Files cannot reach the App Group skin folder, so the skin button imports a picked folder.
         assert!(ios.skin_directory_import);
+        // The strip pages in nines and is always a horizontal row, whatever the shared document says.
+        assert_eq!(ios.fixed_candidate_page_size, Some(9));
+        assert_eq!(
+            ios.fixed_candidate_layout,
+            Some(crate::preferences::CandidateLayout::Horizontal)
+        );
+        for platform in [
+            HostPlatform::Windows,
+            HostPlatform::Macos,
+            HostPlatform::Linux,
+            HostPlatform::Android,
+            HostPlatform::Harmony,
+        ] {
+            let other = HostCapabilities::for_platform(platform);
+            assert_eq!(other.fixed_candidate_page_size, None);
+            assert_eq!(other.fixed_candidate_layout, None);
+        }
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);

@@ -613,6 +613,10 @@ export interface HostCapabilities {
   english_suggestions?: boolean;
   helpcode_shift_entry?: boolean;
   skin_directory_import?: boolean;
+  /** The one candidate page size the host draws; set when the host offers no choice. */
+  fixed_candidate_page_size?: number;
+  /** The one candidate layout the host draws; set when the host offers no choice. */
+  fixed_candidate_layout?: "horizontal" | "vertical";
   shuangpin_preedit?: boolean;
   /** The host routes the Ctrl+Shift+Alt maintenance chords. */
   maintenance_shortcuts?: boolean;
@@ -4851,24 +4855,30 @@ export function SettingsPage({
                         </div>
                       </div>
                     </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">每页候选项数量</span>
-                        <select
-                          aria-label="每页候选项数量"
-                          value={draft.candidate_page_size}
-                          onChange={(event) =>
-                            setDraft({ ...draft, candidate_page_size: Number(event.target.value) })
-                          }
-                        >
-                          {candidatePageSizes.map((size) => (
-                            <option key={size} value={size}>
-                              {size}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
+                    {/* The iOS strip pages in nines whatever this says, so a selector there would change nothing. */}
+                    {host?.fixed_candidate_page_size === undefined && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">每页候选项数量</span>
+                          <select
+                            aria-label="每页候选项数量"
+                            value={draft.candidate_page_size}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                candidate_page_size: Number(event.target.value),
+                              })
+                            }
+                          >
+                            {candidatePageSizes.map((size) => (
+                              <option key={size} value={size}>
+                                {size}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
@@ -5044,25 +5054,27 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">候选项排列方式</span>
-                        <select
-                          aria-label="候选项排列方式"
-                          value={draft.candidate_layout ?? "vertical"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              candidate_layout: event.target
-                                .value as Preferences["candidate_layout"],
-                            })
-                          }
-                        >
-                          <option value="horizontal">横向</option>
-                          <option value="vertical">纵向</option>
-                        </select>
-                      </label>
-                    </div>
+                    {host?.fixed_candidate_layout === undefined && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">候选项排列方式</span>
+                          <select
+                            aria-label="候选项排列方式"
+                            value={draft.candidate_layout ?? "vertical"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                candidate_layout: event.target
+                                  .value as Preferences["candidate_layout"],
+                              })
+                            }
+                          >
+                            <option value="horizontal">横向</option>
+                            <option value="vertical">纵向</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     {showShuangpinPreedit && (
                       <div className="section">
                         <label className="section-header">
@@ -5613,7 +5625,8 @@ export function SettingsPage({
                       readFont={client.readSkinFont}
                       readToolbarCss={client.readSkinToolbarCss}
                       selected={draft.candidate_skin ?? "willow_green"}
-                      layout={draft.candidate_layout ?? "vertical"}
+                      // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
+                      layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
                       onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
                     />
                   </fieldset>
