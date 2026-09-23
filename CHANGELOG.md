@@ -1,33 +1,105 @@
 # 变更记录
 
-本文件记录共享客户端的公开变更。平台功能和验证范围以各平台 README 及 [实施记录](docs/implementation.md) 为准。
+本文件记录共享客户端的公开变更。平台细节以对应平台 README 及 [实施记录](docs/implementation.md) 为准。
 
 ## [Unreleased]
 
+首个版本的完整变更集。共享 Rust 层、六个平台宿主（Android / iOS / macOS / Linux / Windows / HarmonyOS）和共享设置界面均已实现，尚未正式发版。
+
 ### 新增
 
-- 建立不依赖 Tauri、React 或平台宿主的 Rust 共享层，提供配置、资源安装、输入运行时和版本化宿主接口。
-- 通过 CXX 接入固定版本的 msime-engine；输入算法和组合状态继续由 C++ Engine 管理。
-- 提供 Android、iOS、macOS、Linux、Windows 与 HarmonyOS 的平台目录、构建入口和迁移文档。
-- 增加贡献指南、安全策略、行为准则、问题模板、拉取请求模板和开源发布清单。
-- 增加面向贡献者的[架构说明](ARCHITECTURE.md)，集中说明分层、四条不可打破的边界、本地验证流程和平台证据分级；`AGENTS.md` 收敛为编码代理的操作约定。
-- 行为准则改用 Contributor Covenant 2.1，并提供举报联系方式。
-- 增加[网络请求与数据流向](PRIVACY.md)，逐项记录每个联网功能的发送内容、目的地、默认开关和对应代码位置，并指向 <https://msime.app/privacy/> 的隐私政策。云联想默认开启且会把正在组的拼音发给 Google 输入工具这一既有行为，此前只写在 Android 平台 README 里。
-- 增加 `.editorconfig`，记录仓库既有的缩进与换行约定。
-- Linux 安装后提供 `msime-client-setup`：按随装的词库锁校验或取回词库、准备用户状态目录，并按当前运行的是 fcitx5 还是 ibus 说明下一步。此前只拿到安装包的用户无法备齐词库——词库锁本身也只在随包提供词库时才安装。Linux 的 IBus 组件与引擎名同时去掉 `-preview` 后缀，旧安装升级需自行移除改名前的组件文件。
-- 增加[第三方组件清单](docs/third-party.md)，汇总固定上游、随包资源、各平台 SDK 的许可证与通知文件位置，并标出尚未记录来源的部分。README 现在也明确声明本项目为 GPL-3.0-only。
-- 前端接入 Vite+ 的 Oxlint 与 Oxfmt，补齐与 Rust 侧 clippy／rustfmt 对应的门禁：`pnpm lint` 与 `pnpm format:check` 进入本地完整验证，暂存文件的格式检查进入 `pre-commit` 钩子。一次性按 Oxfmt 重排了全部前端源码；`packages/ui/src/upstream` 与 `apps/desktop/src-tauri/gen` 保持原样。Oxfmt 0.68.0 不幂等，`pnpm format` 需连跑两次才会收敛。
+#### 共享层与宿主接口
 
-### 验证范围
+- 不依赖 Tauri、React 或任何平台宿主的 Rust 共享层，覆盖偏好设置、资源安装与校验、输入运行时、账号与云服务、语音、翻译、皮肤、社区资源、剪贴板、个人词库、打字统计和候选释义。
+- 通过 CXX 接入由 `engine-lock.json` 固定提交与 SHA-256 的 msime-engine；输入算法、组合状态和学习数据继续由 C++ Engine 管理，共享层只做编排。
+- 版本化 C ABI（`crates/host-api`）作为所有原生宿主的唯一入口，以 `cdylib`/`staticlib`/`rlib` 三种形态提供，覆盖会话生命周期、候选与代次选择、词库快照、云词典、云剪贴板、系统字体目录、翻译提供方、语音提供方与打字统计。
+- 输入运行时统一处理焦点、候选翻页、代次选择与全半角转换，并接入固定版本的整句重排模型。
+- macOS 与 Windows 各有一层宿主支持 crate：macOS 提供面板会话、云剪贴板与云词典桥接；Windows 提供语音控制器、语音上屏策略与 Windows Ink 手写。桌面 shell 禁用 `unsafe`，平台 API 调用集中在这两个 crate 里做安全封装。
+- Rust workspace 统一 GPL-3.0-only、`edition 2021` 与 `unsafe_code = "deny"`，工具链由 `rust-toolchain.toml` 钉死。
 
-- 共享 Rust/C++ 边界、资源校验、配置冲突和宿主接口具备本地测试与快速验证入口。
-- macOS、Linux、Android、iOS、Windows 与 HarmonyOS 的当前证据和未完成项目分别记录在平台 README 中。
-- Windows 原生 TSF、Linux 图形桌面、移动真机、HarmonyOS 设备、签名、安装包和真实编辑器验收不因源码或交叉编译存在而视为完成。
+#### 共享设置界面
+
+- `packages/ui` 提供跨平台共享的 React 设置页，桌面、Android、iOS 与 HarmonyOS 宿主共用同一份实现，包含首页、账号、AI 对话、社区、打字统计、外观、输入、辅助码、快捷键、词库、皮肤、语音、屏幕键盘、手写、实用功能、AI 辅助、悬浮工具栏、帮助、关于与反馈等页面，并带移动端底部 tab 映射。
+- 桌面 shell（Tauri）提供跨平台命令层，并按 Windows / macOS / Linux / Android / iOS 分目录接入各自的账号、凭据、数据目录、输入源与音频能力。
+- HarmonyOS 宿主消费同一份设置页的单文件构建产物，产物差异由 `scripts/test-harmony-settings-bundle.py` 在本地验证中重建比对，防止 UI 源码与已提交产物漂移。
+
+#### macOS
+
+- InputMethodKit 输入法宿主，支持候选面板（定位、分页、悬停、行宽适配、释义布局）、内置与外部皮肤包、候选释义与翻译、云联想、悬浮工具栏、中英模式 HUD、双拼键位提示、屏幕键盘、手写、表情与符号面板、剪贴板历史面板。
+- 语音输入覆盖豆包 WSS 与 HTTP 提供方、波形面板、录音设备选择、系统静音与恢复、润色和提示音；macOS 另可选用本地 Whisper 与系统识别，音频不出设备。
+- 词库安装、运行时挂载、快照与云词典，账号与云剪贴板，打字统计、诊断日志、成对标点、智能标点空格、五笔上屏策略与辅助码。
+- Sparkle 自动更新；`platforms/macos/scripts/install.sh` 完成重签名、原子替换与失败回滚，`platforms/macos/scripts/check_input_source.swift` 核查输入源注册。
+
+#### Windows
+
+- TSF 进程内 DLL 与进程外服务分列为两个目标，另有守护进程与运行时准备工具；命名管道 IPC 分主通道、辅助通道与诊断通道三种角色，并校验客户端 PID、登录会话与 TokenUser SID。
+- 基于 Direct2D/DirectWrite 的候选窗口、候选浮出窗口、托盘菜单与悬浮工具栏，皮肤、调色板、字体、阴影、滚轮翻页与卡片尺寸各有独立策略。
+- 云候选、AI 候选与翻译各自独立工作线程；语音覆盖豆包 ASR、语音热键、提示音、系统静音、波形浮层与独立的语音控制器端点；剪贴板历史落 SQLite。
+- 设置热重载、首次运行引导、焦点路由、繁简转换、打字统计与维护热键。
+- `platforms/windows/build-cross.sh` 提供 MinGW 交叉构建，`run-tests-wine.sh` 在 Wine 下运行交叉产物的全部套件；`Build-Client.ps1` 提供 Windows 上的 MSVC 全量构建并对产物做 PE 架构门禁。
+- Inno Setup 安装器注册 32/64 位 TIP、分离配置与词库、升级不覆盖用户配置，并随包携带 `LICENSE.txt` 与第三方通知；`Package-SimplySign.ps1` 编排双架构构建、载荷签名、安装器编译与安装器签名。
+
+#### Linux
+
+- IBus 与 Fcitx5 是并列的两个系统入口，链接同一份宿主 ABI；Fcitx5 插件按 Fcitx5Core 版本启用原生候选 Action 与自定义输入法信息。
+- 候选调色板、Fcitx 主题、字体策略、滚轮翻页、候选动作（固定、取消固定、删除）、翻译策略、成对标点与双拼方案名；九键、九键歧义拼音、本地输入模式、数字选词、小键盘标点映射、繁简与日文转换、辅助码、模糊音、全拼纠错、全角半角、智能标点空格与退格长按。
+- 模式徽章与语音波形浮层各自提供 X11 与 Wayland（layer-shell）后端，缺少依赖时退回面板文字。
+- 在线、AI、翻译、语音、剪贴板、手写、表情、词库、云词典与云剪贴板各为独立 provider 进程，配套 systemd 用户单元与 socket 激活；桌面入口提供九个 Desktop Action。
+- `msime-client-setup` 按随装的词库锁校验或取回词库、准备用户状态目录，并按当前运行的是 fcitx5 还是 ibus 说明下一步；缺少运行时配置时图形设置页会直接进入同一套首次配置流程。卸载时先停用并禁用 setup 启用过的用户单元。
+- 升级后由宿主在建立会话前比对词库锁代次，原子替换运行时配置中的资源与词库路径。
+- CPack 提供 TGZ 与 DEB 打包，Debian 包声明 IBus、Python 与（启用时）Fcitx5 依赖，并随包携带许可证与平台 README。
+
+#### Android
+
+- 独立进程运行的 IME 服务，26 键与符号层、全拼九键、日语九键、四套双拼与微软双拼分词键、86 五笔、手写（ML Kit Digital Ink）以及 AI 回复键盘。
+- 候选条与展开面板支持跨代次选择，候选长按提供优先、固定与删除；离线英文释义、在线候选翻译、云联想与 AI 联想（组字停顿后单次请求）。
+- 剪贴板历史、云剪贴板、表情浏览器、符号面板、本地输入模式、AI 润色、语音输入、打字统计、内置与自定义皮肤库、社区皮肤与词库资源。
+- 账号会话经 Keystore 加密落盘，支持 Google 登录；硬件键盘按共享命令表映射，含数字行选词与模式快捷键；大屏居中外框与无障碍键盘尺寸调整。
+- `check-host.sh` 把 Android 侧与共享 ABI 的命令编号、键位映射和禁止复制的表格做成契约守卫，并编译运行 JVM 冒烟套件；设备套件覆盖候选、键盘、设置、统计与手写。
+- 两条打包路径：原生 IME APK 与 Tauri 设置合包，各自的用途与同名产物冲突写在平台 README 中。
+
+#### iOS
+
+- 主 App 与键盘扩展共享 App Group 与设置实现，另有独立的豆包传输框架 target。
+- 键盘扩展提供候选栏与展开候选面板、方案与布局选择、皮肤选择、符号面板、表情与颜文字、剪贴板、日语九宫、手写、云候选、候选翻译、词库快照后台线程、英文建议与大写策略、空格移光标与标点上下文，并适配不同形态设备。
+- 主 App 提供引导、账号、社区皮肤画廊与自定义编辑器、AI 生成皮肤、云词典、个人词典、云剪贴板、AI 对话、平板分栏以及各设置页。
+- 语音走豆包 WebSocket 传输与协调器，配合录音与 PCM 提取。
+- Xcode 工程由 XcodeGen 从 `project.yml` 生成，`project.yml` 是工程配置的唯一权威来源；单元测试分键盘、服务、共享与传输四个 target，另有 UI 测试 target。
+
+#### HarmonyOS
+
+- 完整的 ArkTS 输入法宿主：`InputMethodExtensionAbility` 负责面板创建、光标跟随、选区与文本变更回调、HUD 面板、悬浮工具栏与硬件键路由；模块清单声明输入法类型并覆盖手机、平板与 2in1。
+- NAPI 边界导出会话、候选管理、翻译、云与 AI 联想、语音、皮肤库、社区资源、个人词库与打字统计等能力。
+- 手写走 Core Vision Kit 文本识别，语音覆盖系统离线识别、HTTP ASR 与豆包流式，配提示音与录音设备选择。
+- 候选翻译、离线英文释义与补全、AI 润色、AI 对话、设置同步、具名皮肤库、社区皮肤与词库、AI 生成皮肤、个人词库文件导入、全拼与日语九键、无障碍标签、2in1 硬件键盘、悬浮工具栏与输入模式 HUD。
+- 平台无对应 API 的能力（应用图标切换、主动拉起键盘、表情与剪贴板独立窗口）在平台 README 中逐条记录了查证结果与替代做法。
+
+#### 账号、云服务与联网行为
+
+- 账号、云词典、云剪贴板与社区资源统一走 `https://api.msime.app`，凭据存放在各平台的系统密钥库。
+- 云联想默认开启，把正在组的拼音发给 Google 输入工具；语音识别、语音润色、候选翻译、AI 联想默认凭据为空，不填就不发请求。
+- 六个平台均在启动时上报一次安装事件；Android、iOS、macOS、Linux、Windows 还会在崩溃时上报（HarmonyOS 暂无崩溃上报）。字段、去重与离线重试行为按平台不同，逐条见[网络请求与数据流向](PRIVACY.md)，那里同时记录发送内容、目的地、代码位置和关闭方式。
+
+#### 工程与文档
+
+- 固定上游：`engine-lock.json` 记录 Engine 及其嵌套依赖的提交与 SHA-256，配套 overlay 脚本；`resources/*.lock.json` 固定随包词库与模型的 URL、长度与 SHA-256。
+- `scripts/verify-local.sh` 提供本地统一验证，分快速门禁与完整两档；长期失败集中记在 `scripts/known-failures.txt`，每条附完整取证记录，比对只对不在清单里的失败名报错。
+- 静态与契约门禁以独立脚本形式进入本地验证，覆盖配置键覆盖率、界面动作覆盖率、源码清单与设置页产物一致性。
+- 整句转换评测与重排延迟测量各有固定数据集与基线文件，可在本地复跑。
+- Git 钩子提供亚秒级的 `pre-commit` 检查（冲突标记、Rust 与前端格式），`pre-merge-commit` 与 `pre-push` 运行快速验证。
+- 前端接入 Oxlint 与 Oxfmt，与 Rust 侧 clippy／rustfmt 对应；`packages/ui/src/upstream` 与 `apps/desktop/src-tauri/gen` 保持上游原样。
+- 文档：[架构说明](ARCHITECTURE.md)、[实施记录](docs/implementation.md)、[网络请求与数据流向](PRIVACY.md)、[第三方组件清单](docs/third-party.md)、[开源发布清单](docs/open-source-release.md)、贡献指南、安全策略、行为准则（Contributor Covenant 2.1）以及问题与拉取请求模板。
+
+### 验证
+
+- 共享 Rust/C++ 边界、资源校验、配置冲突与宿主接口由 workspace 测试覆盖，入口是 `bash scripts/verify-local.sh`。
+- 六个平台各有自己的测试套件与构建入口，命令和范围记录在对应平台 README：macOS 与 Linux 走 CTest，Windows 在本机边界构建与 Wine 下运行交叉产物，Android 分 JVM 冒烟与设备套件，iOS 走 Xcode 测试 scheme，HarmonyOS 走 ArkTS 逻辑测试与 HAP 打包。
+- GitHub Actions 在 Pull Request 上运行质量、依赖审查与仓库契约检查，macOS 与 iOS 有独立工作流，Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时触发；CodeQL 每日扫描。
 
 ### 发布说明
 
 - 源码使用 GPL-3.0-only；第三方依赖、固定 Engine 归档、词库、模型和平台 SDK 仍须遵守各自许可证与通知要求。
-- 提交前请执行 `bash scripts/verify-local.sh --quick`，并按 [开源发布清单](docs/open-source-release.md) 检查敏感文件、来源和平台发布边界。
-- GitHub Actions 已恢复：Pull Request 上的质量、依赖审查、仓库契约以及 macOS 与 iOS 检查必须通过；Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时检查，只到契约、JVM 冒烟、容器构建和交叉编译这一级。本地 `bash scripts/verify-local.sh --quick` 仍是提交前的快速门禁。
+- 提交前请执行 `bash scripts/verify-local.sh --quick`，并按 [开源发布清单](docs/open-source-release.md) 检查敏感文件、来源与通知文件。
+- 六个平台各有独立的发布工作流，手动触发并按各自的 `platforms/<平台>/version.txt` 取版本号。
 
 [Unreleased]: https://github.com/metasequoiaime/msime/compare/develop...HEAD

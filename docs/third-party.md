@@ -24,7 +24,7 @@
 
 ## 随包资源（`resources/desktop-dictionary.lock.json`）
 
-锁文件固定十个产物的 URL、长度和 SHA-256，全部可匿名下载。其中八个来自 `metasequoiaime/msime-engine` 的 `dict-v2.0.0` 发布，`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。**锁文件本身不记录许可证字段**，来源信息分散在别处：
+锁文件固定十个产物的长度和 SHA-256。其中九个带可匿名下载的 URL：八个来自 `metasequoiaime/msime-engine` 的 `dict-v2.0.1` 发布，`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。第十个 `dict_pinyin.dat` 没有下载地址，改用 `engine_path` 从 `engine-lock.json` 固定的那份 `googlepinyinime-rev` 归档里只取这一个文件。**锁文件本身不记录许可证字段**，来源信息分散在别处：
 
 | 产物 | 大小 | 已知来源 |
 | --- | --- | --- |
@@ -35,8 +35,8 @@
 | `others.db` | 1.5 MB | Engine 发布的表情等数据 |
 | `dict_japanese.dat` | 66.5 MB | Mozc 的开源版日文词库，构成见[下一节](#日文词库的分发义务) |
 | `mozc_dictionary_oss_README.txt` | 5.8 KB | 上述词库的许可证全文。**分发时必须一同携带**，理由见下节 |
-| `dictionary-manifest.json` | 1.9 KB | 资源清单 |
-| `dict_pinyin.dat` | 1.1 MB | 拼音数据 |
+| `dictionary-manifest.json` | 2.5 KB | 资源清单 |
+| `dict_pinyin.dat` | 1.1 MB | 拼音数据，取自 `Google-PinyinIME-Rev` 归档的 `data/dict_pinyin.dat`，许可证见上一节 |
 | `sentence-model.safetensors` | 4.5 MB | 整句重排模型，权重为 Apache-2.0；训练语料与分发要求见[下下节](#整句重排模型的署名要求) |
 
 `Artifact` 结构体带 `#[serde(deny_unknown_fields)]`，所以在锁文件里直接加 `license` 字段会让解析失败；要记录许可证需要同时修改 `crates/client-core/src/resources.rs`。在那之前，新增或更换随包资源时请把来源与授权写进本文件。
@@ -79,6 +79,23 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 
 上游仓库还说明，`corpus/fetch.py` 支持的中文维基百科、MDN、Kubernetes 文档等来源带有 share-alike 义务，**本仓库分发的这份权重不使用它们**。
 
+## 自带辅助码表（`resources/helpcodes/`）
+
+这是全仓唯一一项**带着明确再分发限制**的随包数据，不在上面两个锁文件的覆盖范围里，所以单列一节。完整说明在 [`resources/helpcodes/NOTICE.md`](../resources/helpcodes/NOTICE.md)，这里只做索引。
+
+| 项 | 值 |
+| --- | --- |
+| 文件 | `resources/helpcodes/jiajia_helpcode.txt`（方案标识 `jiajia`，加加辅助码） |
+| 来源仓库 | [metasequoiaime/MSIME-Windows](https://github.com/metasequoiaime/MSIME-Windows) 的 `engine/helpcode/helpcodes/jiajia_helpcode.txt` |
+| 来源提交 | `566ff8b8320e7f56256544b2b1f0da8c8e7f037e` |
+| 内容摘要 | `sha256:6538d744547b590630e93160198ac16bf76112a51ec78b4dbae505b914761879`，7968 行 |
+| 注入方式 | `engine-lock.json` 列出的 `scripts/apply_engine_jiajia_helpcode.py`，在准备 Engine 时写入 `vendor/MSIME-Engine/helpcode/helpcodes/` |
+| 许可状态 | **本仓库的 GPL-3.0 不覆盖这张表的内容** |
+
+按 NOTICE.md 的记录，本表的一部分条目直接来自拼音加加 5.x 安装包内的数据表 `fzm.bin`，而拼音加加是商业软件；来源仓库的 `engine/helpcode/NOTICE.md` 写明六张辅助码表没有任何一项拿到明确的再分发授权，并指出 `jiajia` 一行与其余五张性质不同（其余各表只是复现已发表的输入方案）。**在权利澄清之前不要假定这张表可以自由再分发**，打包发布前需确认它在目标渠道是否可接受。退出方式也记在 NOTICE.md 里：去掉 `engine-lock.json` 中的 `scripts/apply_engine_jiajia_helpcode.py` 即可让整套方案不进入产物，设置页随之少一个选项，Engine 自带的另外五套不受影响。
+
+构成这张表所用的部件拆分与笔顺数据另有来源（rime-radical-pinyin，GPL-3.0，上游含 chaizi/CC-BY-3.0、CHISE/GPL-2+、yi-bai/ids/MIT；笔顺来自 cnchar，MIT），逐条同样见 NOTICE.md。Engine 自带的五套辅助码表随 `engine-lock.json` 锁定的归档一起来，来源说明在 `vendor/MSIME-Engine/helpcode/NOTICE.md`。
+
 ## 编译进共享库的数据
 
 | 组件 | 许可证 | 位置与说明 |
@@ -91,10 +108,11 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 | --- | --- | --- |
 | Android | `com.google.mlkit:digital-ink-recognition:19.0.0` | **Google 的 ML Kit 服务条款，不是开源许可证** |
 | Android | AndroidX、`com.google.android.material` | Apache-2.0 |
+| Android | vcpkg 提供的 Boost、fmt、spdlog、SQLite3（原生库，清单在 `platforms/android/vcpkg.json`） | 各自上游许可证 |
 | iOS | `MLKitDigitalInkRecognition` 8.0.0（CocoaPods，链接进键盘扩展 target） | **Google 的 ML Kit 服务条款，不是开源许可证** |
 | macOS | Sparkle 2.9.6 | 以上游发布附带的许可证为准；框架不随仓库分发，由构建者按 `platforms/macos/README.md` 记录的 SHA-256 自行取得 |
-| Windows | vcpkg 提供的 Boost、fmt、spdlog、SQLite3 | 各自上游许可证；通知由 `platforms/windows/Collect-Notices.ps1` 收集 |
-| Linux | IBus / Fcitx5 与 GTK 栈 | 各自上游许可证，按发行版依赖引入 |
+| Windows | vcpkg 提供的 Boost、libcurl、fmt、spdlog、SQLite3、nlohmann/json、utfcpp（清单与 baseline 在 `platforms/windows/vcpkg.json`） | 各自上游许可证；通知由 `platforms/windows/Collect-Notices.ps1` 收集 |
+| Linux | IBus / Fcitx5、GTK 栈、libcurl、ICU、xkbcommon、nlohmann/json、X11 与 Wayland 客户端库 | 各自上游许可证，按发行版依赖引入 |
 | 桌面 | Tauri、React、Vite 等 | 见 `pnpm-lock.yaml` 与各自上游 |
 
 两个移动平台的 ML Kit 是识别手写笔迹用的。桌面与 Linux 不使用它，改用 Engine 随附的离线 Zinnia 识别器和模型；Android 的原生构建明确把 Zinnia 及其模型路径排除在外（`platforms/android/verify-native.sh`）。
@@ -105,7 +123,7 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 
 逐个列出会立刻过时，以锁文件为准：
 
-- Rust：`Cargo.lock`，559 个依赖。`cargo audit` 是 `scripts/verify-local.sh` 完整版的一个阶段，漏洞视为失败；被接受的 `unmaintained` / `unsound` 公告逐条记在 [`.cargo/audit.toml`](../.cargo/audit.toml) 里，每条都写明引入链和接受理由。
+- Rust：`Cargo.lock`，当前 573 个 package 条目（含本 workspace 自身的成员）。`cargo audit` 是 `scripts/verify-local.sh` 完整版的一个阶段，漏洞视为失败；被接受的 `unmaintained` / `unsound` 公告逐条记在 [`.cargo/audit.toml`](../.cargo/audit.toml) 里，每条都写明引入链和接受理由。
 - Node：`pnpm-lock.yaml`。
 - iOS：`platforms/ios/Podfile.lock`。
 

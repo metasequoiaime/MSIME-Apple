@@ -48,6 +48,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Ahead of the brew install, which is the expensive part of this job. Every input this job needs but cannot create is checked here, so a tree that cannot produce a Swift database says so in seconds instead of after a dependency install and an Xcode build.
+      - name: Check the analysis inputs are present
+        run: |
+          set -euo pipefail
+          missing=()
+          for path in platforms/ios/scripts/prepare_dictionary.py platforms/ios/project.yml platforms/ios/Podfile; do
+            [[ -f "$path" ]] || missing+=("$path")
+          done
+          if (( ${#missing[@]} )); then
+            printf '::error::CodeQL cannot build the Swift sources; missing from this branch: %s\n' "${missing[*]}"
+            exit 1
+          fi
       - name: Install dependencies and Xcode generator
         run: brew install boost fmt spdlog nlohmann-json xcodegen cocoapods
       # The keyboard's bridge target compiles the Engine's sources, and the mobile dictionary is built by a script inside the Engine. Neither arrives with the checkout any more.
@@ -55,20 +67,22 @@ jobs:
         run: python3 scripts/fetch_engine.py
       - name: Prepare the same dictionary as simulator CI
         run: python3 platforms/ios/scripts/prepare_dictionary.py
+      # Generated in platforms/ios rather than build/ios: the Podfile there names `project 'MSIMEClient.xcodeproj'` and `workspace 'MSIMEClient.xcworkspace'` relative to its own directory, so pod install only finds the project when xcodegen has written it beside the Podfile. This is the sequence build-app.sh uses.
       - name: Generate Xcode project
         run: |
-          mkdir -p build/ios
-          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
-          pod install --deployment --project-directory=platforms/ios
+          set -euo pipefail
+          (cd platforms/ios && xcodegen generate -s project.yml -p .)
+          (cd platforms/ios && pod install --deployment)
       - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
         with:
           languages: swift
           build-mode: manual
       - name: Build the app and keyboard for analysis
         # Xcode 26 builds modules explicitly: every SDK module is a separate -emit-pcm job whose output the compile jobs then read back. The CodeQL extractor replays each job with its own clang, which rejects the PCMs Xcode's clang wrote ("built from a different branch"), so nothing gets extracted. Implicit modules give each compiler its own cache, which is how the job worked under Xcode 16.4.
+        # MSIMEClient.xcworkspace and the MSIMEApp scheme are what project.yml and the Podfile actually produce; the MetasequoiaImeIOS names this used to pass exist nowhere in the tree, so xcodebuild could only ever have reported "workspace not found". build-app.sh and ProjectConfigurationTests.py both name MSIMEApp.
         run: >-
-          xcodebuild -workspace build/ios/MetasequoiaImeIOS.xcworkspace
-          -scheme MetasequoiaImeIOS -configuration Debug -sdk iphonesimulator
+          xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace
+          -scheme MSIMEApp -configuration Debug -sdk iphonesimulator
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath build/codeql-ios CODE_SIGNING_ALLOWED=NO
           SWIFT_ENABLE_EXPLICIT_MODULES=NO CLANG_ENABLE_EXPLICIT_MODULES=NO build

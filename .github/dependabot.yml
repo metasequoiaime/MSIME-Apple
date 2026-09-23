@@ -31,6 +31,20 @@ updates:
       cargo-minor:
         update-types: [minor, patch]
 
+  # platforms/android/gradle-app is the hand-maintained Android project; apps/desktop/src-tauri/gen/android is Tauri's generated one and is regenerated rather than bumped, so it stays out.
+  - package-ecosystem: gradle
+    directory: /platforms/android/gradle-app
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: build
+    labels: [dependencies, platform/android]
+    groups:
+      gradle-minor:
+        update-types: [minor, patch]
+
   - package-ecosystem: npm
     directory: /
     target-branch: develop

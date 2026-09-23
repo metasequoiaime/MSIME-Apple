@@ -1,36 +1,35 @@
-# 完整词库快照接入：已接入基础链路
+# 完整词库快照的本地接入
 
-此记录界定剩余验收缺口，不代表整体平台迁移完成。总体目标仍是完整功能迁移；不能以个人词条导入替代完整快照恢复。
+云端备份/恢复与本地词库替换是两条不同的链路。这份文件说明后者：一份完整的词库快照怎么从 SwiftUI 界面走到 Engine，以及这条路上的边界由谁负责。
 
-## 已核对证据
+## 链路
 
-- MSIME-Windows 远端实际默认分支为 `develop`，本次查询固定头为 `04a8df56f86312474a069f4335a1b58da7afaa9e`。该版本是后续完整功能对照基线，不表示本文已完成 Windows 全功能审计。
-- `BackendSnapshotView.swift` 的 `downloadForLocal` / `applyLocal` 调用 `BackendLocalSnapshot.swift`，后者动态查找新宿主共享的 `MSIMEClientSession`；激活前通过 `snapshotActivationReady` 检查会话是否空闲。
-- 当前 `CMakeLists.txt` 的 app 通过 `apple-client` 静态库包含 `MSIMEClientSession.mm`，并编译 `ClientDictionaryRuntime.mm`。旧的 `DictionaryRuntime.mm` / `MSIMEMacDictionarySync` 仍是保留的 Metasequoia 宿主适配，不能加入新宿主替代共享会话边界。
-- 旧实现依赖 `RuntimePaths::legacy()`、bundle 词库摘要和 `MetasequoiaInputController.suspendForCloudDictionarySwitch`；当前宿主是 `MSIMEInputController`，会话由 host-api 管理。直接加入旧文件不构成正确接入。
-- `shared/apple-bridge/DictionarySnapshotBridge` 有准备记录流、计算状态版本和丢弃非活动代次的参考实现；不能绕过现有共享资源/词库访问边界直接发布旧宿主安装。
-- `crates/host-api/include/msime_client.h` 与 `shared/apple/MSIMEClientSession.h` 已提供快照版本、准备句柄、丢弃和激活接口；`ClientDictionaryRuntime.mm` 已使用该客户端宿主边界。
-- `engine-bridge` 的 `EngineSession.snapshot()` 返回编辑串/候选等输入状态，不是词库快照；`host-api/src/cloud_dictionary.rs` 的请求校验也不是恢复实现。
+`BackendSnapshotView.swift` 的 `downloadForLocal` / `applyLocal` 调用 `BackendLocalSnapshot.swift`，后者按名字动态查找共享的 `MSIMEClientSession`，用 `snapshotVersion:`、`prepareSnapshot:`、`applySnapshot:`、`discardSnapshot:` 四个选择器完成整个流程；激活前先用 `snapshotActivationReady` 确认会话空闲。
 
-## 必须完成的接入链路
+`shared/apple/MSIMEClientSession.{h,mm}` 把这些选择器转成 `crates/host-api/include/msime_client.h` 里的 C ABI：`msime_client_snapshot_version`、`msime_client_snapshot_inspect`、`msime_client_snapshot_prepare`、`msime_client_snapshot_discard`、`msime_client_snapshot_activate`、`msime_client_snapshot_restore` 和 `msime_client_snapshot_queue`。记录流由宿主以 `msime_client_snapshot_next` 回调逐条同步喂进去：正数表示一条 UTF-8 JSON 的长度，0 只在校验过的 EOF 处返回，负数表示取消或损坏，回调本身不得抛出或栈展开。
 
-1. 在 Engine/engine-bridge 边界实现完整快照记录流准备，保留个人词条、基础覆盖/删除、固定位置及选择计数语义。复用已校验资源和隔离的客户端用户目录，不读取旧产品目录。
-2. 在 host-api 提供拥有明确生命周期的准备句柄：创建、提交、丢弃；拒绝无效/过期句柄。凭据和网络请求继续留在 Swift 后端，不能进入 client-core。
-3. 读取一致的本地版本；在预览后发生本地学习、编辑或代次切换时拒绝覆盖。准备阶段不能修改活动词库。
-4. 激活必须协调现有所有会话与跨进程词库访问锁，拒绝繁忙组合或采用可验证的延期方案；探测新代次成功后原子发布，重建当前运行时会话并使旧候选回调失效。失败保留旧安装可用。
-5. 通过 `MSIMEClientSession` 暴露给 macOS 的同步适配器，接通现有 SwiftUI 预览/确认/取消流程；不使用旧 C++ 宿主的静态全局会话。
-6. 明确取消、应用失败、应用成功及窗口关闭后的 staging 清理策略；不得删除活动代次。
+Rust 侧的实现在 `crates/host-api/src/dictionary_snapshot.rs`（记录解析在 `dictionary_snapshot/record.rs`）。`inspect` 先校验完整的 NDJSON 信封——头尾顺序、整段 body 的校验和、分类顺序和记录边界都属于云端格式的一部分；Engine 记录更深一层的、按方案区分的校验放在 prepare 阶段。准备句柄登记在进程内的注册表里，`activate` 只接受未过期的句柄并比对期望版本，发布前做原子替换，失败时把原目录搬回来；回滚之后留下的空备份目录才会被删掉，`remove_dir` 对非空目录的拒绝正是这里要的保护——那时备份可能是用户词库仅剩的一份。
 
-## 验收证据（均仍待补齐）
+`shared/apple-bridge/DictionarySnapshotBridge.{h,mm}` 是 macOS 宿主与 iOS 键盘共用的那层记录流/状态版本适配，`shared/snapshot`（Swift Package）负责快照文件格式本身的校验与上传。
 
-- 合成记录覆盖全部记录类别、四种词库、删除/固定位置/调频恢复；不能只验证词条数量。
-- 超限、截断、损坏摘要、非法资源路径、重复/冲突记录在发布前被拒绝。
-- 预览后本地版本变化、跨进程锁竞争、非空组合、会话重建失败时原词库保持可用。
-- 取消、重复清理、过期句柄、重复提交和激活后的清理不损坏活动代次。
-- 当前原生 app 实际包含同步适配器且调用真实 host-api；selector 存在本身不足以证明恢复成功。
-- 隔离资源下，在已确认当前输入源 ID 的真实编辑器中，恢复前后候选/上屏变化来自目标 MSIME 会话；恢复环境和原输入源也需确认。
-- 修改 Rust 后执行测试、fmt、clippy；Swift 与原生宿主执行对应构建/测试。提交前跑 `bash scripts/verify-local.sh --quick`，Pull Request 上的 macOS CI 也须通过。
+凭据和网络请求留在 Swift 后端，不进入 `client-core`。`engine-bridge` 的 `EngineSession.snapshot()` 返回的是编辑串/候选这类输入状态，与词库快照无关。
 
-## 当前结论
+## 边界
 
-云端备份/恢复与本地词库替换是不同链路。当前准备、句柄生命周期、版本校验、锁协调和基础原生测试已接通；完整记录类别回归、跨进程竞争、安装后的 IMK 编辑器链路与故障注入验收仍未完成，因此本项不能宣称完整交付。
+- 准备阶段不修改活动词库，只在隔离的客户端用户目录里落暂存数据，用的是已校验资源。
+- 预览之后发生本地学习、编辑或代次切换时，版本比对会让本次覆盖失败，而不是静默覆盖。
+- 激活要与现有会话和跨进程词库访问锁协调：探测到新代次成功后才原子发布，并重建当前运行时会话、使旧候选回调失效。失败保持旧安装可用。
+- 取消、应用失败和窗口关闭都走 `discardSnapshot:`，清理只动 staging，不碰活动代次。
+
+## 本地验证
+
+`snapshot-activation-test` 链接 `apple-client`，需要显式运行并传入一份与 `resources/desktop-dictionary.lock.json` 匹配的已校验资源目录：
+
+```sh
+cmake --build <build-dir> --target snapshot-activation-test
+<build-dir>/snapshot-activation-test /absolute/path/to/verified-desktop-resources
+```
+
+它在新建的临时目录里准备用户数据和暂存快照，验证真实激活、英文模式开关的保留、导入词条的候选与提交，成功后删除测试状态，不修改传入的资源目录或实际用户词库。Rust 侧的单元测试在 `crates/host-api/src/dictionary_snapshot/tests.rs`，覆盖信封校验、记录边界、句柄生命周期与激活失败路径。
+
+上游对照：MSIME-Windows 远端默认分支 `develop`，本文写作时查询到的头为 `04a8df56f86312474a069f4335a1b58da7afaa9e`。

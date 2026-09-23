@@ -1,6 +1,6 @@
 # Contributing to 水杉输入法
 
-感谢参与水杉输入法共享客户端。提交改动前，请先阅读 [ARCHITECTURE.md](ARCHITECTURE.md) 了解分层方式、不能打破的四条边界、验证流程和证据分级，并查看[变更记录](CHANGELOG.md)了解当前公开范围。使用编码代理的话，[AGENTS.md](AGENTS.md) 里是给它们的操作约定。
+感谢参与水杉输入法共享客户端。提交改动前，请先阅读 [ARCHITECTURE.md](ARCHITECTURE.md) 了解分层方式、不能打破的四条边界、验证流程和各平台的验证覆盖面，[变更记录](CHANGELOG.md)里是历次改动。使用编码代理的话，[AGENTS.md](AGENTS.md) 里是给它们的操作约定。
 
 ## 开发流程
 
@@ -14,6 +14,6 @@
 
 ## Pull request
 
-描述问题、行为变化和验证结果。平台环境不可用时请明确列出跳过的检查，不要把静态检查表述为设备或系统验收。CI 会在 Pull Request 上运行，本地 quick 门禁仍是提交前的快速检查。
+描述问题、行为变化和验证结果：在哪个平台上跑了哪些命令，得到什么。CI 会在 Pull Request 上运行，本地 quick 门禁仍是提交前的快速检查。
 
 GitHub 的 issue 和 PR 模板会提醒贡献者使用合成输入、列出实际验证并补充第三方许可证信息。安全漏洞、凭据泄露、真实输入或进程边界问题不要通过公开 issue/PR 报告，请按 [安全策略](SECURITY.md) 私下提交。
