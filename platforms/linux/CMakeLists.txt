@@ -300,6 +300,8 @@ add_test(NAME linux-ibus-startup-telemetry
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/ibus_startup_telemetry.py"
                  $<TARGET_FILE:msime-client-ibus> $<TARGET_FILE:linux-ibus-registration-bus> "${MSIME_LINUX_VERSION}")
 set_tests_properties(linux-ibus-startup-telemetry PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+add_test(NAME linux-voice-provider-degraded-start
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/provider_degraded_start.py")
 add_executable(linux-first-run-guidance-test tests/core/first_run_guidance.cpp)
 target_compile_options(linux-first-run-guidance-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-first-run-guidance-test PRIVATE src)

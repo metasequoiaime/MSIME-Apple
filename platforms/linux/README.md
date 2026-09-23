@@ -113,9 +113,9 @@ IBus 属性菜单中的“候选翻译”在配置绝对共享偏好目录时按
 
 Fcitx5 对同一组流式语音设置采用同样语义：豆包流式识别且 `stream_inline_preedit=true` 时把 partial 写入原生预编辑，与存着的 `commit_mode` 无关；关闭开关或使用其他识别服务时只在辅助区域显示。最终响应为空但已经收到有效 partial 时，保留最后一份有界中间转写作为最终提交；完成、取消、失焦和会话关闭都会清除预编辑与缓存，避免旧代次重新出现。
 
-Fcitx5 宿主复用同一套 X11/Wayland 原生浮层和取消、结束按钮；浮层不可用或 `MSIME_WAVE_OVERLAY_BACKEND=ibus`（也接受 `auxiliary`）时，实时状态回退到 Fcitx5 辅助栏。Fcitx5 的浮层同样不请求键盘焦点，完成、取消、异常和焦点关闭都会清理浮层。
+Fcitx5 宿主复用同一套 X11/Wayland 原生浮层和取消、结束按钮；没有可用的显示后端、浮层无法显示（例如 GNOME Wayland 没有 `wlr-layer-shell`）或 `MSIME_WAVE_OVERLAY_BACKEND=ibus`（也接受 `auxiliary`）时，实时状态回退到 Fcitx5 输入面板上方的辅助文字。浮层显示失败后本次录音都走辅助文字，下次录音再尝试浮层，与 IBus 的回退一致。Fcitx5 的浮层同样不请求键盘焦点，完成、取消、异常和焦点关闭都会清理浮层。
 
-语音失败时两个宿主都会告诉用户，对应 Windows 语音服务弹出的提示框：浮层（没有浮层时是辅助栏）显示固定的一句话约 1.2 秒，分别说明未识别到文字、语音服务或提供商出错、结束录音被拒（本次语音随之取消）以及没有配置语音服务。文字是固定的，不透传 provider 的错误信息，以免其中带出凭据等私人内容。Fcitx5 此前在这些情况下只是收起浮层，看上去像按键没有反应。Fcitx5 浮层也和 IBus 一样区分「识别中」与「整理中」两种收尾状态，并在按住空格锁定录音时显示锁定标记。
+语音失败时两个宿主都会告诉用户，对应 Windows 语音服务弹出的提示框：浮层（没有浮层时是辅助栏）显示固定的一句话约 1.2 秒，分别说明未识别到文字、语音服务或提供商出错、结束录音被拒（本次语音随之取消）以及没有配置语音服务；语音服务报告缺少 websockets 或录音工具时改为说明该装什么，因为重新录音无法解决。语音服务没有给出结果（包括无法连接或返回失败）算作服务出错，不会提示未识别到文字。文字是固定的，不透传 provider 的错误信息，以免其中带出凭据等私人内容；流式 C ABI 只在 `detail` 是 `websockets` 或 `recorder` 时以 `voice_dependency_missing:<detail>` 错误返回，其他失败仍返回空值。Fcitx5 此前在这些情况下只是收起浮层，看上去像按键没有反应。Fcitx5 浮层也和 IBus 一样区分「识别中」与「整理中」两种收尾状态，并在按住空格锁定录音时显示锁定标记。
 
 两个宿主向 provider 转发的语音选项由共享的 `src/voice/VoiceProviderOptions.h` 生成，不再各维护一份：Fcitx5 以前那份漏掉了提示词，选了自定义润色方案的用户在这里得到的其实是默认的整理提示词。设置页提示词框里的文字（内置方案被就地修改后的全文，或所选自定义槽位的内容）以 `polish_prompt` 转发，provider 只要它非空就用它润色，与 Windows 的 `ResolvePolishSystemPrompt` 一致；此前在 Linux 上改内置方案的提示词不起作用。超过 8 KiB 的提示词直接拒绝，不截断，以免被截断的指令改变润色的意思。
 
@@ -406,7 +406,7 @@ msime-client-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
 
 先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，含必需的 `asr` 对象和可选 `polish` 对象；批量识别及润色对象包含 `provider`、`token` 两个非空字符串，以及可选的 `endpoint` 和 `model`。批量 ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；私有配置在每次录音开始时重新加载，更换凭据或端点无需重启服务。
 
-服务捕获 16kHz 单声道 PCM，在内存中封装 WAV 并发送到配置的 `/audio/transcriptions` 兼容接口。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
+服务通过 `parec`、`pw-cat` 或 `arecord` 捕获 16kHz 单声道 PCM（.deb 以 Recommends 声明 `pulseaudio-utils | pipewire-bin | alsa-utils`），在内存中封装 WAV 并发送到配置的 `/audio/transcriptions` 兼容接口。所选后端的录音工具不存在时服务照常启动并在日志中写明，录音请求返回 `detail` 为 `recorder` 的 `voice_dependency_missing`，IBus 与 Fcitx5 宿主都提示“未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils”，装上工具后下一次录音即可使用。配置文件、socket 目录、录音设备名或录音上限无效，命令行参数有误，或服务已在运行、socket 无法恢复时，服务以状态 2 退出，systemd 不再重启。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
 
 润色保留 Windows 的精炼整理、忠实校对、中翻英、口语整理及三个自定义提示词选择，并沿用 `<asr_text>` 包装和 provider thinking 设置。批量识别没有录音中的实时转写；启用润色时可先返回原始转写的 partial，再返回整理后的 final。Doubao 实时识别使用下述 WSS 配置。
 
@@ -414,7 +414,7 @@ msime-client-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
 
 ### Doubao 实时识别
 
-`asr.provider` 设为 `doubao` 时，语音服务使用相同录音和控制入口流式上传，无需先录完整段音频。运行服务的 Python 环境须安装 `websockets==15.0.1`；依赖清单随包安装至 `share/msime-client/requirements-voice.txt`，缺少依赖时启动返回通用配置错误，不会录音后才失败。批量识别仍只依赖 Python 标准库。同步 WebSocket 客户端参数参考其[官方文档](https://websockets.readthedocs.io/en/15.0.1/reference/sync/client.html)。
+`asr.provider` 设为 `doubao` 时，语音服务使用相同录音和控制入口流式上传，无需先录完整段音频。流式识别需要 websockets 15.0 或更高版本的同步客户端（15.0 起才接受连接所用的保活参数，旧版要到连接时才报错，所以服务在启动和每次 Doubao 请求前同时检查版本号和这些参数）。.deb 以 Recommends 声明 `python3-websockets (>= 15)`，Debian 13、Ubuntu 25.10 及更新版本的发行版包满足要求；Debian 12、Ubuntu 24.04 和 25.04 的发行版包过旧，须按随包安装的 `share/msime-client/requirements-voice.txt`（`websockets>=15,<16`）用 `pip install --user` 为系统 Python 安装（这些版本的系统 Python 受 PEP 668 保护，需加 `--break-system-packages`，只写入当前用户目录），装好后重启语音服务。缺少或版本过旧时语音服务照常启动并在日志中写明，只有 Doubao 请求在录音前返回 `{"ok":false,"error":"voice_dependency_missing","detail":"websockets"}`，IBus 与 Fcitx5 宿主都提示“豆包语音需要 websockets 15 或更高版本，请安装 python3-websockets”，设置中的豆包连接测试同样直接说明缺少 websockets；批量识别和其他 provider 照常可用。批量识别仍只依赖 Python 标准库。同步 WebSocket 客户端参数参考其[官方文档](https://websockets.readthedocs.io/en/15.0.1/reference/sync/client.html)。
 
 Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windows 使用的 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`）及 `token`；`doubao_auth_mode` 可设为 `api_key`（新版控制台，发送单个 `X-Api-Key`）或 `legacy`（旧版控制台，发送 `X-Api-App-Key` 与 `X-Api-Access-Key`）。新版 API Key 放入 `token`；旧版还必须配置 `app_key`，并把 Access Token 放入 `token`。省略或填写未知模式时，服务按是否存在 `app_key` 推断，以兼容旧配置；显式 `api_key` 会忽略残留的 `app_key`。`resource_id` 默认 `volc.seedasr.sauc.duration`。`model` 可省略，协议固定使用 `bigmodel`。凭据仍保存在所有者专用 JSON 文件中；查询只能提供非敏感选项，不能改写已配置端点或凭据，非空 `asr_resource_id` 必须与服务配置一致。
 
