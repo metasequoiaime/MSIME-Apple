@@ -1,0 +1,63 @@
+#pragma once
+
+#include <cstddef>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+
+#include <nlohmann/json.hpp>
+
+namespace msime::linux_host {
+
+// The voice preferences a host forwards to the voice provider with each request. Both Linux hosts send the same set: the Fcitx5 host once kept its own list and dropped the prompt text, so custom polishing schemes silently fell back to the cleanup prompt there.
+//
+// `polish_prompt` is what the settings page shows in the prompt box, whichever scheme is selected: a built-in preset's text as the user may have edited it, or the selected custom slot's text. The Windows service polishes with it whenever it is non-empty (ResolvePolishSystemPrompt), so it is forwarded as well and the provider prefers it. The selected custom slot is still sent on its own for a preferences file written before the box was mirrored. A prompt over 8 KiB is refused rather than cut, since a truncated instruction would change what polishing does.
+inline nlohmann::json voice_provider_options(const nlohmann::json &preferences) {
+  const auto voice = preferences.value("voice_input", nlohmann::json::object());
+  nlohmann::json options = nlohmann::json::object();
+  constexpr const char *boolean_keys[] = {
+      "sound_enabled", "start_sound", "end_sound", "mute_system_audio",
+      "polish_enabled", "polish_text", "doubao_enable_itn",
+      "doubao_enable_punc", "doubao_enable_ddc", "stream_inline_preedit",
+      "hotkey_hold_space_lock"};
+  for (const auto *key : boolean_keys) {
+    if (voice.contains(key) && voice.at(key).is_boolean())
+      options[key] = voice.at(key);
+  }
+  constexpr const char *string_keys[] = {
+      "capture_backend", "capture_device", "commit_mode", "asr_provider", "asr_model",
+      "asr_resource_id", "doubao_auth_mode", "polish_provider", "polish_model",
+      "doubao_boosting_table_id", "polish_prompt_id"};
+  for (const auto *key : string_keys) {
+    if (!voice.contains(key) || !voice.at(key).is_string())
+      continue;
+    auto value = voice.at(key).get<std::string>();
+    if (std::string_view(key) == "doubao_auth_mode" && value != "api_key" && value != "legacy")
+      continue;
+    if (value.size() > 512) {
+      std::size_t end = 512;
+      while (end && (static_cast<unsigned char>(value[end]) & 0xc0) == 0x80) --end;
+      value.resize(end);
+    }
+    options[key] = std::move(value);
+  }
+  const auto prompt_text = [&](const char *key) {
+    if (!voice.contains(key) || !voice.at(key).is_string()) return std::string{};
+    auto prompt = voice.at(key).get<std::string>();
+    if (prompt.size() > 8192) throw std::runtime_error("Voice prompt exceeds limit");
+    return prompt;
+  };
+  if (auto prompt = prompt_text("polish_prompt"); !prompt.empty())
+    options["polish_prompt"] = std::move(prompt);
+  const auto preset = voice.value("polish_prompt_id", std::string{"cleanup"});
+  const char *slot = nullptr;
+  if (preset == "custom" || preset == "custom_1") slot = "polish_prompt_custom_1";
+  else if (preset == "custom_2") slot = "polish_prompt_custom_2";
+  else if (preset == "custom_3") slot = "polish_prompt_custom_3";
+  if (slot) {
+    if (auto prompt = prompt_text(slot); !prompt.empty()) options[slot] = std::move(prompt);
+  }
+  return options;
+}
+
+}  // namespace msime::linux_host

@@ -47,6 +47,7 @@
 #include "../src/system/TypingStatistics.h"
 #include "SystemTheme.h"
 #include "../src/voice/VoiceAction.h"
+#include "../src/voice/VoiceProviderOptions.h"
 #include "../src/overlay/WaveOverlayModel.h"
 #include "../src/overlay/WaveOverlaySurface.h"
 #ifdef MSIME_LINUX_HAS_X11_SURFACE
@@ -290,28 +291,6 @@ std::string translationSocket(const Json &options) {
   auto value = providerSocket(options, "translation_provider_socket",
                               "MSIME_TRANSLATION_PROVIDER_SOCKET", "translation.sock");
   return value.empty() ? onlineSocket(options) : value;
-}
-
-Json voiceProviderOptions(const Json &preferences) {
-  const auto voice = preferences.value("voice_input", Json::object());
-  Json options = Json::object();
-  for (const auto *key : {"sound_enabled", "start_sound", "end_sound",
-                          "mute_system_audio", "polish_enabled", "polish_text",
-                          "doubao_enable_itn", "doubao_enable_punc", "doubao_enable_ddc",
-                          "stream_inline_preedit", "hotkey_hold_space_lock"}) {
-    if (voice.contains(key) && voice.at(key).is_boolean()) options[key] = voice.at(key);
-  }
-  for (const auto *key : {"capture_backend", "capture_device", "commit_mode", "asr_provider",
-                          "asr_model", "asr_resource_id", "doubao_auth_mode",
-                          "polish_provider", "polish_model", "doubao_boosting_table_id",
-                          "polish_prompt_id"}) {
-    if (!voice.contains(key) || !voice.at(key).is_string()) continue;
-    auto value = voice.at(key).get<std::string>();
-    if (std::strcmp(key, "doubao_auth_mode") == 0 && value != "api_key" && value != "legacy") continue;
-    if (value.size() > 512) value.resize(512);
-    options[key] = std::move(value);
-  }
-  return options;
 }
 
 bool launchDesktopPanel(const char *panel) {
@@ -1397,7 +1376,7 @@ public:
     voice_hotkey_hold_space_lock_ =
         voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
     voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
-    voice_options_ = voiceProviderOptions(preferences_);
+    loadVoiceOptions();
     wave_overlay_.light_theme = msime_voice_overlay_light_theme(
         preferences_.value("voice_theme", "follow"),
         preferences_.value("theme", "dark"), system_dark_);
@@ -1495,7 +1474,7 @@ public:
             voice_hotkey_hold_space_lock_ =
                 voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
             voice_language_ = voicePreferences.value("language", voice_language_);
-            voice_options_ = voiceProviderOptions(preferences_);
+            loadVoiceOptions();
             wave_overlay_.light_theme = msime_voice_overlay_light_theme(
                 preferences_.value("voice_theme", "follow"),
                 preferences_.value("theme", "dark"), system_dark_);
@@ -2088,6 +2067,7 @@ public:
   }
   void updateVoiceOverlay() {
     wave_overlay_.status = voice_phase_;
+    wave_overlay_.locked = voice_space_locked_ && wave_overlay_.listening;
     wave_overlay_.set_transcript(voice_transcript_);
     wave_overlay_.set_input_level(static_cast<float>(voice_level_) / 10.0f);
     if (wave_overlay_surface_) {
@@ -2104,6 +2084,39 @@ public:
       ic_.inputPanel().setAuxUp(fcitx::Text("语音：" + status));
       ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
+  }
+  // Tell the user why nothing was typed, as the Windows service does with a message box and the IBus host with show_voice_failure: the overlay (or the auxiliary text when there is no overlay surface) carries a fixed message for 1.2 seconds. The messages are fixed on purpose, since provider errors can carry private values.
+  void showVoiceFailure(const char *message) {
+    if (++voice_failure_id_ == 0) ++voice_failure_id_;
+    const auto id = voice_failure_id_;
+    const std::string aux = std::string("语音：") + message;
+    voice_failure_visible_ = true;
+    wave_overlay_.reset();
+    wave_overlay_.status = message;
+    wave_overlay_.show_transcript = false;
+    wave_overlay_.actions_visible = false;
+    wave_overlay_.listening = false;
+    if (wave_overlay_surface_) {
+      if (wave_overlay_visible_)
+        wave_overlay_surface_->update(wave_overlay_);
+      else
+        wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
+    }
+    ic_.inputPanel().setAuxUp(fcitx::Text(aux));
+    ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    voice_failure_timer_ = loop_->addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1200000, 0,
+        [this, id, aux](fcitx::EventSourceTime *, uint64_t) {
+          if (voice_loading_ || voice_failure_id_ != id) return true;
+          voice_failure_visible_ = false;
+          hideVoiceOverlay();
+          wave_overlay_.reset();
+          if (ic_.inputPanel().auxUp().toString() == aux) {
+            ic_.inputPanel().setAuxUp(fcitx::Text());
+            ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+          }
+          return true;
+        });
   }
   bool refreshVoice() {
     try {
@@ -2140,7 +2153,15 @@ public:
             render();
           }
           const char *phaseLabel[] = {"录音中", "识别中", "整理中"};
-          if (phaseSeen) voice_phase_ = phaseLabel[std::min<size_t>(phase, 2)];
+          if (phaseSeen) {
+            voice_phase_ = phaseLabel[std::min<size_t>(phase, 2)];
+            if (phase >= 2)
+              wave_overlay_.compact_status =
+                  msime::linux_host::WaveOverlayModel::CompactStatus::Processing;
+            else if (phase == 1)
+              wave_overlay_.compact_status =
+                  msime::linux_host::WaveOverlayModel::CompactStatus::Recognizing;
+          }
           if (levelSeen) voice_level_ = level;
           if (!partial.empty()) voice_transcript_ = std::move(partial);
           updateVoiceOverlay();
@@ -2159,7 +2180,8 @@ public:
         voice_preedit_.clear();
         voice_transcript_.clear();
         voice_mailbox_.reset();
-        hideVoiceOverlay();
+        // A refused stop cancels the recording and shows why; the worker finishing afterwards must not take that notice down early.
+        if (!voice_failure_visible_) hideVoiceOverlay();
         render();
         return false;
       }
@@ -2189,6 +2211,8 @@ public:
         ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
         voice_mailbox_.reset();
         if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Voice); return true; }
+        showVoiceFailure("未识别到文字，请重新录音");
+        return false;
       }
       voice_preedit_.clear();
       voice_transcript_.clear();
@@ -2204,11 +2228,27 @@ public:
       voice_mailbox_.reset();
       hideVoiceOverlay();
       render();
+      if (ic_.hasFocus() && !restricted() && !privateInput())
+        showVoiceFailure("语音输入失败，请检查语音服务、麦克风及提供商配置后重试");
     }
     return false;
   }
+  // An oversized prompt must not take the rest of the configuration down with it; like the IBus host, the refusal surfaces when voice input starts.
+  void loadVoiceOptions() {
+    try {
+      voice_options_ = msime::linux_host::voice_provider_options(preferences_);
+      voice_options_valid_ = true;
+    } catch (const std::runtime_error &) {
+      voice_options_ = Json::object();
+      voice_options_valid_ = false;
+    }
+  }
   bool requestVoice() {
-    if (!voice_enabled_ || voice_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus() || voice_loading_) return false;
+    if (!voice_enabled_ || restricted() || privateInput() || !ic_.hasFocus() || voice_loading_) return false;
+    if (voice_socket_.empty() || !voice_options_valid_) {
+      showVoiceFailure("无法启动语音输入，请检查语音设置后重试");
+      return false;
+    }
     if (voice_job_.valid()) {
       if (refreshVoice()) return true;
       if (voice_job_.valid()) return false;
@@ -2230,6 +2270,7 @@ public:
     voice_transcript_.clear();
     voice_phase_ = "录音中";
     voice_level_ = 0;
+    voice_failure_visible_ = false;
     wave_overlay_.reset();
     wave_overlay_.listening = true;
     wave_overlay_.show_transcript = true;
@@ -2250,8 +2291,19 @@ public:
   bool stopVoice() {
     if (!voice_loading_ || voice_socket_.empty() || voice_generation_ == 0) return false;
     const auto socket = voice_socket_;
-    msime_client_string_free(msime_client_voice_provider_stop(
-        reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), voice_generation_));
+    bool stopped = false;
+    try {
+      stopped = response(msime_client_voice_provider_stop(
+          reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), voice_generation_))
+          .get<bool>();
+    } catch (...) {
+      stopped = false;
+    }
+    if (!stopped) {
+      cancelVoice();
+      showVoiceFailure("结束录音失败，本次语音已取消，请检查语音服务后重试");
+      return true;
+    }
     voice_phase_ = "识别中";
     wave_overlay_.listening = false;
     wave_overlay_.compact_status =
@@ -2683,6 +2735,10 @@ public:
   bool voice_rctrl_ralt_held_ = false;
   bool voice_space_consumed_ = false;
   bool voice_space_locked_ = false;
+  uint64_t voice_failure_id_ = 0;
+  bool voice_options_valid_ = true;
+  bool voice_failure_visible_ = false;
+  std::unique_ptr<fcitx::EventSourceTime> voice_failure_timer_;
   // Which context starts in Chinese, and which of the four configurable mode
   // chords this host answers. Fcitx5 had the CN/EN toggle on its status area
   // only: the settings page showed all four switches for this platform and none
