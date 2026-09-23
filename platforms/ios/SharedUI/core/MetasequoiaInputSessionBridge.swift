@@ -667,6 +667,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func commitReading() -> MetasequoiaInputSnapshot { command(11) }
   func moveCaretLeft() -> MetasequoiaInputSnapshot { command(4) }
   func moveCaretRight() -> MetasequoiaInputSnapshot { command(5) }
+  /// The segment edits the Windows composition binds to Ctrl+Backspace and Ctrl+← / →: a whole syllable (or a held phrase) at a time, on the unit boundaries the Engine owns.
+  func segmentBackspace() -> MetasequoiaInputSnapshot { command(12) }
+  func moveCaretLeftBySegment() -> MetasequoiaInputSnapshot { command(13) }
+  func moveCaretRightBySegment() -> MetasequoiaInputSnapshot { command(14) }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),

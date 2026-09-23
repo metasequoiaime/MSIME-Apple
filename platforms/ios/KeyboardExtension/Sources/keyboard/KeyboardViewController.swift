@@ -2893,6 +2893,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func repeatBackspace() {
+    // Holding backspace in a spelling takes it apart a syllable at a time, as Ctrl+Backspace does in the Windows composition, so a long spelling can be cut back to the syllable that went wrong instead of being thrown away whole. The hold ends with the composition: the repeat never carries on into text that is already in the document. Nine-key, wubi and the other schemes without lettered syllables keep the hold that clears the whole composition below.
+    if hasComposition && isChineseMode && inputScheme.editsBySyllable {
+      didRepeatBackspace = true
+      playInputClick()
+      render(session.segmentBackspace())
+      if !hasComposition {
+        backspaceRepeatTimer?.invalidate()
+        backspaceRepeatTimer = nil
+      }
+      return
+    }
     if !didRepeatBackspace && hasComposition {
       backspaceRepeatTimer?.invalidate()
       backspaceRepeatTimer = nil
@@ -2919,11 +2930,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return abs(velocity.x) > abs(velocity.y)
   }
 
-  private func moveCompositionCaret(by offset: Int) {
+  private func moveCompositionCaret(by offset: Int, bySegment: Bool = false) {
     guard offset != 0 else { return }
     var snapshot: MetasequoiaInputSnapshot?
     for _ in 0..<min(abs(offset), 64) {
-      snapshot = offset < 0 ? session.moveCaretLeft() : session.moveCaretRight()
+      if bySegment {
+        snapshot = offset < 0 ? session.moveCaretLeftBySegment() : session.moveCaretRightBySegment()
+      } else {
+        snapshot = offset < 0 ? session.moveCaretLeft() : session.moveCaretRight()
+      }
     }
     if let snapshot { render(snapshot) }
   }
@@ -2955,7 +2970,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .changed:
       let steps = cursorMovement.advance(to: pan.translation(in: view).x, document: document)
       if spaceDragEditsComposition && hasComposition {
-        moveCompositionCaret(by: steps)
+        moveCompositionCaret(
+          by: steps,
+          bySegment: inputScheme.editsBySyllable && SpaceCursorMovement.movesBySegment(velocity: pan.velocity(in: view).x))
       } else {
         moveCursor(by: steps)
       }
