@@ -1973,3 +1973,10 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 鸿蒙切换中英文时发的是 `MSIME_COMMIT_RAW`（2）。这条命令会走 `commit_raw_with_policy`，按 Enter 的规则学习；在 Ctrl+Shift+E 英文候选模式下，引擎自己的原始上屏也会学习。于是在中文模式下打了 `hello` 再切到英文，`hello` 会被记进英文词库。
 - 共享层新增 `MSIME_COMMIT_RAW_WITHOUT_LEARNING`（15）：同样把字母原样上屏，但不学习。在英文候选模式下，它读取预编辑后取消组字，绕开引擎自带的学习；临时模式的引导字母照 `InputSession` 的做法去掉。鸿蒙切换中英文的边界改用这条命令；Enter 和触屏上的原样上屏仍用 2，继续学习。手机和 2in1 走的是同一条路径。
 - Linux 的 Ctrl+Space 等切换组合键（`FcitxEngine.cpp`）同样发 2，存在同样的差异。那是 Linux 宿主的事，这里没有改动。
+
+### Windows：候选右键菜单每次打开都针对当前候选；托盘切换悬浮工具栏不再关菜单（2026-09-23）
+
+- 候选右键菜单：`CandidateWindow::show_context_menu` 只在第一次右键时创建 `CandidateFlyoutWindow`，选择回调按值捕获了那一次的 `CandidateClick`（会话、代次、候选序号），此后每次右键复用同一个浮出窗，置顶 / 删除 / 固定排位发出的都是第一次右键那个候选——在会话或代次已经变化后被 Engine 拒绝，或者落到同序号的另一个词上。同一段代码也只在创建时设过一次配色，之后切换皮肤、候选窗主题或系统深浅色，右键菜单仍是旧色。来源每次打开都重建菜单（`candidate_presenter.cpp:560-563` 刷新配色，`:698-765` 按当次候选建菜单）。本仓仍复用浮出窗（它持有两个窗口和两套 Direct2D 设备），改为每次打开时记录当次目标并重设配色：目标由 `CandidateMenuLayout.h` 的 `CandidateMenuTarget` 保存，一次选择消耗一次打开；菜单行到 Engine 动作的映射抽成 `candidate_menu_action`。`windows-candidate-menu-layout` 覆盖连续多次打开、未选即再开、子菜单行不消耗目标等情形。
+- 托盘菜单：来源的「悬浮工具栏」行是开关，点了原地翻转、菜单留着（`tray_menu_presenter.cpp:175-186`），其余行先 `Hide()` 再打开对应界面（`:188-199`）。本仓以前对所有成功的命令都关菜单。现由 `TrayMenuLayout.h` 的 `tray_menu_closes_after` 决定：只有工具栏开关留着菜单，并按 Server 报告的实时状态重画这一行。`windows-tray-menu-layout` 覆盖。
+- `CandidateMenu.h` 核对后不接入真实菜单：它是扁平的一级菜单（置顶、第 1–5 位、取消固定、删除平铺），而来源和本仓实际使用的 `CandidateMenuLayout.h` 都是「固定排位」带二级子菜单的结构；两份头文件定义了同名的 `CandidateMenuCommand` / `CandidateMenuItem`，不能同时包含。目前只有 `tests/ui/candidate_menu.cpp` 引用它，保留不删。第十八批那句「`CandidateMenu.h` 的注释直接引了来源行号」说的单码点不给删除的规则，真实菜单里由 `CandidateMenuLayout.h` 的 `candidate_menu_items` 实现，行为相同。
+- 验证层级：两个菜单的规则在本机用 clang 编译并运行对应的头文件测试；Windows 窗口代码经 `build-cross.sh x64` 交叉编译通过，没有在 Windows 桌面上实际点过。
