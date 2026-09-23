@@ -799,16 +799,28 @@ fn apply_windows_legacy_mixed_input(document: &str, preferences: &mut Preference
     changed
 }
 
+/// The reason prefix for an entry this layer or the Engine refuses on its own terms. Callers map it to one error code, so it stays stable while the part after the colon says which rule failed.
+pub const INVALID_DICTIONARY_ENTRY: &str = "invalid dictionary entry";
+
+pub(crate) fn invalid_dictionary_entry(reason: &str) -> String {
+    format!("{INVALID_DICTIONARY_ENTRY}: {reason}")
+}
+
 /// Edit only after every participating host has destroyed its sessions.
 /// Busy is retryable without cancelling any composition. The host must recreate
 /// sessions after success; no native/Tauri management command is exposed yet.
-/// Engine diagnostics are deliberately not returned: they may include user text.
+///
+/// An entry the Engine refuses is reported as `invalid dictionary entry: <reason>` with the Engine's reason, checked before anything is locked. Those reasons are fixed sentences in `validate_personal_dictionary_entry` that never repeat the submitted entry; collapsing them into one generic "rejected" left the settings page telling the user to retry an entry that could never be saved. Every other Engine diagnostic is still withheld, since it may include user text.
 pub fn edit_personal_dictionary(
     options: &EngineOptions,
     previous: Option<&msime_engine_bridge::DictionaryEntry>,
     replacement: Option<&msime_engine_bridge::DictionaryEntry>,
     request_id: &str,
-) -> Result<(), &'static str> {
+) -> Result<(), String> {
+    for entry in previous.iter().chain(replacement.iter()) {
+        msime_engine_bridge::dictionary_validate(entry)
+            .map_err(|error| invalid_dictionary_entry(error.what()))?;
+    }
     let _access = DictionaryAccess::try_maintenance(
         std::path::Path::new(&options.user_data),
         std::path::Path::new(&options.dictionaries),
@@ -816,10 +828,10 @@ pub fn edit_personal_dictionary(
     .map_err(|_| "dictionary access unavailable")?
     .ok_or("dictionary maintenance busy")?;
     if request_id.is_empty() {
-        return Err("dictionary request id required");
+        return Err("dictionary request id required".into());
     }
     msime_engine_bridge::dictionary_edit(options, previous, replacement, request_id)
-        .map_err(|_| "dictionary edit rejected")
+        .map_err(|_| "dictionary edit rejected".into())
 }
 
 /// A host-owned view of one entry in the verified local Emoji catalog.

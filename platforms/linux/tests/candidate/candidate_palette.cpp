@@ -1,3 +1,4 @@
+#include "../src/candidates/CandidateColors.h"
 #include "../src/candidates/CandidatePalette.h"
 
 #include <cassert>
@@ -63,6 +64,33 @@ int main() {
   assert(fluent_dark.border == 0x9B9B9Bu && fluent_dark.border_alpha == 0x2E && fluent_dark.border_width == 1);
   // An unknown id falls back to fluent, outline included.
   assert(candidate_builtin_palette("unknown", true).border == 0x9B9B9Bu);
+
+  // "follow" takes the global theme mode, as Windows resolves theme_cand against theme_mode: only "system" consults the desktop appearance.
+  {
+    using Json = nlohmann::json;
+    const std::vector<msime::linux_host::CandidateSkin> builtin = {{"fluent", "Fluent"}, {"wechat", "微信绿"}};
+    const auto follow = [&](const char *global, bool system_dark) {
+      return msime::linux_host::candidate_display_preferences(
+                 Json{{"theme", global}, {"candidate_theme", "follow"}, {"candidate_skin", "wechat"}}, system_dark,
+                 builtin, "fluent", Json())
+          .value("candidate_theme", std::string{});
+    };
+    assert(follow("dark", false) == "dark");
+    assert(follow("light", true) == "light");
+    assert(follow("system", true) == "dark");
+    assert(follow("system", false) == "light");
+    // An explicit candidate theme still wins over both.
+    const auto explicit_light = msime::linux_host::candidate_display_preferences(
+        Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true, builtin, "fluent", Json());
+    assert(explicit_light.value("candidate_theme", std::string{}) == "light");
+    // The resolved appearance reaches the colours: a dark global theme on a light desktop draws the dark skin.
+    const auto colors = msime::linux_host::resolve_candidate_colors(
+        msime::linux_host::candidate_display_preferences(
+            Json{{"theme", "dark"}, {"candidate_theme", "follow"}, {"candidate_skin", "wechat"}}, false, builtin,
+            "fluent", Json()),
+        "fluent");
+    assert(colors.background == 0x151515u);
+  }
 
   assert(msime::linux_host::candidate_preedit_with_caret("nihao", "nihao", 0) ==
          "|nihao");

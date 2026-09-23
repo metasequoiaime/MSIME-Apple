@@ -70,7 +70,7 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core�
 | `AISkinService.swift` | `crates/client-core/src/skin/ai.rs` + `HarmonyAiSkins.ets`（#3341） |
 | `SkinCommunityAPI.swift` | `crates/client-core/src/skin/community.rs` + `AccountCloudBridge.community`（#3336） |
 | `CloudDictionaryTransfer.swift` | 云词库面板与 `cloudDictionarySnapshot` |
-| `CommunityPreviewFixtures.swift` | `packages/ui/src/community`（离线预览数据，模拟器上已确认渲染） |
+| `CommunityPreviewFixtures.swift` | `packages/ui/src/community`（未登录时的离线预览数据） |
 | `CustomService.swift` | 共享 `ai_assistant` / `voice_input` 偏好；鸿蒙不另存一份服务配置 |
 | `KeyboardAIService.swift` | **不迁移**：iOS 用钥匙串把凭据共享给键盘扩展；鸿蒙键盘直接读同一份偏好文件，没有跨进程共享凭据这一步 |
 | `VoiceRecorder.swift` | **不迁移**：iOS 键盘扩展不能录音，所以 App 录完交接；鸿蒙键盘自己录（`HarmonyVoiceRecognizer.ets`） |
@@ -78,7 +78,7 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core�
 
 ## `platforms/ios/App/Sources`（36）——共享 React 设置页
 
-除下面标注的以外，全部落在 `packages/ui/src`，由鸿蒙的 WebView 承载。模拟器上已逐页确认渲染。
+除下面标注的以外，全部落在 `packages/ui/src`，由鸿蒙的 WebView 承载，并已逐页确认渲染。
 
 | 来源 | 去处 |
 | --- | --- |
@@ -97,10 +97,10 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core�
 | `CloudDictionaryView.swift`、`CloudDictionaryApplyView.swift`、`CloudDictionaryFilesView.swift` | `CloudDictionaryPanel`、`CloudDictionaryApplyPanel`、`CloudDictionaryFilesPanel` |
 | `PersonalDictionaryView.swift` | 词库页的本地词库管理 |
 | `PersonalDictionaryImportView.swift` | `PersonalDictionaryImportCard`（#3411） |
-| `FeatureSettingsViews.swift` | 输入页与词库页；其中「词库信息」一节本轮补齐（#3418） |
+| `FeatureSettingsViews.swift` | 输入页与词库页；「词库信息」一节由共享页提供（#3418） |
 | `FuzzyPinyinSettingsView.swift`、`KeyboardLayoutSettingsView.swift` | 输入页的模糊拼音与触摸布局 |
 | `TypingStatisticsView.swift`、`StatisticsCharts.swift` | `packages/ui/src/settings/typing-statistics.tsx` |
-| `HelpAndFeedbackViews.swift` | 帮助页与反馈页；反馈报告的系统版本本轮补齐（#3432） |
+| `HelpAndFeedbackViews.swift` | 帮助页与反馈页；反馈报告的系统版本取自本平台（#3432） |
 | `AboutAndDownloadViews.swift` | 关于页与桌面版下载入口 |
 | `ProviderPickerView.swift` | AI 页的 provider 选择器 |
 | `AppIconSettingsView.swift` | **不迁移**：本平台无公开 API，依据记在 `platforms/harmony/README.md`（#3345） |
@@ -191,18 +191,16 @@ EOF
 
 只有一处按平台特性做了不同决定：`ProviderPickerView` 是带 logo、副标题和搜索框的整页列表，共享层是一个 `<select>`。服务商共 12 个（`AI_PROVIDERS`），一个 12 项的原生下拉在手机上比搜索列表更顺手，而 `<select>` 正是 WebView 的原生控件——Apple 用整页列表是 SwiftUI 在 Form 里放 logo 的权宜。
 
-唯一零命中的是 `SkinGenerationView`，它只有两条字面量——一条调试参数、一条加载提示——所以这个比法对它本来就没有信号。读它的 27 行才看得出它是什么：`SavedSkinPublishFlow`，把已保存的皮肤拿去发布，未登录则**先把登录表单摆在面前**。顺着它查下去发现了两件事，第二件比第一件严重得多。
+唯一零命中的是 `SkinGenerationView`，它只有两条字面量——一条调试参数、一条加载提示——所以这个比法对它本来就没有信号。读它的 27 行才看得出它是什么：`SavedSkinPublishFlow`，把已保存的皮肤拿去发布，未登录则**先把登录表单摆在面前**。顺着它查下去查实了两处缺陷，第二处比第一处严重。
 
-**发布入口在鸿蒙和 Android 上根本不存在。** 共享层有两条渲染路径：只有社区皮肤的宿主渲染 `CommunitySkinsPage`，皮肤和资源都有的宿主渲染 `CommunityHomePage`——而后者**没有 `localSkinLibrary` 这个 prop**。`发布我的设计` 的渲染条件恰好是 `localSkinLibrary &&`，于是在走第二条路径的两个平台上它从来没画出来过。桌面走第一条，一直是好的。prop 接通之后模拟器上按钮出现、对话框能打开。
+**发布入口在鸿蒙和 Android 上曾经根本不存在。** 共享层有两条渲染路径：只有社区皮肤的宿主渲染 `CommunitySkinsPage`，皮肤和资源都有的宿主渲染 `CommunityHomePage`——而后者当时**没有 `localSkinLibrary` 这个 prop**，`发布我的设计` 的渲染条件恰好是 `localSkinLibrary &&`，于是在走第二条路径的两个平台上它从来没画出来过（桌面走第一条，一直是好的）。prop 接通后按钮出现、对话框能打开，并顺带修掉一个布局问题：窄屏下标题与操作区并排、操作区 `shrink-0`，三个 `whitespace-nowrap` 按钮把标题挤成一行两三个字，手机上改为标题与按钮各占一行。
 
-接通之后还暴露出一个布局问题：窄屏下标题与操作区并排，操作区 `shrink-0`，三个 `whitespace-nowrap` 按钮把标题挤成一行两三个字。手机上改为标题与按钮各占一行。
-
-**第二件**是那条未登录的路。共享层此前只回一句话（发布是"请先登录后再发布皮肤。"，下载是"登录已失效；仍可退出后匿名浏览。"），让用户自己去找账号页。现在这三处——画廊、详情、发布对话框——在 `community_unauthorized` 上给出"去登录"按钮，点了直接切到账号页；其他失败照旧只有说明。模拟器实测：未登录点"下载并试用"→ 错误旁出现"去登录"→ 点击 → 落到账号页的登录入口。
+**第二处**是那条未登录的路。共享层此前只回一句话（发布是"请先登录后再发布皮肤。"，下载是"登录已失效；仍可退出后匿名浏览。"），让用户自己去找账号页。现在画廊、详情、发布对话框三处都在 `community_unauthorized` 上给出"去登录"按钮，点了直接切到账号页；其他失败照旧只有说明。实测路径：未登录点"下载并试用"→ 错误旁出现"去登录"→ 点击 → 落到账号页的登录入口。
 
 顺带说明这个比法的边界：字面量命中是线索，不是判据。零命中可能只是这个视图没什么文案（上面这例），非零命中也不代表行为一致（行为层的证据在 [harmony-parity.md](harmony-parity.md) 的第四条轴）。它能做的是把 24 个屏幕缩到需要人读的那几个。
 
 ## 这份清单证明什么、不证明什么
 
-它证明的是「来源的每个产品源文件都有去处，且去处是写明的」，**不是**「每个函数的行为都逐字一致」。行为层的证据在 [harmony-parity.md](harmony-parity.md)：三条比对轴各自的方法与产出、四个查实并补齐的缺口、以及模拟器上从按键到候选上屏的完整验收。
+它证明的是「来源的每个产品源文件都有去处，且去处是写明的」，**不是**「每个函数的行为都逐字一致」。行为层的证据在 [harmony-parity.md](harmony-parity.md)：四条比对轴各自的方法与产出、逐条查实并补齐的行为分叉、以及装机运行中从按键到候选上屏的完整验收。
 
 三处「不迁移」都不是欠账，理由各自写在表里：应用图标本平台没有公开 API；语音交接和手写模型下载是 iOS 平台限制的变通，而鸿蒙没有那两个限制。

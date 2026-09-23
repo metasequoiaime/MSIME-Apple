@@ -90,14 +90,17 @@ inline std::optional<std::uint32_t> contrasting_color(std::optional<std::uint32_
   return black_contrast >= white_contrast ? 0x000000u : 0xffffffu;
 }
 
-// Resolve "follow" against the system appearance and fill the colours an installed (external) skin supplies for that appearance. Colours the user set explicitly always win over the skin's.
+// Resolve "follow" against the global theme mode, as Windows resolves theme_cand against theme_mode and as the voice overlay does here (VoiceAction.h): the desktop appearance decides only when that mode is "system", which is also the shared default when the key is absent. Then fill the colours an installed (external) skin supplies for that appearance. Colours the user set explicitly always win over the skin's.
 inline nlohmann::json candidate_display_preferences(nlohmann::json preferences, bool system_dark,
                                                     const std::vector<CandidateSkin> &builtin_skins,
                                                     const std::string &default_skin,
                                                     const nlohmann::json &catalog) {
   using Json = nlohmann::json;
-  if (preferences.value("candidate_theme", "follow") == "follow")
-    preferences["candidate_theme"] = system_dark ? "dark" : "light";
+  if (preferences.value("candidate_theme", "follow") == "follow") {
+    const auto global = preferences.value("theme", "system");
+    const bool dark = global == "system" ? system_dark : global != "light";
+    preferences["candidate_theme"] = dark ? "dark" : "light";
+  }
   const auto selected = preferences.value("candidate_skin", default_skin);
   if (candidate_skin_title(builtin_skins, selected) != "外部：" + selected) return preferences;
   if (!catalog.is_object()) return preferences;

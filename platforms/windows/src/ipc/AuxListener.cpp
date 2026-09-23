@@ -16,7 +16,8 @@ std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
                                                  MessageSink message_sink,
                                                  ActivationSink activation,
                                                  TerminalSink terminal,
-                                                 MaintenanceSink maintenance) {
+                                                 MaintenanceSink maintenance,
+                                                 StatisticsSink statistics) {
   error = ERROR_SUCCESS;
   if (!sink) {
     error = ERROR_INVALID_PARAMETER;
@@ -37,6 +38,7 @@ std::unique_ptr<AuxListener> AuxListener::create(const std::wstring &name,
   aux->activation_ = std::move(activation);
   aux->terminal_ = std::move(terminal);
   aux->maintenance_ = std::move(maintenance);
+  aux->statistics_ = std::move(statistics);
   aux->worker_ = std::thread([raw = aux.get()] { raw->run(); });
   return aux;
 }
@@ -144,6 +146,18 @@ void AuxListener::run() {
       // an unconditional "OK" would tell the DLL a teardown happened that did
       // not, which is worse than the wait.
       const bool done = terminal_ && terminal_(*terminal);
+      if (done)
+        write_ok(accepted.connection->handle());
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      if (done)
+        ++stats_.dispatched;
+      else
+        ++stats_.unknown_verb;
+      continue;
+    }
+    if (const auto statistics = parse_aux_typing_statistics(*text)) {
+      // The batch carries typed characters, so it goes to the sink and nowhere else. The DLL backs off when no "OK" arrives, which is the right answer both when statistics are off and when nobody is listening for them.
+      const bool done = statistics_ && statistics_(*statistics);
       if (done)
         write_ok(accepted.connection->handle());
       std::lock_guard<std::mutex> lock(stats_mutex_);

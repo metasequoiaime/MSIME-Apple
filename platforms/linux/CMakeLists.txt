@@ -174,6 +174,7 @@ add_test(NAME linux-shuangpin-profile-names COMMAND linux-shuangpin-profile-name
 add_executable(linux-candidate-palette-test tests/candidate/candidate_palette.cpp)
 target_compile_options(linux-candidate-palette-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-palette-test PRIVATE src)
+target_link_libraries(linux-candidate-palette-test PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME linux-candidate-palette COMMAND linux-candidate-palette-test)
 add_executable(linux-candidate-fcitx-theme-test tests/candidate/candidate_fcitx_theme.cpp)
 target_compile_options(linux-candidate-fcitx-theme-test PRIVATE -Wall -Wextra -Werror)

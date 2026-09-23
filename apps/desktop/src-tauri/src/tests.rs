@@ -314,6 +314,8 @@ fn ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
     preferences.voice_input.asr_app_key = "stale-app".into();
     preferences.voice_input.doubao_auth_mode = "api_key".into();
     preferences.voice_input.doubao_boosting_table_id = "fixture-table".into();
+    // The first-run value differs between the macOS test host and the mobile hosts, so state it.
+    preferences.voice_input.doubao_enable_ddc = false;
     let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
     assert_eq!(configuration.provider, "doubao");
     assert_eq!(
@@ -543,6 +545,47 @@ fn chrome_background_matches_the_shared_stylesheet() {
     assert_eq!(
         super::chrome_background(None),
         super::CHROME_BACKGROUND_LIGHT
+    );
+}
+
+#[test]
+fn an_invalid_dictionary_entry_keeps_its_own_code() {
+    for reason in [
+        "invalid dictionary entry",
+        "invalid dictionary entry: code is empty or too long",
+        "invalid dictionary entry: code contains characters this dictionary does not accept",
+        "invalid dictionary entry: Use complete pinyin syllables separated by apostrophes or spaces",
+        "invalid dictionary entry: Each character must have one pinyin syllable (maximum 64)",
+        "invalid dictionary entry: Wubi codes contain one to four letters",
+    ] {
+        assert_eq!(
+            super::dictionary_error_code(reason),
+            "dictionary_invalid_entry",
+            "{reason}"
+        );
+    }
+    // A valid code with a bad word or weight must not be reported as a code problem, or the page tells the user to fix the wrong field.
+    for reason in [
+        "invalid dictionary entry: word is empty or too long",
+        "invalid dictionary entry: word contains a control character",
+        "invalid dictionary entry: weight is outside 1 to 100000000",
+        "invalid dictionary entry: Weight must be between 1 and 100000000",
+        "invalid dictionary entry: The word contains an unsupported control character",
+    ] {
+        assert_eq!(
+            super::dictionary_error_code(reason),
+            "dictionary_invalid_word",
+            "{reason}"
+        );
+    }
+    // A different failure that merely shares the words is not an entry refusal.
+    assert_eq!(
+        super::dictionary_error_code("invalid dictionary entryway"),
+        "storage"
+    );
+    assert_eq!(
+        super::dictionary_error_code("dictionary edit rejected"),
+        "storage"
     );
 }
 
@@ -1087,12 +1130,177 @@ fn runtime_options_sync_replaces_preferences_atomically() {
     let state = RuntimeOptionsState {
         path: Some(path.clone()),
         document: Arc::new(Mutex::new(document)),
+        skins: None,
     };
     let mut preferences = Preferences::default();
     preferences.candidate_page_size = 9;
     sync_runtime_options(&state, &preferences).unwrap();
     let updated: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(updated["preferences"]["candidate_page_size"], 9);
+}
+
+#[cfg(target_os = "linux")]
+fn write_candidate_skin(skins: &std::path::Path, id: &str, name: &str) {
+    let package = skins.join(id);
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::write(
+        package.join("skin.toml"),
+        format!("schema_version = 1\nid = '{id}'\nname = '{name}'\nversion = '1.0'\nbase = 'fluent'\n[supports]\nlayouts = ['vertical', 'horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n[candidate.light]\nsurface = '#fff0f5'\nselected = '#ff69b4'\ntext = '#301020'\n[candidate.dark]\nsurface = '#301020'\ntext = '#ffe4e1'\nborder = '#ff000080'\n"),
+    )
+    .unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn runtime_options_sync_publishes_the_installed_skin_catalog() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("runtime-options.json");
+    let skins = directory.path().join("skins");
+    write_candidate_skin(&skins, "sakura", "樱花");
+    let document =
+        serde_json::json!({"api_version": 1, "resources": "/resources", "preferences": {}});
+    std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+    let state = RuntimeOptionsState {
+        path: Some(path.clone()),
+        document: Arc::new(Mutex::new(document)),
+        skins: Some(skins.clone()),
+    };
+    sync_runtime_options(&state, &Preferences::default()).unwrap();
+    let updated: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    // The shape CandidateSkinCatalog.h and CandidateColors.h read: the manifest name under the key `title`, and the colours per theme.
+    assert_eq!(
+        updated["candidate_skin_catalog"],
+        serde_json::json!({"packages": [{
+            "id": "sakura",
+            "title": "樱花",
+            "candidate": {
+                "light": {"surface": "#fff0f5", "selected": "#ff69b4", "text": "#301020"},
+                "dark": {"surface": "#301020", "text": "#ffe4e1", "border": "#ff000080"},
+            },
+        }]})
+    );
+    assert_eq!(updated["resources"], "/resources");
+
+    // A rescan after the user removes the package publishes the smaller list without a save.
+    std::fs::remove_dir_all(skins.join("sakura")).unwrap();
+    publish_candidate_skin_catalog(&state, &msime_client_core::skin::catalog::scan(&skins))
+        .unwrap();
+    let rescanned: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        rescanned["candidate_skin_catalog"],
+        serde_json::json!({"packages": []})
+    );
+    assert_eq!(rescanned["preferences"], updated["preferences"]);
+
+    // Before setup there is no document to publish into, and that is not a failure.
+    let missing = RuntimeOptionsState {
+        path: Some(directory.path().join("absent.json")),
+        document: Arc::new(Mutex::new(Value::Null)),
+        skins: Some(skins),
+    };
+    publish_candidate_skin_catalog(
+        &missing,
+        &msime_client_core::skin::catalog::SkinCatalog::default(),
+    )
+    .unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn runtime_options_skin_catalog_stays_within_what_the_hosts_read() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let skins = directory.path().join("skins");
+    for index in 0..40 {
+        write_candidate_skin(
+            &skins,
+            &format!("skin{index:02}"),
+            &format!("皮肤 {index:02}"),
+        );
+    }
+    let catalog = msime_client_core::skin::catalog::scan(&skins);
+    let mut preferences = serde_json::to_value(Preferences::default()).unwrap();
+    // The last package by name: beyond the package cap and the first to go when trimming, were the selection not protected in both.
+    preferences["candidate_skin"] = "skin39".into();
+    let mut document = serde_json::json!({"api_version": 1, "preferences": preferences});
+    let bytes = runtime_options_with_skin_catalog(&mut document, &catalog).unwrap();
+    assert!(
+        bytes.len() <= LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET,
+        "{}",
+        bytes.len()
+    );
+    let packages = document["candidate_skin_catalog"]["packages"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(
+        !packages.is_empty() && packages.len() < 32,
+        "{}",
+        packages.len()
+    );
+    assert!(packages.iter().any(|package| package["id"] == "skin39"));
+    assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), document);
+
+    // A document already too large for the hosts is not made larger by the catalog.
+    let mut crowded = serde_json::json!({"preferences": {}, "padding": "x".repeat(LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET)});
+    runtime_options_with_skin_catalog(&mut crowded, &catalog).unwrap();
+    assert!(crowded.get("candidate_skin_catalog").is_none());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn dictionary_requests_do_not_see_the_published_skin_catalog() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("runtime-options.json");
+    let data = directory.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let data = data.to_string_lossy().into_owned();
+    let document = serde_json::json!({
+        "api_version": 1,
+        "resources": data,
+        "user_data": data,
+        "cache": data,
+        "dictionaries": data,
+        "preferences": Preferences::default(),
+        "candidate_skin_catalog": {"packages": []},
+    });
+    std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+    let action = serde_json::json!({"operation": "list", "offset": 0, "limit": 10});
+    let request = |options: &Value| {
+        serde_json::to_vec(&serde_json::json!({"options": options, "action": action})).unwrap()
+    };
+    // The Host API rejects the whole request when the catalog reaches it, which is what every dictionary page hit after the first save.
+    assert_eq!(
+        msime_host_api::dictionary_request_json(&request(&document)).unwrap_err(),
+        "invalid dictionary request"
+    );
+
+    let options = DictionaryHostOptions { path }.snapshot().unwrap();
+    assert!(options.get("candidate_skin_catalog").is_none());
+    assert_eq!(options["user_data"], document["user_data"]);
+    assert_ne!(
+        msime_host_api::dictionary_request_json(&request(&options))
+            .err()
+            .as_deref(),
+        Some("invalid dictionary request")
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn skin_rescan_keeps_its_list_when_the_catalog_cannot_be_published() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("runtime-options.json");
+    let skins = directory.path().join("skins");
+    write_candidate_skin(&skins, "sakura", "樱花");
+    std::fs::write(&path, b"{ not json").unwrap();
+    let state = RuntimeOptionsState {
+        path: Some(path.clone()),
+        document: Arc::new(Mutex::new(Value::Null)),
+        skins: Some(skins.clone()),
+    };
+    let response = rescan_skin_catalog(skins, &state);
+    assert_eq!(response.catalog.packages.len(), 1);
+    assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
 }
 
 #[cfg(target_os = "linux")]

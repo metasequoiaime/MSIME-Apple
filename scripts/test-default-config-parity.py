@@ -236,6 +236,30 @@ print(
     f"{len(windows_smart_punctuation)} switches"
 )
 
+# Muting, DDC and text polishing ship on in the source and in the Windows template. The running host reads the shared document, not the template, so the shared default has to say the same on Windows - and on macOS, which follows the source - or the template's value never reaches a fresh profile.
+source_voice_default = re.search(
+    r"fn source_voice_default\(\) -> bool \{\s*(.+?)\s*\}",
+    core_source,
+    re.DOTALL,
+)
+assert source_voice_default, "source_voice_default was not found"
+assert source_voice_default.group(1) == 'cfg!(any(windows, target_os = "macos"))', (
+    "the shared first-run default for the source-on voice switches must be on for Windows and "
+    f"macOS and unchanged elsewhere, not: {source_voice_default.group(1)}"
+)
+source_voice_switches = ("mute_system_audio", "doubao_enable_ddc", "polish_text")
+for field in source_voice_switches:
+    assert windows_defaults["voice_input"][field] is True, (
+        f"the Windows template must ship voice_input.{field} on, as the source does"
+    )
+    assert re.search(
+        rf'#\[serde\(default = "source_voice_default"\)\]\s*pub {field}: bool', core_source
+    ), f"voice_input.{field} must use source_voice_default for a missing key"
+    assert f"{field}: source_voice_default()," in core_source, (
+        f"VoiceInputPreferences::default() must take {field} from source_voice_default"
+    )
+print(f"Windows and macOS ship {len(source_voice_switches)} voice switches on, as the source does")
+
 # Statistics count what a person types, so the template and the shared default have to agree that
 # they start off. The reference says so in its own feature list, and a template that shipped them
 # on would turn them on for every fresh profile regardless of what the shared code says.

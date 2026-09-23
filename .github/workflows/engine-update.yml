@@ -11,10 +11,20 @@ permissions:
   contents: write
   pull-requests: write
 
+# repository_dispatch fires on every upstream release and the cron fires weekly, so two runs can
+# otherwise be force-pushing the same automation/engine-<sha> branch at once.
+concurrency:
+  group: engine-update
+  cancel-in-progress: false
+
 jobs:
   update:
-    runs-on: ubuntu-latest
+    # Pinned like every other job in this repository. ubuntu-latest migrates to Ubuntu 26 from
+    # 2026-10-19, and this workflow holds a PAT and contents: write -- not the place to find out.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
+      # persist-credentials stays on here, unlike every other checkout in this repository: the "Create pull request" step below pushes the bump branch with plain git, and that push authenticates with the credentials checkout leaves in .git/config. Removing them makes the push fail rather than making this job safer.
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

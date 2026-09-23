@@ -1716,7 +1716,7 @@ void translation_dispatch(IBusEngine *engine) {
       s.candidate_translations && !s.translation_provider_socket.empty();
   if ((!offline_gloss && !online_translation) ||
       s.translation_loading || !s.session ||
-      !s.focused || s.blocked || !s.input_enabled ||
+      !s.focused || s.blocked || !s.input_enabled || s.private_input ||
       !s.view.value("candidates", Json::array()).size())
     return;
   try {
@@ -1810,7 +1810,7 @@ void translation_schedule(IBusEngine *engine) {
   const bool online_translation =
       s.candidate_translations && !s.translation_provider_socket.empty();
   if ((!offline_gloss && !online_translation) ||
-      !s.session || !s.focused || s.blocked || !s.input_enabled ||
+      !s.session || !s.focused || s.blocked || !s.input_enabled || s.private_input ||
       s.view.value("candidates", Json::array()).empty())
     return;
   s.translation_delay_source = g_timeout_add_full(
@@ -1841,8 +1841,9 @@ bool online_request_is_stale(IBusEngine *engine, const std::string &encoded) {
 // Send one source's provider request. The AI source is sent twice per input change: a cache-only probe at once, then the network request after its own idle delay.
 void online_dispatch(IBusEngine *engine, uint8_t only_source, bool ai_cache_only = false) {
   auto &s = state(engine);
+  // Private and no-spellcheck fields stay offline, matching Fcitx5 privateInput().
   if (s.online_provider_socket.empty() || !s.session ||
-      !s.focused || s.blocked || !s.input_enabled)
+      !s.focused || s.blocked || !s.input_enabled || s.private_input)
     return;
   try {
     auto query = response(msime_client_online_query(s.session));
@@ -1874,7 +1875,10 @@ void online_dispatch(IBusEngine *engine, uint8_t only_source, bool ai_cache_only
                               ai.is_object() && ai.value("enabled", false);
     if (!(s.cloud_candidates && query.value("cloud_eligible", false)) && !ai_requested)
       return;
-    if (!s.private_input && ai_requested)
+    // The runtime puts its own commit history in every query; never let it leave a private field.
+    if (s.private_input)
+      query.erase("ai_context");
+    else if (ai_requested)
       query["ai_context"] = s.ai_context;
     const auto encoded = query.dump();
     // Keep the original Engine identity for application, while each transport
@@ -1931,7 +1935,7 @@ void online_schedule(IBusEngine *engine) {
     }
   }
   if (s.online_provider_socket.empty() || !s.session || !s.focused ||
-      s.blocked || !s.input_enabled)
+      s.blocked || !s.input_enabled || s.private_input)
     return;
   s.online_delay_source = g_timeout_add_full(
       G_PRIORITY_DEFAULT, kCloudIdleDelayMs,
@@ -2827,7 +2831,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto theme_menu = ibus_prop_list_new();
   const std::pair<const char *, const char *> theme_options[] = {
-      {"follow", "跟随系统"}, {"light", "浅色"}, {"dark", "深色"}};
+      {"follow", "跟随全局"}, {"light", "浅色"}, {"dark", "深色"}};
   for (const auto &[value, label] : theme_options) {
     auto item = ibus_property_new(
         (std::string("CandidateTheme/") + value).c_str(), PROP_TYPE_RADIO,

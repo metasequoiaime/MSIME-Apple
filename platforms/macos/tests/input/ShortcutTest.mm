@@ -4506,6 +4506,10 @@ int main(int argc, char **argv) {
         }
         TestCandidatePanel *panel = [TestCandidatePanel new];
         [controller setValue:panel forKey:@"panel"];
+        // Windows maps Left/Right to the composition caret while candidates are shown, so a visible vertical panel sends the same caret move as a hidden one does and still consumes the key.
+        const BOOL arrowVertical = appearance.vertical;
+        appearance.vertical = YES;
+        assert([appearance navigationEnabled:@"arrows"]);
         for (NSNumber *key in @[@123, @124]) {
             NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
             panel.visible = YES;
@@ -4513,12 +4517,13 @@ int main(int argc, char **argv) {
             client.committed = nil;
             client.marked = @"ceshi";
             assert([controller handleEvent:event client:client]);
-            assert(session.lastCommand == UINT32_MAX);
-            assert(client.committed == nil && [client.marked isEqualToString:@"ceshi"]);
+            assert(session.lastCommand == (key.unsignedShortValue == 123 ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT));
             panel.visible = NO;
+            session.lastCommand = UINT32_MAX;
             assert([controller handleEvent:event client:client]);
             assert(session.lastCommand == (key.unsignedShortValue == 123 ? MSIME_MOVE_LEFT : MSIME_MOVE_RIGHT));
         }
+        appearance.vertical = arrowVertical;
         HiddenCandidatePanel *layoutPanel = [[HiddenCandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         for (NSNumber *key in @[@115, @119]) {
             NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];

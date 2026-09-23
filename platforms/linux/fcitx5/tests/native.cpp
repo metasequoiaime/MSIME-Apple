@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <thread>
 #include <chrono>
+#include <limits>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -352,7 +353,7 @@ int main(int argc, char **argv) {
     engine.candidate_layout_action_.activate(&ic);
     require(state->preferences_.value("candidate_layout", std::string{}) == "horizontal",
             "candidate layout action cycles back to horizontal");
-    require(engine.candidate_theme_action_.shortText(&ic) == "候选主题：跟随系统",
+    require(engine.candidate_theme_action_.shortText(&ic) == "候选主题：跟随全局",
             "candidate theme action reads the preference snapshot");
     engine.candidate_theme_action_.activate(&ic);
     require(state->preferences_.value("candidate_theme", std::string{}) == "light",
@@ -1124,6 +1125,111 @@ int main(int argc, char **argv) {
       require(state->cycleScheme() && savedSchemeBecomes("scheme", "japanese") &&
                   savedSchemeBecomes("last_chinese_scheme", "wubi"),
               "Japanese leaves the last Chinese scheme alone");
+      state->close();
+      state->clearPanel();
+    }
+    // A status-bar choice outranked the store for the rest of the context's life, so a scheme picked later in the settings page never reached that window, and a helpcode schema picked under quanpin followed the user into shuangpin.
+    {
+      const auto loadStore = [&] {
+        return response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+      };
+      // What the settings page does: write the store, then mirror it into the runtime options file. Another window's status bar writes the store alone.
+      const auto settingsPageSetsScheme = [&](const char *scheme, bool mirror = true) {
+        auto snapshot = loadStore();
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["scheme"] = scheme;
+        snapshot["revision"] = revision + 1;
+        const auto document = snapshot.dump();
+        const auto saved = response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        require(saved.value("revision", uint64_t{}) > revision, "settings page scheme saved");
+        if (!mirror) return;
+        options["preferences"]["scheme"] = scheme;
+        std::ofstream(path) << options.dump();
+      };
+      require(state->ensure(), "session for the override expiry");
+      while (state->view_.value("scheme", 0u) != 1) require(state->cycleScheme(), "reach shuangpin");
+      require(state->scheme_override_ == std::optional<std::string>("shuangpin"),
+              "status bar keeps its scheme choice for this context");
+      settingsPageSetsScheme("wubi");
+      const auto reloadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+      while (state->view_.value("scheme", 0u) != 2 && std::chrono::steady_clock::now() < reloadDeadline) {
+        state->refreshPreferences();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+      require(state->view_.value("scheme", 0u) == 2 && !state->scheme_override_,
+              "a later settings page scheme replaces the status bar choice on reload");
+      // The same change made while the context had no session, as when the settings window has the focus.
+      require(state->cycleScheme() && state->cycleScheme() && state->cycleScheme() &&
+                  state->view_.value("scheme", 0u) == 1,
+              "status bar back to shuangpin");
+      state->close();
+      state->clearPanel();
+      settingsPageSetsScheme("wubi");
+      require(state->ensure() && state->view_.value("scheme", 0u) == 2 && !state->scheme_override_,
+              "a settings page scheme chosen while unfocused wins on the next session");
+      // Another window's status bar reaches only the store, so the runtime options file still says wubi; a new session takes the store's quanpin rather than a value no window has chosen since.
+      state->close();
+      state->clearPanel();
+      settingsPageSetsScheme("quanpin", false);
+      require(state->ensure() && state->view_.value("scheme", 0u) == 0,
+              "a store scheme the runtime options file never saw wins on the next session");
+      // A status-bar save that fails must not roll the menu back: not in the rebuild the cycle does itself, not on the next focus, and not once a later save takes over the single retry slot. At its last revision the store still loads but refuses every save, even for root in the gate container.
+      const auto storeFile = std::filesystem::path(preferenceDirectory) / "preferences.json";
+      std::string storeBytes;
+      {
+        std::ifstream in(storeFile, std::ios::binary);
+        storeBytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+      }
+      require(!storeBytes.empty(), "store file to freeze");
+      auto frozen = loadStore();
+      frozen["revision"] = std::numeric_limits<uint64_t>::max();
+      std::ofstream(storeFile, std::ios::binary | std::ios::trunc) << frozen.dump();
+      require(state->cycleScheme(), "status bar to shuangpin with a failing save");
+      require(state->preferences_save_retry_ && state->preferences_save_retry_->key == "scheme" &&
+                  loadStore().at("preferences").value("scheme", std::string()) == "quanpin",
+              "the status bar scheme save failed and awaits a retry");
+      require(state->view_.value("scheme", 0u) == 1 &&
+                  state->scheme_override_ == std::optional<std::string>("shuangpin"),
+              "a failed status bar save survives the cycle's own rebuild");
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && state->view_.value("scheme", 0u) == 1 &&
+                  state->scheme_override_ == std::optional<std::string>("shuangpin") &&
+                  state->preferences_save_retry_ && state->preferences_save_retry_->key == "scheme",
+              "a failed status bar save and its retry survive a focus change");
+      std::ofstream(storeFile, std::ios::binary | std::ios::trunc) << storeBytes;
+      require(state->cycleShuangpinProfile() && !state->preferences_save_retry_ &&
+                  loadStore().at("preferences").value("scheme", std::string()) == "quanpin",
+              "the shuangpin profile save lands and takes over the retry slot");
+      require(state->view_.value("scheme", 0u) == 1 &&
+                  state->scheme_override_ == std::optional<std::string>("shuangpin"),
+              "the unsaved scheme choice survives a later status bar save");
+      state->scheme_override_.reset();
+      state->shuangpin_profile_override_.reset();
+      state->scheme_unsaved_ = false;
+      state->shuangpin_profile_unsaved_ = false;
+      state->close();
+      state->clearPanel();
+      require(state->ensure(), "session for the helpcode leak check");
+      while (state->view_.value("scheme", 0u) != 0) require(state->cycleScheme(), "reach quanpin");
+      for (int step = 0; step < 6 && state->preferences_.value("quanpin_helpcode", Json::object())
+                                             .value("schema", std::string()) != "xiaohe"; ++step)
+        require(state->cycleHelpcodeSchema(), "cycle the quanpin helpcode schema");
+      require(state->preferences_.value("quanpin_helpcode", Json::object()).value("schema", std::string()) == "xiaohe",
+              "quanpin helpcode schema set to xiaohe from the status bar");
+      require(state->cycleScheme() && state->view_.value("scheme", 0u) == 1, "status bar to shuangpin");
+      const auto storedShuangpin = loadStore().at("preferences").value("shuangpin_helpcode", Json::object())
+                                       .value("schema", std::string("lantian"));
+      require(storedShuangpin == "lantian" && !state->helpcode_schema_override_ &&
+                  state->preferences_.value("shuangpin_helpcode", Json::object())
+                          .value("schema", std::string("lantian")) == storedShuangpin,
+              "shuangpin keeps the store's helpcode schema, not quanpin's status bar choice");
+      settingsPageSetsScheme("japanese");
+      state->scheme_override_.reset();
+      state->shuangpin_profile_override_.reset();
       state->close();
       state->clearPanel();
     }

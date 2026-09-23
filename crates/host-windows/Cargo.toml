@@ -35,14 +35,14 @@ windows-sys = { version = "0.59", features = [
 ] }
 # Windows Ink handwriting recognition is WinRT, which windows-sys does not
 # project; this is the same InkRecognizerContainer the reference panel uses.
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
   "UI_Input_Inking",
   "Foundation",
   "Foundation_Collections",
 ] }
-# The 0.61 projection takes these from their own crates.
-windows-numerics = "0.100"
-windows-collections = "0.2"
+# The 0.62 projection takes these from their own crates, and they have to be the versions windows 0.62 itself uses: a Matrix3x2 or an IIterable from a different windows-numerics / windows-collections is a different type to the compiler, however identical it looks.
+windows-numerics = "0.3"
+windows-collections = "0.3"
 
 [lints]
 workspace = true

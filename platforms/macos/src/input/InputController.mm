@@ -532,18 +532,36 @@ static NSString *MSIMEFullWidthSmartMark(unichar character, BOOL fullWidth) {
 @property(nonatomic) BOOL hasPreviousPage;
 @property(nonatomic) BOOL hasNextPage;
 @property(nonatomic, copy) void (^pageHandler)(BOOL previous);
+// True while a wheel page is being applied, so the re-render it causes keeps the scroll remainder.
+@property(nonatomic, readonly) BOOL wheelPaging;
+- (void)resetWheelAccumulator;
 @end
-@implementation MSIMECandidatePanel
+@implementation MSIMECandidatePanel {
+    double _wheelAccumulator;
+}
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (BOOL)canBecomeMainWindow { return NO; }
+- (void)resetWheelAccumulator { _wheelAccumulator = 0.0; }
+- (void)orderOut:(id)sender {
+    _wheelAccumulator = 0.0;
+    [super orderOut:sender];
+}
 - (void)scrollWheel:(NSEvent *)event {
     const auto action = msime::mac::CandidateWheelPageAction(
         event.scrollingDeltaY, self.mouseWheelEnabled, self.hasPreviousPage, self.hasNextPage);
-    if (action != msime::mac::CandidateWheelAction::None && self.pageHandler) {
-        self.pageHandler(action == msime::mac::CandidateWheelAction::PreviousPage);
+    if (action == msime::mac::CandidateWheelAction::None || !self.pageHandler) {
+        _wheelAccumulator = 0.0;
+        [super scrollWheel:event];
         return;
     }
-    [super scrollWheel:event];
+    const int steps = msime::mac::ConsumeCandidateWheelDelta(_wheelAccumulator, event.scrollingDeltaY,
+        event.hasPreciseScrollingDeltas, (event.phase & (NSEventPhaseBegan | NSEventPhaseMayBegin)) != 0,
+        event.momentumPhase != NSEventPhaseNone);
+    const BOOL previous = steps > 0;
+    _wheelPaging = YES;
+    for (int remaining = previous ? steps : -steps; remaining > 0 && self.pageHandler && (previous ? self.hasPreviousPage : self.hasNextPage); --remaining)
+        self.pageHandler(previous);
+    _wheelPaging = NO;
 }
 @end
 
@@ -700,6 +718,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     BOOL _backspaceHoldArmed;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
+    CGFloat _tallestVerticalCandidateHeight;
     NSInteger _armedGlossColumn;
     // Ctrl+Enter turns the highlighted candidate's gloss into a page of its senses. The composition
     // is untouched while that page is up - nothing was typed - so leaving it only needs the view
@@ -2371,7 +2390,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     // Windows plays the start cue and only then mutes other audio. The macOS mute is device-wide and would swallow the cue, so it waits for the cue to finish; any restore before then cancels it.
     void (^mute)(void) = nil;
-    if ([defaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"]) mute = [_voiceAudioMuter deferredMute];
+    if (MSIMEVoiceMuteSystemAudioEnabled(defaults)) mute = [_voiceAudioMuter deferredMute];
     if (MSIMEVoiceCueEnabled(defaults, YES)) [_voiceCuePlayer playStartCueThen:mute];
     else if (mute) mute();
 }
@@ -3818,10 +3837,13 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     }
     if (_panel.isVisible && [_appearance navigationEnabled:@"arrows"] && event.keyCode >= 123 && event.keyCode <= 126) {
         const BOOL horizontal = event.keyCode == 123 || event.keyCode == 124;
-        if (horizontal == _appearance.vertical) return YES;
-        const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
-        [self apply:[_session command:backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE error:nil]];
-        return YES;
+        // A vertical panel leaves Left/Right to the composition caret below, as Windows maps VK_LEFT/VK_RIGHT to FUNCTION_MOVE_LEFT/RIGHT while candidates are shown; the Engine answers the move with candidates for the new caret. Up/Down in a horizontal panel are still consumed so they never reach the host.
+        if (horizontal != _appearance.vertical) {
+            const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
+            [self apply:[_session command:backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE error:nil]];
+            return YES;
+        }
+        if (!horizontal) return YES;
     }
     if (_panel.isVisible && event.keyCode == 49 &&
         !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
@@ -4228,6 +4250,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         if (_appearance.candidateAppearanceOverrideConfigured) _panel.appearance = candidateAppearance;
     }
     MSIMECandidatePanel *candidatePanel = (MSIMECandidatePanel *)_panel;
+    if (!candidatePanel.wheelPaging) [candidatePanel resetWheelAccumulator];
     candidatePanel.mouseWheelEnabled = [_appearance navigationEnabled:@"mouse_wheel"];
     candidatePanel.hasPreviousPage = page > 0;
     candidatePanel.hasNextPage = page + 1 < pageCount;
@@ -4315,7 +4338,10 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     content.appearanceTarget = self;
     content.appearanceAction = @selector(refreshCandidateSkin);
     [self refreshCandidateSkin];
-    [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, _panel.frame.size, visible)];
+    const NSSize panelSize = _panel.frame.size;
+    // Every hide path orders the panel out, so a panel that is not on screen yet starts a fresh flip memory.
+    _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
+    [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0)];
     [_panel orderFrontRegardless];
 }
 
@@ -4348,6 +4374,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateNumberColorWithDefault:SkinColor(tokens.number)];
         button.barColor = [_appearance candidateAccentColorWithDefault:SkinColor(tokens.accent)];
         button.showSelectedBar = tokens.showSelectedBar;
+        button.cornerRadius = msime::mac::CandidateRowRadius(tokens, button.candidateHighlighted);
         button.contentTintColor = SkinColor(tokens.text);
         button.needsDisplay = YES;
     }

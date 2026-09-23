@@ -1437,6 +1437,30 @@ fn ai_assistant_rejects_unknown_provider_and_invalid_candidate_limit() {
 }
 
 #[test]
+fn default_ai_assistant_requests_carry_the_builtin_associative_prompt() {
+    // The stored slot stays empty on purpose. Android's keyboard and the iOS keyboard mirror read `ai_assistant.prompt` as their polish instruction and substitute a polish prompt only when it is blank, so storing the Windows associative text here would turn their polish answers into candidate JSON. Blank means "use the built-in prompt" at request time instead: here, and in the Linux provider's copy of the same text.
+    let mut ai = Preferences::default().ai_assistant;
+    assert!(ai.prompt.is_empty());
+    ai.enabled = true;
+    ai.endpoint = "https://synthetic.invalid/chat".into();
+    ai.model = "synthetic-model".into();
+    ai.token = "synthetic-token".into();
+    let request = crate::ai::AiSuggestionRequest {
+        segmented_pinyin: vec!["shu".into(), "ru".into()],
+        context: String::new(),
+        candidate_limit: ai.candidate_limit,
+    };
+    let descriptor = crate::ai::chat_completion_http_request(&ai, &request)
+        .unwrap()
+        .unwrap();
+    let system = &descriptor["body"]["messages"][0];
+    assert_eq!(system["role"], "system");
+    assert_eq!(system["content"], crate::ai::DEFAULT_CANDIDATE_PROMPT);
+    assert!(crate::ai::DEFAULT_CANDIDATE_PROMPT.contains("JSON"));
+    assert!(crate::ai::DEFAULT_CANDIDATE_PROMPT.contains("\"candidates\""));
+}
+
+#[test]
 fn candidate_font_size_bounds_are_strict() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
@@ -1919,6 +1943,44 @@ fn smart_punctuation_first_run_follows_the_windows_baseline() {
     let loaded = store.load().unwrap().preferences;
     assert_eq!(loaded.smart_punctuation, !expected);
     assert_eq!(loaded.smart_punctuation_repeat, !expected);
+}
+
+// The source ships muting, DDC and text polishing on; `config.default.toml` says so for Windows, and macOS follows the desktop product it ports. Each is a plain voice switch, so no platform reason keeps them off there. The other hosts keep what they have shipped, and a stored value is never reinterpreted.
+#[test]
+fn voice_first_run_follows_the_source_on_desktop_ports() {
+    let expected = cfg!(any(windows, target_os = "macos"));
+    let voice = Preferences::default().voice_input;
+    assert_eq!(voice.mute_system_audio, expected);
+    assert_eq!(voice.doubao_enable_ddc, expected);
+    assert_eq!(voice.polish_text, expected);
+    // Polishing the text is not the same switch as the separate polish pass; that one stays off.
+    assert!(!voice.polish_enabled);
+
+    let keys = ["mute_system_audio", "doubao_enable_ddc", "polish_text"];
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let section = legacy["preferences"]["voice_input"]
+        .as_object_mut()
+        .unwrap();
+    for key in keys {
+        section.remove(key).unwrap();
+    }
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.voice_input;
+    assert_eq!(loaded.mute_system_audio, expected);
+    assert_eq!(loaded.doubao_enable_ddc, expected);
+    assert_eq!(loaded.polish_text, expected);
+
+    let mut stored = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    for key in keys {
+        stored["preferences"]["voice_input"][key] = (!expected).into();
+    }
+    fs::write(store.path(), serde_json::to_vec(&stored).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.voice_input;
+    assert_eq!(loaded.mute_system_audio, !expected);
+    assert_eq!(loaded.doubao_enable_ddc, !expected);
+    assert_eq!(loaded.polish_text, !expected);
 }
 
 /// The HarmonyOS host has no way to match on this type.

@@ -2,6 +2,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <poll.h>
 #include <stdexcept>
@@ -10,6 +11,7 @@
 #include <sys/un.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 // Local synthetic translations; never contacts a network provider.
 class TranslationProviderFixture {
@@ -17,6 +19,11 @@ public:
   std::atomic<unsigned> requests{0}, english_greeting_requests{0}, online_requests{0};
   std::atomic<bool> hold_responses{false}, return_online_candidate{false}, tag_responses{false},
       multi_sense{false};
+  // The ai_context of every online request, in arrival order.
+  std::vector<std::string> online_ai_contexts() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return online_ai_contexts_;
+  }
   explicit TranslationProviderFixture(const std::string &path) : path_(path) {
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
@@ -42,6 +49,8 @@ private:
   int listener_ = -1;
   std::atomic<bool> stopped_{false};
   std::thread worker_;
+  std::mutex mutex_;
+  std::vector<std::string> online_ai_contexts_;
   void run() {
     while (!stopped_) {
       pollfd ready{listener_, POLLIN, 0};
@@ -74,6 +83,12 @@ private:
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
         send(client, response.data(), response.size(), MSG_NOSIGNAL);
       } else if (value.is_object() && value.value("kind", "") == "online") {
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          const auto &query = value.value("query", nlohmann::json::object());
+          online_ai_contexts_.push_back(
+              query.is_object() ? query.value("ai_context", std::string{}) : std::string{});
+        }
         ++online_requests;
         const std::string response = return_online_candidate
             ? "{\"candidates\":[{\"text\":\"云端测试\",\"source\":0}]}\n"

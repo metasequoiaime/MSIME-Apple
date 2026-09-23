@@ -47,7 +47,7 @@ comm -23 /tmp/ref.txt /tmp/ours.txt   # 这 26 条，应与下表一致
 | `main.mm` | 87 | `platforms/macos/src/input/input_method_main.mm` |
 | `PersonalDictionaryStore.h/.mm` | 44 / 191 | `platforms/macos/src/dictionary/DictionaryWindowController.{h,mm}` 与共享词库页 |
 | `PersonalDictionaryView.h/.mm` | 8 / 489 | Tauri 设置页「词库」（`packages/ui/src/index.tsx`），按「公共 UI 放 Tauri」重构 |
-| `TranslationClient.h/.mm` | 19 / 144 | `platforms/macos/src/cloud/TranslationCache.{h,mm}`、`cloud/CustomTranslationBatch.{h,mm}` |
+| `TranslationClient.h/.mm` | 19 / 144 | `platforms/macos/src/cloud/TranslationCache.{h,mm}`、`platforms/macos/src/core/CustomTranslationBatch.{h,mm}` |
 | `ShuangpinKeymap.h/.cpp` | 14 / 96 | `platforms/macos/src/settings/ShuangpinKeymapPanel.{h,mm}` |
 | `Uninstaller.h/.mm` | 15 / 127 | `crates/host-macos/native/uninstaller.mm`（仅大小写不同，有 `shared-uninstaller` CTest） |
 
@@ -80,22 +80,22 @@ ref=/path/to/MSIME-apple
 
 | 来源符号 | 目的地 |
 | --- | --- |
-| `MetasequoiaRegisterInputSource`、`MetasequoiaRegisterAndEnableInputSources`、`MetasequoiaShouldRegisterInputSource` | `input/InputSourceRegistration.h`、`input/input_method_main.mm`（仅前缀 `Metasequoia`→`MSIME`） |
-| `MetasequoiaInputModeHUDFrame`、`MetasequoiaIsUsableCaretRect` | `input/InputModeHUDPanel.mm` |
-| `MetasequoiaShuangpinKeymapPanelFrame` | `settings/ShuangpinKeymapPanel.h` |
-| `MetasequoiaFloatingToolbarWidth` | `core/FloatingToolbarPanel.mm` |
-| `ShouldAutoCommitUniqueWubiCandidate` | `core/WubiCommitPolicy.h` 的 `MSIMEShouldAutoCommitWubi` |
-| `ActionForSolitaryShift`、`handleSolitaryShiftFlags` | `core/ModifierTap.h`，控制器用 `_modifierTap.observe(...)` |
-| `ClassifyConfiguredControllerKey` | `input/InputControllerPhysicalKeys.h` |
+| `MetasequoiaRegisterInputSource`、`MetasequoiaRegisterAndEnableInputSources`、`MetasequoiaShouldRegisterInputSource` | `platforms/macos/src/input/InputSourceRegistration.h`、`platforms/macos/src/input/input_method_main.mm`（仅前缀 `Metasequoia`→`MSIME`） |
+| `MetasequoiaInputModeHUDFrame`、`MetasequoiaIsUsableCaretRect` | `platforms/macos/src/input/InputModeHUDPanel.mm`（后者为 `MSIMEValidCaret`） |
+| `MetasequoiaShuangpinKeymapPanelFrame` | `platforms/macos/src/settings/ShuangpinKeymapPanel.h` |
+| `MetasequoiaFloatingToolbarWidth` | `platforms/macos/src/core/FloatingToolbarPanel.mm` |
+| `ShouldAutoCommitUniqueWubiCandidate` | `platforms/macos/src/core/WubiCommitPolicy.h` 的 `MSIMEShouldAutoCommitWubi` |
+| `ActionForSolitaryShift`、`handleSolitaryShiftFlags` | `platforms/macos/src/core/ModifierTap.h`，控制器用 `MSIMEModifierTap` 观察修饰键 |
+| `ClassifyConfiguredControllerKey` | `platforms/macos/src/input/InputControllerPhysicalKeys.h` |
 | `MetasequoiaCandidateKeyOptions`、`MetasequoiaCandidateFollowsCaret` | 共享 `NavigationPreferences` / `candidate_follow_cursor` |
-| `candidatePinToggled` | `candidate/CandidateDisplay.h` |
+| `candidatePinToggled` | `platforms/macos/src/input/InputController.mm` 的 `MSIMETogglePinnedCandidate` / `MSIMECandidatePinCode` |
 | 释义与翻译共 12 个（`LookupCandidateGloss`、`FormatCandidateGloss`、`TakeLeadingSenses`、`FindSenseDelimiter`、`CollapseWhitespace`、`IsAsciiSpace`、`IsHanCodePoint`、`IsEnglishCandidateText`、`NextArmedGlossColumn`、`CandidateGlossRequestForModifiers`、`CandidateSupportsOnlineGloss`、`TranslationQueryForCandidate`、`CandidateTranslationProviderAt`） | `crates/host-api/src/ffi/translation.rs`（所有宿主共用的 C ABI） |
 | `EncodePersonalWord`、`DecodePersonalWord`、`personalEntriesAtOffset`、`ResetMetasequoiaLearnedData(ForCurrentUser)` | `crates/host-api/src/dictionary.rs` |
-| `InstallMetasequoiaDictionary`、`InstallMetasequoiaEnglishDictionary`、`InstallMetasequoiaHelpCodes`、`PrepareMetasequoiaDictionary` | `shared/apple-bridge/DictionaryInstallation.mm`、`dictionary/DictionaryInstaller.mm` |
+| `InstallMetasequoiaDictionary`、`InstallMetasequoiaEnglishDictionary`、`InstallMetasequoiaHelpCodes`、`PrepareMetasequoiaDictionary` | `shared/apple-bridge/DictionaryInstallation.mm`、`platforms/macos/src/dictionary/DictionaryInstaller.mm` |
 | `UninstallMetasequoia`、`UninstallMetasequoiaForCurrentUser` | `crates/host-macos/native/uninstaller.mm` 的 `msime_macos_uninstall_input_source` |
 
-这一轮没有找到新的缺口。
+这一轮没有找到缺口。
 
-## 这份清单不能证明什么
+## 这份清单覆盖的层与其余的层
 
-它证明的是「来源的每个源文件、每个函数都有去处」，不是「每个函数的行为都逐字一致」。行为层的证据在 `docs/macos-assertion-audit.md` 与 `docs/macos-parity.md`：截图比对、23 个控制项标识、27 个运行时偏好键、以及来源自己测试里的 93 条断言——最后这条轴找出了唯一一个真缺口（恢复默认设置，#3280），其余三条都没有新发现。
+这份清单覆盖的是文件与符号两层：来源的每个源文件、每个函数都有明确去处。行为层由另外两份文档覆盖：[macos-assertion-audit.md](macos-assertion-audit.md) 逐条核对来源测试里的 93 条断言（这条轴找出了唯一一个真缺口，恢复默认设置，#3280），[macos-parity.md](macos-parity.md) 记录截图比对、23 个控制项标识、27 个运行时偏好键，以及按来源注释里的理由逐条回验的行为层比对。四条轴各自可重跑，合起来没有剩余的已知缺口。

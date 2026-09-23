@@ -1,8 +1,10 @@
 name: Repository contracts
 
-# ReleaseConfigurationTests almost entirely reads files in the tree and asserts on their text: README.md against the features it promises, the Info.plist keys, the release workflow's steps and ordering, the packaging scripts. None of that needs Apple tooling, yet ctest only reaches it after the macOS build, so a README claim that no longer matches the code was reported around forty minutes into a pull request and cost a macOS runner to say so.
+# The text contracts read files in the tree and assert on their content - a README claim against the features it promises, the Info.plist keys, the release workflow's steps and ordering, the packaging scripts. None of that needs Apple tooling, yet ctest only reaches it after the macOS build, so a stale claim was reported around forty minutes into a pull request and cost a macOS runner to say so. This job is where those checks belong.
 #
-# Called by both ci.yml and ci-docs.yml so it runs on every pull request, and so a change to the documents it asserts on can skip the matrix without losing the assertions. Three cases genuinely need tiffutil, sips or zsh; a @requires guard skips those here and the macOS job keeps running them.
+# What it runs today is only the guard below. ReleaseConfigurationTests.py came from MSIME-Apple together with these workflows and was never brought over, so the step reports "skipped" on every run; the repository's own text contracts live in scripts/ and run from verify-local.sh instead.
+#
+# Called by both ci.yml and ci-docs.yml so it runs on every pull request, and so a change to the documents it asserts on can skip the matrix without losing the assertions.
 
 on:
   workflow_call:

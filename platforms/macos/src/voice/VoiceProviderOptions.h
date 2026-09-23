@@ -25,6 +25,7 @@ static inline BOOL MSIMEVoiceASRTokenMissing(NSString *provider, NSString *token
 
 // Adapt native preferences to the existing provider contract. Do not infer an
 // authentication mode here: older configurations rely on provider-side inference.
+// The boolean fallbacks match the shared macOS first-run defaults (`source_voice_default` in client-core).
 static inline NSDictionary *MSIMEVoiceProviderOptions(NSDictionary *query, NSUserDefaults *defaults) {
     NSMutableDictionary *result = [query mutableCopy];
     id commitMode = [defaults objectForKey:@"MSIMEClientVoiceCommitMode"];
@@ -36,10 +37,10 @@ static inline NSDictionary *MSIMEVoiceProviderOptions(NSDictionary *query, NSUse
     else
         [result removeObjectForKey:@"doubao_auth_mode"];
     NSArray *options = @[
-        @[@"polish_text", @"MSIMEClientVoicePolishText", @NO],
+        @[@"polish_text", @"MSIMEClientVoicePolishText", @YES],
         @[@"doubao_enable_itn", @"MSIMEClientVoiceDoubaoEnableITN", @YES],
         @[@"doubao_enable_punc", @"MSIMEClientVoiceDoubaoEnablePunctuation", @YES],
-        @[@"doubao_enable_ddc", @"MSIMEClientVoiceDoubaoEnableDDC", @NO]
+        @[@"doubao_enable_ddc", @"MSIMEClientVoiceDoubaoEnableDDC", @YES]
     ];
     for (NSArray *option in options) {
         id value = [defaults objectForKey:option[1]];

@@ -1,20 +1,15 @@
 name: CI (documentation)
 
-# The other half of ci.yml's paths-ignore. GitHub leaves a required status check that never reports in "Expected" and refuses the merge exactly as if it had failed -- the same trap quality.yml documents for a required job that skips -- so a workflow skipped by path filtering cannot satisfy main and develop's protection on its own. This workflow reports the same check names for the paths ci.yml ignores: the quality and contract checks run for real because they are cheap and run on Linux, and the three macOS and iOS checks answer without taking a runner.
+# The other half of the paths-ignore that ci.yml, ci-macos.yml and ci-ios.yml share. GitHub leaves a required status check that never reports in "Expected" and refuses the merge exactly as if it had failed -- the same trap quality.yml documents for a required job that skips -- so a workflow skipped by path filtering cannot satisfy main and develop's protection on its own. This workflow reports the same check names for those paths: the quality and contract checks run for real because they are cheap and run on Linux, and the three macOS and iOS checks answer without taking a runner.
 #
-# The two path lists have to stay identical. GitHub Actions does not support YAML anchors, so ReleaseConfigurationTests compares them instead; a path ignored here but not there silently blocks every documentation pull request.
+# Four path lists have to stay identical -- the paths here, and the paths-ignore of ci.yml, ci-macos.yml and ci-ios.yml. GitHub Actions does not support YAML anchors, so keeping them so is manual, and nothing enforces it at the moment: the comment inherited from MSIME-Apple named ReleaseConfigurationTests, which lives on that repository and was never brought over here. A path ignored by one of those three but not listed here is the failure to watch for: both the platform workflow and this one sit out, and the check it owns stays in "Expected" forever.
 
 on:
   pull_request:
     paths:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/apple-platform-architecture.md
-      - docs/backend-integration.md
-      - docs/ios-distribution.md
-      - docs/plans/**
   push:
     branches:
       - develop
@@ -22,17 +17,12 @@ on:
     paths:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/apple-platform-architecture.md
-      - docs/backend-integration.md
-      - docs/ios-distribution.md
-      - docs/plans/**
 
 # merge_group is absent on purpose: ci.yml takes that event with no path filter at all, so the merge queue always gets the real matrix and never two workflows reporting one check name.
 
 concurrency:
-  group: ci-docs-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: ci-docs-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -42,12 +32,12 @@ jobs:
   quality:
     uses: ./.github/workflows/quality.yml
 
-  # The reason README.md and PRIVACY.md can be on the ignored list at all: this is the suite that asserts on them, and it needs neither a build nor a Mac.
+  # Called for the same reason ci.yml calls it: whatever this job grows to assert needs neither a build nor a Mac, so a documentation pull request should not lose it. Today it is the placeholder the workflow's own header describes.
   contracts:
     uses: ./.github/workflows/contracts.yml
 
   macos:
-    # Same name as ci.yml's matrix leg, because the name is what branch protection requires.
+    # Same name as ci-macos.yml's matrix leg, because the name is what branch protection requires.
     name: macOS 15 ${{ matrix.architecture }}
     strategy:
       matrix:
@@ -56,12 +46,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Report the macOS check for a documentation-only change
-        run: echo "No macOS source, build input or asserted document changed; ci.yml owns this check for every other path."
+        run: echo "No macOS source, build input or asserted document changed; ci-macos.yml owns this check for every other path."
 
   ios:
+    # Same name as ci-ios.yml's job, for the same reason.
     name: iOS Simulator
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Report the iOS check for a documentation-only change
-        run: echo "No iOS source, build input or asserted document changed; ci.yml owns this check for every other path."
+        run: echo "No iOS source, build input or asserted document changed; ci-ios.yml owns this check for every other path."

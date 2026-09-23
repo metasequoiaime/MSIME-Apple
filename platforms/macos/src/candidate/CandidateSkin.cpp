@@ -88,8 +88,9 @@ SkinTokens WeChatTokens(bool dark)
     tokens.hover = Rgb(0x07C160, dark ? 0.32f : 0.14f);
     tokens.selectedHover = tokens.selected;
     tokens.radius = 5.0f;
+    // Windows candidate_presenter.cpp keeps the default 4px itemRadius for wechat and paints selected, pressed and hover rows with that one radius.
     tokens.candidateRadius = 4.0f;
-    tokens.selectedRadius = 5.0f;
+    tokens.selectedRadius = 4.0f;
     tokens.borderWidth = 1.0f;
     tokens.pad = 2.0f;
     tokens.showSelectedBar = false;
@@ -157,8 +158,9 @@ SkinTokens WillowGreenTokens(bool dark)
     tokens.selectedText = Rgb(0xFFFFFF);
     tokens.border = Rgba{0.0f, 0.0f, 0.0f, 0.0f};
     tokens.radius = 9.0f;
-    tokens.candidateRadius = 0.0f;
-    tokens.selectedRadius = 0.0f;
+    // The willow_green CSS sets a 0 row radius and relies on the container clip-path; Windows candidate_presenter.cpp deliberately keeps a 4px itemRadius because the card does not clip its rows, and the macOS chrome view does not clip them either.
+    tokens.candidateRadius = 4.0f;
+    tokens.selectedRadius = 4.0f;
     tokens.borderWidth = 0.0f;
     tokens.pad = 0.0f;
     tokens.showSelectedBar = false;

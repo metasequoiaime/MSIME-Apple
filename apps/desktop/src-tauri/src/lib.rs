@@ -342,9 +342,14 @@ impl DictionaryHostOptions {
     fn snapshot(&self) -> Result<Value, CommandError> {
         #[cfg(any(target_os = "linux", target_os = "android"))]
         {
-            // Keep the installer-selected path separate from the IBus runtime
-            // path; deployments can supply different files for these roles.
-            read_runtime_options(&self.path).map_err(|_| CommandError { code: "storage" })
+            // Keep the installer-selected path separate from the IBus runtime path; deployments can supply different files for these roles.
+            let mut document =
+                read_runtime_options(&self.path).map_err(|_| CommandError { code: "storage" })?;
+            // By default this is the same file the skin catalog is published into, and the Host API rejects the unknown field, so it is dropped here as the IBus and Fcitx5 hosts drop it before their own calls.
+            if let Some(object) = document.as_object_mut() {
+                object.remove("candidate_skin_catalog");
+            }
+            Ok(document)
         }
         #[cfg(not(any(target_os = "linux", target_os = "android")))]
         {
@@ -698,12 +703,25 @@ fn read_skin_catalog(root: PathBuf) -> SkinCatalogResponse {
 #[tauri::command]
 async fn scan_skin_catalog(
     directory: tauri::State<'_, SkinDirectoryState>,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
 ) -> Result<SkinCatalogResponse, CommandError> {
     // The host chooses the root; the webview cannot request arbitrary folders.
     let root = directory.0.clone();
-    tauri::async_runtime::spawn_blocking(move || read_skin_catalog(root))
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || rescan_skin_catalog(root, &runtime))
         .await
         .map_err(|_| CommandError { code: "storage" })
+}
+
+fn rescan_skin_catalog(root: PathBuf, runtime: &RuntimeOptionsState) -> SkinCatalogResponse {
+    let response = read_skin_catalog(root);
+    // A rescan is how a skin the user copied in or removed reaches the page, so it is also when the input method has to hear of it; otherwise its menu keeps the old list until the next save.
+    // Publishing is best effort: a damaged or unwritable runtime options file must not cost the page the list it just scanned.
+    #[cfg(target_os = "linux")]
+    let _ = publish_candidate_skin_catalog(runtime, &response.catalog);
+    #[cfg(not(target_os = "linux"))]
+    let _ = runtime;
+    response
 }
 
 #[derive(Clone)]
@@ -711,6 +729,8 @@ async fn scan_skin_catalog(
 struct RuntimeOptionsState {
     path: Option<PathBuf>,
     document: Arc<Mutex<Value>>,
+    /// The external skins directory whose catalog the Linux candidate hosts read from `candidate_skin_catalog` in this document; `None` publishes no catalog.
+    skins: Option<PathBuf>,
 }
 
 #[cfg(unix)]
@@ -1251,6 +1271,12 @@ fn sync_runtime_options(
         let Some(path) = runtime.path.as_ref() else {
             return Ok(());
         };
+        // The Linux hosts draw an installed skin from the catalog in this document, and no other writer keeps it current: publish it with every save so a user who picks one sees its colours without ever rescanning.
+        #[cfg(target_os = "linux")]
+        let catalog = runtime
+            .skins
+            .as_deref()
+            .map(msime_client_core::skin::catalog::scan);
         let mut document = runtime
             .document
             .lock()
@@ -1260,6 +1286,13 @@ fn sync_runtime_options(
         let mut current = read_runtime_options(path)?;
         current["preferences"] = serde_json::to_value(preferences)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
+        #[cfg(target_os = "linux")]
+        let bytes = match &catalog {
+            Some(catalog) => runtime_options_with_skin_catalog(&mut current, catalog)?,
+            None => serde_json::to_vec_pretty(&current)
+                .map_err(|error| std::io::Error::other(error.to_string()))?,
+        };
+        #[cfg(target_os = "android")]
         let bytes = serde_json::to_vec_pretty(&current)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         atomic_write(path, &bytes)?;
@@ -1269,6 +1302,80 @@ fn sync_runtime_options(
     {
         let _ = (runtime, preferences);
     }
+    Ok(())
+}
+
+/// How large the skin catalog may let runtime-options.json grow. The IBus launcher, the Fcitx5 addon and `msime_host_api::refresh_host_options` all read at most 16 KiB and keep their previous configuration (IBus) or fail (Fcitx5, the upgrade refresh) on anything longer; the last 1 KiB is left for that refresh, which rewrites the resource and dictionary paths and appends a newline without knowing about the catalog.
+#[cfg(target_os = "linux")]
+const LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET: usize = 16384 - 1024;
+
+/// Serialize `document` with the installed skins as `candidate_skin_catalog`, dropping packages from the end until the document fits within `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET`.
+///
+/// The currently selected skin is dropped last, since its colours are the ones on screen. When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads.
+#[cfg(target_os = "linux")]
+fn runtime_options_with_skin_catalog(
+    document: &mut Value,
+    catalog: &msime_client_core::skin::catalog::SkinCatalog,
+) -> Result<Vec<u8>, std::io::Error> {
+    let serialize = |document: &Value| {
+        serde_json::to_vec_pretty(document)
+            .map_err(|error| std::io::Error::other(error.to_string()))
+    };
+    let selected = document["preferences"]["candidate_skin"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let mut published =
+        msime_client_core::skin::catalog::host_candidate_catalog(catalog, &selected);
+    loop {
+        document["candidate_skin_catalog"] = published.clone();
+        let bytes = serialize(document)?;
+        if bytes.len() <= LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET {
+            return Ok(bytes);
+        }
+        let Some(packages) = published["packages"].as_array_mut() else {
+            break;
+        };
+        if packages.is_empty() {
+            break;
+        }
+        let dropped = packages
+            .iter()
+            .rposition(|package| package["id"] != selected.as_str())
+            .unwrap_or(packages.len() - 1);
+        packages.remove(dropped);
+    }
+    if let Some(object) = document.as_object_mut() {
+        object.remove("candidate_skin_catalog");
+    }
+    serialize(document)
+}
+
+/// Write a freshly scanned catalog into the runtime options the Linux hosts read, leaving every other key as it is on disk. Before setup there is no document to publish into, which is not an error.
+#[cfg(target_os = "linux")]
+fn publish_candidate_skin_catalog(
+    runtime: &RuntimeOptionsState,
+    catalog: &msime_client_core::skin::catalog::SkinCatalog,
+) -> Result<(), std::io::Error> {
+    let (Some(path), Some(_)) = (runtime.path.as_ref(), runtime.skins.as_ref()) else {
+        return Ok(());
+    };
+    let mut document = runtime
+        .document
+        .lock()
+        .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
+    let mut current = match read_runtime_options(path) {
+        Ok(current) => current,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let unchanged = current.get("candidate_skin_catalog").cloned();
+    let bytes = runtime_options_with_skin_catalog(&mut current, catalog)?;
+    // A rescan that finds what was already published leaves the file alone, so the hosts watching it do not reload for nothing.
+    if current.get("candidate_skin_catalog") != unchanged.as_ref() {
+        atomic_write(path, &bytes)?;
+    }
+    *document = current;
     Ok(())
 }
 
@@ -1405,8 +1512,25 @@ fn dictionary_error_code(reason: &str) -> &'static str {
         "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
         "dictionary access unavailable" => "dictionary_unavailable",
         "learned-data reset rejected" => "dictionary_reset_rejected",
-        _ => "storage",
+        // The host appends which rule the entry broke. The page words a code refusal per dictionary kind, so a word or weight refusal must not share that code, or it would send the user to fix a code that is already valid.
+        reason if reason == msime_host_api::INVALID_DICTIONARY_ENTRY => "dictionary_invalid_entry",
+        reason => match reason
+            .strip_prefix(msime_host_api::INVALID_DICTIONARY_ENTRY)
+            .and_then(|rest| rest.strip_prefix(": "))
+        {
+            Some(rule) if invalid_entry_rule_is_about_word(rule) => "dictionary_invalid_word",
+            Some(_) => "dictionary_invalid_entry",
+            None => "storage",
+        },
     }
+}
+
+/// Does a refusal reason name the word or the weight rather than the code? These are the host's `validate_entry` rules (`word ...`, `weight ...`) and the Engine's own sentences for the same rules in `validate_personal_dictionary_entry`.
+fn invalid_entry_rule_is_about_word(rule: &str) -> bool {
+    rule.starts_with("word ")
+        || rule.starts_with("weight ")
+        || rule == "Weight must be between 1 and 100000000"
+        || rule == "The word contains an unsupported control character"
 }
 
 fn dictionary_action_requires_quiesce(action: &Value) -> bool {
@@ -3798,6 +3922,7 @@ pub fn run() {
             app.manage(RuntimeOptionsState {
                 path: runtime_path,
                 document: Arc::new(Mutex::new(host_document)),
+                skins: Some(directory.join("skins")),
             });
             #[cfg(target_os = "macos")]
             app.manage(DataDirectorySelectionState::default());

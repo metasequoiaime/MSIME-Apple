@@ -58,6 +58,30 @@ int main()
         const NSPoint high = MSIMECandidateOrigin(top, panel, screen);
         assert(high.y >= NSMinY(screen) && high.y + panel.height <= NSMaxY(screen));
 
+        // Flip hysteresis, as Windows' AdjustCandidateWindowPosition does it: the side of the caret is chosen with the tallest vertical list shown since the panel appeared, the position with the current height. Near the bottom a full 300pt list does not fit below, so a 100pt list that has shrunk from it stays above the caret, flush against the line rather than 300pt up.
+        const NSRect mid = NSMakeRect(400, 250, 2, 18);
+        const NSSize shortList = NSMakeSize(320, 100);
+        const NSSize fullList = NSMakeSize(320, 300);
+        assert(MSIMECandidateOrigin(mid, shortList, screen).y == 250 - 100 - 4);
+        assert(MSIMECandidateOrigin(mid, fullList, screen).y == NSMaxY(mid) + 4);
+        assert(MSIMECandidateOrigin(mid, shortList, screen, 300).y == NSMaxY(mid) + 4);
+        // A remembered height smaller than the current one never overrides it, and the three-argument form is the no-memory case.
+        assert(MSIMECandidateOrigin(mid, shortList, screen, 50).y == 250 - 100 - 4);
+        assert(NSEqualPoints(MSIMECandidateOrigin(mid, fullList, screen, 0), MSIMECandidateOrigin(mid, fullList, screen)));
+        // With room below for the tallest list too, the memory changes nothing.
+        assert(MSIMECandidateOrigin(caret, shortList, screen, 300).y == 600 - 100 - 4);
+
+        // The memory: vertical lists raise it while the panel stays up, a hidden panel starts over, and horizontal rows neither raise it nor are placed by it.
+        CGFloat tallest = MSIMETallestCandidateHeight(0, 100, true, false);
+        assert(tallest == 100);
+        tallest = MSIMETallestCandidateHeight(tallest, 300, true, true);
+        assert(tallest == 300);
+        tallest = MSIMETallestCandidateHeight(tallest, 100, true, true);
+        assert(tallest == 300);
+        assert(MSIMETallestCandidateHeight(tallest, 100, true, false) == 100);
+        assert(MSIMETallestCandidateHeight(tallest, 40, false, true) == 300);
+        assert(MSIMETallestCandidateHeight(tallest, 40, false, false) == 0);
+
         // What counts as a caret worth positioning against. A zero-height rect is what a client
         // that does not implement the caret query returns, and NaN is what an arithmetic failure
         // upstream produces; both would otherwise park the window somewhere arbitrary.

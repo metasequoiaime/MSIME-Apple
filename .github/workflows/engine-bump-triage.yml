@@ -21,7 +21,8 @@ jobs:
     # 按 engine-update.yml 推出来的分支名判定,不按 github.actor。bump 现在用 RELEASE_PLEASE_TOKEN 开 PR,actor 就变成了那个账号而不是 github-actions[bot];继续看 actor 会让这个 job 静默跳过、bump 停在没分类的状态 —— 正是换 token 要修的那种悄悄停住。加上 head 仓库判定,保留「只有推进本仓的分支才能走到自动合并」这条原有保证。
     if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'automation/engine-')
     name: Classify the engine range
-    runs-on: ubuntu-latest
+    # Pinned like every other job in this repository; ubuntu-latest migrates to Ubuntu 26 from 2026-10-19.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       LOCK: engine-lock.json

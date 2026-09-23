@@ -614,6 +614,14 @@ export interface HostCapabilities {
   helpcode_shift_entry?: boolean;
   skin_directory_import?: boolean;
   shuangpin_preedit?: boolean;
+  /** The host routes the Ctrl+Shift+Alt maintenance chords. */
+  maintenance_shortcuts?: boolean;
+  /** The host reserves Option/Alt+Shift+H for the character width. */
+  fullwidth_chord?: boolean;
+  /** The host runs the configured transcription provider, so its controls have an effect. */
+  voice_provider_settings?: boolean;
+  /** The host draws interim recognition text, so the streaming-preedit switch has an effect. */
+  voice_stream_preedit?: boolean;
   /** The host tells the runtime its character width, so 全角输入 has something to act on. */
   character_width?: boolean;
   ai_provider_credentials?: boolean;
@@ -1009,6 +1017,9 @@ export const AI_PROVIDER_OPTIONS: readonly {
   },
   { id: "custom", title: "自定义", endpoint: "", model: "" },
 ];
+/** What 「AI 润色测试」 asks the configured service to do. It is its own instruction: `ai_assistant.prompt` is the associative-candidate prompt, which demands candidate JSON and would make a polish sample come back as JSON. */
+const aiPolishTestPrompt = "请润色以下文字，保持原意，只返回修改后的文字。";
+// The prompt slots start empty as in AiAssistantPreferences::default(). The associative-candidate paths (client-core's chat_completion_http_request and the Linux online provider) treat a blank slot as the built-in DEFAULT_CANDIDATE_PROMPT, the text Windows compiles into ai_assistant.prompt. Android and the iOS keyboard mirror instead read ai_assistant.prompt as a polish instruction and use their own polish text when it is blank, which is why this default stays empty rather than holding the associative prompt.
 const defaultAiAssistant: AiAssistantPreferences = {
   enabled: false,
   provider: "deepseek",
@@ -1018,7 +1029,7 @@ const defaultAiAssistant: AiAssistantPreferences = {
   token: "",
   tokens: {},
   prompt_id: "custom_1",
-  prompt: "请润色以下文字，保持原意，只返回修改后的文字。",
+  prompt: "",
   prompt_custom_1: "",
   prompt_custom_2: "",
   prompt_custom_3: "",
@@ -1307,7 +1318,11 @@ const localDictionaryKinds: [LocalDictionaryKind, string][] = [
  * them as codes. Printing one fixed "请稍后重试" for all of them told a user
  * whose IME was simply locked by another process to retry forever.
  */
-export function dictionaryErrorMessage(error: unknown, fallback: string): string {
+export function dictionaryErrorMessage(
+  error: unknown,
+  fallback: string,
+  kind?: LocalDictionaryKind,
+): string {
   const code =
     typeof error === "object" && error !== null && "code" in error
       ? String((error as { code: unknown }).code)
@@ -1325,9 +1340,42 @@ export function dictionaryErrorMessage(error: unknown, fallback: string): string
       return "清除学习数据失败，请关闭正在使用输入法的程序后重试。";
     case "dictionary_unavailable":
       return "无法打开用户词库，请检查输入法是否正在运行。";
+    case "dictionary_invalid_entry":
+      // The entry itself was refused, so retrying cannot help; say what the code has to look like.
+      return invalidDictionaryEntryMessage(kind);
+    case "dictionary_invalid_word":
+      // The code was fine; the word or weight broke a rule, so point at those fields instead.
+      return "词条内容为空、过长或含控制字符，或权重超出 1 到 100000000 的范围。";
     default:
       return fallback;
   }
+}
+
+function invalidDictionaryEntryMessage(kind: LocalDictionaryKind | undefined): string {
+  switch (kind) {
+    case "pinyin":
+      return "拼音必须由完整音节组成，音节数需与汉字数一致，例如“你好”填 nihao 或 ni'hao。";
+    case "wubi":
+      return "五笔编码须为 1 到 4 个字母。";
+    case "quick_phrase":
+      return "快捷短语编码须为 1 到 32 个字母或数字。";
+    case "english":
+      return "英文编码只能包含字母、连字符和撇号。";
+    default:
+      return "词条不符合词库规则，请检查编码与词条后再保存。";
+  }
+}
+
+/**
+ * Does a listed entry match the code prefix the page was queried with?
+ *
+ * The shared host's rule (`dictionary_row_matches`): from the start of the code, ASCII case-insensitive, and for pinyin with syllable separators ignored on both sides, so `nihao` and `nih` find `ni'hao`. A host that honours the query has already returned only matches, so this removes nothing there; it keeps the prefix working on a host that lists its page whole, as the mobile personal dictionary does. The case-sensitive `startsWith` this replaces dropped every pinyin result the host had matched without separators.
+ */
+function dictionaryKeyMatches(kind: LocalDictionaryKind, key: string, query: string): boolean {
+  if (!query) return true;
+  const fold = (text: string) => text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  const code = (text: string) => (kind === "pinyin" ? fold(text).replace(/[' ]/g, "") : fold(text));
+  return code(kind === "pinyin" ? key : key.trim()).startsWith(code(query));
 }
 
 function importFailureMessage(kind: string, error: unknown): string {
@@ -2043,7 +2091,9 @@ export function SettingsPage({
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
   const macosPlatform = client.host?.platform === "macos";
-  const nativeVoicePlatform = macosPlatform || harmonyPlatform;
+  // Hosts with a system recogniser of their own. Android's is what it falls back to when nothing
+  // is configured, so `system` is a real choice there rather than a value to report unavailable.
+  const nativeVoicePlatform = macosPlatform || harmonyPlatform || androidPlatform;
   // One list for every host. macOS used to be given 5, 7 and 9 - the Apple reference's set - while its
   // own normalisation rewrote anything else to 9, so the shared default of six displayed and saved as
   // nine on that platform alone.
@@ -2106,6 +2156,12 @@ export function SettingsPage({
   // A host with one way to commit a recognized result has nothing to choose between, and a select
   // with one outcome reads as a setting being ignored.
   const showVoiceCommitMode = host?.voice_commit_mode ?? !androidPlatform;
+  // These read `!androidPlatform` because that host once had only the platform recogniser. It runs
+  // the configured provider now, uploads and streaming socket both, so keying on the name would
+  // leave a user unable to configure something the host honours. What it still cannot do is draw
+  // interim text, and that switch stays hidden for exactly that reason.
+  const showVoiceProviderSettings = host?.voice_provider_settings ?? !androidPlatform;
+  const showVoiceStreamPreedit = host?.voice_stream_preedit ?? !androidPlatform;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
@@ -2118,7 +2174,13 @@ export function SettingsPage({
     (host ? host.voice_capture_devices : linuxPlatform) &&
     client.listVoiceCaptureDevices;
   // panel_windows is the injected projection of host_surface::is_desktop, so this follows the capability instead of listing the mobile hosts by name and missing the next one.
-  const showDesktopMaintenanceShortcuts = !host || host.panel_windows;
+  // Either the host draws desktop panels, or it says outright that it routes the chords. The
+  // second half is why this is no longer read off `panel_windows` alone: a keyboard attached to a
+  // phone sends them just as well, and the host that gained them has no desktop panels at all.
+  const showDesktopMaintenanceShortcuts =
+    (host?.maintenance_shortcuts ?? false) || !host || host.panel_windows;
+  const showFullwidthChord = host?.fullwidth_chord ?? macosPlatform;
+  const fullwidthChord = macosPlatform ? "Option+Shift+H" : "Alt+Shift+H";
   const maintenanceChord = macosPlatform ? "Ctrl+Shift+Option" : "Ctrl+Shift+Alt";
   // Windows is built from this repository now too, so it reads this repository's releases; msime.app/update.json describes the reference Windows product and names its repository, which the validation below rightly refuses.
   const clientHostedPlatform =
@@ -2150,7 +2212,7 @@ export function SettingsPage({
   const platformHelpIntro = androidPlatform
     ? "水杉输入法是一款 Android 平台的中文输入法，通过系统输入法服务接入应用。"
     : linuxPlatform
-      ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 IBus 接入 GTK、Qt 等应用。"
+      ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 Fcitx5 或 IBus 接入 GTK、Qt 等应用。"
       : macosPlatform
         ? "水杉输入法是一款 macOS 平台的中文输入法，通过系统输入法组件接入应用。"
         : harmonyPlatform
@@ -2161,7 +2223,7 @@ export function SettingsPage({
   const platformQuickStart = androidPlatform
     ? "在系统设置的“语言和输入法”或“屏幕键盘”中启用并选择水杉输入法，也可以从首次启动页打开这些入口。默认是全拼输入法。"
     : linuxPlatform
-      ? "安装并启动 IBus 宿主后，在系统设置的输入法列表中添加水杉输入法，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。"
+      ? "使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组，再使用 Fcitx5 的输入法切换快捷键切换。使用 IBus 时，安装并启动 IBus 宿主后，在系统设置的输入法列表中添加「MSIME Client」，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。"
       : macosPlatform
         ? "在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。默认是全拼输入法。"
         : harmonyPlatform
@@ -2928,15 +2990,13 @@ export function SettingsPage({
       // had already chosen meant a user with more than a page of pinyin words
       // saw an empty list when they picked another dictionary, and the status
       // line counted the filtered rows against the unfiltered page.
-      const page = await client.dictionary.list(
-        offset,
-        DICTIONARY_PAGE_SIZE,
-        kind,
-        phraseSearch.trim(),
-      );
+      const query = phraseSearch.trim();
+      const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, query);
       if (generation !== phraseRequestGeneration.current) return;
-      // Older hosts ignore the extra arguments, so keep filtering defensively.
-      const entries = page.entries.filter((entry) => entry.kind === kind);
+      // Older hosts and the mobile personal dictionary ignore the extra arguments, so keep filtering defensively - with the host's own rule, so nothing it matched is dropped here.
+      const entries = page.entries.filter(
+        (entry) => entry.kind === kind && dictionaryKeyMatches(kind, entry.key, query),
+      );
       setPhrases(entries);
       setDictionaryPendingCount(page.pending_count ?? 0);
       setDictionaryFailures(page.failed_requests ?? []);
@@ -3024,6 +3084,7 @@ export function SettingsPage({
         dictionaryErrorMessage(
           error,
           `${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`,
+          dictionaryKind,
         ),
       );
     } finally {
@@ -3325,10 +3386,7 @@ export function SettingsPage({
         endpoint: ai.endpoint,
         model: ai.model,
         provider: ai.provider,
-        prompt:
-          ai.prompt ??
-          defaultAiAssistant.prompt ??
-          "请润色以下文字，保持原意，只返回修改后的文字。",
+        prompt: aiPolishTestPrompt,
         token: aiToken,
         text,
       });
@@ -3878,10 +3936,17 @@ export function SettingsPage({
   // on every shifted key. So it keeps the helper-code page, while the physical
   // keyboard shortcut page is only available on the 2-in-1 branch where the
   // corresponding capability projection is true.
-  const mobileHiddenPageIds: readonly SettingsPageId[] =
-    androidPlatform || harmonyPlatform
-      ? ["shortcuts", "floating-toolbar"]
-      : ["helpcode", "shortcuts", "floating-toolbar"];
+  // The shortcuts page carries the hardware-keyboard chords, so it is hidden where the host does
+  // not route any of them rather than where the platform happens to be a phone. Any of these
+  // devices can have a keyboard attached, and its owner has to be able to reach the switches the
+  // host already reads; hiding the page by platform name left them unreachable on Android.
+  const mobileHiddenPageIds: readonly SettingsPageId[] = [
+    ...(showModeSwitchShortcuts || showPanelShortcuts || showDesktopMaintenanceShortcuts
+      ? []
+      : (["shortcuts"] as const)),
+    "floating-toolbar",
+    ...(androidPlatform || harmonyPlatform ? [] : (["helpcode"] as const)),
+  ];
   // The sidebar is the list this page duplicates, so it does not list it. A mobile host above phone width still shows the sidebar, and `selectPage` refuses the pages hidden above, so listing them there left buttons that did nothing when tapped.
   const sidebarPages = availablePages.filter(
     (item) => item.id !== "more" && !(mobilePlatform && mobileHiddenPageIds.includes(item.id)),
@@ -4795,7 +4860,7 @@ export function SettingsPage({
                           <small>
                             {mobilePlatform
                               ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
-                              : "预览跟随主题模式；Linux IBus panel 支持时使用，跟随时由桌面主题决定"}
+                              : "预览跟随主题模式；Linux IBus panel 支持时使用"}
                           </small>
                         </span>
                         <select
@@ -5272,41 +5337,39 @@ export function SettingsPage({
                             className={settings.phraseList}
                             aria-label="词库查询结果"
                           >
-                            {phrases
-                              .filter((entry) => entry.key.startsWith(phraseSearch))
-                              .map((entry, index) => (
-                                <li key={`${entry.key}-${entry.value}-${index}`}>
-                                  <span>
-                                    <code>{entry.key}</code>　{entry.value}　
-                                    <small>{entry.weight}</small>
-                                  </span>
-                                  <span>
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      disabled={phraseBusy}
-                                      onClick={() =>
-                                        setPhraseForm({
-                                          key: entry.key,
-                                          value: entry.value,
-                                          weight: entry.weight,
-                                          previous: entry,
-                                        })
-                                      }
-                                    >
-                                      编辑
-                                    </button>{" "}
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      disabled={phraseBusy}
-                                      onClick={() => void removePhrase(entry)}
-                                    >
-                                      删除
-                                    </button>
-                                  </span>
-                                </li>
-                              ))}
+                            {phrases.map((entry, index) => (
+                              <li key={`${entry.key}-${entry.value}-${index}`}>
+                                <span>
+                                  <code>{entry.key}</code>　{entry.value}　
+                                  <small>{entry.weight}</small>
+                                </span>
+                                <span>
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={phraseBusy}
+                                    onClick={() =>
+                                      setPhraseForm({
+                                        key: entry.key,
+                                        value: entry.value,
+                                        weight: entry.weight,
+                                        previous: entry,
+                                      })
+                                    }
+                                  >
+                                    编辑
+                                  </button>{" "}
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={phraseBusy}
+                                    onClick={() => void removePhrase(entry)}
+                                  >
+                                    删除
+                                  </button>
+                                </span>
+                              </li>
+                            ))}
                           </ul>
                         )}
                         <div className="flex items-center justify-center gap-4 text-xs text-secondary">
@@ -7413,16 +7476,16 @@ export function SettingsPage({
                             />
                           </label>
                         )}
-                        {macosPlatform && (
+                        {showFullwidthChord && (
                           <label className="section-header">
                             <span className="section-title">
-                              Option+Shift+H 切换全半角
+                              {fullwidthChord} 切换全半角
                               <small>
                                 关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。
                               </small>
                             </span>
                             <input
-                              aria-label="Option+Shift+H 切换全半角"
+                              aria-label={`${fullwidthChord} 切换全半角`}
                               className="toggle"
                               type="checkbox"
                               checked={keybindings.toggle_fullwidth_option_shift_h}
@@ -8166,7 +8229,7 @@ export function SettingsPage({
                                 : "Server 端日志"}
                             <small>
                               {linuxPlatform
-                                ? "排查 IBus 或 Fcitx5 宿主的通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
+                                ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库刷新的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
                                 : macosPlatform
                                   ? "排查焦点切换和设置加载失败时开启。记录焦点进出与偏好加载、应用、保存的结果，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后可直接发送。"
                                   : "排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。"}
@@ -8719,7 +8782,7 @@ export function SettingsPage({
                         />
                       </label>
                     </div>
-                    {!androidPlatform && (
+                    {showVoiceProviderSettings && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">识别服务</span>
@@ -8753,6 +8816,7 @@ export function SettingsPage({
                               </option>
                             )}
                             {harmonyPlatform && <option value="system">HarmonyOS 系统识别</option>}
+                            {androidPlatform && <option value="system">Android 系统识别</option>}
                             {!nativeVoicePlatform && voiceInput.asr_provider === "system" && (
                               <option value="system" disabled>
                                 系统识别（当前平台不可用）
@@ -8828,7 +8892,7 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {!androidPlatform &&
+                    {showVoiceProviderSettings &&
                       serviceVoice &&
                       providerPresetControls(
                         "识别服务",
@@ -8836,7 +8900,7 @@ export function SettingsPage({
                         voiceInput.asr_model ?? "",
                         (asr_model) => updateVoice({ asr_model }),
                       )}
-                    {!androidPlatform && serviceVoice && (
+                    {showVoiceProviderSettings && serviceVoice && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -8850,7 +8914,7 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {!androidPlatform && voiceInput.asr_provider === "doubao" && (
+                    {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -8877,7 +8941,7 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {!androidPlatform && !linuxPlatform && serviceVoice && (
+                    {showVoiceProviderSettings && !linuxPlatform && serviceVoice && (
                       <>
                         {voiceInput.asr_provider === "doubao" && (
                           <div className="section">
@@ -8965,7 +9029,7 @@ export function SettingsPage({
                         </div>
                       </>
                     )}
-                    {!androidPlatform && serviceVoice && (
+                    {showVoiceProviderSettings && serviceVoice && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -9050,7 +9114,7 @@ export function SettingsPage({
                           )}
                         </>
                       )}
-                    {!androidPlatform && (
+                    {showVoiceStreamPreedit && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -9164,6 +9228,10 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
+                    {/* Not provider configuration: these four are the host's own recording
+                        behaviour, and the Android host plays no prompt tones and does not mute
+                        system audio while it records. Four switches with nothing behind them is
+                        what this page keeps being audited for. */}
                     {!androidPlatform && (
                       <div className="section">
                         <div className="section-title">
@@ -9199,7 +9267,7 @@ export function SettingsPage({
                         ))}
                       </div>
                     )}
-                    {!androidPlatform && voiceInput.asr_provider === "doubao" && (
+                    {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
                       <div className="section">
                         <div className="section-title">
                           豆包识别选项
@@ -9241,7 +9309,7 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    {!androidPlatform && (
+                    {showVoiceProviderSettings && (
                       <div className="section">
                         <div className="section-title">
                           文本润色 provider<small>识别结果可交给用户管理的服务润色</small>
@@ -9551,13 +9619,11 @@ export function SettingsPage({
                                     : `已保存的凭据绑定 ${storedAiCredential.endpoint}（${storedAiCredential.model}），与上方设置不一致；保存后改为绑定当前接口和模型`}
                             </small>
                           </span>
-                          <input
-                            aria-label="AI API Token"
-                            type="password"
-                            autoComplete="off"
+                          <SecretInput
+                            label="AI API Token"
                             disabled={!aiOrigin}
                             value={aiCredentialInput}
-                            onChange={(event) => setAiCredentialInput(event.target.value)}
+                            onChange={setAiCredentialInput}
                           />
                         </label>
                         <div className={settings.serviceRow}>
@@ -9640,13 +9706,11 @@ export function SettingsPage({
                               {aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}
                             </small>
                           </span>
-                          <input
-                            aria-label="AI API Token"
-                            type="password"
-                            autoComplete="off"
+                          <SecretInput
+                            label="AI API Token"
                             disabled={!aiOrigin}
                             value={aiToken}
-                            onChange={(event) => updateAiToken(event.target.value)}
+                            onChange={updateAiToken}
                           />
                         </label>
                       </div>
@@ -9748,6 +9812,7 @@ export function SettingsPage({
                       </label>
                       <textarea
                         aria-label="AI 润色提示词"
+                        placeholder="留空时使用内置的联想提示词"
                         value={ai.prompt ?? defaultAiAssistant.prompt}
                         onChange={(event) => updateAi({ prompt: event.target.value })}
                       />
