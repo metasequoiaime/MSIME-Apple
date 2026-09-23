@@ -83,7 +83,10 @@ try {
     $desktopBuild = @('--filter', '@msime/desktop', 'tauri', 'build', '--no-bundle',
         '--target', 'x86_64-pc-windows-msvc')
     if ($TargetVersion -ne '') {
-        $desktopBuild += @('--config', (@{ version = $TargetVersion } | ConvertTo-Json -Compress))
+        # Pass a file rather than inline JSON: pnpm is a .cmd shim on Windows, and PowerShell hands batch files their arguments without escaping the embedded quotes.
+        $versionConfig = Join-Path $RepoRoot 'target/windows-full/tauri-version.json'
+        [IO.File]::WriteAllText($versionConfig, (@{ version = $TargetVersion } | ConvertTo-Json -Compress))
+        $desktopBuild += @('--config', $versionConfig)
     }
     Invoke-ClientBuild pnpm $desktopBuild
     Invoke-ClientBuild cmake @('-E', 'copy_if_different',
