@@ -173,6 +173,18 @@ pub struct HostCapabilities {
     /// only the platform recogniser. It runs the configured provider now — the OpenAI-compatible
     /// uploads and the streaming socket both — and a page keyed on the name would still be hiding
     /// the controls.
+    /// The host routes the Ctrl+Shift+Alt maintenance chords: delete the candidate in a numbered
+    /// slot, and drop the cached candidate list.
+    ///
+    /// Touch reaches both by gesture — a long press on the candidate, and nothing at all for the
+    /// cache — so a keyboard needs the chords or cannot reach them. Declared rather than inferred
+    /// from "draws desktop panels", which is what it used to be read off and is a different fact.
+    #[serde(default)]
+    pub maintenance_shortcuts: bool,
+    /// The host reserves the Option/Alt+Shift+H chord for the character width, so the switch that
+    /// gives it back to the application belongs on its settings page.
+    #[serde(default)]
+    pub fullwidth_chord: bool,
     #[serde(default)]
     pub voice_provider_settings: bool,
     /// The host draws the recogniser's interim text while the user is still speaking.
@@ -426,6 +438,12 @@ impl HostCapabilities {
             // Every host reaches its provider one way or another: the desktops and both mobile
             // hosts call it themselves, and Linux hands the same configuration to its provider
             // service. None of them wants these controls hidden.
+            // Harmony reaches this through its form-factor projection of `panel_windows`, which
+            // the page still consults, so it is not named here and its behaviour is unchanged.
+            maintenance_shortcuts: platform.is_desktop() || platform == HostPlatform::Android,
+            // macOS has reserved it since it shipped; the Android host reads the same preference
+            // for its own Alt+Shift+H. No other host binds that chord.
+            fullwidth_chord: matches!(platform, HostPlatform::Macos | HostPlatform::Android),
             voice_provider_settings: true,
             voice_stream_preedit: platform != HostPlatform::Android,
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
@@ -1026,6 +1044,20 @@ mod tests {
         // no interim text, so it is the one host without that switch.
         assert!(!HostCapabilities::for_platform(HostPlatform::Android).voice_stream_preedit);
         assert!(HostCapabilities::for_platform(HostPlatform::Android).voice_provider_settings);
+        // The two chords exist wherever a keyboard can send them and the host routes them.
+        assert!(HostCapabilities::for_platform(HostPlatform::Android).maintenance_shortcuts);
+        assert!(HostCapabilities::for_platform(HostPlatform::Windows).maintenance_shortcuts);
+        assert!(!HostCapabilities::for_platform(HostPlatform::Ios).maintenance_shortcuts);
+        assert!(HostCapabilities::for_platform(HostPlatform::Android).fullwidth_chord);
+        assert!(HostCapabilities::for_platform(HostPlatform::Macos).fullwidth_chord);
+        for platform in [
+            HostPlatform::Windows,
+            HostPlatform::Linux,
+            HostPlatform::Ios,
+            HostPlatform::Harmony,
+        ] {
+            assert!(!HostCapabilities::for_platform(platform).fullwidth_chord);
+        }
         for platform in [
             HostPlatform::Windows,
             HostPlatform::Macos,

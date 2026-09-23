@@ -614,6 +614,10 @@ export interface HostCapabilities {
   helpcode_shift_entry?: boolean;
   skin_directory_import?: boolean;
   shuangpin_preedit?: boolean;
+  /** The host routes the Ctrl+Shift+Alt maintenance chords. */
+  maintenance_shortcuts?: boolean;
+  /** The host reserves Option/Alt+Shift+H for the character width. */
+  fullwidth_chord?: boolean;
   /** The host runs the configured transcription provider, so its controls have an effect. */
   voice_provider_settings?: boolean;
   /** The host draws interim recognition text, so the streaming-preedit switch has an effect. */
@@ -2170,7 +2174,13 @@ export function SettingsPage({
     (host ? host.voice_capture_devices : linuxPlatform) &&
     client.listVoiceCaptureDevices;
   // panel_windows is the injected projection of host_surface::is_desktop, so this follows the capability instead of listing the mobile hosts by name and missing the next one.
-  const showDesktopMaintenanceShortcuts = !host || host.panel_windows;
+  // Either the host draws desktop panels, or it says outright that it routes the chords. The
+  // second half is why this is no longer read off `panel_windows` alone: a keyboard attached to a
+  // phone sends them just as well, and the host that gained them has no desktop panels at all.
+  const showDesktopMaintenanceShortcuts =
+    (host?.maintenance_shortcuts ?? false) || !host || host.panel_windows;
+  const showFullwidthChord = host?.fullwidth_chord ?? macosPlatform;
+  const fullwidthChord = macosPlatform ? "Option+Shift+H" : "Alt+Shift+H";
   const maintenanceChord = macosPlatform ? "Ctrl+Shift+Option" : "Ctrl+Shift+Alt";
   // Windows is built from this repository now too, so it reads this repository's releases; msime.app/update.json describes the reference Windows product and names its repository, which the validation below rightly refuses.
   const clientHostedPlatform =
@@ -3926,10 +3936,17 @@ export function SettingsPage({
   // on every shifted key. So it keeps the helper-code page, while the physical
   // keyboard shortcut page is only available on the 2-in-1 branch where the
   // corresponding capability projection is true.
-  const mobileHiddenPageIds: readonly SettingsPageId[] =
-    androidPlatform || harmonyPlatform
-      ? ["shortcuts", "floating-toolbar"]
-      : ["helpcode", "shortcuts", "floating-toolbar"];
+  // The shortcuts page carries the hardware-keyboard chords, so it is hidden where the host does
+  // not route any of them rather than where the platform happens to be a phone. Any of these
+  // devices can have a keyboard attached, and its owner has to be able to reach the switches the
+  // host already reads; hiding the page by platform name left them unreachable on Android.
+  const mobileHiddenPageIds: readonly SettingsPageId[] = [
+    ...(showModeSwitchShortcuts || showPanelShortcuts || showDesktopMaintenanceShortcuts
+      ? []
+      : (["shortcuts"] as const)),
+    "floating-toolbar",
+    ...(androidPlatform || harmonyPlatform ? [] : (["helpcode"] as const)),
+  ];
   // The sidebar is the list this page duplicates, so it does not list it. A mobile host above phone width still shows the sidebar, and `selectPage` refuses the pages hidden above, so listing them there left buttons that did nothing when tapped.
   const sidebarPages = availablePages.filter(
     (item) => item.id !== "more" && !(mobilePlatform && mobileHiddenPageIds.includes(item.id)),
@@ -7459,16 +7476,16 @@ export function SettingsPage({
                             />
                           </label>
                         )}
-                        {macosPlatform && (
+                        {showFullwidthChord && (
                           <label className="section-header">
                             <span className="section-title">
-                              Option+Shift+H 切换全半角
+                              {fullwidthChord} 切换全半角
                               <small>
                                 关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。
                               </small>
                             </span>
                             <input
-                              aria-label="Option+Shift+H 切换全半角"
+                              aria-label={`${fullwidthChord} 切换全半角`}
                               className="toggle"
                               type="checkbox"
                               checked={keybindings.toggle_fullwidth_option_shift_h}
