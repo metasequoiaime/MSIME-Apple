@@ -213,7 +213,7 @@ struct DictionarySettingsView: View {
       }
       Section("候选词管理") {
         Label("长按候选词", systemImage: "hand.tap")
-        Text("全拼 26 键、九键、双拼和五笔支持长按候选词：优先显示、固定到首位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
+        Text("全拼 26 键、九键、双拼和五笔支持长按候选词：优先显示、固定到前五位中的某一位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
           .foregroundStyle(.secondary)
         Text("日语和本地工具暂不支持候选词管理。第三方词库文件导入仍待接入。")
           .foregroundStyle(.secondary)
@@ -254,6 +254,7 @@ struct ServiceSettingsView: View {
   @State private var fetchedModels: [String]?
   @State private var modelStatus = ""
   @State private var fetchingModels = false
+  @State private var testingConnection = false
   @State private var token = ""
   @State private var keyboardAIEnabled = KeyboardAIService.configuration() != nil
   @State private var aiCandidatesEnabled = AICandidatePreference.isEnabled(MetasequoiaInputSessionBridge.loadSharedPreferences())
@@ -305,6 +306,8 @@ struct ServiceSettingsView: View {
               Stepper("候选数量：\(aiCandidateLimit)", value: $aiCandidateLimit, in: AICandidatePreference.limits)
                 .accessibilityIdentifier("aiCandidateLimit")
                 .onChange(of: aiCandidateLimit) { _ in publishAICandidates() }
+              NavigationLink("提示词") { AICandidatePromptView() }
+                .accessibilityIdentifier("aiCandidatePrompt")
             }
           } footer: {
             Text("打全拼时把已输入的拼音和前文发给上面保存的服务，把联想结果补在候选栏里，与云候选相同。密钥只留在本机钥匙串，不写入可同步的设置。")
@@ -548,6 +551,15 @@ struct ServiceSettingsView: View {
         }
         .disabled(kind == .voice && configuration.voiceProvider == .doubao)
         .accessibilityIdentifier("fetchServiceModels")
+        Button { testConnection() } label: {
+          HStack {
+            Label(testingConnection ? "正在测试…" : "测试连接", systemImage: "checkmark.seal")
+            Spacer()
+            if testingConnection { ProgressView() }
+          }
+        }
+        .disabled(busy)
+        .accessibilityIdentifier("testServiceConnection")
         if !modelStatus.isEmpty {
           Text(modelStatus).font(.footnote).foregroundStyle(.secondary)
             .accessibilityIdentifier("serviceModelsStatus")
@@ -643,6 +655,39 @@ struct ServiceSettingsView: View {
     } catch { modelStatus = error.localizedDescription }
   }
 
+  /// Check the endpoint, model and key as typed, before saving, the way the desktop settings page does. A key left blank uses the saved one.
+  private func testConnection() {
+    let config = configuration
+    let doubao = kind == .voice && config.voiceProvider == .doubao
+    do {
+      let url = try config.validatedURL(requiresModel: !doubao, allowWebSocket: doubao)
+      let enteredKey = token.trimmingCharacters(in: .whitespacesAndNewlines)
+      let key = try enteredKey.isEmpty ? ServiceTokenStore.read(kind, url: url) : enteredKey
+      guard !key.isEmpty else { modelStatus = "请先填写 API Key，或使用已保存的密钥。"; return }
+      UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+      let client = doubao ? DoubaoVoiceClient(
+        transport: DoubaoWebSocketTransport(),
+        codec: DoubaoHostFrameCodec.make(enableITN: config.doubaoEnableITN, punctuation: config.doubaoEnablePunctuation,
+                                         DDC: config.doubaoEnableDDC, boostingTable: config.doubaoBoostingTableID)) : nil
+      busy = true
+      testingConnection = true
+      modelStatus = ""
+      requestID = UUID()
+      let id = requestID
+      operation = Task {
+        do {
+          try await CustomServiceClient.test(kind: kind, configuration: config, token: key, doubaoClient: client)
+          try Task.checkCancellation()
+          if requestID == id { modelStatus = "连接成功，API Key 和模型配置有效。" }
+        } catch is CancellationError {
+        } catch {
+          if requestID == id && !Task.isCancelled { modelStatus = "测试失败：\(error.localizedDescription)" }
+        }
+        if requestID == id { busy = false; testingConnection = false }
+      }
+    } catch { modelStatus = error.localizedDescription }
+  }
+
   /// Point the shared `ai_assistant` at the configuration the keyboard can actually sign for (the one published to the Keychain), or switch it off when there is none. The key itself stays in the Keychain.
   private func publishAICandidates() {
     let published = KeyboardAIService.configuration()
@@ -719,10 +764,67 @@ struct ServiceSettingsView: View {
     requestID = UUID()
     operation?.cancel()
     fetchingModels = false
+    testingConnection = false
     busy = false
   }
   private func cancelAndClear() {
     cancelRequest()
     recorder.discard()
+  }
+}
+
+/// 「候选栏 AI 候选 → 提示词」: the desktop's three custom prompt slots for candidate-bar AI, on a page of its own so the editor has the whole screen on a phone.
+private struct AICandidatePromptView: View {
+  @State private var slot = AICandidatePreference.promptID(MetasequoiaInputSessionBridge.loadSharedPreferences())
+  @State private var text = ""
+  @State private var savedText = ""
+  @State private var status = ""
+
+  var body: some View {
+    Form {
+      Section {
+        Picker("使用的提示词", selection: $slot) {
+          ForEach(AICandidatePreference.promptSlots, id: \.id) { Text($0.title).tag($0.id) }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("aiCandidatePromptSlot")
+        TextEditor(text: $text)
+          .frame(minHeight: 240)
+          .font(.body.monospaced())
+          .autocorrectionDisabled()
+          .textInputAutocapitalization(.never)
+          .accessibilityLabel("提示词内容").accessibilityIdentifier("aiCandidatePromptText")
+      } footer: {
+        Text(status.isEmpty ? "选中的提示词会随拼音和前文一起发给 AI 服务。留空时使用内置提示词，它要求服务只返回 JSON 形式的候选列表。" : status)
+      }
+    }
+    .navigationTitle("提示词")
+    .toolbar {
+      Button("保存") { save() }.disabled(text == savedText).accessibilityIdentifier("aiCandidatePromptSave")
+    }
+    .onAppear { load(slot) }
+    .onChange(of: slot) { previous, next in
+      // Keep what was typed in the slot being left, then put the new slot in use.
+      if text != savedText { save(slot: previous) }
+      load(next)
+      save(slot: next)
+    }
+    .onDisappear { if text != savedText { save() } }
+  }
+
+  private func load(_ slot: String) {
+    text = AICandidatePreference.prompt(MetasequoiaInputSessionBridge.loadSharedPreferences(), slot: slot)
+    savedText = text
+  }
+
+  private func save() { save(slot: slot) }
+
+  private func save(slot: String) {
+    let content = text
+    let written = MetasequoiaInputSessionBridge.updateSharedPreferences { preferences in
+      preferences["ai_assistant"] = AICandidatePreference.assistant(
+        preferences["ai_assistant"] as? [String: Any], promptSlot: slot, text: content)
+    }
+    if written { savedText = content; status = "" } else { status = "提示词未能保存，请稍后重试。" }
   }
 }

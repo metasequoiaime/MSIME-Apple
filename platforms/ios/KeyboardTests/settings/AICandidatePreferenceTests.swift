@@ -39,4 +39,24 @@ final class AICandidatePreferenceTests: XCTestCase {
                                                           configuredEndpoint: endpoint))
     XCTAssertNil(AICandidatePreference.credentialEndpoint(nil, configuredEndpoint: endpoint))
   }
+
+  func testPromptSlotsReadAndWriteTheDesktopFields() {
+    XCTAssertEqual(AICandidatePreference.promptID(nil), "custom_1")
+    XCTAssertEqual(AICandidatePreference.promptID(["ai_assistant": ["prompt_id": "custom_9"]]), "custom_1", "an unknown slot reads as the first")
+    let legacy: [String: Any] = ["ai_assistant": ["prompt": "old single prompt", "prompt_custom_1": ""]]
+    XCTAssertEqual(AICandidatePreference.prompt(legacy, slot: "custom_1"), "old single prompt", "the first slot falls back to `prompt` as the desktop does")
+    XCTAssertEqual(AICandidatePreference.prompt(legacy, slot: "custom_2"), "")
+
+    let second = AICandidatePreference.assistant(["enabled": true, "prompt_custom_1": "one"], promptSlot: "custom_2", text: "two")
+    XCTAssertEqual(second["prompt_id"] as? String, "custom_2")
+    XCTAssertEqual(second["prompt_custom_2"] as? String, "two")
+    XCTAssertEqual(second["prompt_custom_1"] as? String, "one", "other slots are kept")
+    XCTAssertEqual(second["enabled"] as? Bool, true)
+    XCTAssertEqual(AICandidatePreference.promptID(["ai_assistant": second]), "custom_2")
+
+    let blank = AICandidatePreference.assistant(second, promptSlot: "custom_2", text: " \n ")
+    XCTAssertEqual(blank["prompt_custom_2"] as? String, "", "whitespace is stored empty so the built-in prompt applies")
+    let ignored = AICandidatePreference.assistant(second, promptSlot: "prompt", text: "x")
+    XCTAssertEqual(ignored["prompt_id"] as? String, "custom_2", "only the three slots can be written")
+  }
 }

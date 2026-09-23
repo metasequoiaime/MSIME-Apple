@@ -3600,21 +3600,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func candidateMenuElements(
     edit: @escaping (MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot?
   ) -> [UIMenuElement] {
-    func action(_ title: String, _ symbol: String, _ operation: MetasequoiaCandidateAction,
-                destructive: Bool = false) -> UIAction {
-      UIAction(title: title, image: UIImage(systemName: symbol), attributes: destructive ? .destructive : []) { [weak self] _ in
+    func action(_ title: String, _ symbol: String?, _ operation: MetasequoiaCandidateAction,
+                destructive: Bool = false, announcement: String? = nil) -> UIAction {
+      UIAction(title: title, image: symbol.flatMap { UIImage(systemName: $0) },
+               attributes: destructive ? .destructive : []) { [weak self] _ in
         guard let self, let result = edit(operation) else { return }
         render(result)
         if !result.isHandled { showDiagnostic("当前候选不支持此操作") }
         else if result.diagnosticText == nil {
           playInputClick()
-          UIAccessibility.post(notification: .announcement, argument: "已\(title)")
+          UIAccessibility.post(notification: .announcement, argument: announcement ?? "已\(title)")
         }
       }
     }
+    // The desktop candidate menu fixes a word at any of the first five slots, not only the first; a submenu keeps the five choices out of the top level, where a phone has room for few rows.
+    let positions = (UInt8(1)...5).map { position in
+      action("第 \(position) 位", nil, .fix(position: position), announcement: "已固定到第 \(position) 位")
+    }
     return [
       action("优先显示", "arrow.up", .promote),
-      action("固定到首位", "pin", .fixFirst),
+      UIMenu(title: "固定排位", image: UIImage(systemName: "pin"), children: positions),
       action("取消固定", "pin.slash", .clearPosition),
       UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
         action("确认删除此词条", "trash", .remove, destructive: true),
