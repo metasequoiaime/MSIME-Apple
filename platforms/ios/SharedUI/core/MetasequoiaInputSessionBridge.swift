@@ -93,6 +93,18 @@ private func msimeClientAIRequestForQuery(
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_parse_ai_response")
 private func msimeClientParseAIResponse(_ body: UnsafePointer<MSIMEByte>?, _ length: UInt, _ limit: UInt8) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_tencent_translation_http_request")
+private func msimeClientTencentTranslationHTTPRequest(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_niutrans_translation_http_request")
+private func msimeClientNiuTransTranslationHTTPRequest(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_custom_translation_http_request")
+private func msimeClientCustomTranslationHTTPRequest(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_parse_tencent_translation_response")
+private func msimeClientParseTencentTranslationResponse(_ body: UnsafePointer<MSIMEByte>?, _ length: UInt, _ expected: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_parse_niutrans_translation_response")
+private func msimeClientParseNiuTransTranslationResponse(_ body: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_parse_custom_translation_response")
+private func msimeClientParseCustomTranslationResponse(_ body: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_apply_online_candidates")
 private func msimeClientApplyOnlineCandidates(
   _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt,
@@ -759,6 +771,46 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return body.withUnsafeBytes { bytes in
       (try? decode(msimeClientParseAIResponse(
         bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(body.count), UInt8(limit)))) as? [String] ?? []
+    }
+  }
+
+  /// The HTTP request the shared layer builds for one translation provider (`tencent`, `niutrans` or `custom`), or nil when the provider is off or the request is invalid. The descriptor carries credentials and must never be logged.
+  static func translationRequest(provider: String, _ request: [String: Any]) -> [String: Any]? {
+    let function: (UnsafePointer<MSIMEByte>?, UInt) -> UnsafeMutablePointer<CChar>?
+    switch provider {
+    case "tencent": function = msimeClientTencentTranslationHTTPRequest
+    case "niutrans": function = msimeClientNiuTransTranslationHTTPRequest
+    case "custom": function = msimeClientCustomTranslationHTTPRequest
+    default: return nil
+    }
+    guard JSONSerialization.isValidJSONObject(request),
+          let data = try? JSONSerialization.data(withJSONObject: request), data.count <= 16_384 else { return nil }
+    return data.withUnsafeBytes { bytes in
+      (try? decode(function(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))) as? [String: Any]
+    }
+  }
+
+  /// One gloss per requested text, in order, from a provider's reply; nil when the reply is unusable as a whole. Tencent answers a batch of `expected` texts, the others one text each.
+  static func parseTranslationResponse(provider: String, body: Data, expected: Int) -> [String?]? {
+    guard !body.isEmpty, body.count <= 1_048_576 else { return nil }
+    return body.withUnsafeBytes { bytes -> [String?]? in
+      let base = bytes.bindMemory(to: MSIMEByte.self).baseAddress
+      switch provider {
+      case "tencent":
+        guard (1...9).contains(expected),
+              let values = (try? decode(msimeClientParseTencentTranslationResponse(base, UInt(body.count), UInt(expected)))) as? [Any],
+              values.count == expected else { return nil }
+        return values.map { $0 as? String }
+      case "niutrans", "custom":
+        guard expected == 1 else { return nil }
+        let pointer = provider == "niutrans"
+          ? msimeClientParseNiuTransTranslationResponse(base, UInt(body.count))
+          : msimeClientParseCustomTranslationResponse(base, UInt(body.count))
+        guard let value = (try? decode(pointer)) as? String else { return nil }
+        return [value]
+      default:
+        return nil
+      }
     }
   }
 

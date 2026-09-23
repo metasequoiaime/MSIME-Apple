@@ -17,15 +17,38 @@ struct BackendCandidateTranslationService: CandidateTranslationService {
   }
 }
 
+/// A user-chosen provider (NiuTrans, Tencent TMT or a custom endpoint) signed and parsed by the shared host; words it cannot translate come back empty and are skipped.
+struct ProviderCandidateTranslationService: CandidateTranslationService {
+  let route: TranslationRoute
+  var client = TranslationProviderClient()
+  func translate(words: [String], target: String) async throws -> [String] {
+    await client.translate(words: words, target: target, route: route).map { $0 ?? "" }
+  }
+}
+
 @MainActor
 final class CandidateTranslationStore {
   var onArrival: (() -> Void)?
   static let quietInterval: TimeInterval = 0.35
-  private let service: any CandidateTranslationService
+  private var service: any CandidateTranslationService
+  /// Which provider and credentials the cached glosses came from.
+  private(set) var scope: String
   private var cache: [String: String] = [:]
   private var signature: String?
   private var debounce: Timer?
-  init(service: any CandidateTranslationService = BackendCandidateTranslationService()) { self.service = service }
+  init(service: any CandidateTranslationService = BackendCandidateTranslationService(), scope: String = "account") {
+    self.service = service
+    self.scope = scope
+  }
+  /// Switch provider; glosses from another provider or other credentials are dropped, including replies still in flight.
+  func use(_ service: any CandidateTranslationService, scope: String) {
+    self.service = service
+    guard scope != self.scope else { return }
+    self.scope = scope
+    cancel()
+    cache.removeAll()
+    signature = nil
+  }
   static func translatable(_ word: String) -> Bool {
     word.unicodeScalars.contains { scalar in
       (0x4E00...0x9FFF).contains(scalar.value) || (0x3400...0x4DBF).contains(scalar.value)
@@ -55,8 +78,10 @@ final class CandidateTranslationStore {
     signature = stamp
     for (code, missing) in pending {
       let service = service
+      let scope = scope
       Task { [weak self] in
         guard let glosses = try? await service.translate(words: missing, target: code) else { return }
+        guard self?.scope == scope else { return }
         self?.absorb(code: code, words: missing, glosses: glosses)
       }
     }
