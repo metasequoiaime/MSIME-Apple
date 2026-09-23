@@ -48,10 +48,10 @@ with tempfile.TemporaryDirectory(prefix="msime-dictionary-cli-") as directory:
         assert not result.stderr, "Unexpected management stderr"
         document = json.loads(result.stdout)
         assert document["ok"] == success, "Wrong management result"
-        return document.get("value")
+        return document.get("value") if success else document.get("error")
 
-    def listing(offset=0, limit=100):
-        return request({"operation": "list", "offset": offset, "limit": limit})
+    def listing(offset=0, limit=100, **search):
+        return request({"operation": "list", "offset": offset, "limit": limit, **search})
 
     def edit(previous, replacement, identifier, success=True):
         return request({"operation": "edit", "previous": previous,
@@ -84,7 +84,22 @@ with tempfile.TemporaryDirectory(prefix="msime-dictionary-cli-") as directory:
         edit(entry, None, f"delete-fixture-{index}")
     assert listing()["entries"] == [], "Delete did not persist"
 
+    # Full pinyin typed without separators is cut into syllables on save and still found by an unseparated or partial search; an abbreviation is refused with the rule it broke rather than a generic failure.
+    typed = {"kind": "pinyin", "key": "nihao", "value": "你好", "weight": 12345}
+    stored = dict(typed, key="ni'hao")
+    edit(None, typed, "add-unseparated")
+    for query in ["nihao", "nih", "NiHao", "ni hao", "ni'hao"]:
+        found = listing(kind="pinyin", query=query)["entries"]
+        assert found == [stored], f"Pinyin search missed the stored key: {query}"
+    assert listing(kind="pinyin", query="hao")["entries"] == [], "Search is not a prefix"
+    refused = edit(None, dict(typed, key="nhao"), "add-abbreviated", False)
+    assert refused.startswith("invalid dictionary entry: "), "Refusal lost its reason"
+    assert "nhao" not in refused and "你好" not in refused, "Refusal echoed the entry"
+    assert listing()["entries"] == [stored], "Refused edit changed the dictionary"
+    edit(stored, None, "delete-unseparated")
+    assert listing()["entries"] == [], "Delete did not persist"
+
 for invalid, status in [(b"", 2), (b"x" * 65537, 2), (b"{", 1)]:
     result = subprocess.run([binary], input=invalid, capture_output=True, timeout=10)
     assert result.returncode == status and not result.stderr, "Invalid request boundary failed"
-print("Linux dictionary CLI list/edit/retry/busy/bounds acceptance passed")
+print("Linux dictionary CLI list/edit/retry/busy/bounds/pinyin-search acceptance passed")

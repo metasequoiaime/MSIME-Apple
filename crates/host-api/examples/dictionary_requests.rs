@@ -159,10 +159,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(request(&options, remove_contraction)["ok"], true);
     let remove_hyphenated = json!({ "operation": "edit", "previous": hyphenated, "replacement": null, "request_id": "native-english-hyphen-remove" });
     assert_eq!(request(&options, remove_hyphenated)["ok"], true);
+    assert_eq!(
+        request(&options, list.clone())["value"]["entries"],
+        json!([])
+    );
+
+    // Full pinyin typed the way people type it. The add form hands over `nihao`; it is cut into the syllables the Engine stores, as an imported row is, and a search without separators - or one that stops inside a syllable - finds it.
+    let typed = json!({ "kind": "pinyin", "key": "nihao", "value": "你好", "weight": 10000 });
+    let stored = json!({ "kind": "pinyin", "key": "ni'hao", "value": "你好", "weight": 10000 });
+    let add_typed = json!({ "operation": "edit", "previous": null, "replacement": typed, "request_id": "native-pinyin-unseparated" });
+    assert_eq!(
+        request(&options, add_typed)["value"]["applied"],
+        true,
+        "full pinyin without separators is saved"
+    );
+    for query in ["nihao", "nih", "ni hao", "ni'hao"] {
+        let search = json!({ "operation": "list", "offset": 0, "limit": 100, "kind": "pinyin", "query": query });
+        assert_eq!(
+            request(&options, search)["value"]["entries"],
+            json!([stored]),
+            "{query:?} finds the separated key"
+        );
+    }
+    // Jianpin is refused, and the reason survives to the caller instead of a generic rejection.
+    let jianpin = json!({ "kind": "pinyin", "key": "nhao", "value": "你好", "weight": 10000 });
+    let add_jianpin = json!({ "operation": "edit", "previous": null, "replacement": jianpin, "request_id": "native-pinyin-jianpin" });
+    let refused = request(&options, add_jianpin);
+    assert_eq!(refused["ok"], false);
+    assert!(
+        refused["error"]
+            .as_str()
+            .is_some_and(|reason| reason.starts_with("invalid dictionary entry: ")),
+        "the refusal names the rule; got {refused}"
+    );
+    let remove_stored = json!({ "operation": "edit", "previous": stored, "replacement": null, "request_id": "native-pinyin-remove" });
+    assert_eq!(request(&options, remove_stored)["ok"], true);
     assert_eq!(request(&options, list)["value"]["entries"], json!([]));
 
     println!(
-        "native list/busy/add/retry/recreate/commit/remove/fold/english-display roundtrip passed"
+        "native list/busy/add/retry/recreate/commit/remove/fold/english-display/pinyin-search roundtrip passed"
     );
     Ok(())
 }

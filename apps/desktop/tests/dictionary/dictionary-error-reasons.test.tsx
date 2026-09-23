@@ -36,3 +36,30 @@ test("an unknown or absent code keeps the caller's sentence", () => {
   expect(dictionaryErrorMessage(new Error("boom"), FALLBACK)).toBe(FALLBACK);
   expect(dictionaryErrorMessage("boom", FALLBACK)).toBe(FALLBACK);
 });
+
+test("a refused entry says what the code has to look like, per dictionary", () => {
+  const refused = { code: "dictionary_invalid_entry" };
+  const pinyin = dictionaryErrorMessage(refused, FALLBACK, "pinyin");
+  expect(pinyin).toContain("完整音节");
+  expect(pinyin).toContain("音节数需与汉字数一致");
+  expect(pinyin).not.toContain("稍后重试");
+  expect(dictionaryErrorMessage(refused, FALLBACK, "wubi")).toContain("1 到 4 个字母");
+  expect(dictionaryErrorMessage(refused, FALLBACK, "quick_phrase")).toContain("字母或数字");
+  expect(dictionaryErrorMessage(refused, FALLBACK, "english")).toContain("字母、连字符和撇号");
+  // Without a kind (the import path) it still names the problem rather than asking for a retry.
+  const generic = dictionaryErrorMessage(refused, FALLBACK);
+  expect(generic).not.toBe(FALLBACK);
+  expect(generic).not.toContain("稍后重试");
+});
+
+test("a refused word or weight does not blame a valid code", () => {
+  const refused = { code: "dictionary_invalid_word" };
+  for (const kind of ["pinyin", "wubi", "quick_phrase", "english"] as const) {
+    const message = dictionaryErrorMessage(refused, FALLBACK, kind);
+    expect(message).toContain("词条内容");
+    expect(message).toContain("权重");
+    expect(message).not.toContain("编码");
+    expect(message).not.toContain("音节");
+    expect(message).not.toContain("稍后重试");
+  }
+});

@@ -1,6 +1,8 @@
 //! Native management requests. The native caller owns and authorizes all paths.
 
-use super::{edit_personal_dictionary, response, DictionaryAccess, HostOptions};
+use super::{
+    edit_personal_dictionary, invalid_dictionary_entry, response, DictionaryAccess, HostOptions,
+};
 use msime_client_core::dictionary::import::{dictionary_row_matches, PageSelector};
 use msime_client_core::dictionary::personal::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
@@ -43,6 +45,24 @@ impl Entry {
         self.key = self.key.to_ascii_lowercase();
         self.weight = self.weight.max(MINIMUM_WEIGHT);
         self
+    }
+
+    /// A pinyin entry with its key cut into the syllables the Engine stores, the same way an imported row is.
+    ///
+    /// The Engine only accepts separated syllables (`ni'hao`), and the reference's settings page accepts `nihao` by normalizing it against the word's length first. Without this the add form refused the way almost everyone types pinyin, with a message that did not say why. A key that cannot be cut is passed on unchanged for the Engine to judge: its refusal names the rule, and a word containing a character outside the Han ranges counted here (`〇`) can still be saved with explicitly separated syllables, as before.
+    fn with_full_pinyin(mut self) -> Self {
+        if self.kind == Kind::Pinyin {
+            if let Some(key) = full_pinyin_key(&self.key, &self.value) {
+                self.key = key;
+            }
+        }
+        self
+    }
+
+    /// Does this row belong on a page filtered by `kind` and code `prefix`?
+    fn matches(&self, kind: Option<Kind>, prefix: &str) -> bool {
+        let same_kind = kind.map(|wanted| wanted == self.kind).unwrap_or(true);
+        dictionary_row_matches(same_kind, (&self.kind).into(), &self.key, prefix)
     }
 }
 
@@ -106,7 +126,7 @@ enum Operation {
         /// is what older callers sent.
         #[serde(default)]
         kind: Option<Kind>,
-        /// Code prefix to search for, matched case-insensitively.
+        /// Code prefix to search for, matched case-insensitively. Pinyin separators are ignored on both sides, so `nihao` and `nih` find `ni'hao`.
         #[serde(default)]
         query: Option<String>,
     },
@@ -376,8 +396,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 let count = page.entries.len();
                 for raw in page.entries {
                     let entry = Entry::try_from(raw)?;
-                    let same_kind = kind.map(|wanted| wanted == entry.kind).unwrap_or(true);
-                    if !dictionary_row_matches(same_kind, &entry.key, &prefix) {
+                    if !entry.matches(kind, &prefix) {
                         continue;
                     }
                     if selector.full() {
@@ -412,10 +431,11 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             // typed in lower case was fine - and an entry edited after being imported from a file
             // that had it in upper case could never be matched to the row it stored.
             let previous = previous.map(Entry::normalized_for_engine);
-            let replacement = replacement.map(Entry::normalized_for_engine);
-            for entry in previous.iter().chain(replacement.iter()) {
+            if let Some(entry) = &previous {
                 validate_entry(entry)?;
             }
+            // Only the replacement is re-cut: the previous entry is a row the list returned, and it has to reach the Engine exactly as stored to be found.
+            let replacement = replacement.map(replacement_for_engine).transpose()?;
             let previous = previous.map(DictionaryEntry::from);
             let replacement = replacement.map(DictionaryEntry::from);
             edit_personal_dictionary(
@@ -811,7 +831,6 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                     replacement.as_ref(),
                     &queued.id,
                 )
-                .map_err(str::to_owned)
             },
             |offset| {
                 let page = msime_engine_bridge::dictionary_entries(&options, offset, 100)
@@ -924,6 +943,14 @@ fn personal_to_kind(kind: PersonalWordKind) -> Kind {
     }
 }
 
+/// The entry a manual add or edit hands to the Engine: the code folded, the weight inside the Engine's range, the host's own bounds checked, and a pinyin key cut into syllables.
+fn replacement_for_engine(entry: Entry) -> Result<Entry, String> {
+    let entry = entry.normalized_for_engine();
+    validate_entry(&entry)?;
+    Ok(entry.with_full_pinyin())
+}
+
+/// The host's bounds on an entry, each refusal naming the rule it broke. The reasons are fixed text and never repeat the entry.
 fn validate_entry(entry: &Entry) -> Result<(), String> {
     let key_limit = match entry.kind {
         Kind::Pinyin => 512,
@@ -946,17 +973,36 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
         character.is_control()
             && !(matches!(entry.kind, Kind::QuickPhrase) && matches!(character, '\n' | '\t'))
     });
-    if entry.key.is_empty()
-        || entry.key.len() > key_limit
-        || !key_valid
-        || entry.value.is_empty()
-        || entry.value.len() > 4096
-        || value_has_invalid_control
-        || !(1..=100_000_000).contains(&entry.weight)
-    {
-        return Err("invalid dictionary entry".into());
+    let reason = if entry.key.is_empty() || entry.key.len() > key_limit {
+        "code is empty or too long"
+    } else if !key_valid {
+        "code contains characters this dictionary does not accept"
+    } else if entry.value.is_empty() || entry.value.len() > 4096 {
+        "word is empty or too long"
+    } else if value_has_invalid_control {
+        "word contains a control character"
+    } else if !(1..=100_000_000).contains(&entry.weight) {
+        "weight is outside 1 to 100000000"
+    } else {
+        return Ok(());
+    };
+    Err(invalid_dictionary_entry(reason))
+}
+
+/// Cut a full pinyin key into one syllable per Han character of `value`, the form the Engine stores. `None` when the key is not complete syllables or the counts cannot agree.
+fn full_pinyin_key(key: &str, value: &str) -> Option<String> {
+    let expected_syllables = value
+        .chars()
+        .filter(|&character| is_han_character(character))
+        .count();
+    if !(1..=128).contains(&expected_syllables) {
+        return None;
     }
-    Ok(())
+    Some(msime_engine_bridge::normalize_full_pinyin(
+        key,
+        expected_syllables,
+    ))
+    .filter(|normalized| !normalized.is_empty())
 }
 
 impl From<&Kind> for msime_client_core::dictionary::import::ImportKind {
@@ -996,17 +1042,7 @@ fn parse_import(
     if matches!(kind, Kind::Pinyin) && engine_options.is_some() {
         let mut usable = Vec::with_capacity(report.entries.len());
         for mut entry in report.entries.drain(..) {
-            let expected_syllables = entry
-                .value
-                .chars()
-                .filter(|&character| is_han_character(character))
-                .count();
-            let normalized = if (1..=128).contains(&expected_syllables) {
-                msime_engine_bridge::normalize_full_pinyin(&entry.key, expected_syllables)
-            } else {
-                String::new()
-            };
-            if normalized.is_empty() {
+            let Some(normalized) = full_pinyin_key(&entry.key, &entry.value) else {
                 report.failed += 1;
                 if report.first_failures.len() < 5 {
                     report.first_failures.push(
@@ -1016,10 +1052,10 @@ fn parse_import(
                         },
                     );
                 }
-            } else {
-                entry.key = normalized;
-                usable.push(entry);
-            }
+                continue;
+            };
+            entry.key = normalized;
+            usable.push(entry);
         }
         report.entries = usable;
     }
@@ -1179,6 +1215,102 @@ mod tests {
             .to_owned();
         unsafe { crate::msime_client_string_free(null) };
         assert!(value.contains("\"ok\":false"));
+    }
+
+    fn pinyin(key: &str, value: &str) -> Entry {
+        Entry {
+            kind: Kind::Pinyin,
+            key: key.into(),
+            value: value.into(),
+            weight: 10_000,
+        }
+    }
+
+    #[test]
+    fn a_pinyin_search_finds_the_separated_key_without_separators() {
+        let stored = pinyin("ni'hao", "你好");
+        for query in ["nihao", "nih", "ni hao", "NIHAO", "ni'hao"] {
+            assert!(stored.matches(Some(Kind::Pinyin), query), "{query:?}");
+            assert!(stored.matches(None, query), "{query:?}");
+        }
+        assert!(!stored.matches(Some(Kind::Pinyin), "nhao"));
+        assert!(!stored.matches(Some(Kind::Wubi), "nihao"));
+    }
+
+    #[test]
+    fn a_manual_pinyin_entry_is_cut_into_syllables_like_an_imported_one() {
+        for typed in ["nihao", "NiHao", "ni hao", "ni'hao"] {
+            let entry = replacement_for_engine(pinyin(typed, "你好")).unwrap();
+            assert_eq!(entry.key, "ni'hao", "{typed:?}");
+            // What this layer hands on is what the Engine accepts.
+            msime_engine_bridge::dictionary_validate(&entry.into()).unwrap();
+        }
+        // The word's length picks the cut, as it does for an imported row.
+        assert_eq!(
+            replacement_for_engine(pinyin("xian", "西安")).unwrap().key,
+            "xi'an"
+        );
+        assert_eq!(
+            replacement_for_engine(pinyin("xian", "先")).unwrap().key,
+            "xian"
+        );
+        // A key that cannot be cut reaches the Engine unchanged, and the Engine names the rule.
+        assert_eq!(
+            replacement_for_engine(pinyin("nhao", "你好")).unwrap().key,
+            "nhao"
+        );
+    }
+
+    #[test]
+    fn a_refused_edit_says_which_rule_it_broke() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_str().unwrap();
+        let edit = |replacement: Entry| {
+            let request = json!({
+                "options": {
+                    "api_version": 1,
+                    "resources": format!("{root}/resources"),
+                    "user_data": format!("{root}/user"),
+                    "cache": format!("{root}/cache"),
+                    "dictionaries": format!("{root}/dictionaries"),
+                    "preferences": msime_client_core::preferences::Preferences::default(),
+                },
+                "action": {
+                    "operation": "edit",
+                    "previous": null,
+                    "replacement": replacement,
+                    "request_id": "synthetic-edit",
+                },
+            });
+            dictionary_request_json(&serde_json::to_vec(&request).unwrap()).unwrap_err()
+        };
+        // Jianpin is not a full reading: the Engine's own reason comes back under the stable prefix the settings page maps to one code, before anything is locked or created.
+        let refused = edit(pinyin("nhao", "你好"));
+        assert!(
+            refused.starts_with("invalid dictionary entry: "),
+            "{refused}"
+        );
+        assert!(!refused.contains("nhao") && !refused.contains("你好"));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        // Too many syllables for the word is the same kind of refusal.
+        assert!(edit(pinyin("ni'hao'ma", "你好")).starts_with("invalid dictionary entry: "));
+        // The host's own bounds name their rule too.
+        let wubi = Entry {
+            kind: Kind::Wubi,
+            key: "abcde".into(),
+            value: "测试".into(),
+            weight: 1,
+        };
+        assert_eq!(
+            edit(wubi),
+            "invalid dictionary entry: code is empty or too long"
+        );
+        // `nihao` passes every entry rule; with no dictionary behind these paths it fails later, on storage, not as an invalid entry.
+        let accepted = edit(pinyin("nihao", "你好"));
+        assert!(
+            !accepted.starts_with("invalid dictionary entry"),
+            "{accepted}"
+        );
     }
 
     #[test]

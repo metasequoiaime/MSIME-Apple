@@ -547,6 +547,47 @@ fn chrome_background_matches_the_shared_stylesheet() {
 }
 
 #[test]
+fn an_invalid_dictionary_entry_keeps_its_own_code() {
+    for reason in [
+        "invalid dictionary entry",
+        "invalid dictionary entry: code is empty or too long",
+        "invalid dictionary entry: code contains characters this dictionary does not accept",
+        "invalid dictionary entry: Use complete pinyin syllables separated by apostrophes or spaces",
+        "invalid dictionary entry: Each character must have one pinyin syllable (maximum 64)",
+        "invalid dictionary entry: Wubi codes contain one to four letters",
+    ] {
+        assert_eq!(
+            super::dictionary_error_code(reason),
+            "dictionary_invalid_entry",
+            "{reason}"
+        );
+    }
+    // A valid code with a bad word or weight must not be reported as a code problem, or the page tells the user to fix the wrong field.
+    for reason in [
+        "invalid dictionary entry: word is empty or too long",
+        "invalid dictionary entry: word contains a control character",
+        "invalid dictionary entry: weight is outside 1 to 100000000",
+        "invalid dictionary entry: Weight must be between 1 and 100000000",
+        "invalid dictionary entry: The word contains an unsupported control character",
+    ] {
+        assert_eq!(
+            super::dictionary_error_code(reason),
+            "dictionary_invalid_word",
+            "{reason}"
+        );
+    }
+    // A different failure that merely shares the words is not an entry refusal.
+    assert_eq!(
+        super::dictionary_error_code("invalid dictionary entryway"),
+        "storage"
+    );
+    assert_eq!(
+        super::dictionary_error_code("dictionary edit rejected"),
+        "storage"
+    );
+}
+
+#[test]
 fn dictionary_mutations_quiesce_but_reads_do_not() {
     assert!(super::dictionary_action_requires_quiesce(
         &serde_json::json!({"operation": "edit"})

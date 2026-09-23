@@ -607,7 +607,7 @@ mod tests {
         let mut selector = PageSelector::new(0, 5);
         let mut taken = 0;
         for (is_wubi, key) in &rows {
-            if dictionary_row_matches(*is_wubi, key, "") && selector.accept() {
+            if dictionary_row_matches(*is_wubi, ImportKind::Wubi, key, "") && selector.accept() {
                 taken += 1;
             }
         }
@@ -638,19 +638,57 @@ mod tests {
 
     #[test]
     fn the_code_prefix_is_matched_case_insensitively() {
-        assert!(dictionary_row_matches(true, "wq", "w"));
-        assert!(dictionary_row_matches(true, "WQ", "w"));
-        assert!(dictionary_row_matches(true, "wq", "WQ"));
-        assert!(dictionary_row_matches(true, " wq ", "wq"));
+        assert!(dictionary_row_matches(true, ImportKind::Wubi, "wq", "w"));
+        assert!(dictionary_row_matches(true, ImportKind::Wubi, "WQ", "w"));
+        assert!(dictionary_row_matches(true, ImportKind::Wubi, "wq", "WQ"));
+        assert!(dictionary_row_matches(true, ImportKind::Wubi, " wq ", "wq"));
         // A prefix, not a substring: the user is typing a code from the start.
-        assert!(!dictionary_row_matches(true, "awq", "wq"));
+        assert!(!dictionary_row_matches(true, ImportKind::Wubi, "awq", "wq"));
         // Longer than the key cannot match.
-        assert!(!dictionary_row_matches(true, "wq", "wqx"));
+        assert!(!dictionary_row_matches(true, ImportKind::Wubi, "wq", "wqx"));
         // An empty prefix matches everything of the right kind.
-        assert!(dictionary_row_matches(true, "anything", ""));
+        assert!(dictionary_row_matches(
+            true,
+            ImportKind::Wubi,
+            "anything",
+            ""
+        ));
         // The kind still gates it, whatever the prefix.
-        assert!(!dictionary_row_matches(false, "wq", ""));
-        assert!(!dictionary_row_matches(false, "wq", "wq"));
+        assert!(!dictionary_row_matches(false, ImportKind::Wubi, "wq", ""));
+        assert!(!dictionary_row_matches(false, ImportKind::Wubi, "wq", "wq"));
+    }
+
+    #[test]
+    fn a_pinyin_prefix_ignores_syllable_separators() {
+        let pinyin =
+            |key: &str, prefix: &str| dictionary_row_matches(true, ImportKind::Pinyin, key, prefix);
+        // Stored keys are separated; users type without separators, with spaces, or stop inside a syllable.
+        for prefix in ["nihao", "nih", "ni'hao", "ni hao", "NiHao", "n"] {
+            assert!(pinyin("ni'hao", prefix), "{prefix:?}");
+        }
+        // A key stored with spaces is compared the same way.
+        assert!(pinyin("ni hao", "nihao"));
+        // Still a prefix from the start of the key, and never longer than it.
+        assert!(!pinyin("ni'hao", "hao"));
+        assert!(!pinyin("ni'hao", "nihaoma"));
+        assert!(!pinyin("ni'hao", "nhao"));
+        // The accepted overmatch: without separators a prefix can cross a syllable boundary.
+        assert!(pinyin("xi'an", "xian"));
+        assert!(pinyin("xian", "xi'an"));
+        // The kind still gates it.
+        assert!(!dictionary_row_matches(
+            false,
+            ImportKind::Pinyin,
+            "ni'hao",
+            "nihao"
+        ));
+        // Other kinds keep separators significant: an apostrophe is part of an English code.
+        assert!(!dictionary_row_matches(
+            true,
+            ImportKind::English,
+            "don't",
+            "dont"
+        ));
     }
 
     #[test]
@@ -722,15 +760,20 @@ mod tests {
 
     #[test]
     fn the_code_prefix_is_case_insensitive_and_starts_at_the_key() {
-        assert!(dictionary_row_matches(true, "wq", "w"));
-        assert!(dictionary_row_matches(true, "WQ", "w"));
-        assert!(dictionary_row_matches(true, "wq", "WQ"));
-        assert!(dictionary_row_matches(true, " wq ", "wq"));
-        assert!(!dictionary_row_matches(true, "awq", "wq"));
-        assert!(!dictionary_row_matches(true, "wq", "wqx"));
-        assert!(dictionary_row_matches(true, "anything", ""));
-        assert!(!dictionary_row_matches(false, "wq", ""));
-        assert!(!dictionary_row_matches(false, "wq", "wq"));
+        assert!(dictionary_row_matches(true, ImportKind::Wubi, "wq", "w"));
+        assert!(dictionary_row_matches(true, ImportKind::Wubi, "WQ", "w"));
+        assert!(dictionary_row_matches(true, ImportKind::Wubi, "wq", "WQ"));
+        assert!(dictionary_row_matches(true, ImportKind::Wubi, " wq ", "wq"));
+        assert!(!dictionary_row_matches(true, ImportKind::Wubi, "awq", "wq"));
+        assert!(!dictionary_row_matches(true, ImportKind::Wubi, "wq", "wqx"));
+        assert!(dictionary_row_matches(
+            true,
+            ImportKind::Wubi,
+            "anything",
+            ""
+        ));
+        assert!(!dictionary_row_matches(false, ImportKind::Wubi, "wq", ""));
+        assert!(!dictionary_row_matches(false, ImportKind::Wubi, "wq", "wq"));
     }
 
     #[test]
@@ -833,14 +876,28 @@ impl PageSelector {
 
 /// Does this row belong to the requested kind and code prefix?
 ///
-/// The prefix is compared case-insensitively over ASCII because every code
-/// alphabet here is ASCII and users type codes in either case.
-pub fn dictionary_row_matches(kind_matches: bool, key: &str, prefix: &str) -> bool {
+/// The prefix is compared case-insensitively over ASCII because every code alphabet here is ASCII and users type codes in either case.
+///
+/// A pinyin key is stored with its syllables separated (`ni'hao`), but users search the way they type: `nihao`, `ni hao` or a prefix that ends inside a syllable such as `nih`. Separators are therefore ignored on both sides for pinyin rows, the way the Windows reference accepts an unseparated search by normalizing it before it queries. The cost is that a prefix can span a syllable boundary either way - `xian` finds both `xi'an` and `xian` - which is what a prefix search should do anyway.
+pub fn dictionary_row_matches(
+    kind_matches: bool,
+    row_kind: ImportKind,
+    key: &str,
+    prefix: &str,
+) -> bool {
     if !kind_matches {
         return false;
     }
     if prefix.is_empty() {
         return true;
+    }
+    if row_kind == ImportKind::Pinyin {
+        let not_separator = |byte: &u8| !matches!(byte, b'\'' | b' ');
+        let mut key = key.bytes().filter(not_separator);
+        return prefix.bytes().filter(not_separator).all(|wanted| {
+            key.next()
+                .is_some_and(|byte| byte.eq_ignore_ascii_case(&wanted))
+        });
     }
     let key = key.trim();
     if key.len() < prefix.len() {
