@@ -4,6 +4,7 @@
 
 #include <X11/Xlib.h>
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <utility>
@@ -25,6 +26,9 @@ class WaveOverlayX11Surface final : public WaveOverlaySurface {
 
  private:
   bool ensure_window();
+  void place(bool force);
+  void load_font_set();
+  int scaled(int logical) const;
   void draw(const WaveOverlayModel &model);
   void pump_events();
   void set_input_region(bool actions_visible);
@@ -46,6 +50,12 @@ class WaveOverlayX11Surface final : public WaveOverlaySurface {
   WaveOverlayModel::Action pressed_action_ = WaveOverlayModel::Action::Confirm;
   bool action_pressed_ = false;
   bool actions_visible_ = false;
+  // RandR 1.5 monitor enumeration; without it the bar is placed on the EWMH work area or the root window.
+  bool randr_monitors_ = false;
+  double scale_ = 1.0;
+  unsigned width_ = 0;
+  unsigned height_ = 0;
+  std::chrono::steady_clock::time_point placed_at_{};
 };
 
 }  // namespace msime::linux_host
