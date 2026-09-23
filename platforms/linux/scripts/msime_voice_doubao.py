@@ -48,11 +48,28 @@ def doubao_headers(config, request_id):
     return headers
 
 
+# websockets 15.0 is the first release whose synchronous client takes ping_interval and ping_timeout; 13.x and 14.x forward unknown keywords to socket.create_connection, so an older package would only fail once a recording is already connecting.
+WEBSOCKETS_MIN_MAJOR = 15
+WEBSOCKETS_REQUIRED = "websockets>=%d with sync client required" % WEBSOCKETS_MIN_MAJOR
+# Every keyword DoubaoStream.run passes to connect().
+CONNECT_ARGUMENTS = frozenset((
+    "additional_headers", "user_agent_header", "open_timeout", "close_timeout", "ping_interval",
+    "ping_timeout", "max_size", "max_queue", "compression", "logger", "create_connection"))
+
+
 def websocket_dependency():
+    """Return the synchronous client, or raise RuntimeError when the installed websockets cannot run the Doubao transport."""
+    import inspect
     from importlib.metadata import version
-    if version("websockets").split(".")[0] != "15":
-        raise ValueError("Doubao requires websockets 15.x")
-    from websockets.sync.client import ClientConnection, connect
+    try:
+        major = int(version("websockets").split(".")[0])
+        from websockets.sync.client import ClientConnection, connect
+        accepted = inspect.signature(connect).parameters
+        receive = inspect.signature(ClientConnection.recv).parameters
+    except Exception as error:
+        raise RuntimeError(WEBSOCKETS_REQUIRED) from error
+    if major < WEBSOCKETS_MIN_MAJOR or not CONNECT_ARGUMENTS <= accepted.keys() or "timeout" not in receive:
+        raise RuntimeError(WEBSOCKETS_REQUIRED)
     return ClientConnection, connect
 
 

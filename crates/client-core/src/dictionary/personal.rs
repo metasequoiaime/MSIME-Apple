@@ -15,6 +15,8 @@ const MAX_STATE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_REQUESTS: usize = 160;
 const MAX_ACTIVE_REQUESTS: usize = 128;
 const MAX_PAGE_ENTRIES: usize = 100;
+/// The code prefix a page may be filtered by, as the Engine list accepts it.
+const MAX_QUERY_BYTES: usize = 256;
 const MAX_HISTORY: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -148,6 +150,16 @@ pub struct PersonalDictionaryState {
     pub snapshot_error: Option<String>,
     pub page_offset: usize,
     pub requested_page_offset: usize,
+    /// The dictionary and code prefix the host asked the keyboard to page through. The keyboard answers from the user's whole store, so a filter chosen in the host no longer has to be applied to one unfiltered page, which left a later page's matches unreachable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_kind: Option<PersonalWordKind>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub requested_query: String,
+    /// The filter `entries` answer, so a host can tell a page still waiting for the keyboard from a page of its own search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_kind: Option<PersonalWordKind>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub page_query: String,
     pub refresh_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_refresh_id: Option<String>,
@@ -164,6 +176,10 @@ impl Default for PersonalDictionaryState {
             snapshot_error: None,
             page_offset: 0,
             requested_page_offset: 0,
+            requested_kind: None,
+            requested_query: String::new(),
+            page_kind: None,
+            page_query: String::new(),
             refresh_id: Uuid::new_v4().to_string(),
             completed_refresh_id: None,
         }
@@ -177,6 +193,14 @@ impl PersonalDictionaryState {
             .filter(|request| request.status == PersonalWordRequestStatus::Pending)
             .count()
     }
+}
+
+/// One page of the user's own words, optionally within one dictionary and under one code prefix.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PersonalPageRequest {
+    pub offset: usize,
+    pub kind: Option<PersonalWordKind>,
+    pub query: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -346,12 +370,20 @@ impl PersonalDictionaryStore {
         })
     }
 
-    pub fn request_page(&self, offset: usize) -> Result<(), PersonalDictionaryError> {
-        if offset > 1_000_000 {
+    pub fn request_page(
+        &self,
+        offset: usize,
+        kind: Option<PersonalWordKind>,
+        query: &str,
+    ) -> Result<(), PersonalDictionaryError> {
+        let query = query.trim();
+        if offset > 1_000_000 || query.len() > MAX_QUERY_BYTES {
             return Err(PersonalDictionaryError::InvalidRequest);
         }
         self.update(|state| {
             state.requested_page_offset = offset;
+            state.requested_kind = kind;
+            state.requested_query = query.to_owned();
             state.refresh_id = Uuid::new_v4().to_string();
             Ok(())
         })
@@ -366,7 +398,7 @@ impl PersonalDictionaryStore {
     ) -> Result<(), PersonalDictionaryError>
     where
         Apply: FnMut(&PersonalWordRequest) -> Result<(), String>,
-        Page: FnMut(usize) -> Result<PersonalWordPage, String>,
+        Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
     {
         self.update(|state| {
             let pending: Vec<usize> = state
@@ -393,11 +425,18 @@ impl PersonalDictionaryStore {
             if state.pending_count() == 0 {
                 state.completed_refresh_id = Some(state.refresh_id.clone());
             }
-            match page(state.requested_page_offset) {
+            let request = PersonalPageRequest {
+                offset: state.requested_page_offset,
+                kind: state.requested_kind,
+                query: state.requested_query.clone(),
+            };
+            match page(&request) {
                 Ok(snapshot) if snapshot.entries.len() <= MAX_PAGE_ENTRIES => {
                     state.entries = snapshot.entries;
                     state.has_more = snapshot.has_more;
-                    state.page_offset = state.requested_page_offset;
+                    state.page_offset = request.offset;
+                    state.page_kind = request.kind;
+                    state.page_query = request.query;
                     state.snapshot_date = Some("updated".to_owned());
                     state.snapshot_error = None;
                 }
@@ -521,6 +560,8 @@ fn validate_state(state: &PersonalDictionaryState) -> Result<(), PersonalDiction
         || state.entries.len() > MAX_PAGE_ENTRIES
         || state.page_offset > 1_000_000
         || state.requested_page_offset > 1_000_000
+        || state.requested_query.len() > MAX_QUERY_BYTES
+        || state.page_query.len() > MAX_QUERY_BYTES
         || state.refresh_id.is_empty()
     {
         return Err(PersonalDictionaryError::InvalidState);
@@ -598,6 +639,57 @@ mod tests {
         let state = store.read().unwrap();
         assert_eq!(state.entries, vec![entry]);
         assert!(state.snapshot_error.is_some());
+    }
+
+    #[test]
+    fn a_page_request_carries_its_filter_to_the_keyboard_and_back() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PersonalDictionaryStore::new(root.path());
+        let entry = word("dh", "电话");
+        store
+            .request_page(100, Some(PersonalWordKind::QuickPhrase), " dh ")
+            .unwrap();
+        let mut seen = None;
+        store
+            .synchronize(
+                |_| Ok(()),
+                |request| {
+                    seen = Some(request.clone());
+                    Ok(PersonalWordPage {
+                        entries: vec![entry.clone()],
+                        has_more: false,
+                    })
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            seen,
+            Some(PersonalPageRequest {
+                offset: 100,
+                kind: Some(PersonalWordKind::QuickPhrase),
+                query: "dh".into(),
+            })
+        );
+        let state = store.read().unwrap();
+        assert_eq!(state.page_kind, Some(PersonalWordKind::QuickPhrase));
+        assert_eq!(state.page_query, "dh");
+        let text = fs::read_to_string(root.path().join("sync.json")).unwrap();
+        assert!(text.contains(r#""requestedKind":"quickPhrase""#), "{text}");
+        assert!(text.contains(r#""pageQuery":"dh""#), "{text}");
+
+        // A state written before the filter existed still reads, as an unfiltered page.
+        let legacy: PersonalDictionaryState = serde_json::from_str(
+            r#"{"version":1,"requests":[],"entries":[],"hasMore":false,"pageOffset":0,"requestedPageOffset":0,"refreshId":"x"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (legacy.requested_kind, legacy.requested_query.as_str()),
+            (None, "")
+        );
+        assert!(matches!(
+            store.request_page(0, None, &"a".repeat(MAX_QUERY_BYTES + 1)),
+            Err(PersonalDictionaryError::InvalidRequest)
+        ));
     }
 
     #[test]

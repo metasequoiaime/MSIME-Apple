@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The Debian prerm and postinst: which systemctl calls they make for which dpkg action.
+"""The Debian prerm and postinst: which systemctl and systemd-run calls they make for which dpkg action.
 
-systemctl and loginctl are stubs that record their arguments, and PATH holds nothing else, so the scripts also prove they need no other program. A real systemd user manager is not started here; the build-gate container runs under an init that is not systemd.
+systemctl, systemd-run, notify-send and loginctl are stubs that record their arguments, and PATH holds nothing else, so the scripts also prove they need no other program. A real systemd user manager is not started here; the build-gate container runs under an init that is not systemd.
 
 Usage: deb_maintainer_scripts.py <configured-debian-dir> <configured-uninstall.cmake> <unit list>
 """
@@ -28,6 +28,22 @@ esac
 exit 0
 """
 
+# Logged to the same file so the order relative to the systemctl calls is checked too.
+SYSTEMD_RUN = """#!/bin/sh
+printf 'systemd-run %s\\n' "$*" >> "$STUB_LOG"
+[ -z "$STUB_SYSTEMD_RUN_FAILS" ] || exit 1
+exit 0
+"""
+
+# Only has to exist: postinst hands it to the user's manager rather than running it.
+NOTIFY_SEND = """#!/bin/sh
+printf 'notify-send ran in the maintainer script\\n' >> "$STUB_LOG"
+exit 1
+"""
+
+NOTICE = "notify-send -a 水杉输入法 -i msime-client 水杉输入法已升级 重启输入法后生效：IBus 执行 ibus restart，Fcitx5 执行 fcitx5 -r，或注销后重新登录"
+NOTIFYING = ("systemctl", "loginctl", "systemd-run", "notify-send")
+
 LOGINCTL = """#!/bin/sh
 [ -z "$STUB_LOGINCTL_FAILS" ] || exit 1
 printf '%s' "$STUB_USERS"
@@ -39,7 +55,7 @@ def run(script: str, *args: str, tools=("systemctl", "loginctl"), **env: str):
         bin_dir = Path(temp) / "bin"
         bin_dir.mkdir()
         log = Path(temp) / "systemctl.log"
-        for name, body in (("systemctl", SYSTEMCTL), ("loginctl", LOGINCTL)):
+        for name, body in (("systemctl", SYSTEMCTL), ("loginctl", LOGINCTL), ("systemd-run", SYSTEMD_RUN), ("notify-send", NOTIFY_SEND)):
             if name in tools:
                 (bin_dir / name).write_text(body)
                 (bin_dir / name).chmod(0o755)
@@ -50,6 +66,7 @@ def run(script: str, *args: str, tools=("systemctl", "loginctl"), **env: str):
             "STUB_UNREACHABLE": "",
             "STUB_FAILING_UNIT": "",
             "STUB_LOGINCTL_FAILS": "",
+            "STUB_SYSTEMD_RUN_FAILS": "",
             **env,
         }
         result = subprocess.run(
@@ -72,6 +89,10 @@ def disable_calls(uid: str) -> list:
 
 def restart_calls(uid: str) -> list:
     return [f"--user -M {uid}@ daemon-reload"] + [f"--user -M {uid}@ try-restart {service}" for service in SERVICES]
+
+
+def notify_call(uid: str) -> list:
+    return [f"systemd-run --user -M {uid}@ --collect --quiet {NOTICE}"]
 
 
 def main() -> None:
@@ -120,6 +141,29 @@ def main() -> None:
     expect(result, calls, restart_calls("1000") + restart_calls("1001")[:1], stderr_lines=1)
     assert "bob" in result.stderr and f"systemctl --user try-restart {' '.join(SERVICES)}" in result.stderr, result.stderr
 
+    # An upgrade also tells each reachable user how to switch the input method to the new build, through a transient unit in that user's manager, after its services were restarted. notify-send itself never runs as root here.
+    result, calls = run("postinst", "configure", "1.0.0", tools=NOTIFYING)
+    expect(result, calls, restart_calls("1000") + notify_call("1000") + restart_calls("1001") + notify_call("1001"))
+
+    # A notification that cannot be sent (no session bus, old systemd) does not fail the upgrade or skip the next user.
+    result, calls = run("postinst", "configure", "1.0.0", tools=NOTIFYING, STUB_SYSTEMD_RUN_FAILS="1")
+    expect(result, calls, restart_calls("1000") + notify_call("1000") + restart_calls("1001") + notify_call("1001"))
+
+    # A user manager that cannot be reached gets no notification, and the printed commands include restarting the input method.
+    result, calls = run("postinst", "configure", "1.0.0", tools=NOTIFYING, STUB_UNREACHABLE="1000")
+    expect(result, calls, restart_calls("1000")[:1] + restart_calls("1001") + notify_call("1001"), stderr_lines=1)
+    assert "alice" in result.stderr and "ibus restart" in result.stderr and "fcitx5 -r" in result.stderr, result.stderr
+
+    # Without either program there is nothing to send; the services are still restarted.
+    for tools in (("systemctl", "loginctl", "systemd-run"), ("systemctl", "loginctl", "notify-send")):
+        result, calls = run("postinst", "configure", "1.0.0", tools=tools)
+        expect(result, calls, restart_calls("1000") + restart_calls("1001"))
+
+    # Removal and a first installation notify nobody.
+    expect(*run("prerm", "remove", tools=NOTIFYING), disable_calls("1000") + disable_calls("1001"))
+    for args in (("configure", ""), ("configure",), ("abort-upgrade", "1.0.1")):
+        expect(*run("postinst", *args, tools=NOTIFYING), [])
+
     # A first installation has nothing running; the abort paths have nothing to undo.
     for args in (("configure", ""), ("configure",), ("abort-upgrade", "1.0.1"), ("abort-remove",), ("abort-deconfigure", "in-favour", "breaker", "2.0")):
         expect(*run("postinst", *args), [])
@@ -131,7 +175,7 @@ def main() -> None:
         expect(*run(script, *args, STUB_LOGINCTL_FAILS="1"), [])
         expect(*run(script, *args, STUB_USERS=""), [])
 
-    print("Debian maintainer scripts stop units on removal and restart services on upgrade")
+    print("Debian maintainer scripts stop units on removal, and restart services and notify users on upgrade")
 
 
 if __name__ == "__main__":

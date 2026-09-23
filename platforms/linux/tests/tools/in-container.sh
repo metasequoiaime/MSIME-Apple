@@ -57,6 +57,7 @@ test -x /build/stage/usr/local/bin/msime-client-cloud-dictionary
 test -x /build/stage/usr/local/bin/msime-client-cloud-clipboard
 test -x /build/stage/usr/local/bin/msime-client-voice
 test -f /build/stage/usr/local/share/ibus/component/msime-client.xml
+test -f /build/stage/usr/local/etc/xdg/autostart/msime-client-clipboard.desktop
 grep -q '/usr/local/etc/msime-client/runtime-options.json' \
   /build/stage/usr/local/share/ibus/component/msime-client.xml
 python3 platforms/linux/tests/dictionary/dictionary_smoke.py /build/ibus/msime-client-dictionary /build/cargo/debug/libmsime_host_api.so /resources
@@ -153,4 +154,5 @@ runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayl
 uninstall_log=$(DESTDIR=/build/stage cmake -P /build/ibus/uninstall.cmake)
 grep -F "systemctl --user disable --now msime-client-online.socket msime-client-online.service msime-client-voice.socket msime-client-voice.service msime-client-clipboard.service" <<<"$uninstall_log" >/dev/null
 test ! -e /build/stage/usr/local/bin/msime-client-ibus
+test ! -e /build/stage/usr/local/etc/xdg/autostart/msime-client-clipboard.desktop
 echo "Staged uninstall names the user units and removes the programs"
