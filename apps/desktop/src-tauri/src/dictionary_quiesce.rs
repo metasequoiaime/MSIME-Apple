@@ -18,19 +18,27 @@ pub(crate) struct Lease(PathBuf);
 
 impl Lease {
     pub(crate) fn acquire(user_data: &Path) -> std::io::Result<Self> {
+        let lease = Self(user_data.join(LEASE_NAME));
+        lease.publish()?;
+        Ok(lease)
+    }
+
+    /// Write the lease with an expiry `LEASE_DURATION` from now, replacing any earlier one in a single rename so a host never reads a partial file.
+    fn publish(&self) -> std::io::Result<()> {
         let expiry = SystemTime::now()
             .checked_add(LEASE_DURATION)
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .ok_or_else(|| std::io::Error::other("clock before the epoch"))?
             .as_millis();
-        let path = user_data.join(LEASE_NAME);
-        let staged = user_data.join(format!("{LEASE_NAME}.{}", std::process::id()));
+        let staged = self
+            .0
+            .with_file_name(format!("{LEASE_NAME}.{}", std::process::id()));
         std::fs::write(&staged, format!("{expiry}\n"))?;
-        if let Err(error) = std::fs::rename(&staged, &path) {
+        if let Err(error) = std::fs::rename(&staged, &self.0) {
             let _ = std::fs::remove_file(&staged);
             return Err(error);
         }
-        Ok(Self(path))
+        Ok(())
     }
 }
 
@@ -49,44 +57,76 @@ pub(crate) fn is_lease_file(name: &OsStr) -> bool {
     })
 }
 
-/// Run `attempt`; when it fails only because an input session holds the dictionaries, raise the lease, call `announce` so a host that can be told directly lets go at once, and retry until it gets through or the budget runs out. Any other failure is about the request itself and is returned as it is. A completed write is never replayed, because only the lock failure is retried. Dropping the lease on the way out is the resume.
-pub(crate) fn with_quiesced_hosts<T>(
-    user_data: Option<&str>,
-    announce: impl FnOnce(),
-    attempt: impl FnMut() -> Result<T, String>,
-) -> Result<T, String> {
-    quiesce_with(user_data, RETRY_BUDGET, announce, attempt)
+/// The hosts asked to let go of `user_data` for one settings-page action, which may be several requests: an import larger than one host request is sent in batches. The lease goes up the first time a request finds the dictionaries busy and stays up for every request after it, so the hosts close their sessions once rather than once per batch, and it is renewed before each later request so a long import does not outlive its expiry. `announce` runs once, right after the lease first goes up, so a host that can be told directly (the macOS input method) lets go at once instead of on its timer. Dropping this removes the lease, which is the resume.
+pub(crate) struct QuiescedHosts<'a, Announce: FnMut()> {
+    user_data: Option<&'a Path>,
+    announce: Announce,
+    lease: Option<Lease>,
 }
 
-fn quiesce_with<T>(
-    user_data: Option<&str>,
-    budget: Duration,
-    announce: impl FnOnce(),
-    mut attempt: impl FnMut() -> Result<T, String>,
-) -> Result<T, String> {
-    let mut result = attempt();
-    if !matches!(&result, Err(reason) if reason == BUSY) {
-        return result;
+impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
+    pub(crate) fn new(user_data: Option<&'a str>, announce: Announce) -> Self {
+        Self {
+            user_data: user_data.map(Path::new).filter(|path| path.is_absolute()),
+            announce,
+            lease: None,
+        }
     }
-    let Some(user_data) = user_data.map(Path::new).filter(|path| path.is_absolute()) else {
-        return result;
-    };
-    let Ok(_lease) = Lease::acquire(user_data) else {
-        return result;
-    };
-    announce();
-    let deadline = Instant::now() + budget;
-    while matches!(&result, Err(reason) if reason == BUSY) && Instant::now() < deadline {
-        std::thread::sleep(RETRY_INTERVAL);
-        result = attempt();
+
+    /// Run `attempt`; when it fails only because an input session holds the dictionaries, ask the hosts to let go and retry until it gets through or the budget runs out. Any other failure is about the request itself and is returned as it is. A completed write is never replayed, because only the lock failure is retried.
+    pub(crate) fn run<T>(
+        &mut self,
+        attempt: impl FnMut() -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.run_within(RETRY_BUDGET, attempt)
     }
-    result
+
+    fn run_within<T>(
+        &mut self,
+        budget: Duration,
+        mut attempt: impl FnMut() -> Result<T, String>,
+    ) -> Result<T, String> {
+        if let Some(lease) = &self.lease {
+            // A lease that cannot be renewed still holds until its expiry, and a host that reopens a session after that makes the attempt below busy, which is retried like any other.
+            let _ = lease.publish();
+        }
+        let mut result = attempt();
+        if !matches!(&result, Err(reason) if reason == BUSY) {
+            return result;
+        }
+        let Some(user_data) = self.user_data else {
+            return result;
+        };
+        if self.lease.is_none() {
+            let Ok(lease) = Lease::acquire(user_data) else {
+                return result;
+            };
+            self.lease = Some(lease);
+            (self.announce)();
+        }
+        let deadline = Instant::now() + budget;
+        while matches!(&result, Err(reason) if reason == BUSY) && Instant::now() < deadline {
+            std::thread::sleep(RETRY_INTERVAL);
+            result = attempt();
+        }
+        result
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    /// One action of one request, with the hosts released again as soon as it is done.
+    fn quiesce_with<T>(
+        user_data: Option<&str>,
+        budget: Duration,
+        announce: impl FnMut(),
+        attempt: impl FnMut() -> Result<T, String>,
+    ) -> Result<T, String> {
+        QuiescedHosts::new(user_data, announce).run_within(budget, attempt)
+    }
 
     fn lease_expiry(directory: &Path) -> Option<u128> {
         std::fs::read_to_string(directory.join(LEASE_NAME))
@@ -123,6 +163,47 @@ mod tests {
         );
         assert_eq!(result, Ok("imported"));
         assert_eq!(calls.get(), 3);
+        assert!(!directory.path().join(LEASE_NAME).exists());
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn one_lease_covers_every_request_of_an_action_and_is_renewed_between_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_data = directory.path().to_str().unwrap().to_owned();
+        let announced = Cell::new(0);
+        let mut hosts = QuiescedHosts::new(Some(&user_data), || announced.set(announced.get() + 1));
+        let calls = Cell::new(0);
+        let first = hosts.run_within(Duration::from_secs(2), || {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                Err(BUSY.to_owned())
+            } else {
+                Ok(1)
+            }
+        });
+        assert_eq!(first, Ok(1));
+        let expiry = lease_expiry(directory.path()).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        // The next batch of the same import finds the hosts still released, under a lease pushed forward rather than one about to lapse.
+        let second = hosts.run_within(Duration::from_secs(2), || {
+            assert!(lease_expiry(directory.path()).unwrap() > expiry);
+            Ok(2)
+        });
+        assert_eq!(second, Ok(2));
+        // A later batch that finds the dictionaries busy again is retried under the same lease, and the hosts are not told a second time.
+        let calls = Cell::new(0);
+        let third = hosts.run_within(Duration::from_secs(2), || {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                Err(BUSY.to_owned())
+            } else {
+                Ok(3)
+            }
+        });
+        assert_eq!(third, Ok(3));
+        drop(hosts);
+        assert_eq!(announced.get(), 1);
         assert!(!directory.path().join(LEASE_NAME).exists());
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
     }

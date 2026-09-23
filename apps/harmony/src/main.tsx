@@ -46,6 +46,8 @@ import {
   type Snapshot,
   type StatisticsRetention,
   type TypingStatisticsClient,
+  type VocabularyReviewClient,
+  type VocabularyReviewStatus,
   type TypingStatisticsStatus,
 } from "@msime/ui";
 import type {
@@ -87,6 +89,7 @@ interface NativeBridge {
   dictionary(action: string): string;
   cloudDictionaryDownload(entry: string): string;
   typingStatistics(action: string): string;
+  vocabularyReview(action: string): string;
   /**
    * Starts one of the asynchronous requests and returns at once.
    *
@@ -705,6 +708,42 @@ function makeClient(
         native.typingStatistics(JSON.stringify({ operation: "reset" })),
       ),
   };
+  // Synchronous, because a bridge method that returns a Promise never settles on this WebView.
+  // Every call answers with the whole status, so the page keeps one request in flight; the local
+  // day is resolved on the ArkTS side, which is the process that knows the device's timezone.
+  const vocabularyReview: VocabularyReviewClient = {
+    load: async () =>
+      unwrap<VocabularyReviewStatus>(
+        native.vocabularyReview(JSON.stringify({ operation: "load" })),
+      ),
+    answer: async (word: string, known: boolean) =>
+      unwrap<VocabularyReviewStatus>(
+        native.vocabularyReview(JSON.stringify({ operation: "answer", word, known })),
+      ),
+    setSettings: async (settings) =>
+      unwrap<VocabularyReviewStatus>(
+        native.vocabularyReview(
+          JSON.stringify({
+            operation: "set_settings",
+            wordbook: settings.wordbook,
+            new_per_day: settings.newPerDay,
+            session_limit: settings.sessionLimit,
+          }),
+        ),
+      ),
+    importWordbook: async (name: string, text: string) =>
+      unwrap<VocabularyReviewStatus>(
+        native.vocabularyReview(JSON.stringify({ operation: "import", name, text })),
+      ),
+    removeWordbook: async (wordbook: string) =>
+      unwrap<VocabularyReviewStatus>(
+        native.vocabularyReview(JSON.stringify({ operation: "remove", wordbook })),
+      ),
+    reset: async () =>
+      unwrap<VocabularyReviewStatus>(
+        native.vocabularyReview(JSON.stringify({ operation: "reset" })),
+      ),
+  };
   const aiAssistant: AiAssistantClient = {
     fetchModels: (configuration) =>
       bridgeRequest(native, "ai_models", JSON.stringify(configuration)).then(unwrap<string[]>),
@@ -798,6 +837,7 @@ function makeClient(
     },
     dictionary,
     typingStatistics,
+    vocabularyReview,
     aiAssistant,
     testApiCredential,
     // Four surfaces the keyboard already honours. Each writes shared preferences and nothing else,

@@ -152,6 +152,9 @@ struct InputSettingsView: View {
           NavigationLink(destination: ClipboardHistorySettingsView()) {
             Label("剪贴板历史", systemImage: "doc.on.clipboard")
           }.accessibilityIdentifier("clipboardHistorySettingsLink")
+          NavigationLink(destination: VocabularyReviewSettingsView()) {
+            Label("背单词", systemImage: "character.book.closed")
+          }.accessibilityIdentifier("vocabularyReviewSettingsLink")
         }
 
         Section {

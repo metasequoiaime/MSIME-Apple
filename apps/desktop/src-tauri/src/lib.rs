@@ -5,6 +5,8 @@
 ))]
 mod ai;
 mod clipboard_history;
+#[cfg(not(target_os = "android"))]
+mod dictionary_import;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod dictionary_quiesce;
 // Only the two hosts that have to replay input into another window build this.
@@ -14,6 +16,7 @@ mod panel_input;
 mod panel_window;
 mod platform;
 mod shared;
+mod vocabulary;
 mod voice;
 
 // The refactor that moved panel delivery out of the crate root left these calls
@@ -388,6 +391,13 @@ struct SkinDirectoryState(PathBuf);
 /// The Engine's user directory: where the documents a user writes by hand live, `custom_translations.txt` among them.
 struct UserDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
+
+/// The application data directory the 背单词 store and wordbook library live under.
+///
+/// The directory rather than the stores themselves: an imported book is written through one and
+/// read back through the other, and holding the path means both are constructed from the same
+/// place every time instead of two handles that could be pointed at different roots.
+struct VocabularyState(std::path::PathBuf, std::path::PathBuf);
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1588,6 +1598,8 @@ fn dictionary_maintenance_handshake(verb: &str) -> bool {
 fn dictionary_error_code(reason: &str) -> &'static str {
     match reason {
         "dictionary maintenance busy" => "dictionary_busy",
+        // A request over the host's 64 KiB, which the batched desktop import only gives for a file over its own bound or a single line too long for any request. The shared parser's own "dictionary import is too large" is deliberately not mapped here: only Android, which sends the whole file in one request, reaches it, and there the limit is 64 KiB rather than the 1 MB this code's message names.
+        "invalid dictionary buffer" => "dictionary_too_large",
         "dictionary import rejected" => "dictionary_import_rejected",
         "dictionary read rejected" => "dictionary_read_rejected",
         "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
@@ -1682,9 +1694,10 @@ async fn dictionary_request(
         if ios_personal_dictionary_action(&request["action"]) {
             return ios_personal_dictionary_request(&request);
         }
-        let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
         #[cfg(target_os = "android")]
         {
+            let bytes =
+                serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
             return msime_host_api::personal_dictionary_request_json(&bytes).map_err(|reason| {
                 CommandError {
                     code: dictionary_error_code(&reason),
@@ -1693,42 +1706,50 @@ async fn dictionary_request(
         }
         #[cfg(not(target_os = "android"))]
         {
-            let first = msime_host_api::dictionary_request_json(&bytes);
-            // The input hosts release their sessions when they see the lease, so the lock failure is retried under it. The IBus and Fcitx5 hosts find it on their timers; the macOS input method is also told at once over a distributed notification, and its one-second timer catches one that was missed.
+            // One request to the host. An import too large for one request is several, each through this, so whatever releases the input sessions below stays in force until the last of them.
+            let host = |bytes: &[u8]| msime_host_api::dictionary_request_json(bytes);
+            // The input hosts release their sessions when they see the lease, so the lock failure is retried under it. The IBus and Fcitx5 hosts find it on their timers; the macOS input method is also told at once over a distributed notification when the lease first goes up, and its one-second timer catches one that was missed. The lease is removed when `hosts` goes, after the last request.
             #[cfg(any(target_os = "linux", target_os = "macos"))]
-            if requires_quiesce {
-                let mut first = Some(first);
-                return dictionary_quiesce::with_quiesced_hosts(
-                    user_data.as_deref(),
-                    || {
-                        #[cfg(target_os = "macos")]
-                        msime_host_macos::quiesce_input_sessions();
-                    },
-                    || match first.take() {
-                        Some(result) => result,
-                        None => msime_host_api::dictionary_request_json(&bytes),
-                    },
-                )
-                .map_err(|reason| CommandError {
-                    code: dictionary_error_code(&reason),
-                });
-            }
-            // Only the lock is worth a handshake. Every other failure is about
-            // the request itself and would fail again with sessions released.
+            let mut hosts = dictionary_quiesce::QuiescedHosts::new(user_data.as_deref(), || {
+                #[cfg(target_os = "macos")]
+                msime_host_macos::quiesce_input_sessions();
+            });
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            let send = |bytes: &[u8]| {
+                if requires_quiesce {
+                    hosts.run(|| host(bytes))
+                } else {
+                    host(bytes)
+                }
+            };
+            // Only the lock is worth a handshake. Every other failure is about the request itself and would fail again with sessions released.
             #[cfg(target_os = "windows")]
-            if matches!(&first, Err(reason) if reason == "dictionary maintenance busy")
-                && dictionary_maintenance_handshake("DictionaryQuiesce")
-            {
-                let retried = msime_host_api::dictionary_request_json(&bytes);
-                // Resume whatever happened: leaving the IME without
-                // sessions because an import failed would be worse than
-                // the failure itself.
+            let mut quiesced = false;
+            #[cfg(target_os = "windows")]
+            let send = |bytes: &[u8]| {
+                let result = host(bytes);
+                if !quiesced
+                    && matches!(&result, Err(reason) if reason == "dictionary maintenance busy")
+                    && dictionary_maintenance_handshake("DictionaryQuiesce")
+                {
+                    quiesced = true;
+                    return host(bytes);
+                }
+                result
+            };
+            #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+            let send = host;
+            let result = dictionary_import::send_dictionary_action(
+                &request["options"],
+                &request["action"],
+                send,
+            );
+            // Resume whatever happened: leaving the IME without sessions because an import failed would be worse than the failure itself.
+            #[cfg(target_os = "windows")]
+            if quiesced {
                 let _ = dictionary_maintenance_handshake("DictionaryResume");
-                return retried.map_err(|reason| CommandError {
-                    code: dictionary_error_code(&reason),
-                });
             }
-            first.map_err(|reason| CommandError {
+            result.map_err(|reason| CommandError {
                 code: dictionary_error_code(&reason),
             })
         }
@@ -3790,6 +3811,22 @@ pub fn run() {
                 }
             }
             app.manage(TypingStatisticsState(typing_statistics));
+            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
+            // sibling of `EngineResources/` because `ResourceStore::verify` requires that
+            // directory to hold exactly the pinned dictionary artifacts, and one extra entry
+            // would break the check whose job is to prove a shipped dictionary is intact. A host
+            // that stages no books simply offers the imported ones.
+            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
+            // sibling of `EngineResources/` because `ResourceStore::verify` requires that
+            // directory to hold exactly the pinned dictionary artifacts, and one extra entry
+            // would break the check whose job is to prove a shipped dictionary is intact. A host
+            // that stages no books simply offers the imported ones.
+            app.manage(VocabularyState(
+                directory.clone(),
+                app.path()
+                    .resource_dir()
+                    .unwrap_or_else(|_| directory.clone()),
+            ));
             app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(UserDirectoryState(directory.join("user")));
             app.manage(preferences.clone());
@@ -4079,6 +4116,12 @@ pub fn run() {
             set_typing_statistics_retention,
             reset_typing_statistics,
             open_typing_statistics_directory,
+            vocabulary::load_vocabulary_review,
+            vocabulary::answer_vocabulary_card,
+            vocabulary::set_vocabulary_settings,
+            vocabulary::import_vocabulary_wordbook,
+            vocabulary::remove_vocabulary_wordbook,
+            vocabulary::reset_vocabulary_review,
             save_export,
             scan_skin_catalog,
             read_skin_image,

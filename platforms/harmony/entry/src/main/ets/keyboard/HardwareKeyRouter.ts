@@ -70,6 +70,8 @@ export enum HardwareKeyAction {
   JAPANESE_CONVERT,
   /** Commit converted Japanese, or the kana reading when conversion never started. */
   JAPANESE_COMMIT,
+  /** Type the printable ASCII `character` as its fullwidth form, the Windows double-byte mode. */
+  WIDEN,
 }
 
 export interface HardwareKeyDecision {
@@ -251,6 +253,7 @@ export class HardwareKeyRouter {
     wordCharacter: string = "disabled",
     hasHighlightedCandidate: boolean = false,
     spelling: HardwareSpelling = PLAIN_SPELLING,
+    fullWidth: boolean = false,
   ): HardwareKeyDecision {
     // Applied once, before anything reads the key, so no digit path can be left out of it. The
     // resolved character is filled in as well as the code: with Ctrl+Shift+Alt held the system
@@ -415,14 +418,28 @@ export class HardwareKeyRouter {
       if (chinese && !japanese && isAsciiPunctuation(key.unicodeChar)) {
         return decision(HardwareKeyAction.PUNCTUATION, key.unicodeChar);
       }
-      return RELEASE;
+      return HardwareKeyRouter.passThrough(key, composing, fullWidth);
     }
     // English mode spells nothing the application could not spell itself, so its letters are left
     // alone; the Engine is only worth interrupting for when it turns letters into something else.
     if (!composing && !chinese) {
-      return RELEASE;
+      return HardwareKeyRouter.passThrough(key, composing, fullWidth);
     }
     return decision(HardwareKeyAction.COMPOSE, key.unicodeChar);
+  }
+
+  /**
+   * A key nothing above wants: the application's, unless fullwidth is on. Windows eats every printable ASCII key while the double-byte mode is on and there is no candidate list, and inserts its fullwidth form instead (`KeyEventSink.cpp` `IsDoubleSingleByte`, `' '` to `'~'`). Space becomes the ideographic space, as it does everywhere else fullwidth applies. Modifier chords were released before this is reached, so a Ctrl+C still copies.
+   */
+  private static passThrough(
+    key: HardwareKey,
+    composing: boolean,
+    fullWidth: boolean,
+  ): HardwareKeyDecision {
+    if (fullWidth && !composing && key.unicodeChar >= 0x20 && key.unicodeChar <= 0x7e) {
+      return decision(HardwareKeyAction.WIDEN, key.unicodeChar);
+    }
+    return RELEASE;
   }
 
   private static spellingKey(

@@ -4533,6 +4533,10 @@ function recordingTarget(log: string[]): HardwareKeyTarget {
       log.push("commitJapanese");
       return true;
     },
+    widen: (character: number) => {
+      log.push(`widen ${character}`);
+      return false;
+    },
   };
 }
 
@@ -7481,6 +7485,117 @@ group("a letter the Engine declines is handed back rather than swallowed", () =>
     ),
     "a deliberately ignored key is still consumed",
   );
+});
+
+group("fullwidth mode widens what a hardware keyboard would hand the application", () => {
+  // Windows eats every printable ASCII key while the double-byte mode is on and no candidate list is open, and inserts its fullwidth form (`KeyEventSink.cpp`, `IsDoubleSingleByte`). The 2in1 released those keys, so the application typed them halfwidth.
+  const key = (over: Record<string, unknown> = {}): HardwareKey => ({
+    keyCode: 2017,
+    unicodeChar: 0x61,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    logoKey: false,
+    ...over,
+  });
+  const route = (hardware: HardwareKey, composing: boolean, chinese: boolean, fullWidth: boolean) =>
+    HardwareKeyRouter.route(
+      hardware,
+      composing,
+      chinese,
+      false,
+      undefined,
+      false,
+      false,
+      "disabled",
+      false,
+      PLAIN_SPELLING,
+      fullWidth,
+    );
+  const english = route(key(), false, false, true);
+  check(
+    english.action === HardwareKeyAction.WIDEN && english.character === 0x61,
+    "an English letter is widened",
+  );
+  check(
+    route(key(), false, false, false).action === HardwareKeyAction.RELEASE,
+    "and released with fullwidth off",
+  );
+  check(
+    route(key({ keyCode: 2001, unicodeChar: 0x31 }), false, true, true).action ===
+      HardwareKeyAction.WIDEN,
+    "an idle digit is widened in Chinese mode too",
+  );
+  check(
+    route(key({ keyCode: 2050, unicodeChar: 0x20 }), false, true, true).action ===
+      HardwareKeyAction.WIDEN,
+    "so is an idle space",
+  );
+  check(
+    route(key({ keyCode: 2072, unicodeChar: 0x2c }), false, false, true).action ===
+      HardwareKeyAction.WIDEN,
+    "and an English-mode punctuation mark",
+  );
+  check(
+    route(key({ keyCode: 2072, unicodeChar: 0x2c }), false, true, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "a Chinese-mode mark still goes to the punctuation path, which widens its own literal",
+  );
+  check(
+    route(key(), false, true, true).action === HardwareKeyAction.COMPOSE,
+    "a Chinese-mode letter still composes",
+  );
+  check(
+    route(key({ ctrlKey: true }), false, false, true).action === HardwareKeyAction.RELEASE,
+    "a modifier chord stays the application's",
+  );
+  check(
+    route(key({ keyCode: 2054, unicodeChar: 0x0d }), false, false, true).action ===
+      HardwareKeyAction.RELEASE,
+    "a control character is not printable ASCII",
+  );
+  check(
+    route(key({ keyCode: 2062, unicodeChar: 0x3b }), true, false, true).action ===
+      HardwareKeyAction.RELEASE,
+    "nothing is widened over a candidate list",
+  );
+  const log: string[] = [];
+  const widening: HardwareKeyTarget = {
+    ...recordingTarget(log),
+    press: () => false,
+    widen: (character: number) => {
+      log.push(`widen ${character}`);
+      return true;
+    },
+  };
+  check(
+    HardwareKeyDispatch.apply(
+      { action: HardwareKeyAction.COMPOSE, character: 0x4e, index: 0 },
+      true,
+      widening,
+    ) && log[0] === "widen 78",
+    "a capital the Engine declines is widened rather than handed back",
+  );
+  check(
+    dispatched(HardwareKeyAction.WIDEN, 0x61)[0] === "widen 97",
+    "a widened key reaches the widen path with its character",
+  );
+});
+
+group("hardware characters handed to the application count as typed", () => {
+  // Windows `ShouldCountPassthroughChar`: printable, and no Ctrl, Alt or Win. Shift is how capitals are typed.
+  check(TypingStatisticsPolicy.countsPassthrough(0x61, false, false, false), "a letter counts");
+  check(TypingStatisticsPolicy.countsPassthrough(0x20, false, false, false), "so does a space");
+  check(
+    TypingStatisticsPolicy.countsPassthrough(0x4e2d, false, false, false),
+    "and a character beyond ASCII",
+  );
+  check(!TypingStatisticsPolicy.countsPassthrough(0x61, true, false, false), "Ctrl does not");
+  check(!TypingStatisticsPolicy.countsPassthrough(0x61, false, true, false), "nor Alt");
+  check(!TypingStatisticsPolicy.countsPassthrough(0x61, false, false, true), "nor the logo key");
+  check(!TypingStatisticsPolicy.countsPassthrough(0x0d, false, false, false), "nor Enter");
+  check(!TypingStatisticsPolicy.countsPassthrough(0x7f, false, false, false), "nor DEL");
+  check(!TypingStatisticsPolicy.countsPassthrough(0, false, false, false), "nor an arrow key");
 });
 
 group("a numeric keypad is a number row", () => {

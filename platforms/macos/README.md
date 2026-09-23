@@ -272,7 +272,7 @@ Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `run
 
 ## 词库维护
 
-词库增改删、导入和清除学习记录需要独占维护锁，而每个打开的 IMK 会话都持有共享锁（IMK 为每个输入客户端各建一个控制器，各持一个会话）。设置窗口拿不到锁时，与 Linux 宿主同一套做法：在用户数据目录写入带过期时间的 `.msime-dictionary-quiesce` 租约（最长 30 秒，格式与读取见 `platforms/common/DictionaryQuiesceLease.h`），随即发出 `MSIMEDictionaryMaintenanceWillBeginNotification` 分布式通知（`DeliverImmediately`，后台输入法进程也立即收到），在约 2.5 秒内重试，结束后立即删除租约，仍取不到锁才返回 busy。
+词库增改删、导入和清除学习记录需要独占维护锁，而每个打开的 IMK 会话都持有共享锁（IMK 为每个输入客户端各建一个控制器，各持一个会话）。设置窗口拿不到锁时，与 Linux 宿主同一套做法：在用户数据目录写入带过期时间的 `.msime-dictionary-quiesce` 租约（最长 30 秒，格式与读取见 `platforms/common/DictionaryQuiesceLease.h`），随即发出 `MSIMEDictionaryMaintenanceWillBeginNotification` 分布式通知（`DeliverImmediately`，后台输入法进程也立即收到），在约 2.5 秒内重试，仍取不到锁才返回 busy。超过单次请求上限的导入分批发送时，租约与通知只在第一次遇到 busy 时各发一次，租约在各批之间保持并在每批前续期，整次操作结束后立即删除。
 
 输入法收到通知后，只有租约确实存在时才让出：取消语音与在途的云候选和翻译，把当前组合上屏（上屏失败则清掉预编辑），关闭所有控制器的会话。没有租约的通知什么也不丢。租约存在期间按键直接交给应用、不打开新会话；租约删除后的下一次按键重新打开会话，并恢复让出前的专用英文模式。通知丢失时，每秒一次的偏好定时器发现租约后同样让出；设置进程中途退出时，租约过期后输入最多停 30 秒。
 

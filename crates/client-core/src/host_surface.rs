@@ -240,6 +240,14 @@ pub struct HostCapabilities {
     /// faces, has nothing to switch on and does not offer the choice.
     #[serde(default)]
     pub input_mode_hud: bool,
+    /// The host can run a 背单词 review session — that is, it has wired the shared vocabulary
+    /// entry point and can reach the review store.
+    ///
+    /// Defaulting to false is the point: a host built before this field existed sends a document
+    /// without it, and the page must then stay hidden rather than offer 认识 / 不认识 buttons whose
+    /// every press fails. The same rule the other optional capabilities follow.
+    #[serde(default)]
+    pub vocabulary_review: bool,
     /// The operating system release, as the machine reports it, for the feedback
     /// page to attach. Not a platform assumption like the flags above -- the host
     /// fills it in after `for_platform`, the way `system_fonts` is filled in --
@@ -471,6 +479,10 @@ impl HostCapabilities {
             ai_provider_credentials: platform == HostPlatform::Linux,
             // Windows draws Latin from its own family, macOS and Android name it ahead of the primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the same result the same way. Both Linux hosts write one Pango font description for the desktop panel, and Pango resolves its family list per glyph too, so they name it first there.
             candidate_english_font: true,
+            // Every host reaches the same shared store through the same entry point, so there is
+            // no platform here that can and one that cannot. The flag exists for the version
+            // skew: a host binary older than the entry point sends no field and gets `false`.
+            vocabulary_review: true,
             os_version: None,
         }
     }
@@ -491,6 +503,9 @@ pub enum SettingsCategory {
     Helpcode,
     Shortcuts,
     Dictionary,
+    /// 背单词. Next to the dictionary because both are word lists the user manages, and away from
+    /// the input pages because nothing on it changes how typing behaves.
+    Vocabulary,
     Skin,
     ScreenKeyboard,
     Handwriting,
@@ -516,6 +531,7 @@ impl SettingsCategory {
             SettingsCategory::Helpcode => "helpcode",
             SettingsCategory::Shortcuts => "shortcuts",
             SettingsCategory::Dictionary => "dictionary",
+            SettingsCategory::Vocabulary => "vocabulary",
             SettingsCategory::Skin => "skin",
             SettingsCategory::ScreenKeyboard => "screen-keyboard",
             SettingsCategory::Handwriting => "handwriting",
@@ -540,6 +556,7 @@ impl SettingsCategory {
             "helpcode" => Ok(SettingsCategory::Helpcode),
             "shortcuts" => Ok(SettingsCategory::Shortcuts),
             "dictionary" => Ok(SettingsCategory::Dictionary),
+            "vocabulary" => Ok(SettingsCategory::Vocabulary),
             "skin" => Ok(SettingsCategory::Skin),
             "screen-keyboard" => Ok(SettingsCategory::ScreenKeyboard),
             "handwriting" => Ok(SettingsCategory::Handwriting),
@@ -555,7 +572,7 @@ impl SettingsCategory {
         }
     }
 
-    pub const ALL: [SettingsCategory; 19] = [
+    pub const ALL: [SettingsCategory; 20] = [
         SettingsCategory::Account,
         SettingsCategory::Chat,
         SettingsCategory::Community,
@@ -565,6 +582,7 @@ impl SettingsCategory {
         SettingsCategory::Helpcode,
         SettingsCategory::Shortcuts,
         SettingsCategory::Dictionary,
+        SettingsCategory::Vocabulary,
         SettingsCategory::Skin,
         SettingsCategory::ScreenKeyboard,
         SettingsCategory::Handwriting,

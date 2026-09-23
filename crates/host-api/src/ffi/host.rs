@@ -1593,3 +1593,61 @@ pub unsafe extern "C" fn msime_client_save_preferences(
         serde_json::to_value(saved).map_err(|e| e.to_string())
     })
 }
+
+/// Read or update 背单词 wordbooks and review progress.
+///
+/// A shim: the request is parsed into the shared action type and the answer is the shared status,
+/// serialised. Every rule — what an action does, how the queue is built, what counts as today —
+/// belongs to `msime_client_core::vocabulary::session`, so this host and the Tauri command layer
+/// cannot drift from each other.
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_vocabulary_review(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_core::vocabulary::session;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        /// The verified resource directory, whose `wordbooks/` sibling holds the bundled books.
+        /// A host that stages none simply offers the imported ones.
+        resources: String,
+        /// The caller's local day. Required by every action, because the counts and the queue are
+        /// both per-day and this layer cannot resolve the host's timezone.
+        day: String,
+        action: session::ReviewAction,
+    }
+
+    response(|| {
+        // Deliberately not the 65_536 the other entry points use. Those carry a setting or one
+        // clipboard row; this one carries an imported word list, and a five-thousand-word CET book
+        // is a few hundred kilobytes of text. Copying the smaller cap here would have made the
+        // import path reject every real file while looking like it was merely being careful.
+        if request.is_null() || length > session::MAX_IMPORT_BYTES {
+            return Err("invalid vocabulary review buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request =
+            serde_json::from_slice(bytes).map_err(|_| "invalid vocabulary review request")?;
+        if request.directory.len() > 16_384
+            || !std::path::Path::new(&request.directory).is_absolute()
+            || request.resources.len() > 16_384
+            || !std::path::Path::new(&request.resources).is_absolute()
+        {
+            return Err("invalid vocabulary review directory".into());
+        }
+        let status = session::apply(
+            std::path::Path::new(&request.directory),
+            std::path::Path::new(&request.resources),
+            &request.day,
+            request.action,
+        )
+        .map_err(|error| error.to_string())?;
+        serde_json::to_value(status).map_err(|_| "vocabulary review response failed".to_owned())
+    })
+}

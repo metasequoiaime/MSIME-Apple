@@ -1,6 +1,6 @@
 //! Moving the Linux data directory with the input hosts held off it.
 //!
-//! The lease and the retry around a single maintenance request are shared with macOS (`crate::dictionary_quiesce`, re-exported here). What stays Linux-only is the long hold: moving the data directory keeps the IBus and Fcitx5 hosts off the user directory for the whole copy, with the lease up and the exclusive dictionary lock held together (`hold_hosts_off`).
+//! The lease and `QuiescedHosts`, which keeps it up across the requests of one settings-page action, are shared with macOS (`crate::dictionary_quiesce`; `is_lease_file` is re-exported here). What stays Linux-only is the long hold: moving the data directory keeps the IBus and Fcitx5 hosts off the user directory for the whole copy, with the lease up and the exclusive dictionary lock held together (`hold_hosts_off`).
 
 pub(crate) use crate::dictionary_quiesce::is_lease_file;
 use crate::dictionary_quiesce::{Lease, RETRY_BUDGET, RETRY_INTERVAL};
@@ -22,7 +22,7 @@ pub(crate) struct HostsHeldOff<Access = DictionaryAccess> {
     _lease: Lease,
 }
 
-/// Keep both hosts off `user_data` for as long as the returned guard lives, for work that replaces the directory rather than editing through the Engine, such as moving the data root. Unlike `with_quiesced_hosts` the lease goes up first and stays up until the guard is dropped. A host that is not running holds no lock, so it cannot keep this busy. `Ok(None)` when `user_data` does not exist: no session can be open on it.
+/// Keep both hosts off `user_data` for as long as the returned guard lives, for work that replaces the directory rather than editing through the Engine, such as moving the data root. Unlike `crate::dictionary_quiesce::QuiescedHosts` the lease goes up first and stays up until the guard is dropped. A host that is not running holds no lock, so it cannot keep this busy. `Ok(None)` when `user_data` does not exist: no session can be open on it.
 pub(crate) fn hold_hosts_off(
     user_data: &Path,
     dictionaries: &Path,

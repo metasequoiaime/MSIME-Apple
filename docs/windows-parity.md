@@ -185,7 +185,7 @@
 
 **半截词的 preedit 不在 Windows 打开。** 其余五个宿主（macOS、Linux、HarmonyOS、Android、iOS）把「已选的那一段 + 读音」画在组字里，Windows 的 TSF 侧自己累积前缀，打开会重复；桌面外壳没有候选窗，不适用。
 
-**候选文字超宽时按来源折行，放得下时仍用单行格式。** 来源 `CandidateList::MeasureItem` 对候选文字一律用 WRAP 格式实测高度、行高取它与单行高度中的较大者；这边在 `candidate_item_layout` 里只在文字的单行宽度超过列宽时才折行测量（`CandidateRun::text`），`paint` 也只对这样的文字改用 WRAP 格式，其余仍是 NO_WRAP，免得实测宽度与绘制之间的取整把本来排成一行的文字折成两行。两种做法对放得下的文字给出同一个一行高度，对放不下的给出同一个实测高度，所以这是实现上的差别而不是行为上的。横排仍按来源 `CandidateList::Measure` 按每项自然宽度分列，只有一个候选单独就比整行还宽时才被收窄到行宽并在其中折行；竖排则在卡片被工作区一半封顶后按行宽折行。行矩形在 `candidate_page_layout` 里一次算出，绘制与命中测试读同一份，折出来的每一行都点得中。卡片高度仍被工作区一半封顶，折行极多时底部会被截掉；来源 `Measure` 同样按可用高度截，这一点两边一致。
+**候选文字超宽时按来源折行，放得下时仍用单行格式。** 来源 `CandidateList::MeasureItem` 对候选文字一律用 WRAP 格式实测高度、行高取它与单行高度中的较大者；这边在 `candidate_item_layout` 里只在文字的单行宽度超过列宽时才折行测量（`CandidateRun::text`），`paint` 也只对这样的文字改用 WRAP 格式，其余仍是 NO_WRAP，免得实测宽度与绘制之间的取整把本来排成一行的文字折成两行。两种做法对放得下的文字给出同一个一行高度，对放不下的给出同一个实测高度，所以这是实现上的差别而不是行为上的。横排仍按来源 `CandidateList::Measure` 按每项自然宽度分列，只有一个候选单独就比整行还宽时才被收窄到行宽并在其中折行；竖排则在卡片被工作区一半封顶后按行宽折行。行矩形在 `candidate_page_layout` 里一次算出，绘制与命中测试读同一份，折出来的每一行都点得中。卡片高度仍被工作区一半封顶，折行极多时底部会被截掉；来源 `Measure` 同样按可用高度截，这一点两边一致。选中行左侧的强调竖条也按来源 `CandidateList::Render` 画：高度固定为候选字号的 0.85（不小于 6 DIP），在行矩形内垂直居中，行比竖条还矮时从行顶开始（`candidate_selection_bar`）；此前按行高上下各内缩四分之一，折行把行撑高时竖条会跟着被拉长。卡片在光标上下的取舍同样照来源 `AdjustCandidateWindowPosition`：竖排用本次组字里出现过的最高高度判断，免得列表越打越长时中途从下方跳到上方；横排每次用当前高度判断，来源对横排没有「选定一侧后保持」的规则，这边也不另加。
 
 **诊断日志固定写数据目录。** 来源先写桌面、失败再退回数据目录；这边固定写数据目录下的 `logs\server.log`，因为输入法在桌面上凭空出现文件不是用户预期的副作用。设置页的「Server 端日志」「TSF 端日志」两个开关（`diagnostic_log.server` / `diagnostic_log.tsf`）分别控制写入，内容只有 Server 启停原因、各组件是否就绪、退出码与 TIP 上报的诊断批次，不记按键、输入内容或候选文本；4 MiB 轮转为 `server.log.1`，最多保留两份；UTF-8 BOM 与 CRLF 行尾与来源一致；偏好发布时立即生效，无需重启 Server。
 
@@ -964,7 +964,7 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 **quiesce/resume 与失败恢复：核对确认已做到，无需改动。** 这里记下结论以免下次重查。桌面侧在收到 `dictionary maintenance busy` 时才握手，成功后重试，然后**无条件**发 resume（注释写明「导入失败总比让输入法没有会话好」）。Server 侧 `quiesce_dictionaries` 成功时设一个 30 秒 deadline，控制线程每 tick 检查、过期就自己 resume——所以一个在 quiesce 和 resume 之间死掉的设置进程，最多让输入停 30 秒而不是停到重启。没有 Server 在听时 quiesce 返回真、resume 返回假，判据是「锁本来就空着，调用方该继续」。三层各自独立，任一层失效另外两层仍然成立。
 
-**macOS 的 quiesce/resume 与来源对齐。** macOS 沿用 Linux 宿主的租约：设置窗口在用户数据目录写入带 30 秒过期时间的 `.msime-dictionary-quiesce`，发 `MSIMEDictionaryMaintenanceWillBeginNotification` 分布式通知作为立即唤醒，重试 2.5 秒后删除租约。IMK 只在租约存在时让出：上屏当前组合、关闭所有控制器的会话，租约期间不开新会话，删除后的下一次按键重开并恢复专用英文。三层对应关系与来源一致：通知对应 quiesce 请求，租约删除对应 resume，租约自带的过期时间对应 Server 的 30 秒 deadline；通知丢失时由每秒的偏好定时器兜底。租约的格式与读写由 `platforms/common/DictionaryQuiesceLease.h` 与 `apps/desktop/src-tauri/src/dictionary_quiesce.rs` 在 Linux 与 macOS 之间共用。
+**macOS 的 quiesce/resume 与来源对齐。** macOS 沿用 Linux 宿主的租约：设置窗口在用户数据目录写入带 30 秒过期时间的 `.msime-dictionary-quiesce`，发 `MSIMEDictionaryMaintenanceWillBeginNotification` 分布式通知作为立即唤醒，每个请求在约 2.5 秒内重试；分批导入时租约在各批之间保持并在每批前续期，整次操作结束后删除。IMK 只在租约存在时让出：上屏当前组合、关闭所有控制器的会话，租约期间不开新会话，删除后的下一次按键重开并恢复专用英文。三层对应关系与来源一致：通知对应 quiesce 请求，租约删除对应 resume，租约自带的过期时间对应 Server 的 30 秒 deadline；通知丢失时由每秒的偏好定时器兜底。租约的格式与读写由 `platforms/common/DictionaryQuiesceLease.h` 与 `apps/desktop/src-tauri/src/dictionary_quiesce.rs` 在 Linux 与 macOS 之间共用。
 
 **导入编码：查出并修掉一处静默损坏。** 云词库文件面板用 `File.text()` 读用户选的文件，它只按 UTF-8 解码；而本地词库导入早就走 `decodeDictionaryBytes`，处理 UTF-8 BOM、UTF-16 两种字节序和 GB18030。同一个文件两个面板两种结果，云端这边更糟：UTF-16 解出来满是 NUL，被 `text.includes("\u0000")` 挡下（至少是拒绝）；GB18030 解出来是一串 `�` 且**不含 NUL**，守卫放行，一份全是替换字符的词库被静默上传到用户云端。实测 `"你好\tni'hao\n"` 的 GB18030 字节按 UTF-8 解码得到 `"���\tni'hao\n"`。改成调用同一个读取器，NUL 检查保留给真正的二进制文件。
 
@@ -1948,3 +1948,9 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 - Windows 的 `menu_theme` 决定托盘菜单和候选右键菜单是深色还是浅色。鸿蒙 2in1 没有托盘；和候选右键菜单对应的是候选词管理条，所以现在这条按 `menu_theme` 配色，跟随全局时和其他面板一样回落到全局主题。常用标点、括弧、释义这几条属于键盘本身，仍然用键盘配色。
 - 手机的设置页不显示这一项（`mobile_settings` 为真），手机上的管理条也继续用键盘配色。
+
+### HarmonyOS 硬件键盘：全角模式与交给应用的字符统计
+
+- 全角：Windows 开着全角且候选窗未打开时，会吃掉每个可打印 ASCII 键（`' '` 到 `'~'`，`CompositionProcessorEngine.cpp` 的 `IsDoubleSingleByte`，由 `KeyEventSink.cpp` 分类为 `FUNCTION_DOUBLE_SINGLE_BYTE`），改为插入全角形式。鸿蒙原先把这些键直接交给应用，于是英文字母、空闲时的数字和空格、英文模式的标点、引擎拒收的大写字母都以半角出现。现在路由在全角开启且未组字时返回 `WIDEN`，会话按 `FullWidthInputPolicy` 插入（空格变成 U+3000，与其他路径一致）；引擎拒收的大写字母也改为插入全角。Ctrl / Alt / Win 组合键仍交给应用；中文模式的标点仍走标点路径，那条路径本来就会把字面标点转成全角。
+- 统计：Windows 会把交给应用的字符也记进打字统计（`stats_passthrough.h` 的 `ShouldCountPassthroughChar`：可打印、未按 Ctrl / Alt / Win，Shift 可以；控制字符和 DEL 不算）。鸿蒙原先只统计自己插入的文字，硬件键盘直接交给应用的字符漏记。现在按键按下且被交给应用时按同一规则计入（`TypingStatisticsPolicy.countsPassthrough`）；键盘不组字的编辑框（例如密码框）不计，这是本仓的取舍：输入法不记录密码框里敲了多少字。
+- 手机接实体键盘时走的是同一条硬件键路径，所以行为一致；软键盘本来就由输入法自己插入文字，不受影响。

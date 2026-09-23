@@ -17,6 +17,7 @@ pub use uuid;
 
 pub mod account;
 pub mod ai;
+mod calendar;
 pub mod candidate_document;
 pub mod chinese_conversion;
 pub mod clipboard;
@@ -33,4 +34,5 @@ pub mod resources;
 pub mod skin;
 pub mod translation;
 pub mod typing_statistics;
+pub mod vocabulary;
 pub mod voice;
