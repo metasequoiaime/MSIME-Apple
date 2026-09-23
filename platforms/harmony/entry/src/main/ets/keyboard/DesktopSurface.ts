@@ -12,5 +12,7 @@ export enum DesktopSurface {
   /** Native CoreSpeechKit voice panel requested by the Harmony toolbar/host. */
   VOICE,
   /** The soft keyboard, on a machine that has its own — for the characters a physical one lacks. */
-  SCREEN_KEYBOARD
+  SCREEN_KEYBOARD,
+  /** The handwriting pad alone, for characters whose reading is unknown; the physical keys stay in charge of everything else. */
+  HANDWRITING,
 }

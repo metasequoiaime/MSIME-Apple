@@ -16,7 +16,9 @@
 // Local synthetic translations; never contacts a network provider.
 class TranslationProviderFixture {
 public:
-  std::atomic<unsigned> requests{0}, english_greeting_requests{0}, online_requests{0};
+  // online_requests counts provider requests that may reach the network. The AI cache-only probe the hosts send on every input change (ai_cache_only, never leaves the provider) is counted apart in ai_cache_probes, so the debounce assertions keep meaning one network request per settled input.
+  std::atomic<unsigned> requests{0}, english_greeting_requests{0}, online_requests{0},
+      ai_cache_probes{0};
   std::atomic<bool> hold_responses{false}, return_online_candidate{false}, tag_responses{false},
       multi_sense{false};
   // The ai_context of every online request, in arrival order.
@@ -81,6 +83,12 @@ private:
         ++requests;
         while (hold_responses && !stopped_)
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        send(client, response.data(), response.size(), MSG_NOSIGNAL);
+      } else if (value.is_object() && value.value("kind", "") == "online" &&
+                 value.value("query", nlohmann::json::object()).is_object() &&
+                 value["query"].value("ai_cache_only", false)) {
+        ++ai_cache_probes;
+        const std::string response = "{\"candidates\":[]}\n";
         send(client, response.data(), response.size(), MSG_NOSIGNAL);
       } else if (value.is_object() && value.value("kind", "") == "online") {
         {

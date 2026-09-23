@@ -58,6 +58,17 @@ mod ffi {
         entries: Vec<DictionaryEntry>,
         has_more: bool,
     }
+    /// A row of the dictionary tables themselves. `user_inserted` rows are the user's own words; every other row shipped with the dictionary (or was learned) and only its weight can change.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DictionaryTableEntry {
+        entry: DictionaryEntry,
+        user_inserted: bool,
+    }
+    #[derive(Debug)]
+    struct DictionaryTablePage {
+        entries: Vec<DictionaryTableEntry>,
+        has_more: bool,
+    }
     #[derive(Clone)]
     pub struct EngineOptions {
         pub resources: String,
@@ -210,6 +221,25 @@ mod ffi {
             offset: usize,
             limit: usize,
         ) -> Result<DictionaryPage>;
+        fn dictionary_export_entries(
+            options: &EngineOptions,
+            offset: usize,
+            limit: usize,
+            include_learned_pinyin: bool,
+        ) -> Result<DictionaryPage>;
+        fn dictionary_table_entries(
+            options: &EngineOptions,
+            kind: u8,
+            query: &str,
+            offset: usize,
+            limit: usize,
+        ) -> Result<DictionaryTablePage>;
+        fn dictionary_edit_bundled(
+            options: &EngineOptions,
+            previous: &DictionaryEntry,
+            weight: &[i64],
+            request_id: &str,
+        ) -> Result<()>;
         fn english_completions(resources: &str, prefix: &str, limit: usize) -> Result<Vec<String>>;
         fn dictionary_validate(entry: &DictionaryEntry) -> Result<DictionaryEntry>;
         fn dictionary_edit(
@@ -350,8 +380,9 @@ mod ffi {
 }
 
 pub use ffi::{
-    CaptureDevice, DictionaryEntry, DictionaryKind, DictionaryPage, EmojiCatalogItem,
-    EngineOptions, EngineResult, EngineSnapshot, HandwritingPoint, OnlineQuerySnapshot,
+    CaptureDevice, DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryTableEntry,
+    DictionaryTablePage, EmojiCatalogItem, EngineOptions, EngineResult, EngineSnapshot,
+    HandwritingPoint, OnlineQuerySnapshot,
 };
 
 /// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
@@ -361,6 +392,44 @@ pub fn dictionary_entries(
     limit: usize,
 ) -> Result<DictionaryPage, cxx::Exception> {
     ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Read a bounded page of the entries a dictionary export writes: the user-inserted entries, plus, with `include_learned_pinyin`, the pinyin entries whose weight was learned or edited. Single-character pinyin entries are left out in that mode, as the reference's pinyin export does.
+pub fn dictionary_export_entries(
+    options: &EngineOptions,
+    offset: usize,
+    limit: usize,
+    include_learned_pinyin: bool,
+) -> Result<DictionaryPage, cxx::Exception> {
+    ffi::dictionary_export_entries(options, offset, limit, include_learned_pinyin)
+}
+
+/// Look up the working dictionary tables of one kind by code prefix, read-only, bundled rows included. Pinyin ignores separators and case; an empty query lists every quick phrase and nothing for the other kinds. User-inserted rows come first, then exact matches, then by weight.
+pub fn dictionary_table_entries(
+    options: &EngineOptions,
+    kind: DictionaryKind,
+    query: &str,
+    offset: usize,
+    limit: usize,
+) -> Result<DictionaryTablePage, cxx::Exception> {
+    let kind = match kind {
+        DictionaryKind::Pinyin => 0,
+        DictionaryKind::Wubi => 1,
+        DictionaryKind::QuickPhrase => 2,
+        DictionaryKind::English => 3,
+        _ => u8::MAX,
+    };
+    ffi::dictionary_table_entries(options, kind, query, offset, limit)
+}
+
+/// Set the weight of (`Some`) or delete (`None`) a row that is not user-inserted, journaled so it survives replay onto a fresh dictionary. `previous` must carry the row's current weight. The caller must quiesce sessions sharing these paths before editing.
+pub fn dictionary_edit_bundled(
+    options: &EngineOptions,
+    previous: &DictionaryEntry,
+    weight: Option<i64>,
+    request_id: &str,
+) -> Result<(), cxx::Exception> {
+    ffi::dictionary_edit_bundled(options, previous, weight.as_slice(), request_id)
 }
 
 /// Query the packaged English dictionary without creating or mutating an input session.

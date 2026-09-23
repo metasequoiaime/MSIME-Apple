@@ -79,7 +79,7 @@ with tempfile.TemporaryDirectory(prefix="msime-dictionary-cli-") as directory:
     replacement = dict(previous, value="测试替换")
     edit(previous, replacement, "replace-fixture")
     edit(previous, None, "stale-fixture", False)
-    assert replacement in listing()["entries"], "Stale edit changed replacement"
+    assert dict(replacement, source="user") in listing()["entries"], "Stale edit changed replacement"
     for index, entry in enumerate([entries[0], entries[1], replacement, entries[3]]):
         edit(entry, None, f"delete-fixture-{index}")
     assert listing()["entries"] == [], "Delete did not persist"
@@ -88,18 +88,45 @@ with tempfile.TemporaryDirectory(prefix="msime-dictionary-cli-") as directory:
     typed = {"kind": "pinyin", "key": "nihao", "value": "你好", "weight": 12345}
     stored = dict(typed, key="ni'hao")
     edit(None, typed, "add-unseparated")
+    listed = dict(stored, source="user")
     for query in ["nihao", "nih", "NiHao", "ni hao", "ni'hao"]:
         found = listing(kind="pinyin", query=query)["entries"]
-        assert found == [stored], f"Pinyin search missed the stored key: {query}"
-    assert listing(kind="pinyin", query="hao")["entries"] == [], "Search is not a prefix"
+        # A search also finds the bundled words under the prefix; the user's own word leads them.
+        assert found and found[0] == listed, f"Pinyin search missed the stored key: {query}"
+    assert listed not in listing(kind="pinyin", query="hao")["entries"], "Search is not a prefix"
     refused = edit(None, dict(typed, key="nhao"), "add-abbreviated", False)
     assert refused.startswith("invalid dictionary entry: "), "Refusal lost its reason"
     assert "nhao" not in refused and "你好" not in refused, "Refusal echoed the entry"
-    assert listing()["entries"] == [stored], "Refused edit changed the dictionary"
+    assert listing()["entries"] == [listed], "Refused edit changed the dictionary"
     edit(stored, None, "delete-unseparated")
     assert listing()["entries"] == [], "Delete did not persist"
+
+    # A bundled word is found by its code, can be re-weighted - which the pinyin export then carries - or deleted, and nothing else about it can change.
+    def bundled_row(key, value):
+        rows = listing(kind="pinyin", query=key)["entries"]
+        return next((row for row in rows if row["key"] == key and row["value"] == value), None)
+
+    def pinyin_export():
+        return request({"operation": "export", "kind": "pinyin", "format": "windows",
+                        "offset": 0, "limit": 1000})["text"].splitlines()
+
+    word = next(row for row in listing(kind="pinyin", query="nihao")["entries"]
+                if row["source"] == "bundled" and len(row["value"]) > 1)
+    weight = 7 if word["weight"] != 7 else 8
+    edit(word, dict(word, weight=weight), "reweight-bundled")
+    reweighted = dict(word, weight=weight)
+    assert bundled_row(word["key"], word["value"]) == reweighted, "Bundled weight did not persist"
+    assert f"{word['key']}\t{word['value']}\t{weight}" in pinyin_export(), "Export lost the weight"
+    edit(word, dict(word, weight=weight + 1), "stale-bundled", False)
+    refused = edit(reweighted, dict(reweighted, value="改动"), "rename-bundled", False)
+    assert refused == "bundled dictionary entry is read-only", "Bundled rename was not refused"
+    assert listing()["entries"] == [], "A bundled edit became a user word"
+    edit(reweighted, None, "delete-bundled")
+    assert bundled_row(word["key"], word["value"]) is None, "Bundled delete did not persist"
+    assert not any(line.startswith(f"{word['key']}\t{word['value']}\t")
+                   for line in pinyin_export()), "Export kept a deleted bundled word"
 
 for invalid, status in [(b"", 2), (b"x" * 65537, 2), (b"{", 1)]:
     result = subprocess.run([binary], input=invalid, capture_output=True, timeout=10)
     assert result.returncode == status and not result.stderr, "Invalid request boundary failed"
-print("Linux dictionary CLI list/edit/retry/busy/bounds/pinyin-search acceptance passed")
+print("Linux dictionary CLI list/edit/retry/busy/bounds/pinyin-search/bundled-entry acceptance passed")
