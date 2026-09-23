@@ -405,6 +405,8 @@ struct State {
   // 中英文切换提示：辅助区域短暂显示「中」或「英」。代次用于丢弃过期的隐藏回调，
   // 与语音失败提示同一套做法。
   uint64_t mode_hint_id = 0;
+  // 右键候选提示：辅助区域短暂指向「候选操作」菜单。代次用于丢弃过期的恢复回调。
+  uint64_t candidate_menu_hint_id = 0;
   std::string voice_preedit;
   std::string voice_transcript;
   std::string voice_phase = "正在录音…";
@@ -6635,9 +6637,51 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   });
   return handled;
 }
+struct CandidateMenuHintNotice {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+  uint64_t id;
+  uint64_t session;
+  uint64_t generation;
+};
+// 右键候选：Windows 弹出候选右键菜单（固定、固定排位、删除），选定之前不改动词典。IBus 没有逐个候选的右键菜单接口，「候选操作」属性菜单就是这里的对应物，所以右键只在辅助区域提示去那里操作，约 1.5 秒后恢复页码。
+//
+// 恢复前确认辅助区域仍属于这条提示：期间任何重绘都已换上新的页码，只有同一会话、同一代次仍在显示时才重绘一次。
+void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation) {
+  auto &s = state(engine);
+  ++s.candidate_menu_hint_id;
+  if (s.candidate_menu_hint_id == 0)
+    ++s.candidate_menu_hint_id;
+  ibus_engine_update_auxiliary_text(
+      engine, ibus_text_new_from_static_string("请在「候选操作」菜单中固定、调整排位或删除候选"),
+      TRUE);
+  auto *notice = new CandidateMenuHintNotice{engine, s.alive, s.candidate_menu_hint_id,
+                                             s.session, generation};
+  g_timeout_add_full(
+      G_PRIORITY_DEFAULT, 1500,
+      +[](gpointer data) -> gboolean {
+        std::unique_ptr<CandidateMenuHintNotice> notice(
+            static_cast<CandidateMenuHintNotice *>(data));
+        if (!notice->alive->load())
+          return G_SOURCE_REMOVE;
+        auto *engine = notice->engine;
+        auto &s = state(engine);
+        if (s.candidate_menu_hint_id != notice->id || !s.focused || s.blocked ||
+            s.voice_active || s.translation_candidates_active ||
+            !s.session || s.session != notice->session ||
+            s.rendered_session != s.session || !s.rendered_view.is_object() ||
+            s.rendered_view.value("generation", uint64_t{0}) != notice->generation ||
+            s.view.value("generation", uint64_t{0}) != notice->generation)
+          return G_SOURCE_REMOVE;
+        guarded(engine, "candidate_menu_hint", [&] { render(engine, s.view); });
+        return G_SOURCE_REMOVE;
+      },
+      notice, nullptr);
+}
+// Modifier and button masks in the state argument are ignored, as the Windows candidate window commits regardless of modifiers; NumLock (Mod2) alone would otherwise block every click.
 void candidate_clicked(IBusEngine *engine, guint index, guint button,
-                       guint flags) {
-  if ((button < 1 || button > 5) || flags || !state(engine).focused ||
+                       G_GNUC_UNUSED guint flags) {
+  if ((button < 1 || button > 5) || !state(engine).focused ||
       state(engine).blocked || !state(engine).input_enabled) return;
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
@@ -6648,9 +6692,13 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       const auto page_count = (s.translation_options.size() + page_size - 1) /
                               page_size;
       if (button >= 4) {
-        if (button == 4 && s.translation_page > 0)
+        // Same mapping and 鼠标滚轮 gate as the ordinary candidate page below: with the switch off the wheel does nothing, as on Windows.
+        const auto wheel = s.navigation.wheel_command(button);
+        if (!wheel)
+          return;
+        if (*wheel == MSIME_PREVIOUS_PAGE && s.translation_page > 0)
           --s.translation_page;
-        else if (button == 5 && s.translation_page + 1 < page_count)
+        else if (*wheel == MSIME_NEXT_PAGE && s.translation_page + 1 < page_count)
           ++s.translation_page;
         s.translation_cursor = 0;
         render_translation_candidates(engine);
@@ -6686,10 +6734,10 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     const auto global_index = id.at("index").get<size_t>();
     const auto source = entry.value("source", 0);
     const auto scheme = s.rendered_scheme;
-    if (button == 3 && scheme != 3 &&
-        (source == 0 || source == 1 || source == 4))
-      apply(engine, msime_client_pin_candidate(s.session, generation, global_index));
-    else if (button != 3)
+    if (button == 3) {
+      if (scheme != 3 && (source == 0 || source == 1 || source == 4))
+        show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
+    } else
       apply(engine, msime_client_select(s.session, generation, global_index));
   });
 }
@@ -7327,8 +7375,13 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   engine->candidate_clicked = candidate_clicked;
   engine->page_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_PAGE); };
   engine->page_down = [](IBusEngine *e) { page(e, MSIME_NEXT_PAGE); };
-  engine->cursor_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_CANDIDATE); };
-  engine->cursor_down = [](IBusEngine *e) { page(e, MSIME_NEXT_CANDIDATE); };
+  // The IBus GTK panel and GNOME Shell raise cursor_up/down for the wheel over the candidate window; keyboard arrows never come this way, they arrive through process_key_event and NavigationBindings. As on Windows, the wheel pages when 鼠标滚轮 is on and does nothing otherwise.
+  engine->cursor_up = [](IBusEngine *e) {
+    if (state(e).navigation.mouse_wheel) page(e, MSIME_PREVIOUS_PAGE);
+  };
+  engine->cursor_down = [](IBusEngine *e) {
+    if (state(e).navigation.mouse_wheel) page(e, MSIME_NEXT_PAGE);
+  };
   IBUS_OBJECT_CLASS(klass)->destroy = destroy;
 }
 void msime_ibus_configure(const std::string &options) {
