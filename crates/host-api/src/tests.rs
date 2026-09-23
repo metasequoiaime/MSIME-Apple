@@ -1163,6 +1163,36 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
 }
 
 #[test]
+fn a_picked_skin_folder_is_copied_in_through_the_c_abi() {
+    let files = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let source = files.path().join("sakura");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::write(source.join("skin.toml"), "id = 'sakura'").unwrap();
+    let call = |request: String| {
+        read(unsafe { msime_client_skin_import(request.as_ptr(), request.len()) })
+    };
+    let imported = call(json!({"source": source, "directory": root}).to_string());
+    assert_eq!(imported, json!({"ok": true, "value": {"id": "sakura"}}));
+    assert!(root.join("sakura/skin.toml").is_file());
+    let bare = files.path().join("bare");
+    std::fs::create_dir_all(&bare).unwrap();
+    assert_eq!(
+        call(json!({"source": bare, "directory": root}).to_string())["error"],
+        "skin_manifest"
+    );
+    assert_eq!(
+        call(json!({"source": "sakura", "directory": root}).to_string())["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_skin_import(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
 #[cfg(not(target_os = "android"))]
 fn custom_skin_library_reaches_a_c_abi_host_without_a_second_store() {
     let directory = tempfile::tempdir().unwrap();

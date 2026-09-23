@@ -240,6 +240,10 @@ char *msime_client_skin_resource(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id}; returns a nullable stylesheet
  * string from the manifest, after revalidating the package and path. */
 char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length);
+/* JSON {source:absolute picked folder,directory:absolute skin root}. Copies the
+ * folder under its own name, replacing a skin of that name whole; returns {id}.
+ * The error message is skin_name, skin_manifest or storage. Touches the disk. */
+char *msime_client_skin_import(const uint8_t *request, size_t length);
 /* The queued personal dictionary, for a host that cannot take the Engine's
  * maintenance lock when the request arrives. Same request shape as
  * msime_client_dictionary - {options,action} - but the operations act on
