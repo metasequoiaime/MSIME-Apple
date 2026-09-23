@@ -32,6 +32,100 @@ pub(crate) struct MobileVoiceProviderConfiguration {
     pub(crate) boosting_table_id: String,
 }
 
+/// The optional rewrite that runs over a transcript, resolved the same way the provider is.
+///
+/// `None` means the user did not ask for it, which is the common case and not an error. The prompt
+/// itself is not resolved here: the shipped preset bodies live in `shared/voice/PolishPrompt.h`,
+/// and the host that sends the request reads them from there so there is one copy of the wording
+/// that tells the model the transcript is data rather than instructions.
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MobileVoicePolishConfiguration {
+    pub(crate) endpoint: String,
+    pub(crate) model: String,
+    pub(crate) token: String,
+    pub(crate) prompt_id: String,
+    pub(crate) prompt_legacy: String,
+    pub(crate) prompt_custom_1: String,
+    pub(crate) prompt_custom_2: String,
+    pub(crate) prompt_custom_3: String,
+}
+
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+pub(crate) fn mobile_voice_polish_configuration(
+    preferences: &Preferences,
+) -> Option<MobileVoicePolishConfiguration> {
+    let voice = &preferences.voice_input;
+    if !(voice.polish_enabled || voice.polish_text) {
+        return None;
+    }
+    // The same OpenAI-compatible chat endpoints the AI assistant uses; an unrecognised provider
+    // has no default to fall back to and simply means "not configured".
+    let (default_endpoint, default_model) = match voice.polish_provider.as_str() {
+        "openai" => ("https://api.openai.com/v1/chat/completions", "gpt-4o-mini"),
+        "siliconflow" => (
+            "https://api.siliconflow.cn/v1/chat/completions",
+            "Qwen/Qwen2.5-7B-Instruct",
+        ),
+        "groq" => (
+            "https://api.groq.com/openai/v1/chat/completions",
+            "llama-3.3-70b-versatile",
+        ),
+        "everyapi" => (
+            "https://api.everyapi.ai/v1/chat/completions",
+            "openai/gpt-4o-mini",
+        ),
+        "mistral" => (
+            "https://api.mistral.ai/v1/chat/completions",
+            "mistral-small-latest",
+        ),
+        "deepseek" => (
+            "https://api.deepseek.com/v1/chat/completions",
+            "deepseek-chat",
+        ),
+        _ => return None,
+    };
+    let endpoint = match voice.polish_endpoint.trim() {
+        "" => default_endpoint,
+        value => value,
+    };
+    let model = match voice.polish_model.trim() {
+        "" => default_model,
+        value => value,
+    };
+    let token = match voice.polish_token.trim() {
+        "" => voice
+            .polish_tokens
+            .get(&voice.polish_provider)
+            .map(String::as_str)
+            .unwrap_or("")
+            .trim(),
+        value => value,
+    };
+    if !endpoint.starts_with("https://")
+        || endpoint.len() > 2_048
+        || model.is_empty()
+        || model.len() > 512
+        || token.is_empty()
+        || token.len() > 16 * 1024
+        || endpoint.chars().any(char::is_control)
+        || model.chars().any(char::is_control)
+        || token.chars().any(char::is_control)
+    {
+        return None;
+    }
+    Some(MobileVoicePolishConfiguration {
+        endpoint: endpoint.to_owned(),
+        model: model.to_owned(),
+        token: token.to_owned(),
+        prompt_id: voice.polish_prompt_id.clone(),
+        prompt_legacy: voice.polish_prompt.clone(),
+        prompt_custom_1: voice.polish_prompt_custom_1.clone(),
+        prompt_custom_2: voice.polish_prompt_custom_2.clone(),
+        prompt_custom_3: voice.polish_prompt_custom_3.clone(),
+    })
+}
+
 #[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn mobile_voice_provider_configuration(
     preferences: &Preferences,
@@ -317,8 +411,9 @@ pub(crate) async fn recognize_voice(
         // stays the default. `unsupported_voice` is what an unset or unknown provider produces, and
         // a provider whose credentials do not validate is dropped the same way.
         let store = store.inner().clone();
+        let provider_store = store.clone();
         let provider = tauri::async_runtime::spawn_blocking(move || {
-            let snapshot = store.load().ok()?;
+            let snapshot = provider_store.load().ok()?;
             mobile_voice_provider_configuration(&snapshot.preferences).ok()
         })
         .await
@@ -336,8 +431,26 @@ pub(crate) async fn recognize_voice(
             enable_ddc: configuration.enable_ddc,
             boosting_table_id: configuration.boosting_table_id,
         });
+        let polish_store = store.clone();
+        let polish = tauri::async_runtime::spawn_blocking(move || {
+            let snapshot = polish_store.load().ok()?;
+            mobile_voice_polish_configuration(&snapshot.preferences)
+        })
+        .await
+        .ok()
+        .flatten()
+        .map(|configuration| AndroidVoicePolishRequest {
+            endpoint: configuration.endpoint,
+            model: configuration.model,
+            token: configuration.token,
+            prompt_id: configuration.prompt_id,
+            prompt_legacy: configuration.prompt_legacy,
+            prompt_custom_1: configuration.prompt_custom_1,
+            prompt_custom_2: configuration.prompt_custom_2,
+            prompt_custom_3: configuration.prompt_custom_3,
+        });
         let text = platform
-            .recognize_voice(&request.request_id, &request.language, provider)
+            .recognize_voice(&request.request_id, &request.language, provider, polish)
             .await
             .map_err(|_| HostActionError {
                 code: "unavailable",

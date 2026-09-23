@@ -69,7 +69,7 @@ use msime_client_core::skin::keyboard_trial::KeyboardSkinTrialStore;
 use msime_client_core::typing_statistics::TypingSource;
 use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
 #[cfg(target_os = "android")]
-use msime_tauri_mobile_platform::AndroidVoicePlatform;
+use msime_tauri_mobile_platform::{AndroidVoicePlatform, AndroidVoicePolishRequest};
 // Both mobile hosts build the same transcription request; only the transport differs.
 #[cfg(any(target_os = "ios", test))]
 use msime_tauri_mobile_platform::IosKeyboardAiPreferences;

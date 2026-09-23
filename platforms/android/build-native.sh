@@ -42,7 +42,7 @@ cp "$repo_root/target/android-cargo/$rust_target/release/libmsime_host_api.so" "
 cp "$toolchain/sysroot/usr/lib/$compiler_target/libc++_shared.so" "$output/"
 "$compiler++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-soname,libmsime_android.so \
-  platforms/android/native/client_jni.cpp -Icrates/host-api/include \
+  platforms/android/native/client_jni.cpp -Icrates/host-api/include -Ishared \
   -L"$output" -lmsime_host_api -o "$output/libmsime_android.so"
 bash platforms/android/verify-native.sh "$toolchain/bin/llvm-readelf" "$output" "$abi"
 notices="$repo_root/target/android/notices/$abi"

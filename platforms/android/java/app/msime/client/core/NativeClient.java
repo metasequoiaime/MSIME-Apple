@@ -103,6 +103,23 @@ public final class NativeClient {
         }
     }
     /** Reads one bounded double-pinyin key-hint map from the Engine profile tables. */
+    /**
+     * The polish prompt the selected slot resolves to.
+     *
+     * <p>Decided by the shared C++ header the other hosts read, not by this host: the
+     * slot-versus-legacy precedence has been wrong on individual hosts before, and the preset
+     * bodies carry their own prompt-injection wording that must not drift between copies.
+     */
+    public static String polishPrompt(String id, String legacy, String custom1, String custom2,
+                                      String custom3) {
+        return text(polishPromptRaw(utf8(id), utf8(legacy), utf8(custom1), utf8(custom2),
+                                    utf8(custom3)));
+    }
+
+    private static byte[] utf8(String value) {
+        return (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+    }
+
     public static String shuangpinKeyHints(String profile) {
         if (profile == null) throw new IllegalArgumentException("Missing double-pinyin profile");
         byte[] profileBytes = profile.getBytes(StandardCharsets.UTF_8);
@@ -260,6 +277,8 @@ public final class NativeClient {
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
+    private static native byte[] polishPromptRaw(byte[] id, byte[] legacy, byte[] custom1,
+        byte[] custom2, byte[] custom3);
     private static native byte[] shuangpinKeyHintsRaw(byte[] profile);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] personalDictionarySyncRaw(byte[] options);

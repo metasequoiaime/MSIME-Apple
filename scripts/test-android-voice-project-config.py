@@ -33,7 +33,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         )
         self.assertIn("pub struct AndroidVoicePlatform", plugin_rust)
         self.assertIn(
-            ".recognize_voice(&request.request_id, &request.language, provider)", app_rust
+            ".recognize_voice(&request.request_id, &request.language, provider, polish)", app_rust
         )
         self.assertIn(".stop_voice(&request_id)", app_rust)
         self.assertIn(".cancel_voice(request_id.as_deref())", app_rust)
@@ -96,6 +96,27 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("if (!usesProvider() && !available(this))", activity)
         # Cancelling has to release the microphone the recorder is holding.
         self.assertIn("provider.cancel()", activity)
+
+    def test_polishing_runs_off_the_main_thread_and_never_loses_the_transcript(self):
+        """The rewrite is a network round trip over text the user already has. Doing it on the
+        thread that delivers SpeechRecognizer results would hang the window, and treating a failed
+        rewrite as a failed recognition would throw away a sentence that was recognised fine."""
+        activity = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+        ).read_text()
+        polisher = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoicePolisher.java"
+        ).read_text()
+        shared = (ROOT / "crates/tauri-mobile-platform/src/lib.rs").read_text()
+
+        self.assertIn("polish: Option<AndroidVoicePolishRequest>", shared)
+        self.assertIn("polish.filter(AndroidVoicePolishRequest::is_valid)", shared)
+        # onResults arrives on the main thread, so it must hand off rather than polish inline.
+        self.assertIn("deliver(values.get(0));", activity)
+        self.assertIn("providerWorker.execute", activity)
+        # A failed rewrite keeps what was recognised.
+        self.assertIn("return polished == null ? text : polished;", activity)
+        self.assertIn("return null;", polisher)
 
 
 if __name__ == "__main__":

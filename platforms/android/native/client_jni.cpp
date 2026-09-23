@@ -1,5 +1,8 @@
 #include <jni.h>
 #include "msime_client.h"
+// The polish presets carry their own prompt-injection wording, and there are already four copies
+// of that text in this repository. This host reads the shared one rather than adding a fifth.
+#include "voice/PolishPrompt.h"
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -145,6 +148,34 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_englishCompletio
     env->ReleaseByteArrayElements(resources, resources_bytes, JNI_ABORT);
     env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
     return response(env, result);
+}
+static std::string utf8(JNIEnv *env, jbyteArray value) {
+    if (!value) return {};
+    jsize length = env->GetArrayLength(value);
+    if (length <= 0) return {};
+    jbyte *bytes = env->GetByteArrayElements(value, nullptr);
+    if (!bytes) return {};
+    std::string text(reinterpret_cast<const char *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(value, bytes, JNI_ABORT);
+    return text;
+}
+// Which prompt the selected slot resolves to, decided by the shared header rather than here: the
+// slot/legacy precedence has been wrong on individual hosts before, and it is one rule.
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_polishPromptRaw(JNIEnv *env, jclass, jbyteArray id, jbyteArray legacy, jbyteArray custom1, jbyteArray custom2, jbyteArray custom3) {
+    msime::windows::PolishPromptSlots slots;
+    slots.id = utf8(env, id);
+    slots.legacy = utf8(env, legacy);
+    slots.custom_1 = utf8(env, custom1);
+    slots.custom_2 = utf8(env, custom2);
+    slots.custom_3 = utf8(env, custom3);
+    const std::string prompt = msime::windows::polish_prompt_for(slots);
+    if (prompt.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) return nullptr;
+    jbyteArray out = env->NewByteArray(static_cast<jsize>(prompt.size()));
+    if (out) {
+        env->SetByteArrayRegion(out, 0, static_cast<jsize>(prompt.size()),
+                                reinterpret_cast<const jbyte *>(prompt.data()));
+    }
+    return out;
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_shuangpinKeyHintsRaw(JNIEnv *env, jclass, jbyteArray profile) {
     if (!profile) return response(env, msime_client_shuangpin_key_hints(nullptr, 0));
