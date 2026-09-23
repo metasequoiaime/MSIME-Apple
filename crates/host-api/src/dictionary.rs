@@ -153,6 +153,9 @@ enum Operation {
         /// Code prefix to search for, matched case-insensitively. Pinyin separators are ignored on both sides, so `nihao` and `nih` find `ni'hao`. With a kind, a prefix searches the working dictionary itself, bundled words included, as does the quick-phrase list with no prefix; every other page lists the user's own words only.
         #[serde(default)]
         query: Option<String>,
+        /// Keep the page to the user's own words even with a kind and a prefix. The mobile personal dictionary queue sets this: its edits cannot carry a bundled row, which may only be re-weighted or deleted in place.
+        #[serde(default)]
+        user_only: bool,
     },
     Edit {
         previous: Option<Entry>,
@@ -500,6 +503,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             limit,
             kind,
             query,
+            user_only,
         } => {
             let _access = DictionaryAccess::try_session(
                 Path::new(&options.user_data),
@@ -516,10 +520,11 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             }
             // A code within one dictionary is looked up in the dictionary itself, the way the reference's manager searches, so a bundled word can be found and re-weighted. Quick phrases are few enough to list whole. Without a code the page stays the user's own words: the bundled pinyin tables alone hold hundreds of thousands of rows.
             if let Some(kind) = kind.filter(|kind| {
-                *kind == Kind::QuickPhrase
-                    || prefix.bytes().any(|byte| {
-                        !byte.is_ascii_whitespace() && (*kind != Kind::Pinyin || byte != b'\'')
-                    })
+                !user_only
+                    && (*kind == Kind::QuickPhrase
+                        || prefix.bytes().any(|byte| {
+                            !byte.is_ascii_whitespace() && (*kind != Kind::Pinyin || byte != b'\'')
+                        }))
             }) {
                 let page = msime_engine_bridge::dictionary_table_entries(
                     &options,
@@ -543,60 +548,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                     .collect::<Result<Vec<_>, _>>()?;
                 return Ok(json!({ "entries": entries, "has_more": page.has_more }));
             }
-            // Unfiltered pages still go straight through, so the common case
-            // costs exactly what it did before.
-            if kind.is_none() && prefix.is_empty() {
-                let page = msime_engine_bridge::dictionary_entries(&options, offset, limit)
-                    .map_err(|_| "dictionary read rejected")?;
-                let entries: Vec<Entry> = page
-                    .entries
-                    .into_iter()
-                    .map(|entry| {
-                        Entry::try_from(entry).map(|entry| entry.with_source(Source::User))
-                    })
-                    .collect::<Result<_, _>>()?;
-                return Ok(json!({ "entries": entries, "has_more": page.has_more }));
-            }
-            // The Engine pages the whole store in one sequence with no kind or
-            // prefix filter, so the selection happens here. Doing it on the
-            // client meant asking for 100 rows and discarding most of them: a
-            // user with more than a page of pinyin words who selected 五笔 saw
-            // an empty page 1 even though wubi entries existed.
-            let mut selector = PageSelector::new(offset, limit);
-            let mut entries: Vec<Entry> = Vec::new();
-            let mut has_more = false;
-            let mut scanned = 0usize;
-            // Bound the work: a store with very few matches must not turn one
-            // request into an unbounded scan. Reaching the budget is reported
-            // as "there may be more" rather than silently ending the list.
-            const SCAN_BUDGET: usize = 20_000;
-            const CHUNK: usize = 500;
-            loop {
-                let page = msime_engine_bridge::dictionary_entries(&options, scanned, CHUNK)
-                    .map_err(|_| "dictionary read rejected")?;
-                let count = page.entries.len();
-                for raw in page.entries {
-                    let entry = Entry::try_from(raw)?.with_source(Source::User);
-                    if !entry.matches(kind, &prefix) {
-                        continue;
-                    }
-                    if selector.full() {
-                        has_more = true;
-                        break;
-                    }
-                    if selector.accept() {
-                        entries.push(entry);
-                    }
-                }
-                scanned += count;
-                if has_more || count == 0 || !page.has_more {
-                    break;
-                }
-                if scanned >= SCAN_BUDGET {
-                    has_more = true;
-                    break;
-                }
-            }
+            let (entries, has_more) = user_entries_page(&options, offset, limit, kind, &prefix)?;
             Ok(json!({ "entries": entries, "has_more": has_more }))
         }
         Operation::Edit {
@@ -829,14 +781,23 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
         .ok_or("personal dictionary shared directory unavailable")?;
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     match request.action {
-        // The personal dictionary has one kind, so the kind and prefix the
-        // desktop browser sends do not apply here.
-        Operation::List { offset, limit, .. } => {
+        // The kind and prefix travel with the page request, and the keyboard answers them from the user's whole store. The entries returned here are the last page it confirmed, which `page_kind` and `page_query` describe.
+        Operation::List {
+            offset,
+            limit,
+            kind,
+            query,
+            ..
+        } => {
             if offset > 1_000_000 || !(1..=1000).contains(&limit) {
                 return Err("invalid dictionary page".into());
             }
             store
-                .request_page(offset)
+                .request_page(
+                    offset,
+                    kind.map(|kind| personal_kind(kind.into())),
+                    query.as_deref().unwrap_or_default(),
+                )
                 .map_err(personal_dictionary_error)?;
             let state = store.read().map_err(personal_dictionary_error)?;
             let has_more = state.has_more;
@@ -845,6 +806,8 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             let snapshot_error = state.snapshot_error.clone();
             let page_offset = state.page_offset;
             let requested_page_offset = state.requested_page_offset;
+            let page_kind = state.page_kind.map(personal_to_kind);
+            let page_query = state.page_query.clone();
             let failed_requests: Vec<_> = state
                 .requests
                 .iter()
@@ -873,6 +836,8 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
                 "snapshot_error": snapshot_error,
                 "page_offset": page_offset,
                 "requested_page_offset": requested_page_offset,
+                "page_kind": page_kind,
+                "page_query": page_query,
                 "failed_requests": failed_requests,
             }))
         }
@@ -978,6 +943,62 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
     }
 }
 
+/// One page of the user's own words, optionally within one dictionary and under one code prefix. The caller holds dictionary access.
+fn user_entries_page(
+    options: &msime_engine_bridge::EngineOptions,
+    offset: usize,
+    limit: usize,
+    kind: Option<Kind>,
+    prefix: &str,
+) -> Result<(Vec<Entry>, bool), String> {
+    // Unfiltered pages still go straight through, so the common case costs exactly what it did before.
+    if kind.is_none() && prefix.is_empty() {
+        let page = msime_engine_bridge::dictionary_entries(options, offset, limit)
+            .map_err(|_| "dictionary read rejected")?;
+        let entries: Vec<Entry> = page
+            .entries
+            .into_iter()
+            .map(|entry| Entry::try_from(entry).map(|entry| entry.with_source(Source::User)))
+            .collect::<Result<_, _>>()?;
+        return Ok((entries, page.has_more));
+    }
+    // The Engine pages the whole store in one sequence with no kind or prefix filter, so the selection happens here. Doing it on the client meant asking for 100 rows and discarding most of them: a user with more than a page of pinyin words who selected 五笔 saw an empty page 1 even though wubi entries existed.
+    let mut selector = PageSelector::new(offset, limit);
+    let mut entries: Vec<Entry> = Vec::new();
+    let mut has_more = false;
+    let mut scanned = 0usize;
+    // Bound the work: a store with very few matches must not turn one request into an unbounded scan. Reaching the budget is reported as "there may be more" rather than silently ending the list.
+    const SCAN_BUDGET: usize = 20_000;
+    const CHUNK: usize = 500;
+    loop {
+        let page = msime_engine_bridge::dictionary_entries(options, scanned, CHUNK)
+            .map_err(|_| "dictionary read rejected")?;
+        let count = page.entries.len();
+        for raw in page.entries {
+            let entry = Entry::try_from(raw)?.with_source(Source::User);
+            if !entry.matches(kind, prefix) {
+                continue;
+            }
+            if selector.full() {
+                has_more = true;
+                break;
+            }
+            if selector.accept() {
+                entries.push(entry);
+            }
+        }
+        scanned += count;
+        if has_more || count == 0 || !page.has_more {
+            break;
+        }
+        if scanned >= SCAN_BUDGET {
+            has_more = true;
+            break;
+        }
+    }
+    Ok((entries, has_more))
+}
+
 /// Synchronize the queue with the Engine. The caller must invoke this
 /// only after its Engine session has been destroyed; the shared dictionary lock
 /// then prevents races with any other host.
@@ -1015,21 +1036,25 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                     &queued.id,
                 )
             },
-            |offset| {
-                let page = msime_engine_bridge::dictionary_entries(&options, offset, 100)
-                    .map_err(|_| "dictionary read rejected".to_owned())?;
+            |request| {
+                let (entries, has_more) = user_entries_page(
+                    &options,
+                    request.offset,
+                    100,
+                    request.kind.map(personal_to_kind),
+                    &request.query,
+                )?;
                 Ok(msime_client_core::dictionary::personal::PersonalWordPage {
-                    entries: page
-                        .entries
+                    entries: entries
                         .into_iter()
                         .map(|entry| PersonalWord {
-                            kind: personal_kind(entry.kind),
+                            kind: personal_kind(entry.kind.into()),
                             key: entry.key,
                             value: entry.value,
                             weight: entry.weight,
                         })
                         .collect(),
-                    has_more: page.has_more,
+                    has_more,
                 })
             },
         )

@@ -91,7 +91,8 @@ int main() {
         Check({}, 12001, true, true, false, 1, true);
         Check(std::vector<unsigned char>(4001, 'a'), 4001, true, true, false, 1, true);
         Check({'a','\n','\r','\t'}, 4, true, true, true, 0, true);
-        Check({'a',0x1b}, 2, true, true, false, 1, true);
+        Check({'a',0x1b,0x0c,0x7f}, 4, true, true, true, 0, true); // Clipboard control characters other than NUL are user content.
+        Check({'a',0}, 2, true, true, false, -1, true);
         Check({0xff}, 1, true, true, false, -1, true);
         std::vector<unsigned char> cjk;
         for (int i = 0; i < 4000; ++i) cjk.insert(cjk.end(), {0xe4, 0xb8, 0xad});
@@ -101,7 +102,7 @@ int main() {
         NSData *joinedEmoji = [@"👩‍💻" dataUsingEncoding:NSUTF8StringEncoding];
         const auto *emojiBytes = static_cast<const unsigned char *>(joinedEmoji.bytes);
         Check(std::vector<unsigned char>(emojiBytes, emojiBytes + joinedEmoji.length), uint32_t(joinedEmoji.length), true, true, true, 0, true);
-        Check({0xc2, 0x85}, 2, true, true, false, 1, true);
+        Check({0xc2, 0x85}, 2, true, true, true, 0, true);
         Check({}, 12000, true, true, false, 1); // Candidate sessions reject the oversized header.
     }
 }

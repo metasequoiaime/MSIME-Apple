@@ -1053,22 +1053,10 @@ pub(crate) fn send_panel_voice_text(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
     text: &str,
-    commit_mode: &str,
 ) -> Result<(), HostActionError> {
-    voice_output::submit(text, commit_mode, |mode, text| match mode {
-        // An independent Tauri panel has no IBus input context. Both input
-        // modes therefore use the remembered Linux editor target, while the
-        // in-engine voice entry continues to commit through IBus directly.
-        voice_output::OutputMode::Tsf | voice_output::OutputMode::SendInput => {
-            send_panel_text_to_target(app, target, text).is_ok()
-        }
-        voice_output::OutputMode::Clipboard => {
-            if !write_linux_clipboard(text) {
-                return false;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            send_panel_ctrl_v(app, target).is_ok()
-        }
+    // An independent Tauri panel has no input context of its own, so the text goes to the remembered editor target the way every other panel's text does: through the active MSIME host, or the typing fallbacks when another input method is active. Linux offers no voice commit strategy (see HostCapabilities::voice_commit_mode), so the stored mode is not read here; `tsf` names the default mode only so the shared length and control-character checks run.
+    voice_output::submit(text, "tsf", |_, text| {
+        send_panel_text_to_target(app, target, text).is_ok()
     })
     .map_err(|error| HostActionError {
         code: match error {

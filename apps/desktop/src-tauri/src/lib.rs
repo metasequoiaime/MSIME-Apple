@@ -5,6 +5,10 @@
 ))]
 mod ai;
 mod clipboard_history;
+#[cfg(not(target_os = "android"))]
+mod dictionary_import;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod dictionary_quiesce;
 // Only the two hosts that have to replay input into another window build this.
 // macOS delivers through the input method itself and needs none of it.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -761,8 +765,10 @@ async fn import_picked_skin(app: &tauri::AppHandle, root: PathBuf) -> Result<(),
     else {
         return Ok(());
     };
-    let copied =
-        tauri::async_runtime::spawn_blocking(move || skin_directory::import(&source, &root)).await;
+    let copied = tauri::async_runtime::spawn_blocking(move || {
+        msime_client_core::skin::folder_import::import(&source, &root)
+    })
+    .await;
     let _ = platform.end_skin_folder_access();
     copied
         .map_err(|_| CommandError { code: "storage" })?
@@ -1594,6 +1600,8 @@ fn dictionary_maintenance_handshake(verb: &str) -> bool {
 fn dictionary_error_code(reason: &str) -> &'static str {
     match reason {
         "dictionary maintenance busy" => "dictionary_busy",
+        // A request over the host's 64 KiB, which the batched desktop import only gives for a file over its own bound or a single line too long for any request. The shared parser's own "dictionary import is too large" is deliberately not mapped here: only Android, which sends the whole file in one request, reaches it, and there the limit is 64 KiB rather than the 1 MB this code's message names.
+        "invalid dictionary buffer" => "dictionary_too_large",
         "dictionary import rejected" => "dictionary_import_rejected",
         "dictionary read rejected" => "dictionary_read_rejected",
         "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
@@ -1681,20 +1689,17 @@ async fn dictionary_request(
         let requires_quiesce = dictionary_action_requires_quiesce(&action);
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         let _ = requires_quiesce;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let user_data = options["user_data"].as_str().map(str::to_owned);
-        #[cfg(target_os = "macos")]
-        if requires_quiesce {
-            msime_host_macos::quiesce_input_sessions();
-        }
         let request = serde_json::json!({ "options": options, "action": action });
         #[cfg(target_os = "ios")]
         if ios_personal_dictionary_action(&request["action"]) {
             return ios_personal_dictionary_request(&request);
         }
-        let bytes = serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
         #[cfg(target_os = "android")]
         {
+            let bytes =
+                serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
             return msime_host_api::personal_dictionary_request_json(&bytes).map_err(|reason| {
                 CommandError {
                     code: dictionary_error_code(&reason),
@@ -1703,55 +1708,50 @@ async fn dictionary_request(
         }
         #[cfg(not(target_os = "android"))]
         {
-            let first = msime_host_api::dictionary_request_json(&bytes);
-            #[cfg(target_os = "macos")]
-            if requires_quiesce {
-                // Distributed notifications are delivered asynchronously to
-                // the IMK process.  Retry only the lock-acquisition failure;
-                // a completed write is never replayed.
-                let mut result = first;
-                for _ in 0..20 {
-                    if !matches!(&result, Err(reason) if reason == "dictionary maintenance busy") {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                    result = msime_host_api::dictionary_request_json(&bytes);
+            // One request to the host. An import too large for one request is several, each through this, so whatever releases the input sessions below stays in force until the last of them.
+            let host = |bytes: &[u8]| msime_host_api::dictionary_request_json(bytes);
+            // The input hosts release their sessions when they see the lease, so the lock failure is retried under it. The IBus and Fcitx5 hosts find it on their timers; the macOS input method is also told at once over a distributed notification when the lease first goes up, and its one-second timer catches one that was missed. The lease is removed when `hosts` goes, after the last request.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            let mut hosts = dictionary_quiesce::QuiescedHosts::new(user_data.as_deref(), || {
+                #[cfg(target_os = "macos")]
+                msime_host_macos::quiesce_input_sessions();
+            });
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            let send = |bytes: &[u8]| {
+                if requires_quiesce {
+                    hosts.run(|| host(bytes))
+                } else {
+                    host(bytes)
                 }
-                return result.map_err(|reason| CommandError {
-                    code: dictionary_error_code(&reason),
-                });
-            }
-            // The IBus and Fcitx5 hosts release their sessions when they next see the lease, so the lock failure is retried under it.
-            #[cfg(target_os = "linux")]
-            if requires_quiesce {
-                let mut first = Some(first);
-                return platform::linux::linux_dictionary_quiesce::with_quiesced_hosts(
-                    user_data.as_deref(),
-                    || match first.take() {
-                        Some(result) => result,
-                        None => msime_host_api::dictionary_request_json(&bytes),
-                    },
-                )
-                .map_err(|reason| CommandError {
-                    code: dictionary_error_code(&reason),
-                });
-            }
-            // Only the lock is worth a handshake. Every other failure is about
-            // the request itself and would fail again with sessions released.
+            };
+            // Only the lock is worth a handshake. Every other failure is about the request itself and would fail again with sessions released.
             #[cfg(target_os = "windows")]
-            if matches!(&first, Err(reason) if reason == "dictionary maintenance busy")
-                && dictionary_maintenance_handshake("DictionaryQuiesce")
-            {
-                let retried = msime_host_api::dictionary_request_json(&bytes);
-                // Resume whatever happened: leaving the IME without
-                // sessions because an import failed would be worse than
-                // the failure itself.
+            let mut quiesced = false;
+            #[cfg(target_os = "windows")]
+            let send = |bytes: &[u8]| {
+                let result = host(bytes);
+                if !quiesced
+                    && matches!(&result, Err(reason) if reason == "dictionary maintenance busy")
+                    && dictionary_maintenance_handshake("DictionaryQuiesce")
+                {
+                    quiesced = true;
+                    return host(bytes);
+                }
+                result
+            };
+            #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+            let send = host;
+            let result = dictionary_import::send_dictionary_action(
+                &request["options"],
+                &request["action"],
+                send,
+            );
+            // Resume whatever happened: leaving the IME without sessions because an import failed would be worse than the failure itself.
+            #[cfg(target_os = "windows")]
+            if quiesced {
                 let _ = dictionary_maintenance_handshake("DictionaryResume");
-                return retried.map_err(|reason| CommandError {
-                    code: dictionary_error_code(&reason),
-                });
             }
-            first.map_err(|reason| CommandError {
+            result.map_err(|reason| CommandError {
                 code: dictionary_error_code(&reason),
             })
         }
@@ -3329,19 +3329,11 @@ async fn send_voice_text(
     }
     #[cfg(target_os = "linux")]
     {
+        let _ = &store;
         let target = panel_input_target(&state, window.label())?;
-        let store = store.inner().clone();
         let typing_statistics = typing_statistics.0.clone();
         return tauri::async_runtime::spawn_blocking(move || {
-            let commit_mode = store
-                .load()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?
-                .preferences
-                .voice_input
-                .commit_mode;
-            let result = send_panel_voice_text(&app, &target, &text, &commit_mode);
+            let result = send_panel_voice_text(&app, &target, &text);
             if result.is_ok() {
                 record_panel_typing_statistics(&typing_statistics, &text, TypingSource::Voice);
             }

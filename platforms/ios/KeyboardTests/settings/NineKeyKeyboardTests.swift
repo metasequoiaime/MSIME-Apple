@@ -45,7 +45,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         for width in [320.0, 414.0] {
           let controller = KeyboardViewController()
           controller.loadViewIfNeeded()
-          controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+          controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
           controller.view.layoutIfNeeded()
           let space = try button("spaceKey", in: controller)
           let enter = try button("returnKey", in: controller)
@@ -281,7 +281,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       let ordinary = UUID()
       controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
       for type in [UIKeyboardType.asciiCapable, .emailAddress, .URL] {
@@ -401,11 +401,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       }
       let candidate = try button("candidate-1", in: controller)
       XCTAssertTrue(candidate.menu?.children.first is UIDeferredMenuElement)
-      // 你好 has two characters, so 以词定字 leads the menu while the shared `word_character.enabled` default is on.
+      // 你好 has two characters, so 以词定字 leads the menu while the shared `word_character.enabled` default is on. It is not pinned, so there is no 取消固定 and no slot is checked.
       XCTAssertEqual(controller.candidateMenuElements(at: 0).map(\.title),
-                     ["以词定字", "优先显示", "固定排位", "取消固定", "删除词条…"])
-      XCTAssertEqual((controller.candidateMenuElements(at: 0)[2] as? UIMenu)?.children.map(\.title),
-                     ["第 1 位", "第 2 位", "第 3 位", "第 4 位", "第 5 位"])
+                     ["以词定字", "优先显示", "固定排位", "删除词条…"])
+      let slots = try XCTUnwrap((controller.candidateMenuElements(at: 0)[2] as? UIMenu)?.children as? [UIAction])
+      XCTAssertEqual(slots.map(\.title), ["第 1 位", "第 2 位", "第 3 位", "第 4 位", "第 5 位"])
+      XCTAssertTrue(slots.allSatisfy { $0.state == .off })
       XCTAssertEqual((controller.candidateMenuElements(at: 0).last as? UIMenu)?.children.first?.title,
                      "确认删除此词条")
     }
@@ -417,7 +418,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       try button("skinShortcut", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
@@ -647,16 +648,19 @@ final class NineKeyKeyboardTests: XCTestCase {
       KeyboardFeedbackPreference.defaults.set(true, forKey: KeyboardFeedbackPreference.soundKey)
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
       let more = try button("moreShortcut", in: controller)
       XCTAssertTrue(toolbar.arrangedSubviews.first === more)
-      XCTAssertEqual(toolbar.arrangedSubviews.compactMap(\.accessibilityIdentifier), [
-        "moreShortcut", "layoutShortcut", "layoutVoiceShortcut", "emojiShortcut",
-        "skinShortcut", "schemeButton", "dismissShortcut",
+      // The optional 工具栏按钮 are arranged but hidden until pinned, so a default bar is still these.
+      let visible = toolbar.arrangedSubviews.filter { !$0.isHidden }
+      XCTAssertEqual(visible.compactMap(\.accessibilityIdentifier), [
+        "moreShortcut", "layoutShortcut",
+      ] + (KeyboardLayoutPreference.voiceShortcutEnabled ? ["layoutVoiceShortcut"] : []) + [
+        "emojiShortcut", "skinShortcut", "schemeButton", "dismissShortcut",
       ])
-      for item in toolbar.arrangedSubviews {
+      for item in visible {
         XCTAssertGreaterThanOrEqual(item.bounds.width, 42)
         XCTAssertLessThanOrEqual(item.frame.maxX, toolbar.bounds.width + 0.5)
       }
@@ -821,7 +825,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
@@ -1062,7 +1066,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" })
       XCTAssertFalse(toolbar.isHidden)
@@ -1218,7 +1222,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       let reference = try button("nineKey6", in: controller).bounds.height
       // Handwriting has a taller canvas, covered by HandwritingTests. The kana nine-key panel
@@ -1853,7 +1857,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       let keys = try (1...9).map { try button("nineKey\($0)", in: controller) }
       let frames = keys.map { $0.convert($0.bounds, to: controller.view) }

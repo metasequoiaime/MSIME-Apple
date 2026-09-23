@@ -55,6 +55,15 @@ int main() {
       REQUIRE(!candidate_punctuation(key(code, '!'), no_paging));
     }
 
+    // The Japanese scheme never pages on minus/equals, so their shifted and unshifted punctuation commits the highlighted candidate there. A bare '-' is the long-vowel mark and the numpad keys are unchanged.
+    REQUIRE(candidate_punctuation(key(0xBB, '='), no_paging, true));
+    REQUIRE(candidate_punctuation(key(0xBB, '+'), no_paging, true));
+    REQUIRE(candidate_punctuation(key(0xBD, '_'), no_paging, true));
+    REQUIRE(!candidate_punctuation(key(0xBD, '-'), no_paging, true));
+    REQUIRE(!candidate_punctuation(key(0xBB, '!'), no_paging, true));
+    REQUIRE(!candidate_punctuation(key(0x6B, '+'), no_paging, true));
+    REQUIRE(!candidate_punctuation(key(0xBB, '='), no_paging));
+
     // Comma and period are on the list, until they are bound as paging keys.
     NavigationBindings comma_period = no_paging;
     comma_period.comma_period = true;
@@ -103,6 +112,25 @@ int main() {
     REQUIRE(!candidate_punctuation(key(0x09, '\t'), no_paging));
     REQUIRE(!candidate_punctuation(key(0x0D, '\r'), no_paging));
     REQUIRE(!candidate_punctuation(key(0x1B, '\x1b'), no_paging));
+
+    // The numpad arithmetic keys and '/' commit the highlighted candidate followed by the literal ASCII mark, never the Chinese punctuation the Engine would translate them to (reference 1d2431ad).
+    REQUIRE(literal_candidate_punctuation(key(0x6B, '+')) == '+');
+    REQUIRE(literal_candidate_punctuation(key(0x6D, '-')) == '-');
+    REQUIRE(literal_candidate_punctuation(key(0x6E, '.')) == '.');
+    REQUIRE(literal_candidate_punctuation(key(0x6F, '/')) == '/');
+    // The numpad decimal is '.' whatever the layout reports for it.
+    REQUIRE(literal_candidate_punctuation(key(0x6E, ',')) == '.');
+    REQUIRE(literal_candidate_punctuation(key(0xBF, '/')) == '/');
+    // The main-row minus and plus stay paging keys, and ordinary marks are translated.
+    REQUIRE(literal_candidate_punctuation(key(0xBD, '-')) == 0);
+    REQUIRE(literal_candidate_punctuation(key(0xBB, '=')) == 0);
+    REQUIRE(literal_candidate_punctuation(key(0xBC, ',')) == 0);
+    REQUIRE(literal_candidate_punctuation(key(0xBE, '.')) == 0);
+    REQUIRE(literal_candidate_punctuation(key(0x41, 'a')) == 0);
+    // A chord is the host's, not a mark.
+    FanyImeNamedpipeData chord = key(0x6B, '+');
+    chord.modifiers_down = 2;
+    REQUIRE(literal_candidate_punctuation(chord) == 0);
 
     std::cout << "Windows candidate punctuation checks passed\n";
     return 0;

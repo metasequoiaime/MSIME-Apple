@@ -90,6 +90,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let emojiShortcut = UIButton()
   private let skinShortcut = UIButton()
   private let layoutShortcut = UIButton()
+  /// Optional buttons from 工具栏按钮 (`touch_toolbar`), hidden unless the user pins them; each is also in the 更多 panel.
+  private let clipboardShortcut = UIButton()
+  private let aiShortcut = UIButton()
+  private let characterSetShortcut = UIButton()
+  private let fullwidthShortcut = UIButton()
+  private let punctuationShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
   private var skinPicker: KeyboardSkinPickerView?
   private var schemePicker: KeyboardSchemePickerView?
@@ -186,6 +192,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visiblePreedit = ""
   /// The already-chosen half of a phrase at the front of `visiblePreedit`, which 「候选栏预编辑」 never hides.
   private var visiblePhrasePrefix = ""
+  /// The spelling with the Engine's caret drawn in, while the user has moved that caret off the end.
+  private var visibleCaretSpelling: String?
+  /// Whether the current space-bar drag moves the caret inside the composition rather than in the document.
+  private var spaceDragEditsComposition = false
   /// The desktop candidate skin the strip draws with, or nil while it follows the keyboard skin (see CandidatePalette).
   private var candidatePalette: CandidatePalette?
   private var candidateRevision: UInt64 = 0
@@ -193,6 +203,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidateCodes: [String] = []
   private var visibleCandidateGlosses: [String] = []
   private var visibleCandidateAnnotations: [String] = []
+  private var visibleCandidateSources: [Int] = []
+  private var visibleCandidateFixedPositions: [Int] = []
   private var visibleCandidatePageCount = 0
   private var appliedCandidateColumnWidth: CGFloat = 0
   private var visibleCandidatesAnsweredByPinyinFallback = false
@@ -977,7 +989,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     brand.brandImageView.tintColor = KeyboardSkinPreference.selected.accent
     shortcutBar.addArrangedSubview(brand)
     brand.widthAnchor.constraint(equalToConstant: 44).isActive = true
-    let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, schemeButton, dismissShortcut]
+    let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, clipboardShortcut, aiShortcut,
+                     characterSetShortcut, fullwidthShortcut, punctuationShortcut, schemeButton, dismissShortcut]
     for button in shortcuts {
       shortcutBar.addArrangedSubview(button)
     }
@@ -1006,6 +1019,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                             for: .primaryActionTriggered)
     layoutShortcut.addAction(UIAction { [weak self] _ in self?.showLayoutPicker() }, for: .primaryActionTriggered)
     skinShortcut.addAction(UIAction { [weak self] _ in self?.showSkinPicker() }, for: .primaryActionTriggered)
+    clipboardShortcut.addAction(UIAction { [weak self] _ in self?.showClipboardHistory() }, for: .primaryActionTriggered)
+    aiShortcut.addAction(UIAction { [weak self] _ in self?.closeKeyboardPicker(); self?.showKeyboardAI() }, for: .primaryActionTriggered)
+    characterSetShortcut.addAction(UIAction { [weak self] _ in
+      guard let self else { return }
+      selectTraditionalOutput(!usesTraditionalOutput)
+    }, for: .primaryActionTriggered)
+    fullwidthShortcut.addAction(UIAction { [weak self] _ in
+      guard let self else { return }
+      setFullWidthInput(!fullWidthInput)
+      updateShortcutButtons()
+    }, for: .primaryActionTriggered)
+    punctuationShortcut.addAction(UIAction { [weak self] _ in
+      guard let self else { return }
+      setChinesePunctuation(!chinesePunctuation)
+      updateShortcutButtons()
+    }, for: .primaryActionTriggered)
     moreShortcut.addAction(UIAction { [weak self] _ in self?.showMorePicker() }, for: .primaryActionTriggered)
     dismissShortcut.addAction(UIAction { [weak self] _ in self?.dismissKeyboard() }, for: .primaryActionTriggered)
     updateShortcutButtons()
@@ -1045,6 +1074,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configure(layoutShortcut, title: nil, symbol: "slider.horizontal.3", label: "键盘设置", id: "layoutShortcut")
     layoutShortcut.accessibilityValue = "默认键位"
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
+    // The switches show their state as a character, the way the Windows floating toolbar does: 简/繁, 全/半, and a Chinese or ASCII comma.
+    let pinned = TouchToolbarPreference(in: session.sharedPreferences)
+    configure(clipboardShortcut, title: nil, symbol: "doc.on.clipboard", label: "剪贴板历史", id: "clipboardShortcut")
+    configure(aiShortcut, title: nil, symbol: "sparkles", label: "AI 润色", id: "aiShortcut")
+    configure(characterSetShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
+              label: "简繁切换", id: "characterSetShortcut")
+    characterSetShortcut.accessibilityValue = usesTraditionalOutput ? "繁体" : "简体"
+    characterSetShortcut.isEnabled = !(isChineseMode && inputScheme.isJapanese)
+    configure(fullwidthShortcut, title: fullWidthInput ? "全" : "半", symbol: nil,
+              label: "全角半角", id: "fullwidthShortcut")
+    fullwidthShortcut.accessibilityValue = fullWidthInput ? "全角" : "半角"
+    configure(punctuationShortcut, title: chinesePunctuation ? "，" : ",", symbol: nil,
+              label: "中英文标点", id: "punctuationShortcut")
+    punctuationShortcut.accessibilityValue = chinesePunctuation ? "中文标点" : "英文标点"
+    punctuationShortcut.isEnabled = isChineseMode && !inputScheme.isJapanese
+      && (session.sharedPreferences?["punctuation_lock"] as? String ?? "follow") == "follow"
+    layoutShortcut.isHidden = !pinned.layout
+    emojiShortcut.isHidden = !pinned.emoji
+    skinShortcut.isHidden = !pinned.skin
+    clipboardShortcut.isHidden = !pinned.clipboard
+    aiShortcut.isHidden = !pinned.ai
+    characterSetShortcut.isHidden = !pinned.characterSet
+    fullwidthShortcut.isHidden = !pinned.fullwidth
+    punctuationShortcut.isHidden = !pinned.punctuation
     moreTools = makeToolSections()
     updateMorePickerPage()
     configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
@@ -2207,7 +2260,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         let text = try store.consume(entry.id)
         insertOwnText(text, source: .voice)
-      }, close: { [weak self] in self?.closeKeyboardService() }))
+      }, close: { [weak self] in self?.closeKeyboardService() }, record: { [weak self] in
+        guard let self else { return }
+        closeKeyboardService()
+        KeyboardAppLauncher.open(KeyboardAppLauncher.voiceURL, from: self)
+      }))
       panel.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.voiceKey, in: session.sharedPreferences)
       servicePanel = panel
       addChild(panel)
@@ -2237,12 +2294,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       try store.synchronize(apply: { request in
         try session.applyPersonalPrevious(request.previous?.bridgeValue, replacement: request.replacement?.bridgeValue,
                                           requestID: request.id)
-      }, page: { offset in
-        let result = try session.personalEntries(atOffset: UInt(offset))
+      }, page: { request in
+        let result = try session.personalEntries(atOffset: UInt(request.offset), kind: request.kind,
+                                                 query: request.query)
         guard let rows = result["entries"] as? [[String: Any]], let hasMore = result["hasMore"] as? Bool else {
           throw PersonalDictionaryStore.StoreError.invalidState
         }
         return PersonalWordPage(entries: try rows.map { try PersonalWord(bridgeValue: $0) }, hasMore: hasMore)
+      }, export: { request in
+        try self.session.personalExport(kind: request.kind, format: request.format)
       })
     } catch PersonalDictionaryStore.StoreError.busy {
       // Another process owns this short transaction; the timer retries without interrupting typing.
@@ -2441,6 +2501,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
                                    typed: snapshot.preedit)
         },
+        markers: snapshot.entries.map { CandidateMarker.markers(source: $0.source, fixedPosition: $0.fixedPosition) },
         candidateScale: candidateFontScale, preeditScale: preeditFontScale, candidateFamilies: candidateFontFamilies,
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         menuElements: { [weak self] index in
@@ -2448,7 +2509,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           let entry = snapshot.entries[index]
           return candidateMenuElements(
             generation: generation, globalIndex: indexes[index], candidate: entry.text,
-            offlineGloss: entry.translation)
+            offlineGloss: entry.translation, fixedPosition: entry.fixedPosition)
         },
         onSelect: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return }
@@ -2510,9 +2571,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       ? (modeName ?? visiblePreedit)
       : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
     // 「候选栏预编辑」 only changes what is drawn: `visiblePreedit` still says a composition is running, which keeps the strip up while a spelling has no candidates yet, and VoiceOver still reads the full title. The setting names pinyin, so a Japanese reading is left as it is.
+    let style = CandidatePreeditStyle(in: session.sharedPreferences)
+    // A caret moved into the spelling is drawn even under 「不显示」: the next key acts at that caret, and a hidden one leaves no way to tell where.
     let drawnTitle = idle || title != visiblePreedit || inputScheme.isJapanese
       ? title
-      : CandidatePreeditStyle(in: session.sharedPreferences).title(
+      : visibleCaretSpelling.map { visiblePhrasePrefix + $0 } ?? style.title(
         composition: visiblePreedit, phrasePrefix: visiblePhrasePrefix,
         localModeName: isInLocalMode ? modeName : nil)
     if var configuration = preeditButton.configuration {
@@ -2769,7 +2832,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// Whether Tab turns to more candidates while composing, the shared `navigation.tab` (Windows `paging_tab`, on by default).
   nonisolated static func tabShowsMoreCandidates(_ preferences: [String: Any]?) -> Bool {
-    (preferences?["navigation"] as? [String: Any])?["tab"] as? Bool ?? true
+    KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
   }
 
   /// Tab on the full-size iPad keyboard. On the desktop Tab turns the candidate page; the strip here has no pages to turn, only the full candidate panel behind it, so with candidates showing Tab opens that. Otherwise it ends any composition and types a tab, as an unhandled key does.
@@ -2830,6 +2893,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func repeatBackspace() {
+    // Holding backspace in a spelling takes it apart a syllable at a time, as Ctrl+Backspace does in the Windows composition, so a long spelling can be cut back to the syllable that went wrong instead of being thrown away whole. The hold ends with the composition: the repeat never carries on into text that is already in the document. Nine-key, wubi and the other schemes without lettered syllables keep the hold that clears the whole composition below.
+    if hasComposition && isChineseMode && inputScheme.editsBySyllable {
+      didRepeatBackspace = true
+      playInputClick()
+      render(session.segmentBackspace())
+      if !hasComposition {
+        backspaceRepeatTimer?.invalidate()
+        backspaceRepeatTimer = nil
+      }
+      return
+    }
     if !didRepeatBackspace && hasComposition {
       backspaceRepeatTimer?.invalidate()
       backspaceRepeatTimer = nil
@@ -2856,6 +2930,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return abs(velocity.x) > abs(velocity.y)
   }
 
+  private func moveCompositionCaret(by offset: Int, bySegment: Bool = false) {
+    guard offset != 0 else { return }
+    var snapshot: MetasequoiaInputSnapshot?
+    for _ in 0..<min(abs(offset), 64) {
+      if bySegment {
+        snapshot = offset < 0 ? session.moveCaretLeftBySegment() : session.moveCaretRightBySegment()
+      } else {
+        snapshot = offset < 0 ? session.moveCaretLeft() : session.moveCaretRight()
+      }
+    }
+    if let snapshot { render(snapshot) }
+  }
+
   private func moveCursor(by offset: Int) {
     guard offset != 0 else { return }
     guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else { return }
@@ -2873,14 +2960,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     switch pan.state {
     case .began:
       cursorMovement.begin(at: pan.translation(in: view).x, document: document)
-      if hasComposition { render(session.finishComposition()) }
-      spaceButton?.configuration?.title = "移动光标"
+      // While spelling, the drag edits the spelling: the caret walks through the pinyin as ← / → do in the Windows composition, and typing or backspace then acts there. A Japanese reading keeps ending the composition, because its conversion owns the space key.
+      spaceDragEditsComposition = hasComposition && !inputScheme.isJapanese
+      if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
+      spaceButton?.configuration?.title = spaceDragEditsComposition ? "移动拼音光标" : "移动光标"
       if KeyboardFeedbackPreference.hapticsEnabled {
         keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
       }
     case .changed:
-      moveCursor(by: cursorMovement.advance(to: pan.translation(in: view).x,
-                                           document: document))
+      let steps = cursorMovement.advance(to: pan.translation(in: view).x, document: document)
+      if spaceDragEditsComposition && hasComposition {
+        moveCompositionCaret(
+          by: steps,
+          bySegment: inputScheme.editsBySyllable && SpaceCursorMovement.movesBySegment(velocity: pan.velocity(in: view).x))
+      } else {
+        moveCursor(by: steps)
+      }
       if !cursorMovement.isActive { updateSpaceKeyTitle() }
     case .ended, .cancelled, .failed:
       cursorMovement.cancel()
@@ -3096,6 +3191,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let composing = snapshot.phrasePrefix
       + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
     visiblePhrasePrefix = snapshot.phrasePrefix
+    visibleCaretSpelling = inputScheme.isJapanese ? nil : snapshot.editingTextWithCaret
     showInlineComposition(hasComposition && InlinePreeditPreference.isEnabled ? composing : "")
     updateCandidateStrip(
                          preedit: composing,
@@ -3103,6 +3199,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                          candidateCodes: snapshot.candidateCodes,
                          candidateGlosses: snapshot.candidateGlosses,
                          candidateAnnotations: snapshot.candidateAnnotations,
+                         candidateSources: snapshot.candidateSources,
+                         candidateFixedPositions: snapshot.candidateFixedPositions,
                          candidatePageCount: snapshot.candidatePageCount,
                          answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
     refreshCandidatePanelAnnotations()
@@ -3134,7 +3232,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateStrip(preedit: String, candidates: [String],
                                     candidateCodes: [String] = [], candidateGlosses: [String] = [],
-                                    candidateAnnotations: [String] = [], candidatePageCount: Int = 0,
+                                    candidateAnnotations: [String] = [], candidateSources: [Int] = [],
+                                    candidateFixedPositions: [Int] = [], candidatePageCount: Int = 0,
                                     answeredByPinyinFallback: Bool = false) {
     if visibleCandidates != candidates {
       candidateGlossRequestedGeneration = nil
@@ -3144,6 +3243,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidateCodes = candidateCodes
     visibleCandidateGlosses = candidateGlosses
     visibleCandidateAnnotations = candidateAnnotations
+    visibleCandidateSources = candidateSources
+    visibleCandidateFixedPositions = candidateFixedPositions
     visibleCandidatePageCount = candidatePageCount
     visibleCandidatesAnsweredByPinyinFallback = answeredByPinyinFallback
     requestCandidateTranslations()
@@ -3172,7 +3273,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard offset < page.count else { continue }
       updateCandidateButton(
         chip, candidate: page[offset], hint: candidateAnnotation(at: offset).text,
-        glosses: candidateGlosses(at: offset), number: offset + 1,
+        glosses: candidateGlosses(at: offset), markers: candidateMarkers(at: offset), number: offset + 1,
         converting: japaneseConversionIndex == offset)
     }
     updateExpandControl()
@@ -3182,6 +3283,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     diagnosticLabel.isHidden = visibleDiagnostic == nil
     candidateScrollView.isHidden = visibleCandidates.isEmpty || visibleDiagnostic != nil
     candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
+  }
+
+  private func candidateMarkers(at index: Int) -> [CandidateMarker] {
+    CandidateMarker.markers(
+      source: visibleCandidateSources.indices.contains(index) ? visibleCandidateSources[index] : 0,
+      fixedPosition: visibleCandidateFixedPositions.indices.contains(index) ? visibleCandidateFixedPositions[index] : 0)
   }
 
   private func candidateAnnotation(at index: Int) -> KeyboardCandidateAnnotation {
@@ -3465,8 +3572,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateCandidateButton(
-    _ button: KeyboardKeyButton, candidate: String, hint: String, glosses: [String], number: Int,
-    converting: Bool
+    _ button: KeyboardKeyButton, candidate: String, hint: String, glosses: [String],
+    markers: [CandidateMarker] = [], number: Int, converting: Bool
   ) {
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }
@@ -3488,7 +3595,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         : skin.keyBackground
     }
     let annotation = hint
-    if annotation.isEmpty && glosses.isEmpty {
+    // A pinned word takes the accent colour, as it does in the Windows candidate window; chips are reused, so every other word is set back.
+    let pinned = markers.contains { $0.symbol == "pin.fill" }
+    configuration.baseForegroundColor = pinned
+      ? candidatePalette?.accent ?? skin.accent
+      : candidatePalette?.text ?? skin.keyForeground
+    if annotation.isEmpty && glosses.isEmpty && markers.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
       configuration.attributedTitle = nil
       configuration.titleTextAttributesTransformer = Self.fontTransformer(
@@ -3505,6 +3617,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         .font: CandidateFontPreference.font(.body, scale: candidateFontScale, families: candidateFontFamilies),
         .paragraphStyle: paragraph,
       ]))
+      title += Self.markerRun(markers, color: annotationColor, scale: candidateFontScale)
       if !annotation.isEmpty {
         title += AttributedString(" " + annotation, attributes: AttributeContainer([
           .font: CandidateFontPreference.font(.caption1, scale: candidateFontScale), .paragraphStyle: paragraph,
@@ -3530,11 +3643,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     button.accessibilityLabel = annotation.isEmpty
       ? "候选词 \(number)：\(display)"
       : "候选词 \(number)：\(display)，还需输入 \(annotation)"
+    for marker in markers { button.accessibilityLabel? += "，\(marker.spoken)" }
     let spoken = glosses.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     if !spoken.isEmpty {
       button.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
     }
     button.accessibilityHint = spoken.isEmpty ? nil : "轻点输入，长按可输入释义"
+  }
+
+  /// The markers as symbol attachments after the word, at the annotation's size and colour so they read as a suffix rather than as part of the candidate.
+  static func markerRun(_ markers: [CandidateMarker], color: UIColor, scale: CGFloat) -> AttributedString {
+    let font = CandidateFontPreference.font(.caption1, scale: scale)
+    var run = AttributedString()
+    for marker in markers {
+      guard let image = UIImage(systemName: marker.symbol, withConfiguration: UIImage.SymbolConfiguration(font: font))?
+        .withTintColor(color, renderingMode: .alwaysOriginal) else { continue }
+      run += AttributedString(" ")
+      run += AttributedString(NSAttributedString(attachment: NSTextAttachment(image: image)))
+    }
+    return run
   }
 
   /// What a long press on a candidate's gloss offers. The action is deferred until the menu opens,
@@ -3580,7 +3707,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let candidate = visibleCandidates[index]
     let revision = candidateRevision
     let glosses = glossMenuElements(at: index)
-    let management = candidateMenuElements { [weak self] operation in
+    let fixedPosition = visibleCandidateFixedPositions.indices.contains(index) ? visibleCandidateFixedPositions[index] : 0
+    let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
       return session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
@@ -3597,13 +3725,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// index the engine's whole answer, not the visible strip, so they cannot use the visible index.
   func candidateMenuElements(generation: UInt64, globalIndex: UInt64) -> [UIMenuElement] {
     guard isChineseMode, !inputScheme.isJapanese, !isInLocalMode else { return [] }
-    return candidateMenuElements { [weak self] operation in
+    let entry = (try? CandidatePanelSnapshot.decode(session.allCandidates()))
+      .flatMap { $0.generation == generation ? $0.entries.first { $0.index == globalIndex } : nil }
+    return candidateMenuElements(candidate: entry?.text, fixedPosition: entry?.fixedPosition ?? 0) { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
   }
 
   private func candidateMenuElements(
-    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String
+    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String, fixedPosition: Int
   ) -> [UIMenuElement] {
     guard isChineseMode, !inputScheme.isJapanese, !isInLocalMode else { return [] }
     let glosses = glossMenuElements(glosses(word: candidate, offline: offlineGloss)) { [weak self] in
@@ -3617,7 +3747,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return true
     }
     guard session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses }
-    let management = candidateMenuElements { [weak self] operation in
+    let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
     let edges = wordCharacterMenuElements(candidate: candidate) { [weak self] last in
@@ -3648,7 +3778,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])]
   }
 
+  /// `fixedPosition` is the slot the word is pinned to, zero when it is not: the menu checks that slot and offers 取消固定 only then. Deleting is not offered for a single character, the same as the Windows candidate menu.
   private func candidateMenuElements(
+    candidate: String?, fixedPosition: Int,
     edit: @escaping (MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot?
   ) -> [UIMenuElement] {
     func action(_ title: String, _ symbol: String?, _ operation: MetasequoiaCandidateAction,
@@ -3666,16 +3798,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     // The desktop candidate menu fixes a word at any of the first five slots, not only the first; a submenu keeps the five choices out of the top level, where a phone has room for few rows.
     let positions = (UInt8(1)...5).map { position in
-      action("第 \(position) 位", nil, .fix(position: position), announcement: "已固定到第 \(position) 位")
+      let item = action("第 \(position) 位", nil, .fix(position: position), announcement: "已固定到第 \(position) 位")
+      item.state = Int(position) == fixedPosition ? .on : .off
+      return item
     }
-    return [
+    var elements: [UIMenuElement] = [
       action("优先显示", "arrow.up", .promote),
       UIMenu(title: "固定排位", image: UIImage(systemName: "pin"), children: positions),
-      action("取消固定", "pin.slash", .clearPosition),
-      UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
-        action("确认删除此词条", "trash", .remove, destructive: true),
-      ]),
     ]
+    if fixedPosition > 0 { elements.append(action("取消固定", "pin.slash", .clearPosition)) }
+    if candidate.map({ $0.unicodeScalars.count != 1 }) ?? true {
+      elements.append(UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
+        action("确认删除此词条", "trash", .remove, destructive: true),
+      ]))
+    }
+    return elements
   }
 
   private func makeSymbolKey(
@@ -3949,9 +4086,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     render(session.finishComposition())
     // Without staged resources the phone categories still work; only the Engine catalog's categories are missing.
     let catalog = session.candidateGlossResources().flatMap { $0.isEmpty ? nil : KeyboardSymbolPanelView.Catalog.engine(resources: $0) }
-    let panel = KeyboardSymbolPanelView(catalog: catalog, onInsert: { [weak self] symbol in
+    let panel = KeyboardSymbolPanelView(catalog: catalog, recents: KeyboardSymbolRecents.stored, onInsert: { [weak self] symbol in
       self?.playInputClick()
       self?.insertOwnText(symbol, source: .local)
+      KeyboardSymbolRecents.record(symbol)
     }, onDelete: { [weak self] in
       self?.deleteOwnBackward()
     }, onClose: { [weak self] in self?.closeKeyboardPicker() })

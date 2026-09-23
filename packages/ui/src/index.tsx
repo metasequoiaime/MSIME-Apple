@@ -634,6 +634,8 @@ export interface HostCapabilities {
   fixed_candidate_page_size?: number;
   /** The one candidate layout the host draws; set when the host offers no choice. */
   fixed_candidate_layout?: "horizontal" | "vertical";
+  /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
+  touch_toolbar_components?: boolean;
   shuangpin_preedit?: boolean;
   /** The host routes the Ctrl+Shift+Alt maintenance chords. */
   maintenance_shortcuts?: boolean;
@@ -715,6 +717,7 @@ export type Preferences = {
   touch_row_spacing_tenths?: number;
   touch_keyboard_height_adjustment?: number;
   touch_voice_shortcut?: boolean;
+  touch_toolbar?: Partial<TouchToolbarPreferences>;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
@@ -1376,6 +1379,9 @@ export function dictionaryErrorMessage(
       return "词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
     case "dictionary_import_rejected":
       return "词库拒绝了这次写入，请检查编码与词是否匹配。";
+    case "dictionary_too_large":
+      // A file over the bridge's bound, or one line too long to fit any request to the host.
+      return "词库文件过大：文件不能超过 1 MB，单行不能超过 60 KB，请拆分后再导入。";
     case "dictionary_read_rejected":
       return "词库拒绝了这次读取，请稍后重试。";
     case "dictionary_bundled_readonly":
@@ -1579,6 +1585,37 @@ const defaultFloatingToolbar: FloatingToolbarPreferences = {
   scale_percent: 100,
   font_size: 24,
 };
+export type TouchToolbarPreferences = {
+  layout: boolean;
+  emoji: boolean;
+  skin: boolean;
+  clipboard: boolean;
+  ai: boolean;
+  character_set: boolean;
+  fullwidth: boolean;
+  punctuation: boolean;
+};
+const defaultTouchToolbar: TouchToolbarPreferences = {
+  layout: true,
+  emoji: true,
+  skin: true,
+  clipboard: false,
+  ai: false,
+  character_set: false,
+  fullwidth: false,
+  punctuation: false,
+};
+/// In the order the buttons sit on the touch keyboard's toolbar, after the voice entry.
+const touchToolbarOptions: [keyof TouchToolbarPreferences, string][] = [
+  ["layout", "键盘设置"],
+  ["emoji", "表情"],
+  ["skin", "切换皮肤"],
+  ["clipboard", "剪贴板历史"],
+  ["ai", "AI 润色"],
+  ["character_set", "简繁切换"],
+  ["fullwidth", "全角 / 半角"],
+  ["punctuation", "中英文标点"],
+];
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
   | "english_mode"
@@ -1625,6 +1662,10 @@ export type MobileKeyboardFeedback = {
   candidatePaletteFollowsDesktop?: boolean;
   /** iOS writes the composition into the text field as marked text only when this App Group switch is on; it has no raw/pinyin/empty choice because the strip already carries that one. */
   inlinePreedit?: boolean;
+  /** False where the device cannot vibrate for key presses (iPad has no Taptic Engine): the vibration controls are hidden and the stored choice is left for the user's other devices. */
+  hapticsAvailable?: boolean;
+  /** iPad only: the digit row and Tab key of the full-width keyboard, kept in the App Group. Absent on a phone, where the keyboard has no room for either. */
+  tabletFullKeys?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -2216,9 +2257,8 @@ export function SettingsPage({
   // withhold the service controls for want of one. Reaching the service still works - through that
   // provider - which is why these controls are offered rather than hidden.
   const aiProviderCredentials = host?.ai_provider_credentials ?? linuxPlatform;
-  // A host with one way to commit a recognized result has nothing to choose between, and a select
-  // with one outcome reads as a setting being ignored.
-  const showVoiceCommitMode = host?.voice_commit_mode ?? !androidPlatform;
+  // A host with one way to commit a recognized result has nothing to choose between, and a select with one outcome reads as a setting being ignored. The Linux hosts commit only through IBus or Fcitx5, so the fallback for a page without host capabilities withholds it there too.
+  const showVoiceCommitMode = host?.voice_commit_mode ?? (!androidPlatform && !linuxPlatform);
   // These read `!androidPlatform` because that host once had only the platform recogniser. It runs
   // the configured provider now, uploads and streaming socket both, so keying on the name would
   // leave a user unable to configure something the host honours. What it still cannot do is draw
@@ -2286,7 +2326,7 @@ export function SettingsPage({
   const platformQuickStart = androidPlatform
     ? "在系统设置的“语言和输入法”或“屏幕键盘”中启用并选择水杉输入法，也可以从首次启动页打开这些入口。默认是全拼输入法。"
     : linuxPlatform
-      ? "使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组，再使用 Fcitx5 的输入法切换快捷键切换。使用 IBus 时，安装并启动 IBus 宿主后，在系统设置的输入法列表中添加「MSIME Client」，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。"
+      ? "首次配置（首次配置页或 msime-client-setup）完成后会把水杉输入法自动加入正在运行的 Fcitx5 或 IBus 的输入法列表，之后用输入法切换快捷键切换即可。未能自动加入时手动添加：使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组；使用 IBus 时，执行 ibus restart 后在系统设置的输入源中添加「Metasequoia 水杉输入法」。默认是全拼输入法。"
       : macosPlatform
         ? "在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。默认是全拼输入法。"
         : harmonyPlatform
@@ -2299,7 +2339,7 @@ export function SettingsPage({
   const platformNetworkDescription = androidPlatform
     ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。"
     : linuxPlatform
-      ? "语音识别和云候选由用户自行管理的 provider 提供，设置页只保存行为选项，不保存或转发 provider 的凭据。"
+      ? "日常拼音输入无需联网。云候选默认开启（首次配置时可以关闭，之后也可在设置里改），开启时会把正在输入的拼写发给 Google input-tools 换回一条候选；语音识别、候选词翻译和 AI 功能只在启用并配置好对应服务（凭据，或自定义翻译的服务地址）后联网。这些请求由用户级的 msime-client-online-provider 和 msime-client-voice-provider 服务发出，输入法本身不联网。在 AI、腾讯翻译和语音页面填写的凭据只写入用户配置目录（通常是 ~/.config/msime-client）下仅本人可读的 ai-provider.json、tencent-provider.json 和 voice-provider.json，不进入共享设置；小牛翻译和自定义翻译服务的密钥则保存在共享设置中。账号功能只在登录后联网。"
       : macosPlatform
         ? "语音识别、候选词翻译和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
         : harmonyPlatform
@@ -2919,7 +2959,7 @@ export function SettingsPage({
     if (!draft) return;
     const confirmed = await confirm({
       title: "恢复屏幕键盘默认值",
-      message: "高度、间距和顶部语音入口都会回到默认。",
+      message: "高度、间距、顶部语音入口和工具栏按钮都会回到默认。",
       confirmLabel: "恢复",
     });
     if (!confirmed || !draft) return;
@@ -2930,6 +2970,7 @@ export function SettingsPage({
     delete next.touch_row_spacing_tenths;
     delete next.touch_keyboard_height_adjustment;
     delete next.touch_voice_shortcut;
+    delete next.touch_toolbar;
     setDraft(next);
     setError("");
     setNotice("屏幕键盘设置已恢复默认，请点击保存设置。");
@@ -4005,7 +4046,12 @@ export function SettingsPage({
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const touchKeyboardHeightAdjustment = draft?.touch_keyboard_height_adjustment ?? 0;
-  const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
+  const installerTrust = availableUpdate
+    ? describeInstallerTrust(
+        availableUpdate,
+        client.host?.platform ?? (linuxPlatform ? "linux" : null),
+      )
+    : null;
   const [clipboardEntries, setClipboardEntries] = useState<ClipboardHistoryEntry[]>([]);
   const [clipboardClearArmed, setClipboardClearArmed] = useState(false);
   const availablePages = pages.filter(
@@ -7451,56 +7497,60 @@ export function SettingsPage({
                             }
                           />
                         </label>
-                        <div className="input-option-divider" />
-                        <label className="section-header">
-                          <span className="section-title">
-                            按键振动<small>振动效果取决于设备与系统支持</small>
-                          </span>
-                          <input
-                            aria-label="按键振动"
-                            className="toggle"
-                            type="checkbox"
-                            disabled={mobileKeyboardFeedbackBusy}
-                            checked={mobileKeyboardFeedback.hapticsEnabled}
-                            onChange={(event) =>
-                              void saveMobileKeyboardFeedback({
-                                ...mobileKeyboardFeedback,
-                                hapticsEnabled: event.target.checked,
-                              })
-                            }
-                          />
-                        </label>
-                        {mobileKeyboardFeedback.hapticsEnabled && (
+                        {mobileKeyboardFeedback.hapticsAvailable !== false && (
                           <>
                             <div className="input-option-divider" />
                             <label className="section-header">
-                              <span className="section-title">振动强度</span>
-                              <select
-                                aria-label="振动强度"
+                              <span className="section-title">
+                                按键振动<small>振动效果取决于设备与系统支持</small>
+                              </span>
+                              <input
+                                aria-label="按键振动"
+                                className="toggle"
+                                type="checkbox"
                                 disabled={mobileKeyboardFeedbackBusy}
-                                value={mobileKeyboardFeedback.hapticStrength}
+                                checked={mobileKeyboardFeedback.hapticsEnabled}
                                 onChange={(event) =>
                                   void saveMobileKeyboardFeedback({
                                     ...mobileKeyboardFeedback,
-                                    hapticStrength: event.target
-                                      .value as MobileKeyboardFeedback["hapticStrength"],
+                                    hapticsEnabled: event.target.checked,
                                   })
                                 }
-                              >
-                                <option value="light">轻</option>
-                                <option value="medium">中</option>
-                                <option value="strong">强</option>
-                              </select>
+                              />
                             </label>
-                            {client.mobileKeyboardFeedback?.preview && (
-                              <button
-                                type="button"
-                                className="secondary"
-                                disabled={mobileKeyboardFeedbackBusy}
-                                onClick={() => void previewMobileKeyboardHaptics()}
-                              >
-                                试一下振动
-                              </button>
+                            {mobileKeyboardFeedback.hapticsEnabled && (
+                              <>
+                                <div className="input-option-divider" />
+                                <label className="section-header">
+                                  <span className="section-title">振动强度</span>
+                                  <select
+                                    aria-label="振动强度"
+                                    disabled={mobileKeyboardFeedbackBusy}
+                                    value={mobileKeyboardFeedback.hapticStrength}
+                                    onChange={(event) =>
+                                      void saveMobileKeyboardFeedback({
+                                        ...mobileKeyboardFeedback,
+                                        hapticStrength: event.target
+                                          .value as MobileKeyboardFeedback["hapticStrength"],
+                                      })
+                                    }
+                                  >
+                                    <option value="light">轻</option>
+                                    <option value="medium">中</option>
+                                    <option value="strong">强</option>
+                                  </select>
+                                </label>
+                                {client.mobileKeyboardFeedback?.preview && (
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={mobileKeyboardFeedbackBusy}
+                                    onClick={() => void previewMobileKeyboardHaptics()}
+                                  >
+                                    试一下振动
+                                  </button>
+                                )}
+                              </>
                             )}
                           </>
                         )}
@@ -8228,9 +8278,14 @@ export function SettingsPage({
                             <p className={doc.updateWarning}>{installerTrust.warning}</p>
                           )}
                           {installerTrust?.verify && (
-                            <p>
-                              下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code>
-                            </p>
+                            <>
+                              <p>
+                                下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code>
+                              </p>
+                              <p>
+                                核对命令：<code>{installerTrust.verify.command}</code>
+                              </p>
+                            </>
                           )}
                           <button
                             type="button"
@@ -8720,6 +8775,62 @@ export function SettingsPage({
                           }
                         />
                       </label>
+                      {host?.touch_toolbar_components && (
+                        <>
+                          <div className="input-option-divider" />
+                          <div className="section-title">
+                            工具栏按钮
+                            <small>勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里</small>
+                          </div>
+                          {touchToolbarOptions.map(([key, label]) => (
+                            <label key={key} className="check-option">
+                              <input
+                                type="checkbox"
+                                aria-label={`工具栏：${label}`}
+                                checked={{ ...defaultTouchToolbar, ...draft.touch_toolbar }[key]}
+                                onChange={(event) =>
+                                  setDraft({
+                                    ...draft,
+                                    touch_toolbar: {
+                                      ...defaultTouchToolbar,
+                                      ...draft.touch_toolbar,
+                                      [key]: event.target.checked,
+                                    },
+                                  })
+                                }
+                              />
+                              <span>{label}</span>
+                            </label>
+                          ))}
+                        </>
+                      )}
+                      {mobileKeyboardFeedback?.tabletFullKeys !== undefined && (
+                        <>
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">
+                              数字行与 Tab 键
+                              <small>
+                                iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab
+                                键；浮动键盘和窄窗口没有空间，不显示。
+                              </small>
+                            </span>
+                            <input
+                              aria-label="数字行与 Tab 键"
+                              className="toggle"
+                              type="checkbox"
+                              disabled={mobileKeyboardFeedbackBusy}
+                              checked={mobileKeyboardFeedback.tabletFullKeys}
+                              onChange={(event) =>
+                                void saveMobileKeyboardFeedback({
+                                  ...mobileKeyboardFeedback,
+                                  tabletFullKeys: event.target.checked,
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
                       <button
                         type="button"
                         className="danger-text"

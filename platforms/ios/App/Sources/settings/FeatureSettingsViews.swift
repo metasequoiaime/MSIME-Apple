@@ -604,6 +604,14 @@ struct ServiceSettingsView: View {
             TextField("可选", text: $configuration.voiceResourceID)
               .textInputAutocapitalization(.never).autocorrectionDisabled()
               .accessibilityIdentifier("doubaoResourceID")
+            Picker("流式接口", selection: $configuration.endpoint) {
+              ForEach(VoiceProviderPreset.doubaoStreamEndpoints, id: \.endpoint) { option in
+                Text(option.title).tag(option.endpoint)
+              }
+            }
+            .accessibilityIdentifier("doubaoStreamEndpoint")
+            Text("整句流式边说边传，说完返回整句，官方称准确率更高、推荐用于输入法；双向流式返回增量结果。")
+              .font(.footnote).foregroundStyle(.secondary)
             Toggle("ITN", isOn: $configuration.doubaoEnableITN)
             Toggle("标点", isOn: $configuration.doubaoEnablePunctuation)
             Toggle("DDC", isOn: $configuration.doubaoEnableDDC)

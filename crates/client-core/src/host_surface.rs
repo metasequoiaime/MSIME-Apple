@@ -221,6 +221,9 @@ pub struct HostCapabilities {
     /// The one candidate layout the host draws, when it offers no choice. The iOS candidate strip is a horizontal row above the keys, so an external skin is adopted there only for its horizontal layout; the skin page has to judge compatibility by that rather than by the shared setting, which defaults to vertical. Absent on a host that follows the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
+    /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. Only the iOS keyboard does so far; elsewhere the switches would hide nothing.
+    #[serde(default)]
+    pub touch_toolbar_components: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
@@ -425,16 +428,9 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Harmony | HostPlatform::Linux
             ),
-            // macOS draws its own composition, and the HarmonyOS keyboard draws the Engine's
-            // editing text on its composition row, so both show the difference. The other hosts
-            // hand the text to the application or to the desktop, which decides how it looks.
-            // Windows chooses between TSF, SendInput and a paste; macOS between system events and
-            // its input session; Linux hands the choice to the user's provider service. A keyboard
-            // extension commits through its input client and has nothing to choose between.
-            voice_commit_mode: matches!(
-                platform,
-                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
-            ),
+            // macOS draws its own composition, and the HarmonyOS keyboard draws the Engine's editing text on its composition row, so both show the difference. The other hosts hand the text to the application or to the desktop, which decides how it looks.
+            // Windows chooses between TSF, SendInput and a paste; macOS between system events and its input session. The Linux hosts commit through the IBus or Fcitx5 input context, the desktop voice panel hands its text to the active host the way every panel does, and the voice provider only recognizes, so a stored mode would change nothing there. A keyboard extension commits through its input client and has nothing to choose between either.
+            voice_commit_mode: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
             // The Linux hosts write the snapshot's `preedit` into the IBus and
             // Fcitx5 preedit themselves, and both already carry their own
             // toggle for this in the native status menu - a setting the shared
@@ -473,6 +469,8 @@ impl HostCapabilities {
             fixed_candidate_page_size: (platform == HostPlatform::Ios).then_some(9),
             fixed_candidate_layout: (platform == HostPlatform::Ios)
                 .then_some(crate::preferences::CandidateLayout::Horizontal),
+            // The iOS shortcut bar is the touch counterpart of the Windows floating toolbar, and its buttons follow the same kind of per-component switches.
+            touch_toolbar_components: platform == HostPlatform::Ios,
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
@@ -1014,7 +1012,9 @@ mod tests {
             let other = HostCapabilities::for_platform(platform);
             assert_eq!(other.fixed_candidate_page_size, None);
             assert_eq!(other.fixed_candidate_layout, None);
+            assert!(!other.touch_toolbar_components);
         }
+        assert!(ios.touch_toolbar_components);
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);
@@ -1088,7 +1088,6 @@ mod tests {
         assert!(harmony.shuangpin_preedit);
         // One commit path, so there is nothing to choose between and no control for it.
         assert!(!harmony.voice_commit_mode);
-        assert!(HostCapabilities::for_platform(HostPlatform::Windows).voice_commit_mode);
         assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_preedit);
         assert!(!HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_preedit);
         assert!(!HostCapabilities::for_platform(HostPlatform::Ios).english_suggestions);
@@ -1173,5 +1172,20 @@ mod tests {
         assert!(harmony.input_mode_hud);
         // Typing statistics are unconditional across every host.
         assert!(harmony.typing_statistics);
+    }
+
+    /// The commit strategy is offered only where the host acts on it. Windows and macOS each have more than one way to put a result into the editor; the Linux hosts commit through IBus or Fcitx5 and ignore the stored mode, so a selector there would save a choice nothing reads.
+    #[test]
+    fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
+        assert!(HostCapabilities::for_platform(HostPlatform::Windows).voice_commit_mode);
+        assert!(HostCapabilities::for_platform(HostPlatform::Macos).voice_commit_mode);
+        for platform in [
+            HostPlatform::Linux,
+            HostPlatform::Android,
+            HostPlatform::Ios,
+            HostPlatform::Harmony,
+        ] {
+            assert!(!HostCapabilities::for_platform(platform).voice_commit_mode);
+        }
     }
 }

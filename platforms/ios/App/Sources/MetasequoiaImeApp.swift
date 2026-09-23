@@ -123,6 +123,15 @@ private struct MainTabView: View {
     .onOpenURL { url in
       guard url.scheme == "msime" else { return }
       navigation.tab = .keyboard
+      if url.host == "voice" { navigation.recordsVoice = true }
+    }
+    .sheet(isPresented: $navigation.recordsVoice) {
+      NavigationView {
+        ServiceSettingsView(kind: .voice)
+          .toolbar {
+            ToolbarItem(placement: .confirmationAction) { Button("完成") { navigation.recordsVoice = false } }
+          }
+      }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
     }
   }
 

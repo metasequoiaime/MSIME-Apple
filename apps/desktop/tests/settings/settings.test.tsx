@@ -31,6 +31,7 @@ import {
   type TouchKeyboardSkinDesign,
 } from "@msime/ui";
 import {
+  describeInstallerTrust,
   selectPlatformRelease,
   validateGitHubRelease,
 } from "../../../../packages/ui/src/settings/update-manifest";
@@ -2555,6 +2556,155 @@ test("mobile input settings expose native keyboard sound and haptic feedback", a
   );
 });
 
+test("an iPad keeps key sounds but hides vibration it cannot produce", async () => {
+  const load = vi.fn().mockResolvedValue({
+    soundEnabled: true,
+    hapticsEnabled: true,
+    hapticStrength: "strong",
+    englishSuggestions: true,
+    hapticsAvailable: false,
+  });
+  const save = vi.fn().mockImplementation(async (settings) => settings);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn().mockImplementation(async (value) => value),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: { load, save, preview: vi.fn() },
+      }}
+    />,
+  );
+  const feedback = await screen.findByRole("group", { name: "按键反馈" });
+  fireEvent.click(within(feedback).getByLabelText("按键音"));
+  // The stored vibration choice travels untouched, so it still reaches the user's iPhone through settings sync.
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        soundEnabled: false,
+        hapticsEnabled: true,
+        hapticStrength: "strong",
+      }),
+    ),
+  );
+  expect(within(feedback).queryByLabelText("按键振动")).toBeNull();
+  expect(within(feedback).queryByLabelText("振动强度")).toBeNull();
+  expect(within(feedback).queryByRole("button", { name: "试一下振动" })).toBeNull();
+});
+
+test("the iPad digit row and Tab key switch appears only where the plugin reports it", async () => {
+  const feedback = {
+    soundEnabled: true,
+    hapticsEnabled: false,
+    hapticStrength: "medium",
+    englishSuggestions: true,
+  };
+  const phone = render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn().mockImplementation(async (value) => value),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: { load: vi.fn().mockResolvedValue(feedback), save: vi.fn() },
+      }}
+    />,
+  );
+  await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
+  await waitFor(() => expect(screen.queryByLabelText("按键音")).not.toBeNull());
+  expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
+  phone.unmount();
+
+  const save = vi.fn().mockImplementation(async (settings) => settings);
+  const saveDocument = vi.fn().mockImplementation(async (value) => value);
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: saveDocument,
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: {
+          load: vi
+            .fn()
+            .mockResolvedValue({ ...feedback, hapticsAvailable: false, tabletFullKeys: true }),
+          save,
+        },
+      }}
+    />,
+  );
+  const fullKeys = (await screen.findByLabelText("数字行与 Tab 键", undefined, {
+    timeout: 3000,
+  })) as HTMLInputElement;
+  expect(fullKeys.checked).toBe(true);
+  fireEvent.click(fullKeys);
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ tabletFullKeys: false })),
+  );
+  expect(saveDocument).not.toHaveBeenCalled();
+});
+
+test("the touch toolbar switches appear only on a host that reads them and save into the document", async () => {
+  const android = render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "android" } as HostCapabilities,
+      }}
+    />,
+  );
+  await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
+  expect(screen.queryByLabelText("工具栏：剪贴板历史")).toBeNull();
+  android.unmount();
+
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: { platform: "ios", touch_toolbar_components: true } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+      }}
+    />,
+  );
+  const clipboard = (await screen.findByLabelText("工具栏：剪贴板历史", undefined, {
+    timeout: 3000,
+  })) as HTMLInputElement;
+  const skin = screen.getByLabelText("工具栏：切换皮肤") as HTMLInputElement;
+  // A document that has never said anything keeps the bar the keyboard always had.
+  expect(clipboard.checked).toBe(false);
+  expect(skin.checked).toBe(true);
+  fireEvent.click(clipboard);
+  fireEvent.click(skin);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    touch_toolbar: {
+      layout: true,
+      emoji: true,
+      skin: false,
+      clipboard: true,
+      ai: false,
+      character_set: false,
+      fullwidth: false,
+      punctuation: false,
+    },
+  });
+});
+
 test("the iOS skin page hands the candidate strip to the desktop candidate skin", async () => {
   const load = vi.fn().mockResolvedValue({
     soundEnabled: true,
@@ -4019,12 +4169,42 @@ test("Linux help quick start covers both Fcitx5 and IBus", async () => {
   expect(intro.textContent).toContain("Fcitx5");
   expect(intro.textContent).toContain("IBus");
   const quickStart = screen.getByText(/fcitx5-configtool/);
+  // First-run setup adds the input method on its own; the manual steps are the fallback.
+  expect(quickStart.textContent).toContain("自动加入正在运行的 Fcitx5 或 IBus 的输入法列表");
   expect(quickStart.textContent).toContain(
     "「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组",
   );
-  expect(quickStart.textContent).toContain("「MSIME Client」");
-  expect(quickStart.textContent).toContain("IBus");
+  // The name IBus lists is the component's longname.
+  expect(quickStart.textContent).toContain("「Metasequoia 水杉输入法」");
+  expect(quickStart.textContent).not.toContain("MSIME Client");
   expect(screen.queryByText(/Win \+ Space/)).toBeNull();
+});
+
+test("Linux help network section says what goes online and where credentials live", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    host: { platform: "linux" } as never,
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  const network = await screen.findByText(/日常拼音输入无需联网/);
+  const text = network.textContent ?? "";
+  // Cloud candidates are on after first-run setup unless declined, and they send the spelling being typed.
+  expect(text).toContain("云候选默认开启");
+  expect(text).toContain("Google input-tools");
+  expect(text).toContain("msime-client-online-provider");
+  expect(text).toContain("msime-client-voice-provider");
+  // A custom translation service goes online with only an endpoint, its API key being optional, so the gate is a configured service rather than a credential.
+  expect(text).toContain("只在启用并配置好对应服务（凭据，或自定义翻译的服务地址）后联网");
+  expect(text).not.toContain("填好凭据后联网");
+  // The provider credentials are private files; NiuTrans and custom translation keys are the exception and the copy says so.
+  expect(text).toContain("ai-provider.json、tencent-provider.json 和 voice-provider.json");
+  expect(text).toContain("不进入共享设置");
+  expect(text).toContain("小牛翻译和自定义翻译服务的密钥则保存在共享设置中");
+  expect(text).not.toContain("不保存或转发 provider 的凭据");
 });
 
 test("Android help and about pages use mobile instructions and project links", async () => {
@@ -5268,8 +5448,177 @@ test("Linux offers its own newest published release, not another platform's", as
       "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
     ),
   );
-  expect(screen.queryByText(/SHA256/)).toBeNull();
+  // A release without assets has no digest to show, so the notice falls back to SHA256SUMS instead of inventing one.
+  expect(screen.queryByText(/下载后请核对 SHA256/)).toBeNull();
+  expect(
+    screen.getByText(/该软件包未签名。.*sha256sum -c SHA256SUMS --ignore-missing/),
+  ).toBeDefined();
   vi.unstubAllGlobals();
+});
+
+test("Linux update notice shows the .deb digest GitHub computed and the sha256sum command", async () => {
+  const digest = "0123456789abcdef".repeat(4);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          tag_name: "linux-v1.2.0",
+          html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
+          assets: [
+            {
+              name: "msime-client-1.2.0-linux-x86_64.tar.gz",
+              digest: `sha256:${"f".repeat(64)}`,
+              browser_download_url:
+                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-client-1.2.0-linux-x86_64.tar.gz",
+            },
+            {
+              name: "msime-client_1.2.0_amd64.deb",
+              digest: `sha256:${digest}`,
+              browser_download_url:
+                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-client_1.2.0_amd64.deb",
+            },
+            { name: "SHA256SUMS", digest: `sha256:${"e".repeat(64)}` },
+          ],
+        },
+      ],
+    }),
+  );
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "linux" } as HostCapabilities,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+  expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  expect(screen.getByText("该软件包未签名，请务必核对下面的校验值。")).toBeDefined();
+  expect(screen.getByText(digest)).toBeDefined();
+  expect(screen.getByText("sha256sum msime-client_1.2.0_amd64.deb")).toBeDefined();
+  expect(screen.queryByText(/Get-FileHash/)).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("Linux release assets yield a digest only when it is well-formed and unambiguous", () => {
+  const page = "https://github.com/metasequoiaime/msime/releases";
+  const digest = "a".repeat(64);
+  const release = (assets: unknown) => [
+    { tag_name: "linux-v1.2.0", html_url: `${page}/tag/linux-v1.2.0`, assets },
+  ];
+  const pick = (assets: unknown) => {
+    const update = selectPlatformRelease(release(assets), "linux", page);
+    return (
+      update && {
+        name: update.installerName,
+        sha256: update.installerSha256,
+        signed: update.signed,
+      }
+    );
+  };
+  expect(pick([{ name: "msime-client_1.2.0_amd64.deb", digest: `sha256:${digest}` }])).toEqual({
+    name: "msime-client_1.2.0_amd64.deb",
+    sha256: digest,
+    signed: false,
+  });
+  // The tarball is the fallback when no .deb was uploaded.
+  expect(
+    pick([{ name: "msime-client-1.2.0-linux-x86_64.tar.gz", digest: `sha256:${digest}` }]),
+  ).toEqual({ name: "msime-client-1.2.0-linux-x86_64.tar.gz", sha256: digest, signed: false });
+  // Older API responses omit the digest or return null; a wrong algorithm, uppercase hex or a short value is not trusted either.
+  for (const bad of [
+    undefined,
+    null,
+    `sha512:${digest}`,
+    `sha256:${digest.toUpperCase()}`,
+    `sha256:${digest.slice(1)}`,
+    digest,
+    42,
+  ]) {
+    expect(pick([{ name: "msime-client_1.2.0_amd64.deb", digest: bad }])).toEqual({
+      name: "msime-client_1.2.0_amd64.deb",
+      sha256: null,
+      signed: false,
+    });
+  }
+  // Two architectures would make any single digest wrong for someone.
+  expect(
+    pick([
+      { name: "msime-client_1.2.0_amd64.deb", digest: `sha256:${digest}` },
+      { name: "msime-client_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
+    ]),
+  ).toEqual({ name: null, sha256: null, signed: false });
+  // A name that would need shell quoting is never put into the copyable command.
+  expect(pick([{ name: "--x;rm -rf ~.deb", digest: `sha256:${digest}` }])).toEqual({
+    name: null,
+    sha256: null,
+    signed: false,
+  });
+  for (const assets of [undefined, null, "x", [null, 3, { digest: `sha256:${digest}` }]]) {
+    expect(pick(assets)).toEqual({ name: null, sha256: null, signed: false });
+  }
+  // Other platforms keep ignoring assets.
+  expect(
+    selectPlatformRelease(
+      [
+        {
+          tag_name: "windows-v1.2.0",
+          html_url: `${page}/tag/windows-v1.2.0`,
+          assets: [{ name: "msime-client_1.2.0_amd64.deb", digest: `sha256:${digest}` }],
+        },
+      ],
+      "windows",
+      page,
+    ),
+  ).toMatchObject({ installerName: null, installerSha256: null, signed: null });
+});
+
+test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows", () => {
+  const digest = "c".repeat(64);
+  const version = { display: "1.2.0", parts: [1, 2, 0] };
+  const releaseUrl = "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0";
+  expect(
+    describeInstallerTrust(
+      {
+        version,
+        releaseUrl,
+        installerName: "msime-client_1.2.0_amd64.deb",
+        installerSha256: digest,
+        signed: false,
+      },
+      "linux",
+    ),
+  ).toEqual({
+    warning: "该软件包未签名，请务必核对下面的校验值。",
+    verify: { command: "sha256sum msime-client_1.2.0_amd64.deb", sha256: digest },
+  });
+  expect(
+    describeInstallerTrust(
+      { version, releaseUrl, installerName: null, installerSha256: null, signed: false },
+      "linux",
+    ).verify,
+  ).toBeNull();
+  const windows = {
+    version,
+    releaseUrl: "https://github.com/metasequoiaime/msime/releases",
+    installerName: "MetasequoiaIME_Setup_v1.2.0.exe",
+    installerSha256: digest,
+    signed: false,
+  };
+  const expected = {
+    warning: "该版本未经代码签名，请务必核对下面的校验值。",
+    verify: {
+      command: "Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256",
+      sha256: digest,
+    },
+  };
+  expect(describeInstallerTrust(windows, "windows")).toEqual(expected);
+  expect(describeInstallerTrust(windows, null)).toEqual(expected);
 });
 
 test("Windows checks this repository's Windows releases rather than the reference manifest", async () => {

@@ -36,6 +36,7 @@
 #include "../src/core/RuntimeOptionsRefresh.h"
 #include "../src/core/FirstRunGuidance.h"
 #include "../src/core/InputModeIndicator.h"
+#include "../src/core/ReplacedProgram.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
 #endif
@@ -2169,12 +2170,15 @@ public:
     wave_overlay_.locked = voice_space_locked_ && wave_overlay_.listening;
     wave_overlay_.set_transcript(voice_transcript_);
     wave_overlay_.set_input_level(static_cast<float>(voice_level_) / 10.0f);
-    if (wave_overlay_surface_) {
-      if (wave_overlay_visible_)
+    if (wave_overlay_surface_ && !wave_overlay_failed_) {
+      if (wave_overlay_visible_) {
         wave_overlay_surface_->update(wave_overlay_);
-      else
-        wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
-      return;
+        return;
+      }
+      wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
+      if (wave_overlay_visible_) return;
+      // No surface on this display (GNOME Wayland has no layer-shell): the rest of this recording uses the auxiliary text, as the IBus host's FallbackSurface does. The next recording tries the surface again.
+      wave_overlay_failed_ = true;
     }
     if (voice_loading_) {
       std::string status = voice_phase_;
@@ -2238,10 +2242,10 @@ public:
           voice_level_seen_ = voice_level_seen_ || levelSeen;
           partial = msime_voice_bound_result(std::move(partial));
           if (!partial.empty()) {
+            // Fcitx5 commit is the only voice commit path on Linux and the settings page offers no strategy, so a stored commit_mode must not turn the inline preedit off.
             const bool inlinePreedit = msime_voice_stream_inline_enabled(
                 voice_options_.value("stream_inline_preedit", false),
-                voice_options_.value("asr_provider", std::string{"doubao"}),
-                voice_options_.value("commit_mode", std::string("tsf")));
+                voice_options_.value("asr_provider", std::string{"doubao"}), "tsf");
             if (inlinePreedit) {
               voice_preedit_ = partial;
               voice_transcript_.clear();
@@ -2296,8 +2300,7 @@ public:
           latestPartial = msime_voice_bound_result(std::move(latestPartial));
           const bool inlinePreedit = msime_voice_stream_inline_enabled(
               voice_options_.value("stream_inline_preedit", false),
-              voice_options_.value("asr_provider", std::string{"doubao"}),
-              voice_options_.value("commit_mode", std::string("tsf")));
+              voice_options_.value("asr_provider", std::string{"doubao"}), "tsf");
           (inlinePreedit ? voice_preedit_ : voice_transcript_) = std::move(latestPartial);
         }
         text = msime_voice_result_or_transcript(
@@ -2310,7 +2313,10 @@ public:
         ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
         voice_mailbox_.reset();
         if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Voice); return true; }
-        showVoiceFailure("未识别到文字，请重新录音");
+        const auto providerError = result.find("provider_error");
+        showVoiceFailure(providerError != result.end() && providerError->is_string()
+                             ? msime_voice_provider_failure_notice(providerError->get<std::string>())
+                             : "未识别到文字，请重新录音");
         return false;
       }
       voice_preedit_.clear();
@@ -2374,6 +2380,7 @@ public:
     voice_phase_ = "录音中";
     voice_level_ = 0;
     voice_failure_visible_ = false;
+    wave_overlay_failed_ = false;
     wave_overlay_.reset();
     wave_overlay_.listening = true;
     wave_overlay_.show_transcript = true;
@@ -2383,11 +2390,19 @@ public:
     voice_job_ = std::async(std::launch::async, [socket, generation, language, options, mailbox] {
       const auto query = Json{{"language", language}, {"generation", generation},
                               {"options", options}, {"stream", true}}.dump();
-      auto result = response(msime_client_voice_provider_stream_feedback(
-          reinterpret_cast<const uint8_t *>(query.data()), query.size(),
-          reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
-          fcitxVoiceUpdate, fcitxVoiceStatus, fcitxVoiceLevel, mailbox.get()));
-      return result.is_object() ? result : Json::object();
+      std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+          msime_client_voice_provider_stream_feedback(
+              reinterpret_cast<const uint8_t *>(query.data()), query.size(),
+              reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
+              fcitxVoiceUpdate, fcitxVoiceStatus, fcitxVoiceLevel, mailbox.get()),
+          msime_client_string_free);
+      if (!raw) throw std::runtime_error("MSIME request failed");
+      // A provider that gave no result (value null) or named a missing dependency (ok:false) is a provider failure, as in the IBus host, not an empty recognition.
+      const auto document = Json::parse(raw.get());
+      if (!document.value("ok", false))
+        return Json{{"provider_error", document.value("error", std::string{})}};
+      const auto result = document.at("value");
+      return result.is_object() ? result : Json{{"provider_error", std::string{}}};
     }).share();
     return true;
   }
@@ -2996,6 +3011,7 @@ public:
   msime::linux_host::WaveOverlayModel wave_overlay_;
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface_;
   bool wave_overlay_visible_ = false;
+  bool wave_overlay_failed_ = false;
   bool system_dark_ = false;
   std::chrono::steady_clock::time_point system_theme_probe_due_{};
   bool word_character_enabled_ = true;
@@ -4961,6 +4977,7 @@ public:
       }
     } catch (const OptionsNotConfigured &) { notConfigured(*state, true); }
     catch (...) { unavailable(*state); }
+    noticeReplacedAddon(*state);
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
@@ -5051,6 +5068,19 @@ public:
     msime_linux_diagnostic_write("operation_failed operation=fcitx_event");
     state.close(); state.clearPanel();
     state.ic_.inputPanel().setAuxUp(fcitx::Text("MSIME：请检查运行配置"));
+    state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  }
+  // dpkg renames a new build over this addon's shared object on upgrade and deletes it on removal, and fcitx5 keeps running the one it loaded until it restarts. The addon cannot restart itself the way the IBus host does without taking every other input method down with the process, and the reload behind the settings page's restart button loads no new code, so the first activation that finds the addon replaced or removed tells the user how to finish, once for each change of state, so a reinstall after a removal is announced as an upgrade; the next composition's render replaces the message. It takes precedence over the configuration hints, which a removed or half-upgraded installation would otherwise show.
+  static void noticeReplacedAddon(FcitxState &state) {
+    using msime::linux_host::ProgramFileState;
+    static ProgramFileState shown = ProgramFileState::Current;
+    const auto current = msime::linux_host::mapped_file_state(reinterpret_cast<const void *>(&noticeReplacedAddon));
+    if (current == ProgramFileState::Current || current == shown) return;
+    shown = current;
+    msime_linux_diagnostic_write(current == ProgramFileState::Replaced ? "addon_replaced_notice" : "addon_removed_notice");
+    state.ic_.inputPanel().setAuxUp(fcitx::Text(current == ProgramFileState::Replaced
+        ? "水杉输入法已升级：执行 fcitx5 -r 或注销后重新登录即可使用新版本"
+        : "水杉输入法已卸载：执行 fcitx5 -r 或注销后重新登录即可完成卸载"));
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   }
   // Keys still reach the application: the addon never filters an event it could not route, so the user can keep typing while the hint is up. Only activation may open the settings window; a key never does, because a window that appears mid-typing can take the keyboard focus and swallow what follows.
@@ -5312,7 +5342,7 @@ void FcitxState::render() {
   }
   if (emoji_search_mode_)
     ic_.inputPanel().setAuxUp(fcitx::Text("Emoji 搜索：" + emoji_search_));
-  if (voice_loading_ && !wave_overlay_surface_)
+  if (voice_loading_ && (!wave_overlay_surface_ || wave_overlay_failed_))
     updateVoiceOverlay();
   ic_.updatePreedit();
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);

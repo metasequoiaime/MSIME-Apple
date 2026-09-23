@@ -2,6 +2,7 @@
 #include "CandidateCompletionPolicy.h"
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
+#include "PunctuationPolicy.h"
 #include <memory>
 #include <stdexcept>
 
@@ -99,6 +100,12 @@ nlohmann::json ServerSession::dedicated_english(uint64_t epoch, bool exit) {
     return current;
   cancel_composition(epoch);
   return response(msime_client_set_english_mode(session_, false));
+}
+nlohmann::json ServerSession::toggle_dedicated_english(uint64_t epoch) {
+  check_active(epoch);
+  const bool enabled = view().at("dedicated_english").get<bool>();
+  cancel_composition(epoch);
+  return response(msime_client_set_english_mode(session_, !enabled));
 }
 KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
                              uint64_t epoch) {
@@ -207,9 +214,10 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
   const auto current = view();
   if (current.at("editing_text").get<std::string>().empty())
     return std::nullopt;
-  const auto local_mode = current.at("local_mode").get<std::string>();
-  action = navigation_action(packet, bindings, local_mode == "unicode",
-                              local_mode == "japanese");
+  // Japanese is a scheme (3), not a local mode; no local mode is ever named "japanese".
+  action = navigation_action(packet, bindings,
+                             current.at("local_mode").get<std::string>() == "unicode",
+                             current.value("scheme", 0u) == 3u);
   if (!action)
     return std::nullopt;
   auto result = action->command
@@ -462,6 +470,12 @@ KeyResult ServerSession::punctuation(const FanyImeNamedpipeData &packet,
     throw std::invalid_argument("Invalid Windows punctuation request");
   if (!input_enabled_)
     return key(packet, epoch);
+  // Numpad arithmetic keys, the numpad decimal and '/' finish the highlighted candidate and append their ASCII mark untranslated. Without a composition there is no candidate to finish, and the key keeps its ordinary punctuation.
+  const char literal = literal_candidate_punctuation(packet);
+  if (literal && !view().at("editing_text").get<std::string>().empty())
+    return {client_, epoch_, packet.request_id, true,
+            response(msime_client_punctuation_ascii(
+                session_, static_cast<uint8_t>(literal)))};
   auto result = response(
       msime_client_punctuation(session_, static_cast<uint8_t>(action.value)));
   return {client_, epoch_, packet.request_id, true, std::move(result)};
@@ -481,7 +495,8 @@ ServerSession::word_character(const FanyImeNamedpipeData &packet,
     return std::nullopt;
   const auto current = view();
   if (current.at("local_mode") == "unknown" ||
-      current.at("editing_text").get<std::string>().empty())
+      current.at("editing_text").get<std::string>().empty() ||
+      !word_character_edge(packet, binding, current.value("scheme", 0u) == 3u))
     return std::nullopt;
   std::string fallback;
   for (const auto &candidate : current.at("candidates")) {

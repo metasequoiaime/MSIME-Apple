@@ -328,6 +328,19 @@ mod tests {
             &history,
         );
         assert_eq!(history.lock().unwrap().entries(), first.as_slice());
+        // The native reader reports excluded (concealed, transient, password-manager) or text-less changes as a new count with no text.
+        record_macos_clipboard_change(
+            msime_host_macos::ClipboardSnapshot {
+                change_count: 5,
+                text: None,
+            },
+            &mut last_change_count,
+            true,
+            &store,
+            &history,
+        );
+        assert_eq!(history.lock().unwrap().entries(), first.as_slice());
+        assert_eq!(last_change_count, Some(5));
         record_macos_clipboard_change(
             msime_host_macos::ClipboardSnapshot {
                 change_count: 3,

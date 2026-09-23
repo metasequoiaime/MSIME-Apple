@@ -467,6 +467,37 @@ pub unsafe extern "C" fn msime_client_skin_catalog(
 }
 
 #[derive(Debug, Deserialize)]
+struct SkinPackageRequest {
+    directory: String,
+    id: String,
+}
+
+/// Validate one installed skin package with the loader the settings page uses, so a native presenter resolving the selected skin accepts exactly the manifests the catalog lists (full TOML 1.0, the Windows toml++ baseline). The value is one camelCase entry of `msime_client_skin_catalog`'s `packages`; a package that fails validation answers `{ok:false,error}` with the loader's reason.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_skin_package(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > 65_536 {
+            return Err("invalid skin package request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: SkinPackageRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid skin package request")?;
+        if !Path::new(&request.directory).is_absolute() {
+            return Err("skin directory must be absolute".into());
+        }
+        let package =
+            msime_client_core::skin::catalog::load_package(&request.directory, &request.id)?;
+        serde_json::to_value(package).map_err(|e| e.to_string())
+    })
+}
+
+#[derive(Debug, Deserialize)]
 struct SkinResourceRequest {
     directory: String,
     id: String,
@@ -563,6 +594,41 @@ pub unsafe extern "C" fn msime_client_skin_toolbar_stylesheet(
         )
         .map_err(|_| "skin stylesheet unavailable")?;
         serde_json::to_value(stylesheet).map_err(|_| "skin stylesheet response failed".into())
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct SkinImportRequest {
+    source: String,
+    directory: String,
+}
+
+/// Copy a skin folder the user picked into the host's skin root, for a host whose root no file manager reaches (the iOS App Group). Returns `{id}`, the folder name the catalog lists it under; a failure's message is the import's code (`skin_name`, `skin_manifest` or `storage`) so the host can explain it.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_skin_import(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > 65_536 {
+            return Err("invalid skin import request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: SkinImportRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid skin import request")?;
+        if !Path::new(&request.source).is_absolute() || !Path::new(&request.directory).is_absolute()
+        {
+            return Err("skin paths must be absolute".into());
+        }
+        let id = msime_client_core::skin::folder_import::import(
+            Path::new(&request.source),
+            Path::new(&request.directory),
+        )
+        .map_err(str::to_owned)?;
+        Ok(json!({ "id": id }))
     })
 }
 
