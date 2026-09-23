@@ -1,3 +1,4 @@
+import AudioToolbox
 import SwiftUI
 import UIKit
 
@@ -267,6 +268,10 @@ struct ServiceSettingsView: View {
   @State private var operation: Task<Void, Never>?
   @State private var requestID = UUID()
   @State private var voiceGeneration: UInt64 = 0
+  @State private var voiceSettings = VoicePolishSettings(MetasequoiaInputSessionBridge.loadSharedPreferences())
+  @State private var voiceSettingsSaveFailed = false
+  /// The recognized text before polishing, so the user can take it instead of the polished result.
+  @State private var transcript = ""
   @StateObject private var recorder = VoiceRecorder()
 
   init(kind: CustomServiceKind) {
@@ -325,6 +330,8 @@ struct ServiceSettingsView: View {
             if recorder.isRecording { recorder.stop() }
             else {
               operation = Task {
+                // The recording session silences system sounds, so the start cue has to finish before it opens.
+                if voiceSettings.soundEnabled && voiceSettings.startSound { await VoiceCue.playStart() }
                 do { try await recorder.start() }
                 catch is CancellationError {} catch { status = error.localizedDescription }
               }
@@ -342,6 +349,8 @@ struct ServiceSettingsView: View {
         } footer: {
           Text("在水杉 App 中录音识别，再将结果发送到键盘或复制。iOS 键盘扩展不能直接录音。")
         }
+        voiceOptionsSection
+        voicePolishSection
       }
       if busy {
         Button("取消请求") { cancelRequest(); status = "已取消" }
@@ -352,6 +361,10 @@ struct ServiceSettingsView: View {
       if !output.isEmpty {
         Section("结果") {
           Text(output).textSelection(.enabled)
+          if kind == .voice && !transcript.isEmpty && transcript != output {
+            Button("改用识别原文") { output = transcript; status = "已改用识别原文" }
+              .accessibilityIdentifier("useVoiceTranscript")
+          }
           Button("复制结果") { UIPasteboard.general.string = output; status = "已复制" }
           if kind == .voice {
             Button(voiceTransfer == nil ? "发送到键盘" : "更新待插入结果") {
@@ -404,6 +417,14 @@ struct ServiceSettingsView: View {
       }
     }
     .onChange(of: configuration.endpoint) { _ in fetchedModels = nil; modelStatus = "" }
+    .onChange(of: voiceSettings) { _ in
+      guard kind == .voice else { return }
+      voiceSettingsSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { voiceSettings.write(into: &$0) }
+    }
+    .onChange(of: recorder.isRecording) { recording in
+      // Also covers the recorder stopping itself at the 60-second limit.
+      if !recording && voiceSettings.soundEnabled && voiceSettings.endSound { VoiceCue.playEnd() }
+    }
     .task {
       guard kind == .voice else { return }
       while !Task.isCancelled {
@@ -415,6 +436,51 @@ struct ServiceSettingsView: View {
     .onChange(of: scenePhase) { phase in
       if phase == .background { cancelAndClear() }
       if phase == .active && kind == .voice { refreshVoiceTransfer() }
+    }
+  }
+
+  private var voiceOptionsSection: some View {
+    Section {
+      Picker("识别语言", selection: $voiceSettings.language) {
+        ForEach(VoicePolishSettings.languages, id: \.id) { Text($0.title).tag($0.id) }
+      }
+      .accessibilityIdentifier("voiceLanguage")
+      Toggle("录音提示音", isOn: $voiceSettings.soundEnabled)
+        .accessibilityIdentifier("voiceSoundEnabled")
+    } footer: {
+      Text(configuration.voiceProvider == .doubao || configuration.voiceProvider == .siliconFlow
+        ? "当前服务自动判断语言，不使用这里的选择。开始和结束录音时播放系统提示音。"
+        : "识别语言随录音一起发送；选“自动识别”时由服务判断。开始和结束录音时播放系统提示音。")
+    }
+  }
+
+  private var voicePolishSection: some View {
+    Section {
+      Toggle("识别后自动润色", isOn: $voiceSettings.polishEnabled)
+        .accessibilityIdentifier("voicePolishEnabled")
+      if voiceSettings.polishEnabled {
+        Picker("润色方式", selection: $voiceSettings.promptID) {
+          ForEach(VoicePolishSettings.presets, id: \.id) { Text($0.title).tag($0.id) }
+        }
+        .accessibilityIdentifier("voicePolishPreset")
+        if let slot = voiceSettings.customSlot {
+          TextEditor(text: $voiceSettings.customPrompts[slot]).frame(minHeight: 100)
+            .accessibilityLabel("自定义润色提示词").accessibilityIdentifier("voicePolishCustomPrompt")
+        } else {
+          DisclosureGroup("查看提示词") {
+            Text(voiceSettings.systemPrompt).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+          }
+        }
+      }
+      if voiceSettingsSaveFailed {
+        Text("未能保存语音设置，请重试。").foregroundStyle(.red)
+      }
+    } header: {
+      Text("识别后润色")
+    } footer: {
+      Text(CustomServiceConfiguration.load(.ai).endpoint.isEmpty
+        ? "润色使用“AI 设置”里保存的服务，目前尚未设置；识别结果会原样保留。"
+        : "识别完成后把文字发给“AI 设置”里保存的服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”。")
     }
   }
 
@@ -719,7 +785,10 @@ struct ServiceSettingsView: View {
     busy = true
     status = ""
     output = ""
+    transcript = ""
     let config = configuration
+    let polish = kind == .voice && voiceSettings.polishEnabled ? voiceSettings : nil
+    let language = kind == .voice ? voiceSettings.transcriptionLanguage(for: config.voiceProvider) : nil
     let text = input
     let audio = recorder.audio
     let pcm = recorder.pcmAudio
@@ -746,12 +815,27 @@ struct ServiceSettingsView: View {
           allowWebSocket: kind == .voice && config.voiceProvider == .doubao)
         let savedToken = try ServiceTokenStore.read(kind, url: tokenURL)
         let result = try await CustomServiceClient.request(kind: kind, configuration: config,
-          text: text, wav: audio, pcm: pcm, token: savedToken,
+          text: text, wav: audio, pcm: pcm, token: savedToken, language: language,
           generation: generation, doubaoClient: doubaoClient)
         try Task.checkCancellation()
         guard requestID == id else { return }
-        output = result
-        status = "已完成"
+        if let polish, !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          transcript = result
+          output = result
+          status = "识别完成，正在润色…"
+          do {
+            output = try await Self.polish(result, settings: polish)
+            status = "已完成"
+          } catch is CancellationError {
+            throw CancellationError()
+          } catch {
+            guard requestID == id else { return }
+            status = "润色失败，已保留识别原文：\(error.localizedDescription)"
+          }
+        } else {
+          output = result
+          status = "已完成"
+        }
       } catch is CancellationError {
         if requestID == id { status = "已取消" }
       } catch {
@@ -760,6 +844,22 @@ struct ServiceSettingsView: View {
       if requestID == id { busy = false }
     }
   }
+  /// The polish pass after recognition, on the AI service saved under 「AI 设置」.
+  private static func polish(_ transcript: String, settings: VoicePolishSettings) async throws -> String {
+    var configuration = CustomServiceConfiguration.load(.ai)
+    let url: URL
+    do { url = try configuration.validatedURL() } catch {
+      throw ServiceFailure(message: "请先在“AI 设置”里保存服务。")
+    }
+    configuration.prompt = settings.systemPrompt
+    let polished = try await CustomServiceClient.request(
+      kind: .ai, configuration: configuration, text: VoicePolishSettings.userMessage(transcript),
+      token: ServiceTokenStore.read(.ai, url: url))
+    let trimmed = polished.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { throw ServiceFailure(message: "服务未返回可用文字。") }
+    return trimmed
+  }
+
   private func cancelRequest() {
     requestID = UUID()
     operation?.cancel()
@@ -826,5 +926,20 @@ private struct AICandidatePromptView: View {
         preferences["ai_assistant"] as? [String: Any], promptSlot: slot, text: content)
     }
     if written { savedText = content; status = "" } else { status = "提示词未能保存，请稍后重试。" }
+  }
+}
+
+/// The system recording cues. Haptics accompany them so the cue still registers with the ringer off.
+private enum VoiceCue {
+  static func playStart() async {
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    await withCheckedContinuation { continuation in
+      AudioServicesPlaySystemSoundWithCompletion(1113) { continuation.resume() }
+    }
+  }
+
+  static func playEnd() {
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    AudioServicesPlaySystemSound(1114)
   }
 }

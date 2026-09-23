@@ -9,11 +9,14 @@ enum AppServicesBridge {
     ])
   }
 
-  static func transcriptionBody(_ wav: Data, model: String) throws -> [String: Any] {
+  static func transcriptionBody(_ wav: Data, model: String, language: String? = nil) throws -> [String: Any] {
     let boundary = "Boundary-\(UUID().uuidString)"
     var body = Data()
     func append(_ text: String) { body.append(contentsOf: text.utf8) }
     append("--\(boundary)\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n\(model)\r\n")
+    if let language, !language.isEmpty {
+      append("--\(boundary)\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\n\(language)\r\n")
+    }
     append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n")
     body.append(wav)
     append("\r\n--\(boundary)--\r\n")

@@ -307,7 +307,7 @@ final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
 enum CustomServiceClient {
   static func request(kind: CustomServiceKind, configuration: CustomServiceConfiguration,
                       text: String = "", wav: Data? = nil, pcm: Data? = nil, token: String,
-                      generation: UInt64 = 1, doubaoClient: DoubaoVoiceClient? = nil,
+                      language: String? = nil, generation: UInt64 = 1, doubaoClient: DoubaoVoiceClient? = nil,
                       sessionConfiguration: URLSessionConfiguration = .ephemeral) async throws -> String {
     if kind == .voice && configuration.voiceProvider == .doubao {
       guard let doubaoClient else { throw ServiceFailure(message: "豆包语音需要原生 host codec。") }
@@ -322,7 +322,7 @@ enum CustomServiceClient {
       }
     }
     let request = try makeRequest(kind: kind, configuration: configuration, prompt: configuration.prompt,
-                                  text: text, wav: wav, token: token)
+                                  text: text, wav: wav, token: token, language: language)
     let session = URLSession(configuration: sessionConfiguration, delegate: NoRedirects(), delegateQueue: nil)
     defer { session.invalidateAndCancel() }
     let (bytes, response) = try await session.bytes(for: request)
@@ -361,7 +361,7 @@ enum CustomServiceClient {
   }
 
   static func makeRequest(kind: CustomServiceKind, configuration: CustomServiceConfiguration, prompt: String,
-                          text: String, wav: Data?, token: String) throws -> URLRequest {
+                          text: String, wav: Data?, token: String, language: String? = nil) throws -> URLRequest {
     let url = try configuration.validatedURL()
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
@@ -369,7 +369,7 @@ enum CustomServiceClient {
     if !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
     if kind == .voice {
       guard let wav else { throw ServiceFailure(message: "请先录音。") }
-      let multipart = try AppServicesBridge.transcriptionBody(wav, model: configuration.model)
+      let multipart = try AppServicesBridge.transcriptionBody(wav, model: configuration.model, language: language)
       request.httpBody = multipart["body"] as? Data
       request.setValue(multipart["contentType"] as? String, forHTTPHeaderField: "Content-Type")
     } else {
