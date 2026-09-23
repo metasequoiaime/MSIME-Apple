@@ -2489,4 +2489,4 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 已存储的值一律不重新解释：老用户文档里这三个键都是显式写出的，行为不变；只有新装、或文档缺这些键时才取新默认值。
 - `input.default_ime_mode` 保持 `chinese`。这是平台适配：macOS 上用户是明确从输入菜单选中本输入法才开始打字的，起手英文与这个动作相悖；Windows 模板仍是 `english`，与来源一致。
 
-证据：`client-core` 新增 `voice_first_run_follows_the_source_on_desktop_ports`，钉住默认值、缺键时的默认值，以及显式相反值被保留；`voice-provider-options` 用例改为钉住新的原生兜底和静音开关。
+证据：`client-core` 新增 `voice_first_run_follows_the_source_on_desktop_ports`，钉住默认值、缺键时的默认值，以及显式相反值被保留；`voice-provider-options` 用例改为钉住新的原生兜底和静音开关；`scripts/test-default-config-parity.py` 钉住 Windows 模板与共享默认值两边一致，任一侧回退都会失败（已用改回 `false` 验证过失败）。
