@@ -150,6 +150,31 @@ enum KeyboardEmojiCatalog {
     }
   }
 
+  /// The most symbols one search shows: a single Engine page, since a short query such as one letter matches most of the catalog and the first rows are the ones worth reading.
+  static let maximumSymbolMatches = 255
+
+  /// Symbols whose keywords match `query`: the catalog files each under English words, full pinyin and pinyin initials (`arrow`, `jiantou`, `jt`), so the letters the search pad types are enough. `nil` when nothing is left to search for.
+  static func searchSymbols(resources: String, query: String) throws -> [String]? {
+    guard let letters = search(query)?.search else { return nil }
+    let request = try JSONSerialization.data(withJSONObject: [
+      "category": "symbols", "search": letters, "offset": 0, "limit": maximumSymbolMatches, "cursor": true,
+    ])
+    return try decodeSymbolMatches(try MetasequoiaInputSessionBridge.emojiCatalog(request: request, resources: resources))
+  }
+
+  static func decodeSymbolMatches(_ value: [String: Any]) throws -> [String] {
+    guard let rows = value["items"] as? [[String: Any]], rows.count <= maximumSymbolMatches else {
+      throw KeyboardEmojiCatalogError.invalidPage
+    }
+    var symbols: [String] = []
+    var seen = Set<String>()
+    for row in rows {
+      guard let text = row["text"] as? String, validText(text) else { throw KeyboardEmojiCatalogError.invalidPage }
+      if seen.insert(text).inserted { symbols.append(text) }
+    }
+    return symbols
+  }
+
   static func collectSymbols(page: (Int) throws -> [String: Any]) throws -> [String] {
     var symbols: [String] = []
     var seen = Set<String>()

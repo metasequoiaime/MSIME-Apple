@@ -3,6 +3,8 @@ import UIKit
 /// Categorized symbol surface used by the keyboard's punctuation shortcut.
 ///
 /// Symbols the user picked before lead as 最近, the way the Windows panel opens on its recently used items. The hand-picked phone categories come next; after them come the parents of the Engine's symbol catalog in `others.db`, the same catalog the desktop, macOS and Harmony panels browse, loaded a parent at a time off the main thread.
+///
+/// 搜索 looks the whole catalog up by keyword, as the search box of the Windows panel does. A keyboard extension has no text field of its own to type into, so the search swaps the category column for a letter pad under the results; the catalog files every symbol under English words, full pinyin and pinyin initials, which letters are enough to type.
 final class KeyboardSymbolPanelView: UIView {
   struct Category {
     let title: String
@@ -13,10 +15,13 @@ final class KeyboardSymbolPanelView: UIView {
   struct Catalog {
     let parents: () throws -> [String]
     let symbols: @Sendable (String) throws -> [String]
+    /// The symbols matching the typed letters, or `nil` when the letters leave nothing to search for.
+    var search: (@Sendable (String) throws -> [String]?)?
 
     static func engine(resources: String) -> Catalog {
       Catalog(parents: { try KeyboardEmojiCatalog.symbolParents(resources: resources) },
-              symbols: { try KeyboardEmojiCatalog.loadSymbols(resources: resources, parent: $0) })
+              symbols: { try KeyboardEmojiCatalog.loadSymbols(resources: resources, parent: $0) },
+              search: { try KeyboardEmojiCatalog.searchSymbols(resources: resources, query: $0) })
     }
   }
 
@@ -79,6 +84,16 @@ final class KeyboardSymbolPanelView: UIView {
   private(set) var selected = 0
   private var locked = false
   private var lockButton: UIButton!
+  private let categoryScroll = UIScrollView()
+  private let letterPad = UIStackView()
+  private let status = UILabel()
+  private var searchButton: UIButton?
+  private var gridBesideCategories: [NSLayoutConstraint] = []
+  private var gridAbovePad: [NSLayoutConstraint] = []
+  /// The letters typed so far while searching, `nil` while browsing categories.
+  private(set) var searchQuery: String?
+  /// What the grid shows, for tests and VoiceOver: the symbols of the selected category or of the search.
+  private(set) var shownSymbols: [String] = []
 
   init(catalog: Catalog? = nil, recents: [String] = [], onInsert: @escaping (String) -> Void, onDelete: @escaping () -> Void,
        onClose: @escaping () -> Void) {
@@ -107,7 +122,6 @@ final class KeyboardSymbolPanelView: UIView {
       categoryButtons.append(button)
       categories.addArrangedSubview(button)
     }
-    let categoryScroll = UIScrollView()
     categoryScroll.showsVerticalScrollIndicator = false
     categoryScroll.disableEdgeEffects()
     categoryScroll.accessibilityIdentifier = "symbolCategories"
@@ -122,10 +136,17 @@ final class KeyboardSymbolPanelView: UIView {
     grid.translatesAutoresizingMaskIntoConstraints = false
     scroll.addSubview(grid)
 
+    // Back from a search returns to the categories; back from the categories returns to the keyboard.
     let back = bar(title: "返回", symbol: nil, identifier: "closeSymbolPanel") { [weak self] in
-      self?.onClose()
+      guard let self else { return }
+      if searchQuery != nil { endSearch() } else { onClose() }
     }
     back.accessibilityLabel = "返回键盘"
+    let search = catalog?.search == nil ? nil : bar(title: nil, symbol: "magnifyingglass", identifier: "symbolSearchKey") { [weak self] in
+      self?.beginSearch()
+    }
+    search?.accessibilityLabel = "搜索符号"
+    searchButton = search
     lockButton = bar(title: nil, symbol: "lock.open", identifier: "symbolLockKey") { [weak self] in
       guard let self else { return }
       locked.toggle()
@@ -137,12 +158,21 @@ final class KeyboardSymbolPanelView: UIView {
     delete.accessibilityLabel = "删除"
     updateLock()
 
-    let bottom = UIStackView(arrangedSubviews: [back, lockButton, delete])
+    let bottom = UIStackView(arrangedSubviews: [back] + (search.map { [$0] } ?? []) + [lockButton, delete])
     bottom.axis = .horizontal
     bottom.distribution = .fillEqually
     bottom.spacing = 1
 
-    for item in [categoryScroll, scroll, bottom] {
+    buildLetterPad()
+    letterPad.isHidden = true
+    status.font = .systemFont(ofSize: 14)
+    status.textColor = skin.keyForeground.withAlphaComponent(0.6)
+    status.textAlignment = .center
+    status.numberOfLines = 2
+    status.isHidden = true
+    status.accessibilityIdentifier = "symbolSearchStatus"
+
+    for item in [categoryScroll, scroll, bottom, letterPad, status] {
       item.translatesAutoresizingMaskIntoConstraints = false
       addSubview(item)
     }
@@ -156,10 +186,15 @@ final class KeyboardSymbolPanelView: UIView {
       categories.topAnchor.constraint(equalTo: categoryScroll.contentLayoutGuide.topAnchor),
       categories.bottomAnchor.constraint(equalTo: categoryScroll.contentLayoutGuide.bottomAnchor),
       categories.widthAnchor.constraint(equalTo: categoryScroll.frameLayoutGuide.widthAnchor),
-      scroll.leadingAnchor.constraint(equalTo: categoryScroll.trailingAnchor, constant: 1),
       scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
       scroll.topAnchor.constraint(equalTo: topAnchor),
-      scroll.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -1),
+      letterPad.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+      letterPad.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+      letterPad.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -4),
+      letterPad.heightAnchor.constraint(equalTo: heightAnchor, multiplier: 0.42),
+      status.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 8),
+      status.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -8),
+      status.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
       grid.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
       grid.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
       grid.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
@@ -170,6 +205,15 @@ final class KeyboardSymbolPanelView: UIView {
       bottom.bottomAnchor.constraint(equalTo: bottomAnchor),
       bottom.heightAnchor.constraint(equalTo: heightAnchor, multiplier: 0.2),
     ])
+    gridBesideCategories = [
+      scroll.leadingAnchor.constraint(equalTo: categoryScroll.trailingAnchor, constant: 1),
+      scroll.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -1),
+    ]
+    gridAbovePad = [
+      scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+      scroll.bottomAnchor.constraint(equalTo: letterPad.topAnchor, constant: -4),
+    ]
+    NSLayoutConstraint.activate(gridBesideCategories)
     select(0)
   }
 
@@ -211,6 +255,7 @@ final class KeyboardSymbolPanelView: UIView {
   }
 
   private func show(_ symbols: [String]) {
+    shownSymbols = symbols
     for row in grid.arrangedSubviews {
       grid.removeArrangedSubview(row)
       row.removeFromSuperview()
@@ -226,6 +271,103 @@ final class KeyboardSymbolPanelView: UIView {
       for _ in (end - start)..<Self.columns { row.addArrangedSubview(UIView()) }
       row.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
       grid.addArrangedSubview(row)
+    }
+  }
+
+  /// Open the search with an empty query: the category column gives way to the letter pad.
+  func beginSearch() {
+    guard catalog?.search != nil, searchQuery == nil else { return }
+    searchQuery = ""
+    categoryScroll.isHidden = true
+    letterPad.isHidden = false
+    NSLayoutConstraint.deactivate(gridBesideCategories)
+    NSLayoutConstraint.activate(gridAbovePad)
+    showSearch()
+  }
+
+  /// Close the search and return to the category that was showing before it.
+  func endSearch() {
+    guard searchQuery != nil else { return }
+    searchQuery = nil
+    status.isHidden = true
+    letterPad.isHidden = true
+    categoryScroll.isHidden = false
+    NSLayoutConstraint.deactivate(gridAbovePad)
+    NSLayoutConstraint.activate(gridBesideCategories)
+    searchButton?.setTitle(nil, for: .normal)
+    select(selected)
+  }
+
+  func typeSearch(_ letter: String) {
+    guard let searchQuery, searchQuery.count < KeyboardEmojiCatalog.maximumSearchLength else { return }
+    self.searchQuery = searchQuery + letter
+    showSearch()
+  }
+
+  func deleteSearchLetter() {
+    guard let searchQuery, !searchQuery.isEmpty else { return }
+    self.searchQuery = String(searchQuery.dropLast())
+    showSearch()
+  }
+
+  /// Show the query on the search key and look it up off the main thread; an answer for an older query is dropped by the generation check.
+  private func showSearch() {
+    guard let query = searchQuery, let search = catalog?.search else { return }
+    searchButton?.setTitle(query.isEmpty ? nil : " \(query)", for: .normal)
+    loadGeneration &+= 1
+    show([])
+    guard !query.isEmpty else {
+      setStatus("输入英文或拼音搜索符号，如 arrow、jiantou")
+      return
+    }
+    setStatus(nil)
+    let generation = loadGeneration
+    loadQueue.async { [weak self] in
+      let result = Result { try search(query) ?? [] }
+      DispatchQueue.main.async {
+        guard let self, self.loadGeneration == generation, self.searchQuery == query else { return }
+        switch result {
+        case .success(let symbols):
+          self.show(symbols)
+          self.setStatus(symbols.isEmpty ? "没有找到相关符号" : nil)
+        case .failure:
+          self.setStatus("符号目录暂时不可用；改一下搜索词重试")
+        }
+      }
+    }
+  }
+
+  private func setStatus(_ text: String?) {
+    status.text = text
+    status.isHidden = text == nil
+  }
+
+  private func buildLetterPad() {
+    letterPad.axis = .vertical
+    letterPad.spacing = 5
+    letterPad.distribution = .fillEqually
+    letterPad.accessibilityIdentifier = "symbolSearchPad"
+    for (index, row) in ["qwertyuiop", "asdfghjkl", "zxcvbnm"].enumerated() {
+      let line = UIStackView()
+      line.axis = .horizontal
+      line.spacing = 4
+      line.distribution = .fillEqually
+      for letter in row {
+        let key = bar(title: String(letter), symbol: nil, identifier: "symbolSearchKey-\(letter)") { [weak self] in
+          self?.typeSearch(String(letter))
+        }
+        key.layer.cornerRadius = 5
+        line.addArrangedSubview(key)
+      }
+      if index == 2 {
+        let delete = bar(title: nil, symbol: "delete.left", identifier: "symbolSearchDelete") { [weak self] in
+          self?.deleteSearchLetter()
+        }
+        delete.accessibilityLabel = "删除搜索字母"
+        delete.layer.cornerRadius = 5
+        line.addArrangedSubview(delete)
+      }
+      letterPad.addArrangedSubview(line)
     }
   }
 

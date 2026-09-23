@@ -126,6 +126,67 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertEqual(Set(letters).count, letters.count)
   }
 
+  func testSymbolSearchFindsSymbolsByEnglishPinyinAndInitials() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-symbol-search-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let resources = try XCTUnwrap(bridge.candidateGlossResources())
+    for query in ["arrow", "jiantou", "JT"] {
+      let found = try XCTUnwrap(KeyboardEmojiCatalog.searchSymbols(resources: resources, query: query), query)
+      XCTAssertTrue(found.contains("→"), query)
+      XCTAssertEqual(Set(found).count, found.count)
+    }
+    XCTAssertTrue(try XCTUnwrap(KeyboardEmojiCatalog.searchSymbols(resources: resources, query: "huobi")).contains("€"))
+    XCTAssertEqual(try KeyboardEmojiCatalog.searchSymbols(resources: resources, query: "qqqqzzzz"), [])
+    XCTAssertNil(try KeyboardEmojiCatalog.searchSymbols(resources: resources, query: "→ 1"), "nothing left to search for")
+    let wide = try XCTUnwrap(KeyboardEmojiCatalog.searchSymbols(resources: resources, query: "a"))
+    XCTAssertLessThanOrEqual(wide.count, KeyboardEmojiCatalog.maximumSymbolMatches)
+  }
+
+  func testSymbolPanelSearchSwapsCategoriesForALetterPadAndBackReturns() async throws {
+    var closed = false
+    var inserted: [String] = []
+    let panel = KeyboardSymbolPanelView(
+      catalog: .init(parents: { [] }, symbols: { _ in [] }, search: { query in
+        XCTAssertFalse(Thread.isMainThread)
+        return query == "jt" ? ["→", "←"] : []
+      }),
+      onInsert: { inserted.append($0) }, onDelete: {}, onClose: { closed = true })
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 260)
+    panel.layoutIfNeeded()
+    try button("symbolSearchKey", in: panel).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(panel.searchQuery, "")
+    XCTAssertEqual(try label("symbolSearchStatus", in: panel).isHidden, false)
+    try button("symbolSearchKey-j", in: panel).sendActions(for: .primaryActionTriggered)
+    try button("symbolSearchKey-t", in: panel).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(panel.searchQuery, "jt")
+    for _ in 0..<100 where panel.shownSymbols.isEmpty { try await Task.sleep(nanoseconds: 20_000_000) }
+    XCTAssertEqual(panel.shownSymbols, ["→", "←"])
+    try button("symbolKey_→", in: panel).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(inserted, ["→"])
+    XCTAssertTrue(closed, "a found symbol goes in and closes an unlocked panel, as a browsed one does")
+    closed = false
+
+    try button("symbolSearchDelete", in: panel).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(panel.searchQuery, "j")
+    let status = try label("symbolSearchStatus", in: panel)
+    for _ in 0..<100 where status.text != "没有找到相关符号" { try await Task.sleep(nanoseconds: 20_000_000) }
+    XCTAssertFalse(status.isHidden)
+    XCTAssertEqual(status.text, "没有找到相关符号")
+
+    try button("closeSymbolPanel", in: panel).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(panel.searchQuery)
+    XCTAssertFalse(closed, "back leaves the search before it leaves the panel")
+    XCTAssertEqual(panel.shownSymbols, KeyboardSymbolPanelView.categories[0].symbols)
+    try button("closeSymbolPanel", in: panel).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(closed)
+
+    let offline = KeyboardSymbolPanelView(onInsert: { _ in }, onDelete: {}, onClose: {})
+    XCTAssertNil(descendants(offline).first { $0.accessibilityIdentifier == "symbolSearchKey" },
+                 "without a catalog there is nothing to search")
+  }
+
   func testSymbolRecentsStayApartFromEmojiAndLeadThePanel() throws {
     KeyboardSymbolRecents.record("，")
     KeyboardSymbolRecents.record("@gmail.com")
@@ -486,6 +547,10 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
 
   private func descendants(_ root: UIView) -> [UIView] {
     root.subviews + root.subviews.flatMap(descendants)
+  }
+
+  private func label(_ identifier: String, in root: UIView) throws -> UILabel {
+    try XCTUnwrap(descendants(root).first { $0.accessibilityIdentifier == identifier } as? UILabel)
   }
 
   private func button(_ identifier: String, in root: UIView) throws -> UIButton {
