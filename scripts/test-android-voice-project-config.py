@@ -185,6 +185,12 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # The provider rules stay in the two policies rather than being restated here.
         self.assertIn("DoubaoAsrPolicy.usable(", configuration)
         self.assertIn("HttpAsrPolicy.usable(", configuration)
+        # The keyboard's own copy must not name an engine the request may not use. It said
+        # "系统语音识别" on the button that now honours a configured provider, which was wrong for
+        # exactly the users who had configured one.
+        self.assertNotIn("开始系统语音识别", service)
+        self.assertNotIn("点击下方按钮使用系统语音识别", service)
+        self.assertIn("开始语音识别", service)
 
 
 if __name__ == "__main__":
