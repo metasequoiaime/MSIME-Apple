@@ -20,6 +20,8 @@ enum KeyboardEmojiCatalog {
     let title: String
     /// The shared catalog the group belongs to: empty for Emoji, `kaomoji` for 颜文字.
     var catalog = ""
+    /// Letters the Engine matches against each Emoji's pinyin and keywords; a search spans every group, so its `group` is empty.
+    var search = ""
 
     var isKaomoji: Bool { catalog == "kaomoji" }
   }
@@ -52,11 +54,21 @@ enum KeyboardEmojiCatalog {
   /// The kaomoji catalog has no groups of its own; the shared catalog answers every row under `All`.
   static let kaomoji = Category(group: "All", title: "颜文字", catalog: "kaomoji")
 
+  /// The longest search the letter pad accepts; the longest pinyin syllable run worth typing for one Emoji is far shorter.
+  static let maximumSearchLength = 32
+
+  /// A search over every Emoji group for `query`, lowercased and limited to ASCII letters, or `nil` when nothing is left to search for.
+  static func search(_ query: String) -> Category? {
+    let letters = String(query.lowercased().unicodeScalars.filter { ("a"..."z").contains($0) }.prefix(maximumSearchLength))
+    return letters.isEmpty ? nil : Category(group: "", title: "搜索", search: letters)
+  }
+
   static func loadPage(resources: String, category: Category, offset: Int) throws -> Page {
     guard offset >= 0, offset <= maximumCursor else { throw KeyboardEmojiCatalogError.invalidPage }
     let request = try JSONSerialization.data(withJSONObject: [
       "category": category.catalog,
       "group": category.group,
+      "search": category.search,
       "offset": offset,
       "limit": pageSize,
       "cursor": true,
@@ -89,7 +101,7 @@ enum KeyboardEmojiCatalog {
             let annotation = row["annotation"] as? String,
             let group = row["group"] as? String,
             validText(text, kaomoji: category.isKaomoji), validAnnotation(annotation),
-            group == category.group else {
+            category.group.isEmpty || group == category.group else {
         throw KeyboardEmojiCatalogError.invalidPage
       }
       return Item(text: text, annotation: annotation, group: group)
