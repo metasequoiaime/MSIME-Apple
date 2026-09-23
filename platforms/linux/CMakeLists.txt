@@ -224,6 +224,11 @@ target_compile_options(linux-candidate-wheel-paging-test PRIVATE -Wall -Wextra -
 target_include_directories(linux-candidate-wheel-paging-test PRIVATE src)
 target_link_libraries(linux-candidate-wheel-paging-test PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME linux-candidate-wheel-paging COMMAND linux-candidate-wheel-paging-test)
+add_executable(linux-panel-restore-record-test tests/candidate/panel_restore_record.cpp)
+target_compile_options(linux-panel-restore-record-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-panel-restore-record-test PRIVATE src)
+target_link_libraries(linux-panel-restore-record-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME linux-panel-restore-record COMMAND linux-panel-restore-record-test)
 add_executable(linux-candidate-action-policy-test tests/candidate/candidate_action_policy.cpp)
 target_compile_options(linux-candidate-action-policy-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-action-policy-test PRIVATE src)
@@ -311,6 +316,8 @@ add_test(NAME linux-setup-update
                  $<TARGET_FILE:msime-client-prepare>)
 add_test(NAME linux-setup-registration
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_registration.py")
+add_test(NAME linux-setup-panel-restore
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_panel_restore.py")
 add_test(NAME linux-first-run-guide
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/first_run_guide.py")
 add_test(NAME linux-settings-launcher-contract

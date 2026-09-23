@@ -117,11 +117,64 @@ void modeBadgeTheme() {
   require(!fcitx_mode_badge_light_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false),
           "an explicit dark candidate theme wins");
 }
+// classicui's options belong to every input method, so the first takeover records what it replaced for msime-client-setup --unregister, and a later write keeps that value while the option still holds MSIME's. Runs against a scratch XDG_STATE_HOME before the resource fixture; the fixture instance does not load classicui, so this drives the recording step the addon's writes go through.
+void classicuiTakeoverRecord() {
+  char temporary[] = "/tmp/msime-fcitx5-restore-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "restore fixture directory");
+  const std::filesystem::path root(directory);
+  const auto *saved = std::getenv("XDG_STATE_HOME");
+  const std::optional<std::string> savedStateHome = saved ? std::optional<std::string>(saved) : std::nullopt;
+  setenv("XDG_STATE_HOME", (root / "state").c_str(), 1);
+  const auto record = root / "state" / "msime-client" / "panel-restore.json";
+  const auto read = [&] {
+    std::ifstream in(record);
+    return Json::parse(in);
+  };
+  fcitx::RawConfig stock;
+  stock.setValueByPath("Theme", "default");
+  stock.setValueByPath("DarkTheme", "default-dark");
+  stock.setValueByPath("Font", "Sans 10");
+  fcitx::RawConfig theme;
+  theme.setValueByPath("Theme", std::string(msime::linux_host::kFcitxCandidateTheme));
+  record_classicui_takeover(stock, theme);
+  require(read() == Json{{"fcitx5", {{"Theme", {{"prior", "default"}, {"written", "msime"}}}}}},
+          "first takeover records the stock theme it replaced");
+  // A skin change writes the theme again: the stock theme is still the one to restore.
+  fcitx::RawConfig taken;
+  taken.setValueByPath("Theme", "msime");
+  taken.setValueByPath("DarkTheme", "default-dark");
+  taken.setValueByPath("Font", "Sans 10");
+  theme.setValueByPath("DarkTheme", "msime");
+  record_classicui_takeover(taken, theme);
+  fcitx::RawConfig font;
+  font.setValueByPath("Font", "Noto Sans SC 18px");
+  record_classicui_takeover(taken, font);
+  require(read() == Json{{"fcitx5",
+                          {{"Theme", {{"prior", "default"}, {"written", "msime"}}},
+                           {"DarkTheme", {{"prior", "default-dark"}, {"written", "msime"}}},
+                           {"Font", {{"prior", "Sans 10"}, {"written", "Noto Sans SC 18px"}}}}}},
+          "later writes keep the replaced values and record each option on its first change");
+  // An earlier build set MSIME's theme without keeping a record: the stock themes it stands in for are recorded, since uninstall removes MSIME's.
+  std::filesystem::remove(record);
+  fcitx::RawConfig upgraded;
+  upgraded.setValueByPath("Theme", "msime");
+  upgraded.setValueByPath("DarkTheme", "msime");
+  record_classicui_takeover(upgraded, theme);
+  require(read() == Json{{"fcitx5",
+                          {{"Theme", {{"prior", "default"}, {"written", "msime"}}},
+                           {"DarkTheme", {{"prior", "default-dark"}, {"written", "msime"}}}}}},
+          "a theme option already naming MSIME's theme records the stock theme");
+  if (savedStateHome) setenv("XDG_STATE_HOME", savedStateHome->c_str(), 1);
+  else unsetenv("XDG_STATE_HOME");
+  std::filesystem::remove_all(root);
+}
 int main(int argc, char **argv) {
   try {
     autocorrectMarker();
     candidateThemeDecoration();
     modeBadgeTheme();
+    classicuiTakeoverRecord();
     require(argc == 2 || (argc == 3 && std::string(argv[2]) == "--ai"),
             "usage: fcitx5-native-test <verified-resources> [--ai]");
     const bool ai = argc == 3;

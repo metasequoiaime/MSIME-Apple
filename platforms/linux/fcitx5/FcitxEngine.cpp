@@ -30,6 +30,7 @@
 #include "../src/candidates/CandidateFcitxTheme.h"
 #include "../src/candidates/CandidateFontPolicy.h"
 #include "../src/candidates/CandidateWheelPaging.h"
+#include "../src/candidates/PanelRestoreRecord.h"
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/candidates/PairedPunctuation.h"
@@ -4617,6 +4618,29 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+// classicui's options are shared by every input method, so before one changes, the value it replaces is recorded for msime-client-setup --unregister to put back (see PanelRestoreRecord.h). A failed record does not hold the change back.
+void record_classicui_takeover(const fcitx::RawConfig &current, const fcitx::RawConfig &written) {
+  const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
+  if (!file) return;
+  for (const auto &key : written.subItems()) {
+    const auto *value = written.valueByPath(key);
+    if (!value) continue;
+    const auto *prior = current.valueByPath(key);
+    const auto replaced = prior ? Json(*prior) : Json(nullptr);
+    // MSIME only takes the theme over from Fcitx5's stock ones and uninstall removes its own, so a theme option already naming it is recorded as the stock theme it stands in for.
+    auto restore = replaced;
+    if (prior && *prior == msime::linux_host::kFcitxCandidateTheme && (key == "Theme" || key == "DarkTheme"))
+      restore = key == "Theme" ? "default" : "default-dark";
+    msime::linux_host::record_panel_takeover(*file, "fcitx5", key, replaced, *value, restore);
+  }
+}
+void set_classicui_config(fcitx::AddonInstance &classicui, const fcitx::RawConfig &config) {
+  fcitx::RawConfig current;
+  if (const auto *existing = classicui.getConfig()) existing->save(current);
+  record_classicui_takeover(current, config);
+  classicui.setConfig(config);
+}
+
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngineV2 {
 public:
@@ -4632,7 +4656,7 @@ public:
     if (!classicui) return;
     fcitx::RawConfig config;
     config.setValueByPath("Font", *description);
-    classicui->setConfig(config);
+    set_classicui_config(*classicui, config);
   }
   // The candidate colours reach the classic UI as a theme named "msime" in the user's Fcitx5 data directory (see candidates/CandidateFcitxTheme.h). The addon is pointed at it only while it shows one of Fcitx5's stock themes or MSIME's own; a theme the user chose is left in place and MSIME's colours simply don't apply. Setting the configuration also makes the addon read the theme file again, which is how a changed palette appears without a restart.
   void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog) {
@@ -4659,7 +4683,7 @@ public:
     // Fcitx5 releases with a separate dark-mode theme would otherwise switch to their stock dark theme; MSIME already resolves "follow" against the system appearance itself.
     if (selected_dark && host::fcitx_theme_replaceable(*selected_dark))
       config.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
-    classicui->setConfig(config);
+    set_classicui_config(*classicui, config);
     candidate_theme_applied_ = std::move(theme);
   }
   // Tell the settings page whether the classic UI draws the candidate font, colours and skin (see candidates/CandidatePanelStatus.h). Asked on every theme sync because the user can switch the UI or theme in fcitx5-configtool at any time; the file is rewritten only when the answer changes.
@@ -4717,7 +4741,7 @@ public:
     if (!classicui) return;
     fcitx::RawConfig config;
     config.setValueByPath("WheelForPaging", *enabled ? "True" : "False");
-    classicui->setConfig(config);
+    set_classicui_config(*classicui, config);
   }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     refreshOptions();

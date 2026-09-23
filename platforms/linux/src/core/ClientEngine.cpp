@@ -24,6 +24,7 @@
 #include "../candidates/CandidateColors.h"
 #include "../candidates/CandidatePalette.h"
 #include "../candidates/CandidateFontPolicy.h"
+#include "../candidates/PanelRestoreRecord.h"
 #include "../candidates/CandidateActionPolicy.h"
 #include "../candidates/CandidateLocalModeLabels.h"
 #include "../candidates/CandidatePanelStatus.h"
@@ -112,6 +113,21 @@ void publish_candidate_panel_status() {
                                                           : msime::linux_host::CandidatePanelLimit::None));
 }
 
+// The panel keys are the desktop's, so before one changes, what it held is recorded for msime-client-setup --unregister (see PanelRestoreRecord.h): the user's own value, or null for a key left at the schema default, which uninstall resets. A failed record does not hold the change back.
+void record_ibus_panel_takeover(GSettings *settings, const char *key, const Json &written) {
+  const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
+  if (!file) return;
+  Json current(nullptr);
+  if (auto *value = g_settings_get_user_value(settings, key)) {
+    if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING))
+      current = g_variant_get_string(value, nullptr);
+    else if (g_variant_is_of_type(value, G_VARIANT_TYPE_BOOLEAN))
+      current = static_cast<bool>(g_variant_get_boolean(value));
+    g_variant_unref(value);
+  }
+  msime::linux_host::record_panel_takeover(*file, "ibus", key, current, written);
+}
+
 // The IBus panel draws the candidate list from one font description the whole desktop shares, the same pair of keys ibus-setup writes. A desktop without the schema has nothing to write and is left alone, and so is GNOME Shell: its popup follows the shell theme, and turning on use-custom-font there would only change ibus-setup's own panel for a panel that never shows.
 void apply_candidate_panel_font(const Json &preferences) {
   publish_candidate_panel_status();
@@ -128,6 +144,8 @@ void apply_candidate_panel_font(const Json &preferences) {
   g_settings_schema_unref(schema);
   if (!writable) return;
   auto *settings = g_settings_new("org.freedesktop.ibus.panel");
+  record_ibus_panel_takeover(settings, "custom-font", Json(*description));
+  record_ibus_panel_takeover(settings, "use-custom-font", Json(true));
   g_settings_set_string(settings, "custom-font", description->c_str());
   g_settings_set_boolean(settings, "use-custom-font", TRUE);
   g_object_unref(settings);
