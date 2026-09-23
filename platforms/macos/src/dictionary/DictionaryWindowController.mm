@@ -2,6 +2,39 @@
 #import "MSIMEClientSession.h"
 #import "../core/ClientDictionaryRuntime.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#include "../../../common/DictionaryQuiesceLease.h"
+
+// The same budget the settings window gives the input hosts (apps/desktop/src-tauri/src/dictionary_quiesce.rs).
+static const NSTimeInterval MSIMEDictionaryQuiesceBudget = 2.5;
+static const useconds_t MSIMEDictionaryQuiesceRetryMicroseconds = 50000;
+
+// A mutation from this window runs inside the input method, whose own controllers hold the dictionary lock through their sessions. Only the lock failure is retried, so a completed write is never replayed: the lease goes up beside the lock, the controllers are told on the main thread and release before this continues, and the request is retried until it gets through or the budget runs out. Removing the lease is the resume; the next key reopens a session. Called off the main thread.
+static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSError **error) {
+    NSError *failure = nil;
+    NSDictionary *result = [MSIMEClientSession dictionaryRequest:request error:&failure];
+    NSString *userData = [request[@"options"] isKindOfClass:NSDictionary.class] ? request[@"options"][@"user_data"] : nil;
+    if (!result && [failure.localizedDescription isEqualToString:@"dictionary maintenance busy"] &&
+        [userData isKindOfClass:NSString.class] && userData.isAbsolutePath) {
+        const std::string root(userData.fileSystemRepresentation);
+        if (msime::dictionary_lease::raise_dictionary_quiesce_lease(root)) {
+            void (^announce)(void) = ^{
+                [NSNotificationCenter.defaultCenter postNotificationName:@"MSIMEDictionaryMaintenanceWillBeginNotification" object:nil];
+            };
+            if (NSThread.isMainThread) announce();
+            else dispatch_sync(dispatch_get_main_queue(), announce);
+            const NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + MSIMEDictionaryQuiesceBudget;
+            while (!result && [failure.localizedDescription isEqualToString:@"dictionary maintenance busy"] &&
+                   NSProcessInfo.processInfo.systemUptime < deadline) {
+                usleep(MSIMEDictionaryQuiesceRetryMicroseconds);
+                failure = nil;
+                result = [MSIMEClientSession dictionaryRequest:request error:&failure];
+            }
+            msime::dictionary_lease::lower_dictionary_quiesce_lease(root);
+        }
+    }
+    if (error) *error = failure;
+    return result;
+}
 
 @interface MSIMEDictionaryWindowController () <NSTableViewDataSource, NSTableViewDelegate>
 @property(nonatomic, copy) NSDictionary *options;
@@ -148,11 +181,6 @@
         });
     });
 }
-- (void)quiesceInputSessions {
-    NSNotificationName const name = @"MetasequoiaWillResetLearnedDataNotification";
-    [NSNotificationCenter.defaultCenter postNotificationName:name object:nil];
-    [NSDistributedNotificationCenter.defaultCenter postNotificationName:name object:nil userInfo:nil deliverImmediately:YES];
-}
 - (void)presentEditorForEntry:(NSDictionary *)existing {
     NSTextField *key = [NSTextField textFieldWithString:existing[@"key"] ?: @""];
     NSTextField *value = [NSTextField textFieldWithString:existing[@"value"] ?: @""];
@@ -173,9 +201,8 @@
         NSDictionary *action = @{ @"operation": @"edit", @"previous": existing ?: [NSNull null], @"replacement": replacement, @"request_id": NSUUID.UUID.UUIDString };
         NSMutableDictionary *mutableAction = [action mutableCopy];
         if (!existing) mutableAction[@"previous"] = [NSNull null];
-        [controller quiesceInputSessions];
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-            NSError *error = nil; NSDictionary *result = [MSIMEClientSession dictionaryRequest:@{ @"options": controller.options, @"action": mutableAction } error:&error];
+            NSError *error = nil; NSDictionary *result = MSIMEQuiescedDictionaryRequest(@{ @"options": controller.options, @"action": mutableAction }, &error);
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (!weakSelf) return;
                 if (!result) [weakSelf showMessage:error.localizedDescription ?: (existing ? @"词条保存失败。" : @"词条添加失败。")];
@@ -199,10 +226,9 @@
     [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
         if (response != NSAlertSecondButtonReturn) return;
         MSIMEDictionaryWindowController *controller = weakSelf; if (!controller) return;
-        [controller quiesceInputSessions];
         NSDictionary *action = @{ @"operation": @"edit", @"previous": entry, @"replacement": [NSNull null], @"request_id": NSUUID.UUID.UUIDString };
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-            NSError *error = nil; NSDictionary *result = [MSIMEClientSession dictionaryRequest:@{ @"options": controller.options, @"action": action } error:&error];
+            NSError *error = nil; NSDictionary *result = MSIMEQuiescedDictionaryRequest(@{ @"options": controller.options, @"action": action }, &error);
             dispatch_async(dispatch_get_main_queue(), ^{ if (!weakSelf) return; if (!result) [weakSelf showMessage:error.localizedDescription ?: @"词条删除失败。"]; else { weakSelf.offset = weakSelf.entries.count == 1 && weakSelf.offset >= 100 ? weakSelf.offset - 100 : weakSelf.offset; [weakSelf refresh:nil]; } });
         });
     }];
@@ -236,10 +262,9 @@
             return;
         }
         NSDictionary *request = @{ @"options": controller.options, @"action": @{ @"operation": @"import", @"kind": [controller selectedKind], @"format": [controller selectedFormat], @"text": text, @"request_id": NSUUID.UUID.UUIDString } };
-        [controller quiesceInputSessions];
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSError *requestError = nil;
-            NSDictionary *result = [MSIMEClientSession dictionaryRequest:request error:&requestError];
+            NSDictionary *result = MSIMEQuiescedDictionaryRequest(request, &requestError);
             NSString *message = nil;
             if (!result) message = requestError.localizedDescription ?: @"词典导入失败";
             else {

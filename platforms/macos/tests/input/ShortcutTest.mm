@@ -2170,9 +2170,10 @@ static void TestStaleClientDeactivation() {
     assert([controller valueForKey:@"activeClient"] == nil);
     assert([controller valueForKey:@"preferencesTimer"] == nil && !timer.valid);
     assert(!panel.visible && !keymap.visible && current.marked.length == 0);
-    assert(session.focusCalls == 1 && toolbar.calls == 1 && baseDeactivationCalls == 1);
+    // A focus-out is the reference's ClientSuspended: the floating toolbar keeps its owner and stays visible, and only an input-source switch (or the controller going away) releases it.
+    assert(session.focusCalls == 1 && toolbar.calls == 0 && baseDeactivationCalls == 1);
     [controller deactivateServer:current];
-    assert(session.focusCalls == 1 && toolbar.calls == 1 && baseDeactivationCalls == 1);
+    assert(session.focusCalls == 1 && toolbar.calls == 0 && baseDeactivationCalls == 1);
     method_setImplementation(base, original);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }

@@ -67,7 +67,7 @@
 
 ### 有界性
 
-所有从网络或文件进来的东西都有显式上限，越界的那一条被跳过而不影响同批其他条目：云响应 256 KiB、AI 响应 1 MiB、AI JSON 内容 64 KiB、单条候选 4096 字节、单次最多 10 条候选；剪贴板历史 50 条、单条 4000 个 UTF-16 单元，控制字符和超长文本不落盘；Windows 回复编码按 UTF-16 单元计容量，超长时明确失败而不截断文本。空白、控制字符、重复项在进入候选之前被过滤掉。
+所有从网络或文件进来的东西都有显式上限，越界的那一条被跳过而不影响同批其他条目：云响应 256 KiB、AI 响应 1 MiB、AI JSON 内容 64 KiB、单条候选 4096 字节、单次最多 10 条候选；剪贴板历史 50 条、单条 4000 个 UTF-16 单元（超长复制截取前 4000 个单元、不拆代理对），只有含 NUL 的文本不落盘，其余控制字符作为用户内容保存；Windows 回复编码按 UTF-16 单元计容量，超长时明确失败而不截断文本。空白、控制字符、重复项在进入候选之前被过滤掉。
 
 ### 能力声明与界面注入
 
@@ -198,11 +198,11 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 **共享界面。** `apps/desktop/tests/` 下 99 个 Vitest 文件按 account / candidate / chat / community / core / dictionary / emoji / input / settings / skin / support / voice 十二个域组织。写这些用例有一条必须遵守的时序：`render(<SettingsPage …>)` 之后要先等初始加载落定再去点侧栏，页面此时还在解析快照，加载完成后自己做的选择会覆盖掉提前点下的分类——不等就会得到一个随机失败、看起来像产品回归的用例。
 
-**macOS。** `platforms/macos/CMakeLists.txt` 注册 123 项 CTest，加上 `ClipboardTests.cmake` 与 `shared/voice` 共约 137 项，另有三个标签（`emoji-local`、`clipboard-local`、`handwriting-local`）用于隔离需要本机环境的那部分。`tests/settings/` 下还有一批 Python 校验型用例，检查设置路由覆盖、偏好覆盖、bundle 内容、Info.plist 的图标/用途/名称键和 entitlements 守卫——这些是「打包结果对不对」的检查，不是行为测试。
+**macOS。** `platforms/macos/CMakeLists.txt` 注册 127 项 CTest，加上 `ClipboardTests.cmake` 与 `shared/voice` 共约 141 项，另有三个标签（`emoji-local`、`clipboard-local`、`handwriting-local`）用于隔离需要本机环境的那部分。`tests/settings/` 下还有一批 Python 校验型用例，检查设置路由覆盖、偏好覆盖、bundle 内容、Info.plist 的图标/用途/名称键和 entitlements 守卫——这些是「打包结果对不对」的检查，不是行为测试。
 
 **Windows。** `platforms/windows/CMakeLists.txt` 96 项、`tsf/CMakeLists.txt` 19 项，加上 `msimeui` 自己的套件与 vendored Engine 的四项语音测试。关键的一点是这些套件在非 Windows 机器上也真的跑：把 Rust `msime-host-api` 编出来指给 `-DMSIME_HOST_LIBRARY`，边界测试就在本机驱动真实的共享库和真实 Engine。要跑交叉产物本身则走 `run-tests-wine.sh`，它把 C++ 套件与 `cargo test --no-run` 产出的 Rust 套件一并在 `xvfb-run wine` 下执行，每个 120 秒超时，结果与基线清单比对。`tsf/tests/exports/` 那组只读 PE 导出表、不加载 DLL，因此不需要 Windows。
 
-**Linux。** `platforms/linux/CMakeLists.txt` 32 项 CTest 加 `fcitx5/` 的 4 项（后者条件注册，需要已校验词库），另有约三十个 Python 用例分布在 candidate / clipboard / core / dictionary / input / provider / runtime / voice 下。编译门禁与隔离验收分开：`build-container.sh` 用的镜像刻意不装 X11/XFixes/Fcitx5 开发包，`check-container.sh` 才起独立 D-Bus 与 IBus daemon 做真实输入。两个容器脚本都按 `$repo_root/vendor` → 主 worktree 的 `vendor` 顺序找 Engine 并只读挂进去，构建镜像按仓库路径哈希打 tag，避免多个 worktree 互相覆盖。
+**Linux。** `platforms/linux/CMakeLists.txt` 35 项 CTest 加 `fcitx5/` 的 4 项（后者条件注册，需要已校验词库），另有约三十个 Python 用例分布在 candidate / clipboard / core / dictionary / input / provider / runtime / voice 下。编译门禁与隔离验收分开：`build-container.sh` 用的镜像刻意不装 X11/XFixes/Fcitx5 开发包，`check-container.sh` 才起独立 D-Bus 与 IBus daemon 做真实输入。两个容器脚本都按 `$repo_root/vendor` → 主 worktree 的 `vendor` 顺序找 Engine 并只读挂进去，构建镜像按仓库路径哈希打 tag，避免多个 worktree 互相覆盖。
 
 **Android。** `platforms/android/tests/<feature>/*Smoke.java` 共 73 个文件，`check-host.sh` 编译并执行其中 71 个——它们全部不依赖 Android 运行时，因为被测对象是 `policy/` 下那批纯模型类。同一个脚本还做十二组契约守卫，逐条比对 Android 侧与 `crates/host-api/src/ffi/input.rs`：命令 9 必须仍是 `Action::Finish`、命令 10 必须仍是 `CycleKanaVariant`、`KEYCODE_FORWARD_DEL` 必须映射到 `DeleteForward`，并禁止 Android 自己复制假名变体表、双拼 profile 表和润色 prompt 表。设备套件在 `tests/device/`，17 个类，默认跑 11 个 instrumentation，统计、设置和手写三组各自用开关追加；`start-emulator.sh` 校验设备类型和专用 AVD 名，不操作用户现有真机。
 

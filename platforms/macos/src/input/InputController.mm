@@ -9,6 +9,7 @@
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
 #import "../core/UpdateController.h"
+#include "../../../common/DictionaryQuiesceLease.h"
 #import "../core/ScreenKeyboardPanel.h"
 #import "../dictionary/DictionaryWindowController.h"
 #import "../core/ClientDictionaryRuntime.h"
@@ -86,6 +87,16 @@ static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
 
 static NSString * const MSIMETypingStatisticsEnabledChangedNotification =
     @"MetasequoiaTypingStatisticsEnabledChangedNotification";
+// Posted by the settings window (crates/host-macos/native/dictionary.mm) and by the native dictionary window once the quiesce lease is up. It only wakes the controllers; the lease beside the dictionary lock is what they check before letting go.
+static NSString * const MSIMEDictionaryMaintenanceWillBeginNotification =
+    @"MSIMEDictionaryMaintenanceWillBeginNotification";
+
+// Dictionary maintenance needs the Engine's exclusive lock, and every open session holds it shared. While the settings window's lease (platforms/common/DictionaryQuiesceLease.h) is live on a session's user directory, that session is closed and none is opened on it.
+static BOOL MSIMEDictionaryQuiesced(NSDictionary *options) {
+    id userData = [options isKindOfClass:NSDictionary.class] ? options[@"user_data"] : nil;
+    if (![userData isKindOfClass:NSString.class] || ![userData isAbsolutePath]) return NO;
+    return msime::dictionary_lease::dictionary_quiesced(std::string([userData fileSystemRepresentation]));
+}
 // Privacy-preserving default: until the persisted opt-in is loaded, the capture boundary is shut.
 static std::atomic_bool MSIMETypingStatisticsEnabled{false};
 
@@ -751,6 +762,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_glossSenseSavedView;
     NSUInteger _glossSenseCursor;
     BOOL _focusPending;
+    // Dedicated English lives in the Engine session, so a session released for dictionary maintenance takes it along; the reopen puts it back.
+    BOOL _resumeDedicatedEnglish;
     unichar _lastSmartPunctuation;
     NSTimeInterval _lastSmartPunctuationTime;
     __weak id _smartPunctuationClient;
@@ -2427,6 +2440,9 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
+    // The toolbar outlives focus-outs, so a controller freed by IMK releases it here; the panel's owner check leaves a newer owner in place.
+    [_toolbar deactivateForDelegate:self];
+    if (_globalVoiceHotkeyMonitor) [NSEvent removeMonitor:_globalVoiceHotkeyMonitor];
     [_desktopInputSession stop]; [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel];
     [_doubaoPolishRequest cancel]; [_livePolishRequest cancel];
 }
@@ -3004,7 +3020,6 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [_session closeWithError:nil];
         _session = nil;
         [_preferencesTimer invalidate];
-    if (_globalVoiceHotkeyMonitor) [NSEvent removeMonitor:_globalVoiceHotkeyMonitor];
         _preferencesTimer = nil;
     }
     NSOpenPanel *panel = [NSOpenPanel openPanel];
@@ -3021,6 +3036,61 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             [data writeToURL:target options:NSDataWritingAtomic error:nil];
         }];
     }];
+}
+
+// Every controller that has a session open, whether or not it is the one typing: IMK keeps a controller per text input client, and each holds the dictionary lock through its own session.
++ (NSHashTable<MSIMEInputController *> *)dictionarySessionHolders {
+    static NSHashTable<MSIMEInputController *> *holders;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        holders = [NSHashTable weakObjectsHashTable];
+        // Registered once, on the class, so one notification releases every controller exactly once. The distributed center holds notifications for a background process unless told to deliver them at once, and IMK never becomes the active application.
+        [NSDistributedNotificationCenter.defaultCenter addObserver:self
+            selector:@selector(dictionaryMaintenanceWillBegin:)
+            name:MSIMEDictionaryMaintenanceWillBeginNotification object:nil
+            suspensionBehavior:NSNotificationSuspensionBehaviorDeliverImmediately];
+        // The native dictionary window runs in this process and posts locally.
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(dictionaryMaintenanceWillBegin:)
+            name:MSIMEDictionaryMaintenanceWillBeginNotification object:nil];
+    });
+    return holders;
+}
++ (void)holdDictionarySession:(MSIMEInputController *)controller {
+    [[self dictionarySessionHolders] addObject:controller];
+}
++ (void)dictionaryMaintenanceWillBegin:(NSNotification *)notification {
+    (void)notification;
+    [self releaseQuiescedDictionarySessions];
+}
++ (void)releaseQuiescedDictionarySessions {
+    for (MSIMEInputController *controller in [self dictionarySessionHolders].allObjects)
+        [controller releaseDictionarySessionIfQuiesced];
+}
+// Let go of the session, and with it the shared dictionary lock, while the settings window holds the maintenance lease. What was being typed is committed first, and work bound to the session is cancelled the way a focus change cancels it; the next key after the lease is gone opens a new session (prepareSession).
+- (void)releaseDictionarySessionIfQuiesced {
+    if (!_session || !MSIMEDictionaryQuiesced(_session.hostOptions)) return;
+    [self cancelLiveVoiceInput];
+    [self cancelDoubaoVoiceInput];
+    [self cancelHTTPVoiceInput];
+    MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay,
+        MSIMEVoiceProviderSocket(), _voiceGeneration);
+    [self cancelCandidateTranslations];
+    [self cancelCloudCandidates];
+    _modifierTap.reset();
+    _preferenceLoadState.reset();
+    if (_activeClient) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (finished) [self apply:finished];
+        else MSIMEApplyTransition(@{@"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, (id<MSIMETextClient>)_activeClient);
+    }
+    [self discardGlossSensePage];
+    _resumeDedicatedEnglish = [_view[@"dedicated_english"] isEqual:@YES];
+    [_session setFocused:NO error:nil];
+    [_session closeWithError:nil];
+    _session = nil;
+    _focusPending = YES;
+    [_panel orderOut:nil];
+    [[MSIMEInputController dictionarySessionHolders] removeObject:self];
 }
 
 - (void)activateServer:(id)sender {
@@ -3148,19 +3218,34 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 
 - (void)prepareSession {
     if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
+    BOOL reopened = NO;
     if (!_session) {
         NSDictionary *options = MSIMESessionOptions([self runtimeOptions]);
+        // Dictionary maintenance is running: open nothing, so keys pass through to the application until the lease is gone. The preferences timer keeps running, so settings still apply meanwhile.
+        if (options && MSIMEDictionaryQuiesced(options)) {
+            if (!_preferencesTimer) [self startPreferencesMonitoring];
+            return;
+        }
         if (options) {
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
             id directory = options[@"preferences_directory"];
             if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
+            if (_session) {
+                [MSIMEInputController holdDictionarySession:self];
+                reopened = _resumeDedicatedEnglish;
+                _resumeDedicatedEnglish = NO;
+            }
         }
     }
     [self syncPageSize];
     if (_session) {
         [self syncPunctuation];
         [self syncCharacterWidth];
+        if (reopened) {
+            NSDictionary *view = [_session setDedicatedEnglishEnabled:YES error:nil];
+            if (view) _view = view;
+        }
         [self apply:[_session setFocused:YES error:nil]];
         _focusPending = NO;
     }
@@ -3181,6 +3266,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         __weak MSIMEInputController *weakSelf = self;
         _preferencesTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
             (void)timer;
+            // Catches a maintenance notification that never arrived.
+            [MSIMEInputController releaseQuiescedDictionarySessions];
             [weakSelf reloadPreferences];
         }];
         [self reloadPreferences];
@@ -3384,7 +3471,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     _modifierTap.reset();
     MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
     _preferenceLoadState.reset();
-    [_toolbar deactivateForDelegate:self];
+    // A focus-out is the reference's ClientSuspended, which never changes floating-toolbar visibility: the toolbar keeps this controller as its owner and stays on screen until the next activateServer: hands it on or the user selects another input source.
     [_keymapPanel orderOut:nil];
     [_preferencesTimer invalidate];
     _preferencesTimer = nil;
@@ -3441,15 +3528,12 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     [_toolbar setVisible:NO forDelegate:self];
 }
 
-// The menu item writes the same preference the settings page's checkbox writes, so the two never
-// disagree and the choice survives a restart. Showing it also needs a client: the toolbar belongs
-// to the session that is typing, and there is nothing to attach it to without one.
+// The menu item writes the same preference the settings page's checkbox writes, so the two never disagree and the choice survives a restart. Showing or hiding it acts through the toolbar's current owner: the controller that last activated keeps the toolbar across focus-outs, so it can toggle it even while no client is focused, and a stale controller's request is ignored by the panel's owner check.
 - (void)toggleFloatingToolbar:(id)sender {
     (void)sender;
     const BOOL enabled = !_appearance.floatingToolbarEnabled;
     _appearance.floatingToolbarEnabled = enabled;
-    if (_activeClient) [_toolbar setVisible:enabled forDelegate:self];
-    else if (!enabled) [_toolbar setVisible:NO forDelegate:self];
+    [_toolbar setVisible:enabled forDelegate:self];
 }
 
 

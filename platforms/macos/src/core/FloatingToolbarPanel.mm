@@ -7,15 +7,190 @@
 #include <algorithm>
 #include <cmath>
 
+// Left-edge drag grip, the counterpart of the reference's ToolbarDragHandle: a 2.5 x 14 rounded #8E8CD8 bar centred in an 18pt slot (the reference's 8pt left padding plus its 10pt handle). Dragging it moves the panel through movableByWindowBackground; the reference's IDC_SIZEALL cursor maps to the open-hand cursor, the macOS cue for a movable surface.
+@interface MetasequoiaFloatingToolbarGripView : NSView
+@property(nonatomic) CGFloat scale;
+@end
+@implementation MetasequoiaFloatingToolbarGripView
+{
+    NSTrackingArea *_trackingArea;
+}
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self != nil)
+    {
+        _scale = 1.0;
+        self.accessibilityIdentifier = @"MetasequoiaFloatingToolbarGrip";
+    }
+    return self;
+}
+- (void)setScale:(CGFloat)scale
+{
+    _scale = scale;
+    self.needsDisplay = YES;
+}
+- (BOOL)mouseDownCanMoveWindow
+{
+    return YES;
+}
+- (void)resetCursorRects
+{
+    [self addCursorRect:self.bounds cursor:NSCursor.openHandCursor];
+}
+// Cursor rects only apply while the window is key, and this panel never becomes key, so the always-active tracking area sets the cursor as well.
+- (void)updateTrackingAreas
+{
+    if (_trackingArea != nil) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc]
+        initWithRect:NSZeroRect
+             options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
+               owner:self
+            userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+    [super updateTrackingAreas];
+}
+- (void)mouseEntered:(NSEvent *)event
+{
+    (void)event;
+    [NSCursor.openHandCursor set];
+}
+- (void)mouseExited:(NSEvent *)event
+{
+    (void)event;
+    [NSCursor.arrowCursor set];
+}
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    const CGFloat barWidth = 2.5 * _scale;
+    const CGFloat barHeight = 14.0 * _scale;
+    const NSRect bar = NSMakeRect(NSMidX(self.bounds) - barWidth * 0.5, NSMidY(self.bounds) - barHeight * 0.5, barWidth, barHeight);
+    const CGFloat radius = std::max<CGFloat>(1.0, barWidth * 0.8);
+    [[NSColor colorWithSRGBRed:0x8E / 255.0 green:0x8C / 255.0 blue:0xD8 / 255.0 alpha:1.0] setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:bar xRadius:radius yRadius:radius] fill];
+}
+@end
+
+// Hairline between the grip and the buttons, the counterpart of the reference's ToolbarDivider.
+@interface MetasequoiaFloatingToolbarDivider : NSView
+@property(nonatomic, copy) NSColor *fillColor;
+@end
+@implementation MetasequoiaFloatingToolbarDivider
+- (void)setFillColor:(NSColor *)fillColor
+{
+    _fillColor = [fillColor copy];
+    self.needsDisplay = YES;
+}
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    if (_fillColor == nil) return;
+    [_fillColor setFill];
+    NSRectFillUsingOperation(self.bounds, NSCompositingOperationSourceOver);
+}
+@end
+
+// Toolbar button with the reference's ToolbarIconButton hover and pressed fill: a rounded rect of radius max(2, height * 0.25) behind the glyph while the pointer is over it or it is pressed.
+@interface MetasequoiaFloatingToolbarButton : NSButton
+@property(nonatomic, copy) NSColor *hoverFillColor;
+@property(nonatomic) BOOL hovered;
+@end
+@implementation MetasequoiaFloatingToolbarButton
+{
+    NSTrackingArea *_trackingArea;
+    BOOL _hovered;
+}
+- (void)setHoverFillColor:(NSColor *)hoverFillColor
+{
+    _hoverFillColor = [hoverFillColor copy];
+    if (_hovered || self.isHighlighted) self.needsDisplay = YES;
+}
+- (void)setHovered:(BOOL)hovered
+{
+    if (_hovered == hovered) return;
+    _hovered = hovered;
+    self.needsDisplay = YES;
+}
+- (BOOL)hovered
+{
+    return _hovered;
+}
+// A click-drag on a button must press it, never move the panel.
+- (BOOL)mouseDownCanMoveWindow
+{
+    return NO;
+}
+// The panel is non-activating and never key, so only an always-active tracking area reports the pointer.
+- (void)updateTrackingAreas
+{
+    if (_trackingArea != nil) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc]
+        initWithRect:NSZeroRect
+             options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
+               owner:self
+            userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+    [super updateTrackingAreas];
+}
+- (void)mouseEntered:(NSEvent *)event
+{
+    (void)event;
+    [self setHovered:YES];
+}
+- (void)mouseExited:(NSEvent *)event
+{
+    (void)event;
+    [self setHovered:NO];
+}
+- (void)setHidden:(BOOL)hidden
+{
+    [super setHidden:hidden];
+    if (hidden) [self setHovered:NO];
+}
+- (void)drawRect:(NSRect)dirtyRect
+{
+    if ((_hovered || self.isHighlighted) && _hoverFillColor != nil)
+    {
+        const CGFloat radius = std::max<CGFloat>(2.0, NSHeight(self.bounds) * 0.25);
+        [_hoverFillColor setFill];
+        [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:radius yRadius:radius] fill];
+    }
+    [super drawRect:dirtyRect];
+}
+@end
+
 namespace
 {
-constexpr CGFloat kToolbarWidth = 422.0;
+// Unscaled leading run: the 18pt grip slot, the reference's 2pt gap, the 1.2pt divider, then the 8pt gap before the first button. It replaces the plain 10pt leading inset.
+constexpr CGFloat kToolbarGripWidth = 18.0;
+constexpr CGFloat kToolbarGripDividerGap = 2.0;
+constexpr CGFloat kToolbarDividerWidth = 1.2;
+constexpr CGFloat kToolbarDividerButtonGap = 8.0;
+constexpr CGFloat kToolbarLeadingChrome = kToolbarGripWidth + kToolbarGripDividerGap + kToolbarDividerWidth + kToolbarDividerButtonGap;
+// Unscaled trailing run: the 10pt trailing inset plus 10pt the equal-spacing stack spreads across its gaps.
+constexpr CGFloat kToolbarTrailingChrome = 20.0;
+constexpr CGFloat kToolbarButtonSpacing = 8.0;
+
+CGFloat ToolbarPreferredWidth(NSUInteger count, CGFloat fontSize, CGFloat scale)
+{
+    const CGFloat buttons = static_cast<CGFloat>(count);
+    const CGFloat gaps = count > 0 ? static_cast<CGFloat>(count - 1) : 0.0;
+    // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
+    return std::ceil((buttons * (fontSize + 18.0) + gaps * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome) * scale);
+}
+
+// Default row: eight buttons (all but the screen keyboard) at 24pt and 100%.
+constexpr CGFloat kToolbarWidth = 442.0;
+static_assert(kToolbarWidth >= 8 * 42.0 + 7 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
+                  kToolbarWidth < 8 * 42.0 + 7 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
+              "kToolbarWidth must be ToolbarPreferredWidth(8, 24, 1)");
 constexpr CGFloat kToolbarHeight = 44.0;
 NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
 
 NSButton *ToolbarButton(NSString *title, NSString *identifier, id target, SEL action)
 {
-    NSButton *button = [NSButton buttonWithTitle:title target:target action:action];
+    MetasequoiaFloatingToolbarButton *button = [MetasequoiaFloatingToolbarButton buttonWithTitle:title target:target action:action];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.bordered = NO;
     button.font = [NSFont systemFontOfSize:15.0 weight:NSFontWeightMedium];
@@ -245,7 +420,13 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSButton *_voiceButton;
     NSButton *_settingsButton;
     NSStackView *_actions;
-    NSLayoutConstraint *_leadingInset;
+    MetasequoiaFloatingToolbarGripView *_grip;
+    MetasequoiaFloatingToolbarDivider *_divider;
+    NSLayoutConstraint *_gripWidth;
+    NSLayoutConstraint *_gripDividerGap;
+    NSLayoutConstraint *_dividerWidth;
+    NSLayoutConstraint *_dividerHeight;
+    NSLayoutConstraint *_dividerButtonGap;
     NSLayoutConstraint *_trailingInset;
     NSSize _preferredSize;
     CGFloat _appliedScale;
@@ -347,10 +528,31 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _actions = actions;
     [_chrome addSubview:actions];
 
-    _leadingInset = [actions.leadingAnchor constraintEqualToAnchor:_chrome.leadingAnchor constant:10.0];
+    // The reference lays out handle, divider, then icons from the left edge, and its hit test makes the handle the caption drag region.
+    _grip = [[MetasequoiaFloatingToolbarGripView alloc] initWithFrame:NSZeroRect];
+    _grip.translatesAutoresizingMaskIntoConstraints = NO;
+    [_chrome addSubview:_grip];
+    _divider = [[MetasequoiaFloatingToolbarDivider alloc] initWithFrame:NSZeroRect];
+    _divider.translatesAutoresizingMaskIntoConstraints = NO;
+    _divider.accessibilityIdentifier = @"MetasequoiaFloatingToolbarDivider";
+    [_chrome addSubview:_divider];
+
+    _gripWidth = [_grip.widthAnchor constraintEqualToConstant:kToolbarGripWidth];
+    _gripDividerGap = [_divider.leadingAnchor constraintEqualToAnchor:_grip.trailingAnchor constant:kToolbarGripDividerGap];
+    _dividerWidth = [_divider.widthAnchor constraintEqualToConstant:kToolbarDividerWidth];
+    _dividerHeight = [_divider.heightAnchor constraintEqualToConstant:32.0];
+    _dividerButtonGap = [actions.leadingAnchor constraintEqualToAnchor:_divider.trailingAnchor constant:kToolbarDividerButtonGap];
     _trailingInset = [actions.trailingAnchor constraintEqualToAnchor:_chrome.trailingAnchor constant:-10.0];
     [NSLayoutConstraint activateConstraints:@[
-        _leadingInset,
+        [_grip.leadingAnchor constraintEqualToAnchor:_chrome.leadingAnchor],
+        [_grip.topAnchor constraintEqualToAnchor:_chrome.topAnchor],
+        [_grip.bottomAnchor constraintEqualToAnchor:_chrome.bottomAnchor],
+        _gripWidth,
+        _gripDividerGap,
+        _dividerWidth,
+        _dividerHeight,
+        [_divider.centerYAnchor constraintEqualToAnchor:_chrome.centerYAnchor],
+        _dividerButtonGap,
         _trailingInset,
         [actions.centerYAnchor constraintEqualToAnchor:_chrome.centerYAnchor],
     ]];
@@ -384,6 +586,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 
 - (void)refreshVisibility
 {
+    // The toolbar stays resident across client focus-outs, so its weak owner can be freed while it is on screen (the client app quit). Every application activation re-runs this check, which hides the toolbar instead of leaving buttons with nobody behind them.
     if (self.toolbarDelegate == nil)
     {
         [self orderOut:nil];
@@ -448,12 +651,19 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _handwritingButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _keyboardButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _voiceButton.symbolConfiguration = _settingsButton.symbolConfiguration;
-    _actions.spacing = 8.0 * scale;
-    _leadingInset.constant = 10.0 * scale;
+    _actions.spacing = kToolbarButtonSpacing * scale;
+    _grip.scale = scale;
+    _gripWidth.constant = kToolbarGripWidth * scale;
+    _gripDividerGap.constant = kToolbarGripDividerGap * scale;
+    _dividerWidth.constant = kToolbarDividerWidth * scale;
+    _dividerHeight.constant = (fontSize + 8.0) * scale;
+    _dividerButtonGap.constant = kToolbarDividerButtonGap * scale;
+    // The grip stays even with every button off, as the reference always keeps its handle, so the panel can still be dragged.
+    _divider.hidden = count == 0;
     _trailingInset.constant = -10.0 * scale;
     _chrome.layer.cornerRadius = 10.0 * scale;
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
-    _preferredSize = NSMakeSize(std::ceil((count * (fontSize + 18.0) + (count - 1) * 8.0 + 30.0) * scale), std::ceil((fontSize + 20.0) * scale));
+    _preferredSize = NSMakeSize(ToolbarPreferredWidth(count, fontSize, scale), std::ceil((fontSize + 20.0) * scale));
     // Only touch the frame once the toolbar is actually on screen. This runs on every shared preference
     // change, hidden or not, and the window carries a frame autosave name - so resizing a hidden toolbar
     // wrote a saved frame for a window the user has never placed, pinned to the restored-margin corner.
@@ -513,10 +723,16 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _chrome.fillColor = MetasequoiaColorFromRgba(tokens.surface);
     _chrome.strokeColor = MetasequoiaColorFromRgba(tokens.border);
     NSColor *text = MetasequoiaColorFromRgba(tokens.text);
-    for (NSButton *button in
+    // The reference's native presenter constants (ApplyTheme). The skin's hover token is a candidate-row colour, opaque in the default dark skin, so it would cover the glyph.
+    NSColor *hoverFill = dark ? [NSColor colorWithSRGBRed:1.0 green:1.0 blue:1.0 alpha:0.10]
+                              : [NSColor colorWithSRGBRed:0.0 green:0.0 blue:0.0 alpha:0.08];
+    _divider.fillColor = dark ? [NSColor colorWithSRGBRed:1.0 green:1.0 blue:1.0 alpha:0.15]
+                              : [NSColor colorWithSRGBRed:0.0 green:0.0 blue:0.0 alpha:0.12];
+    for (MetasequoiaFloatingToolbarButton *button in
          @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
     {
         button.contentTintColor = text;
+        button.hoverFillColor = hoverFill;
         if (button.title.length > 0)
         {
             button.attributedTitle = [[NSAttributedString alloc] initWithString:button.title
@@ -532,6 +748,16 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (BOOL)canBecomeKeyWindow
 {
     return NO;
+}
+
+- (void)orderOut:(id)sender
+{
+    [super orderOut:sender];
+    if (_inputModeButton == nil || _settingsButton == nil) return;
+    // A hidden window gets no mouseExited:, so a button hovered at the moment the toolbar hides would come back highlighted.
+    for (MetasequoiaFloatingToolbarButton *button in
+         @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
+        [button setHovered:NO];
 }
 
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
@@ -617,6 +843,14 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     {
         return;
     }
+    [self orderOut:nil];
+    _imeActive = NO;
+    _requestedVisible = NO;
+    self.toolbarDelegate = nil;
+}
+
+- (void)deactivateForInputSourceSwitch
+{
     [self orderOut:nil];
     _imeActive = NO;
     _requestedVisible = NO;
