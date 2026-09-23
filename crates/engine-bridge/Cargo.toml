@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 cxx = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 thiserror.workspace = true
 
 [build-dependencies]
