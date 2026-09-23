@@ -12,6 +12,7 @@
 #include "CandidateSkinCatalog.h"
 #include "DictionaryQuiesceLease.h"
 #include "InputModeIndicator.h"
+#include "ReplacedProgram.h"
 #include "SmartPunctuationSpace.h"
 #include "WordCharacterBinding.h"
 #include "../voice/VoiceAction.h"
@@ -4050,6 +4051,47 @@ void panel_input_listen() {
   }, nullptr);
 }
 
+// Set once a package upgrade replaced msime-client-ibus under this process and the host quit for it; main() turns it into msime_ibus_upgraded_exit so the launcher starts the new build at once.
+bool upgrade_restart_requested = false;
+bool upgrade_restart_scheduled = false;
+struct UpgradeRestart {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+};
+// The Windows installer stops the IME before it replaces the files and starts the new one afterwards; here the host notices on a focus change that its program was replaced and quits so the launcher starts the new build. It runs from an idle source so the focus-in that noticed it is answered first, and only while nothing is being composed or recorded, since the new process starts empty; otherwise a later focus change tries again. A removed program (the package was uninstalled) is left running: there is nothing to restart into, so quitting would only take the input method away early (the launcher does not restart a host whose program is gone).
+void schedule_upgrade_restart(IBusEngine *engine) {
+  if (upgrade_restart_requested || upgrade_restart_scheduled ||
+      msime::linux_host::running_executable_state() !=
+          msime::linux_host::ProgramFileState::Replaced)
+    return;
+  upgrade_restart_scheduled = true;
+  g_idle_add_full(
+      G_PRIORITY_DEFAULT_IDLE,
+      +[](gpointer data) -> gboolean {
+        upgrade_restart_scheduled = false;
+        const auto *restart = static_cast<UpgradeRestart *>(data);
+        if (upgrade_restart_requested || !restart->alive->load())
+          return G_SOURCE_REMOVE;
+        const auto &s = state(restart->engine);
+        bool busy = s.translation_candidates_active || s.voice_active || s.voice_stopping;
+        if (s.view.is_object()) {
+          const auto editing = s.view.find("editing_text");
+          const auto candidates = s.view.find("candidates");
+          busy = busy ||
+                 (editing != s.view.end() && editing->is_string() &&
+                  !editing->get_ref<const std::string &>().empty()) ||
+                 (candidates != s.view.end() && candidates->is_array() && !candidates->empty());
+        }
+        if (!s.focused || busy)
+          return G_SOURCE_REMOVE;
+        msime_linux_diagnostic_write("upgrade_restart");
+        upgrade_restart_requested = true;
+        ibus_quit();
+        return G_SOURCE_REMOVE;
+      },
+      new UpgradeRestart{engine, state(engine).alive},
+      +[](gpointer data) { delete static_cast<UpgradeRestart *>(data); });
+}
 void focus_in(IBusEngine *engine) {
   guarded(engine, "focus_in", [&] {
     auto &s = state(engine);
@@ -4093,6 +4135,7 @@ void focus_in(IBusEngine *engine) {
       // without re-registering it or disturbing repeated focus negotiation.
       publish_mode(engine);
     }
+    schedule_upgrade_restart(engine);
   });
 }
 void focus_out(IBusEngine *engine) {
@@ -7262,6 +7305,7 @@ void msime_ibus_configure(const std::string &options) {
   }
 }
 bool msime_ibus_maintenance_stop_requested() { return maintenance_stop_requested; }
+bool msime_ibus_upgrade_restart_requested() { return upgrade_restart_requested; }
 void msime_ibus_set_system_dark(bool dark) {
   if (system_dark != dark) {
     system_dark = dark;
