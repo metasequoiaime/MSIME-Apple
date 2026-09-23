@@ -24,9 +24,14 @@ jobs:
       # build-app.sh takes the directory install_resources verified and unpacked, not the repository's
       # resources/ directory -- that one holds the lock files install_resources reads. ci-ios.yml
       # resolves it the same way before every Xcode build.
+      # install_resources reads vendor/MSIME-Engine for the Engine-sourced artifacts, so the archive
+      # has to be unpacked before it runs. ci-ios.yml orders these the same way.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
       - name: Build native iOS host
         run: |
           set -euo pipefail
+          mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/ios/build-app.sh "$resource_dir" simulator
       - name: Package iOS release

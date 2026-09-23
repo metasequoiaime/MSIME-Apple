@@ -20,9 +20,14 @@ jobs:
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/android/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
       # build-apk.sh takes the directory install_resources verified and unpacked, not the repository's
       # resources/ directory -- that one holds the lock files install_resources reads.
+      # install_resources reads vendor/MSIME-Engine for the Engine-sourced artifacts, so the archive
+      # has to be unpacked before it runs. ci-ios.yml orders these the same way.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
       - name: Build native Android host
         run: |
           set -euo pipefail
+          mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
