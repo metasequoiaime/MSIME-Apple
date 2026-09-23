@@ -473,14 +473,14 @@ int main(int argc, char **argv) {
             "Passthrough ignored the disabled Ctrl mode shortcut");
     live_preferences["keybindings"]["switch_language_ctrl"] = true;
     save_live_preferences(2);
-    bool live_shortcut = false;
+    // The bare modifier release toggles but is never consumed, so the toggle is read from the published mode rather than from the return value.
     const auto live_deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
-    while (!live_shortcut && g_get_monotonic_time() < live_deadline) {
+    while (!seen.input_enabled && g_get_monotonic_time() < live_deadline) {
       require(!key(IBUS_Control_L, IBUS_CONTROL_MASK), "Ctrl press was intercepted");
-      live_shortcut = key(IBUS_Control_L, IBUS_RELEASE_MASK);
-      if (!live_shortcut) g_usleep(50000);
+      require(!key(IBUS_Control_L, IBUS_RELEASE_MASK), "Ctrl release was consumed");
+      if (!seen.input_enabled) g_usleep(50000);
     }
-    require(live_shortcut && seen.input_enabled,
+    require(seen.input_enabled,
             "Host shortcuts did not reload without an Engine session");
     phrase();
     require(!seen.english_mode && seen.preedit == "nihao",
@@ -498,6 +498,78 @@ int main(int argc, char **argv) {
             "Preference refresh restored composition after switching to passthrough");
     seen.committed.clear();
     invoke("Reset");
+    // English mode keeps fullwidth output and the "always Chinese punctuation" lock, as Windows does with the IME closed. The injected options are the authority here, so no preferences directory is read back.
+    {
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      auto english = options;
+      english.erase("preferences_directory");
+      english["preferences"]["ime_mode_scope"] = "app";
+      english["preferences"]["default_ime_mode"] = "english";
+      english["preferences"]["character_width"] = "fullwidth";
+      english["preferences"]["punctuation_lock"] = "chinese";
+      msime_ibus_configure(english.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      if (seen.input_enabled) {
+        key(IBUS_space, IBUS_CONTROL_MASK);
+        key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      }
+      require(!seen.input_enabled, "English output fixture did not start in English mode");
+      require(key('a') && seen.committed == "ａ",
+              "Fullwidth English mode did not widen a letter");
+      seen.committed.clear();
+      require(key(IBUS_space) && seen.committed == "\u3000",
+              "Fullwidth English mode did not widen Space");
+      seen.committed.clear();
+      require(key(IBUS_comma) && seen.committed == "，",
+              "Chinese punctuation lock did not convert a comma in English mode");
+      seen.committed.clear();
+      require(key(IBUS_quotedbl, IBUS_SHIFT_MASK) && key(IBUS_quotedbl, IBUS_SHIFT_MASK) &&
+                  seen.committed == "“”",
+              "Chinese punctuation lock did not alternate quotes in English mode");
+      seen.committed.clear();
+      require(!key(IBUS_a, IBUS_CONTROL_MASK) && seen.committed.empty(),
+              "English mode output swallowed a Ctrl shortcut");
+      require(!key('a', IBUS_RELEASE_MASK) && seen.committed.empty(),
+              "English mode output handled a key release");
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // Under the "follow" lock the mode switch re-resolves punctuation: a Ctrl+. choice made in Chinese mode does not survive a round trip through English mode, and English mode leaves ASCII marks alone.
+      auto follow = options;
+      follow.erase("preferences_directory");
+      follow["preferences"]["ime_mode_scope"] = "app";
+      follow["preferences"]["default_ime_mode"] = "chinese";
+      follow["preferences"]["character_width"] = "halfwidth";
+      follow["preferences"]["punctuation_lock"] = "follow";
+      follow["preferences"]["chinese_punctuation"] = true;
+      follow["preferences"]["keybindings"]["switch_language_shift"] = true;
+      msime_ibus_configure(follow.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      if (!seen.input_enabled) {
+        key(IBUS_space, IBUS_CONTROL_MASK);
+        key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      }
+      require(seen.input_enabled && seen.punctuation_enabled,
+              "Follow fixture did not start in Chinese mode with Chinese punctuation");
+      require(key(IBUS_period, IBUS_CONTROL_MASK) && !seen.punctuation_enabled,
+              "Ctrl+. did not turn Chinese punctuation off in the follow fixture");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  !seen.input_enabled,
+              "Bare Shift release was consumed or did not enter English mode");
+      require(!key(IBUS_comma) && seen.committed.empty(),
+              "Follow lock converted a comma in English mode");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) &&
+                  seen.input_enabled,
+              "Bare Shift release was consumed or did not restore Chinese mode");
+      require(seen.punctuation_enabled,
+              "Switching back to Chinese mode under the follow lock did not restore Chinese punctuation");
+      invoke("FocusOut");
+    }
     for (const auto *scope : {"app", "global"}) {
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
@@ -517,20 +589,15 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       require(seen.mode_sensitive && seen.input_enabled && seen.smart_punctuation_sensitive,
               "Chinese refocus did not restore the mode menu with a session");
-      // The configured Ctrl shortcut switches the mode and the scope remembers
-      // the new one - that is what Windows does, whichever scope is configured,
-      // and what this host does. The assertions here used to require the release
-      // to be consumed and then require Chinese input immediately after, which
-      // cannot both hold: a consumed release means the mode was toggled, and this
-      // context starts in Chinese. Toggle twice, and check the mode each time.
+      // The configured Ctrl shortcut switches the mode and the scope remembers the new one - that is what Windows does, whichever scope is configured, and what this host does. Like Windows, the release toggles but still reaches the application, so the switch is read from the published mode. Toggle twice, and check the mode each time.
       require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) &&
-                  key(IBUS_Control_L, IBUS_RELEASE_MASK),
-              "Configured Ctrl shortcut did not switch away from the initial Chinese mode");
+                  !key(IBUS_Control_L, IBUS_RELEASE_MASK),
+              "Configured Ctrl shortcut consumed a modifier event");
       require(!seen.input_enabled,
-              "Configured Ctrl shortcut was consumed without leaving Chinese input");
+              "Configured Ctrl shortcut did not leave Chinese input");
       require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) &&
-                  key(IBUS_Control_L, IBUS_RELEASE_MASK),
-              "Configured Ctrl shortcut did not switch back from passthrough");
+                  !key(IBUS_Control_L, IBUS_RELEASE_MASK),
+              "Configured Ctrl shortcut consumed a modifier event in passthrough");
       require(seen.input_enabled,
               "Configured Ctrl shortcut did not return to Chinese input");
       phrase();
@@ -1485,11 +1552,12 @@ int main(int argc, char **argv) {
     }
     for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
       require(!key(modifier_key), "Bare modifier press was intercepted");
-      require(key(modifier_key, IBUS_RELEASE_MASK) && !seen.input_enabled,
-              "Bare modifier no longer disabled input");
+      // Windows toggles on the bare release and still lets the application see it.
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && !seen.input_enabled,
+              "Bare modifier release was consumed or no longer disabled input");
       require(!key(modifier_key), "Bare modifier restore press was intercepted");
-      require(key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
-              "Bare modifier no longer restored input");
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Bare modifier release was consumed or no longer restored input");
     }
     // Preferences can change while a modifier is held; release uses the
     // current binding without committing or clearing the active composition.
@@ -1672,7 +1740,11 @@ int main(int argc, char **argv) {
       require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
               "Modifier voice chord did not reach provider");
       require(key(chord.first, IBUS_RELEASE_MASK), "Modifier voice chord release was not consumed");
-      require(!key(IBUS_Control_R, IBUS_RELEASE_MASK), "Voice chord Ctrl release toggled input");
+      // A bare Ctrl release is never consumed, even when it toggles, so the mode itself is what shows a toggle.
+      const bool mode_before_release = seen.input_enabled;
+      require(!key(IBUS_Control_R, IBUS_RELEASE_MASK) &&
+                  seen.input_enabled == mode_before_release,
+              "Voice chord Ctrl release toggled input");
       require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
               "Modifier voice chord release did not stop capture");
       voice_provider.release_final = true;
@@ -1733,13 +1805,13 @@ int main(int argc, char **argv) {
     for (guint modifier_key : {IBUS_Control_L, IBUS_Shift_L}) {
       phrase();
       require(!key(modifier_key), "Composing modifier press was intercepted");
-      require(key(modifier_key, IBUS_RELEASE_MASK) && !seen.input_enabled &&
+      require(!key(modifier_key, IBUS_RELEASE_MASK) && !seen.input_enabled &&
                   seen.committed == "nihao" && !seen.preedit_visible && !seen.lookup_visible,
               "Bare modifier did not switch mode and commit original spelling");
       require(!key('a'), "Direct mode intercepted text after modifier toggle");
       require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.committed == "nihao",
               "Repeated modifier release committed twice");
-      require(!key(modifier_key) && key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
+      require(!key(modifier_key) && !key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
               "Modifier did not restore mode after composition");
       seen.committed.clear();
     }
@@ -1894,11 +1966,11 @@ int main(int argc, char **argv) {
     require(seen.committed == "你好" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Commit/clear signal mismatch");
-    require(!key(IBUS_Shift_L) && key(IBUS_Shift_L, IBUS_RELEASE_MASK),
-            "Pure Shift did not toggle input mode off");
+    require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK),
+            "Pure Shift consumed a modifier event");
     require(!seen.input_enabled, "Pure Shift did not enter direct mode");
-    require(!key(IBUS_Shift_L) && key(IBUS_Shift_L, IBUS_RELEASE_MASK),
-            "Pure Shift did not toggle input mode on");
+    require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK),
+            "Pure Shift consumed a modifier event on restore");
     require(seen.input_enabled, "Pure Shift did not restore input mode");
     phrase();
     require(key(IBUS_End), "End did not move to the page edge");

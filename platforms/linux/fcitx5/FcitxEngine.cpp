@@ -860,6 +860,13 @@ public:
         });
   }
 #endif
+  // Windows re-resolves punctuation on every Chinese/English switch: under the "follow" lock (0) it tracks the mode, and a pinned lock keeps its value. Session-only - the saved chinese_punctuation preference is not rewritten, so the next preference refresh restates it.
+  void resyncPunctuationForMode() {
+    english_punctuation_ = {};
+    if (punctuation_lock_ != 0) return;
+    chinese_punctuation_ = input_enabled_;
+    syncSessionChinesePunctuation();
+  }
   bool toggleInputMode() {
     if (!session_ || restricted() || privateInput() || !ic_.hasFocus()) return false;
     input_enabled_ = !input_enabled_;
@@ -870,8 +877,10 @@ public:
       // （见 ClientEngine.cpp 的 toggle_input_mode），这个宿主此前用的是结束组合，于是
       // 同一个手势在两个 Linux 宿主上给出不同的结果。
       if (!view_.value("editing_text", std::string{}).empty()) command(MSIME_COMMIT_RAW);
+      resyncPunctuationForMode();
       clearPanel();
     } else {
+      resyncPunctuationForMode();
       render();
     }
     // 提示放在面板更新之后：clearPanel()/render() 会刷新输入面板，先弹再刷会把它收掉。
@@ -2785,6 +2794,23 @@ public:
     return sym == FcitxKey_Control_L || sym == FcitxKey_Control_R || code == 37 || code == 105;
   }
   bool key(fcitx::KeyEvent &event);
+  // Characters the IME hands back to the application are still typed text: Windows counts them in the statistics (ShouldCountPassthroughChar), so English-mode letters and Chinese-mode keys the Engine declines show up in the daily totals. Keys the IME consumed already recorded their committed text.
+  void countPassthroughKey(const fcitx::KeyEvent &event) const {
+    if (event.isRelease() || !ic_.hasFocus() || restricted()) return;
+    const auto states = event.key().states();
+    msime::linux_host::PassthroughModifiers held;
+    held.control = states.test(fcitx::KeyState::Ctrl);
+    held.alt = states.test(fcitx::KeyState::Alt);
+    held.super = states.test(fcitx::KeyState::Super);
+    held.hyper = states.test(fcitx::KeyState::Hyper);
+    held.meta = states.test(fcitx::KeyState::Meta);
+    const auto character =
+        static_cast<char32_t>(fcitx::Key::keySymToUnicode(event.key().sym()));
+    if (!msime::linux_host::should_count_passthrough_character(character, held)) return;
+    recordTypingStatistics(fcitx::utf8::UCS4ToUTF8(character),
+                           input_enabled_ ? typingSource()
+                                          : msime::linux_host::TypingSource::English);
+  }
   uint64_t session_ = 0;
   Json view_ = Json::object();
   Json preferences_ = Json::object();
@@ -2823,6 +2849,8 @@ public:
   bool paired_punctuation_ = true;
   // Closing marks this host inserted after the caret, innermost last; whether the last apply() completed a pair.
   msime::linux_host::PairedPunctuationTracker paired_tracker_;
+  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock; reset on every mode switch.
+  msime::linux_host::EnglishPunctuationState english_punctuation_;
   bool pair_inserted_ = false;
   // Japanese converts with Space and commits with Enter; see ../src/core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion_;
@@ -4960,7 +4988,12 @@ public:
   void keyEvent(const fcitx::InputMethodEntry &, fcitx::KeyEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
     state->noteCapsLock(event.rawKey().states().test(fcitx::KeyState::CapsLock));
-    try { if (state->ensure() && state->key(event)) event.filterAndAccept(); }
+    try {
+      if (state->ensure()) {
+        if (state->key(event)) event.filterAndAccept();
+        else state->countPassthroughKey(event);
+      }
+    }
     catch (const OptionsNotConfigured &) { notConfigured(*state, false); }
     catch (...) { unavailable(*state); }
   }
@@ -5379,7 +5412,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
           // Same follow-up as the existing Ctrl+Shift+E and Ctrl+Shift+Space
           // chords: the toggle redraws the input panel, and the status area
           // re-reads its own checked state when Fcitx5 next draws it.
-          if (ensure() && toggleInputMode()) return true;
+          // Windows toggles on the bare modifier release but still lets the application see it, so a program tracking Shift or Ctrl state does not keep it latched.
+          if (ensure()) toggleInputMode();
         } catch (...) {
           close();
           clearPanel();
@@ -5550,7 +5584,21 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (composing) command(MSIME_COMMIT_RAW);
     return toggleWidth();
   }
-  if (!input_enabled_) return false;
+  if (!input_enabled_) {
+    // English mode still honours fullwidth output and the "always Chinese punctuation" lock, as Windows does with the IME closed; everything else passes through.
+    if (ctrl || alt ||
+        states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper,
+                                        fcitx::KeyState::Meta}) ||
+        !ic_.hasFocus() || restricted())
+      return false;
+    const bool keypad = sym >= FcitxKey_KP_Space && sym <= FcitxKey_KP_9;
+    const auto text = msime::linux_host::english_mode_output(
+        static_cast<char32_t>(fcitx::Key::keySymToUnicode(sym)), keypad,
+        punctuation_lock_ == 1, fullwidthOutput(), english_punctuation_);
+    if (text.empty()) return false;
+    commitText(text, msime::linux_host::TypingSource::English);
+    return true;
+  }
   if (character_set_shortcut_enabled_ && ctrl && shift && !alt &&
       (sym == FcitxKey_f || sym == FcitxKey_F)) {
     if (composing) command(MSIME_COMMIT_RAW);

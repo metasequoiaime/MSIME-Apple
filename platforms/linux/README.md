@@ -181,7 +181,9 @@ Linux 的 `floating_toolbar` 偏好映射为 IBus 原生属性菜单中的“工
 
 ## 构建与运行
 
-IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到 IBus 后异步写入 Host API，按当前方案、本地模式、英文模式或语音来源计数；只保留字符类别、来源和日期的聚合数据，不保存输入文本。未配置绝对的 `preferences_directory` 时跳过统计，统计写入失败不会影响输入。
+IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到 IBus 后异步写入 Host API，按当前方案、本地模式、英文模式或语音来源计数；只保留字符类别、来源和日期的聚合数据，不保存输入文本。输入法没有消费、交还给应用的可打印字符也计入统计（英文模式记为 `english` 来源），判据与 Windows `ShouldCountPassthroughChar` 相同，写在 `TypingStatistics.h` 的 `should_count_passthrough_character`：只算按下、有焦点、非密码与隐私输入、不带 Ctrl/Alt/Super 的键，不算控制字符和 DEL；Fcitx5 同样如此。未配置绝对的 `preferences_directory` 时跳过统计，统计写入失败不会影响输入。
+
+英文模式与 Windows 一样仍处理两个设置：标点锁定为「始终中文标点」时先把 ASCII 标点换成中文标点（引号交替、书名号嵌套，按 Engine `contracts/punctuation/policy.h` 的正向表），全角开着时再把可打印 ASCII 换成全角（空格为 U+3000），其余键交给应用；小键盘不转中文标点，带 Ctrl/Alt/Super/Hyper 的组合键照旧透传。IBus 与 Fcitx5 共用 `SmartPunctuationSpace.h` 的 `english_mode_output`。每次中英切换后按标点锁定重设会话标点：「跟随」时中文模式用中文标点、英文模式用英文标点，锁定为中文或英文时保持锁定值；这只改本次会话，不写偏好文件。裸 Shift/Ctrl 松开时切换模式，但这次松开仍交给应用，跟踪修饰键状态的程序不会以为它一直按着。
 
 候选辅助文本在页码后展示 Engine 快照提供的本地模式标签（U+、日期时间、短语、Emoji、颜文字、简拼、EN、日文）。普通或未知模式不附加标签，取消组合或没有候选时隐藏辅助文本；不从预编辑前缀推断模式。
 

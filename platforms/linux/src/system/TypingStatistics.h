@@ -91,4 +91,23 @@ resolve_typing_source(int scheme, bool nine_key, bool dedicated_english,
   }
 }
 
+// Modifiers that turn a key press into a shortcut rather than typed text. Shift and the level-3/level-5 shifts are deliberately absent: they select which character a key produces, so a character typed with them is still text.
+struct PassthroughModifiers {
+  bool control = false;
+  bool alt = false;
+  bool super = false;
+  bool hyper = false;
+  bool meta = false;
+};
+
+// Whether a key the IME handed back to the application still counts as a typed character. Mirrors the Windows ShouldCountPassthroughChar rule: no shortcut modifier held, and a printable scalar value - no C0 control, no DEL, no surrogate, nothing past U+10FFFF. The caller has already ruled out releases, keys the IME consumed, and blocked or private contexts.
+constexpr bool should_count_passthrough_character(char32_t character,
+                                                  PassthroughModifiers held) {
+  if (held.control || held.alt || held.super || held.hyper || held.meta)
+    return false;
+  if (character < 0x20 || character == 0x7f || character > 0x10ffff)
+    return false;
+  return character < 0xd800 || character > 0xdfff;
+}
+
 } // namespace msime::linux_host
