@@ -2387,7 +2387,7 @@ dependencies = [
 name = "msime-client-core"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "flate2",
  "futures-util",
  "hex",
