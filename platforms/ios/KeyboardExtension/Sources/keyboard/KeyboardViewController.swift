@@ -58,6 +58,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateGlossEpoch: UInt64 = 0
   private var candidateGlossRequestedGeneration: UInt64?
   private let translations = CandidateTranslationStore()
+  /// The translation service the shared document picks; `.none` means a chosen provider is incomplete and no words leave the device.
+  private var translationRoute: TranslationRoute = .account
   private lazy var onlineCandidates: OnlineCandidateProvider = {
     let provider = OnlineCandidateProvider(session: session)
     provider.onApplied = { [weak self] in self?.render($0) }
@@ -411,6 +413,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
     applyLearningPreferences()
+    synchronizeTranslationRoute()
     // The Tauri settings app writes the shared PreferencesStore rather than the
     // legacy App Group UserDefaults used by the old SwiftUI settings page.
     // Reload it off-thread so a fuzzy-pinyin change is visible the next time
@@ -428,6 +431,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.synchronizeCharacterWidth()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
+      self.synchronizeTranslationRoute()
       // The local-mode menu follows the modes the settings app leaves on.
       self.updatePreeditButton()
     }
@@ -3068,9 +3072,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return KeyboardCandidateAnnotation(text: text, accessibilityDescription: description)
   }
 
+  private func synchronizeTranslationRoute() {
+    let route = TranslationProviderPreference.route(in: session.sharedPreferences)
+    guard route != translationRoute || route.cacheScope != translations.scope else { return }
+    translationRoute = route
+    translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
+                     scope: route.cacheScope)
+    DiagnosticLog.shared.write("translation_route provider=\(route.provider?.rawValue ?? "none")")
+  }
+
   private func requestCandidateTranslations() {
     guard CandidateGlossPreference.enabled, CandidateTranslationPreference.onlineEnabled,
-          hasFullAccess, !inputScheme.isJapanese, !isInLocalMode,
+          translationRoute != .none, hasFullAccess, !inputScheme.isJapanese, !isInLocalMode,
           !visibleCandidates.isEmpty else { translations.cancel(); return }
     var codes = [CandidateTranslationPreference.primary.code]
     if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }

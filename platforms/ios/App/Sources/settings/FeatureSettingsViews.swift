@@ -180,7 +180,10 @@ struct DictionarySettingsView: View {
           }.accessibilityIdentifier("candidateTranslationSecondaryPicker")
           Toggle("联网补充释义", isOn: $translationOnline)
             .accessibilityIdentifier("candidateTranslationOnline")
-          Text("离线词库只有英汉两个方向，其余语言以及词库答不上来的词要联网才有。开启后键盘会把这一页的中文候选发给水杉账号的翻译接口，需要允许键盘完全访问。")
+          NavigationLink(destination: TranslationProviderSettingsView()) {
+            Label("翻译服务", systemImage: "globe")
+          }.accessibilityIdentifier("translationProviderLink")
+          Text("离线词库只有英汉两个方向，其余语言以及词库答不上来的词要联网才有。开启后键盘会把这一页的中文候选发给所选翻译服务（默认是水杉账号的翻译接口），需要允许键盘完全访问。")
             .font(.footnote).foregroundStyle(.secondary)
         }
       } header: {
