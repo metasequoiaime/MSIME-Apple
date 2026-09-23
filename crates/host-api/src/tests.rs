@@ -1164,6 +1164,51 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn skin_package_resolves_one_manifest_with_the_catalog_loader() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("skins");
+    let call =
+        |request: &str| read(unsafe { msime_client_skin_package(request.as_ptr(), request.len()) });
+    let request = |id: &str| json!({"directory": root, "id": id}).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_skin_package(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(call("not json")["ok"], false);
+    assert_eq!(
+        call(&json!({"directory": "skins", "id": "sample"}).to_string())["ok"],
+        false
+    );
+    assert_eq!(call(&request("sample"))["ok"], false);
+    std::fs::create_dir_all(root.join("sample")).unwrap();
+    // Literal strings, a multi-line array and an inline table: full TOML, as the settings page and Windows toml++ read it.
+    std::fs::write(
+        root.join("sample/skin.toml"),
+        "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\n\
+         base = 'fluent'\n[supports]\nlayouts = [\n  'vertical',\n]\nthemes = ['light']\n\
+         [candidate_window]\nmin_width_dip = 1_0\n\
+         decoration = { top_inset_dip = 0, width_dip = 0 }\n[candidate.light]\naccent = '#123456'\n",
+    )
+    .unwrap();
+    let package = call(&request("sample"));
+    assert_eq!(package["ok"], true, "{package}");
+    assert_eq!(package["value"]["minWidthDip"], 10.0);
+    assert_eq!(package["value"]["candidate"]["light"]["accent"], "#123456");
+    let catalog = read(unsafe {
+        let path = root.to_str().unwrap();
+        msime_client_skin_catalog(path.as_ptr(), path.len())
+    });
+    assert_eq!(package["value"], catalog["value"]["packages"][0]);
+    assert_eq!(call(&request("fluent"))["error"], "invalid skin id");
+    std::fs::write(root.join("sample/skin.toml"), "schema_version = '1'\n").unwrap();
+    assert_eq!(
+        call(&request("sample"))["error"],
+        "unsupported schema_version"
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn custom_skin_library_reaches_a_c_abi_host_without_a_second_store() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().to_str().unwrap().to_owned();
@@ -3336,6 +3381,47 @@ fn failed_rebuild_preserves_completed_input_and_retries_later() {
         false
     );
     read(msime_client_destroy(handle));
+}
+/// The contract the input hosts' dictionary-maintenance release relies on: a live session is what keeps maintenance out, destroying it is all it takes to let maintenance in, and a session asked for while maintenance runs is refused rather than queued.
+#[test]
+fn a_session_and_dictionary_maintenance_exclude_each_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let (user, dictionaries) = (path("user"), path("dictionaries"));
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": user, "cache": path("cache"), "dictionaries": dictionaries, "preferences": { "scheme": "quanpin", "default_ime_mode": "chinese", "candidate_page_size": 5, "learning": false, "chinese_punctuation": true } }).to_string();
+    let create = || read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+
+    let maintenance = DictionaryAccess::try_maintenance(&user, &dictionaries)
+        .unwrap()
+        .unwrap();
+    let refused = create();
+    assert_eq!(refused["ok"], false);
+    assert_eq!(refused["error"], "dictionary maintenance busy");
+    drop(maintenance);
+
+    let created = create();
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
+        .unwrap()
+        .is_none());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    // Other tests spawn processes concurrently, and a fork can briefly inherit the released lock before close-on-exec runs.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while DictionaryAccess::try_maintenance(&user, &dictionaries)
+        .unwrap()
+        .is_none()
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "a destroyed session kept dictionary maintenance out"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
 }
 pub(super) fn read(pointer: *mut c_char) -> Value {
     // SAFETY: all callers pass a fresh response allocation.

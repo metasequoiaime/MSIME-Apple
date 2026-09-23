@@ -7,6 +7,8 @@ mod ai;
 mod clipboard_history;
 #[cfg(not(target_os = "android"))]
 mod dictionary_import;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod dictionary_quiesce;
 // Only the two hosts that have to replay input into another window build this.
 // macOS delivers through the input method itself and needs none of it.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -1747,12 +1749,8 @@ async fn dictionary_request(
         let requires_quiesce = dictionary_action_requires_quiesce(&action);
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         let _ = requires_quiesce;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let user_data = options["user_data"].as_str().map(str::to_owned);
-        #[cfg(target_os = "macos")]
-        if requires_quiesce {
-            msime_host_macos::quiesce_input_sessions();
-        }
         let request = serde_json::json!({ "options": options, "action": action });
         #[cfg(target_os = "ios")]
         if ios_personal_dictionary_action(&request["action"]) {
@@ -1772,30 +1770,13 @@ async fn dictionary_request(
         {
             // One request to the host. An import too large for one request is several, each through this, so whatever releases the input sessions below stays in force until the last of them.
             let host = |bytes: &[u8]| msime_host_api::dictionary_request_json(bytes);
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            let busy = |result: &Result<Value, String>| {
-                matches!(result, Err(reason) if reason == "dictionary maintenance busy")
-            };
-            // Distributed notifications are delivered asynchronously to the IMK process. Retry only the lock-acquisition failure; a completed write is never replayed.
-            #[cfg(target_os = "macos")]
-            let send = |bytes: &[u8]| {
-                let mut result = host(bytes);
-                if requires_quiesce {
-                    for _ in 0..20 {
-                        if !busy(&result) {
-                            break;
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(25));
-                        result = host(bytes);
-                    }
-                }
-                result
-            };
-            // The IBus and Fcitx5 hosts release their sessions when they next see the lease, so the lock failure is retried under it. The lease is removed when `hosts` goes, after the last request.
-            #[cfg(target_os = "linux")]
-            let mut hosts =
-                platform::linux::linux_dictionary_quiesce::QuiescedHosts::new(user_data.as_deref());
-            #[cfg(target_os = "linux")]
+            // The input hosts release their sessions when they see the lease, so the lock failure is retried under it. The IBus and Fcitx5 hosts find it on their timers; the macOS input method is also told at once over a distributed notification when the lease first goes up, and its one-second timer catches one that was missed. The lease is removed when `hosts` goes, after the last request.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            let mut hosts = dictionary_quiesce::QuiescedHosts::new(user_data.as_deref(), || {
+                #[cfg(target_os = "macos")]
+                msime_host_macos::quiesce_input_sessions();
+            });
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             let send = |bytes: &[u8]| {
                 if requires_quiesce {
                     hosts.run(|| host(bytes))
@@ -1809,7 +1790,9 @@ async fn dictionary_request(
             #[cfg(target_os = "windows")]
             let send = |bytes: &[u8]| {
                 let result = host(bytes);
-                if !quiesced && busy(&result) && dictionary_maintenance_handshake("DictionaryQuiesce")
+                if !quiesced
+                    && matches!(&result, Err(reason) if reason == "dictionary maintenance busy")
+                    && dictionary_maintenance_handshake("DictionaryQuiesce")
                 {
                     quiesced = true;
                     return host(bytes);

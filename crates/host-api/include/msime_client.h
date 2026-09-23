@@ -233,6 +233,8 @@ char *msime_client_vocabulary_review(const uint8_t *request, size_t length);
  * package supports the layout and theme before adopting its colors.
  * Keys are camelCase, the same document the settings page consumes. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
+/* JSON {directory:absolute skin root,id:package folder}. Validates that one package with the same loader as msime_client_skin_catalog and returns one of its camelCase packages entries; an invalid, built-in, symlinked or missing package is {ok:false,error} with the loader's reason. Reads the package: resolve on a skin or appearance change, never while drawing. */
+char *msime_client_skin_package(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id,relative:package asset,kind:"image"|"font"}.
  * Returns {contentType,bytes}; the manifest and package containment are
  * revalidated for every call and the requested kind must match the asset. */
