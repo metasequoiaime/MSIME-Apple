@@ -115,6 +115,26 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertEqual(CustomServiceConfiguration.load(.ai, defaults: defaults).provider, .deepSeek)
   }
 
+  func testDoubaoKeepsTheChosenStreamEndpointAndReadsBothResultShapes() throws {
+    let suite = "msime-doubao-endpoint-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let endpoints = VoiceProviderPreset.doubaoStreamEndpoints.map(\.endpoint)
+    XCTAssertTrue(endpoints.contains(VoiceProviderPreset.doubao.endpoint), "默认接口要在可选列表里")
+    let nostream = try XCTUnwrap(endpoints.first { $0.hasSuffix("bigmodel_nostream") })
+    var config = CustomServiceConfiguration.loadVoicePreset(.doubao, defaults: defaults)
+    config.endpoint = nostream
+    try config.save(.voice, token: "", defaults: defaults)
+    XCTAssertEqual(CustomServiceConfiguration.loadVoicePreset(.doubao, defaults: defaults).endpoint, nostream)
+    XCTAssertEqual(CustomServiceConfiguration.load(.voice, defaults: defaults).endpoint, nostream)
+
+    XCTAssertEqual(DoubaoHostFrameCodec.transcript(in: ["result": ["text": "你好"]]), "你好")
+    XCTAssertEqual(DoubaoHostFrameCodec.transcript(in: ["result": [["text": "你好，"], ["text": "世界"]]]), "你好，世界")
+    XCTAssertEqual(DoubaoHostFrameCodec.transcript(in: ["result": [[String: Any]]()]), "")
+    XCTAssertEqual(DoubaoHostFrameCodec.transcript(in: ["text": "网关"]), "网关")
+    XCTAssertNil(DoubaoHostFrameCodec.transcript(in: [:]))
+  }
+
   func testConfigurationRejectsUnsafeOrIncompleteEndpoints() {
     for endpoint in ["http://example.invalid/v1", "https://user:password@example.invalid/v1", "https://example.invalid/v1#fragment", ""] {
       var configuration = CustomServiceConfiguration()

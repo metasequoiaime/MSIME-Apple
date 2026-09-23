@@ -29,4 +29,30 @@ struct TouchToolbarPreference: Equatable {
     fullwidth = read("fullwidth", fullwidth)
     punctuation = read("punctuation", punctuation)
   }
+
+  /// The switches in the order and wording of the shared settings page, keyed by the document name.
+  static let options: [(name: String, title: String, keyPath: WritableKeyPath<TouchToolbarPreference, Bool>)] = [
+    ("layout", "键盘设置", \.layout),
+    ("emoji", "表情", \.emoji),
+    ("skin", "切换皮肤", \.skin),
+    ("clipboard", "剪贴板历史", \.clipboard),
+    ("ai", "AI 润色", \.ai),
+    ("character_set", "简繁切换", \.characterSet),
+    ("fullwidth", "全角 / 半角", \.fullwidth),
+    ("punctuation", "中英文标点", \.punctuation),
+  ]
+
+  /// The whole object, so a document holding only some switches is completed the same way the shared page completes it.
+  var documentValue: [String: Bool] {
+    Dictionary(uniqueKeysWithValues: Self.options.map { ($0.name, self[keyPath: $0.keyPath]) })
+  }
+
+  static func load(stateRoot: URL? = nil) -> TouchToolbarPreference {
+    TouchToolbarPreference(in: MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: stateRoot))
+  }
+
+  /// Written into the shared document, which the keyboard reads each time it appears.
+  static func save(_ toolbar: TouchToolbarPreference, stateRoot: URL? = nil) -> Bool {
+    MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot) { $0[key] = toolbar.documentValue }
+  }
 }

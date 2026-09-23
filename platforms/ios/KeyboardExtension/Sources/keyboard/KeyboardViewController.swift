@@ -203,6 +203,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidateCodes: [String] = []
   private var visibleCandidateGlosses: [String] = []
   private var visibleCandidateAnnotations: [String] = []
+  private var visibleCandidateSources: [Int] = []
+  private var visibleCandidateFixedPositions: [Int] = []
   private var visibleCandidatePageCount = 0
   private var appliedCandidateColumnWidth: CGFloat = 0
   private var visibleCandidatesAnsweredByPinyinFallback = false
@@ -2497,6 +2499,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
                                    typed: snapshot.preedit)
         },
+        markers: snapshot.entries.map { CandidateMarker.markers(source: $0.source, fixedPosition: $0.fixedPosition) },
         candidateScale: candidateFontScale, preeditScale: preeditFontScale, candidateFamilies: candidateFontFamilies,
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         menuElements: { [weak self] index in
@@ -2504,7 +2507,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           let entry = snapshot.entries[index]
           return candidateMenuElements(
             generation: generation, globalIndex: indexes[index], candidate: entry.text,
-            offlineGloss: entry.translation)
+            offlineGloss: entry.translation, fixedPosition: entry.fixedPosition)
         },
         onSelect: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return }
@@ -2827,7 +2830,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// Whether Tab turns to more candidates while composing, the shared `navigation.tab` (Windows `paging_tab`, on by default).
   nonisolated static func tabShowsMoreCandidates(_ preferences: [String: Any]?) -> Bool {
-    (preferences?["navigation"] as? [String: Any])?["tab"] as? Bool ?? true
+    KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
   }
 
   /// Tab on the full-size iPad keyboard. On the desktop Tab turns the candidate page; the strip here has no pages to turn, only the full candidate panel behind it, so with candidates showing Tab opens that. Otherwise it ends any composition and types a tab, as an unhandled key does.
@@ -3177,6 +3180,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                          candidateCodes: snapshot.candidateCodes,
                          candidateGlosses: snapshot.candidateGlosses,
                          candidateAnnotations: snapshot.candidateAnnotations,
+                         candidateSources: snapshot.candidateSources,
+                         candidateFixedPositions: snapshot.candidateFixedPositions,
                          candidatePageCount: snapshot.candidatePageCount,
                          answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
     refreshCandidatePanelAnnotations()
@@ -3208,7 +3213,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateStrip(preedit: String, candidates: [String],
                                     candidateCodes: [String] = [], candidateGlosses: [String] = [],
-                                    candidateAnnotations: [String] = [], candidatePageCount: Int = 0,
+                                    candidateAnnotations: [String] = [], candidateSources: [Int] = [],
+                                    candidateFixedPositions: [Int] = [], candidatePageCount: Int = 0,
                                     answeredByPinyinFallback: Bool = false) {
     if visibleCandidates != candidates {
       candidateGlossRequestedGeneration = nil
@@ -3218,6 +3224,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidateCodes = candidateCodes
     visibleCandidateGlosses = candidateGlosses
     visibleCandidateAnnotations = candidateAnnotations
+    visibleCandidateSources = candidateSources
+    visibleCandidateFixedPositions = candidateFixedPositions
     visibleCandidatePageCount = candidatePageCount
     visibleCandidatesAnsweredByPinyinFallback = answeredByPinyinFallback
     requestCandidateTranslations()
@@ -3246,7 +3254,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard offset < page.count else { continue }
       updateCandidateButton(
         chip, candidate: page[offset], hint: candidateAnnotation(at: offset).text,
-        glosses: candidateGlosses(at: offset), number: offset + 1,
+        glosses: candidateGlosses(at: offset), markers: candidateMarkers(at: offset), number: offset + 1,
         converting: japaneseConversionIndex == offset)
     }
     updateExpandControl()
@@ -3256,6 +3264,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     diagnosticLabel.isHidden = visibleDiagnostic == nil
     candidateScrollView.isHidden = visibleCandidates.isEmpty || visibleDiagnostic != nil
     candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
+  }
+
+  private func candidateMarkers(at index: Int) -> [CandidateMarker] {
+    CandidateMarker.markers(
+      source: visibleCandidateSources.indices.contains(index) ? visibleCandidateSources[index] : 0,
+      fixedPosition: visibleCandidateFixedPositions.indices.contains(index) ? visibleCandidateFixedPositions[index] : 0)
   }
 
   private func candidateAnnotation(at index: Int) -> KeyboardCandidateAnnotation {
@@ -3539,8 +3553,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateCandidateButton(
-    _ button: KeyboardKeyButton, candidate: String, hint: String, glosses: [String], number: Int,
-    converting: Bool
+    _ button: KeyboardKeyButton, candidate: String, hint: String, glosses: [String],
+    markers: [CandidateMarker] = [], number: Int, converting: Bool
   ) {
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }
@@ -3562,7 +3576,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         : skin.keyBackground
     }
     let annotation = hint
-    if annotation.isEmpty && glosses.isEmpty {
+    // A pinned word takes the accent colour, as it does in the Windows candidate window; chips are reused, so every other word is set back.
+    let pinned = markers.contains { $0.symbol == "pin.fill" }
+    configuration.baseForegroundColor = pinned
+      ? candidatePalette?.accent ?? skin.accent
+      : candidatePalette?.text ?? skin.keyForeground
+    if annotation.isEmpty && glosses.isEmpty && markers.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
       configuration.attributedTitle = nil
       configuration.titleTextAttributesTransformer = Self.fontTransformer(
@@ -3579,6 +3598,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         .font: CandidateFontPreference.font(.body, scale: candidateFontScale, families: candidateFontFamilies),
         .paragraphStyle: paragraph,
       ]))
+      title += Self.markerRun(markers, color: annotationColor, scale: candidateFontScale)
       if !annotation.isEmpty {
         title += AttributedString(" " + annotation, attributes: AttributeContainer([
           .font: CandidateFontPreference.font(.caption1, scale: candidateFontScale), .paragraphStyle: paragraph,
@@ -3604,11 +3624,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     button.accessibilityLabel = annotation.isEmpty
       ? "候选词 \(number)：\(display)"
       : "候选词 \(number)：\(display)，还需输入 \(annotation)"
+    for marker in markers { button.accessibilityLabel? += "，\(marker.spoken)" }
     let spoken = glosses.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     if !spoken.isEmpty {
       button.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
     }
     button.accessibilityHint = spoken.isEmpty ? nil : "轻点输入，长按可输入释义"
+  }
+
+  /// The markers as symbol attachments after the word, at the annotation's size and colour so they read as a suffix rather than as part of the candidate.
+  static func markerRun(_ markers: [CandidateMarker], color: UIColor, scale: CGFloat) -> AttributedString {
+    let font = CandidateFontPreference.font(.caption1, scale: scale)
+    var run = AttributedString()
+    for marker in markers {
+      guard let image = UIImage(systemName: marker.symbol, withConfiguration: UIImage.SymbolConfiguration(font: font))?
+        .withTintColor(color, renderingMode: .alwaysOriginal) else { continue }
+      run += AttributedString(" ")
+      run += AttributedString(NSAttributedString(attachment: NSTextAttachment(image: image)))
+    }
+    return run
   }
 
   /// What a long press on a candidate's gloss offers. The action is deferred until the menu opens,
@@ -3654,7 +3688,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let candidate = visibleCandidates[index]
     let revision = candidateRevision
     let glosses = glossMenuElements(at: index)
-    let management = candidateMenuElements { [weak self] operation in
+    let fixedPosition = visibleCandidateFixedPositions.indices.contains(index) ? visibleCandidateFixedPositions[index] : 0
+    let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
       return session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
@@ -3671,13 +3706,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// index the engine's whole answer, not the visible strip, so they cannot use the visible index.
   func candidateMenuElements(generation: UInt64, globalIndex: UInt64) -> [UIMenuElement] {
     guard isChineseMode, !inputScheme.isJapanese, !isInLocalMode else { return [] }
-    return candidateMenuElements { [weak self] operation in
+    let entry = (try? CandidatePanelSnapshot.decode(session.allCandidates()))
+      .flatMap { $0.generation == generation ? $0.entries.first { $0.index == globalIndex } : nil }
+    return candidateMenuElements(candidate: entry?.text, fixedPosition: entry?.fixedPosition ?? 0) { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
   }
 
   private func candidateMenuElements(
-    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String
+    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String, fixedPosition: Int
   ) -> [UIMenuElement] {
     guard isChineseMode, !inputScheme.isJapanese, !isInLocalMode else { return [] }
     let glosses = glossMenuElements(glosses(word: candidate, offline: offlineGloss)) { [weak self] in
@@ -3691,7 +3728,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return true
     }
     guard session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses }
-    let management = candidateMenuElements { [weak self] operation in
+    let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
     let edges = wordCharacterMenuElements(candidate: candidate) { [weak self] last in
@@ -3722,7 +3759,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])]
   }
 
+  /// `fixedPosition` is the slot the word is pinned to, zero when it is not: the menu checks that slot and offers 取消固定 only then. Deleting is not offered for a single character, the same as the Windows candidate menu.
   private func candidateMenuElements(
+    candidate: String?, fixedPosition: Int,
     edit: @escaping (MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot?
   ) -> [UIMenuElement] {
     func action(_ title: String, _ symbol: String?, _ operation: MetasequoiaCandidateAction,
@@ -3740,16 +3779,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     // The desktop candidate menu fixes a word at any of the first five slots, not only the first; a submenu keeps the five choices out of the top level, where a phone has room for few rows.
     let positions = (UInt8(1)...5).map { position in
-      action("第 \(position) 位", nil, .fix(position: position), announcement: "已固定到第 \(position) 位")
+      let item = action("第 \(position) 位", nil, .fix(position: position), announcement: "已固定到第 \(position) 位")
+      item.state = Int(position) == fixedPosition ? .on : .off
+      return item
     }
-    return [
+    var elements: [UIMenuElement] = [
       action("优先显示", "arrow.up", .promote),
       UIMenu(title: "固定排位", image: UIImage(systemName: "pin"), children: positions),
-      action("取消固定", "pin.slash", .clearPosition),
-      UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
-        action("确认删除此词条", "trash", .remove, destructive: true),
-      ]),
     ]
+    if fixedPosition > 0 { elements.append(action("取消固定", "pin.slash", .clearPosition)) }
+    if candidate.map({ $0.unicodeScalars.count != 1 }) ?? true {
+      elements.append(UIMenu(title: "删除词条…", image: UIImage(systemName: "trash"), options: .destructive, children: [
+        action("确认删除此词条", "trash", .remove, destructive: true),
+      ]))
+    }
+    return elements
   }
 
   private func makeSymbolKey(
@@ -4023,9 +4067,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     render(session.finishComposition())
     // Without staged resources the phone categories still work; only the Engine catalog's categories are missing.
     let catalog = session.candidateGlossResources().flatMap { $0.isEmpty ? nil : KeyboardSymbolPanelView.Catalog.engine(resources: $0) }
-    let panel = KeyboardSymbolPanelView(catalog: catalog, onInsert: { [weak self] symbol in
+    let panel = KeyboardSymbolPanelView(catalog: catalog, recents: KeyboardSymbolRecents.stored, onInsert: { [weak self] symbol in
       self?.playInputClick()
       self?.insertOwnText(symbol, source: .local)
+      KeyboardSymbolRecents.record(symbol)
     }, onDelete: { [weak self] in
       self?.deleteOwnBackward()
     }, onClose: { [weak self] in self?.closeKeyboardPicker() })

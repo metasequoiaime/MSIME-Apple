@@ -401,11 +401,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       }
       let candidate = try button("candidate-1", in: controller)
       XCTAssertTrue(candidate.menu?.children.first is UIDeferredMenuElement)
-      // 你好 has two characters, so 以词定字 leads the menu while the shared `word_character.enabled` default is on.
+      // 你好 has two characters, so 以词定字 leads the menu while the shared `word_character.enabled` default is on. It is not pinned, so there is no 取消固定 and no slot is checked.
       XCTAssertEqual(controller.candidateMenuElements(at: 0).map(\.title),
-                     ["以词定字", "优先显示", "固定排位", "取消固定", "删除词条…"])
-      XCTAssertEqual((controller.candidateMenuElements(at: 0)[2] as? UIMenu)?.children.map(\.title),
-                     ["第 1 位", "第 2 位", "第 3 位", "第 4 位", "第 5 位"])
+                     ["以词定字", "优先显示", "固定排位", "删除词条…"])
+      let slots = try XCTUnwrap((controller.candidateMenuElements(at: 0)[2] as? UIMenu)?.children as? [UIAction])
+      XCTAssertEqual(slots.map(\.title), ["第 1 位", "第 2 位", "第 3 位", "第 4 位", "第 5 位"])
+      XCTAssertTrue(slots.allSatisfy { $0.state == .off })
       XCTAssertEqual((controller.candidateMenuElements(at: 0).last as? UIMenu)?.children.first?.title,
                      "确认删除此词条")
     }

@@ -3,19 +3,24 @@ import UIKit
 
 @MainActor
 final class KeyboardEmojiCatalogTests: XCTestCase {
-  private var savedRecents: Any?
+  private var savedRecents: [String: Any] = [:]
+  private let recentKeys = [KeyboardEmojiRecents.key, KeyboardSymbolRecents.key]
 
   override func setUp() {
     super.setUp()
-    savedRecents = KeyboardFeedbackPreference.defaults.object(forKey: KeyboardEmojiRecents.key)
-    KeyboardFeedbackPreference.defaults.removeObject(forKey: KeyboardEmojiRecents.key)
+    for key in recentKeys {
+      savedRecents[key] = KeyboardFeedbackPreference.defaults.object(forKey: key)
+      KeyboardFeedbackPreference.defaults.removeObject(forKey: key)
+    }
   }
 
   override func tearDown() {
-    if let savedRecents {
-      KeyboardFeedbackPreference.defaults.set(savedRecents, forKey: KeyboardEmojiRecents.key)
-    } else {
-      KeyboardFeedbackPreference.defaults.removeObject(forKey: KeyboardEmojiRecents.key)
+    for key in recentKeys {
+      if let saved = savedRecents[key] {
+        KeyboardFeedbackPreference.defaults.set(saved, forKey: key)
+      } else {
+        KeyboardFeedbackPreference.defaults.removeObject(forKey: key)
+      }
     }
     super.tearDown()
   }
@@ -119,6 +124,31 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     let letters = try KeyboardEmojiCatalog.loadSymbols(resources: resources, parent: "Letters")
     XCTAssertGreaterThan(letters.count, 255, "最大的一类要翻过不止一页")
     XCTAssertEqual(Set(letters).count, letters.count)
+  }
+
+  func testSymbolRecentsStayApartFromEmojiAndLeadThePanel() throws {
+    KeyboardSymbolRecents.record("，")
+    KeyboardSymbolRecents.record("@gmail.com")
+    KeyboardSymbolRecents.record("，")
+    XCTAssertEqual(KeyboardSymbolRecents.stored, ["，", "@gmail.com"])
+    XCTAssertEqual(KeyboardEmojiRecents.stored, [], "符号不挤进表情的最近")
+    for index in 0..<40 { KeyboardSymbolRecents.record("s\(index)") }
+    XCTAssertEqual(KeyboardSymbolRecents.stored.count, KeyboardSymbolRecents.limit)
+    XCTAssertEqual(KeyboardSymbolRecents.stored.first, "s39")
+
+    var inserted: [String] = []
+    let panel = KeyboardSymbolPanelView(recents: ["→", "㎡"], onInsert: { inserted.append($0) },
+                                        onDelete: {}, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 260)
+    panel.layoutIfNeeded()
+    XCTAssertEqual(panel.categoryCount, KeyboardSymbolPanelView.categories.count + 1)
+    XCTAssertEqual(try button("symbolCategory_0", in: panel).title(for: .normal), "最近")
+    XCTAssertEqual(try button("symbolCategory_1", in: panel).title(for: .normal), "常用")
+    try button("symbolKey_㎡", in: panel).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(inserted, ["㎡"])
+
+    let fresh = KeyboardSymbolPanelView(onInsert: { _ in }, onDelete: {}, onClose: {})
+    XCTAssertEqual(fresh.categoryCount, KeyboardSymbolPanelView.categories.count, "没用过符号时不显示空的最近")
   }
 
   func testSymbolPanelAppendsCatalogCategoriesAndLoadsThemOffTheMainThread() async throws {

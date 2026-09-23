@@ -2,7 +2,7 @@ import UIKit
 
 /// Categorized symbol surface used by the keyboard's punctuation shortcut.
 ///
-/// The hand-picked phone categories come first; after them come the parents of the Engine's symbol catalog in `others.db`, the same catalog the desktop, macOS and Harmony panels browse, loaded a parent at a time off the main thread.
+/// Symbols the user picked before lead as 最近, the way the Windows panel opens on its recently used items. The hand-picked phone categories come next; after them come the parents of the Engine's symbol catalog in `others.db`, the same catalog the desktop, macOS and Harmony panels browse, loaded a parent at a time off the main thread.
 final class KeyboardSymbolPanelView: UIView {
   struct Category {
     let title: String
@@ -80,7 +80,7 @@ final class KeyboardSymbolPanelView: UIView {
   private var locked = false
   private var lockButton: UIButton!
 
-  init(catalog: Catalog? = nil, onInsert: @escaping (String) -> Void, onDelete: @escaping () -> Void,
+  init(catalog: Catalog? = nil, recents: [String] = [], onInsert: @escaping (String) -> Void, onDelete: @escaping () -> Void,
        onClose: @escaping () -> Void) {
     self.onInsert = onInsert
     self.onDelete = onDelete
@@ -88,7 +88,8 @@ final class KeyboardSymbolPanelView: UIView {
     self.catalog = catalog
     // Listing the parents is one small grouped query; without a readable catalog the phone categories stand alone.
     let parents = (try? catalog?.parents()) ?? []
-    entries = Self.categories.map(Entry.fixed) + parents.map { Entry.catalog(parent: $0) }
+    let recent = recents.isEmpty ? [] : [Entry.fixed(Category(title: "最近", symbols: recents))]
+    entries = recent + Self.categories.map(Entry.fixed) + parents.map { Entry.catalog(parent: $0) }
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardSymbolPanel"
     backgroundColor = skin.background
@@ -179,7 +180,7 @@ final class KeyboardSymbolPanelView: UIView {
   private static let rowHeight: CGFloat = 46
   private static let categoryHeight: CGFloat = 40
 
-  /// The number of categories on the left: the phone ones plus any catalog parents.
+  /// The number of categories on the left: 最近 when there is one, the phone ones, and any catalog parents.
   var categoryCount: Int { entries.count }
 
   private func select(_ index: Int) {
@@ -266,5 +267,36 @@ final class KeyboardSymbolPanelView: UIView {
     lockButton.tintColor = locked ? skin.accent : skin.keyForeground
     lockButton.accessibilityLabel = locked ? "已锁定，连续输入符号" : "锁定，连续输入符号"
     lockButton.accessibilityTraits = locked ? [.button, .selected] : [.button]
+  }
+}
+
+/// Symbols picked in the symbol panel, newest first, kept apart from the emoji recents.
+///
+/// Windows keeps one recent list for its whole panel. The iOS emoji recents fill an eight-column pictograph grid, while a symbol here can be a run of text such as `@gmail.com` in a five-column grid, so each panel keeps its own list.
+enum KeyboardSymbolRecents {
+  static let key = "symbolRecents"
+  /// Six full rows of the five-column grid.
+  static let limit = 30
+  private static var defaults: UserDefaults { KeyboardFeedbackPreference.defaults }
+
+  static var stored: [String] {
+    normalize(defaults.stringArray(forKey: key) ?? [])
+  }
+
+  static func record(_ symbol: String) {
+    guard KeyboardEmojiCatalog.validRecent(symbol) else { return }
+    var recents = stored.filter { $0 != symbol }
+    recents.insert(symbol, at: 0)
+    defaults.set(Array(recents.prefix(limit)), forKey: key)
+  }
+
+  static func normalize(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    var output: [String] = []
+    for value in values where KeyboardEmojiCatalog.validRecent(value) && seen.insert(value).inserted {
+      output.append(value)
+      if output.count == limit { break }
+    }
+    return output
   }
 }
