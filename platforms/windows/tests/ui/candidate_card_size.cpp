@@ -23,7 +23,7 @@ int main() {
   // Vertical list: the card follows the widest row and one row per candidate.
   CandidateCardInput vertical;
   vertical.preedit_width = 40.0;
-  vertical.item_widths = {60.0, 120.0, 80.0};
+  vertical.items = {{60.0}, {120.0}, {80.0}};
   const auto stacked = candidate_card_size(vertical);
   require(near(stacked.width, 120.0 + 16.0 + 8.0 + 12.0 + 14.0));
   require(near(stacked.height, 8.0 + 10.0 + (16.0 * 1.4 + 6.0) +
@@ -56,7 +56,7 @@ int main() {
 
   // Zero-width entries are measured as hidden and reserve no row.
   CandidateCardInput sparse = vertical;
-  sparse.item_widths = {60.0, 0.0, 0.0};
+  sparse.items = {{60.0}, {}, {}};
   require(near(candidate_card_size(sparse).height,
                stacked.height - (16.0 * 1.45 + 6.0) * 2.0));
 
@@ -128,29 +128,46 @@ int main() {
 
   // Clicks land on the row that was drawn; the preedit band selects nothing.
   const double card_height = stacked.height;
+  const auto page =
+      candidate_page_layout(vertical.items, card_width, metrics, false);
+  const auto columns =
+      candidate_page_layout(vertical.items, card_width, metrics, true);
   auto row_of = [&](double x, double y) {
-    return candidate_card_hit(x, y, card_width, card_height, 3, metrics, false);
+    return candidate_card_hit(x, y, card_width, card_height, page);
   };
   require(row_of(20.0, first.top + 1.0) == std::optional<size_t>(0));
   require(row_of(20.0, second.top + 1.0) == std::optional<size_t>(1));
   require(!row_of(20.0, metrics.pad_y + 1.0));
   require(!row_of(20.0, card_height - 1.0));
   require(!row_of(-1.0, first.top + 1.0) && !row_of(card_width, first.top + 1.0));
-  require(!candidate_card_hit(20.0, first.top + 1.0, card_width, card_height, 0,
-                              metrics, false));
+  require(!candidate_card_hit(20.0, first.top + 1.0, card_width, card_height,
+                              {}));
   require(candidate_card_hit(column.left + 1.0, column.top + 1.0, card_width,
-                             card_height, 3, metrics,
-                             true) == std::optional<size_t>(1));
+                             card_height, columns) == std::optional<size_t>(1));
+  // Without wrapped runs the page is exactly the one-line rows.
+  for (size_t index = 0; index < 3; ++index) {
+    const auto plain = candidate_row_bounds(index, 3, card_width, metrics, false);
+    require(near(page[index].bounds.top, plain.top) &&
+            near(page[index].bounds.bottom, plain.bottom) &&
+            near(page[index].bounds.left, plain.left) &&
+            near(page[index].bounds.right, plain.right));
+  }
 
   // Untrusted measurements and font sizes are rejected before any arithmetic.
   CandidateCardInput invalid;
-  invalid.item_widths.assign(10, 10.0);
+  invalid.items.assign(10, {10.0});
   require(rejected(invalid));
   invalid = vertical;
   invalid.preedit_width = -1.0;
   require(rejected(invalid));
   invalid = vertical;
-  invalid.item_widths = {60.0, std::nan("")};
+  invalid.items = {{60.0}, {std::nan("")}};
+  require(rejected(invalid));
+  invalid = vertical;
+  invalid.items = {{60.0, std::nan("")}};
+  require(rejected(invalid));
+  invalid = vertical;
+  invalid.items = {{60.0, 0.0, -1.0}};
   require(rejected(invalid));
   invalid = vertical;
   invalid.max_width = std::numeric_limits<double>::infinity();
@@ -251,7 +268,7 @@ int main() {
   // decoration overhang it.
   {
     CandidateCardInput skinned;
-    skinned.item_widths = {40.0};
+    skinned.items = {{40.0}};
     const auto plain = candidate_card_size(skinned);
     skinned.skin_min_width = plain.width + 120.0;
     const auto wide = candidate_card_size(skinned);
@@ -277,5 +294,128 @@ int main() {
     skinned.skin_min_width = 5000.0;
     skinned.max_width = plain.width + 40.0;
     require(near(candidate_card_size(skinned).width, plain.width + 40.0));
+  }
+
+  // Annotation and translation runs, spaced as the shipped presenter spaces them: the annotation 4 DIP after the text, the translation at 0.78 of the size and 0.65 of it away.
+  {
+    const double row = 16.0 * 1.45 + 6.0;
+    const double base = 8.0 + 10.0 + (16.0 * 1.4 + 6.0);
+    const double translation_line = 16.0 * 0.78 * 1.25;
+    require(near(metrics.translation_font, 16.0 * 0.78) &&
+            near(metrics.translation_gap, 16.0 * 0.65) &&
+            near(metrics.translation_line, translation_line) &&
+            near(metrics.annotation_gap, 4.0) &&
+            near(metrics.annotation_line, 16.0 * 1.25));
+
+    // Vertical: both runs fit on the text's line, so the card only widens.
+    CandidateCardInput runs;
+    runs.preedit_width = 40.0;
+    runs.items = {{60.0, 20.0, 40.0}};
+    const auto one_line = candidate_card_size(runs);
+    require(near(one_line.width,
+                 60.0 + 4.0 + 20.0 + 16.0 * 0.65 + 40.0 + 24.0 + 12.0 + 14.0));
+    require(near(one_line.height, base + row));
+    const auto inline_rows =
+        candidate_page_layout(runs.items, one_line.width, metrics, false);
+    const auto &inline_item = inline_rows[0].item;
+    require(!inline_item.annotation.below && !inline_item.translation.below);
+    require(near(inline_item.annotation.x, 64.0) &&
+            near(inline_item.translation.x, 84.0 + 16.0 * 0.65));
+    require(near(inline_item.height, row));
+
+    // Horizontal: the translation always goes under the text, and the column is as wide as the wider of the two lines.
+    runs.horizontal = true;
+    const auto stacked_runs = candidate_card_size(runs);
+    require(near(stacked_runs.width, (84.0 + 24.0 + 8.0) + 12.0 + 14.0));
+    require(near(stacked_runs.height, base + row + translation_line));
+    const auto under = candidate_page_layout(runs.items, stacked_runs.width,
+                                             metrics, true)[0].item;
+    require(!under.annotation.below && under.translation.below);
+    require(near(under.translation.x, 0.0) && near(under.translation.y, row));
+
+    // A capped card wraps the translation under the text instead of clipping it, and grows by the wrapped height. Without a measure the lines are estimated from the single-line width.
+    CandidateCardInput capped_runs;
+    capped_runs.preedit_width = 40.0;
+    capped_runs.max_width = 150.0;
+    capped_runs.items = {{60.0, 0.0, 300.0}};
+    const double content = 150.0 - 12.0 - 24.0;
+    const auto estimated = candidate_card_size(capped_runs);
+    require(near(estimated.width, 150.0));
+    require(near(estimated.height, base + row + 3.0 * translation_line));
+
+    // With a measure, the measured height wins, and it is asked for at the column width the run will be drawn in.
+    size_t asked_index = 99;
+    CandidateRun asked_run = CandidateRun::annotation;
+    double asked_width = 0.0;
+    capped_runs.wrapped = [&](size_t index, CandidateRun run, double width) {
+      asked_index = index;
+      asked_run = run;
+      asked_width = width;
+      return 20.0;
+    };
+    require(near(candidate_card_size(capped_runs).height, base + row + 20.0));
+    require(asked_index == 0 && asked_run == CandidateRun::translation &&
+            near(asked_width, content));
+    // A measurement below one line, or no usable measurement, still reserves the line.
+    capped_runs.wrapped = [](size_t, CandidateRun, double) { return 2.0; };
+    require(near(candidate_card_size(capped_runs).height,
+                 base + row + translation_line));
+    capped_runs.wrapped = [](size_t, CandidateRun, double) {
+      return std::nan("");
+    };
+    require(near(candidate_card_size(capped_runs).height,
+                 base + row + translation_line));
+
+    // An annotation that does not fit moves under the text, and the translation follows it down even though it would fit on the first line.
+    capped_runs.wrapped = {};
+    capped_runs.items = {{60.0, 200.0, 10.0}};
+    const auto moved = candidate_card_size(capped_runs);
+    const double moved_item = row + 2.0 * 16.0 * 1.25 + translation_line;
+    require(near(moved.height, base + moved_item));
+    const auto moved_rows =
+        candidate_page_layout(capped_runs.items, 150.0, metrics, false);
+    const auto &moved_layout = moved_rows[0].item;
+    require(moved_layout.annotation.below && moved_layout.translation.below);
+    require(near(moved_layout.annotation.y, row) &&
+            near(moved_layout.annotation.width, content) &&
+            near(moved_layout.translation.y, row + 2.0 * 16.0 * 1.25) &&
+            near(moved_layout.translation.width, 10.0));
+
+    // Rows of a vertical page stack at their own heights, and hit testing follows them: a click in the wrapped part of the first row is the first row, not the second.
+    capped_runs.items = {{60.0, 200.0, 10.0}, {60.0}};
+    const auto tall = candidate_card_size(capped_runs);
+    require(near(tall.height, base + moved_item + row));
+    const auto grown =
+        candidate_page_layout(capped_runs.items, 150.0, metrics, false);
+    const auto first_line = candidate_row_bounds(0, 2, 150.0, metrics, false);
+    require(near(grown[0].bounds.top, first_line.top) &&
+            near(grown[0].bounds.bottom, first_line.top + moved_item) &&
+            near(grown[1].bounds.top, grown[0].bounds.bottom) &&
+            near(grown[1].bounds.bottom, grown[1].bounds.top + row));
+    require(candidate_card_hit(20.0, first_line.bottom + 1.0, 150.0,
+                               tall.height, grown) == std::optional<size_t>(0));
+    require(candidate_card_hit(20.0, grown[1].bounds.top + 1.0, 150.0,
+                               tall.height, grown) == std::optional<size_t>(1));
+
+    // A horizontal page gives every column the tallest row's height, so the card grows once and the selection fills evenly.
+    const auto spread =
+        candidate_page_layout(capped_runs.items, 150.0, metrics, true);
+    require(spread[0].item.height > row && near(spread[1].item.height, row));
+    require(near(spread[0].bounds.bottom, spread[1].bounds.bottom) &&
+            near(spread[0].bounds.bottom - spread[0].bounds.top,
+                 spread[0].item.height));
+    capped_runs.horizontal = true;
+    require(near(candidate_card_size(capped_runs).height,
+                 base + spread[0].item.height));
+
+    // Pages are bounded like the card.
+    bool caught = false;
+    try {
+      candidate_page_layout(std::vector<CandidateItemWidths>(10), 150.0,
+                            metrics, false);
+    } catch (const std::invalid_argument &) {
+      caught = true;
+    }
+    require(caught);
   }
 }
