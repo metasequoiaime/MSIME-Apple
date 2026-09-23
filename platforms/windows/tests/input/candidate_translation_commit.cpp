@@ -48,7 +48,7 @@ int main() {
   for (const char *name : {"resources", "user_data", "cache", "dictionaries"}) {
     const auto directory = root / name;
     std::filesystem::create_directories(directory);
-    options[name] = directory.string();
+    options[name] = directory.u8string();
   }
 
   constexpr uint64_t epoch = 1;
