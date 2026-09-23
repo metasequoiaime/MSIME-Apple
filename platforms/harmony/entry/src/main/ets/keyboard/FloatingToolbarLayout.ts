@@ -13,7 +13,7 @@ const BUTTON_GAP_VP: number = 10.5;
 const EDGE_INSET_VP: number = 10;
 const TOOLBAR_HEIGHT_VP: number = 44;
 /** Every component the shared record names, plus the gear that is never hidden. */
-const MAXIMUM_BUTTONS: number = 7;
+const MAXIMUM_BUTTONS: number = 9;
 const TOOLBAR_SCALE_VALUES: number[] = [0.75, 1, 1.25, 1.5];
 const TOOLBAR_FONT_SIZE_MIN: number = 16;
 const TOOLBAR_FONT_SIZE_MAX: number = 28;
@@ -26,7 +26,10 @@ export enum ToolbarButton {
   CHARACTER_SET,
   EMOJI,
   SCREEN_KEYBOARD,
-  SETTINGS
+  SETTINGS,
+  // Appended rather than placed where they are drawn: PanelSurfaceAction mirrors SCREEN_KEYBOARD by number, and the order on the bar is decided by buttons() below.
+  HANDWRITING,
+  VOICE,
 }
 
 /** What the keyboard is doing, which is what the faces below report. */
@@ -50,22 +53,36 @@ export interface ToolbarComponents {
   readonly fullwidth: boolean;
   readonly characterSet: boolean;
   readonly emoji: boolean;
+  readonly handwriting: boolean;
   readonly screenKeyboard: boolean;
+  readonly voice: boolean;
   readonly settings: boolean;
 }
 
 export class FloatingToolbarLayout {
   static idleState(): ToolbarState {
     return {
-      english: false, temporaryEnglish: false, japanese: false, capsLock: false, chinesePunctuation: true,
-      fullWidth: false, traditional: false
+      english: false,
+      temporaryEnglish: false,
+      japanese: false,
+      capsLock: false,
+      chinesePunctuation: true,
+      fullWidth: false,
+      traditional: false,
     };
   }
 
   static allComponents(): ToolbarComponents {
     return {
-      englishMode: true, punctuation: true, fullwidth: true, characterSet: true,
-      emoji: true, screenKeyboard: true, settings: true
+      englishMode: true,
+      punctuation: true,
+      fullwidth: true,
+      characterSet: true,
+      emoji: true,
+      handwriting: true,
+      screenKeyboard: true,
+      voice: true,
+      settings: true,
     };
   }
 
@@ -87,8 +104,14 @@ export class FloatingToolbarLayout {
     if (components.emoji) {
       chosen.push(ToolbarButton.EMOJI);
     }
+    if (components.handwriting) {
+      chosen.push(ToolbarButton.HANDWRITING);
+    }
     if (components.screenKeyboard) {
       chosen.push(ToolbarButton.SCREEN_KEYBOARD);
+    }
+    if (components.voice) {
+      chosen.push(ToolbarButton.VOICE);
     }
     // Optional like the rest of them. It used to be the one button nobody could turn off, which
     // made the shared 设置 switch a control with no outcome on this host.
@@ -107,21 +130,32 @@ export class FloatingToolbarLayout {
   static face(button: ToolbarButton, state: ToolbarState): string {
     switch (button) {
       case ToolbarButton.INPUT_MODE:
-        return state.capsLock ? 'A' : state.temporaryEnglish ? 'En'
-          : state.english ? '英' : state.japanese ? '日' : '中';
+        return state.capsLock
+          ? "A"
+          : state.temporaryEnglish
+            ? "En"
+            : state.english
+              ? "英"
+              : state.japanese
+                ? "日"
+                : "中";
       case ToolbarButton.PUNCTUATION:
-        return state.chinesePunctuation ? '。' : '.';
+        return state.chinesePunctuation ? "。" : ".";
       case ToolbarButton.FULL_WIDTH:
-        return state.fullWidth ? '全' : '半';
+        return state.fullWidth ? "全" : "半";
       case ToolbarButton.CHARACTER_SET:
-        return state.traditional ? '繁' : '简';
-      // These two open a surface rather than reporting a state, so their faces never change.
+        return state.traditional ? "繁" : "简";
+      // These open a surface rather than reporting a state, so their faces never change.
       case ToolbarButton.EMOJI:
-        return '☺';
+        return "☺";
+      case ToolbarButton.HANDWRITING:
+        return "✍";
       case ToolbarButton.SCREEN_KEYBOARD:
-        return '⌨';
+        return "⌨";
+      case ToolbarButton.VOICE:
+        return "🎙";
       default:
-        return '⚙';
+        return "⚙";
     }
   }
 
@@ -133,8 +167,11 @@ export class FloatingToolbarLayout {
 
   /** Match the Windows toolbar's four supported scale steps. */
   static scale(value: number): number {
-    if (!Number.isFinite(value) || value < TOOLBAR_SCALE_VALUES[0]
-        || value > TOOLBAR_SCALE_VALUES[TOOLBAR_SCALE_VALUES.length - 1]) {
+    if (
+      !Number.isFinite(value) ||
+      value < TOOLBAR_SCALE_VALUES[0] ||
+      value > TOOLBAR_SCALE_VALUES[TOOLBAR_SCALE_VALUES.length - 1]
+    ) {
       return 1;
     }
     let nearest: number = 1;
@@ -151,7 +188,11 @@ export class FloatingToolbarLayout {
 
   /** Keep a stale or hand-written preference from producing an unreadable toolbar. */
   static fontSize(value: number): number {
-    if (!Number.isInteger(value) || value < TOOLBAR_FONT_SIZE_MIN || value > TOOLBAR_FONT_SIZE_MAX) {
+    if (
+      !Number.isInteger(value) ||
+      value < TOOLBAR_FONT_SIZE_MIN ||
+      value > TOOLBAR_FONT_SIZE_MAX
+    ) {
       return TOOLBAR_FONT_SIZE_DEFAULT;
     }
     return value;

@@ -432,6 +432,12 @@ struct KeyboardView {
       }
     };
     KeyboardSession.shared.onSurfaceChanged = (surface: DesktopSurface): void => {
+      if (SurfaceRoutingPolicy.endsVoice(this.desktop, surface) && this.voiceBusy) {
+        this.cancelVoice();
+      }
+      if (SurfaceRoutingPolicy.endsHandwriting(this.desktop, surface) && this.hasHandwritingContext()) {
+        this.clearHandwriting();
+      }
       this.desktop = surface;
       if (surface === DesktopSurface.EMOJI && this.emojiItems.length === 0) {
         this.loadEmoji(this.emojiGroup);
@@ -1073,6 +1079,19 @@ struct KeyboardView {
     }
   }
 
+  /**
+   * The back control of a face that both form factors draw.
+   *
+   * On a phone the face is one of the panel's own surfaces. On a 2in1 the toolbar may have opened it as the window's desktop surface, which show() never touches, so closing it there has to go through the session; otherwise the button does nothing and the only way out is the toolbar. The same face reached from inside the 2in1 screen keyboard is a panel surface again, and backing out of it returns to the keys rather than closing the keyboard.
+   */
+  private leaveSurface(owner: DesktopSurface): void {
+    if (KeyboardFormFactor.isDesktop() && this.desktop === owner) {
+      KeyboardSession.shared.setDesktopSurface(DesktopSurface.NONE);
+      return;
+    }
+    this.show(SURFACE_NONE);
+  }
+
   /** Tapping the icon of the surface already open closes it. */
   private toggle(surface: string): void {
     this.show(this.surface === surface ? SURFACE_NONE : surface);
@@ -1428,9 +1447,8 @@ struct KeyboardView {
       // jobs, which is how iOS arranges it and why the composition line above stays reserved. A
       // candidate window has no idle state to fill, and the surfaces those icons open are reached
       // from the app on a machine that has room for it.
-      if ((!KeyboardFormFactor.isDesktop() || this.desktop === DesktopSurface.SCREEN_KEYBOARD)
-          && KeyboardScheme.usesHandwritingFace(
-            this.scheme, this.english, this.symbols, this.localMode)
+      if (SurfaceRoutingPolicy.showsHandwritingCandidates(KeyboardFormFactor.isDesktop(), this.desktop,
+          KeyboardScheme.usesHandwritingFace(this.scheme, this.english, this.symbols, this.localMode))
           && this.handwritingCandidates.length > 0) {
         // OCR results are candidates too. Putting them in this shared strip avoids stacking an
         // otherwise-idle shortcut row above a private row inside the canvas, and gives every result
@@ -2968,7 +2986,7 @@ struct KeyboardView {
         Text('返回')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
           .fontColor(this.voiceSkin.accent)
-          .onClick(() => this.show(SURFACE_NONE))
+          .onClick(() => this.leaveSurface(DesktopSurface.VOICE))
       }
       .width('100%')
       .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)
@@ -3071,6 +3089,14 @@ struct KeyboardView {
           .padding({ left: 12 })
           .accessibilityText('删除')
           .onClick(() => this.deleteHandwriting())
+        // Only the toolbar's pad needs a way out of its own; inside a handwriting scheme's keys the language key is that way.
+        if (this.desktop === DesktopSurface.HANDWRITING) {
+          Text('返回')
+            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+            .fontColor(this.handwritingSkin.accent)
+            .padding({ left: 12 })
+            .onClick(() => this.leaveSurface(DesktopSurface.HANDWRITING))
+        }
       }
       .width('100%')
       .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)
@@ -4094,9 +4120,7 @@ struct KeyboardView {
           .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
           .fontColor(this.emojiSkin.accent)
           .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: 10 })
-          .onClick(() => {
-            this.show(SURFACE_NONE);
-          })
+          .onClick(() => this.leaveSurface(DesktopSurface.EMOJI))
         Blank()
         Text('表情')
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
@@ -4455,6 +4479,9 @@ struct KeyboardView {
         this.keyFaces()
       } else if (this.desktop === DesktopSurface.VOICE) {
         this.voiceFace()
+      } else if (this.desktop === DesktopSurface.HANDWRITING) {
+        // The pad without the action row: the physical keys already carry space, return and the language switch.
+        this.handwritingPanel()
       }
     }
     .width('100%')

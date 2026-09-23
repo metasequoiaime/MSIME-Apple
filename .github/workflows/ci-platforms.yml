@@ -186,3 +186,26 @@ jobs:
       - name: Windows platform unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}
         run: echo 'No Windows or shared-platform changes; platform gate skipped.'
+
+  windows-scripts:
+    needs: changes
+    name: Windows release script tests
+    # The release scripts are PowerShell run on Windows, and the cross-build container above has no pwsh, so their probe tests run on a Windows runner. None of them compiles anything.
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run release script tests
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          foreach ($test in 'portable_executable', 'runtime_dependencies', 'collect_notices', 'build_client') {
+            Write-Host "== $test"
+            & pwsh -NoProfile -File "platforms/windows/tests/tools/$test.ps1"
+            if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
+          }
+      - name: Windows platform unchanged
+        if: ${{ needs.changes.outputs.windows != 'true' }}
+        run: echo 'No Windows or shared-platform changes; platform gate skipped.'

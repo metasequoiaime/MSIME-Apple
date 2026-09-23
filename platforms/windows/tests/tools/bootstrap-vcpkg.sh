@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Offline rejection tests. Every target belongs to this fresh fixture tree.
 set -euo pipefail
-repo_root=$(cd "$(dirname "$0")/../../.." && pwd)
+repo_root=$(cd "$(dirname "$0")/../../../.." && pwd)
 mkdir -p "$repo_root/target"
 scratch=$(mktemp -d "$repo_root/target/vcpkg-bootstrap-tests.XXXXXX")
 for scenario in lock unexpected symlink revision; do

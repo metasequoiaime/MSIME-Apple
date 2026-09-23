@@ -3,7 +3,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'pe_fixture.ps1')
 $root = Join-Path ([IO.Path]::GetTempPath()) ('msime-pe-' + [Guid]::NewGuid())
 $path = Join-Path $root 'synthetic image.bin'
-$verify = Join-Path $PSScriptRoot '../Test-PortableExecutable.ps1'
+$verify = Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1'
 try {
     foreach ($arch in @('x86', 'x64')) {
         foreach ($kind in @('exe', 'dll')) {
