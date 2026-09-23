@@ -1,5 +1,6 @@
 // Real Fcitx input contexts and the real Host API. All input is synthetic.
 #include "../FcitxEngine.cpp"
+#include <array>
 #include <iostream>
 #include <filesystem>
 #include <thread>
@@ -710,19 +711,38 @@ int main(int argc, char **argv) {
             "emoji paging menu attached");
     const auto routeScript = std::string(directory) + "/route-helper.sh";
     const auto routeOutput = std::string(directory) + "/route-output";
-    std::ofstream(routeScript) << "#!/bin/sh\nprintf '%s\\n' \"$MSIME_CLIENT_ROUTE\" > \"$MSIME_TEST_ROUTE_OUTPUT\"\n";
+    // The helper renames a finished file into place so the poll below never reads a half-written one.
+    std::ofstream(routeScript) << "#!/bin/sh\nprintf '%s\\n%s\\n%s\\n' \"$MSIME_CLIENT_ROUTE\" \"$MSIME_CLIENT_PANEL\" \"${MSIME_CLIENT_SETTINGS_PAGE:-}\" > \"$MSIME_TEST_ROUTE_OUTPUT.tmp\" && mv \"$MSIME_TEST_ROUTE_OUTPUT.tmp\" \"$MSIME_TEST_ROUTE_OUTPUT\"\n";
     require(chmod(routeScript.c_str(), 0700) == 0, "desktop route helper permissions");
     setenv("MSIME_CLIENT_SETTINGS_COMMAND", routeScript.c_str(), 1);
     setenv("MSIME_TEST_ROUTE_OUTPUT", routeOutput.c_str(), 1);
-    engine.handwriting_action_.activate(&ic);
-    const auto routeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (!std::filesystem::exists(routeOutput) && std::chrono::steady_clock::now() < routeDeadline)
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    require(std::filesystem::exists(routeOutput), "desktop route helper launched");
-    std::ifstream routeFile(routeOutput);
-    std::string route;
-    std::getline(routeFile, route);
-    require(route == "handwriting", "desktop route environment propagated");
+    // A page inherited from the addon's own environment must not leak into a surface launch.
+    setenv("MSIME_CLIENT_SETTINGS_PAGE", "stale", 1);
+    const auto launchedRoute = [&](FcitxDesktopPanelAction &action, const std::string &label) {
+      std::filesystem::remove(routeOutput);
+      action.activate(&ic);
+      const auto routeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      while (!std::filesystem::exists(routeOutput) && std::chrono::steady_clock::now() < routeDeadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      require(std::filesystem::exists(routeOutput), (label + " desktop route helper launched").c_str());
+      std::ifstream routeFile(routeOutput);
+      std::array<std::string, 3> fields;
+      for (auto &field : fields) std::getline(routeFile, field);
+      return fields;
+    };
+    require(launchedRoute(engine.handwriting_action_, "handwriting") ==
+                std::array<std::string, 3>{"handwriting", "handwriting", ""},
+            "desktop route environment propagated");
+    // About, help and feedback are settings sections: each opens its own page, as the IBus host and Windows do, rather than the settings home page.
+    for (auto *action : {&engine.about_action_, &engine.help_action_, &engine.feedback_action_}) {
+      const auto page = action == &engine.about_action_  ? std::string("about")
+                        : action == &engine.help_action_ ? std::string("help")
+                                                         : std::string("feedback");
+      require(launchedRoute(*action, page) ==
+                  std::array<std::string, 3>{"settings:" + page, "settings", page},
+              (page + " menu opens its settings section").c_str());
+    }
+    unsetenv("MSIME_CLIENT_SETTINGS_PAGE");
     engine.emoji_action_.activate(&ic);
     const auto emojiDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (state->emoji_items_.empty() && std::chrono::steady_clock::now() < emojiDeadline) {

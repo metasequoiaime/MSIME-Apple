@@ -318,9 +318,13 @@ bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command) command = "msime-client-settings";
-  const bool about = std::strcmp(panel, "about") == 0;
-  const std::string route = about ? "settings:about" : panel;
-  const std::string panelValue = about ? "settings" : panel;
+  // About, help and feedback are settings sections, not desktop surfaces, so each travels as "settings:<category>" exactly as the IBus host sends it; the bare name is not a route head and the shared parser would reject it, leaving the window on its home page.
+  const char *page = std::strcmp(panel, "about") == 0      ? "about"
+                     : std::strcmp(panel, "help") == 0     ? "help"
+                     : std::strcmp(panel, "feedback") == 0 ? "feedback"
+                                                           : nullptr;
+  const std::string route = page ? std::string("settings:") + page : panel;
+  const std::string panelValue = page ? "settings" : panel;
   std::vector<std::string> environment;
   for (char **entry = ::environ; entry && *entry; ++entry) {
     const std::string value(*entry);
@@ -332,7 +336,7 @@ bool launchDesktopPanel(const char *panel) {
   }
   environment.push_back("MSIME_CLIENT_PANEL=" + panelValue);
   environment.push_back("MSIME_CLIENT_ROUTE=" + route);
-  if (about) environment.push_back("MSIME_CLIENT_SETTINGS_PAGE=about");
+  if (page) environment.push_back(std::string("MSIME_CLIENT_SETTINGS_PAGE=") + page);
   std::vector<char *> environmentPointers;
   environmentPointers.reserve(environment.size() + 1);
   for (auto &value : environment) environmentPointers.push_back(value.data());
