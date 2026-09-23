@@ -1,10 +1,19 @@
 """Loopback synthetic text fixture; never log request bodies or credentials."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import socketserver
 import subprocess
 import sys
 import threading
 import time
+
+
+# HTTPServer.server_bind resolves the bound address with socket.getfqdn, which waits on reverse DNS before this loopback server exists - 35 s on the macOS CI runners. Nothing reads server_name, so bind without it.
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
 
 errors = []
 counts = {}
@@ -41,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(500)
 
 
-server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
     # Two six-second stalls are waited out rather than abandoned, so the whole run needs room for them.
