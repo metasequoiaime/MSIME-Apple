@@ -1,7 +1,4 @@
 import app.msime.client.ClipboardHistoryPolicy;
-import app.msime.client.ClipboardHistory;
-import java.util.ArrayList;
-import java.util.List;
 
 public final class ClipboardHistoryPolicySmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
@@ -12,31 +9,16 @@ public final class ClipboardHistoryPolicySmoke {
         check(ClipboardHistoryPolicy.acceptable("synthetic clipboard text"));
         check(!ClipboardHistoryPolicy.acceptable("x".repeat(ClipboardHistoryPolicy.MAX_CHARS + 1)));
         check(!ClipboardHistoryPolicy.acceptable("🌲".repeat(ClipboardHistoryPolicy.MAX_BYTES)));
+        // These three have to agree with crates/client-core::clipboard, which owns the history
+        // now: MAX_ENTRIES, MAX_MOBILE_TEXT_CHARACTERS and MAX_MOBILE_TEXT_BYTES. A host bound that
+        // is tighter would refuse text the store would have taken, and one that is looser would
+        // promise a save the store then rejects.
         check(ClipboardHistoryPolicy.LIMIT == 50);
-        ClipboardHistory history = new ClipboardHistory(List.of());
-        history.add("older", "one", 1);
-        history.add("newer", "two", 2);
-        check(history.items().get(0).id().equals("two"));
-        history.togglePinned("one");
-        check(history.items().get(0).id().equals("one") && history.items().get(0).pinned());
-        history.add("older", "replacement-id", 3);
-        check(history.items().size() == 2 && history.items().get(0).id().equals("one"));
-        history.remove("one");
-        check(history.items().size() == 1 && history.items().get(0).id().equals("two"));
-
-        List<ClipboardHistory.Item> full = new ArrayList<>();
-        for (int index = 0; index < ClipboardHistoryPolicy.LIMIT; index++)
-            full.add(new ClipboardHistory.Item("id-" + index, "entry-" + index, index, index < 49));
-        ClipboardHistory bounded = new ClipboardHistory(full);
-        bounded.add("replacement", "new", 100);
-        check(bounded.items().size() == ClipboardHistoryPolicy.LIMIT);
-        check(bounded.items().stream().noneMatch(item -> item.id().equals("id-49")));
-        ClipboardHistory allPinned = new ClipboardHistory(full.stream()
-            .map(item -> new ClipboardHistory.Item(item.id(), item.text(), item.timestamp(), true)).toList());
-        // An all-pinned history is its own refusal, so the host can tell the user to unpin one
-        // rather than reporting the same thing it would for an unreadable store.
-        try { allPinned.add("overflow", "overflow", 100); throw new AssertionError(); }
-        catch (ClipboardHistory.FullException expected) { /* Every entry is protected. */ }
+        check(ClipboardHistoryPolicy.MAX_CHARS == 10_000);
+        check(ClipboardHistoryPolicy.MAX_BYTES == 40_000);
+        // Ordering, eviction and the pinned-entries-are-never-evicted rule used to be asserted
+        // here against a second implementation in this host. They belong to the shared store and
+        // are covered by its own tests; what is left here is this host's own policy.
 
         check(ClipboardHistoryPolicy.rejection(null) == ClipboardHistoryPolicy.Rejection.EMPTY);
         check(ClipboardHistoryPolicy.rejection("   \n") == ClipboardHistoryPolicy.Rejection.EMPTY);

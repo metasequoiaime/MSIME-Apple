@@ -179,6 +179,16 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_polishPromptRaw(
     }
     return out;
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_mobileClipboardHistoryRaw(JNIEnv *env, jclass, jbyteArray request) {
+    if (!request) return response(env, msime_client_mobile_clipboard_history(nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_mobile_clipboard_history(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_doubaoDecodeFrameRaw(JNIEnv *env, jclass, jbyteArray frame) {
     if (!frame) return response(env, msime_client_doubao_decode_frame(nullptr, 0));
     jsize length = env->GetArrayLength(frame);

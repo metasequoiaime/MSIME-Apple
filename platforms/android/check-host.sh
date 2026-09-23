@@ -162,6 +162,21 @@ if ! rg -q 'setChinesePunctuationRaw' \
   echo "Android punctuation switching must cross the shared Host API through JNI" >&2
   exit 1
 fi
+# The clipboard history is one file every mobile host shares, and the settings page reads it. A
+# second implementation here is what made this keyboard and that page disagree about what the
+# history contained, so the host may render entries but must not keep its own.
+if ! rg -q 'NativeClient\.mobileClipboardHistory' \
+    "$repo_root/platforms/android/java/app/msime/client/clipboard/ClipboardHistoryStore.java" \
+  || ! rg -q 'msime_client_mobile_clipboard_history' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android clipboard history must go through the shared mobile store" >&2
+  exit 1
+fi
+if rg -q 'putString\(ITEMS_KEY' \
+    "$repo_root/platforms/android/java/app/msime/client/clipboard/ClipboardHistoryStore.java"; then
+  echo "Android must not write clipboard entries to its own private document" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
