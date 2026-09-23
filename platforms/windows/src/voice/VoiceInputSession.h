@@ -88,6 +88,8 @@ public:
   void stop();
   void cancel();
   void lock();
+  // Control-thread only; the Server loop calls it on every pass. Ends a recording whose capture stopped delivering (with a message) or whose batch buffer is full (submitting what it holds). The capture callback cannot do either itself.
+  void maintain();
   bool init_cues(const std::wstring &start_path, const std::wstring &end_path);
   bool recording() const { return recording_.load(); }
   bool locked() const { return locked_.load(); }
@@ -101,6 +103,9 @@ private:
               std::shared_ptr<std::atomic_bool> cancelled,
               std::shared_ptr<VoiceReviewResult> review);
   void clear_overlay();
+  void cancel_session(bool failed);
+  // Shows `message` on the overlay for a few seconds without blocking the caller. Callable from any thread; `session` is the epoch the message belongs to, and a later session takes the overlay over.
+  void report_failure(std::string_view message, uint64_t session);
 
   WaveOverlay &overlay_;
   LeaseProvider lease_provider_;
@@ -117,7 +122,7 @@ private:
   std::mutex samples_mutex_;
   std::vector<float> samples_;
   std::size_t captured_frames_ = 0;
-  std::atomic<bool> capture_overflow_{false};
+  std::atomic<bool> capture_full_{false};
   std::optional<FocusLease> lease_;
   std::shared_ptr<VoiceReviewResult> review_; // control-thread owned
   std::mutex config_mutex_;
@@ -129,5 +134,8 @@ private:
   std::vector<std::shared_ptr<std::atomic_bool>> request_cancellations_;
   std::mutex tasks_mutex_;
   std::vector<std::future<void>> tasks_;
+  std::atomic<uint64_t> failure_displays_{0};
+  std::mutex notices_mutex_;
+  std::vector<std::future<void>> notices_;
 };
 } // namespace msime::windows
