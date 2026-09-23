@@ -68,6 +68,64 @@ pub struct DailyReviewCounts {
     pub introduced: u32,
 }
 
+/// How the user wants their sessions to run.
+///
+/// These live in the progress document rather than in [`crate::preferences`], and the reason is a
+/// rule the macOS host enforces: its `preference-coverage` ctest requires every public
+/// `Preferences` field to be read by the IME host, and force-listing one as not applicable
+/// produces a switch that saves, reports success and does nothing. No IME host reads which
+/// wordbook is selected — only the review session does — so this is not a preference. Keeping it
+/// here also keeps it out of the shared preference document, which the iOS bridge caps at 16 KiB,
+/// and out of the six-host `deny_unknown_fields` coordination a new preference key would need.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VocabularyReviewSettings {
+    /// The wordbook the session draws from. Empty until the user picks one.
+    #[serde(default)]
+    pub wordbook: String,
+    /// New cards to introduce per day.
+    #[serde(default = "default_new_per_day")]
+    pub new_per_day: u32,
+    /// The most cards one session hands out, new and due together.
+    #[serde(default = "default_session_limit")]
+    pub session_limit: u32,
+}
+
+fn default_new_per_day() -> u32 {
+    DEFAULT_NEW_CARDS_PER_DAY as u32
+}
+
+fn default_session_limit() -> u32 {
+    DEFAULT_SESSION_LIMIT as u32
+}
+
+/// Hand-written so it returns exactly what the serde defaults return. A missing file produces
+/// `Default`, and a file missing only these keys produces the serde defaults; the two have to
+/// agree or the same profile behaves differently depending on which path it took.
+impl Default for VocabularyReviewSettings {
+    fn default() -> Self {
+        Self {
+            wordbook: String::new(),
+            new_per_day: default_new_per_day(),
+            session_limit: default_session_limit(),
+        }
+    }
+}
+
+impl VocabularyReviewSettings {
+    /// The daily allowances, clamped to what a session can actually serve.
+    ///
+    /// Zero new cards a day is a legitimate choice — it means "only review what I already know" —
+    /// so it is not corrected upwards. A zero session limit is not, because it would produce a
+    /// queue that is always empty and a page that looks broken.
+    fn is_valid(&self) -> bool {
+        (self.wordbook.is_empty() || wordbook::id_is_well_formed(&self.wordbook))
+            && self.new_per_day as usize <= wordbook::MAX_ENTRIES
+            && self.session_limit >= 1
+            && self.session_limit as usize <= wordbook::MAX_ENTRIES
+    }
+}
+
 /// The stored document.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,6 +137,9 @@ pub struct VocabularyProgress {
     /// Local day → what that day's session did.
     #[serde(default)]
     pub daily: BTreeMap<String, DailyReviewCounts>,
+    /// How the user wants their sessions to run.
+    #[serde(default)]
+    pub settings: VocabularyReviewSettings,
 }
 
 impl VocabularyProgress {
@@ -94,7 +155,10 @@ impl VocabularyProgress {
 
     /// Whether this document is one this code could have written.
     fn validate(&self) -> Result<(), VocabularyProgressError> {
-        if self.cards.len() > MAX_WORDBOOKS || self.daily.len() > MAX_RETAINED_DAYS {
+        if self.cards.len() > MAX_WORDBOOKS
+            || self.daily.len() > MAX_RETAINED_DAYS
+            || !self.settings.is_valid()
+        {
             return Err(VocabularyProgressError::InvalidDocument);
         }
         for (id, words) in &self.cards {
@@ -349,6 +413,25 @@ impl VocabularyProgressStore {
         Ok(next)
     }
 
+    /// Replace the session settings, leaving cards and day counts alone.
+    ///
+    /// Returns the whole document, not nothing, so the page has the new state without a second
+    /// read — the same contract the typing-statistics mutators follow, and what lets a caller keep
+    /// one in-flight request rather than hand-rolling a refetch after every change.
+    pub fn set_settings(
+        &self,
+        settings: VocabularyReviewSettings,
+    ) -> Result<VocabularyProgress, VocabularyProgressError> {
+        if !settings.is_valid() {
+            return Err(VocabularyProgressError::InvalidDocument);
+        }
+        let _lock = self.lock()?;
+        let mut document = self.read_locked()?;
+        document.settings = settings;
+        self.write_locked(&document)?;
+        Ok(document)
+    }
+
     /// Forget every card in one wordbook, leaving the day counts alone.
     ///
     /// The counts record what the user did, which resetting a book does not undo.
@@ -486,6 +569,7 @@ mod tests {
                 )]),
             )]),
             daily: BTreeMap::new(),
+            settings: VocabularyReviewSettings::default(),
         };
         fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
         assert!(matches!(
@@ -589,6 +673,7 @@ mod tests {
                 ]),
             )]),
             daily: BTreeMap::new(),
+            settings: VocabularyReviewSettings::default(),
         };
 
         let queue = build_queue(&progress, &book, TODAY, 20, DEFAULT_SESSION_LIMIT).unwrap();
@@ -617,6 +702,7 @@ mod tests {
                 )]),
             )]),
             daily: BTreeMap::new(),
+            settings: VocabularyReviewSettings::default(),
         };
         let queue = build_queue(&progress, &book, TODAY, 20, DEFAULT_SESSION_LIMIT).unwrap();
         assert_eq!(queue.due, 0);
@@ -637,6 +723,7 @@ mod tests {
                     introduced: 18,
                 },
             )]),
+            settings: VocabularyReviewSettings::default(),
         };
         let queue = build_queue(&progress, &book, TODAY, 20, DEFAULT_SESSION_LIMIT).unwrap();
         assert_eq!(queue.introducing, 2);
@@ -662,6 +749,7 @@ mod tests {
         let progress = VocabularyProgress {
             cards: BTreeMap::from([("cet-4".to_owned(), cards)]),
             daily: BTreeMap::new(),
+            settings: VocabularyReviewSettings::default(),
         };
 
         let queue = build_queue(&progress, &book, TODAY, 20, DEFAULT_SESSION_LIMIT).unwrap();
@@ -675,6 +763,77 @@ mod tests {
             queue.introducing, 0,
             "a backlog leaves no room for new words"
         );
+    }
+
+    #[test]
+    fn a_fresh_profile_gets_the_same_settings_whether_the_keys_were_missing_or_the_file_was() {
+        let (directory, store) = store();
+        assert_eq!(
+            store.load().unwrap().settings,
+            VocabularyReviewSettings::default(),
+            "a missing file is the Default impl"
+        );
+
+        // A document written before these keys existed must read as the same thing, or the same
+        // profile behaves differently depending on which path it took.
+        fs::write(directory.path().join("vocabulary-progress.json"), b"{}").unwrap();
+        assert_eq!(
+            store.load().unwrap().settings,
+            VocabularyReviewSettings::default(),
+            "the serde defaults have to agree with the Default impl"
+        );
+    }
+
+    #[test]
+    fn settings_round_trip_and_leave_the_cards_and_counts_alone() {
+        let (_directory, store) = store();
+        let book = book_of(&["ubiquitous"]);
+        store
+            .answer(&book, "ubiquitous", ReviewGrade::Known, TODAY)
+            .unwrap();
+
+        let document = store
+            .set_settings(VocabularyReviewSettings {
+                wordbook: "kaoyan".to_owned(),
+                new_per_day: 40,
+                session_limit: 100,
+            })
+            .unwrap();
+        assert_eq!(document.settings.wordbook, "kaoyan");
+        assert_eq!(document.settings.new_per_day, 40);
+
+        let reloaded = store.load().unwrap();
+        assert_eq!(reloaded.settings, document.settings);
+        assert!(reloaded.card("cet-4", "ubiquitous").is_some());
+        assert_eq!(reloaded.answered_on(TODAY), 1);
+    }
+
+    #[test]
+    fn settings_outside_the_stored_range_are_refused() {
+        let (_directory, store) = store();
+        let valid = VocabularyReviewSettings::default();
+
+        // Zero new cards a day means "only review what I already know", which is a real choice.
+        assert!(store
+            .set_settings(VocabularyReviewSettings {
+                new_per_day: 0,
+                ..valid.clone()
+            })
+            .is_ok());
+
+        // A zero session limit would leave the queue permanently empty and the page looking broken.
+        assert!(store
+            .set_settings(VocabularyReviewSettings {
+                session_limit: 0,
+                ..valid.clone()
+            })
+            .is_err());
+        assert!(store
+            .set_settings(VocabularyReviewSettings {
+                wordbook: "CET 4".to_owned(),
+                ..valid
+            })
+            .is_err());
     }
 
     #[test]
