@@ -5482,9 +5482,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
        msime::linux_host::KeyRouterAdapter::lease_token(s.client_token,
                                                          s.session)},
       msime::linux_host::KeyRouterAdapter::virtual_key(key), keycode,
-      static_cast<uint32_t>(
-          flags & (IBUS_SHIFT_MASK | IBUS_CONTROL_MASK | IBUS_MOD1_MASK |
-                   IBUS_SUPER_MASK)),
+      msime::linux_host::KeyRouterAdapter::modifiers(
+          (flags & IBUS_SHIFT_MASK) != 0, (flags & IBUS_CONTROL_MASK) != 0,
+          (flags & IBUS_MOD1_MASK) != 0,
+          (flags & (IBUS_MOD4_MASK | IBUS_SUPER_MASK)) != 0),
       key <= 0xffffu ? key : 0u, false};
   const auto dispatch_result = s.key_router.check(routed_event);
   if (dispatch_result != MSIME_CLIENT_KEY_SENT)
