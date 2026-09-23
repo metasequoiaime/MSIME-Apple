@@ -6600,6 +6600,7 @@ struct MenuPreferenceSave {
   uint64_t configuration;
   MenuPreference preference;
   Json value;
+  std::string user_data;
 };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value) {
   const auto directory = configured.value("preferences_directory", std::string{});
@@ -6724,13 +6725,17 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
           publish_mode(IBUS_ENGINE(source));
         });
       }, nullptr);
-  g_task_set_task_data(task, new MenuPreferenceSave{directory, configuration_generation, preference, std::move(value)},
+  g_task_set_task_data(task, new MenuPreferenceSave{directory, configuration_generation, preference, std::move(value),
+                                                    configured.value("user_data", std::string{})},
       +[](gpointer value) { delete static_cast<MenuPreferenceSave *>(value); });
   g_task_run_in_thread(task,
       +[](GTask *task, gpointer, gpointer data, GCancellable *) {
         const auto &request = *static_cast<MenuPreferenceSave *>(data);
         Json *saved = nullptr;
         try {
+          // The launcher refreshes `configured` only every few seconds, so a data directory move can be copying this root, or have taken it away, under a save; a held save fails like a conflict and can be retried (core/DictionaryQuiesceLease.h).
+          if (msime::linux_host::preference_save_held(request.user_data))
+            throw std::runtime_error("MSIME preferences held");
           const auto *path = reinterpret_cast<const uint8_t *>(request.directory.data());
           auto snapshot = response(msime_client_load_preferences(path, request.directory.size()));
           const auto revision = snapshot.at("revision").get<uint64_t>();

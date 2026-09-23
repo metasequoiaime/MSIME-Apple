@@ -1,7 +1,10 @@
 //! Relocation of the Linux user-data root.
 //!
 //! On Linux the default state root (`$XDG_CONFIG_HOME/msime-client`) is also where every consumer finds its locator: the IBus launcher, the Fcitx5 addon, the clipboard monitor unit and the settings launcher all read `runtime-options.json` from that fixed path, and the provider services read their credential files from the same directory. A move therefore never relocates that directory itself. It moves the state entries (dictionaries, learning data, cache, preferences, skins, clipboard history) into the chosen directory and rewrites the path-bearing values of the locators in place, keeping every other key (provider sockets, models) the setup wrote.
+//!
+//! The IBus and Fcitx5 hosts write the learning data under `user/` while a session is open, so the whole move runs with them held off it (`linux_dictionary_quiesce::hold_hosts_off`): the quiesce lease asks them to close their sessions and the exclusive dictionary lock proves they did and keeps new ones out until the locators point at the copy and the old entries are gone. The input method framework is restarted before the hold is released.
 
+use super::linux_dictionary_quiesce::{self, HoldError};
 use crate::linux_process;
 use crate::{HostActionError, RuntimeOptionsState};
 use serde_json::Value;
@@ -31,6 +34,8 @@ pub(crate) enum MoveError {
     InvalidSource,
     InvalidTarget,
     TargetNotEmpty,
+    /// An input session kept the user directory open.
+    Busy,
     Copy,
     Publish,
 }
@@ -41,6 +46,7 @@ impl MoveError {
             MoveError::InvalidTarget => "data_directory_invalid",
             MoveError::TargetNotEmpty => "data_directory_not_empty",
             MoveError::InvalidSource => "data_directory_unavailable",
+            MoveError::Busy => "data_directory_busy",
             MoveError::Copy | MoveError::Publish => "data_directory_move_failed",
         }
     }
@@ -104,6 +110,10 @@ fn copy_entry(source: &Path, destination: &Path) -> Result<(), MoveError> {
         fs::create_dir(destination).map_err(|_| MoveError::Copy)?;
         for entry in fs::read_dir(source).map_err(|_| MoveError::Copy)? {
             let entry = entry.map_err(|_| MoveError::Copy)?;
+            // The lease this move holds sits in the user directory; the copy must not carry it to where the hosts will look next.
+            if linux_dictionary_quiesce::is_lease_file(&entry.file_name()) {
+                continue;
+            }
             copy_entry(&entry.path(), &destination.join(entry.file_name()))?;
         }
         fs::set_permissions(destination, metadata.permissions()).map_err(|_| MoveError::Copy)?;
@@ -139,18 +149,24 @@ fn validate_directory(path: &Path, error: MoveError) -> Result<PathBuf, MoveErro
     fs::canonicalize(path).map_err(|_| error)
 }
 
+/// A staging directory of an earlier move, or the trash of a cleanup that could not finish. It is never state to carry along, nor user content that makes a directory non-empty.
+fn is_staging(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|name| name.starts_with(STAGING_PREFIX))
+}
+
 fn has_ownership_marker(directory: &Path) -> bool {
     fs::symlink_metadata(directory.join(DATA_DIRECTORY_MARKER))
         .map(|metadata| metadata.is_file())
         .unwrap_or(false)
 }
 
-/// The state entries of `source`: everything except the pinned configuration files and the ownership marker.
+/// The state entries of `source`: everything except the pinned configuration files, the ownership marker and leftover staging directories.
 fn state_entries(source: &Path) -> Result<Vec<OsString>, MoveError> {
     let mut entries = Vec::new();
     for entry in fs::read_dir(source).map_err(|_| MoveError::InvalidSource)? {
         let name = entry.map_err(|_| MoveError::InvalidSource)?.file_name();
-        if is_pinned(&name) || name == DATA_DIRECTORY_MARKER {
+        if is_pinned(&name) || name == DATA_DIRECTORY_MARKER || is_staging(&name) {
             continue;
         }
         entries.push(name);
@@ -159,11 +175,14 @@ fn state_entries(source: &Path) -> Result<Vec<OsString>, MoveError> {
     Ok(entries)
 }
 
-/// A target may already hold the marker. The default root, as a target when moving back, may also hold its pinned files, and nothing else.
+/// A target may already hold the marker and leftover staging directories. The default root, as a target when moving back, may also hold its pinned files, and nothing else.
 fn target_is_empty(target: &Path, default_root: &Path) -> Result<bool, MoveError> {
     for entry in fs::read_dir(target).map_err(|_| MoveError::InvalidTarget)? {
         let name = entry.map_err(|_| MoveError::InvalidTarget)?.file_name();
-        if name == DATA_DIRECTORY_MARKER || (target == default_root && is_pinned(&name)) {
+        if name == DATA_DIRECTORY_MARKER
+            || is_staging(&name)
+            || (target == default_root && is_pinned(&name))
+        {
             continue;
         }
         return Ok(false);
@@ -241,9 +260,21 @@ fn cleanup_source(source: &Path, default_root: &Path, moved: &[OsString]) -> boo
     if source != default_root && !has_ownership_marker(source) {
         return false;
     }
+    // Take every entry out of place with one rename before deleting it, so a host still configured for the old paths finds no directory at all rather than one being emptied under it, which it could open and start a new library in.
+    let Ok(trash) = tempfile::Builder::new()
+        .prefix(STAGING_PREFIX)
+        .tempdir_in(source)
+    else {
+        return false;
+    };
     let mut complete = true;
     for name in moved {
-        complete &= remove_entry(&source.join(name)).is_ok();
+        complete &= fs::rename(source.join(name), trash.path().join(name)).is_ok();
+    }
+    let trash = trash.keep();
+    if fs::remove_dir_all(&trash).is_err() {
+        restore_survivors(source, &trash, moved);
+        complete = false;
     }
     if complete && source != default_root {
         // Only an owned directory that is now empty apart from the marker is removed; anything the user put there stays.
@@ -253,21 +284,35 @@ fn cleanup_source(source: &Path, default_root: &Path, moved: &[OsString]) -> boo
     complete
 }
 
-/// Copy the state entries of `source` into `target`, rewrite the locators to point at `target`, and only then remove the old owned entries. `written_source` is the state root as the locators spell it, which may differ from its canonical form.
-pub(crate) fn relocate_state(
+/// Put back under its own name whatever a failed cleanup could not delete, so the old data the settings page reports as retained is where the user will look for it rather than inside a hidden staging directory.
+fn restore_survivors(source: &Path, trash: &Path, moved: &[OsString]) {
+    for name in moved {
+        let _ = fs::rename(trash.join(name), source.join(name));
+    }
+    let _ = fs::remove_dir(trash);
+}
+
+/// A move that has passed every check that does not need the hosts to let go: both directories are valid and distinct, the target is empty and every locator parses. Nothing has been written yet.
+pub(crate) struct MovePlan {
+    source: PathBuf,
+    target: PathBuf,
+    default_root: PathBuf,
+    rewrites: Vec<(LocatorBackup, Vec<u8>)>,
+}
+
+/// Check a move of the state entries of `source` into `target` before any host is asked to let go, so a bad pick never interrupts typing. `None` when they are the same directory and there is nothing to do. `written_source` is the state root as the locators spell it, which may differ from its canonical form.
+pub(crate) fn plan_move(
     source: &Path,
     written_source: &Path,
     target: &Path,
     default_root: &Path,
     locators: &[PathBuf],
-) -> Result<MoveOutcome, MoveError> {
+) -> Result<Option<MovePlan>, MoveError> {
     let source = validate_directory(source, MoveError::InvalidSource)?;
     let target = validate_directory(target, MoveError::InvalidTarget)?;
     let default_root = fs::canonicalize(default_root).map_err(|_| MoveError::InvalidSource)?;
     if source == target {
-        return Ok(MoveOutcome {
-            retained_old_data: false,
-        });
+        return Ok(None);
     }
     if target.parent().is_none()
         || target.starts_with(&source)
@@ -279,7 +324,6 @@ pub(crate) fn relocate_state(
     if !target_is_empty(&target, &default_root)? {
         return Err(MoveError::TargetNotEmpty);
     }
-    let entries = state_entries(&source)?;
 
     let mut unique = BTreeSet::new();
     let mut rewrites = Vec::new();
@@ -288,47 +332,98 @@ pub(crate) fn relocate_state(
             rewrites.push(rebased_locator(locator, &source, written_source, &target)?);
         }
     }
+    Ok(Some(MovePlan {
+        source,
+        target,
+        default_root,
+        rewrites,
+    }))
+}
 
-    // Stage inside the target so the final renames stay on one filesystem, and a failed copy leaves nothing but the staging directory behind.
-    let staging = tempfile::Builder::new()
-        .prefix(STAGING_PREFIX)
-        .tempdir_in(&target)
-        .map_err(|_| MoveError::Copy)?;
-    for name in &entries {
-        copy_entry(&source.join(name), &staging.path().join(name))?;
-    }
-    let wrote_marker = target != default_root && !has_ownership_marker(&target);
-    if wrote_marker
-        && fs::write(
-            target.join(DATA_DIRECTORY_MARKER),
-            b"Metasequoia IME user data directory.\n",
-        )
-        .is_err()
-    {
-        return Err(MoveError::Copy);
-    }
-    let mut placed = Vec::new();
-    for name in &entries {
-        if fs::rename(staging.path().join(name), target.join(name)).is_err() {
-            rollback(&target, &placed, wrote_marker, &[]);
+impl MovePlan {
+    /// Copy the state entries into the target, rewrite the locators to point at it, and only then remove the old owned entries. Run it with the hosts held off the source: while the lease is up they open no session there and save no preference there, so nothing they write is left behind in the old directory.
+    pub(crate) fn execute(self) -> Result<MoveOutcome, MoveError> {
+        let MovePlan {
+            source,
+            target,
+            default_root,
+            rewrites,
+        } = self;
+        let entries = state_entries(&source)?;
+
+        // Stage inside the target so the final renames stay on one filesystem, and a failed copy leaves nothing but the staging directory behind.
+        let staging = tempfile::Builder::new()
+            .prefix(STAGING_PREFIX)
+            .tempdir_in(&target)
+            .map_err(|_| MoveError::Copy)?;
+        for name in &entries {
+            copy_entry(&source.join(name), &staging.path().join(name))?;
+        }
+        let wrote_marker = target != default_root && !has_ownership_marker(&target);
+        if wrote_marker
+            && fs::write(
+                target.join(DATA_DIRECTORY_MARKER),
+                b"Metasequoia IME user data directory.\n",
+            )
+            .is_err()
+        {
             return Err(MoveError::Copy);
         }
-        placed.push(name.clone());
-    }
-    drop(staging);
-
-    let mut backups = Vec::new();
-    for (backup, rewritten) in rewrites {
-        let path = backup.path.clone();
-        backups.push(backup);
-        if atomic_write(&path, &rewritten).is_err() {
-            rollback(&target, &placed, wrote_marker, &backups);
-            return Err(MoveError::Publish);
+        let mut placed = Vec::new();
+        for name in &entries {
+            if fs::rename(staging.path().join(name), target.join(name)).is_err() {
+                rollback(&target, &placed, wrote_marker, &[]);
+                return Err(MoveError::Copy);
+            }
+            placed.push(name.clone());
         }
-    }
+        drop(staging);
 
-    Ok(MoveOutcome {
-        retained_old_data: !cleanup_source(&source, &default_root, &entries),
+        let mut backups = Vec::new();
+        for (backup, rewritten) in rewrites {
+            let path = backup.path.clone();
+            backups.push(backup);
+            if atomic_write(&path, &rewritten).is_err() {
+                rollback(&target, &placed, wrote_marker, &backups);
+                return Err(MoveError::Publish);
+            }
+        }
+
+        Ok(MoveOutcome {
+            retained_old_data: !cleanup_source(&source, &default_root, &entries),
+        })
+    }
+}
+
+/// The whole move: check it, hold the hosts off the source, copy, publish and clean up, then restart the input method while they are still held, so an engine that has not yet read the new locator is replaced instead of reopening the old paths. Returns whether the restart went through. A failed restart does not undo a completed move: both hosts also read the locator again before they open a session.
+fn move_holding_hosts<Held>(
+    plan: Option<MovePlan>,
+    hold: impl FnOnce() -> Result<Held, MoveError>,
+    restart: impl FnOnce() -> bool,
+) -> Result<(MoveOutcome, bool), MoveError> {
+    let Some(plan) = plan else {
+        return Ok((
+            MoveOutcome {
+                retained_old_data: false,
+            },
+            true,
+        ));
+    };
+    let held = hold()?;
+    let outcome = plan.execute()?;
+    let restarted = restart();
+    drop(held);
+    Ok((outcome, restarted))
+}
+
+/// Hold both hosts off `user_data` for a move, in the terms the settings page reports: a session that would not let go is `Busy`, a user directory that cannot be leased or locked is `InvalidSource`.
+fn hold_hosts_for_move(
+    user_data: &Path,
+    dictionaries: &Path,
+) -> Result<Option<linux_dictionary_quiesce::HostsHeldOff>, MoveError> {
+    linux_dictionary_quiesce::hold_hosts_off(user_data, dictionaries).map_err(|error| match error {
+        HoldError::Busy => MoveError::Busy,
+        HoldError::Unavailable => MoveError::InvalidSource,
     })
 }
 
@@ -370,19 +465,21 @@ fn pick_directory() -> Result<Option<PathBuf>, &'static str> {
     Ok(chosen.is_absolute().then_some(chosen))
 }
 
-fn written_state_root(runtime: &RuntimeOptionsState) -> Result<PathBuf, HostActionError> {
-    let unavailable = HostActionError {
-        code: "data_directory_unavailable",
-    };
-    let document = runtime.snapshot().map_err(|_| HostActionError {
-        code: "data_directory_unavailable",
-    })?;
+fn absolute_option(document: &Value, key: &str) -> Option<PathBuf> {
     document
-        .get("preferences_directory")
+        .get(key)
         .and_then(Value::as_str)
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
-        .ok_or(unavailable)
+}
+
+fn written_state_root(runtime: &RuntimeOptionsState) -> Result<PathBuf, HostActionError> {
+    let document = runtime.snapshot().map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    absolute_option(&document, "preferences_directory").ok_or(HostActionError {
+        code: "data_directory_unavailable",
+    })
 }
 
 #[derive(Default)]
@@ -401,6 +498,8 @@ pub(crate) struct DataDirectoryMoveResult {
     path: String,
     is_default: bool,
     retained_old_data: bool,
+    /// False when the input method framework could not be restarted after the move; the settings page tells the user to restart it.
+    input_method_restarted: bool,
 }
 
 fn same_directory(first: &Path, second: &Path) -> bool {
@@ -443,7 +542,20 @@ pub(crate) async fn move_data_directory(
     runtime: tauri::State<'_, RuntimeOptionsState>,
     selection: tauri::State<'_, DataDirectorySelectionState>,
 ) -> Result<DataDirectoryMoveResult, HostActionError> {
-    let written_source = written_state_root(&runtime)?;
+    let document = runtime.snapshot().map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    let written_source =
+        absolute_option(&document, "preferences_directory").ok_or(HostActionError {
+            code: "data_directory_unavailable",
+        })?;
+    // Where the hosts look for the lease and take their dictionary locks. Sessions lock the dictionary generation as well as the user directory; one that is missing cannot be opened, so the user directory alone covers it.
+    let user_data = absolute_option(&document, "user_data").ok_or(HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    let dictionaries = absolute_option(&document, "dictionaries")
+        .filter(|path| path.is_dir())
+        .unwrap_or_else(|| user_data.clone());
     let target = selection
         .0
         .lock()
@@ -469,21 +581,30 @@ pub(crate) async fn move_data_directory(
         });
     }
 
+    let is_default = same_directory(&target, &default);
     let moved_target = target.clone();
-    let outcome = tauri::async_runtime::spawn_blocking(move || {
-        let outcome = relocate_state(
+    let (outcome, restarted) = tauri::async_runtime::spawn_blocking(move || {
+        let plan = plan_move(
             &written_source,
             &written_source,
             &moved_target,
             &default,
             &locators,
+        )?;
+        move_holding_hosts(
+            plan,
+            || hold_hosts_for_move(&user_data, &dictionaries),
+            || match crate::restart_input_method() {
+                Ok(()) => true,
+                Err(error) => {
+                    eprintln!(
+                        "msime-client-settings: data directory moved, but restarting the input method failed ({})",
+                        error.code
+                    );
+                    false
+                }
+            },
         )
-        .map(|outcome| (outcome, same_directory(&moved_target, &default)));
-        // Engines already running keep the old paths until their session is rebuilt; restarting the framework rebuilds them now instead of on the next focus change. A failed restart does not undo a completed move.
-        if outcome.is_ok() {
-            let _ = crate::restart_input_method();
-        }
-        outcome
     })
     .await
     .map_err(|_| HostActionError {
@@ -491,9 +612,15 @@ pub(crate) async fn move_data_directory(
     })?
     .map_err(|error| HostActionError { code: error.code() })?;
 
+    // The window still holds the old paths, so it closes; a failed restart leaves it up long enough to read what to do.
+    let exit_delay = if restarted {
+        Duration::from_millis(500)
+    } else {
+        Duration::from_secs(5)
+    };
     let exit_app = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(exit_delay);
         exit_app.exit(0);
     });
     Ok(DataDirectoryMoveResult {
@@ -501,14 +628,16 @@ pub(crate) async fn move_data_directory(
             .unwrap_or(target)
             .to_string_lossy()
             .into_owned(),
-        is_default: outcome.1,
-        retained_old_data: outcome.0.retained_old_data,
+        is_default,
+        retained_old_data: outcome.retained_old_data,
+        input_method_restarted: restarted,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use msime_client_core::dictionary::access::DictionaryAccess;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -549,6 +678,303 @@ mod tests {
 
     fn locator_document(layout: &Layout) -> Value {
         serde_json::from_slice(&fs::read(&layout.locator).unwrap()).unwrap()
+    }
+
+    /// Check and run a move with no hosts to hold off, as the tests of the copy itself need.
+    fn relocate_state(
+        source: &Path,
+        written_source: &Path,
+        target: &Path,
+        default_root: &Path,
+        locators: &[PathBuf],
+    ) -> Result<MoveOutcome, MoveError> {
+        match plan_move(source, written_source, target, default_root, locators)? {
+            Some(plan) => plan.execute(),
+            None => Ok(MoveOutcome {
+                retained_old_data: false,
+            }),
+        }
+    }
+
+    fn has_lease(directory: &Path) -> bool {
+        fs::read_dir(directory)
+            .unwrap()
+            .any(|entry| linux_dictionary_quiesce::is_lease_file(&entry.unwrap().file_name()))
+    }
+
+    /// An input host with a session open on `user`, closing it once the lease appears, as both hosts do on their timers.
+    fn host_session(user: &Path) -> std::thread::JoinHandle<()> {
+        let session = DictionaryAccess::try_session(user, user).unwrap().unwrap();
+        let user = user.to_path_buf();
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while !has_lease(&user) {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the lease never appeared"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            drop(session);
+        })
+    }
+
+    fn hold(
+        user: &Path,
+    ) -> impl FnOnce() -> Result<Option<linux_dictionary_quiesce::HostsHeldOff>, MoveError> + '_
+    {
+        move || hold_hosts_for_move(user, user)
+    }
+
+    #[test]
+    fn busy_hosts_fail_the_move_before_anything_is_copied_or_restarted() {
+        let layout = setup();
+        let before = fs::read(&layout.locator).unwrap();
+        let plan = plan_move(
+            &layout.default,
+            &layout.default,
+            &layout.target,
+            &layout.default,
+            std::slice::from_ref(&layout.locator),
+        )
+        .unwrap();
+        let result = move_holding_hosts(
+            plan,
+            || Err::<(), _>(MoveError::Busy),
+            || unreachable!("nothing moved, so nothing to restart"),
+        );
+        assert_eq!(result, Err(MoveError::Busy));
+        assert_eq!(MoveError::Busy.code(), "data_directory_busy");
+        assert!(fs::read_dir(&layout.target).unwrap().next().is_none());
+        assert_eq!(fs::read(&layout.locator).unwrap(), before);
+        assert_eq!(
+            fs::read(layout.default.join("user/msime_user.db")).unwrap(),
+            b"synthetic-dictionary"
+        );
+        assert!(layout.default.join("preferences.json").is_file());
+    }
+
+    #[test]
+    fn a_session_that_stays_open_makes_the_move_busy_and_leaves_the_source_as_it_was() {
+        let layout = setup();
+        let user = layout.default.join("user");
+        let before = fs::read(&layout.locator).unwrap();
+        // A host that never answers the lease.
+        let _session = DictionaryAccess::try_session(&user, &user)
+            .unwrap()
+            .unwrap();
+        let plan = plan_move(
+            &layout.default,
+            &layout.default,
+            &layout.target,
+            &layout.default,
+            std::slice::from_ref(&layout.locator),
+        )
+        .unwrap();
+        let result = move_holding_hosts(plan, hold(&user), || unreachable!("nothing moved"));
+        assert_eq!(result, Err(MoveError::Busy));
+        assert!(!has_lease(&user));
+        assert!(fs::read_dir(&layout.target).unwrap().next().is_none());
+        assert_eq!(fs::read(&layout.locator).unwrap(), before);
+        assert!(user.join("msime_user.db").is_file());
+    }
+
+    #[test]
+    fn the_hosts_stay_off_the_old_directory_until_the_restart_and_the_copy_carries_no_lease() {
+        let layout = setup();
+        // An unowned source keeps its entries, so the old user directory can be watched through the whole move.
+        let source = layout.default.parent().unwrap().join("external-source");
+        let user = source.join("user");
+        fs::create_dir_all(&user).unwrap();
+        fs::write(user.join("msime_user.db"), b"synthetic-dictionary").unwrap();
+        let document = json!({"user_data": user, "preferences_directory": source});
+        fs::write(
+            &layout.locator,
+            serde_json::to_vec_pretty(&document).unwrap(),
+        )
+        .unwrap();
+        let host = host_session(&user);
+        let plan = plan_move(
+            &source,
+            &source,
+            &layout.target,
+            &layout.default,
+            std::slice::from_ref(&layout.locator),
+        )
+        .unwrap();
+        let mut restarts = 0;
+        let (outcome, restarted) = move_holding_hosts(plan, hold(&user), || {
+            restarts += 1;
+            assert!(has_lease(&user));
+            assert!(DictionaryAccess::try_session(&user, &user)
+                .unwrap()
+                .is_none());
+            assert_eq!(
+                locator_document(&layout)["user_data"],
+                json!(layout.target.join("user"))
+            );
+            true
+        })
+        .unwrap();
+        host.join().unwrap();
+        assert_eq!(restarts, 1);
+        assert!(restarted);
+        assert!(outcome.retained_old_data);
+        assert!(!has_lease(&user));
+        let moved = layout.target.join("user");
+        assert!(!has_lease(&moved));
+        assert_eq!(
+            fs::read(moved.join("msime_user.db")).unwrap(),
+            b"synthetic-dictionary"
+        );
+        assert!(DictionaryAccess::try_session(&moved, &moved)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn an_owned_source_is_gone_before_the_hosts_are_let_back_and_a_failed_restart_is_reported() {
+        let layout = setup();
+        let user = layout.default.join("user");
+        let host = host_session(&user);
+        let plan = plan_move(
+            &layout.default,
+            &layout.default,
+            &layout.target,
+            &layout.default,
+            std::slice::from_ref(&layout.locator),
+        )
+        .unwrap();
+        let (outcome, restarted) = move_holding_hosts(plan, hold(&user), || {
+            // A host still on the old paths finds no user directory to open, rather than one it could start an empty library in.
+            assert!(!user.exists());
+            false
+        })
+        .unwrap();
+        host.join().unwrap();
+        assert!(!restarted);
+        assert!(!outcome.retained_old_data);
+        assert!(!user.exists());
+        assert!(!has_lease(&layout.target.join("user")));
+        let leftovers: Vec<_> = fs::read_dir(&layout.default)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .filter(|name| name.to_string_lossy().starts_with(STAGING_PREFIX))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+        assert_eq!(
+            fs::read(layout.target.join("user/msime_user.db")).unwrap(),
+            b"synthetic-dictionary"
+        );
+    }
+
+    #[test]
+    fn a_user_directory_that_cannot_be_held_is_reported_unavailable_before_anything_is_copied() {
+        let layout = setup();
+        let before = fs::read(&layout.locator).unwrap();
+        // Not absolute, or not a directory the lease can be written into.
+        let not_a_directory = layout.default.join("preferences.json");
+        for user in [Path::new("relative/user"), not_a_directory.as_path()] {
+            let plan = plan_move(
+                &layout.default,
+                &layout.default,
+                &layout.target,
+                &layout.default,
+                std::slice::from_ref(&layout.locator),
+            )
+            .unwrap();
+            let result = move_holding_hosts(
+                plan,
+                || hold_hosts_for_move(user, user),
+                || unreachable!("nothing moved"),
+            );
+            assert_eq!(result, Err(MoveError::InvalidSource));
+        }
+        assert_eq!(
+            MoveError::InvalidSource.code(),
+            "data_directory_unavailable"
+        );
+        assert!(fs::read_dir(&layout.target).unwrap().next().is_none());
+        assert_eq!(fs::read(&layout.locator).unwrap(), before);
+        assert!(layout.default.join("user/msime_user.db").is_file());
+    }
+
+    #[test]
+    fn what_a_failed_cleanup_could_not_delete_goes_back_under_its_own_name() {
+        let layout = setup();
+        let source = &layout.default;
+        let trash = source.join(format!("{STAGING_PREFIX}trash"));
+        // The state of a cleanup whose delete stopped part way: the dictionary survived, the preferences did not.
+        fs::create_dir_all(&trash).unwrap();
+        fs::rename(source.join("user"), trash.join("user")).unwrap();
+        fs::remove_file(source.join("preferences.json")).unwrap();
+        restore_survivors(
+            source,
+            &trash,
+            &[OsString::from("preferences.json"), OsString::from("user")],
+        );
+        assert_eq!(
+            fs::read(source.join("user/msime_user.db")).unwrap(),
+            b"synthetic-dictionary"
+        );
+        assert!(!source.join("preferences.json").exists());
+        assert!(!trash.exists());
+    }
+
+    #[test]
+    fn a_leftover_staging_directory_is_neither_moved_nor_in_the_way_of_moving_back() {
+        let layout = setup();
+        let locators = [layout.locator.clone()];
+        let leftover = layout.default.join(format!("{STAGING_PREFIX}stale"));
+        fs::create_dir(&leftover).unwrap();
+        fs::write(leftover.join("preferences.json"), b"stale").unwrap();
+        relocate_state(
+            &layout.default,
+            &layout.default,
+            &layout.target,
+            &layout.default,
+            &locators,
+        )
+        .unwrap();
+        assert!(fs::read_dir(&layout.target)
+            .unwrap()
+            .all(|entry| !is_staging(&entry.unwrap().file_name())));
+        assert!(leftover.join("preferences.json").is_file());
+        let outcome = relocate_state(
+            &layout.target,
+            &layout.target,
+            &layout.default,
+            &layout.default,
+            &locators,
+        )
+        .unwrap();
+        assert!(!outcome.retained_old_data);
+        assert_eq!(
+            fs::read(layout.default.join("user/msime_user.db")).unwrap(),
+            b"synthetic-dictionary"
+        );
+    }
+
+    #[test]
+    fn moving_onto_the_same_directory_holds_nothing() {
+        let layout = setup();
+        let plan = plan_move(
+            &layout.default,
+            &layout.default,
+            &layout.default,
+            &layout.default,
+            std::slice::from_ref(&layout.locator),
+        )
+        .unwrap();
+        assert!(plan.is_none());
+        let (outcome, restarted) = move_holding_hosts(
+            plan,
+            || -> Result<(), MoveError> { unreachable!("nothing to hold") },
+            || unreachable!("nothing to restart"),
+        )
+        .unwrap();
+        assert!(!outcome.retained_old_data);
+        assert!(restarted);
     }
 
     #[test]

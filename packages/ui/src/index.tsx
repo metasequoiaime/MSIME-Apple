@@ -1659,7 +1659,13 @@ export interface SettingsClient {
   dataDirectory?: {
     status(): Promise<{ path: string; isDefault: boolean }>;
     pick(): Promise<string | null>;
-    move(): Promise<{ path: string; isDefault: boolean; retainedOldData: boolean }>;
+    /** `inputMethodRestarted` is false when the data moved but the host could not restart the input method; absent means the host restarts nothing itself or it succeeded. */
+    move(): Promise<{
+      path: string;
+      isDefault: boolean;
+      retainedOldData: boolean;
+      inputMethodRestarted?: boolean;
+    }>;
   };
   /**
    * Ask the host for a file path, resolving to null when the user cancels. A local speech model is loaded
@@ -2811,10 +2817,14 @@ export function SettingsPage({
       if (!confirmed) return;
       const result = await client.dataDirectory.move();
       setDataDirectory({ path: result.path, isDefault: result.isDefault });
+      const restartNote =
+        result.inputMethodRestarted === false
+          ? "输入法未能自动重启，请手动重启输入法后再继续输入。"
+          : "";
       setDataDirectoryResult(
         result.retainedOldData
-          ? "数据已切换到新目录；旧目录不属于水杉输入法，已为安全起见保留。设置窗口即将关闭。"
-          : "数据已移动。设置窗口即将关闭，请重新打开后继续使用。",
+          ? `数据已切换到新目录；旧目录不属于水杉输入法，已为安全起见保留。${restartNote}设置窗口即将关闭。`
+          : `数据已移动。${restartNote}设置窗口即将关闭，请重新打开后继续使用。`,
       );
     } catch (reason) {
       const code =

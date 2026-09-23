@@ -4191,6 +4191,38 @@ fn translation_persistence_rejects_control_keys_before_writing() {
 }
 
 #[test]
+fn translation_persistence_waits_behind_dictionary_maintenance() {
+    let user = tempfile::tempdir().unwrap();
+    let user_path = user.path().to_str().unwrap();
+    let request = serde_json::to_vec(&json!({
+        "target_language": "en",
+        "translations": [{"text":"你好","translation":"hello"}],
+    }))
+    .unwrap();
+    let save = || {
+        read(unsafe {
+            msime_client_translation_gloss_save(
+                request.as_ptr(),
+                request.len(),
+                user_path.as_ptr(),
+                user_path.len(),
+            )
+        })
+    };
+    // A data directory move or an import holds the directory exclusively; a translation that lands meanwhile must not write into it.
+    let maintenance = DictionaryAccess::try_maintenance(user.path(), user.path())
+        .unwrap()
+        .unwrap();
+    let refused = save();
+    assert_eq!(refused["ok"], false);
+    assert_eq!(refused["error"], "dictionary maintenance busy");
+    assert!(!user.path().join("translation-glosses.db").exists());
+    drop(maintenance);
+    assert_eq!(save()["value"]["saved"], 1);
+    assert!(user.path().join("translation-glosses.db").is_file());
+}
+
+#[test]
 fn candidate_gloss_requests_reject_control_keys() {
     let resources = tempfile::tempdir().unwrap();
     let resources_path = resources.path().to_str().unwrap().as_bytes();
