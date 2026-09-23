@@ -208,6 +208,12 @@ python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 # APK build does, and that runs in neither place. These assertions are what stands in for a
 # compiler on its wiring. The file existed for that reason and was not being run at all, so when
 # the voice commands moved out of lib.rs it went red and stayed red unnoticed.
+# The size and character rules for a clipboard entry live in one place. Two of the three mobile
+# hosts had grown a second copy, and Android's disagreed with the store it writes into in three
+# different ways at once while its own smoke asserted the numbers matched.
+note "clipboard capture bounds"
+python3 scripts/test-clipboard-capture-bounds.py || fail "clipboard capture bounds"
+
 note "android voice project config"
 python3 scripts/test-android-voice-project-config.py || fail "android voice project config"
 
