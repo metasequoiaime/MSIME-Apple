@@ -671,6 +671,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func segmentBackspace() -> MetasequoiaInputSnapshot { command(12) }
   func moveCaretLeftBySegment() -> MetasequoiaInputSnapshot { command(13) }
   func moveCaretRightBySegment() -> MetasequoiaInputSnapshot { command(14) }
+  /// The Home, End and Delete keys of the Windows composition: the caret to either end of the spelling, and the letter after the caret removed.
+  func moveCaretToStart() -> MetasequoiaInputSnapshot { command(6) }
+  func moveCaretToEnd() -> MetasequoiaInputSnapshot { command(7) }
+  func deleteForward() -> MetasequoiaInputSnapshot { command(8) }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),

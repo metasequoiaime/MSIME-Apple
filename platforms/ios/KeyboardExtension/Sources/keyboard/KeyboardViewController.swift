@@ -195,6 +195,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visiblePhrasePrefix = ""
   /// The spelling with the Engine's caret drawn in, while the user has moved that caret off the end.
   private var visibleCaretSpelling: String?
+  /// The spelling the caret can be moved through and where the caret sits in it, while one is being composed; nil for a Japanese reading, whose conversion owns the caret keys.
+  private var editableSpelling: (text: String, caret: Int)?
   /// Whether the current space-bar drag moves the caret inside the composition rather than in the document.
   private var spaceDragEditsComposition = false
   /// The desktop candidate skin the strip draws with, or nil while it follows the keyboard skin (see CandidatePalette).
@@ -2595,6 +2597,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     let modes = enabledLocalInputModes
     let offersModes = idle && supportsLocalTools && !modes.isEmpty
+    let spellingMenu = idle ? nil : editableSpelling.map(Self.spellingEditMenu)
     preeditButton.menu =
       offersModes
       ? UIMenu(
@@ -2604,12 +2607,41 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             self?.openLocalInputMode(mode.trigger)
           }
         })
-      : nil
+      : spellingMenu.map { items in
+        UIMenu(title: "编辑拼写", children: items.map { item in
+          UIAction(title: item.title, attributes: item.enabled ? [] : .disabled) { [weak self] _ in
+            self?.editSpelling(item.edit)
+          }
+        })
+      }
     // Withdrawing the menu is what makes the button inert; disabling it would dim the title, and
     // this is the preedit, which has to keep reading as the text the user is composing.
     preeditButton.accessibilityLabel = offersModes ? "本地输入模式" : title
     preeditButton.accessibilityValue = offersModes ? nil : title
-    preeditButton.accessibilityTraits = offersModes ? .button : .staticText
+    preeditButton.accessibilityHint = spellingMenu == nil ? nil : "轻点编辑拼写"
+    preeditButton.accessibilityTraits = offersModes || spellingMenu != nil ? .button : .staticText
+  }
+
+  enum SpellingEdit: Equatable, Sendable { case start, end, deleteForward }
+
+  /// Tapping the spelling offers the Home, End and Delete keys of the Windows composition, which a touch keyboard has no keys for: the space-bar drag walks the caret a letter or a syllable at a time, and these finish the job in one step. An entry that would do nothing where the caret is stays in the menu, dimmed, so the menu keeps its shape.
+  nonisolated static func spellingEditMenu(_ spelling: (text: String, caret: Int)) -> [(title: String, edit: SpellingEdit, enabled: Bool)] {
+    let atEnd = spelling.caret >= spelling.text.count
+    return [
+      ("光标移到开头", .start, spelling.caret > 0),
+      ("光标移到末尾", .end, !atEnd),
+      ("删除光标后的字母", .deleteForward, !atEnd),
+    ]
+  }
+
+  private func editSpelling(_ edit: SpellingEdit) {
+    guard hasComposition else { return }
+    playInputClick()
+    switch edit {
+    case .start: render(session.moveCaretToStart())
+    case .end: render(session.moveCaretToEnd())
+    case .deleteForward: render(session.deleteForward())
+    }
   }
 
   func openLocalInputMode(_ trigger: String) {
@@ -3206,6 +3238,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
     visiblePhrasePrefix = snapshot.phrasePrefix
     visibleCaretSpelling = inputScheme.isJapanese ? nil : snapshot.editingTextWithCaret
+    editableSpelling = hasComposition && !inputScheme.isJapanese && !snapshot.isInLocalMode
+      && !snapshot.editingText.isEmpty && snapshot.editingText.allSatisfy(\.isASCII)
+      ? (snapshot.editingText, snapshot.caretPosition) : nil
     showInlineComposition(hasComposition && InlinePreeditPreference.isEnabled ? composing : "")
     updateCandidateStrip(
                          preedit: composing,
