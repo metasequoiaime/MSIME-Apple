@@ -69,7 +69,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "{commonpf32}\metasequoiaime\{code:GetVersionDir}"
 Name: "{commonpf64}\metasequoiaime\{code:GetVersionDir}"
 Name: "{commonpf64}\metasequoiaime\server"
-Name: "{code:GetDataDir}"
+; Server 与设置窗口是中完整性的用户进程，要写这里的配置、用户词库和 runtime-options.json；安装器以高完整性建的目录它们改不动，数据目录放到其他盘时继承来的 ACL 也未必允许普通用户写。ssPostInstall 里的 EnsureImeUserDataDir 再对已有目录补一遍。
+Name: "{code:GetDataDir}"; Permissions: users-modify
 ; WebView2 子进程是中完整性，写不进内置 Administrator 的高完整性 LocalAppData。
 Name: "{commonappdata}\metasequoiaime"
 Name: "{commonappdata}\metasequoiaime\webview2"; Permissions: users-modify
@@ -747,10 +748,12 @@ end;
 
 function IsPreservedAppDataItem(const FileName: String): Boolean;
 begin
+  { 所有权标记也要留下。PrepareToInstall 先写标记再清理旧文件，ssPostInstall 才重写；安装若在两者之间失败，没有标记的非空自定义目录就不再被认作我们建的，重试安装会拒绝它，卸载也会跳过它。}
   Result :=
     IsUserDatabaseFile(FileName) or
     IsUserConfigFile(FileName) or
-    IsUserSkinDirectory(FileName);
+    IsUserSkinDirectory(FileName) or
+    (CompareText(FileName, DataDirMarkerName) = 0);
 end;
 
 function InitializeUninstall(): Boolean;
@@ -761,6 +764,8 @@ begin
     'VersionDir',
     VersionDirName
   );
+  { DataDir 带 uninsdeletevalue，卸载过程中就被删掉了；到 usPostUninstall 再读只会回落到默认目录，自定义数据目录因此永远删不掉。这里先读出来缓存住。}
+  ResolvePreviousDataDir;
   Result := True;
 end;
 
@@ -768,7 +773,6 @@ procedure StopProcess(const ImageName: String);
 var
   ResultCode: Integer;
 begin
-  { Watchdog 必须先停，否则它可能在卸载期间重新启动 Server。}
   Exec(
     ExpandConstant('{sys}\taskkill.exe'),
     '/F /T /IM "' + ImageName + '"',
@@ -779,6 +783,15 @@ begin
   );
 end;
 
+procedure StopImeProcesses;
+begin
+  { Watchdog 必须先停，否则它可能在升级或卸载期间重新启动 Server。}
+  StopProcess('{#MyWatchdogName}');
+  StopProcess('{#MyAppExeName}');
+  { 设置窗口和表情 / 手写 / 屏幕键盘面板都是同一个 Tauri 外壳 msime-client-settings.exe，靠环境变量区分。关掉窗口后进程还要驻留十分钟，从开始菜单或被已崩溃的 Server 拉起时也不在 Server 的进程树里，/T 带不走它；不停掉它，覆盖安装删 server 目录和卸载都会撞上「文件正在使用」。}
+  StopProcess('{#MySettingsExeName}');
+end;
+
 procedure DeleteWatchdogLogonTask;
 var
   ResultCode: Integer;
@@ -787,6 +800,32 @@ begin
   Exec(
     ExpandConstant('{sys}\schtasks.exe'),
     '/Delete /F /TN "{#MyWatchdogTaskName}"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+end;
+
+procedure EnsureImeUserDataDir;
+var
+  AppDataPath: String;
+  ResultCode: Integer;
+begin
+  // [Dirs] 的 Permissions 只作用于目录本身；安装器以高完整性复制进去的词库、配置和回放后的用户词库还带着高完整性标签和父目录继承来的 ACL，中完整性的 Server 与设置窗口改不动它们。和 webview2 目录一样，给 Users 修改权限并降到中完整性。
+  AppDataPath := GetDataDir('');
+  ForceDirectories(AppDataPath);
+  Exec(
+    ExpandConstant('{sys}\icacls.exe'),
+    '"' + AppDataPath + '" /grant *S-1-5-32-545:(OI)(CI)M /T /C /Q',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+  Exec(
+    ExpandConstant('{sys}\icacls.exe'),
+    '"' + AppDataPath + '" /setintegritylevel (OI)(CI)M /T /C /Q',
     '',
     SW_HIDE,
     ewWaitUntilTerminated,
@@ -832,10 +871,11 @@ begin
   WatchdogPath := ExpandConstant(
     '{commonpf64}\metasequoiaime\server\{#MyWatchdogName}');
   { /F replaces the same fixed-name task during an upgrade. /IT keeps the
-    task in the interactive user's session; LIMITED avoids an elevated token. }
+    task in the interactive user's session; LIMITED avoids an elevated token.
+    schtasks splits the /TR value at its first space into program and arguments unless the program itself is quoted, so the Program Files path would become the program "C:\Program" with the rest as its arguments. The escaped inner quotes survive schtasks' own argument parsing and keep the path whole. }
   Params :=
     '/Create /F /TN "{#MyWatchdogTaskName}" /SC ONLOGON ' +
-    '/RL LIMITED /IT /TR "' + WatchdogPath + '"';
+    '/RL LIMITED /IT /TR "\"' + WatchdogPath + '\""';
   if
     (not Exec(
       ExpandConstant('{sys}\schtasks.exe'),
@@ -1111,8 +1151,7 @@ begin
     Result := '无法写入数据目录所有权标记，请检查目录权限后重试。';
     exit;
   end;
-  StopProcess('{#MyWatchdogName}');
-  StopProcess('{#MyAppExeName}');
+  StopImeProcesses;
   MigrationError := MigrateUserDataDir(ResolvePreviousDataDir, GetDataDir(''));
   if MigrationError <> '' then
   begin
@@ -1158,6 +1197,7 @@ begin
     ApplyNetworkChoiceToUserConfig;
 #endif
     CreateWatchdogLogonTask;
+    EnsureImeUserDataDir;
     EnsureSharedWebView2DataDir;
     { Keep the old autostart intact until its scheduled-task replacement has
       been created successfully, then remove the Explorer-delayed Run entry. }
@@ -1179,8 +1219,7 @@ begin
       'Software\Microsoft\Windows\CurrentVersion\Run',
       'MetasequoiaImeWatchdog'
     );
-    StopProcess('{#MyWatchdogName}');
-    StopProcess('{#MyAppExeName}');
+    StopImeProcesses;
   end
   else if CurUninstallStep = usPostUninstall then
   begin
@@ -1198,8 +1237,9 @@ begin
     end;
     TryDeleteTree(ExpandConstant('{commonpf32}\metasequoiaime'));
     TryDeleteTree(ExpandConstant('{commonpf64}\metasequoiaime'));
-    if OwnsDataDir(GetDataDir('')) then
-      TryDeleteTree(GetDataDir(''));
+    { 用 InitializeUninstall 缓存的路径：此时注册表里的 DataDir 已被删除。}
+    if OwnsDataDir(ResolvePreviousDataDir) then
+      TryDeleteTree(ResolvePreviousDataDir);
     TryDeleteTree(ExpandConstant('{commonappdata}\metasequoiaime'));
   end;
 end;
