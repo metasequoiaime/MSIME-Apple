@@ -12,22 +12,12 @@ on:
     paths-ignore:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/apple-platform-architecture.md
-      - docs/backend-integration.md
-      - docs/ios-distribution.md
-      - docs/plans/**
   pull_request:
     paths-ignore:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/apple-platform-architecture.md
-      - docs/backend-integration.md
-      - docs/ios-distribution.md
-      - docs/plans/**
   workflow_dispatch:
 
   merge_group:
@@ -99,6 +89,7 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
       - name: Install project generator
         run: |
           brew install boost fmt spdlog nlohmann-json xcodegen
@@ -192,6 +183,7 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
       - name: Install project generator
         run: |
           brew install boost fmt spdlog nlohmann-json xcodegen
@@ -279,6 +271,7 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
       - name: Install project generator
         run: |
           brew install boost fmt spdlog nlohmann-json xcodegen

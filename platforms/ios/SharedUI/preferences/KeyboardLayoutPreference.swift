@@ -35,6 +35,7 @@ enum KeyboardLayoutPreference {
   static let rowSpacingKey = "keyboard.spacing.rows"
   static let voiceShortcutKey = "keyboard.shortcut.voice"
   static let heightAdjustmentKey = "keyboard.height.adjustment"
+  static let tabletFullKeysKey = "keyboard.tablet.fullKeys"
   /// Where the 全角 card used to save itself before the width moved to the shared `character_width`; read only to migrate it, see `CharacterWidthPreference`.
   static let fullWidthInputKey = "keyboard.input.fullWidth"
   // Old presets supply upgrade defaults only. Key placement no longer depends on them.
@@ -62,6 +63,11 @@ enum KeyboardLayoutPreference {
   static var voiceShortcutEnabled: Bool {
     get { defaults.object(forKey: voiceShortcutKey) == nil ? selected == .doubao : defaults.bool(forKey: voiceShortcutKey) }
     set { defaults.set(newValue, forKey: voiceShortcutKey) }
+  }
+  /// 「数字行与 Tab 键」: the full-size iPad keyboard carries a digit row above the letters and a Tab key before Q, as a desktop keyboard does. On by default; phones and the compact iPad keyboards never show them.
+  static var tabletFullKeys: Bool {
+    get { defaults.object(forKey: tabletFullKeysKey) as? Bool ?? true }
+    set { defaults.set(newValue, forKey: tabletFullKeysKey) }
   }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing) }
   private static func spacing(key: String, fallback: Double, range: ClosedRange<Double>) -> Double {

@@ -1,6 +1,6 @@
 # 开源发布清单
 
-这份清单描述仓库可以公开发布的源代码范围，以及生成二进制或平台安装包前仍需完成的工作。它不把本地构建、交叉编译或模拟器测试描述成产品发行验收。
+这份清单描述仓库可以公开发布的源代码范围，以及生成二进制或平台安装包时要走的检查。每次发布源码或产物前按这几节逐条过一遍。
 
 ## 源码树检查
 
@@ -21,21 +21,24 @@
 - Windows 依赖通知由 `platforms/windows/Collect-Notices.ps1` 生成；使用说明和限制见 `platforms/windows/Notices.md`。生成器不是完整许可证审计，不能用空通知文件代替上游材料。
 - `engine-lock.json` 中的每个上游归档、固定词库和离线模型都必须在发布包中保留对应的版权、许可证和来源说明。资源锁文件只校验内容，不授予额外分发权。
 - 日文词库 `dict_japanese.dat` 的许可证要求是硬性的：IPAdic 与 ICOT 的条款都规定许可证文本必须随词库分发，所以发布物中必须包含 `mozc_dictionary_oss_README.txt`。逐条构成见[第三方组件清单](third-party.md#日文词库的分发义务)。
+- 自带的加加辅助码表 `resources/helpcodes/jiajia_helpcode.txt` 是这份清单里唯一一项带明确再分发限制的随包数据：它由 `engine-lock.json` 中的 `scripts/apply_engine_jiajia_helpcode.py` 注入 Engine，部分条目来自商业软件拼音加加安装包内的数据表，**本仓库的 GPL-3.0 不覆盖它的内容**。每次发布前单独确认它在目标渠道是否可接受；不可接受时去掉 `engine-lock.json` 里的那个脚本即可让整套方案不进产物，其余五套辅助码表不受影响。逐条依据见 [`resources/helpcodes/NOTICE.md`](../resources/helpcodes/NOTICE.md) 与[第三方组件清单](third-party.md#自带辅助码表resourceshelpcodes)。
 - 整句重排模型的训练语料署名嵌在 `sentence-model.safetensors` 的 safetensors `__metadata__` 头里。原样分发该文件即满足要求；重新导出、量化或转换权重时必须把 `attribution` 字段带过去，见[第三方组件清单](third-party.md#整句重排模型的署名要求)。
 - 引入新的上游代码、字体、图标、模型或服务 SDK 时，同时提交来源提交、许可证文本、通知位置和分发限制；不要只在 README 写一个链接。
 
-## 验证与发布边界
+## 验证
 
-合并前执行 `bash scripts/verify-local.sh --quick`；声称功能完成前执行完整版，并把失败项与 `scripts/known-failures.txt` 对照。Rust 改动还需测试、fmt、clippy，UI 改动还需类型检查和构建。Pull Request 的 GitHub Actions 质量、依赖、macOS 和 iOS 检查也必须通过。
+合并前执行 `bash scripts/verify-local.sh --quick`；发布前执行完整版，并把失败项与 `scripts/known-failures.txt` 对照。Rust 改动还需测试、fmt、clippy，UI 改动还需类型检查和构建。Pull Request 的 GitHub Actions 质量（workflow 校验）、依赖审查、macOS 和 iOS 检查也必须通过；改到某个原生平台或共享层时，Native Platform CI 的对应 job 同样必须通过。仓库文本契约不在 CI 上执行，`Core CI` 的 contracts job 目前是占位，这批断言只在本地随 `scripts/verify-local.sh` 跑，所以提交前要自己跑过。
 
-平台证据必须按范围写明：源码/单元测试、跨目标或容器构建、模拟器运行、真实设备/系统入口、安装/签名和真实编辑器验收是不同层级。缺少后两层时，不得把交叉编译、静态检查或模拟器结果写成 Windows TSF、Linux 桌面、iOS 键盘扩展、Android 真机或 HarmonyOS 产品已完成。
+平台产物的验证范围写清楚做的是哪一层：共享层单元测试、跨目标或容器构建、模拟器运行、真实设备与系统输入入口、安装与签名。发布记录里按平台注明本次实际走到哪一层，读的人不用去猜。
 
 ## 发布前人工确认
 
-1. 确认远端默认分支、版本号和变更日志与待发布提交一致。
+六个平台各有独立的手动发布工作流（`.github/workflows/release-<平台>.yml`），版本号默认取自 `platforms/<平台>/version.txt`，一个平台发版不牵动其余五个。触发前按下面五条逐项确认。
+
+1. 确认远端默认分支、待发布平台的 `version.txt` 和变更日志与待发布提交一致。
 2. 重新检查 `README.md`、各平台 README、`docs/implementation.md` 和本清单中的路径、命令与当前目录一致。
 3. 生成对应平台的第三方通知和资源许可汇总，确认不包含本机绝对路径、凭据或未授权模型/词库。
-4. 对每个平台分别记录构建工具版本、签名状态、安装方式、设备/编辑器范围和未执行项目；开发签名、测试账号和测试资源不得进入正式发布物。
+4. 对每个平台分别记录构建工具版本、签名状态、安装方式和验证过的设备与编辑器范围；开发签名、测试账号和测试资源不得进入正式发布物。
 5. 发布源代码时附带 `LICENSE`、第三方通知和固定上游来源；发布二进制时同时提供对应的源代码、许可证和重新构建说明。
 
 安全问题通过 [安全策略](../SECURITY.md) 的私下报告入口提交，不要在公开 issue、PR 或发布附件中披露秘密或真实输入。

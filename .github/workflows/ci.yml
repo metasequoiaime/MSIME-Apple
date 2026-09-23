@@ -7,28 +7,18 @@ on:
     branches:
       - develop
       - main
-    # Prose that no build step compiles. ci-docs.yml answers for the required checks on exactly this list -- the same list the two platform workflows ignore -- so a documentation-only pull request stays mergeable, and it calls contracts.yml as well: README.md, PRIVACY.md and the architecture document are asserted on by ReleaseConfigurationTests, which runs on Linux, so ignoring them here keeps the assertions and drops only the builds.
+    # Prose that no build step compiles. ci-docs.yml answers for the required checks on exactly this list -- the same list the two platform workflows ignore -- so a documentation-only pull request stays mergeable, and it calls quality.yml and contracts.yml as well, both of which run on Linux without a build.
     #
     # LICENSE and THIRD_PARTY_NOTICES.txt stay off the list on purpose: CMake installs them into the bundle, so they are build inputs rather than prose. A new documentation file is not ignored until someone adds it here, which fails toward running CI.
     paths-ignore:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/apple-platform-architecture.md
-      - docs/backend-integration.md
-      - docs/ios-distribution.md
-      - docs/plans/**
   pull_request:
     paths-ignore:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/apple-platform-architecture.md
-      - docs/backend-integration.md
-      - docs/ios-distribution.md
-      - docs/plans/**
   workflow_dispatch:
 
   merge_group:

@@ -609,6 +609,9 @@ int main(int argc, char **argv) {
       provider.return_online_candidate = false;
       online["preferences"]["cloud_candidates"] = false;
       online["preferences"]["ai_assistant"]["enabled"] = true;
+      // Candidate translations share the fixture socket through the online fallback, so the private-field block below can prove translation requests stop there too.
+      online["preferences"]["candidate_translations"] = true;
+      online["preferences"]["translation_target_language"] = "fr";
       msime_ibus_configure(online.dump());
       engine = create_engine();
       seen = Observation{};
@@ -617,6 +620,47 @@ int main(int argc, char **argv) {
         require(key(c), "AI-only fixture input was not consumed");
       settle_online();
       require(provider.online_requests == 4, "Disabling cloud also disabled configured AI requests");
+      // Private and no-spellcheck fields keep their pinyin and committed text on the machine, as Fcitx5 does: no cloud, AI or translation request while typing there, and nothing committed there reaches the next field's AI context.
+      require(provider.requests > 0, "Ordinary field did not request candidate translations");
+      auto content_hints = [&](guint hints) {
+        invoke("Set", g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                                    g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, hints)));
+      };
+      content_hints(IBUS_INPUT_HINT_PRIVATE);
+      const auto translations_before = provider.requests.load();
+      const auto private_before = seen.committed;
+      phrase();
+      require(key(IBUS_space) && seen.committed == private_before + "你好",
+              "Private field did not commit the phrase");
+      for (char c : std::string("zaijian"))
+        require(key(c), "Private field input was not consumed");
+      settle_online();
+      require(provider.online_requests == 4,
+              ("Private field dispatched an online request: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
+      require(provider.requests == translations_before,
+              "Private field dispatched a candidate translation request");
+      content_hints(0);
+      for (char c : std::string("zaijian"))
+        require(key(c), "Ordinary field input was not consumed after a private field");
+      require(await_online(5),
+              ("Ordinary field after a private field did not resume AI requests: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
+      require(provider.requests > translations_before,
+              "Ordinary field after a private field did not resume candidate translations");
+      const auto contexts = provider.online_ai_contexts();
+      require(!contexts.empty() && contexts.back().find("你好") == std::string::npos,
+              "Text committed in a private field reached the next AI context");
+      content_hints(IBUS_INPUT_HINT_NO_SPELLCHECK);
+      const auto no_spellcheck_translations = provider.requests.load();
+      for (char c : std::string("zaijian"))
+        require(key(c), "No-spellcheck field input was not consumed");
+      settle_online();
+      require(provider.online_requests == 5, "No-spellcheck field dispatched an online request");
+      require(provider.requests == no_spellcheck_translations,
+              "No-spellcheck field dispatched a candidate translation request");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }

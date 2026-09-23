@@ -1,12 +1,12 @@
 # Android 输入宿主
 
-## 目录结构与验证边界
+## 目录结构与验证入口
 
 Java/Kotlin 宿主按 `java/app/msime/client/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。Tauri/React 设置仍复用 `packages/ui` 和 `apps/desktop/src-tauri/src/platform/android/`，不会在 Android 复制一套页面或 Rust 业务。
 
-API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享设置和部分统计/手写流程。arm64-v8a 与 x86_64 两个 ABI 均已按固定 NDK 与 vcpkg 完成原生构建并通过 `verify-native.sh`，包括在线候选的五个 host 导出与五个 JNI 方法；x86_64 仍只有构建证据，没有设备运行证据。源码检查、JVM 测试和 APK 签名/对齐不等于真机、旋转、系统回收、权限或长期生命周期验收，发布说明必须分别列出这些缺口。
+验证分三层，各有对应入口：`check-host.sh` 做契约守卫与 JVM 冒烟（CI 的 `ci-platforms.yml` android job 跑的就是这条），`build-native.sh` + `verify-native.sh` 做 arm64-v8a 与 x86_64 双 ABI 的原生构建与导出校验（包括在线候选的五个 host 导出与五个 JNI 方法），`tests/device/smoke.sh` 在固定的 API 35 arm64 专用 AVD 上跑 instrumentation，覆盖原生输入、Tauri/IME 合包、共享设置、统计与手写流程。
 
-本目录的正式 Android applicationId 是 `app.msime.android`，原生类所在的 namespace 是 `app.msime.client`；两者不同但都属于同一个 Android 宿主。设备 smoke 使用独立的 `app.msime.client.test` instrumentation APK。`app.msime.client.preview` 是尚未上线的旧包名，不属于本次 Android 迁移、构建、安装或验收范围；不要为它新增入口、兼容分支或文档中的完成项。
+本目录的正式 Android applicationId 是 `app.msime.android`，原生类所在的 namespace 是 `app.msime.client`；两者不同但都属于同一个 Android 宿主。设备 smoke 使用独立的 `app.msime.client.test` instrumentation APK。`app.msime.client.preview` 是改名前的旧包名，本宿主不使用它，也不要为它新增入口或兼容分支。
 
 ### 手机、大屏与二合一布局边界
 
@@ -14,7 +14,7 @@ API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享
 
 “整套键盘表面”包括候选区、字母/符号/九键/手写主键区、展开候选、剪贴板、输入方案、皮肤、布局调整、语音结果、AI 润色、更多工具、表情和符号面板；这些层必须共用同一 720 dp 外框，不能只限制字母键而让覆盖面板重新铺满屏幕。系统发生旋转、折叠展开、自由窗口缩放或外接显示器配置变化时，`MSIMEInputService.onConfigurationChanged` 只重新计算外框，再重算按键高度和间距；不会重建 Engine session，也不会清空当前组合、候选代次或面板状态。
 
-这条原生键盘策略与共享设置页的响应式布局彼此独立：`platforms/android` 负责系统 IME 窗口，Tauri/React 设置页仍按自身 600 px CSS 断点在手机底部标签栏与大屏侧栏之间切换。`KeyboardFormFactorPolicySmoke` 固定验证 599/600 dp 边界、手机横屏、600 dp 折叠展开态、1280 dp 二合一的 720 dp 上限，以及配置暂时缺失当前宽度时的安全回退；`check-host.sh` 会编译并执行该回归。设备级旋转、分屏、自由窗口和真实折叠铰链切换仍需在对应硬件或模拟器产品流程中验收，不能由 JVM 回归冒充。
+这条原生键盘策略与共享设置页的响应式布局彼此独立：`platforms/android` 负责系统 IME 窗口，Tauri/React 设置页仍按自身 600 px CSS 断点在手机底部标签栏与大屏侧栏之间切换。`KeyboardFormFactorPolicySmoke` 固定验证 599/600 dp 边界、手机横屏、600 dp 折叠展开态、1280 dp 二合一的 720 dp 上限，以及配置暂时缺失当前宽度时的安全回退；`check-host.sh` 会编译并执行该回归。设备上的旋转、分屏、自由窗口和折叠铰链切换走的是同一条策略，JVM 回归钉住的是策略边界本身。
 
 `check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg 和 Engine，这一步不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
 
@@ -70,27 +70,27 @@ API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享
 
 剪贴板历史的拒绝理由按 Apple `ClipboardHistoryStore.Failure` 分开命名：空白文本、单条超过 10,000 字或 40,000 字节、以及 50 条全部固定各有自己的提示，最后一条明确要求先取消固定或删除一条；Android 没有 iOS 的粘贴授权提示，空白文案相应去掉该从句。全部固定是独立的 `ClipboardHistory.FullException`，与读不出或写不回历史文件的普通 `IllegalStateException` 分开，避免把用户指向错误的动作。面板状态行同时说明点按插入以及在「管理」中固定或删除。理由分类与文案由无 Android 依赖的 `ClipboardHistoryPolicy` 提供并在 JVM 回归中验证。
 
-语音结果按 Android 平台能力适配：独立 Activity 调起用户设备上的系统语音识别服务，录音由该服务持有，MSIME 只接收有界文本。主应用进程与独立 `:ime` 进程通过应用私有目录中的非阻塞文件锁交接最新一条结果；结果最多 10,000 个 Unicode 码点、10 分钟有效，并在插入前一次性 claim，避免两个键盘实例重复插入。键盘“更多”工具页提供与 Apple 同级的语音结果入口，结果面板内提供 Android 平台的系统语音识别入口；共享 `touch_voice_shortcut` 开启后，候选栏显示直达语音结果按钮。存在 Engine 组合或本地模式时拒绝打开结果，确认插入前还会比对 InputConnection 身份、选择位置 generation 及光标前后/选中文本快照；真实上下文仅短暂保存在内存，不写日志或交接文件。系统识别器可用性、Activity 返回后的键盘恢复和真实编辑器插入仍需设备产品验收。
+语音结果按 Android 平台能力适配：独立 Activity 调起用户设备上的系统语音识别服务，录音由该服务持有，MSIME 只接收有界文本。主应用进程与独立 `:ime` 进程通过应用私有目录中的非阻塞文件锁交接最新一条结果；结果最多 10,000 个 Unicode 码点、10 分钟有效，并在插入前一次性 claim，避免两个键盘实例重复插入。键盘“更多”工具页提供与 Apple 同级的语音结果入口，结果面板内提供 Android 平台的系统语音识别入口；共享 `touch_voice_shortcut` 开启后，候选栏显示直达语音结果按钮。存在 Engine 组合或本地模式时拒绝打开结果，确认插入前还会比对 InputConnection 身份、选择位置 generation 及光标前后/选中文本快照；真实上下文仅短暂保存在内存，不写日志或交接文件。
 
-AI 润色对齐固定 Apple 来源的确认式流程：仅在 Engine 空闲且编辑器存在非空选区时显示入口，输入和输出各限制 10,000 个 Unicode 码点。全屏面板明确展示 HTTPS 目标 origin、模型和待发送文字，用户再次点按后才发起 Chat Completions 请求；单线程请求队列容量为 1，关闭面板或点击取消会中断任务并断开连接，响应限制为 1 MiB。请求前、响应后及最终替换前均校验 InputConnection、选区 generation、光标前后文本和完整 AI 配置；过期结果不会展示，结果也绝不自动插入。操作按钮固定在面板底部，长文本不遮挡取消或替换。共享设置按规范化的 endpoint origin（HTTPS 主机和端口）保存 Token，同主机不同路径可复用，主机或端口变化时不会沿用；日志、测试和诊断不包含选区、结果、Token 或原始响应。Android Tauri 设置页额外提供由原生 HTTPS transport 执行的模型目录读取、可用模型选择和确认式润色测试；模型分页、服务能力筛选、凭据和 1 MiB 响应均有边界保护。真实服务、外部编辑器选区与设备生命周期仍需 Android 原生产品验收。
+AI 润色对齐固定 Apple 来源的确认式流程：仅在 Engine 空闲且编辑器存在非空选区时显示入口，输入和输出各限制 10,000 个 Unicode 码点。全屏面板明确展示 HTTPS 目标 origin、模型和待发送文字，用户再次点按后才发起 Chat Completions 请求；单线程请求队列容量为 1，关闭面板或点击取消会中断任务并断开连接，响应限制为 1 MiB。请求前、响应后及最终替换前均校验 InputConnection、选区 generation、光标前后文本和完整 AI 配置；过期结果不会展示，结果也绝不自动插入。操作按钮固定在面板底部，长文本不遮挡取消或替换。共享设置按规范化的 endpoint origin（HTTPS 主机和端口）保存 Token，同主机不同路径可复用，主机或端口变化时不会沿用；日志、测试和诊断不包含选区、结果、Token 或原始响应。Android Tauri 设置页额外提供由原生 HTTPS transport 执行的模型目录读取、可用模型选择和确认式润色测试；模型分页、服务能力筛选、凭据和 1 MiB 响应均有边界保护。
 
 “试用键盘”页也提供 Apple 同级的 AI 对话入口：用户登录后显式加载 `/v1/models`，从有界模型菜单选择模型，消息按最多 14 条、每条 10,000 字符和总上下文 48,000 UTF-8 字节裁剪；发送前不会读取或上传输入框之外的内容。请求在后台执行，支持停止、失败提示和过期结果丢弃，响应只保留在当前 Activity 内存中；未登录时不伪造可用的模型下拉。
 
-
-
 表情面板和手写板各自消费共享的 `emoji_theme` 与 `handwriting_theme`：表面显式 `dark`/`light` 覆盖全局 `theme`，`follow` 继承全局，全局为 `system` 时跟随 Android 夜间模式；缺失或无法识别的值按 `follow` 处理，不会让这两块面板在旧快照下单独翻到浅色。两者使用与键盘同一套皮肤标识和自定义设计，只是明暗解析不同；键盘整体着色照旧走 `screen_keyboard_theme`，候选栏继续由 `candidate_theme` 决定，偏好热更新只重画表面，不重建 Engine 会话或手写笔迹。`menu_theme` 没有 Android 消费者——系统 PopupMenu 由平台绘制——共享设置因此不再在移动端显示该项。
-云联想与 AI 联想按 Windows/macOS/Linux/HarmonyOS 已有的共享 provider 边界接入 Android：组字停下 350 ms 后，宿主向共享 host 索取 `online_query`，再由单线程 worker 分别执行云候选 HTTPS GET 和 AI Chat Completions POST；URL 与请求描述符都由共享 host 构建，凭据留在 session 内，宿主只搬运字节。两者都是可选偏好：`cloud_candidates` 关闭即不发起云请求，AI 联想还要求 AI 辅助已启用且配置完整。**开启云联想意味着把当前正在组的拼音发送给云输入服务**，与其他桌面/移动宿主的既有行为一致，可在共享设置中关闭。请求身份由 session、cache key、identity、云开关和启用状态下的 AI 配置组成，同一组合只问一次；epoch 保证上一段组合的迟到结果不会写入新会话。云结果会推进 Engine 代次，所以 AI 请求在云结果落地后重新读取 query 再发出。云响应上限 256 KiB、AI 响应上限 1 MiB、AI JSON 内容上限 64 KiB，单条候选上限 4096 字节，空白、含控制字符、重复和超限候选被跳过而不影响同批其他候选；候选数量上限取共享配置。这些边界由无 Android 依赖的 `OnlineCandidatePolicy` 提供并在 JVM 回归中验证；本切片未执行真机网络、真实云服务或 NDK 原生构建验收。
+
+云联想与 AI 联想按 Windows/macOS/Linux/HarmonyOS 已有的共享 provider 边界接入 Android：组字停下 350 ms 后，宿主向共享 host 索取 `online_query`，再由单线程 worker 分别执行云候选 HTTPS GET 和 AI Chat Completions POST；URL 与请求描述符都由共享 host 构建，凭据留在 session 内，宿主只搬运字节。两者都是可选偏好：`cloud_candidates` 关闭即不发起云请求，AI 联想还要求 AI 辅助已启用且配置完整。**开启云联想意味着把当前正在组的拼音发送给云输入服务**，与其他桌面/移动宿主的既有行为一致，可在共享设置中关闭。请求身份由 session、cache key、identity、云开关和启用状态下的 AI 配置组成，同一组合只问一次；epoch 保证上一段组合的迟到结果不会写入新会话。云结果会推进 Engine 代次，所以 AI 请求在云结果落地后重新读取 query 再发出。云响应上限 256 KiB、AI 响应上限 1 MiB、AI JSON 内容上限 64 KiB，单条候选上限 4096 字节，空白、含控制字符、重复和超限候选被跳过而不影响同批其他候选；候选数量上限取共享配置。这些边界由无 Android 依赖的 `OnlineCandidatePolicy` 提供并在 JVM 回归中验证。
+
 打字统计按固定 Apple 来源只记录成功上屏的 Unicode 扩展字符簇，空格、换行和未上屏按键不计，组合表情计为一个字符。提交内容只在 Rust 内存中分类，持久化文件只含日期、字符类别、提交来源和数量，不保存输入原文。分类覆盖汉字、拉丁字母、其他文字、数字、标点、表情、其他符号与旧版未分类；来源覆盖全拼 26/9 键、四种双拼、五笔、日语、手写、英文、本地输入、AI 润色、高情商回复和语音。累计数据持续保留，每日计数与分类只保留最近 366 个有记录日期；启停与清空使用同一跨进程文件锁，清空不会重新启用统计。写入通过容量 32 的单线程队列离开输入主线程，队列满或存储失败不保留待写文字，且每个输入会话只显示一次脱敏错误提示。
 
-Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不显示入口。页面提供 7 天、30 天和累计范围、最近 7/30 日趋势与单日下钻、字符类型/语言模式/输入方案占比、刷新、即时启停和确认清空；统计页独立于 Preferences 草稿和“保存设置”。主应用与独立 `:ime` 进程共享 `files/bootstrap/state/typing-statistics.json`，由锁文件串行读写；页面会区分从未写入和已清空状态，并明确说明本机只保存聚合计数。完整 arm64 Tauri 合包已在专用 API 35 arm64 AVD 验证实际上屏聚合、文件不含合成输入文本、页面跨进程读取、禁用后不增长、取消/确认清空、清空保留禁用状态和重新启用后累计；真机触控、系统回收和长期统计仍需产品验收。
+Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不显示入口。页面提供 7 天、30 天和累计范围、最近 7/30 日趋势与单日下钻、字符类型/语言模式/输入方案占比、刷新、即时启停和确认清空；统计页独立于 Preferences 草稿和“保存设置”。主应用与独立 `:ime` 进程共享 `files/bootstrap/state/typing-statistics.json`，由锁文件串行读写；页面会区分从未写入和已清空状态，并明确说明本机只保存聚合计数。完整 arm64 Tauri 合包已在专用 API 35 arm64 AVD 验证实际上屏聚合、文件不含合成输入文本、页面跨进程读取、禁用后不增长、取消/确认清空、清空保留禁用状态和重新启用后累计。
 
 “高情商回复”是独立 Android 宿主方案，底层固定映射到 Engine 的全拼 26 键，不向共享输入算法增加 AI 状态。选中后在共享候选/快捷栏下方显示占据剩余键区的专用面板；“帮你回/帮润色”和社区模板位于面板内，输入方案、共享触屏键盘皮肤和收起入口继续复用上方共享快捷栏，避免重复入口；正文通过用户明确点按读取当前文本剪贴板，限制 10,000 个 Unicode 码点，并提供九种内置风格、删除、清空、取消、生成和同风格“换一句”。回复请求复用 AI 润色的 HTTPS transport、容量 1 队列、取消和 1 MiB 响应边界，但每次使用 Apple 对应风格 prompt；候选去重、最新在前且最多三条，服务结果绝不自动上屏，只有点按候选且 InputConnection、光标上下文、Engine 空闲状态、当前方案和完整 AI 配置仍匹配时才插入。插入后面板让出编辑器，候选栏“回复”入口可重新打开。切换模式、修改源文字、切换方案、编辑器上下文或 AI 配置变化都会取消请求并废弃迟到结果。
 
-社区回复模板只从应用私有 files 目录的 `CommunityLibrary.json` 读取，该文件用于主应用向独立 `:ime` 进程显式共享已收藏资源，不包含凭据或源消息。读取拒绝符号链接、非 UTF-8/非法 JSON、超过 4,000,000 字节、超过 50 项或无效字段，仅展示 `kind == reply` 且含 prompt 的条目；发起请求时重新读取，已移除模板不会复用。高情商回复与其他触屏输入方案统一由共享 `touch_keyboard_schemes` 管理可见性和选择；只有旧快照尚无该字段时，原 IME 私有开关与选择才作为迁移兼容来源。真实 provider、剪贴板系统限制、不同聊天编辑器插入、皮肤菜单和进程重建仍需 Android 原生产品验收。
+社区回复模板只从应用私有 files 目录的 `CommunityLibrary.json` 读取，该文件用于主应用向独立 `:ime` 进程显式共享已收藏资源，不包含凭据或源消息。读取拒绝符号链接、非 UTF-8/非法 JSON、超过 4,000,000 字节、超过 50 项或无效字段，仅展示 `kind == reply` 且含 prompt 的条目；发起请求时重新读取，已移除模板不会复用。高情商回复与其他触屏输入方案统一由共享 `touch_keyboard_schemes` 管理可见性和选择；只有旧快照尚无该字段时，原 IME 私有开关与选择才作为迁移兼容来源。
 
 候选区独立显示当前组合文本、当前页和候选按钮；Engine 候选超过当前页容量时显示展开入口。用户打开面板后，宿主通过按需 host API 一次复制当前 generation 的完整 Engine 候选，在顶部显示 preedit、候选总数和收起入口，候选 chip 按实际测量宽度自动换行且不绘制序号；全局序号只保留在无障碍描述中。展开面板没有分页按钮，点按页外候选通过独立的全代次选择 API 交回 Engine。普通候选栏继续使用分页 `View` 和当前页选择边界，每次按键不会携带完整列表；两条选择路径都校验 session、generation 和全局索引，宿主不复制候选算法或组合状态。
 
-候选英文释义按固定 Apple 来源 `MSIME-Apple@d117009573a1a619cfb1702645f38c3b4c378a78` 渐进迁移，并通过共享 `candidate_english_gloss` 偏好选择性开启，默认关闭。开启后，Android 只在 IME 主线程复制当前 generation 的完整候选；无 session 的有界 worker 请求由 C++ Engine bridge 只读访问随包 `english.db`，Java 不实现输入算法也不读取 SQLite。完成结果返回主线程后必须同时匹配 session、generation 和生命周期 epoch，才会调用共享 `apply_translations`；停止输入、替换会话、偏好变化与服务销毁都会使旧结果失效。Engine 的五笔等候选提示优先占用次要文本位置，离线释义仅在没有 Engine 提示时显示；候选条与展开面板以较小的皮肤兼容文字和不同无障碍说明展示，候选身份、点击选择和上屏原文不变。查询失败静默保留普通候选，不记录候选文字；关闭偏好会立即隐藏已返回释义，缺失资源不会创建数据库或用户数据。
+候选英文释义按固定 Apple 来源 `MSIME-Apple@d117009573a1a619cfb1702645f38c3b4c378a78` 实现，并通过共享 `candidate_english_gloss` 偏好选择性开启，默认关闭。开启后，Android 只在 IME 主线程复制当前 generation 的完整候选；无 session 的有界 worker 请求由 C++ Engine bridge 只读访问随包 `english.db`，Java 不实现输入算法也不读取 SQLite。完成结果返回主线程后必须同时匹配 session、generation 和生命周期 epoch，才会调用共享 `apply_translations`；停止输入、替换会话、偏好变化与服务销毁都会使旧结果失效。Engine 的五笔等候选提示优先占用次要文本位置，离线释义仅在没有 Engine 提示时显示；候选条与展开面板以较小的皮肤兼容文字和不同无障碍说明展示，候选身份、点击选择和上屏原文不变。查询失败静默保留普通候选，不记录候选文字；关闭偏好会立即隐藏已返回释义，缺失资源不会创建数据库或用户数据。
 
 触屏键盘皮肤以固定 Apple 来源 `MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453` 为基线，按相同顺序提供水杉绿、海盐蓝、浅蔷薇、素白瓷、纸上时光、奶油桃桃、霓虹夜航和工程蓝图。共享 `touch_keyboard_skin` 与桌面候选窗的 `candidate_skin` 完全独立；React 屏幕键盘页、普通输入方案和高情商回复键盘消费同一个选择。Android 适配保留 Apple 的明暗调色、圆角、边框、阴影、等宽字体以及网点、网格和波纹背景，`screen_keyboard_theme` 优先于全局 `theme`，两者都跟随系统时读取 Android 夜间模式。键盘内选择通过共享 revision CAS 保存，失败恢复最近一次已接受皮肤；设置热更新只重新应用视觉样式，不重建 Engine 会话。未知 ID 安全回退到水杉绿，不把用户设置值当作颜色或资源名直接使用。
 
@@ -100,23 +100,23 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 “更多”入口现在使用与 Apple 同层级的全键盘工具页：顶部返回，剪贴板历史、AI 润色和语音结果为单列 48 dp 卡片，按键反馈为两列，轻/中/强振动为三列，本地输入为两列并可纵向滚动。选中、启用、禁用和不可用状态通过按钮状态与无障碍描述同步暴露，不再依赖锚定底栏的系统弹出菜单。按键、候选、翻页和面板操作共用反馈路径；按键反馈保存到主应用与 `:ime` 进程共同读取的 `files/bootstrap/state/keyboard-feedback.json`，以临时文件原子替换，旧版 `keyboard-feedback` 偏好只用于首次迁移和兼容回写；输入法每次显示时重新读取，默认按键音开启、振动关闭。振动使用 Android `VibrationEffect`，没有振动器时回退到系统键盘触觉反馈。
 
-独立表情浏览器以远端默认分支固定来源 `MSIME-Apple@41c5db42184f505bb889f6efb88cf17d7e58901e` 为行为基线，在空闲候选栏和“更多”工具页提供入口。打开前先由 Engine 完成已有组合，面板提供返回、删除、固定 Unicode 顺序的笑脸／人物／动物／食物／旅行／活动／物品／符号／旗帜分类，以及每行八个的可滚动网格。Android 不复制 SQLite 读取器或内置 1,935 条表情，而是在后台通过共享 host API 以 64 行游标页读取已验证 `others.db`；异常响应、超限字段、停滞或倒退游标会被拒绝。选择通过本地输入来源写入普通 InputConnection，成功后将去重、最近优先且最多 24 项的历史保存到输入法私有偏好；删除也走正常宿主编辑路径。API 35 arm64 专用 AVD 已验证组合完成顺序、分类切换、跨页加载、插入、删除、返回、最近使用和 IME 重绑后的持久化；真机触控、旋转和系统回收后的产品验收仍待完成。
+独立表情浏览器以远端默认分支固定来源 `MSIME-Apple@41c5db42184f505bb889f6efb88cf17d7e58901e` 为行为基线，在空闲候选栏和“更多”工具页提供入口。打开前先由 Engine 完成已有组合，面板提供返回、删除、固定 Unicode 顺序的笑脸／人物／动物／食物／旅行／活动／物品／符号／旗帜分类，以及每行八个的可滚动网格。Android 不复制 SQLite 读取器或内置 1,935 条表情，而是在后台通过共享 host API 以 64 行游标页读取已验证 `others.db`；异常响应、超限字段、停滞或倒退游标会被拒绝。选择通过本地输入来源写入普通 InputConnection，成功后将去重、最近优先且最多 24 项的历史保存到输入法私有偏好；删除也走正常宿主编辑路径。API 35 arm64 专用 AVD 已验证组合完成顺序、分类切换、跨页加载、插入、删除、返回、最近使用和 IME 重绑后的持久化。
 
 “更多”工具页的“本地输入”分组接入共享 `local_modes` 偏好和 Engine 的 Shift 触发契约，按 Apple 顺序提供 Unicode、日期时间、超级简拼、快捷短语、英文补全、表情、颜文字和临时日语入口。禁用项或不支持本地工具的五笔/日语方案会置灰；宿主只发送触发字符，不实现本地模式算法。本地模式激活后，候选条显示独立的“退出本地模式”按钮，发送 Engine 的取消命令并保留共享输入状态边界。
 
 键盘工具栏与 Android 设置按 Apple 固定顺序共享全拼 26 键、全拼 9 键、小鹤/自然码/微软/首道双拼、86 五笔、日语 9 键、日语 26 键、手写和高情商回复。`touch_keyboard_schemes.enabled` 控制快捷切换中可见的卡片并至少保留一种，`selected` 保存当前方案；隐藏当前方案时按固定顺序回退到第一种可见方案，设置与输入法进程重启后继续生效。键盘内切换先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 同步 `scheme`、`last_chinese_scheme`、`shuangpin_profile`、平台无关的 `touch_keyboard_layout` 及嵌套方案选择，保存成功后才更新当前会话；冲突或存储失败保留原方案。旧偏好默认全部可见和 26 键，并在第一次键盘内切换时迁移；`View.touch_keyboard_layout` 只报告已应用值，外部设置延迟时不会提前换布局。
 
-全拼 9 键使用与 Apple 相同的分词/ABC–WXYZ 九宫格、常用中文标点，以及右侧的删除、句点和数字 0，并显示 Engine 返回的拼音消歧条。句点走与其他标点相同的 Engine 策略：中文标点开启时输入 `。`，英文或关闭中文标点时输入 `.`，数字键面中仍作为小数点使用。旧版占据右侧一个固定键位的“重输”已移除；现在长按退格时，若 Engine 正在组字，就一次取消整段组合并立即停止连删，若没有组合才持续删除编辑器正文。短按退格仍只删除一次。2–9 键支持长按弹出该键的数字和小写字母，选择字面字符前先由 Engine 提交当前组合，再通过普通编辑器路径上屏。数字和拼音选择都进入共享 Engine，拼音选择携带当前 generation，过期选择不会作用于新输入；数字语义严格跟随 Engine 的 `View.nine_key`。九键英文候选按固定来源 `MSIME-Apple@1a0d7194bba6ae1ee4555a7d2866bfb06a9fca6b` 和 `msime-engine@15ff08fc50ff9b469dae0f4bdabeae76c2a66b91` 接入，继续由共享 `mixed_input.english` 与 `minimum_prefix` 控制，Android 只发送数字、展示并选择 Engine 候选。合成加权词典回归验证完整编码 `65` 的 `ok` 排在更高频前缀词 `old` 前；当前锁定的 `dict-v1.0.0` 尚未包含 Engine 构建脚本新增的英文权重，因此设备验收只要求 `ok` 存在于完整候选面板并可原样上屏，不把其首屏位置作为已证明的生产排序。
+全拼 9 键使用与 Apple 相同的分词/ABC–WXYZ 九宫格、常用中文标点，以及右侧的删除、句点和数字 0，并显示 Engine 返回的拼音消歧条。句点走与其他标点相同的 Engine 策略：中文标点开启时输入 `。`，英文或关闭中文标点时输入 `.`，数字键面中仍作为小数点使用。旧版占据右侧一个固定键位的“重输”已移除；现在长按退格时，若 Engine 正在组字，就一次取消整段组合并立即停止连删，若没有组合才持续删除编辑器正文。短按退格仍只删除一次。2–9 键支持长按弹出该键的数字和小写字母，选择字面字符前先由 Engine 提交当前组合，再通过普通编辑器路径上屏。数字和拼音选择都进入共享 Engine，拼音选择携带当前 generation，过期选择不会作用于新输入；数字语义严格跟随 Engine 的 `View.nine_key`。九键英文候选按固定来源 `MSIME-Apple@1a0d7194bba6ae1ee4555a7d2866bfb06a9fca6b` 和 `msime-engine@15ff08fc50ff9b469dae0f4bdabeae76c2a66b91` 接入，继续由共享 `mixed_input.english` 与 `minimum_prefix` 控制，Android 只发送数字、展示并选择 Engine 候选。合成加权词典回归验证完整编码 `65` 的 `ok` 排在更高频前缀词 `old` 前；候选顺序由 Engine 和当前锁定词库的权重决定，Android 只发送数字、展示并选择 Engine 返回的候选。
 
-全拼 9 键按“符号”切到数字键面时仍然是九键，与 Apple 一致，不再交给 26 键符号页——那会把十列键盘塞进用户特意选的三列布局。九个网格键改印自身数字（含只喂分词符的 1 键），无障碍描述改为“数字 N”，点击以本地输入来源直接上屏数字而不进入拼音会话；标点列、删除、句点和 0 键保持不变，返回字母键面恢复分词/ABC–WXYZ 键面与长按弹出。两套九键都自带数字键面，因此快捷条的 Shift 在它们的数字键面同样隐藏。键面与描述由无 Android 依赖的 `NineKeyLayout` 提供并在 JVM 回归中验证；本切片未执行设备触控验收。
+全拼 9 键按“符号”切到数字键面时仍然是九键，与 Apple 一致，不再交给 26 键符号页——那会把十列键盘塞进用户特意选的三列布局。九个网格键改印自身数字（含只喂分词符的 1 键），无障碍描述改为“数字 N”，点击以本地输入来源直接上屏数字而不进入拼音会话；标点列、删除、句点和 0 键保持不变，返回字母键面恢复分词/ABC–WXYZ 键面与长按弹出。两套九键都自带数字键面，因此快捷条的 Shift 在它们的数字键面同样隐藏。键面与描述由无 Android 依赖的 `NineKeyLayout` 提供并在 JVM 回归中验证。
 
 日语 9 键复刻 Apple 的三列四行五向假名布局：轻点输入中间假名，按住并向左、上、右、下滑动时显示不拦截触摸的五方向预览，抬起后选择对应假名；や键提供「」，わ键提供わ/を/ん/ー/〜，第四行提供、。？！…。符号层仍保持三列网格，提供数字、括号和常用日文符号。“小゛゜”只在存在日语组合时启用，直接发送共享 host 命令 10，由 Engine 按当前最后一个假名循环小假名、浊音和半浊音；Android 不保留另一份假名变体表，也不把变体模拟成新输入。数字符号层的同一位置改为括号入口。普通假名仍只把对应罗马字逐字符发送给日语 Engine，不在宿主实现假名组合或转换；长音使用 Engine 接受的 `-` 罗马字。`check-host.sh` 同时锁定命名常量、FFI 的 `CycleKanaVariant` 映射以及宿主不得重新引入变体表。
 
-手写迁移提供 Android 原生画布和平台识别器注入边界：画布限制 64 笔、每笔 512 个采样点，支持单笔撤销、清空、坐标夹取和尺寸变化失效；识别请求复制不可变笔画快照，并以 session/revision/generation 拒绝过期结果，候选去重后最多 12 项。原生宿主与 Tauri 合包复用 `platforms/android` 中同一套 ML Kit Digital Ink Recognition 19.0.0 适配器和 `zh-Hani-CN` 模型，执行模型检查/下载、书写区域与时间戳笔画转换；专用 provider 在隔离的 `:ime` 进程中初始化 ML Kit 与其下载任务，设置主进程是否存活不影响手写。缺少适配器的源码级测试仍通过注入边界安全回退。与固定 Apple 来源 `MSIME-Apple@13cb320eb4ef662bbce0be3c73a5f34d68e86d80` 的平台取舍一致，Android 原生构建明确排除未调用的 Engine zinnia 识别器及其模型路径，桌面宿主继续保留共享 Engine 离线手写后备。手写方案、键盘内候选确认、无墨迹删除及退出清理已接入；有墨迹且候选已就绪时，软/硬件空格与回车确认第一候选，硬件退格和底部退格优先撤销最后一笔。专用 API 35 AVD 已验证模型下载或既有模型就绪、真实触摸笔迹识别、第一候选确认、符号层往返和方案恢复，真机触控手感与产品验收仍待完成。
+手写提供 Android 原生画布和平台识别器注入边界：画布限制 64 笔、每笔 512 个采样点，支持单笔撤销、清空、坐标夹取和尺寸变化失效；识别请求复制不可变笔画快照，并以 session/revision/generation 拒绝过期结果，候选去重后最多 12 项。原生宿主与 Tauri 合包复用 `platforms/android` 中同一套 ML Kit Digital Ink Recognition 19.0.0 适配器和 `zh-Hani-CN` 模型，执行模型检查/下载、书写区域与时间戳笔画转换；专用 provider 在隔离的 `:ime` 进程中初始化 ML Kit 与其下载任务，设置主进程是否存活不影响手写。缺少适配器的源码级测试仍通过注入边界安全回退。与固定 Apple 来源 `MSIME-Apple@13cb320eb4ef662bbce0be3c73a5f34d68e86d80` 的平台取舍一致，Android 原生构建明确排除未调用的 Engine zinnia 识别器及其模型路径，桌面宿主继续保留共享 Engine 离线手写后备。手写方案、键盘内候选确认、无墨迹删除及退出清理已接入；有墨迹且候选已就绪时，软/硬件空格与回车确认第一候选，硬件退格和底部退格优先撤销最后一笔。专用 API 35 AVD 验证模型下载或既有模型就绪、真实触摸笔迹识别、第一候选确认、符号层往返和方案恢复。
 
 中文候选在支持个人词典管理的方案中提供与固定 Apple 来源一致的长按菜单顺序：优先显示、固定到首位、取消固定和删除词条；删除操作要求 Android 确认对话框。固定位置通过共享 host API 限制为 1–5，本界面固定到首位时只传入位置 1。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，generation 或候选身份过期后不会修改当前会话；五笔、日语和本地输入模式不展示管理菜单。
 
-候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size`、`candidate_preedit_font_size`、`candidate_font_family`、`candidate_english_font`、`candidate_fallback_fonts`、`candidate_skin`、`candidate_theme` 及候选颜色覆盖；Fluent、微信绿、石墨 Graphite 和杨柳青 Willow green 四套候选皮肤按明暗主题渲染到普通候选栏和展开面板，候选按钮、预编辑、页码和英文建议使用设置中的首选字体，缺字回落交给 Android 系统字体链。非法皮肤、主题、颜色和字体安全回退，显式候选文字颜色还按共享规则派生半透明编号色。偏好热更新成功后立即调整候选排列、字号、字体和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，字体名称遵循共享的 128 UTF-8 字节和控制字符边界；真实设备视觉和触摸验收仍待完成。
+候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size`、`candidate_preedit_font_size`、`candidate_font_family`、`candidate_english_font`、`candidate_fallback_fonts`、`candidate_skin`、`candidate_theme` 及候选颜色覆盖；Fluent、微信绿、石墨 Graphite 和杨柳青 Willow green 四套候选皮肤按明暗主题渲染到普通候选栏和展开面板，候选按钮、预编辑、页码和英文建议使用设置中的首选字体，缺字回落交给 Android 系统字体链。非法皮肤、主题、颜色和字体安全回退，显式候选文字颜色还按共享规则派生半透明编号色。偏好热更新成功后立即调整候选排列、字号、字体和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，字体名称遵循共享的 128 UTF-8 字节和控制字符边界。
 
 横向候选条在 Engine session、generation 或候选页变化时回到当前页首项；这样翻页或新组字不会沿用上一页的横向偏移，把用户带到旧列表的中段。仅释义/翻译等同一代次的显示重绘保留用户当前滚动位置。候选身份仍由共享 session/generation/index 决定，Android 不自行排序或改写候选内容。
 
@@ -132,17 +132,17 @@ Tauri/React 共享设置页现在按 Android 原生能力展示候选字体、�
 
 “更多”工具页提供键盘内剪贴板历史面板。与 Apple 一致，只有用户点按“保存当前剪贴板”时才读取 Android 文本剪贴板，不后台监听；最多保存 50 条，支持去重、固定、删除、确认清空和点按插入。历史放在输入法私有偏好中，应用禁用备份且不记录内容；共享 `clipboard_history` 关闭时立即清空并禁用入口。非文本、空白或超过 10,000 UTF-16 单元/40,000 UTF-8 字节的内容不会保存。
 
-Tauri 合包的 Android 账号页通过共享云剪贴板面板使用账号会话访问 HTTPS 云端接口；不自动读取系统剪贴板，只有用户明确在面板中添加文本时才上传。列表搜索、文本、64 位小写 hex ID、更新时间和分页均由共享 Rust/host 与 Android transport 做边界校验，单页最多 50 条。面板提供启用开关、搜索、添加、删除和复制操作，复制通过 Android `ClipboardManager` 写入系统剪贴板，不尝试桌面输入目标注入。独立原生 APK 保留同等能力的原生 fallback 页面。关闭云剪贴板会删除云端历史；账号会话、云端内容和系统剪贴板均不写入日志。真实账号、网络失败和设备生命周期仍需 Android 原生产品验收。
+Tauri 合包的 Android 账号页通过共享云剪贴板面板使用账号会话访问 HTTPS 云端接口；不自动读取系统剪贴板，只有用户明确在面板中添加文本时才上传。列表搜索、文本、64 位小写 hex ID、更新时间和分页均由共享 Rust/host 与 Android transport 做边界校验，单页最多 50 条。面板提供启用开关、搜索、添加、删除和复制操作，复制通过 Android `ClipboardManager` 写入系统剪贴板，不尝试桌面输入目标注入。独立原生 APK 保留同等能力的原生 fallback 页面。关闭云剪贴板会删除云端历史；账号会话、云端内容和系统剪贴板均不写入日志。
 
-Android 账号设置中的云词典现通过同一认证会话访问 HTTPS API，内联提供四类词库的查询、分页、添加、编辑、删除、UTF-8 TSV/汉字自动注音导入和标准/Windows 导出；“完整目录”页按编码、全拼/双拼方案查询基础词库与账号覆盖，支持分页、编辑和显式删除；“云端候选排序”页按全拼/双拼/简拼查询候选，支持 canonical pinyin 调频、固定位置、取消固定和删除；云词典面板还提供快照导出、校验、恢复到云端，以及下载并在输入法空闲边界应用到本机的流程。请求、响应、64 位小写 hex ID、权重、格式、文本、编码方案、候选调频参数、固定位置和页长由共享 Rust/host 边界验证。导出文件只在用户点击导出时取得，不自动把云词库合并到本机。账号会话和云词库内容不写入日志，真实账号、文件分享和设备生命周期仍需 Android 原生产品验收。
+Android 账号设置中的云词典现通过同一认证会话访问 HTTPS API，内联提供四类词库的查询、分页、添加、编辑、删除、UTF-8 TSV/汉字自动注音导入和标准/Windows 导出；“完整目录”页按编码、全拼/双拼方案查询基础词库与账号覆盖，支持分页、编辑和显式删除；“云端候选排序”页按全拼/双拼/简拼查询候选，支持 canonical pinyin 调频、固定位置、取消固定和删除；云词典面板还提供快照导出、校验、恢复到云端，以及下载并在输入法空闲边界应用到本机的流程。请求、响应、64 位小写 hex ID、权重、格式、文本、编码方案、候选调频参数、固定位置和页长由共享 Rust/host 边界验证。导出文件只在用户点击导出时取得，不自动把云词库合并到本机。账号会话和云词库内容不写入日志。
 
 个人词库设置同时提供 Apple 对齐的 `msime-personal-dictionary` JSON 导入：文件最多 1 MiB、每次 1–128 条，支持拼音、五笔、快捷短语和英文，页面先在本地校验格式、编码、重复项和长度并展示预览，用户确认后才加入 Android 与 `:ime` 进程共享的逐条同步队列。导入文件不上传；同步失败的条目沿用现有重试/移除记录机制，Engine 仍负责最终规范化和应用。
 
-配置缺失、原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。开发 APK 的启动页提供首次资源准备；源码、打包与签名检查通过不代表设备运行通过。
+配置缺失、原生库不可用或输入连接错误会显示状态并退回直接输入。服务从应用私有 files 目录读取 `runtime-options.json`，路径必须指向已在设备上准备的词库与私有用户目录，不能复制 macOS 的配置路径。开发 APK 的启动页提供首次资源准备。
 
-本地检查：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/check-host.sh`。需要 JDK 17+、Android API 35 和 build-tools 35.0.0。脚本编译全部服务 Java、执行不依赖 Android 运行时的文本/敏感字段策略测试，并校验 manifest/resource；中间资源包随临时目录清理，不作为 APK 交付。
+本地检查：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/check-host.sh`。需要 JDK 17+、Android API 35 和 build-tools 35.0.0，以及 `rg`（缺它会让脚本里所有 `if rg` 守卫静默通过，因此脚本直接拒绝运行）。脚本先逐条比对 Android 侧与 `crates/host-api/src/ffi/input.rs` 的共享命令契约，再用 `javac --release 17 -Xlint:all -Werror` 编译不依赖 Android 框架的那部分宿主 Java（排除 `java/app/msime/client/home/` 与任何 import AndroidX/Material 的文件——那些是 AAR，只有 Gradle 能解析），执行 71 个不依赖 Android 运行时的策略冒烟，并用 `aapt2 compile` 校验 manifest/resource；中间资源包随临时目录清理，不作为 APK 交付。
 
-桌面 JVM/JNI 冒烟仍只证明跨语言消费。后续需真机上的焦点/选区/编辑器动作和完整生命周期验收。当前键盘和首次准备页是原生预览布局；React 设置页的 Android 合包与验证见下文。
+JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器动作和进程生命周期由下面「专用模拟器验收」一节的 instrumentation 覆盖。React 设置页的 Android 合包与验证见下文。
 
 ## 两个 APK 入口，不要选错
 
@@ -163,9 +163,9 @@ apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入
 
 Android“我的”页通过 Rust account session 访问固定的 https://api.msime.app 账号服务。邮箱和手机号验证码、刷新、资料更新、退出及注销请求都在原生宿主内完成，WebView 只接收不含凭据的用户和 provider DTO。会话 JSON 由包私有 Android Keystore AES-GCM 密钥加密后写入 SharedPreferences，密钥和密文不跨应用包共享；请求不跟随重定向，普通 JSON 请求和响应均限制为 1 MiB。日常输入不需要登录，账号登录不会上传本地输入或统计。页面同时提供 Apple 对齐的五种 App 图标选择；Android 通过 launcher `activity-alias` 持久化系统选择，切换只启用目标入口并保留原版回退，不进入设置同步或账号云端数据。
 
-Android“社区”页以 Apple 远端默认分支 `develop` 的固定来源 `MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0` 为浏览基线，提供公开皮肤双列列表、原样 UTF-8 搜索、分页去重和详情预览。匿名用户可直接浏览；已有账号会话时请求携带同一 Bearer token，使服务返回“我的作品”和个人评分状态，401 只刷新一次，账号在请求期间变化会废弃结果。next42 增加登录后的下载：设计以社区 UUID 稳定保存到本地最多 12 项图库，写入前持久化原皮肤和试用记录，主应用重启时恢复未完成试用；详情页支持恢复原皮肤、保留使用及下载后的 1–5 星评分，自己的作品隐藏评分入口。next43 增加发布本地命名皮肤、公开素材权利确认、失败安全重试、全部/我的作品范围切换和作者下架；下架沿用后端语义，已下载的本地副本保留。Rust transport 对 offset、查询、页长、UUID、文本、评分、发布和完整设计做边界校验，WebView 只接收稳定脱敏错误码。该切片不访问生产社区做设备验收，账号配额、真实发布/下架、本地图库与社区列表分页仍需 Android 原生宿主和产品验收。
+Android“社区”页以 Apple 远端默认分支 `develop` 的固定来源 `MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0` 为浏览基线，提供公开皮肤双列列表、原样 UTF-8 搜索、分页去重和详情预览。匿名用户可直接浏览；已有账号会话时请求携带同一 Bearer token，使服务返回“我的作品”和个人评分状态，401 只刷新一次，账号在请求期间变化会废弃结果。登录后可下载：设计以社区 UUID 稳定保存到本地最多 12 项图库，写入前持久化原皮肤和试用记录，主应用重启时恢复未完成试用；详情页支持恢复原皮肤、保留使用及下载后的 1–5 星评分，自己的作品隐藏评分入口。发布侧提供本地命名皮肤上传、公开素材权利确认、失败安全重试、全部/我的作品范围切换和作者下架；下架沿用后端语义，已下载的本地副本保留。Rust transport 对 offset、查询、页长、UUID、文本、评分、发布和完整设计做边界校验，WebView 只接收稳定脱敏错误码。
 
-Apple 的社区资源入口已迁移到同一页的“皮肤 / 词库 / 回复”分类：词库与回复资源支持公开列表、原样 UTF-8 搜索、全部/收藏/我的作品范围、详情预览、收藏、评分、发布新版本和作者下架；词库可显式导入本机词库或在账号版本检查后合并到云词库，回复模板只有用户明确添加后才写入应用私有 `files/CommunityLibrary.json`，由独立 `:ime` 进程重新读取。资源内容、分页、版本、权重、提示词和本地模板库均有大小、数量、控制字符、重复项及稳定错误码边界；发布前要求确认公开权利。账号页提供已发布皮肤、已发布资源和收藏资源的直达入口。该功能已完成本地 transport/UI/Java host 检查，尚未进行真实 Android 设备、生产账号或社区资源验收。
+Apple 的社区资源入口已迁移到同一页的“皮肤 / 词库 / 回复”分类：词库与回复资源支持公开列表、原样 UTF-8 搜索、全部/收藏/我的作品范围、详情预览、收藏、评分、发布新版本和作者下架；词库可显式导入本机词库或在账号版本检查后合并到云词库，回复模板只有用户明确添加后才写入应用私有 `files/CommunityLibrary.json`，由独立 `:ime` 进程重新读取。资源内容、分页、版本、权重、提示词和本地模板库均有大小、数量、控制字符、重复项及稳定错误码边界；发布前要求确认公开权利。账号页提供已发布皮肤、已发布资源和收藏资源的直达入口。
 
 应用首次启动、缺少运行配置时由宿主自己准备词库：两个 launcher（原生宿主的 HomeActivity 与合包的 MainActivity）都调用幂等的 `FirstRunPreparation.startIfNeeded`，已有配置只报告不覆盖。准备中与失败在“键盘”页顶部显示，失败可点击重试；就绪时不占屏幕。原先那个只有一排系统按钮的 SetupActivity 开发页已删除——把唯一的词库准备入口藏在一个用户找不到的脚手架页后面，等于允许键盘停在够不到 Engine 的状态。切换输入法的入口移到“试用键盘”页，系统输入法设置仍在“键盘”页的“系统设置”格。不会自动启用或选择输入法。系统输入法设置入口也可打开共享设置页。Tauri 使用主进程，InputMethodService 使用同 UID 的独立 :ime 进程，通过文件锁和 revision 协作，不依赖设置窗口存活。这样 Tauri 退出最后一个窗口不会结束输入服务；不是通过让隐藏设置窗口常驻来维持输入。
 
@@ -179,7 +179,7 @@ Tauri 合包的 Android“我的”页“关于水杉”入口打开共享 `abou
 
 共享设置的“屏幕键盘”页面在 Android 上通过 `android_open_keyboard_tryout` 打开原生 `KeyboardTryoutActivity`；Tauri 只提供公共配置和入口，实际输入仍走 Android 原生试用键盘与 `InputConnection`，不在 WebView 内伪造输入法。
 
-此合包是本地开发构建，使用原开发签名和 versionCode 1，便于覆盖安装同一开发包，不代表正式发行的版本策略；不得发布开发密钥。`build-apk.sh` 不是被取代的旧入口，而是本目录原生宿主自己的构建入口，验证本目录改动时用它。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。
+本地跑这条命令得到的是开发构建：使用 `target/android/development.keystore` 的开发签名和 versionCode 1，便于覆盖安装同一开发包；开发密钥不得发布，正式签名走发布流程而不是这里。`build-apk.sh` 不是被取代的旧入口，而是本目录原生宿主自己的构建入口，验证本目录改动时用它。
 
 在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --statistics --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、内置与自定义键盘皮肤、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。设置套件先确认“我的”入口存在，再选择内置霓虹夜航并打开真实编辑器应用“奶油桃桃”模板，通过 Tauri IPC 对独立命名图库执行新建、重命名、更新、应用和删除，并确认图库写入不会提前修改普通 preferences；随后检查 `custom` 选择及卵石、立体、圆角、纹理字段落盘，并在重绑的 `:ime` 进程中通过皮肤按钮无障碍状态确认实际消费“我的皮肤”。独立 fixture 还验证 Keystore 加密会话的往返、密文不含固定明文 marker、清除与 16 KiB 上限，不向生产账号服务发送验证码。测试前后恢复图库、偏好及 fixture 会话文件。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。统计套件通过真实 InputConnection 与 React 页面验证聚合文件、启停、清空和跨进程读写，固定失败阶段不输出编辑器内容，并恢复测试前文件。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案和偏好文件，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
 
@@ -191,11 +191,11 @@ Tauri 合包的 Android“我的”页“关于水杉”入口打开共享 `abou
 
 JNI `loadPreferences` 只读取共享层，快照回到会话主线程后调用同一个 `updatePreferences`；键盘侧写入通过 `savePreferences` 进入同一共享 CAS 边界。revision 校验、组词期间延迟应用和重建失败保护仍在 Rust 中。更新只刷新候选视图，不用空预编辑覆盖现有编辑器内容。相同视图和状态不反复重建键盘控件。密码等直接输入字段不启动配置轮询；禁止个性化学习的编辑器在创建和每次快照应用时均强制关闭学习，同时内存中保留未经隐私覆盖的已接受磁盘快照，避免键盘写入意外永久关闭全局学习设置。
 
-读取或应用失败保留当前输入会话，显示非阻断提示，后续继续重试；不写入默认值覆盖坏文件。共享 React 设置页在上述 Tauri 合包中使用同一个存储；完整移动产品、真机与其他平台仍待验收。
+读取或应用失败保留当前输入会话，显示非阻断提示，后续继续重试；不写入默认值覆盖坏文件。共享 React 设置页在上述 Tauri 合包中使用同一个存储。
 
 ## 原生库交叉构建
 
-固定 NDK r28c (`28.2.13676358`)、Android API 28 与 vcpkg `ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0`。vcpkg manifest 固定 Boost/fmt/spdlog/SQLite 来源；依赖和构建产物放在忽略的 target 下，不修改 Engine 子模块。需要先自行安装对应 SDK/NDK 和 Rust Android 目标；脚本不自动接受许可或启用 CI。
+固定 NDK r28c (`28.2.13676358`)、Android API 28 与 vcpkg `ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0`。vcpkg manifest 固定 Boost/fmt/spdlog/SQLite 来源；依赖和构建产物放在忽略的 target 下，不修改 Engine 子模块。需要先自行安装对应 SDK/NDK 和 Rust Android 目标；脚本不自动接受 SDK 许可。
 
 ```sh
 git clone --depth 1 --branch 2025.06.13 https://github.com/microsoft/vcpkg.git target/tooling/vcpkg
@@ -207,21 +207,21 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 
 可用 `MSIME_VCPKG_ROOT`、`MSIME_ANDROID_NDK` 指定绝对路径。脚本校验固定版本后安装锁定依赖，构建 release Rust/C++ 宿主和 JNI，SQLite 静态链接；产物为 `target/android/jniLibs/<abi>/{libmsime_host_api.so,libmsime_android.so,libc++_shared.so}`。验证脚本检查 ELF 架构、16 KB LOAD 对齐、动态依赖白名单与宿主/JNI 导出。NDK 和 vcpkg 声明复制到 `target/android/notices/<abi>`，正式分发还需汇总 Rust/Engine 与词库许可材料。
 
-当前提供 arm64-v8a 与 x86_64 构建路径；没有 32 位 ABI、Windows 构建脚本或设备运行保证。原生库不能直接当作 APK，需使用下述脚本打包并进行运行验收。
+提供 arm64-v8a 与 x86_64 两条构建路径；不提供 32 位 ABI，也没有 Windows 构建脚本。原生库本身不是 APK，需用下述脚本打包。
 
 ## 开发 APK 与首次准备
 
-本地构建：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-apk.sh <已锁定词库目录>`。需要前述 NDK/vcpkg/JDK/Rust 工具及 zip；脚本先通过共享 ResourceStore 校验资源，再构建双 ABI 库，用 SDK aapt2/d8/zipalign/apksigner 生成并验证 `target/android/msime-client.apk`。APK 含六份锁定资源和原生许可声明；仅供本地开发测试，完整分发许可审计仍未完成，不发布到应用商店。签名前进行 16 KB zip 对齐，签名后再验证。
+本地构建：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-apk.sh <已锁定词库目录>`。需要前述 NDK/vcpkg/JDK/Rust 工具及 zip；脚本先通过共享 ResourceStore 校验资源，再构建双 ABI 库，由 `platforms/android/gradle-app` 的 `assembleRelease` 产出未签名 APK（AndroidX 与 Material 是 AAR，资源合并和 R 类生成必须交给 Gradle/AGP），最后用 SDK 的 zipalign/apksigner 对齐、签名并验证 `target/android/msime-client.apk`。APK 随包带锁定词库、原生依赖声明和 `LICENSE`；签名前进行 16 KB zip 对齐，签名后再验证。
 
 开发密钥在忽略的 `target/android/development.keystore`，不得用于正式发行；清理该文件会改变后续开发签名，不能直接覆盖安装由旧密钥签名的包。构建临时文件留在 target/android 便于排查，不触碰任何设备。
 
 用户打开启动页并点击“准备词库”后，后台任务在私有目录解包资源，调用共享 Rust/C++ 校验与工作数据准备，成功后通过 AtomicFile 发布配置。已有配置一律不覆盖，失败可重试；不支持在线升级已运行的词库。解包和工作词库复制需要额外存储空间。启动页只提供手动进入系统设置/选择器的按钮，不自动启用或切换输入法。
 
-本地已验证 APK 包结构、双 ABI、启动 Activity、IME 声明、签名与对齐；Android 15 arm64 专用模拟器已验证安装、首次准备、已有配置不覆盖，以及软键盘通过系统 InputConnection 上屏、退格和密码直接输入。x86_64 仍只有交叉构建证据，不代表真机或完整生命周期验收。工具契约参考 [d8](https://developer.android.com/tools/d8)、[zipalign](https://developer.android.com/tools/zipalign) 与 [apksigner](https://developer.android.com/tools/apksigner)。
+APK 包结构、双 ABI、启动 Activity、IME 声明、签名与对齐均由脚本自身校验；API 35 arm64 专用模拟器覆盖安装、首次准备、已有配置不覆盖，以及软键盘通过系统 InputConnection 上屏、退格和密码直接输入。工具契约参考 [d8](https://developer.android.com/tools/d8)、[zipalign](https://developer.android.com/tools/zipalign) 与 [apksigner](https://developer.android.com/tools/apksigner)。
 
-## 专用模拟器验收（仅本地）
+## 专用模拟器验收
 
-预先安装 `system-images;android-35;default;arm64-v8a`，在一个终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/start-emulator.sh`。脚本在忽略的 target/android/avd-home 中创建 msime-client-test，固定 emulator-5580，不使用已有个人 AVD；目标端口属于其他 AVD 时拒绝运行。需要额外磁盘空间，测试结束后应停止该专用模拟器以释放内存；脚本不会下载系统镜像、自动接受许可或启动 CI。
+预先安装 `system-images;android-35;default;arm64-v8a`，在一个终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/start-emulator.sh`。脚本在忽略的 target/android/avd-home 中创建 msime-client-test，固定 emulator-5580，不使用已有个人 AVD；目标端口属于其他 AVD 时拒绝运行。需要额外磁盘空间，测试结束后应停止该专用模拟器以释放内存；脚本不会下载系统镜像，也不自动接受 SDK 许可。
 
 完成上述 APK 构建、等待系统启动后，在另一终端运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580`。该命令会安装 `app.msime.android` 开发包和独立合成编辑器，准备资源，并在专用 AVD 上启用和选择 MSIME；拒绝非模拟器或名称不符的设备，不对现有真机执行操作。测试不会清空应用数据，重复执行覆盖已有配置路径而非重新模拟首次安装。
 
@@ -243,6 +243,6 @@ CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER="bash $PWD/platforms/android/tests/dev
 cargo test -p msime-client-core --lib --target aarch64-linux-android --locked
 ```
 
-8 项测试在 Android 上通过，包含独立 PreferencesStore 的并发冲突和资源失败保护。Android 标准库文件锁不可用，共享锁封装在该目标使用 rustix 安全 flock，其他目标保留标准库锁；不放宽共享核心的 unsafe 禁令。Android 15 的启动页和软键盘均应用系统栏 inset，避免操作被 ActionBar 或导航栏遮挡。后续仍需真机、其他 Android 版本、旋转/系统回收后的完整进程重建、外部选区及候选翻页验收。
+8 项测试在 Android 上通过，包含独立 PreferencesStore 的并发冲突和资源失败保护。Android 标准库文件锁不可用，共享锁封装在该目标使用 rustix 安全 flock，其他目标保留标准库锁；不放宽共享核心的 unsafe 禁令。启动页和软键盘均应用系统栏 inset，避免操作被 ActionBar 或导航栏遮挡。
 
 系统契约参考：[InputMethodService](https://developer.android.com/reference/android/inputmethodservice/InputMethodService) 与 [InputConnection](https://developer.android.com/reference/android/view/inputmethod/InputConnection)。

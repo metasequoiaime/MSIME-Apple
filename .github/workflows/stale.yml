@@ -29,7 +29,8 @@ jobs:
           stale-issue-label: stale
           stale-pr-label: stale
           exempt-issue-labels: pinned,security,accessibility,help wanted,good first issue
-          exempt-pr-labels: pinned,security,needs-review
+          # dependencies 必须在列:.github/dependabot.yml 给每个 bump 都打这个标签,而 action 的 SHA pin 没人手工更新 —— 一个 30 天没人看的 bump 被自动关掉,等于把这份配置要交付的东西悄悄扔了。
+          exempt-pr-labels: pinned,security,needs-review,dependencies
           exempt-all-assignees: true
           exempt-draft-pr: true
           close-issue-reason: not_planned

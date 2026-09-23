@@ -134,6 +134,9 @@ int main() {
       std::atomic<bool> maintenance_ok{false};
       std::atomic<uint64_t> quiesces{0};
       std::atomic<uint64_t> resumes{0};
+      std::atomic<bool> statistics_ok{false};
+      std::mutex statistics_mutex;
+      std::vector<AuxTypingStatistics> statistics_batches;
       auto listener = AuxListener::create(
           name, [&](const TrayMenuAnchor &a) { collected.add(a); }, error, {},
           [&](AuxActivation activation) {
@@ -154,6 +157,11 @@ int main() {
             else
               ++resumes;
             return maintenance_ok.load();
+          },
+          [&](const AuxTypingStatistics &batch) {
+            std::lock_guard<std::mutex> lock(statistics_mutex);
+            statistics_batches.push_back(batch);
+            return statistics_ok.load();
           });
       require(listener != nullptr);
       const auto dispatched = [&] { return listener->stats().dispatched; };
@@ -219,7 +227,21 @@ int main() {
       // confused with the quiesce that preceded it.
       require(send_and_read_reply(name, L"DictionaryResume") == L"OK");
       require(resumes.load() == 1 && quiesces.load() == 2);
-      require(deliver(name, L"LangbarRightClick|10|10|50|50", dispatched, 9));
+      // Passthrough statistics: a refused batch gets no "OK", which is what makes the DLL back off while statistics are switched off.
+      require(send_and_read_reply(name, L"TypingStatistics|E|ab").empty());
+      statistics_ok.store(true);
+      require(send_and_read_reply(name, L"TypingStatistics|C|12") == L"OK");
+      {
+        std::lock_guard<std::mutex> lock(statistics_mutex);
+        require(statistics_batches.size() == 2);
+        require(statistics_batches[0].english &&
+                statistics_batches[0].characters == L"ab");
+        require(!statistics_batches[1].english &&
+                statistics_batches[1].characters == L"12");
+      }
+      // Progress is the click count, not `dispatched`: acknowledged verbs have already pushed that counter past any fixed target, which would turn deliver's retry into a single send that races the listener's next accept.
+      const auto clicks = [&] { return uint64_t(collected.snapshot().size()); };
+      require(deliver(name, L"LangbarRightClick|10|10|50|50", clicks, 7));
       require(collected.wait_for(7));
 
       // A client that connects and never writes must not wedge the endpoint.
@@ -227,7 +249,7 @@ int main() {
                                 nullptr, OPEN_EXISTING, 0, nullptr);
       require(idle != INVALID_HANDLE_VALUE);
       CloseHandle(idle);
-      require(deliver(name, L"LangbarRightClick|20|20|60|60", dispatched, 8));
+      require(deliver(name, L"LangbarRightClick|20|20|60|60", clicks, 8));
       require(collected.wait_for(8));
 
       // Stopping twice is safe, and no hard failure was latched.

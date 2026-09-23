@@ -12,6 +12,7 @@
 #include "FloatingToolbarVisibilityPolicy.h"
 #include "FirstRun.h"
 #include "FloatingToolbarWindow.h"
+#include "FocusedSession.h"
 #include "FullscreenForeground.h"
 #include "MaintenanceHotkey.h"
 #include "ModeAuthority.h"
@@ -1181,6 +1182,29 @@ int wmain(int argc, wchar_t **argv) {
           return request == AuxDictionaryMaintenance::Quiesce
                      ? server.quiesce_dictionaries()
                      : server.resume_dictionaries();
+        },
+        // Keys the TIP passed straight to the application - English mode, digits and punctuation the Engine declined - never reach a session, so the commit path cannot count them. The DLL batches them here instead. Refusing while statistics are off makes the DLL back off rather than keep sending characters nobody records.
+        [statistics_directory = config.state_root.u8string()](
+            const AuxTypingStatistics &batch) {
+          if (msime_client_typing_statistics_enabled(
+                  reinterpret_cast<const uint8_t *>(statistics_directory.data()),
+                  statistics_directory.size()) != 1)
+            return false;
+          const int wide_size = static_cast<int>(batch.characters.size());
+          const int size = WideCharToMultiByte(
+              CP_UTF8, WC_ERR_INVALID_CHARS, batch.characters.data(), wide_size,
+              nullptr, 0, nullptr, nullptr);
+          if (size <= 0)
+            return false;
+          std::string text(static_cast<size_t>(size), '\0');
+          if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+                                  batch.characters.data(), wide_size,
+                                  text.data(), size, nullptr, nullptr) != size)
+            return false;
+          record_typing_statistics_async(
+              statistics_directory, text,
+              batch.english ? TypingSource::English : TypingSource::Unknown);
+          return true;
         });
     // The fifth pipe: TIP diagnostics. The TIP has always produced batches on
     // it; nothing ever listened, so enabling diagnostic logging produced

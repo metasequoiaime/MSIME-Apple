@@ -1,7 +1,6 @@
 # Windows packaging layout
 
-The installer consumes a staging directory, not source-tree paths. The
-staging script writes these inputs for `msime_setup.iss`:
+The installer consumes a staging directory, not source-tree paths. `Prepare-PackageFiles.ps1` writes these inputs for `msime_setup.iss`:
 
 | Staging path | Contents |
 | --- | --- |
@@ -10,27 +9,12 @@ staging script writes these inputs for `msime_setup.iss`:
 | `app_data` | default configuration and runtime resources |
 | `app_data/html` | WebView2 UI assets |
 
-Native CMake targets are expected to come from the configured Windows build
-directory. The TSF DLL remains an in-process component and the Server remains
-out of process; packaging them together does not change that boundary.
+Native CMake targets come from the configured Windows build directory (`target/windows-full/<arch>`, as produced by `../Build-Client.ps1`). The TSF DLL remains an in-process component and the Server remains out of process; packaging them together does not change that boundary.
 
-For a release package, run `Sign-PackageBinaries-SimplySign.ps1` after staging.
-It selects the connected Certum code-signing certificate, signs every EXE/DLL
-under `server_exe` and `tsf_dll` in one signtool invocation, then verifies the
-certificate and trusted timestamp on every file. The local test-certificate
-script remains separate and must not be used for public releases.
-After Inno Setup creates the outer installer, run
-`Sign-Installer-SimplySign.ps1` to apply and verify the same release signature
-and timestamp to the installer itself.
+For a release package, run `Sign-PackageBinaries-SimplySign.ps1` after staging. It selects the connected Certum code-signing certificate, signs every EXE/DLL under `server_exe` and `tsf_dll` in one signtool invocation, then verifies the certificate and trusted timestamp on every file. The local test-certificate script (`Sign-PackageBinaries-Local.ps1`) is separate and must not be used for public releases. After Inno Setup creates the outer installer, run `Sign-Installer-SimplySign.ps1` to apply and verify the same release signature and timestamp to the installer itself.
 
-For the complete release sequence, use `Package-SimplySign.ps1`. It builds both
-architectures, stages the package, signs payloads, compiles Inno Setup, and signs
-the outer installer; it never installs or modifies CI state.
+For the complete release sequence, use `Package-SimplySign.ps1`. It builds both architectures, stages the package, signs payloads, compiles Inno Setup with `Compile-Installer.ps1`, and signs the outer installer; it never installs or modifies CI state. The installer is built on Windows, not in CI: the Windows CI job and `release-windows.yml` both stop at the MinGW cross build.
 
-Build the Tauri desktop release before staging. `Prepare-PackageFiles.ps1`
-requires `target/release/msime-desktop.exe` by default; use `-DesktopExecutable`
-for an absolute path or a path relative to `-RepoRoot` (for example a Cargo
-target-triple output directory). Both full and light packages include this
-binary under the name resolved by the native shell launcher. A missing binary
-is rejected before resetting the existing staging directories. This check
-does not replace Windows installation or WebView2 runtime validation.
+`msime_setup.iss` requires Inno Setup 6.6 or newer. It installs the 32- and 64-bit TSF DLLs under `{commonpf32|64}\metasequoiaime\msime_v<version>\` with the `regserver` flag so the TIP is registered, puts the Server package under `{commonpf64}\metasequoiaime\server`, writes `VersionDir`, `ServerPath` and `DataDir` under `HKLM\Software\Metasequoia\MetasequoiaIME`, and copies `config.toml` only when it does not already exist so an upgrade never overwrites user configuration. `THIRD_PARTY_NOTICES.txt` and `LICENSE.txt` ship with the package, as GPLv3 sections 4 and 6 require. `ISCC /DLightPackage=1` produces the light package, which omits the bundled dictionaries.
+
+Build the Tauri desktop release before staging. `Prepare-PackageFiles.ps1` requires `target/release/msime-desktop.exe` by default; use `-DesktopExecutable` for an absolute path or a path relative to `-RepoRoot` (for example a Cargo target-triple output directory). Both full and light packages include this binary under the name resolved by the native shell launcher. A missing binary is rejected before resetting the existing staging directories. That check confirms the file is present and is the right PE type; whether the installed machine has the WebView2 runtime is checked at install time by the installer itself.

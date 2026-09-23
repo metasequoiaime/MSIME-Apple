@@ -239,6 +239,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _QueueSmartPunctuationRewrite(WCHAR replacement);
     bool _QueueRepeatedSmartPunctuationReplacement(WCHAR wch);
     void _NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isEaten);
+    void _NotePassthroughStatistics(UINT virtualKey, WCHAR wch, bool keyboardKnownEnabled);
     void _ResetSmartPunctuationHistory();
     bool _CanConvertSmartPunctuationSpace() const;
     bool _CanRevertSmartPunctuation(WCHAR wch) const;
@@ -579,6 +580,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     BOOL _isCandidateWithWildcard : 1;
 
     // Last smart-punctuation commit, used to detect a backspace rejection.
+    // The key event last counted by _NotePassthroughStatistics; a host can query the same event more than once.
+    UINT _passthroughStatsVirtualKey = 0;
+    LONG _passthroughStatsMessageTime = 0;
     WCHAR _smartPunctuationKey = 0;
     WCHAR _smartPunctuationPrecedingChar = 0;
     bool _smartPunctuationCommittedAscii = false;

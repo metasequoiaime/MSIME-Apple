@@ -17,6 +17,34 @@ FocusedSession::typing_statistics_directory(const std::string &options) {
     return {};
   }
 }
+void record_typing_statistics_async(const std::string &directory,
+                                    const std::string &text,
+                                    TypingSource source) {
+  if (directory.empty())
+    return;
+  const auto local = local_time_parts(std::time(nullptr));
+  if (!local)
+    return;
+  auto request = typing_statistics_record_request(directory, text, source,
+                                                  local->day, local->hour);
+  if (request.empty())
+    return;
+  // Off the calling thread: the shared store takes a file lock, and neither a commit nor a pipe listener may wait on statistics. Detached like the other hosts do; the request is a self-contained copy, so nothing here outlives it.
+  try {
+    std::thread([payload = std::move(request)] {
+      try {
+        if (auto *raw = msime_client_typing_statistics(
+                reinterpret_cast<const uint8_t *>(payload.data()),
+                payload.size()))
+          msime_client_string_free(raw);
+      } catch (...) {
+        // Best effort; text commitment has already happened.
+      }
+    }).detach();
+  } catch (...) {
+    // Thread exhaustion drops the record rather than the keystroke.
+  }
+}
 std::optional<FocusedSession::Commit> FocusedSession::pending_commit() const {
   if (!composer_ || !composer_->has_pending())
     return std::nullopt;
@@ -33,33 +61,8 @@ void FocusedSession::record_commit(const std::optional<Commit> &delivered) {
     statistics_(delivered->text, delivered->source);
     return;
   }
-  if (statistics_directory_.empty())
-    return;
-  const auto local = local_time_parts(std::time(nullptr));
-  if (!local)
-    return;
-  auto request = typing_statistics_record_request(
-      statistics_directory_, delivered->text, delivered->source, local->day,
-      local->hour);
-  if (request.empty())
-    return;
-  // Off the input queue: the shared store takes a file lock, and a commit must
-  // never wait on statistics. Detached like the other hosts do; the request is
-  // a self-contained copy, so nothing here outlives it.
-  try {
-    std::thread([payload = std::move(request)] {
-      try {
-        if (auto *raw = msime_client_typing_statistics(
-                reinterpret_cast<const uint8_t *>(payload.data()),
-                payload.size()))
-          msime_client_string_free(raw);
-      } catch (...) {
-        // Best effort; text commitment has already happened.
-      }
-    }).detach();
-  } catch (...) {
-    // Thread exhaustion drops the record rather than the keystroke.
-  }
+  record_typing_statistics_async(statistics_directory_, delivered->text,
+                                 delivered->source);
 }
 void FocusedSession::check_thread() const {
   if (std::this_thread::get_id() != thread_)

@@ -121,6 +121,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var letterRowPunctuationKeys: [UIButton] = []
   private var formFactor: KeyboardFormFactor { .resolve(traitCollection) }
   private var letterRowViews: [UIView] = []
+  /// The iPad digit row above the letters and the Tab key before Q; see `KeyboardLayoutPreference.tabletFullKeys`.
+  private var numberRowView: UIStackView?
+  private var tabKey: UIButton?
   private var symbolRowViews: [UIView] = []
   // Symbol keys show the punctuation they actually emit in Chinese mode.
   private var symbolKeyFaces: [(key: UIButton, ascii: String, chinese: String)] = []
@@ -539,6 +542,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
 
     root.addArrangedSubview(makeCandidateStrip())
+    let numberRow = makeNumberRow()
+    numberRowView = numberRow
+    root.addArrangedSubview(numberRow)
     for (index, row) in letterRows.enumerated() {
       let rowView = makeLetterRow(row, includesShift: index == letterRows.count - 1)
       letterRowViews.append(rowView)
@@ -613,7 +619,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     actionRow = makeActionRow()
     root.addArrangedSubview(actionRow)
-    standardRowHeights = (letterRowViews + symbolRowViews).map {
+    standardRowHeights = ([numberRow] + letterRowViews + symbolRowViews).map {
       ($0, $0.heightAnchor.constraint(equalTo: actionRow.heightAnchor))
     }
     // Keep the three keypad rows the same height as the bottom controls.
@@ -1214,6 +1220,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayoutIfNeeded()
   }
 
+  /// Digits 1–0 for the full-size iPad keyboard. They go through the same path as the symbol layer's digits, so with a composition open 1–9 pick candidates as on the desktop.
+  private func makeNumberRow() -> UIStackView {
+    let row = makeRow()
+    for digit in "1234567890" {
+      let text = String(digit)
+      let key = makeKey(title: text, accessibilityLabel: text) { [weak self] in self?.handleSymbol(text) }
+      key.accessibilityIdentifier = "numberRowKey\(text)"
+      row.addArrangedSubview(key)
+    }
+    row.accessibilityIdentifier = "numberRow"
+    row.isHidden = true
+    return row
+  }
+
   private func makeLetterRow(_ letters: [Character], includesShift: Bool) -> UIStackView {
     let row = makeRow()
     if includesShift {
@@ -1260,6 +1280,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         width.priority = .init(999)
         width.isActive = true
       }
+    }
+    if letters == letterRows[0] {
+      let tab = makeSymbolKey(symbol: "arrow.right.to.line", accessibilityLabel: "Tab") { [weak self] in
+        self?.handleTab()
+      }
+      tab.accessibilityIdentifier = "tabKey"
+      tab.isHidden = true
+      tabKey = tab
+      row.insertArrangedSubview(tab, at: 0)
+      row.distribution = .fill
+      // Letters stay equal; Tab is one and a half keys wide, below required so a hidden Tab leaves the letters to fill the row.
+      let keys = Array(row.arrangedSubviews.dropFirst())
+      NSLayoutConstraint.activate(keys.dropFirst().map { $0.widthAnchor.constraint(equalTo: keys[0].widthAnchor) })
+      let width = tab.widthAnchor.constraint(equalTo: keys[0].widthAnchor, multiplier: 1.5)
+      width.priority = .init(999)
+      width.isActive = true
     }
     if letters == letterRows[1] {
       let key = makeKey(title: ";", accessibilityLabel: "微软双拼 ing") { [weak self] in self?.handleCharacter(";") }
@@ -2547,7 +2583,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineGrid?.spacing = layout.rowSpacing
     nineControls?.spacing = layout.rowSpacing
     nineKeyHeight.constant = layout.rowSpacing * 2
-    for row in letterRowViews + symbolRowViews + nineKeyRows {
+    for row in [numberRowView as UIView?].compactMap({ $0 }) + letterRowViews + symbolRowViews + nineKeyRows {
       (row as? UIStackView)?.spacing = layout.keySpacing
     }
     actionRow.spacing = layout.keySpacing
@@ -2580,6 +2616,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let hasSpellings: Bool
     let geometry: KeyboardGeometry
     let formFactor: KeyboardFormFactor
+    let fullKeys: Bool
   }
 
   private var layoutInputs: KeyboardLayoutInputs {
@@ -2588,7 +2625,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       symbols: showsSymbols, globe: needsInputModeSwitchKey,
       hasSpellings: !currentNineKeySpellings.isEmpty,
       geometry: KeyboardLayoutPreference.geometry,
-      formFactor: formFactor)
+      formFactor: formFactor, fullKeys: KeyboardLayoutPreference.tabletFullKeys)
   }
 
   /// Rebuild the keyboard only when something it depends on moved.
@@ -2623,6 +2660,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if writes { handwriting.activate() }
     handwritingActionHeight?.isActive = writes
     letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes || kana }
+    let fullKeys = formFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
+    numberRowView?.isHidden = !fullKeys || showsSymbols || nineKey || writes || kana
+    tabKey?.isHidden = !fullKeys
     let rowPunctuation = formFactor.showsLetterRowPunctuation
     for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
     // The nine-key digit layer keeps the three-column grid and only changes its legends. This
@@ -2699,6 +2739,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       nineKeySymbolsButton?.showsMenuAsPrimaryAction = false
     }
     updatePreferredKeyboardHeight()
+  }
+
+  /// Whether Tab turns to more candidates while composing, the shared `navigation.tab` (Windows `paging_tab`, on by default).
+  nonisolated static func tabShowsMoreCandidates(_ preferences: [String: Any]?) -> Bool {
+    (preferences?["navigation"] as? [String: Any])?["tab"] as? Bool ?? true
+  }
+
+  /// Tab on the full-size iPad keyboard. On the desktop Tab turns the candidate page; the strip here has no pages to turn, only the full candidate panel behind it, so with candidates showing Tab opens that. Otherwise it ends any composition and types a tab, as an unhandled key does.
+  private func handleTab() {
+    let composing = isChineseMode && (!visiblePreedit.isEmpty || !visibleCandidates.isEmpty)
+    if composing, !visibleCandidates.isEmpty, Self.tabShowsMoreCandidates(session.sharedPreferences) {
+      showCandidatePanel()
+      return
+    }
+    playInputClick()
+    if composing { render(session.finishComposition()) }
+    insertOwnText("\t")
+    if !isChineseMode { refreshEnglishSuggestions() }
   }
 
   private func handleBackspace() {
@@ -3664,7 +3722,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // taking the space out of the keys.
     let extra = currentStripExtraHeight
     // Handwriting shares the candidate strip and therefore the common portrait height.
-    let height = formFactor.baseHeight(landscape: landscape, handwriting: !handwriting.isHidden) + extra
+    let height = formFactor.baseHeight(
+      landscape: landscape, handwriting: !handwriting.isHidden,
+      numberRow: numberRowView?.isHidden == false) + extra
     let adjustedHeight = height + sharedKeyboardHeightAdjustment
     if keyboardHeightConstraint?.constant != adjustedHeight { keyboardHeightConstraint?.constant = adjustedHeight }
   }

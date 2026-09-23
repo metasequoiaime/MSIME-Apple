@@ -20,17 +20,23 @@ enum KeyboardFormFactor: Equatable {
   /// Keyboard height before the composition line, gloss lines and the user's own adjustment.
   ///
   /// Tablet keys are much wider than phone keys, so keeping the phone height there leaves them as flat slabs that are hard to aim at. Unlike the phone, an iPad keyboard gets taller in landscape, as the system keyboard does, because the screen gets wider there.
-  func baseHeight(landscape: Bool, handwriting: Bool) -> CGFloat {
+  ///
+  /// The tablet digit row is a whole extra row of keys, so it adds a row's height rather than squeezing the letters.
+  func baseHeight(landscape: Bool, handwriting: Bool, numberRow: Bool = false) -> CGFloat {
     switch self {
     case .phone:
       // Handwriting keeps a small allowance in landscape so the writing canvas stays usable.
       guard landscape else { return 260 }
       return handwriting ? 240 : 216
     case .tablet:
-      return landscape ? 372 : 316
+      let base: CGFloat = landscape ? 372 : 316
+      return numberRow ? base + (landscape ? 68 : 58) : base
     }
   }
 
   /// Whether the third letter row carries the comma and full-stop keys, as the iPad system keyboard does.
   var showsLetterRowPunctuation: Bool { self == .tablet }
+
+  /// Whether the keyboard can carry the digit row and Tab key of a full-size keyboard (`KeyboardLayoutPreference.tabletFullKeys`). A phone-width keyboard has no room for either.
+  var canShowFullKeys: Bool { self == .tablet }
 }

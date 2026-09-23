@@ -1,14 +1,12 @@
 # iOS App 与键盘扩展
 
-## 目录结构与验证边界
+## 目录结构
 
 App 业务位于 `App/Sources/<feature>/`，键盘扩展位于 `KeyboardExtension/Sources/<feature>/`，共享 SwiftUI/UIKit 位于 `SharedUI/<feature>/`；`KeyboardTests/`、`ServiceTests/`、`TransportTests/` 和 `UITests/` 分别覆盖键盘、服务、桥接和界面边界。Tauri 生成工程位于 `apps/desktop/src-tauri/gen/apple`，不在其中维护第二份键盘实现。
 
-Swift 单元/配置测试与模拟器构建只证明源码和桥接可编译。Xcode target 签名、App Group 权限、ML Kit 真机模型、键盘扩展启用、真实编辑器和生命周期仍需设备验收；缺少 `target/ios/EngineResources` 时，构建会按文档先执行资源暂存步骤，不把失败描述为宿主接入完成。
+Xcode 工程由 XcodeGen 从 `project.yml` 生成，`project.yml` 是唯一权威来源；构建前先跑一次 `xcodegen generate`。生成的工程包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态由 C++ Engine 管理；扩展只负责宿主事件、候选展示和文本提交。键盘扩展不直接使用桌面音频采集桥接。构建前需要先按下面的步骤把词库暂存到 `target/ios/EngineResources`。
 
-`MSIMEClient.xcodeproj` 包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态仍由 C++ Engine 管理；扩展只负责宿主事件、候选展示和文本提交。键盘扩展不直接使用桌面音频采集桥接。
-
-`apps/desktop/src-tauri/gen/apple` 下的 Tauri 生成工程是共享设置界面的构建产物来源，使用 iOS 17 最低版本和同一 `group.app.msime.ios` App Group。它服务于原生宿主承载共享界面这一用途，**不作为 iOS 的产品 App 分发或启动**；当前树里它仍带着自己的 App bundle identifier 和入口，这部分正在按上面的架构纠正。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接 Engine 所需的系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。
+`apps/desktop/src-tauri/gen/apple` 下的 Tauri 生成工程是共享设置界面的构建产物来源，使用 iOS 17 最低版本和同一 `group.app.msime.ios` App Group。它服务于原生宿主承载共享界面这一用途，**不作为 iOS 的产品 App 分发或启动**。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接 Engine 所需的系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。
 
 共享 Tauri 语音面板通过 `tauri-mobile-platform` 在 App 进程内使用 `AVAudioRecorder` 录制 16 kHz、单声道、PCM16 WAV，最长 60 秒；停止后把有界录音上传到当前 `PreferencesStore` 中选择的服务。OpenAI、SiliconFlow 和 Groq 使用 HTTPS multipart 批量转写；Doubao 使用 WSS、共享 `client-core` 鉴权策略和帧编解码 ABI，并按 Windows 的 200 ms PCM16 分帧发送。两种传输都禁止重定向并限制接口、模型、token、音频、消息、累计响应和识别文本大小；取消会停止录音或网络请求并删除临时文件。provider 凭据只在 Rust 与原生插件之间传递，不进入 WebView、日志或键盘扩展。
 
@@ -64,7 +62,7 @@ Apple 客户端旧版 `english.mixedCandidates` 布尔值在创建首个共享�
 
 组字中按中/英键、Shift 切到英文或按回车，和 Windows 一样把已敲下的字母原样上屏（`commitRaw`），不再替用户选首个候选；回车键在组字期间显示「确认」（日语为「確定」）。九宫格和日语例外：九宫格的原始按键是数字，日语是在确认假名，这两者仍走 `finishComposition`。规则集中在 `CompositionBoundaryPolicy`。“更多”面板的「中文标点」开关对应 Windows 的中英文标点切换，只改当前键盘（经 `msime_client_set_chinese_punctuation`），从英文切回中文时恢复共享偏好的 `chinese_punctuation`，设置页只有这个字段变了才覆盖它；标点被锁定时开关置灰。锁定为中文时英文模式下的标点也交给运行时，出中文标点。Windows 在锁定中文时会强制打开标点开关，而 Engine 只要开关关着就不出中文标点，所以共享宿主层把「锁定中文」连同开关一起交给 Engine，所有平台都按这个语义处理。
 
-键盘按宿主给出的 trait 区分手机与平板形态（`KeyboardFormFactor`），不按机型判断：只有 regular 宽度的 iPad 才画平板键盘，iPad 的浮动键盘、Slide Over 与台前调度里的窄窗口是 compact 宽度，和系统键盘一样退回手机布局，停靠与浮动切换时随 size class 变化重新布局。平板键盘更高且横屏比竖屏高，第三排字母末尾带逗号和句号（中文模式显示中文标点，仍以 ASCII 交给 Engine）。iPad 没有 Taptic Engine，键盘「更多」面板、App 的输入设置和皮肤编辑器在非 iPhone 上不显示按键振动与振动强度；存储值不被改写，设置同步仍把它原样带给用户的 iPhone。
+键盘按宿主给出的 trait 区分手机与平板形态（`KeyboardFormFactor`），不按机型判断：只有 regular 宽度的 iPad 才画平板键盘，iPad 的浮动键盘、Slide Over 与台前调度里的窄窗口是 compact 宽度，和系统键盘一样退回手机布局，停靠与浮动切换时随 size class 变化重新布局。平板键盘更高且横屏比竖屏高，第三排字母末尾带逗号和句号（中文模式显示中文标点，仍以 ASCII 交给 Engine）。平板键盘默认还有桌面键盘那样的数字行和 Tab 键（「键盘设置 → iPad → 数字行与 Tab 键」，App Group `keyboard.tablet.fullKeys`，这一节只在 iPad 上出现）：数字行在字母上方，打开时键盘加高一排而不压扁字母，和符号层的数字走同一条路径，组字时 1–9 选候选、没有组字时直接输入；Tab 在 Q 左边，宽一格半。桌面组字时 Tab 翻到下一页候选（共享的 `navigation.tab`，默认开），iOS 候选栏没有分页，只有背后的全部候选面板，所以组字且有候选时 Tab 打开这个面板；`navigation.tab` 关闭或没有组字时，结束组字并输入制表符。符号层、九键、手写和假名布局不显示数字行。iPad 没有 Taptic Engine，键盘「更多」面板、App 的输入设置和皮肤编辑器在非 iPhone 上不显示按键振动与振动强度；存储值不被改写，设置同步仍把它原样带给用户的 iPhone。
 
 App 的「键盘」标签页同样分形态：iPad 在 regular 宽度下是侧栏加详情的分栏（`TabletSettingsView`），我的键盘、皮肤、输入方案、按键、词库、AI 各占一栏，切换栏目时详情重建一条新的导航栈；iPhone（包括横屏时同为 regular 宽度的 Max 机型）与 iPad 的窄窗口仍是卡片首页加单栈推入。
 
@@ -162,17 +160,15 @@ APPLE_DEVELOPMENT_TEAM=LXCL4Z68GU MSIME_IOS_DEPS=/absolute/ios/dependency-prefix
 
 Tauri CLI 只把 `APPLE_DEVELOPMENT_TEAM` 应用到它自己的 App target，内嵌的 `MSIMEKeyboardExtension` 与 `MSIMESwiftRsRuntimeExports` 不会继承，签名构建会停在 `Signing for "MSIMEKeyboardExtension" requires a development team`。因此工程里为这两个 target 固定了 `DEVELOPMENT_TEAM`；`--no-sign` 构建不受影响（`CODE_SIGNING_ALLOWED=NO` 时该设置不参与）。需要换团队时在 `xcodebuild` 命令行覆盖同名设置。
 
-首次签名构建前需要在 Xcode 的 Settings → Accounts 里登录该团队的 Apple ID：App 的开发描述文件（含 `group.app.msime.ios` App Group，且已包含目标设备）本机已有，但键盘扩展的 `com.metasequoiaime.client.keyboard` 还没有，必须由 Xcode 联网创建。没有登录账号时构建会报 `No Accounts: Add a new account in Accounts settings`，并退回到不含 App Groups 能力的通配描述文件。本机的 Xcode 现已登录该团队，`app.msime.ios` 与 `app.msime.ios.keyboard` 的开发描述文件都在本地且包含目标设备，原生宿主的签名构建与装机已按上面那条路径执行；Tauri 公共组件这条路径仍未做过签名构建。
+首次签名构建前需要在 Xcode 的 Settings → Accounts 里登录该团队的 Apple ID：App 的开发描述文件（含 `group.app.msime.ios` App Group，且已包含目标设备）本机已有，但键盘扩展的 `app.msime.ios.keyboard` 需要由 Xcode 联网创建。没有登录账号时构建会报 `No Accounts: Add a new account in Accounts settings`，并退回到不含 App Groups 能力的通配描述文件。本机的 Xcode 登录该团队之后，`app.msime.ios` 与 `app.msime.ios.keyboard` 的开发描述文件都在本地且包含目标设备。这条路径在 iPhone 17 上走通：`BUILD SUCCEEDED`，`PlugIns/MSIMEKeyboardExtension.appex` 内嵌全部十个已校验运行资源，App 由该团队的 Apple Development 证书签名，`devicectl device install app` 成功，设备上 `devicectl device info apps` 能查到「水杉输入法 / app.msime.ios / 1.0.0」。装完在系统 设置 → 通用 → 键盘 → 键盘 里添加一次「水杉输入法」，扩展即可在任意编辑器里使用。
 
-2026-09-21 在 iPhone 17（`00008150-00061D123478401C`）上重跑了一次这条路径：`BUILD SUCCEEDED`，产物 229 MB，`PlugIns/MSIMEKeyboardExtension.appex` 内嵌全部十个已校验运行资源，App 由 `Apple Development: PENG HU (8D3N5Y5T7G)` 签名，`devicectl device install app` 成功，设备上 `devicectl device info apps` 能查到「水杉输入法 / app.msime.ios / 1.0.0」。
-
-**验收到此为止，再往下需要设备解锁。** `devicectl device process launch` 被 `SBMainWorkspace` 以 `Locked` 拒绝（`FBSOpenApplicationErrorDomain error 7`），所以启动、抓屏、在系统设置里启用键盘扩展、以及在真实编辑器里打字都没有做。按 [ARCHITECTURE.md](../../ARCHITECTURE.md) 的证据分级，这次到达的是第 5 级里的「安装与签名」，不含「真实编辑器验收」。
+`devicectl device process launch` 需要设备处于解锁状态，锁屏时会被 `SBMainWorkspace` 以 `Locked` 拒绝（`FBSOpenApplicationErrorDomain error 7`）。
 
 确认改动真的进了产物不要用 `strings`：键面提示是运行时从引擎的 profile 表拼出来的，二进制里没有 `ing uai` 这样的字面量；`@_silgen_name` 引用的 C ABI 名也在链接时解析掉了。用 `nm` 查符号——`MetasequoiaInputSessionBridge.shuangpinKeyHints` 下应当挂着一个 `withUnsafeBytes` 闭包，`msime_client_shuangpin_key_hints` 与 `msime_engine_bridge::ffi::ShuangpinKeyHint` 应当出现在 Rust 侧的 mangled 符号里，而旧的 `makeShuangpinHints` 应当是 0 个。
 
-真机产物把最后一个参数改为 `device`。真机构建会在 `apps/desktop/src-tauri/gen/apple` 执行锁定的 CocoaPods 安装，再调用 Tauri CLI；模拟器使用 `aarch64-sim` 并保留手写 fallback。无签名构建只验证源码、链接和 bundle 内容，不代表键盘扩展已经安装、授权或完成真机宿主验证。
+Tauri 公共组件的真机产物把最后一个参数改为 `device`。真机构建会在 `apps/desktop/src-tauri/gen/apple` 执行锁定的 CocoaPods 安装，再调用 Tauri CLI；模拟器使用 `aarch64-sim` 并保留手写 fallback。
 
-真机目标当前产出 `apps/desktop/src-tauri/gen/apple/build/arm64/水杉输入法.ipa`：arm64 单架构，`Payload/水杉输入法.app` 内嵌 `PlugIns/MSIMEKeyboardExtension.appex`，扩展侧带锁定 ML Kit Digital Ink 的资源包，App 与扩展各自打包同一份已校验 EngineResources。这只说明真机目标能完整编译和打包；签名、安装、键盘启用与真实编辑器验收仍未执行。
+该目标产出 `apps/desktop/src-tauri/gen/apple/build/arm64/水杉输入法.ipa`：arm64 单架构，`Payload/水杉输入法.app` 内嵌 `PlugIns/MSIMEKeyboardExtension.appex`，扩展侧带锁定 ML Kit Digital Ink 的资源包，App 与扩展各自打包同一份已校验 EngineResources。
 
 模拟器 bundle 默认不带签名，因此没有 App Group 授权：进程一启动就会在共享容器查找上拿到 `client is not entitled`。要在模拟器里真正安装并观察它，用 ad-hoc 签名把既有 entitlements 附上去（模拟器不校验 provisioning，这一步不需要任何开发者证书，也不改变真机的签名边界）：
 
@@ -183,11 +179,11 @@ codesign -f -s - --entitlements apps/desktop/src-tauri/gen/apple/msime-desktop_i
 xcrun simctl install booted "$app"
 ```
 
-签名后 App Group 查找成功（日志里 `container_create_or_lookup…: success`），但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP，release 与 debug 构建一致，`simctl erase` 后的干净设备上同样复现。崩溃报告里实测到的调用链是 `+[NSBundle bundleWithIdentifier:]` → `_CFBundleGetBundleWithIdentifier` → `_CFBundleEnsureBundleExistsForImagePath` → `__CFBundleCopyFrameworkURLForExecutablePath` → `CFRelease` 的空指针陷阱；应用侧的调用者帧未符号化。据此推断调用方为 `wry::platform_webview_version`：它是依赖树里唯一调用 `bundleWithIdentifier` 的位置，`tauri-runtime-wry` 在 `Wry::init` 中无条件执行 `wry::webview_version().is_ok()`，且 `com.apple.WebKit` 与该函数的错误字符串都能在产物二进制里找到；wry 0.57 的同一函数未改动。结论是这条路径在仓库代码之外，未修改任何 vendored crate；在它解决之前，模拟器只能验证到构建、打包与安装，界面与键盘扩展的运行仍需真机。
+签名后 App Group 查找成功（日志里 `container_create_or_lookup…: success`），但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP，release 与 debug 构建一致，`simctl erase` 后的干净设备上同样复现。崩溃报告里实测到的调用链是 `+[NSBundle bundleWithIdentifier:]` → `_CFBundleGetBundleWithIdentifier` → `_CFBundleEnsureBundleExistsForImagePath` → `__CFBundleCopyFrameworkURLForExecutablePath` → `CFRelease` 的空指针陷阱；应用侧的调用者帧未符号化。据此推断调用方为 `wry::platform_webview_version`：它是依赖树里唯一调用 `bundleWithIdentifier` 的位置，`tauri-runtime-wry` 在 `Wry::init` 中无条件执行 `wry::webview_version().is_ok()`，且 `com.apple.WebKit` 与该函数的错误字符串都能在产物二进制里找到；wry 0.57 的同一函数未改动。这条路径在仓库代码之外，未修改任何 vendored crate。它只影响 Tauri 这个公共组件：产品宿主 `MSIMEApp` 不加载 WebView，在同一台模拟器上正常启动，要在模拟器里看界面走下面那条路。
 
 ## 运行 iOS Swift 测试
 
-`KeyboardTests/`、`ServiceTests/` 与 `TransportTests/` 通过遗留 Xcode 工程的测试宿主在模拟器上运行。准备好 `target/ios/EngineResources` 与模拟器原生库之后：
+`KeyboardTests/`、`ServiceTests/` 与 `TransportTests/` 通过 XcodeGen 生成工程的测试宿主在模拟器上运行。准备好 `target/ios/EngineResources` 与模拟器原生库之后：
 
 ```sh
 xcodegen generate -s platforms/ios/project.yml -p platforms/ios
@@ -199,7 +195,7 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 必须允许签名。测试宿主带 App Group entitlement，被测键盘要靠它读共享偏好；用 `CODE_SIGNING_ALLOWED=NO` 构建会剥掉 entitlement，宿主在套件中途被杀，后面的用例全部不报告。模拟器上 `CODE_SIGN_IDENTITY=-` 即 ad-hoc 签名，不需要任何开发者证书。
 
-当前结果为 **229 通过、1 跳过、0 失败**（`MSIMEKeyboardTests` 176 含 1 跳过、`MSIMESharedTests` 38、`MSIMEServiceTests` 16；Xcode 27 / iOS 27.0 模拟器）。**先 `xcodegen generate`**：提交在仓库里的工程会漏掉后加的源文件（2026-09-21 实测漏 `KeyboardAppLauncher.swift`，整套编译不过），所以它不是权威来源，`project.yml` 才是。
+当前结果为 **229 通过、1 跳过、0 失败**（`MSIMEKeyboardTests` 176 含 1 跳过、`MSIMESharedTests` 38、`MSIMEServiceTests` 16；Xcode 27 / iOS 27.0 模拟器）。**先 `xcodegen generate`**：提交在仓库里的工程会漏掉后加的源文件（实测漏过 `KeyboardAppLauncher.swift`，整套编译不过），所以它不是权威来源，`project.yml` 才是。
 
 跑之前建一台干净模拟器再删掉，不要用手边那台：测试宿主带 App Group，读的是共享容器里的偏好，上一次运行留下的值会改变结果。
 
@@ -212,17 +208,17 @@ xcrun simctl delete "$device"
 ```
 这个数字要跟着改动更新：该套件不接入 `verify-local.sh`，没有自动基线，所以这一行是它唯一的基线，写错了就没有别的东西会发现。唯一跳过的是 `CandidateTranslationTests.testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支：固定词库发布里没有该候选的英文释义来源（`translation-glosses.db` 是用户编辑后的覆盖层），取不到释义时跳过而不是报成产品失败，一旦有释义就自动恢复断言。
 
-该套件目前不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
+该套件不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
 
-## 界面测试与键盘扩展的真机验收
+## 界面测试与键盘扩展
 
 `MSIMEClientUITests` 走 `xcodebuild test -scheme MSIMEClientUITests`，需要 `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`——原生库只有 arm64 切片，不加这两个设置时模拟器目标会按 x86_64 链接并在扩展上报未定义符号。
 
 `KeyboardExtensionEditorUITests` 是唯一把键盘扩展当成系统键盘来用的一组用例：其余所有套件都直接在测试宿主里构造 `KeyboardViewController`，那条路覆盖不到只在运行期才存在的部分——系统是否真的加载这个扩展、扩展进程能否读到 App Group 共享容器、上屏文本是否真的到达别人的 `UITextDocumentProxy`。它要求键盘已在「设置」里启用；没启用时跳过而不是失败，并在跳过信息里带上当时键面上有什么。
 
-**在 iOS 27 模拟器上，键盘能装上但切不过去。** 这两件事要分开说，我一开始混为一谈并写错过结论：
+**在 iOS 27 模拟器上，键盘能装上但切不过去。** 启用和切换是两件事，要分开看：
 
-- **启用是成功的。** 往 `.GlobalPreferences` 写 `AppleKeyboards`（加上扩展 bundle id `app.msime.ios.keyboard`）并重启模拟器之后，设置 → 通用 → 键盘 → 键盘 里确实列着「水杉输入法 · 中文」。用一条临时 UI 测试走 Settings 把每一层的单元格文案打出来才看清这一点——此前只凭「键盘环里没有它」就断定写入无效，是错的。
+- **启用是成功的。** 往 `.GlobalPreferences` 写 `AppleKeyboards`（加上扩展 bundle id `app.msime.ios.keyboard`）并重启模拟器之后，设置 → 通用 → 键盘 → 键盘 里确实列着「水杉输入法 · 中文」。要确认这一点得走 Settings 把每一层的单元格文案打出来看，只凭「键盘环里没有它」会误判成写入无效。
 - **切换是失败的。** XCUITest 到不了它。`app.buttons["Next keyboard"]` 点下去落在 shift 上（键面在 Q/q 之间来回，始终是同一个 `UIKeyboardLayoutStar`），长按它弹出的是单手键盘的「默认/右手/左手」菜单，里面一个键盘名字都没有——连已启用的简体拼音和英语都没有。`app.keyboards.buttons` 只有 `shift` / `emoji` / `Return` 三个。
 
 把扩展排到 `AppleKeyboards` 数组第一位也不会让它成为默认键盘：新编辑框打开的仍是第一个**系统**键盘（实测是简体拼音），iOS 不会为第三方键盘做默认。所以模拟器上到不了「真实编辑器」这一级，差的就是那一下人手切换。
@@ -231,15 +227,15 @@ xcrun simctl delete "$device"
 
 真机上就是正常在 设置 → 键盘 里添加一次，之后这组用例会自己跑起来。
 
-补回 `reachSettingsLink`、让这个目标重新编译之后，第一次完整运行是 39 执行、2 跳过、6 失败；那六条随后逐条查清并修好，**当前结果为 39 执行、2 跳过、0 失败**（917 秒）。两条跳过是上面那组键盘验收，等键盘在设置里启用后才会真正执行。
+**当前结果为 39 执行、2 跳过、0 失败**（917 秒）。两条跳过是上面那组键盘用例，等键盘在设置里启用后才会真正执行。
 
-那六条都不是产品坏了，分三类，记在这里因为同样的坑很容易再踩：
+写这组用例时踩过三类坑，都不是产品坏了，记在这里因为很容易再踩：
 
 - **断言了不存在的导航栏标题。** 首页、我的、打字统计都是 `navigationTitle("")`，名字有意放进了内容里。要判断「在哪一屏」，用选中的标签页加上只有那一屏才有的元素，不要用导航栏标题。
 - **入口搬了家。** `voiceSettingsLink` 不在首页，活路径是 首页 → 按键 → 语音设置。同名标识符还留在 `KeyboardSettingsView` 上，而那个页面已经没有任何地方实例化——它是 `ce4a76844` 把入口搬到首页时留下的孤儿，朝它伸手会让「搬家」看起来像「缺失」。
 - **滚动没有真的发生。** SwiftUI 的 `Form` 是惰性列表，折线以下的行不在无障碍树里，所以「先 `waitForExistence` 再滚」永远等不到也永远不滚；而 `app.swipeUp()` 从屏幕中心起手，在 键盘设置 页那是键盘预览，那块把上下拖动解释成**改行间距**——表单不动，还顺手改掉了马上要读的设置。要边滚边看，并且用坐标拖拽把起点压在预览以下、标签栏以上。
 
-`MSIMEApp` 是 iOS 的产品宿主，装机与设备验收都以它为准，也是 `build-app.sh` 的默认产物，不需要任何开关。要单独构建 Tauri/React 这个公共组件时用 `MSIME_IOS_TAURI_COMPONENT=1` 显式选择。此前该脚本默认产出 Tauri 包、把原生宿主锁在 `MSIME_IOS_LEGACY_APP=1` 后面，并由一条测试固化，这与架构相反，已纠正。
+`MSIMEApp` 是 iOS 的产品宿主，装机以它为准，也是 `build-app.sh` 的默认产物，不需要任何开关。要单独构建 Tauri/React 这个公共组件时用 `MSIME_IOS_TAURI_COMPONENT=1` 显式选择。
 
 **上面那条 SIGTRAP 只挡 Tauri 宿主，不挡这个。** `MSIMEApp` 不加载 WebView，在 iOS 27 模拟器上界面能正常起来，键盘扩展也随它一起装进去，所以要在模拟器上看界面就走这条路：
 
