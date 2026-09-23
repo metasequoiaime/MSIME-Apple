@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   cmake ninja-build pkg-config python3 \
   libboost-dev libfmt-dev libspdlog-dev libsqlite3-dev \
   libibus-1.0-dev libxkbcommon-dev nlohmann-json3-dev \
-  libwayland-dev wayland-protocols libx11-dev libxfixes-dev \
+  libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev \
   libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev \
   dbus dbus-bin \
   && rm -rf /var/lib/apt/lists/*

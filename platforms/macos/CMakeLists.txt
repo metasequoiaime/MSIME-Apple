@@ -716,6 +716,14 @@ target_include_directories(smart-punctuation-space-test PRIVATE ../../vendor/MSI
 target_compile_options(smart-punctuation-space-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
 add_test(NAME smart-punctuation-space COMMAND smart-punctuation-space-test)
 set_tests_properties(smart-punctuation-space PROPERTIES TIMEOUT 30)
+add_executable(smart-punctuation-shadow-test tests/input/SmartPunctuationShadowTest.mm ${MSIME_CONTROLLER_TEST_SOURCES}
+  src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm
+  src/input/InputModeHUDPanel.mm)
+target_link_libraries(smart-punctuation-shadow-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_include_directories(smart-punctuation-shadow-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
+target_compile_options(smart-punctuation-shadow-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME smart-punctuation-shadow COMMAND smart-punctuation-shadow-test)
+set_tests_properties(smart-punctuation-shadow PROPERTIES TIMEOUT 30)
 # Dictionary maintenance from the settings window: real sessions let go of the dictionary lock under a live quiesce lease and come back, mode intact, once it is gone.
 add_executable(dictionary-quiesce-controller-test tests/input/DictionaryQuiesceTest.mm ${MSIME_CONTROLLER_TEST_SOURCES}
   src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm
@@ -769,21 +777,17 @@ add_executable(candidate-panel-test tests/candidate/CandidatePanelTests.mm src/c
 target_compile_options(candidate-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(candidate-panel-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit")
 add_test(NAME candidate-panel COMMAND candidate-panel-test)
-add_executable(candidate-gloss-layout-test tests/candidate/CandidateGlossLayoutTest.cpp)
-target_compile_options(candidate-gloss-layout-test PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(candidate-gloss-layout-test PRIVATE "-framework CoreGraphics")
-add_test(NAME candidate-gloss-layout COMMAND candidate-gloss-layout-test)
 # One rule, three copies: the Windows, Linux and macOS gloss splitters compiled together and asked
 # the same questions, because a sense that stops being offered on one host looks like a dictionary
 # difference rather than a bug.
 add_executable(translation-senses-agreement-test tests/candidate/TranslationSensesAgreementTest.cpp)
 target_compile_options(translation-senses-agreement-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME translation-senses-agreement COMMAND translation-senses-agreement-test)
-add_executable(candidate-row-fit-test tests/candidate/CandidateRowFitTest.cpp)
-target_compile_options(candidate-row-fit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
-add_test(NAME candidate-row-fit COMMAND candidate-row-fit-test)
-# The same controller shortcut-test imports, rendered on its own: the candidate layout assertions in that
-# suite sit behind an abort recorded in scripts/known-failures.txt and have reported nothing since.
+# The Windows candidate_item_layout rule, ported: text, 辅助码 and glosses wider than their column wrap inside it and rows take their own heights.
+add_executable(candidate-item-layout-test tests/candidate/CandidateItemLayoutTest.cpp)
+target_compile_options(candidate-item-layout-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-item-layout COMMAND candidate-item-layout-test)
+# The candidate page layout rendered through the same controller shortcut-test imports, on its own so its assertions report independently of that suite.
 add_executable(candidate-row-layout-test tests/candidate/CandidateRowLayoutTest.mm ${MSIME_CONTROLLER_TEST_SOURCES} src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm src/input/InputModeHUDPanel.mm)
 target_link_libraries(candidate-row-layout-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
 target_include_directories(candidate-row-layout-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)

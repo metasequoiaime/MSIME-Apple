@@ -6,6 +6,14 @@ int main() {
   using namespace msime::windows;
   const auto defaults = candidate_layout_settings(nlohmann::json::object());
   assert(defaults && !defaults->horizontal && defaults->show_preedit);
+  // The shared `wubi_code_hint` is on when absent or null, and must survive the atomic encoding.
+  assert(defaults->wubi_code_hint);
+  assert(candidate_layout_settings({{"wubi_code_hint", nullptr}})->wubi_code_hint);
+  const auto hint_off = candidate_layout_settings({{"wubi_code_hint", false}});
+  assert(hint_off && !hint_off->wubi_code_hint);
+  assert(!CandidateLayoutSettings::decode(hint_off->encode()).wubi_code_hint);
+  assert(CandidateLayoutSettings::decode(defaults->encode()).wubi_code_hint);
+  assert(!candidate_layout_settings({{"wubi_code_hint", "false"}}));
   for (bool horizontal : {false, true}) {
     for (bool preedit : {false, true}) {
       auto settings = candidate_layout_settings(

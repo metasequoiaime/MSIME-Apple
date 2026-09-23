@@ -58,6 +58,17 @@ def main() -> int:
         assert len(problems) == 1 and "SHA-256" in problems[0], problems
         write(resources / "msime.db", payload)
 
+        # 宿主拒绝锁之外的任何条目，这里同样报出来；只有 Engine 的 helpcodes 子目录例外。
+        (resources / "helpcodes").mkdir()
+        assert setup.verify_directory(resources, lock) == []
+        (resources / "retired.db").write_bytes(b"dropped by a newer lock")
+        (resources / "nested").mkdir()
+        problems = setup.verify_directory(resources, lock)
+        assert len(problems) == 2 and "nested" in problems[0] and "retired.db" in problems[1], problems
+        assert setup.unexpected_entries(resources, lock) == problems
+        (resources / "retired.db").unlink()
+        (resources / "nested").rmdir()
+
         # 缺文件与内容不对是两种报告，不要混成一句「不可用」。
         (resources / "msime.db").unlink()
         problems = setup.verify_directory(resources, lock)

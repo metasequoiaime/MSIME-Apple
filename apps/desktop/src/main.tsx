@@ -51,11 +51,12 @@ import {
   type LinuxSetupClient,
   type LinuxSetupLine,
   type LinuxSetupStatus,
+  UNBATCHED_DICTIONARY_FILE_BYTES,
 } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
 import { discoverFontReader } from "./candidate/system-font-client";
-import { DesktopKeyboard } from "./input/desktop-keyboard";
+import { DesktopKeyboard, useHostPlatform } from "./input/desktop-keyboard";
 import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
 import { testDesktopApiCredential } from "./account/credential-test-client";
 import { cloudDictionaryCapabilities, isMobileHost } from "./input/mobile-host-capabilities";
@@ -109,6 +110,8 @@ const dictionary: DictionaryClient = {
 };
 const mobileDictionary: DictionaryClient = {
   ...dictionary,
+  // The mobile bridge sends an import to the host in one request rather than in batches.
+  maxImportFileBytes: UNBATCHED_DICTIONARY_FILE_BYTES,
   importPersonal: (text: string, request_id: string) =>
     invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
 };
@@ -209,6 +212,10 @@ const client: SettingsClient = {
   openCloudDictionary: () => invoke("open_cloud_dictionary_panel"),
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
+  inputSourceStartup: {
+    status: () => invoke("input_source_startup_status"),
+    openSettings: () => invoke("open_input_source_settings"),
+  },
   uninstallInputSource: (removeUserData) => invoke("uninstall_input_source", { removeUserData }),
   dataDirectory: {
     status: () => invoke("data_directory_status"),
@@ -359,6 +366,11 @@ const panelClients: {
   },
 };
 const panel = new URLSearchParams(window.location.search).get("panel");
+function DesktopHandwriting({ theme }: { theme: "dark" | "light" }) {
+  const platform = useHostPlatform(client.host);
+  return <HandwritingPanel client={panelClients.handwriting} theme={theme} platform={platform} />;
+}
+
 function DesktopPanelTheme({
   preferences,
   surface,
@@ -1013,7 +1025,7 @@ const content =
     <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
   ) : panel === "handwriting" ? (
     <DesktopPanelTheme preferences={client} surface="handwriting">
-      {(theme) => <HandwritingPanel client={panelClients.handwriting} theme={theme} />}
+      {(theme) => <DesktopHandwriting theme={theme} />}
     </DesktopPanelTheme>
   ) : panel === "voice" ? (
     <DesktopPanelTheme preferences={client} surface="voice">

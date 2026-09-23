@@ -319,10 +319,13 @@ bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
   }
 }
 void CandidateWindow::set_layout(CandidateLayoutSettings settings) {
-  if (horizontal_ == settings.horizontal && show_preedit_ == settings.show_preedit)
+  if (horizontal_ == settings.horizontal && show_preedit_ == settings.show_preedit &&
+      wubi_code_hint_ == settings.wubi_code_hint)
     return;
   horizontal_ = settings.horizontal;
   show_preedit_ = settings.show_preedit;
+  // The hint is applied by the reader; remembering it here is what repaints an unchanged generation when it is toggled.
+  wubi_code_hint_ = settings.wubi_code_hint;
   invalidate_geometry();
 }
 void CandidateWindow::invalidate_geometry() {
@@ -853,38 +856,19 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
       ++i;
   }
 
-  // The flyout is not modal. TrackPopupMenuEx ran a nested message loop, and
-  // the Server's pump is a bounded PeekMessage batch that also applies
-  // preference changes, syncs Caps Lock and drives the toolbar - so for as
-  // long as the menu was open, none of that ran.
-  if (!flyout_) {
+  // The flyout is not modal. TrackPopupMenuEx ran a nested message loop, and the Server's pump is a bounded PeekMessage batch that also applies preference changes, syncs Caps Lock and drives the toolbar - so for as long as the menu was open, none of that ran.
+  if (!flyout_)
     flyout_ = std::make_unique<CandidateFlyoutWindow>(
-        [this, click](const CandidateMenuChoice &choice) {
+        [this](const CandidateMenuChoice &choice) {
           if (!click_)
             return;
-          CandidateClick action = click;
-          switch (choice.command) {
-          case CandidateMenuCommand::PinToTop:
-            action.action = CandidateAction::Pin;
-            break;
-          case CandidateMenuCommand::Remove:
-            action.action = CandidateAction::Remove;
-            break;
-          case CandidateMenuCommand::FixAtPosition:
-            action.action = CandidateAction::FixPosition;
-            action.position = static_cast<uint8_t>(choice.position);
-            break;
-          case CandidateMenuCommand::ClearFixedPosition:
-            action.action = CandidateAction::ClearPosition;
-            break;
-          case CandidateMenuCommand::FixPosition:
-            // Opens the submenu; never itself a chosen command.
-            return;
-          }
-          click_(action);
+          if (const auto action =
+                  menu_target_.choose(choice.command, choice.position))
+            click_(*action);
         });
-    flyout_->set_palette(palette_);
-  }
+  // Every opening acts on its own candidate and wears the current theme: the flyout is reused, so neither may be fixed at the first right click. The reference rebuilds its menu on every open for the same effect (candidate_presenter.cpp:560-563).
+  menu_target_.open(click);
+  flyout_->set_palette(palette_);
   POINT screen = client_point;
   if (!ClientToScreen(window_, &screen))
     throw std::runtime_error("Candidate context menu position unavailable");

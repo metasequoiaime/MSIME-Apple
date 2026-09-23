@@ -4,12 +4,15 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <vector>
 
 namespace msime::windows {
 struct FloatingToolbarSettings {
   unsigned scale_percent = 100;
   unsigned font_size = 24;
   std::array<bool, 6> items{true, true, true, true, false, true};
+  // The shared `english_mode` item. The reference always shows its 中/英 button, so this stays on unless the preference turns it off.
+  bool language = true;
   bool valid() const {
     return scale_percent >= 75 && scale_percent <= 150 &&
            font_size >= 16 && font_size <= 28;
@@ -36,10 +39,24 @@ floating_toolbar_settings(const nlohmann::json &preferences) {
                                      "emoji", "screen_keyboard", "settings"};
     for (size_t i = 0; i < result.items.size(); ++i)
       result.items[i] = toolbar.value(names[i], result.items[i]);
+    result.language = toolbar.value("english_mode", result.language);
     return result.valid() ? std::optional{result} : std::nullopt;
   } catch (...) {
     return std::nullopt;
   }
+}
+
+// The buttons the toolbar draws, in order: 0 language, 1 fullwidth, 2 punctuation, 3 character set, 4 emoji, 5 screen keyboard, 6 settings. `items` is ordered as character_set, punctuation, fullwidth, emoji, screen_keyboard, settings, the preference order. Handwriting, voice and about are not offered here - the shipped toolbar has no voice button at all, and all three stay one click away in the tray menu.
+inline std::vector<int> floating_toolbar_slots(const std::array<bool, 6> &items, bool language) {
+  std::vector<int> result;
+  if (language) result.push_back(0);
+  if (items[2]) result.push_back(1);
+  if (items[1]) result.push_back(2);
+  if (items[0]) result.push_back(3);
+  if (items[3]) result.push_back(4);
+  if (items[4]) result.push_back(5);
+  if (items[5]) result.push_back(6);
+  return result;
 }
 
 // Only presentation settings cross threads. Keep the newest revision even

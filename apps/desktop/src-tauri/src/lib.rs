@@ -167,7 +167,21 @@ fn host_capabilities() -> HostCapabilities {
     // Font enumeration is a build-time capability, not a platform assumption.
     capabilities.system_fonts = font_catalog_supported();
     capabilities.os_version = macos_product_version();
+    capabilities.candidate_panel_limit = linux_candidate_panel_limit();
     capabilities
+}
+
+/// What the running Linux host found about the desktop's candidate panel. Only the host knows which panel draws its list - GNOME Shell's popup, a Fcitx5 theme the user picked, the desktop's Kimpanel - so it writes that finding to a per-session file and the page reads it here instead of guessing from the desktop name.
+#[cfg(target_os = "linux")]
+fn linux_candidate_panel_limit() -> Option<msime_client_core::host_surface::CandidatePanelLimit> {
+    use msime_client_core::host_surface::CandidatePanelLimit;
+    let file = CandidatePanelLimit::status_file(std::env::var_os("XDG_RUNTIME_DIR").as_deref())?;
+    CandidatePanelLimit::from_host_status(&fs::read_to_string(file).ok()?)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_candidate_panel_limit() -> Option<msime_client_core::host_surface::CandidatePanelLimit> {
+    None
 }
 
 /// The macOS release, read straight out of the file the system keeps it in.
@@ -1029,7 +1043,7 @@ async fn save_preferences_impl(
     #[cfg(target_os = "ios")] platform: MobilePlatform<tauri::Wry>,
 ) -> Result<PreferencesSnapshot, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "linux"))]
         let previous = store.load().map_err(CommandError::from)?;
         let snapshot = store
             .save(expected_revision, preferences)
@@ -1046,6 +1060,14 @@ async fn save_preferences_impl(
             let _ = store.save(snapshot.revision, previous.preferences);
             return Err(CommandError { code: "ai_storage" });
         }
+        // Published before the clipboard history is cleared, so a save refused here has not already deleted the history its restored preferences keep enabled.
+        let synced = sync_runtime_options(&runtime, &snapshot.preferences);
+        // A document the Linux hosts could not read is refused, and so is the save that produced it: the store goes back to the preferences the hosts still run with, so the page's error is the whole outcome rather than a store and a runtime options file that disagree. As with the iOS rollback above, a concurrent writer wins over the rollback.
+        #[cfg(target_os = "linux")]
+        if matches!(synced, Err(RuntimeOptionsError::TooLarge)) {
+            let _ = store.save(snapshot.revision, previous.preferences);
+        }
+        // Cleared whatever the sync's outcome: any other sync failure leaves history disabled in the store, and its captured history must not outlive that. The clear re-reads the store, so after the rollback above restored history it keeps the file.
         if clipboard_history_uses_preference(host_platform())
             && !snapshot.preferences.clipboard_history
         {
@@ -1053,8 +1075,7 @@ async fn save_preferences_impl(
                 .clear_disabled_clipboard_history()
                 .map_err(CommandError::from)?;
         }
-        sync_runtime_options(&runtime, &snapshot.preferences)
-            .map_err(|_| CommandError { code: "storage" })?;
+        synced.map_err(CommandError::from)?;
         Ok(snapshot)
     })
     .await
@@ -1406,10 +1427,37 @@ async fn mutate_custom_skin_library(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+/// Why the runtime options the native hosts read were not rewritten.
+#[derive(Debug)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+enum RuntimeOptionsError {
+    /// The error itself is only ever printed, by `Debug` in a failing test; the page is told "storage".
+    Io(#[allow(dead_code)] std::io::Error),
+    /// The document would be longer than the Linux hosts read, so it was not written and the previous file stays in place.
+    TooLarge,
+}
+
+impl From<std::io::Error> for RuntimeOptionsError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
+    }
+}
+
+impl From<RuntimeOptionsError> for CommandError {
+    fn from(value: RuntimeOptionsError) -> Self {
+        Self {
+            code: match value {
+                RuntimeOptionsError::Io(_) => "storage",
+                RuntimeOptionsError::TooLarge => "runtime_options_too_large",
+            },
+        }
+    }
+}
+
 fn sync_runtime_options(
     runtime: &RuntimeOptionsState,
     preferences: &Preferences,
-) -> Result<(), std::io::Error> {
+) -> Result<(), RuntimeOptionsError> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         let Some(path) = runtime.path.as_ref() else {
@@ -1428,15 +1476,24 @@ fn sync_runtime_options(
         // Another settings process or the host may have updated endpoints and
         // resource paths since this panel started. Preserve that document.
         let mut current = read_runtime_options(path)?;
-        current["preferences"] = serde_json::to_value(preferences)
+        #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+        let mut host_preferences = serde_json::to_value(preferences)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
+        // The IBus and Fcitx5 hosts never draw the screen keyboard, and the settings app's own keyboard reads the preference store, so the base64 photo of a custom screen-keyboard skin stays out of their copy: a few hundred KiB of it would put the whole document past what they read.
+        #[cfg(target_os = "linux")]
+        if let Some(design) = host_preferences
+            .get_mut("custom_touch_keyboard_skin")
+            .and_then(Value::as_object_mut)
+        {
+            design.remove("photo");
+        }
+        current["preferences"] = host_preferences;
         #[cfg(target_os = "linux")]
         let bytes = match &catalog {
             Some((root, catalog)) => {
                 runtime_options_with_skin_catalog(&mut current, root, catalog)?
             }
-            None => serde_json::to_vec_pretty(&current)
-                .map_err(|error| std::io::Error::other(error.to_string()))?,
+            None => linux_runtime_options_bytes(&current)?,
         };
         #[cfg(target_os = "android")]
         let bytes = serde_json::to_vec_pretty(&current)
@@ -1451,19 +1508,34 @@ fn sync_runtime_options(
     Ok(())
 }
 
-/// How large the skin catalog may let runtime-options.json grow. The IBus launcher, the Fcitx5 addon and `msime_host_api::refresh_host_options` all read at most 16 KiB and keep their previous configuration (IBus) or fail (Fcitx5, the upgrade refresh) on anything longer; the last 1 KiB is left for that refresh, which rewrites the resource and dictionary paths and appends a newline without knowing about the catalog.
+/// The most runtime-options.json may hold. The IBus launcher, the Fcitx5 addon and `msime_host_api::refresh_host_options` all read at most 16 KiB and keep their previous configuration (IBus) or fail (Fcitx5, the upgrade refresh) on anything longer.
 #[cfg(target_os = "linux")]
-const LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET: usize = 16384 - 1024;
+const LINUX_RUNTIME_OPTIONS_LIMIT: usize = 16384;
+
+/// How large the skin catalog may let runtime-options.json grow: the last 1 KiB of `LINUX_RUNTIME_OPTIONS_LIMIT` is left for the upgrade refresh, which rewrites the resource and dictionary paths and appends a newline without knowing about the catalog.
+#[cfg(target_os = "linux")]
+const LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET: usize = LINUX_RUNTIME_OPTIONS_LIMIT - 1024;
+
+/// Serialize `document` as the Linux hosts will read it, refusing one longer than they read so that a save never replaces a working file with one that stops both hosts.
+#[cfg(target_os = "linux")]
+fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptionsError> {
+    let bytes = serde_json::to_vec_pretty(document)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    if bytes.len() > LINUX_RUNTIME_OPTIONS_LIMIT {
+        return Err(RuntimeOptionsError::TooLarge);
+    }
+    Ok(bytes)
+}
 
 /// Serialize `document` with the installed skins, scanned from `root`, as `candidate_skin_catalog`, dropping packages from the end until the document fits within `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET`.
 ///
-/// The currently selected skin is dropped last, since its colours are the ones on screen. When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads.
+/// The currently selected skin is dropped last, since its colours are the ones on screen. When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads; a document too large for the hosts even without it is refused.
 #[cfg(target_os = "linux")]
 fn runtime_options_with_skin_catalog(
     document: &mut Value,
     root: &std::path::Path,
     catalog: &msime_client_core::skin::catalog::SkinCatalog,
-) -> Result<Vec<u8>, std::io::Error> {
+) -> Result<Vec<u8>, RuntimeOptionsError> {
     let serialize = |document: &Value| {
         serde_json::to_vec_pretty(document)
             .map_err(|error| std::io::Error::other(error.to_string()))
@@ -1495,7 +1567,7 @@ fn runtime_options_with_skin_catalog(
     if let Some(object) = document.as_object_mut() {
         object.remove("candidate_skin_catalog");
     }
-    serialize(document)
+    linux_runtime_options_bytes(document)
 }
 
 /// Write a freshly scanned catalog into the runtime options the Linux hosts read, leaving every other key as it is on disk. Before setup there is no document to publish into, which is not an error.
@@ -1503,7 +1575,7 @@ fn runtime_options_with_skin_catalog(
 fn publish_candidate_skin_catalog(
     runtime: &RuntimeOptionsState,
     catalog: &msime_client_core::skin::catalog::SkinCatalog,
-) -> Result<(), std::io::Error> {
+) -> Result<(), RuntimeOptionsError> {
     let (Some(path), Some(root)) = (runtime.path.as_ref(), runtime.skins.as_ref()) else {
         return Ok(());
     };
@@ -1514,7 +1586,7 @@ fn publish_candidate_skin_catalog(
     let mut current = match read_runtime_options(path) {
         Ok(current) => current,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
+        Err(error) => return Err(error.into()),
     };
     let unchanged = current.get("candidate_skin_catalog").cloned();
     let bytes = runtime_options_with_skin_catalog(&mut current, root, catalog)?;
@@ -1654,7 +1726,7 @@ fn dictionary_maintenance_handshake(verb: &str) -> bool {
 fn dictionary_error_code(reason: &str) -> &'static str {
     match reason {
         "dictionary maintenance busy" => "dictionary_busy",
-        // A request over the host's 64 KiB, which the batched desktop import only gives for a file over its own bound or a single line too long for any request. The shared parser's own "dictionary import is too large" is deliberately not mapped here: only Android, which sends the whole file in one request, reaches it, and there the limit is 64 KiB rather than the 1 MB this code's message names.
+        // A request over the host's 64 KiB, which the batched desktop import only gives for a file over its own bound or a single line too long for any request. The shared parser's own "dictionary import is too large" is deliberately not mapped here: only Android, which sends the whole file in one request, reaches it, and there the limit is 64 KiB rather than the 32 MB this code's message names.
         "invalid dictionary buffer" => "dictionary_too_large",
         "dictionary import rejected" => "dictionary_import_rejected",
         "dictionary read rejected" => "dictionary_read_rejected",
@@ -1778,14 +1850,16 @@ async fn dictionary_request(
                     host(bytes)
                 }
             };
-            // Only the lock is worth a handshake. Every other failure is about the request itself and would fail again with sessions released.
+            // Only the lock is worth a handshake. Every other failure is about the request itself and would fail again with sessions released. The Server gives its sessions back 30 seconds after the last DictionaryQuiesce, and a large import runs longer than that, so once quiesced each later request renews it first, the way `QuiescedHosts::run` renews the lease. A renewal that fails or comes too late makes the request busy, which is handshaken and retried like the first.
             #[cfg(target_os = "windows")]
             let mut quiesced = false;
             #[cfg(target_os = "windows")]
             let send = |bytes: &[u8]| {
+                if quiesced {
+                    let _ = dictionary_maintenance_handshake("DictionaryQuiesce");
+                }
                 let result = host(bytes);
-                if !quiesced
-                    && matches!(&result, Err(reason) if reason == "dictionary maintenance busy")
+                if matches!(&result, Err(reason) if reason == "dictionary maintenance busy")
                     && dictionary_maintenance_handshake("DictionaryQuiesce")
                 {
                     quiesced = true;
@@ -2307,6 +2381,123 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
     })?
 }
 
+/// What the start-time install/refresh of the input method did, for the settings page to tell the user.
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, serde::Serialize)]
+struct InputSourceStartupStatus {
+    /// `installed`, `updated`, `up_to_date`, `login_required` (installed, but the source list only picks it up after the next login) or `failed`.
+    action: &'static str,
+    /// Whether the input source is in the System Settings list afterwards; absent when that list could not be read.
+    enabled: Option<bool>,
+    bundled_version: Option<String>,
+    installed_version: Option<String>,
+}
+
+/// The start-time check runs in the background, so the settings page may ask before it has finished; the command waits for it. `None` inside means the check did not run for this launch (a panel launch, a run outside a packaged app, or a build that carries no input method).
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct InputSourceStartupState {
+    result: Mutex<Option<Option<InputSourceStartupStatus>>>,
+    finished: std::sync::Condvar,
+}
+
+#[cfg(target_os = "macos")]
+impl InputSourceStartupState {
+    fn finish(&self, status: Option<InputSourceStartupStatus>) {
+        *self
+            .result
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = Some(status);
+        self.finished.notify_all();
+    }
+
+    fn wait(&self, timeout: std::time::Duration) -> Option<InputSourceStartupStatus> {
+        let guard = self
+            .result
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let (guard, _) = self
+            .finished
+            .wait_timeout_while(guard, timeout, |result| result.is_none())
+            .unwrap_or_else(|poison| poison.into_inner());
+        guard.clone().flatten()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_input_source_startup(
+    resource_directory: &std::path::Path,
+) -> Option<InputSourceStartupStatus> {
+    let status = match macos_input_source::ensure_current(resource_directory) {
+        Ok(outcome) => InputSourceStartupStatus {
+            action: match outcome.refresh {
+                macos_input_source::Refresh::Install => "installed",
+                macos_input_source::Refresh::Update => "updated",
+                macos_input_source::Refresh::UpToDate => "up_to_date",
+            },
+            enabled: None,
+            bundled_version: outcome
+                .bundled
+                .as_ref()
+                .map(|version| version.label().to_string()),
+            installed_version: outcome
+                .installed
+                .as_ref()
+                .map(|version| version.label().to_string()),
+        },
+        Err(macos_input_source::InstallError::SourceUnavailable) => return None,
+        // A failed install or registration has already restored the previous bundle, so the installed version reported is the one still in place; a first install whose registration waits for the next login keeps the new bundle, so that is the one reported.
+        Err(error) => InputSourceStartupStatus {
+            action: if matches!(error, macos_input_source::InstallError::RegistrationPending) {
+                "login_required"
+            } else {
+                "failed"
+            },
+            enabled: None,
+            bundled_version: macos_input_source::bundle_version(
+                &resource_directory.join(macos_input_source::INPUT_SOURCE_BUNDLE_NAME),
+            )
+            .map(|version| version.label().to_string()),
+            installed_version: macos_input_source::installed_bundle_path()
+                .ok()
+                .and_then(|path| macos_input_source::bundle_version(&path))
+                .map(|version| version.label().to_string()),
+        },
+    };
+    Some(InputSourceStartupStatus {
+        enabled: macos_input_source::input_source_enabled(),
+        ..status
+    })
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn input_source_startup_status(
+    state: tauri::State<'_, Arc<InputSourceStartupState>>,
+) -> Result<Option<InputSourceStartupStatus>, HostActionError> {
+    let state = Arc::clone(&state);
+    // Copying and registering takes seconds, not minutes; the bound only keeps a wedged registration from holding the page's request open forever.
+    tauri::async_runtime::spawn_blocking(move || state.wait(std::time::Duration::from_secs(120)))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn open_input_source_settings() -> Result<(), HostActionError> {
+    let status = std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.Keyboard-Settings.extension")
+        .status()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    status.success().then_some(()).ok_or(HostActionError {
+        code: "unavailable",
+    })
+}
+
 // The input method writes through NSUserDefaults.standardUserDefaults, so its domain is its bundle identifier; reading any other name finds an empty - or stale - plist while the settings page reports that it saved.
 #[cfg(target_os = "macos")]
 const MACOS_INPUT_METHOD_DEFAULTS_DOMAIN: &str = "app.msime.inputmethod.MetasequoiaIME";
@@ -2657,6 +2848,8 @@ async fn uninstall_input_source(
         .find(|candidate| candidate.exists())
         .unwrap_or_else(|| input_methods.join("水杉输入法.app"));
     tauri::async_runtime::spawn_blocking(move || {
+        // Wait for a start-time refresh or a manual install that is still writing the bundle.
+        let _guard = macos_input_source::install_lock();
         msime_host_macos::uninstall_input_source(&bundle, &state, remove_user_data).map_err(|_| {
             HostActionError {
                 code: "unavailable",
@@ -2666,7 +2859,7 @@ async fn uninstall_input_source(
     .await
     .map_err(|_| HostActionError {
         code: "unavailable",
-    })?;
+    })??;
     // The installed bundle is gone after a successful operation. Exit the
     // settings shell too, matching the native Apple flow and avoiding a UI
     // process that can no longer repair the removed installation.
@@ -2738,7 +2931,7 @@ fn cancel_settings_linger(app: &tauri::AppHandle) {
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
     cancel_settings_linger(app);
-    if let Some(surface) = route.panel() {
+    if let Some(surface) = route.panel_for(host_platform()) {
         let state = app.state::<PanelInputState>();
         #[cfg(target_os = "linux")]
         let position = {
@@ -2751,9 +2944,14 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
             )
         };
         #[cfg(target_os = "windows")]
+        let height =
+            panel_window::windows_panel_height(app, surface.label, f64::from(surface.height));
+        #[cfg(not(target_os = "windows"))]
+        let height = f64::from(surface.height);
+        #[cfg(target_os = "windows")]
         let position = {
             let _ = remember_panel_input_target(&state);
-            windows_panel_position(f64::from(surface.width), f64::from(surface.height))
+            windows_panel_position(f64::from(surface.width), height, surface.placement)
         };
         let _ = panel_window::open_panel_window(
             app,
@@ -2761,7 +2959,7 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
             surface.query,
             surface.title,
             f64::from(surface.width),
-            f64::from(surface.height),
+            height,
             position,
         );
         return;
@@ -3569,6 +3767,30 @@ fn open_third_party_licenses(app: tauri::AppHandle) -> Result<(), HostActionErro
     })
 }
 
+// The Server launches this shell with MSIME_CLIENT_STATE_DIR and MSIME_CLIENT_HOST_OPTIONS pointing into its state directory. A launch without them, such as the Start Menu settings shortcut, otherwise fell back to this shell's own application directory and opened on a state the Server never reads. Use the Server's directory once the Server has prepared its runtime options there.
+#[cfg(target_os = "windows")]
+fn windows_server_state_directory() -> Option<PathBuf> {
+    msime_host_windows::server_state_directory()
+        .filter(|directory| directory.join("runtime-options.json").is_file())
+}
+
+// The Server's state root is the options' preferences_directory when one is set, and its state directory otherwise (production_preview_document in server_main.cpp); it is what the Server passes as MSIME_CLIENT_STATE_DIR.
+#[cfg(target_os = "windows")]
+fn windows_server_preferences_directory() -> Option<PathBuf> {
+    let directory = windows_server_state_directory()?;
+    let configured = fs::read_to_string(directory.join("runtime-options.json"))
+        .ok()
+        .and_then(|options| serde_json::from_str::<Value>(&options).ok())
+        .and_then(|options| {
+            options
+                .get("preferences_directory")
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+        })
+        .filter(|path| path.is_absolute());
+    Some(configured.unwrap_or(directory))
+}
+
 #[cfg(target_os = "linux")]
 fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
     let Some(options_path) = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
@@ -3747,6 +3969,30 @@ pub fn run() {
             app.manage(macos_cloud_clipboard::CloudState::from_environment()?);
             #[cfg(target_os = "macos")]
             app.manage(macos_cloud_dictionary::DictionaryState::from_environment()?);
+            // Install or refresh the input method on every start, as the Windows installer registers its TSF DLLs on every install and upgrade. In the background so a slow or failed registration never holds up the window. Only a packaged app does this: `tauri dev`, `cargo run` and a binary under target/<profile> resolve their resource directory to the cargo output directory, where tauri-build has copied the development input method, and must not replace the developer's installed one. A run with its own host options and a panel the running input method asked for are skipped too.
+            #[cfg(target_os = "macos")]
+            {
+                let startup = Arc::new(InputSourceStartupState::default());
+                app.manage(Arc::clone(&startup));
+                let development_run = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS").is_some()
+                    || std::env::var_os("MSIME_IBUS_OPTIONS").is_some();
+                let panel_launch = requested_surface_route().and_then(|route| route.panel()).is_some();
+                match app.path().resource_dir() {
+                    Ok(resource_directory)
+                        if !tauri::is_dev()
+                            && macos_input_source::is_packaged_resource_directory(
+                                &resource_directory,
+                            )
+                            && !development_run
+                            && !panel_launch =>
+                    {
+                        tauri::async_runtime::spawn_blocking(move || {
+                            startup.finish(run_input_source_startup(&resource_directory));
+                        });
+                    }
+                    _ => startup.finish(None),
+                }
+            }
             #[cfg(target_os = "macos")]
             let macos_launch = {
                 let options_override = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
@@ -3799,7 +4045,9 @@ pub fn run() {
                 None => {
                     #[cfg(target_os = "linux")]
                     let runtime_directory = linux_runtime_state_directory()?;
-                    #[cfg(not(target_os = "linux"))]
+                    #[cfg(target_os = "windows")]
+                    let runtime_directory = windows_server_preferences_directory();
+                    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
                     let runtime_directory: Option<PathBuf> = None;
                     match runtime_directory {
                         Some(path) => path,
@@ -3977,6 +4225,11 @@ pub fn run() {
                 })
                 .or_else(|| {
                     let mut candidates = Vec::new();
+                    #[cfg(target_os = "windows")]
+                    candidates.extend(
+                        windows_server_state_directory()
+                            .map(|directory| directory.join("runtime-options.json")),
+                    );
                     if let Ok(dir) = app.path().app_data_dir() {
                         candidates.push(dir.join("runtime-options.json"));
                     }
@@ -4098,7 +4351,7 @@ pub fn run() {
             if let Some(route) = requested_surface_route() {
                 // A settings route targets the main window, which is already
                 // showing; only panel surfaces need a window opened here.
-                if let Some(surface) = route.panel() {
+                if let Some(surface) = route.panel_for(host_platform()) {
                     let (label, route, title, width, height) = (
                         surface.label,
                         surface.query,
@@ -4117,9 +4370,11 @@ pub fn run() {
                         panel_position(&panel_input, label, width, height)
                     };
                     #[cfg(target_os = "windows")]
+                    let height = panel_window::windows_panel_height(app.handle(), label, height);
+                    #[cfg(target_os = "windows")]
                     let position = {
                         let _ = remember_panel_input_target(&panel_input);
-                        windows_panel_position(width, height)
+                        windows_panel_position(width, height, surface.placement)
                     };
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.hide();
@@ -4233,6 +4488,10 @@ pub fn run() {
             restart_input_method,
             #[cfg(target_os = "macos")]
             install_input_source,
+            #[cfg(target_os = "macos")]
+            input_source_startup_status,
+            #[cfg(target_os = "macos")]
+            open_input_source_settings,
             #[cfg(target_os = "macos")]
             data_directory_status,
             #[cfg(target_os = "macos")]

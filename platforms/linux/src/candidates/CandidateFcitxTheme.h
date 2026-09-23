@@ -27,6 +27,11 @@ inline bool fcitx_theme_replaceable(std::string_view current) {
          current == kFcitxCandidateTheme;
 }
 
+// Whether the classic UI draws MSIME's theme in both appearances. The light `Theme` and, on Fcitx5 releases that have one, the `DarkTheme` are taken over separately and only while each holds a stock theme, so a user's own dark theme stays in place and is what Fcitx5 draws in dark mode.
+inline bool fcitx_candidate_theme_drawn(std::string_view theme, const std::string *dark_theme) {
+  return fcitx_theme_replaceable(theme) && (!dark_theme || fcitx_theme_replaceable(*dark_theme));
+}
+
 inline std::string fcitx_theme_color(std::uint32_t rgb, bool transparent = false) {
   char buffer[10];
   std::snprintf(buffer, sizeof buffer, transparent ? "#%06x00" : "#%06x", rgb & 0xffffffu);

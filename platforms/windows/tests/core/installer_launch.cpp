@@ -139,6 +139,27 @@ int main(int argc, char **argv) {
              "Installer proceeds after failing to claim the data directory");
     contains(script, "'数据目录（词库、用户配置、皮肤）：'",
              "Ready page does not disclose the selected data directory");
+
+    // DataDir carries uninsdeletevalue, so it is already gone at usPostUninstall. The uninstaller must remove the directory it read at start, or a custom data directory outlives every uninstall.
+    const auto initialize = between(script, "function InitializeUninstall",
+                                    "procedure StopProcess");
+    contains(initialize, "ResolvePreviousDataDir;",
+             "Uninstall does not capture DataDir before its value is removed");
+    const auto post_uninstall =
+        between(script, "else if CurUninstallStep = usPostUninstall",
+                "TryDeleteTree(ExpandConstant('{commonappdata}\\metasequoiaime'))");
+    contains(post_uninstall, "if OwnsDataDir(ResolvePreviousDataDir) then",
+             "Uninstall removes a data directory it did not record");
+    if (post_uninstall.find("GetDataDir(") != std::string::npos)
+      throw std::runtime_error(
+          "Uninstall re-reads DataDir after the registry value is removed");
+
+    // The installer starts the Server with --production, which is not a Watchdog launch; the Server therefore brings its Watchdog back when TSF, not the Watchdog, revives it.
+    const wchar_t *production[] = {L"MetasequoiaImeServer.exe",
+                                   L"--production"};
+    if (msime::windows::parse_server_arguments(2, production).supervised)
+      throw std::runtime_error(
+          "A TSF-started Server would not restore its Watchdog");
     std::cout << "Installer launch and data-directory contracts passed\n";
     return 0;
   } catch (const std::exception &error) {

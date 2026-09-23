@@ -4,6 +4,7 @@
 #include "ReplyCodec.h"
 #include "SystemAudioMuter.h"
 #include "VoiceProviders.h"
+#include "VoiceSessionPolicy.h"
 #include <msime/voice/audio_capture.h>
 #include <msime/voice/cloud_stt_worker.h>
 #include <msime/voice/provider_protocol.h>
@@ -17,7 +18,9 @@
 namespace msime::windows {
 namespace {
 constexpr std::size_t kSampleRate = 16000;
-constexpr std::size_t kMaximumSamples = kSampleRate * 60;
+// MSIME-Windows keeps its message boxes until they are dismissed. The overlay cannot take focus, so it holds a failure long enough to read a provider's sentence and then steps aside.
+constexpr DWORD kFailureDisplayMs = 4000;
+constexpr DWORD kFailurePollMs = 100;
 
 std::wstring wide(std::string_view text) {
   if (text.empty())
@@ -111,10 +114,14 @@ void send_text_via_ctrl_v(std::wstring_view text) {
   (void)SendInput(4, input, sizeof(INPUT));
 }
 
-// The epoch gate prevents generation changes during each visible effect.
+// The epoch gate prevents generation changes during each visible effect. A new session or a later failure takes the overlay over, so the wait ends early and leaves the overlay to it. This sleeps, so it runs on a worker: the overlay's window belongs to the control thread, and a sleeping control thread would paint nothing and then hide it at once.
 void show_voice_failure(WaveOverlay &overlay, VoiceSessionEpoch &session,
-                        uint64_t expected, const wchar_t *message) {
+                        uint64_t expected, std::atomic<uint64_t> &displays,
+                        const std::wstring &message) {
+  const uint64_t display = displays.fetch_add(1) + 1;
   if (!session.with_current(expected, [&] {
+    overlay.set_listening(false);
+    overlay.set_input_level(0.0f);
     overlay.set_show_transcript(true);
     overlay.set_compact_status(WaveOverlay::CompactStatus::None);
     overlay.set_actions_visible(false);
@@ -122,14 +129,24 @@ void show_voice_failure(WaveOverlay &overlay, VoiceSessionEpoch &session,
     overlay.show();
   }))
     return;
-  Sleep(1200);
-  session.with_current(expected, [&] { overlay.hide(); });
+  for (DWORD waited = 0; waited < kFailureDisplayMs; waited += kFailurePollMs) {
+    Sleep(kFailurePollMs);
+    if (session.load() != expected || displays.load() != display)
+      return;
+  }
+  session.with_current(expected, [&] {
+    if (displays.load() != display)
+      return;
+    overlay.set_transcript(L"");
+    overlay.hide();
+  });
 }
 static_assert(std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
                                   VoiceSessionEpoch &, uint64_t,
-                                  const wchar_t *>);
+                                  std::atomic<uint64_t> &, const std::wstring &>);
 static_assert(!std::is_invocable_v<decltype(show_voice_failure), WaveOverlay &,
-                                   uint64_t, uint64_t, const wchar_t *>);
+                                   uint64_t, uint64_t, std::atomic<uint64_t> &,
+                                   const std::wstring &>);
 // The epoch must arrive as the live object, never a temporary. That used to be
 // asserted through is_invocable with an rvalue argument, but MSVC answers true
 // there even though the call itself does not compile - a temporary cannot bind
@@ -160,10 +177,17 @@ VoiceInputSession::~VoiceInputSession() {
   cancel();
   if (capture_)
     capture_->stop();
-  std::lock_guard lock(tasks_mutex_);
-  for (auto &task : tasks_)
-    if (task.valid())
-      task.wait();
+  {
+    std::lock_guard lock(tasks_mutex_);
+    for (auto &task : tasks_)
+      if (task.valid())
+        task.wait();
+  }
+  // After the recognizers: a finishing one may still report a failure. cancel() moved the epoch on, so each display ends within one poll.
+  std::lock_guard lock(notices_mutex_);
+  for (auto &notice : notices_)
+    if (notice.valid())
+      notice.wait();
 }
 
 bool VoiceInputSession::init_cues(const std::wstring &start_path,
@@ -229,8 +253,6 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   if (!capture_ || !lease_provider_ || !sender_ || !config_provider_)
     return false;
   VoiceInputConfig config = config_provider_();
-  if (!config.capture.supported())
-    return false;
   if (review)
     config.language = std::string(language);
   const bool doubao = is_doubao_asr_provider(config.asr_provider);
@@ -246,12 +268,25 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
                          : config.model;
   const bool stream_inline = voice_inline_allowed(
       review, config.stream_inline_preedit, doubao, config.commit_mode);
-  if (!config.enabled || config.token.empty() || endpoint.empty() ||
-      (!doubao && model.empty()) || (doubao && config.resource_id.empty()))
-    return false;
+  // Without a focused input context there is nothing to dictate into, and MSIME-Windows says nothing either.
   const auto lease = lease_provider_();
   if (!lease || !lease->epoch || !lease->token)
     return false;
+  // A review capture reports through its own result object; only native recordings are told why they did not start.
+  const auto refuse = [&](std::string_view message) {
+    if (!review)
+      report_failure(message, session_.load());
+    return false;
+  };
+  const auto verdict = voice_start_verdict(
+      {config.enabled, doubao, config.token, endpoint, model, config.resource_id});
+  if (verdict.check == VoiceStartCheck::Disabled)
+    return false;
+  if (verdict.check == VoiceStartCheck::Rejected)
+    return refuse(verdict.message);
+  // A device this host cannot open is a microphone that will not start.
+  if (!config.capture.supported())
+    return refuse(voice_microphone_start_message);
   bool expected = false;
   if (!starting_.compare_exchange_strong(expected, true))
     return false;
@@ -263,7 +298,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   }
   cancel_requested_.store(false);
   locked_.store(false);
-  capture_overflow_.store(false);
+  capture_full_.store(false);
   {
     std::lock_guard lock(samples_mutex_);
     samples_.clear();
@@ -302,7 +337,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
         doubao_.reset();
       lease_.reset();
       starting_.store(false);
-      return false;
+      return refuse(voice_doubao_start_message);
     }
   }
   const bool started = capture_->start([this, review](const float *samples,
@@ -324,21 +359,21 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
       std::lock_guard doubao_lock(doubao_mutex_);
       client = doubao_;
     }
-    // Streaming is not bounded by the batch buffer. Upstream never buffers at
-    // all on this path, so stopping the feed at 60 s threw away the second
-    // half of exactly the hands-free dictation the space lock exists for.
+    // Streaming is not bounded by the batch buffer. Upstream never buffers at all on this path, so stopping the feed at a ceiling threw away the second half of exactly the hands-free dictation the space lock exists for. Only the count is kept, for stop() to recognise a tap too short to transcribe.
     if (client)
       client->PushFloatSamples(samples, frames);
     std::lock_guard lock(samples_mutex_);
-    if (captured_frames_ >= kMaximumSamples ||
-        frames > kMaximumSamples - captured_frames_) {
-      // The batch upload still has a ceiling; record that it was reached so
-      // stop() can say so instead of committing nothing without explanation.
-      capture_overflow_.store(true);
+    if (client) {
+      captured_frames_ += frames;
       return;
     }
-    samples_.insert(samples_.end(), samples, samples + frames);
-    captured_frames_ += frames;
+    // A batch recording keeps what one upload can carry. When that is reached the recording finishes and submits it, as it does on macOS; maintain() calls stop(), which this capture thread must not.
+    const auto capture = voice_batch_capture(captured_frames_, frames,
+                                             voice_batch_sample_limit);
+    samples_.insert(samples_.end(), samples, samples + capture.keep);
+    captured_frames_ += capture.keep;
+    if (capture.full)
+      capture_full_.store(true);
   }, config.capture.device_id);
   if (!started) {
     std::shared_ptr<DoubaoAsrClient> client;
@@ -350,7 +385,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
       client->Cancel();
     lease_.reset();
     starting_.store(false);
-    return false;
+    return refuse(voice_microphone_start_message);
   }
   if (cancel_requested_.load()) {
     capture_->stop();
@@ -391,6 +426,14 @@ void VoiceInputSession::stop() {
     return;
   if (capture_)
     capture_->stop();
+  // A callback that threw stopped delivering audio part-way, so what was captured is not the recording the person made. MSIME-Windows StopRecording discards it and says so.
+  if (capture_ && capture_->callback_failed()) {
+    const bool native = !review_;
+    cancel_session(true);
+    if (native)
+      report_failure(voice_capture_interrupted_message, session_.load());
+    return;
+  }
   locked_.store(false);
   const auto review = review_;
   if (review)
@@ -426,27 +469,23 @@ void VoiceInputSession::stop() {
       (void)sender_(*lease, FanyImeWorkerReplyType::CancelVoiceComposition,
                     L"", generation);
   };
-  // Overflow only matters when the batch buffer is what gets uploaded; the
-  // streaming client has its own transcript and was fed throughout.
-  const bool overflowed = capture_overflow_.load() && !doubao;
-  if (!lease || overflowed) {
+  if (!lease) {
     if (review)
       review->fail();
     if (doubao)
       doubao->Cancel();
     cancel_inline();
-    if (!review && overflowed && lease)
-      show_voice_failure(overlay_, session_, session_.load(),
-                         L"录音超过 60 秒上限");
     clear_overlay();
     return;
   }
   std::vector<float> samples;
+  std::size_t captured_frames = 0;
   {
     std::lock_guard lock(samples_mutex_);
     samples.swap(samples_);
+    captured_frames = captured_frames_;
   }
-  if (samples.size() < kSampleRate / 4) {
+  if (captured_frames < kSampleRate / 4) {
     if (review)
       review->fail();
     if (doubao)
@@ -525,10 +564,13 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
   try {
     if (doubao) {
       text = doubao->Finish();
-      if (text.empty() && !doubao->LastError().empty()) {
+      const auto error = doubao->LastError();
+      if (text.empty() && !error.empty()) {
         cancel_inline();
         clear_current_overlay();
         release_doubao();
+        if (!review && !cancel_requested_.load())
+          report_failure(error, session);
         return;
       }
     } else {
@@ -539,12 +581,12 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
       text = recognize_cloud_asr(samples, config.asr_provider, endpoint, model,
                                  config.token, config.language, cancelled);
     }
-  } catch (const std::exception &) {
+  } catch (const std::exception &error) {
     cancel_inline();
-    if (!review && !cancel_requested_.load())
-      show_voice_failure(overlay_, session_, session, L"语音识别失败");
     clear_current_overlay();
     release_doubao();
+    if (!review && !cancel_requested_.load())
+      report_failure(voice_recognition_failure(error), session);
     return;
   }
   if (session_.load() != session || cancel_requested_.load() || text.empty()) {
@@ -636,10 +678,16 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
   }
 }
 
-void VoiceInputSession::cancel() {
+void VoiceInputSession::cancel() { cancel_session(false); }
+
+void VoiceInputSession::cancel_session(bool failed) {
   const auto review = review_;
-  if (review)
-    review->cancel();
+  if (review) {
+    if (failed)
+      review->fail();
+    else
+      review->cancel();
+  }
   const bool was_recording = recording_.exchange(false);
   cancel_requested_.store(true);
   const auto session = session_.fetch_add(1);
@@ -685,8 +733,46 @@ void VoiceInputSession::cancel() {
 }
 
 void VoiceInputSession::lock() {
-  if (recording_.load())
-    locked_.store(true);
+  if (!recording_.load())
+    return;
+  locked_.store(true);
+  if (voice_lock_shows_actions(true, !!review_)) {
+    overlay_.set_actions_visible(true);
+    overlay_.show();
+  }
+}
+
+void VoiceInputSession::maintain() {
+  if (!recording_.load())
+    return;
+  if (capture_ && capture_->callback_failed()) {
+    // Detected while still recording rather than when the key comes up: a locked recording could otherwise sit on a dead microphone indefinitely.
+    const bool native = !review_;
+    cancel_session(true);
+    if (native)
+      report_failure(voice_capture_interrupted_message, session_.load());
+    return;
+  }
+  if (capture_full_.load())
+    stop();
+}
+
+void VoiceInputSession::report_failure(std::string_view message,
+                                       uint64_t session) {
+  auto text = wide(message);
+  if (text.empty())
+    return;
+  std::lock_guard lock(notices_mutex_);
+  notices_.erase(std::remove_if(notices_.begin(), notices_.end(),
+                                [](auto &notice) {
+                                  return notice.wait_for(std::chrono::seconds(0)) ==
+                                         std::future_status::ready;
+                                }),
+                 notices_.end());
+  notices_.emplace_back(std::async(
+      std::launch::async, [this, text = std::move(text), session] {
+        show_voice_failure(overlay_, session_, session, failure_displays_, text);
+      }));
 }
 
 void VoiceInputSession::clear_overlay() {

@@ -1282,6 +1282,166 @@ fn runtime_options_skin_catalog_stays_within_what_the_hosts_read() {
     assert!(crowded.get("candidate_skin_catalog").is_none());
 }
 
+/// About 440 KiB once decoded: a PNG signature followed by zeros, which the preference validation accepts as a screen-keyboard photo.
+#[cfg(target_os = "linux")]
+fn screen_keyboard_photo() -> String {
+    let photo = format!("iVBORw0KGgoA{}", "AAAA".repeat(149_997));
+    assert_eq!(photo.len(), 600_000);
+    photo
+}
+
+#[cfg(target_os = "linux")]
+fn runtime_options_fixture(directory: &std::path::Path) -> (PathBuf, PathBuf) {
+    let path = directory.join("runtime-options.json");
+    let skins = directory.join("skins");
+    for (id, name) in [("sakura", "樱花"), ("bamboo", "竹"), ("ink", "墨")] {
+        write_candidate_skin(&skins, id, name);
+    }
+    let document = serde_json::json!({
+        "api_version": 1,
+        "resources": "/resources",
+        "preferences": Preferences::default(),
+    });
+    std::fs::write(&path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+    (path, skins)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn runtime_options_sync_keeps_the_screen_keyboard_photo_out_of_the_host_copy() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let (path, skins) = runtime_options_fixture(directory.path());
+    let state = RuntimeOptionsState {
+        path: Some(path.clone()),
+        document: Arc::new(Mutex::new(Value::Null)),
+        skins: Some(skins),
+    };
+    let mut preferences = Preferences {
+        candidate_page_size: 9,
+        ..Preferences::default()
+    };
+    preferences.custom_touch_keyboard_skin.photo = Some(screen_keyboard_photo());
+    preferences.custom_touch_keyboard_skin.photo_shade = Some(0.5);
+    sync_runtime_options(&state, &preferences).unwrap();
+
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(
+        bytes.len() <= LINUX_RUNTIME_OPTIONS_LIMIT,
+        "{}",
+        bytes.len()
+    );
+    let updated: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(updated["resources"], "/resources");
+    assert_eq!(updated["preferences"]["candidate_page_size"], 9);
+    let design = updated["preferences"]["custom_touch_keyboard_skin"]
+        .as_object()
+        .unwrap();
+    assert!(!design.contains_key("photo"));
+    assert_eq!(design["photoShade"], 0.5);
+    assert_eq!(
+        updated["candidate_skin_catalog"]["packages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    // The host copy is still a whole Preferences document to the Host API, which reads the missing photo as none.
+    let host: Preferences = serde_json::from_value(updated["preferences"].clone()).unwrap();
+    assert_eq!(host.custom_touch_keyboard_skin.photo, None);
+    assert_eq!(host.candidate_page_size, 9);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn runtime_options_the_hosts_could_not_read_are_refused_and_the_old_file_kept() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let (path, skins) = runtime_options_fixture(directory.path());
+    let original = std::fs::read(&path).unwrap();
+    let mut preferences = Preferences::default();
+    // Nothing strips a prompt from the host copy, so a long one is what still outgrows the hosts' read.
+    preferences.voice_input.polish_prompt = "润色".repeat(4000);
+    // Both the path that publishes a skin catalog and the one without a skins directory are held to the same limit.
+    for skins in [Some(skins.clone()), None] {
+        let state = RuntimeOptionsState {
+            path: Some(path.clone()),
+            document: Arc::new(Mutex::new(Value::Null)),
+            skins,
+        };
+        assert!(matches!(
+            sync_runtime_options(&state, &preferences),
+            Err(RuntimeOptionsError::TooLarge)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(*state.document.lock().unwrap(), Value::Null);
+    }
+
+    // A rescan cannot republish a file that is already past the limit either: the catalog is dropped, and what remains is still refused rather than rewritten.
+    let mut oversized: Value = serde_json::from_slice(&original).unwrap();
+    oversized["preferences"]["voice_input"]["polish_prompt"] = "润色".repeat(4000).into();
+    let oversized = serde_json::to_vec_pretty(&oversized).unwrap();
+    std::fs::write(&path, &oversized).unwrap();
+    let state = RuntimeOptionsState {
+        path: Some(path.clone()),
+        document: Arc::new(Mutex::new(Value::Null)),
+        skins: Some(skins.clone()),
+    };
+    assert!(matches!(
+        publish_candidate_skin_catalog(&state, &msime_client_core::skin::catalog::scan(&skins)),
+        Err(RuntimeOptionsError::TooLarge)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), oversized);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_save_the_hosts_could_not_read_is_refused_and_the_store_keeps_its_preferences() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let (path, skins) = runtime_options_fixture(directory.path());
+    let store = Arc::new(PreferencesStore::new(directory.path().join("state")));
+    let state = RuntimeOptionsState {
+        path: Some(path.clone()),
+        document: Arc::new(Mutex::new(Value::Null)),
+        skins: Some(skins),
+    };
+    let save = |revision: u64, preferences: Preferences| {
+        tauri::async_runtime::block_on(save_preferences_impl(
+            store.clone(),
+            state.clone(),
+            revision,
+            preferences,
+        ))
+    };
+
+    // Picking a photo for the screen keyboard saves: the store keeps it, and the hosts get a copy they can still read.
+    let mut photographed = store.load().unwrap().preferences;
+    photographed.custom_touch_keyboard_skin.photo = Some(screen_keyboard_photo());
+    let saved = save(store.load().unwrap().revision, photographed.clone()).unwrap();
+    assert_eq!(
+        store
+            .load()
+            .unwrap()
+            .preferences
+            .custom_touch_keyboard_skin
+            .photo,
+        photographed.custom_touch_keyboard_skin.photo
+    );
+    let published = std::fs::read(&path).unwrap();
+    assert!(
+        published.len() <= LINUX_RUNTIME_OPTIONS_LIMIT,
+        "{}",
+        published.len()
+    );
+
+    // A save the hosts could not read is refused whole: the runtime options stay as they were, and so does the store.
+    let mut oversized = saved.preferences.clone();
+    oversized.voice_input.polish_prompt = "润色".repeat(4000);
+    let refused = save(saved.revision, oversized).unwrap_err();
+    assert_eq!(refused.code, "runtime_options_too_large");
+    assert_eq!(std::fs::read(&path).unwrap(), published);
+    let current = store.load().unwrap();
+    assert_eq!(current.preferences, saved.preferences);
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn dictionary_requests_do_not_see_the_published_skin_catalog() {
