@@ -220,7 +220,7 @@ struct DictionarySettingsView: View {
         Label("长按候选词", systemImage: "hand.tap")
         Text("全拼 26 键、九键、双拼和五笔支持长按候选词：优先显示、固定到前五位中的某一位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
           .foregroundStyle(.secondary)
-        Text("日语和本地工具暂不支持候选词管理。第三方词库文件导入仍待接入。")
+        Text("日语和本地工具暂不支持候选词管理。第三方词库文件（词在前、编码在前或 Rime 格式）在「个人词库」的「导入个人词库」里导入。")
           .foregroundStyle(.secondary)
       }
     }
