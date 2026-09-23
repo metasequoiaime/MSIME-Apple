@@ -1192,6 +1192,8 @@ bool launch_desktop_panel(const char *panel) {
     g_error_free(error);
   return started != FALSE;
 }
+// Set by the maintenance stop shortcut so main() can tell the launcher's supervisor not to restart this process.
+bool maintenance_stop_requested = false;
 bool restart_ibus_service() {
   gchar *argv[] = {const_cast<gchar *>("ibus"),
                    const_cast<gchar *>("restart"), nullptr};
@@ -5577,8 +5579,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
   if (!release && maintenance_exit_key && s.focused && !s.blocked) {
     s.host_shortcut_strokes.insert(host_stroke);
-    // Match the Windows maintenance shortcut: stop this user-owned IBus
-    // preview process without touching another IBus daemon or input source.
+    // Match the Windows maintenance shortcut: stop this user-owned IBus preview process without touching another IBus daemon or input source. main() turns the flag into msime_ibus_maintenance_stop_exit so the launcher's crash supervisor lets it stay stopped.
+    maintenance_stop_requested = true;
     ibus_quit();
     return TRUE;
   }
@@ -7259,6 +7261,7 @@ void msime_ibus_configure(const std::string &options) {
                                          : std::string{});
   }
 }
+bool msime_ibus_maintenance_stop_requested() { return maintenance_stop_requested; }
 void msime_ibus_set_system_dark(bool dark) {
   if (system_dark != dark) {
     system_dark = dark;

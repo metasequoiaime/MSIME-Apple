@@ -173,7 +173,7 @@ IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候�
 
 当前 IBus 会话支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除候选页对应的可编辑词条。宿主只传递候选快照中的会话、代次和全局索引，由 Host API 校验来源和执行词库删除；没有对应候选或不可编辑候选时按键交回应用。`Ctrl+Shift+Alt+C` 清除当前输入法会话的 Engine 候选缓存并刷新当前视图，不会结束正在进行的组合。`Ctrl+Shift+Alt+R` 通过用户会话的 `ibus restart` 重启 IBus 服务，设置页也提供同一动作的按钮。
 
-`Ctrl+Shift+Alt+T` 立即退出当前 Linux IBus 宿主进程，快捷键由宿主消费，不会停止用户正在运行的其他 IBus 服务。Fcitx5 插件与 Fcitx5 同进程，退出就会带走其他输入法，因此 Fcitx5 不提供这个快捷键，设置页也按此注明；需要恢复时使用 `Ctrl+Shift+Alt+R` 重载。`Ctrl+.` 在两个宿主上都切换中英文标点，与 Windows 相同；Fcitx5 把中文模式下的切换结果保存到共享偏好，和状态菜单里的同一开关一致。英文模式下 `Ctrl+.` 同样生效（见下文英文模式一段），只改本次会话、不写偏好，到下一次中英切换为止；Fcitx5 状态栏的「中文标点」在英文模式下显示和切换的也是这一状态。菜单主题不在 Linux 设置页出现：IBus 属性菜单和 Fcitx5 状态菜单由桌面面板按自己的主题绘制。
+`Ctrl+Shift+Alt+T` 立即退出当前 Linux IBus 宿主进程，快捷键由宿主消费，不会停止用户正在运行的其他 IBus 服务；宿主以专用退出状态结束，launcher 的崩溃守护据此不会重启它。Fcitx5 插件与 Fcitx5 同进程，退出就会带走其他输入法，因此 Fcitx5 不提供这个快捷键，设置页也按此注明；需要恢复时使用 `Ctrl+Shift+Alt+R` 重载。`Ctrl+.` 在两个宿主上都切换中英文标点，与 Windows 相同；Fcitx5 把中文模式下的切换结果保存到共享偏好，和状态菜单里的同一开关一致。英文模式下 `Ctrl+.` 同样生效（见下文英文模式一段），只改本次会话、不写偏好，到下一次中英切换为止；Fcitx5 状态栏的「中文标点」在英文模式下显示和切换的也是这一状态。菜单主题不在 Linux 设置页出现：IBus 属性菜单和 Fcitx5 状态菜单由桌面面板按自己的主题绘制。
 
 Windows 配置中的 `candidate_arrow_navigation` 兼容名称也会映射到共享导航的 `arrows` 开关，保证迁移配置在 Linux 上保持一致。
 
@@ -328,6 +328,8 @@ Linux 桌面设置页通过宿主能力显示共享的模糊音配置。总开�
 容器验收依赖固定 Engine 词库源码 `googlepinyinime-rev/src/share/dictbuilder.cpp`，它随 `engine-lock.json` 指向的依赖归档取回；缺少它时容器内无法完成完整 daemon 编译。
 
 IBus 注册入口通过 launcher 启动，配置优先级为 `MSIME_IBUS_OPTIONS`、用户的 `$XDG_CONFIG_HOME/msime-client/runtime-options.json`（默认 `~/.config`）、安装时配置的系统 runtime-options。IBus 与桌面启动器仅在用户配置不存在时回退；显式覆盖、已存在但不可读的用户配置、悬空符号链接或相对用户配置目录会报错，不会悄悄改用系统配置。系统配置的写入权限沿用安装权限，启动器不会自动复制或改写配置。直接运行 launcher 时可用第一个参数指定系统配置回退路径。
+
+**IBus 宿主崩溃后自动恢复。** ibus-daemon 不会重新拉起退出的 component，宿主一旦崩溃，用户只能切换输入法或 `ibus restart` 才能继续打字。launcher 因此不 `exec` 宿主，而是留在它前面做守护：`msime-client-ibus` 以非 0 状态退出或被信号杀死（段错误、`SIGKILL` 等）时，按 Windows watchdog 的方式退避重启：第一次等 2 秒，之后每次翻倍、封顶 30 秒，宿主连续运行满 30 秒算健康，此后再崩溃又从 2 秒开始。重启的宿主带 `--recovered` 启动，重新注册 factory 后，若全局引擎为空或仍是 `msime-client`，就把 MSIME 重新设为全局引擎，有焦点的编辑器不必重新选择输入法即可继续输入；全局引擎已是其他输入法时不干预。IBus 在动态注册的 component 消失时也会清掉来自其他 component XML 的全局引擎（例如 xkb 布局），所以用户切到这类输入法期间宿主恰好崩溃时，恢复后回到的是 MSIME 而不是原来的布局。三种退出不重启：`Ctrl+Shift+Alt+T` 维护退出（宿主以专用状态 77 退出，守护照此退出）；宿主以 0 退出，表示总线断开，即 ibus-daemon 自身在退出或重启：`ibus restart` 后由新的 daemon 在选中引擎时再拉起 launcher，`ibus exit` 后不再运行，这是预期行为；重启的宿主连不上总线时同样以 0 退出，说明 daemon 在退避期间已经消失（被 `SIGKILL` 或自身崩溃，没来得及停止守护），守护随之结束，不会成为孤儿反复重启，也不会在之后启动的新 daemon 上多注册一个 component；准备重启时配置文件已不可读。ibus-daemon 用 `SIGTERM` 停止 component，launcher 把它连同 `SIGINT`、`SIGHUP` 一律作为 `SIGTERM` 转给宿主，等宿主退出后自己也退出，退避等待中收到时立即退出。契约由 `tests/core/ibus_launcher_supervisor.py`（桩宿主：退避间隔、`--recovered` 参数、各种不重启的退出与停止请求，含重启后以 0 退出）和 `tests/runtime/daemon_smoke.py` 的崩溃用例（真实 daemon：`SIGSEGV`/`SIGKILL` 后重新注册、有焦点的上下文不重新选择即可输入、维护退出不重启、`ibus exit` 结束守护）钉住。
 
 数字选词：IBus 属性菜单中的“数字选词”控制主键盘和小键盘 `1–0` 对当前候选页的选择，默认开启；状态按输入上下文保留，候选分页仍使用 Engine 提供的全局候选身份。候选表支持左键或中键选词、右键固定候选，操作会校验会话、代次和全局索引。
 
