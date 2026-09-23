@@ -1,6 +1,6 @@
 # macOS 迁移：来源测试断言逐条核对
 
-`docs/macos-feature-inventory.md` 回答「每个源文件去了哪」。这一份回答下一个问题：**来源用测试钉住的每一条行为，在这边是什么状态。** 这是四条比对轴里唯一出过货的一条——另外三条（截图、23 个控制项标识、27 个运行时偏好键）都没有新发现，而这一条找出了「恢复默认设置」。
+[macos-feature-inventory.md](macos-feature-inventory.md) 回答「每个源文件去了哪」。这一份回答下一个问题：**来源用测试钉住的每一条行为，在这边是什么状态。** 五条比对轴里有两条出过货：参考窗口截图那条产出了 #3247（侧边栏分组与帮助页）与 #3258（快捷键页），这一条测试断言轴产出了 #3280（恢复默认设置）与 #3298（双拼方案菜单）；控制项标识、运行时偏好键与符号这三条没有新发现。五条轴的全貌见 [macos-parity.md](macos-parity.md) 的结论表。
 
 范围是来源 `platforms/macos/tests` 下全部 93 条 `require(...)` 断言，按测试文件分组。核对方式（可重跑）：
 
@@ -30,32 +30,36 @@ grep -rhoE 'require\([^,]*,\s*"[^"]+"' "$ref"/platforms/macos/tests/*.mm "$ref"/
 
 ## InputMenuTests.mm（16 条）
 
-输入菜单。逐项一致：中文输入 / 英文输入 / 简体输出 / 繁体输出 / 表情与符号… / 检查更新… / 水杉输入法设置… / 开始或结束语音输入（⌃⌥V）/ 语音输入设置…，连分隔位置与 selector 都相同（`platforms/macos/src/input/InputMenu.h`），目标另有菜单主题处理。本地测试目标 `input-menu`。
+输入菜单。这 16 条断言钉的是来源菜单的条目集合、分隔位置与 selector，对应物是 `platforms/macos/src/input/InputMenu.h` 里的菜单构造器，由 CTest `input-menu` 覆盖；`InputMenu.h` 同时提供生效菜单使用的主题处理（`ApplyMetasequoiaMenuTheme` 按 `menu_theme` / `theme` 解析 dark/light/system）。
+
+实际生效的输入菜单此后按 MSIME-Windows 的托盘菜单重排，由 `-[MSIMEInputController menu]`（`platforms/macos/src/input/InputController.mm`）构造：中文输入 / 英文输入 / 英文候选模式（⌃⇧E）/ 简体输出 / 繁体输出 / 悬浮工具栏 / 水杉表情面板… / 水杉屏幕键盘… / 手写输入… / 开始/结束语音输入 / 水杉输入法设置… / 关于水杉输入法…。来源里单列的「检查更新…」「语音输入设置…」收进设置窗与悬浮工具栏，管理页统一进设置窗口。这份菜单的条目数、标题与 selector 由 `platforms/macos/tests/input/ShortcutTest.mm` 断言，CTest 目标 `shortcut`。
 
 ## InputControllerKeyRoutingTests.mm（14 条）
 
-11 条是组合输出（你 / 你们 / 爷 / 你好 / 日期），由引擎驱动；目标的等价覆盖是 `ShortcutTest.mm` 的 `TestRealSessionComposition()`（#3240），走真引擎 → 真控制器 → 文本客户端。
+11 条是组合输出（你 / 你们 / 爷 / 你好 / 日期），由引擎驱动；目标的等价覆盖是 `platforms/macos/tests/input/ShortcutTest.mm` 的 `TestRealSessionComposition()`（#3240），走真引擎 → 真控制器 → 文本客户端。
 
-- `Wubi auto-commit fired before the fourth code.` — 共享的 `core/WubiCommitPolicy.h`，目标控制器直接引用。
-- `IMKCandidates does not support moveUp:/pageUp:.` — 这两条是参考在**记录平台限制**，说明它为什么自绘候选窗。目标同样自绘（`candidate/CandidatePanel.mm`），结论已内化，没有要实现的东西。
+- `Wubi auto-commit fired before the fourth code.` — `platforms/macos/src/core/WubiCommitPolicy.h` 的 `MSIMEShouldAutoCommitWubi`，控制器直接引用。
+- `IMKCandidates does not support moveUp:/pageUp:.` — 这两条是参考在**记录平台限制**，说明它为什么自绘候选窗。目标同样自绘（`platforms/macos/src/candidate/CandidatePanel.mm`），结论已内化，没有要实现的东西。
 
 ## UninstallerTests.mm（12 条）
 
-保留用户数据卸载、连用户数据一起删、重复卸载、bundle 已不在时清残留、报告去向、落入废纸篓。目标是 `crates/host-macos/native/uninstaller.mm`，本地测试目标 `shared-uninstaller`。
+保留用户数据卸载、连用户数据一起删、重复卸载、bundle 已不在时清残留、报告去向、落入废纸篓。目标是 `crates/host-macos/native/uninstaller.mm` 的 `msime_macos_uninstall_input_source`，CTest 目标 `shared-uninstaller`。
 
 ## UpdateControllerTests.mm（5 条）
 
-Sparkle 驱动就绪状态、手动检查激活 accessory UI 并转发给 Sparkle、两处缓存不得过期。目标 `core/UpdateController.mm`，本地测试目标 `update-controller`。目标发布包当前没有 `SUFeedURL`，因此另钉住三路选择：有 feed 才启动 Sparkle；无 feed 的应用明确说明限制并在确认后打开固定官方发布页；非应用进程保持不可用。确认、取消和发布页打开失败均由替身覆盖，不在测试中打开浏览器或真实弹窗。
+Sparkle 驱动就绪状态、手动检查激活 accessory UI 并转发给 Sparkle、两处缓存不得过期。目标 `platforms/macos/src/core/UpdateController.mm`，CTest 目标 `update-controller`。本仓库的 bundle 模板不声明 `SUFeedURL`（更新入口是共享 About 页），因此另钉住三路选择：有 feed 才启动 Sparkle；无 feed 的应用明确说明限制并在确认后打开固定官方发布页；非应用进程保持不可用。确认、取消和发布页打开失败均由替身覆盖，不在测试中打开浏览器或真实弹窗。
 
 ## 其余三个文件（6 条）
 
 | 文件 | 断言 | 状态 |
 | --- | --- | --- |
-| InputSourceRegistrationTests | 注册收到已安装 bundle 的 URL；父输入源找到之前不得启用输入模式 | 目标 `input/InputSourceRegistration.mm`，测试目标 `input-source-registration` |
-| CandidateSelectionStateTests | 重置不得留下过期的引擎索引；分页夹具候选数够用 | 目标 `candidate-selection-state`、`candidate-pagination` |
+| InputSourceRegistrationTests | 注册收到已安装 bundle 的 URL；父输入源找到之前不得启用输入模式 | 目标 `platforms/macos/src/input/InputSourceRegistration.mm`，CTest 目标 `input-source-registration` |
+| CandidateSelectionStateTests | 重置不得留下过期的引擎索引；分页夹具候选数够用 | CTest 目标 `candidate-selection-state`、`candidate-pagination` |
 | FloatingToolbarPanelTests | 关掉一个开关再打开要恢复按钮 | 已对齐 |
 | FloatingToolbarPanelTests | **四个开关全关，齿轮还在** | **刻意分歧。** 参考的 `MetasequoiaFloatingToolbarItemKeys()` 只有四项，齿轮不可关；目标把齿轮也做成可开关，并多出表情与屏幕键盘两项。理由：目标的工具栏组件本来就更多，且关掉齿轮不困人——输入菜单里仍有「水杉输入法设置…」，手写与语音按钮恒常存在，工具栏不会变成空条。 |
 
-## 这份清单不能证明什么
+## 这一轴覆盖的范围
 
-它证明的是「来源用测试钉住的行为，这边都有对应」，不是「所有行为都一致」——来源没写测试的行为不在这 93 条里。已知的、不打算跟的分歧只有上面那一条齿轮；两处模型差异（标点、翻译 provider）也写在上面，不是遗漏。
+这 93 条覆盖的是来源用测试钉住的行为。来源没写测试的行为不在其中，由另外两条轴补齐：文件与符号层见 [macos-feature-inventory.md](macos-feature-inventory.md)（111 个源文件、518 个函数与方法逐个定位），方法与结论见 [macos-parity.md](macos-parity.md)（截图、23 个控制项标识、27 个运行时偏好键，以及按来源注释里的理由逐条回验的行为层比对）。
+
+刻意不跟的分歧只有上面那一条齿轮；两处模型差异（标点、翻译 provider）目标是超集，写在上面。

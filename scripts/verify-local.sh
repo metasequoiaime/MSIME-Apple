@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # Local verification for the shared 水杉输入法 client.
 #
-# AGENTS.md pauses private-repo CI to control cost and requires local
-# verification instead. Nothing here talks to CI; it runs the checks that
-# document requires - Rust tests, fmt, clippy and a dependency audit; UI type
-# check; native host build and tests - and reports the result.
+# This is the half of verification GitHub Actions does not cover, and the fast feedback before a commit. Nothing here talks to CI; it runs the Rust workspace tests, fmt, clippy and a dependency audit, the UI type check, and the native host builds and tests, then reports the result.
 #
 # The point of this script is the baseline. Several suites have long-standing
 # failures, so a bare pass/fail number says nothing: the only question that
@@ -204,6 +201,10 @@ python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 # the voice commands moved out of lib.rs it went red and stayed red unnoticed.
 note "android voice project config"
 python3 scripts/test-android-voice-project-config.py || fail "android voice project config"
+
+# Its iOS counterpart went the same way, and further: it was never wired here at all. Seven assertions rotted silently while the code they pin moved on - the voice types were generalised from Ios* to Mobile* for Android, the voice commands left lib.rs for voice.rs, the onboarding skip button became a CSS-module class, and the keyboard bridging header and two frontend modules moved into their <feature> directories. Nothing built the XcodeGen project on this machine or on a runner either, so the same reasoning that wired the Android one applies here.
+note "ios project config"
+python3 scripts/test-ios-project-config.py || fail "ios project config"
 
 # The reference ships one file with a default for every setting it has. Comparing the two settings
 # pages by eye has been done repeatedly and keeps producing the same false results in both

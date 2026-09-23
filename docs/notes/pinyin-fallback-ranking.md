@@ -6,16 +6,16 @@
 
 顺着候选来源查下去：60 条里 58 条位置 1 的 `source` 是 `Generated`（词图），`Fallback` 一条都没有。而 `quanpin/quanpin_dictionary.cpp` 的注释把回退称作「the primary whole-sentence suggestion」，词图只是「a secondary source」。主路径在生产里一次都没跑过。
 
-原因在 `quanpin_dictionary.cpp:133`：
+原因在 `quanpin/quanpin_dictionary.cpp` 构造解码器的那一处：
 
 ```cpp
 decoder_(paths_.resource(metasequoia::assets::pinyin_model),
          paths_.user(metasequoia::assets::pinyin_user_dictionary)),
 ```
 
-`assets::pinyin_model` 是 `dict_pinyin.dat`（`contracts/assets/assets.h:13`）。**该文件不在锁定的词库发布里**——发布只有 `msime.db`、`english.db`、`others.db`、`dict_japanese.dat` 和两个说明文件。
+`assets::pinyin_model` 是 `dict_pinyin.dat`（`contracts/assets/assets.h`）。**该文件当时不在锁定的词库发布里**——发布只有 `msime.db`、`english.db`、`others.db`、`dict_japanese.dat` 和两个说明文件。
 
-`core/pinyin_decoder.cpp:70` 的 `im_open_decoder` 失败时静默 `return {}`，所以没有任何征兆。文件只有 1.1 MB，一直躺在 Engine 仓库的 `googlepinyinime-rev/data/` 下。
+`core/pinyin_decoder.cpp` 的 `im_open_decoder` 失败时静默 `return {}`，所以没有任何征兆。文件只有 1.1 MB，一直躺在 Engine 仓库的 `googlepinyinime-rev/data/` 下。
 
 ## 补上文件之后
 
@@ -43,7 +43,7 @@ decoder_(paths_.resource(metasequoia::assets::pinyin_model),
 
 ## 真正的缺陷
 
-`quanpin_dictionary.cpp:389-400`：只要回退产出了整句，就无条件把它搬到 `result.begin()`。
+修复前的 `quanpin/quanpin_dictionary.cpp`：只要回退产出了整句，就无条件把它搬到 `result.begin()`。
 
 ```cpp
 if (google != result.end() && google != result.begin())
@@ -54,7 +54,7 @@ if (google != result.end() && google != result.begin())
 }
 ```
 
-而 `quanpin/word_lattice.h:22-26` 写明的合并顺序是：
+而 `quanpin/word_lattice.h` 写明的合并顺序是：
 
 > 1. Exact SQLite full-key hits (CandidateSource::Database / UserDatabase)
 > 2. Lattice full-cover sentences (CandidateSource::Generated)
@@ -68,7 +68,7 @@ if (google != result.end() && google != result.begin())
 
 ## 结局
 
-排序修复是 msime-engine PR #154，`dict_pinyin.dat` 随本次提交进入词库锁。两者一起落地后，用真实 Engine 与真实资源跑出来的最终数字：
+排序修复是 msime-engine PR #154，`dict_pinyin.dat` 现在由 `resources/desktop-dictionary.lock.json` 锁定并随资源安装取回。两者一起落地后，用真实 Engine 与真实资源跑出来的数字：
 
 | | 修复前 | 现在 |
 |---|---|---|
@@ -84,7 +84,7 @@ if (google != result.end() && google != result.begin())
 
 ## 复现修复效果时的陷阱
 
-本地验证这个修复时，第一次测出来的数字和没改一样，差点让我以为修法无效。原因是 `MSIME_SKIP_ENGINE_FETCH=1` 只跳过 fetch，CMake 不会察觉 `vendor/` 下的文件变了。改完 Engine 源码要 `touch crates/engine-bridge/build.rs` 才会重编。
+本地验证这个修复时，第一次测出来的数字和没改一样，看着像修法无效。原因是 `MSIME_SKIP_ENGINE_FETCH=1` 只跳过 fetch，CMake 不会察觉 `vendor/` 下的文件变了。改完 Engine 源码要 `touch crates/engine-bridge/build.rs` 才会重编。
 
 回归测试也写了三遍才写对，两次踩的坑正是这个缺陷能活这么久的原因：
 

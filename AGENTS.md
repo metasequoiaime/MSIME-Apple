@@ -1,13 +1,13 @@
 # AGENTS.md
 
-给在本仓库工作的编码代理的操作约定。**架构边界、验证流程和证据分级在 [ARCHITECTURE.md](ARCHITECTURE.md)，贡献流程在 [CONTRIBUTING.md](CONTRIBUTING.md)——先读那两份，这里只写它们没有覆盖的操作细节。**
+给在本仓库工作的编码代理的操作约定。**架构边界、验证流程和各平台的验证覆盖面在 [ARCHITECTURE.md](ARCHITECTURE.md)，贡献流程在 [CONTRIBUTING.md](CONTRIBUTING.md)——先读那两份，这里只写它们没有覆盖的操作细节。**
 
 ## 改动范围
 
 - 只暂存明确列出的路径，不用 `git add -A`。
 - 不复制相邻仓库的未提交内容；上游来源以远端实际默认分支和固定提交为准。
 - 日志、测试和提交中不得包含真实输入、凭据或私人资料，测试数据使用合成值。
-- CI/CD 已按仓库所有者要求恢复。提交前仍先跑本地 quick 门禁；不要手动触发发布 workflow，除非任务明确要求发布。
+- CI 会在 Pull Request 上运行，提交前仍先跑本地 quick 门禁。发布 workflow 一律手动触发，不要在任务没有明确要求发布时去碰它们。
 - **不要把 Tauri 生成的工程当成某个平台的产品去启动、调试或验收。** 每个平台的产品本体都是 `platforms/<os>` 下的原生宿主，Tauri/React 只是它承载的公共组件（见 ARCHITECTURE.md）。装机、启动和设备验收一律针对原生宿主；`apps/desktop` 的目录名和 Tauri 生成工程里自带的 bundle id 都不构成例外。
 
 ## 工具链

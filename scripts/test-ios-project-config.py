@@ -33,10 +33,11 @@ class IOSProjectConfigTests(unittest.TestCase):
         swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
         doubao = (plugin / "ios/Sources/IOSVoiceDoubaoTransport.swift").read_text()
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        rust_voice = (TAURI_ROOT / "src/voice.rs").read_text()
 
         self.assertIn("sdk: AVFoundation.framework", project)
         self.assertIn("AVFoundation.framework in Frameworks", generated)
-        self.assertIn('run_mobile_plugin_async::<IosVoiceTranscriptionResponse>("recognizeVoice", request)', plugin_rust)
+        self.assertIn('run_mobile_plugin_async::<MobileVoiceTranscriptionResponse>("recognizeVoice", request)', plugin_rust)
         self.assertIn('"stopVoice"', plugin_rust)
         self.assertIn('"cancelVoice"', plugin_rust)
         self.assertIn("import AVFoundation", swift)
@@ -61,12 +62,12 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("task.maximumMessageSize = Self.maximumFrameBytes", doubao)
         self.assertIn("private static let pcmChunkBytes = 6_400", doubao)
         self.assertIn("willPerformHTTPRedirection", doubao)
-        self.assertIn("IosVoiceRequestHeader", rust_entry)
-        self.assertIn("msime_client_core::credential::doubao_auth::headers(", rust_entry)
-        self.assertIn('#[cfg(all(unix, not(target_os = "ios")))]', rust_entry)
-        self.assertIn("ios_voice_provider_configuration(&snapshot.preferences)", rust_entry)
-        self.assertIn('phase: Some("recording".into())', rust_entry)
-        self.assertIn('phase: Some("recognizing".into())', rust_entry)
+        self.assertIn("MobileVoiceRequestHeader", rust_voice)
+        self.assertIn("msime_client_core::credential::doubao_auth::headers(", rust_voice)
+        self.assertIn('#[cfg(not(target_os = "ios"))]', rust_entry)
+        self.assertIn("mobile_voice_provider_configuration(&snapshot.preferences)", rust_voice)
+        self.assertIn('phase: Some("recording".into())', rust_voice)
+        self.assertIn('phase: Some("recognizing".into())', rust_voice)
 
     def test_privacy_manifest_is_shared_by_tauri_app_and_keyboard(self):
         privacy_path = TAURI_ROOT / "../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy"
@@ -113,7 +114,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("ios_onboarding_complete", entry)
         self.assertIn('invoke<boolean>("ios_onboarding_status")', desktop)
         self.assertIn('invoke("ios_onboarding_complete")', desktop)
-        self.assertIn('className="onboarding-skip"', onboarding)
+        self.assertIn("className={onboarding.skip}", onboarding)
 
     def test_generated_project_builds_the_shared_rust_mobile_entry(self):
         project = (APPLE_ROOT / "project.yml").read_text()
@@ -141,7 +142,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("  MSIMEKeyboardExtension:\n    type: app-extension", project)
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client.keyboard", project)
         self.assertIn("CODE_SIGN_ENTITLEMENTS: ../../../../../platforms/ios/KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements", project)
-        self.assertIn("SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/../../../../../platforms/ios/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h", project)
+        self.assertIn("SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/../../../../../platforms/ios/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h", project)
         self.assertIn("SWIFT_VERSION: 5.0", project)
         self.assertIn("path: MSIMEKeyboardExtension/Info.plist", project)
         self.assertIn("      - target: MSIMEKeyboardExtension", project)
@@ -255,7 +256,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
-        mobile_services = (TAURI_ROOT.parent / "src/mobile-host-services.ts").read_text()
+        mobile_services = (TAURI_ROOT.parent / "src/core/mobile-host-services.ts").read_text()
 
         self.assertIn('use platform::ios::ios_account;', rust_entry)
         self.assertIn('ios_account::setup(app.handle())?', rust_entry)
@@ -293,7 +294,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         mapping = (TAURI_ROOT / "src/platform/ios/ios_account/account_preferences.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
-        mobile_services = (TAURI_ROOT.parent / "src/mobile-host-services.ts").read_text()
+        mobile_services = (TAURI_ROOT.parent / "src/core/mobile-host-services.ts").read_text()
 
         self.assertIn('run_mobile_plugin::<IosKeyboardPreferences>("loadKeyboardPreferences", ())', rust)
         self.assertIn('run_mobile_plugin::<IosKeyboardPreferences>("saveKeyboardPreferences", preferences)', rust)
@@ -391,7 +392,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("DictionarySnapshotQueue()", bridge)
         self.assertIn("BackendPreparedSnapshot(copying: url)", bridge)
         self.assertIn('@_cdecl("msime_ios_dictionary_snapshot_request")', bridge)
-        capabilities = (TAURI_ROOT.parent / "src/mobile-host-capabilities.ts").read_text()
+        capabilities = (TAURI_ROOT.parent / "src/input/mobile-host-capabilities.ts").read_text()
         self.assertIn("snapshot: isMobileHost(platform) || platform === \"macos\"", capabilities)
         self.assertIn("snapshotNative: platform === \"macos\"", capabilities)
 
@@ -399,7 +400,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
-        mobile_services = (TAURI_ROOT.parent / "src/mobile-host-services.ts").read_text()
+        mobile_services = (TAURI_ROOT.parent / "src/core/mobile-host-services.ts").read_text()
 
         for symbol in [
             "ios_account::community_skin_list",
