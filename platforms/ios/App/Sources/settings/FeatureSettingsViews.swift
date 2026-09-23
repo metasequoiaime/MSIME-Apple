@@ -256,6 +256,8 @@ struct ServiceSettingsView: View {
   @State private var fetchingModels = false
   @State private var token = ""
   @State private var keyboardAIEnabled = KeyboardAIService.configuration() != nil
+  @State private var aiCandidatesEnabled = AICandidatePreference.isEnabled(MetasequoiaInputSessionBridge.loadSharedPreferences())
+  @State private var aiCandidateLimit = AICandidatePreference.limit(MetasequoiaInputSessionBridge.loadSharedPreferences())
   @State private var input = ""
   @State private var voiceTransfer: VoiceTextHandoff?
   @State private var output = ""
@@ -288,10 +290,25 @@ struct ServiceSettingsView: View {
             .onChange(of: keyboardAIEnabled) { enabled in
               if !enabled {
                 do { try KeyboardAIService.disable() } catch { status = error.localizedDescription }
+                publishAICandidates()
               }
             }
         } footer: {
           Text("开启后点击“保存配置”，即可在键盘“更多 → AI 润色”或“高情商回复”方案中使用。需要允许完全访问；每次发送前会预览文字。")
+        }
+        if keyboardAIEnabled {
+          Section {
+            Toggle("候选栏 AI 候选", isOn: $aiCandidatesEnabled)
+              .accessibilityIdentifier("aiCandidatesEnabled")
+              .onChange(of: aiCandidatesEnabled) { _ in publishAICandidates() }
+            if aiCandidatesEnabled {
+              Stepper("候选数量：\(aiCandidateLimit)", value: $aiCandidateLimit, in: AICandidatePreference.limits)
+                .accessibilityIdentifier("aiCandidateLimit")
+                .onChange(of: aiCandidateLimit) { _ in publishAICandidates() }
+            }
+          } footer: {
+            Text("打全拼时把已输入的拼音和前文发给上面保存的服务，把联想结果补在候选栏里，与云候选相同。密钥只留在本机钥匙串，不写入可同步的设置。")
+          }
         }
         Section("AI 润色") {
           TextEditor(text: $input).frame(minHeight: 100)
@@ -551,7 +568,7 @@ struct ServiceSettingsView: View {
             let url = try configuration.validatedURL(
               allowWebSocket: kind == .voice && configuration.voiceProvider == .doubao)
             try ServiceTokenStore.write("", kind: kind, url: url)
-            if kind == .ai { try KeyboardAIService.disable(); keyboardAIEnabled = false }
+            if kind == .ai { try KeyboardAIService.disable(); keyboardAIEnabled = false; publishAICandidates() }
             token = ""
             fetchedModels = nil
             modelStatus = ""
@@ -626,6 +643,20 @@ struct ServiceSettingsView: View {
     } catch { modelStatus = error.localizedDescription }
   }
 
+  /// Point the shared `ai_assistant` at the configuration the keyboard can actually sign for (the one published to the Keychain), or switch it off when there is none. The key itself stays in the Keychain.
+  private func publishAICandidates() {
+    let published = KeyboardAIService.configuration()
+    let enabled = aiCandidatesEnabled && published != nil
+    let written = MetasequoiaInputSessionBridge.updateSharedPreferences { preferences in
+      preferences["ai_assistant"] = AICandidatePreference.assistant(
+        preferences["ai_assistant"] as? [String: Any], enabled: enabled, limit: aiCandidateLimit,
+        provider: published?.provider.rawValue ?? "", endpoint: published?.endpoint ?? "",
+        model: published?.model ?? "")
+    }
+    if !written { status = "候选栏 AI 设置未能保存，请稍后重试。" }
+    else if aiCandidatesEnabled && published == nil { status = "请先保存配置，候选栏 AI 候选会在保存后生效。" }
+  }
+
   @discardableResult private func save() -> Bool {
     do {
       try configuration.save(kind, token: token)
@@ -634,6 +665,7 @@ struct ServiceSettingsView: View {
         try KeyboardAIService.publish(configuration, token: ServiceTokenStore.read(.ai, url: configuration.validatedURL()))
       }
       status = "配置已保存"
+      if kind == .ai && keyboardAIEnabled { publishAICandidates() }
       return true
     } catch { status = error.localizedDescription; return false }
   }

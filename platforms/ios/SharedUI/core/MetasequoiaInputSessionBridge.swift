@@ -46,6 +46,8 @@ private func msimeClientChooseNineKeySpelling(_ session: UInt64, _ generation: U
 private func msimeClientSetNineKeyMode(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_chinese_punctuation")
 private func msimeClientSetChinesePunctuation(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_set_ai_credential")
+private func msimeClientSetAICredential(_ session: UInt64, _ token: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_character_width")
 private func msimeClientSetCharacterWidth(_ session: UInt64, _ fullwidth: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_update_preferences")
@@ -214,6 +216,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var fullwidth = false
   /// The keyboard's 中文标点 switch; nil until it is first set, so a rebuilt session keeps the document's value.
   private var chinesePunctuation: Bool?
+  /// Kept only in memory so a recreated focused session gets it back; it never reaches the shared document.
+  private var aiCredential: String?
 
   init(resources: URL? = nil, stateRoot: URL? = nil) {
     options = [:]
@@ -893,6 +897,20 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     chinesePunctuation = enabled
     return dispatch { msimeClientSetChinesePunctuation(handle, enabled) }
   }
+  /// Hand the runtime the AI provider key from the Keychain for this session's candidate-bar AI requests; nil clears it. The key is never written to the shared document.
+  @discardableResult func setAICredential(_ token: String?) -> Bool {
+    aiCredential = token
+    return applyAICredential()
+  }
+
+  private func applyAICredential() -> Bool {
+    guard handle != 0 else { return false }
+    let bytes = Array((aiCredential ?? "").utf8)
+    let response: Any? = try? bytes.withUnsafeBufferPointer { buffer -> Any in
+      try Self.decode(msimeClientSetAICredential(handle, buffer.baseAddress, UInt(buffer.count)))
+    }
+    return response as? Bool == true
+  }
   func switchToWubi() -> MetasequoiaInputSnapshot { switchScheme("wubi", profile: nil) }
   func switchToJapanese() -> MetasequoiaInputSnapshot { switchScheme("japanese", profile: nil) }
 
@@ -1001,6 +1019,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     if nineKeyEnabled { _ = dispatch { msimeClientSetNineKeyMode(handle, true) } }
     if fullwidth { _ = dispatch { msimeClientSetCharacterWidth(handle, true) } }
     if let chinesePunctuation { _ = dispatch { msimeClientSetChinesePunctuation(handle, chinesePunctuation) } }
+    if aiCredential != nil { _ = applyAICredential() }
   }
 
   func localDictionaryStateVersion() throws -> String {
