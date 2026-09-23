@@ -115,6 +115,7 @@ private:
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;
   bool show_preedit_ = true;
+  bool wubi_code_hint_ = true;
   // Configured supplementary faces, in order, for the per-glyph fallback chain.
   // Minimum card width asked for by the active skin package, in DIPs.
   double skin_min_width_ = 0.0;

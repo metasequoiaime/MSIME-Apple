@@ -3,6 +3,7 @@
 #include "ChineseTextConversion.h"
 #include "FocusGate.h"
 #include "ReplyComposer.h"
+#include "WubiCodeHintPolicy.h"
 
 namespace msime::windows {
 // TSF can report the candidate show event before it has a usable text extent.
@@ -20,6 +21,8 @@ struct PresentationCandidate {
   uint8_t fixed_position = 0;
   std::string translation;
   bool actions_available = true;
+  // The Wubi code left after the typed prefix; shown only when the `wubi_code_hint` preference is on, see with_wubi_code_hints.
+  std::string wubi_code_hint;
 };
 struct CandidatePresentation {
   FocusLease lease;
@@ -93,6 +96,7 @@ candidate_presentation_from_view(const FocusLease &lease,
         item.annotation.size() > 4096 || item.badge.size() > 4096 ||
         item.translation.size() > 4096)
       throw std::invalid_argument("Invalid presented candidate");
+    item.wubi_code_hint = wubi_code_hint(view, candidate);
     highlighted += item.highlighted;
     output.candidates.push_back(std::move(item));
   }
@@ -151,6 +155,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
         item.annotation.size() > 4096 || item.badge.size() > 4096 ||
         item.translation.size() > 4096)
       throw std::invalid_argument("Invalid presented candidate");
+    item.wubi_code_hint = wubi_code_hint(view, candidate);
     highlighted += item.highlighted;
     output.candidates.push_back(std::move(item));
   }

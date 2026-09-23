@@ -968,7 +968,15 @@ int wmain(int argc, wchar_t **argv) {
                                  static_cast<BYTE>(color.b * 255.0f));
     }
     CandidateWindow candidates(
-        [&] { return server.candidate_view(); },
+        [&] {
+          auto view = server.candidate_view();
+          if (view)
+            *view = with_wubi_code_hints(
+                std::move(*view),
+                CandidateLayoutSettings::decode(candidate_layout->load(std::memory_order_acquire))
+                    .wubi_code_hint);
+          return view;
+        },
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
         static_cast<unsigned>(config.candidate_font_size),
         static_cast<unsigned>(config.candidate_preedit_font_size), candidate_text_color,
