@@ -1,4 +1,5 @@
 #import "../../src/input/InputController.mm"
+#import "../settings/TestPreferenceSuite.h"
 
 #include <cassert>
 #include <fcntl.h>
@@ -92,8 +93,9 @@ int main() {
         const std::string leaseRoot(userData.fileSystemRepresentation);
 
         NSString *suite = [@"msime.dictionary-quiesce." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance =
-            [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]
+            [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults
                                                        skinsRoot:[NSURL fileURLWithPath:root]];
 
         // Two clients, as IMK creates a controller per text input client; each holds its own session.
@@ -163,7 +165,7 @@ int main() {
         [(MSIMEClientSession *)[first valueForKey:@"session"] closeWithError:nil];
         [(MSIMEClientSession *)[second valueForKey:@"session"] closeWithError:nil];
         [NSFileManager.defaultManager removeItemAtPath:root error:nil];
-        [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return 0;
 }
