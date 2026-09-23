@@ -985,6 +985,10 @@ class SettingsBridge {
       value['mode_switch_shortcuts'] = projection.modeSwitchShortcuts;
       value['panel_shortcuts'] = projection.panelShortcuts;
       value['number_row_selection'] = projection.numberRowSelection;
+      value['voice_hotkeys'] = projection.voiceHotkeys;
+      if (projection.fixedCandidateLayout !== null) {
+        value['fixed_candidate_layout'] = projection.fixedCandidateLayout;
+      }
       value['candidate_follow_cursor'] = projection.candidateFollowCursor;
       value['input_mode_hud'] = projection.inputModeHud;
       if (release !== null) {

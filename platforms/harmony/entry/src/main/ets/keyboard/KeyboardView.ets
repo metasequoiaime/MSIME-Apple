@@ -32,6 +32,7 @@ import { CandidateContextMenuPolicy, PointerAction, PointerButton }
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
+import { CandidatePreeditStylePolicy, VisibleComposition } from './candidate/CandidatePreeditStylePolicy';
 import { CandidateTranslationStyle, TRANSLATION_OPACITY }
   from './candidate/CandidateTranslationStyle';
 import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
@@ -247,6 +248,7 @@ struct KeyboardView {
   @State candidates: CandidateEntry[] = [];
   @State editing: string = '';
   @State editingCaret: number = 0;
+  @State phrasePrefix: string = '';
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
   /** Read-only English completions for the word being typed; empty whenever one is not. */
@@ -490,6 +492,7 @@ struct KeyboardView {
       this.candidates = state.candidates;
       this.editing = state.editing;
       this.editingCaret = state.editingCaret;
+      this.phrasePrefix = state.phrasePrefix;
       this.spellings = state.spellings;
       this.engineScheme = state.scheme;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
@@ -1333,6 +1336,12 @@ struct KeyboardView {
       && KeyboardSession.shared.glossRows() > 0;
   }
 
+  /** The composition as 「候选栏预编辑」 lets it be seen; see CandidatePreeditStylePolicy. */
+  private visibleComposition(): VisibleComposition {
+    return CandidatePreeditStylePolicy.visible(this.settings.candidateShowPreedit, this.phrasePrefix, this.editing,
+      this.localMode);
+  }
+
   /** One candidate row without the reserved gloss line; see KeyboardMetrics.candidateRowHeightVp. */
   private candidateLineHeight(): number {
     return KeyboardMetrics.candidateRowHeightVp(this.settings.candidateFontSize, KeyboardFormFactor.isDesktop());
@@ -1457,19 +1466,29 @@ struct KeyboardView {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
           } else {
-            Row() {
-              Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).before)
-                .fontSize(this.settings.candidatePreeditFontSize)
-                .fontColor(this.candidateAccentColor())
-                .fontFamily(this.candidateFontFamily())
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Divider()
-                .vertical(true)
-                .strokeWidth(PREEDIT_CARET_WIDTH_VP)
-                .height(PreeditCaretPolicy.height(this.settings.candidatePreeditFontSize))
-                .color(this.candidateAccentColor())
-              Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).after)
+            if (this.visibleComposition().caret) {
+              Row() {
+                Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).before)
+                  .fontSize(this.settings.candidatePreeditFontSize)
+                  .fontColor(this.candidateAccentColor())
+                  .fontFamily(this.candidateFontFamily())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Divider()
+                  .vertical(true)
+                  .strokeWidth(PREEDIT_CARET_WIDTH_VP)
+                  .height(PreeditCaretPolicy.height(this.settings.candidatePreeditFontSize))
+                  .color(this.candidateAccentColor())
+                Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).after)
+                  .fontSize(this.settings.candidatePreeditFontSize)
+                  .fontColor(this.candidateAccentColor())
+                  .fontFamily(this.candidateFontFamily())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+              }
+            } else {
+              // 「候选栏预编辑：不显示」 on the phone: the line keeps its height and loses the spelling, but not the chosen part of a phrase or a local mode's trigger.
+              Text(this.visibleComposition().text)
                 .fontSize(this.settings.candidatePreeditFontSize)
                 .fontColor(this.candidateAccentColor())
                 .fontFamily(this.candidateFontFamily())
@@ -3738,7 +3757,7 @@ struct KeyboardView {
   expandedFace() {
     Column() {
       Row() {
-        Text(this.editing)
+        Text(this.visibleComposition().text)
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
           .fontColor(this.skin.accent)
           .maxLines(1)

@@ -248,6 +248,7 @@ import {
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
 import { CandidateNumberFontPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateNumberFontPolicy";
 import { PreeditCaretPolicy } from "../entry/src/main/ets/keyboard/candidate/PreeditCaretPolicy";
+import { CandidatePreeditStylePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePreeditStylePolicy";
 import {
   CandidateTranslationStyle,
   TRANSLATION_OPACITY,
@@ -543,13 +544,21 @@ group("projects the same form factor into every settings capability", () => {
     "phone settings hide candidate and toolbar controls",
   );
   check(
-    !phone.modeSwitchShortcuts &&
-      !phone.panelShortcuts &&
-      !phone.numberRowSelection &&
-      !phone.candidateFollowCursor &&
-      !phone.inputModeHud,
-    "phone settings hide physical-keyboard controls",
+    !phone.panelShortcuts && !phone.candidateFollowCursor && !phone.inputModeHud,
+    "phone settings hide the controls only a candidate window uses",
   );
+  // An attached keyboard is routed on a phone too: the mode chords are bound on every device, and number-row selection and the voice hotkeys have no desktop check. Their switches have to be reachable wherever they act.
+  check(
+    phone.modeSwitchShortcuts && phone.numberRowSelection && phone.voiceHotkeys,
+    "phone settings offer the hardware-keyboard switches the keyboard still acts on",
+  );
+  check(desktop.voiceHotkeys, "2-in-1 settings offer the voice hotkeys");
+  // The phone strip is always horizontal, so a layout select there is a control that does nothing; the 2in1 candidate window keeps the choice.
+  check(
+    phone.fixedCandidateLayout === "horizontal",
+    "the phone's candidate layout is fixed horizontal",
+  );
+  check(desktop.fixedCandidateLayout === null, "the 2-in-1 candidate layout stays a choice");
 });
 
 group("SymbolPanelPolicy", () => {
@@ -8171,6 +8180,26 @@ group("a malformed candidate size cannot produce an unusable number", () => {
   check(CandidateNumberFontPolicy.size(0) === 1, "zero does not become zero");
   check(CandidateNumberFontPolicy.size(-4) === 1, "nor does a negative size");
   check(CandidateNumberFontPolicy.size(Number.NaN) === 1, "nor does a size that is not a number");
+});
+
+group("「候选栏预编辑：不显示」 hides the spelling on the phone line", () => {
+  // Windows candidate_window_preedit_style = "empty" is preeditVisible=false. The phone showed the spelling whatever the setting said; Android honours it through the same policy.
+  const shown = CandidatePreeditStylePolicy.visible(true, "", "nihao", "none");
+  check(shown.text === "nihao" && shown.caret, "pinyin shows the spelling and its caret");
+  const hidden = CandidatePreeditStylePolicy.visible(false, "", "nihao", "none");
+  check(hidden.text === "" && !hidden.caret, "empty hides the spelling and the caret");
+  const phrase = CandidatePreeditStylePolicy.visible(false, "你好", "你好shijie", "none");
+  check(
+    phrase.text === "你好",
+    "the chosen part of a phrase stays, since it is nowhere else on screen",
+  );
+  const trigger = CandidatePreeditStylePolicy.visible(false, "", "E", "emoji");
+  check(trigger.text === "E", "a local mode's trigger stays, since it names the running mode");
+  const modeSpelling = CandidatePreeditStylePolicy.visible(false, "", "Ksmile", "quick_phrase");
+  check(
+    modeSpelling.text === "",
+    "what a mode spells beyond its trigger is hidden like any spelling",
+  );
 });
 
 group("the composition is split where the caret is", () => {

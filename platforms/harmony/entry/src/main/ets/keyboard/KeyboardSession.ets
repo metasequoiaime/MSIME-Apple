@@ -430,6 +430,8 @@ export interface KeyboardState {
   readonly candidates: CandidateEntry[];
   readonly editing: string;
   readonly editingCaret: number;
+  /** The already-chosen part of a phrase leading `editing`, which the preedit style never hides. */
+  readonly phrasePrefix: string;
   readonly spellings: string[];
   readonly scheme: number;
   readonly shuangpinProfile: string;
@@ -3020,6 +3022,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。
         editing: (view.phrase_prefix ?? '') + view.editing_text,
         editingCaret: view.caret_position + (view.phrase_prefix ?? '').length,
+        phrasePrefix: view.phrase_prefix ?? '',
         spellings: view.nine_key_spellings,
         scheme: view.scheme,
         shuangpinProfile: view.shuangpin_profile,
@@ -3064,6 +3067,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.onChanged({
       candidates: entries, editing: (view.phrase_prefix ?? '') + view.editing_text,
       editingCaret: view.caret_position + (view.phrase_prefix ?? '').length,
+      phrasePrefix: view.phrase_prefix ?? '',
       spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
       english: view.dedicated_english, diagnostic: this.diagnostic
@@ -3098,7 +3102,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.onChanged({
       candidates: entries,
       editing: view?.editing_text ?? this.editing,
-      editingCaret: view?.caret_position ?? this.editingCaret, spellings: [],
+      editingCaret: view?.caret_position ?? this.editingCaret, phrasePrefix: '', spellings: [],
       scheme: view?.scheme ?? this.scheme, shuangpinProfile: view?.shuangpin_profile ?? this.profileName,
       localMode: view?.local_mode ?? this.localMode,
       english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic

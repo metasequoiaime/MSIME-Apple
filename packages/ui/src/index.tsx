@@ -618,6 +618,8 @@ export interface HostCapabilities {
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   number_row_selection?: boolean;
+  /** The host answers the `voice_input.hotkey_*` chords from an attached keyboard even where it draws no panel windows, as a HarmonyOS phone does. Absent means the desktop-panel answer. */
+  voice_hotkeys?: boolean;
   voice_capture_devices: boolean;
   candidate_font_controls: boolean;
   candidate_preedit_font?: boolean;
@@ -2329,6 +2331,8 @@ export function SettingsPage({
   // Falls back to the form factor when the host answers without the flag: a partial capability
   // record would otherwise read as "not a desktop" and hide these from Windows too.
   const desktopPanels = host ? (host.panel_windows ?? !mobilePlatform) : true;
+  // A phone that routes an attached keyboard's voice chords says so explicitly; every other host keeps the panel-window answer above.
+  const showVoiceHotkeys = host?.voice_hotkeys ?? desktopPanels;
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
@@ -9674,7 +9678,7 @@ export function SettingsPage({
                           )}
                       </div>
                     )}
-                    {desktopPanels && (
+                    {showVoiceHotkeys && (
                       <div className="section">
                         <div className="section-title">
                           {linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}
@@ -9683,7 +9687,9 @@ export function SettingsPage({
                               ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入"
                               : macosPlatform
                                 ? "输入法启用时按住修饰键快捷键录音，松开结束；组合键先按 Control。按住期间按空格锁定，Escape 取消。修饰键快捷键由输入法自身接收，不需要额外授权；Ctrl+F9 在输入法会话之外接收，需要在「系统设置 › 隐私与安全性 › 输入监控」中允许本输入法，否则按下没有任何反应。首次授权后请重新按键。"
-                                : "输入法运行时全局生效，用于开始和结束语音录音"}
+                                : harmonyPlatform
+                                  ? "连接实体键盘后，在输入法接收按键的输入框中开始和结束语音录音"
+                                  : "输入法运行时全局生效，用于开始和结束语音录音"}
                           </small>
                         </div>
                         {(
