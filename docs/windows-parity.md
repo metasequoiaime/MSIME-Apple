@@ -2003,3 +2003,13 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - **屏幕键盘高度（`touch_keyboard_height_adjustment`）**：Windows 的屏幕键盘是 Tauri 面板，固定按 1100×400 打开。现在按设置预览的同一算式 `400 + clamp(调整值, -12, 48)` 决定窗口高度，对设置页命令、托盘菜单启动路由和二次启动三条打开路径都生效；窗口已存在时重新打开会按新高度调整。页面本身按窗口高度伸缩，不需要另外传参。其他宿主不在本次范围内。
 - **每页候选项数量**：见上文 2026-09-21 那条的订正。共享设置页现在对所有宿主列出来源的 3–9；共享偏好仍接受 1–9，文档里存着 1 或 2 时这个值留在列表里并保持选中，保存别的改动不会把它改写掉。
 - **候选英文释义的默认值（`candidate_english_gloss`）**：来源默认显示 `english.db` 的释义，共享默认关闭。这一项**刻意保留差异**，不单独改 Windows 的默认：共享偏好没有按平台区分默认值的机制（`HostCapabilities` 只描述能力，不带偏好默认值），所有宿主都读同一份 `Preferences::default()`，而 Linux、Android、HarmonyOS 的测试和 README 都把「默认关闭」写成了约定。为 Windows 单独翻默认值需要先引入按平台的偏好默认，这属于产品取舍，留给所有者定。
+
+### Windows 面板、托盘、悬浮工具栏与检查更新的对齐（2026-09-24）
+
+- 屏幕键盘：来源的按键在松开时才发送，按下后把指针滑出按键再松开就取消。本仓以前在按下时立即发送，还带长按连发。现在 Windows 上按下只记录按下的键，并释放隐式的指针捕获；只有主按钮在同一个键上松开才发送，`pointercancel` 清除记录。滑出后再滑回原键松开仍然发送，和来源一致。修饰键、NumLock、键盘或辅助技术触发的点击（`detail` 为 0）仍按点击处理。其他平台保持按下即发送、长按连发。`apps/desktop/tests/input/keyboard-repeat.test.tsx` 覆盖这一行为。
+- 手写笔画上限：来源不限制笔画数。本仓的共享面板在其他平台停在 32 笔（与 Linux socket provider 的上限一致）；Windows 现在放宽到共享契约 `crates/client-core/src/panels.rs` 的 `MAX_STROKES`（64 笔），超出后仍然提示「笔画已达上限」。剩下的差异是：来源无上限，本仓在 64 笔处停止，这是识别请求的共享边界，没有改动。这项修改不需要 `crates/host-api/src/handwriting_cells.rs`。`apps/desktop/tests/core/handwriting-pointer.test.tsx` 覆盖这一行为。
+- 表情与手写面板的尺寸和位置：来源的表情面板是 550×610 的窗口（`server/src/emoji-panel/main.cpp`），手写面板也在工作区居中打开。本仓以前统一放在工作区底部居中。现在由 `SurfaceRoute::panel_for` 按宿主给出几何：Windows 上表情面板为 550×610、居中，手写面板保持共享尺寸 980×650、居中，键盘和其他面板仍在底部居中；其他平台不变。已知差异：本仓的尺寸是逻辑像素，来源按物理像素建窗；居中计算沿用原有的底部居中换算，高 DPI 下的差异此前就存在，这次没有改动。
+- 检查更新：来源在更新提示里给出安装包的 SHA-256 和未签名警告，并在十秒后放弃请求。本仓以前对 Windows 发行版不读取资产，也没有超时，网络卡住时按钮会一直处于忙碌状态。现在从发行资产中选出唯一的 `MetasequoiaIME_Setup_v*.exe` 和它的 GitHub digest，标记为未签名，警告改用来源的措辞（SmartScreen 拦截、uiAccess 失效），并给出 `Get-FileHash` 命令。没有 digest 时，提示用户下载同名 `.sha256` 文件核对。请求十秒后中止，并显示「检查失败，请稍后重试」。超时是所有平台共用的。
+- 托盘菜单与悬浮工具栏的配色：来源的原生托盘菜单（`TrayMenuPresenter::ApplyTheme`）和悬浮工具栏（`FloatingToolbarPresenter::ApplyTheme`）使用固定的中性色，只随各自的深浅色偏好切换，不跟随候选皮肤。本仓以前从候选皮肤取色，默认的 willow_green 皮肤会把工具栏和托盘染成绿色。现在由 `CandidatePalette.h` 的 `toolbar_palette(dark)` 和 `tray_menu_palette(dark)` 给出来源的颜色。托盘开关按 MenuFlyoutItem 的画法：开为 0x8E8CD8，关在深色菜单上为 0x555555、浅色菜单上为 0xC8C8C8，拇指始终是白色。托盘中能力缺失的行用正文色的 45% 不透明度变暗；来源的菜单没有这种行，所以这是本仓自己的取值。`windows-candidate-palette` 覆盖这些颜色。
+- 打字统计的 30 天明细表和永久保留由 PR #652 处理，这一批没有改动。
+- 验证层级：TypeScript 部分在本机跑了 vitest 和 typecheck；`msime-client-core` 在本机跑了 cargo test；配色头文件测试在本机用 clang 编译并运行；Windows 窗口和面板定位代码经 `build-cross.sh x64` 和 `cargo check --target x86_64-pc-windows-gnu` 交叉编译。以上都没有在 Windows 桌面上实际操作过。
