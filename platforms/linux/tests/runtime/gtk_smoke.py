@@ -1,9 +1,13 @@
 """Real GTK3 IM-module acceptance on a dedicated Xvfb display, synthetic text only."""
 import ctypes
 import os
+from pathlib import Path
 import sys
 import subprocess
 import time
+
+# The surrounding-text cases shared by the GTK and Qt smokes live in tests/input, not beside this script.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "input"))
 
 import gi
 
@@ -72,7 +76,7 @@ end = time.monotonic() + 0.3
 while time.monotonic() < end:
     pump()
     time.sleep(0.01)
-keys("Shift_L")
+# The prepared options carry the shipped Chinese default, so the first letters compose without a mode switch.
 keys("n", "i", "h", "a", "o")
 wait(lambda: bool(preedit["text"]), "GTK did not receive composition preedit")
 assert first.get_text() == "", "GTK committed spelling before selection"

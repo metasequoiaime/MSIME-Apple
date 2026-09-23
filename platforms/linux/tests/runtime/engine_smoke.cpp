@@ -333,6 +333,8 @@ int main(int argc, char **argv) {
     options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
     options["preferences"]["voice_input"]["hotkey_ctrl_win"] = true;
     options["preferences"]["voice_input"]["stream_inline_preedit"] = true;
+    // A stored commit strategy, which the Linux settings page does not offer and the hosts ignore: the streaming voice preedit asserted below must still appear.
+    options["preferences"]["voice_input"]["commit_mode"] = "ctrl_v";
     options["preferences"]["voice_input"]["hotkey_rctrl_ralt"] = true;
     options["preferences"]["candidate_text_color"] = "#123456";
     options["preferences"]["candidate_surface_color"] = "#654321";

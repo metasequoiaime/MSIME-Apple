@@ -825,6 +825,7 @@ enum InputCommand {
   BACKSPACE_SEGMENT = 12,
   MOVE_LEFT_SEGMENT = 13,
   MOVE_RIGHT_SEGMENT = 14,
+  COMMIT_RAW_WITHOUT_LEARNING = 15,
   NEXT_PAGE = 100,
   PREVIOUS_PAGE = 101,
   NEXT_CANDIDATE = 102,
@@ -1955,7 +1956,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (action === CompositionBoundaryAction.FINISH_COMPOSITION) {
       this.finishComposition();
     } else if (action === CompositionBoundaryAction.COMMIT_RAW) {
-      this.commitRaw();
+      // As typed, but not learned: Windows learns an entered English word only on Enter, and its mode switch commits the keystroke buffer without learning (`_HandleToogleIMEMode`).
+      this.command(InputCommand.COMMIT_RAW_WITHOUT_LEARNING);
     }
   }
 

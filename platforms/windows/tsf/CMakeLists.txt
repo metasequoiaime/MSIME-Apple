@@ -96,6 +96,12 @@ target_compile_features(msime-tsf-engine-response-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-engine-response-test PRIVATE ../../../crates/host-api/include)
 target_link_libraries(msime-tsf-engine-response-test PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME msime-tsf-engine-response COMMAND msime-tsf-engine-response-test)
+add_executable(msime-tsf-punctuation-key-policy-test tests/input/punctuation_key_policy.cpp)
+target_compile_features(msime-tsf-punctuation-key-policy-test PRIVATE cxx_std_17)
+add_test(NAME msime-tsf-punctuation-key-policy COMMAND msime-tsf-punctuation-key-policy-test)
+add_executable(msime-tsf-paired-punctuation-wiring-test tests/input/paired_punctuation_wiring.cpp)
+target_compile_features(msime-tsf-paired-punctuation-wiring-test PRIVATE cxx_std_17)
+add_test(NAME msime-tsf-paired-punctuation-wiring COMMAND msime-tsf-paired-punctuation-wiring-test ${CMAKE_CURRENT_SOURCE_DIR})
 
 # The TSF tip is an in-process DLL.  It is intentionally a separate target
 # from the out-of-process Windows Server.

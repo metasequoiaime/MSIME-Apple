@@ -124,6 +124,8 @@ import sys
 from pathlib import Path
 
 value = json.loads(Path(sys.argv[1]).read_text())
+# Every runtime smoke below starts from the prepared default and expects it to compose Chinese, as Windows does out of the box.
+assert value["preferences"]["default_ime_mode"] == "chinese", value["preferences"]["default_ime_mode"]
 value["preferences"]["ime_mode_scope"] = "global"
 value.pop("preferences_directory", None)
 with os.fdopen(os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as output:

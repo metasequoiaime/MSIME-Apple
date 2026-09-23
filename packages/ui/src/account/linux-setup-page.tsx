@@ -97,7 +97,7 @@ export function LinuxSetupPage({
           <h2 className={onboarding.sectionTitle}>{done ? "配置完成" : "准备词库和配置"}</h2>
           <p className={onboarding.lead}>
             {done
-              ? "按输出中的下一步把「MSIME」加入 Fcitx5 或 IBus 的输入法列表，即可开始输入。"
+              ? "上面输出的最后几行说明了输入法列表的情况：已自动加入 Fcitx5 或 IBus 的输入法列表时，用输入法切换快捷键切换过去即可开始输入；未能自动加入时，按其中的下一步手动添加。"
               : `首次使用需要校验词库，并在 ${directory} 创建输入法配置。拼音切分、候选排序和词频学习都在本机完成。`}
           </p>
           {!done && !blocked && (

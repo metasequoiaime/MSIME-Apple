@@ -130,15 +130,8 @@ struct Submission {
     NSString *text = [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding];
     if (!text.length || _stopped.load() || !valid()) return;
     if (_clipboard) {
-        // Match Unicode Cc, as Rust char::is_control does. Foundation's broader
-        // control set also includes format scalars such as emoji ZWJ.
-        NSMutableCharacterSet *forbidden = [NSMutableCharacterSet new];
-        [forbidden addCharactersInRange:NSMakeRange(0, 32)];
-        [forbidden addCharactersInRange:NSMakeRange(127, 33)];
-        [forbidden removeCharactersInString:@"\n\r\t"];
-        if (text.length > 4000 || [text rangeOfCharacterFromSet:forbidden].location != NSNotFound) {
-            const char failure = 1; send(fd, &failure, 1, 0); return;
-        }
+        // Clipboard history keeps every control character except NUL as user content, matching the Windows store; NUL is already rejected above.
+        if (text.length > 4000) { const char failure = 1; send(fd, &failure, 1, 0); return; }
     }
     auto submission = std::make_shared<Submission>();
     const double deadline = NSProcessInfo.processInfo.systemUptime + 2;

@@ -199,6 +199,49 @@ html[data-theme="light"] {
                 msime::mac::ResolveSkin("wechat-based", false, root, "horizontal", "light").id == "wechat-based",
             "Incompatible external skins did not fall back to Fluent.");
 
+    // Windows reads skin.toml with toml++, and the settings page with the shared loader: literal strings, a multi-line array, an inline table, a digit separator, a unicode escape and a `#` inside a literal string are all ordinary TOML the candidate window must draw rather than fall back to Fluent.
+    WriteFile(root / "full-toml" / "skin.toml", R"toml(schema_version = 1
+id = 'full-toml'
+name = "\u6768\u67f3 Full"
+version = '1.0'
+base = 'fluent'
+description = 'hash # inside a literal'
+toolbar_stylesheet = 'toolbar.css'
+
+[supports]
+layouts = [
+  'horizontal', # trailing comment
+  'vertical',
+]
+themes = ['dark', 'light']
+
+[candidate_window]
+min_width_dip = 1_0
+decoration = { top_inset_dip = 0, width_dip = 0 }
+
+[candidate.light]
+accent = '#ff0000'
+surface = '#fff7fa'
+show_selected_bar = false
+)toml");
+    WriteFile(root / "full-toml" / "toolbar.css", ":root { --toolbar-bg: #123456; --toolbar-radius: 11px; }\n");
+    auto full = msime::mac::LoadSkinPackage(root, "full-toml", &error);
+    Require(full.has_value() && full->name == "\u6768\u67f3 Full" && full->description == "hash # inside a literal" &&
+                full->layouts.size() == 2 && full->minWidthDip == 10.0 && full->decorationTopDip == 0.0 &&
+                full->light.accent == "#ff0000" && full->light.showSelectedBar == false &&
+                !full->dark.showSelectedBar.has_value() && full->toolbarStylesheet == "toolbar.css",
+            "A full TOML 1.0 manifest was rejected or misread.");
+    const auto resolvedFull = msime::mac::ResolveSkin("full-toml", false, root, "vertical", "light");
+    Require(resolvedFull.id == "full-toml" && resolvedFull.minWidthDip == 10.0 && resolvedFull.tokens.accent.r > 0.99f &&
+                resolvedFull.tokens.accent.g < 0.01f && resolvedFull.tokens.surface.r > 0.99f &&
+                !resolvedFull.tokens.showSelectedBar,
+            "The candidate window drew Fluent for a full TOML manifest.");
+    const auto toolbarFull = msime::mac::ToolbarSkinTokens("full-toml", false, root);
+    Require(toolbarFull.radius == 11.0f && toolbarFull.surface.b > 0.3f && toolbarFull.surface.r < 0.1f,
+            "The toolbar did not pick up a full TOML manifest's stylesheet.");
+    Require(msime::mac::ListSkins(root).size() == 7, "The settings list lost the full TOML manifest.");
+    std::filesystem::remove_all(root / "full-toml");
+
     // Manifest/resource paths cannot escape through a package or resource symlink.
     const auto outside = MakeTempRoot();
     WriteFile(outside / "skin.toml", "schema_version = 1");

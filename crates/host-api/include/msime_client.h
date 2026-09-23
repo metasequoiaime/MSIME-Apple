@@ -233,6 +233,8 @@ char *msime_client_vocabulary_review(const uint8_t *request, size_t length);
  * package supports the layout and theme before adopting its colors.
  * Keys are camelCase, the same document the settings page consumes. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
+/* JSON {directory:absolute skin root,id:package folder}. Validates that one package with the same loader as msime_client_skin_catalog and returns one of its camelCase packages entries; an invalid, built-in, symlinked or missing package is {ok:false,error} with the loader's reason. Reads the package: resolve on a skin or appearance change, never while drawing. */
+char *msime_client_skin_package(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id,relative:package asset,kind:"image"|"font"}.
  * Returns {contentType,bytes}; the manifest and package containment are
  * revalidated for every call and the requested kind must match the asset. */
@@ -424,6 +426,7 @@ enum MsimeCommand {
     MSIME_FINISH_COMPOSITION = 9,
     MSIME_CYCLE_KANA_VARIANT = 10, MSIME_COMMIT_READING = 11,
     MSIME_BACKSPACE_SEGMENT = 12, MSIME_MOVE_LEFT_SEGMENT = 13, MSIME_MOVE_RIGHT_SEGMENT = 14,
+    MSIME_COMMIT_RAW_WITHOUT_LEARNING = 15,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
     MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105
