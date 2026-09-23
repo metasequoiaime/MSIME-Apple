@@ -185,6 +185,60 @@ fn five_thousand_rows_land_in_batches_and_failures_keep_their_file_lines() {
 }
 
 #[test]
+fn a_file_over_two_mebibytes_adds_up_across_its_batches_and_keeps_its_file_lines() {
+    let mut host = FakeHost::refusing(|entry| entry.key == "refused");
+    let count = 100_000;
+    let text = phrases(
+        count,
+        &[
+            (7, "no tab here"),
+            (54_321, "拒绝\trefused\t100"),
+            (count - 1, "短语\tNOT-LOWER\t1"),
+        ],
+    );
+    // Over the 1 MiB the page used to stop at, and well within what it reads now.
+    assert!(text.len() > 2 * 1024 * 1024 && text.len() < MAX_IMPORT_TEXT_BYTES);
+    let report = host
+        .import("quick_phrase", "standard", &text, "ui-import-2m")
+        .unwrap();
+    assert_eq!(report["applied"], count - 3);
+    assert_eq!(report["failed"], 3);
+    assert_eq!(report["truncated"], false);
+    assert_eq!(
+        failures(&report),
+        [
+            (7, "column_count".to_owned()),
+            (54_321, "rejected".to_owned()),
+            ((count - 1) as u64, "key_alphabet".to_owned())
+        ]
+    );
+    assert_eq!(host.store.len(), count - 3);
+    // Every batch is within both host bounds, and together they are the file.
+    let batches = host.actions.len();
+    assert!(batches >= count / MAX_ENTRIES, "{batches}");
+    assert!(host.sizes.iter().all(|size| *size <= BATCH_REQUEST_BYTES));
+    assert!(host.actions.iter().all(|action| {
+        let rows = action["text"]
+            .as_str()
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count();
+        rows <= MAX_ENTRIES
+    }));
+    let ids: Vec<String> = (0..batches)
+        .map(|index| format!("ui-import-2m-{index}"))
+        .collect();
+    assert_eq!(host.ids(), ids);
+    let sent: String = host
+        .actions
+        .iter()
+        .map(|action| action["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(sent, text);
+}
+
+#[test]
 fn replaying_a_batched_import_writes_nothing_again() {
     let mut host = FakeHost::new();
     let text = phrases(2500, &[]);
@@ -414,7 +468,7 @@ fn a_file_too_large_to_send_is_refused_as_too_large() {
         crate::dictionary_error_code(TOO_LARGE),
         "dictionary_too_large"
     );
-    // The parser's own size refusal only reaches Android's unbatched path, whose 64 KiB limit the 1 MB message would misstate.
+    // The parser's own size refusal only reaches Android's unbatched path, whose 64 KiB limit the 32 MB message would misstate.
     assert_ne!(
         crate::dictionary_error_code(&ImportError::TooLarge.to_string()),
         "dictionary_too_large"

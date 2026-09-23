@@ -71,6 +71,7 @@ int SendIMEStatusSnapshotToUIProcessViaNamedPipe(bool kbdIsOpen, bool fullwidthI
 int SendIMEStatusEventToUIProcessViaNamedPipe(bool kbdIsOpen, bool fullwidthIsOpen, bool puncIsOpen);
 int SendIMESwitchEventToUIProcessViaNamedPipe(UINT uImeStatus);
 int SendPuncSwitchEventToUIProcessViaNamedPipe(BOOL isPunc);
+int SendPairedPunctuationAutoClosedToServerViaNamedPipe(WCHAR opening);
 int SendDoubleSingleByteSwitchEventToUIProcessViaNamedPipe(BOOL isDoubleSingleByte);
 
 bool SendToAuxNamedpipe(const std::wstring &pipeData, bool waitForAcknowledgement = false);

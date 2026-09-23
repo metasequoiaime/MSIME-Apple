@@ -9,8 +9,18 @@ permissions: {contents: write}
 concurrency: {group: release-macos, cancel-in-progress: false}
 jobs:
   release:
+    # arm64: the Homebrew boost, fmt and spdlog on this runner are arm64-only, so the package is built for Apple silicon and the asset name says so.
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 120
+    # Mapped here because secrets.* cannot appear in a step's if:. All six are optional; see the signing comment below and platforms/macos/README.md (发布包).
+    #   MACOS_CERTIFICATE_P12_BASE64  base64 of the Developer ID Application certificate and key, exported as .p12
+    #   MACOS_CERTIFICATE_PASSWORD    the .p12 export password
+    #   MACOS_SIGNING_IDENTITY        the identity name, e.g. "Developer ID Application: Name (TEAMID)"
+    #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
+    env:
+      MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}"
+      MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}"
+      MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_SIGNING_IDENTITY }}"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
@@ -54,19 +64,55 @@ jobs:
           tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
           test -d "$RUNNER_TEMP/sparkle/Sparkle.framework"
           echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
-      - name: Build macOS native host
+      - name: Enable pnpm
+        # Reads the pnpm version from packageManager in package.json.
+        run: corepack enable
+      # Signing is optional so that the workflow still produces a package on a fork or before the certificate exists. Without these secrets every signature is ad-hoc and nothing is notarized: Gatekeeper quarantines the downloaded app, which then has to be opened once with right-click Open, and macOS will not register the embedded input method as an input source, so the package only installs for a developer who re-signs it with their own Developer ID through platforms/macos/scripts/install.sh. With them the package gives the Windows-equivalent download, install and type flow.
+      - name: Import Developer ID certificate
+        if: ${{ env.MACOS_CERTIFICATE_P12_BASE64 != '' }}
         run: |
           set -euo pipefail
-          cargo build --locked -p msime-host-api
-          cmake -S platforms/macos -B target/macos-release -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT"
-          cmake --build target/macos-release --config Release --parallel "$(sysctl -n hw.logicalcpu)"
-      - name: Package macOS release
+          : "${MACOS_SIGNING_IDENTITY:?MACOS_CERTIFICATE_P12_BASE64 is set but MACOS_SIGNING_IDENTITY is not}"
+          keychain="$RUNNER_TEMP/msime-signing.keychain-db"
+          password="$(openssl rand -base64 32)"
+          certificate="$RUNNER_TEMP/msime-signing.p12"
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$certificate"
+          security find-identity -v -p codesigning "$keychain" | grep -F "$MACOS_SIGNING_IDENTITY"
+          echo "MSIME_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      # Fetches the locked Engine and the pinned dictionaries, builds the Release host library, the input method bundle and the Tauri settings app that embeds both, signs them (Developer ID when the secrets are present, ad-hoc otherwise), checks the embedded resources and signatures inside the mounted DMG, notarizes when the Apple ID secrets are present, and writes SHA256SUMS.
+      - name: Build macOS package
+        env:
+          VERSION: "${{ steps.version.outputs.value }}"
+          APPLE_ID: "${{ secrets.APPLE_ID }}"
+          APPLE_TEAM_ID: "${{ secrets.APPLE_TEAM_ID }}"
+          APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
+        run: bash platforms/macos/package-release.sh "$VERSION" dist
+      - name: Remove signing keychain
+        if: ${{ always() && env.MSIME_SIGNING_KEYCHAIN != '' }}
+        run: security delete-keychain "$MSIME_SIGNING_KEYCHAIN"
+      - name: Verify release assets
         env: {VERSION: "${{ steps.version.outputs.value }}"}
-        run: tar -czf "msime-macos-${VERSION}.tar.gz" -C target/macos-release .
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          dmgs=(dist/*.dmg)
+          [[ ${#dmgs[@]} -eq 1 ]]
+          [[ "$(basename "${dmgs[0]}")" == "msime-macos-${VERSION}-arm64.dmg" ]]
+          [[ -f dist/SHA256SUMS ]]
+          (cd dist && shasum -a 256 -c SHA256SUMS)
+          ls -l dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: msime-macos-${{ steps.version.outputs.value }}
-          path: msime-macos-${{ steps.version.outputs.value }}.tar.gz
+          path: dist/
           if-no-files-found: error
       # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather
       # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
@@ -79,4 +125,4 @@ jobs:
           start=$(git tag --list 'macos-v*' --sort=-v:refname | head -1)
           flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
           [[ -n "$start" ]] && flags+=(--notes-start-tag "$start")
-          gh release create "$tag" "msime-macos-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "macOS ${VERSION}" --generate-notes "${flags[@]}"
+          gh release create "$tag" dist/*.dmg dist/SHA256SUMS --target "$GITHUB_SHA" --title "macOS ${VERSION}" --generate-notes "${flags[@]}"

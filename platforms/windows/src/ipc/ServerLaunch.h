@@ -10,6 +10,8 @@ struct ServerLaunch {
   ServerLaunchKind kind = ServerLaunchKind::Invalid;
   // Only meaningful for Config; Managed resolves its own state directory.
   std::wstring config;
+  // True only when the Watchdog started this Server. A Managed Server that TSF revived (--production) has to bring its Watchdog back, or crash recovery is lost until the next logon.
+  bool supervised = false;
 };
 
 // The Watchdog starts the Server with --watchdog-managed (Watchdog.cpp). It is
@@ -21,8 +23,10 @@ inline ServerLaunch parse_server_arguments(int argc, const wchar_t *const *argv)
     const std::wstring option(argv[1]);
     if (option == L"--help")
       return {ServerLaunchKind::Help, {}};
-    if (option == L"--production" || option == L"--watchdog-managed")
+    if (option == L"--production")
       return {ServerLaunchKind::Managed, {}};
+    if (option == L"--watchdog-managed")
+      return {ServerLaunchKind::Managed, {}, true};
     return {};
   }
   if (argc == 3 && argv && argv[1] && argv[2] &&

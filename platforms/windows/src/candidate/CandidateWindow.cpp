@@ -319,10 +319,13 @@ bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
   }
 }
 void CandidateWindow::set_layout(CandidateLayoutSettings settings) {
-  if (horizontal_ == settings.horizontal && show_preedit_ == settings.show_preedit)
+  if (horizontal_ == settings.horizontal && show_preedit_ == settings.show_preedit &&
+      wubi_code_hint_ == settings.wubi_code_hint)
     return;
   horizontal_ = settings.horizontal;
   show_preedit_ = settings.show_preedit;
+  // The hint is applied by the reader; remembering it here is what repaints an unchanged generation when it is toggled.
+  wubi_code_hint_ = settings.wubi_code_hint;
   invalidate_geometry();
 }
 void CandidateWindow::invalidate_geometry() {

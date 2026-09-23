@@ -49,6 +49,7 @@ import {
   type VocabularyReviewClient,
   type VocabularyReviewStatus,
   type TypingStatisticsStatus,
+  UNBATCHED_DICTIONARY_FILE_BYTES,
 } from "@msime/ui";
 import type {
   AiAssistantClient,
@@ -643,6 +644,8 @@ function makeClient(
         request_id,
       });
     },
+    // The native bridge sends an import to the host in one request rather than in batches.
+    maxImportFileBytes: UNBATCHED_DICTIONARY_FILE_BYTES,
     import: async (
       kind: LocalDictionaryKind,
       format: LocalDictionaryFormat,

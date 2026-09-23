@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
 
+// The largest word list the page reads. The shared layer takes at most 8 MiB of decoded text (`vocabulary::session::MAX_IMPORT_BYTES`), well under the dictionary import's bound, so this keeps the 1 MiB the page has always read rather than following that one.
+const WORDBOOK_FILE_BYTES = 1_048_576;
+
 // Class strings live at the top of the file rather than inline in deep JSX, the way
 // typing-statistics does it: the same handful of utility runs appear in a dozen places, and a
 // change to the card face should be one edit rather than a dozen.
@@ -148,7 +151,7 @@ export function VocabularyReviewPage({
     setImportNote("");
     // Real word lists arrive as UTF-16-with-BOM and GB18030 from Windows tools, which is why the
     // shared decoder exists rather than a bare File.text().
-    const text = await readDictionaryFile(file);
+    const text = await readDictionaryFile(file, WORDBOOK_FILE_BYTES);
     const name = file.name.replace(/\.[^.]+$/, "").slice(0, 64) || "导入的词表";
     await update(async () => {
       const next = await client.importWordbook!(name, text);

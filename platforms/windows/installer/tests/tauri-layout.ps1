@@ -26,8 +26,8 @@ if (-not $script.Contains('ValueName: "DataDir"') -or
     -not $script.Contains('{param:DATADIR|}')) {
     throw 'Installer does not persist or accept the selected DataDir'
 }
-if (-not $script.Contains('function DataDirIsSafe') -or
-    -not $script.Contains('DataDirIsSafe(GetDataDir')) {
+if (-not $script.Contains('function DataDirRejectionReason') -or
+    -not $script.Contains('DataDirRejectionReason(GetDataDir')) {
     throw 'Installer does not validate the selected DataDir'
 }
 if (-not $script.Contains("DataDirMarkerName = '.metasequoiaime-data'") -or

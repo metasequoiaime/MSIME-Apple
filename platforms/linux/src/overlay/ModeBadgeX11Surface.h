@@ -30,6 +30,8 @@ class ModeBadgeX11Surface final : public ModeBadgeSurface {
   Window window_ = 0;
   Visual *visual_ = nullptr;
   Colormap colormap_ = 0;
+  // RandR 1.5 monitor enumeration; without it the badge sits in the EWMH work area or the root window.
+  bool randr_monitors_ = false;
   bool visible_ = false;
 };
 

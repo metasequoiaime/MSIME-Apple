@@ -35,7 +35,7 @@ test("the remaining host reasons are distinguished too", () => {
 test("an import too large for the host names both size limits", () => {
   const message = dictionaryErrorMessage({ code: "dictionary_too_large" }, FALLBACK);
   expect(message).not.toBe(FALLBACK);
-  expect(message).toContain("1 MB");
+  expect(message).toContain("32 MB");
   expect(message).toContain("单行");
   expect(message).toContain("拆分");
 });
