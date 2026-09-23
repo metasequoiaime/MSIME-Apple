@@ -141,6 +141,7 @@ fn ios_routes_only_app_group_dictionary_operations() {
     for operation in [
         "list",
         "edit",
+        "import",
         "import_personal",
         "export",
         "retry",
@@ -151,7 +152,7 @@ fn ios_routes_only_app_group_dictionary_operations() {
         ));
     }
     for action in [
-        serde_json::json!({ "operation": "import" }),
+        serde_json::json!({ "operation": "reset" }),
         serde_json::json!({ "operation": "unknown" }),
         serde_json::json!({}),
         serde_json::Value::Null,

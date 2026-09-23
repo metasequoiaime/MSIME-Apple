@@ -198,6 +198,17 @@ public final class NativeClient {
      *
      * <p>Returns null when the text was not convertible; the caller keeps the original.
      */
+    /**
+     * The transcription provider and optional rewrite this device is configured for.
+     *
+     * <p>The same resolution the settings app performs, read from the same document. The keyboard
+     * has its own voice entry and never goes through that app, so without this it would either
+     * ignore the configuration or grow a second copy of the rules.
+     */
+    public static String mobileVoiceConfiguration(String directory) {
+        return text(mobileVoiceConfigurationRaw(utf8(directory)));
+    }
+
     public static String simplifiedToTraditional(String text) {
         if (text == null || text.isEmpty()) return text;
         byte[] converted = simplifiedToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8));
@@ -348,6 +359,7 @@ public final class NativeClient {
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
+    private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
     private static native byte[] resetCacheRaw(long session);
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);

@@ -36,7 +36,7 @@ SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、�
 
 打开字符面板同样先完成组合，再请求系统 Character Viewer；测试以替身记录系统入口，不实际打开面板。原生测试覆盖菜单勾选、偏好保存、组合完成/失败、英文按键旁路、七种竞争修饰组合、重复/禁用快捷键、无会话懒加载与焦点恢复。输入法菜单和悬浮工具栏的“检查更新…”优先打开 Tauri 共享 About 页；Tauri 不可用时，有 `SUFeedURL` 的发布包回退 Sparkle 原生更新控制器，未配置 feed 的构建会明确说明不能应用内检查，并在用户确认后打开固定的官方发布页，打开失败也会显示错误，而不是静默无动作。共享 `theme` 与 `candidate_theme` 作用于实际 IMK 候选窗：`dark`/`light` 表面覆盖全局主题，`follow` 继承全局，`system` 通过 `NSPanel.appearance = nil` 交给 AppKit 跟随系统；偏好热更新会保留当前 Engine 组合并重绘候选皮肤。
 
-原生菜单提供“简体输出”（默认）与“繁体输出”，保存到宿主偏好 `MSIMEClientTraditionalOutput`。按固定 Apple 来源使用 `CFStringTransform` 的 `Simplified-Traditional` 转换候选显示、完整 tooltip 和最终上屏文本；日语方案与 Unicode 精确码点模式不转换。转换只发生在原生展示/插入边界，Engine 原文、候选 ID、组合与运行时视图保持不变。
+原生菜单提供“简体输出”（默认）与“繁体输出”，保存到宿主偏好 `MSIMEClientTraditionalOutput`。调用 `msime-host-api` 的 `msime_client_simplified_to_traditional` 导出转换候选显示、完整 tooltip 和最终上屏文本，与 Windows、Linux 及来源同用 OpenCC s2t 词级词典（「头发」→「頭髮」而非逐字的「頭發」），输入不是合法 UTF-8 时保留原文；日语方案与 Unicode 精确码点模式不转换。转换只发生在原生展示/插入边界，Engine 原文、候选 ID、组合与运行时视图保持不变。
 
 ## 候选辅助码与纠错
 
@@ -72,6 +72,10 @@ SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、�
 
 macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直接开关不联网的英文释义，并写入同一 `candidate_english_gloss` 偏好。在线候选翻译关闭但离线释义开启时，主、次目标语言仍可编辑；两种释义都关闭时才禁用语言选择。保存仍使用共享快照的 CAS 版本检查，不放宽凭据验证或并发写入保护。
 
+腾讯、自定义与小牛翻译取回的英文释义与来源的 `PersistGloss` 一致，每次取回成功即写入偏好目录下的用户释义库 `translation-glosses.db`，不必等候选上屏；只存目标语言为英文、格式化后不超过 32 个字符且与原文按 ASCII 忽略大小写不相等的释义，其他目标语言只留在内存缓存。之后的离线释义查询先读这个库，其记录覆盖随包词典中的同词释义；过期的在线回调不写入。托管账号释义不属于来源的服务，仍只在对应候选上屏时写入。
+
+AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInput` 一致，只由 AI 助手开关 `ai_assistant.enabled`（以及英文模式、特殊模式和纯拼音资格）控制，关闭“显示候选释义”只影响释义与翻译，不阻止或取消 AI 候选请求。与来源出厂模板一致，AI 助手在全新 profile 上默认开启并指向 DeepSeek（`deepseek-v4-flash`）；没有填 Token 时 `chat_completion_http_request` 直接拒绝构造请求，不会产生任何网络流量。
+
 `skin-settings` 原生测试覆盖四卡选择与保持启用、无副作用明暗预览、系统主题标题、外部卡重复刷新无累积、无效包诊断、空状态、打开目录的路径/失败检查，以及入口窗口构造与重复使用。测试目录打开器为替身，不启动 Finder；只操作临时合成目录，卡片离屏图像逐项检查。
 
 设置窗口的候选预览迁自同一固定版本的 `CandidateSkinPreviewView`，随布局、每页数量、字号和皮肤实时更新。使用固定演示样例而非真实输入；竖排最多展示五行并提示剩余项，横排不足时显示省略号。可单独切换预览明暗主题，也可同时展示横排、竖排及状态栏样式；这些预览操作不写偏好或调用输入会话。预览里的状态栏是非交互展示，实际悬浮工具栏由 `FloatingToolbarPanel.mm` 绘制。外部装饰图和长预览在可滚动区域显示。预览使用注入的设置快照与皮肤目录，不读取 MSIME-Apple 产品设置；强制主题的系统文字颜色在对应绘制外观下解析。
@@ -100,7 +104,7 @@ macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直�
 
 语音设置的原生备用窗口提供 CoreAudio 录音设备选择：只列出有输入流且有稳定 UID 的设备，将当前系统默认置顶，按名称/UID 稳定排序；保存 UID 而非易变的序号或显示名，设备暂时不可用时保留选择并让下一次录音明确失败，不静默切换麦克风。空选择使用系统默认设备。共享 `capture_device` 与该 UID 双向同步；`voice-capture-device` CTest 覆盖输入设备过滤、默认排序、UID 缺失和失败路径。Tauri 设置页通过 `list_voice_capture_devices` 提供刷新列表。
 
-原生备用窗口修改的有效语音字段会回写共享 `voice_input` 偏好，避免与 Tauri 页面形成第二套配置；ASR 与润色 Token 都按 provider 槽位保存，切换 provider 会先保存旧槽位再加载新槽位，缺失槽位继续兼容旧扁平字段。豆包鉴权模式与 Tauri 同步支持新版 API Key 和旧版 App ID + Access Token，缺失模式时按已有 App ID 兼容推断。文本润色开关同时维护 `polish_text` 与兼容的 `polish_enabled`，保证所有原生请求路径一致。损坏的 provider 值回退到安全首项，缺失或非法的本机默认值不会覆盖共享字段。凭据不纳入云端外观同步，CoreAudio 设备仍以稳定 UID 保存。
+原生备用窗口修改的有效语音字段会回写共享 `voice_input` 偏好，避免与 Tauri 页面形成第二套配置；ASR 与润色 Token 都按 provider 槽位保存，切换 provider 会先保存旧槽位再加载新槽位，缺失槽位继续兼容旧扁平字段。豆包鉴权模式与 Tauri 同步支持新版 API Key 和旧版 App ID + Access Token，缺失模式时按已有 App ID 兼容推断。文本润色开关同时维护 `polish_text` 与兼容的 `polish_enabled`，保证所有原生请求路径一致。损坏的 provider 值回退到安全首项，缺失或非法的本机默认值不会覆盖共享字段。凭据不纳入云端外观同步，CoreAudio 设备仍以稳定 UID 保存。共享快照写进 NSUserDefaults 之前，润色服务的原生回退值统一是 DeepSeek（`https://api.deepseek.com/chat/completions`、`deepseek-v4-flash`，定义在 `SharedVoicePreferences.h`），与共享层在 macOS 上的首次运行默认一致，原生语音设置窗口、备用 provider 窗口与录音请求不会各报一个 provider。
 
 录音提示音是产品自己的 `start.mp3` / `end.mp3`，CMake 直接从 `platforms/windows/installer/assets/audios/` 放进 bundle 的 `Resources/audios/`，仓库里不另存一份。`VoiceCuePlayer.mm` 启动时一次性解码为 `NSSound`，每次播放先 `stop` 再 `play`，与来源 `cue_player.cpp` 一样从头重播。某一个文件缺失或解码失败时该侧回落到系统的 Glass / Pop 并写一行日志，而来源此时不出声：这里宁可保留一个能听见的开始 / 结束反馈。`voice-cue-player` 与 `bundle-contents` 覆盖这两点。
 
@@ -120,13 +124,13 @@ macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直�
 
 成对标点和标点锁定跟随 Windows 基线迁移到候选设置。成对标点默认开启，标点锁定默认跟随中文标点，也可固定为中文或英文；设置值分别写入宿主偏好域，并按共享 `paired_punctuation`、`punctuation_lock` 字段同步。输入会话只通过 `MSIMEClientSession` 调用 Engine 的运行时覆盖，重建会话时恢复覆盖值；原生控件和替身会话测试覆盖默认、持久化、非法值和同步路径。
 
-智能标点和重复标点转中文按 Windows 基线适配到 macOS 编辑器上下文：空闲态通过 NSTextInputClient 光标前一个 Unicode scalar 判断逗号、句号和冒号前是否为 ASCII 字母/数字，并按「数字后直出」「字母后直出」两个开关分别决定是否保留 ASCII；两个开关按 Windows 基线默认关闭。组合态依据高亮候选末尾走 Engine 的 ASCII 标点入口。短时间在同一编辑器重复输入同一标点时，将前一个 ASCII 或全角标点替换为对应中文标点；切换客户端、退格、关闭选项或不满足上下文时清除重复状态。全角输入仍优先转换为全角标点，小键盘物理键路由优先于智能标点。测试使用合成 NSTextInputClient，不保存或记录真实输入。
+智能标点和重复标点转中文按 Windows 基线适配到 macOS 编辑器上下文：空闲态通过 NSTextInputClient 光标前一个 Unicode scalar 判断逗号、句号和冒号前是否为 ASCII 字母/数字，并按「数字后直出」「字母后直出」两个开关分别决定是否保留 ASCII。智能标点、重复标点转中文和这两个直出开关与来源一样默认关闭，需要用户主动打开。组合态依据高亮候选末尾走 Engine 的 ASCII 标点入口。短时间在同一编辑器重复输入同一标点时，将前一个 ASCII 或全角标点替换为对应中文标点；切换客户端、退格、关闭选项或不满足上下文时清除重复状态。全角输入仍优先转换为全角标点，小键盘物理键路由优先于智能标点。测试使用合成 NSTextInputClient，不保存或记录真实输入。
 
 「中文标点后按空格转换」使用空格作为改写手势：成功时把刚上屏的 `。，！？；：、` 或单独出现的引号、方括号、书名号和圆括号替换成对应 ASCII 字符，并消费空格，不向正文追加空白。宿主在改写前重新读取光标前字符；切换编辑器、夹入其它按键、移动到不同字符、存在组合、全角输入或成对标点仍有自动补全尾部时均放弃改写。该规则与共享 `client-core` 策略及固定 Windows 来源一致。
 
 ## 混合输入
 
-中英、Emoji 和颜文字混输设置跟随 Windows 的 `mixed_input` 偏好迁移到 macOS。中英混输默认开启，触发阈值默认 5 个字符，Emoji 默认开启、颜文字混输默认关闭；阈值限制为 1–8，关闭中英混输时控件保留数值但暂时禁用。设置写入宿主偏好域，活动组合期间由共享 host-api 延迟应用，平台不复制 Engine 的候选混排算法；原生测试覆盖共享读取、持久化、控件联动和非法值保护。
+中英、Emoji 和颜文字混输设置跟随 Windows 的 `mixed_input` 偏好迁移到 macOS。中英混输默认开启，触发阈值默认 5 个字符，Emoji 默认开启（与来源出厂的 `emoji_mixed_input = true` 一致）、颜文字混输默认关闭；阈值限制为 1–8，关闭中英混输时控件保留数值但暂时禁用。设置写入宿主偏好域，活动组合期间由共享 host-api 延迟应用，平台不复制 Engine 的候选混排算法；原生测试覆盖共享读取、持久化、控件联动和非法值保护。
 
 ## 候选窗口翻页按钮与定位
 

@@ -2523,6 +2523,100 @@ test("mobile input settings expose native keyboard sound and haptic feedback", a
   );
 });
 
+test("the iOS skin page hands the candidate strip to the desktop candidate skin", async () => {
+  const load = vi.fn().mockResolvedValue({
+    soundEnabled: true,
+    hapticsEnabled: false,
+    hapticStrength: "medium",
+    englishSuggestions: true,
+    candidatePaletteFollowsDesktop: false,
+  });
+  const saveFeedback = vi.fn().mockImplementation(async (settings) => settings);
+  const client = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (value) => value),
+    host: { platform: "ios", candidate_row_colors: true } as HostCapabilities,
+    home: { openKeyboard: vi.fn() },
+    mobileKeyboardFeedback: { load, save: saveFeedback },
+  };
+  const { unmount } = render(<SettingsPage initialPage="appearance" client={client} />);
+  expect(
+    await screen.findByText(/候选栏正在使用键盘皮肤的颜色/, undefined, { timeout: 3000 }),
+  ).toBeTruthy();
+  unmount();
+
+  render(<SettingsPage initialPage="skin" client={client} />);
+  const follow = (await screen.findByLabelText("使用桌面候选皮肤")) as HTMLInputElement;
+  expect(follow.checked).toBe(false);
+  fireEvent.click(follow);
+  await waitFor(() =>
+    expect(saveFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ candidatePaletteFollowsDesktop: true, englishSuggestions: true }),
+    ),
+  );
+});
+
+test("iOS describes local modes and 以词定字 the way its keyboard reaches them", async () => {
+  const client = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    host: { platform: "ios" } as HostCapabilities,
+    home: { openKeyboard: vi.fn() },
+  };
+  const { unmount } = render(<SettingsPage initialPage="tools" client={client} />);
+  const tools = await screen.findByRole("group", { name: "实用功能" }, { timeout: 3000 });
+  expect(within(tools).getByText(/「更多 → 本地输入」里选「快捷短语」/)).toBeTruthy();
+  expect(within(tools).getByText(/「更多 → 本地输入」里选「英文补全」/)).toBeTruthy();
+  expect(within(tools).queryByText(/Shift\+[A-Z]/)).toBeNull();
+  unmount();
+
+  render(<SettingsPage initialPage="input" client={client} />);
+  const input = await screen.findByRole("group", { name: "输入" }, { timeout: 3000 });
+  expect(within(input).getByText(/长按两个字以上的候选/)).toBeTruthy();
+  expect(within(input).queryByText("以词定字快捷键")).toBeNull();
+});
+
+test("desktop hosts keep the chord wording for local modes and 以词定字", async () => {
+  const client = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    host: { platform: "windows" } as HostCapabilities,
+  };
+  const { unmount } = render(<SettingsPage initialPage="tools" client={client} />);
+  const tools = await screen.findByRole("group", { name: "实用功能" }, { timeout: 3000 });
+  expect(within(tools).getByText(/中文模式下按 Shift\+K/)).toBeTruthy();
+  unmount();
+
+  render(<SettingsPage initialPage="input" client={client} />);
+  const input = await screen.findByRole("group", { name: "输入" }, { timeout: 3000 });
+  expect(within(input).getByText("以词定字快捷键")).toBeTruthy();
+});
+
+test("a mobile host without the candidate palette switch shows neither the switch nor the hint", async () => {
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "android" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: {
+          load: vi.fn().mockResolvedValue({
+            soundEnabled: true,
+            hapticsEnabled: true,
+            hapticStrength: "medium",
+          }),
+          save: vi.fn(),
+        },
+      }}
+    />,
+  );
+  expect(await screen.findByRole("group", { name: "皮肤" }, { timeout: 3000 })).toBeTruthy();
+  expect(screen.queryByLabelText("使用桌面候选皮肤")).toBeNull();
+  expect(screen.queryByText(/候选栏正在使用键盘皮肤的颜色/)).toBeNull();
+});
+
 test("mobile settings pages follow the WebView back stack", async () => {
   const previous = window.history.state;
   window.history.replaceState(null, "");

@@ -178,6 +178,28 @@ static void TestLoadUsesTheSelectedProviderSlots()
     [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
 }
 
+// With nothing chosen yet the window falls back to the shared macOS first-run polish service, which follows the source: DeepSeek with `deepseek-v4-flash`. The provider decides which token slot is read, so it is checked through the slot it selects.
+static void TestUnsetPolishServiceFallsBackToTheSharedDefault()
+{
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary *oldArguments = [defaults volatileDomainForName:NSArgumentDomain];
+    // The argument domain cannot hide a persisted provider, and this test binary never persists one.
+    assert([defaults objectForKey:@"MSIMEClientVoicePolishProvider"] == nil);
+    // An empty shared value is treated as never written, so these stand in for unset keys.
+    [defaults setVolatileDomain:@{
+        @"voiceInput":@{},
+        @"MSIMEClientVoicePolishEndpoint":@"",
+        @"MSIMEClientVoicePolishModel":@"",
+        @"MSIMEClientVoicePolishTokens":@{@"deepseek":@"deepseek-secret", @"siliconflow":@"siliconflow-secret"}
+    } forName:NSArgumentDomain];
+    MetasequoiaVoiceProviderSettings *settings = [MetasequoiaVoiceProviderSettings loadSettings];
+    assert([settings.polishEndpoint isEqual:@"https://api.deepseek.com/chat/completions"]);
+    assert([settings.polishModel isEqual:@"deepseek-v4-flash"]);
+    assert([settings.polishToken isEqual:@"deepseek-secret"]);
+    assert([MSIMEVoicePolishDefaultProvider isEqual:@"deepseek"]);
+    [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
+}
+
 static void TestEveryRuntimeProviderIsEditable()
 {
     NSArray *providers = MSIMEVoiceASRProviderIDs();
@@ -240,6 +262,7 @@ int main()
         TestProviderCredentialIsolation();
         TestProviderWindowRestoresTheMatchingDraft();
         TestLoadUsesTheSelectedProviderSlots();
+        TestUnsetPolishServiceFallsBackToTheSharedDefault();
         TestEveryRuntimeProviderIsEditable();
         TestNativeSettingsEntryUsesTheProviderWindowContract();
     }

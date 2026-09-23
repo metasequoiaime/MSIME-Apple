@@ -64,8 +64,8 @@ int main() {
         NSString *suite = [@"msime.smart.space." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-        // Off on the Windows baseline, so the preference has to be asked for before anything rewrites text.
-        assert(!appearance.smartPunctuationSpaceConvert);
+        // The whole family is off in the source, so both the parent switch and the space rewrite have to be asked for before anything rewrites text.
+        assert(!appearance.smartPunctuation && !appearance.smartPunctuationSpaceConvert);
 
         SpaceConvertController *controller = [SpaceConvertController alloc];
         [controller setValue:appearance forKey:@"appearance"];
@@ -77,8 +77,9 @@ int main() {
         assert(![controller convertSmartPunctuationSpace:Key(@" ") client:client]);
         assert([client.document isEqual:@"测试，"] && client.replacements == 0);
 
+        appearance.smartPunctuation = YES;
         appearance.smartPunctuationSpaceConvert = YES;
-        assert(appearance.smartPunctuationSpaceConvert);
+        assert(appearance.smartPunctuation && appearance.smartPunctuationSpaceConvert);
 
         // Shift is part of typing several mapped marks, not a competing chord. Prove the real key path
         // arms one of the newly covered marks before Engine commits its Chinese form.

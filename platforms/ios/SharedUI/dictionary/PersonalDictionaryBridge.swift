@@ -8,6 +8,10 @@ private func msimeClientDictionaryValidate(_ request: UnsafePointer<PersonalDict
 private func msimeClientDictionaryHansEntries(_ text: UnsafePointer<PersonalDictionaryByte>?, _ textLength: UInt,
                                               _ resources: UnsafePointer<PersonalDictionaryByte>?,
                                               _ resourcesLength: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_dictionary_import_entries")
+private func msimeClientDictionaryImportEntries(_ request: UnsafePointer<PersonalDictionaryByte>?, _ requestLength: UInt,
+                                                _ resources: UnsafePointer<PersonalDictionaryByte>?,
+                                                _ resourcesLength: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_string_free")
 private func msimeClientPersonalDictionaryStringFree(_ value: UnsafeMutablePointer<CChar>?)
 
@@ -68,6 +72,38 @@ extension PersonalDictionaryBridge {
     return try rows.map(PersonalWord.init(bridgeValue:))
   }
 
+  /// A dictionary file in one of the shared import formats (`standard`, `windows`, `rime`, `hans`) as the words the queue accepts, with the import report the settings page shows: `applied`, `failed`, `truncated`, `swapped` and `first_failures`. The shared parser counts the rows the Engine would refuse, queues a repeated word once and stops at the queue's 128 words, so a real file imports here the way it does on a desktop. Nothing is written.
+  static func importEntries(kind: String, format: String, text: String,
+                            resources: URL? = packagedResources) throws -> (entries: [PersonalWord], report: [String: Any]) {
+    guard let resources else { throw DictionaryFileImportFailure.unavailable }
+    let request = try JSONSerialization.data(withJSONObject: ["kind": kind, "format": format, "text": text])
+    let resourceData = Data(resources.path.utf8)
+    let pointer = request.withUnsafeBytes { requestBytes in
+      resourceData.withUnsafeBytes { resourceBytes in
+        msimeClientDictionaryImportEntries(
+          requestBytes.bindMemory(to: PersonalDictionaryByte.self).baseAddress, UInt(request.count),
+          resourceBytes.bindMemory(to: PersonalDictionaryByte.self).baseAddress, UInt(resourceData.count))
+      }
+    }
+    guard let pointer else { throw DictionaryFileImportFailure.unavailable }
+    let response = String(cString: pointer)
+    msimeClientPersonalDictionaryStringFree(pointer)
+    guard let data = response.data(using: .utf8),
+          let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      throw DictionaryFileImportFailure.unavailable
+    }
+    guard envelope["ok"] as? Bool == true else {
+      // A reading the packaged dictionary cannot give is the device's problem, not the file's.
+      throw envelope["error"] as? String == "dictionary pinyin unavailable"
+        ? DictionaryFileImportFailure.unavailable : DictionaryFileImportFailure.rejected
+    }
+    guard var report = envelope["value"] as? [String: Any],
+          let rows = report.removeValue(forKey: "entries") as? [[String: Any]] else {
+      throw DictionaryFileImportFailure.unavailable
+    }
+    return (try rows.map(PersonalWord.init(bridgeValue:)), report)
+  }
+
   /// The verified Engine resources this process can read. The keyboard test host carries them itself; the settings app reads them from the keyboard extension it embeds, which is where the packaged dictionary ships.
   static var packagedResources: URL? {
     let fm = FileManager.default
@@ -91,6 +127,11 @@ enum HansImportFailure: LocalizedError, Equatable {
     case .dictionaryUnavailable: "无法为这些词语注音：有的字不在词典中，或键盘词典暂时无法读取。"
     }
   }
+}
+
+/// Why a dictionary file could not be queued: nothing in it was usable, or the packaged dictionary could not be read.
+enum DictionaryFileImportFailure: Error, Equatable {
+  case rejected, unavailable
 }
 
 private enum PersonalDictionaryBridgeFailure: LocalizedError {

@@ -1304,6 +1304,20 @@ const localModeRows = [
     "中文模式下按 Shift+R，之后按日语罗马字处理。空格上屏首选；数字选词；上屏后回到中文",
   ],
 ] as const;
+/** The iOS keyboard has no Shift chords for these: a mode opens from its 本地输入 menu, reached by tapping the idle 水杉输入法 title on the candidate bar or from 更多, under the names that menu uses, and candidates are tapped rather than numbered. */
+function iosLocalModeEntry(title: string): string {
+  return `在候选栏点「水杉输入法」，或在「更多 → 本地输入」里选「${title}」，`;
+}
+const iosLocalModeDescriptions: Record<(typeof localModeRows)[number][0], string> = {
+  quick_phrase: `${iosLocalModeEntry("快捷短语")}再输入编码即可调用快捷短语`,
+  date_time: `${iosLocalModeEntry("日期时间")}再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期`,
+  unicode: `${iosLocalModeEntry("Unicode 码点")}再输入十六进制码位（如 4e00 / +1f600）。空格或点候选上屏`,
+  emoji: `${iosLocalModeEntry("表情")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,
+  kaomoji: `${iosLocalModeEntry("颜文字")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,
+  super_jianpin: `${iosLocalModeEntry("超级简拼")}每个字母作为简拼；双拼按当前方案转换声母。空格或点候选上屏`,
+  temporary_english: `${iosLocalModeEntry("英文补全")}之后按英文处理。空格上屏当前输入，也可以点候选；上屏后回到中文`,
+  temporary_japanese: `${iosLocalModeEntry("临时日语")}之后按日语罗马字处理。空格上屏首选，也可以点候选；上屏后回到中文`,
+};
 const localDictionaryKinds: [LocalDictionaryKind, string][] = [
   ["pinyin", "全拼"],
   ["wubi", "五笔"],
@@ -1577,6 +1591,8 @@ export type MobileKeyboardFeedback = {
   hapticStrength: "light" | "medium" | "strong";
   /** iOS keeps this Apple keyboard preference in the native App Group store. */
   englishSuggestions?: boolean;
+  /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
+  candidatePaletteFollowsDesktop?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -3944,8 +3960,9 @@ export function SettingsPage({
   // letter to the Engine as a helper code, and the Engine reads the schema and
   // the candidate-row hint from these very preferences. Hiding the page left
   // that shipping feature with no way to pick a schema or turn it off. The
-  // Apple keyboard extension has no helper-code input at all, so iOS keeps the
-  // page hidden.
+  // iOS keyboard extension marks a helper code the same way, so the page also
+  // follows the host's `helpcode_shift_entry`; the platform names stay for
+  // hosts that predate the capability.
   //
   // HarmonyOS was in the hidden list while shipping the same input: its
   // ChineseHelpcodePolicy is the Android one, ported, and the session calls it
@@ -3961,7 +3978,9 @@ export function SettingsPage({
       ? []
       : (["shortcuts"] as const)),
     "floating-toolbar",
-    ...(androidPlatform || harmonyPlatform ? [] : (["helpcode"] as const)),
+    ...(showHelpcodeShiftEntry || androidPlatform || harmonyPlatform
+      ? []
+      : (["helpcode"] as const)),
   ];
   // The sidebar is the list this page duplicates, so it does not list it. A mobile host above phone width still shows the sidebar, and `selectPage` refuses the pages hidden above, so listing them there left buttons that did nothing when tapped.
   const sidebarPages = availablePages.filter(
@@ -4591,6 +4610,13 @@ export function SettingsPage({
                             ))}
                           </select>
                         </label>
+                      </div>
+                    )}
+                    {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
+                      <div className="section">
+                        <small>
+                          候选栏正在使用键盘皮肤的颜色，下面的候选颜色要在「皮肤」页打开「使用桌面候选皮肤」后才生效。
+                        </small>
                       </div>
                     )}
                     <div className="section">
@@ -5441,6 +5467,31 @@ export function SettingsPage({
                         ? "选择候选栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"
                         : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
                     </div>
+                    {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            使用桌面候选皮肤
+                            <small>
+                              关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用这里的候选皮肤和「外观」里的候选颜色。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="使用桌面候选皮肤"
+                            className="toggle"
+                            type="checkbox"
+                            disabled={mobileKeyboardFeedbackBusy}
+                            checked={mobileKeyboardFeedback.candidatePaletteFollowsDesktop}
+                            onChange={(event) =>
+                              void saveMobileKeyboardFeedback({
+                                ...mobileKeyboardFeedback,
+                                candidatePaletteFollowsDesktop: event.target.checked,
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
                     {snapshot?.candidate_skin_catalog && (
                       <div className={settings.externalMeta} role="status">
                         外部皮肤目录：
@@ -6592,7 +6643,9 @@ export function SettingsPage({
                         <span className="section-title">
                           以词定字
                           <small>
-                            开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字
+                            {iosPlatform
+                              ? "开启后，长按两个字以上的候选，可以只上屏它的首字或末字"
+                              : "开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字"}
                           </small>
                         </span>
                         <input
@@ -6615,42 +6668,45 @@ export function SettingsPage({
                           }
                         />
                       </label>
-                      <div className="word-to-character-keys-row">
-                        <div className="section-title" id="word-character-title">
-                          以词定字快捷键
+                      {/* An iOS keyboard extension never receives hardware keys; its candidates offer the first and last character on a long press instead. */}
+                      {!iosPlatform && (
+                        <div className="word-to-character-keys-row">
+                          <div className="section-title" id="word-character-title">
+                            以词定字快捷键
+                          </div>
+                          <div
+                            className="input-option-content"
+                            role="radiogroup"
+                            aria-labelledby="word-character-title"
+                          >
+                            {(
+                              [
+                                ["brackets", "[ / ]"],
+                                ["minus_equal", "- / ="],
+                              ] as const
+                            ).map(([keys, label], index) => (
+                              <div className="input-option-item" key={keys}>
+                                {index > 0 && <div className="input-option-divider" />}
+                                <label className="radio-option">
+                                  <input
+                                    type="radio"
+                                    name="word-character-keys"
+                                    checked={wordCharacter.keys === keys}
+                                    disabled={(draft.navigation ?? defaultNavigation)[keys]}
+                                    onChange={() =>
+                                      setDraft({
+                                        ...draft,
+                                        word_character: { ...wordCharacter, keys },
+                                      })
+                                    }
+                                  />
+                                  <span>{label}</span>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div
-                          className="input-option-content"
-                          role="radiogroup"
-                          aria-labelledby="word-character-title"
-                        >
-                          {(
-                            [
-                              ["brackets", "[ / ]"],
-                              ["minus_equal", "- / ="],
-                            ] as const
-                          ).map(([keys, label], index) => (
-                            <div className="input-option-item" key={keys}>
-                              {index > 0 && <div className="input-option-divider" />}
-                              <label className="radio-option">
-                                <input
-                                  type="radio"
-                                  name="word-character-keys"
-                                  checked={wordCharacter.keys === keys}
-                                  disabled={(draft.navigation ?? defaultNavigation)[keys]}
-                                  onChange={() =>
-                                    setDraft({
-                                      ...draft,
-                                      word_character: { ...wordCharacter, keys },
-                                    })
-                                  }
-                                />
-                                <span>{label}</span>
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      )}
                     </div>
                     <div className="section" role="group" aria-label="全拼纠错">
                       <div className="section-title">
@@ -7899,7 +7955,9 @@ export function SettingsPage({
                         <label className="section-header">
                           <span className="section-title">
                             {label}
-                            <small>{description}</small>
+                            <small>
+                              {iosPlatform ? iosLocalModeDescriptions[key] : description}
+                            </small>
                           </span>
                           <input
                             className="toggle"

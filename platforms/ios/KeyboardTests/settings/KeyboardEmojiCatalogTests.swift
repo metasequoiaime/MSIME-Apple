@@ -186,6 +186,106 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertTrue(closed)
   }
 
+  func testSearchKeepsOnlyLettersAndSpansEveryGroup() throws {
+    let search = try XCTUnwrap(KeyboardEmojiCatalog.search("Xiao 笑1!"))
+    XCTAssertEqual(search.search, "xiao")
+    XCTAssertEqual(search.group, "")
+    XCTAssertFalse(search.isKaomoji)
+    XCTAssertNil(KeyboardEmojiCatalog.search("1 笑!"))
+    XCTAssertEqual(KeyboardEmojiCatalog.search(String(repeating: "a", count: 40))?.search.count,
+                   KeyboardEmojiCatalog.maximumSearchLength)
+    let value: [String: Any] = [
+      "items": [
+        ["text": "😀", "annotation": "fixture", "group": "Smileys and emotion"],
+        ["text": "🌲", "annotation": "fixture", "group": "Animals and nature"],
+      ],
+      "next_offset": 2,
+      "complete": true,
+    ]
+    XCTAssertEqual(
+      try KeyboardEmojiCatalog.decodePage(value, category: search, requestedOffset: 0).items.map(\.text),
+      ["😀", "🌲"])
+  }
+
+  func testSharedBridgeSearchesPackagedCatalogByPinyinAndEnglish() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-emoji-search-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let resources = try XCTUnwrap(bridge.candidateGlossResources())
+    for query in ["xiao", "smile"] {
+      let page = try KeyboardEmojiCatalog.loadPage(
+        resources: resources, category: try XCTUnwrap(KeyboardEmojiCatalog.search(query)), offset: 0)
+      XCTAssertFalse(page.items.isEmpty, query)
+    }
+    let groups = Set(try KeyboardEmojiCatalog.loadPage(
+      resources: resources, category: try XCTUnwrap(KeyboardEmojiCatalog.search("xiao")), offset: 0).items.map(\.group))
+    XCTAssertGreaterThan(groups.count, 1, "a search is not limited to one category")
+  }
+
+  func testPickerSearchTypesOnItsOwnPadAndReturnsToTheCategories() async throws {
+    let category = try XCTUnwrap(KeyboardEmojiCatalog.categories.first)
+    final class Queries: @unchecked Sendable {
+      private let lock = NSLock()
+      private var values: [String] = []
+      func append(_ value: String) { lock.lock(); values.append(value); lock.unlock() }
+      var all: [String] { lock.lock(); defer { lock.unlock() }; return values }
+    }
+    let searches = Queries()
+    let searched = expectation(description: "results for xi")
+    let picker = KeyboardEmojiPickerView(
+      resources: "/fixture",
+      loader: { requested, _ in
+        if !requested.search.isEmpty {
+          searches.append(requested.search)
+          if requested.search == "xi" { searched.fulfill() }
+          return KeyboardEmojiCatalog.Page(items: [
+            .init(text: "😄", annotation: "fixture", group: "Smileys and emotion"),
+          ], nextOffset: 1, complete: true)
+        }
+        return KeyboardEmojiCatalog.Page(items: [
+          .init(text: "😀", annotation: "fixture", group: requested.group),
+        ], nextOffset: 1, complete: true)
+      },
+      onInsert: { _ in },
+      onDelete: {},
+      onClose: { XCTFail("back from a search returns to the categories, not the keyboard") },
+      onCatalogChange: nil)
+    picker.frame = CGRect(x: 0, y: 0, width: 390, height: 260)
+    picker.layoutIfNeeded()
+    let pad = try XCTUnwrap(descendants(picker).first { $0.accessibilityIdentifier == "emojiSearchPad" })
+    XCTAssertTrue(pad.isHidden)
+
+    try button("emojiSearchButton", in: picker).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(picker.searchQuery, "")
+    XCTAssertFalse(pad.isHidden)
+    let status = try XCTUnwrap(descendants(picker).first {
+      $0.accessibilityIdentifier == "emojiCatalogStatus"
+    } as? UILabel)
+    XCTAssertEqual(status.text, "输入拼音或英文搜索表情")
+
+    try button("emojiSearchKey-x", in: picker).sendActions(for: .primaryActionTriggered)
+    try button("emojiSearchKey-i", in: picker).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(picker.searchQuery, "xi")
+    await fulfillment(of: [searched], timeout: 2)
+    try await Task.sleep(nanoseconds: 100_000_000)
+    let grid = try XCTUnwrap(descendants(picker).first {
+      $0.accessibilityIdentifier == "emojiGrid"
+    } as? UICollectionView)
+    XCTAssertEqual(grid.numberOfItems(inSection: 0), 1)
+    let title = try XCTUnwrap(descendants(picker).first { $0.accessibilityIdentifier == "emojiTitle" } as? UILabel)
+    XCTAssertEqual(title.text, "xi")
+
+    try button("emojiSearchDelete", in: picker).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(picker.searchQuery, "x")
+    try button("closeEmojiPicker", in: picker).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(picker.searchQuery)
+    XCTAssertTrue(pad.isHidden)
+    XCTAssertEqual(title.text, "表情")
+    let typed = searches.all
+    XCTAssertTrue(typed.allSatisfy { $0 == "x" || $0 == "xi" }, "only typed queries reach the catalog: \(typed)")
+  }
+
   func testKaomojiIsTheLastTabAndAcceptsLongerLines() throws {
     let kaomoji = KeyboardEmojiCatalog.kaomoji
     XCTAssertEqual(kaomoji.title, "颜文字")

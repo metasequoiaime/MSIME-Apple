@@ -316,13 +316,12 @@ fn smart_punctuation_gestures_follow_their_own_switches() {
         "editor_generation": 1, "auto_closed_pair": false
     });
 
-    // The shipped defaults are not the same for the two: repeat follows smart punctuation and is
-    // on everywhere but Windows, while space conversion is off until asked for, because it
-    // rewrites a character the user already watched land.
+    // The shipped defaults are not the same for the two: repeat follows smart punctuation, which is off on Windows and macOS as the source ships it and on elsewhere, while space conversion is off everywhere until asked for, because it rewrites a character the user already watched land.
     let shipped = test_host_preferences(dir.path(), chinese_preferences());
+    let repeat_shipped = !cfg!(any(windows, target_os = "macos"));
     assert_eq!(
-        arm(shipped, comma.clone())["value"]["repeat"]["committed"],
-        ","
+        arm(shipped, comma.clone())["value"]["repeat"]["committed"] == ",",
+        repeat_shipped
     );
     assert!(
         arm(shipped, period.clone())["value"]["space"].is_null(),
@@ -333,6 +332,7 @@ fn smart_punctuation_gestures_follow_their_own_switches() {
     let repeat_off = test_host_preferences(
         dir.path(),
         Preferences {
+            smart_punctuation: true,
             smart_punctuation_repeat: false,
             smart_punctuation_space_convert: true,
             ..chinese_preferences()
@@ -530,7 +530,11 @@ fn native_preference_save_clears_history_only_after_successful_disable() {
 fn mixed_input_changes_defer_until_composition_ends() {
     use msime_client_core::preferences::MixedInputPreferences;
     let dir = tempfile::tempdir().unwrap();
-    let handle = test_host(dir.path());
+    // Start with every mixed-input switch opposite to the update below, whatever the platform's factory default is, so the deferral is observable for each one.
+    let mut initial = chinese_preferences();
+    initial.mixed_input.emoji = false;
+    initial.mixed_input.kaomoji = false;
+    let handle = test_host_preferences(dir.path(), initial);
     read(msime_client_focus(handle, true));
     read(msime_client_character(handle, b'U', true));
     let before = read(msime_client_view(handle));
@@ -2718,10 +2722,7 @@ fn contextual_punctuation_respects_editor_context_preferences_and_composition() 
     let handle = test_host_preferences(
         dir.path(),
         Preferences {
-            // Stated rather than inherited: the default is `!cfg!(windows)`, because the
-            // Windows TIP does this itself. Leaving it to the default made this a test that
-            // quietly asserted the opposite thing on Windows - and passed everywhere it was
-            // ever run, since the suite only ran for the host target.
+            // Stated rather than inherited: the default is `!cfg!(any(windows, target_os = "macos"))`, because the source ships the whole family off. Leaving it to the default made this a test that quietly asserted the opposite thing on those hosts - and passed wherever else it was run, since the suite only runs for the host target.
             smart_punctuation: true,
             smart_punctuation_direct_digit: true,
             smart_punctuation_direct_letter: true,
@@ -4776,6 +4777,106 @@ fn importing_a_personal_dictionary_file_queues_instead_of_taking_the_engine_lock
     );
     assert_eq!(
         read(unsafe { msime_client_personal_dictionary_request(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn a_queued_dictionary_file_imports_what_it_can_and_reports_the_rest() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap().to_owned();
+    let options = json!({
+        "api_version": 1,
+        "resources": format!("{root}/resources"),
+        "user_data": format!("{root}/user"),
+        "cache": format!("{root}/cache"),
+        "dictionaries": format!("{root}/dictionaries"),
+        "preferences": msime_client_core::preferences::Preferences::default(),
+        "preferences_directory": root,
+    });
+    // One row the Engine refuses and one repeated word: the queue alone would refuse the whole file for either.
+    let text =
+        "水杉\tshui'shan\t100\n你好\tnihaoma\t100\n水杉\tshui'shan\t100\n在家\tzai'jia\t100\n";
+    let request = json!({
+        "options": options,
+        "action": {"operation": "import", "kind": "pinyin", "format": "standard", "text": text, "request_id": "ui-import-1"},
+    })
+    .to_string();
+    let queued =
+        read(unsafe { msime_client_personal_dictionary_request(request.as_ptr(), request.len()) });
+    assert_eq!(queued["ok"], true, "{queued}");
+    assert_eq!(queued["value"]["queued"], true);
+    assert_eq!(queued["value"]["applied"], 2);
+    assert_eq!(queued["value"]["pending_count"], 2);
+    assert_eq!(queued["value"]["failed"], 1);
+    assert_eq!(queued["value"]["first_failures"][0]["line"], 2);
+    assert_eq!(queued["value"]["truncated"], false);
+
+    // The queue holds 128 words; a longer file queues the first 128 and says the rest were not read.
+    let long: String = (0..200)
+        .map(|index| format!("短语{index}\tq{index}\t100\n"))
+        .collect();
+    let fresh = tempfile::tempdir().unwrap();
+    let mut long_options = options.clone();
+    long_options["preferences_directory"] = json!(fresh.path().to_str().unwrap());
+    let request = json!({
+        "options": long_options,
+        "action": {"operation": "import", "kind": "quick_phrase", "format": "standard", "text": long, "request_id": "ui-import-2"},
+    })
+    .to_string();
+    let queued =
+        read(unsafe { msime_client_personal_dictionary_request(request.as_ptr(), request.len()) });
+    assert_eq!(queued["value"]["applied"], 128, "{queued}");
+    assert_eq!(queued["value"]["pending_count"], 128);
+    assert_eq!(queued["value"]["truncated"], true);
+
+    // A file with nothing usable in it is a failed import, and nothing is queued for it.
+    let request = json!({
+        "options": long_options,
+        "action": {"operation": "import", "kind": "pinyin", "format": "standard", "text": "你好\tnihaoma\t100\n", "request_id": "ui-import-3"},
+    })
+    .to_string();
+    let refused =
+        read(unsafe { msime_client_personal_dictionary_request(request.as_ptr(), request.len()) });
+    assert_eq!(refused["ok"], false);
+
+    // The parse-only entry point answers the same words and report and writes nothing.
+    let resources = tempfile::tempdir().unwrap();
+    let path = resources.path().to_str().unwrap();
+    let parse = json!({"kind": "pinyin", "format": "standard", "text": text}).to_string();
+    let parsed = read(unsafe {
+        msime_client_dictionary_import_entries(
+            parse.as_ptr(),
+            parse.len(),
+            path.as_ptr(),
+            path.len(),
+        )
+    });
+    assert_eq!(parsed["ok"], true, "{parsed}");
+    let entries = parsed["value"]["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["key"], "shui'shan");
+    assert_eq!(entries[0]["value"], "水杉");
+    assert_eq!(parsed["value"]["applied"], 2);
+    assert_eq!(parsed["value"]["failed"], 1);
+    assert_eq!(std::fs::read_dir(resources.path()).unwrap().count(), 0);
+    let relative = "relative/resources";
+    assert_eq!(
+        read(unsafe {
+            msime_client_dictionary_import_entries(
+                parse.as_ptr(),
+                parse.len(),
+                relative.as_ptr(),
+                relative.len(),
+            )
+        })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe {
+            msime_client_dictionary_import_entries(std::ptr::null(), 0, path.as_ptr(), path.len())
+        })["ok"],
         false
     );
 }

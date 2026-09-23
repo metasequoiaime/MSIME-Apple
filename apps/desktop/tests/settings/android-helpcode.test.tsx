@@ -102,8 +102,27 @@ test("mobile names the candidate row rather than a window", async () => {
   expect(screen.queryByLabelText("在候选窗口中显示双拼辅助码")).toBeNull();
 });
 
-// The Apple keyboard extension has no helper-code input at all.
-test("iOS keeps the helper-code page hidden", async () => {
+// The iOS keyboard extension marks a helper code with Shift like Android, and its host says so; the page follows that capability.
+test("iOS reaches the helper-code page when its keyboard marks helper codes", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "ios", helpcode_shift_entry: true } as never,
+        home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+      }}
+    />,
+  );
+
+  expect(await moreSettingsTitles()).toContain("辅助码");
+  await openMoreSetting("辅助码");
+  expect(screen.getByText(/按 Shift\s*再输入的字母作为辅助码/)).toBeTruthy();
+  expect(screen.getByLabelText("在候选栏中显示全拼辅助码")).toBeTruthy();
+});
+
+// A host that predates the capability says nothing about the gesture, so the page stays hidden there.
+test("an iOS host without the capability keeps the helper-code page hidden", async () => {
   renderSettings("ios");
 
   expect(await moreSettingsTitles()).not.toContain("辅助码");

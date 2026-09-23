@@ -196,6 +196,17 @@ if ! rg -q 'NativeClient::simplifiedToTraditional' \
   echo "Android Simplified/Traditional output must use the shared converter" >&2
   exit 1
 fi
+# The keyboard has its own voice entry and never goes through the settings app, so it asks the
+# shared resolution the same question rather than launching the platform recogniser regardless of
+# what the user configured. A second copy of the provider rules in Java is how the two entries
+# would start transcribing with different services on the same device.
+if ! rg -q 'VoiceConfiguration\.read' \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+  || ! rg -q 'msime_client_mobile_voice_configuration' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android keyboard voice must read the shared provider resolution" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling

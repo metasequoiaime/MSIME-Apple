@@ -1,6 +1,6 @@
 import UIKit
 
-/// 「候选皮肤」 on the candidate strip: the four built-in desktop candidate skins, `candidate_theme` and the candidate colour overrides from the shared document, resolved the way Android resolves them.
+/// 「候选皮肤」 on the candidate strip: the four built-in desktop candidate skins or one imported into the shared skins folder (see ExternalCandidateSkin), `candidate_theme` and the candidate colour overrides from the shared document.
 ///
 /// The strip normally follows the keyboard skin, because on iOS it is part of the keyboard rather than a window of its own. `candidate_skin` cannot say whether the user chose it, since every document carries the default `willow_green`, so the desktop palette only replaces the keyboard skin's colours when the iOS switch (`followsDesktop`) is on. The switch lives in the App Group, like the cloud candidate switch; the skin, theme and colours stay in the shared document and sync with the desktop.
 struct CandidatePalette: Equatable {
@@ -32,11 +32,15 @@ struct CandidatePalette: Equatable {
     followsDesktop ? resolve(preferences, systemDark: systemDark) : nil
   }
 
-  static func resolve(_ preferences: [String: Any]?, systemDark: Bool) -> CandidatePalette {
+  static func resolve(_ preferences: [String: Any]?, systemDark: Bool,
+                      skinsRoot: URL? = ExternalCandidateSkin.defaultRoot) -> CandidatePalette {
     let values = preferences ?? [:]
     let dark = isDark(candidateTheme: values["candidate_theme"] as? String, globalTheme: values["theme"] as? String,
                       systemDark: systemDark)
-    var palette = builtIn(values["candidate_skin"] as? String ?? defaultSkin, dark: dark)
+    let skin = values["candidate_skin"] as? String ?? defaultSkin
+    var palette = skins.contains { $0.id == skin }
+      ? builtIn(skin, dark: dark)
+      : external(skin, dark: dark, root: skinsRoot) ?? builtIn(defaultSkin, dark: dark)
     func custom(_ key: String) -> UIColor? { color(hex: values[key] as? String) }
     if let text = custom("candidate_text_color") {
       palette.text = text
@@ -51,6 +55,30 @@ struct CandidatePalette: Equatable {
     if let surface = custom("candidate_background_color") ?? custom("candidate_surface_color") { palette.surface = surface }
     if let border = custom("candidate_border_color") { palette.border = border }
     return palette
+  }
+
+  /// An imported skin: the built-in skin it extends, then the colours it declares for this theme. Nil when the package is missing, invalid, or does not support the horizontal strip in this theme, which leaves the shared default.
+  static func external(_ id: String, dark: Bool, root: URL?) -> CandidatePalette? {
+    guard let package = ExternalCandidateSkin.load(id, dark: dark, root: root) else { return nil }
+    var palette = builtIn(package.base, dark: dark)
+    let colors = package.candidate[dark ? "dark" : "light"] ?? [:]
+    if let text = color(hex: colors["text"]) { palette.text = text }
+    if let number = color(hex: colors["number"]) { palette.number = number }
+    if let accent = color(hex: colors["accent"]) { palette.accent = accent }
+    if let selected = color(hex: colors["selected"]) { palette.selected = selected }
+    if let hover = color(hex: colors["hover"]) { palette.hover = hover }
+    if let surface = color(hex: colors["surface"]) { palette.surface = surface }
+    if let border = borderColor(colors["border"]) { palette.border = border }
+    return palette
+  }
+
+  /// A skin border may also carry alpha (`#RRGGBBAA`) or be `transparent`, as the desktop candidate windows accept.
+  static func borderColor(_ value: String?) -> UIColor? {
+    guard let value else { return nil }
+    if value == "transparent" { return .clear }
+    if let opaque = color(hex: value) { return opaque }
+    guard value.count == 9, value.first == "#", let rgba = UInt32(value.dropFirst(), radix: 16) else { return nil }
+    return argb((rgba & 0xff) << 24 | rgba >> 8)
   }
 
   /// `candidate_theme` first, then the global `theme`, then the system.

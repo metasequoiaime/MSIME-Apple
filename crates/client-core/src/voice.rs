@@ -5,6 +5,7 @@
 
 pub mod controller;
 pub mod doubao_frame;
+pub mod provider;
 
 /// Platform-injected streaming voice transport.
 pub trait VoiceTransport {

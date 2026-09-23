@@ -731,12 +731,44 @@ async fn read_skin_font(
 
 #[tauri::command]
 async fn open_skin_directory(
+    #[cfg_attr(not(target_os = "ios"), allow(unused_variables))] app: tauri::AppHandle,
     directory: tauri::State<'_, SkinDirectoryState>,
 ) -> Result<(), CommandError> {
     let root = directory.0.clone();
+    // The iOS skin folder is in the App Group container, which Files cannot show, so the button imports a folder the user picks instead; `skin_directory_import` tells the page to say so.
+    #[cfg(target_os = "ios")]
+    return import_picked_skin(&app, root).await;
+    #[cfg(not(target_os = "ios"))]
     tauri::async_runtime::spawn_blocking(move || skin_directory::open(&root))
         .await
         .map_err(|_| CommandError { code: "storage" })?
+        .map_err(|code| CommandError { code })
+}
+
+#[cfg(target_os = "ios")]
+async fn import_picked_skin(app: &tauri::AppHandle, root: PathBuf) -> Result<(), CommandError> {
+    let platform = app
+        .try_state::<MobilePlatform<tauri::Wry>>()
+        .ok_or(CommandError {
+            code: "unavailable",
+        })?
+        .inner()
+        .clone();
+    let Some(source) = platform
+        .pick_skin_folder()
+        .await
+        .map_err(|_| CommandError {
+            code: "skin_import",
+        })?
+    else {
+        return Ok(());
+    };
+    let copied =
+        tauri::async_runtime::spawn_blocking(move || skin_directory::import(&source, &root)).await;
+    let _ = platform.end_skin_folder_access();
+    copied
+        .map_err(|_| CommandError { code: "storage" })?
+        .map(|_| ())
         .map_err(|code| CommandError { code })
 }
 
@@ -1598,7 +1630,9 @@ fn dictionary_action_requires_quiesce(action: &Value) -> bool {
 fn ios_personal_dictionary_action(action: &Value) -> bool {
     matches!(
         action.get("operation").and_then(Value::as_str),
-        Some("list" | "edit" | "import_personal" | "export" | "retry" | "dismiss_failure")
+        Some(
+            "list" | "edit" | "import" | "import_personal" | "export" | "retry" | "dismiss_failure"
+        )
     )
 }
 

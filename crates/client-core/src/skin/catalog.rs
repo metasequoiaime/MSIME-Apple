@@ -132,6 +132,11 @@ pub fn is_builtin(id: &str) -> bool {
     BUILTIN_SKINS.iter().any(|(builtin, _)| *builtin == id)
 }
 
+/// 该名字能否作为外部皮肤的文件夹名。目录扫描只列出这样的文件夹，导入时按同一规则把关，免得拷进来一个扫描随后拒绝的皮肤。
+pub fn is_external_id(id: &str) -> bool {
+    safe_id(id) && !is_builtin(id)
+}
+
 fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64

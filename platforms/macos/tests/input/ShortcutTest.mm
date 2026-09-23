@@ -1198,11 +1198,12 @@ static void TestMixedInputPreferences() {
     NSString *suite = [@"msime.mixed-input." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    // Emoji mixed-input starts on like the source's `emoji_mixed_input = true`; kaomoji starts off.
     assert(preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 5 &&
-           !preferences.mixedEmojiInput && !preferences.mixedKaomojiInput);
+           preferences.mixedEmojiInput && !preferences.mixedKaomojiInput);
     NSDictionary *initial = [preferences sharedPreferencesByMerging:@{}][@"mixed_input"];
     assert([initial[@"english"] isEqual:@YES] && [initial[@"minimum_prefix"] isEqual:@5] &&
-           [initial[@"emoji"] isEqual:@NO] && [initial[@"kaomoji"] isEqual:@NO]);
+           [initial[@"emoji"] isEqual:@YES] && [initial[@"kaomoji"] isEqual:@NO]);
     [preferences applySharedInputPreferences:@{ @"mixed_input": @{
         @"english": @NO, @"minimum_prefix": @7, @"emoji": @YES, @"kaomoji": @YES } }];
     assert(!preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 7 &&
@@ -1231,9 +1232,11 @@ static void TestMixedInputPreferences() {
     NSDictionary *edited = [preferences sharedPreferencesByMerging:@{}][@"mixed_input"];
     assert(([edited isEqual:@{ @"english": @YES, @"minimum_prefix": @5, @"emoji": @NO, @"kaomoji": @NO }]));
     assert([defaults dictionaryForKey:@"MSIMEClientMixedInput"] != nil);
+    // An explicitly stored NO for emoji survives reopening instead of falling back to the on default.
     MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(reopened.mixedEnglishInput && reopened.mixedEnglishMinimumPrefix == 5 &&
            !reopened.mixedEmojiInput && !reopened.mixedKaomojiInput);
+    assert([[reopened sharedPreferencesByMerging:@{}][@"mixed_input"][@"emoji"] isEqual:@NO]);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -1844,10 +1847,18 @@ static void TestSmartPunctuationPreferences() {
     NSString *suite = [@"msime.smart-punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-    assert(appearance.smartPunctuation && appearance.smartPunctuationRepeatToChinese);
+    // The source ships the whole smart-punctuation family off, and a fresh macOS profile follows it.
+    assert(!appearance.smartPunctuation && !appearance.smartPunctuationRepeatToChinese);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"smart_punctuation"] isEqual:@NO]);
     NSButton *smartButton = (id)PreferenceControl(appearance, @selector(smartPunctuationChanged:));
     NSButton *smartRepeatButton = (id)PreferenceControl(appearance, @selector(smartPunctuationRepeatChanged:));
-    assert(smartButton.state == NSControlStateValueOn && smartRepeatButton.state == NSControlStateValueOn);
+    assert(smartButton.state == NSControlStateValueOff && smartRepeatButton.state == NSControlStateValueOff);
+    smartButton.state = NSControlStateValueOn;
+    [NSApp sendAction:smartButton.action to:smartButton.target from:smartButton];
+    smartRepeatButton.state = NSControlStateValueOn;
+    [NSApp sendAction:smartRepeatButton.action to:smartRepeatButton.target from:smartRepeatButton];
+    assert(appearance.smartPunctuation && appearance.smartPunctuationRepeatToChinese);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"smart_punctuation"] isEqual:@YES]);
     smartButton.state = NSControlStateValueOff;
     [NSApp sendAction:smartButton.action to:smartButton.target from:smartButton];
     smartRepeatButton.state = NSControlStateValueOff;
@@ -3505,6 +3516,11 @@ static void TestCloudCandidatePreference() {
 @end
 @implementation AIShortcutSession
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return self.query; }
+// Turning both gloss switches off clears the translation column; the AI tests only need that call to be accepted.
+- (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
+    (void)translations; (void)generation; (void)error;
+    return @{ @"applied": @YES };
+}
 - (NSDictionary *)aiRequestForQuery:(NSDictionary *)query error:(NSError **)error {
     (void)error;
     assert([query isEqual:self.query]);
@@ -3572,6 +3588,45 @@ static void TestAiCandidateScheduling() {
     [controller synchronizeAITranslations];
     assert(controller.aiBatches.count == 1);
     [controller cancelAITranslations];
+}
+
+// The source gates AI suggestions on ai_assistant.enabled alone (ai_eligible / UpdateAiInput); the gloss switch only governs glosses and translations, so turning it off must neither block nor cancel an AI request.
+static void TestAiCandidatesIgnoreGlossSwitch() {
+    NSString *suite = [@"msime.ai-gloss-off." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.candidateTranslations = NO;
+    appearance.candidateEnglishGloss = NO;
+    AIShortcutController *controller = [AIShortcutController alloc];
+    controller.aiBatches = [NSMutableArray array];
+    AIShortcutSession *session = [AIShortcutSession new];
+    session.query = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic-ai-gloss-off",
+        @"query_text": @"nihao", @"cache_key": @"nihao-gloss-off", @"pinyin_segments": @[@"ni", @"hao"],
+        @"ai_context": @"释义关闭", @"cloud_eligible": @NO, @"ai_eligible": @YES, @"cloud_candidates": @YES,
+        @"ai_assistant": @{ @"enabled": @YES, @"candidate_limit": @3 }, @"session_id": @1 };
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeAITranslations];
+    NSTimer *timer = [controller valueForKey:@"aiTimer"];
+    assert(timer);
+    [timer fire];
+    assert(controller.aiBatches.count == 1 && controller.aiBatches[0].started);
+    uint64_t epoch = [[controller valueForKey:@"aiEpoch"] unsignedLongLongValue];
+    [controller appearanceChanged:nil];
+    [controller applySharedToolbarPreferences:@{@"candidate_translations": @NO}];
+    assert(!controller.aiBatches[0].cancelled);
+    assert([[controller valueForKey:@"aiEpoch"] unsignedLongLongValue] == epoch);
+    assert(controller.aiBatches.count == 1 && [controller valueForKey:@"aiQuery"]);
+    // The AI assistant switch remains the one gate.
+    NSMutableDictionary *disabled = [session.query mutableCopy];
+    disabled[@"ai_assistant"] = @{ @"enabled": @NO, @"candidate_limit": @3 };
+    session.query = disabled;
+    [controller synchronizeAITranslations];
+    assert(controller.aiBatches[0].cancelled && [controller valueForKey:@"aiQuery"] == nil);
+    assert([[controller valueForKey:@"aiEpoch"] unsignedLongLongValue] > epoch);
+    [controller cancelAITranslations];
+    [defaults removePersistentDomainForName:suite];
 }
 
 static void TestAiCandidateRetryAfterRejectedResponse() {
@@ -3710,8 +3765,7 @@ static void TestLearnedGlossRuntime() {
     [writer synchronizeCustomTranslations];
     assert(writer.batches.count == 1);
     writer.batches[0].reply(@[@{@"text":@"Hello", @"translation":@"学习释义"}, @{@"text":@"测试", @"translation":@"test"}]);
-    // Fetching a gloss does not remember it; committing the candidate does. Persisting everything the panel ever displayed would fill the glossary with words the user rejected.
-    for (NSString *committed in @[@"Hello", @"测试"]) [writer persistCommittedCandidateTranslation:committed];
+    // Every successful English fetch is saved, as Windows PersistGloss does; nothing is committed here.
     dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{});
     [writer cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
     // A new controller with both providers absent reuses the persisted glosses.
@@ -3745,6 +3799,22 @@ static void TestLearnedGlossRuntime() {
     session.tencent = nil; session.delivered = @[];
     [reader synchronizeCandidateGloss]; WaitForGloss(reader);
     assert(session.delivered.count == 0);
+    [reader cancelCandidateTranslations];
+    // With French primary and English secondary, only the English row reaches the glossary.
+    [[MSIMETranslationCache sharedCache] clear];
+    session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr", @"en"]; session.tencent = TencentConfig();
+    session.page = @[@{@"text":@"世界", @"source":@0}]; session.generation++;
+    [writer.batches removeAllObjects];
+    [writer synchronizeCandidateGloss]; WaitForGloss(writer); [writer synchronizeCustomTranslations];
+    assert(writer.batches.count == 2);
+    // Reply to the English batch first so a saved French reply would overwrite it.
+    writer.batches[1].reply(@[@{@"text":@"世界", @"translation":@"world"}]);
+    writer.batches[0].reply(@[@{@"text":@"世界", @"translation":@"monde"}]);
+    dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{});
+    [writer cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
+    session.targetLanguage = @"en"; session.targetLanguages = @[@"en"]; session.tencent = nil; session.delivered = @[];
+    [reader synchronizeCandidateGloss]; WaitForGloss(reader);
+    assert(([session.delivered isEqual:@[@{@"text":@"世界", @"translation":@"world"}]]));
     [reader cancelCandidateTranslations];
     NSError *error = nil;
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
@@ -4455,6 +4525,7 @@ int main(int argc, char **argv) {
         TestCloudCandidateRetryAfterRejectedResponse();
         TestCloudCandidateEngineDelivery();
         TestAiCandidateScheduling();
+        TestAiCandidatesIgnoreGlossSwitch();
         TestAiCandidateRetryAfterRejectedResponse();
         TestAiCandidateCacheAcrossGenerations();
         TestAiCandidateDescriptorFailureIsRetryable();

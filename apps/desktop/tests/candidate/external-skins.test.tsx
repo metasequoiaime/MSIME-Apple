@@ -734,3 +734,23 @@ test("manifest text is escaped and palette cannot inject CSS or resource URLs", 
   expect(css).not.toContain("body");
   expect(css).not.toContain("url(");
 });
+
+test("an import host lists the imported skin without a manual refresh", async () => {
+  const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
+  const openDirectory = vi.fn().mockResolvedValue(undefined);
+  render(<ExternalSkins {...props} importsSkin openDirectory={openDirectory} scan={scan} />);
+  expect(screen.getByText(/选中包含 skin.toml 的皮肤文件夹/)).toBeTruthy();
+  expect(screen.queryByText(/复制到下面的目录/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "导入皮肤" }));
+  await waitFor(() => expect(scan).toHaveBeenCalledTimes(1));
+  expect(openDirectory).toHaveBeenCalledTimes(1);
+});
+
+test("an import that fails does not rescan", async () => {
+  const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
+  const openDirectory = vi.fn().mockRejectedValue(new Error("synthetic"));
+  render(<ExternalSkins {...props} importsSkin openDirectory={openDirectory} scan={scan} />);
+  fireEvent.click(screen.getByRole("button", { name: "导入皮肤" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("导入皮肤失败，请重试。");
+  expect(scan).not.toHaveBeenCalled();
+});
