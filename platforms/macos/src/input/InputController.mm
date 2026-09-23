@@ -2364,9 +2364,10 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (!_session || _focusPending) [self prepareSession];
     if (!_session) return;
     if ([_view[@"editing_text"] isKindOfClass:NSString.class] && [_view[@"editing_text"] length]) {
-        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
-        if (!finished) return;
-        [self apply:finished];
+        // Ctrl+Shift+E is the reference's FUNCTION_CANCEL in both directions: _HandleCancel terminates the composition and commits nothing, so neither the highlighted Chinese candidate nor the English word being spelled reaches the document. An Engine failure leaves the mode as it was.
+        NSDictionary *cancelled = [_session command:MSIME_CANCEL error:nil];
+        if (!cancelled) return;
+        [self apply:cancelled];
     }
     NSError *error = nil;
     NSDictionary *view = [_session setDedicatedEnglishEnabled:enabled error:&error];

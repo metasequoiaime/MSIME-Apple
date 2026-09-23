@@ -1210,13 +1210,17 @@ static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
     [controller setValue:session forKey:@"session"];
     [controller setValue:@{@"editing_text":@"test", @"candidates":@[]} forKey:@"view"];
     NSEventModifierFlags flags = NSEventModifierFlagControl | NSEventModifierFlagShift;
-    session.failFinish = YES;
+    // Ctrl+Shift+E cancels the composition as the reference's FUNCTION_CANCEL does. The stub's default reply commits text, so a view-only cancel reply is what makes a stray commit visible.
+    NSDictionary *previousCancel = session.cancelTransition;
+    session.cancelTransition = @{ @"handled": @YES, @"commit": NSNull.null,
+                                  @"view": @{ @"editing_text": @"", @"caret_position": @0, @"candidates": @[] } };
+    session.failCancel = YES;
     assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
-    assert(session.englishCandidateCalls == 0);
-    session.failFinish = NO;
+    assert(session.englishCandidateCalls == 0 && !session.dedicatedEnglish);
+    session.failCancel = NO;
     assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
     assert(session.dedicatedEnglish && session.englishCandidateCalls == 1 && !appearance.englishMode);
-    assert([client.committed isEqual:@"测试"]);
+    assert(session.lastCommand == MSIME_CANCEL && client.committed == nil && client.marked.length == 0);
     assert([[[controller menu] itemAtIndex:2] state] == NSControlStateValueOn);
     assert([[[controller menu] itemAtIndex:0] state] == NSControlStateValueOff);
     assert([controller handleEvent:ModeKey(14, flags, YES) client:client]);
@@ -1228,6 +1232,15 @@ static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
     assert(session.dedicatedEnglish && !appearance.englishMode);
     assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
     assert(!session.dedicatedEnglish && !appearance.englishMode);
+    // Leaving the mode with an English word being spelled drops the word too.
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(session.dedicatedEnglish);
+    [controller setValue:@{@"editing_text":@"hello", @"candidates":@[], @"dedicated_english":@YES} forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(session.lastCommand == MSIME_CANCEL && client.committed == nil && client.marked.length == 0);
+    assert(!session.dedicatedEnglish && !appearance.englishMode);
+    session.cancelTransition = previousCancel;
     NSUInteger calls = session.englishCandidateCalls;
     for (NSNumber *extra in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagOption)]) {
         [controller handleEvent:ModeKey(14, flags | extra.unsignedIntegerValue, NO) client:client];
