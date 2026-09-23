@@ -47,6 +47,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var fullWidthInput = false
   /// The document's `character_width` as last applied, so a reload replaces the card's switch only when that field changed.
   private var appliedCharacterWidth: String?
+  /// 「中文标点」 for the running keyboard: starts from the shared `chinese_punctuation`; the 更多 card flips it, and switching back to Chinese restores the document's value, as Windows does on every 中/英 switch.
+  private var chinesePunctuation = true
+  private var appliedChinesePunctuation = true
   private lazy var snapshotWorker: DictionarySnapshotWorker = {
     let worker = DictionarySnapshotWorker(session: session)
     worker.report = { [weak self] in self?.showDiagnostic($0) }
@@ -331,6 +334,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     isChineseMode = Self.startsInChinese(session.sharedPreferences)
     appliedCharacterWidth = CharacterWidthPreference.value(in: session.sharedPreferences)
     setFullWidthInput(CharacterWidthPreference.startsFullwidth(in: session.sharedPreferences))
+    appliedChinesePunctuation = Self.sharedChinesePunctuation(session.sharedPreferences)
+    chinesePunctuation = appliedChinesePunctuation
     applyKeyboardAppearance()
     configureDiagnosticLog()
     DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone")")
@@ -429,6 +434,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.applyKeyboardAppearance()
       self.synchronizeSharedTouchPreferences()
       self.synchronizeCharacterWidth()
+      self.synchronizeChinesePunctuation()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
       self.synchronizeTranslationRoute()
@@ -1083,6 +1089,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           self.setFullWidthInput(!self.fullWidthInput)
           self.updateShortcutButtons()
         },
+        // A locked punctuation setting decides on its own, and English mode types ASCII marks anyway, so the switch only means something in Chinese mode under 跟随中英文.
+        KeyboardTool(title: "中文标点", symbol: "textformat.characters",
+                     selected: chinesePunctuation,
+                     enabled: isChineseMode && !inputScheme.isJapanese
+                       && (session.sharedPreferences?["punctuation_lock"] as? String ?? "follow") == "follow") { [weak self] in
+          guard let self else { return }
+          self.setChinesePunctuation(!self.chinesePunctuation)
+          self.updateShortcutButtons()
+        },
         withHaptics(KeyboardTool(title: "振动强度", symbol: "waveform",
                      enabled: KeyboardFeedbackPreference.hapticsEnabled,
                      caption: KeyboardFeedbackPreference.hapticStrength.title) { [weak self] in
@@ -1491,6 +1506,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleSymbol(_ symbol: String) {
     playInputClick()
     if !isChineseMode {
+      // 标点锁定为中文 keeps Chinese marks in English mode too; the shared route decides, as it does in Chinese mode.
+      if session.sharedPreferences?["punctuation_lock"] as? String == "chinese",
+         let punctuation = KeyboardPunctuationContext.engineInput(for: symbol, japanese: false) {
+        let preceding = KeyboardPunctuationContext.precedingScalar(textDocumentProxy.documentContextBeforeInput)
+        let snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
+        if snapshot.isHandled {
+          render(snapshot)
+          refreshEnglishSuggestions()
+          return
+        }
+      }
       insertDirectText(symbol)
       refreshEnglishSuggestions()
       return
@@ -1646,9 +1672,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func toggleInputMode() {
     playInputClick()
-    let snapshot = isChineseMode ? session.finishComposition() : session.cancel()
+    let snapshot = isChineseMode ? endComposition(at: .modeSwitch) : session.cancel()
     render(snapshot)
     isChineseMode.toggle()
+    if isChineseMode && chinesePunctuation != appliedChinesePunctuation {
+      setChinesePunctuation(appliedChinesePunctuation)
+    }
     letterCaseState = .lowercase
     isAutomaticShift = false
     lastShiftTapTime = nil
@@ -1832,7 +1861,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       title = "换行"
     }
 
-    let shownTitle = inputScheme.isJapanese && hasComposition ? "確定" : title
+    // Return commits what is being composed rather than doing the field's action, so it says so.
+    let shownTitle = !hasComposition ? title : inputScheme.isJapanese ? "確定" : "确认"
     if var configuration = japaneseReturnButton?.configuration {
       let japaneseTitle = hasComposition ? "確定" : "改行"
       if configuration.title != japaneseTitle {
@@ -2728,7 +2758,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // Space means "commit the leading candidate". The strip no longer pages, so the leading chip is
   // always the engine's first and commitCandidate is that candidate. It also reports itself
   // unhandled when there is nothing to commit, which is what tells the caller to insert its space.
-  // Return and the language switch flush the whole composition through finishComposition instead.
+  // Return and the language switch end the whole composition through CompositionBoundaryPolicy instead.
   private func commitVisibleCandidate() -> MetasequoiaInputSnapshot {
     return session.commitCandidate()
   }
@@ -2823,16 +2853,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       render(index.map { session.selectCandidate(at: UInt($0)) } ?? session.commitReading())
       return
     }
-    let snapshot = session.finishComposition()
+    let snapshot = endComposition(at: .returnKey)
     if !snapshot.isHandled {
       insertOwnText("\n")
     }
     render(snapshot)
   }
 
+  /// Ends an open composition the way `boundary` calls for. An idle session still gets finishComposition, which reports itself unhandled so the caller knows nothing was committed.
+  private func endComposition(at boundary: CompositionBoundary) -> MetasequoiaInputSnapshot {
+    switch CompositionBoundaryPolicy.action(composing: hasComposition, scheme: inputScheme, boundary: boundary) {
+    case .commitRaw: session.commitRaw()
+    case .finishComposition, .none: session.finishComposition()
+    }
+  }
+
   @objc private func handleInputModeButton(_ sender: UIButton, event: UIEvent) {
     if event.allTouches?.contains(where: { touch in touch.phase == .began }) == true {
-      render(inputScheme.isJapanese ? session.finishComposition() : session.commitRaw())
+      render(endComposition(at: .modeSwitch))
     }
     handleInputModeList(from: sender, with: event)
   }
@@ -2861,6 +2899,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func setFullWidthInput(_ enabled: Bool) {
     fullWidthInput = enabled
     session.setCharacterWidth(fullwidth: enabled)
+  }
+
+  private static func sharedChinesePunctuation(_ preferences: [String: Any]?) -> Bool {
+    preferences?["chinese_punctuation"] as? Bool ?? true
+  }
+
+  private func setChinesePunctuation(_ enabled: Bool) {
+    chinesePunctuation = enabled
+    session.setChinesePunctuation(enabled)
+  }
+
+  /// A value changed in the settings app replaces the card's switch; a document that only changed something else leaves it.
+  private func synchronizeChinesePunctuation() {
+    let shared = Self.sharedChinesePunctuation(session.sharedPreferences)
+    defer { appliedChinesePunctuation = shared }
+    guard shared != appliedChinesePunctuation else { return }
+    setChinesePunctuation(shared)
   }
 
   /// A width changed in the settings app replaces the card's switch; a document that only changed something else leaves it.

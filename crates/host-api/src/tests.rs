@@ -2531,6 +2531,38 @@ fn shuangpin_profile_creation_and_deferred_replacement_use_real_engine() {
     );
     read(msime_client_destroy(handle));
 }
+/// A lock to Chinese carries the punctuation switch with it, as the Windows host turns the switch on whenever punctuation is locked; unlocking hands the switch back.
+#[test]
+fn chinese_punctuation_lock_overrides_a_switched_off_punctuation_mode() {
+    let comma =
+        |handle| read(msime_client_punctuation_with_context(handle, b',', 0))["value"].clone();
+    let dir = tempfile::tempdir().unwrap();
+    let locked = test_host_preferences(
+        dir.path(),
+        Preferences {
+            chinese_punctuation: false,
+            punctuation_lock: msime_client_core::preferences::PunctuationLock::Chinese,
+            ..chinese_preferences()
+        },
+    );
+    read(msime_client_focus(locked, true));
+    assert_eq!(comma(locked)["commit"], "，");
+    read(msime_client_set_chinese_punctuation(locked, false));
+    assert_eq!(comma(locked)["commit"], "，");
+    read(msime_client_set_punctuation_lock(locked, 0));
+    assert_ne!(comma(locked)["commit"], "，");
+    read(msime_client_set_punctuation_lock(locked, 1));
+    assert_eq!(comma(locked)["commit"], "，");
+    read(msime_client_destroy(locked));
+
+    let dir = tempfile::tempdir().unwrap();
+    let follow = test_host_preferences(dir.path(), chinese_preferences());
+    read(msime_client_focus(follow, true));
+    read(msime_client_set_chinese_punctuation(follow, false));
+    assert_ne!(comma(follow)["commit"], "，");
+    read(msime_client_destroy(follow));
+}
+
 #[test]
 fn explicit_punctuation_finishes_unicode_and_rejects_invalid_bytes() {
     for enabled in [true, false] {

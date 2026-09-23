@@ -44,6 +44,8 @@ private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, 
 private func msimeClientChooseNineKeySpelling(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_nine_key_mode")
 private func msimeClientSetNineKeyMode(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_set_chinese_punctuation")
+private func msimeClientSetChinesePunctuation(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_character_width")
 private func msimeClientSetCharacterWidth(_ session: UInt64, _ fullwidth: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_update_preferences")
@@ -210,6 +212,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var nineKeyEnabled = false
   // The width, like nine-key, is session state the options do not carry, so a rebuilt session is told it again.
   private var fullwidth = false
+  /// The keyboard's 中文标点 switch; nil until it is first set, so a rebuilt session keeps the document's value.
+  private var chinesePunctuation: Bool?
 
   init(resources: URL? = nil, stateRoot: URL? = nil) {
     options = [:]
@@ -884,6 +888,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     self.fullwidth = fullwidth
     return dispatch { msimeClientSetCharacterWidth(handle, fullwidth) }
   }
+  /// Chinese or ASCII marks for this session, on top of the document's `chinese_punctuation`; `punctuation_lock` still wins.
+  @discardableResult func setChinesePunctuation(_ enabled: Bool) -> MetasequoiaInputSnapshot {
+    chinesePunctuation = enabled
+    return dispatch { msimeClientSetChinesePunctuation(handle, enabled) }
+  }
   func switchToWubi() -> MetasequoiaInputSnapshot { switchScheme("wubi", profile: nil) }
   func switchToJapanese() -> MetasequoiaInputSnapshot { switchScheme("japanese", profile: nil) }
 
@@ -991,6 +1000,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     handle = try Self.callCreateFocused(requested)
     if nineKeyEnabled { _ = dispatch { msimeClientSetNineKeyMode(handle, true) } }
     if fullwidth { _ = dispatch { msimeClientSetCharacterWidth(handle, true) } }
+    if let chinesePunctuation { _ = dispatch { msimeClientSetChinesePunctuation(handle, chinesePunctuation) } }
   }
 
   func localDictionaryStateVersion() throws -> String {
