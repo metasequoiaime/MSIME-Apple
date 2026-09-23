@@ -64,7 +64,7 @@
 - 剪贴板：`windows-clipboard-text`、`windows-clipboard-monitor`（后者实际注册 `AddClipboardFormatListener`、验证重复 `start` 幂等与重复 `stop` 不崩溃，不改写系统剪贴板、不记录用户内容）。
 - 配置、启动与守护：`windows-shared-config-keybindings`、`windows-tsf-config-frames`、`windows-preview-config`、`windows-shell-surfaces`、`windows-server-launch`、`windows-installer-launch`、`windows-first-run`、`windows-prepare-host`、`windows-watchdog-policy`、`windows-maintenance-hotkeys`、`windows-diagnostic-log`、`windows-diagnostic-batch`、`windows-typing-statistics`。
 - 输入策略：`windows-punctuation-policy`、`windows-paired-punctuation-host-policy`、`windows-edit-policy`、`windows-navigation-policy`、`windows-word-character-policy`、`windows-chinese-conversion`、`windows-preedit-caret`、`windows-fullscreen-foreground`。
-- TSF 侧：`msime-tsf-client-key-router` 与 `-authenticated-client-key-router`、`msime-tsf-key-repeat-guard`、`msime-tsf-keyboard-cancellation`、`msime-tsf-smart-punctuation-fingerprint`、`msime-tsf-paired-punctuation-policy`、`msime-tsf-character-result`、`msime-tsf-raw-commit`、`msime-tsf-commit-and-continue-payload`、`msime-tsf-engine-response`、`msime-tsf-candidate-ownership`、`msime-tsf-preedit-caret`、`msime-tsf-host-focus`、`msime-tsf-prepared-options`、`msime-tsf-host-library-config`、`msime-tsf-module-path`、`msime-tsf-version-resource`、`msime-tsf-class-factory`。
+- TSF 侧：`msime-tsf-client-key-router` 与 `-authenticated-client-key-router`、`msime-tsf-key-repeat-guard`、`msime-tsf-keyboard-cancellation`、`msime-tsf-smart-punctuation-fingerprint`、`msime-tsf-paired-punctuation-policy`、`msime-tsf-paired-punctuation-wiring`、`msime-tsf-punctuation-key-policy`、`msime-tsf-character-result`、`msime-tsf-raw-commit`、`msime-tsf-commit-and-continue-payload`、`msime-tsf-engine-response`、`msime-tsf-candidate-ownership`、`msime-tsf-preedit-caret`、`msime-tsf-host-focus`、`msime-tsf-prepared-options`、`msime-tsf-host-library-config`、`msime-tsf-module-path`、`msime-tsf-version-resource`、`msime-tsf-class-factory`。
 
 `tsf/tests/exports/`、`tsf/tests/registration_profiles/`、`tsf/tests/registration_categories/` 是各自 configure 的独立子工程，做 PE 导出与注册契约检查而不加载 DLL。`platforms/windows/tests/tools/` 与 `installer/tests/` 下另有 PowerShell 套件（构建产物、通知收集、可移植可执行文件、运行时依赖、安装器入口与包内文件、TSF 注册、Watchdog 任务、仓库根布局），它们需要 Windows 主机，随 MSVC 构建与打包流程运行。
 
@@ -580,7 +580,7 @@ macOS 缺后半条。`ShouldRoutePhysicalCandidateDigit` 明确把 Unicode 模�
 
 最后这条此前没有任何测试钉着：`input-runtime` 测试桩的 `set_dedicated_english` 用的是 trait 的空默认实现，所以该行为成立仅仅因为真实引擎恰好会重置。考虑到本仓引擎比来源新 467 个提交，这正是该钉住的一类风险。现让测试桩如实建模（模式真正改变时清空组字，重复设置同一模式不动），并加测试断言切换语言后组字消失、重复设置不误清。已把重置去掉验证过它确实会红（`left: "a"`, `right: ""`）。
 
-增量记录（2026-09-20，组字期标点的上屏时机）：来源在组字进行中遇到标点时，先用高亮候选结束组字、再输出该标点——`IsCommitWithHighlightedCandidatePunctuationInCandidateMode`（`server/src/ipc/event_listener.cpp`）列出的是 `` ` ! @ # $ % ^ & * ( ) [ ] ; : \ " , < . > ? ' ``，并排除三类：`-`/`=`/Tab 永不触发，`,`/`.` 与 `[`/`]` 在被配成翻页键时也不触发。共享运行时的 `punctuation()` 行为与之一致（先 `engine.finish(self.highlighted)` 再翻译标点），注释里也写明了原因。
+增量记录（2026-09-20，组字期标点的上屏时机）：来源在组字进行中遇到标点时，先用高亮候选结束组字、再输出该标点——`IsCommitWithHighlightedCandidatePunctuationInCandidateMode`（`server/src/ipc/event_listener.cpp`）列出的是 `` ` ! @ # $ % ^ & * ( ) [ ] ; : \ " , < . > ? ' ``，并排除三类：`-`/`=`/Tab 永不触发，`,`/`.` 与 `[`/`]` 在被配成翻页键时也不触发。（来源 `1d2431ad` 之后表里另有 `-`、`+`、`/`：主键区的 `-`/`=` 仍按键码排除，小键盘的 `+`/`-`/`.`/`/` 与主键区 `/` 则用高亮候选结束组字后原样接上 ASCII 字符，见下文 2026-09-23 的记录。）共享运行时的 `punctuation()` 行为与之一致（先 `engine.finish(self.highlighted)` 再翻译标点），注释里也写明了原因。
 
 差的是 HarmonyOS 的硬件键盘路由。`HardwareKeyRouter` 的标点分支写的是 `!composing && chinese && !japanese && isAsciiPunctuation(...)`，只在**没有组字**时把标点交给引擎；组字进行中则落到 `return RELEASE`，把键还给应用。于是在 2in1 上敲 `nihao` 再按 `!`，组字仍开着而 `!` 被插进编辑器里、排在还没上屏的拼音前面；触屏路径不受影响，它直接调 `KeyboardSession.punctuation()` 走运行时。现去掉 `!composing` 这一条：标点无论是否在组字中都归键盘所有，组字中的那次由运行时按来源的规则结束组字。翻页键不受影响——它们在更上面的 `composing` 分支里就被消费掉了，且按 keyCode 匹配（逗号是 2043），日语标点仍归应用。
 
@@ -1077,13 +1077,25 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 两个目录里零覆盖的十一个模块，多数是 Win32 资源或图标字体这类本机测不了的东西。其中**最该有覆盖的是 `PunctuationPolicy`**：它就是 2026-09-20 那批记过的「组字期标点的上屏时机」在本仓的实现，那一批把来源的字符表抄进了记录，却没有任何东西把实现钉住。这个表少一个字符，意味着那个标点不再用高亮候选结束组字——只在打字时看得见。
 
-逐字符与来源 `IsCommitWithHighlightedCandidatePunctuationInCandidateMode` 比对：23 个字符两边完全相同。用例逐个断言，并覆盖三类排除（减号加号及小键盘孪生、逗号句号被配成翻页键、方括号被配成翻页键），以及「配了一对不影响另一对」。
+逐字符与来源 `IsCommitWithHighlightedCandidatePunctuationInCandidateMode` 比对：23 个字符两边完全相同。用例逐个断言，并覆盖三类排除（减号加号及小键盘孪生、逗号句号被配成翻页键、方括号被配成翻页键），以及「配了一对不影响另一对」。（此为当时的状态。来源 `1d2431ad` 随后把 `-`、`+`、`/` 加进表里，小键盘的加减号不再算翻页键；本仓对应的是 `literal_candidate_punctuation`，见 2026-09-23 的记录。`candidate_punctuation` 本身仍是这 23 个字符，数字键与 `/` 在它之前被分走。）
 
 核对了一处写法不同但**结果等价**的地方，记下免得下次误判为缺口：来源的翻页排除额外要求「有活动组字」，本仓没有这个条件；差异只在「没有组字时按逗号」，而来源那时走 `else { ClearState(); return; }`，同样不把标点变成带高亮候选上屏，本仓返回 nullopt 落点相同。
 
 另记一处冗余：策略里的 `wch <= 127` 永远不会是拒绝的原因，因为 `translate_key` 只把 0x21..0x7E 认作字符。这不是缺陷（第二道保证窄化转换拿不到表示不了的值），但用例注释写明了，断言钉的是行为而不是那一行——否则后来的人会以为它承重。这条也是本批唯一一条反向验证**不会变红**的规则，如实记下而不是编一个能红的断言。
 
 顺带一提：交叉构建抓到我自己漏配的 include 目录，本机能编只是因为手动加了参数——这正是那一阶段存在的意义。
+
+增量记录（2026-09-23，Windows TSF：成对标点补全的光标左移、跳过右半边、嵌套计数回退，以及候选打开时的小键盘标点）：对照来源 `KeyHandler.cpp` 核对了四处，四处都是真缺口。
+
+**光标左移被丢弃。** 补完右半边后本仓直接 `PostMessage(_msgWndHandle, WM_PairedPunctuationCaretMove, ...)`，没有经过 `_QueuePairedPunctuationCaretMove`，于是 `_pendingPairedCaretFocusToken` 从未被置上，而消息处理函数只在令牌对得上时才发 `VK_LEFT`，这条消息每次都被丢掉，光标停在右半边之后。现改回来源的写法：`_PushPairedPunctuation` 记下这一对，再 `_QueuePairedPunctuationCaretMove(-1)`。
+
+**再按右半边时不跳过。** `_TryStepOverPairedPunctuation` 与 `_PushPairedPunctuation` 都没有调用者，栈永远是空的，所以补出的 `）` 后面再按 `)` 会打出第二个。现按来源在没有组字、没有候选时先尝试跳过；哪些键能跳过由新增的 `PairedPunctuationStepOverCandidate` 判定（只认单字符的右半边，引号按键而不按翻译结果判定，`{}` 也算，因为本仓 `{` 同样会补全）。
+
+**嵌套计数不回退。** `BalanceNestPairAfterAutoClose` 没有调用者，补过一次《》之后下一次 `<` 给的是〈。现与来源一样在补全后调用。遗留一处：候选打开时左半边由 Server 的引擎翻译，它的嵌套计数本仓 Windows Server 没有回退（`msime_client_balance_paired_punctuation_after_auto_close` 存在但需要一条新的 IPC），这次不改。
+
+**候选打开时的小键盘标点（来源 `1d2431ad`）。** 小键盘 `+`/`-` 此前在 TSF 与 Server 两侧都被当成翻页键排除，按下后什么都不上屏；小键盘 `.` 与 `/` 则被翻译成中文标点。现在 TSF 的 `IsCandidateNavigationKeyBeforePunctuation` 只保留主键区 `-`/`=`、Tab、翻页与 Home/End，`CommitWithHighlightedCandPunc` 加入 `/`，`KeyEventSink` 先判断是否用高亮候选结束再看 `VK_DECIMAL`；Server 侧新增 `literal_candidate_punctuation`，在有组字时把这几个键交给 `msime_client_punctuation_ascii`，上屏高亮候选后接原样的 ASCII 字符。
+
+用例：`msime-tsf-punctuation-key-policy`（跳过判定、导航键、原样字符）、`msime-tsf-paired-punctuation-wiring`（`KeyHandler.cpp` 的补全路径确实经过栈与带令牌的光标移动，且 `/` 在表里）、`windows-punctuation-policy` 补了 `literal_candidate_punctuation`。三者对着改动前的源码都会红（前两者头文件或断言失败，后者函数不存在）。本机只能跑这些不依赖 Windows 的部分，真实宿主里的光标左移与跳过没有在 Windows 上实测。
 
 增量记录（2026-09-21，Windows 第二十批：哪些键改组字）：接上一批继续走 `src/system/` 的零覆盖模块。目标起点 `25a2325c8`。
 

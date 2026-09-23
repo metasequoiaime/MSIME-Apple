@@ -31,4 +31,21 @@ inline bool candidate_punctuation(const FanyImeNamedpipeData &packet,
   return packet.wch <= 127 && characters.find(static_cast<char>(packet.wch)) !=
                                   std::string_view::npos;
 }
+
+// The ASCII mark that follows the highlighted candidate literally, or 0 when the key's punctuation is translated as usual. The numpad arithmetic keys and '/' stay literal and the numpad decimal is always '.', so an expression or a path typed right after a candidate does not become Chinese punctuation (reference 1d2431ad). The numpad '+' and '-' are arithmetic, not the paging keys candidate_punctuation excludes. Only meaningful while composing: the caller routes these keys here only then.
+inline char literal_candidate_punctuation(const FanyImeNamedpipeData &packet) {
+  if (translate_key(packet).kind != KeyKind::Character)
+    return 0;
+  switch (packet.keycode) {
+  case 0x6B:
+    return '+';
+  case 0x6D:
+    return '-';
+  case 0x6E:
+    return '.';
+  case 0x6F:
+    return '/';
+  }
+  return packet.wch == '/' ? '/' : 0;
+}
 } // namespace msime::windows

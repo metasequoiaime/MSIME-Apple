@@ -2,6 +2,7 @@
 #include "CandidateCompletionPolicy.h"
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
+#include "PunctuationPolicy.h"
 #include <memory>
 #include <stdexcept>
 
@@ -462,6 +463,12 @@ KeyResult ServerSession::punctuation(const FanyImeNamedpipeData &packet,
     throw std::invalid_argument("Invalid Windows punctuation request");
   if (!input_enabled_)
     return key(packet, epoch);
+  // Numpad arithmetic keys, the numpad decimal and '/' finish the highlighted candidate and append their ASCII mark untranslated. Without a composition there is no candidate to finish, and the key keeps its ordinary punctuation.
+  const char literal = literal_candidate_punctuation(packet);
+  if (literal && !view().at("editing_text").get<std::string>().empty())
+    return {client_, epoch_, packet.request_id, true,
+            response(msime_client_punctuation_ascii(
+                session_, static_cast<uint8_t>(literal)))};
   auto result = response(
       msime_client_punctuation(session_, static_cast<uint8_t>(action.value)));
   return {client_, epoch_, packet.request_id, true, std::move(result)};
