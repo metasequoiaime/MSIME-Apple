@@ -96,6 +96,18 @@ inline CandidateRowBounds candidate_row_bounds(size_t index, size_t count,
           metrics.pad_x / 2.0 + column * static_cast<double>(index + 1),
           top + metrics.candidate_row};
 }
+// Vertical extent of the accent bar on the selected row, as the shipped presenter draws it (CandidateList::Render with selectedBarHeight = fontSize * 0.85): a fixed height from the font size, never less than twice its 3 DIP width, centred in the row. A row that grows because its text or annotation wrapped keeps the same bar in its middle instead of a stretched one; a row shorter than the bar starts it at the row top.
+struct CandidateSelectionBar {
+  double top, bottom;
+};
+inline CandidateSelectionBar candidate_selection_bar(double row_top,
+                                                     double row_bottom,
+                                                     double font_size) {
+  const double height = (std::max)(font_size * 0.85, 6.0);
+  const double top =
+      row_top + (std::max)((row_bottom - row_top - height) * 0.5, 0.0);
+  return {top, top + height};
+}
 // A run's box relative to the row's text column: x from where the candidate text starts, y from the row top. Zero width means the run is absent. An inline run shares the first line and is centred in it; one below the first line is top aligned and may wrap.
 struct CandidateRunBox {
   double x = 0.0, y = 0.0, width = 0.0, height = 0.0;

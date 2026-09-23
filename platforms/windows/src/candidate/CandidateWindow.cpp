@@ -720,10 +720,12 @@ void CandidateWindow::paint() {
                                                         ? palette_.selected
                                                         : palette_.hover));
       if (value->candidates[i].highlighted && palette_.show_selected_bar) {
-        const float inset_y =
-            static_cast<float>(metrics.candidate_row) * 0.25f;
-        const D2D1_ROUNDED_RECT bar{{rect.left + 2.0f, rect.top + inset_y,
-                                     rect.left + 5.0f, rect.bottom - inset_y},
+        const auto extent =
+            candidate_selection_bar(rect.top, rect.bottom, font_size_);
+        const D2D1_ROUNDED_RECT bar{{rect.left + 2.0f,
+                                     static_cast<float>(extent.top),
+                                     rect.left + 5.0f,
+                                     static_cast<float>(extent.bottom)},
                                     1.5f, 1.5f};
         target->FillRoundedRectangle(bar, brush(palette_.accent));
       }
