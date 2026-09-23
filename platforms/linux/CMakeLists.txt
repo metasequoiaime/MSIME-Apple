@@ -2,7 +2,19 @@ cmake_minimum_required(VERSION 3.25)
 project(MSIMEClientLinux LANGUAGES CXX)
 find_package(CURL REQUIRED)
 include(GNUInstallDirs)
+# The user units msime-client-setup can enable. The CMake uninstall and the Debian maintainer scripts all stop them, so the list is defined once here; each socket precedes its service so stopping in this order does not activate the service again. The maintainer scripts restart only the services: sockets run no program.
+set(MSIME_USER_UNITS msime-client-online.socket msime-client-online.service msime-client-voice.socket
+    msime-client-voice.service msime-client-clipboard.service)
+set(MSIME_USER_SERVICES ${MSIME_USER_UNITS})
+list(FILTER MSIME_USER_SERVICES INCLUDE REGEX "\\.service$")
+list(JOIN MSIME_USER_UNITS " " MSIME_USER_UNIT_LIST)
+list(JOIN MSIME_USER_SERVICES " " MSIME_USER_SERVICE_LIST)
 configure_file(cmake/uninstall.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake @ONLY)
+# Configured for every build, not only packaging ones, so the gate's ctest exercises the scripts the .deb ships; packaging.cmake hands them to CPack.
+foreach(MSIME_DEB_SCRIPT prerm postinst)
+  configure_file(cmake/deb-${MSIME_DEB_SCRIPT}.in ${CMAKE_CURRENT_BINARY_DIR}/debian/${MSIME_DEB_SCRIPT} @ONLY
+                 FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+endforeach()
 add_custom_target(uninstall
   COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake"
   COMMENT "Remove installed MSIME files while preserving runtime configuration")
@@ -260,6 +272,9 @@ add_test(NAME linux-setup-resolution
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_resolution.py")
 add_test(NAME linux-first-run-guide
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/first_run_guide.py")
+add_test(NAME linux-deb-maintainer-scripts
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/deb_maintainer_scripts.py"
+                 "${CMAKE_CURRENT_BINARY_DIR}/debian" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" "${MSIME_USER_UNIT_LIST}")
 add_executable(linux-first-run-guidance-test tests/core/first_run_guidance.cpp)
 target_compile_options(linux-first-run-guidance-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-first-run-guidance-test PRIVATE src)
