@@ -3,6 +3,7 @@
 #include "CandidateClickWorker.h"
 #include "CandidateFontSettings.h"
 #include "CandidateLayoutSettings.h"
+#include "CandidateMenuLayout.h"
 #include "CandidatePalette.h"
 #include "CandidatePresentation.h"
 #include "CandidateShadow.h"
@@ -129,11 +130,11 @@ private:
   // sized and reused when it is painted so the two cannot disagree.
   float decoration_offset_ = 0.0f;
   CandidateShadowInsets shadow_insets_{};
-  // Owner-drawn menu labels, kept alive for the duration of the popup: the
-  // draw messages carry pointers into this list.
-  // Built on first use: most sessions never open the right-click menu, and
-  // the flyout owns two windows and two Direct2D devices.
+  // Owner-drawn menu labels, kept alive for the duration of the popup: the draw messages carry pointers into this list.
+  // Built on first use: most sessions never open the right-click menu, and the flyout owns two windows and two Direct2D devices.
   std::unique_ptr<CandidateFlyoutWindow> flyout_;
+  // The candidate the open flyout acts on, recorded afresh on every right click because the flyout itself outlives any one opening.
+  CandidateMenuTarget<CandidateClick> menu_target_;
   std::vector<std::wstring> fallback_families_;
   Microsoft::WRL::ComPtr<IDWriteFontFallback> font_fallback_;
   // Tallest this vertical list has been since the last hide(), in physical

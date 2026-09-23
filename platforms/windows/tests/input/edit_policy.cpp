@@ -75,8 +75,10 @@ int main() {
     REQUIRE(edit_kind(key(0xBD, '-'), "none", true, false, {}, 0, true) ==
             EditKind::Character);
     REQUIRE(edit_kind(key(0xBD, '-'), "none", true, false, {}, 0, false) == EditKind::None);
-    // Only while composing, and only on that key.
-    REQUIRE(edit_kind(key(0xBD, '-'), "none", false, false, {}, 0, true) == EditKind::None);
+    // It also opens a composition from an empty buffer, as the reference does, and only that key does.
+    REQUIRE(edit_kind(key(0xBD, '-'), "none", false, false, {}, 0, true) == EditKind::Character);
+    REQUIRE(edit_kind(key(0xBD, '-'), "none", false, false, {}, 0, false) == EditKind::None);
+    REQUIRE(edit_kind(key(0xBD, '_', shift), "none", false, false, {}, 0, true) == EditKind::None);
     REQUIRE(edit_kind(key(0xBB, '='), "none", true, false, {}, 0, true) == EditKind::None);
 
     // Microsoft double pinyin puts `ing` on the semicolon. It is a character

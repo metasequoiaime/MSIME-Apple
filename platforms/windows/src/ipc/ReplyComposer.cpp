@@ -24,6 +24,29 @@ std::optional<NavigationReply> navigation_for(ReplyPath path) {
     return std::nullopt;
   }
 }
+// The UI-less reply for a composition: its display text and the candidate page, with the highlight the view marks.
+EncodedReply uiless_composition(uint64_t request, const std::string &display,
+                                const nlohmann::json &view) {
+  std::vector<std::string> candidates;
+  size_t highlighted = 0;
+  bool found_highlight = false;
+  for (const auto &candidate : view.at("candidates")) {
+    if (candidate.at("highlighted").get<bool>()) {
+      if (found_highlight)
+        throw std::logic_error("Ambiguous candidate highlight");
+      highlighted = candidates.size();
+      found_highlight = true;
+    }
+    candidates.push_back(candidate.at("text").get<std::string>());
+  }
+  if (!candidates.empty() && !found_highlight)
+    throw std::logic_error("Missing candidate highlight");
+  return uiless_reply(request, display, candidates, highlighted);
+}
+// The reference's CandidateTextForOutput: the Japanese scheme's kana and kanji never go through the simplified-to-traditional table, whatever the character-set toggle says. The toggle itself is untouched, so leaving Japanese restores traditional output.
+bool traditional_projection(const ServerSession &session) {
+  return session.traditional_output() && session.view().value("scheme", 0u) != 3u;
+}
 } // namespace
 ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch)
     : client_(client), epoch_(epoch) {
@@ -148,27 +171,13 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
                          ? navigation_reply(result.request_id, *navigation)
                          : preedit_reply(result.request_id, prefix_ + display);
     } else {
-      std::vector<std::string> candidates;
-      size_t highlighted = 0;
-      bool found_highlight = false;
-      for (const auto &candidate : view.at("candidates")) {
-        if (candidate.at("highlighted").get<bool>()) {
-          if (found_highlight)
-            throw std::logic_error("Ambiguous candidate highlight");
-          highlighted = candidates.size();
-          found_highlight = true;
-        }
-        candidates.push_back(candidate.at("text").get<std::string>());
-      }
-      if (!candidates.empty() && !found_highlight)
-        throw std::logic_error("Missing candidate highlight");
-      next.encoded = uiless_reply(result.request_id, prefix_ + display,
-                                  candidates, highlighted);
+      next.encoded = uiless_composition(result.request_id, prefix_ + display, view);
     }
     break;
   case ReplyPath::AutoCommitAndContinue: {
+    // Two Wubi commits take this path: the fourth letter of a unique code, which leaves nothing to compose, and a letter typed after a complete code (顶字), which commits the first candidate and leaves that letter composing. The worker frame tells the TIP to consume the four letters of the committed code from its own buffer and keep whatever follows, so the key reply only has to show the composition the Engine now holds.
     const auto &context = result.transition.at("commit_context");
-    if (delta.empty() || !raw.empty() || context.is_null() ||
+    if (delta.empty() || context.is_null() ||
         context.value("scheme", 255u) != 2u) {
       invalid();
       break;
@@ -180,8 +189,8 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       break;
     }
     if (result.reply_expected)
-      next.encoded = uiless ? uiless_reply(result.request_id, {}, {}, 0)
-                            : preedit_reply(result.request_id, {});
+      next.encoded = uiless ? uiless_composition(result.request_id, display, view)
+                            : preedit_reply(result.request_id, display);
     next.next_prefix.clear();
     next.committed_text = total;
     break;
@@ -201,7 +210,7 @@ const PendingReply &ReplyComposer::dispatch(
     ReplyPath path, bool uiless, std::optional<std::string> local_text) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (session_ && session.view().at("session").get<uint64_t>() != session_)
     throw std::logic_error("Reply changed host session");
   if (path == ReplyPath::LocalCommit && session.input_enabled()) {
@@ -267,7 +276,7 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     TsfPreeditStyle style, std::optional<std::string> local_text) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
@@ -283,6 +292,16 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     return dispatch(session, packet, epoch, ReplyPath::LocalCancel, uiless);
   if (action.kind == KeyKind::Ignore)
     return dispatch(session, packet, epoch, ReplyPath::NoReply, uiless);
+  // Ctrl+Shift+E reaches the Server as an ordinary key whose composition the TSF has already cancelled without reading a reply, the same contract as Escape. Toggle the mode here, as the reference does unconditionally, instead of letting the generic modifier fallback drop it.
+  if (is_english_mode_toggle_key(packet.keycode,
+                                 PipeMetadata::key_modifiers(packet.modifiers_down))) {
+    const bool toggle = session.input_enabled();
+    KeyResult result{client_, epoch_, packet.request_id, false,
+                     nlohmann::json{{"commit", nullptr},
+                                    {"view", toggle ? session.toggle_dedicated_english(epoch)
+                                                    : session.view()}}};
+    return stage(result, toggle ? ReplyPath::LocalCancel : ReplyPath::NoReply, uiless);
+  }
   // Control+Enter is a candidate-only translation action. It must be checked
   // before the generic modifier fallback, which intentionally forwards other
   // Control combinations to the host application.
@@ -332,7 +351,7 @@ std::optional<PendingReply> ReplyComposer::toggle_character_set(
                      (!persist || persist(desired));
   if (apply)
     (void)session.toggle_traditional_output(epoch);
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   KeyResult result{client_, epoch_, packet.request_id, false,
                    nlohmann::json{{"commit", nullptr}, {"view", session.view()}}};
   return stage(result, ReplyPath::NoReply,
@@ -343,7 +362,7 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                     uint64_t epoch, TsfPreeditStyle style) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
@@ -386,7 +405,7 @@ ReplyComposer::navigate(ServerSession &session,
                         const NavigationBindings &bindings) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (session_ && session.view().at("session").get<uint64_t>() != session_)
     throw std::logic_error("Reply changed host session");
   auto result = session.navigate(packet, epoch, bindings);
@@ -438,7 +457,7 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
 std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
     uint64_t expected_session, uint64_t generation, size_t index) {
   if (pending_ || !session.input_enabled()) return std::nullopt;
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   const auto view = session.view();
   if (!expected_session || view.at("session") != expected_session ||
       (session_ && session_ != expected_session) ||
@@ -526,7 +545,7 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
       PipeMetadata::key_modifiers(packet.modifiers_down) != 2u ||
       (packet.modifiers_down & PipeMetadata::CandidateActive) == 0)
     return std::nullopt;
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   const auto view = session.view();
   if (!view.at("focused").get<bool>() || view.at("candidates").empty())
     return std::nullopt;
@@ -725,7 +744,7 @@ std::optional<PendingReply> ReplyComposer::configured_key(
     std::optional<std::string> local_text, WordCharacterBinding word_binding) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
@@ -744,7 +763,7 @@ std::optional<PendingReply> ReplyComposer::configured_key(
       !current.at("editing_text").get<std::string>().empty();
   // Checked first: the numpad decimal is also on the candidate punctuation list, where it would be translated to '。'.
   if ((composing && literal_candidate_punctuation(packet)) ||
-      candidate_punctuation(packet, bindings))
+      candidate_punctuation(packet, bindings, current.value("scheme", 0u) == 3u))
     return dispatch(session, packet, epoch, ReplyPath::Punctuation,
                     (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
   if (!composing)

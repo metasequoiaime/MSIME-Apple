@@ -29,6 +29,13 @@ int main() {
                                         true));
   assert(!should_send_composition_reply(false, false, false, false, false,
                                          false));
+  using msime::windows::is_english_mode_toggle_key;
+  using msime::windows::kModifierAlt;
+  assert(is_english_mode_toggle_key('E', kModifierControl | kModifierShift));
+  assert(!is_english_mode_toggle_key('E', kModifierControl | kModifierShift | kModifierAlt));
+  assert(!is_english_mode_toggle_key('E', kModifierControl));
+  assert(!is_english_mode_toggle_key('E', kModifierShift));
+  assert(!is_english_mode_toggle_key('F', kModifierControl | kModifierShift));
   assert(should_learn_entered_english_word(false, false, true, false));
   assert(should_learn_entered_english_word(true, false, true, true));
   assert(should_learn_entered_english_word(false, true, true, true));

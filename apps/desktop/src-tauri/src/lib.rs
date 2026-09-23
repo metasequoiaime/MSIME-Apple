@@ -765,8 +765,10 @@ async fn import_picked_skin(app: &tauri::AppHandle, root: PathBuf) -> Result<(),
     else {
         return Ok(());
     };
-    let copied =
-        tauri::async_runtime::spawn_blocking(move || skin_directory::import(&source, &root)).await;
+    let copied = tauri::async_runtime::spawn_blocking(move || {
+        msime_client_core::skin::folder_import::import(&source, &root)
+    })
+    .await;
     let _ = platform.end_skin_folder_access();
     copied
         .map_err(|_| CommandError { code: "storage" })?

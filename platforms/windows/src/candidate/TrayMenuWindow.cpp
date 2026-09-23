@@ -154,11 +154,14 @@ void TrayMenuWindow::choose(size_t index) {
   if (index >= items_.size() || !items_[index].available)
     return;
   const auto command = items_[index].command;
-  // A command that could not run leaves the menu open, so a failure is not
-  // mistaken for an applied action.
-  if (command_(command))
+  // A command that could not run leaves the menu open, so a failure is not mistaken for an applied action.
+  if (command_(command) && tray_menu_closes_after(command)) {
     hide();
-  else if (window_)
+    return;
+  }
+  // A switch that stays open redraws from the live state, so the row shows what the Server now reports rather than what the click assumed.
+  items_ = tray_menu_items(capabilities_, toolbar_state_());
+  if (window_)
     InvalidateRect(window_, nullptr, FALSE);
 }
 void TrayMenuWindow::paint() {

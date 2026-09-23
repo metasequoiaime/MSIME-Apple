@@ -127,4 +127,13 @@ int main() {
     require(icons.toggle_height < icons.row_height);
     require(icons.toggle_width + icons.icon_column < icons.width);
   }
+  // The toolbar switch flips in place and leaves the menu open, as the reference does; every row that opens a surface still dismisses it.
+  {
+    require(!tray_menu_closes_after(TrayMenuCommand::ToggleFloatingToolbar));
+    for (auto command :
+         {TrayMenuCommand::OpenEmojiPanel, TrayMenuCommand::OpenHandwritingPanel,
+          TrayMenuCommand::OpenKeyboardPanel, TrayMenuCommand::ToggleVoiceInput,
+          TrayMenuCommand::OpenSettings, TrayMenuCommand::OpenAbout})
+      require(tray_menu_closes_after(command));
+  }
 }

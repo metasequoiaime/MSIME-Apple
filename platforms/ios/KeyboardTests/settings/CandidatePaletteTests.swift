@@ -139,6 +139,33 @@ final class CandidatePaletteTests: XCTestCase {
                                                 systemDark: false, skinsRoot: root).surface), "#fff0f5")
   }
 
+  /// The native settings app copies a folder picked in Files into the shared root through the Rust import, and can delete it again.
+  func testAPickedFolderIsImportedListedAndRemoved() throws {
+    let files = try skinsRoot(["sakura": manifest("sakura", colors: "surface = '#fff0f5'")])
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+    let source = files.appendingPathComponent("sakura", isDirectory: true)
+    XCTAssertEqual(try ExternalCandidateSkin.importFolder(source, root: root).get(), "sakura")
+    let listed = try XCTUnwrap(ExternalCandidateSkin.scan(root))
+    XCTAssertEqual(listed.map(\.id), ["sakura"])
+    XCTAssertEqual(listed.first?.skin.name, "Sample")
+    XCTAssertEqual(hex(CandidatePalette.resolve(["candidate_skin": "sakura", "candidate_theme": "light"],
+                                                systemDark: false, skinsRoot: root).surface), "#fff0f5")
+
+    let bare = files.appendingPathComponent("bare", isDirectory: true)
+    try FileManager.default.createDirectory(at: bare, withIntermediateDirectories: true)
+    XCTAssertEqual(ExternalCandidateSkin.importFolder(bare, root: root), .failure(.manifest))
+    let builtIn = files.appendingPathComponent("fluent", isDirectory: true)
+    try FileManager.default.createDirectory(at: builtIn, withIntermediateDirectories: true)
+    try "id = 'fluent'".write(to: builtIn.appendingPathComponent("skin.toml"), atomically: true, encoding: .utf8)
+    XCTAssertEqual(ExternalCandidateSkin.importFolder(builtIn, root: root), .failure(.name))
+
+    XCTAssertFalse(ExternalCandidateSkin.remove("../sakura", root: root))
+    XCTAssertFalse(ExternalCandidateSkin.remove(".hidden", root: root))
+    XCTAssertTrue(ExternalCandidateSkin.remove("sakura", root: root))
+    XCTAssertEqual(ExternalCandidateSkin.scan(root)?.count, 0)
+  }
+
   func testBorderAcceptsAlphaAndTransparent() {
     XCTAssertEqual(CandidatePalette.borderColor("transparent")?.cgColor.alpha, 0)
     XCTAssertEqual(CandidatePalette.borderColor("#00ff00").map(hex), "#00ff00")
