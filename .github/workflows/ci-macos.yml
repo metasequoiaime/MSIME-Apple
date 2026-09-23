@@ -24,7 +24,9 @@ on:
 
 concurrency:
   # Keyed by event as well as branch: promote-release-branch.sh and merge-release-pr.sh dispatch this workflow and wait on that exact run, so a pull_request run on the same branch must not cancel it.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  #
+  # 拉取请求那一半按 PR 号而不是 head 分支名:head.ref 是 head 仓库上的裸名字,这是个公开仓库,fork 里的 `fix/foo` 和本仓的 `fix/foo` 会落进同一个组、互相取消。非 PR 事件仍旧回退到 ref_name,行为不变。
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
