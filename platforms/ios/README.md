@@ -64,7 +64,7 @@ Apple 客户端旧版 `english.mixedCandidates` 布尔值在创建首个共享�
 
 组字中按中/英键、Shift 切到英文或按回车，和 Windows 一样把已敲下的字母原样上屏（`commitRaw`），不再替用户选首个候选；回车键在组字期间显示「确认」（日语为「確定」）。九宫格和日语例外：九宫格的原始按键是数字，日语是在确认假名，这两者仍走 `finishComposition`。规则集中在 `CompositionBoundaryPolicy`。“更多”面板的「中文标点」开关对应 Windows 的中英文标点切换，只改当前键盘（经 `msime_client_set_chinese_punctuation`），从英文切回中文时恢复共享偏好的 `chinese_punctuation`，设置页只有这个字段变了才覆盖它；标点被锁定时开关置灰。锁定为中文时英文模式下的标点也交给运行时，出中文标点。Windows 在锁定中文时会强制打开标点开关，而 Engine 只要开关关着就不出中文标点，所以共享宿主层把「锁定中文」连同开关一起交给 Engine，所有平台都按这个语义处理。
 
-键盘按宿主给出的 trait 区分手机与平板形态（`KeyboardFormFactor`），不按机型判断：只有 regular 宽度的 iPad 才画平板键盘，iPad 的浮动键盘、Slide Over 与台前调度里的窄窗口是 compact 宽度，和系统键盘一样退回手机布局，停靠与浮动切换时随 size class 变化重新布局。平板键盘更高且横屏比竖屏高，第三排字母末尾带逗号和句号（中文模式显示中文标点，仍以 ASCII 交给 Engine）。iPad 没有 Taptic Engine，键盘「更多」面板、App 的输入设置和皮肤编辑器在非 iPhone 上不显示按键振动与振动强度；存储值不被改写，设置同步仍把它原样带给用户的 iPhone。
+键盘按宿主给出的 trait 区分手机与平板形态（`KeyboardFormFactor`），不按机型判断：只有 regular 宽度的 iPad 才画平板键盘，iPad 的浮动键盘、Slide Over 与台前调度里的窄窗口是 compact 宽度，和系统键盘一样退回手机布局，停靠与浮动切换时随 size class 变化重新布局。平板键盘更高且横屏比竖屏高，第三排字母末尾带逗号和句号（中文模式显示中文标点，仍以 ASCII 交给 Engine）。平板键盘默认还有桌面键盘那样的数字行和 Tab 键（「键盘设置 → iPad → 数字行与 Tab 键」，App Group `keyboard.tablet.fullKeys`，这一节只在 iPad 上出现）：数字行在字母上方，打开时键盘加高一排而不压扁字母，和符号层的数字走同一条路径，组字时 1–9 选候选、没有组字时直接输入；Tab 在 Q 左边，宽一格半。桌面组字时 Tab 翻到下一页候选（共享的 `navigation.tab`，默认开），iOS 候选栏没有分页，只有背后的全部候选面板，所以组字且有候选时 Tab 打开这个面板；`navigation.tab` 关闭或没有组字时，结束组字并输入制表符。符号层、九键、手写和假名布局不显示数字行。iPad 没有 Taptic Engine，键盘「更多」面板、App 的输入设置和皮肤编辑器在非 iPhone 上不显示按键振动与振动强度；存储值不被改写，设置同步仍把它原样带给用户的 iPhone。
 
 App 的「键盘」标签页同样分形态：iPad 在 regular 宽度下是侧栏加详情的分栏（`TabletSettingsView`），我的键盘、皮肤、输入方案、按键、词库、AI 各占一栏，切换栏目时详情重建一条新的导航栈；iPhone（包括横屏时同为 regular 宽度的 Max 机型）与 iPad 的窄窗口仍是卡片首页加单栈推入。
 
