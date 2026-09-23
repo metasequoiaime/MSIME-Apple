@@ -16,6 +16,9 @@ use crate::platform::macos::macos_keyboard;
 use crate::platform::macos::macos_panel_session;
 use crate::voice::cancel_voice;
 use crate::{DictionaryHostOptions, HostActionError, PanelInputState};
+#[cfg(target_os = "windows")]
+use msime_client_core::host_surface::PanelPlacement;
+use msime_client_core::host_surface::{PanelSurface, SurfaceRoute};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub(crate) fn panel_accepts_focus(label: &str) -> bool {
@@ -200,38 +203,47 @@ pub(crate) fn open_panel_window(
     }
 }
 
+/// This host's window geometry for a panel route, from the shared route table.
+fn panel_surface(route: SurfaceRoute) -> Result<PanelSurface, HostActionError> {
+    route
+        .panel_for(crate::host_platform())
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })
+}
+
 #[tauri::command]
 pub(crate) fn open_keyboard_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
     {
+        let surface = panel_surface(SurfaceRoute::Keyboard)?;
+        let (width, height) = (f64::from(surface.width), f64::from(surface.height));
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let _ = &state;
         #[cfg(target_os = "linux")]
         let position = {
-            let _ = remember_panel_input_target(&state, "keyboard-panel", true);
-            panel_position(&state, "keyboard-panel", 1100.0, 400.0)
+            let _ = remember_panel_input_target(&state, surface.label, true);
+            panel_position(&state, surface.label, width, height)
         };
         // The panel never activates, so the window that owns the caret now is
         // the one synthetic input has to reach later.
         #[cfg(target_os = "windows")]
-        let height = windows_panel_height(&app, "keyboard-panel", 400.0);
-        #[cfg(not(target_os = "windows"))]
-        let height = 400.0;
+        let height = windows_panel_height(&app, surface.label, height);
         #[cfg(target_os = "windows")]
         let position = {
             let _ = remember_panel_input_target(&state);
-            windows_panel_position(1100.0, height)
+            windows_panel_position(width, height, surface.placement)
         };
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let position = None;
         open_panel_window(
             &app,
-            "keyboard-panel",
-            "keyboard",
-            "水杉屏幕键盘",
-            1100.0,
+            surface.label,
+            surface.query,
+            surface.title,
+            width,
             height,
             position,
         )
@@ -244,29 +256,31 @@ pub(crate) fn open_handwriting_panel(
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
     {
+        let surface = panel_surface(SurfaceRoute::Handwriting)?;
+        let (width, height) = (f64::from(surface.width), f64::from(surface.height));
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let _ = &state;
         #[cfg(target_os = "linux")]
         let position = {
-            let _ = remember_panel_input_target(&state, "handwriting-panel", true);
-            panel_position(&state, "handwriting-panel", 980.0, 650.0)
+            let _ = remember_panel_input_target(&state, surface.label, true);
+            panel_position(&state, surface.label, width, height)
         };
         // The panel never activates, so the window that owns the caret now is
         // the one synthetic input has to reach later.
         #[cfg(target_os = "windows")]
         let position = {
             let _ = remember_panel_input_target(&state);
-            windows_panel_position(980.0, 650.0)
+            windows_panel_position(width, height, surface.placement)
         };
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let position = None;
         open_panel_window(
             &app,
-            "handwriting-panel",
-            "handwriting",
-            "水杉手写识别板",
-            980.0,
-            650.0,
+            surface.label,
+            surface.query,
+            surface.title,
+            width,
+            height,
             position,
         )
     }
@@ -279,29 +293,31 @@ pub(crate) fn open_emoji_panel(
     input: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
     {
+        let surface = panel_surface(SurfaceRoute::Emoji)?;
+        let (width, height) = (f64::from(surface.width), f64::from(surface.height));
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let _ = (&options, &input);
         #[cfg(target_os = "linux")]
         let position = {
             let _ = &options;
-            let _ = remember_panel_input_target(&input, "emoji-panel", true);
-            panel_position(&input, "emoji-panel", 720.0, 720.0)
+            let _ = remember_panel_input_target(&input, surface.label, true);
+            panel_position(&input, surface.label, width, height)
         };
         #[cfg(target_os = "windows")]
         let position = {
             let _ = &options;
             let _ = remember_panel_input_target(&input);
-            windows_panel_position(720.0, 720.0)
+            windows_panel_position(width, height, surface.placement)
         };
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let position = None;
         open_panel_window(
             &app,
-            "emoji-panel",
-            "emoji",
-            "Emoji and more",
-            720.0,
-            720.0,
+            surface.label,
+            surface.query,
+            surface.title,
+            width,
+            height,
             position,
         )
     }
@@ -333,7 +349,7 @@ pub(crate) fn open_voice_panel(
     #[cfg(target_os = "windows")]
     let position = {
         let _ = remember_panel_input_target(&state);
-        windows_panel_position(620.0, 520.0)
+        windows_panel_position(620.0, 520.0, PanelPlacement::BottomCenter)
     };
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     let position = None;
@@ -356,7 +372,7 @@ pub(crate) fn open_cloud_clipboard_panel(
     #[cfg(target_os = "windows")]
     {
         let _ = remember_panel_input_target(&state);
-        let position = windows_panel_position(560.0, 560.0);
+        let position = windows_panel_position(560.0, 560.0, PanelPlacement::BottomCenter);
         open_panel_window(
             &app,
             "cloud-clipboard-panel",
@@ -398,7 +414,7 @@ pub(crate) fn open_cloud_dictionary_panel(
     #[cfg(target_os = "windows")]
     {
         let _ = remember_panel_input_target(&state);
-        let position = windows_panel_position(760.0, 700.0);
+        let position = windows_panel_position(760.0, 700.0, PanelPlacement::BottomCenter);
         open_panel_window(
             &app,
             "cloud-dictionary-panel",
