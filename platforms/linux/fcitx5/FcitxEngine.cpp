@@ -866,6 +866,7 @@ public:
   // Windows re-resolves punctuation on every Chinese/English switch: under the "follow" lock (0) it tracks the mode, and a pinned lock keeps its value. Session-only - the saved chinese_punctuation preference is not rewritten, so the next preference refresh restates it.
   void resyncPunctuationForMode() {
     english_punctuation_ = {};
+    english_chinese_punctuation_ = false;
     if (punctuation_lock_ != 0) return;
     chinese_punctuation_ = input_enabled_;
     syncSessionChinesePunctuation();
@@ -1383,10 +1384,13 @@ public:
     // Applied once per input context, not once per session: refocusing or
     // rebuilding the Engine session must keep the mode the user chose rather than
     // putting the startup default back.
+    bool restore_changed_mode = false;
     if (!ime_mode_chosen_) {
-      if (mode_restore_pending_)
+      if (mode_restore_pending_) {
+        const bool before = input_enabled_;
         restoreInputMode();
-      else {
+        restore_changed_mode = input_enabled_ != before;
+      } else {
         input_enabled_ = preferences_.value("default_ime_mode", "chinese") != "english";
         ime_mode_chosen_ = true;
       }
@@ -1491,6 +1495,8 @@ public:
     session_chinese_punctuation_ =
         options.at("preferences").value("chinese_punctuation", true);
     syncSessionChinesePunctuation();
+    // A mode the focus restores is a Chinese/English switch like any other; resolved here, once the lock is read and the session exists.
+    if (restore_changed_mode) resyncPunctuationForMode();
     view_ = response(msime_client_focus(session_, true)).at("view");
     return true;
   }
@@ -2859,8 +2865,10 @@ public:
   bool paired_punctuation_ = true;
   // Closing marks this host inserted after the caret, innermost last; whether the last apply() completed a pair.
   msime::linux_host::PairedPunctuationTracker paired_tracker_;
-  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock; reset on every mode switch.
+  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock or after Ctrl+.; reset on every mode switch.
   msime::linux_host::EnglishPunctuationState english_punctuation_;
+  // Ctrl+. pressed in English mode under the "follow" lock: English mode types Chinese punctuation until the next Chinese/English switch, as Windows does with its punctuation compartment on and the IME closed. Session-only and kept apart from chinese_punctuation_, which a preference refresh re-derives from the saved preference.
+  bool english_chinese_punctuation_ = false;
   bool pair_inserted_ = false;
   // Japanese converts with Space and commits with Enter; see ../src/core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion_;
@@ -3650,7 +3658,11 @@ public:
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
     if (!state->session_) return false;
-    return mode_ == Mode::Chinese ? state->chinese_punctuation_ : state->paired_punctuation_;
+    if (mode_ == Mode::Paired) return state->paired_punctuation_;
+    // English mode types what its own flags say, not the saved chinese_punctuation preference.
+    return state->input_enabled_ ? state->chinese_punctuation_
+        : state->punctuation_lock_ == 1 ||
+          (state->punctuation_lock_ == 0 && state->english_chinese_punctuation_);
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
@@ -3658,7 +3670,11 @@ public:
     if (!state->session_ || state->restricted()) return;
     try {
       if (!state->ensure()) return;
-      if (mode_ == Mode::Chinese) state->toggleChinesePunctuation();
+      if (mode_ == Mode::Chinese && !state->input_enabled_) {
+        // Same as Ctrl+. in English mode: session-only, and a pinned lock holds.
+        if (state->punctuation_lock_ == 0)
+          state->english_chinese_punctuation_ = !state->english_chinese_punctuation_;
+      } else if (mode_ == Mode::Chinese) state->toggleChinesePunctuation();
       else state->togglePairedPunctuation();
       update(ic);
     } catch (...) {
@@ -5619,8 +5635,18 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     toggle_chord_held_ = sym;
     return true;
   }
+  // Windows eats Ctrl+. with the IME closed too and flips its punctuation compartment, which a pinned lock holds in place. Nothing is saved: the next Chinese/English switch (resyncPunctuationForMode) undoes it.
+  if (!input_enabled_ && sym == FcitxKey_period && ctrl && !shift && !alt &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
+    if (!ic_.hasFocus() || restricted()) return false;
+    if (punctuation_lock_ == 0) {
+      english_chinese_punctuation_ = !english_chinese_punctuation_;
+      ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+    }
+    return true;
+  }
   if (!input_enabled_) {
-    // English mode still honours fullwidth output and the "always Chinese punctuation" lock, as Windows does with the IME closed; everything else passes through.
+    // English mode still honours fullwidth output, the "always Chinese punctuation" lock and a Ctrl+. choice made in English mode, as Windows does with the IME closed; everything else passes through.
     if (ctrl || alt ||
         states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper,
                                         fcitx::KeyState::Meta}) ||
@@ -5629,7 +5655,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     const bool keypad = sym >= FcitxKey_KP_Space && sym <= FcitxKey_KP_9;
     const auto text = msime::linux_host::english_mode_output(
         static_cast<char32_t>(fcitx::Key::keySymToUnicode(sym)), keypad,
-        punctuation_lock_ == 1, fullwidthOutput(), english_punctuation_);
+        punctuation_lock_ == 1 || (punctuation_lock_ == 0 && english_chinese_punctuation_),
+        fullwidthOutput(), english_punctuation_);
     if (text.empty()) return false;
     commitText(text, msime::linux_host::TypingSource::English);
     return true;

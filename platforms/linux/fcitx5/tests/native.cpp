@@ -853,6 +853,43 @@ int main(int argc, char **argv) {
                                                     fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}), true);
       engine.keyEvent(entry, narrowRelease);
       require(narrow.accepted() && !state->fullwidthOutput(), "Ctrl+Shift+Space restores halfwidth");
+      // Ctrl+. works in English mode too, as Windows does with the IME closed: the chord is eaten, commas become Chinese until the next mode switch, and nothing is saved. A pinned English lock keeps ASCII whatever Ctrl+. says.
+      const auto ctrlPeriod = [&] {
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_period, fcitx::KeyStates(fcitx::KeyState::Ctrl)));
+        engine.keyEvent(entry, event);
+        const bool accepted = event.accepted();
+        fcitx::KeyEvent release(&ic, fcitx::Key(FcitxKey_period, fcitx::KeyStates(fcitx::KeyState::Ctrl)), true);
+        engine.keyEvent(entry, release);
+        return accepted && !release.accepted();
+      };
+      const auto savedPunctuation = state->preferences_.value("chinese_punctuation", Json());
+      require(ctrlPeriod(), "Ctrl+. is handled in English mode and its release passes through");
+      require(committedBy(FcitxKey_comma) == std::make_pair(true, std::string("，")),
+              "English mode converts a comma after Ctrl+.");
+      require(state->preferences_.value("chinese_punctuation", Json()) == savedPunctuation,
+              "English-mode Ctrl+. leaves the saved punctuation preference alone");
+      // The status item shows what English mode types, and clicking it there is the same session-only toggle.
+      require(engine.chinese_punctuation_action_.isChecked(&ic),
+              "the punctuation status item shows the English-mode Ctrl+. choice");
+      engine.chinese_punctuation_action_.activate(&ic);
+      require(!engine.chinese_punctuation_action_.isChecked(&ic) &&
+                  committedBy(FcitxKey_comma) == std::make_pair(false, std::string{}) &&
+                  state->preferences_.value("chinese_punctuation", Json()) == savedPunctuation,
+              "the punctuation status item toggles English-mode punctuation without saving");
+      engine.chinese_punctuation_action_.activate(&ic);
+      require(engine.chinese_punctuation_action_.isChecked(&ic),
+              "the punctuation status item turns English-mode Chinese punctuation back on");
+      require(ctrlSpace() && state->input_enabled_ && ctrlSpace() && !state->input_enabled_,
+              "the English-mode Ctrl+. test switches modes twice");
+      require(committedBy(FcitxKey_comma) == std::make_pair(false, std::string{}),
+              "a mode round trip drops the English-mode Ctrl+. choice");
+      state->punctuation_lock_ = 2;
+      require(ctrlPeriod(), "Ctrl+. is handled in English mode under the English punctuation lock");
+      require(committedBy(FcitxKey_comma) == std::make_pair(false, std::string{}),
+              "the English punctuation lock keeps a comma ASCII after Ctrl+. in English mode");
+      state->punctuation_lock_ = 0;
+      require(committedBy(FcitxKey_comma) == std::make_pair(false, std::string{}),
+              "Ctrl+. under the English punctuation lock left no choice behind");
       require(ctrlSpace() && state->input_enabled_, "English output test returns to Chinese");
       // Under the follow lock a mode switch re-resolves punctuation: English mode takes ASCII marks, and coming back restores Chinese ones even after a Ctrl+. choice.
       state->chinese_punctuation_ = false;
