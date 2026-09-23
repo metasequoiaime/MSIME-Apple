@@ -29,9 +29,18 @@ local.properties
 # Local editor and coding-agent state. Contributor machines differ; none of it
 # describes the project.
 .gitnexus
-.claude/
 .vscode/
 .idea/
+# Skills are the exception the comment above asks for: they describe how to build
+# and launch this project, not how one contributor's machine is set up, and they
+# are worth no less than the prose in AGENTS.md. Everything else under .claude/
+# stays out — settings.local.json and the scheduler lock are per-machine state.
+#
+# The contents are excluded rather than the directory: git will not re-include a
+# path whose parent directory is itself excluded, so `.claude/` plus a negation
+# silently keeps ignoring the skills.
+.claude/*
+!.claude/skills/
 
 # Local audit and artifact reports must never enter a source release.
 .tmp-*
