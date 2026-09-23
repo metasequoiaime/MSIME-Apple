@@ -13,10 +13,17 @@ if(MSIME_LINUX_VOICE)
   message(FATAL_ERROR "Disable MSIME_LINUX_VOICE for packaging; it installs a development test executable")
 endif()
 
-# Use the desktop product's existing version; packaging has no separate version
-# sequence. CMake's JSON reader avoids depending on Python during configuration.
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../apps/desktop/src-tauri/tauri.conf.json" MSIME_DESKTOP_METADATA)
-string(JSON CPACK_PACKAGE_VERSION GET "${MSIME_DESKTOP_METADATA}" version)
+# The package version defaults to the desktop product's version. The release workflow publishes under platforms/linux/version.txt (tag linux-vVERSION) and passes that version here so the file names match the release they are attached to. CMake's JSON reader avoids depending on Python during configuration.
+set(MSIME_PACKAGE_VERSION "" CACHE STRING "Package version; empty uses apps/desktop/src-tauri/tauri.conf.json")
+if(MSIME_PACKAGE_VERSION)
+  if(NOT MSIME_PACKAGE_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "MSIME_PACKAGE_VERSION must be MAJOR.MINOR.PATCH: ${MSIME_PACKAGE_VERSION}")
+  endif()
+  set(CPACK_PACKAGE_VERSION "${MSIME_PACKAGE_VERSION}")
+else()
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../apps/desktop/src-tauri/tauri.conf.json" MSIME_DESKTOP_METADATA)
+  string(JSON CPACK_PACKAGE_VERSION GET "${MSIME_DESKTOP_METADATA}" version)
+endif()
 set(CPACK_PACKAGE_NAME "msime-client")
 set(CPACK_PACKAGE_VENDOR "Metasequoia IME")
 set(CPACK_PACKAGE_CONTACT "Metasequoia IME <metasequoiaime@gmail.com>")
@@ -38,8 +45,7 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 get_filename_component(MSIME_HOST_LIBRARY_DIR "${MSIME_HOST_LIBRARY}" DIRECTORY)
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS "${MSIME_HOST_LIBRARY_DIR}")
 
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
-        DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/msime-client" RENAME copyright)
+# The license (as copyright) and the third-party notices are installed by CMakeLists.txt for every install; configuration already failed there if any of them was missing.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/msime-client" RENAME README.md)
 include(CPack)
