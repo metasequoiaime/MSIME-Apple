@@ -23,6 +23,8 @@
 #include <fcitx/surroundingtext.h>
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
+#include "../src/candidates/CandidateLocalModeLabels.h"
+#include "../src/candidates/CandidatePanelStatus.h"
 #include "../src/candidates/CandidatePalette.h"
 #include "../src/candidates/CandidateColors.h"
 #include "../src/candidates/CandidateFcitxTheme.h"
@@ -2179,6 +2181,7 @@ public:
       command(MSIME_FINISH_COMPOSITION);
     close();
     clearPanel();
+    msime_linux_diagnostic_write("dictionary_quiesce_released");
   }
   void refreshSystemTheme() {
     const auto now = std::chrono::steady_clock::now();
@@ -3166,7 +3169,7 @@ public:
       action.setText(text);
       return action;
     };
-    actions.push_back(make(1, "固定候选"));
+    actions.push_back(make(1, msime::linux_host::candidate_pin_label));
     const auto source = item->source();
     const auto fixedPosition = item->fixedPosition();
     if (msime::linux_host::candidate_dictionary_removal_available(
@@ -3174,7 +3177,7 @@ public:
             item->text()))
       actions.push_back(make(2, "删除候选"));
     for (int slot = 1; slot <= 5; ++slot)
-      actions.push_back(make(10 + slot, ("固定到 " + std::to_string(slot)).c_str()));
+      actions.push_back(make(10 + slot, msime::linux_host::candidate_fix_label(slot).c_str()));
     if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));
     return actions;
   }
@@ -4659,6 +4662,24 @@ public:
     classicui->setConfig(config);
     candidate_theme_applied_ = std::move(theme);
   }
+  // Tell the settings page whether the classic UI draws the candidate font, colours and skin (see candidates/CandidatePanelStatus.h). Asked on every theme sync because the user can switch the UI or theme in fcitx5-configtool at any time; the file is rewritten only when the answer changes.
+  void publishCandidatePanelStatus() {
+    namespace host = msime::linux_host;
+    const auto file = host::candidate_panel_status_file(std::getenv("XDG_RUNTIME_DIR"));
+    if (!file) return;
+    bool replaceable = true;
+    auto *classicui = instance_->addonManager().addon("classicui", true);
+    if (classicui && classicui->getConfig()) {
+      fcitx::RawConfig current;
+      classicui->getConfig()->save(current);
+      const auto *selected = current.valueByPath("Theme");
+      replaceable =
+          host::fcitx_candidate_theme_drawn(selected ? *selected : std::string{}, current.valueByPath("DarkTheme"));
+    }
+    host::write_candidate_panel_status(
+        *file, host::candidate_panel_status_document(
+                   "fcitx5", host::fcitx_candidate_panel_limit(instance_->currentUI(), replaceable)));
+  }
   // Runs before any session exists: a package upgrade leaves the user's options on the previous dictionary generation until this re-prepares it. The system-wide file belongs to the administrator and is not rewritten.
   static void refreshOptions() {
     try {
@@ -5258,13 +5279,13 @@ public:
   FcitxCloudClipboardItemAction cloud_clipboard_item3_{&factory_, 2};
   FcitxCloudClipboardItemAction cloud_clipboard_item4_{&factory_, 3};
   FcitxCloudClipboardItemAction cloud_clipboard_item5_{&factory_, 4};
-  FcitxMaintenanceAction pin_action_{&factory_, 1, "固定候选"};
+  FcitxMaintenanceAction pin_action_{&factory_, 1, msime::linux_host::candidate_pin_label};
   FcitxMaintenanceAction remove_action_{&factory_, 2, "删除候选"};
-  FcitxMaintenanceAction fix1_action_{&factory_, 11, "固定到 1"};
-  FcitxMaintenanceAction fix2_action_{&factory_, 12, "固定到 2"};
-  FcitxMaintenanceAction fix3_action_{&factory_, 13, "固定到 3"};
-  FcitxMaintenanceAction fix4_action_{&factory_, 14, "固定到 4"};
-  FcitxMaintenanceAction fix5_action_{&factory_, 15, "固定到 5"};
+  FcitxMaintenanceAction fix1_action_{&factory_, 11, msime::linux_host::candidate_fix_label(1).c_str()};
+  FcitxMaintenanceAction fix2_action_{&factory_, 12, msime::linux_host::candidate_fix_label(2).c_str()};
+  FcitxMaintenanceAction fix3_action_{&factory_, 13, msime::linux_host::candidate_fix_label(3).c_str()};
+  FcitxMaintenanceAction fix4_action_{&factory_, 14, msime::linux_host::candidate_fix_label(4).c_str()};
+  FcitxMaintenanceAction fix5_action_{&factory_, 15, msime::linux_host::candidate_fix_label(5).c_str()};
   FcitxMaintenanceAction clear_action_{&factory_, 20, "取消固定"};
   fcitx::Menu desktop_tools_menu_;
   FcitxDesktopPanelAction handwriting_action_{&factory_, "handwriting", "手写识别板"};
@@ -5315,6 +5336,7 @@ void FcitxState::syncCandidatePanelFont() {
 
 void FcitxState::syncCandidatePanelTheme() {
   if (engine_ && session_) engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_);
+  if (engine_) engine_->publishCandidatePanelStatus();
 }
 
 void FcitxState::refreshToolbar() {
@@ -5370,11 +5392,8 @@ void FcitxState::render() {
     std::string aux = std::to_string(view_.at("page").get<int>() + 1) +
         "/" + std::to_string(view_.at("page_count").get<int>());
     const auto mode = view_.value("local_mode", std::string("none"));
-    const auto modeLabel = mode == "unicode" ? "U+" : mode == "date_time" ? "日期时间" :
-        mode == "phrase" ? "短语" : mode == "emoji" ? "Emoji" :
-        mode == "kaomoji" ? "颜文字" : mode == "abbreviation" ? "简拼" :
-        mode == "english" ? "EN" : mode == "japanese" ? "日文" : "";
-    if (*modeLabel) aux += " · " + std::string(modeLabel);
+    if (const char *modeLabel = msime::linux_host::candidate_local_mode_label(mode))
+      aux += " · " + std::string(modeLabel);
     if (preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin") {
       const auto candidatePreedit = view_.value("preedit", std::string{});
       if (!candidatePreedit.empty()) {

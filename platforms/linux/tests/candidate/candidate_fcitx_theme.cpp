@@ -166,6 +166,13 @@ int main() {
   assert(host::fcitx_theme_replaceable("default-dark"));
   assert(host::fcitx_theme_replaceable("msime"));
   assert(!host::fcitx_theme_replaceable("Nord-Dark"));
+  // A user's own DarkTheme is left in place, so MSIME's colours are not drawn in dark mode even with a stock light theme.
+  const std::string stock_dark = "default-dark";
+  const std::string user_dark = "Nord-Dark";
+  assert(host::fcitx_candidate_theme_drawn("default", nullptr));
+  assert(host::fcitx_candidate_theme_drawn("default", &stock_dark));
+  assert(!host::fcitx_candidate_theme_drawn("default", &user_dark));
+  assert(!host::fcitx_candidate_theme_drawn("Nord-Dark", &stock_dark));
 
   assert(host::fcitx_theme_file("/data", "/home/u") == std::filesystem::path("/data/fcitx5/themes/msime/theme.conf"));
   assert(host::fcitx_theme_file("relative", "/home/u") ==

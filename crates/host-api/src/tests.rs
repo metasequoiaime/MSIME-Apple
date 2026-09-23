@@ -410,6 +410,9 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(linux["value"]["platform"], "linux");
     assert_eq!(linux["value"]["restart_input_method"], true);
     assert_eq!(linux["value"]["ime_mode_scope"], true);
+    // Every host reads capabilities through this boundary, so the border colour reaches the Linux page here.
+    assert_eq!(linux["value"]["candidate_border_color"], true);
+    assert_eq!(linux["value"]["candidate_selection_appearance"], false);
 
     let windows = capabilities("windows");
     assert_eq!(windows["value"]["restart_input_method"], true);

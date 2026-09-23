@@ -627,6 +627,8 @@ export interface HostCapabilities {
   candidate_preedit_font?: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
+  /** The host outlines the candidate panel in the border colour. Linux does (Fcitx5's classic UI theme) without any hover state; a host older than the field reads it from `candidate_selection_appearance`. */
+  candidate_border_color?: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud?: boolean;
   candidate_english_font?: boolean;
@@ -654,6 +656,8 @@ export interface HostCapabilities {
   voice_commit_mode?: boolean;
   /** The OS release the host is running on, for the feedback page to attach. */
   os_version?: string;
+  /** Why the Linux desktop panel drawing the candidate list ignores the candidate font, colours and skin, as the running host reported it. Absent when the panel honours them. */
+  candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -1556,11 +1560,27 @@ const navigationOptions: [keyof NavigationPreferences, string][] = [
   ["mouse_wheel", "鼠标滚轮（候选面板支持时翻页）"],
   ["arrows", "上 / 下（移动候选项）"],
 ];
-const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][] = [
-  ["fluent", "Fluent", "简洁、紧凑的默认候选窗"],
-  ["wechat", "微信绿", "微信绿候选窗与悬浮工具栏"],
-  ["graphite", "石墨 Graphite", "克制、平直的候选窗与悬浮工具栏"],
-  ["willow_green", "杨柳青 Willow green", "柔和圆角与柳绿色整行高亮"],
+// The Fcitx5 classic UI theme format has no label or accent colour (platforms/linux/src/candidates/CandidateFcitxTheme.h), so on Linux the number and accent pickers reach only the IBus panel.
+const linuxFcitxClassicColorNote =
+  "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效";
+// The Linux hosts do not draw the candidate list themselves; when the desktop panel that does ignores these settings, the host says why (HostCapabilities.candidate_panel_limit) and the appearance and skin pages say so once.
+const candidatePanelLimitNotes: Record<
+  NonNullable<HostCapabilities["candidate_panel_limit"]>,
+  string
+> = {
+  gnome_shell:
+    "GNOME Shell 自己绘制 IBus 候选窗并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
+  fcitx_theme:
+    "Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题，这里的候选颜色和皮肤不会覆盖它；字体仍然生效。改回 Fcitx5 默认主题后即可使用这里的设置。",
+  kimpanel:
+    "Fcitx5 的候选窗由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
+};
+// The last column is the description on a host whose skin reaches only the candidate window (Linux presents the toolbar as an input method menu).
+const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string, string][] = [
+  ["fluent", "Fluent", "简洁、紧凑的默认候选窗", "简洁、紧凑的默认候选窗"],
+  ["wechat", "微信绿", "微信绿候选窗与悬浮工具栏", "微信绿候选窗"],
+  ["graphite", "石墨 Graphite", "克制、平直的候选窗与悬浮工具栏", "克制、平直的候选窗"],
+  ["willow_green", "杨柳青 Willow green", "柔和圆角与柳绿色整行高亮", "柔和圆角与柳绿色整行高亮"],
 ];
 export type FloatingToolbarPreferences = {
   enabled: boolean;
@@ -2269,6 +2289,9 @@ export function SettingsPage({
   const showVoiceStreamPreedit = host?.voice_stream_preedit ?? !androidPlatform;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
+  const showCandidateBorderColor = host
+    ? (host.candidate_border_color ?? host.candidate_selection_appearance)
+    : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
   // Was written as "macOS only" when macOS was the only host that drew the badge. A host that
   // predates the capability keeps that reading rather than losing a control it does honour; one
@@ -4650,6 +4673,11 @@ export function SettingsPage({
                       revision={snapshot?.revision ?? 0}
                       mobile={mobilePlatform}
                     />
+                    {host?.candidate_panel_limit && (
+                      <div className="section">
+                        <small>{candidatePanelLimitNotes[host.candidate_panel_limit]}</small>
+                      </div>
+                    )}
                     {showCandidateFollowCursor && (
                       <div className="section">
                         <label className="section-header">
@@ -4776,7 +4804,11 @@ export function SettingsPage({
                     )}
                     {!showCandidateSelectionAppearance && (
                       <div className="section">
-                        <small>当前宿主的候选面板不支持悬停或边框颜色。</small>
+                        <small>
+                          {linuxPlatform
+                            ? "悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"
+                            : "当前宿主的候选面板不支持悬停或边框颜色。"}
+                        </small>
                       </div>
                     )}
                     {showCandidateRowColors && (
@@ -4809,6 +4841,7 @@ export function SettingsPage({
                             </button>
                           </div>
                         </div>
+                        {linuxPlatform && <small>{linuxFcitxClassicColorNote}</small>}
                       </div>
                     )}
                     {showCandidateRowColors && (
@@ -4901,7 +4934,7 @@ export function SettingsPage({
                         </div>
                       </div>
                     </div>
-                    {showCandidateSelectionAppearance && (
+                    {showCandidateBorderColor && (
                       <div className="section">
                         <div className="section-header">
                           <span className="section-title">候选边框色</span>
@@ -4958,6 +4991,7 @@ export function SettingsPage({
                           </button>
                         </div>
                       </div>
+                      {linuxPlatform && <small>{linuxFcitxClassicColorNote}</small>}
                     </div>
                     {/* The iOS strip pages in nines whatever this says, so a selector there would change nothing. */}
                     {host?.fixed_candidate_page_size === undefined && (
@@ -5029,7 +5063,9 @@ export function SettingsPage({
                           <small>
                             {mobilePlatform
                               ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
-                              : "预览跟随主题模式；Linux IBus panel 支持时使用"}
+                              : linuxPlatform
+                                ? "预览跟随主题模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色"
+                                : "预览跟随主题模式"}
                           </small>
                         </span>
                         <select
@@ -5630,8 +5666,15 @@ export function SettingsPage({
                           see. Same switch the helper-code labels already make. */}
                       {mobilePlatform
                         ? "选择候选栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"
-                        : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
+                        : linuxPlatform
+                          ? "选择候选窗使用的主题；明暗预览仅影响当前卡片，不修改设置。"
+                          : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
                     </div>
+                    {host?.candidate_panel_limit && (
+                      <div className="section">
+                        <small>{candidatePanelLimitNotes[host.candidate_panel_limit]}</small>
+                      </div>
+                    )}
                     {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
                       <div className="section">
                         <label className="section-header">
@@ -5669,7 +5712,7 @@ export function SettingsPage({
                       </div>
                     )}
                     <div className={settings.skinGrid}>
-                      {skinOptions.map(([id, title, description]) => (
+                      {skinOptions.map(([id, title, description, candidateOnlyDescription]) => (
                         <article
                           aria-label={title}
                           className={settings.skinCard(
@@ -5686,7 +5729,9 @@ export function SettingsPage({
                                   : "Light"}
                                 )
                               </span>
-                              <span className={settings.skinCardDescription}>{description}</span>
+                              <span className={settings.skinCardDescription}>
+                                {linuxPlatform ? candidateOnlyDescription : description}
+                              </span>
                             </div>
                             <div className={settings.skinCardActions}>
                               <button
@@ -5740,9 +5785,11 @@ export function SettingsPage({
                             <div className={settings.skinPreviewStage} data-skin-stage="">
                               <SkinCandidatePreview orientation="vertical" />
                             </div>
-                            <div className={settings.skinPreviewStage} data-skin-stage="">
-                              <SkinToolbarPreview />
-                            </div>
+                            {!linuxPlatform && (
+                              <div className={settings.skinPreviewStage} data-skin-stage="">
+                                <SkinToolbarPreview />
+                              </div>
+                            )}
                           </div>
                         </article>
                       ))}
@@ -5759,6 +5806,7 @@ export function SettingsPage({
                       // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
                       layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
                       onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
+                      toolbarPreview={!linuxPlatform}
                     />
                   </fieldset>
                   <fieldset
@@ -7846,7 +7894,7 @@ export function SettingsPage({
                           </div>
                         )}
                         <div className={settings.shortcutRow}>
-                          <span>移动到当前候选页首 / 尾</span>
+                          <span>移动到候选列表首项 / 末项（页码随之切换）</span>
                           <kbd>Home / End</kbd>
                         </div>
                         <div className={settings.shortcutRow}>
@@ -7868,7 +7916,7 @@ export function SettingsPage({
                           {macosPlatform
                             ? "仅在水杉输入法当前输入上下文生效；Option 对应 Windows 基线中的 Alt。"
                             : linuxPlatform
-                              ? "当前 IBus 会话中的候选维护与服务重启"
+                              ? "在当前 IBus 或 Fcitx5 输入上下文中维护候选与重启服务"
                               : "程序运行时全局生效；用于维护与调试"}
                         </small>
                         <div className={settings.shortcutList}>
@@ -7883,7 +7931,10 @@ export function SettingsPage({
                                 <kbd>Ctrl+Shift+Alt+C</kbd>
                               </div>
                               <div className={settings.shortcutRow}>
-                                <span>重启输入法服务</span>
+                                <span>
+                                  重启或重载输入法（IBus 执行 ibus restart，Fcitx5 执行
+                                  fcitx5-remote -r 重新加载配置）
+                                </span>
                                 <kbd>Ctrl+Shift+Alt+R</kbd>
                               </div>
                               <div
@@ -7932,7 +7983,7 @@ export function SettingsPage({
                           {macosPlatform
                             ? "重新注册并启用已安装的水杉输入源；当前输入法进程继续按系统生命周期运行。"
                             : linuxPlatform
-                              ? "IBus 配置支持热重载；需要重新启动输入法服务时可使用此按钮。"
+                              ? "IBus 与 Fcitx5 宿主都会热重载配置；需要重新启动输入法服务时可使用此按钮，IBus 下执行 ibus restart 重启服务，Fcitx5 下执行 fcitx5-remote -r 重新加载配置。"
                               : "请求受监督的输入法服务重新启动。"}
                         </small>
                         <div className={settings.serviceRow}>
@@ -8478,7 +8529,7 @@ export function SettingsPage({
                                 : "Server 端日志"}
                             <small>
                               {linuxPlatform
-                                ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库刷新的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
+                                ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库维护时释放会话的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
                                 : macosPlatform
                                   ? "排查焦点切换和设置加载失败时开启。记录焦点进出与偏好加载、应用、保存的结果，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后可直接发送。"
                                   : "排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。"}
@@ -9070,7 +9121,8 @@ export function SettingsPage({
                         </div>
                         {linuxPlatform && (
                           <p className={settings.panelPreviewLabel}>
-                            没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。
+                            语音需要 provider
+                            服务：录音、模型和凭据都由它负责，服务未运行时无法录音。
                           </p>
                         )}
                       </div>
@@ -9792,7 +9844,7 @@ export function SettingsPage({
                     {desktopPanels && (
                       <div className="section">
                         <div className="section-title">
-                          {linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}
+                          语音快捷键
                           <small>
                             {linuxPlatform
                               ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入"

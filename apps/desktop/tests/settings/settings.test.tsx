@@ -1580,8 +1580,60 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Home / End")).toBeDefined();
+  // Home/End move across the whole candidate list, as on Windows, not within the current page.
+  expect(screen.getByText("移动到候选列表首项 / 末项（页码随之切换）")).toBeDefined();
   expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
 });
+
+function candidateThemeNote() {
+  const select = screen.getByRole("combobox", { name: "候选窗口主题" });
+  return select.closest("label")?.querySelector("small")?.textContent;
+}
+
+test("Linux appearance and maintenance copy names both hosts and the Fcitx5 reload", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        restartInputMethod: vi.fn().mockResolvedValue(undefined),
+        host: { platform: "linux", panel_windows: true, restart_input_method: true } as never,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  expect(candidateThemeNote()).toBe("预览跟随主题模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色");
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(
+    await screen.findByText("在当前 IBus 或 Fcitx5 输入上下文中维护候选与重启服务"),
+  ).toBeDefined();
+  // fcitx5-remote -r is Fcitx5's ReloadConfig request, so the Fcitx5 half must read as a reload, not a restart.
+  const restartRow = screen.getByText("Ctrl+Shift+Alt+R").parentElement?.textContent ?? "";
+  expect(restartRow).toContain("IBus 执行 ibus restart");
+  expect(restartRow).toContain("Fcitx5 执行 fcitx5-remote -r 重新加载配置");
+  const service = screen.getByText("输入法服务").closest(".section")?.textContent ?? "";
+  expect(service).toContain("IBus 下执行 ibus restart 重启服务");
+  expect(service).toContain("Fcitx5 下执行 fcitx5-remote -r 重新加载配置");
+});
+
+test.each(["windows", "macos"] as const)(
+  "%s candidate theme note does not mention the Linux hosts",
+  async (platform) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: { platform, panel_windows: true } as never,
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: "外观" }));
+    expect(candidateThemeNote()).toBe("预览跟随主题模式");
+  },
+);
 
 test("macOS maintenance shortcuts use the current input context and Option", async () => {
   const restartInputMethod = vi.fn().mockResolvedValue(undefined);
@@ -2413,6 +2465,9 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   expect(description).toContain("diagnostic.log");
   // The Linux hosts log focus, preference, menu-save and failure stages only; they time nothing and have no server link to trace, so the copy must not promise either.
   expect(description).toContain("操作失败的阶段");
+  // IBus refreshes the dictionary generation before the log is configured, so only the maintenance release is promised for both hosts.
+  expect(description).toContain("词库维护时释放会话");
+  expect(description).not.toContain("词库刷新");
   expect(description).not.toContain("延迟");
   expect(description).not.toContain("通信");
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
@@ -4919,6 +4974,7 @@ const macosHostCapabilities = {
   candidate_font_controls: true,
   candidate_row_colors: true,
   candidate_selection_appearance: true,
+  candidate_border_color: true,
   candidate_follow_cursor: true,
   input_mode_hud: true,
   voice_commit_mode: true,

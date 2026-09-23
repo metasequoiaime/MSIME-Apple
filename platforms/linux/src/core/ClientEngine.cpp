@@ -25,6 +25,8 @@
 #include "../candidates/CandidatePalette.h"
 #include "../candidates/CandidateFontPolicy.h"
 #include "../candidates/CandidateActionPolicy.h"
+#include "../candidates/CandidateLocalModeLabels.h"
+#include "../candidates/CandidatePanelStatus.h"
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/PairedPunctuation.h"
 #include "../candidates/ShuangpinProfileNames.h"
@@ -72,10 +74,48 @@ Json accepted_preferences_snapshot;
 bool menu_save_pending = false;
 uint64_t menu_status_generation = 0;
 
-// The IBus panel draws the candidate list from one font description the whole desktop shares, the
-// same pair of keys ibus-setup writes. A desktop without the schema (a panel of its own, such as
-// GNOME Shell's popup, which follows the shell theme) has nothing to write and is left alone.
+// GNOME Shell starts ibus-daemon with its panel disabled and draws the candidate popup itself from the shell theme, so neither the panel font nor the colour attributes reach it. The desktop name says which session this is, and the shell's bus name confirms the shell is the one running; the answer holds for the life of the process.
+bool candidate_panel_is_gnome_shell() {
+  static const bool gnome_shell = [] {
+    if (!msime::linux_host::candidate_desktop_is_gnome_shell(g_getenv("XDG_CURRENT_DESKTOP")))
+      return false;
+    GError *error = nullptr;
+    auto *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
+    if (!connection) {
+      g_clear_error(&error);
+      return true;
+    }
+    auto *reply = g_dbus_connection_call_sync(
+        connection, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+        "NameHasOwner", g_variant_new("(s)", "org.gnome.Shell"), G_VARIANT_TYPE("(b)"),
+        G_DBUS_CALL_FLAGS_NONE, 1000, nullptr, &error);
+    g_object_unref(connection);
+    if (!reply) {
+      g_clear_error(&error);
+      return true;
+    }
+    gboolean owned = FALSE;
+    g_variant_get(reply, "(b)", &owned);
+    g_variant_unref(reply);
+    return owned == TRUE;
+  }();
+  return gnome_shell;
+}
+
+// Tell the settings page whether the desktop panel honours the candidate font, colours and skin (see candidates/CandidatePanelStatus.h). The write is skipped when the file already says the same.
+void publish_candidate_panel_status() {
+  const auto file = msime::linux_host::candidate_panel_status_file(g_get_user_runtime_dir());
+  if (!file) return;
+  msime::linux_host::write_candidate_panel_status(
+      *file, msime::linux_host::candidate_panel_status_document(
+                 "ibus", candidate_panel_is_gnome_shell() ? msime::linux_host::CandidatePanelLimit::GnomeShell
+                                                          : msime::linux_host::CandidatePanelLimit::None));
+}
+
+// The IBus panel draws the candidate list from one font description the whole desktop shares, the same pair of keys ibus-setup writes. A desktop without the schema has nothing to write and is left alone, and so is GNOME Shell: its popup follows the shell theme, and turning on use-custom-font there would only change ibus-setup's own panel for a panel that never shows.
 void apply_candidate_panel_font(const Json &preferences) {
+  publish_candidate_panel_status();
+  if (candidate_panel_is_gnome_shell()) return;
   static msime::linux_host::CandidateFontSync sync;
   const auto description = sync.next(msime::linux_host::read_candidate_font(preferences));
   if (!description) return;
@@ -2254,20 +2294,18 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
         PROP_STATE_UNCHECKED, actions);
     ibus_prop_list_append(items, entry);
     const auto fixed_position = candidate.value("fixed_position", 0);
-    std::vector<std::pair<const char *, const char *>> candidate_commands = {
-        {"CandidatePin", "固定候选"}};
+    // The parent entry already names the slot ("N. preview"), so the items carry only the action, worded like the Windows candidate menu.
+    std::vector<std::pair<const char *, std::string>> candidate_commands = {
+        {"CandidatePin", msime::linux_host::candidate_pin_label}};
     if (msime::linux_host::candidate_dictionary_removal_available(
             scheme, source, candidate_text))
       candidate_commands.emplace_back("CandidateRemove", "删除候选");
-    candidate_commands.insert(candidate_commands.end(), {
-                                       std::pair{"CandidateFix1", "固定到 1"},
-                                       std::pair{"CandidateFix2", "固定到 2"},
-                                       std::pair{"CandidateFix3", "固定到 3"},
-                                       std::pair{"CandidateFix4", "固定到 4"},
-                                       std::pair{"CandidateFix5", "固定到 5"}});
-    for (const auto &[action, label] : candidate_commands) {
+    for (const char *fix : {"CandidateFix1", "CandidateFix2", "CandidateFix3",
+                            "CandidateFix4", "CandidateFix5"})
+      candidate_commands.emplace_back(
+          fix, msime::linux_host::candidate_fix_label(fix[12] - '0'));
+    for (const auto &[action, title] : candidate_commands) {
       const auto name = candidate_action_name(action, candidate.at("id"));
-      const auto title = std::string(label) + " " + std::to_string(slot);
       const auto state = g_str_has_prefix(action, "CandidateFix") &&
                                  fixed_position ==
                                      std::stoi(std::string(action).substr(12))
@@ -2281,7 +2319,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     const auto clear_name = candidate_action_name("CandidateClear", candidate.at("id"));
     ibus_prop_list_append(actions, ibus_property_new(
         clear_name.c_str(), PROP_TYPE_NORMAL,
-        ibus_text_new_from_string((std::string("取消固定 ") + std::to_string(slot)).c_str()), "",
+        ibus_text_new_from_static_string("取消固定"), "",
         ibus_text_new_from_static_string("取消当前候选的位置固定"),
         actions_available && fixed_position > 0, TRUE,
         PROP_STATE_UNCHECKED, nullptr));
@@ -3299,17 +3337,9 @@ void render(IBusEngine *engine, const Json &view) {
     }
   }
   const auto mode = view.at("local_mode").get<std::string>();
-  const std::pair<const char *, const char *> labels[] = {
-      {"unicode", "U+"}, {"date_time", "日期时间"},
-      {"quick_phrase", "短语"}, {"emoji", "Emoji"},
-      {"kaomoji", "颜文字"}, {"super_jianpin", "简拼"},
-      {"temporary_english", "EN"}, {"temporary_japanese", "日文"}};
-  for (const auto &[name, label] : labels) {
-    if (mode == name) {
-      paging += "  · ";
-      paging += label;
-      break;
-    }
+  if (const char *label = msime::linux_host::candidate_local_mode_label(mode)) {
+    paging += "  · ";
+    paging += label;
   }
   ibus_engine_update_auxiliary_text(
       engine, ibus_text_new_from_string(paging.c_str()), TRUE);
@@ -7153,6 +7183,7 @@ gboolean reload_preferences(gpointer data) {
       apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
       clear(engine);
+      msime_linux_diagnostic_write("dictionary_quiesce_released");
     });
   }
   // Saving is shared across contexts, but only the initiating context receives

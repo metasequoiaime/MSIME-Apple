@@ -246,7 +246,81 @@ test("candidate appearance follows host capabilities", async () => {
   expect(screen.getByLabelText("候选表面色")).toBeTruthy();
   expect(screen.getByLabelText("候选编号颜色")).toBeTruthy();
   expect(screen.getByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeTruthy();
-  expect(screen.getByText("当前宿主的候选面板不支持悬停或边框颜色。")).toBeTruthy();
+  expect(
+    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"),
+  ).toBeTruthy();
+});
+
+test("Linux offers the border colour Fcitx5 draws and says which host each colour reaches", async () => {
+  // What host_surface.rs answers for Linux: no hover state on either panel, but the Fcitx5 classic UI theme carries the border.
+  mount({
+    host: capabilities({
+      platform: "linux",
+      candidate_row_colors: true,
+      candidate_selection_appearance: false,
+      candidate_border_color: true,
+    }),
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByLabelText("候选边框色")).toBeTruthy();
+  expect(screen.queryByLabelText("候选悬停色")).toBeNull();
+  expect(
+    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"),
+  ).toBeTruthy();
+  expect(screen.queryByText("当前宿主的候选面板不支持悬停或边框颜色。")).toBeNull();
+  // The classic UI theme has no label or accent colour, so both pickers say they reach IBus only.
+  const captions = screen.getAllByText(
+    "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效",
+  );
+  expect(captions).toHaveLength(2);
+  expect(captions[0].closest(".section")?.textContent).toContain("候选强调色");
+  expect(captions[1].closest(".section")?.textContent).toContain("候选编号颜色");
+});
+
+test.each([
+  [
+    "gnome_shell",
+    "GNOME Shell 自己绘制 IBus 候选窗并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
+  ],
+  [
+    "fcitx_theme",
+    "Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题，这里的候选颜色和皮肤不会覆盖它；字体仍然生效。改回 Fcitx5 默认主题后即可使用这里的设置。",
+  ],
+  [
+    "kimpanel",
+    "Fcitx5 的候选窗由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
+  ],
+] as const)(
+  "a Linux panel that ignores the appearance settings (%s) is named on the appearance and skin pages",
+  async (limit, note) => {
+    mount({
+      host: capabilities({
+        platform: "linux",
+        candidate_selection_appearance: false,
+        candidate_border_color: true,
+        candidate_panel_limit: limit,
+      }),
+    });
+    await screen.findByRole("button", { name: "保存设置" });
+    const notes = screen.getAllByText(note);
+    expect(notes).toHaveLength(2);
+    expect(notes[0].closest("fieldset")?.getAttribute("aria-label")).toBe("外观");
+    expect(notes[1].closest("fieldset")?.getAttribute("aria-label")).toBe("皮肤");
+  },
+);
+
+test("a panel that honours the appearance settings gets no limit note", async () => {
+  mount({
+    host: capabilities({
+      platform: "linux",
+      candidate_selection_appearance: false,
+      candidate_border_color: true,
+    }),
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByText(/GNOME Shell 自己绘制/)).toBeNull();
+  expect(screen.queryByText(/Fcitx5 正在使用你在 Fcitx5 配置中选择的/)).toBeNull();
+  expect(screen.queryByText(/Kimpanel 绘制/)).toBeNull();
 });
 
 test("Linux panel font takes the family and size but not a preedit size", async () => {
@@ -278,6 +352,8 @@ test("Windows candidate appearance keeps native controls", async () => {
   expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
+  expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
+  expect(screen.queryByText(/Fcitx5 经典界面/)).toBeNull();
   // Windows places its own card, so pinning it is a real choice there.
   expect(screen.getByLabelText("候选窗口跟随光标")).toBeTruthy();
 });

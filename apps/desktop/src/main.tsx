@@ -56,7 +56,7 @@ import {
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
 import { discoverFontReader } from "./candidate/system-font-client";
-import { DesktopKeyboard } from "./input/desktop-keyboard";
+import { DesktopKeyboard, useHostPlatform } from "./input/desktop-keyboard";
 import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
 import { testDesktopApiCredential } from "./account/credential-test-client";
 import { cloudDictionaryCapabilities, isMobileHost } from "./input/mobile-host-capabilities";
@@ -362,6 +362,11 @@ const panelClients: {
   },
 };
 const panel = new URLSearchParams(window.location.search).get("panel");
+function DesktopHandwriting({ theme }: { theme: "dark" | "light" }) {
+  const platform = useHostPlatform(client.host);
+  return <HandwritingPanel client={panelClients.handwriting} theme={theme} platform={platform} />;
+}
+
 function DesktopPanelTheme({
   preferences,
   surface,
@@ -1012,7 +1017,7 @@ const content =
     <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
   ) : panel === "handwriting" ? (
     <DesktopPanelTheme preferences={client} surface="handwriting">
-      {(theme) => <HandwritingPanel client={panelClients.handwriting} theme={theme} />}
+      {(theme) => <DesktopHandwriting theme={theme} />}
     </DesktopPanelTheme>
   ) : panel === "voice" ? (
     <DesktopPanelTheme preferences={client} surface="voice">

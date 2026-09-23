@@ -167,7 +167,21 @@ fn host_capabilities() -> HostCapabilities {
     // Font enumeration is a build-time capability, not a platform assumption.
     capabilities.system_fonts = font_catalog_supported();
     capabilities.os_version = macos_product_version();
+    capabilities.candidate_panel_limit = linux_candidate_panel_limit();
     capabilities
+}
+
+/// What the running Linux host found about the desktop's candidate panel. Only the host knows which panel draws its list - GNOME Shell's popup, a Fcitx5 theme the user picked, the desktop's Kimpanel - so it writes that finding to a per-session file and the page reads it here instead of guessing from the desktop name.
+#[cfg(target_os = "linux")]
+fn linux_candidate_panel_limit() -> Option<msime_client_core::host_surface::CandidatePanelLimit> {
+    use msime_client_core::host_surface::CandidatePanelLimit;
+    let file = CandidatePanelLimit::status_file(std::env::var_os("XDG_RUNTIME_DIR").as_deref())?;
+    CandidatePanelLimit::from_host_status(&fs::read_to_string(file).ok()?)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_candidate_panel_limit() -> Option<msime_client_core::host_surface::CandidatePanelLimit> {
+    None
 }
 
 /// The macOS release, read straight out of the file the system keeps it in.

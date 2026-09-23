@@ -5,9 +5,11 @@ import { HandwritingPanel } from "@msime/ui";
 
 afterEach(cleanup);
 
-function setup() {
+function setup(platform?: string) {
   const recognizeHandwriting = vi.fn().mockResolvedValue({ candidates: [] });
-  render(<HandwritingPanel client={{ close: vi.fn(), recognizeHandwriting }} />);
+  render(
+    <HandwritingPanel client={{ close: vi.fn(), recognizeHandwriting }} platform={platform} />,
+  );
   const canvas = screen.getByLabelText("手写画布");
   function pointer(type: string, pointerId: number, x = 20, y = 20, extra = {}) {
     const event = new Event(type, { bubbles: true });
@@ -106,4 +108,18 @@ test.each([/撤销/, /重写/])("handwriting releases active drawing when using 
   pointer("pointerup", 1, 80, 80);
   expect(recognizeHandwriting).not.toHaveBeenCalled();
   expect(canvas.querySelectorAll("polyline")).toHaveLength(0);
+});
+
+// Only the Windows recogniser depends on a handwriting pack the user may not have installed; on Linux and macOS an empty result means the strokes were not read, and pointing at a Windows download would send the user looking for something that does not exist there.
+test.each([
+  ["windows", "未识别到内容，请确认已安装中文手写包"],
+  ["linux", "未识别到内容，请重写"],
+  ["macos", "未识别到内容，请重写"],
+  [undefined, "未识别到内容，请重写"],
+])("an empty result on %s says %s", async (platform, notice) => {
+  const { pointer, recognizeHandwriting } = setup(platform);
+  pointer("pointerdown", 1);
+  pointer("pointerup", 1, 40, 40);
+  expect(recognizeHandwriting).toHaveBeenCalledOnce();
+  expect(await screen.findByText(notice)).toBeTruthy();
 });

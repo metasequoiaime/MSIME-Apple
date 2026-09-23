@@ -503,6 +503,11 @@ int main(int argc, char **argv) {
     engine.learning_action_.activate(&ic);
     require(state->preferences_.value("learning", false),
             "learning status action restores user learning");
+    // Candidate maintenance labels follow the Windows candidate menu (置顶, 第 N 位), shared with the candidate actions and the IBus menu.
+    require(engine.pin_action_.shortText(&ic) == "置顶", "pin action uses the Windows wording");
+    require(engine.fix1_action_.shortText(&ic) == "固定到第 1 位" &&
+                engine.fix5_action_.shortText(&ic) == "固定到第 5 位",
+            "fix actions name the target position");
     require(engine.candidate_layout_action_.shortText(&ic) == "候选：横向",
             "candidate layout action reflects reloaded preference");
     engine.candidate_layout_action_.activate(&ic);
