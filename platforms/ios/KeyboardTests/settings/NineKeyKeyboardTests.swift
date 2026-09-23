@@ -652,11 +652,14 @@ final class NineKeyKeyboardTests: XCTestCase {
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
       let more = try button("moreShortcut", in: controller)
       XCTAssertTrue(toolbar.arrangedSubviews.first === more)
-      XCTAssertEqual(toolbar.arrangedSubviews.compactMap(\.accessibilityIdentifier), [
-        "moreShortcut", "layoutShortcut", "layoutVoiceShortcut", "emojiShortcut",
-        "skinShortcut", "schemeButton", "dismissShortcut",
+      // The optional 工具栏按钮 are arranged but hidden until pinned, so a default bar is still these.
+      let visible = toolbar.arrangedSubviews.filter { !$0.isHidden }
+      XCTAssertEqual(visible.compactMap(\.accessibilityIdentifier), [
+        "moreShortcut", "layoutShortcut",
+      ] + (KeyboardLayoutPreference.voiceShortcutEnabled ? ["layoutVoiceShortcut"] : []) + [
+        "emojiShortcut", "skinShortcut", "schemeButton", "dismissShortcut",
       ])
-      for item in toolbar.arrangedSubviews {
+      for item in visible {
         XCTAssertGreaterThanOrEqual(item.bounds.width, 42)
         XCTAssertLessThanOrEqual(item.frame.maxX, toolbar.bounds.width + 0.5)
       }

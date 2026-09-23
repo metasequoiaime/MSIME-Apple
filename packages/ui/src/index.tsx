@@ -633,6 +633,8 @@ export interface HostCapabilities {
   fixed_candidate_page_size?: number;
   /** The one candidate layout the host draws; set when the host offers no choice. */
   fixed_candidate_layout?: "horizontal" | "vertical";
+  /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
+  touch_toolbar_components?: boolean;
   shuangpin_preedit?: boolean;
   /** The host routes the Ctrl+Shift+Alt maintenance chords. */
   maintenance_shortcuts?: boolean;
@@ -714,6 +716,7 @@ export type Preferences = {
   touch_row_spacing_tenths?: number;
   touch_keyboard_height_adjustment?: number;
   touch_voice_shortcut?: boolean;
+  touch_toolbar?: Partial<TouchToolbarPreferences>;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
@@ -1581,6 +1584,37 @@ const defaultFloatingToolbar: FloatingToolbarPreferences = {
   scale_percent: 100,
   font_size: 24,
 };
+export type TouchToolbarPreferences = {
+  layout: boolean;
+  emoji: boolean;
+  skin: boolean;
+  clipboard: boolean;
+  ai: boolean;
+  character_set: boolean;
+  fullwidth: boolean;
+  punctuation: boolean;
+};
+const defaultTouchToolbar: TouchToolbarPreferences = {
+  layout: true,
+  emoji: true,
+  skin: true,
+  clipboard: false,
+  ai: false,
+  character_set: false,
+  fullwidth: false,
+  punctuation: false,
+};
+/// In the order the buttons sit on the touch keyboard's toolbar, after the voice entry.
+const touchToolbarOptions: [keyof TouchToolbarPreferences, string][] = [
+  ["layout", "键盘设置"],
+  ["emoji", "表情"],
+  ["skin", "切换皮肤"],
+  ["clipboard", "剪贴板历史"],
+  ["ai", "AI 润色"],
+  ["character_set", "简繁切换"],
+  ["fullwidth", "全角 / 半角"],
+  ["punctuation", "中英文标点"],
+];
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
   | "english_mode"
@@ -2921,7 +2955,7 @@ export function SettingsPage({
     if (!draft) return;
     const confirmed = await confirm({
       title: "恢复屏幕键盘默认值",
-      message: "高度、间距和顶部语音入口都会回到默认。",
+      message: "高度、间距、顶部语音入口和工具栏按钮都会回到默认。",
       confirmLabel: "恢复",
     });
     if (!confirmed || !draft) return;
@@ -2932,6 +2966,7 @@ export function SettingsPage({
     delete next.touch_row_spacing_tenths;
     delete next.touch_keyboard_height_adjustment;
     delete next.touch_voice_shortcut;
+    delete next.touch_toolbar;
     setDraft(next);
     setError("");
     setNotice("屏幕键盘设置已恢复默认，请点击保存设置。");
@@ -8722,6 +8757,35 @@ export function SettingsPage({
                           }
                         />
                       </label>
+                      {host?.touch_toolbar_components && (
+                        <>
+                          <div className="input-option-divider" />
+                          <div className="section-title">
+                            工具栏按钮
+                            <small>勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里</small>
+                          </div>
+                          {touchToolbarOptions.map(([key, label]) => (
+                            <label key={key} className="check-option">
+                              <input
+                                type="checkbox"
+                                aria-label={`工具栏：${label}`}
+                                checked={{ ...defaultTouchToolbar, ...draft.touch_toolbar }[key]}
+                                onChange={(event) =>
+                                  setDraft({
+                                    ...draft,
+                                    touch_toolbar: {
+                                      ...defaultTouchToolbar,
+                                      ...draft.touch_toolbar,
+                                      [key]: event.target.checked,
+                                    },
+                                  })
+                                }
+                              />
+                              <span>{label}</span>
+                            </label>
+                          ))}
+                        </>
+                      )}
                       {mobileKeyboardFeedback?.tabletFullKeys !== undefined && (
                         <>
                           <div className="input-option-divider" />

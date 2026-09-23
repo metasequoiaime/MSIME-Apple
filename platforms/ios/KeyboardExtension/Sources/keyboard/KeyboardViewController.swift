@@ -90,6 +90,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let emojiShortcut = UIButton()
   private let skinShortcut = UIButton()
   private let layoutShortcut = UIButton()
+  /// Optional buttons from 工具栏按钮 (`touch_toolbar`), hidden unless the user pins them; each is also in the 更多 panel.
+  private let clipboardShortcut = UIButton()
+  private let aiShortcut = UIButton()
+  private let characterSetShortcut = UIButton()
+  private let fullwidthShortcut = UIButton()
+  private let punctuationShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
   private var skinPicker: KeyboardSkinPickerView?
   private var schemePicker: KeyboardSchemePickerView?
@@ -981,7 +987,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     brand.brandImageView.tintColor = KeyboardSkinPreference.selected.accent
     shortcutBar.addArrangedSubview(brand)
     brand.widthAnchor.constraint(equalToConstant: 44).isActive = true
-    let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, schemeButton, dismissShortcut]
+    let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, clipboardShortcut, aiShortcut,
+                     characterSetShortcut, fullwidthShortcut, punctuationShortcut, schemeButton, dismissShortcut]
     for button in shortcuts {
       shortcutBar.addArrangedSubview(button)
     }
@@ -1010,6 +1017,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                             for: .primaryActionTriggered)
     layoutShortcut.addAction(UIAction { [weak self] _ in self?.showLayoutPicker() }, for: .primaryActionTriggered)
     skinShortcut.addAction(UIAction { [weak self] _ in self?.showSkinPicker() }, for: .primaryActionTriggered)
+    clipboardShortcut.addAction(UIAction { [weak self] _ in self?.showClipboardHistory() }, for: .primaryActionTriggered)
+    aiShortcut.addAction(UIAction { [weak self] _ in self?.closeKeyboardPicker(); self?.showKeyboardAI() }, for: .primaryActionTriggered)
+    characterSetShortcut.addAction(UIAction { [weak self] _ in
+      guard let self else { return }
+      selectTraditionalOutput(!usesTraditionalOutput)
+    }, for: .primaryActionTriggered)
+    fullwidthShortcut.addAction(UIAction { [weak self] _ in
+      guard let self else { return }
+      setFullWidthInput(!fullWidthInput)
+      updateShortcutButtons()
+    }, for: .primaryActionTriggered)
+    punctuationShortcut.addAction(UIAction { [weak self] _ in
+      guard let self else { return }
+      setChinesePunctuation(!chinesePunctuation)
+      updateShortcutButtons()
+    }, for: .primaryActionTriggered)
     moreShortcut.addAction(UIAction { [weak self] _ in self?.showMorePicker() }, for: .primaryActionTriggered)
     dismissShortcut.addAction(UIAction { [weak self] _ in self?.dismissKeyboard() }, for: .primaryActionTriggered)
     updateShortcutButtons()
@@ -1049,6 +1072,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configure(layoutShortcut, title: nil, symbol: "slider.horizontal.3", label: "键盘设置", id: "layoutShortcut")
     layoutShortcut.accessibilityValue = "默认键位"
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
+    // The switches show their state as a character, the way the Windows floating toolbar does: 简/繁, 全/半, and a Chinese or ASCII comma.
+    let pinned = TouchToolbarPreference(in: session.sharedPreferences)
+    configure(clipboardShortcut, title: nil, symbol: "doc.on.clipboard", label: "剪贴板历史", id: "clipboardShortcut")
+    configure(aiShortcut, title: nil, symbol: "sparkles", label: "AI 润色", id: "aiShortcut")
+    configure(characterSetShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
+              label: "简繁切换", id: "characterSetShortcut")
+    characterSetShortcut.accessibilityValue = usesTraditionalOutput ? "繁体" : "简体"
+    characterSetShortcut.isEnabled = !(isChineseMode && inputScheme.isJapanese)
+    configure(fullwidthShortcut, title: fullWidthInput ? "全" : "半", symbol: nil,
+              label: "全角半角", id: "fullwidthShortcut")
+    fullwidthShortcut.accessibilityValue = fullWidthInput ? "全角" : "半角"
+    configure(punctuationShortcut, title: chinesePunctuation ? "，" : ",", symbol: nil,
+              label: "中英文标点", id: "punctuationShortcut")
+    punctuationShortcut.accessibilityValue = chinesePunctuation ? "中文标点" : "英文标点"
+    punctuationShortcut.isEnabled = isChineseMode && !inputScheme.isJapanese
+      && (session.sharedPreferences?["punctuation_lock"] as? String ?? "follow") == "follow"
+    layoutShortcut.isHidden = !pinned.layout
+    emojiShortcut.isHidden = !pinned.emoji
+    skinShortcut.isHidden = !pinned.skin
+    clipboardShortcut.isHidden = !pinned.clipboard
+    aiShortcut.isHidden = !pinned.ai
+    characterSetShortcut.isHidden = !pinned.characterSet
+    fullwidthShortcut.isHidden = !pinned.fullwidth
+    punctuationShortcut.isHidden = !pinned.punctuation
     moreTools = makeToolSections()
     updateMorePickerPage()
     configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")

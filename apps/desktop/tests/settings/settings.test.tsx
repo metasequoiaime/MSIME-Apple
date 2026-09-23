@@ -2647,6 +2647,63 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
   expect(saveDocument).not.toHaveBeenCalled();
 });
 
+test("the touch toolbar switches appear only on a host that reads them and save into the document", async () => {
+  const android = render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "android" } as HostCapabilities,
+      }}
+    />,
+  );
+  await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
+  expect(screen.queryByLabelText("工具栏：剪贴板历史")).toBeNull();
+  android.unmount();
+
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: { platform: "ios", touch_toolbar_components: true } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+      }}
+    />,
+  );
+  const clipboard = (await screen.findByLabelText("工具栏：剪贴板历史", undefined, {
+    timeout: 3000,
+  })) as HTMLInputElement;
+  const skin = screen.getByLabelText("工具栏：切换皮肤") as HTMLInputElement;
+  // A document that has never said anything keeps the bar the keyboard always had.
+  expect(clipboard.checked).toBe(false);
+  expect(skin.checked).toBe(true);
+  fireEvent.click(clipboard);
+  fireEvent.click(skin);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    touch_toolbar: {
+      layout: true,
+      emoji: true,
+      skin: false,
+      clipboard: true,
+      ai: false,
+      character_set: false,
+      fullwidth: false,
+      punctuation: false,
+    },
+  });
+});
+
 test("the iOS skin page hands the candidate strip to the desktop candidate skin", async () => {
   const load = vi.fn().mockResolvedValue({
     soundEnabled: true,
