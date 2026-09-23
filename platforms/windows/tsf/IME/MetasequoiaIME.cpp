@@ -485,6 +485,8 @@ CMetasequoiaIME::CMetasequoiaIME()
     _deferredKeyDrainPosted = false;
     _serverUnavailableFallbackActive = false;
     _backspaceHoldArmed = false;
+    _passthroughStatsVirtualKey = 0;
+    _passthroughStatsMessageTime = 0;
     _shiftHotkeyArmed = false;
     _ctrlHotkeyArmed = false;
     _modifierHotkeyExpire = {};

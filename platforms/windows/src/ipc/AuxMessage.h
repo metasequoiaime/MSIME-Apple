@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -176,6 +177,45 @@ parse_aux_terminal_deactivation(const std::wstring &text) {
   if (*client <= 0 || *token <= 0)
     return std::nullopt;
   return AuxTerminalDeactivation{*client, *token};
+}
+
+// TypingStatistics|E|<characters> or TypingStatistics|C|<characters>
+//
+// Characters the TSF DLL let through to the application, for the shared typing statistics: E for keys typed with the keyboard closed (English), C for digits and symbols passed through in Chinese mode. The DLL sorts each batch before it leaves the process - the Server only needs the multiset to classify it, and a sorted batch cannot be read back as the words that were typed. The DLL waits for "OK" and takes silence as "statistics are off", so the reply is written only once the batch has actually been accepted.
+struct AuxTypingStatistics {
+  bool english = false;
+  std::wstring characters;
+};
+inline constexpr std::wstring_view aux_typing_statistics_verb = L"TypingStatistics";
+
+inline std::vector<std::wstring>
+aux_typing_statistics_messages(bool english, std::wstring characters) {
+  std::sort(characters.begin(), characters.end());
+  std::wstring prefix(aux_typing_statistics_verb);
+  prefix += english ? L"|E|" : L"|C|";
+  const size_t room = max_aux_message_bytes / sizeof(wchar_t) - prefix.size();
+  std::vector<std::wstring> messages;
+  for (size_t offset = 0; offset < characters.size(); offset += room)
+    messages.push_back(prefix + characters.substr(offset, room));
+  return messages;
+}
+
+inline std::optional<AuxTypingStatistics>
+parse_aux_typing_statistics(const std::wstring &text) {
+  const auto verb = aux_typing_statistics_verb;
+  // Verb, separator, tag, separator and at least one character.
+  if (text.size() < verb.size() + 4 || text.compare(0, verb.size(), verb) != 0 ||
+      text[verb.size()] != L'|' || text[verb.size() + 2] != L'|')
+    return std::nullopt;
+  const wchar_t tag = text[verb.size() + 1];
+  if (tag != L'E' && tag != L'C')
+    return std::nullopt;
+  std::wstring characters = text.substr(verb.size() + 3);
+  // aux_text_from_bytes has already rejected control characters; a surrogate here could only be half of a pair the DLL never sends, and would not survive the UTF-8 conversion.
+  for (wchar_t unit : characters)
+    if (unit >= 0xD800 && unit <= 0xDFFF)
+      return std::nullopt;
+  return AuxTypingStatistics{tag == L'E', std::move(characters)};
 }
 
 // Anchor the card on the button. The centre is computed as left + width / 2
