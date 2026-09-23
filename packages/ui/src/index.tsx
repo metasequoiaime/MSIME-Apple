@@ -69,6 +69,7 @@ export type {
 } from "./keyboard/touch-keyboard-skin-design";
 import { ExternalSkins, type SkinCatalog } from "./skin/external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
+import { VocabularyReviewPage, type VocabularyReviewClient } from "./settings/vocabulary-review";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -104,6 +105,14 @@ export {
   type TypingStatisticsClient,
   type TypingStatisticsStatus,
 } from "./settings/typing-statistics";
+export {
+  VocabularyReviewPage,
+  type VocabularyCard,
+  type VocabularyReviewClient,
+  type VocabularyReviewSettings,
+  type VocabularyReviewStatus,
+  type VocabularyWordbook,
+} from "./settings/vocabulary-review";
 export {
   AccountPage,
   type AccountChallenge,
@@ -452,6 +461,11 @@ const pages = [
     id: "dictionary",
     title: "词库",
     icon: new URL("./assets/dictionary.svg", import.meta.url).href,
+  },
+  {
+    id: "vocabulary",
+    title: "背单词",
+    icon: new URL("./assets/vocabulary.svg", import.meta.url).href,
   },
   { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
   {
@@ -1688,6 +1702,8 @@ export interface SettingsClient {
     setPinned?(text: string, pinned: boolean): Promise<void>;
   };
   typingStatistics?: TypingStatisticsClient;
+  /** Absent on a host that has not wired the shared vocabulary entry point. */
+  vocabularyReview?: VocabularyReviewClient;
   /** The host exposes the shared fuzzy-pinyin settings. */
   fuzzyPinyin?: boolean;
   /** Android exposes Apple-compatible touch-keyboard scheme visibility and selection. */
@@ -3922,6 +3938,7 @@ export function SettingsPage({
     (item) =>
       (item.id !== "home" || Boolean(client.home)) &&
       (item.id !== "typing-statistics" || Boolean(client.typingStatistics)) &&
+      (item.id !== "vocabulary" || Boolean(client.vocabularyReview)) &&
       (item.id !== "account" || Boolean(client.account || client.appIcon)) &&
       (item.id !== "chat" || Boolean(client.chat)) &&
       (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)) &&
@@ -4479,8 +4496,12 @@ export function SettingsPage({
                 openSystemSettings={client.openSystemKeyboardSettings}
               />
             )}
+            {client.vocabularyReview && page === "vocabulary" && (
+              <VocabularyReviewPage client={client.vocabularyReview} mobile={mobilePlatform} />
+            )}
             {draft &&
               page !== "typing-statistics" &&
+              page !== "vocabulary" &&
               page !== "account" &&
               page !== "chat" &&
               page !== "more" &&
@@ -10046,6 +10067,7 @@ export function SettingsPage({
                 </form>
               )}
             {page !== "typing-statistics" &&
+              page !== "vocabulary" &&
               page !== "account" &&
               page !== "chat" &&
               page !== "community" && (
