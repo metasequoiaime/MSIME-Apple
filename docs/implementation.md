@@ -6,7 +6,7 @@
 
 一个仓库承载六个平台（Android、iOS、macOS、Linux、Windows、HarmonyOS）的输入法客户端：业务逻辑写一次放在 Rust，管理界面写一次放在 React，输入算法完全留在上游 C++ msime-engine，各平台只保留自己的系统入口和平台能力适配。
 
-范围内的是「宿主编排」：会话生命周期、焦点、候选分页与身份、偏好的持久化与应用时机、账号与云服务、资源分代安装、面板与工具栏的展示状态。范围外的是「输入算法」：拼音切分、词格仲裁、候选排序、学习与调频、简繁与日文转换表，这些全部由 Engine 提供，客户端只传配置、取快照、按身份回选。
+范围内的是「宿主编排」：会话生命周期、焦点、候选分页与身份、偏好的持久化与应用时机、账号与云服务、资源分代安装、面板与工具栏的展示状态。范围外的是「输入算法」：拼音切分、词格仲裁、候选排序、学习与调频、日文转换表，这些全部由 Engine 提供，客户端只传配置、取快照、按身份回选。简繁转换是共享层 `crates/client-core/src/chinese_conversion.rs` 按 OpenCC s2t 实现的词级转换，由宿主在显示与上屏边界调用。
 
 一条贯穿全仓库的规则：**Tauri 是公共组件，不是任何平台的产品本体**。最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主；Tauri/React 由它按需承载（`platforms/ios/build-app.sh` 顶部的注释写明了这一点，iOS 上只有 `MSIME_IOS_TAURI_COMPONENT=1` 才单独构建那部分）。
 
@@ -172,7 +172,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 **从共享设置页移除没有宿主表面的入口。** 一个能保存但没人消费的开关比没有这个开关更糟。所以：`menu_theme` 只在 macOS/Windows 有原生菜单，移动端就不显示；macOS 关于页不显示 Windows Server、TSF 或 Linux IBus 的诊断开关；macOS 语音设置页不显示无法提交到 IMK 会话的 Tauri 语音面板按钮，改为指向输入法快捷键或悬浮工具栏；辅助码页按宿主而不是按形态划分——Android 键盘在发 Shift 辅码所以可进入，Apple 键盘扩展没有辅助码输入所以继续隐藏。反过来，Android 候选栏真的消费了字体、颜色和皮肤字段之后，`HostCapabilities` 才把对应能力置为可用。
 
-**平台不复制输入算法，只维护绑定。** 以词定字调 Engine 的首尾字接口；数字选词先让 Engine 处理字符再映射当前页索引；全拼纠错、混输、调频、辅助码筛选、简繁与日文转换全部是传配置给 Engine；标点由共享层编排「先结束组合再转换」的顺序，转换表在 Engine。平台侧留下的是按键身份判定、修饰键规则、回复类型选择这类真正属于宿主的东西。
+**平台不复制输入算法，只维护绑定。** 以词定字调 Engine 的首尾字接口；数字选词先让 Engine 处理字符再映射当前页索引；全拼纠错、混输、调频、辅助码筛选、日文转换全部是传配置给 Engine；简繁由宿主在显示与上屏边界调用共享导出 `msime_client_simplified_to_traditional` 转换，平台侧不持有转换表；标点由共享层编排「先结束组合再转换」的顺序，转换表在 Engine。平台侧留下的是按键身份判定、修饰键规则、回复类型选择这类真正属于宿主的东西。
 
 **硬件快捷键按宿主能力分别实现，语义对齐。** 裸 Shift / 裸 Ctrl 切中英有 500 ms 上限和「期间无其他键」约束，避免普通大写字母或编辑器组合误触发；Ctrl+Shift+F 切简繁；数字行选词按物理数字行取键（AZERTY 也能用）而不是按字符。Windows 从 TSF 键包取布局转换后的 wch 并规范化小键盘数字，Android 用 `HardwareShortcutPolicy` 与 `HardwareKeyPolicy` 映射到共享命令，HarmonyOS 用 `HardwareKeyDispatch` 处理 2in1 的和弦，Linux 在 Fcitx5 侧消费共享的四个模式快捷键与作用域设置。
 

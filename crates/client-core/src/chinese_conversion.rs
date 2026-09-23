@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn phrases_resolve_one_to_many_characters() {
-        // Each of these goes wrong character by character: 发, 干, 面, 后, 里 have more than one Traditional form.
+        // Each of these goes wrong character by character: 发, 干, 面, 后, 里, 松, 余, 复, 借 have more than one Traditional form.
         for (simplified, traditional) in [
             ("头发", "頭髮"),
             ("发展", "發展"),
@@ -170,6 +170,10 @@ mod tests {
             ("皇后", "皇后"),
             ("后天", "後天"),
             ("里面", "裏面"),
+            ("蓬松", "蓬鬆"),
+            ("余下", "餘下"),
+            ("答复", "答覆"),
+            ("凭借", "憑藉"),
             ("汉语输入法", "漢語輸入法"),
         ] {
             assert_eq!(

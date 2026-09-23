@@ -206,8 +206,8 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         [polishEnabled isKindOfClass:[NSNumber class]] || [polishEnabled isKindOfClass:[NSString class]]
             ? [polishEnabled boolValue]
             : NO;
-    value.polishEndpoint = SharedSetting(saved, @"polishEndpoint", @"https://api.siliconflow.cn/v1/chat/completions");
-    value.polishModel = SharedSetting(saved, @"polishModel", @"Qwen/Qwen3-8B");
+    value.polishEndpoint = SharedSetting(saved, @"polishEndpoint", MSIMEVoicePolishDefaultEndpoint);
+    value.polishModel = SharedSetting(saved, @"polishModel", MSIMEVoicePolishDefaultModel);
     id sharedCaptureDevice = [defaults objectForKey:@"MSIMEClientVoiceCaptureDevice"];
     value.captureDevice = [sharedCaptureDevice isKindOfClass:NSString.class]
         ? sharedCaptureDevice : StringSetting(saved, @"captureDevice", @"");
@@ -224,7 +224,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         slots[rawProvider] = value.token;
         value.tokenSlots = slots;
     }
-    NSString *polishProvider = [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"siliconflow";
+    NSString *polishProvider = [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider;
     NSString *sharedPolishToken = MSIMEVoiceTokenForProvider(
         defaults, @"MSIMEClientVoicePolishTokens", polishProvider,
         [defaults stringForKey:@"MSIMEClientVoicePolishToken"]);
@@ -267,7 +267,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSString *previousProvider = [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
     NSString *previousEndpoint = [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"";
-    NSString *polishProvider = [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"siliconflow";
+    NSString *polishProvider = [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider;
     NSString *previousPolishEndpoint = [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"";
     const BOOL serviceProvider = MSIMEVoiceASRProviderUsesService(self.provider);
     const BOOL changedProvider = previousProvider.length &&
