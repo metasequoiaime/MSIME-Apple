@@ -141,6 +141,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var backspaceRepeatTimer: Timer?
   private var didRepeatBackspace = false
   private var hasComposition = false
+  private var pairedPunctuation = PairedPunctuationStack()
   /// Japanese conversion keeps the selected candidate in the strip until Return commits it.
   private var japaneseConversionIndex: Int?
   private var isChineseMode = true
@@ -1671,15 +1672,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
+    let paired = session.sharedPreferences?["paired_punctuation"] as? Bool ?? true
+    // The closing half of a pair the keyboard closed is already to the right of the caret, so its key moves past it rather than writing a second one. Only between compositions: a key pressed mid-spelling commits the spelling with its mark.
+    if paired && !hasComposition
+      && pairedPunctuation.stepOver(ascii: punctuation, editor: editor, following: textDocumentProxy.documentContextAfterInput) {
+      clearSmartPunctuationArming()
+      textDocumentProxy.adjustTextPosition(byCharacterOffset: 1)
+      return
+    }
+
     let preceding = KeyboardPunctuationContext.precedingScalar(documentContextBeforeComposition)
     var snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
     if snapshot.isHandled {
-      let paired = session.sharedPreferences?["paired_punctuation"] as? Bool ?? true
       let reopened = PairedPunctuationPolicy.reopenQuote(snapshot.commitText, ascii: punctuation, enabled: paired)
       if reopened != snapshot.commitText { snapshot = snapshot.replacingCommit(reopened) }
       render(snapshot)
       let completion = PairedPunctuationPolicy.completion(snapshot.commitText, enabled: paired)
-      if let completion { closePair(completion) }
+      if let completion { closePair(completion, editor: editor) }
       armSmartPunctuation(punctuation, commit: snapshot.commitText, editor: editor, autoClosedPair: completion != nil)
       return
     }
@@ -1700,10 +1709,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 成对标点自动补全: write the closing mark and put the caret back between the two. The Engine has just committed the opening mark, so nothing is composed and the caret move ends nothing.
-  private func closePair(_ completion: PairedPunctuationCompletion) {
+  private func closePair(_ completion: PairedPunctuationCompletion, editor: UInt64) {
     insertOwnText(completion.closing)
     if completion.opening == "<" { session.balancePairedPunctuationAfterAutoClose(opening: completion.opening) }
     textDocumentProxy.adjustTextPosition(byCharacterOffset: -1)
+    pairedPunctuation.push(closing: completion.closing, editor: editor)
   }
 
   /// Milliseconds on the host's own clock, for the two-second repeat window.
@@ -2851,6 +2861,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleBackspace() {
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
     playInputClick()
+    // Deleting document text may take the opening half of a pair with it; a backspace inside a spelling only edits the spelling.
+    if !hasComposition { pairedPunctuation.clear() }
     if !isChineseMode {
       deleteOwnBackward()
       refreshEnglishSuggestions()
@@ -2948,6 +2960,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else { return }
     if hasComposition { render(session.finishComposition()) }
     guard KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
+    pairedPunctuation.clear()
     textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
   }
 
@@ -3037,6 +3050,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     let snapshot = endComposition(at: .returnKey)
     if !snapshot.isHandled {
+      pairedPunctuation.clear()
       insertOwnText("\n")
     }
     render(snapshot)

@@ -28,6 +28,8 @@ iOS 云剪贴板复用共享账号会话和 Tauri `CloudClipboardPanel`，只上
 
 App 的“输入设置 → 标点”页直接读写共享 `PreferencesStore`：智能标点及其四条子规则（重复转中文、空格转英文、数字后直出、字母后直出，总开关关闭时置灰）、成对标点自动补全和固定标点。这些开关没有 App Group 兼容键，页面通过 `MetasequoiaInputSessionBridge.loadSharedPreferences` / `updateSharedPreferences` 访问，不创建输入会话、不加载 Engine；写入与键盘共用同一份带 revision 的比较交换，写入失败时页面回读实际值并提示重试。键盘出现时 `reloadSharedPreferences` 只把这组标点开关（以及下面「候选与纠错」「辅助码」「本地输入模式」三页的 `quanpin`、`mixed_input`、`quanpin_helpcode`、`shuangpin_helpcode`、`local_modes` 五个对象，以及由下面「云候选」开关决定的 `cloud_candidates`）交给正在运行的会话（会话在组字中会排队到输入结束），输入方案等其他字段仍等下一个会话，避免键盘可见时方案被换掉。
 
+成对标点自动补全打开时，Engine 上屏左半边（“ ‘ （ 《 〈 【）后键盘写入右半边并把光标放回中间；引号键每次都开一对新的，与 Windows 一致。右半边已经在光标右边，所以之后按它的键（`"` `'` `)` `]` `>`）只把光标移过去、不再写第二个，对应 Windows 的 `_TryStepOverPairedPunctuation`：否则（内容 再按 ） 会变成（内容）），而右引号根本打不出来。键盘记着自己补过的对（最内层在上，最多 16 层），只在没有组字时、在开这一对的同一个编辑器里、且光标右边确实还是那个右半边时才跨过去；宿主不报告光标后文字时以记录为准，这也和 Windows 相同。删除文档文字、拖动空格移动光标、换行都会清空记录；组字中按右括号照常连同候选一起上屏。
+
 “输入设置 → 候选与纠错”页用同样的方式读写全拼纠错（`quanpin.autocorrect_transposition` 字母错位、`quanpin.autocorrect_neighbor` 相邻键误触，默认都关）和候选混输（`mixed_input` 的英文单词及触发字母数、emoji、颜文字）。这两个字段是嵌套对象，每次写入只合并一个子字段，其余子字段保持存储值。同一页的「以词定字」对应 `word_character.enabled`：桌面用 [ ] 或 - = 键只上屏候选的首字或末字，键盘扩展收不到硬件键（iPad 外接键盘也一样），所以 iOS 把它放进候选的长按菜单（候选栏和展开的候选面板都有），只对两个汉字以上的候选出现，`word_character.keys` 在 iOS 上不用。
 
 同一页的「预编辑」对应共享设置里的 `candidate_preedit_style` 和 `shuangpin_preedit_uses_raw`。键盘扩展没有文档里的组字，候选栏左侧就是正在拼写的内容唯一看得见的地方，选「不显示」把这块位置让给候选；和 Android 一样，只隐藏正在拼的那一段：已选定的半个词（`phrase_prefix`）仍然显示，否则用户选过的字既不在文档里也不在屏幕上；本地输入模式的名称也保留，因为它说明当前在哪个模式。这个设置只改画出来的标题，组字状态不变，拼写还没有候选时候选栏也不会退回快捷栏，VoiceOver 仍读出完整内容；日语的假名读音不是拼音，不受它影响。「双拼显示原始按键」由 Engine 消费，关掉后双拼组字显示按键展开的拼音，例如 `ui` 显示为 `shi`；它和标点字段一样列在桥接层交给运行中会话的字段里，键盘进程不必重启，下次出现、空闲时就生效。
