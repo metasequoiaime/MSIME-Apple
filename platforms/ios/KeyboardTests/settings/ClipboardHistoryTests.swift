@@ -143,6 +143,18 @@ final class ClipboardHistoryTests: XCTestCase {
     XCTAssertEqual(hidden.numberOfRows(inSection: 0), 0)
   }
 
+  /// 键盘读取剪贴板内容会触发系统粘贴提示，所以只凭 changeCount 提示「有新复制的内容」，保存仍由用户点按。
+  func testNewCopyPromptFollowsTheChangeCountSinceTheLastSave() throws {
+    let suite = "msime-clipboard-prompt-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    XCTAssertTrue(ClipboardCapturePrompt.hasNewCopy(changeCount: 3, hasStrings: true, defaults: defaults))
+    XCTAssertFalse(ClipboardCapturePrompt.hasNewCopy(changeCount: 3, hasStrings: false, defaults: defaults), "an image copy has no text to save")
+    ClipboardCapturePrompt.markCaptured(changeCount: 3, defaults: defaults)
+    XCTAssertFalse(ClipboardCapturePrompt.hasNewCopy(changeCount: 3, hasStrings: true, defaults: defaults))
+    XCTAssertTrue(ClipboardCapturePrompt.hasNewCopy(changeCount: 4, hasStrings: true, defaults: defaults))
+  }
+
   func testSearchMatchesSubstringsIgnoringCaseAndKeepsOrder() {
     let items = ["Hello World", "今天的会议记录", "hello again", "会议"].map { ClipboardHistoryItem(text: $0) }
     XCTAssertEqual(ClipboardHistoryItem.matching(items, query: ""), items)

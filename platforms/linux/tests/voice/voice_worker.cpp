@@ -14,6 +14,14 @@ int main() {
   assert(msime_voice_result_or_transcript("", "中间😀", "预编辑") == "中间😀");
   assert(msime_voice_result_or_transcript("", "", "预编辑") == "预编辑");
   assert(msime_voice_result_or_transcript("", "", "") == "");
+  assert(std::string(msime_voice_provider_failure_notice("voice_dependency_missing:websockets")) ==
+         "豆包语音需要 websockets 15 或更高版本，请安装 python3-websockets");
+  assert(std::string(msime_voice_provider_failure_notice("voice_dependency_missing:recorder")) ==
+         "未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils");
+  assert(std::string(msime_voice_provider_failure_notice("")) ==
+         "语音输入失败，请检查语音服务、麦克风及提供商配置后重试");
+  assert(std::string(msime_voice_provider_failure_notice("voice_dependency_missing:token=secret")) ==
+         "语音输入失败，请检查语音服务、麦克风及提供商配置后重试");
 
   MsimeVoiceWorker worker;
   std::atomic_bool delivered{false};

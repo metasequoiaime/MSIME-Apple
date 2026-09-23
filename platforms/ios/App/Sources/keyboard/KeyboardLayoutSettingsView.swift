@@ -8,6 +8,8 @@ struct KeyboardLayoutSettingsView: View {
   @State private var nineKey = InputSchemePreference.scheme == .nineKey
   @State private var voice = KeyboardLayoutPreference.voiceShortcutEnabled
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
+  @State private var toolbar = TouchToolbarPreference()
+  @State private var tabOpensCandidates = true
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
   @State private var saveFailed = false
@@ -142,15 +144,37 @@ struct KeyboardLayoutSettingsView: View {
       } footer: {
         Text("语音入口用于打开已识别的语音结果。")
       }
+      Section {
+        ForEach(TouchToolbarPreference.options, id: \.name) { option in
+          Toggle(option.title, isOn: Binding(
+            get: { toolbar[keyPath: option.keyPath] },
+            set: { enabled in
+              var next = toolbar
+              next[keyPath: option.keyPath] = enabled
+              saveToolbar(next)
+            }))
+          .accessibilityIdentifier("appToolbar_\(option.name)")
+        }
+      } header: {
+        Text("工具栏按钮")
+      } footer: {
+        Text("打开的功能显示在键盘顶部工具栏；关掉的仍在键盘的「更多」里。已经打开的键盘要重新唤出才生效。")
+      }
       if UIDevice.current.userInterfaceIdiom == .pad {
         Section {
           Toggle("数字行与 Tab 键", isOn: $tabletFullKeys)
             .accessibilityIdentifier("appTabletFullKeysSwitch")
             .onChange(of: tabletFullKeys) { KeyboardLayoutPreference.tabletFullKeys = $0 }
+          if tabletFullKeys {
+            Toggle("组字时 Tab 打开全部候选", isOn: Binding(
+              get: { tabOpensCandidates },
+              set: { saveTab($0) }))
+            .accessibilityIdentifier("appTabletTabCandidatesSwitch")
+          }
         } header: {
           Text("iPad")
         } footer: {
-          Text("全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。")
+          Text("全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。")
         }
       }
       Section {
@@ -172,6 +196,18 @@ struct KeyboardLayoutSettingsView: View {
     if saveFailed { readPreferences() }
   }
 
+  /// A refused write leaves the switch where the document is, instead of showing a bar the keyboard will not draw.
+  private func saveToolbar(_ next: TouchToolbarPreference) {
+    saveFailed = !TouchToolbarPreference.save(next)
+    toolbar = saveFailed ? TouchToolbarPreference.load() : next
+  }
+
+  private func saveTab(_ enabled: Bool) {
+    saveFailed = !KeyboardLayoutPreference.saveTabShowsMoreCandidates(enabled)
+    tabOpensCandidates = saveFailed
+      ? KeyboardLayoutPreference.tabShowsMoreCandidates(MetasequoiaInputSessionBridge.loadSharedPreferences()) : enabled
+  }
+
   private func readPreferences() {
     keySpacing = KeyboardLayoutPreference.keySpacing
     rowSpacing = KeyboardLayoutPreference.rowSpacing
@@ -182,6 +218,8 @@ struct KeyboardLayoutSettingsView: View {
     tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
+    toolbar = TouchToolbarPreference(in: preferences)
+    tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
     if let tenths = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
       keySpacing = clamp(tenths / 10, 3, 6)
     }

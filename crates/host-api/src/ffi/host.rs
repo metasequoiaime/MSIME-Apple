@@ -598,6 +598,41 @@ pub unsafe extern "C" fn msime_client_skin_toolbar_stylesheet(
 }
 
 #[derive(Debug, Deserialize)]
+struct SkinImportRequest {
+    source: String,
+    directory: String,
+}
+
+/// Copy a skin folder the user picked into the host's skin root, for a host whose root no file manager reaches (the iOS App Group). Returns `{id}`, the folder name the catalog lists it under; a failure's message is the import's code (`skin_name`, `skin_manifest` or `storage`) so the host can explain it.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_skin_import(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > 65_536 {
+            return Err("invalid skin import request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: SkinImportRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid skin import request")?;
+        if !Path::new(&request.source).is_absolute() || !Path::new(&request.directory).is_absolute()
+        {
+            return Err("skin paths must be absolute".into());
+        }
+        let id = msime_client_core::skin::folder_import::import(
+            Path::new(&request.source),
+            Path::new(&request.directory),
+        )
+        .map_err(str::to_owned)?;
+        Ok(json!({ "id": id }))
+    })
+}
+
+#[derive(Debug, Deserialize)]
 struct CustomSkinLibraryRequest {
     directory: String,
     action: Option<msime_client_core::skin::custom_library::CustomSkinLibraryAction>,

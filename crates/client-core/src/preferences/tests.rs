@@ -2539,3 +2539,45 @@ fn recover_leaves_the_original_when_the_backup_cannot_be_written() {
     assert_eq!(fs::read(&path).unwrap(), b"{\"format_version\":");
     assert!(corrupt_backups(directory.path()).is_empty());
 }
+
+#[test]
+fn touch_toolbar_keeps_the_original_buttons_by_default_and_round_trips_partial_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    legacy["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("touch_toolbar");
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(
+        loaded.preferences.touch_toolbar,
+        TouchToolbarPreferences::default()
+    );
+    let defaults = loaded.preferences.touch_toolbar;
+    assert!(defaults.layout && defaults.emoji && defaults.skin);
+    assert!(!defaults.clipboard && !defaults.ai && !defaults.character_set);
+
+    // A document written before a switch existed leaves that switch at its default.
+    let partial: TouchToolbarPreferences =
+        serde_json::from_value(serde_json::json!({"emoji": false, "clipboard": true})).unwrap();
+    assert!(!partial.emoji && partial.clipboard && partial.layout && !partial.ai);
+
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                touch_toolbar: TouchToolbarPreferences {
+                    skin: false,
+                    punctuation: true,
+                    ..TouchToolbarPreferences::default()
+                },
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert!(!saved.preferences.touch_toolbar.skin);
+    assert!(saved.preferences.touch_toolbar.punctuation);
+    assert!(!store.load().unwrap().preferences.touch_toolbar.skin);
+}

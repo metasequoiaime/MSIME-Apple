@@ -5,6 +5,9 @@ enum ChineseInputScheme: String, CaseIterable {
 
   var isJapanese: Bool { self == .japanese || self == .japaneseNineKey }
 
+  /// Whether a held backspace and a quick space-bar flick edit the spelling a syllable at a time. Only a lettered pinyin spelling has syllables to step over: a nine-key digit run is still ambiguous, and a wubi code is not made of syllables, so those keep a hold that clears the composition.
+  var editsBySyllable: Bool { self == .quanpin || shuangpinProfile != nil }
+
   var shuangpinProfile: String? {
     switch self {
     case .shuangpin: "xiaohe"

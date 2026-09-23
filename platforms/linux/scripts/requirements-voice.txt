@@ -1,2 +1,2 @@
-# Optional: required only when the configured ASR provider is doubao.
-websockets==15.0.1
+# Optional: required only when the configured ASR provider is doubao. 15.0 is the first release whose sync client takes the keepalive arguments the transport uses.
+websockets>=15,<16

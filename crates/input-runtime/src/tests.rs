@@ -360,6 +360,59 @@ fn voice_provider_rejects_events_without_generation_binding() {
 
 #[cfg(unix)]
 #[test]
+fn voice_provider_names_only_known_missing_dependencies() {
+    for (reply, expected) in [
+        (
+            r#"{"generation":7,"type":"final","text":"","ok":false,"error":"voice_dependency_missing","detail":"websockets"}"#,
+            Err(Some("websockets")),
+        ),
+        (
+            r#"{"generation":7,"type":"final","text":"","ok":false,"error":"voice_dependency_missing","detail":"recorder"}"#,
+            Err(Some("recorder")),
+        ),
+        (
+            r#"{"generation":7,"type":"final","text":"","ok":false,"error":"voice_dependency_missing","detail":"token=secret"}"#,
+            Err(None),
+        ),
+        (
+            r#"{"generation":7,"type":"final","text":"","ok":false}"#,
+            Err(None),
+        ),
+        (
+            r#"{"generation":7,"type":"final","text":"水杉","ok":true}"#,
+            Ok("水杉".to_owned()),
+        ),
+    ] {
+        let directory = private_tempdir();
+        let socket = directory.path().join("voice.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            std::io::BufRead::read_line(
+                &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+                &mut request,
+            )
+            .unwrap();
+            std::io::Write::write_all(&mut stream, reply.as_bytes()).unwrap();
+            std::io::Write::write_all(&mut stream, b"\n").unwrap();
+        });
+        let result = UnixSocketProvider::new(socket).voice_stream_with_options_diagnosed(
+            "zh-cn",
+            7,
+            &Value::Null,
+            None,
+            &mut |_, _| {},
+            None,
+            None,
+        );
+        assert_eq!(result, expected, "{reply}");
+        server.join().unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn dangling_segment_delimiter_cleanup_matches_windows_policy() {
     assert!(needs_dangling_segment_delimiter_backspace("ni'", 3));
     assert!(needs_dangling_segment_delimiter_backspace("ni''ma", 3));

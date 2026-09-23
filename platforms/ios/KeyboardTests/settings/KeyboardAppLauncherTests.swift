@@ -36,5 +36,6 @@ final class KeyboardAppLauncherTests: XCTestCase {
   func testTargetsTheRegisteredScheme() {
     XCTAssertEqual(KeyboardAppLauncher.settingsURL.scheme, "msime")
     XCTAssertEqual(KeyboardAppLauncher.settingsURL.absoluteString, "msime://settings")
+    XCTAssertEqual(KeyboardAppLauncher.voiceURL.absoluteString, "msime://voice")
   }
 }
