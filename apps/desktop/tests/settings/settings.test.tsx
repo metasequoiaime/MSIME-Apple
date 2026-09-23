@@ -5023,6 +5023,12 @@ const referenceOptions: { page: string; button: string; control: string; options
   {
     page: "appearance",
     button: "外观",
+    control: "每页候选项数量",
+    options: ["3", "4", "5", "6", "7", "8", "9"],
+  },
+  {
+    page: "appearance",
+    button: "外观",
     control: "候选项排列方式",
     options: ["横向", "纵向"],
   },
@@ -6501,8 +6507,6 @@ test("macOS offers the same candidate page sizes as every other host and keeps t
     name: "每页候选项数量",
   })) as HTMLSelectElement;
   expect(Array.from(size.options).map((option) => option.value)).toEqual([
-    "1",
-    "2",
     "3",
     "4",
     "5",
@@ -6516,6 +6520,32 @@ test("macOS offers the same candidate page sizes as every other host and keeps t
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, { ...preferences, candidate_page_size: 4 });
+});
+
+test("a saved page size below the reference's three stays listed and selected", async () => {
+  // The shared preference accepts one and two; the page offers the reference's three through nine. A
+  // document carrying two must not display as three, or saving any other change would rewrite it.
+  const preferences = { ...initial.preferences, candidate_page_size: 2 };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue({ ...initial, preferences }),
+    save: vi.fn(),
+    host: { platform: "windows" } as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+  const size = (await screen.findByRole("combobox", {
+    name: "每页候选项数量",
+  })) as HTMLSelectElement;
+  expect(Array.from(size.options).map((option) => option.value)).toEqual([
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+  ]);
+  expect(size.value).toBe("2");
 });
 
 test("macOS shuangpin keymap setting loads, toggles, and saves through the native preference bridge", async () => {
