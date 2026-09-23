@@ -6,13 +6,18 @@
 namespace msime::windows {
 // Native routing only, not translation. Resolve input separators, Unicode
 // selection and word-to-character priority before calling this predicate.
+// The Japanese scheme never pages on minus/equals (the reference's IsJapaneseDisabledPagingKey), and the TSF sends those keys as punctuation there, so '_', '=' and '+' commit the highlighted candidate. A bare '-' stays the long-vowel mark.
 inline bool candidate_punctuation(const FanyImeNamedpipeData &packet,
-                                  const NavigationBindings &bindings) {
+                                  const NavigationBindings &bindings,
+                                  bool japanese = false) {
   if (translate_key(packet).kind != KeyKind::Character)
     return false;
   switch (packet.keycode) {
   case 0xBD:
   case 0xBB:
+    if (japanese)
+      return packet.wch == '_' || packet.wch == '=' || packet.wch == '+';
+    return false;
   case 0x6D:
   case 0x6B:
     return false;
@@ -30,5 +35,22 @@ inline bool candidate_punctuation(const FanyImeNamedpipeData &packet,
   constexpr std::string_view characters = "`!@#$%^&*()[]\\;:'\",<>.?";
   return packet.wch <= 127 && characters.find(static_cast<char>(packet.wch)) !=
                                   std::string_view::npos;
+}
+
+// The ASCII mark that follows the highlighted candidate literally, or 0 when the key's punctuation is translated as usual. The numpad arithmetic keys and '/' stay literal and the numpad decimal is always '.', so an expression or a path typed right after a candidate does not become Chinese punctuation (reference 1d2431ad). The numpad '+' and '-' are arithmetic, not the paging keys candidate_punctuation excludes. Only meaningful while composing: the caller routes these keys here only then.
+inline char literal_candidate_punctuation(const FanyImeNamedpipeData &packet) {
+  if (translate_key(packet).kind != KeyKind::Character)
+    return 0;
+  switch (packet.keycode) {
+  case 0x6B:
+    return '+';
+  case 0x6D:
+    return '-';
+  case 0x6E:
+    return '.';
+  case 0x6F:
+    return '/';
+  }
+  return packet.wch == '/' ? '/' : 0;
 }
 } // namespace msime::windows

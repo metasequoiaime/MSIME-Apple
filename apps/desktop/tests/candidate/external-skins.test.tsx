@@ -782,3 +782,86 @@ test("a host that draws one layout judges skins by it, not by the shared setting
   const desktopCard = await screen.findByRole("article", { name: /Sample skin/ });
   expect(within(desktopCard).getByText(/当前布局或明暗模式不受支持/)).toBeTruthy();
 });
+
+test("a host without a floating toolbar previews only the candidate window and reads no toolbar css", async () => {
+  const readToolbarCss = vi.fn().mockResolvedValue(null);
+  render(
+    <ExternalSkins
+      {...props}
+      scan={async () => ({
+        ...catalog,
+        packages: [{ ...catalog.packages[0], toolbarStylesheet: "toolbar.css" }],
+      })}
+      toolbarPreview={false}
+    />,
+  );
+  refresh();
+  const card = await screen.findByRole("article", { name: "Sample skin" });
+  expect(card.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
+  // No reader was passed either, yet the card must not claim the toolbar styles are unsupported: there is no toolbar for them to style.
+  expect(within(card).queryByText("当前宿主不支持外部工具栏样式。")).toBeNull();
+  cleanup();
+  render(
+    <ExternalSkins
+      {...props}
+      scan={async () => ({
+        ...catalog,
+        packages: [{ ...catalog.packages[0], toolbarStylesheet: "toolbar.css" }],
+      })}
+      readToolbarCss={readToolbarCss}
+      toolbarPreview={false}
+    />,
+  );
+  refresh();
+  await screen.findByRole("article", { name: "Sample skin" });
+  expect(readToolbarCss).not.toHaveBeenCalled();
+});
+
+test("the Linux skin page describes the candidate window only", async () => {
+  const readSkinToolbarCss = vi.fn().mockResolvedValue(null);
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        readSkinToolbarCss,
+        host: { platform: "linux" } as never,
+        scanSkinCatalog: async () => ({
+          ...catalog,
+          packages: [{ ...catalog.packages[0], toolbarStylesheet: "toolbar.css" }],
+        }),
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "刷新皮肤" }));
+  const external = await screen.findByRole("article", { name: /Sample skin/ });
+  // Both Linux hosts present the toolbar as an input method menu, which no skin styles.
+  expect(
+    screen.getByText("选择候选窗使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
+  ).toBeTruthy();
+  // Every page is mounted at once; the toolbar page itself still names the toolbar.
+  expect(within(external.closest("fieldset")!).queryByText(/悬浮工具栏/)).toBeNull();
+  expect(screen.getByText("微信绿候选窗")).toBeTruthy();
+  const builtin = screen.getByRole("article", { name: "微信绿" });
+  expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
+  expect(external.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
+  expect(readSkinToolbarCss).not.toHaveBeenCalled();
+});
+
+test("the Windows skin page keeps the toolbar preview", async () => {
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{ load: async () => initial, save: vi.fn(), host: { platform: "windows" } as never }}
+    />,
+  );
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(
+    screen.getByText("选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
+  ).toBeTruthy();
+  expect(screen.getByText("微信绿候选窗与悬浮工具栏")).toBeTruthy();
+  expect(
+    screen.getByRole("article", { name: "微信绿" }).querySelectorAll("[data-skin-stage]"),
+  ).toHaveLength(3);
+});

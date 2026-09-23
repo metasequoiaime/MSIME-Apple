@@ -1661,9 +1661,16 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
             else
             {
                 const std::wstring candidate(receivedData->candidate_string);
-                const WCHAR preceding =
-                    candidate.empty() ? _GetPrecedingCharForSmartPunctuation(ec, pContext) : candidate.back();
-                punctuationStr = candidate + _ResolveSmartPunctuation(wch, preceding);
+                if (const WCHAR literal = Global::LiteralCandidatePunctuation(code, wch))
+                {
+                    punctuationStr = candidate + literal;
+                }
+                else
+                {
+                    const WCHAR preceding =
+                        candidate.empty() ? _GetPrecedingCharForSmartPunctuation(ec, pContext) : candidate.back();
+                    punctuationStr = candidate + _ResolveSmartPunctuation(wch, preceding);
+                }
             }
         }
     }
@@ -1684,6 +1691,16 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
 
     const bool pairedPunctuationEnabled = Global::PairedPunctuationEnabled.load(std::memory_order_relaxed) &&
                                           !Global::IsPairedPunctuationExcludedProcess(Global::current_process_name);
+    if (pairedPunctuationEnabled && !_IsComposing() && _candidateMode == CANDIDATE_NONE)
+    {
+        // A pair whose closing half is still waiting on the right of the caret is closed by stepping over it. Without this the closing key inserts a second one （内容）） and, because of the pinning below, the right quote could never be typed at all.
+        const WCHAR stepOver = Global::PairedPunctuationStepOverCandidate(wch, punctuationStr);
+        if (_TryStepOverPairedPunctuation(ec, pContext, stepOver))
+        {
+            return S_OK;
+        }
+    }
+
     if (pairedPunctuationEnabled && !punctuationStr.empty())
     {
         // Quotes share one physical key for both sides. In paired mode every
@@ -1699,6 +1716,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         }
     }
 
+    const WCHAR pairedOpening = punctuationStr.empty() ? 0 : punctuationStr.back();
     const WCHAR pairedClosing = pairedPunctuationEnabled ? GetPairedPunctuationClosing(punctuationStr) : 0;
     if (pairedClosing != 0)
     {
@@ -1755,14 +1773,17 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
                               pairedClosing != 0 || punctuationStr.size() != 1, smartPunctuationBeforeChar);
     if (pairedClosing != 0)
     {
-        _InvalidateSmartPunctuationShadow();
-
-        const uint64_t focusToken = _CaptureFocusSessionToken();
-        if (_msgWndHandle != nullptr)
+        // The closing half was emitted here, not by a closing keystroke, so the nest-pair depth that resolving the opening advanced would never be paid back (the '>' is consumed by step-over). Balance it now, or the next 《》 degrades into 〈〉.
+        pCompositionProcessorEngine->BalanceNestPairAfterAutoClose(wch);
+        if (wch == L'<')
         {
-            PostMessage(_msgWndHandle, WM_PairedPunctuationCaretMove, static_cast<WPARAM>(focusToken & 0xFFFFFFFFULL),
-                        static_cast<LPARAM>((focusToken >> 32) & 0xFFFFFFFFULL));
+            // With candidates open the Server's Engine resolved the opening and advanced its own nesting count, which this TSF cannot reach, so the Server pays it back too. Both counts stop at zero, so telling the Server when the TSF resolved the opening itself is harmless.
+            SendPairedPunctuationAutoClosedToServerViaNamedPipe(wch);
         }
+        _InvalidateSmartPunctuationShadow();
+        // Track the pair so its closing key steps over the auto-inserted half, and move the caret between the halves through the queued move: WM_PairedPunctuationCaretMove only runs a move whose focus token _QueuePairedPunctuationCaretMove recorded.
+        _PushPairedPunctuation(pairedOpening, pairedClosing);
+        _QueuePairedPunctuationCaretMove(-1);
     }
 
     return S_OK;

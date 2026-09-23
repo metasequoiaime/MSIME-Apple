@@ -1171,11 +1171,19 @@ pub(crate) fn send_panel_text_windows(
         })
 }
 
-// Panels sit bottom-centered on the work area, where the native ones did.
+// Panels sit where the native ones did: bottom-centred on the work area, or centred for the panels the shipped product centred.
 #[cfg(target_os = "windows")]
-pub(crate) fn windows_panel_position(width: f64, height: f64) -> Option<tauri::Position> {
+pub(crate) fn windows_panel_position(
+    width: f64,
+    height: f64,
+    placement: msime_client_core::host_surface::PanelPlacement,
+) -> Option<tauri::Position> {
+    use msime_client_core::host_surface::PanelPlacement;
     msime_host_windows::work_area().map(|area| {
-        let (x, y) = area.bottom_center(width, height);
+        let (x, y) = match placement {
+            PanelPlacement::BottomCenter => area.bottom_center(width, height),
+            PanelPlacement::Center => area.center(width, height),
+        };
         tauri::Position::Physical(tauri::PhysicalPosition::new(
             x.round() as i32,
             y.round() as i32,

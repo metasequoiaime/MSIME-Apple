@@ -1,0 +1,96 @@
+param([Parameter(Mandatory)][string]$Installer)
+# Installs the built package silently on a disposable Windows machine, checks what it leaves on disk, in the registry and in Task Scheduler, then uninstalls it silently and checks the same places are clean. Requires an elevated session; the release runner is one.
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$Installer = (Resolve-Path -LiteralPath $Installer).Path
+
+$clsid = '{E3062E9A-D834-4637-8958-ED8CFA427D01}'
+$appKey = 'HKLM:\SOFTWARE\Metasequoia\MetasequoiaIME'
+$taskName = 'Metasequoia IME Watchdog'
+$pf64 = Join-Path $env:ProgramFiles 'metasequoiaime'
+$pf32 = Join-Path ${env:ProgramFiles(x86)} 'metasequoiaime'
+$logs = Join-Path $env:RUNNER_TEMP 'msime-install-smoke'
+New-Item -ItemType Directory -Force -Path $logs | Out-Null
+$failures = [Collections.Generic.List[string]]::new()
+function Check([bool]$Condition, [string]$What) {
+    if ($Condition) { Write-Output "ok: $What" } else { Write-Output "FAIL: $What"; $failures.Add($What) }
+}
+function InprocServer([string]$ClassesRoot) {
+    $key = "$ClassesRoot\CLSID\$clsid\InprocServer32"
+    if (Test-Path -LiteralPath $key) { (Get-Item -LiteralPath $key).GetValue('') } else { $null }
+}
+function TaskExists { $null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) }
+
+# A custom data directory, not the default: the uninstaller used to re-read DataDir after its registry value was already gone and so only ever removed the default location.
+$dataDir = Join-Path $env:RUNNER_TEMP 'msime-smoke-data'
+if (Test-Path -LiteralPath $dataDir) { Remove-Item -LiteralPath $dataDir -Recurse -Force }
+
+# ---- install ----
+$process = Start-Process -FilePath $Installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DATADIR=`"$dataDir`"", "/LOG=`"$logs\install.log`"" -Wait -PassThru
+if ($process.ExitCode -ne 0) { Get-Content -LiteralPath "$logs\install.log" -Tail 60; throw "installer exited with $($process.ExitCode)" }
+
+$app = Get-ItemProperty -LiteralPath $appKey
+$versionDir = $app.VersionDir
+Check (-not [string]::IsNullOrWhiteSpace($versionDir)) 'VersionDir recorded in HKLM'
+Check (Test-Path -LiteralPath $app.ServerPath -PathType Leaf) "ServerPath points at an installed file ($($app.ServerPath))"
+Check (Test-Path -LiteralPath (Join-Path $app.DataDir 'config.toml') -PathType Leaf) 'user config.toml created in DataDir'
+Check (Test-Path -LiteralPath (Join-Path $app.DataDir '.metasequoiaime-data') -PathType Leaf) 'DataDir ownership marker written'
+foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe') {
+    Check (Test-Path -LiteralPath (Join-Path $pf64 "server\$name") -PathType Leaf) "server\$name installed"
+}
+$tip64 = Join-Path $pf64 "$versionDir\MetasequoiaImeTsf.dll"
+$tip32 = Join-Path $pf32 "$versionDir\MetasequoiaImeTsf.dll"
+Check (Test-Path -LiteralPath $tip64 -PathType Leaf) '64-bit TSF DLL installed'
+Check (Test-Path -LiteralPath $tip32 -PathType Leaf) '32-bit TSF DLL installed'
+Check ((InprocServer 'HKLM:\SOFTWARE\Classes') -eq $tip64) '64-bit COM server registered to the installed DLL'
+Check ((InprocServer 'HKLM:\SOFTWARE\WOW6432Node\Classes') -eq $tip32) '32-bit COM server registered to the installed DLL'
+Check (Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$clsid") 'TIP registered with the text services framework'
+Check (TaskExists) 'watchdog logon task created'
+Check ($app.DataDir -eq $dataDir) "DataDir recorded as the /DATADIR choice ($($app.DataDir))"
+# schtasks splits an unquoted /TR at the first space; the stored action must be the whole Program Files path with no arguments.
+$action = if (TaskExists) { @((Get-ScheduledTask -TaskName $taskName).Actions)[0] } else { $null }
+$watchdog = Join-Path $pf64 'server\MetasequoiaImeWatchdog.exe'
+Check ($null -ne $action -and $action.Execute.Trim('"') -eq $watchdog -and [string]::IsNullOrEmpty($action.Arguments)) "watchdog task runs the full Watchdog path ($(if ($action) { "$($action.Execute) | $($action.Arguments)" }))"
+# The Server and settings window run at medium integrity and must be able to write what the elevated installer created.
+$rules = (Get-Acl -LiteralPath $app.DataDir).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
+$usersModify = @($rules | Where-Object {
+    $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-5-32-545' -and
+    ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })
+Check ($usersModify.Count -gt 0) 'DataDir grants Users modify'
+$label = (& icacls $app.DataDir) -join "`n"
+Check ($label.Contains('Mandatory Label\Medium Mandatory Level')) 'DataDir carries a medium integrity label'
+
+# The notices must carry the supplemental Rust and npm sections that the release collects, not only the vcpkg prefixes and the Engine.
+$notices = Join-Path $pf64 'THIRD_PARTY_NOTICES.txt'
+$text = if (Test-Path -LiteralPath $notices) { Get-Content -LiteralPath $notices -Raw -Encoding utf8 } else { '' }
+Check ($text.Contains('Rust crates statically linked into the MSIME host library and binaries')) 'installed notices contain the Rust crate section'
+Check ($text.Contains('npm packages bundled into the MSIME desktop settings frontend')) 'installed notices contain the npm package section'
+Check (Test-Path -LiteralPath (Join-Path $pf64 'LICENSE.txt') -PathType Leaf) 'LICENSE.txt installed'
+
+# ---- uninstall ----
+# The uninstaller relaunches itself from a temporary copy and returns at once, so wait for the program directory to go away instead of the process.
+$uninstaller = Join-Path $pf64 'unins000.exe'
+Check (Test-Path -LiteralPath $uninstaller -PathType Leaf) 'uninstaller present'
+Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$logs\uninstall.log`"" -Wait
+$deadline = (Get-Date).AddMinutes(3)
+while ((Test-Path -LiteralPath $uninstaller) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+Start-Sleep -Seconds 5
+
+Check (-not (Test-Path -LiteralPath $pf64)) '64-bit program directory removed'
+Check (-not (Test-Path -LiteralPath $pf32)) '32-bit program directory removed'
+Check ($null -eq (InprocServer 'HKLM:\SOFTWARE\Classes')) '64-bit COM registration removed'
+Check ($null -eq (InprocServer 'HKLM:\SOFTWARE\WOW6432Node\Classes')) '32-bit COM registration removed'
+# DllUnregisterServer only removes the language profile and categories; the uninstaller then deletes the TIP key itself, so nothing of it may remain.
+$tipKey = "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$clsid"
+Check (-not (Test-Path -LiteralPath $tipKey)) 'TIP registration removed'
+if (Test-Path -LiteralPath $tipKey) { Get-ChildItem -LiteralPath $tipKey -Recurse | ForEach-Object { Write-Output "  left: $($_.Name)" } }
+Check (-not (TaskExists)) 'watchdog logon task removed'
+$remaining = @(if (Test-Path -LiteralPath $appKey) { (Get-Item -LiteralPath $appKey).GetValueNames() | Where-Object { $_ -in 'VersionDir', 'ServerPath', 'DataDir' } })
+Check ($remaining.Count -eq 0) 'installer registry values removed'
+Check (-not (Test-Path -LiteralPath $app.DataDir)) 'owned DataDir removed'
+
+if ($failures.Count -gt 0) {
+    foreach ($log in 'install.log', 'uninstall.log') { if (Test-Path -LiteralPath "$logs\$log") { Write-Output "---- $log (tail) ----"; Get-Content -LiteralPath "$logs\$log" -Tail 40 } }
+    throw "$($failures.Count) install smoke check(s) failed"
+}
+Write-Output 'Installer installs, registers, and uninstalls cleanly'

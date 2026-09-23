@@ -1,4 +1,5 @@
 #pragma once
+#include "ContinuationHide.h"
 #include "FocusGate.h"
 #include "ReplyComposer.h"
 #include "TypingStatistics.h"
@@ -98,6 +99,8 @@ public:
   bool reset_cache();
   bool set_input_enabled(const FocusLease &lease, bool enabled);
   bool set_chinese_punctuation(const FocusLease &lease, bool enabled);
+  // Leaves the composition and any pending reply alone: the nesting count is not part of either.
+  bool balance_paired_punctuation(const FocusLease &lease, uint8_t opening);
   // Retain at most one latest snapshot while a reply is pending. True means
   // accepted for delivery, not necessarily applied to an active composition.
   bool queue_preferences(const FocusLease &lease, const std::string &snapshot);
@@ -131,6 +134,6 @@ private:
   std::optional<FocusLease> lease_;
   std::optional<ReplyComposer> composer_;
   std::optional<nlohmann::json> preferences_retry_;
-  bool auto_commit_hide_pending_ = false;
+  ContinuationHide continuation_hide_;
 };
 } // namespace msime::windows

@@ -12,6 +12,25 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type ThemeClient = Pick<SettingsClient, "load" | "onPreferencesChanged" | "host">;
 
+/** The host platform a panel window runs under: the one the client already knows, or else the one the shell reports. */
+export function useHostPlatform(host: SettingsClient["host"]): string | undefined {
+  const [platform, setPlatform] = useState<string | undefined>(host?.platform);
+  useEffect(() => {
+    let active = true;
+    if (host?.platform) setPlatform(host.platform);
+    else if (isTauri())
+      void invoke<{ platform: string }>("host_capabilities")
+        .then((reported) => {
+          if (active) setPlatform(reported.platform);
+        })
+        .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [host?.platform]);
+  return platform;
+}
+
 export function DesktopKeyboard({
   client,
   preferences,
@@ -19,20 +38,7 @@ export function DesktopKeyboard({
   client: PanelClient;
   preferences: ThemeClient;
 }) {
-  const [platform, setPlatform] = useState<string | undefined>(preferences.host?.platform);
-  useEffect(() => {
-    let active = true;
-    if (preferences.host?.platform) setPlatform(preferences.host.platform);
-    else if (isTauri())
-      void invoke<{ platform: string }>("host_capabilities")
-        .then((host) => {
-          if (active) setPlatform(host.platform);
-        })
-        .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [preferences.host?.platform]);
+  const platform = useHostPlatform(preferences.host);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   useEffect(() => {
     let active = true;

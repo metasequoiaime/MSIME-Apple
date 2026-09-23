@@ -9,6 +9,12 @@ set(MSIME_USER_SERVICES ${MSIME_USER_UNITS})
 list(FILTER MSIME_USER_SERVICES INCLUDE REGEX "\\.service$")
 list(JOIN MSIME_USER_UNITS " " MSIME_USER_UNIT_LIST)
 list(JOIN MSIME_USER_SERVICES " " MSIME_USER_SERVICE_LIST)
+# Session managers read XDG autostart entries from $XDG_CONFIG_DIRS/autostart, /etc/xdg/autostart by default. GNUInstallDirs maps the system configuration directory of a /usr prefix to /etc, so only then is the entry installed there, as an absolute directory the CMake uninstall accepts as a second root. Every other prefix keeps the directory relative, so `cmake --install --prefix` relocates it with the rest of the installation; that includes /opt/<name>, whose /etc/opt/<name> no session manager reads.
+if(CMAKE_INSTALL_FULL_SYSCONFDIR STREQUAL "/etc")
+  set(MSIME_XDG_AUTOSTART_DIR "/etc/xdg/autostart")
+else()
+  set(MSIME_XDG_AUTOSTART_DIR "${CMAKE_INSTALL_SYSCONFDIR}/xdg/autostart")
+endif()
 configure_file(cmake/uninstall.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake @ONLY)
 # Configured for every build, not only packaging ones, so the gate's ctest exercises the scripts the .deb ships; packaging.cmake hands them to CPack.
 foreach(MSIME_DEB_SCRIPT prerm postinst)
@@ -33,7 +39,8 @@ pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_package(nlohmann_json 3.11 REQUIRED)
 # Optional on Wayland-only systems; the monitor retains bounded polling.
 pkg_check_modules(X11_CLIPBOARD QUIET IMPORTED_TARGET x11 xfixes)
-pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes)
+# The voice overlay enumerates monitors with RandR 1.5 to follow the focused window; libXrandr ships with every X desktop that has libXfixes.
+pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes xrandr)
 pkg_check_modules(WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
 pkg_check_modules(WAYLAND_TEXT QUIET IMPORTED_TARGET pangocairo)
 find_program(WAYLAND_SCANNER_EXECUTABLE wayland-scanner)
@@ -217,10 +224,23 @@ target_compile_options(linux-candidate-wheel-paging-test PRIVATE -Wall -Wextra -
 target_include_directories(linux-candidate-wheel-paging-test PRIVATE src)
 target_link_libraries(linux-candidate-wheel-paging-test PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME linux-candidate-wheel-paging COMMAND linux-candidate-wheel-paging-test)
+add_executable(linux-panel-restore-record-test tests/candidate/panel_restore_record.cpp)
+target_compile_options(linux-panel-restore-record-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-panel-restore-record-test PRIVATE src)
+target_link_libraries(linux-panel-restore-record-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME linux-panel-restore-record COMMAND linux-panel-restore-record-test)
 add_executable(linux-candidate-action-policy-test tests/candidate/candidate_action_policy.cpp)
 target_compile_options(linux-candidate-action-policy-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-action-policy-test PRIVATE src)
 add_test(NAME linux-candidate-action-policy COMMAND linux-candidate-action-policy-test)
+add_executable(linux-candidate-local-mode-labels-test tests/candidate/candidate_local_mode_labels.cpp)
+target_compile_options(linux-candidate-local-mode-labels-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(linux-candidate-local-mode-labels-test PRIVATE src)
+add_test(NAME linux-candidate-local-mode-labels COMMAND linux-candidate-local-mode-labels-test)
+add_executable(linux-candidate-panel-status-test tests/candidate/candidate_panel_status.cpp)
+target_compile_options(linux-candidate-panel-status-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(linux-candidate-panel-status-test PRIVATE src)
+add_test(NAME linux-candidate-panel-status COMMAND linux-candidate-panel-status-test)
 add_executable(linux-candidate-translation-policy-test tests/candidate/candidate_translation_policy.cpp)
 target_compile_options(linux-candidate-translation-policy-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-translation-policy-test PRIVATE src)
@@ -233,6 +253,9 @@ add_executable(linux-dictionary-quiesce-lease-test tests/core/dictionary_quiesce
 target_compile_options(linux-dictionary-quiesce-lease-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-dictionary-quiesce-lease-test PRIVATE src)
 add_test(NAME linux-dictionary-quiesce-lease COMMAND linux-dictionary-quiesce-lease-test)
+add_executable(common-dictionary-quiesce-lease-test ../common/tests/dictionary_quiesce_lease.cpp)
+target_compile_options(common-dictionary-quiesce-lease-test PRIVATE -Wall -Wextra -Werror)
+add_test(NAME common-dictionary-quiesce-lease COMMAND common-dictionary-quiesce-lease-test)
 add_executable(linux-input-mode-indicator-test tests/core/input_mode_indicator.cpp)
 target_compile_options(linux-input-mode-indicator-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-input-mode-indicator-test PRIVATE src)
@@ -278,19 +301,37 @@ add_executable(linux-phrase-preedit-test tests/core/phrase_preedit.cpp)
 target_compile_options(linux-phrase-preedit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-phrase-preedit-test PRIVATE src)
 add_test(NAME linux-phrase-preedit COMMAND linux-phrase-preedit-test)
+add_executable(linux-replaced-program-test tests/core/replaced_program.cpp)
+target_compile_options(linux-replaced-program-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-replaced-program-test PRIVATE src)
+add_test(NAME linux-replaced-program COMMAND linux-replaced-program-test)
 add_executable(linux-smart-punctuation-space-test tests/core/smart_punctuation_space.cpp)
 target_compile_options(linux-smart-punctuation-space-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
 add_test(NAME linux-smart-punctuation-space COMMAND linux-smart-punctuation-space-test)
 add_test(NAME linux-setup-resolution
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_resolution.py")
+add_test(NAME linux-setup-update
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_update.py"
+                 $<TARGET_FILE:msime-client-prepare>)
 add_test(NAME linux-setup-registration
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_registration.py")
+add_test(NAME linux-setup-panel-restore
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_panel_restore.py")
 add_test(NAME linux-first-run-guide
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/first_run_guide.py")
+add_test(NAME linux-settings-launcher-contract
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/settings_launcher_contract.py")
 add_test(NAME linux-deb-maintainer-scripts
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/deb_maintainer_scripts.py"
-                 "${CMAKE_CURRENT_BINARY_DIR}/debian" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" "${MSIME_USER_UNIT_LIST}")
+                 "${CMAKE_CURRENT_BINARY_DIR}/debian" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" "${MSIME_USER_UNIT_LIST}"
+                 "${CMAKE_INSTALL_FULL_BINDIR}/msime-client-setup")
+add_test(NAME linux-uninstall-unregister
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/uninstall_unregister.py"
+                 "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake")
+add_test(NAME linux-clipboard-autostart
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/clipboard_autostart.py"
+                 "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}" "${MSIME_XDG_AUTOSTART_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake")
 add_test(NAME linux-ibus-launcher-supervisor
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/ibus_launcher_supervisor.py")
 add_executable(linux-ibus-registration-bus tests/core/ibus_registration_bus.cpp)
@@ -300,6 +341,8 @@ add_test(NAME linux-ibus-startup-telemetry
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/ibus_startup_telemetry.py"
                  $<TARGET_FILE:msime-client-ibus> $<TARGET_FILE:linux-ibus-registration-bus> "${MSIME_LINUX_VERSION}")
 set_tests_properties(linux-ibus-startup-telemetry PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+add_test(NAME linux-voice-provider-degraded-start
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/provider_degraded_start.py")
 add_executable(linux-first-run-guidance-test tests/core/first_run_guidance.cpp)
 target_compile_options(linux-first-run-guidance-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-first-run-guidance-test PRIVATE src)
@@ -357,6 +400,8 @@ foreach(MSIME_PROVIDER online voice clipboard)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-${MSIME_PROVIDER}.service
           DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
 endforeach()
+# Starts the clipboard service at login on sessions without graphical-session.target, for users who enabled it; see the comment in the file. Its own component lets the test install just this file.
+install(FILES data/msime-client-clipboard.desktop DESTINATION "${MSIME_XDG_AUTOSTART_DIR}" COMPONENT clipboard-autostart)
 # Socket units keep the provider paths present from login, so the input method and the panels find the services the way the Windows server is simply there; systemd starts a provider on its first request.
 install(FILES data/msime-client-online.socket data/msime-client-voice.socket
         DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")

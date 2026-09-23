@@ -410,6 +410,9 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(linux["value"]["platform"], "linux");
     assert_eq!(linux["value"]["restart_input_method"], true);
     assert_eq!(linux["value"]["ime_mode_scope"], true);
+    // Every host reads capabilities through this boundary, so the border colour reaches the Linux page here.
+    assert_eq!(linux["value"]["candidate_border_color"], true);
+    assert_eq!(linux["value"]["candidate_selection_appearance"], false);
 
     let windows = capabilities("windows");
     assert_eq!(windows["value"]["restart_input_method"], true);
@@ -1159,6 +1162,81 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
     assert_eq!(
         read(unsafe { msime_client_skin_catalog(std::ptr::null(), 0) })["ok"],
         false
+    );
+}
+
+#[test]
+fn a_picked_skin_folder_is_copied_in_through_the_c_abi() {
+    let files = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let source = files.path().join("sakura");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::write(source.join("skin.toml"), "id = 'sakura'").unwrap();
+    let call = |request: String| {
+        read(unsafe { msime_client_skin_import(request.as_ptr(), request.len()) })
+    };
+    let imported = call(json!({"source": source, "directory": root}).to_string());
+    assert_eq!(imported, json!({"ok": true, "value": {"id": "sakura"}}));
+    assert!(root.join("sakura/skin.toml").is_file());
+    let bare = files.path().join("bare");
+    std::fs::create_dir_all(&bare).unwrap();
+    assert_eq!(
+        call(json!({"source": bare, "directory": root}).to_string())["error"],
+        "skin_manifest"
+    );
+    assert_eq!(
+        call(json!({"source": "sakura", "directory": root}).to_string())["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_skin_import(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn skin_package_resolves_one_manifest_with_the_catalog_loader() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("skins");
+    let call =
+        |request: &str| read(unsafe { msime_client_skin_package(request.as_ptr(), request.len()) });
+    let request = |id: &str| json!({"directory": root, "id": id}).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_skin_package(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(call("not json")["ok"], false);
+    assert_eq!(
+        call(&json!({"directory": "skins", "id": "sample"}).to_string())["ok"],
+        false
+    );
+    assert_eq!(call(&request("sample"))["ok"], false);
+    std::fs::create_dir_all(root.join("sample")).unwrap();
+    // Literal strings, a multi-line array and an inline table: full TOML, as the settings page and Windows toml++ read it.
+    std::fs::write(
+        root.join("sample/skin.toml"),
+        "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\n\
+         base = 'fluent'\n[supports]\nlayouts = [\n  'vertical',\n]\nthemes = ['light']\n\
+         [candidate_window]\nmin_width_dip = 1_0\n\
+         decoration = { top_inset_dip = 0, width_dip = 0 }\n[candidate.light]\naccent = '#123456'\n",
+    )
+    .unwrap();
+    let package = call(&request("sample"));
+    assert_eq!(package["ok"], true, "{package}");
+    assert_eq!(package["value"]["minWidthDip"], 10.0);
+    assert_eq!(package["value"]["candidate"]["light"]["accent"], "#123456");
+    let catalog = read(unsafe {
+        let path = root.to_str().unwrap();
+        msime_client_skin_catalog(path.as_ptr(), path.len())
+    });
+    assert_eq!(package["value"], catalog["value"]["packages"][0]);
+    assert_eq!(call(&request("fluent"))["error"], "invalid skin id");
+    std::fs::write(root.join("sample/skin.toml"), "schema_version = '1'\n").unwrap();
+    assert_eq!(
+        call(&request("sample"))["error"],
+        "unsupported schema_version"
     );
 }
 
@@ -3303,6 +3381,47 @@ fn failed_rebuild_preserves_completed_input_and_retries_later() {
     );
     read(msime_client_destroy(handle));
 }
+/// The contract the input hosts' dictionary-maintenance release relies on: a live session is what keeps maintenance out, destroying it is all it takes to let maintenance in, and a session asked for while maintenance runs is refused rather than queued.
+#[test]
+fn a_session_and_dictionary_maintenance_exclude_each_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let (user, dictionaries) = (path("user"), path("dictionaries"));
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": user, "cache": path("cache"), "dictionaries": dictionaries, "preferences": { "scheme": "quanpin", "default_ime_mode": "chinese", "candidate_page_size": 5, "learning": false, "chinese_punctuation": true } }).to_string();
+    let create = || read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+
+    let maintenance = DictionaryAccess::try_maintenance(&user, &dictionaries)
+        .unwrap()
+        .unwrap();
+    let refused = create();
+    assert_eq!(refused["ok"], false);
+    assert_eq!(refused["error"], "dictionary maintenance busy");
+    drop(maintenance);
+
+    let created = create();
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
+        .unwrap()
+        .is_none());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    // Other tests spawn processes concurrently, and a fork can briefly inherit the released lock before close-on-exec runs.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while DictionaryAccess::try_maintenance(&user, &dictionaries)
+        .unwrap()
+        .is_none()
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "a destroyed session kept dictionary maintenance out"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
 pub(super) fn read(pointer: *mut c_char) -> Value {
     // SAFETY: all callers pass a fresh response allocation.
     let string = unsafe { CString::from_raw(pointer) };
@@ -5143,6 +5262,83 @@ fn refresh_leaves_a_symlinked_options_file_alone() {
     let current = directory.path().join("current.json");
     std::fs::write(&current, b"{\"resources\":\"/r\"}").unwrap();
     assert!(!super::refresh_host_options(&current).unwrap());
+}
+
+/// Downloaded dictionaries that an upgrade left behind the compiled lock are reported as `dictionary_outdated`, the one refresh failure hosts turn into a pointer at `msime-client-setup --update --download`, and the options file keeps pointing at the working previous generation.
+#[test]
+fn refresh_reports_outdated_resources_and_leaves_the_options_alone() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    std::fs::create_dir(&resources).unwrap();
+    // A file the previous lock pinned; the compiled lock names none of it.
+    std::fs::write(resources.join("msime.db"), b"previous generation").unwrap();
+    let state = directory.path().join("state");
+    std::fs::create_dir(&state).unwrap();
+    let options = state.join("runtime-options.json");
+    let document = serde_json::to_vec_pretty(&json!({
+        "api_version": 1,
+        "resources": resources,
+        "user_data": state.join("user"),
+        "cache": state.join("cache"),
+        "dictionaries": state.join("user/dictionaries/previous"),
+        "preferences_directory": state,
+        "preferences": {},
+    }))
+    .unwrap();
+    std::fs::write(&options, &document).unwrap();
+
+    let error = super::refresh_host_options(&options).unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>(), "{error}");
+    assert!(
+        error
+            .to_string()
+            .starts_with(super::DICTIONARY_OUTDATED_PREFIX),
+        "{error}"
+    );
+    assert_eq!(std::fs::read(&options).unwrap(), document);
+    let mut entries: Vec<_> = std::fs::read_dir(&state)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    entries.sort();
+    assert_eq!(entries, ["runtime-options.json"]);
+
+    // The same prefix reaches a host through the C ABI.
+    let path = options.to_str().unwrap();
+    let raw = unsafe { super::msime_client_refresh_host(path.as_ptr(), path.len()) };
+    let response: Value =
+        serde_json::from_str(unsafe { std::ffi::CStr::from_ptr(raw) }.to_str().unwrap()).unwrap();
+    unsafe { super::msime_client_string_free(raw) };
+    assert_eq!(response["ok"], json!(false));
+    assert!(response["error"]
+        .as_str()
+        .unwrap()
+        .starts_with(super::DICTIONARY_OUTDATED_PREFIX));
+    assert_eq!(std::fs::read(&options).unwrap(), document);
+}
+
+/// Anything other than a mismatch keeps its own error, so a host does not send the user to download dictionaries that are not the problem.
+#[test]
+fn only_a_resource_mismatch_counts_as_outdated() {
+    use msime_client_core::resources::ResourceError;
+    let mismatch = super::outdated_resources(Box::new(ResourceError::Integrity));
+    assert!(mismatch.is::<super::DictionaryOutdated>());
+    let unexpected =
+        super::outdated_resources(Box::new(ResourceError::ExistingGeneration("stale".into())));
+    assert!(unexpected.is::<super::DictionaryOutdated>());
+    for other in [
+        Box::new(ResourceError::InvalidManifest) as Box<dyn std::error::Error>,
+        Box::new(ResourceError::Io(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        ))),
+        Box::new(std::io::Error::from(std::io::ErrorKind::NotFound)),
+        "busy".into(),
+    ] {
+        let text = other.to_string();
+        let mapped = super::outdated_resources(other);
+        assert!(!mapped.is::<super::DictionaryOutdated>(), "{text}");
+        assert_eq!(mapped.to_string(), text);
+    }
 }
 #[test]
 fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {

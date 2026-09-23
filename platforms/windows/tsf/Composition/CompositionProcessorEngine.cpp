@@ -629,22 +629,10 @@ bool IsCommitWithHighlightedCandidatePunctuationInCandidateMode(UINT uCode, WCHA
         return false;
     }
 
-    // Candidate paging keys must keep their navigation semantics even if the
-    // corresponding character is also listed in CommitWithHighlightedCandPunc.
-    switch (uCode)
+    // Candidate paging keys must keep their navigation semantics even if the corresponding character is also listed in CommitWithHighlightedCandPunc. The numpad '+' and '-' are not among them.
+    if (Global::IsCandidateNavigationKeyBeforePunctuation(uCode))
     {
-    case VK_PRIOR:
-    case VK_NEXT:
-    case VK_OEM_MINUS:
-    case VK_OEM_PLUS:
-    case VK_SUBTRACT:
-    case VK_ADD:
-    case VK_HOME:
-    case VK_END:
-    case VK_TAB:
         return false;
-    default:
-        break;
     }
 
     return wch != 0 && Global::CommitWithHighlightedCandPunc.count(wch) > 0;

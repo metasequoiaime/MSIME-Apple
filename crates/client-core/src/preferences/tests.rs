@@ -240,6 +240,39 @@ fn english_suggestions_default_on_and_legacy_documents_preserve_it() {
     );
 }
 
+// Telemetry is opt-in on every host that reads this switch: a fresh profile, and a document written before the switch existed, must both say off, so upgrading never turns reporting on behind the user.
+#[test]
+fn telemetry_is_opt_in_and_survives_a_save() {
+    let defaults = Preferences::default();
+    assert!(!defaults.telemetry_enabled);
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert_eq!(
+        serialized["telemetry_enabled"],
+        serde_json::Value::Bool(false)
+    );
+    let mut legacy = serialized.clone();
+    legacy.as_object_mut().unwrap().remove("telemetry_enabled");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .telemetry_enabled
+    );
+    let mut malformed = serialized;
+    malformed["telemetry_enabled"] = "yes".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let enabled = Preferences {
+        telemetry_enabled: true,
+        ..defaults
+    };
+    assert!(enabled.validate().is_ok());
+    let saved = store.save(0, enabled).unwrap();
+    assert!(saved.preferences.telemetry_enabled);
+    assert!(store.load().unwrap().preferences.telemetry_enabled);
+}
+
 #[test]
 fn secondary_candidate_translation_language_is_optional_and_round_trips() {
     let defaults = Preferences::default();
@@ -2287,4 +2320,46 @@ fn saving_clears_staged_writes_that_were_abandoned() {
     assert!(directory_named_like_a_temporary.is_dir());
     // And the save itself did what it was asked.
     assert_eq!(store.load().unwrap().preferences.candidate_font_size, 20);
+}
+
+#[test]
+fn touch_toolbar_keeps_the_original_buttons_by_default_and_round_trips_partial_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    legacy["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("touch_toolbar");
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(
+        loaded.preferences.touch_toolbar,
+        TouchToolbarPreferences::default()
+    );
+    let defaults = loaded.preferences.touch_toolbar;
+    assert!(defaults.layout && defaults.emoji && defaults.skin);
+    assert!(!defaults.clipboard && !defaults.ai && !defaults.character_set);
+
+    // A document written before a switch existed leaves that switch at its default.
+    let partial: TouchToolbarPreferences =
+        serde_json::from_value(serde_json::json!({"emoji": false, "clipboard": true})).unwrap();
+    assert!(!partial.emoji && partial.clipboard && partial.layout && !partial.ai);
+
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                touch_toolbar: TouchToolbarPreferences {
+                    skin: false,
+                    punctuation: true,
+                    ..TouchToolbarPreferences::default()
+                },
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert!(!saved.preferences.touch_toolbar.skin);
+    assert!(saved.preferences.touch_toolbar.punctuation);
+    assert!(!store.load().unwrap().preferences.touch_toolbar.skin);
 }

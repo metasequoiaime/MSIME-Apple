@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace msime::linux_host {
@@ -81,6 +82,13 @@ candidate_removal_slot(std::uint32_t key, std::uint32_t keycode) {
       key <= static_cast<std::uint32_t>('8'))
     return static_cast<std::size_t>(key - static_cast<std::uint32_t>('1'));
   return std::nullopt;
+}
+
+// Candidate action labels shared by the IBus property menu and the Fcitx5 candidate/status actions, worded like the Windows candidate menu (candidate_presenter.cpp: 置顶, 第 N 位 under 固定排位). Linux keeps the list flat, so the slot entries spell out the whole action.
+inline constexpr const char *candidate_pin_label = "置顶";
+
+inline std::string candidate_fix_label(int slot) {
+  return "固定到第 " + std::to_string(slot) + " 位";
 }
 
 } // namespace msime::linux_host

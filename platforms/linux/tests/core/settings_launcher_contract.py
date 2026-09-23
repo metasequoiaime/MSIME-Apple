@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parents[2]
 launcher = (root / "data/msime-client-settings.in").read_text()
 desktop = (root / "data/msime-client.desktop.in").read_text()
 engine = (root / "src/core/ClientEngine.cpp").read_text()
-assert "settings|about|dictionary|" in launcher
+assert "settings|about|help|feedback|dictionary|" in launcher
 assert 'MSIME_CLIENT_PANEL:-}" = "dictionary"' in launcher
 assert "Desktop Action Dictionary" in desktop
 assert "--panel dictionary" in desktop
@@ -62,5 +62,19 @@ with tempfile.TemporaryDirectory() as scratch:
     system_config.parent.mkdir()
     system_config.write_text("{}")
     assert launched() == str(system_config)
+
+    # About, Help and Feedback each open their own settings section. Unlisted in the --panel case they exit 2, and passed through bare they would not parse as a route, leaving the window on its home page.
+    desktop_binary.write_text('#!/bin/sh\nprintf "%s|%s|%s|%s" "$*" "$MSIME_CLIENT_PANEL" "${MSIME_CLIENT_SETTINGS_PAGE:-}" "$MSIME_CLIENT_ROUTE"\n')
+    for key in ("MSIME_CLIENT_SETTINGS_PAGE", "MSIME_CLIENT_ROUTE"):
+        environment.pop(key, None)
+
+    def launched_panel(panel: str) -> str:
+        return subprocess.run([str(script), "--panel", panel], env=environment, check=True, capture_output=True, text=True).stdout
+
+    for page in ("about", "help", "feedback", "dictionary"):
+        assert launched_panel(page) == f"--route=settings:{page}|settings|{page}|settings:{page}", page
+    assert launched_panel("handwriting") == "--route=handwriting|handwriting||handwriting"
+    usage = subprocess.run([str(script), "--help"], env=environment, check=True, capture_output=True, text=True).stdout
+    assert "|help|feedback|" in usage
 
 print("settings launcher contract: ok")

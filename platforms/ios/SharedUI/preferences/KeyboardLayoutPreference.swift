@@ -55,6 +55,20 @@ enum KeyboardLayoutPreference {
     get { spacing(key: heightAdjustmentKey, fallback: 0, range: -12...48) }
     set { defaults.set(min(48, max(-12, newValue)), forKey: heightAdjustmentKey) }
   }
+  /// Whether Tab opens the full candidate panel while composing on the full-size iPad keyboard: the shared `navigation.tab` (Windows `paging_tab`, on by default). Read by the keyboard and edited by the App's iPad section.
+  static func tabShowsMoreCandidates(_ preferences: [String: Any]?) -> Bool {
+    (preferences?["navigation"] as? [String: Any])?["tab"] as? Bool ?? true
+  }
+
+  /// Writes `navigation.tab` into the shared document, keeping the other paging keys in the same object.
+  static func saveTabShowsMoreCandidates(_ enabled: Bool, stateRoot: URL? = nil) -> Bool {
+    MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot) { document in
+      var navigation = document["navigation"] as? [String: Any] ?? [:]
+      navigation["tab"] = enabled
+      document["navigation"] = navigation
+    }
+  }
+
   static func resetToDefaults() {
     for stored in [keySpacingKey, rowSpacingKey, heightAdjustmentKey, voiceShortcutKey] {
       defaults.removeObject(forKey: stored)

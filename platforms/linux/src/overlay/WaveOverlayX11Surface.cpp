@@ -1,84 +1,41 @@
 #include "WaveOverlayX11Surface.h"
 
 #include "WaveOverlayPlacement.h"
+#include "WaveOverlayX11Placement.h"
 
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
+#include <X11/Xresource.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xfixes.h>
+#include <X11/extensions/Xrandr.h>
 #include <X11/extensions/shape.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <locale>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
 namespace msime::linux_host {
 namespace {
 
-constexpr unsigned kWidth = 420;
-constexpr unsigned kHeight = 132;
-constexpr unsigned kBarCount = 12;
+// Logical geometry at a scale of 1; every length is multiplied by the current scale before it reaches the X server.
+constexpr int kLogicalWidth = 420;
+constexpr int kLogicalHeight = 132;
+constexpr int kBarCount = 12;
 constexpr int kActionCenterInset = 24;
+constexpr int kActionCenterY = 66;
 constexpr int kActionRadius = 14;
-
-std::vector<std::uint32_t> cardinal_property(Display *display, Window window,
-                                              Atom property) {
-  Atom actual_type = None;
-  int actual_format = 0;
-  unsigned long item_count = 0;
-  unsigned long bytes_after = 0;
-  unsigned char *raw = nullptr;
-  const auto status = XGetWindowProperty(
-      display, window, property, 0, 4096, False, XA_CARDINAL, &actual_type,
-      &actual_format, &item_count, &bytes_after, &raw);
-  if (status != Success || actual_type != XA_CARDINAL || actual_format != 32 ||
-      !raw) {
-    if (raw)
-      XFree(raw);
-    return {};
-  }
-  const auto *values = reinterpret_cast<const unsigned long *>(raw);
-  std::vector<std::uint32_t> result;
-  result.reserve(item_count);
-  for (unsigned long index = 0; index < item_count; ++index)
-    result.push_back(static_cast<std::uint32_t>(values[index]));
-  XFree(raw);
-  return result;
-}
-
-std::optional<WaveOverlayWorkArea> current_work_area(Display *display,
-                                                      int screen) {
-  const auto root = RootWindow(display, screen);
-  const auto workarea_atom = XInternAtom(display, "_NET_WORKAREA", True);
-  if (workarea_atom == None)
-    return std::nullopt;
-  const auto workareas = cardinal_property(display, root, workarea_atom);
-  if (workareas.size() < 4)
-    return std::nullopt;
-
-  std::size_t desktop = 0;
-  const auto desktop_atom = XInternAtom(display, "_NET_CURRENT_DESKTOP", True);
-  if (desktop_atom != None) {
-    const auto current = cardinal_property(display, root, desktop_atom);
-    if (!current.empty())
-      desktop = current.front();
-  }
-  const auto desktop_count = workareas.size() / 4;
-  if (desktop >= desktop_count)
-    desktop = 0;
-  const auto offset = desktop * 4;
-  const auto x = static_cast<std::int32_t>(workareas[offset]);
-  const auto y = static_cast<std::int32_t>(workareas[offset + 1]);
-  const auto width = static_cast<std::int32_t>(workareas[offset + 2]);
-  const auto height = static_cast<std::int32_t>(workareas[offset + 3]);
-  if (width <= 0 || height <= 0)
-    return std::nullopt;
-  return WaveOverlayWorkArea{x, y, width, height};
-}
+constexpr int kFontPixelSize = 14;
+// Matches the Windows voice bar, which sits 10 px above the bottom of the work area.
+constexpr int kBottomMargin = 10;
+// update() runs for every input-level change, so the monitor, work area and scale are re-read at most this often while visible; show() always re-reads them.
+constexpr auto kPlacementRefreshInterval = std::chrono::milliseconds(500);
 
 unsigned long color(Display *display, int screen, const char *value,
                     unsigned long fallback) {
@@ -131,12 +88,13 @@ bool WaveOverlayX11Surface::ensure_window() {
     display_ = nullptr;
     return false;
   }
+  randr_monitors_ = x11_overlay_randr_monitors(display_);
   const auto root = RootWindow(display_, screen);
   XSetWindowAttributes attributes{};
   attributes.override_redirect = True;
   attributes.background_pixel = color(display_, screen, "#202124", BlackPixel(display_, screen));
   attributes.border_pixel = color(display_, screen, "#4a4d52", WhitePixel(display_, screen));
-  window_ = XCreateWindow(display_, root, 0, 0, kWidth, kHeight, 1,
+  window_ = XCreateWindow(display_, root, 0, 0, kLogicalWidth, kLogicalHeight, 1,
                            CopyFromParent, InputOutput, CopyFromParent,
                            CWOverrideRedirect | CWBackPixel | CWBorderPixel,
                            &attributes);
@@ -152,32 +110,99 @@ bool WaveOverlayX11Surface::ensure_window() {
   light_background_ = color(display_, screen, "#f5f7fa", WhitePixel(display_, screen));
   light_foreground_ = color(display_, screen, "#202124", BlackPixel(display_, screen));
   light_accent_ = color(display_, screen, "#3367d6", BlackPixel(display_, screen));
-  char **missing = nullptr;
-  int missing_count = 0;
-  char *default_string = nullptr;
-  font_set_ = XCreateFontSet(
-      display_, "-misc-fixed-*-*-*-*-14-*-*-*-*-*-*-*", &missing,
-      &missing_count, &default_string);
-  if (missing)
-    XFreeStringList(missing);
+  // Zero size makes the first place() apply the scale, resize the window and load the font set.
+  scale_ = 1.0;
+  width_ = 0;
+  height_ = 0;
   XSelectInput(display_, window_, ExposureMask | ButtonPressMask |
                                        ButtonReleaseMask);
   set_input_region(false);
   return true;
 }
 
+int WaveOverlayX11Surface::scaled(int logical) const {
+  return wave_overlay_scaled(logical, scale_);
+}
+
+void WaveOverlayX11Surface::load_font_set() {
+  if (font_set_) {
+    XFreeFontSet(display_, font_set_);
+    font_set_ = nullptr;
+  }
+  const auto create = [this](int pixel_size, int &missing_count) {
+    const auto pattern = "-misc-fixed-*-*-*-*-" + std::to_string(pixel_size) +
+                         "-*-*-*-*-*-*-*";
+    char **missing = nullptr;
+    char *default_string = nullptr;
+    missing_count = 0;
+    const auto font_set = XCreateFontSet(display_, pattern.c_str(), &missing,
+                                         &missing_count, &default_string);
+    if (missing)
+      XFreeStringList(missing);
+    return font_set;
+  };
+  // The bitmap fixed fonts only come in a few sizes. When the scaled size is missing, or covers fewer charsets (CJK above all), the 1x size stays: small text beats unreadable text.
+  int scaled_missing = 0;
+  const auto pixel_size = scaled(kFontPixelSize);
+  font_set_ = create(pixel_size, scaled_missing);
+  if (pixel_size == kFontPixelSize || (font_set_ && scaled_missing == 0))
+    return;
+  int base_missing = 0;
+  const auto base = create(kFontPixelSize, base_missing);
+  if (base && (!font_set_ || base_missing < scaled_missing)) {
+    if (font_set_)
+      XFreeFontSet(display_, font_set_);
+    font_set_ = base;
+  } else if (base) {
+    XFreeFontSet(display_, base);
+  }
+}
+
+// Mirrors the Windows voice bar's update_window_bounds: the scale and the target monitor are re-read, the window resized when the scale changed, and the bar centred on the monitor holding the focused window, just above its work-area bottom.
+void WaveOverlayX11Surface::place(bool force) {
+  if (!display_ || !window_)
+    return;
+  const auto now = std::chrono::steady_clock::now();
+  if (!force && width_ != 0 && now - placed_at_ < kPlacementRefreshInterval)
+    return;
+  placed_at_ = now;
+  const auto scale = x11_overlay_scale(display_);
+  const auto width =
+      static_cast<unsigned>(wave_overlay_scaled(kLogicalWidth, scale));
+  const auto height =
+      static_cast<unsigned>(wave_overlay_scaled(kLogicalHeight, scale));
+  if (width != width_ || height != height_ || scale != scale_) {
+    scale_ = scale;
+    width_ = width;
+    height_ = height;
+    XResizeWindow(display_, window_, width_, height_);
+    const auto line_width = scaled(1);
+    XSetLineAttributes(display_, gc_, line_width > 1 ? line_width : 0,
+                       LineSolid, CapRound, JoinRound);
+    load_font_set();
+  }
+
+  const auto target = x11_overlay_monitor(display_, randr_monitors_);
+  const auto position = wave_overlay_monitor_bottom_center(
+      target, static_cast<int>(width_), static_cast<int>(height_),
+      scaled(kBottomMargin));
+  XMoveWindow(display_, window_, position.x, position.y);
+}
+
 void WaveOverlayX11Surface::set_input_region(bool actions_visible) {
   if (!display_ || !window_)
     return;
+  const auto radius = scaled(kActionRadius);
+  const auto top = scaled(kActionCenterY) - radius;
+  const auto left_center = scaled(kActionCenterInset);
+  const auto right_center = static_cast<int>(width_) - left_center;
   XRectangle buttons[2] = {
-      {static_cast<short>(kActionCenterInset - kActionRadius),
-       static_cast<short>(66 - kActionRadius),
-       static_cast<unsigned short>(2 * kActionRadius),
-       static_cast<unsigned short>(2 * kActionRadius)},
-      {static_cast<short>(kWidth - kActionCenterInset - kActionRadius),
-       static_cast<short>(66 - kActionRadius),
-       static_cast<unsigned short>(2 * kActionRadius),
-       static_cast<unsigned short>(2 * kActionRadius)}};
+      {static_cast<short>(left_center - radius), static_cast<short>(top),
+       static_cast<unsigned short>(2 * radius),
+       static_cast<unsigned short>(2 * radius)},
+      {static_cast<short>(right_center - radius), static_cast<short>(top),
+       static_cast<unsigned short>(2 * radius),
+       static_cast<unsigned short>(2 * radius)}};
   XserverRegion region = XFixesCreateRegion(
       display_, actions_visible ? buttons : nullptr, actions_visible ? 2 : 0);
   if (region) {
@@ -190,16 +215,19 @@ bool WaveOverlayX11Surface::hit_test_action(
     int x, int y, WaveOverlayModel::Action &action) const {
   if (!actions_visible_)
     return false;
-  const auto inside = [y](int center_x, int point_x) {
-    const int dx = point_x - center_x;
-    const int dy = y - 66;
-    return dx * dx + dy * dy <= kActionRadius * kActionRadius;
+  const auto radius = scaled(kActionRadius);
+  const auto center_y = scaled(kActionCenterY);
+  const auto left_center = scaled(kActionCenterInset);
+  const auto inside = [x, y, radius, center_y](int center_x) {
+    const int dx = x - center_x;
+    const int dy = y - center_y;
+    return dx * dx + dy * dy <= radius * radius;
   };
-  if (inside(kActionCenterInset, x)) {
+  if (inside(left_center)) {
     action = WaveOverlayModel::Action::Cancel;
     return true;
   }
-  if (inside(kWidth - kActionCenterInset, x)) {
+  if (inside(static_cast<int>(width_) - left_center)) {
     action = WaveOverlayModel::Action::Confirm;
     return true;
   }
@@ -256,29 +284,28 @@ void WaveOverlayX11Surface::destroy_window() {
 void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
   if (!display_ || !window_ || !gc_)
     return;
+  place(false);
   set_input_region(model.actions_visible);
   if (!model.actions_visible)
     action_pressed_ = false;
-  const auto screen = DefaultScreen(display_);
-  const auto work_area = current_work_area(display_, screen).value_or(
-      WaveOverlayWorkArea{0, 0, DisplayWidth(display_, screen),
-                          DisplayHeight(display_, screen)});
-  const auto position = wave_overlay_bottom_center(
-      work_area, static_cast<int>(kWidth), static_cast<int>(kHeight));
-  XMoveWindow(display_, window_, position.x, position.y);
   const auto background = model.light_theme ? light_background_ : background_;
   const auto foreground = model.light_theme ? light_foreground_ : foreground_;
   const auto accent = model.light_theme ? light_accent_ : accent_;
   XSetForeground(display_, gc_, background);
-  XFillRectangle(display_, window_, gc_, 0, 0, kWidth, kHeight);
+  XFillRectangle(display_, window_, gc_, 0, 0, width_, height_);
   XSetForeground(display_, gc_, accent);
-  const auto bar_width = (kWidth - 32) / kBarCount;
-  for (unsigned index = 0; index < kBarCount; ++index) {
-    const auto level = index < model.levels.size() ? model.levels[index] : 0.0f;
-    const auto height = std::max(4, static_cast<int>(level * 38.0f));
-    XFillRectangle(display_, window_, gc_,
-                   16 + index * bar_width, 56 - height / 2,
-                   std::max(2u, bar_width - 3), static_cast<unsigned>(height));
+  const auto inset = scaled(16);
+  const auto bar_step = (static_cast<int>(width_) - 2 * inset) / kBarCount;
+  const auto bar_width = std::max(2, bar_step - scaled(3));
+  const auto bar_center = scaled(56);
+  for (int index = 0; index < kBarCount; ++index) {
+    const auto slot = static_cast<std::size_t>(index);
+    const auto level = slot < model.levels.size() ? model.levels[slot] : 0.0f;
+    const auto height =
+        std::max(scaled(4), static_cast<int>(level * 38.0 * scale_));
+    XFillRectangle(display_, window_, gc_, inset + index * bar_step,
+                   bar_center - height / 2, static_cast<unsigned>(bar_width),
+                   static_cast<unsigned>(height));
   }
   if (font_set_) {
     const auto font = font_set_;
@@ -288,31 +315,34 @@ void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
                              : one_line(model.status);
     if (status.empty())
       status = "正在录音…";
-    Xutf8DrawString(display_, window_, font, gc_, 16, 104,
+    Xutf8DrawString(display_, window_, font, gc_, inset, scaled(104),
                     status.c_str(), static_cast<int>(status.size()));
     if (model.show_transcript && !model.transcript.empty()) {
       auto transcript = utf8_prefix(one_line(model.transcript), 72);
-      Xutf8DrawString(display_, window_, font, gc_, 16, 124,
+      Xutf8DrawString(display_, window_, font, gc_, inset, scaled(124),
                       transcript.c_str(), static_cast<int>(transcript.size()));
     }
   }
   if (model.actions_visible) {
+    const auto radius = scaled(kActionRadius);
+    const auto center_y = scaled(kActionCenterY);
+    const auto cancel_x = scaled(kActionCenterInset);
+    const auto confirm_x = static_cast<int>(width_) - cancel_x;
+    const auto diameter = static_cast<unsigned>(2 * radius);
     XSetForeground(display_, gc_, accent);
-    XFillArc(display_, window_, gc_, kActionCenterInset - kActionRadius,
-             66 - kActionRadius, 2 * kActionRadius, 2 * kActionRadius, 0,
-             360 * 64);
-    XFillArc(display_, window_, gc_, kWidth - kActionCenterInset - kActionRadius,
-             66 - kActionRadius, 2 * kActionRadius, 2 * kActionRadius, 0,
-             360 * 64);
+    XFillArc(display_, window_, gc_, cancel_x - radius, center_y - radius,
+             diameter, diameter, 0, 360 * 64);
+    XFillArc(display_, window_, gc_, confirm_x - radius, center_y - radius,
+             diameter, diameter, 0, 360 * 64);
     XSetForeground(display_, gc_, background);
-    XDrawLine(display_, window_, gc_, kActionCenterInset - 5, 61,
-              kActionCenterInset + 5, 71);
-    XDrawLine(display_, window_, gc_, kActionCenterInset + 5, 61,
-              kActionCenterInset - 5, 71);
-    XDrawLine(display_, window_, gc_, kWidth - kActionCenterInset - 5, 66,
-              kWidth - kActionCenterInset - 1, 70);
-    XDrawLine(display_, window_, gc_, kWidth - kActionCenterInset - 1, 70,
-              kWidth - kActionCenterInset + 6, 61);
+    XDrawLine(display_, window_, gc_, cancel_x - scaled(5),
+              center_y - scaled(5), cancel_x + scaled(5), center_y + scaled(5));
+    XDrawLine(display_, window_, gc_, cancel_x + scaled(5),
+              center_y - scaled(5), cancel_x - scaled(5), center_y + scaled(5));
+    XDrawLine(display_, window_, gc_, confirm_x - scaled(5), center_y,
+              confirm_x - scaled(1), center_y + scaled(4));
+    XDrawLine(display_, window_, gc_, confirm_x - scaled(1),
+              center_y + scaled(4), confirm_x + scaled(6), center_y - scaled(5));
   }
   XFlush(display_);
 }
@@ -322,6 +352,8 @@ bool WaveOverlayX11Surface::show(const WaveOverlayModel &model) {
     return false;
   visible_ = true;
   actions_visible_ = model.actions_visible;
+  // Placed before mapping so the bar never flashes at its previous monitor or size.
+  place(true);
   XMapRaised(display_, window_);
   draw(model);
   pump_events();

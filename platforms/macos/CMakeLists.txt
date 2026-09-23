@@ -716,6 +716,28 @@ target_include_directories(smart-punctuation-space-test PRIVATE ../../vendor/MSI
 target_compile_options(smart-punctuation-space-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
 add_test(NAME smart-punctuation-space COMMAND smart-punctuation-space-test)
 set_tests_properties(smart-punctuation-space PROPERTIES TIMEOUT 30)
+add_executable(smart-punctuation-shadow-test tests/input/SmartPunctuationShadowTest.mm ${MSIME_CONTROLLER_TEST_SOURCES}
+  src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm
+  src/input/InputModeHUDPanel.mm)
+target_link_libraries(smart-punctuation-shadow-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_include_directories(smart-punctuation-shadow-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
+target_compile_options(smart-punctuation-shadow-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME smart-punctuation-shadow COMMAND smart-punctuation-shadow-test)
+set_tests_properties(smart-punctuation-shadow PROPERTIES TIMEOUT 30)
+# Dictionary maintenance from the settings window: real sessions let go of the dictionary lock under a live quiesce lease and come back, mode intact, once it is gone.
+add_executable(dictionary-quiesce-controller-test tests/input/DictionaryQuiesceTest.mm ${MSIME_CONTROLLER_TEST_SOURCES}
+  src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm
+  src/input/InputModeHUDPanel.mm)
+target_link_libraries(dictionary-quiesce-controller-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_include_directories(dictionary-quiesce-controller-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
+target_compile_options(dictionary-quiesce-controller-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME dictionary-quiesce-controller COMMAND dictionary-quiesce-controller-test)
+set_tests_properties(dictionary-quiesce-controller PROPERTIES TIMEOUT 30)
+# The lease file format and its raise/lower, shared with the Linux hosts.
+add_executable(common-dictionary-quiesce-lease-test ../common/tests/dictionary_quiesce_lease.cpp)
+target_compile_features(common-dictionary-quiesce-lease-test PRIVATE cxx_std_17)
+target_compile_options(common-dictionary-quiesce-lease-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME common-dictionary-quiesce-lease COMMAND common-dictionary-quiesce-lease-test)
 add_executable(voice-provider-settings-keys-test tests/voice/VoiceProviderSettingsKeysTest.mm
   src/voice/VoiceProviderSettings.mm)
 target_compile_options(voice-provider-settings-keys-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
@@ -755,21 +777,17 @@ add_executable(candidate-panel-test tests/candidate/CandidatePanelTests.mm src/c
 target_compile_options(candidate-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(candidate-panel-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit")
 add_test(NAME candidate-panel COMMAND candidate-panel-test)
-add_executable(candidate-gloss-layout-test tests/candidate/CandidateGlossLayoutTest.cpp)
-target_compile_options(candidate-gloss-layout-test PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(candidate-gloss-layout-test PRIVATE "-framework CoreGraphics")
-add_test(NAME candidate-gloss-layout COMMAND candidate-gloss-layout-test)
 # One rule, three copies: the Windows, Linux and macOS gloss splitters compiled together and asked
 # the same questions, because a sense that stops being offered on one host looks like a dictionary
 # difference rather than a bug.
 add_executable(translation-senses-agreement-test tests/candidate/TranslationSensesAgreementTest.cpp)
 target_compile_options(translation-senses-agreement-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME translation-senses-agreement COMMAND translation-senses-agreement-test)
-add_executable(candidate-row-fit-test tests/candidate/CandidateRowFitTest.cpp)
-target_compile_options(candidate-row-fit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
-add_test(NAME candidate-row-fit COMMAND candidate-row-fit-test)
-# The same controller shortcut-test imports, rendered on its own: the candidate layout assertions in that
-# suite sit behind an abort recorded in scripts/known-failures.txt and have reported nothing since.
+# The Windows candidate_item_layout rule, ported: text, 辅助码 and glosses wider than their column wrap inside it and rows take their own heights.
+add_executable(candidate-item-layout-test tests/candidate/CandidateItemLayoutTest.cpp)
+target_compile_options(candidate-item-layout-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-item-layout COMMAND candidate-item-layout-test)
+# The candidate page layout rendered through the same controller shortcut-test imports, on its own so its assertions report independently of that suite.
 add_executable(candidate-row-layout-test tests/candidate/CandidateRowLayoutTest.mm ${MSIME_CONTROLLER_TEST_SOURCES} src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm src/input/InputModeHUDPanel.mm)
 target_link_libraries(candidate-row-layout-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
 target_include_directories(candidate-row-layout-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
@@ -989,4 +1007,18 @@ foreach(msime_target IN LISTS MSIME_DIRECTORY_TARGETS)
   foreach(msime_optional_symbol IN LISTS MSIME_OPTIONAL_BACKEND_SYMBOLS)
     target_link_options(${msime_target} PRIVATE "LINKER:-U,${msime_optional_symbol}")
   endforeach()
+endforeach()
+
+# CandidateSkin.cpp reads external skin manifests through SkinManifestBridge.mm, which calls the shared client-core loader in the Rust host library. Every target compiling the one needs the other and apple-client, so this loop keeps them together instead of a hand-kept list that a new consumer could miss.
+set_source_files_properties(src/candidate/SkinManifestBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+get_property(MSIME_SKIN_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(msime_target IN LISTS MSIME_SKIN_TARGETS)
+  get_target_property(msime_target_sources ${msime_target} SOURCES)
+  if(NOT msime_target_sources OR NOT "src/candidate/CandidateSkin.cpp" IN_LIST msime_target_sources)
+    continue()
+  endif()
+  if(NOT "src/candidate/SkinManifestBridge.mm" IN_LIST msime_target_sources)
+    target_sources(${msime_target} PRIVATE src/candidate/SkinManifestBridge.mm)
+  endif()
+  target_link_libraries(${msime_target} PRIVATE apple-client)
 endforeach()

@@ -436,6 +436,9 @@ pub struct Preferences {
     /// Show a direct voice-result entry in touch-keyboard toolbars.
     #[serde(default)]
     pub touch_voice_shortcut: bool,
+    /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
+    #[serde(default)]
+    pub touch_toolbar: TouchToolbarPreferences,
     /// Retained when the active scheme is Japanese. Absent in legacy documents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
@@ -551,6 +554,9 @@ pub struct Preferences {
     /// legacy single-language behavior and is omitted from serialized snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_secondary_language: Option<TranslationTargetLanguage>,
+    /// Send the anonymous start and crash events to `https://api.msime.app/v1/telemetry/events`. Off until the user turns it on. Only the Windows Server reads it so far; the other hosts keep their own telemetry behaviour, described in PRIVACY.md.
+    #[serde(default)]
+    pub telemetry_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -841,6 +847,35 @@ fn default_toolbar_scale() -> u16 {
 }
 fn default_toolbar_font_size() -> u16 {
     24
+}
+
+/// Which optional buttons the touch keyboard's toolbar carries. The first three are the buttons the bar always had; the rest are tools that otherwise sit one tap deeper, in the keyboard's 更多 panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TouchToolbarPreferences {
+    pub layout: bool,
+    pub emoji: bool,
+    pub skin: bool,
+    pub clipboard: bool,
+    pub ai: bool,
+    pub character_set: bool,
+    pub fullwidth: bool,
+    pub punctuation: bool,
+}
+
+impl Default for TouchToolbarPreferences {
+    fn default() -> Self {
+        Self {
+            layout: true,
+            emoji: true,
+            skin: true,
+            clipboard: false,
+            ai: false,
+            character_set: false,
+            fullwidth: false,
+            punctuation: false,
+        }
+    }
 }
 
 impl Default for FloatingToolbarPreferences {
@@ -1222,6 +1257,7 @@ impl Default for Preferences {
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
             touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
+            touch_toolbar: TouchToolbarPreferences::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             shuangpin_preedit_uses_raw: true,
@@ -1267,6 +1303,7 @@ impl Default for Preferences {
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
+            telemetry_enabled: false,
         }
     }
 }

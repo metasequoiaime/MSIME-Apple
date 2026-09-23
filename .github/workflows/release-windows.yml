@@ -101,6 +101,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Rust crate notice collection failed' }
           python -X utf8 platforms/linux/collect-notices.py npm $frontend apps/desktop
           if ($LASTEXITCODE -ne 0) { throw 'npm notice collection failed' }
+          # An empty dependency graph still produces a non-empty file (title plus "0 packages"), which Collect-Notices.ps1 would accept, so require at least one package and log the counts as release evidence.
+          foreach ($notice in $rust, $frontend) {
+            $count = [regex]::Match((Get-Content -LiteralPath $notice -TotalCount 4) -join "`n", '(?m)^(\d+) packages\.').Groups[1].Value
+            if (-not $count -or [int]$count -eq 0) { throw "No packages collected into $notice" }
+            Write-Output "$([IO.Path]::GetFileName($notice)): $count packages"
+          }
           ./platforms/windows/Collect-Notices.ps1 -DependencyPrefixes (Join-Path $deps 'x64-windows/x64-windows'), (Join-Path $deps 'x86-windows/x86-windows') -SupplementalNotices $rust, $frontend
       - name: Stage package files
         shell: pwsh
@@ -145,6 +151,11 @@ jobs:
           name: msime-windows-${{ steps.version.outputs.value }}
           path: dist/
           if-no-files-found: error
+      # The runner is a disposable elevated Windows machine, so install the built package on it and uninstall it again before anything is published. The artifact is uploaded first so a failing package can still be inspected.
+      - name: Install and uninstall the package
+        shell: pwsh
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        run: ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/MetasequoiaIME_Setup_v$env:VERSION.exe"
       - name: Publish independent Windows release
         if: inputs.publish
         shell: bash

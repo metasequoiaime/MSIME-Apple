@@ -67,7 +67,11 @@ import Foundation
     let boundaryText = String(repeating: "界", count: 4000)
     let boundary = try MacEmojiClipboardHistory.decode(["enabled": true, "entries": [boundaryText]])
     precondition(boundary.entries == [boundaryText] && boundaryText.utf8.count == MacClipboardTextLimits.maxUTF8Bytes)
+    let controlText = "synthetic\u{000C}form\u{1b}feed"
+    let control = try MacEmojiClipboardHistory.decode(["enabled": true, "entries": [controlText]])
+    precondition(control.entries == [controlText])
     let invalid: [NSDictionary] = [
+      ["enabled": true, "entries": ["synthetic\0nul"]],
       [:], ["enabled": true], ["enabled": 1, "entries": []],
       ["enabled": false, "entries": ["synthetic"]],
       ["enabled": true, "entries": [""]],

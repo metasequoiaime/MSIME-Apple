@@ -89,7 +89,11 @@ import {
   type CommunityResourceClient,
 } from "./community/community-resources";
 export { useConfirm, type ConfirmRequest } from "./core/confirm";
-export { decodeDictionaryBytes, readDictionaryFile } from "./dictionary/dictionary-file";
+export {
+  decodeDictionaryBytes,
+  readDictionaryFile,
+  UNBATCHED_DICTIONARY_FILE_BYTES,
+} from "./dictionary/dictionary-file";
 export {
   TypingStatisticsPage,
   retentionChoices,
@@ -584,9 +588,12 @@ const releasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
 const linuxReleasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
 const updateManifestUrl = "https://msime.app/update.json";
 const clientReleasesUrl = "https://api.github.com/repos/metasequoiaime/msime/releases";
+const UPDATE_CHECK_TIMEOUT_MS = 10_000;
 const licenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
+// Linux links to the data-flow document that ships with this code, as the Windows reference links its own PRIVACY.md; the Linux section of msime.app/privacy/ describes a host without an update check and with Secret Service credentials, and this one has the update check and keeps provider credentials in 0600 files.
+const linuxPrivacyUrl = "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md";
 const linuxLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";
 const desktopDownloadUrl = "https://msime.app/download/";
@@ -618,13 +625,13 @@ export interface HostCapabilities {
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   number_row_selection?: boolean;
-  /** The host answers the `voice_input.hotkey_*` chords from an attached keyboard even where it draws no panel windows, as a HarmonyOS phone does. Absent means the desktop-panel answer. */
-  voice_hotkeys?: boolean;
   voice_capture_devices: boolean;
   candidate_font_controls: boolean;
   candidate_preedit_font?: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
+  /** The host outlines the candidate panel in the border colour. Linux does (Fcitx5's classic UI theme) without any hover state; a host older than the field reads it from `candidate_selection_appearance`. */
+  candidate_border_color?: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud?: boolean;
   candidate_english_font?: boolean;
@@ -635,6 +642,8 @@ export interface HostCapabilities {
   fixed_candidate_page_size?: number;
   /** The one candidate layout the host draws; set when the host offers no choice. */
   fixed_candidate_layout?: "horizontal" | "vertical";
+  /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
+  touch_toolbar_components?: boolean;
   shuangpin_preedit?: boolean;
   /** The host routes the Ctrl+Shift+Alt maintenance chords. */
   maintenance_shortcuts?: boolean;
@@ -650,6 +659,8 @@ export interface HostCapabilities {
   voice_commit_mode?: boolean;
   /** The OS release the host is running on, for the feedback page to attach. */
   os_version?: string;
+  /** Why the Linux desktop panel drawing the candidate list ignores the candidate font, colours and skin, as the running host reported it. Absent when the panel honours them. */
+  candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -697,6 +708,8 @@ export type Preferences = {
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   /** Optional second candidate-translation language; null/absent keeps one gloss row. */
   translation_secondary_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko" | null;
+  /** Anonymous start and crash events; off by default and honoured only by the Windows Server. */
+  telemetry_enabled?: boolean;
   floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
   fuzzy_pinyin?: FuzzyPinyinPreferences;
@@ -716,6 +729,7 @@ export type Preferences = {
   touch_row_spacing_tenths?: number;
   touch_keyboard_height_adjustment?: number;
   touch_voice_shortcut?: boolean;
+  touch_toolbar?: Partial<TouchToolbarPreferences>;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
@@ -1194,6 +1208,8 @@ export interface DictionaryClient {
     text: string,
     request_id: string,
   ): Promise<DictionaryImportResult>;
+  /** The largest file, in bytes, the page reads for `import`. Absent means the desktop bridge's batched bound, `MAX_DICTIONARY_FILE_BYTES`; a host that sends the file in one request declares its own. */
+  maxImportFileBytes?: number;
   importPersonal?(
     text: string,
     request_id: string,
@@ -1379,7 +1395,7 @@ export function dictionaryErrorMessage(
       return "词库拒绝了这次写入，请检查编码与词是否匹配。";
     case "dictionary_too_large":
       // A file over the bridge's bound, or one line too long to fit any request to the host.
-      return "词库文件过大：文件不能超过 1 MB，单行不能超过 60 KB，请拆分后再导入。";
+      return "词库文件过大：文件不能超过 32 MB，单行不能超过 60 KB，请拆分后再导入。";
     case "dictionary_read_rejected":
       return "词库拒绝了这次读取，请稍后重试。";
     case "dictionary_bundled_readonly":
@@ -1549,11 +1565,29 @@ const navigationOptions: [keyof NavigationPreferences, string][] = [
   ["mouse_wheel", "鼠标滚轮（候选面板支持时翻页）"],
   ["arrows", "上 / 下（移动候选项）"],
 ];
-const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string][] = [
-  ["fluent", "Fluent", "简洁、紧凑的默认候选窗"],
-  ["wechat", "微信绿", "微信绿候选窗与悬浮工具栏"],
-  ["graphite", "石墨 Graphite", "克制、平直的候选窗与悬浮工具栏"],
-  ["willow_green", "杨柳青 Willow green", "柔和圆角与柳绿色整行高亮"],
+const linuxWheelPagingNote =
+  "鼠标滚轮：开启后在 IBus 候选窗口上滚动即翻页，关闭时滚轮不做任何事。Fcitx5 经典界面的滚轮翻页是 Fcitx5 自己的设置，开启或改回关闭后会同步写入，对 Fcitx5 中的所有输入法生效；从未开启过时沿用 Fcitx5 原有设置。";
+// The Fcitx5 classic UI theme format has no label or accent colour (platforms/linux/src/candidates/CandidateFcitxTheme.h), so on Linux the number and accent pickers reach only the IBus panel.
+const linuxFcitxClassicColorNote =
+  "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效";
+// The Linux hosts do not draw the candidate list themselves; when the desktop panel that does ignores these settings, the host says why (HostCapabilities.candidate_panel_limit) and the appearance and skin pages say so once.
+const candidatePanelLimitNotes: Record<
+  NonNullable<HostCapabilities["candidate_panel_limit"]>,
+  string
+> = {
+  gnome_shell:
+    "GNOME Shell 自己绘制 IBus 候选窗并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
+  fcitx_theme:
+    "Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题，这里的候选颜色和皮肤不会覆盖它；字体仍然生效。改回 Fcitx5 默认主题后即可使用这里的设置。",
+  kimpanel:
+    "Fcitx5 的候选窗由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
+};
+// The last column is the description on a host whose skin reaches only the candidate window (Linux presents the toolbar as an input method menu).
+const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string, string][] = [
+  ["fluent", "Fluent", "简洁、紧凑的默认候选窗", "简洁、紧凑的默认候选窗"],
+  ["wechat", "微信绿", "微信绿候选窗与悬浮工具栏", "微信绿候选窗"],
+  ["graphite", "石墨 Graphite", "克制、平直的候选窗与悬浮工具栏", "克制、平直的候选窗"],
+  ["willow_green", "杨柳青 Willow green", "柔和圆角与柳绿色整行高亮", "柔和圆角与柳绿色整行高亮"],
 ];
 export type FloatingToolbarPreferences = {
   enabled: boolean;
@@ -1583,6 +1617,37 @@ const defaultFloatingToolbar: FloatingToolbarPreferences = {
   scale_percent: 100,
   font_size: 24,
 };
+export type TouchToolbarPreferences = {
+  layout: boolean;
+  emoji: boolean;
+  skin: boolean;
+  clipboard: boolean;
+  ai: boolean;
+  character_set: boolean;
+  fullwidth: boolean;
+  punctuation: boolean;
+};
+const defaultTouchToolbar: TouchToolbarPreferences = {
+  layout: true,
+  emoji: true,
+  skin: true,
+  clipboard: false,
+  ai: false,
+  character_set: false,
+  fullwidth: false,
+  punctuation: false,
+};
+/// In the order the buttons sit on the touch keyboard's toolbar, after the voice entry.
+const touchToolbarOptions: [keyof TouchToolbarPreferences, string][] = [
+  ["layout", "键盘设置"],
+  ["emoji", "表情"],
+  ["skin", "切换皮肤"],
+  ["clipboard", "剪贴板历史"],
+  ["ai", "AI 润色"],
+  ["character_set", "简繁切换"],
+  ["fullwidth", "全角 / 半角"],
+  ["punctuation", "中英文标点"],
+];
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
   | "english_mode"
@@ -1629,11 +1694,24 @@ export type MobileKeyboardFeedback = {
   candidatePaletteFollowsDesktop?: boolean;
   /** iOS writes the composition into the text field as marked text only when this App Group switch is on; it has no raw/pinyin/empty choice because the strip already carries that one. */
   inlinePreedit?: boolean;
+  /** False where the device cannot vibrate for key presses (iPad has no Taptic Engine): the vibration controls are hidden and the stored choice is left for the user's other devices. */
+  hapticsAvailable?: boolean;
+  /** iPad only: the digit row and Tab key of the full-width keyboard, kept in the App Group. Absent on a phone, where the keyboard has no room for either. */
+  tabletFullKeys?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
   save(settings: MobileKeyboardFeedback): Promise<MobileKeyboardFeedback>;
   preview?(strength: MobileKeyboardFeedback["hapticStrength"]): Promise<void>;
+};
+/** What the macOS settings app did with the input method it carries when it started. */
+export type InputSourceStartupStatus = {
+  /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. */
+  action: "installed" | "updated" | "up_to_date" | "login_required" | "failed";
+  /** Whether the input source is in the System Settings list; `null` when that list could not be read. */
+  enabled: boolean | null;
+  bundled_version: string | null;
+  installed_version: string | null;
 };
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
@@ -1674,10 +1752,8 @@ export interface SettingsClient {
   openSkinDirectory?: () => Promise<void>;
   /**
    * Write an exported document into the user's Downloads folder and resolve to the absolute path written, which may carry a " (2)" suffix when the name was taken. A host whose webview drops download links (the macOS WKWebView cancels them) offers this; without it the page falls back to a download link.
-   *
-   * A host that asks the user where to save (HarmonyOS, whose sandbox has no Downloads folder the user can reach) resolves to the saved file's name instead, and to null when the user closed the picker. A rejection carrying an Error has its message shown as it is, because only the host knows what it failed to write.
    */
-  saveExport?: (name: string, contents: string) => Promise<string | null>;
+  saveExport?: (name: string, contents: string) => Promise<string>;
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
@@ -1713,6 +1789,13 @@ export interface SettingsClient {
   restartInputMethod?: () => Promise<void>;
   /** macOS installs/updates the separate InputMethodKit bundle before registering it. */
   installInputSource?: () => Promise<void>;
+  /** macOS installs or refreshes the input method on every start; this reports what that did. */
+  inputSourceStartup?: {
+    /** Resolves once the start-time check has finished; `null` when it did not run for this launch. */
+    status(): Promise<InputSourceStartupStatus | null>;
+    /** Opens the System Settings page where input sources are added and enabled. */
+    openSettings(): Promise<void>;
+  };
   /** macOS moves the installed input source to Trash; data removal is explicit. */
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
   /** macOS keeps small fixed locators while the state root itself may move to another volume. */
@@ -1966,8 +2049,8 @@ function PersonalDictionaryImportCard({
     setNotice("");
     setBusy(true);
     try {
-      if (file.size > 1_048_576) throw new Error("文件不能超过 1 MB。");
-      setEntries(parsePersonalDictionaryImport(await readDictionaryFile(file)));
+      // The Apple-compatible personal dictionary file is at most 1 MiB.
+      setEntries(parsePersonalDictionaryImport(await readDictionaryFile(file, 1_048_576)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。");
     } finally {
@@ -2162,10 +2245,10 @@ export function SettingsPage({
   // Hosts with a system recogniser of their own. Android's is what it falls back to when nothing
   // is configured, so `system` is a real choice there rather than a value to report unavailable.
   const nativeVoicePlatform = macosPlatform || harmonyPlatform || androidPlatform;
-  // One list for every host. macOS used to be given 5, 7 and 9 - the Apple reference's set - while its
-  // own normalisation rewrote anything else to 9, so the shared default of six displayed and saved as
-  // nine on that platform alone.
-  const candidatePageSizes = Array.from({ length: 9 }, (_, index) => index + 1);
+  // One list for every host, and it is the reference window's three through nine. macOS used to be given 5, 7 and 9 - the Apple reference's set - while its own normalisation rewrote anything else to 9, so the shared default of six displayed and saved as nine on that platform alone. The shared preference still accepts one and two, so a document carrying one keeps it listed rather than showing a choice it does not hold.
+  const candidatePageSizes = Array.from({ length: 7 }, (_, index) => index + 3);
+  const offeredCandidatePageSizes = (current: number) =>
+    candidatePageSizes.includes(current) ? candidatePageSizes : [current, ...candidatePageSizes];
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -2229,6 +2312,9 @@ export function SettingsPage({
   const showVoiceStreamPreedit = host?.voice_stream_preedit ?? !androidPlatform;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
+  const showCandidateBorderColor = host
+    ? (host.candidate_border_color ?? host.candidate_selection_appearance)
+    : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
   // Was written as "macOS only" when macOS was the only host that drew the badge. A host that
   // predates the capability keeps that reading rather than losing a control it does honour; one
@@ -2290,7 +2376,7 @@ export function SettingsPage({
     : linuxPlatform
       ? "首次配置（首次配置页或 msime-client-setup）完成后会把水杉输入法自动加入正在运行的 Fcitx5 或 IBus 的输入法列表，之后用输入法切换快捷键切换即可。未能自动加入时手动添加：使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组；使用 IBus 时，执行 ibus restart 后在系统设置的输入源中添加「Metasequoia 水杉输入法」。默认是全拼输入法。"
       : macosPlatform
-        ? "在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。默认是全拼输入法。"
+        ? "设置应用每次启动时会自动安装或更新随附的水杉输入法，并在系统设置的键盘输入法中启用它；首次安装后如提示需要重新登录，注销并重新登录一次即可。之后使用系统配置的输入法切换快捷键。默认是全拼输入法。"
         : harmonyPlatform
           ? mobilePlatform
             ? "在系统设置中启用并选择水杉输入法，再从输入法键盘使用语音和触屏输入。默认是全拼输入法。"
@@ -2333,8 +2419,6 @@ export function SettingsPage({
   // Falls back to the form factor when the host answers without the flag: a partial capability
   // record would otherwise read as "not a desktop" and hide these from Windows too.
   const desktopPanels = host ? (host.panel_windows ?? !mobilePlatform) : true;
-  // A phone that routes an attached keyboard's voice chords says so explicitly; every other host keeps the panel-window answer above.
-  const showVoiceHotkeys = host?.voice_hotkeys ?? desktopPanels;
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
@@ -2347,6 +2431,9 @@ export function SettingsPage({
   const [dataDirectory, setDataDirectory] = useState<{ path: string; isDefault: boolean }>();
   const [dataDirectoryBusy, setDataDirectoryBusy] = useState(false);
   const [dataDirectoryResult, setDataDirectoryResult] = useState("");
+  const [inputSourceStartup, setInputSourceStartup] = useState<InputSourceStartupStatus | null>(
+    null,
+  );
   const restoredMobilePage =
     mobilePlatform &&
     typeof window !== "undefined" &&
@@ -2663,6 +2750,26 @@ export function SettingsPage({
     };
   }, [client, mobilePlatform]);
 
+  // The Windows installer registers the input method on every install and upgrade; on macOS the settings app does it when it starts, and this tells the user what happened and whether the source still has to be enabled in System Settings.
+  useEffect(() => {
+    if (!macosPlatform || !client.inputSourceStartup) {
+      setInputSourceStartup(null);
+      return;
+    }
+    let active = true;
+    void client.inputSourceStartup
+      .status()
+      .then((value) => {
+        if (active) setInputSourceStartup(value);
+      })
+      .catch(() => {
+        if (active) setInputSourceStartup(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, macosPlatform]);
+
   useEffect(() => {
     if (!macosPlatform || !client.loadMacosShuangpinKeymap) {
       setMacosShuangpinKeymap(undefined);
@@ -2923,7 +3030,7 @@ export function SettingsPage({
     if (!draft) return;
     const confirmed = await confirm({
       title: "恢复屏幕键盘默认值",
-      message: "高度、间距和顶部语音入口都会回到默认。",
+      message: "高度、间距、顶部语音入口和工具栏按钮都会回到默认。",
       confirmLabel: "恢复",
     });
     if (!confirmed || !draft) return;
@@ -2934,6 +3041,7 @@ export function SettingsPage({
     delete next.touch_row_spacing_tenths;
     delete next.touch_keyboard_height_adjustment;
     delete next.touch_voice_shortcut;
+    delete next.touch_toolbar;
     setDraft(next);
     setError("");
     setNotice("屏幕键盘设置已恢复默认，请点击保存设置。");
@@ -2998,13 +3106,16 @@ export function SettingsPage({
     setUpdateBusy(true);
     setUpdateStatus("");
     setAvailableUpdate(null);
+    // A stalled connection would otherwise leave the button busy indefinitely; the shipped settings page gives up after ten seconds.
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS);
     try {
       const releasePlatform = client.host?.platform ?? (linuxPlatform ? "linux" : null);
       const endpoint =
         clientHostedPlatform && releasePlatform
           ? `${clientReleasesUrl}?per_page=100&t=${Date.now()}`
           : `${updateManifestUrl}?t=${Date.now()}`;
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await fetch(endpoint, { cache: "no-store", signal: controller.signal });
       if (!response.ok) throw new Error(`update manifest returned ${response.status}`);
       const manifest = (await response.json()) as UpdateManifest | GitHubRelease[];
       let update: ValidatedUpdate | null;
@@ -3029,6 +3140,7 @@ export function SettingsPage({
     } catch {
       setUpdateStatus("检查失败，请稍后重试");
     } finally {
+      window.clearTimeout(timeout);
       setUpdateBusy(false);
     }
   }
@@ -3172,7 +3284,7 @@ export function SettingsPage({
     setPhraseError("");
     setPhraseNotice("");
     try {
-      const text = await readDictionaryFile(file);
+      const text = await readDictionaryFile(file, client.dictionary.maxImportFileBytes);
       let imported: DictionaryImportResult | null = null;
       if (client.dictionary.import) {
         imported = await client.dictionary.import(
@@ -3239,31 +3351,20 @@ export function SettingsPage({
   /**
    * Hand an exported dictionary to the user as a file.
    *
-   * Resolves to the path when the host wrote the file, to null when a download link was used instead (the host reports nothing back, so there is no path to show), and to undefined when the host refused the write or the user cancelled its save picker, in which case the error or the cancellation has already been shown and no success may be reported.
+   * Resolves to the path when the host wrote the file, to null when a download link was used instead (the host reports nothing back, so there is no path to show), and to undefined when the host refused the write, in which case the error has already been shown and no success may be reported.
    */
   async function deliverDictionaryExport(
     name: string,
     body: string,
   ): Promise<string | null | undefined> {
     if (client.saveExport) {
-      let path: string | null;
       try {
-        path = await client.saveExport(name, body);
-      } catch (error) {
+        return await client.saveExport(name, body);
+      } catch {
         setPhraseNotice("");
-        setPhraseError(
-          error instanceof Error && error.message
-            ? error.message
-            : "无法写入“下载”文件夹，词库未导出。",
-        );
+        setPhraseError("无法写入“下载”文件夹，词库未导出。");
         return undefined;
       }
-      if (path === null) {
-        // Closing a save picker is a decision, not a failure, and nothing was written to report.
-        setPhraseNotice("已取消导出。");
-        return undefined;
-      }
-      return path;
     }
     const url = URL.createObjectURL(new Blob([body], { type: "text/plain;charset=utf-8" }));
     const anchor = document.createElement("a");
@@ -4020,7 +4121,12 @@ export function SettingsPage({
   const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
   const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
   const touchKeyboardHeightAdjustment = draft?.touch_keyboard_height_adjustment ?? 0;
-  const installerTrust = availableUpdate ? describeInstallerTrust(availableUpdate) : null;
+  const installerTrust = availableUpdate
+    ? describeInstallerTrust(
+        availableUpdate,
+        client.host?.platform ?? (linuxPlatform ? "linux" : null),
+      )
+    : null;
   const [clipboardEntries, setClipboardEntries] = useState<ClipboardHistoryEntry[]>([]);
   const [clipboardClearArmed, setClipboardClearArmed] = useState(false);
   const availablePages = pages.filter(
@@ -4465,6 +4571,72 @@ export function SettingsPage({
                 {notice}
               </p>
             )}
+            {inputSourceStartup &&
+              (inputSourceStartup.action !== "up_to_date" ||
+                inputSourceStartup.enabled === false) && (
+                <div
+                  role={inputSourceStartup.action === "failed" ? "alert" : "status"}
+                  className={inputSourceStartup.action === "failed" ? "error" : "notice"}
+                  aria-label="水杉输入法安装状态"
+                >
+                  {inputSourceStartup.action === "installed" && (
+                    <p>
+                      水杉输入法已安装
+                      {inputSourceStartup.installed_version
+                        ? `：${inputSourceStartup.installed_version}`
+                        : ""}
+                      。
+                    </p>
+                  )}
+                  {inputSourceStartup.action === "updated" && (
+                    <p>
+                      水杉输入法已更新
+                      {inputSourceStartup.installed_version
+                        ? `到 ${inputSourceStartup.installed_version}`
+                        : ""}
+                      。
+                    </p>
+                  )}
+                  {inputSourceStartup.action === "login_required" && (
+                    <p>
+                      水杉输入法已安装到本机，但本次登录的输入法列表还看不到它。请注销并重新登录，然后在
+                      系统设置 &gt; 键盘 &gt; 输入法 中添加水杉输入法。
+                    </p>
+                  )}
+                  {inputSourceStartup.action === "failed" && (
+                    <p>
+                      水杉输入法未能自动安装或更新。请在「快捷键」页的「输入法服务」中点「安装 /
+                      更新」重试。
+                    </p>
+                  )}
+                  {inputSourceStartup.enabled === false &&
+                    inputSourceStartup.action !== "login_required" && (
+                      <p>
+                        请在 系统设置 &gt; 键盘 &gt; 输入法 中添加并启用水杉输入法。
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            void client.inputSourceStartup
+                              ?.openSettings()
+                              .catch(() =>
+                                setError("无法打开系统设置，请手动前往 系统设置 > 键盘 > 输入法。"),
+                              )
+                          }
+                        >
+                          打开键盘设置
+                        </button>
+                      </p>
+                    )}
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setInputSourceStartup(null)}
+                  >
+                    知道了
+                  </button>
+                </div>
+              )}
             {busy && !draft && <p role="status">正在读取设置…</p>}
             {client.home && draft && page === "home" && (
               <HomePage
@@ -4617,6 +4789,11 @@ export function SettingsPage({
                       revision={snapshot?.revision ?? 0}
                       mobile={mobilePlatform}
                     />
+                    {host?.candidate_panel_limit && (
+                      <div className="section">
+                        <small>{candidatePanelLimitNotes[host.candidate_panel_limit]}</small>
+                      </div>
+                    )}
                     {showCandidateFollowCursor && (
                       <div className="section">
                         <label className="section-header">
@@ -4743,7 +4920,11 @@ export function SettingsPage({
                     )}
                     {!showCandidateSelectionAppearance && (
                       <div className="section">
-                        <small>当前宿主的候选面板不支持悬停或边框颜色。</small>
+                        <small>
+                          {linuxPlatform
+                            ? "悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"
+                            : "当前宿主的候选面板不支持悬停或边框颜色。"}
+                        </small>
                       </div>
                     )}
                     {showCandidateRowColors && (
@@ -4776,6 +4957,7 @@ export function SettingsPage({
                             </button>
                           </div>
                         </div>
+                        {linuxPlatform && <small>{linuxFcitxClassicColorNote}</small>}
                       </div>
                     )}
                     {showCandidateRowColors && (
@@ -4868,7 +5050,7 @@ export function SettingsPage({
                         </div>
                       </div>
                     </div>
-                    {showCandidateSelectionAppearance && (
+                    {showCandidateBorderColor && (
                       <div className="section">
                         <div className="section-header">
                           <span className="section-title">候选边框色</span>
@@ -4925,6 +5107,7 @@ export function SettingsPage({
                           </button>
                         </div>
                       </div>
+                      {linuxPlatform && <small>{linuxFcitxClassicColorNote}</small>}
                     </div>
                     {/* The iOS strip pages in nines whatever this says, so a selector there would change nothing. */}
                     {host?.fixed_candidate_page_size === undefined && (
@@ -4941,7 +5124,7 @@ export function SettingsPage({
                               })
                             }
                           >
-                            {candidatePageSizes.map((size) => (
+                            {offeredCandidatePageSizes(draft.candidate_page_size).map((size) => (
                               <option key={size} value={size}>
                                 {size}
                               </option>
@@ -4996,7 +5179,9 @@ export function SettingsPage({
                           <small>
                             {mobilePlatform
                               ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
-                              : "预览跟随主题模式；Linux IBus panel 支持时使用"}
+                              : linuxPlatform
+                                ? "预览跟随主题模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色"
+                                : "预览跟随主题模式"}
                           </small>
                         </span>
                         <select
@@ -5597,8 +5782,15 @@ export function SettingsPage({
                           see. Same switch the helper-code labels already make. */}
                       {mobilePlatform
                         ? "选择候选栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"
-                        : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
+                        : linuxPlatform
+                          ? "选择候选窗使用的主题；明暗预览仅影响当前卡片，不修改设置。"
+                          : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
                     </div>
+                    {host?.candidate_panel_limit && (
+                      <div className="section">
+                        <small>{candidatePanelLimitNotes[host.candidate_panel_limit]}</small>
+                      </div>
+                    )}
                     {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
                       <div className="section">
                         <label className="section-header">
@@ -5636,7 +5828,7 @@ export function SettingsPage({
                       </div>
                     )}
                     <div className={settings.skinGrid}>
-                      {skinOptions.map(([id, title, description]) => (
+                      {skinOptions.map(([id, title, description, candidateOnlyDescription]) => (
                         <article
                           aria-label={title}
                           className={settings.skinCard(
@@ -5653,7 +5845,9 @@ export function SettingsPage({
                                   : "Light"}
                                 )
                               </span>
-                              <span className={settings.skinCardDescription}>{description}</span>
+                              <span className={settings.skinCardDescription}>
+                                {linuxPlatform ? candidateOnlyDescription : description}
+                              </span>
                             </div>
                             <div className={settings.skinCardActions}>
                               <button
@@ -5707,9 +5901,11 @@ export function SettingsPage({
                             <div className={settings.skinPreviewStage} data-skin-stage="">
                               <SkinCandidatePreview orientation="vertical" />
                             </div>
-                            <div className={settings.skinPreviewStage} data-skin-stage="">
-                              <SkinToolbarPreview />
-                            </div>
+                            {!linuxPlatform && (
+                              <div className={settings.skinPreviewStage} data-skin-stage="">
+                                <SkinToolbarPreview />
+                              </div>
+                            )}
                           </div>
                         </article>
                       ))}
@@ -5726,6 +5922,7 @@ export function SettingsPage({
                       // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
                       layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
                       onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
+                      toolbarPreview={!linuxPlatform}
                     />
                   </fieldset>
                   <fieldset
@@ -6234,6 +6431,10 @@ export function SettingsPage({
                           </div>
                         ))}
                       </div>
+                      {/* IBus pages on the panel's cursor_up/down and button 4/5 only with the switch on; Fcitx5 classic UI pages by itself, so the host writes the switch into classicui's WheelForPaging once it leaves the default (platforms/linux/README.md). */}
+                      {linuxPlatform && (
+                        <div className="input-setting-description">{linuxWheelPagingNote}</div>
+                      )}
                     </div>
                     <div className="section">
                       <label className="section-header">
@@ -7462,56 +7663,60 @@ export function SettingsPage({
                             }
                           />
                         </label>
-                        <div className="input-option-divider" />
-                        <label className="section-header">
-                          <span className="section-title">
-                            按键振动<small>振动效果取决于设备与系统支持</small>
-                          </span>
-                          <input
-                            aria-label="按键振动"
-                            className="toggle"
-                            type="checkbox"
-                            disabled={mobileKeyboardFeedbackBusy}
-                            checked={mobileKeyboardFeedback.hapticsEnabled}
-                            onChange={(event) =>
-                              void saveMobileKeyboardFeedback({
-                                ...mobileKeyboardFeedback,
-                                hapticsEnabled: event.target.checked,
-                              })
-                            }
-                          />
-                        </label>
-                        {mobileKeyboardFeedback.hapticsEnabled && (
+                        {mobileKeyboardFeedback.hapticsAvailable !== false && (
                           <>
                             <div className="input-option-divider" />
                             <label className="section-header">
-                              <span className="section-title">振动强度</span>
-                              <select
-                                aria-label="振动强度"
+                              <span className="section-title">
+                                按键振动<small>振动效果取决于设备与系统支持</small>
+                              </span>
+                              <input
+                                aria-label="按键振动"
+                                className="toggle"
+                                type="checkbox"
                                 disabled={mobileKeyboardFeedbackBusy}
-                                value={mobileKeyboardFeedback.hapticStrength}
+                                checked={mobileKeyboardFeedback.hapticsEnabled}
                                 onChange={(event) =>
                                   void saveMobileKeyboardFeedback({
                                     ...mobileKeyboardFeedback,
-                                    hapticStrength: event.target
-                                      .value as MobileKeyboardFeedback["hapticStrength"],
+                                    hapticsEnabled: event.target.checked,
                                   })
                                 }
-                              >
-                                <option value="light">轻</option>
-                                <option value="medium">中</option>
-                                <option value="strong">强</option>
-                              </select>
+                              />
                             </label>
-                            {client.mobileKeyboardFeedback?.preview && (
-                              <button
-                                type="button"
-                                className="secondary"
-                                disabled={mobileKeyboardFeedbackBusy}
-                                onClick={() => void previewMobileKeyboardHaptics()}
-                              >
-                                试一下振动
-                              </button>
+                            {mobileKeyboardFeedback.hapticsEnabled && (
+                              <>
+                                <div className="input-option-divider" />
+                                <label className="section-header">
+                                  <span className="section-title">振动强度</span>
+                                  <select
+                                    aria-label="振动强度"
+                                    disabled={mobileKeyboardFeedbackBusy}
+                                    value={mobileKeyboardFeedback.hapticStrength}
+                                    onChange={(event) =>
+                                      void saveMobileKeyboardFeedback({
+                                        ...mobileKeyboardFeedback,
+                                        hapticStrength: event.target
+                                          .value as MobileKeyboardFeedback["hapticStrength"],
+                                      })
+                                    }
+                                  >
+                                    <option value="light">轻</option>
+                                    <option value="medium">中</option>
+                                    <option value="strong">强</option>
+                                  </select>
+                                </label>
+                                {client.mobileKeyboardFeedback?.preview && (
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={mobileKeyboardFeedbackBusy}
+                                    onClick={() => void previewMobileKeyboardHaptics()}
+                                  >
+                                    试一下振动
+                                  </button>
+                                )}
+                              </>
                             )}
                           </>
                         )}
@@ -7809,7 +8014,7 @@ export function SettingsPage({
                           </div>
                         )}
                         <div className={settings.shortcutRow}>
-                          <span>移动到当前候选页首 / 尾</span>
+                          <span>移动到候选列表首项 / 末项（页码随之切换）</span>
                           <kbd>Home / End</kbd>
                         </div>
                         <div className={settings.shortcutRow}>
@@ -7831,7 +8036,7 @@ export function SettingsPage({
                           {macosPlatform
                             ? "仅在水杉输入法当前输入上下文生效；Option 对应 Windows 基线中的 Alt。"
                             : linuxPlatform
-                              ? "当前 IBus 会话中的候选维护与服务重启"
+                              ? "在当前 IBus 或 Fcitx5 输入上下文中维护候选与重启服务"
                               : "程序运行时全局生效；用于维护与调试"}
                         </small>
                         <div className={settings.shortcutList}>
@@ -7846,7 +8051,10 @@ export function SettingsPage({
                                 <kbd>Ctrl+Shift+Alt+C</kbd>
                               </div>
                               <div className={settings.shortcutRow}>
-                                <span>重启输入法服务</span>
+                                <span>
+                                  重启或重载输入法（IBus 执行 ibus restart，Fcitx5 执行
+                                  fcitx5-remote -r 重新加载配置）
+                                </span>
                                 <kbd>Ctrl+Shift+Alt+R</kbd>
                               </div>
                               <div
@@ -7895,7 +8103,7 @@ export function SettingsPage({
                           {macosPlatform
                             ? "重新注册并启用已安装的水杉输入源；当前输入法进程继续按系统生命周期运行。"
                             : linuxPlatform
-                              ? "IBus 配置支持热重载；需要重新启动输入法服务时可使用此按钮。"
+                              ? "IBus 与 Fcitx5 宿主都会热重载配置；需要重新启动输入法服务时可使用此按钮，IBus 下执行 ibus restart 重启服务，Fcitx5 下执行 fcitx5-remote -r 重新加载配置。"
                               : "请求受监督的输入法服务重新启动。"}
                         </small>
                         <div className={settings.serviceRow}>
@@ -8239,9 +8447,14 @@ export function SettingsPage({
                             <p className={doc.updateWarning}>{installerTrust.warning}</p>
                           )}
                           {installerTrust?.verify && (
-                            <p>
-                              下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code>
-                            </p>
+                            <>
+                              <p>
+                                下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code>
+                              </p>
+                              <p>
+                                核对命令：<code>{installerTrust.verify.command}</code>
+                              </p>
+                            </>
                           )}
                           <button
                             type="button"
@@ -8265,7 +8478,11 @@ export function SettingsPage({
                         className={doc.linkRow}
                         onClick={() =>
                           void openExternalUrl(
-                            clientHostedPlatform ? androidPrivacyUrl : privacyUrl,
+                            linuxPlatform
+                              ? linuxPrivacyUrl
+                              : clientHostedPlatform
+                                ? androidPrivacyUrl
+                                : privacyUrl,
                           )
                         }
                       >
@@ -8436,7 +8653,7 @@ export function SettingsPage({
                                 : "Server 端日志"}
                             <small>
                               {linuxPlatform
-                                ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库刷新的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
+                                ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库维护时释放会话的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
                                 : macosPlatform
                                   ? "排查焦点切换和设置加载失败时开启。记录焦点进出与偏好加载、应用、保存的结果，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后可直接发送。"
                                   : "排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。"}
@@ -8486,6 +8703,31 @@ export function SettingsPage({
                             </label>
                           </>
                         )}
+                      </div>
+                    )}
+                    {/* Only the Windows Server reads this switch; the other hosts report on their own terms, described in PRIVACY.md, so offering it there would be a switch that changes nothing. */}
+                    {windowsPlatform && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            匿名使用统计
+                            <small>
+                              默认关闭。开启后，Server 每次启动向
+                              https://api.msime.app/v1/telemetry/events 发送一条事件，只含随机事件
+                              id、类型、平台名 windows 和版本号；Server 崩溃时再发一条，另带固定文本
+                              std::terminate。不含输入内容、候选、剪贴板或账号信息。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="匿名使用统计"
+                            className="toggle"
+                            type="checkbox"
+                            checked={draft?.telemetry_enabled ?? false}
+                            onChange={(event) =>
+                              setDraft({ ...draft, telemetry_enabled: event.target.checked })
+                            }
+                          />
+                        </label>
                       </div>
                     )}
                   </fieldset>
@@ -8731,6 +8973,62 @@ export function SettingsPage({
                           }
                         />
                       </label>
+                      {host?.touch_toolbar_components && (
+                        <>
+                          <div className="input-option-divider" />
+                          <div className="section-title">
+                            工具栏按钮
+                            <small>勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里</small>
+                          </div>
+                          {touchToolbarOptions.map(([key, label]) => (
+                            <label key={key} className="check-option">
+                              <input
+                                type="checkbox"
+                                aria-label={`工具栏：${label}`}
+                                checked={{ ...defaultTouchToolbar, ...draft.touch_toolbar }[key]}
+                                onChange={(event) =>
+                                  setDraft({
+                                    ...draft,
+                                    touch_toolbar: {
+                                      ...defaultTouchToolbar,
+                                      ...draft.touch_toolbar,
+                                      [key]: event.target.checked,
+                                    },
+                                  })
+                                }
+                              />
+                              <span>{label}</span>
+                            </label>
+                          ))}
+                        </>
+                      )}
+                      {mobileKeyboardFeedback?.tabletFullKeys !== undefined && (
+                        <>
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">
+                              数字行与 Tab 键
+                              <small>
+                                iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab
+                                键；浮动键盘和窄窗口没有空间，不显示。
+                              </small>
+                            </span>
+                            <input
+                              aria-label="数字行与 Tab 键"
+                              className="toggle"
+                              type="checkbox"
+                              disabled={mobileKeyboardFeedbackBusy}
+                              checked={mobileKeyboardFeedback.tabletFullKeys}
+                              onChange={(event) =>
+                                void saveMobileKeyboardFeedback({
+                                  ...mobileKeyboardFeedback,
+                                  tabletFullKeys: event.target.checked,
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
                       <button
                         type="button"
                         className="danger-text"
@@ -8972,7 +9270,8 @@ export function SettingsPage({
                         </div>
                         {linuxPlatform && (
                           <p className={settings.panelPreviewLabel}>
-                            没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。
+                            语音需要 provider
+                            服务：录音、模型和凭据都由它负责，服务未运行时无法录音。
                           </p>
                         )}
                       </div>
@@ -9691,38 +9990,54 @@ export function SettingsPage({
                           )}
                       </div>
                     )}
-                    {showVoiceHotkeys && (
+                    {desktopPanels && (
                       <div className="section">
                         <div className="section-title">
-                          {linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}
+                          语音快捷键
                           <small>
                             {linuxPlatform
-                              ? "在当前输入上下文中切换语音录音；没有 provider 时快捷键不会拦截编辑器输入"
+                              ? "在当前输入上下文中生效。长按快捷键录音，松开结束；按住期间按空格锁定录音，Escape 取消。Ctrl+F9 按一次开始、再按一次结束，也能结束锁定的录音。没有 provider 时快捷键不会拦截编辑器输入"
                               : macosPlatform
                                 ? "输入法启用时按住修饰键快捷键录音，松开结束；组合键先按 Control。按住期间按空格锁定，Escape 取消。修饰键快捷键由输入法自身接收，不需要额外授权；Ctrl+F9 在输入法会话之外接收，需要在「系统设置 › 隐私与安全性 › 输入监控」中允许本输入法，否则按下没有任何反应。首次授权后请重新按键。"
-                                : harmonyPlatform
-                                  ? "连接实体键盘后，在输入法接收按键的输入框中开始和结束语音录音"
+                                : windowsPlatform
+                                  ? "输入法运行时全局生效。长按快捷键录音，松开结束；按住期间按空格锁定录音，锁定后再按一次快捷键或点 ✓ 结束，Escape 或 ✗ 取消。Ctrl+F9 按一次开始、再按一次结束。"
                                   : "输入法运行时全局生效，用于开始和结束语音录音"}
                           </small>
                         </div>
+                        {/* Both Linux hosts record while a modifier shortcut is held and lock on Space, as Windows does, so they share its labels; only Ctrl+F9 toggles. Only IBus requires the right Ctrl in the two-key chord: Fcitx5 starts on a Right Ctrl or Right Alt press while any Ctrl or Alt is down (so left Ctrl+Right Alt also records) and stops only when Right Alt or Right Ctrl is released. The label still holds because the right-Ctrl chord works on both hosts. */}
                         {(
                           [
                             ["hotkey_ctrl_f9", "Ctrl+F9 切换语音"],
                             [
                               "hotkey_ralt",
-                              macosPlatform ? "按住右 Option 录音" : "右 Alt 切换语音",
+                              macosPlatform
+                                ? "按住右 Option 录音"
+                                : windowsPlatform || linuxPlatform
+                                  ? "长按右 Alt 录音"
+                                  : "右 Alt 切换语音",
                             ],
                             [
                               "hotkey_rctrl_ralt",
                               macosPlatform
                                 ? "按住右 Control+右 Option 录音"
-                                : "Ctrl+右 Alt 切换语音",
+                                : windowsPlatform || linuxPlatform
+                                  ? "长按右 Ctrl+右 Alt 录音"
+                                  : "Ctrl+右 Alt 切换语音",
                             ],
                             [
                               "hotkey_ctrl_win",
-                              macosPlatform ? "按住 Control+Command 录音" : "Ctrl+Win 切换语音",
+                              macosPlatform
+                                ? "按住 Control+Command 录音"
+                                : windowsPlatform || linuxPlatform
+                                  ? "长按 Ctrl+Win 录音"
+                                  : "Ctrl+Win 切换语音",
                             ],
-                            ["hotkey_hold_space_lock", "空格锁定语音"],
+                            [
+                              "hotkey_hold_space_lock",
+                              windowsPlatform || linuxPlatform
+                                ? "长按录音时按空格锁定"
+                                : "空格锁定语音",
+                            ],
                           ] as const
                         ).map(([key, label]) => (
                           <label className="section-header" key={key}>

@@ -13,6 +13,12 @@ int main() {
 
   adapter.set_lease(event.lease);
   assert(adapter.check(event) == MSIME_CLIENT_KEY_SENT);
+  // Ctrl+Shift+Super stays inside the ABI's four modifier bits, so the router still accepts it.
+  auto super_chord = event;
+  super_chord.modifiers = msime::linux_host::KeyRouterAdapter::modifiers(true, true, false, true);
+  assert(super_chord.modifiers == 0x0b);
+  assert(adapter.check(super_chord) == MSIME_CLIENT_KEY_SENT);
+  assert(msime::linux_host::KeyRouterAdapter::modifiers(true, true, true, true) == 0x0f);
 
   auto stale = event;
   stale.lease.epoch++;

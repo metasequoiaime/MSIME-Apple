@@ -83,6 +83,14 @@ int main() {
     const auto explicit_light = msime::linux_host::candidate_display_preferences(
         Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true, builtin, "fluent", Json());
     assert(explicit_light.value("candidate_theme", std::string{}) == "light");
+    // The bare resolver the Fcitx5 mode badge uses agrees with the panel, the shared "system" default included.
+    using msime::linux_host::candidate_dark_theme;
+    assert(!candidate_dark_theme(Json{{"candidate_theme", "follow"}}, false));
+    assert(candidate_dark_theme(Json::object(), true));
+    assert(!candidate_dark_theme(Json{{"theme", "light"}, {"candidate_theme", "follow"}}, true));
+    assert(candidate_dark_theme(Json{{"theme", "dark"}, {"candidate_theme", "follow"}}, false));
+    assert(candidate_dark_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false));
+    assert(!candidate_dark_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true));
     // The resolved appearance reaches the colours: a dark global theme on a light desktop draws the dark skin.
     const auto colors = msime::linux_host::resolve_candidate_colors(
         msime::linux_host::candidate_display_preferences(

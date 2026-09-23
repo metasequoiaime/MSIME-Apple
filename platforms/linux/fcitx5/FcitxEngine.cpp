@@ -23,11 +23,14 @@
 #include <fcitx/surroundingtext.h>
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
+#include "../src/candidates/CandidateLocalModeLabels.h"
+#include "../src/candidates/CandidatePanelStatus.h"
 #include "../src/candidates/CandidatePalette.h"
 #include "../src/candidates/CandidateColors.h"
 #include "../src/candidates/CandidateFcitxTheme.h"
 #include "../src/candidates/CandidateFontPolicy.h"
 #include "../src/candidates/CandidateWheelPaging.h"
+#include "../src/candidates/PanelRestoreRecord.h"
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/candidates/PairedPunctuation.h"
@@ -36,6 +39,7 @@
 #include "../src/core/RuntimeOptionsRefresh.h"
 #include "../src/core/FirstRunGuidance.h"
 #include "../src/core/InputModeIndicator.h"
+#include "../src/core/ReplacedProgram.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
 #endif
@@ -317,9 +321,13 @@ bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command) command = "msime-client-settings";
-  const bool about = std::strcmp(panel, "about") == 0;
-  const std::string route = about ? "settings:about" : panel;
-  const std::string panelValue = about ? "settings" : panel;
+  // About, help and feedback are settings sections, not desktop surfaces, so each travels as "settings:<category>" exactly as the IBus host sends it; the bare name is not a route head and the shared parser would reject it, leaving the window on its home page.
+  const char *page = std::strcmp(panel, "about") == 0      ? "about"
+                     : std::strcmp(panel, "help") == 0     ? "help"
+                     : std::strcmp(panel, "feedback") == 0 ? "feedback"
+                                                           : nullptr;
+  const std::string route = page ? std::string("settings:") + page : panel;
+  const std::string panelValue = page ? "settings" : panel;
   std::vector<std::string> environment;
   for (char **entry = ::environ; entry && *entry; ++entry) {
     const std::string value(*entry);
@@ -331,7 +339,7 @@ bool launchDesktopPanel(const char *panel) {
   }
   environment.push_back("MSIME_CLIENT_PANEL=" + panelValue);
   environment.push_back("MSIME_CLIENT_ROUTE=" + route);
-  if (about) environment.push_back("MSIME_CLIENT_SETTINGS_PAGE=about");
+  if (page) environment.push_back(std::string("MSIME_CLIENT_SETTINGS_PAGE=") + page);
   std::vector<char *> environmentPointers;
   environmentPointers.reserve(environment.size() + 1);
   for (auto &value : environment) environmentPointers.push_back(value.data());
@@ -400,6 +408,7 @@ public:
     last_smart_punctuation_at_ = {};
     smart_punctuation_rejected_ = 0;
     paired_tracker_.clear();
+    session_fullwidth_ = false;
     japanese_conversion_.reset();
     backspace_hold_.reset();
     maintenance_reload_held_ = false;
@@ -918,6 +927,7 @@ public:
     snapshot["preferences"]["character_width"] = fullwidth ? "fullwidth" : "halfwidth";
     if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     view_ = response(msime_client_set_character_width(session_, fullwidth));
+    session_fullwidth_ = fullwidth;
     saveStringPreference("character_width", fullwidth ? "fullwidth" : "halfwidth");
     render();
     return true;
@@ -935,6 +945,8 @@ public:
   }
   void startPreferenceSave(PendingPreferenceSave request) {
     waitForPreferenceSave();
+    // A store read already in flight predates the choice being saved; applied after the save it would put back what the status bar just changed (the width and punctuation it re-states to the session included), so refreshPreferences() drops it and reads again once the save lands, as refreshProviderSockets() fences a read from a moved store.
+    preferences_job_session_ = 0;
     preferences_save_retry_ = request;
     preferences_save_job_ = std::async(std::launch::async, [request = std::move(request)] {
       try { return savePreference(request); }
@@ -1023,6 +1035,11 @@ public:
   }
   bool toggleChinesePunctuation() {
     if (!session_) return false;
+    // A pinned lock holds, as Windows resolves Ctrl+. and the toolbar switch through ResolvePunctuationOpen: the request is consumed, nothing changes and nothing is saved.
+    if (punctuation_lock_ != 0) {
+      render();
+      return true;
+    }
     chinese_punctuation_ = !chinese_punctuation_;
     view_ = response(msime_client_set_chinese_punctuation(session_, chinese_punctuation_));
     session_chinese_punctuation_ = chinese_punctuation_;
@@ -1333,6 +1350,15 @@ public:
     view_ = response(msime_client_set_chinese_punctuation(session_, chinese_punctuation_));
     session_chinese_punctuation_ = chinese_punctuation_;
   }
+  // The runtime takes its width only from set_character_width, never from the preferences it is handed, and fullwidthOutput() reads it back from the view, so the saved character_width reaches this host only when it is stated here: when the session opens and whenever a reload moves it.
+  void syncSessionCharacterWidth() {
+    const bool fullwidth =
+        preferences_.value("character_width", std::string("halfwidth")) == "fullwidth";
+    if (!session_ || session_fullwidth_ == fullwidth) return;
+    view_ = response(msime_client_set_character_width(session_, fullwidth));
+    session_fullwidth_ = fullwidth;
+    paired_tracker_.clear();
+  }
   bool applyPreferenceSnapshot(Json snapshot) {
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
@@ -1365,7 +1391,6 @@ public:
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
     applyContextOverrides(preferences_);
-    configureDiagnostics();
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
@@ -1400,7 +1425,7 @@ public:
       space_convert_mark_.clear();
       space_convert_preceding_.clear();
     }
-    if (!smart_punctuation_ || !smart_punctuation_repeat_ || !paired_punctuation_)
+    if (!smart_punctuation_ || !smart_punctuation_repeat_)
       forgetSmartPunctuationRepeat();
     const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
     punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
@@ -1421,7 +1446,7 @@ public:
           // Status-bar saves reach the store but never the runtime options file, so for the choices the status bar makes the store is the authority: the file can hold a value no window has chosen since, e.g. after another window's status bar or the settings page moved the store while this context had no session.
           const auto &stored = preferences_snapshot_.at("preferences");
           auto base = options.value("preferences", Json::object());
-          for (const auto *key : {"scheme", "shuangpin_profile"})
+          for (const auto *key : {"scheme", "shuangpin_profile", "character_width"})
             if (stored.contains(key) && stored.at(key).is_string()) base[key] = stored.at(key);
           for (const auto *section : {"quanpin_helpcode", "shuangpin_helpcode"})
             if (stored.contains(section) && stored.at(section).is_object() &&
@@ -1436,6 +1461,8 @@ public:
         // through the normal save/reload path when the store becomes available.
       }
     }
+    // Only now is options_path_ this session's store: configured any earlier, the sink saw the empty path close() left and stayed shut whatever the switch said.
+    configureDiagnostics();
     resources_ = options.value("resources", std::string());
     auto clipboard_path = options.value("clipboard_history_path", std::string());
     if (clipboard_path.empty()) clipboard_path = options.value("preferences_directory", std::string());
@@ -1495,6 +1522,8 @@ public:
     session_chinese_punctuation_ =
         options.at("preferences").value("chinese_punctuation", true);
     syncSessionChinesePunctuation();
+    session_fullwidth_ = false;
+    syncSessionCharacterWidth();
     // A mode the focus restores is a Chinese/English switch like any other; resolved here, once the lock is read and the session exists.
     if (restore_changed_mode) resyncPunctuationForMode();
     view_ = response(msime_client_focus(session_, true)).at("view");
@@ -1529,6 +1558,9 @@ public:
             view_ = response(msime_client_update_preferences(session_,
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
             preferences_ = std::move(effectivePreferences);
+            configureDiagnostics();
+            // A width chosen here that the store does not hold - its save failed, or a private window, which never saves - is not undone by the store, as a failed scheme choice is kept; the next session re-reads the store.
+            if (!private_ && !unsavedChoice("", "character_width")) syncSessionCharacterWidth();
             traditional_ = preferences_.value("traditional_chinese_output", traditional_);
             chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
             syncSessionChinesePunctuation();
@@ -2150,6 +2182,7 @@ public:
       command(MSIME_FINISH_COMPOSITION);
     close();
     clearPanel();
+    msime_linux_diagnostic_write("dictionary_quiesce_released");
   }
   void refreshSystemTheme() {
     const auto now = std::chrono::steady_clock::now();
@@ -2169,12 +2202,15 @@ public:
     wave_overlay_.locked = voice_space_locked_ && wave_overlay_.listening;
     wave_overlay_.set_transcript(voice_transcript_);
     wave_overlay_.set_input_level(static_cast<float>(voice_level_) / 10.0f);
-    if (wave_overlay_surface_) {
-      if (wave_overlay_visible_)
+    if (wave_overlay_surface_ && !wave_overlay_failed_) {
+      if (wave_overlay_visible_) {
         wave_overlay_surface_->update(wave_overlay_);
-      else
-        wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
-      return;
+        return;
+      }
+      wave_overlay_visible_ = wave_overlay_surface_->show(wave_overlay_);
+      if (wave_overlay_visible_) return;
+      // No surface on this display (GNOME Wayland has no layer-shell): the rest of this recording uses the auxiliary text, as the IBus host's FallbackSurface does. The next recording tries the surface again.
+      wave_overlay_failed_ = true;
     }
     if (voice_loading_) {
       std::string status = voice_phase_;
@@ -2309,7 +2345,10 @@ public:
         ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
         voice_mailbox_.reset();
         if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Voice); return true; }
-        showVoiceFailure("未识别到文字，请重新录音");
+        const auto providerError = result.find("provider_error");
+        showVoiceFailure(providerError != result.end() && providerError->is_string()
+                             ? msime_voice_provider_failure_notice(providerError->get<std::string>())
+                             : "未识别到文字，请重新录音");
         return false;
       }
       voice_preedit_.clear();
@@ -2373,6 +2412,7 @@ public:
     voice_phase_ = "录音中";
     voice_level_ = 0;
     voice_failure_visible_ = false;
+    wave_overlay_failed_ = false;
     wave_overlay_.reset();
     wave_overlay_.listening = true;
     wave_overlay_.show_transcript = true;
@@ -2382,11 +2422,19 @@ public:
     voice_job_ = std::async(std::launch::async, [socket, generation, language, options, mailbox] {
       const auto query = Json{{"language", language}, {"generation", generation},
                               {"options", options}, {"stream", true}}.dump();
-      auto result = response(msime_client_voice_provider_stream_feedback(
-          reinterpret_cast<const uint8_t *>(query.data()), query.size(),
-          reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
-          fcitxVoiceUpdate, fcitxVoiceStatus, fcitxVoiceLevel, mailbox.get()));
-      return result.is_object() ? result : Json::object();
+      std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
+          msime_client_voice_provider_stream_feedback(
+              reinterpret_cast<const uint8_t *>(query.data()), query.size(),
+              reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
+              fcitxVoiceUpdate, fcitxVoiceStatus, fcitxVoiceLevel, mailbox.get()),
+          msime_client_string_free);
+      if (!raw) throw std::runtime_error("MSIME request failed");
+      // A provider that gave no result (value null) or named a missing dependency (ok:false) is a provider failure, as in the IBus host, not an empty recognition.
+      const auto document = Json::parse(raw.get());
+      if (!document.value("ok", false))
+        return Json{{"provider_error", document.value("error", std::string{})}};
+      const auto result = document.at("value");
+      return result.is_object() ? result : Json{{"provider_error", std::string{}}};
     }).share();
     return true;
   }
@@ -2460,7 +2508,7 @@ public:
       // view_ at this point.
       const auto committedMark =
           msime::linux_host::ascii_mark_from_text(text, fullwidthOutput());
-      if (committedMark != 0 && smart_punctuation_ && paired_punctuation_) {
+      if (committedMark != 0 && smart_punctuation_) {
         last_smart_punctuation_ = committedMark;
         last_smart_punctuation_at_ = std::chrono::steady_clock::now();
       } else if (committedMark == 0) {
@@ -2525,7 +2573,7 @@ public:
   // the key is consumed and never reaches Engine.
   bool repeatSmartPunctuationToChinese(char ascii) {
     if (!chinese_punctuation_ || !smart_punctuation_ || !smart_punctuation_repeat_ ||
-        !paired_punctuation_ || last_smart_punctuation_ != ascii ||
+        last_smart_punctuation_ != ascii ||
         last_smart_punctuation_at_ == std::chrono::steady_clock::time_point{} ||
         composingOrCandidates())
       return false;
@@ -2582,11 +2630,22 @@ public:
     std::optional<std::string> spaceConvertPreceding;
     if (arm)
       spaceConvertPreceding = armedPreceding;
+    // The shared route keeps , . : ASCII beside an ASCII letter or digit only under the follow lock, with Chinese and smart punctuation on and nothing composing; idle, Engine then hands the key back and the editor types it, so apply() never sees a commit to arm the repeat gesture from. Decide that here, before the call changes the view, so the same key typed again inside the window still converts, as Windows arms it for the ASCII mark it resolved.
+    const bool keptAscii = punctuation_lock_ == 0 && chinese_punctuation_ && smart_punctuation_ &&
+                           msime::linux_host::is_smart_punctuation_key(ascii) &&
+                           preceding < 0x80 && std::isalnum(static_cast<int>(preceding)) != 0 &&
+                           !composingOrCandidates() && !view_.value("dedicated_english", false) &&
+                           view_.value("local_mode", std::string("none")) == "none" &&
+                           view_.value("scheme", 0u) != 3;
     const bool handled =
         apply(msime_client_punctuation_with_context(session_, value, preceding),
               std::move(spaceConvertPreceding), pairMode);
     if (handled && smart_punctuation_rejected_ == ascii)
       forgetSmartPunctuationRepeat();
+    if (!handled && keptAscii) {
+      last_smart_punctuation_ = ascii;
+      last_smart_punctuation_at_ = std::chrono::steady_clock::now();
+    }
     return handled;
   }
   // The character right after the caret. std::nullopt when the host publishes nothing usable; an empty string when the document ends at the caret.
@@ -2859,6 +2918,8 @@ public:
   bool chinese_punctuation_ = true;
   // What the session was last told; see syncSessionChinesePunctuation().
   bool session_chinese_punctuation_ = true;
+  // The width the session was last told; see syncSessionCharacterWidth(). A new session starts halfwidth.
+  bool session_fullwidth_ = false;
   // Monotonic per session; see effectiveContextSnapshot().
   uint64_t applied_preferences_revision_ = 0;
   bool paired_punctuation_ = true;
@@ -2995,6 +3056,7 @@ public:
   msime::linux_host::WaveOverlayModel wave_overlay_;
   std::unique_ptr<msime::linux_host::WaveOverlaySurface> wave_overlay_surface_;
   bool wave_overlay_visible_ = false;
+  bool wave_overlay_failed_ = false;
   bool system_dark_ = false;
   std::chrono::steady_clock::time_point system_theme_probe_due_{};
   bool word_character_enabled_ = true;
@@ -3108,7 +3170,7 @@ public:
       action.setText(text);
       return action;
     };
-    actions.push_back(make(1, "固定候选"));
+    actions.push_back(make(1, msime::linux_host::candidate_pin_label));
     const auto source = item->source();
     const auto fixedPosition = item->fixedPosition();
     if (msime::linux_host::candidate_dictionary_removal_available(
@@ -3116,7 +3178,7 @@ public:
             item->text()))
       actions.push_back(make(2, "删除候选"));
     for (int slot = 1; slot <= 5; ++slot)
-      actions.push_back(make(10 + slot, ("固定到 " + std::to_string(slot)).c_str()));
+      actions.push_back(make(10 + slot, msime::linux_host::candidate_fix_label(slot).c_str()));
     if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));
     return actions;
   }
@@ -4556,6 +4618,29 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+// classicui's options are shared by every input method, so before one changes, the value it replaces is recorded for msime-client-setup --unregister to put back (see PanelRestoreRecord.h). A failed record does not hold the change back.
+void record_classicui_takeover(const fcitx::RawConfig &current, const fcitx::RawConfig &written) {
+  const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
+  if (!file) return;
+  for (const auto &key : written.subItems()) {
+    const auto *value = written.valueByPath(key);
+    if (!value) continue;
+    const auto *prior = current.valueByPath(key);
+    const auto replaced = prior ? Json(*prior) : Json(nullptr);
+    // MSIME only takes the theme over from Fcitx5's stock ones and uninstall removes its own, so a theme option already naming it is recorded as the stock theme it stands in for.
+    auto restore = replaced;
+    if (prior && *prior == msime::linux_host::kFcitxCandidateTheme && (key == "Theme" || key == "DarkTheme"))
+      restore = key == "Theme" ? "default" : "default-dark";
+    msime::linux_host::record_panel_takeover(*file, "fcitx5", key, replaced, *value, restore);
+  }
+}
+void set_classicui_config(fcitx::AddonInstance &classicui, const fcitx::RawConfig &config) {
+  fcitx::RawConfig current;
+  if (const auto *existing = classicui.getConfig()) existing->save(current);
+  record_classicui_takeover(current, config);
+  classicui.setConfig(config);
+}
+
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngineV2 {
 public:
@@ -4571,7 +4656,7 @@ public:
     if (!classicui) return;
     fcitx::RawConfig config;
     config.setValueByPath("Font", *description);
-    classicui->setConfig(config);
+    set_classicui_config(*classicui, config);
   }
   // The candidate colours reach the classic UI as a theme named "msime" in the user's Fcitx5 data directory (see candidates/CandidateFcitxTheme.h). The addon is pointed at it only while it shows one of Fcitx5's stock themes or MSIME's own; a theme the user chose is left in place and MSIME's colours simply don't apply. Setting the configuration also makes the addon read the theme file again, which is how a changed palette appears without a restart.
   void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog) {
@@ -4598,8 +4683,26 @@ public:
     // Fcitx5 releases with a separate dark-mode theme would otherwise switch to their stock dark theme; MSIME already resolves "follow" against the system appearance itself.
     if (selected_dark && host::fcitx_theme_replaceable(*selected_dark))
       config.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
-    classicui->setConfig(config);
+    set_classicui_config(*classicui, config);
     candidate_theme_applied_ = std::move(theme);
+  }
+  // Tell the settings page whether the classic UI draws the candidate font, colours and skin (see candidates/CandidatePanelStatus.h). Asked on every theme sync because the user can switch the UI or theme in fcitx5-configtool at any time; the file is rewritten only when the answer changes.
+  void publishCandidatePanelStatus() {
+    namespace host = msime::linux_host;
+    const auto file = host::candidate_panel_status_file(std::getenv("XDG_RUNTIME_DIR"));
+    if (!file) return;
+    bool replaceable = true;
+    auto *classicui = instance_->addonManager().addon("classicui", true);
+    if (classicui && classicui->getConfig()) {
+      fcitx::RawConfig current;
+      classicui->getConfig()->save(current);
+      const auto *selected = current.valueByPath("Theme");
+      replaceable =
+          host::fcitx_candidate_theme_drawn(selected ? *selected : std::string{}, current.valueByPath("DarkTheme"));
+    }
+    host::write_candidate_panel_status(
+        *file, host::candidate_panel_status_document(
+                   "fcitx5", host::fcitx_candidate_panel_limit(instance_->currentUI(), replaceable)));
   }
   // Runs before any session exists: a package upgrade leaves the user's options on the previous dictionary generation until this re-prepares it. The system-wide file belongs to the administrator and is not rewritten.
   static void refreshOptions() {
@@ -4610,6 +4713,11 @@ public:
         msime_linux_diagnostic_write("dictionary_generation_refreshed");
     } catch (const OptionsNotConfigured &) {
       // Nothing to refresh before first-run setup; activation shows the setup hint.
+    } catch (const msime::linux_host::DictionaryOutdated &) {
+      // Downloaded dictionaries an upgrade did not replace: the previous generation keeps working, and the guide script (throttled to once per login session) tells the user how to fetch the new ones.
+      msime_linux_diagnostic_write("operation_failed operation=dictionary_generation_refresh reason=dictionary_outdated");
+      const auto guide = std::string(MSIME_BINDIR "/") + std::string(msime::linux_host::kFirstRunGuideProgram);
+      if (access(guide.c_str(), X_OK) == 0) fcitx::startProcess({guide, "--reason", "dictionary-outdated"});
     } catch (...) {
       msime_linux_diagnostic_write("operation_failed operation=dictionary_generation_refresh");
     }
@@ -4633,7 +4741,7 @@ public:
     if (!classicui) return;
     fcitx::RawConfig config;
     config.setValueByPath("WheelForPaging", *enabled ? "True" : "False");
-    classicui->setConfig(config);
+    set_classicui_config(*classicui, config);
   }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     refreshOptions();
@@ -4960,6 +5068,7 @@ public:
       }
     } catch (const OptionsNotConfigured &) { notConfigured(*state, true); }
     catch (...) { unavailable(*state); }
+    noticeReplacedAddon(*state);
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
@@ -5050,6 +5159,19 @@ public:
     msime_linux_diagnostic_write("operation_failed operation=fcitx_event");
     state.close(); state.clearPanel();
     state.ic_.inputPanel().setAuxUp(fcitx::Text("MSIME：请检查运行配置"));
+    state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  }
+  // dpkg renames a new build over this addon's shared object on upgrade and deletes it on removal, and fcitx5 keeps running the one it loaded until it restarts. The addon cannot restart itself the way the IBus host does without taking every other input method down with the process, and the reload behind the settings page's restart button loads no new code, so the first activation that finds the addon replaced or removed tells the user how to finish, once for each change of state, so a reinstall after a removal is announced as an upgrade; the next composition's render replaces the message. It takes precedence over the configuration hints, which a removed or half-upgraded installation would otherwise show.
+  static void noticeReplacedAddon(FcitxState &state) {
+    using msime::linux_host::ProgramFileState;
+    static ProgramFileState shown = ProgramFileState::Current;
+    const auto current = msime::linux_host::mapped_file_state(reinterpret_cast<const void *>(&noticeReplacedAddon));
+    if (current == ProgramFileState::Current || current == shown) return;
+    shown = current;
+    msime_linux_diagnostic_write(current == ProgramFileState::Replaced ? "addon_replaced_notice" : "addon_removed_notice");
+    state.ic_.inputPanel().setAuxUp(fcitx::Text(current == ProgramFileState::Replaced
+        ? "水杉输入法已升级：执行 fcitx5 -r 或注销后重新登录即可使用新版本"
+        : "水杉输入法已卸载：执行 fcitx5 -r 或注销后重新登录即可完成卸载"));
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   }
   // Keys still reach the application: the addon never filters an event it could not route, so the user can keep typing while the hint is up. Only activation may open the settings window; a key never does, because a window that appears mid-typing can take the keyboard focus and swallow what follows.
@@ -5181,13 +5303,13 @@ public:
   FcitxCloudClipboardItemAction cloud_clipboard_item3_{&factory_, 2};
   FcitxCloudClipboardItemAction cloud_clipboard_item4_{&factory_, 3};
   FcitxCloudClipboardItemAction cloud_clipboard_item5_{&factory_, 4};
-  FcitxMaintenanceAction pin_action_{&factory_, 1, "固定候选"};
+  FcitxMaintenanceAction pin_action_{&factory_, 1, msime::linux_host::candidate_pin_label};
   FcitxMaintenanceAction remove_action_{&factory_, 2, "删除候选"};
-  FcitxMaintenanceAction fix1_action_{&factory_, 11, "固定到 1"};
-  FcitxMaintenanceAction fix2_action_{&factory_, 12, "固定到 2"};
-  FcitxMaintenanceAction fix3_action_{&factory_, 13, "固定到 3"};
-  FcitxMaintenanceAction fix4_action_{&factory_, 14, "固定到 4"};
-  FcitxMaintenanceAction fix5_action_{&factory_, 15, "固定到 5"};
+  FcitxMaintenanceAction fix1_action_{&factory_, 11, msime::linux_host::candidate_fix_label(1).c_str()};
+  FcitxMaintenanceAction fix2_action_{&factory_, 12, msime::linux_host::candidate_fix_label(2).c_str()};
+  FcitxMaintenanceAction fix3_action_{&factory_, 13, msime::linux_host::candidate_fix_label(3).c_str()};
+  FcitxMaintenanceAction fix4_action_{&factory_, 14, msime::linux_host::candidate_fix_label(4).c_str()};
+  FcitxMaintenanceAction fix5_action_{&factory_, 15, msime::linux_host::candidate_fix_label(5).c_str()};
   FcitxMaintenanceAction clear_action_{&factory_, 20, "取消固定"};
   fcitx::Menu desktop_tools_menu_;
   FcitxDesktopPanelAction handwriting_action_{&factory_, "handwriting", "手写识别板"};
@@ -5238,6 +5360,7 @@ void FcitxState::syncCandidatePanelFont() {
 
 void FcitxState::syncCandidatePanelTheme() {
   if (engine_ && session_) engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_);
+  if (engine_) engine_->publishCandidatePanelStatus();
 }
 
 void FcitxState::refreshToolbar() {
@@ -5293,11 +5416,8 @@ void FcitxState::render() {
     std::string aux = std::to_string(view_.at("page").get<int>() + 1) +
         "/" + std::to_string(view_.at("page_count").get<int>());
     const auto mode = view_.value("local_mode", std::string("none"));
-    const auto modeLabel = mode == "unicode" ? "U+" : mode == "date_time" ? "日期时间" :
-        mode == "phrase" ? "短语" : mode == "emoji" ? "Emoji" :
-        mode == "kaomoji" ? "颜文字" : mode == "abbreviation" ? "简拼" :
-        mode == "english" ? "EN" : mode == "japanese" ? "日文" : "";
-    if (*modeLabel) aux += " · " + std::string(modeLabel);
+    if (const char *modeLabel = msime::linux_host::candidate_local_mode_label(mode))
+      aux += " · " + std::string(modeLabel);
     if (preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin") {
       const auto candidatePreedit = view_.value("preedit", std::string{});
       if (!candidatePreedit.empty()) {
@@ -5311,7 +5431,7 @@ void FcitxState::render() {
   }
   if (emoji_search_mode_)
     ic_.inputPanel().setAuxUp(fcitx::Text("Emoji 搜索：" + emoji_search_));
-  if (voice_loading_ && !wave_overlay_surface_)
+  if (voice_loading_ && (!wave_overlay_surface_ || wave_overlay_failed_))
     updateVoiceOverlay();
   ic_.updatePreedit();
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
@@ -5340,6 +5460,11 @@ void FcitxState::maintenance(int operation) {
   }
 }
 
+// The badge takes the candidate panel's appearance: candidate_theme "follow" (跟随全局) defers to the global theme, whose "system" (跟随系统) default follows the desktop, so a light desktop gets a light badge.
+bool fcitx_mode_badge_light_theme(const Json &preferences, bool system_dark) {
+  return !msime::linux_host::candidate_dark_theme(preferences, system_dark);
+}
+
 void FcitxState::showInputModeHud() {
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
   // 共享偏好 input_mode_hud 控制，默认开启。不自己画窗口——Fcitx5 的面板本来就提供这个
@@ -5358,8 +5483,7 @@ void FcitxState::showInputModeHud() {
   // 两个提示各补一半：面板那个由合成器按光标矩形定位，跟着输入点走，但只能显示文字；
   // 自绘徽章带得了 logo，却只能用屏幕坐标固定在一个角上。两者同时发是所有者的选择。
   if (mode_badge_ &&
-      mode_badge_->show(label, MSIME_MODE_BADGE_ICON,
-                        preferences_.value("candidate_theme", std::string()) == "light"))
+      mode_badge_->show(label, MSIME_MODE_BADGE_ICON, fcitx_mode_badge_light_theme(preferences_, system_dark_)))
     scheduleModeBadgeHide();
 #endif
   if (auto *instance = engine_->instance())

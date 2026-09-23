@@ -32,11 +32,16 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS "ibus (>= 1.5.20), python3 (>= 3.9)")
 if(MSIME_ENABLE_FCITX5)
   string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", fcitx5 (>= 5.0.20)")
 endif()
+# Voice runtime: Doubao streaming needs the websockets sync client from 15.0 on, recording needs one of parec, pw-cat or arecord. Recommends rather than Depends, because the voice service starts without them and only the requests that need them fail.
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "python3-websockets (>= 15), pulseaudio-utils | pipewire-bin | alsa-utils")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 get_filename_component(MSIME_HOST_LIBRARY_DIR "${MSIME_HOST_LIBRARY}" DIRECTORY)
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS "${MSIME_HOST_LIBRARY_DIR}")
 # prerm stops and disables the user units of logged-in users on removal and postinst restarts running services after an upgrade; CMakeLists.txt configures both from the unit list the CMake uninstall uses.
-set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_BINARY_DIR}/debian/prerm;${CMAKE_CURRENT_BINARY_DIR}/debian/postinst")
+# The clipboard XDG autostart entry is the package's one file under /etc (a /usr prefix puts MSIME_XDG_AUTOSTART_DIR there), and Debian policy requires /etc files to be conffiles so an administrator who edits or deletes it keeps that change across upgrades. CPack's DEB generator marks nothing by itself; the list travels as a control file like the maintainer scripts.
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/debian/conffiles"
+     CONTENT "${MSIME_XDG_AUTOSTART_DIR}/msime-client-clipboard.desktop\n")
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_BINARY_DIR}/debian/prerm;${CMAKE_CURRENT_BINARY_DIR}/debian/postinst;${CMAKE_CURRENT_BINARY_DIR}/debian/conffiles")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION ON)
 
 # The license (as copyright) and the third-party notices are installed by CMakeLists.txt for every install; configuration already failed there if any of them was missing.

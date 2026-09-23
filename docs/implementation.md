@@ -67,7 +67,7 @@
 
 ### 有界性
 
-所有从网络或文件进来的东西都有显式上限，越界的那一条被跳过而不影响同批其他条目：云响应 256 KiB、AI 响应 1 MiB、AI JSON 内容 64 KiB、单条候选 4096 字节、单次最多 10 条候选；剪贴板历史 50 条、单条 4000 个 UTF-16 单元，控制字符和超长文本不落盘；Windows 回复编码按 UTF-16 单元计容量，超长时明确失败而不截断文本。空白、控制字符、重复项在进入候选之前被过滤掉。
+所有从网络或文件进来的东西都有显式上限，越界的那一条被跳过而不影响同批其他条目：云响应 256 KiB、AI 响应 1 MiB、AI JSON 内容 64 KiB、单条候选 4096 字节、单次最多 10 条候选；剪贴板历史 50 条、单条 4000 个 UTF-16 单元（超长复制截取前 4000 个单元、不拆代理对），只有含 NUL 的文本不落盘，其余控制字符作为用户内容保存；Windows 回复编码按 UTF-16 单元计容量，超长时明确失败而不截断文本。空白、控制字符、重复项在进入候选之前被过滤掉。
 
 ### 能力声明与界面注入
 
@@ -100,7 +100,7 @@ InputMethodKit 宿主，产物 bundle 名为 `水杉输入法.app`，`CFBundleId
 
 输入源菜单收敛为工具入口加两条出口——中英文、英文候选模式、简繁输出、悬浮工具栏，加表情面板、屏幕键盘、手写、语音，最后是「水杉输入法设置…」和「关于水杉输入法…」。所有管理页（候选、账号、云剪贴板、皮肤目录）统一进设置窗口，不在菜单里各开一条路；设置窗口优先启动共享 Tauri 页面，bundle 不可用时回退到原生视图。
 
-原生实现的能力包括：候选面板（定位、分页、hover、翻页按钮、行宽测量、位置迟滞）、四套内置皮肤与外部 `skin.toml` 皮肤包、候选注释与翻译、云候选、语音（豆包 WSS、HTTP provider、波形面板、录音设备、润色、提示音）、手写、屏幕键盘、表情/颜文字/符号/剪贴板面板、悬浮工具栏、中英模式 HUD、双拼键位提示、打字统计、诊断日志、Sparkle 自动更新。安装走 `platforms/macos/scripts/install.sh`：用 Developer ID 重签、原子替换到 `~/Library/Input Methods`、失败回滚，并拒绝含受限 entitlement 的签名；设置页的「安装 / 更新」调用同一条 Tauri 命令，完成后启动已安装 bundle 的 `--register-input-source` 只注册自身，不静默切换当前输入源。卸载默认只把 bundle 移入废纸篓、保留词库与学习记录，用户明确勾选才一并清除状态目录、偏好域和语音密钥。
+原生实现的能力包括：候选面板（定位、分页、hover、翻页按钮、行宽测量、位置迟滞）、四套内置皮肤与外部 `skin.toml` 皮肤包、候选注释与翻译、云候选、语音（豆包 WSS、HTTP provider、波形面板、录音设备、润色、提示音）、手写、屏幕键盘、表情/颜文字/符号/剪贴板面板、悬浮工具栏、中英模式 HUD、双拼键位提示、打字统计、诊断日志、Sparkle 自动更新。发布安装来自 DMG（`platforms/macos/package-release.sh`）：设置应用内嵌 `水杉输入法.app`，每次启动都在后台比较随附与已安装 bundle 的版本，未安装时安装、随附的更新时替换，从不降级，只在打包好的应用里进行（开发运行与输入法拉起的面板进程跳过）；设置页的「安装 / 更新」是不比较版本的强制重装。两者走同一条路径：staging 目录里完整复制、原子替换到 `~/Library/Input Methods`，再启动已安装 bundle 的 `--register-input-source` 登记并启用自身，注册失败时回滚到旧安装（没有旧安装时保留新 bundle 等下次登录），不静默切换当前输入源。开发者路径是 `platforms/macos/scripts/install.sh`：用本机 Developer ID 重签、原子替换、失败回滚，并拒绝含受限 entitlement 的签名。卸载默认只把 bundle 移入废纸篓、保留词库与学习记录，用户明确勾选才一并清除状态目录、偏好域和语音密钥。
 
 ### iOS
 
@@ -126,7 +126,7 @@ IBus 与 Fcitx5 是**并列的两个系统入口**，不是宿主和它的插件
 
 在线候选、语音、剪贴板、手写、emoji、词典、翻译各有独立的可执行入口，其中在线候选、语音和剪贴板另配 systemd 用户单元；前两者是 socket 激活的，`ListenStream` 落在 `%t/msime-client/` 下、`SocketMode=0600`。浮层在 `src/overlay/`，提供模式徽章和语音波形，X11 与 Wayland layer-shell 两套后端（Wayland 协议代码由 `wayland-scanner` 从 `data/wayland/` 的 layer-shell 描述加系统 `xdg-shell.xml` 生成），缺依赖时退回面板文字。诊断日志写偏好目录下的 `diagnostic.log`，1 MiB 轮转一份，只用户可读。
 
-安装后的首次配置收成一条命令：`msime-client-setup` 按词库锁逐个核对名称、大小和 SHA-256，调 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client` 建状态并发布 `runtime-options.json`，再把输入法加入正在运行的宿主的输入法列表：Fcitx5 经 D-Bus 追加到当前输入法组并读回核对，IBus 在引擎未被列出时先 `ibus restart`，再追加到 GNOME 的输入源或 IBus 的 `preload-engines`；任何一步失败都退回打印手动步骤，`--no-register` 跳过这一步。默认不联网，取回词库要显式 `--download`；校验不过即中止，不留半份词库；状态目录已存在时报错而不覆盖。`dict_pinyin.dat` 在词库锁里没有下载地址（它来自引擎源码树），改从 `engine-lock.json` 指的固定依赖归档里只取出这一个文件。图形入口是等价的：`msime-client-settings` 在缺 `runtime-options.json` 时打开首次配置页，页面跑的就是同一个 `msime-client-setup`。卸载走 `cmake --build <build-dir> --target uninstall`，会先逐个停掉 setup 启用过的用户单元。
+安装后的首次配置收成一条命令：`msime-client-setup` 按词库锁逐个核对名称、大小和 SHA-256，调 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client` 建状态并发布 `runtime-options.json`，再把输入法加入正在运行的宿主的输入法列表：Fcitx5 经 D-Bus 追加到当前输入法组并读回核对，IBus 在引擎未被列出时先 `ibus restart`，再追加到 GNOME 的输入源或 IBus 的 `preload-engines`；任何一步失败都退回打印手动步骤，`--no-register` 跳过这一步。默认不联网，取回词库要显式 `--download`；校验不过即中止，不留半份词库；状态目录已存在时报错而不覆盖。升级后自行下载的词库过期时，宿主的刷新以 `dictionary_outdated:` 报告并继续用旧代次，经 `msime-client-first-run-guide --reason dictionary-outdated` 发通知；`msime-client-setup --update --download` 只取回过期的几项，再用 `msime-client-prepare --refresh` 切到新代次并回放用户词库，随包提供的词库目录留给包管理器。`dict_pinyin.dat` 在词库锁里没有下载地址（它来自引擎源码树），改从 `engine-lock.json` 指的固定依赖归档里只取出这一个文件。图形入口是等价的：`msime-client-settings` 在缺 `runtime-options.json` 时打开首次配置页，页面跑的就是同一个 `msime-client-setup`。卸载走 `cmake --build <build-dir> --target uninstall`，会先逐个停掉 setup 启用过的用户单元，再用 `msime-client-setup --unregister` 把输入法从 GNOME 输入源、IBus 预载引擎和当前 Fcitx5 输入法组中移除（会让列表变空时保持原样）；`.deb` 的 prerm 对每个已登录用户做同样两步。
 
 打包由 `cmake/packaging.cmake` 提供（`-DMSIME_ENABLE_PACKAGING=ON`），四道硬性前置：必须 Linux、前缀必须是 `/usr`、运行配置文件必须为空、本地语音必须关。版本取 `-DMSIME_PACKAGE_VERSION`（发布工作流传 `platforms/linux/version.txt` 的版本），不传时同样读 `platforms/linux/version.txt`，与 Windows 的 `MSIME_WINDOWS_VERSION` 读自己的 `version.txt` 一致；这一步在顶层 `CMakeLists.txt` 里完成，IBus 宿主的遥测以 `MSIME_LINUX_VERSION` 报告同一个版本；产出 TGZ 或 DEB，Debian 依赖声明 ibus/python3，开了 Fcitx5 再追加 fcitx5。
 
@@ -198,11 +198,11 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 **共享界面。** `apps/desktop/tests/` 下 99 个 Vitest 文件按 account / candidate / chat / community / core / dictionary / emoji / input / settings / skin / support / voice 十二个域组织。写这些用例有一条必须遵守的时序：`render(<SettingsPage …>)` 之后要先等初始加载落定再去点侧栏，页面此时还在解析快照，加载完成后自己做的选择会覆盖掉提前点下的分类——不等就会得到一个随机失败、看起来像产品回归的用例。
 
-**macOS。** `platforms/macos/CMakeLists.txt` 注册 123 项 CTest，加上 `ClipboardTests.cmake` 与 `shared/voice` 共约 137 项，另有三个标签（`emoji-local`、`clipboard-local`、`handwriting-local`）用于隔离需要本机环境的那部分。`tests/settings/` 下还有一批 Python 校验型用例，检查设置路由覆盖、偏好覆盖、bundle 内容、Info.plist 的图标/用途/名称键和 entitlements 守卫——这些是「打包结果对不对」的检查，不是行为测试。
+**macOS。** `platforms/macos/CMakeLists.txt` 注册 127 项 CTest，加上 `ClipboardTests.cmake` 与 `shared/voice` 共约 141 项，另有三个标签（`emoji-local`、`clipboard-local`、`handwriting-local`）用于隔离需要本机环境的那部分。`tests/settings/` 下还有一批 Python 校验型用例，检查设置路由覆盖、偏好覆盖、bundle 内容、Info.plist 的图标/用途/名称键和 entitlements 守卫——这些是「打包结果对不对」的检查，不是行为测试。
 
 **Windows。** `platforms/windows/CMakeLists.txt` 96 项、`tsf/CMakeLists.txt` 19 项，加上 `msimeui` 自己的套件与 vendored Engine 的四项语音测试。关键的一点是这些套件在非 Windows 机器上也真的跑：把 Rust `msime-host-api` 编出来指给 `-DMSIME_HOST_LIBRARY`，边界测试就在本机驱动真实的共享库和真实 Engine。要跑交叉产物本身则走 `run-tests-wine.sh`，它把 C++ 套件与 `cargo test --no-run` 产出的 Rust 套件一并在 `xvfb-run wine` 下执行，每个 120 秒超时，结果与基线清单比对。`tsf/tests/exports/` 那组只读 PE 导出表、不加载 DLL，因此不需要 Windows。
 
-**Linux。** `platforms/linux/CMakeLists.txt` 32 项 CTest 加 `fcitx5/` 的 4 项（后者条件注册，需要已校验词库），另有约三十个 Python 用例分布在 candidate / clipboard / core / dictionary / input / provider / runtime / voice 下。编译门禁与隔离验收分开：`build-container.sh` 用的镜像刻意不装 X11/XFixes/Fcitx5 开发包，`check-container.sh` 才起独立 D-Bus 与 IBus daemon 做真实输入。两个容器脚本都按 `$repo_root/vendor` → 主 worktree 的 `vendor` 顺序找 Engine 并只读挂进去，构建镜像按仓库路径哈希打 tag，避免多个 worktree 互相覆盖。
+**Linux。** `platforms/linux/CMakeLists.txt` 35 项 CTest 加 `fcitx5/` 的 4 项（后者条件注册，需要已校验词库），另有约三十个 Python 用例分布在 candidate / clipboard / core / dictionary / input / provider / runtime / voice 下。编译门禁与隔离验收分开：`build-container.sh` 用的镜像刻意不装 X11/XFixes/Fcitx5 开发包，`check-container.sh` 才起独立 D-Bus 与 IBus daemon 做真实输入。两个容器脚本都按 `$repo_root/vendor` → 主 worktree 的 `vendor` 顺序找 Engine 并只读挂进去，构建镜像按仓库路径哈希打 tag，避免多个 worktree 互相覆盖。
 
 **Android。** `platforms/android/tests/<feature>/*Smoke.java` 共 73 个文件，`check-host.sh` 编译并执行其中 71 个——它们全部不依赖 Android 运行时，因为被测对象是 `policy/` 下那批纯模型类。同一个脚本还做十二组契约守卫，逐条比对 Android 侧与 `crates/host-api/src/ffi/input.rs`：命令 9 必须仍是 `Action::Finish`、命令 10 必须仍是 `CycleKanaVariant`、`KEYCODE_FORWARD_DEL` 必须映射到 `DeleteForward`，并禁止 Android 自己复制假名变体表、双拼 profile 表和润色 prompt 表。设备套件在 `tests/device/`，17 个类，默认跑 11 个 instrumentation，统计、设置和手写三组各自用开关追加；`start-emulator.sh` 校验设备类型和专用 AVD 名，不操作用户现有真机。
 
