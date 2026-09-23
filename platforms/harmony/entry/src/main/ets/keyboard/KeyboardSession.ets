@@ -46,6 +46,8 @@ import {
   CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinPaletteTokens, CandidateSkinDecoration
 } from './candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
+import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
+import { KeyboardMetrics } from './KeyboardMetrics';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
@@ -3027,9 +3029,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       });
     }
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view.editing_text,
-        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize,
-        this.preferences().candidateMinWidthVp));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view.editing_text));
     }
     if (this.onCandidateCount !== undefined) {
       this.onCandidateCount(entries.length);
@@ -3069,11 +3069,21 @@ export class KeyboardSession implements HardwareKeyTarget {
       english: view.dedicated_english, diagnostic: this.diagnostic
     });
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view.editing_text,
-        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize,
-        this.preferences().candidateMinWidthVp));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view.editing_text));
     }
     if (this.onCandidateCount !== undefined) this.onCandidateCount(entries.length);
+  }
+
+  /** A horizontal candidate window on a machine with its own keys is as wide as its whole page; a vertical list is as wide as its widest row. */
+  private candidateWidthVp(entries: CandidateEntry[], editing: string): number {
+    const settings: KeyboardPreferences = this.preferences();
+    if (KeyboardFormFactor.isDesktop() && settings.candidateLayout !== 'vertical') {
+      return CandidateWidthPolicy.rowWidthVp(entries, editing, settings.candidateFontSize,
+        settings.candidatePreeditFontSize, KeyboardMetrics.CANDIDATE_PADDING_VP,
+        CandidateNumberFontPolicy.size(settings.candidateFontSize), settings.candidateMinWidthVp);
+    }
+    return CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
+      settings.candidatePreeditFontSize, settings.candidateMinWidthVp);
   }
 
   private publishTranslationPage(): void {
@@ -3094,9 +3104,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic
     });
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view?.editing_text ?? this.editing,
-        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize,
-        this.preferences().candidateMinWidthVp));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing));
     }
     if (this.onCandidateCount !== undefined) this.onCandidateCount(translations.length);
   }

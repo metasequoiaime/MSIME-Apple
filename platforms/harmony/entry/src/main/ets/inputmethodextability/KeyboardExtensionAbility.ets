@@ -315,10 +315,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const tall: boolean = surface !== DesktopSurface.NONE;
     const heightVp: number = tall
       ? KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
-        KeyboardSession.shared.glossRows(), settings.candidateFontSize)
+        KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+        settings.candidatePreeditFontSize, true)
       : KeyboardMetrics.candidateHeightVp(settings.candidateLayout, this.candidateCount,
         settings.candidateShowPreedit, settings.candidateDecorationTopVp,
-        KeyboardSession.shared.glossRows(), settings.candidateFontSize);
+        KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+        settings.candidatePreeditFontSize);
     const widthVp: number = tall ? DESKTOP_SURFACE_WIDTH_VP : this.candidateWidthVp;
     await this.panel.resize(Math.round(widthVp * this.density),
       Math.round(heightVp * this.density));
@@ -338,7 +340,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
     const height: number = KeyboardMetrics.totalHeightVp(
       settings.rowSpacingTenths, settings.heightAdjustment,
-      KeyboardSession.shared.glossRows(), settings.candidateFontSize) * this.density;
+      KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+      settings.candidatePreeditFontSize, true) * this.density;
     const width: number = DESKTOP_SURFACE_WIDTH_VP * this.density;
     this.panel.moveTo(Math.round((this.screenWidth - width) / 2),
       Math.round(this.screenHeight - height - TOOLBAR_MARGIN_VP * this.density))
@@ -435,7 +438,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const height: number = KeyboardMetrics.candidateHeightVp(settings.candidateLayout,
       this.candidateCount, settings.candidateShowPreedit,
       settings.candidateDecorationTopVp, KeyboardSession.shared.glossRows(),
-      settings.candidateFontSize) * this.density;
+      settings.candidateFontSize, settings.candidatePreeditFontSize) * this.density;
     const gap: number = KeyboardMetrics.CANDIDATE_WINDOW_GAP_VP * this.density;
     const anchor: CandidateAnchor = CandidateAnchorPolicy.position(settings.candidateFollowCursor,
       this.candidateAnchor, this.caret);
@@ -791,9 +794,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       const heightVp: number = desktop
         ? KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
           settings.candidateShowPreedit, settings.candidateDecorationTopVp,
-          KeyboardSession.shared.glossRows(), settings.candidateFontSize)
+          KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+          settings.candidatePreeditFontSize)
         : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
-          KeyboardSession.shared.glossRows(), settings.candidateFontSize);
+          KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+          settings.candidatePreeditFontSize);
       // A soft keyboard is as wide as the screen because it has to be; a candidate window is as wide
       // as its content, and covering the width of a desktop with one would hide the very text the
       // candidates are for.

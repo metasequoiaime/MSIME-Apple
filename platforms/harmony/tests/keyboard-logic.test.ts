@@ -2194,6 +2194,74 @@ group("keeps a dragged Harmony toolbar inside the display", () => {
   );
 });
 
+group("a horizontal candidate window is as wide as its whole page", () => {
+  // The Windows window measures every candidate on the page side by side (candidate_presenter.cpp); the widest single entry left most of a six-candidate row scrolled away.
+  const page = ["你好", "拟好", "泥壕", "你", "尼", "呢"].map((text) => ({
+    text,
+    badge: "",
+    hint: "",
+    annotation: "",
+  }));
+  const row = CandidateWidthPolicy.rowWidthVp(page, "nihao", 18, 15, 12, 14);
+  check(
+    row > CandidateWidthPolicy.widthVp(page, "nihao", 18, 15),
+    "six short candidates need more than the widest of them",
+  );
+  const chips = page.reduce(
+    (sum, entry, index) =>
+      sum + Math.ceil(CandidateWidthPolicy.chipContentVp(entry, index, 18, 14) + 24),
+    0,
+  );
+  check(row >= chips, "every chip the view draws fits in the window");
+  check(
+    CandidateWidthPolicy.chipContentVp(page[0], 0, 18, 14) >
+      CandidateWidthPolicy.chipContentVp(page[0], 0, 18, 0),
+    "a desktop chip counts its ordinal",
+  );
+  check(
+    CandidateWidthPolicy.rowWidthVp([page[3]], "", 18, 15, 12, 14) ===
+      CandidateWidthPolicy.MIN_WIDTH_VP,
+    "one short candidate keeps the minimum width",
+  );
+  check(
+    CandidateWidthPolicy.rowWidthVp(page.concat(page, page), "", 32, 15, 12, 26) ===
+      CandidateWidthPolicy.MAX_WIDTH_VP,
+    "a long page stays inside the desktop bound",
+  );
+});
+
+group("candidate and composition rows follow their font sizes", () => {
+  // Windows: itemHeight = fontSize * 1.35 + 2, plus a 2 DIP gap, and the preedit measured at its own size.
+  check(KeyboardMetrics.candidateRowHeightVp(12, true) === 21, "a 12 vp desktop row is compact");
+  check(KeyboardMetrics.candidateRowHeightVp(32, true) === 48, "a 32 vp desktop row grows to fit");
+  check(
+    KeyboardMetrics.candidateRowHeightVp(12, false) === KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP,
+    "a touch row keeps its finger-sized floor",
+  );
+  check(KeyboardMetrics.candidateRowHeightVp(32, false) === 48, "and still grows for a large font");
+  check(
+    KeyboardMetrics.compositionRowHeightVp(15) === KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP,
+    "the default preedit keeps its line",
+  );
+  check(KeyboardMetrics.compositionRowHeightVp(32) === 44, "a large preedit gets a taller line");
+  check(
+    KeyboardMetrics.candidateHeightVp("vertical", 9, true, 0, 0, 12) <
+      KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * 9,
+    "nine vertical rows at 12 vp are shorter than nine fixed rows",
+  );
+  check(
+    KeyboardMetrics.candidateHeightVp("horizontal", 1, true, 0, 0, 18, 32) -
+      KeyboardMetrics.candidateHeightVp("horizontal", 1, true, 0, 0, 18, 15) ===
+      44 - KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP,
+    "the window grows with the preedit font",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true) <
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15),
+    "a desktop surface strip is compact, a touch strip is not",
+  );
+});
+
 group("sizes desktop candidate windows from bounded display estimates", () => {
   const short = CandidateWidthPolicy.widthVp([], "ni", 18, 15);
   const wide = CandidateWidthPolicy.widthVp(

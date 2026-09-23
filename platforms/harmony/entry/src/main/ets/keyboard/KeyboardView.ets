@@ -30,6 +30,7 @@ import { CandidateChipWidth } from './candidate/CandidateChipWidth';
 import { CandidateContextMenuPolicy, PointerAction, PointerButton }
   from './input/CandidateContextMenuPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
+import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
 import { CandidateTranslationStyle, TRANSLATION_OPACITY }
   from './candidate/CandidateTranslationStyle';
@@ -468,7 +469,7 @@ struct KeyboardView {
       if (!KeyboardFormFactor.isDesktop()) {
         KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
           this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
-          this.settings.candidateFontSize));
+          this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
       }
     };
     KeyboardSession.shared.onReplyContextChanged = (): void => {
@@ -1306,12 +1307,16 @@ struct KeyboardView {
    * Width is estimated the way the wrap policy estimates it, one font size per code point, because
    * ArkUI reports text extent only after layout and this has to precede it.
    */
-  private candidateChipWidth(candidate: CandidateEntry): Length {
+  private candidateChipWidth(candidate: CandidateEntry, index: number): Length {
     if (KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical') {
       return '100%';
     }
     const padding: number = KeyboardMetrics.CANDIDATE_PADDING_VP;
-    const word: number = Array.from(candidate.text).length * this.settings.candidateFontSize;
+    // A desktop chip also carries its ordinal and its suffix, and the window is sized from the same estimate (CandidateWidthPolicy.rowWidthVp); counting the word alone made each chip narrower than what it draws.
+    const word: number = KeyboardFormFactor.isDesktop()
+      ? CandidateWidthPolicy.chipContentVp(candidate, index, this.settings.candidateFontSize,
+        CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
+      : Array.from(candidate.text).length * this.settings.candidateFontSize;
     if (!KeyboardSession.shared.glossesExpected()) {
       return CandidateChipWidth.chip(word, false, 0, padding);
     }
@@ -1328,8 +1333,13 @@ struct KeyboardView {
       && KeyboardSession.shared.glossRows() > 0;
   }
 
+  /** One candidate row without the reserved gloss line; see KeyboardMetrics.candidateRowHeightVp. */
+  private candidateLineHeight(): number {
+    return KeyboardMetrics.candidateRowHeightVp(this.settings.candidateFontSize, KeyboardFormFactor.isDesktop());
+  }
+
   private candidateRowHeight(): number {
-    return KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
+    return this.candidateLineHeight()
       + (this.candidateUsesGlossLine()
         ? KeyboardMetrics.glossHeightVp(KeyboardSession.shared.glossRows(),
           this.settings.candidateFontSize) : 0);
@@ -1474,7 +1484,7 @@ struct KeyboardView {
       }
       .width('100%')
       .height(KeyboardFormFactor.isDesktop() && !this.settings.candidateShowPreedit
-        ? 0 : KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP)
+        ? 0 : KeyboardMetrics.compositionRowHeightVp(this.settings.candidatePreeditFontSize))
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
         right: KeyboardMetrics.CANDIDATE_PADDING_VP })
 
@@ -1534,8 +1544,8 @@ struct KeyboardView {
             .fontColor(this.candidateTextColor())
             .accessibilityText(`手写候选：${candidate}`)
             .textAlign(TextAlign.Center)
-            .width(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
-            .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+            .width(this.candidateLineHeight())
+            .height(this.candidateLineHeight())
             .backgroundColor(this.handwritingSkin.keyBackground)
             .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
             .onClick(() => this.chooseHandwriting(candidate))
@@ -1563,7 +1573,7 @@ struct KeyboardView {
             .accessibilityText(KeyAccessibilityPolicy.englishSuggestion(index + 1, word))
             .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
               right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-            .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+            .height(this.candidateLineHeight())
             .onClick(() => KeyboardSession.shared.useEnglishSuggestion(index))
         }, (word: string, index: number) => `${index}:${word}`)
       }
@@ -1589,8 +1599,7 @@ struct KeyboardView {
       // One row per candidate here and exactly one there. The two used to share a ternary applied to
       // the if/else as a whole, which ArkUI cannot do: modifiers belong to a component, and a branch
       // is not one. Each branch states its own height, and the condition already decided which.
-      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
-        * Math.max(1, Math.min(9, this.candidates.length)))
+      .height(this.candidateRowHeight() * Math.max(1, Math.min(9, this.candidates.length)))
       .onAxisEvent((event?: AxisEvent): void => {
         if (!this.settings.navigation.mouseWheel || event === undefined) {
           return;
@@ -1618,13 +1627,16 @@ struct KeyboardView {
       .layoutWeight(1)
       .height(this.candidateRowHeight())
       .align(Alignment.Start)
-      Text('\u2228')
-        .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-        .fontColor(this.candidatePalette().accent)
-        .padding({ left: 10, right: 12 })
-        .onClick(() => {
-          this.expanded = KeyboardSession.shared.allCandidates();
-        })
+      // A candidate window shows its whole page and pages with the keys and the wheel, as the Windows one does; the expand chevron is the touch strip's way to reach what does not fit.
+      if (!KeyboardFormFactor.isDesktop()) {
+        Text('\u2228')
+          .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+          .fontColor(this.candidatePalette().accent)
+          .padding({ left: 10, right: 12 })
+          .onClick(() => {
+            this.expanded = KeyboardSession.shared.allCandidates();
+          })
+      }
       }
       .width('100%')
       .height(this.candidateRowHeight())
@@ -1709,7 +1721,7 @@ struct KeyboardView {
     Row() {
       if (candidate.highlighted && (this.settings.candidateSelectedBar
         ?? CandidateSkinPolicy.showSelectedBar(this.settings.candidateSkinId))) {
-        Blank().width(3).height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * 0.55)
+        Blank().width(3).height(this.candidateLineHeight() * 0.55)
           .backgroundColor(this.candidatePalette().accent).borderRadius(2)
       }
       if (CandidateNumberFontPolicy.visible(KeyboardFormFactor.isDesktop())) {
@@ -1735,7 +1747,7 @@ struct KeyboardView {
     }.alignItems(VerticalAlign.Center)
       .accessibilityText(this.candidateLabel(candidate, index))
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-      .height(this.candidateRowHeight()).width(this.candidateChipWidth(candidate))
+      .height(this.candidateRowHeight()).width(this.candidateChipWidth(candidate, index))
       .backgroundColor(index === this.hoveredCandidate ? this.candidateHoverColor()
         : candidate.highlighted ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
       .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
@@ -2572,7 +2584,7 @@ struct KeyboardView {
     this.touchVoiceShortcut = this.settings.voiceShortcut;
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
-      this.settings.candidateFontSize));
+      this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
   }
 
   private beginGeometryDrag(event: TouchEvent): void {
@@ -4528,7 +4540,8 @@ struct KeyboardView {
         .padding({
           left: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
           right: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
-          top: KeyboardMetrics.ROOT_VERTICAL_PADDING_VP + KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP
+          top: KeyboardMetrics.ROOT_VERTICAL_PADDING_VP
+            + KeyboardMetrics.compositionRowHeightVp(this.settings.candidatePreeditFontSize)
             + this.candidateRowHeight() + KeyboardMetrics.ROW_SPACING_VP
         })
       }
