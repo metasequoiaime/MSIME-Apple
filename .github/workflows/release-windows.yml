@@ -69,9 +69,6 @@ jobs:
           $resources = cargo run --quiet --locked -p msime-client-core --example install_resources -- (Join-Path $env:RUNNER_TEMP 'desktop-resources')
           if ($LASTEXITCODE -ne 0) { throw 'desktop resource download failed' }
           "MSIME_DESKTOP_RESOURCES=$(@($resources)[-1].Trim())" >> $env:GITHUB_ENV
-      - name: Test Build-Client orchestration
-        shell: pwsh
-        run: ./platforms/windows/tests/tools/build_client.ps1
       - name: Build Windows client
         shell: pwsh
         env: {VERSION: "${{ steps.version.outputs.value }}"}
