@@ -4174,6 +4174,7 @@ pub fn run() {
             panel_window::open_handwriting_panel,
             panel_window::open_emoji_panel,
             panel_window::open_voice_panel,
+            panel_window::open_vocabulary_panel,
             panel_window::open_cloud_clipboard_panel,
             panel_window::open_cloud_dictionary_panel,
             panel_window::close_panel,

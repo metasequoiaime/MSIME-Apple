@@ -608,6 +608,11 @@ pub enum SurfaceRoute {
     Clipboard,
     CloudClipboard,
     CloudDictionary,
+    /// 背单词. A panel rather than a settings page: a review session is something a learner opens
+    /// for ten minutes a day, and a settings window is a drawer people open to flip one switch and
+    /// leave. It is not the candidate window either — reviewing means recalling a word before the
+    /// meaning appears, and that cannot share attention with composing a sentence.
+    Vocabulary,
 }
 
 /// Geometry and identity of a panel surface, so the window size lives beside the
@@ -634,6 +639,7 @@ impl SurfaceRoute {
             SurfaceRoute::Clipboard => "clipboard".to_string(),
             SurfaceRoute::CloudClipboard => "cloud-clipboard".to_string(),
             SurfaceRoute::CloudDictionary => "cloud-dictionary".to_string(),
+            SurfaceRoute::Vocabulary => "vocabulary".to_string(),
         }
     }
 
@@ -668,6 +674,7 @@ impl SurfaceRoute {
             "clipboard" => Ok(SurfaceRoute::Clipboard),
             "cloud-clipboard" => Ok(SurfaceRoute::CloudClipboard),
             "cloud-dictionary" => Ok(SurfaceRoute::CloudDictionary),
+            "vocabulary" => Ok(SurfaceRoute::Vocabulary),
             _ => Err(RouteError::Unknown),
         }
     }
@@ -721,6 +728,16 @@ impl SurfaceRoute {
                 width: 560,
                 height: 620,
             }),
+            SurfaceRoute::Vocabulary => Some(PanelSurface {
+                label: "vocabulary-panel",
+                query: "vocabulary",
+                title: "水杉背单词",
+                // Taller than it is wide: the card is the page, and a wide window would strand the
+                // word in the middle of empty space. Close to the clipboard panel's footprint, so
+                // it lands where a user already expects a summoned panel to be.
+                width: 560,
+                height: 680,
+            }),
             SurfaceRoute::CloudClipboard => Some(PanelSurface {
                 label: "cloud-clipboard-panel",
                 query: "cloud-clipboard",
@@ -738,7 +755,7 @@ impl SurfaceRoute {
         }
     }
 
-    pub const ALL: [SurfaceRoute; 8] = [
+    pub const ALL: [SurfaceRoute; 9] = [
         SurfaceRoute::Settings(None),
         SurfaceRoute::Emoji,
         SurfaceRoute::Keyboard,
@@ -747,6 +764,7 @@ impl SurfaceRoute {
         SurfaceRoute::Clipboard,
         SurfaceRoute::CloudClipboard,
         SurfaceRoute::CloudDictionary,
+        SurfaceRoute::Vocabulary,
     ];
 }
 

@@ -107,6 +107,7 @@ export {
 } from "./settings/typing-statistics";
 export {
   VocabularyReviewPage,
+  VocabularyReviewPanel,
   type VocabularyCard,
   type VocabularyReviewClient,
   type VocabularyReviewSettings,
@@ -1701,6 +1702,9 @@ export interface SettingsClient {
   openScreenKeyboard?: () => Promise<void>;
   openHandwriting?: () => Promise<void>;
   openVoice?: () => Promise<void>;
+  /** Opens the 背单词 panel. Absent on hosts with no panel windows; the settings page then keeps
+   * the review inline rather than offering a button that opens nothing. */
+  openVocabulary?: () => Promise<void>;
   openCloudClipboard?: () => Promise<void>;
   openCloudDictionary?: () => Promise<void>;
   restartInputMethod?: () => Promise<void>;
@@ -4567,7 +4571,11 @@ export function SettingsPage({
               />
             )}
             {client.vocabularyReview && page === "vocabulary" && (
-              <VocabularyReviewPage client={client.vocabularyReview} mobile={mobilePlatform} />
+              <VocabularyReviewPage
+                client={client.vocabularyReview}
+                mobile={mobilePlatform}
+                openPanel={client.openVocabulary}
+              />
             )}
             {draft &&
               page !== "typing-statistics" &&

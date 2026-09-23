@@ -86,12 +86,25 @@ export interface VocabularyReviewClient {
   reset(): Promise<VocabularyReviewStatus>;
 }
 
+/**
+ * 背单词, on one of two surfaces.
+ *
+ * `panel` is where reviewing happens: a window the user summons, spends ten minutes in and closes.
+ * `settings` is where the deck is managed — pick a book, import one, see today's numbers — and it
+ * deliberately deals no cards. A settings window is a drawer people open to flip one switch and
+ * leave; putting a daily study session inside it puts a destination in a utility drawer.
+ */
 export function VocabularyReviewPage({
   client,
   mobile = false,
+  surface = "settings",
+  openPanel,
 }: {
   client: VocabularyReviewClient;
   mobile?: boolean;
+  surface?: "settings" | "panel";
+  /** Absent where the host cannot open panels; the page then keeps the review inline. */
+  openPanel?: () => Promise<void>;
 }) {
   const { confirm, confirmation } = useConfirm();
   const [status, setStatus] = useState<VocabularyReviewStatus>();
@@ -132,6 +145,10 @@ export function VocabularyReviewPage({
     void update(() => client.load());
   }, [client]);
 
+  // With no panel to send the user to, the settings page has to keep dealing cards: a host that
+  // cannot open one would otherwise offer a deck and no way to study it.
+  const reviewing = surface === "panel" || !openPanel;
+  const managing = surface === "settings";
   const card = status?.queue[0];
   const books = status?.wordbooks ?? [];
   const selected = status?.settings.wordbook ?? "";
@@ -197,169 +214,193 @@ export function VocabularyReviewPage({
           </div>
         </div>
         <p className={note}>
-          复习只在这里进行，不会改变打字时的候选或组词。进度保存在本机，不会上传。
+          {reviewing
+            ? "复习不会改变打字时的候选或组词。进度保存在本机，不会上传。"
+            : "在这里管理词书；复习在背单词面板里进行。进度保存在本机，不会上传。"}
         </p>
+        {managing && openPanel && (
+          <button
+            className="secondary"
+            disabled={busy || !selected}
+            onClick={() => void openPanel()}
+            aria-label="打开背单词面板"
+          >
+            开始复习
+          </button>
+        )}
       </div>
 
-      <div className="section">
-        <label className={field} htmlFor="vocabulary-wordbook">
-          <span>词书</span>
-          <select
-            id="vocabulary-wordbook"
-            value={selected}
-            disabled={busy || books.length === 0}
-            onChange={(event) =>
-              void update(() =>
-                client.setSettings({ ...status.settings, wordbook: event.target.value }),
-              )
-            }
-          >
-            <option value="">未选择</option>
-            {books.map((book) => (
-              <option key={book.id} value={book.id}>
-                {book.name}（{book.total} 词）
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={field} htmlFor="vocabulary-new-per-day">
-          <span>每日新词</span>
-          <input
-            id="vocabulary-new-per-day"
-            type="number"
-            min={0}
-            max={200}
-            value={status.settings.newPerDay}
-            disabled={busy}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              if (!Number.isFinite(value) || value < 0) return;
-              void update(() =>
-                client.setSettings({ ...status.settings, newPerDay: Math.trunc(value) }),
-              );
-            }}
-          />
-        </label>
-        {client.importWordbook && (
-          <>
+      {managing && (
+        <div className="section">
+          <label className={field} htmlFor="vocabulary-wordbook">
+            <span>词书</span>
+            <select
+              id="vocabulary-wordbook"
+              value={selected}
+              disabled={busy || books.length === 0}
+              onChange={(event) =>
+                void update(() =>
+                  client.setSettings({ ...status.settings, wordbook: event.target.value }),
+                )
+              }
+            >
+              <option value="">未选择</option>
+              {books.map((book) => (
+                <option key={book.id} value={book.id}>
+                  {book.name}（{book.total} 词）
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={field} htmlFor="vocabulary-new-per-day">
+            <span>每日新词</span>
             <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.txt,text/csv,text/plain"
-              hidden
+              id="vocabulary-new-per-day"
+              type="number"
+              min={0}
+              max={200}
+              value={status.settings.newPerDay}
+              disabled={busy}
               onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) void chooseFile(file);
+                const value = Number(event.target.value);
+                if (!Number.isFinite(value) || value < 0) return;
+                void update(() =>
+                  client.setSettings({ ...status.settings, newPerDay: Math.trunc(value) }),
+                );
               }}
             />
+          </label>
+          {client.importWordbook && (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,.txt,text/csv,text/plain"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void chooseFile(file);
+                }}
+              />
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => fileRef.current?.click()}
+                aria-label="导入词表文件"
+              >
+                导入词表（CSV / TXT）
+              </button>
+              <p className={note}>
+                每行一个词，用逗号或制表符分隔：<code>单词,音标,释义</code> 或{" "}
+                <code>单词,释义</code>
+                。释义里有逗号时用英文引号括起来。
+              </p>
+            </>
+          )}
+          {importNote && <p className={note}>{importNote}</p>}
+          {client.removeWordbook && selectedBook && !selectedBook.builtin && (
             <button
               className="secondary"
               disabled={busy}
-              onClick={() => fileRef.current?.click()}
-              aria-label="导入词表文件"
+              onClick={async () => {
+                if (
+                  !(await confirm({
+                    title: "删除词表",
+                    message: `删除「${selectedBook.name}」及其复习进度？此操作无法撤销。`,
+                    confirmLabel: "删除",
+                    danger: true,
+                  }))
+                )
+                  return;
+                await update(() => client.removeWordbook!(selectedBook.id));
+              }}
             >
-              导入词表（CSV / TXT）
+              删除这个词表
             </button>
-            <p className={note}>
-              每行一个词，用逗号或制表符分隔：<code>单词,音标,释义</code> 或 <code>单词,释义</code>
-              。释义里有逗号时用英文引号括起来。
-            </p>
-          </>
-        )}
-        {importNote && <p className={note}>{importNote}</p>}
-        {client.removeWordbook && selectedBook && !selectedBook.builtin && (
+          )}
+        </div>
+      )}
+
+      {reviewing && (
+        <div className="section">
+          {!selected ? (
+            <p className={empty}>先选一本词书。</p>
+          ) : !card ? (
+            <p className={empty}>今天的复习已经完成。</p>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={cardFace(mobile)}
+                aria-label={revealed ? `${card.word} 的释义` : `显示 ${card.word} 的释义`}
+                aria-pressed={revealed}
+                onClick={() => setRevealed(true)}
+              >
+                <p className={cardWord(mobile)}>{card.word}</p>
+                {card.phonetic && <p className={cardPhonetic}>{card.phonetic}</p>}
+                {revealed ? (
+                  <p className={cardMeaning}>{card.meaning}</p>
+                ) : (
+                  <p className={cardHint}>点击查看释义</p>
+                )}
+              </button>
+              <div className={answerRow}>
+                <button
+                  type="button"
+                  className={answerButton}
+                  disabled={busy}
+                  onClick={() => void answer(false)}
+                >
+                  不认识
+                </button>
+                <button
+                  type="button"
+                  className={answerKnown}
+                  disabled={busy}
+                  onClick={() => void answer(true)}
+                >
+                  认识
+                </button>
+              </div>
+              <p className={note}>
+                答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {managing && (
+        <div className="section">
           <button
             className="secondary"
             disabled={busy}
             onClick={async () => {
               if (
                 !(await confirm({
-                  title: "删除词表",
-                  message: `删除「${selectedBook.name}」及其复习进度？此操作无法撤销。`,
-                  confirmLabel: "删除",
+                  title: "清空进度",
+                  message: "清空全部词书的复习进度？已经学过的词会从头开始，此操作无法撤销。",
+                  confirmLabel: "清空",
                   danger: true,
                 }))
               )
                 return;
-              await update(() => client.removeWordbook!(selectedBook.id));
+              await update(() => client.reset());
             }}
           >
-            删除这个词表
+            清空复习进度
           </button>
-        )}
-      </div>
-
-      <div className="section">
-        {!selected ? (
-          <p className={empty}>先选一本词书。</p>
-        ) : !card ? (
-          <p className={empty}>今天的复习已经完成。</p>
-        ) : (
-          <>
-            <button
-              type="button"
-              className={cardFace(mobile)}
-              aria-label={revealed ? `${card.word} 的释义` : `显示 ${card.word} 的释义`}
-              aria-pressed={revealed}
-              onClick={() => setRevealed(true)}
-            >
-              <p className={cardWord(mobile)}>{card.word}</p>
-              {card.phonetic && <p className={cardPhonetic}>{card.phonetic}</p>}
-              {revealed ? (
-                <p className={cardMeaning}>{card.meaning}</p>
-              ) : (
-                <p className={cardHint}>点击查看释义</p>
-              )}
-            </button>
-            <div className={answerRow}>
-              <button
-                type="button"
-                className={answerButton}
-                disabled={busy}
-                onClick={() => void answer(false)}
-              >
-                不认识
-              </button>
-              <button
-                type="button"
-                className={answerKnown}
-                disabled={busy}
-                onClick={() => void answer(true)}
-              >
-                认识
-              </button>
-            </div>
-            <p className={note}>
-              答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。
-            </p>
-          </>
-        )}
-      </div>
-
-      <div className="section">
-        <button
-          className="secondary"
-          disabled={busy}
-          onClick={async () => {
-            if (
-              !(await confirm({
-                title: "清空进度",
-                message: "清空全部词书的复习进度？已经学过的词会从头开始，此操作无法撤销。",
-                confirmLabel: "清空",
-                danger: true,
-              }))
-            )
-              return;
-            await update(() => client.reset());
-          }}
-        >
-          清空复习进度
-        </button>
-      </div>
+        </div>
+      )}
 
       {error && <p className={empty}>{error}</p>}
       {confirmation}
     </section>
   );
+}
+
+/** The panel surface: the card, and nothing to manage. */
+export function VocabularyReviewPanel({ client }: { client: VocabularyReviewClient }) {
+  return <VocabularyReviewPage client={client} surface="panel" />;
 }
