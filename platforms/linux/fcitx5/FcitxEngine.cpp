@@ -5436,6 +5436,11 @@ void FcitxState::maintenance(int operation) {
   }
 }
 
+// The badge takes the candidate panel's appearance: candidate_theme "follow" (跟随全局) defers to the global theme, whose "system" (跟随系统) default follows the desktop, so a light desktop gets a light badge.
+bool fcitx_mode_badge_light_theme(const Json &preferences, bool system_dark) {
+  return !msime::linux_host::candidate_dark_theme(preferences, system_dark);
+}
+
 void FcitxState::showInputModeHud() {
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
   // 共享偏好 input_mode_hud 控制，默认开启。不自己画窗口——Fcitx5 的面板本来就提供这个
@@ -5454,8 +5459,7 @@ void FcitxState::showInputModeHud() {
   // 两个提示各补一半：面板那个由合成器按光标矩形定位，跟着输入点走，但只能显示文字；
   // 自绘徽章带得了 logo，却只能用屏幕坐标固定在一个角上。两者同时发是所有者的选择。
   if (mode_badge_ &&
-      mode_badge_->show(label, MSIME_MODE_BADGE_ICON,
-                        preferences_.value("candidate_theme", std::string()) == "light"))
+      mode_badge_->show(label, MSIME_MODE_BADGE_ICON, fcitx_mode_badge_light_theme(preferences_, system_dark_)))
     scheduleModeBadgeHide();
 #endif
   if (auto *instance = engine_->instance())

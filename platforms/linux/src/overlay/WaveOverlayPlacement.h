@@ -57,6 +57,22 @@ wave_overlay_monitor_bottom_center(const WaveOverlayMonitor &monitor,
   return {horizontal.x, vertical.y};
 }
 
+// The mode badge's corner: `margin` in from the right and bottom edges of the work area, the same spot the Wayland badge's layer-shell anchor and margins give it. An area too small for the overlay plus its margin pins that axis to the area's top-left edge instead of pushing the overlay off the monitor.
+constexpr WaveOverlayPosition
+wave_overlay_bottom_right(WaveOverlayWorkArea work_area, int overlay_width,
+                          int overlay_height, int margin) {
+  const auto width = std::max(0, overlay_width);
+  const auto height = std::max(0, overlay_height);
+  const auto inset = std::max(0, margin);
+  const auto x = work_area.width >= width + inset
+                     ? work_area.x + work_area.width - width - inset
+                     : work_area.x;
+  const auto y = work_area.height >= height + inset
+                     ? work_area.y + work_area.height - height - inset
+                     : work_area.y;
+  return {x, y};
+}
+
 constexpr bool wave_overlay_contains(WaveOverlayWorkArea area,
                                      WaveOverlayPosition point) {
   return area.width > 0 && area.height > 0 && point.x >= area.x &&
