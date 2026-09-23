@@ -2221,9 +2221,8 @@ export function SettingsPage({
   // withhold the service controls for want of one. Reaching the service still works - through that
   // provider - which is why these controls are offered rather than hidden.
   const aiProviderCredentials = host?.ai_provider_credentials ?? linuxPlatform;
-  // A host with one way to commit a recognized result has nothing to choose between, and a select
-  // with one outcome reads as a setting being ignored.
-  const showVoiceCommitMode = host?.voice_commit_mode ?? !androidPlatform;
+  // A host with one way to commit a recognized result has nothing to choose between, and a select with one outcome reads as a setting being ignored. The Linux hosts commit only through IBus or Fcitx5, so the fallback for a page without host capabilities withholds it there too.
+  const showVoiceCommitMode = host?.voice_commit_mode ?? (!androidPlatform && !linuxPlatform);
   // These read `!androidPlatform` because that host once had only the platform recogniser. It runs
   // the configured provider now, uploads and streaming socket both, so keying on the name would
   // leave a user unable to configure something the host honours. What it still cannot do is draw
@@ -2291,7 +2290,7 @@ export function SettingsPage({
   const platformQuickStart = androidPlatform
     ? "在系统设置的“语言和输入法”或“屏幕键盘”中启用并选择水杉输入法，也可以从首次启动页打开这些入口。默认是全拼输入法。"
     : linuxPlatform
-      ? "使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组，再使用 Fcitx5 的输入法切换快捷键切换。使用 IBus 时，安装并启动 IBus 宿主后，在系统设置的输入法列表中添加「MSIME Client」，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。"
+      ? "首次配置（首次配置页或 msime-client-setup）完成后会把水杉输入法自动加入正在运行的 Fcitx5 或 IBus 的输入法列表，之后用输入法切换快捷键切换即可。未能自动加入时手动添加：使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组；使用 IBus 时，执行 ibus restart 后在系统设置的输入源中添加「Metasequoia 水杉输入法」。默认是全拼输入法。"
       : macosPlatform
         ? "在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。默认是全拼输入法。"
         : harmonyPlatform
@@ -2304,7 +2303,7 @@ export function SettingsPage({
   const platformNetworkDescription = androidPlatform
     ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。"
     : linuxPlatform
-      ? "语音识别和云候选由用户自行管理的 provider 提供，设置页只保存行为选项，不保存或转发 provider 的凭据。"
+      ? "日常拼音输入无需联网。云候选默认开启（首次配置时可以关闭，之后也可在设置里改），开启时会把正在输入的拼写发给 Google input-tools 换回一条候选；语音识别、候选词翻译和 AI 功能只在启用并配置好对应服务（凭据，或自定义翻译的服务地址）后联网。这些请求由用户级的 msime-client-online-provider 和 msime-client-voice-provider 服务发出，输入法本身不联网。在 AI、腾讯翻译和语音页面填写的凭据只写入用户配置目录（通常是 ~/.config/msime-client）下仅本人可读的 ai-provider.json、tencent-provider.json 和 voice-provider.json，不进入共享设置；小牛翻译和自定义翻译服务的密钥则保存在共享设置中。账号功能只在登录后联网。"
       : macosPlatform
         ? "语音识别、候选词翻译和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
         : harmonyPlatform

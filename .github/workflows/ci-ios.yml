@@ -113,6 +113,13 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/ios/stage-resources.sh "$resource_dir"
+      # project.yml gives the unit targets `LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: $(SRCROOT)/../../target/ios/simulator` and `-lmsime_host_api`, and nothing in this job produced that directory, so the test build reached the linker and stopped at "library 'msime_host_api' not found". build-native.sh is what fills it; it needs the Rust simulator target installed and a prefix carrying Boost's CMake config, which the brew install above provides. Not added to the Intel handwriting job: that simulator is x86_64 and build-native.sh's simulator variant is aarch64-apple-ios-sim.
+      - name: Build the iOS host library
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-apple-ios-sim
+          MSIME_IOS_DEPS="$(brew --prefix)" bash platforms/ios/build-native.sh simulator
+          test -f target/ios/simulator/libmsime_host_api.a
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
@@ -145,12 +152,7 @@ jobs:
           MSIME_TEST_SCOPE: ${{ github.base_ref == 'main' && 'all' || 'pr' }}
           MSIME_TEST_SHARD: ${{ github.base_ref == 'main' && 'rest' || '' }}
         timeout-minutes: 90
-        run: |
-          if [[ -x platforms/ios/scripts/run_ui_tests.sh ]]; then
-            bash platforms/ios/scripts/run_ui_tests.sh
-          else
-            echo 'iOS UI test runner is not present in this branch; native UI suite skipped.'
-          fi
+        run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -207,6 +209,13 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/ios/stage-resources.sh "$resource_dir"
+      # project.yml gives the unit targets `LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: $(SRCROOT)/../../target/ios/simulator` and `-lmsime_host_api`, and nothing in this job produced that directory, so the test build reached the linker and stopped at "library 'msime_host_api' not found". build-native.sh is what fills it; it needs the Rust simulator target installed and a prefix carrying Boost's CMake config, which the brew install above provides. Not added to the Intel handwriting job: that simulator is x86_64 and build-native.sh's simulator variant is aarch64-apple-ios-sim.
+      - name: Build the iOS host library
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-apple-ios-sim
+          MSIME_IOS_DEPS="$(brew --prefix)" bash platforms/ios/build-native.sh simulator
+          test -f target/ios/simulator/libmsime_host_api.a
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
@@ -239,12 +248,7 @@ jobs:
           MSIME_TEST_SCOPE: ${{ github.base_ref == 'main' && 'all' || 'pr' }}
           MSIME_TEST_SHARD: ${{ github.base_ref == 'main' && 'heavy' || '' }}
         timeout-minutes: 90
-        run: |
-          if [[ -x platforms/ios/scripts/run_ui_tests.sh ]]; then
-            bash platforms/ios/scripts/run_ui_tests.sh
-          else
-            echo 'iOS UI test runner is not present in this branch; native UI suite skipped.'
-          fi
+        run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -292,12 +296,7 @@ jobs:
           xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root platforms/ios
           pod install --deployment --project-directory=platforms/ios
       - name: Test handwriting recognition
-        run: |
-          if [[ -x platforms/ios/scripts/run_ui_tests.sh ]]; then
-            bash platforms/ios/scripts/run_ui_tests.sh
-          else
-            echo 'iOS UI test runner is not present in this branch; native UI suite skipped.'
-          fi
+        run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload handwriting test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

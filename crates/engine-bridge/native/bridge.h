@@ -42,6 +42,7 @@ public:
     EngineResult choose_nine_key_spelling(std::size_t index);
     EngineResult command(std::uint8_t value);
     EngineResult commit_raw_with_policy();
+    EngineResult commit_raw_without_learning();
     EngineResult select(std::size_t index);
     EngineResult pin_candidate(std::size_t index);
     EngineResult remove_candidate(std::size_t index);

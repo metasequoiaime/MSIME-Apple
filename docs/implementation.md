@@ -126,9 +126,9 @@ IBus 与 Fcitx5 是**并列的两个系统入口**，不是宿主和它的插件
 
 在线候选、语音、剪贴板、手写、emoji、词典、翻译各有独立的可执行入口，其中在线候选、语音和剪贴板另配 systemd 用户单元；前两者是 socket 激活的，`ListenStream` 落在 `%t/msime-client/` 下、`SocketMode=0600`。浮层在 `src/overlay/`，提供模式徽章和语音波形，X11 与 Wayland layer-shell 两套后端（Wayland 协议代码由 `wayland-scanner` 从 `data/wayland/` 的 layer-shell 描述加系统 `xdg-shell.xml` 生成），缺依赖时退回面板文字。诊断日志写偏好目录下的 `diagnostic.log`，1 MiB 轮转一份，只用户可读。
 
-安装后的首次配置收成一条命令：`msime-client-setup` 按词库锁逐个核对名称、大小和 SHA-256，调 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client` 建状态并发布 `runtime-options.json`，再按当前跑的是 fcitx5 还是 ibus 打印下一步。默认不联网，取回词库要显式 `--download`；校验不过即中止，不留半份词库；状态目录已存在时报错而不覆盖。`dict_pinyin.dat` 在词库锁里没有下载地址（它来自引擎源码树），改从 `engine-lock.json` 指的固定依赖归档里只取出这一个文件。图形入口是等价的：`msime-client-settings` 在缺 `runtime-options.json` 时打开首次配置页，页面跑的就是同一个 `msime-client-setup`。卸载走 `cmake --build <build-dir> --target uninstall`，会先逐个停掉 setup 启用过的用户单元。
+安装后的首次配置收成一条命令：`msime-client-setup` 按词库锁逐个核对名称、大小和 SHA-256，调 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client` 建状态并发布 `runtime-options.json`，再把输入法加入正在运行的宿主的输入法列表：Fcitx5 经 D-Bus 追加到当前输入法组并读回核对，IBus 在引擎未被列出时先 `ibus restart`，再追加到 GNOME 的输入源或 IBus 的 `preload-engines`；任何一步失败都退回打印手动步骤，`--no-register` 跳过这一步。默认不联网，取回词库要显式 `--download`；校验不过即中止，不留半份词库；状态目录已存在时报错而不覆盖。`dict_pinyin.dat` 在词库锁里没有下载地址（它来自引擎源码树），改从 `engine-lock.json` 指的固定依赖归档里只取出这一个文件。图形入口是等价的：`msime-client-settings` 在缺 `runtime-options.json` 时打开首次配置页，页面跑的就是同一个 `msime-client-setup`。卸载走 `cmake --build <build-dir> --target uninstall`，会先逐个停掉 setup 启用过的用户单元。
 
-打包由 `cmake/packaging.cmake` 提供（`-DMSIME_ENABLE_PACKAGING=ON`），四道硬性前置：必须 Linux、前缀必须是 `/usr`、运行配置文件必须为空、本地语音必须关。版本从 `tauri.conf.json` 用 CMake 的 JSON reader 读出，不另建一套版本序列；产出 TGZ 或 DEB，Debian 依赖声明 ibus/python3，开了 Fcitx5 再追加 fcitx5。
+打包由 `cmake/packaging.cmake` 提供（`-DMSIME_ENABLE_PACKAGING=ON`），四道硬性前置：必须 Linux、前缀必须是 `/usr`、运行配置文件必须为空、本地语音必须关。版本取 `-DMSIME_PACKAGE_VERSION`（发布工作流传 `platforms/linux/version.txt` 的版本），不传时同样读 `platforms/linux/version.txt`，与 Windows 的 `MSIME_WINDOWS_VERSION` 读自己的 `version.txt` 一致；这一步在顶层 `CMakeLists.txt` 里完成，IBus 宿主的遥测以 `MSIME_LINUX_VERSION` 报告同一个版本；产出 TGZ 或 DEB，Debian 依赖声明 ibus/python3，开了 Fcitx5 再追加 fcitx5。
 
 ### Windows
 

@@ -119,10 +119,24 @@ if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
     target_link_libraries(msime-ibus-host PUBLIC PkgConfig::WAYLAND_TEXT)
   endif()
 endif()
+# The version the IBus host reports in telemetry, which is also the package version packaging.cmake hands to CPack. Like MSIME_WINDOWS_VERSION on Windows it defaults to this platform's version.txt, the file the release workflow reads for the linux-vVERSION tag; package-container.sh passes the release version explicitly.
+set(MSIME_PACKAGE_VERSION "" CACHE STRING "Package version; empty uses platforms/linux/version.txt")
+if(MSIME_PACKAGE_VERSION)
+  set(MSIME_LINUX_VERSION "${MSIME_PACKAGE_VERSION}")
+else()
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/version.txt")
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" MSIME_LINUX_VERSION LIMIT_COUNT 1)
+  string(STRIP "${MSIME_LINUX_VERSION}" MSIME_LINUX_VERSION)
+endif()
+if(NOT MSIME_LINUX_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+  message(FATAL_ERROR "The Linux package version must be MAJOR.MINOR.PATCH: ${MSIME_LINUX_VERSION}")
+endif()
+find_package(Threads REQUIRED)
 add_executable(msime-client-ibus src/entrypoints/ibus_main.cpp src/system/SystemTheme.cpp)
 target_sources(msime-client-ibus PRIVATE ../common/Telemetry.cpp)
 target_include_directories(msime-client-ibus PRIVATE ../common)
-target_link_libraries(msime-client-ibus PRIVATE CURL::libcurl)
+target_compile_definitions(msime-client-ibus PRIVATE MSIME_LINUX_VERSION="${MSIME_LINUX_VERSION}")
+target_link_libraries(msime-client-ibus PRIVATE CURL::libcurl Threads::Threads)
 target_compile_options(msime-client-ibus PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-ibus PRIVATE msime-ibus-host)
 add_executable(msime-client-dictionary src/providers/dictionary_request.cpp)
@@ -270,6 +284,8 @@ target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
 add_test(NAME linux-smart-punctuation-space COMMAND linux-smart-punctuation-space-test)
 add_test(NAME linux-setup-resolution
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_resolution.py")
+add_test(NAME linux-setup-registration
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_registration.py")
 add_test(NAME linux-first-run-guide
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/first_run_guide.py")
 add_test(NAME linux-deb-maintainer-scripts
@@ -277,6 +293,13 @@ add_test(NAME linux-deb-maintainer-scripts
                  "${CMAKE_CURRENT_BINARY_DIR}/debian" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" "${MSIME_USER_UNIT_LIST}")
 add_test(NAME linux-ibus-launcher-supervisor
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/ibus_launcher_supervisor.py")
+add_executable(linux-ibus-registration-bus tests/core/ibus_registration_bus.cpp)
+target_compile_options(linux-ibus-registration-bus PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(linux-ibus-registration-bus PRIVATE PkgConfig::IBUS)
+add_test(NAME linux-ibus-startup-telemetry
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/ibus_startup_telemetry.py"
+                 $<TARGET_FILE:msime-client-ibus> $<TARGET_FILE:linux-ibus-registration-bus> "${MSIME_LINUX_VERSION}")
+set_tests_properties(linux-ibus-startup-telemetry PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 add_executable(linux-first-run-guidance-test tests/core/first_run_guidance.cpp)
 target_compile_options(linux-first-run-guidance-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-first-run-guidance-test PRIVATE src)
