@@ -60,4 +60,28 @@ int main() {
     require(msime::mac::CandidateWheelPageAction(-1, false, true, true) == CandidateWheelAction::None, "disabled wheel passthrough");
     require(msime::mac::CandidateWheelPageAction(1, true, false, true) == CandidateWheelAction::None, "wheel respects first page");
     require(msime::mac::CandidateWheelPageAction(-1, true, true, false) == CandidateWheelAction::None, "wheel respects last page");
+    using msime::mac::ConsumeCandidateWheelDelta;
+    double wheel = 0.0;
+    int wheelPages = 0;
+    for (int event = 0; event < 20; ++event)
+        wheelPages += ConsumeCandidateWheelDelta(wheel, -3.0, true, event == 0, false, 40.0);
+    require(wheelPages == -1 && wheel == -20.0, "one short trackpad swipe pages once and keeps the remainder");
+    require(ConsumeCandidateWheelDelta(wheel, -100.0, true, false, true, 40.0) == 0 && wheel == 0.0,
+            "momentum scrolling never pages and drops the remainder");
+    wheel = -30.0;
+    require(ConsumeCandidateWheelDelta(wheel, 30.0, true, false, false, 40.0) == 0 && wheel == 30.0,
+            "direction reversal drops the old remainder");
+    require(ConsumeCandidateWheelDelta(wheel, 10.0, true, false, false, 40.0) == 1 && wheel == 0.0,
+            "precise scrolling pages once per full notch toward the previous page");
+    wheel = 30.0;
+    require(ConsumeCandidateWheelDelta(wheel, 5.0, true, true, false, 40.0) == 0 && wheel == 5.0,
+            "gesture begin starts from an empty accumulator");
+    wheel = 0.0;
+    require(ConsumeCandidateWheelDelta(wheel, -130.0, true, false, false, 40.0) == -3 && wheel == -10.0,
+            "a multi-notch precise delta splits into several pages");
+    wheel = 25.0;
+    require(ConsumeCandidateWheelDelta(wheel, -6.0, false, false, false, 40.0) == -1 && wheel == 0.0,
+            "classic wheel pages once per notch regardless of line acceleration");
+    require(ConsumeCandidateWheelDelta(wheel, 0.0, false, false, false, 40.0) == 0, "zero classic delta does not page");
+    static_assert(msime::mac::CandidateWheelPreciseNotch > 0.0);
 }

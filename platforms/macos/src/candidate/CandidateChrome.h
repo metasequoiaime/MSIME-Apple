@@ -23,6 +23,7 @@ static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
 @property(nonatomic, copy) NSColor *barColor;
 @property(nonatomic) BOOL showSelectedBar;
 @property(nonatomic) BOOL candidateHovered;
+@property(nonatomic) CGFloat cornerRadius;
 @end
 @implementation MSIMECandidateButton
 {
@@ -80,7 +81,7 @@ static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
     if (background != nil && background.alphaComponent > 0.01)
     {
         [background setFill];
-        [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1, 1) xRadius:6 yRadius:6] fill];
+        [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1, 1) xRadius:self.cornerRadius yRadius:self.cornerRadius] fill];
     }
     if (self.candidateHighlighted && self.showSelectedBar)
     {
