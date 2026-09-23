@@ -61,6 +61,7 @@ export const savePreferences: (
 export const dictionary: (request: string) => string;
 export const updatePreferences: (handle: number, snapshot: string) => string;
 export const typingStatistics: (request: string) => string;
+export const vocabularyReview: (request: string) => string;
 /**
  * Locked mobile history operations. Harmony opts into migration of its original
  * `state/clipboard-history.json`; every mutation answers with the latest complete entry list.
