@@ -135,7 +135,10 @@ int main() {
     automatic.transition["commit_context"] = {{"scheme", 2}, {"local_mode", "none"}};
     const auto &continued =
         auto_commit.stage(automatic, ReplyPath::AutoCommitAndContinue);
-    require(continued.worker && !continued.encoded &&
+    // The worker frame commits and restarts the composition; the key that triggered it still expects its own reply, so an empty preedit reply follows.
+    require(continued.worker && continued.encoded && *continued.encoded &&
+            continued.encoded->packet.request_id == 2 &&
+            payload(continued).empty() &&
             continued.committed_text == "合成候选" &&
             continued.worker->at(0) ==
                 FanyImeWorkerReplyType::CommitCandidateAndContinue &&
