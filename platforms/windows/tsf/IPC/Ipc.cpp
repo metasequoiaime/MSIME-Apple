@@ -1816,6 +1816,17 @@ int SendPuncSwitchEventToUIProcessViaNamedPipe(BOOL isPunc)
     return 0;
 }
 
+int SendPairedPunctuationAutoClosedToServerViaNamedPipe(WCHAR opening)
+{
+    namedpipeData = {};
+    namedpipeData.event_type = FanyImePipeEventType::PairedPunctuationAutoClosed;
+    // The opening key whose nesting the Server's Engine pays back; no reply follows.
+    namedpipeData.keycode = opening;
+    SendToNamedpipe();
+
+    return 0;
+}
+
 int SendDoubleSingleByteSwitchEventToUIProcessViaNamedPipe(BOOL isDoubleSingleByte)
 {
     namedpipeData = {};

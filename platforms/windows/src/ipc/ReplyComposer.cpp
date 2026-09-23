@@ -551,14 +551,12 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
     return std::nullopt;
   const auto generation = view.at("generation").get<uint64_t>();
   const auto expected_session = view.at("session").get<uint64_t>();
-  size_t index = 0;
   std::string translation;
   bool found = false;
   for (const auto &candidate : view.at("candidates")) {
     if (!candidate.value("highlighted", false)) {
       continue;
     }
-    index = candidate.at("id").at("index").get<size_t>();
     translation = candidate.value("translation", std::string{});
     found = true;
     break;
@@ -583,26 +581,18 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
     translation_page_active_ = true;
     return translation_page_reply(packet, epoch, page);
   }
-  translation = first_translation_sense(translation);
-  auto transition = session.select(epoch, generation, index);
-  const auto raw = transition.at("view").at("editing_text").get<std::string>();
-  const auto output = simplified_to_traditional(translation, traditional_output_);
+  // Like the reference HandleTranslationCommitKey, a single sense is committed as exact text and the composition is dropped: the gloss is not a candidate the user picked, so it must not go through selection and teach the Engine.
+  const auto output = simplified_to_traditional(
+      first_translation_sense(translation), traditional_output_);
+  session.cancel_composition(epoch);
+  auto transition = session.view();
+  transition["commit"] = nullptr;
   PendingReply next;
   next.source = {client_, epoch_, packet.request_id, true, transition};
-  next.next_prefix = prefix_;
+  next.encoded = exact_commit(packet.request_id, prefix_ + output);
+  next.next_prefix.clear();
+  next.committed_text = prefix_ + output;
   next.traditional_output = traditional_output_;
-  if (raw.empty()) {
-    next.ui_selection = ui_complete_selection(prefix_ + output);
-    next.next_prefix.clear();
-    next.committed_text = prefix_ + output;
-  } else {
-    next.next_prefix = prefix_ + output;
-    next.ui_selection = ui_partial_selection(
-        raw, next.next_prefix,
-        next.next_prefix + transition.at("view").at("preedit").get<std::string>());
-  }
-  if (!next.ui_selection)
-    throw std::runtime_error("Unencodable candidate translation selection");
   session_ = expected_session;
   pending_ = std::move(next);
   return pending_;
