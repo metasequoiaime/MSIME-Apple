@@ -32,6 +32,25 @@ int main() {
   assert(candidate_pango_font(read_candidate_font(nlohmann::json{
              {"candidate_fallback_fonts", nlohmann::json::array()}})) == "Noto Sans SC, 18px");
 
+  // The English family leads the list, as Windows draws Latin from it first; the primary family and the fallbacks follow for the glyphs it lacks, without repeats.
+  assert(candidate_pango_font(read_candidate_font(nlohmann::json{
+             {"candidate_english_font", "Inter"}})) == "Inter, Noto Sans SC, Microsoft YaHei, 18px");
+  assert(candidate_pango_font(read_candidate_font(nlohmann::json{
+             {"candidate_english_font", " Microsoft YaHei "},
+             {"candidate_font_family", "LXGW WenKai"}})) ==
+         "Microsoft YaHei, LXGW WenKai, Noto Sans SC, 18px");
+  assert(candidate_pango_font({"Noto Sans SC", {"Noto Sans SC"}, 18, "Noto Sans SC"}) == "Noto Sans SC, 18px");
+  // Unset (absent, null or blank) leaves the description exactly as it was before the setting existed.
+  assert(candidate_pango_font(read_candidate_font(nlohmann::json{
+             {"candidate_english_font", nullptr}})) == "Noto Sans SC, Microsoft YaHei, 18px");
+  assert(candidate_pango_font({"Noto Sans SC", {"Noto Sans SC", "Microsoft YaHei"}, 18, "  "}) ==
+         "Noto Sans SC, Microsoft YaHei, 18px");
+
+  using msime::linux_host::candidate_font_is_default;
+  assert(candidate_font_is_default(read_candidate_font(nlohmann::json::object())));
+  assert(candidate_font_is_default(read_candidate_font(nlohmann::json{{"candidate_english_font", nullptr}})));
+  assert(!candidate_font_is_default(read_candidate_font(nlohmann::json{{"candidate_english_font", "Inter"}})));
+
   CandidateFontSync untouched;
   assert(!untouched.next({"Noto Sans SC", {"Noto Sans SC", "Microsoft YaHei"}, 18}));
   assert(!untouched.next({"Noto Sans SC", {"Noto Sans SC", "Microsoft YaHei"}, 18}));
@@ -44,5 +63,11 @@ int main() {
   CandidateFontSync chosen;
   assert(chosen.next({"LXGW WenKai", {}, 20}) == "LXGW WenKai, 20px");
   assert(!chosen.next({"LXGW WenKai", {}, 20}));
+
+  // Choosing only an English family is a font choice the panel must see, even on the first refresh.
+  CandidateFontSync english;
+  assert(english.next(read_candidate_font(nlohmann::json{{"candidate_english_font", "Inter"}})) ==
+         "Inter, Noto Sans SC, Microsoft YaHei, 18px");
+  assert(!english.next(read_candidate_font(nlohmann::json{{"candidate_english_font", "Inter"}})));
   return 0;
 }

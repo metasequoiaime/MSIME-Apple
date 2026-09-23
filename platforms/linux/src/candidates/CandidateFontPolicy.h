@@ -19,6 +19,8 @@ struct CandidateFont {
   std::string family;
   std::vector<std::string> fallbacks;
   int size_px = 0;
+  // candidate_english_font. Windows draws candidate text in this face first and falls back for the glyphs it lacks, and macOS and Android name it ahead of the primary family; a Pango family list resolves per glyph the same way, so the Linux answer is to put it first. Empty when unset, which leaves the description exactly as it was before the setting existed.
+  std::string english_family{};
 };
 
 inline constexpr const char *kDefaultCandidateFontFamily = "Noto Sans SC";
@@ -29,8 +31,7 @@ inline const std::vector<std::string> &default_candidate_fallback_fonts() {
   return fonts;
 }
 
-// Reads the three shared preferences the way the preference store defaults them, so a document
-// written before a key existed describes the same font as one that spells the default out.
+// Reads the shared font preferences the way the preference store defaults them, so a document written before a key existed describes the same font as one that spells the default out.
 inline CandidateFont read_candidate_font(const nlohmann::json &preferences) {
   CandidateFont font{kDefaultCandidateFontFamily, default_candidate_fallback_fonts(),
                      kDefaultCandidateFontSize};
@@ -47,6 +48,10 @@ inline CandidateFont read_candidate_font(const nlohmann::json &preferences) {
   if (const auto size = preferences.find("candidate_font_size");
       size != preferences.end() && size->is_number_integer())
     font.size_px = size->get<int>();
+  // Optional and absent by default; null is how the store writes "not chosen".
+  if (const auto english = preferences.find("candidate_english_font");
+      english != preferences.end() && english->is_string())
+    font.english_family = english->get<std::string>();
   return font;
 }
 
@@ -61,9 +66,7 @@ inline std::string trimmed_font_family(const std::string &value) {
   return family;
 }
 
-// The description lists the primary family and then the fallbacks, without repeats, and ends the
-// family list with a comma so that a name ending in a word Pango knows as a style ("Bold", "Light")
-// stays part of the name. The size is in pixels, the unit the shared preference is written in.
+// The description lists the English family when one is chosen, then the primary family and the fallbacks, without repeats, and ends the family list with a comma so that a name ending in a word Pango knows as a style ("Bold", "Light") stays part of the name. The size is in pixels, the unit the shared preference is written in.
 inline std::string candidate_pango_font(const CandidateFont &font) {
   std::vector<std::string> families;
   auto add = [&](const std::string &value) {
@@ -71,6 +74,7 @@ inline std::string candidate_pango_font(const CandidateFont &font) {
     if (!family.empty() && std::find(families.begin(), families.end(), family) == families.end())
       families.push_back(std::move(family));
   };
+  add(font.english_family);
   add(font.family);
   for (const auto &fallback : font.fallbacks) add(fallback);
   std::string description;
@@ -85,10 +89,11 @@ inline std::string candidate_pango_font(const CandidateFont &font) {
   return description;
 }
 
+// The default has no English family, so a document that never set one still counts as untouched and leaves the desktop's panel font alone, while choosing one counts as a change like any other font choice.
 inline bool candidate_font_is_default(const CandidateFont &font) {
   return candidate_pango_font(font) ==
          candidate_pango_font({kDefaultCandidateFontFamily, default_candidate_fallback_fonts(),
-                               kDefaultCandidateFontSize});
+                               kDefaultCandidateFontSize, std::string{}});
 }
 
 // The panel font belongs to the whole desktop, not to this input method, so the host only writes

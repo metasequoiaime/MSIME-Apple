@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -35,6 +36,11 @@ inline std::string fcitx_candidate_theme(const CandidateColors &colors) {
   const auto text = colors.text.value_or(contrasting_color(surface).value_or(0));
   const auto selected_text = colors.selected_text.value_or(text);
   const auto highlight = colors.selected ? fcitx_theme_color(*colors.selected) : fcitx_theme_color(surface, true);
+  // The classic UI clips the border to the smallest background margin and draws it inside that margin, so the margins grow with the width, and the content margin with them so the highlight never covers the outline. At the widths the skins use (0 or 1) both stay at 2 and the list keeps its layout.
+  const int border_width = colors.border ? std::max(0, colors.border_width) : 0;
+  const auto border = border_width > 0 ? fcitx_theme_color(*colors.border) : fcitx_theme_color(surface, true);
+  const auto edge = std::to_string(std::max(2, border_width + 1));
+  const auto margin = "Left=" + edge + "\nRight=" + edge + "\nTop=" + edge + "\nBottom=" + edge + "\n\n";
   std::ostringstream conf;
   conf << "[Metadata]\n"
           "Name=MSIME\n"
@@ -52,11 +58,11 @@ inline std::string fcitx_candidate_theme(const CandidateColors &colors) {
           "Spacing=0\n\n"
           "[InputPanel/Background]\n"
        << "Color=" << fcitx_theme_color(surface) << "\n"
-       << "BorderColor=" << fcitx_theme_color(surface, true) << "\n"
-       << "BorderWidth=0\n\n"
-          "[InputPanel/Background/Margin]\nLeft=2\nRight=2\nTop=2\nBottom=2\n\n"
-          "[InputPanel/ContentMargin]\nLeft=2\nRight=2\nTop=2\nBottom=2\n\n"
-          "[InputPanel/TextMargin]\nLeft=6\nRight=6\nTop=4\nBottom=4\n\n"
+       << "BorderColor=" << border << "\n"
+       << "BorderWidth=" << border_width << "\n\n"
+       << "[InputPanel/Background/Margin]\n" << margin
+       << "[InputPanel/ContentMargin]\n" << margin
+       << "[InputPanel/TextMargin]\nLeft=6\nRight=6\nTop=4\nBottom=4\n\n"
           "[InputPanel/Highlight]\n"
        << "Color=" << highlight << "\n\n"
        << "[InputPanel/Highlight/Margin]\nLeft=6\nRight=6\nTop=4\nBottom=4\n\n"

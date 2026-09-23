@@ -4814,7 +4814,8 @@ export function SettingsPage({
                         </select>
                       </label>
                     </div>
-                    {showFloatingToolbar && (
+                    {/* The Linux toolbar is the same desktop-drawn IBus property menu and Fcitx5 status menu, so no Linux host reads toolbar_theme. */}
+                    {showFloatingToolbar && !linuxPlatform && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">

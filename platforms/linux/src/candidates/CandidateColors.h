@@ -22,6 +22,9 @@ struct CandidateColors {
   std::optional<std::uint32_t> selected;
   std::optional<std::uint32_t> selected_text;
   std::optional<std::uint32_t> selected_number;
+  // The card's outline, already composited over the background: Fcitx5's classic UI paints the border with the SOURCE operator, so a translucent one would show the desktop through the panel rather than tint the surface the way it does on Windows. Only Fcitx5 draws it; IBus text attributes have no way to outline the panel.
+  std::optional<std::uint32_t> border;
+  int border_width = 0;
 };
 
 inline std::optional<std::uint32_t> palette_color(const nlohmann::json &value) {
@@ -39,6 +42,38 @@ inline std::optional<std::uint32_t> palette_color(const nlohmann::json &value) {
     color = (color << 4) | digit;
   }
   return color;
+}
+
+struct CandidateBorderColor {
+  std::uint32_t rgb = 0;
+  std::uint8_t alpha = 0xFF;
+};
+
+// The border as a user preference (#rrggbb) or a skin package (#rrggbb, #rrggbbaa or transparent) writes it. Anything else, including the rgba() form a package may carry for its web card, is not understood here and keeps the skin's own border, as an unparsable value does on Windows.
+inline std::optional<CandidateBorderColor> candidate_border_color(const nlohmann::json &value) {
+  if (!value.is_string()) return std::nullopt;
+  const auto text = value.get<std::string>();
+  if (text == "transparent") return CandidateBorderColor{0, 0};
+  if (text.size() == 7) {
+    if (const auto rgb = palette_color(value)) return CandidateBorderColor{*rgb, 0xFF};
+    return std::nullopt;
+  }
+  if (text.size() != 9) return std::nullopt;
+  const auto rgb = palette_color(nlohmann::json(text.substr(0, 7)));
+  const auto alpha = palette_color(nlohmann::json("#0000" + text.substr(7)));
+  if (!rgb || !alpha) return std::nullopt;
+  return CandidateBorderColor{*rgb, static_cast<std::uint8_t>(*alpha)};
+}
+
+// Source-over of one colour at the given alpha on an opaque background.
+inline std::uint32_t composite_color(std::uint32_t color, std::uint8_t alpha, std::uint32_t background) {
+  std::uint32_t result = 0;
+  for (const int shift : {16, 8, 0}) {
+    const auto top = (color >> shift) & 0xffu;
+    const auto bottom = (background >> shift) & 0xffu;
+    result |= ((top * alpha + bottom * (255u - alpha) + 127u) / 255u) << shift;
+  }
+  return result;
 }
 
 inline std::optional<std::uint32_t> contrasting_color(std::optional<std::uint32_t> background) {
@@ -87,6 +122,8 @@ inline nlohmann::json candidate_display_preferences(nlohmann::json preferences, 
                                 preferences.value("candidate_surface_color", Json(nullptr)).is_string();
     if (!custom_surface && palette.contains("surface"))
       preferences["candidate_background_color"] = palette["surface"];
+    if (!preferences.value("candidate_border_color", Json(nullptr)).is_string() && palette.contains("border"))
+      preferences["candidate_border_color"] = palette["border"];
     break;
   }
   return preferences;
@@ -124,6 +161,13 @@ inline CandidateColors resolve_candidate_colors(const nlohmann::json &preference
   if (auto value = custom("candidate_number_color")) colors.selected_number = value;
   else if (builtin && palette.selected_number) colors.selected_number = palette.selected_number;
   else colors.selected_number = colors.number;
+  // An installed skin is drawn on fluent's card on Windows, so it has fluent's outline unless it names its own colour, and a custom colour keeps the skin's width: willow_green draws no outline for any colour.
+  auto border = CandidateBorderColor{palette.border, palette.border_alpha};
+  if (auto value = candidate_border_color(preferences.value("candidate_border_color", Json(nullptr)))) border = *value;
+  if (colors.background && palette.border_width > 0 && border.alpha > 0) {
+    colors.border = composite_color(border.rgb, border.alpha, *colors.background);
+    colors.border_width = palette.border_width;
+  }
   return colors;
 }
 

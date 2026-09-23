@@ -24,8 +24,29 @@ public:
   std::string committed;
 };
 void require(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+// The autocorrect marker is display-only: Windows appends '*' to the row text of a candidate whose spelling the Engine corrected, and the IBus host does the same. It sits right after the word and before the cloud/AI badge, and the text the candidate selects with stays the Engine's. Runs before the resource fixture so it needs nothing but the plugin code.
+void autocorrectMarker() {
+  // FcitxCandidate::text() is the Engine text it selects with; the row the panel draws is the base class's.
+  const auto shown = [](const FcitxCandidate &word) {
+    return static_cast<const fcitx::CandidateWord &>(word).text().toString();
+  };
+  const auto row = [](Json candidate, bool traditional = false) {
+    candidate["id"] = Json{{"session", 1}, {"generation", 1}, {"index", 0}};
+    return FcitxCandidate(nullptr, candidate, traditional, false);
+  };
+  const auto corrected = row(Json{{"text", "你好"}, {"corrected", true}});
+  require(shown(corrected) == "你好*", "corrected candidate shows the marker");
+  require(corrected.text() == "你好", "marker stays out of the selected text");
+  require(shown(row(Json{{"text", "你好"}, {"corrected", false}})) == "你好", "uncorrected candidate has no marker");
+  require(shown(row(Json{{"text", "你好"}})) == "你好", "a view without the field has no marker");
+  require(shown(row(Json{{"text", "在线"}, {"corrected", true}, {"source", 2}})) == "在线*  ☁️",
+          "marker comes before the cloud badge");
+  require(shown(row(Json{{"text", "汉语"}, {"corrected", true}}, true)) == "漢語*",
+          "marker follows the traditional-converted word");
+}
 int main(int argc, char **argv) {
   try {
+    autocorrectMarker();
     require(argc == 2 || (argc == 3 && std::string(argv[2]) == "--ai"),
             "usage: fcitx5-native-test <verified-resources> [--ai]");
     const bool ai = argc == 3;

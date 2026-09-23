@@ -379,9 +379,6 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Harmony | HostPlatform::Linux
             ),
-            // Windows draws Latin from its own family, macOS and Android name it ahead of the
-            // primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the
-            // same result the same way. Linux leaves the panel's typeface to the desktop.
             // macOS draws its own composition, and the HarmonyOS keyboard draws the Engine's
             // editing text on its composition row, so both show the difference. The other hosts
             // hand the text to the application or to the desktop, which decides how it looks.
@@ -420,7 +417,8 @@ impl HostCapabilities {
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
             ai_provider_credentials: platform == HostPlatform::Linux,
-            candidate_english_font: platform != HostPlatform::Linux,
+            // Windows draws Latin from its own family, macOS and Android name it ahead of the primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the same result the same way. Both Linux hosts write one Pango font description for the desktop panel, and Pango resolves its family list per glyph too, so they name it first there.
+            candidate_english_font: true,
             os_version: None,
         }
     }
@@ -985,7 +983,8 @@ mod tests {
         assert!(!HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_preedit);
         assert!(!HostCapabilities::for_platform(HostPlatform::Ios).english_suggestions);
         assert!(!HostCapabilities::for_platform(HostPlatform::Windows).english_suggestions);
-        assert!(!HostCapabilities::for_platform(HostPlatform::Linux).candidate_english_font);
+        // Pango resolves the panel's family list per glyph, so the Linux hosts name the English family first.
+        assert!(HostCapabilities::for_platform(HostPlatform::Linux).candidate_english_font);
         // 全角输入 was withheld from every touch platform, which was a statement about form
         // factor rather than about who can honour it. What decides is whether the host tells the
         // runtime a width: all six do, from a toolbar, a menu or the keyboard's own tools.
