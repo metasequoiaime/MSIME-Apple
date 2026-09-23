@@ -107,6 +107,10 @@ struct AboutView: View {
           SettingsRowLabel(title: "反馈问题与建议", detail: "在应用内写，附带版本与设备信息",
                            symbol: "bubble.left.and.bubble.right.fill")
         }.accessibilityIdentifier("feedbackLink")
+        NavigationLink(destination: DiagnosticLogSettingsView()) {
+          SettingsRowLabel(title: "诊断日志", detail: "记录键盘的运行事件，反馈时一起分享",
+                           symbol: "list.bullet.rectangle.fill")
+        }.accessibilityIdentifier("diagnosticLogLink")
         Link(destination: URL(string: "https://msime.app/")!) {
           SettingsRowLabel(title: "官方网站", detail: "msime.app", symbol: "globe")
         }

@@ -172,6 +172,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var replyPanelSuppressed = false
   private var reportedStatisticsFailure = false
   private var visiblePreedit = ""
+  /// The already-chosen half of a phrase at the front of `visiblePreedit`, which 「候选栏预编辑」 never hides.
+  private var visiblePhrasePrefix = ""
+  /// The desktop candidate skin the strip draws with, or nil while it follows the keyboard skin (see CandidatePalette).
+  private var candidatePalette: CandidatePalette?
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
   private var visibleCandidateCodes: [String] = []
@@ -318,6 +322,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
     isChineseMode = Self.startsInChinese(session.sharedPreferences)
+    configureDiagnosticLog()
+    DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone")")
+    if session.initializationFailed { DiagnosticLog.shared.write("runtime_initialization_failed") }
     glossLineCount = currentGlossLines()
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()
@@ -381,8 +388,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    DiagnosticLog.shared.write("focus_in")
     do { try session.resumeDictionarySession() }
-    catch { showDiagnostic(error.localizedDescription) }
+    catch {
+      DiagnosticLog.shared.write("dictionary_resume_failed")
+      showDiagnostic(error.localizedDescription)
+    }
     // A fresh editing session owes us no callbacks. Clearing the count here bounds the damage if
     // UIKit ever skips the delegate pair for one of our own edits: the worst case is that a single
     // host-initiated change is treated as an echo, not a counter that stays raised forever.
@@ -397,7 +408,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Reload it off-thread so a fuzzy-pinyin change is visible the next time
     // the keyboard appears without blocking UIKit's input lifecycle.
     session.reloadSharedPreferences { [weak self] loaded in
-      guard let self, loaded else { return }
+      guard let self else { return }
+      // Not applied also covers a document no newer than the one the session has, which is not a failure.
+      guard loaded else { DiagnosticLog.shared.write("preferences_not_applied"); return }
+      self.configureDiagnosticLog()
+      DiagnosticLog.shared.write("preferences_applied")
+      // A candidate skin, theme or colour synced from the desktop arrives with the document.
+      self.refreshCandidatePalette()
       self.synchronizeSharedTouchPreferences()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
@@ -412,6 +429,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     scheduleCandidateGlosses()
     applyKeyboardSkin()
     synchronizeReplyKeyboard()
+  }
+
+  /// iOS ends a keyboard extension that keeps using too much memory, so a warning is worth a line when a report says the keyboard vanished.
+  override func didReceiveMemoryWarning() {
+    super.didReceiveMemoryWarning()
+    DiagnosticLog.shared.write("memory_warning")
+  }
+
+  /// Point the diagnostic log at the shared directory while `diagnostic_log.server` is on, and stop it writing once it is off.
+  private func configureDiagnosticLog() {
+    let preferences = session.sharedPreferences ?? MetasequoiaInputSessionBridge.loadSharedPreferences()
+    DiagnosticLog.shared.configure(directory: session.stateDirectory ?? MetasequoiaInputSessionBridge.sharedStateDirectory,
+                                   enabled: DiagnosticLog.isEnabled(in: preferences))
   }
 
   override func selectionWillChange(_ textInput: UITextInput?) {
@@ -447,6 +477,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    DiagnosticLog.shared.write("focus_out")
     replyModel.setText("")
     handwriting.deactivate()
     snapshotWorker.stop()
@@ -2369,8 +2400,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let title = isInLocalMode && visiblePreedit == localModeTrigger
       ? (modeName ?? visiblePreedit)
       : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
+    // 「候选栏预编辑」 only changes what is drawn: `visiblePreedit` still says a composition is running, which keeps the strip up while a spelling has no candidates yet, and VoiceOver still reads the full title. The setting names pinyin, so a Japanese reading is left as it is.
+    let drawnTitle = idle || title != visiblePreedit || inputScheme.isJapanese
+      ? title
+      : CandidatePreeditStyle(in: session.sharedPreferences).title(
+        composition: visiblePreedit, phrasePrefix: visiblePhrasePrefix,
+        localModeName: isInLocalMode ? modeName : nil)
     if var configuration = preeditButton.configuration {
-      configuration.title = title
+      configuration.title = drawnTitle
       preeditButton.configuration = configuration
     }
 
@@ -2852,6 +2889,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 没有编辑框里的组字，候选条这一行就是用户唯一能看见它的地方。
     let composing = snapshot.phrasePrefix
       + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
+    visiblePhrasePrefix = snapshot.phrasePrefix
     updateCandidateStrip(
                          preedit: composing,
                          candidates: snapshot.candidates,
@@ -3216,9 +3254,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ) {
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }
-    configuration.background.backgroundColor = converting
-      ? KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
-      : KeyboardSkinPreference.selected.keyBackground
+    let skin = KeyboardSkinPreference.selected
+    let annotationColor = candidatePalette?.number ?? skin.keyForeground.withAlphaComponent(0.55)
+    if let palette = candidatePalette {
+      // Drawn flat like the desktop candidate window: the first candidate, the one space commits, carries the skin's highlight.
+      configuration.background.customView = nil
+      configuration.background.backgroundColor = converting ? palette.selected.withAlphaComponent(0.35)
+        : number == 1 ? palette.hover : palette.surface
+      configuration.background.cornerRadius = 9
+      configuration.background.strokeWidth = 1
+      configuration.background.strokeColor = palette.border
+      configuration.baseForegroundColor = palette.text
+      button.layer.shadowOpacity = 0
+    } else {
+      configuration.background.backgroundColor = converting
+        ? skin.accent.withAlphaComponent(0.22)
+        : skin.keyBackground
+    }
     let annotation = hint
     if annotation.isEmpty && glosses.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
@@ -3238,7 +3290,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if !annotation.isEmpty {
         title += AttributedString(" " + annotation, attributes: AttributeContainer([
           .font: CandidateFontPreference.font(.caption1, scale: candidateFontScale), .paragraphStyle: paragraph,
-          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          .foregroundColor: annotationColor,
         ]))
       }
       let content = KeyboardKeyButton.chipContentWidth(
@@ -3249,7 +3301,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
         title += AttributedString("\n" + fitted.text, attributes: AttributeContainer([
           .font: fitted.font, .paragraphStyle: paragraph,
-          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          .foregroundColor: annotationColor,
         ]))
       }
       configuration.attributedTitle = title
@@ -3790,6 +3842,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     handwriting.canvas.setNeedsDisplay()
     replyModel.objectWillChange.send()
     let skin = KeyboardSkinPreference.selected
+    candidatePalette = currentCandidatePalette()
     view.backgroundColor = skin.background
     skinBackdrop.skin = skin
     func recolor(_ node: UIView) {
@@ -3805,7 +3858,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if let color = configuration.background.backgroundColor, color.cgColor.alpha > 0 { decorateKey(button) }
       }
       if node.accessibilityIdentifier == "nineKeySidebar" || node.accessibilityIdentifier == "candidateStrip" {
-        node.backgroundColor = skin.keyBackground.withAlphaComponent(0.6)
+        node.backgroundColor = node.accessibilityIdentifier == "candidateStrip"
+          ? candidatePalette?.surface ?? skin.keyBackground.withAlphaComponent(0.6)
+          : skin.keyBackground.withAlphaComponent(0.6)
       }
       if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.accent }
       node.subviews.forEach { recolor($0) }
@@ -3822,11 +3877,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateShortcutButtons()
     renderCandidateStrip()
     updateSpellingStrip()
-    exitLocalModeButton.configuration?.baseForegroundColor = skin.accent
-    preeditButton.configuration?.baseForegroundColor = skin.accent
-    expandCandidatesButton.configuration?.baseForegroundColor = skin.accent
+    exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
+    preeditButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
+    expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
     for (_, _, hint) in letterButtons { hint.textColor = skin.accent }
     view.tintColor = skin.accent
+  }
+
+  private func currentCandidatePalette() -> CandidatePalette? {
+    CandidatePalette.active(in: session.sharedPreferences, systemDark: traitCollection.userInterfaceStyle == .dark)
+  }
+
+  /// Redraw the strip when the resolved candidate palette changed; switching it off goes back through the keyboard skin so the chips get the skin's shape again.
+  private func refreshCandidatePalette() {
+    let palette = currentCandidatePalette()
+    guard palette != candidatePalette else { return }
+    if palette == nil { applyKeyboardSkin(); return }
+    candidatePalette = palette
+    compositionContainer?.backgroundColor = palette?.surface
+    for button in [exitLocalModeButton, preeditButton, expandCandidatesButton] {
+      button.configuration?.baseForegroundColor = palette?.accent
+    }
+    renderCandidateStrip()
   }
 
   override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {

@@ -142,4 +142,13 @@ final class ClipboardHistoryTests: XCTestCase {
     let hidden = try XCTUnwrap(gated.subviews.compactMap { $0 as? UITableView }.first)
     XCTAssertEqual(hidden.numberOfRows(inSection: 0), 0)
   }
+
+  func testSearchMatchesSubstringsIgnoringCaseAndKeepsOrder() {
+    let items = ["Hello World", "今天的会议记录", "hello again", "会议"].map { ClipboardHistoryItem(text: $0) }
+    XCTAssertEqual(ClipboardHistoryItem.matching(items, query: ""), items)
+    XCTAssertEqual(ClipboardHistoryItem.matching(items, query: "HELLO").map(\.text), ["Hello World", "hello again"])
+    XCTAssertEqual(ClipboardHistoryItem.matching(items, query: "会议").map(\.text), ["今天的会议记录", "会议"])
+    XCTAssertEqual(ClipboardHistoryItem.matching(items, query: "o w").map(\.text), ["Hello World"])
+    XCTAssertTrue(ClipboardHistoryItem.matching(items, query: "不存在").isEmpty)
+  }
 }

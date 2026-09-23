@@ -1,0 +1,61 @@
+import Foundation
+
+/// 「诊断日志」: the keyboard's host log, the iOS counterpart of the macOS and Linux host logs, turned on by the shared `diagnostic_log.server`.
+///
+/// Callers pass only fixed event labels, never key values, input text, candidates, paths or provider responses. Every record is cut to 192 bytes of printable ASCII anyway, so a mistake at a call site cannot leak text into the file. The log sits next to the shared preference document in the App Group, where the App can read, share and clear it; past 1 MiB it keeps one `.1` copy, like the desktop hosts. Writing is best-effort: a keyboard without full access cannot write to the App Group, and a failed write never reaches the input path.
+final class DiagnosticLog: @unchecked Sendable {
+  static let shared = DiagnosticLog()
+  static let fileName = "diagnostic.log"
+  static let maxBytes = 1024 * 1024
+  static let maxEventBytes = 192
+
+  private let lock = NSLock()
+  private var file: URL?
+
+  /// Whether `diagnostic_log.server` is on in a shared preference document. Only a real boolean counts, as on macOS.
+  static func isEnabled(in preferences: [String: Any]?) -> Bool {
+    guard let value = (preferences?["diagnostic_log"] as? [String: Any])?["server"] as? NSNumber else { return false }
+    return CFGetTypeID(value) == CFBooleanGetTypeID() && value.boolValue
+  }
+
+  static func url(in directory: String) -> URL? {
+    directory.hasPrefix("/") ? URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent(fileName) : nil
+  }
+
+  /// Printable ASCII only, cut to `maxEventBytes`; anything else becomes `?`.
+  static func sanitize(_ event: String) -> String {
+    String(decoding: event.utf8.prefix(maxEventBytes).map { (0x20...0x7e).contains($0) ? $0 : UInt8(ascii: "?") }, as: UTF8.self)
+  }
+
+  func configure(directory: String?, enabled: Bool) {
+    lock.lock(); defer { lock.unlock() }
+    file = enabled ? directory.flatMap(Self.url(in:)) : nil
+  }
+
+  func write(_ event: String) {
+    lock.lock(); defer { lock.unlock() }
+    guard let file else { return }
+    let manager = FileManager.default
+    if let size = (try? manager.attributesOfItem(atPath: file.path))?[.size] as? NSNumber, size.intValue > Self.maxBytes {
+      let rotated = file.appendingPathExtension("1")
+      try? manager.removeItem(at: rotated)
+      try? manager.moveItem(at: file, to: rotated)
+    }
+    let stamp = Self.formatter.string(from: Date())
+    let record = Data("\(stamp) [p\(ProcessInfo.processInfo.processIdentifier)] \(Self.sanitize(event))\n".utf8)
+    if !manager.fileExists(atPath: file.path) {
+      manager.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600])
+    }
+    guard let handle = try? FileHandle(forWritingTo: file) else { return }
+    defer { try? handle.close() }
+    _ = try? handle.seekToEnd()
+    try? handle.write(contentsOf: record)
+  }
+
+  private static let formatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    return formatter
+  }()
+}

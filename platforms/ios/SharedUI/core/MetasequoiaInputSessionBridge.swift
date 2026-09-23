@@ -229,6 +229,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     if handle != 0 { _ = try? Self.decode(msimeClientDestroy(handle)) }
   }
 
+  /// The directory this session reads its preference document from; nil when preparing the runtime failed.
+  var stateDirectory: String? { stateRoot }
+  /// Whether the runtime failed to prepare or start, the case the diagnostic log records without its (possibly path-bearing) reason.
+  var initializationFailed: Bool { initializationDiagnostic != nil }
+
   var isInLocalMode: Bool {
     guard let mode = try? localMode() else { return false }
     return !mode.isEmpty && mode != "none"
@@ -285,6 +290,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "smart_punctuation", "smart_punctuation_repeat", "smart_punctuation_space_convert",
     "smart_punctuation_direct_digit", "smart_punctuation_direct_letter",
     "paired_punctuation", "punctuation_lock",
+    // 「双拼显示原始按键」 on the candidate page: the session rebuilds its Engine with it once idle, like the punctuation fields.
+    "shuangpin_preedit_uses_raw",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
     "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
     // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.
@@ -468,6 +475,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                       _ mutate: (inout [String: Any]) -> Void) -> Bool {
     persistSharedPreferences(stateRoot: sharedStateRoot(stateRoot), mutate) != nil
   }
+
+  /// The App Group directory holding the shared preference document, where the keyboard also keeps its diagnostic log.
+  static var sharedStateDirectory: String { sharedStateRoot(nil) }
 
   private static func sharedStateRoot(_ override: URL?) -> String {
     bootstrapOptions(resources: nil, stateRoot: override)["state_root"] as? String ?? ""
