@@ -1544,6 +1544,7 @@ fn dictionary_error_code(reason: &str) -> &'static str {
         "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
         "dictionary access unavailable" => "dictionary_unavailable",
         "learned-data reset rejected" => "dictionary_reset_rejected",
+        "bundled dictionary entry is read-only" => "dictionary_bundled_readonly",
         // The host appends which rule the entry broke. The page words a code refusal per dictionary kind, so a word or weight refusal must not share that code, or it would send the user to fix a code that is already valid.
         reason if reason == msime_host_api::INVALID_DICTIONARY_ENTRY => "dictionary_invalid_entry",
         reason => match reason

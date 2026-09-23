@@ -1104,6 +1104,8 @@ export type DictionaryEntry = {
   key: string;
   value: string;
   weight: number;
+  /** Set by hosts that also list the packaged dictionary: a bundled row can only be re-weighted or deleted. */
+  source?: "user" | "bundled";
 };
 export type DictionaryFailure = { request_id: string; label: string; error: string };
 /** Mirrors the import response from `client-core::dictionary_import`. */
@@ -1224,7 +1226,7 @@ export function personalDictionaryExportPayload(entries: DictionaryEntry[]): {
   };
 }
 
-/** Read every dictionary kind in bounded pages, preserving host ordering. */
+/** Read every user-owned dictionary entry of every kind in bounded pages, preserving host ordering. */
 export async function loadAllPersonalDictionaryEntries(
   dictionary: Pick<DictionaryClient, "list">,
 ): Promise<DictionaryEntry[]> {
@@ -1234,9 +1236,16 @@ export async function loadAllPersonalDictionaryEntries(
     let hasMore = true;
     while (hasMore && offset <= 1_000_000) {
       const page = await dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, "");
-      const pageEntries = page.entries.filter((entry) => entry.kind === kind);
+      // Hosts that list the packaged dictionary return bundled rows too; the export holds the user's own words only. Paging still advances by the unfiltered page length.
+      const pageEntries = page.entries.filter(
+        (entry) => entry.kind === kind && entry.source !== "bundled",
+      );
       entries.push(...pageEntries);
-      if (!page.entries.length) break;
+      // An empty page ends the kind whatever has_more says, so a kind the user never added words to is not mistaken for a truncated export.
+      if (!page.entries.length) {
+        hasMore = false;
+        break;
+      }
       offset += page.entries.length;
       hasMore = page.has_more;
     }
@@ -1348,6 +1357,8 @@ export function dictionaryErrorMessage(
       return "词库拒绝了这次写入，请检查编码与词是否匹配。";
     case "dictionary_read_rejected":
       return "词库拒绝了这次读取，请稍后重试。";
+    case "dictionary_bundled_readonly":
+      return "内置词条只能调整权重或删除，不能修改编码和词。";
     case "dictionary_pinyin_unavailable":
       return "拼音表不可用，无法校验这条词的读音。";
     case "dictionary_reset_rejected":
@@ -3082,12 +3093,16 @@ export function SettingsPage({
   }
   async function savePhrase() {
     if (!client.dictionary || !phraseForm) return;
-    const replacement: DictionaryEntry = {
-      kind: dictionaryKind,
-      key: phraseForm.key.trim(),
-      value: phraseForm.value,
-      weight: phraseForm.weight,
-    };
+    const bundled = phraseForm.previous?.source === "bundled" ? phraseForm.previous : null;
+    // A bundled row keeps its code and word; only the weight is the user's to change.
+    const replacement: DictionaryEntry = bundled
+      ? { ...bundled, weight: phraseForm.weight }
+      : {
+          kind: dictionaryKind,
+          key: phraseForm.key.trim(),
+          value: phraseForm.value,
+          weight: phraseForm.weight,
+        };
     if (!replacement.key || !replacement.value) {
       setPhraseError("编码和短语不能为空。");
       return;
@@ -5136,7 +5151,8 @@ export function SettingsPage({
                             本地词库管理
                             <small>
                               查询、新增、编辑、导入、导出和删除 Engine
-                              用户词库。导入支持标准、Windows TSV、Rime 和纯汉字自动注音。
+                              用户词库。导入支持标准、Windows TSV、Rime
+                              和纯汉字自动注音。标有「内置」的是随输入法附带的词条，只能调整权重或删除。
                             </small>
                           </span>
                           <span>
@@ -5317,6 +5333,7 @@ export function SettingsPage({
                               编码{" "}
                               <input
                                 value={phraseForm.key}
+                                readOnly={phraseForm.previous?.source === "bundled"}
                                 onChange={(event) =>
                                   setPhraseForm({ ...phraseForm, key: event.target.value })
                                 }
@@ -5329,6 +5346,7 @@ export function SettingsPage({
                               {dictionaryKind === "quick_phrase" ? "短语" : "词条"}{" "}
                               <input
                                 value={phraseForm.value}
+                                readOnly={phraseForm.previous?.source === "bundled"}
                                 onChange={(event) =>
                                   setPhraseForm({ ...phraseForm, value: event.target.value })
                                 }
@@ -5382,6 +5400,12 @@ export function SettingsPage({
                                 <span>
                                   <code>{entry.key}</code>　{entry.value}　
                                   <small>{entry.weight}</small>
+                                  {entry.source === "bundled" && (
+                                    <>
+                                      {" "}
+                                      <small className={settings.bundledBadge}>内置</small>
+                                    </>
+                                  )}
                                 </span>
                                 <span>
                                   <button
@@ -5397,7 +5421,7 @@ export function SettingsPage({
                                       })
                                     }
                                   >
-                                    编辑
+                                    {entry.source === "bundled" ? "调权重" : "编辑"}
                                   </button>{" "}
                                   <button
                                     type="button"
