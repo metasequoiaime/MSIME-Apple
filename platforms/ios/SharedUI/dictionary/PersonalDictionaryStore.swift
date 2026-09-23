@@ -18,7 +18,10 @@ struct PersonalWord: Codable, Hashable, Sendable, Identifiable {
   var kind: PersonalWordKind = .pinyin
   var key: String
   var value: String
-  var weight: Int64 = 100_000
+  var weight: Int64 = Self.defaultWeight
+  /// The weights the Engine stores (`validate_personal_dictionary_entry`); anything outside is refused.
+  static let weightRange: ClosedRange<Int64> = 1...100_000_000
+  static let defaultWeight: Int64 = 100_000
   // Length prefixes keep arbitrary phrase text from colliding with an input-code separator.
   var id: String { "\(kind.rawValue):\(key.utf8.count):\(key)\(value)" }
 }

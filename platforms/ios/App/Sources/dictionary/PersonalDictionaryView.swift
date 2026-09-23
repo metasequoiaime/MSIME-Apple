@@ -72,7 +72,7 @@ struct PersonalDictionaryView: View {
           Button { editing = Editing(previous: word) } label: {
             VStack(alignment: .leading, spacing: 4) {
               Text(word.value).foregroundStyle(.primary).lineLimit(3)
-              Text("\(word.kind.title) · \(word.key)").font(.caption).foregroundStyle(.secondary)
+              Text("\(word.kind.title) · \(word.key) · 权重 \(word.weight)").font(.caption).foregroundStyle(.secondary)
             }
           }
           .swipeActions {
@@ -181,6 +181,15 @@ private struct PersonalWordEditor: View {
         } footer: {
           Text(word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : "五笔使用 1–4 个字母；快捷短语使用字母或数字，在键盘“本地输入 → 快捷短语”输入；英文编码与词条字母一致。")
         }
+        Section {
+          TextField("权重", value: $word.weight, format: .number.grouping(.never))
+            .keyboardType(.numberPad)
+            .accessibilityIdentifier("personalWordWeight")
+        } header: {
+          Text("权重")
+        } footer: {
+          Text("同一编码下权重越大，候选越靠前。新词默认 \(PersonalWord.defaultWeight)，可填 1–\(PersonalWord.weightRange.upperBound)。")
+        }
         if let error { Section { Text(error).foregroundStyle(.red) } }
         Section { Text("保存后等待水杉键盘确认同步。这里只保存本机词条，不会发送到 AI 或语音服务。").font(.footnote).foregroundStyle(.secondary) }
       }
@@ -190,6 +199,10 @@ private struct PersonalWordEditor: View {
         ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
         ToolbarItem(placement: .confirmationAction) {
           Button("保存") {
+            guard PersonalWord.weightRange.contains(word.weight) else {
+              error = "权重需要在 1–\(PersonalWord.weightRange.upperBound) 之间。"
+              return
+            }
             do { try save(word.validated()); dismiss() } catch { self.error = error.localizedDescription }
           }.disabled(word.key.isEmpty || word.value.isEmpty).accessibilityIdentifier("savePersonalWord")
         }

@@ -122,6 +122,9 @@ char *msime_client_smart_punctuation_decide(uint64_t handle, const uint8_t *requ
 /* Pure Engine validation/normalization for one Entry object. No paths or
  * session are required and no dictionary state is changed. */
 char *msime_client_dictionary_validate(const uint8_t *request, size_t length);
+/* Plain Chinese words, one per line, answered as the pinyin entries the "hans" import format would produce: {entries:[Entry]}. Reads only the packaged main dictionary under resources, read-only; needs no prepared host or session and changes no dictionary state. */
+char *msime_client_dictionary_hans_entries(const uint8_t *text, size_t text_length,
+                                           const uint8_t *resources, size_t resources_length);
 /* Android personal-dictionary queue synchronization. The request contains the
  * same HostOptions object as msime_client_create. The caller must have no
  * Engine session using its user_data/dictionaries paths. */

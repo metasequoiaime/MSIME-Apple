@@ -4,6 +4,10 @@ private typealias PersonalDictionaryByte = UInt8
 @_silgen_name("msime_client_dictionary_validate")
 private func msimeClientDictionaryValidate(_ request: UnsafePointer<PersonalDictionaryByte>?,
                                             _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_dictionary_hans_entries")
+private func msimeClientDictionaryHansEntries(_ text: UnsafePointer<PersonalDictionaryByte>?, _ textLength: UInt,
+                                              _ resources: UnsafePointer<PersonalDictionaryByte>?,
+                                              _ resourcesLength: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_string_free")
 private func msimeClientPersonalDictionaryStringFree(_ value: UnsafeMutablePointer<CChar>?)
 
@@ -32,6 +36,60 @@ enum PersonalDictionaryBridge {
       throw PersonalDictionaryBridgeFailure.invalid(kind)
     }
     return value
+  }
+}
+
+extension PersonalDictionaryBridge {
+  /// Plain Chinese words, one per line, as the pinyin entries the shared `hans` import format produces. Nothing is written: the caller shows them for confirmation and queues them like any other import.
+  static func hansEntries(_ text: String, resources: URL? = packagedResources) throws -> [PersonalWord] {
+    guard let resources else { throw HansImportFailure.dictionaryUnavailable }
+    let textData = Data(text.utf8)
+    let resourceData = Data(resources.path.utf8)
+    let pointer = textData.withUnsafeBytes { textBytes in
+      resourceData.withUnsafeBytes { resourceBytes in
+        msimeClientDictionaryHansEntries(
+          textBytes.bindMemory(to: PersonalDictionaryByte.self).baseAddress, UInt(textData.count),
+          resourceBytes.bindMemory(to: PersonalDictionaryByte.self).baseAddress, UInt(resourceData.count))
+      }
+    }
+    guard let pointer else { throw HansImportFailure.dictionaryUnavailable }
+    let response = String(cString: pointer)
+    msimeClientPersonalDictionaryStringFree(pointer)
+    guard let data = response.data(using: .utf8),
+          let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      throw HansImportFailure.dictionaryUnavailable
+    }
+    guard envelope["ok"] as? Bool == true else {
+      throw envelope["error"] as? String == "invalid dictionary import"
+        ? HansImportFailure.invalidText : HansImportFailure.dictionaryUnavailable
+    }
+    guard let value = envelope["value"] as? [String: Any],
+          let rows = value["entries"] as? [[String: Any]] else { throw HansImportFailure.dictionaryUnavailable }
+    return try rows.map(PersonalWord.init(bridgeValue:))
+  }
+
+  /// The verified Engine resources this process can read. The keyboard test host carries them itself; the settings app reads them from the keyboard extension it embeds, which is where the packaged dictionary ships.
+  static var packagedResources: URL? {
+    let fm = FileManager.default
+    let own = Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true)
+    let plugins = (Bundle.main.builtInPlugInsURL).flatMap {
+      try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)
+    }?.filter { $0.pathExtension == "appex" }
+      .map { $0.appendingPathComponent("EngineResources", isDirectory: true) } ?? []
+    return ([own].compactMap { $0 } + plugins).first {
+      fm.isReadableFile(atPath: $0.appendingPathComponent("msime.db").path)
+    }
+  }
+}
+
+enum HansImportFailure: LocalizedError, Equatable {
+  case invalidText, dictionaryUnavailable
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidText: "每行填写一个只含汉字的词语，最多 1000 行；以 # 开头的行会被跳过。"
+    case .dictionaryUnavailable: "无法为这些词语注音：有的字不在词典中，或键盘词典暂时无法读取。"
+    }
   }
 }
 

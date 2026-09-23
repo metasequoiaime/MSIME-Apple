@@ -14,6 +14,8 @@ private struct PersonalDictionaryDocument: FileDocument {
 }
 
 struct PersonalDictionaryImportView: View {
+  /// Windows imports a JSON-free word list as its own action (“导入纯中文”); here it is the second source of the same preview, so both kinds of import are confirmed the same way.
+  private enum Source: Hashable { case json, hans }
   let save: ([PersonalWord]) throws -> Void
   @Environment(\.dismiss) private var dismiss
   @State private var choosing = false
@@ -24,25 +26,54 @@ struct PersonalDictionaryImportView: View {
   @State private var error: String?
   @State private var readTask: Task<Void, Never>?
   @State private var loading = false
+  @State private var source = Source.json
+  @State private var hansText = ""
+  @State private var choosingText = false
 
   var body: some View {
     NavigationView {
       List {
         Section {
-          Button("选择 JSON 文件") { choosing = true }.disabled(loading)
-            .accessibilityIdentifier("choosePersonalDictionaryFile")
-          Button("保存示例文件") {
-            do { document = try PersonalDictionaryDocument(); exporting = true }
-            catch { self.error = error.localizedDescription }
+          Picker("导入来源", selection: $source) {
+            Text("JSON 文件").tag(Source.json)
+            Text("纯中文词表").tag(Source.hans)
           }
-        } footer: {
-          Text("支持拼音、五笔、英文和快捷短语，每次最多 128 条、文件不超过 1 MB。请按示例填写；不支持其他输入法的专有词库文件。")
+          .pickerStyle(.segmented)
+          .accessibilityIdentifier("personalDictionaryImportSource")
+          .onChange(of: source) { _ in readTask?.cancel(); preview = nil; loading = false }
+        }
+        if source == .json {
+          Section {
+            Button("选择 JSON 文件") { choosing = true }.disabled(loading)
+              .accessibilityIdentifier("choosePersonalDictionaryFile")
+            Button("保存示例文件") {
+              do { document = try PersonalDictionaryDocument(); exporting = true }
+              catch { self.error = error.localizedDescription }
+            }
+          } footer: {
+            Text("支持拼音、五笔、英文和快捷短语，每次最多 128 条、文件不超过 1 MB。请按示例填写；不支持其他输入法的专有词库文件。")
+          }
+        } else {
+          Section {
+            TextEditor(text: $hansText)
+              .frame(minHeight: 120)
+              .accessibilityIdentifier("personalDictionaryHansText")
+            Button("选择文本文件") { choosingText = true }.disabled(loading)
+              .accessibilityIdentifier("choosePersonalDictionaryText")
+            Button("生成拼音预览") { let text = hansText; annotate(name: "纯中文词表") { text } }
+              .disabled(loading || hansText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+              .accessibilityIdentifier("annotatePersonalDictionaryHans")
+          } footer: {
+            Text("每行一个词语，只含汉字；以 # 开头的行会被跳过。拼音由本机词典自动标注，多音字可能需要在导入后逐条修改。每次最多 128 个词语，导入为拼音词条。")
+          }
         }
         if loading { Section { ProgressView("正在读取并校验词库…") } }
         if let preview {
           Section {
             Text(fileName).font(.headline)
-            Text("已校验 \(preview.entries.count) 条，请确认内容。编码已按输入引擎规范化。")
+            Text(source == .hans
+                 ? "已为 \(preview.entries.count) 个词语标注拼音，请确认读音。"
+                 : "已校验 \(preview.entries.count) 条，请确认内容。编码已按输入引擎规范化。")
               .font(.footnote).foregroundStyle(.secondary)
             ForEach(PersonalWordKind.allCases) { kind in
               let count = preview.entries.filter { $0.kind == kind }.count
@@ -97,6 +128,12 @@ struct PersonalDictionaryImportView: View {
           }
         } catch { self.error = error.localizedDescription }
       }
+      .background(EmptyView().fileImporter(isPresented: $choosingText, allowedContentTypes: [.plainText]) { result in
+        do {
+          let url = try result.get()
+          annotate(name: url.lastPathComponent) { try PersonalDictionaryImport.readText(from: url) }
+        } catch { self.error = error.localizedDescription }
+      })
       .fileExporter(isPresented: $exporting, document: document, contentType: .json,
                     defaultFilename: "msime-personal-dictionary-example") { result in
         if case .failure(let error) = result { self.error = error.localizedDescription }
@@ -105,6 +142,27 @@ struct PersonalDictionaryImportView: View {
         Button("好", role: .cancel) { error = nil }
       } message: { Text(error ?? "") }
       .onDisappear { readTask?.cancel(); readTask = nil }
+    }
+  }
+
+  /// Annotation opens the packaged dictionary and walks it once per word, so it runs off the main thread like a file read.
+  private func annotate(name: String, read: @escaping @Sendable () throws -> String) {
+    preview = nil
+    loading = true
+    readTask?.cancel()
+    readTask = Task { @MainActor in
+      do {
+        let imported = try await Task.detached(priority: .userInitiated) {
+          try PersonalDictionaryImport.hans(read())
+        }.value
+        guard !Task.isCancelled else { return }
+        preview = imported
+        fileName = name
+      } catch {
+        guard !Task.isCancelled else { return }
+        self.error = error.localizedDescription
+      }
+      loading = false
     }
   }
 }
