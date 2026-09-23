@@ -180,7 +180,30 @@ fn apply_local_mode_resource_gates(options: &mut EngineOptions) {
     options.local_temporary_japanese &= has_japanese_model;
 }
 
+fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) -> u8 {
+    match lock {
+        msime_client_core::preferences::PunctuationLock::Follow => 0,
+        msime_client_core::preferences::PunctuationLock::Chinese => 1,
+        msime_client_core::preferences::PunctuationLock::English => 2,
+    }
+}
+
+/// The switch the Engine is handed. Windows turns the punctuation switch on whenever punctuation is locked to Chinese, while the Engine drops Chinese punctuation whenever its switch is off, so a lock to Chinese has to carry the switch with it.
+fn engine_chinese_punctuation(enabled: bool, lock: u8) -> bool {
+    enabled || lock == 1
+}
+
 impl HostSession {
+    /// `engine_chinese_punctuation` for the live overrides over the applied preferences.
+    fn live_engine_chinese_punctuation(&self) -> bool {
+        engine_chinese_punctuation(
+            self.punctuation_override
+                .unwrap_or(self.applied.chinese_punctuation),
+            self.punctuation_lock_override
+                .unwrap_or_else(|| punctuation_lock_code(self.applied.punctuation_lock)),
+        )
+    }
+
     fn ai_provider_config(&self) -> Option<AiAssistantProviderConfig> {
         let preferences = self
             .requested
@@ -261,18 +284,22 @@ impl HostSession {
         options.helpcode = helpcode.enabled;
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
-        options.chinese_punctuation = snapshot.preferences.chinese_punctuation;
         options.paired_punctuation = snapshot.preferences.paired_punctuation;
-        options.punctuation_lock = match snapshot.preferences.punctuation_lock {
-            msime_client_core::preferences::PunctuationLock::Follow => 0,
-            msime_client_core::preferences::PunctuationLock::Chinese => 1,
-            msime_client_core::preferences::PunctuationLock::English => 2,
-        };
+        options.punctuation_lock = punctuation_lock_code(snapshot.preferences.punctuation_lock);
+        options.chinese_punctuation = engine_chinese_punctuation(
+            snapshot.preferences.chinese_punctuation,
+            options.punctuation_lock,
+        );
         // Build and validate first; errors leave the original session usable.
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
-        if let Some(enabled) = self.punctuation_override {
+        if self.punctuation_override.is_some() || self.punctuation_lock_override.is_some() {
             engine
-                .set_chinese_punctuation_enabled(enabled)
+                .set_chinese_punctuation_enabled(engine_chinese_punctuation(
+                    self.punctuation_override
+                        .unwrap_or(snapshot.preferences.chinese_punctuation),
+                    self.punctuation_lock_override
+                        .unwrap_or(options.punctuation_lock),
+                ))
                 .map_err(|e| e.to_string())?;
         }
         if let Some(enabled) = self.paired_punctuation_override {
@@ -473,13 +500,12 @@ impl HostOptions {
             helpcode: helpcode.enabled,
             show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
-            chinese_punctuation: self.preferences.chinese_punctuation,
+            chinese_punctuation: engine_chinese_punctuation(
+                self.preferences.chinese_punctuation,
+                punctuation_lock_code(self.preferences.punctuation_lock),
+            ),
             paired_punctuation: self.preferences.paired_punctuation,
-            punctuation_lock: match self.preferences.punctuation_lock {
-                msime_client_core::preferences::PunctuationLock::Follow => 0,
-                msime_client_core::preferences::PunctuationLock::Chinese => 1,
-                msime_client_core::preferences::PunctuationLock::English => 2,
-            },
+            punctuation_lock: punctuation_lock_code(self.preferences.punctuation_lock),
         };
         apply_local_mode_resource_gates(&mut options);
         options

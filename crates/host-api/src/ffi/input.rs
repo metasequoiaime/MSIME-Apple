@@ -30,9 +30,12 @@ pub extern "C" fn msime_client_set_candidate_page_size(handle: u64, size: u8) ->
 pub extern "C" fn msime_client_set_chinese_punctuation(handle: u64, enabled: bool) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
+            let lock = session
+                .punctuation_lock_override
+                .unwrap_or_else(|| punctuation_lock_code(session.applied.punctuation_lock));
             session
                 .runtime
-                .set_chinese_punctuation_enabled(enabled)
+                .set_chinese_punctuation_enabled(engine_chinese_punctuation(enabled, lock))
                 .map_err(|e| e.to_string())?;
             session.punctuation_override = Some(enabled);
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
@@ -63,6 +66,11 @@ pub extern "C" fn msime_client_set_punctuation_lock(handle: u64, lock: u8) -> *m
                 .set_punctuation_lock(lock)
                 .map_err(|e| e.to_string())?;
             session.punctuation_lock_override = Some(lock);
+            let engine_enabled = session.live_engine_chinese_punctuation();
+            session
+                .runtime
+                .set_chinese_punctuation_enabled(engine_enabled)
+                .map_err(|e| e.to_string())?;
             serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
         })
     })
