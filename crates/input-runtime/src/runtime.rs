@@ -79,8 +79,7 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) phrase_preedit: bool,
     /// The piece already chosen for the phrase being composed, held back from the document.
     ///
-    /// Non-empty only while the Engine is still composing, so a host's existing test for "is there
-    /// a composition" stays true wherever this is non-empty.
+    /// Non-empty while the Engine is still composing, and in one case after its reading is gone: a segment Backspace (Ctrl+Backspace) that empties a reading whose phrase still has a selection to take back leaves the phrase in the composition, as the reference's `keep_creating_word_after_empty_raw` does. A host must therefore count a non-empty [`View::phrase_prefix`] as a composition, alongside the reading and the candidates.
     pub(crate) phrase_prefix: String,
     /// One entry per selection that grew the held phrase, newest last.
     ///
@@ -807,17 +806,14 @@ impl<E: InputEngine> Runtime<E> {
     /// - something ended the composition and committed, so the held pieces lead that commit - the
     ///   reference does the same on Enter, which commits `word_for_creating_word` together with the
     ///   remaining raw input;
-    /// - the composition ended with nothing committed. A cancel means the user threw the whole
-    ///   thing away, so the held pieces go with it. Anything else commits what is held rather than
-    ///   dropping letters the user chose. That is a deliberate step away from the reference, which
-    ///   keeps showing the piece with an empty reading: holding text with no composition to hang it
-    ///   on would make every host's test for "is there a composition" lie. Backspacing the reading
-    ///   away only reaches this with nothing to go back to: a selection that can be taken back
-    ///   takes that key first, in [`Runtime::retreat_phrase_selection`].
+    /// - the reading is gone with nothing committed. A cancel means the user threw the whole thing away, so the held pieces go with it. A segment Backspace (`keep_empty`) that emptied the reading while a selection can still be taken back keeps the phrase in the composition, as the reference's `keep_creating_word_after_empty_raw` does: the next Backspace puts the last reading back and the next Ctrl+Backspace deletes the last chosen piece, both in [`Runtime::retreat_phrase_selection`]. Anything else commits what is held rather than dropping letters the user chose. A plain Backspace only empties the reading here with nothing to go back to - a selection that can be taken back takes that key first - and the reference ends the word in that case too.
+    ///
+    /// When the held phrase is all there is to send or throw away, the key acted on the composition, so it counts as handled: an Enter or Space the Engine does not want with an empty reading must not also reach the application.
     fn hold_phrase_progress(
         &mut self,
         picked: bool,
         discard: bool,
+        keep_empty: bool,
         consumed: &str,
         result: &mut EngineResult,
     ) {
@@ -840,14 +836,20 @@ impl<E: InputEngine> Runtime<E> {
         if self.phrase_prefix.is_empty() || composing {
             return;
         }
-        let held = std::mem::take(&mut self.phrase_prefix);
-        self.phrase_selections.clear();
-        if discard {
+        if keep_empty && !discard && !result.has_commit && !self.phrase_selections.is_empty() {
+            result.handled = true;
             return;
         }
+        let held = std::mem::take(&mut self.phrase_prefix);
+        self.phrase_selections.clear();
         if result.has_commit {
-            result.commit = held + &result.commit;
-        } else {
+            if !discard {
+                result.commit = held + &result.commit;
+            }
+            return;
+        }
+        result.handled = true;
+        if !discard {
             result.has_commit = true;
             result.commit = held;
         }
@@ -949,15 +951,29 @@ impl<E: InputEngine> Runtime<E> {
         // A provider may answer with several candidates - the AI limit reaches ten - and they take
         // their seat as a group. The reference has only one of each to place and silently drops the
         // rest; dropping a candidate the user was offered is not an option here.
+        //
+        // The reference then moves an English candidate whose learned weight is the unique maximum of the whole list to the first seat, which is how a pinned or promoted English word comes before the Chinese candidates. The snapshot carries no weights, but the Engine applies that same rule before this step and otherwise never puts English first while a Chinese candidate exists, so an English candidate at index zero with locals present is the promoted one. It keeps the first seat and the leading English seat is not filled a second time, exactly as the reference's move to index zero leaves it.
+        let promoted_english = english.first() == Some(&0) && !locals.is_empty();
         let mut order = Vec::with_capacity(count);
+        let mut english = english.into_iter();
+        if promoted_english {
+            order.extend(english.next());
+        }
+        // The hiragana/katakana pair of a single complete kana keeps seats 1 and 2 ahead of every online candidate, as the reference's `preserve_single_kana_pair` does (server/src/ipc/event_listener.cpp); the reading is the converted kana, so one character in U+3041..U+3096 is its `IsSingleKanaConversion`.
+        const JAPANESE_ROMAJI: u8 = 3;
+        let mut reading = snapshot.reading.chars();
+        let single_kana = snapshot.scheme == JAPANESE_ROMAJI
+            && matches!((reading.next(), reading.next()), (Some(kana), None) if ('\u{3041}'..='\u{3096}').contains(&kana));
+        let local_prefix = if single_kana { 2 } else { 1 };
         let mut locals = locals.into_iter();
-        order.extend(locals.next());
+        order.extend(locals.by_ref().take(local_prefix));
         if !cloud.is_empty() {
             order.append(&mut cloud);
             order.append(&mut ai);
         }
-        let mut english = english.into_iter();
-        order.extend(english.next());
+        if !promoted_english {
+            order.extend(english.next());
+        }
         order.append(&mut ai);
         let mut emoji = emoji.into_iter();
         let mut kaomoji = kaomoji.into_iter();
@@ -967,6 +983,21 @@ impl<E: InputEngine> Runtime<E> {
         order.extend(english);
         order.extend(emoji);
         order.extend(kaomoji);
+        // An English candidate the user fixed to a seat goes back to that seat after the seating, so a cloud or AI reply does not push it behind the online candidates (reference: server/src/ipc/candidate_selection_policy.h, the fixed-English pass at the end of NormalizeMixedCandidateOrder). Seats are 1-based and 0 means unfixed; a seat past the end clamps to the end, as the reference's `insert_at` does.
+        let mut fixed_english = Vec::new();
+        order.retain(|index| {
+            let fixed = snapshot.candidate_sources[*index] == ENGLISH
+                && snapshot.candidate_positions[*index] > 0;
+            if fixed {
+                fixed_english.push(*index);
+            }
+            !fixed
+        });
+        fixed_english.sort_by_key(|index| snapshot.candidate_positions[*index]);
+        for index in fixed_english {
+            let seat = usize::from(snapshot.candidate_positions[index] - 1).min(order.len());
+            order.insert(seat, index);
+        }
         // A permutation or nothing: a missing or repeated index would silently drop a candidate.
         debug_assert_eq!(order.len(), count);
         if order.len() != count {
@@ -1147,7 +1178,7 @@ impl<E: InputEngine> Runtime<E> {
         let mut result = result?;
         // Leaving the client cancels the composition, but a phrase piece being held back is text
         // the user chose and, before it was held back, would already be in the document. Send it.
-        self.hold_phrase_progress(false, false, "", &mut result);
+        self.hold_phrase_progress(false, false, false, "", &mut result);
         self.focused = focused;
         // A different client is a different sentence, so context never leaks
         // from one application into another.
@@ -1411,7 +1442,12 @@ impl<E: InputEngine> Runtime<E> {
         // Escape throws the whole composition away, the chosen pieces with it - the reference's
         // _HandleCancel clears `word_for_creating_word` in the same breath.
         let discarded = matches!(action, Action::Command(Command::Cancel));
-        self.hold_phrase_progress(picked, discarded, &consumed, &mut result);
+        // Segment editing on an emptied reading leaves the held phrase for the next segment key or Backspace, instead of sending it to the document (the reference's `keep_creating_word_after_empty_raw`).
+        let keep_empty = matches!(
+            action,
+            Action::SegmentBackspace | Action::SegmentMoveLeft | Action::SegmentMoveRight
+        );
+        self.hold_phrase_progress(picked, discarded, keep_empty, &consumed, &mut result);
         let mut transition = self.transition(result);
         if transition.commit.is_some() {
             transition.commit_context = Some(commit_context);

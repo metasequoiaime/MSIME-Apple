@@ -3700,8 +3700,9 @@ void voice_start_impl(IBusEngine *engine) {
     const auto editing_text =
         s.view.value("editing_text", std::string{});
     const auto candidates = s.view.value("candidates", Json::array());
-    if (!editing_text.empty() ||
-        (candidates.is_array() && !candidates.empty()))
+    if (msime::linux_host::view_has_composition(
+            editing_text, candidates.is_array() && !candidates.empty(),
+            s.view.value("phrase_prefix", std::string{})))
       apply(engine, msime_client_command(s.session, MSIME_CANCEL));
     generation = response(msime_client_voice_start(s.session)).get<uint64_t>();
   } else {
@@ -5755,7 +5756,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return false;
     const auto editing_text = s.view.value("editing_text", std::string{});
     const auto candidates = s.view.value("candidates", Json::array());
-    if (!editing_text.empty() || (candidates.is_array() && !candidates.empty()))
+    if (msime::linux_host::view_has_composition(
+            editing_text, candidates.is_array() && !candidates.empty(),
+            s.view.value("phrase_prefix", std::string{})))
       return false;
     auto text = fullwidth_text(std::string(1, static_cast<char>(value)));
     commit_text(engine, text);
@@ -6022,9 +6025,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
                                   key == IBUS_Right || key == IBUS_KP_Right;
     const auto active_editing = s.view.value("editing_text", std::string{});
     const auto active_candidates = s.view.value("candidates", Json::array());
+    // A held phrase piece with no reading left is still a composition: the next Ctrl+Backspace deletes that piece.
     if (ctrl_only && segment_edit_key &&
-        (!active_editing.empty() ||
-         (active_candidates.is_array() && !active_candidates.empty()))) {
+        msime::linux_host::view_has_composition(
+            active_editing,
+            active_candidates.is_array() && !active_candidates.empty(),
+            s.view.value("phrase_prefix", std::string{}))) {
       const uint32_t segment_command =
           key == IBUS_BackSpace
               ? MSIME_BACKSPACE_SEGMENT
@@ -6148,8 +6154,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (const auto keypad = keypad_punctuation(key)) {
       const auto &editing_text = s.view.at("editing_text").get<std::string>();
       const auto &candidates = s.view.at("candidates");
-      const bool has_composition = !editing_text.empty() ||
-                                   (candidates.is_array() && !candidates.empty());
+      const bool has_composition = msime::linux_host::view_has_composition(
+          editing_text, candidates.is_array() && !candidates.empty(),
+          s.view.value("phrase_prefix", std::string{}));
       if (*keypad == '.' || has_composition) {
         handled = apply(engine, msime_client_punctuation_ascii(
             s.session, static_cast<uint8_t>(*keypad)));
@@ -6266,8 +6273,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         smart_punctuation_preceded_by_ascii_alphanumeric(s)) {
       const auto &editing_text = s.view.at("editing_text").get<std::string>();
       const auto &candidates = s.view.at("candidates");
-      const bool has_composition = !editing_text.empty() ||
-                                   (candidates.is_array() && !candidates.empty());
+      const bool has_composition = msime::linux_host::view_has_composition(
+          editing_text, candidates.is_array() && !candidates.empty(),
+          s.view.value("phrase_prefix", std::string{}));
       if (has_composition) {
         handled = apply(engine, msime_client_punctuation_ascii(
                                   s.session, static_cast<uint8_t>(key)));
@@ -6295,8 +6303,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = true;
       return;
     }
-    const bool has_composition =
-        !s.view.at("editing_text").get<std::string>().empty();
+    const bool has_composition = msime::linux_host::view_has_composition(
+        s.view.at("editing_text").get<std::string>(), false,
+        s.view.value("phrase_prefix", std::string{}));
     const bool candidate_active =
         s.view.at("candidates").is_array() && !s.view.at("candidates").empty();
     const auto local_mode = s.view.value("local_mode", std::string("none"));
@@ -6544,8 +6553,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
                                    : key),
           (flags & IBUS_SHIFT_MASK) != 0));
     else if (g_unichar_isprint(ibus_keyval_to_unicode(key)) &&
-             (!s.view.value("editing_text", std::string{}).empty() ||
-              !s.view.value("candidates", Json::array()).empty())) {
+             msime::linux_host::view_has_composition(
+                 s.view.value("editing_text", std::string{}),
+                 !s.view.value("candidates", Json::array()).empty(),
+                 s.view.value("phrase_prefix", std::string{}))) {
       // IBus keysyms may encode Unicode with a 0x01000000 prefix.
       // Windows finalizes the active TSF composition before handing an
       // unsupported printable key back to the application. Preserve the

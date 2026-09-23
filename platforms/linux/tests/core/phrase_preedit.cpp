@@ -5,9 +5,18 @@
 
 using msime::linux_host::compose_phrase_preedit;
 using msime::linux_host::utf8_scalar_count;
+using msime::linux_host::view_has_composition;
 
 int main()
 {
+    // A Ctrl+Backspace that empties the reading of a half-chosen phrase leaves only the chosen piece, as the reference's `keep_creating_word_after_empty_raw` does. That is still a composition, so the IBus segment-key gate and both front ends' key routing keep sending Backspace, Ctrl+Backspace, Enter and Escape to the session instead of the application.
+    {
+        assert(view_has_composition("", false, "海滩"));
+        assert(view_has_composition("paobu", false, ""));
+        assert(view_has_composition("", true, ""));
+        assert(!view_has_composition("", false, ""));
+    }
+
     // Nothing held: the composition is exactly the reading, and both cursors are the offset the
     // runtime gave. This is every keystroke before a candidate is picked, so it has to cost
     // nothing and change nothing.

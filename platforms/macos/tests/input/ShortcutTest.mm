@@ -1727,6 +1727,16 @@ static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(123, NSEventModifierFlagControl, NO) client:client]);
     assert(session.lastCommand == MSIME_MOVE_LEFT_SEGMENT);
+
+    // A Ctrl+Backspace that emptied the reading of a half-chosen phrase leaves only the chosen piece, as the reference's `keep_creating_word_after_empty_raw` does. That is still a composition: the next Ctrl+Backspace deletes the piece instead of going to the application.
+    NSDictionary *heldOnly = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"phrase_prefix": @"海滩" };
+    assert(MSIMEViewHasComposition(heldOnly));
+    assert(!MSIMEViewHasComposition(@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"phrase_prefix": @"" }));
+    assert(!MSIMEViewHasComposition(@{}));
+    [controller setValue:heldOnly forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(51, NSEventModifierFlagControl, NO) client:client]);
+    assert(session.lastCommand == MSIME_BACKSPACE_SEGMENT);
 }
 
 static void TestKeypadOperators(MSIMEAppearancePreferences *appearance) {
@@ -5447,6 +5457,8 @@ int main(int argc, char **argv) {
                 @"navigation": @{free: @NO, contested: @NO}}];
         }
 
+        NSDictionary *savedEnginePunctuation = session.enginePunctuationTransition;
+        NSDictionary *savedASCIIPunctuation = session.punctuationASCIITransition;
         for (NSString *keys in @[@"brackets", @"minus_equal"]) {
             [appearance setNavigation:keys enabled:NO];
             [appearance setWordCharacterEnabled:YES keys:keys];
@@ -5459,9 +5471,42 @@ int main(int argc, char **argv) {
                 unsigned short physicalKey = [keys isEqual:@"brackets"] ? (edge ? 30 : 33) : (edge ? 24 : 27);
                 NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:character charactersIgnoringModifiers:character isARepeat:NO keyCode:physicalKey];
                 NSUInteger calls = session.edgeCalls;
+                NSUInteger punctuationCalls = session.enginePunctuationCalls;
+                NSUInteger asciiPunctuationCalls = session.punctuationASCIICalls;
+                NSString *fallbackCommit = [@"GitHub" stringByAppendingString:[character isEqual:@"-"] ? @"-" : [character isEqual:@"["] ? @"【" : [character isEqual:@"]"] ? @"】" : @"＝"];
+                session.enginePunctuationTransition = @{@"handled": @YES, @"commit": fallbackCommit, @"view": edgeView};
+                session.punctuationASCIITransition = @{@"handled": @YES, @"commit": fallbackCommit, @"view": edgeView};
+                client.committed = nil;
                 session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": edgeView};
                 assert([controller handleEvent:event client:client]);
+                assert([client.committed isEqual:fallbackCommit]);
                 assert(session.edgeCalls == calls + 1 && session.lastEdge == edge && session.edgeGeneration == 72 && session.edgeIndex == 8);
+                // The Engine declines a candidate without a Han character (GitHub, 123, an emoji); Windows then commits the candidate followed by the key's punctuation, '-' literally and the others through the punctuation table.
+                const unichar glyph = [character characterAtIndex:0];
+                if (glyph == '-') {
+                    assert(session.punctuationASCIICalls == asciiPunctuationCalls + 1 && session.lastPunctuationASCII == '-');
+                    assert(session.enginePunctuationCalls == punctuationCalls);
+                } else {
+                    assert(session.enginePunctuationCalls == punctuationCalls + 1 && session.lastEnginePunctuation == glyph);
+                    assert(session.punctuationASCIICalls == asciiPunctuationCalls);
+                }
+                // A Han edge the Engine accepts is the whole answer; no punctuation follows it.
+                [controller setValue:edgeView forKey:@"view"];
+                layoutPanel.requestedVisible = YES;
+                punctuationCalls = session.enginePunctuationCalls;
+                asciiPunctuationCalls = session.punctuationASCIICalls;
+                session.nextTransition = @{@"handled": @YES, @"commit": @"合", @"view": edgeView};
+                assert([controller handleEvent:event client:client]);
+                assert(session.edgeCalls == calls + 2);
+                assert(session.enginePunctuationCalls == punctuationCalls && session.punctuationASCIICalls == asciiPunctuationCalls);
+                // An Engine failure (stale generation, closed session) swallows the key without manufacturing punctuation.
+                [controller setValue:edgeView forKey:@"view"];
+                layoutPanel.requestedVisible = YES;
+                session.nextTransition = nil;
+                assert([controller handleEvent:event client:client]);
+                assert(session.edgeCalls == calls + 3);
+                assert(session.enginePunctuationCalls == punctuationCalls && session.punctuationASCIICalls == asciiPunctuationCalls);
+                session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": edgeView};
                 // Matching glyphs from an unrelated physical key must not
                 // activate word-to-character; Windows checks both VK and WCH.
                 NSEvent *wrongPhysical = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:character charactersIgnoringModifiers:character isARepeat:NO keyCode:0];
@@ -5479,7 +5524,9 @@ int main(int argc, char **argv) {
                         [controller setValue:badView forKey:@"view"];
                         layoutPanel.requestedVisible = YES;
                         NSUInteger before = session.edgeCalls;
+                        NSUInteger punctuationBefore = session.enginePunctuationCalls + session.punctuationASCIICalls;
                         assert([controller handleEvent:event client:client] && session.edgeCalls == before);
+                        assert(session.enginePunctuationCalls + session.punctuationASCIICalls == punctuationBefore);
                     }
                 }
                 for (NSString *field in @[@"session", @"generation", @"focused"]) {
@@ -5488,11 +5535,59 @@ int main(int argc, char **argv) {
                     [controller setValue:staleView forKey:@"view"];
                     layoutPanel.requestedVisible = YES;
                     NSUInteger before = session.edgeCalls;
+                    NSUInteger punctuationBefore = session.enginePunctuationCalls + session.punctuationASCIICalls;
                     assert([controller handleEvent:event client:client] && session.edgeCalls == before);
+                    assert(session.enginePunctuationCalls + session.punctuationASCIICalls == punctuationBefore);
                 }
             }
             [appearance setWordCharacterEnabled:NO keys:keys];
         }
+        session.enginePunctuationTransition = savedEnginePunctuation;
+        session.punctuationASCIITransition = savedASCIIPunctuation;
+        // With traditional output on, the edge character comes from the converted phrase, as Windows takes ExtractHanCharacter(CandidateTextForOutput(word)): 头发+] is 髮 and 皇后+] is 后, where s2t of the Engine's lone 发 or 后 would give 發 or 後.
+        [appearance setNavigation:@"brackets" enabled:NO];
+        [appearance setWordCharacterEnabled:YES keys:@"brackets"];
+        NSDictionary *chineseContext = @{@"scheme": @0, @"local_mode": @"none"};
+        NSDictionary *emptyView = @{@"editing_text": @"", @"candidates": @[]};
+        NSEvent *(^bracket)(BOOL) = ^NSEvent *(BOOL last) {
+            NSString *glyph = last ? @"]" : @"[";
+            return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:glyph charactersIgnoringModifiers:glyph isARepeat:NO keyCode:last ? 30 : 33];
+        };
+        NSString *(^pressHeldEdge)(NSString *, NSString *, BOOL, NSString *, NSDictionary *) = ^NSString *(NSString *held, NSString *word, BOOL last, NSString *engineCommit, NSDictionary *context) {
+            NSMutableDictionary *wordView = [@{@"session": @71, @"generation": @72, @"focused": @YES, @"editing_text": @"synthetic", @"scheme": @0, @"local_mode": @"none",
+                @"candidates": @[@{@"text": word, @"highlighted": @YES, @"id": @{@"session": @71, @"generation": @72, @"index": @8}}]} mutableCopy];
+            if (held) wordView[@"phrase_prefix"] = held;
+            [controller setValue:wordView forKey:@"view"];
+            layoutPanel.requestedVisible = YES;
+            client.committed = nil;
+            NSUInteger calls = session.edgeCalls;
+            NSUInteger punctuationCalls = session.enginePunctuationCalls;
+            session.nextTransition = @{@"handled": @YES, @"commit": engineCommit, @"commit_context": context, @"view": emptyView};
+            assert([controller handleEvent:bracket(last) client:client]);
+            assert(session.edgeCalls == calls + 1 && session.lastEdge == (last ? MSIME_LAST_HAN : MSIME_FIRST_HAN));
+            assert(session.enginePunctuationCalls == punctuationCalls);
+            return client.committed;
+        };
+        NSString *(^pressEdge)(NSString *, BOOL, NSString *, NSDictionary *) = ^NSString *(NSString *word, BOOL last, NSString *engineCommit, NSDictionary *context) {
+            return pressHeldEdge(nil, word, last, engineCommit, context);
+        };
+        [controller selectTraditionalOutput:nil];
+        assert([pressEdge(@"头发", YES, @"发", chineseContext) isEqual:@"髮"]);
+        // A phrase piece already chosen with phrase_preedit is held in phrase_prefix, and the runtime commits it in front of the edge (held + edge); the override keeps it and converts it with the edge: haitanpaobu, pick 海滩, ] on 跑步 gives 海灘步.
+        assert([pressHeldEdge(@"海滩", @"跑步", YES, @"海滩步", chineseContext) isEqual:@"海灘步"]);
+        assert([pressHeldEdge(@"你好", @"头发", YES, @"你好发", chineseContext) isEqual:@"你好髮"]);
+        assert([pressEdge(@"皇后", YES, @"后", chineseContext) isEqual:@"后"]);
+        assert([pressEdge(@"干杯", NO, @"干", chineseContext) isEqual:@"乾"]);
+        assert([pressEdge(@"面条", NO, @"面", chineseContext) isEqual:@"麪"]);
+        assert([pressEdge(@"头发", NO, @"头", chineseContext) isEqual:@"頭"]);
+        // Japanese and Unicode commits keep the Engine's text untouched, the same rule apply: uses for every commit.
+        assert([pressEdge(@"头发", YES, @"发", @{@"scheme": @0, @"local_mode": @"temporary_japanese"}) isEqual:@"发"]);
+        assert([pressEdge(@"头发", YES, @"发", @{@"scheme": @0, @"local_mode": @"unicode"}) isEqual:@"发"]);
+        [controller selectSimplifiedOutput:nil];
+        assert([pressEdge(@"头发", YES, @"发", chineseContext) isEqual:@"发"]);
+        assert([pressHeldEdge(@"你好", @"头发", YES, @"你好发", chineseContext) isEqual:@"你好发"]);
+        assert([pressEdge(@"皇后", YES, @"后", chineseContext) isEqual:@"后"]);
+        [appearance setWordCharacterEnabled:NO keys:@"brackets"];
         [controller setValue:beforeWordView forKey:@"view"];
         session.nextTransition = beforeWordTransition;
         appearance.pageShortcut = 0;
@@ -5578,17 +5673,15 @@ int main(int argc, char **argv) {
             appearance.vertical = vertical.boolValue;
             [controller renderCandidates];
             NSSize originalSize = PageButton(layoutPanel.contentView, 0).frame.size;
+            CGFloat originalPanelHeight = layoutPanel.frame.size.height;
             word[@"translation"] = @"synthetic glossary";
             [controller renderCandidates];
             MSIMECandidateButton *translated = PageButton(layoutPanel.contentView, 0);
             assert([translated.translation isEqual:@"synthetic glossary"] && translated.translationBelow == !vertical.boolValue);
             assert(fabs(translated.translationFont.pointSize - translated.font.pointSize * 0.78) < 0.01);
             assert([translated.toolTip containsString:@"\nsynthetic glossary"] && [translated.candidateID isEqual:word[@"id"]]);
-            // Vertical puts the gloss on the candidate's own row, so it costs width and the row grows when
-            // one arrives. Horizontal stacks it underneath and the height is already reserved, so the row
-            // does not change - the gloss lands in space that was kept for it rather than pushing the panel
-            // taller seconds after the composition started.
-            if (vertical.boolValue) assert(translated.frame.size.width > originalSize.width);
+            // Vertical puts the gloss on the candidate's own line, so it costs width and never height, and the row does not jump when the debounced gloss arrives (Windows test_layout.cpp vertical_candidate_translation_stays_on_the_same_line); horizontal stacks the gloss underneath, and that height is already reserved, so the row does not change either.
+            if (vertical.boolValue) assert(translated.frame.size.width > originalSize.width && fabs(translated.frame.size.height - originalSize.height) < 0.01 && fabs(layoutPanel.frame.size.height - originalPanelHeight) < 0.01);
             else assert(fabs(translated.frame.size.height - originalSize.height) < 0.01);
             NSBitmapImageRep *bitmap = [translated bitmapImageRepForCachingDisplayInRect:translated.bounds];
             assert(bitmap);

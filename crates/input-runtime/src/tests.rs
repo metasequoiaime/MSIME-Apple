@@ -32,6 +32,10 @@ struct Fixture {
     /// What is left to compose after a candidate is picked, standing in for an Engine that answered
     /// with a candidate covering only part of the input. `None` is an engine that finishes.
     remaining_after_select: Option<String>,
+    /// The seat each candidate is fixed to, parallel to `words`: 1-based, 0 for unfixed. Empty means nothing is fixed.
+    positions: Vec<u8>,
+    /// What the Engine reports as the reading, which the Japanese scheme sets to the converted kana. Empty means no reading.
+    reading: String,
 }
 
 #[cfg(unix)]
@@ -470,7 +474,11 @@ impl InputEngine for Fixture {
             } else {
                 vec![0; self.words.len()]
             },
-            candidate_positions: vec![0; self.words.len()],
+            candidate_positions: if self.positions.len() == self.words.len() {
+                self.positions.clone()
+            } else {
+                vec![0; self.words.len()]
+            },
             candidate_corrected: vec![false; self.words.len()],
             microsoft_shuangpin: false,
             shuangpin_profile: "xiaohe".into(),
@@ -481,7 +489,7 @@ impl InputEngine for Fixture {
             local_mode: self.local_mode.clone(),
             dedicated_english: self.dedicated_english,
             preedit: self.text.clone(),
-            reading: String::new(),
+            reading: self.reading.clone(),
             editing_text: self.text.clone(),
             caret_position: self.text.len(),
             segment_raw_boundaries: vec![],
@@ -633,6 +641,8 @@ fn runtime() -> Runtime<Fixture> {
             withheld: Vec::new(),
             sources: Vec::new(),
             remaining_after_select: None,
+            positions: Vec::new(),
+            reading: String::new(),
         },
         5,
     )
@@ -683,6 +693,8 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 withheld: Vec::new(),
                 sources,
                 remaining_after_select: None,
+                positions: Vec::new(),
+                reading: String::new(),
             },
             9,
         )
@@ -729,6 +741,176 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
     );
 }
 
+// A single complete kana in Japanese romaji offers its hiragana and katakana as the first two local candidates, and the reference keeps that pair ahead of the cloud word (`JapaneseSingleKanaPairStaysAheadOfCloudCandidate`, which expects か, カ, then the cloud candidate). Anything else keeps the one-seat local prefix.
+#[test]
+fn japanese_single_kana_pair_stays_ahead_of_the_cloud_candidate() {
+    let seated = |scheme: u8, reading: &str, words: &[&str], sources: Vec<u8>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme,
+                local_mode: "none".into(),
+                words: words.iter().map(|word| (*word).into()).collect(),
+                codes: (0..words.len()).map(|n| format!("code-{n}")).collect(),
+                sources,
+                reading: reading.into(),
+                ..Fixture::default()
+            },
+            9,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime)
+            .view
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.text)
+            .collect::<Vec<_>>()
+    };
+    let words = ["か", "カ", "蚊", "科"];
+
+    assert_eq!(
+        seated(3, "か", &words, vec![0, 0, 2, 0]),
+        vec!["か", "カ", "蚊", "科"]
+    );
+    // Two kana are not a single-kana conversion, so the cloud word takes the second seat.
+    assert_eq!(
+        seated(3, "かき", &words, vec![0, 0, 2, 0]),
+        vec!["か", "蚊", "カ", "科"]
+    );
+    // Pending romaji is an incomplete conversion.
+    assert_eq!(
+        seated(3, "k", &words, vec![0, 0, 2, 0]),
+        vec!["か", "蚊", "カ", "科"]
+    );
+    // The rule belongs to the Japanese scheme only.
+    assert_eq!(
+        seated(0, "か", &words, vec![0, 0, 2, 0]),
+        vec!["か", "蚊", "カ", "科"]
+    );
+    // With a single local candidate the two-seat prefix takes what there is.
+    assert_eq!(seated(3, "か", &["か", "蚊"], vec![0, 2]), vec!["か", "蚊"]);
+    assert_eq!(seated(3, "か", &["蚊", "か"], vec![2, 0]), vec!["か", "蚊"]);
+}
+
+// A pinned or promoted English word keeps the first seat when online candidates arrive. The Engine seats it first because its learned weight is the unique maximum of the mixed list, and the reference's `PromotedEnglishCandidateCanBecomeTheFirstMixedCandidate` expects exactly this order, so Space commits the English word rather than the Chinese one.
+#[test]
+fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
+    let seated = |words: &[&str], sources: Vec<u8>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                dedicated_english: false,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
+                local_mode: "none".into(),
+                words: words.iter().map(|word| (*word).into()).collect(),
+                codes: (0..words.len()).map(|n| format!("code-{n}")).collect(),
+                text: String::new(),
+                snapshot_fails: false,
+                balanced_openings: Vec::new(),
+                cache_resets: 0,
+                withheld: Vec::new(),
+                sources,
+                remaining_after_select: None,
+                positions: Vec::new(),
+                reading: String::new(),
+            },
+            9,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime)
+            .view
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.text)
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        seated(
+            &["GitHub", "个", "给", "云候选", "AI联想"],
+            vec![4, 0, 0, 2, 3]
+        ),
+        vec!["GitHub", "个", "云候选", "AI联想", "给"]
+    );
+    // Only the Engine's first seat signals a promotion. An English candidate it placed after the leading Chinese one is seated behind cloud and AI as usual.
+    assert_eq!(
+        seated(
+            &["个", "GitHub", "给", "云候选", "AI联想"],
+            vec![0, 4, 0, 2, 3]
+        ),
+        vec!["个", "云候选", "AI联想", "GitHub", "给"]
+    );
+    // A promoted English word does not pull a second English candidate into the leading English seat; the rest wait behind the Chinese candidates.
+    assert_eq!(
+        seated(
+            &["GitHub", "个", "Gitter", "给", "云候选"],
+            vec![4, 0, 4, 0, 2]
+        ),
+        vec!["GitHub", "个", "云候选", "给", "Gitter"]
+    );
+}
+
+// An English word the user fixed to a seat stays there when a cloud or AI reply arrives, as the reference's `FixedEnglishCandidateKeepsItsMixedCandidatePosition` expects. Without the fixed-English pass the seating would put it behind the online candidates.
+#[test]
+fn fixed_english_candidate_keeps_its_seat_when_online_candidates_arrive() {
+    let runtime = |words: &[&str], sources: Vec<u8>, positions: Vec<u8>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                local_mode: "none".into(),
+                words: words.iter().map(|word| (*word).into()).collect(),
+                codes: (0..words.len()).map(|n| format!("code-{n}")).collect(),
+                sources,
+                positions,
+                reading: String::new(),
+                ..Fixture::default()
+            },
+            9,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        let page = type_key(&mut runtime).view.candidates;
+        (runtime, page)
+    };
+    let texts = |page: &[Candidate]| {
+        page.iter()
+            .map(|candidate| candidate.text.clone())
+            .collect::<Vec<_>>()
+    };
+
+    // Fixed to the first seat, with a cloud candidate.
+    let (mut cloud_only, cloud_page) = runtime(
+        &["个", "GitHub", "给", "云候选"],
+        vec![0, 4, 0, 2],
+        vec![0, 1, 0, 0],
+    );
+    assert_eq!(texts(&cloud_page), vec!["GitHub", "个", "云候选", "给"]);
+
+    // Still first once an AI candidate joins the cloud one.
+    let (_, page) = runtime(
+        &["个", "GitHub", "给", "云候选", "AI联想"],
+        vec![0, 4, 0, 2, 3],
+        vec![0, 1, 0, 0, 0],
+    );
+    assert_eq!(texts(&page), vec!["GitHub", "个", "云候选", "AI联想", "给"]);
+
+    // Fixed to the third seat among local, AI and cloud candidates.
+    let (_, page) = runtime(
+        &["个", "GitHub", "AI联想", "云候选", "给"],
+        vec![0, 4, 3, 2, 0],
+        vec![0, 3, 0, 0, 0],
+    );
+    assert_eq!(texts(&page)[2], "GitHub");
+    assert_eq!(texts(&page), vec!["个", "云候选", "GitHub", "AI联想", "给"]);
+
+    // Picking the first seat commits the re-seated English word, not the Engine's first candidate.
+    let done = cloud_only
+        .dispatch(Action::Select(cloud_page[0].id))
+        .unwrap();
+    assert_eq!(done.commit.as_deref(), Some("GitHub"));
+}
+
 // Half a phrase belongs in the composition, not in the document. Picking a candidate that covers
 // only part of the input leaves the Engine composing the rest and hands back the piece that was
 // picked; sending that piece straight out puts half a phrase into the application - a search box
@@ -752,6 +934,8 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 withheld: Vec::new(),
                 sources: Vec::new(),
                 remaining_after_select: remaining.map(str::to_owned),
+                positions: Vec::new(),
+                reading: String::new(),
             },
             5,
         )
@@ -850,6 +1034,8 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             withheld: Vec::new(),
             sources: Vec::new(),
             remaining_after_select: Some("p".into()),
+            positions: Vec::new(),
+            reading: String::new(),
         },
         5,
     )
@@ -976,10 +1162,22 @@ impl InputEngine for PhraseEngine {
                 }
             }
             _ => {
+                // Like the real Engine, a key that ends a composition is not wanted when there is no reading to end.
+                let composing = !self.reading.is_empty();
                 self.reading.clear();
                 self.caret = 0;
+                return Ok(empty_result(composing));
             }
         }
+        Ok(empty_result(true))
+    }
+    // The whole reading before the caret is one segment, so a segment Backspace takes all of it.
+    fn segment_command(&mut self, command: SegmentCommand) -> Result<EngineResult, RuntimeError> {
+        if !matches!(command, SegmentCommand::Backspace) || self.caret == 0 {
+            return Ok(empty_result(!self.reading.is_empty()));
+        }
+        self.reading = self.reading.split_off(self.caret);
+        self.caret = 0;
         Ok(empty_result(true))
     }
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
@@ -1028,6 +1226,62 @@ fn phrase_runtime(reading: &str, consumes: Vec<usize>) -> Runtime<PhraseEngine> 
             .unwrap();
     }
     runtime
+}
+
+// A Ctrl+Backspace that empties the reading does not end the phrase: the chosen piece stays in the composition with its selection, as the reference's `keep_creating_word_after_empty_raw` keeps it (MSIME-Windows server/src/ipc/event_listener.cpp, pinned by `ShouldRetreatCreatingWordSelection(true, false, true, 0, 0, 1)` and `ShouldDropCreatingWordSegment(true, false, true, 0, 1)` in test_input_key_policy.cpp). Every follow-up key then acts on that phrase.
+#[test]
+fn a_segment_backspace_that_empties_the_reading_keeps_the_phrase() {
+    let emptied = || {
+        let mut runtime = phrase_runtime("haitanpaobu", vec![6]);
+        let id = runtime.view().candidates[0].id;
+        let held = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(held.view.phrase_prefix, "海滩");
+        assert_eq!(held.view.editing_text, "paobu");
+        let kept = runtime.dispatch(Action::SegmentBackspace).unwrap();
+        assert_eq!(kept.commit, None);
+        assert!(kept.handled);
+        assert_eq!(kept.view.phrase_prefix, "海滩");
+        assert!(kept.view.editing_text.is_empty());
+        runtime
+    };
+
+    // Backspace takes the selection back: the reading it consumed returns.
+    let mut runtime = emptied();
+    let back = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(back.commit, None);
+    assert!(back.view.phrase_prefix.is_empty());
+    assert_eq!(back.view.editing_text, "haitan");
+
+    // A second Ctrl+Backspace deletes the chosen piece, which ends the composition with nothing sent.
+    let mut runtime = emptied();
+    let dropped = runtime.dispatch(Action::SegmentBackspace).unwrap();
+    assert_eq!(dropped.commit, None);
+    assert!(dropped.handled);
+    assert!(dropped.view.phrase_prefix.is_empty());
+    assert!(dropped.view.editing_text.is_empty());
+
+    // Enter sends the phrase, and the key does not also reach the application.
+    let mut runtime = emptied();
+    let committed = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert_eq!(committed.commit.as_deref(), Some("海滩"));
+    assert!(committed.handled);
+    assert!(committed.view.phrase_prefix.is_empty());
+
+    // Escape throws it away.
+    let mut runtime = emptied();
+    let cancelled = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(cancelled.commit, None);
+    assert!(cancelled.handled);
+    assert!(cancelled.view.phrase_prefix.is_empty());
+
+    // Leaving the client still sends the phrase.
+    let mut runtime = emptied();
+    let blurred = runtime.focus(false).unwrap();
+    assert_eq!(blurred.commit.as_deref(), Some("海滩"));
 }
 
 // Going back into a phrase that is half chosen.
@@ -1145,6 +1399,8 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             withheld: Vec::new(),
             sources: Vec::new(),
             remaining_after_select: None,
+            positions: Vec::new(),
+            reading: String::new(),
         },
         2,
     )
@@ -2075,6 +2331,8 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
                 .collect(),
             sources: Vec::new(),
             remaining_after_select: None,
+            positions: Vec::new(),
+            reading: String::new(),
         },
         page_size,
     )

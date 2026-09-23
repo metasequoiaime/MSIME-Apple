@@ -15,7 +15,7 @@ export class InlinePreeditPolicy {
   /**
    * The preview text for one Engine view; empty means none should be shown.
    *
-   * A held phrase piece leads the spelling, as the candidate window draws it, so the characters already picked stay visible in the document instead of vanishing until the phrase is committed.
+   * A held phrase piece leads the spelling, as the candidate window draws it, so the characters already picked stay visible in the document instead of vanishing until the phrase is committed. It stays visible on its own once a Ctrl+Backspace has emptied the reading, because it is still the composition.
    */
   static text(
     style: InlinePreeditStyle,
@@ -25,7 +25,13 @@ export class InlinePreeditPolicy {
     preedit: string,
     phrasePrefix: string,
   ): string {
-    if (!desktop || !supported || style === "empty" || editing.length === 0) return "";
+    if (
+      !desktop ||
+      !supported ||
+      style === "empty" ||
+      (editing.length === 0 && phrasePrefix.length === 0)
+    )
+      return "";
     const spelling: string = style === "pinyin" && preedit.length > 0 ? preedit : editing;
     return phrasePrefix + spelling;
   }

@@ -479,6 +479,13 @@ static BOOL MSIMEASCIIAlphanumeric(unichar character) {
     return (character >= '0' && character <= '9') || (character >= 'A' && character <= 'Z') ||
            (character >= 'a' && character <= 'z');
 }
+// Whether the view is composing: a reading, candidates, or a held phrase piece. A Ctrl+Backspace that empties the reading of a half-chosen phrase leaves the chosen piece in the composition with no reading and no candidates (the reference's `keep_creating_word_after_empty_raw`), so a test on the reading alone would let keys reach the application while the marked text still shows that piece.
+static BOOL MSIMEViewHasComposition(NSDictionary *view) {
+    NSString *editing = [view[@"editing_text"] isKindOfClass:NSString.class] ? view[@"editing_text"] : @"";
+    NSArray *candidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : @[];
+    NSString *phrase = [view[@"phrase_prefix"] isKindOfClass:NSString.class] ? view[@"phrase_prefix"] : @"";
+    return editing.length > 0 || candidates.count > 0 || phrase.length > 0;
+}
 // Match the Windows TSF classifier's CapsLock special case. CapsLock turns an
 // unshifted alphabetic key into an uppercase character, but an uppercase key
 // must remain a native application key when a new composition would otherwise
@@ -492,9 +499,7 @@ static BOOL MSIMECapsLockFreshUppercaseBypass(NSEvent *event, NSDictionary *view
     if (event.characters.length != 1) return NO;
     const unichar character = [event.characters characterAtIndex:0];
     if (character < 'A' || character > 'Z') return NO;
-    NSString *editing = [view[@"editing_text"] isKindOfClass:NSString.class] ? view[@"editing_text"] : @"";
-    NSArray *candidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : @[];
-    return editing.length == 0 && candidates.count == 0;
+    return !MSIMEViewHasComposition(view);
 }
 static NSString *MSIMEChinesePunctuationForSmart(unichar character) {
     switch (character) {
@@ -831,9 +836,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert ||
         _appearance.runtimeFullWidthInput || armed != client || _pendingPairedClosing.length)
         return NO;
-    if ([_view[@"editing_text"] length] ||
-        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]))
-        return NO;
+    if (MSIMEViewHasComposition(_view)) return NO;
     const uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
     if (!preceding || MSIMEASCIIForSmartChinesePunctuation((unichar)preceding) != mark) return NO;
     const NSRange selected =
@@ -858,8 +861,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self clearSmartPunctuationSpaceConversion];
         return NO;
     }
-    const BOOL hasComposition = [_view[@"editing_text"] length] ||
-        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
+    const BOOL hasComposition = MSIMEViewHasComposition(_view);
     // The space gesture covers the complete source mapping, not only the
     // comma/period/colon subset used by direct-output and repeat-to-Chinese.
     // Arm before Engine resolves the key; the follow-up re-reads the committed
@@ -876,7 +878,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     const BOOL repeat = _lastSmartPunctuation == character && !_smartPunctuationRejected &&
         _smartPunctuationClient == client && NSProcessInfo.processInfo.systemUptime - _lastSmartPunctuationTime <= 2.0;
     if (repeat && _appearance.smartPunctuationRepeatToChinese && _appearance.pairedPunctuation &&
-        ![_view[@"editing_text"] length] && [_view[@"candidates"] isKindOfClass:NSArray.class] && ![_view[@"candidates"] count]) {
+        [_view[@"candidates"] isKindOfClass:NSArray.class] && !MSIMEViewHasComposition(_view)) {
         const uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
         NSString *expected = MSIMEFullWidthSmartMark(character, _appearance.runtimeFullWidthInput);
         if (preceding && expected.length == 1 && [expected characterAtIndex:0] == (unichar)preceding) {
@@ -1957,7 +1959,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             if (cleared[@"view"]) _view = cleared[@"view"];
         }
     }
-    if (_appearance.englishMode && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
+    if (_appearance.englishMode && _activeClient && MSIMEViewHasComposition(_view)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
     [self syncPageSize];
@@ -2376,7 +2378,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [self ensureAppearance];
     if (!_session || _focusPending) [self prepareSession];
     if (!_session) return;
-    if ([_view[@"editing_text"] isKindOfClass:NSString.class] && [_view[@"editing_text"] length]) {
+    if (MSIMEViewHasComposition(_view)) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return;
         [self apply:finished];
@@ -3472,7 +3474,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 - (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
     [self ensureAppearance];
-    if (_session && _activeClient && [_view[@"editing_text"] length]) {
+    if (_session && _activeClient && MSIMEViewHasComposition(_view)) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return;
         [self apply:finished];
@@ -3650,7 +3652,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         // Commit first, then switch: switching rebuilds the input session, and the other order loses the
         // letters still being composed. setEnglishInputMode: finishes any composition of its own, which is
         // a no-op once this has run.
-        if ([_view[@"editing_text"] length] && _session && _activeClient) {
+        if (MSIMEViewHasComposition(_view) && _session && _activeClient) {
             NSDictionary *raw = [_session command:MSIME_COMMIT_RAW error:nil];
             if (raw) [self apply:raw];
         }
@@ -3660,7 +3662,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (event.type != NSEventTypeKeyDown) return NO;
     [_appearance lockActiveInputMode];
     if (event.keyCode == 51) {
-        const BOOL compositionActive = [_view[@"editing_text"] length] || [_view[@"candidates"] count];
+        const BOOL compositionActive = MSIMEViewHasComposition(_view);
         BOOL suppressEscapedRepeat = NO;
         if (!event.isARepeat) {
             _backspaceHoldArmed = compositionActive;
@@ -3828,8 +3830,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (keypadPunctuation &&
         !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
                                  NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
-        const BOOL hasComposition = [_view[@"editing_text"] length] ||
-            ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
+        const BOOL hasComposition = MSIMEViewHasComposition(_view);
         NSDictionary *transition = hasComposition || keypadPunctuation == '.'
             ? [_session punctuationASCII:(uint8_t)keypadPunctuation error:nil]
             : [_session punctuation:(uint8_t)keypadPunctuation error:nil];
@@ -3884,7 +3885,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if ((event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift |
                                 NSEventModifierFlagOption | NSEventModifierFlagCommand)) ==
             NSEventModifierFlagControl &&
-        _session && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
+        _session && _activeClient && MSIMEViewHasComposition(_view)) {
         uint32_t segment = UINT32_MAX;
         if (event.keyCode == 51) segment = MSIME_BACKSPACE_SEGMENT;
         else if (event.keyCode == 123) segment = MSIME_MOVE_LEFT_SEGMENT;
@@ -3973,8 +3974,31 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
                     NSDictionary *identifier = candidate[@"id"];
                     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
                     NSDictionary *selected = [_session selectEdgeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] edge:first ? MSIME_FIRST_HAN : MSIME_LAST_HAN error:nil];
-                    if (selected) [self apply:selected];
-                    return YES; // Unsupported/stale candidates must not turn into punctuation.
+                    // The Engine picks the edge from the simplified word, but the character the user sees is in the converted phrase: Windows takes ExtractHanCharacter(CandidateTextForOutput(word)), so 头发+] is 髮 and 皇后+] is 后, which a lone s2t of 发 or 后 cannot give. The Engine call still resets the composition and fences stale generations; only the committed text is replaced.
+                    if (selected && _appearance.traditionalOutput && MSIMEScriptConversionApplies(selected[@"commit_context"]) &&
+                        [selected[@"commit"] isKindOfClass:NSString.class] && [selected[@"commit"] length] > 0 &&
+                        [candidate[@"text"] isKindOfClass:NSString.class]) {
+                        NSString *edge = MSIMEEdgeHanCharacter(MSIMEChineseOutputString(candidate[@"text"], YES), first);
+                        if (edge) {
+                            // With phrase_preedit the runtime commits the held phrase pieces in front of the edge (hold_phrase_progress: held + edge), so keep them; they are read from the pre-select view and converted here because commit_output_converted stops apply: from converting any of the commit.
+                            NSString *held = [_view[@"phrase_prefix"] isKindOfClass:NSString.class] ? _view[@"phrase_prefix"] : @"";
+                            NSMutableDictionary *converted = [selected mutableCopy];
+                            converted[@"commit"] = [MSIMEChineseOutputString(held, YES) stringByAppendingString:edge];
+                            converted[@"commit_output_converted"] = @YES;
+                            selected = converted;
+                        }
+                    }
+                    if (!selected) return YES; // An Engine failure or a stale identity must never turn into punctuation.
+                    if ([selected[@"handled"] boolValue]) {
+                        [self apply:selected];
+                        return YES;
+                    }
+                    // A current candidate without a Han character (English word, number, emoji): Windows replies Normal and its TSF side commits the candidate followed by the key's punctuation, '-' literally and the others through the punctuation table (KeyHandler.cpp); Linux falls back to msime_client_punctuation the same way.
+                    NSDictionary *fallback = character == '-'
+                        ? [_session punctuationASCII:(uint8_t)character error:nil]
+                        : [_session punctuation:(uint8_t)character error:nil];
+                    if (fallback) [self apply:fallback];
+                    return YES;
                 }
                 return YES;
             }
@@ -4064,7 +4088,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     }
     if ([transition[@"handled"] boolValue]) return YES;
     // Match Apple: Engine gets first refusal, then finish any composition before fallback.
-    if ([_view[@"editing_text"] length]) {
+    if (MSIMEViewHasComposition(_view)) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return NO;
         [self apply:finished];
@@ -4185,7 +4209,9 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
             if ([commitForTracking hasPrefix:pair[0]] && [commitForTracking hasSuffix:pair[1]]) { _pairedPunctuation.push(pair[1].UTF8String); break; }
     }
     NSDictionary *displayTransition = transition;
-    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
+    // commit_output_converted is set by this host alone (word-to-character above) for a commit already in the output script; a second s2t would turn 后 back into 後.
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class] &&
+        ![transition[@"commit_output_converted"] isEqual:@YES]) {
         NSMutableDictionary *converted = [transition mutableCopy];
         converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
         displayTransition = converted;
@@ -4351,7 +4377,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
                 itemWidth = MAX(itemWidth, ceil(glossWidth) + 40 + (geometry.showSelectedBar ? 6 : 0));
                 glossHeight = MAX(glossHeight, glossSize.height + 4);
             }
-            if (vertical) rowHeight = MAX(rowHeight, glossSize.height + MSIMECandidateTextHeight(title, font) + 4);
+            if (vertical) rowHeight = MAX(rowHeight, glossSize.height + 4);
         }
         rowItems.push_back({textWidth, itemWidth});
         [widths addObject:@(itemWidth)];

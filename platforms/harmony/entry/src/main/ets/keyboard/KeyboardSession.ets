@@ -18,7 +18,7 @@ import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
-import { HardwareNavigationPreferences, HardwareSpelling } from './HardwareKeyRouter';
+import { HardwareKeyRouter, HardwareNavigationPreferences, HardwareSpelling } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import common from '@ohos.app.ability.common';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
@@ -1894,7 +1894,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Whether something is being spelled right now, which decides who a physical key belongs to. */
   composing(): boolean {
-    return this.editing.length > 0;
+    return HardwareKeyRouter.composing(this.editing, this.phrasePrefix);
   }
 
   /** Tells the Engine which grid the user is typing on, so a 2 means ABC rather than a digit. */
@@ -2501,7 +2501,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const now: number = Date.now();
     if (SmartPunctuationRepeatPolicy.shouldReplace(
       this.smartPunctuationSnapshot, ascii, preceding, now, this.editorGeneration,
-      this.smartPunctuation, this.smartPunctuationRepeat, this.editing.length > 0,
+      this.smartPunctuation, this.smartPunctuationRepeat, this.composing(),
       this.currentCandidates.length)) {
       const chinese: string | null = SmartPunctuationRepeatPolicy.chineseMark(ascii);
       if (chinese !== null) {
@@ -2547,7 +2547,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // write the literal mark itself; this is also the state from which a repeated smart mark can
     // be replaced on the next press.
     if ((committed === null || committed === undefined || committed.length === 0)
-        && this.inputClient !== undefined && this.editing.length === 0
+        && this.inputClient !== undefined && !this.composing()
         && this.currentCandidates.length === 0) {
       try {
         const literal: string = FullWidthInputPolicy.output(String.fromCharCode(ascii), this.fullWidth)
@@ -2841,6 +2841,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // Bounded before it reaches the surface: a diagnostic is a message, not a place to print a
     // stack trace into a keyboard four rows tall.
     this.editing = value.view.editing_text;
+    this.phrasePrefix = value.view.phrase_prefix ?? '';
     this.editingCaret = value.view.caret_position;
     this.scheme = value.view.scheme;
     this.diagnostic = InputDiagnosticPolicy.normalize(
@@ -2905,6 +2906,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private readonly translationCache: Map<string, string> = new Map<string, string>();
   private readonly translationNegativeCache: Map<string, number> = new Map<string, number>();
   private editing: string = '';
+  /** The phrase piece the runtime holds ahead of the reading; it can outlive the reading, see HardwareKeyRouter.composing. */
+  private phrasePrefix: string = '';
   private japaneseConversionIndex: number = -1;
   private japaneseConversionReading: string = '';
   // Where the segment keys have put the caret. Drawn by the candidate window, which is the
@@ -2938,7 +2941,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // this behind, so the toolbar's 半 never became 全 and the next tap asked for the same thing
     // again.
     this.fullWidth = view.character_width === 'Fullwidth';
-    const active: boolean = view.editing_text.length > 0;
+    const active: boolean = HardwareKeyRouter.composing(view.editing_text, view.phrase_prefix ?? '');
     if (active !== this.composedLast) {
       this.composedLast = active;
       if (this.onComposition !== undefined) {
@@ -4355,7 +4358,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     const decision: SpaceConvertDecision = SmartPunctuationSpacePolicy.decide(
-      snapshot, character, preceding, this.editing.length > 0, this.editorGeneration);
+      snapshot, character, preceding, this.composing(), this.editorGeneration);
     if (decision !== SpaceConvertDecision.CONVERT) {
       this.clearSmartPunctuationSpace();
       return false;
@@ -4390,7 +4393,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.smartPunctuation && this.smartPunctuationRepeat
       && this.chinesePunctuation && this.punctuationLock === 'follow'
       && !dedicatedEnglish && this.localMode === 'none' && this.schemeName !== 'japanese'
-      && this.editing.length === 0 && this.currentCandidates.length === 0
+      && !this.composing() && this.currentCandidates.length === 0
       && SmartPunctuationRepeatPolicy.chineseMark(ascii) !== null
       && SmartPunctuationRepeatPolicy.isAsciiAlphanumeric(preceding);
   }

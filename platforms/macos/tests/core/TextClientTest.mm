@@ -247,6 +247,13 @@ static void TestEngineEdges(FakeTextClient *client) {
             if ([code isEqual:@"41"]) {
                 assert(![result[@"handled"] boolValue]);
                 assert([result[@"view"][@"editing_text"] isEqual:view[@"editing_text"]]);
+                // The host then falls back to punctuation, as Windows does for a Normal reply: the highlighted candidate is committed followed by the key's punctuation.
+                client.committed = nil;
+                NSDictionary *fallback = [session punctuation:edge ? ']' : '[' error:&error];
+                assert(fallback && !error && [fallback[@"handled"] boolValue]);
+                MSIMEApplyTransition(fallback, client);
+                assert([client.committed isEqual:edge ? @"A】" : @"A【"]);
+                assert([[[session viewWithError:&error] objectForKey:@"editing_text"] length] == 0);
             } else {
                 MSIMEApplyTransition(result, client);
                 assert([client.committed isEqual:[code isEqual:@"4e2d"] ? @"中" : @"𠀀"]);
