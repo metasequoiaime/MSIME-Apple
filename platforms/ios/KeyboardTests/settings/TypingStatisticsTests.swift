@@ -281,4 +281,34 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(
       atPath: container.appendingPathComponent("typing-statistics.json").path))
   }
+
+  /// The daily table uses the Windows columns: the four named kinds, everything else under 其他 so a row adds up, and speed over prose only.
+  func testDailyRowsFollowTheWindowsColumnsAndExportAsCSV() throws {
+    let document = """
+    {"enabled":true,"total":230,
+     "days":{"2026-09-20":120,"2026-09-21":80,"2026-09-22":30,"not-a-day":5},
+     "dailyDetails":{
+       "2026-09-20":{"characters":{"han":60,"latin":30,"number":10,"punctuation":8,"emoji":2,"symbol":1,"otherLetter":4},"sources":{}},
+       "2026-09-22":{"characters":{"han":20},"sources":{}}},
+     "dailyActiveMs":{"2026-09-20":180000,"2026-09-22":30000}}
+    """
+    let statistics = try JSONDecoder().decode(TypingStatistics.self, from: Data(document.utf8))
+    let rows = statistics.dailyRows()
+    XCTAssertEqual(rows.map(\.day), ["2026-09-22", "2026-09-21", "2026-09-20"])
+    let busy = try XCTUnwrap(rows.last)
+    XCTAssertEqual([busy.total, busy.han, busy.latin, busy.number, busy.punctuation, busy.other], [120, 60, 30, 10, 8, 12])
+    // 94 prose characters (Han, Latin, other scripts) over three minutes.
+    XCTAssertEqual(busy.speed, 94.0 / 3, accuracy: 0.001)
+    // A day recorded before the breakdown existed lands entirely under 其他 and has no speed.
+    XCTAssertEqual(rows[1].other, 80)
+    XCTAssertEqual(rows[1].speed, 0)
+    XCTAssertEqual(statistics.dailyRows(limit: 2).map(\.day), ["2026-09-22", "2026-09-21"])
+
+    let csv = statistics.dailyCSV()
+    XCTAssertTrue(csv.hasPrefix("\u{FEFF}日期,字数,中文,英文,数字,标点,其他,活跃分钟,速度(字/分)\r\n"))
+    let lines = csv.dropFirst().split(separator: "\r\n").map(String.init)
+    XCTAssertEqual(lines.count, 4)
+    XCTAssertEqual(lines[1], "2026-09-22,30,20,0,0,0,10,0.5,40")
+    XCTAssertEqual(lines[3], "2026-09-20,120,60,30,10,8,12,3.0,31")
+  }
 }
