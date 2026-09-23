@@ -2,7 +2,7 @@ import UIKit
 
 /// Apple-style category browser backed by the shared paged Emoji catalog, with the kaomoji catalog as its last tab.
 ///
-/// A kaomoji is a line of text, not a pictograph, so its tab lays out as many columns as fit its width: two on a phone, more on an iPad. Kaomoji stay out of 最近, whose eight-column grid is sized for Emoji.
+/// A kaomoji is a line of text, not a pictograph, so its tab lays out as many columns as fit its width: two on a phone, more on an iPad. Kaomoji stay out of 最近, whose eight-column grid is sized for Emoji; the ones used go to a 最近颜文字 tab just before 颜文字, laid out like it, which appears once there is something in it.
 ///
 /// Search swaps the category bar for a letter pad of the picker's own. A keyboard extension has no text field it can type into, and the Engine matches Emoji and kaomoji by pinyin and English keywords, both of which are letters, so the pad types the query and the grid above it shows the matches. While searching, the category bar's place holds two scopes, 表情 and 颜文字, like the separate Emoji and kaomoji results of the Windows panel's search; the search opens on 颜文字 from the kaomoji tab and on 表情 from any other.
 final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
@@ -12,11 +12,13 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
 
   private enum Tab: Equatable {
     case recent
+    case recentKaomoji
     case category(KeyboardEmojiCatalog.Category)
 
     var title: String {
       switch self {
       case .recent: return "最近"
+      case .recentKaomoji: return "最近颜文字"
       case .category(let category): return category.title
       }
     }
@@ -74,9 +76,10 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
       try KeyboardEmojiCatalog.loadPage(
         resources: resources, category: category, offset: offset)
     }
-    let recents = KeyboardEmojiRecents.stored
-    availableTabs = (recents.isEmpty ? [] : [.recent])
-      + KeyboardEmojiCatalog.categories.map(Tab.category) + [.category(KeyboardEmojiCatalog.kaomoji)]
+    availableTabs = (KeyboardEmojiRecents.stored.isEmpty ? [] : [.recent])
+      + KeyboardEmojiCatalog.categories.map(Tab.category)
+      + (KeyboardKaomojiRecents.stored.isEmpty ? [] : [.recentKaomoji])
+      + [.category(KeyboardEmojiCatalog.kaomoji)]
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardEmojiPicker"
     backgroundColor = skin.background
@@ -209,8 +212,11 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   }
 
   private var showsKaomoji: Bool {
-    guard case .category(let category) = currentTab else { return false }
-    return category.isKaomoji
+    switch currentTab {
+    case .recentKaomoji: return true
+    case .category(let category): return category.isKaomoji
+    default: return false
+    }
   }
 
   /// Columns for the kaomoji tab: as many 170-point columns as the width holds, and never fewer than two.
@@ -259,6 +265,12 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     switch availableTabs[index] {
     case .recent:
       items = KeyboardEmojiRecents.stored.map {
+        KeyboardEmojiCatalog.Item(text: $0, annotation: "", group: "最近")
+      }
+      complete = true
+      reloadCatalog()
+    case .recentKaomoji:
+      items = KeyboardKaomojiRecents.stored.map {
         KeyboardEmojiCatalog.Item(text: $0, annotation: "", group: "最近")
       }
       complete = true
@@ -470,7 +482,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     guard items.indices.contains(indexPath.item) else { return }
     collectionView.deselectItem(at: indexPath, animated: false)
     let emoji = items[indexPath.item].text
-    if !showsKaomoji { KeyboardEmojiRecents.record(emoji) }
+    if showsKaomoji { KeyboardKaomojiRecents.record(emoji) } else { KeyboardEmojiRecents.record(emoji) }
     onInsert(emoji)
   }
 

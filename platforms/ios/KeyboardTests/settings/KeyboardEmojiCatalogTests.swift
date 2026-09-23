@@ -4,7 +4,7 @@ import UIKit
 @MainActor
 final class KeyboardEmojiCatalogTests: XCTestCase {
   private var savedRecents: [String: Any] = [:]
-  private let recentKeys = [KeyboardEmojiRecents.key, KeyboardSymbolRecents.key]
+  private let recentKeys = [KeyboardEmojiRecents.key, KeyboardSymbolRecents.key, KeyboardKaomojiRecents.key]
 
   override func setUp() {
     super.setUp()
@@ -488,7 +488,7 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertTrue(page.items.contains { $0.text.unicodeScalars.count > 1 })
   }
 
-  func testPickerKaomojiTabInsertsWithoutTouchingRecents() async throws {
+  func testPickerKaomojiGoesToItsOwnRecentsTab() async throws {
     let kaomoji = KeyboardEmojiCatalog.kaomoji
     let loaded = expectation(description: "kaomoji page")
     var inserted: String?
@@ -520,11 +520,45 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertEqual(grid.numberOfItems(inSection: 0), 1)
     picker.collectionView(grid, didSelectItemAt: IndexPath(item: 0, section: 0))
     XCTAssertEqual(inserted, "(*^▽^*)")
-    XCTAssertTrue(KeyboardEmojiRecents.stored.isEmpty)
+    XCTAssertTrue(KeyboardEmojiRecents.stored.isEmpty, "kaomoji stay out of the Emoji recents")
+    XCTAssertEqual(KeyboardKaomojiRecents.stored, ["(*^▽^*)"])
     let status = try XCTUnwrap(descendants(picker).first {
       $0.accessibilityIdentifier == "emojiCatalogStatus"
     } as? UILabel)
     XCTAssertEqual(status.text, "1 个颜文字")
+    XCTAssertFalse(tabs.contains { $0.accessibilityLabel == "最近颜文字" }, "no tab until a kaomoji is used")
+
+    let reopened = KeyboardEmojiPickerView(
+      resources: "/fixture",
+      loader: { _, _ in .init(items: [], nextOffset: 0, complete: true) },
+      onInsert: { inserted = $0 }, onDelete: {}, onClose: {}, onCatalogChange: nil)
+    reopened.frame = picker.frame
+    reopened.layoutIfNeeded()
+    let reopenedTabs = descendants(reopened).compactMap { $0 as? UIButton }
+      .filter { $0.accessibilityIdentifier?.hasPrefix("emojiCategory-") == true }
+    XCTAssertEqual(reopenedTabs.suffix(2).map(\.accessibilityLabel), ["最近颜文字", "颜文字"])
+    XCTAssertFalse(reopenedTabs.contains { $0.accessibilityLabel == "最近" }, "the Emoji recents are still empty")
+    try XCTUnwrap(reopenedTabs.first { $0.accessibilityLabel == "最近颜文字" }).sendActions(for: .primaryActionTriggered)
+    let reopenedGrid = try XCTUnwrap(descendants(reopened).first {
+      $0.accessibilityIdentifier == "emojiGrid"
+    } as? UICollectionView)
+    XCTAssertEqual(reopenedGrid.numberOfItems(inSection: 0), 1)
+    inserted = nil
+    reopened.collectionView(reopenedGrid, didSelectItemAt: IndexPath(item: 0, section: 0))
+    XCTAssertEqual(inserted, "(*^▽^*)")
+    XCTAssertEqual(KeyboardKaomojiRecents.stored, ["(*^▽^*)"])
+    XCTAssertTrue(KeyboardEmojiRecents.stored.isEmpty)
+  }
+
+  func testKaomojiRecentsKeepLongLinesAndStayBounded() {
+    let long = String(repeating: "(^_^)", count: 12)
+    XCTAssertFalse(KeyboardEmojiCatalog.validRecent(long), "too long for the Emoji recents")
+    KeyboardKaomojiRecents.record(long)
+    XCTAssertEqual(KeyboardKaomojiRecents.stored, [long])
+    for index in 0..<30 { KeyboardKaomojiRecents.record("(\(index))") }
+    XCTAssertEqual(KeyboardKaomojiRecents.stored.count, KeyboardKaomojiRecents.limit)
+    XCTAssertEqual(KeyboardKaomojiRecents.stored.first, "(29)")
+    XCTAssertEqual(KeyboardKaomojiRecents.normalize(["a", "a", "", "b"]), ["a", "b"])
   }
 
   func testControllerExposesToolbarAndMoreMenuEntries() throws {

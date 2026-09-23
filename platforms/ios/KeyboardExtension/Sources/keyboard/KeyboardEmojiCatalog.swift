@@ -201,6 +201,10 @@ enum KeyboardEmojiCatalog {
     validText(value)
   }
 
+  static func validRecentKaomoji(_ value: String) -> Bool {
+    validText(value, kaomoji: true)
+  }
+
   /// A kaomoji is a short line of text rather than one pictograph; the longest in the shipped catalog is 59 characters.
   private static func validText(_ value: String, kaomoji: Bool = false) -> Bool {
     let scalars = kaomoji ? 96 : 32
@@ -235,6 +239,37 @@ enum KeyboardEmojiRecents {
     for value in values where KeyboardEmojiCatalog.validRecent(value) && seen.insert(value).inserted {
       output.append(value)
       if output.count == KeyboardEmojiCatalog.recentLimit { break }
+    }
+    return output
+  }
+}
+
+/// Kaomoji picked in the emoji picker, newest first, kept apart from the Emoji recents.
+///
+/// Windows keeps one recent list for its whole panel. On iOS the Emoji recents fill an eight-column pictograph grid, and a kaomoji is a line of text that needs the kaomoji tab's wide columns, so kaomoji get their own 最近颜文字 tab beside 颜文字.
+enum KeyboardKaomojiRecents {
+  static let key = "kaomojiRecents"
+  /// Eight rows of the two columns a phone shows.
+  static let limit = 16
+  private static var defaults: UserDefaults { KeyboardFeedbackPreference.defaults }
+
+  static var stored: [String] {
+    normalize(defaults.stringArray(forKey: key) ?? [])
+  }
+
+  static func record(_ kaomoji: String) {
+    guard KeyboardEmojiCatalog.validRecentKaomoji(kaomoji) else { return }
+    var recents = stored.filter { $0 != kaomoji }
+    recents.insert(kaomoji, at: 0)
+    defaults.set(Array(recents.prefix(limit)), forKey: key)
+  }
+
+  static func normalize(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    var output: [String] = []
+    for value in values where KeyboardEmojiCatalog.validRecentKaomoji(value) && seen.insert(value).inserted {
+      output.append(value)
+      if output.count == limit { break }
     }
     return output
   }
