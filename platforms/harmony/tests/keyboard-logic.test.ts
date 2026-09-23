@@ -291,6 +291,7 @@ import {
   ToolbarComponents,
 } from "../entry/src/main/ets/keyboard/FloatingToolbarLayout";
 import { FloatingToolbarDragPolicy } from "../entry/src/main/ets/keyboard/FloatingToolbarDragPolicy";
+import { InlinePreeditPolicy } from "../entry/src/main/ets/keyboard/input/InlinePreeditPolicy";
 
 function selectedBarVisible(value: boolean | null): boolean {
   return value !== false;
@@ -8186,6 +8187,57 @@ group("Harmony batch transcription accepts every shared cloud preset", () => {
     !HttpAsrConfigurationPolicy.valid({ ...mistral, asr_provider: "local" }),
     "a provider without the HTTP adapter cannot fall through to it",
   );
+});
+
+group("the 2in1 draws the composition inline as tsf_preedit_style says", () => {
+  check(
+    InlinePreeditPolicy.style(undefined) === "raw",
+    "a document without the field shows raw letters",
+  );
+  check(InlinePreeditPolicy.style("pinyin") === "pinyin", "pinyin is read");
+  check(InlinePreeditPolicy.style("empty") === "empty", "empty is read");
+  check(InlinePreeditPolicy.style("local") === "raw", "an unknown style falls back to raw");
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "nihao", "ni'hao", "") === "nihao",
+    "raw shows the letters as typed",
+  );
+  check(
+    InlinePreeditPolicy.text("pinyin", true, true, "nihao", "ni'hao", "") === "ni'hao",
+    "pinyin shows the segmented spelling",
+  );
+  check(
+    InlinePreeditPolicy.text("pinyin", true, true, "nihao", "", "") === "nihao",
+    "pinyin without a segmented spelling falls back to the letters",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "hao", "hao", "你") === "你hao",
+    "a held phrase piece leads the spelling",
+  );
+  check(
+    InlinePreeditPolicy.text("empty", true, true, "nihao", "ni'hao", "") === "",
+    "empty leaves the document alone",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", false, true, "nihao", "ni'hao", "") === "",
+    "a phone keeps the spelling above its keys",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, false, "nihao", "ni'hao", "") === "",
+    "an editor without preview text gets none",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "", "", "") === "",
+    "no composition, no preview",
+  );
+  check(
+    InlinePreeditPolicy.beforePreview("好nihao", "nihao") === "好",
+    "context before the caret skips the preview the editor counts as text",
+  );
+  check(
+    InlinePreeditPolicy.beforePreview("好a", "nihao") === "好a",
+    "an editor that keeps preview text out of its content is read as is",
+  );
+  check(InlinePreeditPolicy.beforePreview("好a", "") === "好a", "no preview, nothing removed");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

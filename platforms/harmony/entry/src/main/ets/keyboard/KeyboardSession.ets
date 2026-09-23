@@ -88,6 +88,7 @@ import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
+import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
 import {
   CompositionBoundary, CompositionBoundaryAction, CompositionBoundaryPolicy
 } from './input/CompositionBoundaryPolicy';
@@ -521,6 +522,8 @@ const NO_CANDIDATE_SKIN_IMAGE: CandidateSkinImage = { image: null, aspectRatio: 
 // ended the last sentence. A caret further than this from one is in the middle of a sentence by any
 // reading, and the call is made on every text change, so it stays bounded.
 const MAX_CAPITALIZATION_CONTEXT_CHARACTERS: number = 64;
+// setPreviewText's range for "whatever preview text is shown now, or the caret when there is none".
+const PREVIEW_REPLACE_CURRENT: inputMethodEngine.Range = { start: -1, end: -1 };
 
 interface SkinResourceResponse {
   ok: boolean;
@@ -597,6 +600,8 @@ interface PreparedPreferences {
   navigation: PreparedNavigationPreferences;
   candidate_layout: string;
   candidate_preedit_style: string;
+  /** Inline spelling in the document; the 2in1 draws it as editor preview text. */
+  tsf_preedit_style?: string;
   candidate_font_size: number;
   candidate_preedit_font_size: number;
   candidate_font_family: string;
@@ -848,6 +853,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   // count raised until those callbacks arrive so our own commit cannot be mistaken for a host edit
   // and finish a residual composition that the Engine deliberately left active.
   private pendingOwnEdits: number = 0;
+  private inlinePreeditStyle: InlinePreeditStyle = 'raw';
+  /** Whether the focused editor said it takes preview text; learned from its attribute. */
+  private previewSupported: boolean = false;
+  /** The preview text the editor holds now, empty when it holds none. */
+  private previewText: string = '';
   private replyContextGeneration: number = 0;
   private replyResultEditorGeneration: number = -1;
   private replyResultContextGeneration: number = -1;
@@ -1122,6 +1132,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const preferences: PreparedPreferences = prepared.value.preferences;
       this.clipboardHistoryEnabled = ClipboardHistoryPreferencePolicy.enabled(
         preferences.clipboard_history);
+      this.inlinePreeditStyle = InlinePreeditPolicy.style(preferences.tsf_preedit_style);
       this.wubiCodeHint = CandidateAnnotationPreferencePolicy.wubiCodeHint(
         preferences.wubi_code_hint);
       this.candidateEnglishGloss = CandidateAnnotationPreferencePolicy.englishGloss(
@@ -2057,6 +2068,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   attach(inputClient: inputMethodEngine.InputClient): void {
     const editorGeneration: number = ++this.editorGeneration;
     this.pendingOwnEdits = 0;
+    this.previewSupported = false;
+    this.previewText = '';
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
@@ -2065,6 +2078,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         return;
       }
       this.enterKey = attribute.enterKeyType;
+      this.previewSupported = attribute.isTextPreviewSupported === true;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
       this.capitalization = EditorPolicy.capitalizationMode(this.traits,
         KeyboardSession.capitalizationFor(attribute.capitalizeMode));
@@ -2090,6 +2104,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         // A password or address field takes its letters as typed, never through a candidate list.
         this.englishCandidates = false;
       }
+      // A composition carried into this editor was rendered before its attribute said whether it takes preview text.
+      this.syncPreview();
       if (this.onEditorChanged !== undefined) {
         this.onEditorChanged();
       }
@@ -2119,6 +2135,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
       this.apply(client.focus(this.handle, false));
     }
+    this.previewSupported = false;
+    this.previewText = '';
     this.inputClient = undefined;
   }
 
@@ -2216,6 +2234,15 @@ export class KeyboardSession implements HardwareKeyTarget {
   private insertEditorText(text: string): void {
     const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
     if (inputClient === undefined) return;
+    if (this.previewText.length > 0) {
+      // The insertion takes the preview text's place. It has to land before the next preview update, which is synchronous, and an asynchronous insert gives no such order.
+      try {
+        this.insertEditorTextSync(text);
+      } catch (error) {
+        KeyboardLog.error(`editor insertion unavailable: ${describeError(error)}`);
+      }
+      return;
+    }
     const generation: number = this.editorGeneration;
     this.pendingOwnEdits++;
     inputClient.insertText(text).catch((error: Object): void => {
@@ -2236,6 +2263,47 @@ export class KeyboardSession implements HardwareKeyTarget {
     } catch (error) {
       this.pendingOwnEdits--;
       throw new Error(describeError(error));
+    }
+    // An insertion replaces preview text and ends the preview.
+    this.previewText = '';
+  }
+
+  /**
+   * Bring the editor's preview text in line with the composition the Engine last reported.
+   *
+   * Every change is a document edit the editor echoes back like an insertion, so it is reserved the same way; otherwise the echo would read as the user editing the field and end the composition it came from.
+   */
+  private syncPreview(): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    const view: EngineView | undefined = this.lastView;
+    const wanted: string = view === undefined ? '' : InlinePreeditPolicy.text(this.inlinePreeditStyle,
+      KeyboardFormFactor.isDesktop(), this.previewSupported, view.editing_text, view.preedit,
+      view.phrase_prefix ?? '');
+    if (inputClient === undefined || wanted === this.previewText) return;
+    const shown: string = this.previewText;
+    this.pendingOwnEdits++;
+    try {
+      inputClient.setPreviewTextSync(wanted, PREVIEW_REPLACE_CURRENT);
+      if (wanted.length === 0) inputClient.finishTextPreviewSync();
+      this.previewText = wanted;
+      return;
+    } catch (error) {
+      this.pendingOwnEdits--;
+      KeyboardLog.error(`editor preview unavailable: ${describeError(error)}`);
+    }
+    // The editor refused preview text after saying it took it; stop offering it for this focus.
+    this.previewSupported = false;
+    this.previewText = '';
+    if (shown.length === 0) return;
+    // Letters of a composition must not stay behind in the document: end the preview and take them out, the way a cancelled composition leaves nothing.
+    try {
+      inputClient.finishTextPreviewSync();
+      // Only when the letters are still there as plain text: an editor that dropped them with the preview must not lose what precedes them.
+      if (inputClient.getForwardSync(shown.length) === shown) {
+        this.deleteEditorBackwardSync(shown.length);
+      }
+    } catch (error) {
+      KeyboardLog.error(`editor preview cleanup unavailable: ${describeError(error)}`);
     }
   }
 
@@ -2388,7 +2456,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     let preceding: number = 0;
     try {
       // Harmony's getForwardSync returns the bounded text immediately before the cursor.
-      preceding = SmartPunctuationContext.precedingCodePoint(this.inputClient.getForwardSync(2));
+      preceding = SmartPunctuationContext.precedingCodePoint(InlinePreeditPolicy.beforePreview(
+        this.inputClient.getForwardSync(2 + this.previewText.length), this.previewText));
     } catch (error) {
       // Editor context is optional; zero deliberately falls back to Engine punctuation.
       KeyboardLog.error(`editor punctuation context unavailable: ${describeError(error)}`);
@@ -2820,6 +2889,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.generation = view.generation;
     this.currentCandidates = view.candidates.slice();
     this.lastView = view;
+    this.syncPreview();
     if (this.japaneseConversionIndex >= 0
         && view.editing_text !== this.japaneseConversionReading) {
       this.japaneseConversionIndex = -1;
@@ -4257,7 +4327,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     let preceding: number = 0;
     try {
-      preceding = SmartPunctuationContext.precedingCodePoint(this.inputClient.getForwardSync(2));
+      preceding = SmartPunctuationContext.precedingCodePoint(InlinePreeditPolicy.beforePreview(
+        this.inputClient.getForwardSync(2 + this.previewText.length), this.previewText));
     } catch (error) {
       KeyboardLog.error(`punctuation space context unavailable: ${describeError(error)}`);
       this.clearSmartPunctuationSpace();
