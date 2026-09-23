@@ -135,8 +135,10 @@ interface EngineView {
    * 候选只吃掉部分输入时，引擎会继续组字并把选中的那一段交回来。留住它的宿主必须把它画出来：
    * 请求了却不画，用户已经选中的字既不在文档里也不在屏幕上，而组字在他取消之前不会结束
    * （scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
+   *
+   * Absent rather than empty when nothing is held: the runtime skips serializing an empty prefix, so reading it bare throws on every ordinary keystroke.
    */
-  phrase_prefix: string;
+  phrase_prefix?: string;
   /** Byte offset into `editing_text`, which for this ASCII text is also the character index. */
   caret_position: number;
   generation: number;
@@ -1319,7 +1321,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const reply: PersonalDictionarySyncResponse =
         JSON.parse(client.personalDictionarySync(options)) as PersonalDictionarySyncResponse;
       if (!reply.ok) {
-        KeyboardLog.error('personal dictionary queue not applied; it will be retried');
+        KeyboardLog.error(`personal dictionary queue not applied; it will be retried: ${reply.error}`);
         return false;
       }
       return reply.value.pending_count === 0;
@@ -2249,28 +2251,29 @@ export class KeyboardSession implements HardwareKeyTarget {
     return result;
   }
 
-  press(ascii: number, shift: boolean): void {
+  /** Whether the key did anything. The touch keyboard ignores the answer; the hardware path hands a declined letter back to the application. */
+  press(ascii: number, shift: boolean): boolean {
     // Checked before the repeat arming is cleared: the space that converts is the key immediately
     // after the mark, so this is the one press where both armings are live at once.
     if (this.convertPunctuationSpace(ascii)) {
-      return;
+      return true;
     }
     this.clearSmartPunctuationRepeat();
     if (!this.composes()) {
       // Straight to the editor, with no composition and nothing learned. A password or a one-time
       // code is not something an input method should be holding, let alone remembering.
       this.insert(shift ? String.fromCharCode(ascii).toUpperCase() : String.fromCharCode(ascii));
-      return;
+      return true;
     }
     if (this.handle === 0) {
       // Deliberately without the character: hilog is readable by tooling, and what the user types
       // does not belong in it. The refusal itself is the diagnostic.
       KeyboardLog.error('key ignored: no session');
-      return;
+      return false;
     }
     this.tapFeedback();
-    const before: number = this.editing.length;
-    this.apply(client.character(this.handle, ascii, shift));
+    const before: string = this.editing;
+    const handled: boolean = this.apply(client.character(this.handle, ascii, shift));
     // A letter that leaves the composition exactly as it was is the one failure this path cannot
     // otherwise report: the key was claimed, so the application never sees it, and the Engine
     // answered `ok`, so apply() has nothing to complain about. The result is a key that silently
@@ -2280,10 +2283,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     // What is logged is the shape of the failure, never the key: a character in hilog is the user's
     // text. The scheme and the local mode are the two host-side inputs that decide whether a letter
     // should have composed at all, and both are already public state.
-    if (before === 0 && this.editing.length === 0) {
+    const consumed: boolean = handled || this.editing !== before;
+    // A capital with nothing composed is declined by design and handed back to the application, so only a lower-case letter that composed nothing is a failure worth reporting.
+    const capital: boolean = ascii >= 0x41 && ascii <= 0x5a;
+    if (!consumed && before.length === 0 && !capital) {
       KeyboardLog.error(`composing key produced no composition: scheme=${this.schemeName}`
-        + ` local=${this.localMode} english=${this.englishMode} candidates=${this.currentCandidates.length}`);
+        + ` local=${this.localMode} english=${this.englishMode} candidates=${this.currentCandidates.length}`
+        + ` shift=${shift} caps=${this.capsLock}`);
     }
+    return consumed;
   }
 
   /** Route an ASCII punctuation key through the shared editor-context policy. */
@@ -2751,8 +2759,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.onChanged({
         candidates: entries,
         // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。
-        editing: view.phrase_prefix + view.editing_text,
-        editingCaret: view.caret_position + view.phrase_prefix.length,
+        editing: (view.phrase_prefix ?? '') + view.editing_text,
+        editingCaret: view.caret_position + (view.phrase_prefix ?? '').length,
         spellings: view.nine_key_spellings,
         scheme: view.scheme,
         shuangpinProfile: view.shuangpin_profile,
@@ -2797,8 +2805,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         candidate.translation ?? null, this.candidateGlossEnabled)
     }));
     this.onChanged({
-      candidates: entries, editing: view.phrase_prefix + view.editing_text,
-      editingCaret: view.caret_position + view.phrase_prefix.length,
+      candidates: entries, editing: (view.phrase_prefix ?? '') + view.editing_text,
+      editingCaret: view.caret_position + (view.phrase_prefix ?? '').length,
       spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
       english: view.dedicated_english, diagnostic: this.diagnostic

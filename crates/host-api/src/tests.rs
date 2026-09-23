@@ -4624,6 +4624,33 @@ fn published_defaults_complete_every_nested_preference_object() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn personal_dictionary_sync_reads_the_same_options_as_create() {
+    // Both keyboard hosts hand this entry the options they create a session with. Reading them as a request envelope refused every call: Android dropped the error, and HarmonyOS retried by rebuilding its Engine session every two seconds for as long as the keyboard was up.
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap().to_owned();
+    let options = json!({
+        "api_version": 1,
+        "resources": format!("{root}/resources"),
+        "user_data": format!("{root}/user"),
+        "cache": format!("{root}/cache"),
+        "dictionaries": format!("{root}/dictionaries"),
+        "preferences": msime_client_core::preferences::Preferences::default(),
+        "preferences_directory": root,
+    })
+    .to_string();
+    let synced =
+        read(unsafe { msime_client_personal_dictionary_sync(options.as_ptr(), options.len()) });
+    assert_eq!(synced["ok"], true, "{synced}");
+    assert_eq!(synced["value"]["pending_count"], 0);
+
+    let envelope = json!({ "options": serde_json::from_str::<serde_json::Value>(&options).unwrap(), "action": {"operation": "retry", "request_id": "x"} }).to_string();
+    let refused =
+        read(unsafe { msime_client_personal_dictionary_sync(envelope.as_ptr(), envelope.len()) });
+    assert_eq!(refused["error"], "invalid dictionary request");
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn importing_a_personal_dictionary_file_queues_instead_of_taking_the_engine_lock() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().to_str().unwrap().to_owned();

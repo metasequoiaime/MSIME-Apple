@@ -1849,6 +1849,20 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 宿主侧：`UnixSocketProvider::translate` 遇到 `none` 直接返回空结果，连本地 socket 都不连接，候选文字不会离开输入法进程。IBus 与 Fcitx5 引擎代码没有改动：它们转发的是 host-api 生成的查询，`provider` 变化会让去重键变化，从而重新发起请求。
 - 证据：`platforms/linux/tests/dictionary/translation_provider_selection.py` 放了一份有效的腾讯凭据，断言关闭、NiuTrans 缺凭据、自定义缺 endpoint、未知服务这几种情况都不会发出网络请求，并断言只会请求所选的那一家，旧版宿主的请求保持原来的选择。该用例在改动前的脚本上失败 8 项，改动后全部通过。input-runtime 单测覆盖 `provider` 在 JSON 往返中不丢失、缺省时仍为缺省、`none` 不连接 socket；host-api 单测经 `msime_client_translation_provider_request` 走真实 socket，确认腾讯、NiuTrans（凭据不全）、自定义（endpoint 为空）三种选择原样到达 provider，关闭时不发生连接。未在 Linux 桌面上连接真实翻译服务做验收。
 
+### HarmonyOS 2in1 硬件键盘从第一个字母起组字（2026-09-23）
+
+2in1 上此前字母键被领进组合串后，预编辑与候选窗都不出现：硬件字母能延长组合串，却起不了组合串。诊断日志补上 `upper`/`shift`/`caps` 三项后，2in1 实例给出 `upper=true shift=false caps=false`：该设备对不带修饰键的字母键报出的 `unicodeChar` 是**大写**，而触摸路径送的是小写。Engine 的 `InputSession::handle_character` 只在已有组合串时把大写字母当辅助码收下，没有组合串时返回未处理。`HardwareKey` 注释里「shift 与 caps lock 已由系统应用」的假设对字母不成立。
+
+修复分两处，都在宿主：`HardwareKeyRouter.normalizeLetterCase` 按 `shift XOR capsLock` 重建字母大小写，与 Windows 宿主从虚拟键与键盘状态推出字符同理；`press()` 与 `HardwareKeyDispatch.apply` 改为报告按键是否被消费，Engine 拒收的字母连同它的抬起一起交还应用，对应 TSF 的 eaten/not-eaten 模型——此前被领取后什么都没发生的键就是用户打了却看不见的字符。
+
+同一轮设备验证还挖出三个此前把 2in1 整个挡在门外的缺陷，修复顺序即暴露顺序：
+
+1. 保存过的自定义键盘设计里 `photo` 为 JSON `null` 时，`CustomKeyboardSkin.decodePhoto` 读 `null.length` 抛出，`onCreate` 不建会话、不建面板、不注册按键监听，输入法完全失效。
+2. Rust 端 `phrase_prefix` 带 `skip_serializing_if = "String::is_empty"`，ArkTS 却把它声明为必填 `string` 并直接取 `.length`，于是每次 render 都抛。改为可选并以空串兜底。
+3. `msime_client_personal_dictionary_sync` 按 `{options, action}` 信封解析请求，而 C 头文件写明、Android 与 HarmonyOS 两个调用方实际传的都是与 `msime_client_create` 相同的裸 HostOptions。每次调用都以 `invalid dictionary request` 失败：Android 静默吞掉，HarmonyOS 则每 2 秒重建一次 Engine 会话、永不停止。改 Rust 实现去服从头文件契约，并加 host-api 回归用例。
+
+修复后在 2in1 实例的浏览器页内搜索框里注入 `n f d`，候选窗出现 `nfd / 1 你发的`，空格上屏 `你发的`，浮动工具栏同时显示。
+
 ### HarmonyOS 2in1 悬浮工具栏：手写板与语音按钮；表情与语音面板的返回键（2026-09-23）
 
 - 按钮：macOS 工具栏多出的手写识别板与语音输入（第四十三批）现在也画在 2in1 的工具栏上，位置同 macOS：表情之后是手写，屏幕键盘之后是语音，齿轮最后。两个按钮读共享偏好 `floating_toolbar.handwriting` / `floating_toolbar.voice`，旧文档缺这两个字段时按共享默认值显示。工具栏最多九个按钮，宽度随之加宽。

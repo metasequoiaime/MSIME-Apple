@@ -28,7 +28,7 @@ export interface CustomSkinDocument {
   readonly gradientHorizontal?: boolean;
   readonly patternOpacity?: number;
   readonly customBorderColor?: number | null;
-  readonly photo?: string;
+  readonly photo?: string | null;
   readonly photoShade?: number;
   readonly photoPosition?: number;
 }
@@ -69,9 +69,10 @@ function startsWith(bytes: Uint8Array, prefix: number[]): boolean {
   return true;
 }
 
-function decodePhoto(value: string | undefined): Uint8Array | null {
+function decodePhoto(value: string | null | undefined): Uint8Array | null {
   if (
     value === undefined ||
+    value === null ||
     value.length === 0 ||
     value.length > 682668 ||
     value.length % 4 !== 0 ||
@@ -235,7 +236,12 @@ export class CustomKeyboardSkin {
         ? decoded
         : null;
     const mime: string | null = value.photoBytes === null ? null : photoType(value.photoBytes);
-    if (mime !== null && document.photo !== undefined && decoded !== null) {
+    if (
+      mime !== null &&
+      document.photo !== undefined &&
+      document.photo !== null &&
+      decoded !== null
+    ) {
       value.photoSourceValue = `data:${mime};base64,${document.photo}`;
     }
     return value;
