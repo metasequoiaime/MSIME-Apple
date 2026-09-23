@@ -271,16 +271,24 @@ impl TouchKeyboardSchemePreferences {
 
 /// Which state a new focus session starts in.
 ///
-/// Chinese, because that is what this input method is for: opening in English means the first thing
-/// a new user does is find the switch. The macOS host already resolved anything but an explicit
-/// "english" to Chinese on its own, so this is the shared default agreeing with the one host that
-/// had already decided.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// Windows starts in English, as the source product does: its factory template (`installer/default_config/config.default.toml`, `[input] default_ime_mode = "english"`) is what a fresh reference install runs with, and `platforms/windows/installer/config.default.toml` ships the same, but the running host reads this document, so the effective first-run value on Windows was Chinese. Both the Server's mode authority and the TIP's own read go through this default when the document has no value yet.
+///
+/// The other hosts start in Chinese, because that is what this input method is for: opening in English means the first thing a new user does is find the switch. The macOS host already resolved anything but an explicit "english" to Chinese on its own. A stored value is untouched either way; this answers only for a document that does not have the key yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultImeMode {
-    #[default]
     Chinese,
     English,
+}
+
+impl Default for DefaultImeMode {
+    fn default() -> Self {
+        if cfg!(windows) {
+            Self::English
+        } else {
+            Self::Chinese
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
