@@ -1629,6 +1629,8 @@ export type MobileKeyboardFeedback = {
   inlinePreedit?: boolean;
   /** False where the device cannot vibrate for key presses (iPad has no Taptic Engine): the vibration controls are hidden and the stored choice is left for the user's other devices. */
   hapticsAvailable?: boolean;
+  /** iPad only: the digit row and Tab key of the full-width keyboard, kept in the App Group. Absent on a phone, where the keyboard has no room for either. */
+  tabletFullKeys?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -8720,6 +8722,33 @@ export function SettingsPage({
                           }
                         />
                       </label>
+                      {mobileKeyboardFeedback?.tabletFullKeys !== undefined && (
+                        <>
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">
+                              数字行与 Tab 键
+                              <small>
+                                iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab
+                                键；浮动键盘和窄窗口没有空间，不显示。
+                              </small>
+                            </span>
+                            <input
+                              aria-label="数字行与 Tab 键"
+                              className="toggle"
+                              type="checkbox"
+                              disabled={mobileKeyboardFeedbackBusy}
+                              checked={mobileKeyboardFeedback.tabletFullKeys}
+                              onChange={(event) =>
+                                void saveMobileKeyboardFeedback({
+                                  ...mobileKeyboardFeedback,
+                                  tabletFullKeys: event.target.checked,
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
                       <button
                         type="button"
                         className="danger-text"

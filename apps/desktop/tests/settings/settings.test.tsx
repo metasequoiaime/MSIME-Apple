@@ -2593,6 +2593,60 @@ test("an iPad keeps key sounds but hides vibration it cannot produce", async () 
   expect(within(feedback).queryByRole("button", { name: "试一下振动" })).toBeNull();
 });
 
+test("the iPad digit row and Tab key switch appears only where the plugin reports it", async () => {
+  const feedback = {
+    soundEnabled: true,
+    hapticsEnabled: false,
+    hapticStrength: "medium",
+    englishSuggestions: true,
+  };
+  const phone = render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn().mockImplementation(async (value) => value),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: { load: vi.fn().mockResolvedValue(feedback), save: vi.fn() },
+      }}
+    />,
+  );
+  await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
+  await waitFor(() => expect(screen.queryByLabelText("按键音")).not.toBeNull());
+  expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
+  phone.unmount();
+
+  const save = vi.fn().mockImplementation(async (settings) => settings);
+  const saveDocument = vi.fn().mockImplementation(async (value) => value);
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: saveDocument,
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: {
+          load: vi
+            .fn()
+            .mockResolvedValue({ ...feedback, hapticsAvailable: false, tabletFullKeys: true }),
+          save,
+        },
+      }}
+    />,
+  );
+  const fullKeys = (await screen.findByLabelText("数字行与 Tab 键", undefined, {
+    timeout: 3000,
+  })) as HTMLInputElement;
+  expect(fullKeys.checked).toBe(true);
+  fireEvent.click(fullKeys);
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ tabletFullKeys: false })),
+  );
+  expect(saveDocument).not.toHaveBeenCalled();
+});
+
 test("the iOS skin page hands the candidate strip to the desktop candidate skin", async () => {
   const load = vi.fn().mockResolvedValue({
     soundEnabled: true,

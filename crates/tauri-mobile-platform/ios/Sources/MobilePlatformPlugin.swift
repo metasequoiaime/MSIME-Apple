@@ -479,6 +479,8 @@ private struct SaveKeyboardPreferencesArgs: Decodable {
   let englishSuggestions: Bool
   let candidatePaletteFollowsDesktop: Bool
   let inlinePreedit: Bool
+  /// Absent unless the page offered the iPad switch, so a phone never writes it.
+  let tabletFullKeys: Bool?
   let dictionaryLearning: Bool
   let keyboardSkin: String
   let customKeyboardSkin: String?
@@ -659,6 +661,7 @@ private struct IOSKeyboardPreferenceStore {
       "englishSuggestions": defaults.object(forKey: "english.suggestions") as? Bool ?? true,
       "candidatePaletteFollowsDesktop": defaults.bool(forKey: "candidate_palette_follows_desktop"),
       "inlinePreedit": defaults.bool(forKey: "keyboard.inline_preedit"),
+      "tabletFullKeys": defaults.object(forKey: "keyboard.tablet.fullKeys") as? Bool ?? true,
       "dictionaryLearning": defaults.bool(forKey: "dictionaryLearningEnabled"),
       "keyboardSkin": Self.skinOrder.contains(skin) ? skin : "forest",
       "customKeyboardSkin": customSkinJSON() as Any? ?? NSNull(),
@@ -692,6 +695,7 @@ private struct IOSKeyboardPreferenceStore {
     defaults.set(args.englishSuggestions, forKey: "english.suggestions")
     defaults.set(args.candidatePaletteFollowsDesktop, forKey: "candidate_palette_follows_desktop")
     defaults.set(args.inlinePreedit, forKey: "keyboard.inline_preedit")
+    if let fullKeys = args.tabletFullKeys { defaults.set(fullKeys, forKey: "keyboard.tablet.fullKeys") }
     defaults.set(args.dictionaryLearning, forKey: "dictionaryLearningEnabled")
     defaults.set(args.keyboardSkin, forKey: "keyboardSkin")
     if let custom = args.customKeyboardSkin {
@@ -880,11 +884,13 @@ final class MobilePlatformPlugin: Plugin {
   private var skinFolderAccess: (url: URL, scoped: Bool)?
   private var previewFeedback: UIImpactFeedbackGenerator?
 
-  /// Only iPhones have the Taptic Engine keyboard feedback drives, so the settings page hides the vibration controls elsewhere, as the native settings app does. The idiom is read on the main thread, where UIKit answers it.
+  /// Only iPhones have the Taptic Engine keyboard feedback drives, so the settings page hides the vibration controls elsewhere, as the native settings app does; only iPads draw the full-width keyboard that carries the digit row and Tab key, so the switch is reported there alone. The idiom is read on the main thread, where UIKit answers it.
   private func resolveKeyboardPreferences(_ invoke: Invoke, _ snapshot: [String: Any]) {
     onMain {
       var snapshot = snapshot
-      snapshot["hapticsAvailable"] = UIDevice.current.userInterfaceIdiom == .phone
+      let idiom = UIDevice.current.userInterfaceIdiom
+      snapshot["hapticsAvailable"] = idiom == .phone
+      if idiom != .pad { snapshot.removeValue(forKey: "tabletFullKeys") }
       invoke.resolve(snapshot)
     }
   }
