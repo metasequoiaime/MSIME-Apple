@@ -315,8 +315,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// Chinese punctuation faces copied from the Engine's punctuation contract.
   ///
-  /// The key input remains ASCII so the Engine owns paired punctuation and smart punctuation;
-  /// only the visible face changes. English and local-input modes keep the literal ASCII face.
+  /// The key input remains ASCII so the Engine chooses the punctuation mark (including quote alternation and book-title nesting) and smart punctuation; only the visible face changes. English and local-input modes keep the literal ASCII face.
   static let chineseSymbolFaces: [String: String] = [
     ",": "，", ".": "。", "?": "？", "!": "！", ";": "；", ":": "：",
     "(": "（", ")": "）", "[": "【", "]": "】", "\\": "、",
@@ -1632,8 +1631,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     let armed = session.smartPunctuationArming(
       ascii: ascii, commit: commit, timestampMilliseconds: smartPunctuationNow,
-      // This host never auto-closes a pair itself: Engine owns paired punctuation and commits
-      // both marks, which arrives here as a commit of two scalars and is refused on that ground.
+      // This host never auto-closes a pair, and neither does the Engine: it commits only the mark the key produced (“ or ” in turn for the quote key, （ for `(`), so no closing half is ever waiting to the right of the caret.
       editorGeneration: editor, autoClosedPair: false)
     armedPunctuationRepeat = armed["repeat"] as? [String: Any]
     armedSpaceConversion = armed["space"] as? [String: Any]
