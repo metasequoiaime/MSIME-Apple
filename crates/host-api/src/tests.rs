@@ -5079,6 +5079,7 @@ fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {
     let call = |day: &str, action: Value| {
         let request = serde_json::to_vec(&json!({
             "directory": directory.path(),
+            "resources": directory.path(),
             "day": day,
             "action": action,
         }))
@@ -5193,6 +5194,7 @@ fn vocabulary_boundary_rejects_a_bad_envelope_without_touching_the_store() {
     assert_eq!(
         call(json!({
             "directory": "relative/path",
+            "resources": "relative/path",
             "day": "2026-09-23",
             "action": {"operation": "load"},
         }))["ok"],
@@ -5202,6 +5204,7 @@ fn vocabulary_boundary_rejects_a_bad_envelope_without_touching_the_store() {
     assert_eq!(
         call(json!({
             "directory": directory.path(),
+            "resources": directory.path(),
             "day": "2026-13-01",
             "action": {"operation": "import", "name": "坏日期", "text": "a,adj. 甲\n"},
         }))["ok"],
@@ -5211,6 +5214,7 @@ fn vocabulary_boundary_rejects_a_bad_envelope_without_touching_the_store() {
     assert_eq!(
         call(json!({
             "directory": directory.path(),
+            "resources": directory.path(),
             "day": "2026-09-23",
             "action": {"operation": "import", "name": "空的", "text": "# 只有注释\n"},
         }))["ok"],
@@ -5221,6 +5225,7 @@ fn vocabulary_boundary_rejects_a_bad_envelope_without_touching_the_store() {
     assert_eq!(
         call(json!({
             "directory": directory.path(),
+            "resources": directory.path(),
             "day": "2026-09-23",
             "surprise": true,
             "action": {"operation": "load"},

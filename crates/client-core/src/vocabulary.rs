@@ -20,6 +20,7 @@
 //! 16 KiB by the iOS bridge, and a few thousand studied cards are far past that; the progress
 //! store is its own file beside `typing-statistics.json` in the host-supplied directory.
 
+pub mod builtin;
 pub mod import;
 pub mod library;
 pub mod progress;

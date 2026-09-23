@@ -1578,6 +1578,9 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
     #[serde(deny_unknown_fields)]
     struct Request {
         directory: String,
+        /// The verified resource directory, whose `wordbooks/` sibling holds the bundled books.
+        /// A host that stages none simply offers the imported ones.
+        resources: String,
         /// The caller's local day. Required by every action, because the counts and the queue are
         /// both per-day and this layer cannot resolve the host's timezone.
         day: String,
@@ -1598,11 +1601,14 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
             serde_json::from_slice(bytes).map_err(|_| "invalid vocabulary review request")?;
         if request.directory.len() > 16_384
             || !std::path::Path::new(&request.directory).is_absolute()
+            || request.resources.len() > 16_384
+            || !std::path::Path::new(&request.resources).is_absolute()
         {
             return Err("invalid vocabulary review directory".into());
         }
         let status = session::apply(
             std::path::Path::new(&request.directory),
+            std::path::Path::new(&request.resources),
             &request.day,
             request.action,
         )

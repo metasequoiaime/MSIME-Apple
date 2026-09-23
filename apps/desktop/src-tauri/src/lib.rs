@@ -369,7 +369,7 @@ struct TypingStatisticsState(TypingStatisticsStore);
 /// The directory rather than the stores themselves: an imported book is written through one and
 /// read back through the other, and holding the path means both are constructed from the same
 /// place every time instead of two handles that could be pointed at different roots.
-struct VocabularyState(std::path::PathBuf);
+struct VocabularyState(std::path::PathBuf, std::path::PathBuf);
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -3765,7 +3765,22 @@ pub fn run() {
                 }
             }
             app.manage(TypingStatisticsState(typing_statistics));
-            app.manage(VocabularyState(directory.clone()));
+            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
+            // sibling of `EngineResources/` because `ResourceStore::verify` requires that
+            // directory to hold exactly the pinned dictionary artifacts, and one extra entry
+            // would break the check whose job is to prove a shipped dictionary is intact. A host
+            // that stages no books simply offers the imported ones.
+            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
+            // sibling of `EngineResources/` because `ResourceStore::verify` requires that
+            // directory to hold exactly the pinned dictionary artifacts, and one extra entry
+            // would break the check whose job is to prove a shipped dictionary is intact. A host
+            // that stages no books simply offers the imported ones.
+            app.manage(VocabularyState(
+                directory.clone(),
+                app.path()
+                    .resource_dir()
+                    .unwrap_or_else(|_| directory.clone()),
+            ));
             app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(UserDirectoryState(directory.join("user")));
             app.manage(preferences.clone());

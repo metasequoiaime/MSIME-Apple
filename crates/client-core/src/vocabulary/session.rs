@@ -9,13 +9,14 @@
 //! serialises [`ReviewStatus`] back, and the Tauri command layer calls the same function and lets
 //! serde render it. Neither owns a rule.
 
+use super::builtin::{self, BuiltinWordbookError};
 use super::import as wordbook_import;
 use super::library::{WordbookLibrary, WordbookLibraryError, WordbookSummary};
 use super::progress::{
     build_queue, VocabularyProgressError, VocabularyProgressStore, VocabularyReviewSettings,
 };
 use super::schedule::ReviewGrade;
-use super::wordbook::WordbookEntry;
+use super::wordbook::{Wordbook, WordbookEntry};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -37,6 +38,10 @@ pub enum ReviewSessionError {
     Import(#[from] wordbook_import::WordbookImportError),
     #[error("vocabulary wordbook is not in the library")]
     UnknownWordbook,
+    #[error("{0}")]
+    Builtin(#[from] BuiltinWordbookError),
+    #[error("a bundled vocabulary wordbook cannot be deleted")]
+    BuiltinNotRemovable,
 }
 
 /// What the page draws.
@@ -87,6 +92,7 @@ pub enum ReviewAction {
 /// reported the day was unreadable — a refused request that had already changed the library.
 pub fn apply(
     directory: &Path,
+    resources: &Path,
     day: &str,
     action: ReviewAction,
 ) -> Result<ReviewStatus, ReviewSessionError> {
@@ -100,8 +106,7 @@ pub fn apply(
         ReviewAction::Load => {}
         ReviewAction::Answer { word, known } => {
             let document = store.load()?;
-            let book = library
-                .load(&document.settings.wordbook)?
+            let book = selected_book(&library, resources, &document.settings.wordbook)?
                 .ok_or(ReviewSessionError::UnknownWordbook)?;
             let grade = if known {
                 ReviewGrade::Known
@@ -137,6 +142,12 @@ pub fn apply(
             })?;
         }
         ReviewAction::Remove { wordbook } => {
+            // Checked by name rather than by what is on disk: a host that failed to stage its
+            // books would otherwise let the user delete one and find it back after the next
+            // install, with its review progress already gone.
+            if builtin::is_builtin(&wordbook) {
+                return Err(ReviewSessionError::BuiltinNotRemovable);
+            }
             library.remove(&wordbook)?;
             // The book is gone, so its schedule is unreachable. Leaving it would grow the progress
             // document forever and would silently return if the same id ever came back.
@@ -158,27 +169,56 @@ pub fn apply(
         }
     }
 
-    status(directory, day)
+    status(directory, resources, day)
+}
+
+/// The selected book, bundled or imported. `Ok(None)` when nothing is selected or it has gone.
+///
+/// Bundled first, because a bundled id is reserved: an imported book can never take one, so there
+/// is no order in which the two could disagree about which book a stored card belongs to.
+fn selected_book(
+    library: &WordbookLibrary,
+    resources: &Path,
+    id: &str,
+) -> Result<Option<Wordbook>, ReviewSessionError> {
+    if id.is_empty() {
+        return Ok(None);
+    }
+    if builtin::is_builtin(id) {
+        return Ok(builtin::load(resources)?.into_iter().find(|b| b.id == id));
+    }
+    Ok(library.load(id)?)
 }
 
 /// The status for `day`, changing nothing.
-pub fn status(directory: &Path, day: &str) -> Result<ReviewStatus, ReviewSessionError> {
+pub fn status(
+    directory: &Path,
+    resources: &Path,
+    day: &str,
+) -> Result<ReviewStatus, ReviewSessionError> {
     if !super::day_is_well_formed(day) {
         return Err(ReviewSessionError::InvalidDay);
     }
     let library = WordbookLibrary::new(directory);
     let store = VocabularyProgressStore::new(directory);
-    let wordbooks = library.list()?;
+    // Bundled books first: they are the ones a fresh profile can start from, and the picker should
+    // not make a user scroll past their own imports to find 中考.
+    let mut wordbooks: Vec<WordbookSummary> = builtin::load(resources)?
+        .iter()
+        .map(|book| WordbookSummary {
+            id: book.id.clone(),
+            name: book.name.clone(),
+            total: book.entries.len(),
+            builtin: true,
+        })
+        .collect();
+    wordbooks.extend(library.list()?);
     let document = store.load()?;
     let settings = document.settings.clone();
 
     // A selected book that is no longer in the library is reported as an empty queue rather than
     // as an error: the user deleted it, and the page should offer the picker instead of a failure.
-    let selected = if settings.wordbook.is_empty() {
-        None
-    } else {
-        library.load(&settings.wordbook)?
-    };
+    let selected = selected_book(&library, resources, &settings.wordbook)?;
 
     let (queue, due, introducing, remaining) = match selected.as_ref() {
         None => (Vec::new(), 0, 0, 0),
@@ -225,6 +265,7 @@ mod tests {
     fn import(path: &Path, name: &str) -> ReviewStatus {
         apply(
             path,
+            path,
             TODAY,
             ReviewAction::Import {
                 name: name.to_owned(),
@@ -237,7 +278,7 @@ mod tests {
     #[test]
     fn a_fresh_directory_has_no_books_and_no_queue() {
         let root = directory();
-        let status = status(root.path(), TODAY).unwrap();
+        let status = status(root.path(), root.path(), TODAY).unwrap();
         assert!(status.wordbooks.is_empty());
         assert_eq!(status.settings.wordbook, "");
         assert_eq!(status.due, 0);
@@ -282,6 +323,7 @@ mod tests {
 
         let answered = apply(
             root.path(),
+            root.path(),
             TODAY,
             ReviewAction::Answer {
                 word: "alpha".to_owned(),
@@ -293,6 +335,7 @@ mod tests {
         assert_eq!(answered.queue[0].word, "beta");
 
         let failed = apply(
+            root.path(),
             root.path(),
             TODAY,
             ReviewAction::Answer {
@@ -314,6 +357,7 @@ mod tests {
         import(root.path(), "合成词表");
         apply(
             root.path(),
+            root.path(),
             TODAY,
             ReviewAction::Answer {
                 word: "alpha".to_owned(),
@@ -322,7 +366,7 @@ mod tests {
         )
         .unwrap();
 
-        let tomorrow = status(root.path(), "2026-09-24").unwrap();
+        let tomorrow = status(root.path(), root.path(), "2026-09-24").unwrap();
         assert_eq!(tomorrow.answered_today, 0);
         assert_eq!(tomorrow.due, 1);
         assert_eq!(tomorrow.queue[0].word, "alpha");
@@ -334,6 +378,7 @@ mod tests {
         let book = import(root.path(), "合成词表").settings.wordbook;
         apply(
             root.path(),
+            root.path(),
             TODAY,
             ReviewAction::Answer {
                 word: "alpha".to_owned(),
@@ -342,7 +387,7 @@ mod tests {
         )
         .unwrap();
 
-        let reset = apply(root.path(), TODAY, ReviewAction::Reset).unwrap();
+        let reset = apply(root.path(), root.path(), TODAY, ReviewAction::Reset).unwrap();
         assert_eq!(reset.answered_today, 0);
         assert_eq!(reset.settings.wordbook, book, "清空进度 is not 删除词表");
         assert_eq!(reset.wordbooks.len(), 1);
@@ -355,6 +400,7 @@ mod tests {
         let book = import(root.path(), "合成词表").settings.wordbook;
         apply(
             root.path(),
+            root.path(),
             TODAY,
             ReviewAction::Answer {
                 word: "alpha".to_owned(),
@@ -364,6 +410,7 @@ mod tests {
         .unwrap();
 
         let removed = apply(
+            root.path(),
             root.path(),
             TODAY,
             ReviewAction::Remove {
@@ -388,7 +435,7 @@ mod tests {
         let book = import(root.path(), "合成词表").settings.wordbook;
         WordbookLibrary::new(root.path()).remove(&book).unwrap();
 
-        let status = status(root.path(), TODAY).unwrap();
+        let status = status(root.path(), root.path(), TODAY).unwrap();
         assert!(status.queue.is_empty());
         assert_eq!(status.due, 0);
     }
@@ -399,6 +446,7 @@ mod tests {
         assert!(matches!(
             apply(
                 root.path(),
+                root.path(),
                 "2026-13-01",
                 ReviewAction::Import {
                     name: "坏日期".to_owned(),
@@ -408,7 +456,10 @@ mod tests {
             Err(ReviewSessionError::InvalidDay)
         ));
         assert!(
-            status(root.path(), TODAY).unwrap().wordbooks.is_empty(),
+            status(root.path(), root.path(), TODAY)
+                .unwrap()
+                .wordbooks
+                .is_empty(),
             "a refused request must not have written a book"
         );
     }
@@ -419,6 +470,7 @@ mod tests {
         assert!(matches!(
             apply(
                 root.path(),
+                root.path(),
                 TODAY,
                 ReviewAction::Import {
                     name: "空的".to_owned(),
@@ -427,7 +479,10 @@ mod tests {
             ),
             Err(ReviewSessionError::Import(_))
         ));
-        assert!(status(root.path(), TODAY).unwrap().wordbooks.is_empty());
+        assert!(status(root.path(), root.path(), TODAY)
+            .unwrap()
+            .wordbooks
+            .is_empty());
     }
 
     #[test]
@@ -435,6 +490,7 @@ mod tests {
         let root = directory();
         assert!(matches!(
             apply(
+                root.path(),
                 root.path(),
                 TODAY,
                 ReviewAction::Answer {
@@ -446,11 +502,114 @@ mod tests {
         ));
     }
 
+    fn stage_builtin(root: &Path, id: &str, name: &str, words: &[&str]) {
+        let directory = root.join(super::builtin::DIRECTORY);
+        std::fs::create_dir_all(&directory).unwrap();
+        let book = Wordbook {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            entries: words
+                .iter()
+                .map(|word| WordbookEntry {
+                    word: (*word).to_owned(),
+                    phonetic: String::new(),
+                    meaning: "adj. 合成释义".to_owned(),
+                })
+                .collect(),
+        };
+        std::fs::write(
+            directory.join(format!("{id}.json")),
+            serde_json::to_vec(&book).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_fresh_profile_can_start_from_a_bundled_book() {
+        let root = directory();
+        stage_builtin(root.path(), "cet4", "CET-4", &["alpha", "beta", "gamma"]);
+
+        // 没有任何导入，页面也不该是空的。
+        let listed = status(root.path(), root.path(), TODAY).unwrap();
+        assert_eq!(listed.wordbooks.len(), 1);
+        assert_eq!(listed.wordbooks[0].id, "cet4");
+        assert!(
+            listed.wordbooks[0].builtin,
+            "a bundled book is not deletable"
+        );
+
+        let chosen = apply(
+            root.path(),
+            root.path(),
+            TODAY,
+            ReviewAction::SetSettings {
+                wordbook: "cet4".to_owned(),
+                new_per_day: 20,
+                session_limit: 200,
+            },
+        )
+        .unwrap();
+        assert_eq!(chosen.introducing, 3);
+        assert_eq!(chosen.queue[0].word, "alpha");
+
+        let answered = apply(
+            root.path(),
+            root.path(),
+            TODAY,
+            ReviewAction::Answer {
+                word: "alpha".to_owned(),
+                known: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(answered.answered_today, 1);
+        assert_eq!(answered.queue[0].word, "beta");
+    }
+
+    #[test]
+    fn bundled_books_are_listed_before_imports_and_cannot_be_deleted() {
+        let root = directory();
+        stage_builtin(root.path(), "cet4", "CET-4", &["alpha"]);
+        import(root.path(), "我的词表");
+
+        let listed = status(root.path(), root.path(), TODAY).unwrap();
+        assert_eq!(
+            listed
+                .wordbooks
+                .iter()
+                .map(|b| b.builtin)
+                .collect::<Vec<_>>(),
+            vec![true, false],
+            "a fresh profile should not scroll past its own imports to find 中考"
+        );
+
+        assert!(matches!(
+            apply(
+                root.path(),
+                root.path(),
+                TODAY,
+                ReviewAction::Remove {
+                    wordbook: "cet4".to_owned()
+                },
+            ),
+            Err(ReviewSessionError::BuiltinNotRemovable)
+        ));
+        // 删不掉，也就不会把进度一起带走。
+        assert_eq!(
+            status(root.path(), root.path(), TODAY)
+                .unwrap()
+                .wordbooks
+                .len(),
+            2
+        );
+    }
+
     #[test]
     fn settings_round_trip_through_one_action() {
         let root = directory();
         let book = import(root.path(), "合成词表").settings.wordbook;
         let status = apply(
+            root.path(),
             root.path(),
             TODAY,
             ReviewAction::SetSettings {

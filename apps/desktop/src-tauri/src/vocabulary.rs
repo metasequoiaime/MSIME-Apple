@@ -23,6 +23,7 @@ impl From<session::ReviewSessionError> for CommandError {
                 ReviewSessionError::Library(WordbookLibraryError::InvalidWordbook) => "invalid",
                 ReviewSessionError::Library(WordbookLibraryError::UnknownWordbook)
                 | ReviewSessionError::UnknownWordbook => "wordbook_missing",
+                ReviewSessionError::BuiltinNotRemovable => "wordbook_builtin",
                 _ => "storage",
             },
         }
@@ -50,10 +51,13 @@ async fn run(
     action: ReviewAction,
 ) -> Result<ReviewStatus, CommandError> {
     let directory = state.0.clone();
+    let resources = state.1.clone();
     // Takes a file lock and may read a multi-megabyte book, so it never runs on the UI thread.
-    tauri::async_runtime::spawn_blocking(move || Ok(session::apply(&directory, &today(), action)?))
-        .await
-        .map_err(|_| CommandError { code: "storage" })?
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(session::apply(&directory, &resources, &today(), action)?)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
 }
 
 #[tauri::command]
