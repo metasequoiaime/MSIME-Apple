@@ -16,8 +16,9 @@ $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
 $pin = "$($lock.commit)"
 if ($pin -notmatch '^[a-f0-9]{40}$') { throw 'Cannot resolve locked Engine commit' }
 $markerPath = Join-Path $engine '.msime-engine-lock'
+# scripts/fetch_engine.py writes the locked commit on the first line and a digest of the local overlays after it.
 if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf) -or
-    (Get-Content -LiteralPath $markerPath -Raw).Trim() -ne $pin) {
+    "$(Get-Content -LiteralPath $markerPath -TotalCount 1)".Trim() -ne $pin) {
     throw 'Engine sources are not prepared from the locked archive; run scripts/fetch_engine.py'
 }
 $documents = [Collections.Generic.List[string]]::new()
