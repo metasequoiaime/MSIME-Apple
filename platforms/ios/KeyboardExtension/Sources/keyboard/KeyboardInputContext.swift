@@ -7,6 +7,9 @@ struct KeyboardInputContext {
   private(set) var keyboardType: UIKeyboardType = .default
   private var languageBeforeLatinField: Bool?
 
+  /// The field forced English; a switch made here is about this field, and leaving it restores the mode from before.
+  var isInLatinField: Bool { languageBeforeLatinField != nil }
+
   static func prefersLatin(_ type: UIKeyboardType) -> Bool {
     switch type {
     case .asciiCapable, .URL, .emailAddress: return true

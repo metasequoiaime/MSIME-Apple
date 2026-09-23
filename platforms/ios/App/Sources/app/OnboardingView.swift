@@ -58,6 +58,7 @@ struct InputSettingsView: View {
   @State private var usesTraditionalOutput = ChineseOutputPreference.usesTraditional
   @State private var startsInEnglish = false
   @State private var defaultModeSaveFailed = false
+  @State private var remembersImeMode = false
 
   var body: some View {
     Form {
@@ -162,12 +163,19 @@ struct InputSettingsView: View {
           }
           .pickerStyle(.segmented)
           .accessibilityIdentifier("defaultImeModePicker")
+          Toggle("沿用上次的中英文", isOn: Binding(get: { remembersImeMode }, set: { enabled in
+            remembersImeMode = enabled
+            ImeModeMemoryPreference.setEnabled(enabled)
+          }))
+          .accessibilityIdentifier("remembersImeModeToggle")
         } header: {
           Text("默认中英文")
         } footer: {
           Text(defaultModeSaveFailed
             ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
-            : "新打开的键盘从这里开始，与桌面端同步。按中/英键切换后，这次打开的键盘保持你的选择。iOS 不告诉键盘正在哪个应用里输入，所以不像桌面端那样按应用记住中英文。")
+            : remembersImeMode
+              ? "新打开的键盘沿用你上次按中/英键选的模式，还没切换过时从上面的默认开始。网址、邮箱等输入框临时切到的英文不算。iOS 不告诉键盘正在哪个应用里输入，所以只能记住一个模式，不能像桌面端那样按应用记住。"
+              : "新打开的键盘从这里开始，与桌面端同步。按中/英键切换后，这次打开的键盘保持你的选择。iOS 不告诉键盘正在哪个应用里输入，所以不像桌面端那样按应用记住中英文。")
         }
 
         Section {
@@ -237,6 +245,7 @@ struct InputSettingsView: View {
     enabledSchemes = InputSchemePreference.enabledSchemes
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     startsInEnglish = MetasequoiaInputSessionBridge.loadSharedPreferences()?["default_ime_mode"] as? String == "english"
+    remembersImeMode = ImeModeMemoryPreference.isEnabled()
   }
 }
 
