@@ -170,9 +170,6 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         type: inputMethodEngine.PanelType.STATUS_BAR
       });
       await this.toolbar.setUiContent('keyboard/FloatingToolbar');
-      KeyboardSession.shared.onToolbarSettings = (): void => {
-        this.openSettings();
-      };
       KeyboardSession.shared.onToolbarDragStart = (): void => {
         this.beginToolbarDrag();
       };
@@ -752,6 +749,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     // cannot disagree about what a key does. Bound before any key can arrive, on every device: a
     // keyboard may be plugged into this one later.
     this.modeKeys.use(KeyboardSession.shared.modeBindings());
+    // Every device, not only the one with a toolbar: a phone reaches the settings application from its tools panel.
+    KeyboardSession.shared.onOpenSettings = (): void => {
+      this.openSettings();
+    };
     KeyboardSession.shared.onPreferencesReloaded = (): void => {
       this.preferencesReloaded();
     };

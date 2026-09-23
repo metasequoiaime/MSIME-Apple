@@ -1025,8 +1025,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The status-bar panel owns the window; the ArkUI handle only reports its pan gesture. */
   onToolbarDragStart: (() => void) | undefined = undefined;
   onToolbarDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
-  /** The gear, which only the host can answer: it owns the window the settings open in. */
-  onToolbarSettings: (() => void) | undefined = undefined;
+  /** The settings application, which only the host can open: it owns the context that starts it. The 2in1 toolbar gear and the phone's 更多设置 card both reach it here. */
+  onOpenSettings: (() => void) | undefined = undefined;
   /**
    * A surface the toolbar asked for, which two readers need and for different reasons: the host
    * sizes and shows the window, the view draws what goes in it. Two slots rather than one, the way
@@ -1833,9 +1833,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.requestSurface(DesktopSurface.VOICE);
         break;
       default:
-        if (this.onToolbarSettings !== undefined) {
-          this.onToolbarSettings();
-        }
+        this.openSettings();
         break;
     }
     this.refreshToolbar();
@@ -4318,6 +4316,13 @@ export class KeyboardSession implements HardwareKeyTarget {
    *
    * Returns whether the key was claimed, so the caller knows not to hand it on.
    */
+  /** Opens the settings application: dictionary, quick phrases, cloud and voice providers live there rather than on the keyboard. */
+  openSettings(): void {
+    if (this.onOpenSettings !== undefined) {
+      this.onOpenSettings();
+    }
+  }
+
   routeVoiceHotkey(key: VoiceKey): boolean {
     if (!this.voiceInputEnabled()) {
       return false;

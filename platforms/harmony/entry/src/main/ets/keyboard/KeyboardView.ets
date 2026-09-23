@@ -2573,13 +2573,15 @@ struct KeyboardView {
     this.touchCandidateMenu = false;
     this.managing = -1;
     const candidate: CandidateEntry = this.candidates[index];
-    if (CandidateManagementAction.touchActions(
+    // A 2in1 touch screen keeps the gloss alone, because its right click already opens management. A phone has no right click, so its long press is the only way to 优先显示, 固定排位 and 删除词条, and opens the whole menu the way Android's does.
+    const glossOnly: boolean = KeyboardFormFactor.isDesktop();
+    if (glossOnly && CandidateManagementAction.touchActions(
       candidate.annotation, candidate.annotationIsTranslation).length === 0) {
       return;
     }
     this.punctuation = false;
     this.brackets = false;
-    this.touchCandidateMenu = true;
+    this.touchCandidateMenu = glossOnly;
     this.managing = index;
   }
 
@@ -3658,24 +3660,13 @@ struct KeyboardView {
       return managed === null ? [] : CandidateManagementAction.touchActions(
         managed.annotation, managed.annotationIsTranslation);
     }
-    const source: number = managed === null ? 0 : managed.source;
-    const actions: ManagementAction[] = CandidateManagementAction.actionsForFixedPosition(
+    // The gloss is what the source offers here, and until now this host could show a translation without ever letting anyone type it: macOS has Option and a digit, and a touch keyboard has no modifiers to spare.
+    return CandidateManagementAction.managementActions(
+      managed === null ? '' : managed.annotation, managed !== null && managed.annotationIsTranslation,
       managed === null ? 0 : managed.fixedPosition,
       CandidateManagementAction.candidateActionsAvailable(
-        KeyboardScheme.engineSchemeName(this.engineScheme), source),
+        KeyboardScheme.engineSchemeName(this.engineScheme), managed === null ? 0 : managed.source),
       CandidateManagementAction.hasMultipleCodePoints(managed === null ? '' : managed.text));
-    // The gloss is what the source offers here, and until now this host could show a translation
-    // without ever letting anyone type it: macOS has Option and a digit, and a touch keyboard has
-    // no modifiers to spare. Only a real translation — an Engine annotation such as a Wubi code
-    // shares the slot and is not a word.
-    if (managed !== null && managed.annotationIsTranslation) {
-      const gloss: ManagementAction | null =
-        CandidateManagementAction.glossAction(managed.annotation);
-      if (gloss !== null) {
-        return [gloss].concat(actions);
-      }
-    }
-    return actions;
   }
 
   @Builder
@@ -3686,54 +3677,62 @@ struct KeyboardView {
         .fontColor(this.overlaySkin().keyForeground)
         .opacity(0.55)
         .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP })
-      if (this.expandedGloss >= 0) {
-        // One action, drawn like the others rather than as a sentence: it is a thing to tap.
-        ForEach(this.expandedGlossActions(), (item: ManagementAction) => {
-          Text(item.title)
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.overlaySkin().accent)
-            .padding({ left: 10, right: 10 })
-            .onClick(() => this.insertExpandedGloss())
-        }, (item: ManagementAction) => `${item.id}:${item.title}`)
-      } else if (this.brackets) {
-        ForEach(JapaneseNineKeyLayout.digitBrackets(), (bracket: string) => {
-          Text(bracket)
-            .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
-            .fontColor(this.overlaySkin().keyForeground)
-            .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-              right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-            .onClick(() => {
-              // Straight in, like every other label on this layer that carries no stroke.
-              KeyboardSession.shared.insert(bracket);
-              this.brackets = false;
-            })
-        }, (bracket: string) => bracket + this.faceKey())
-      } else if (this.punctuation) {
-        ForEach(QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode),
-          (item: PunctuationEntry) => {
-            Text(item.face)
-              .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
-              .fontColor(this.overlaySkin().keyForeground)
-              .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-                right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-              .onClick(() => {
-                // The face is what the Engine will print; the key is what it is told.
-                KeyboardSession.shared.punctuation(item.input.charCodeAt(0));
-                this.punctuation = false;
-              })
-          }, (item: PunctuationEntry) => item.face + this.faceKey())
-      } else {
-        ForEach(this.managementActions(), (item: ManagementAction) => {
-          Text(item.title)
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(item.available === false ? this.overlaySkin().keyForeground :
-              item.checked === true ? this.overlaySkin().keyForeground : this.overlaySkin().accent)
-            .opacity(item.available === false ? 0.35 : 1)
-            .padding({ left: 10, right: 10 })
-            .onClick(() => this.manageCandidate(item, this.managing))
-        }, (item: ManagementAction) => `${item.id}:${item.menuItemId}`)
+      // Scrolls sideways: a phone's long press opens the whole management menu, which is wider than the screen, and the title and × stay put either side of it.
+      Scroll() {
+        Row() {
+          if (this.expandedGloss >= 0) {
+            // One action, drawn like the others rather than as a sentence: it is a thing to tap.
+            ForEach(this.expandedGlossActions(), (item: ManagementAction) => {
+              Text(item.title)
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(this.overlaySkin().accent)
+                .padding({ left: 10, right: 10 })
+                .onClick(() => this.insertExpandedGloss())
+            }, (item: ManagementAction) => `${item.id}:${item.title}`)
+          } else if (this.brackets) {
+            ForEach(JapaneseNineKeyLayout.digitBrackets(), (bracket: string) => {
+              Text(bracket)
+                .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
+                .fontColor(this.overlaySkin().keyForeground)
+                .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                  right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+                .onClick(() => {
+                  // Straight in, like every other label on this layer that carries no stroke.
+                  KeyboardSession.shared.insert(bracket);
+                  this.brackets = false;
+                })
+            }, (bracket: string) => bracket + this.faceKey())
+          } else if (this.punctuation) {
+            ForEach(QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode),
+              (item: PunctuationEntry) => {
+                Text(item.face)
+                  .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
+                  .fontColor(this.overlaySkin().keyForeground)
+                  .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                    right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+                  .onClick(() => {
+                    // The face is what the Engine will print; the key is what it is told.
+                    KeyboardSession.shared.punctuation(item.input.charCodeAt(0));
+                    this.punctuation = false;
+                  })
+              }, (item: PunctuationEntry) => item.face + this.faceKey())
+          } else {
+            ForEach(this.managementActions(), (item: ManagementAction) => {
+              Text(item.title)
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(item.available === false ? this.overlaySkin().keyForeground :
+                  item.checked === true ? this.overlaySkin().keyForeground : this.overlaySkin().accent)
+                .opacity(item.available === false ? 0.35 : 1)
+                .padding({ left: 10, right: 10 })
+                .onClick(() => this.manageCandidate(item, this.managing))
+            }, (item: ManagementAction) => `${item.id}:${item.menuItemId}`)
+          }
+        }
       }
-      Blank()
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .align(Alignment.Start)
+      .layoutWeight(1)
       Text('×')
         .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
         .fontColor(this.overlaySkin().keyForeground)
@@ -4041,6 +4040,13 @@ struct KeyboardView {
                     sound: this.feedback.sound, haptics: this.feedback.haptics,
                     strength: KeyboardFeedback.nextStrength(this.feedback.strength)
                   }));
+              }
+              GridItem() {
+                // The source's tray and toolbar keep the whole settings application one click away while typing; this is the phone's way there, since it has neither.
+                this.toolCard('更多设置', null, $r('app.media.tool_settings'), false, true, () => {
+                  this.show(SURFACE_NONE);
+                  KeyboardSession.shared.openSettings();
+                });
               }
             }
             .columnsTemplate('1fr 1fr')

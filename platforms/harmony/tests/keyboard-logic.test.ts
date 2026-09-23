@@ -2538,6 +2538,31 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
     "a candidate without a gloss has no touch long-press menu",
   );
 
+  // A phone has no right click, so its long press opens the whole menu the source's right click does, as Android's long press does; before this, pinning, fixing and deleting an entry were out of reach on a phone.
+  const full = CandidateManagementAction.managementActions("hello", true, 2, true, true);
+  check(full[0].id === "INSERT_GLOSS", "the gloss leads the full menu");
+  check(
+    full
+      .slice(1)
+      .map((action: ManagementAction) => action.id)
+      .join(",") === "PROMOTE,FIX_1,FIX_2,FIX_3,FIX_4,FIX_5,CLEAR_POSITION,REMOVE",
+    "then 优先显示, the five slots, 取消固定 and 删除词条, in the source's order",
+  );
+  check(
+    full.find((action: ManagementAction) => action.id === "FIX_2")?.checked === true,
+    "the held slot is marked",
+  );
+  const noGloss = CandidateManagementAction.managementActions("", false, 0, true, false);
+  check(noGloss[0].id === "PROMOTE", "a candidate without a translation still gets management");
+  check(
+    !noGloss.some((action: ManagementAction) => action.id === "REMOVE"),
+    "a single character cannot be deleted",
+  );
+  check(
+    CandidateManagementAction.managementActions("wbcd", false, 0, true, true)[0].id === "PROMOTE",
+    "an Engine annotation is not offered as translated text",
+  );
+
   const distinct = CandidateManagementAction.actionsForFixedPosition(0).map(
     (action: ManagementAction) => action.menuItemId,
   );
