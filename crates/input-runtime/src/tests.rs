@@ -217,6 +217,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
                 generation: 1,
                 target_language: "en".into(),
                 candidates: vec![format!("safe{control}")],
+                provider: None,
                 custom_translation: None,
                 niutrans: None,
             })
@@ -256,6 +257,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
         generation: 1,
         target_language: "en".into(),
         candidates: vec!["safe".into()],
+        provider: None,
         custom_translation: None,
         niutrans: None,
     };
@@ -270,6 +272,58 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
         }]
     );
     server.join().unwrap();
+}
+
+#[test]
+fn translation_query_carries_the_selected_service() {
+    for (service, name) in [
+        (TranslationService::Off, "none"),
+        (TranslationService::Tencent, "tencent"),
+        (TranslationService::NiuTrans, "niutrans"),
+        (TranslationService::Custom, "custom"),
+    ] {
+        let document = json!({"generation": 1, "candidates": ["中"], "provider": name});
+        let query: TranslationQuery = serde_json::from_value(document).unwrap();
+        assert_eq!(query.provider, Some(service));
+        assert_eq!(serde_json::to_value(&query).unwrap()["provider"], name);
+    }
+    // A document from a host that predates the field stays without one, so the provider keeps its legacy choice instead of being told Tencent.
+    let legacy: TranslationQuery =
+        serde_json::from_value(json!({"generation": 1, "candidates": ["中"]})).unwrap();
+    assert_eq!(legacy.provider, None);
+    assert!(serde_json::to_value(&legacy)
+        .unwrap()
+        .get("provider")
+        .is_none());
+    assert!(serde_json::from_value::<TranslationQuery>(
+        json!({"generation": 1, "candidates": ["中"], "provider": "deepl"})
+    )
+    .is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn translation_switched_off_never_reaches_the_provider() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("translation-off.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let query = TranslationQuery {
+        generation: 1,
+        target_language: "en".into(),
+        candidates: vec!["中".into()],
+        provider: Some(TranslationService::Off),
+        custom_translation: None,
+        niutrans: None,
+    };
+    assert_eq!(
+        UnixSocketProvider::new(&socket).translate(query),
+        Some(Vec::new())
+    );
+    assert!(
+        listener.accept().is_err(),
+        "a switched-off query connected to the provider"
+    );
 }
 
 #[cfg(unix)]

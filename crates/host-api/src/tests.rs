@@ -2346,6 +2346,119 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     read(msime_client_destroy(handle));
 }
 
+/// Linux keeps the Tencent secret in the provider's own file, so the query's credential fields cannot say which service the user picked. The explicit choice has to survive to the socket even when that service is unusable, or the provider falls back to Tencent.
+#[cfg(unix)]
+#[test]
+fn translation_query_names_the_selected_service_through_the_provider_socket() {
+    use std::io::{BufRead, Write};
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        candidate_translations: true,
+        ..Preferences::default()
+    };
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"U4e2d" {
+        read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ));
+    }
+    let sockets = tempfile::tempdir().unwrap();
+    // The provider connection refuses a socket directory other users can reach.
+    std::fs::set_permissions(
+        sockets.path(),
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
+    let socket = sockets.path().join("translation.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    // Send the query as the Linux hosts do and return the document the provider received, or None when nothing connected.
+    let forward = |query: &Value| -> Option<Value> {
+        let mut transport = query.clone();
+        transport["candidates"] = Value::Array(
+            query["candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|candidate| candidate["text"].clone())
+                .collect(),
+        );
+        let request = transport.to_string();
+        let path = socket.to_str().unwrap();
+        std::thread::scope(|scope| {
+            let call = scope.spawn(|| {
+                read(unsafe {
+                    msime_client_translation_provider_request(
+                        request.as_ptr(),
+                        request.len(),
+                        path.as_ptr(),
+                        path.len(),
+                    )
+                })
+            });
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            // A call that connected cannot return before it is answered, so a finished call with nothing pending never connected.
+            let received = loop {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        let mut line = String::new();
+                        std::io::BufReader::new(stream.try_clone().unwrap())
+                            .read_line(&mut line)
+                            .unwrap();
+                        stream.write_all(b"{\"translations\":[]}\n").unwrap();
+                        break Some(serde_json::from_str::<Value>(&line).unwrap());
+                    }
+                    Err(_) if call.is_finished() => break None,
+                    Err(_) => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "provider request hung"
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                }
+            };
+            assert_eq!(call.join().unwrap()["value"], json!({"translations": []}));
+            received
+        })
+    };
+
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["provider"], "tencent");
+    assert_eq!(forward(&query).unwrap()["query"]["provider"], "tencent");
+
+    preferences.tencent_tmt.enabled = false;
+    update(handle, 1, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["provider"], "none");
+    assert!(
+        forward(&query).is_none(),
+        "a switched-off query reached the provider"
+    );
+
+    preferences.niutrans.enabled = true;
+    update(handle, 2, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["provider"], "niutrans");
+    assert!(query["niutrans"].is_null() && query["tencent_tmt"].is_null());
+    let received = forward(&query).unwrap();
+    assert_eq!(received["query"]["provider"], "niutrans");
+    assert!(received["query"].get("niutrans").is_none());
+
+    preferences.niutrans.enabled = false;
+    preferences.custom_translation.enabled = true;
+    update(handle, 3, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["provider"], "custom");
+    assert!(query["custom_translation"].is_null());
+    assert_eq!(forward(&query).unwrap()["query"]["provider"], "custom");
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn translation_results_reject_control_characters_atomically() {
     let dir = tempfile::tempdir().unwrap();

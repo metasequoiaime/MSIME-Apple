@@ -1,489 +1,118 @@
 # Windows settings UI source
 
-Source: https://github.com/metasequoiaime/MSIME-Windows at remote default branch
-`develop`, commit `0eaa35eed1dd699b28883068f2909afe3a5902da`.
+Source: https://github.com/metasequoiaime/MSIME-Windows at remote default branch `develop`, commit `0eaa35eed1dd699b28883068f2909afe3a5902da`. A second pin, `04a8df56f86312474a069f4335a1b58da7afaa9e`, is named explicitly wherever it is the source. Upstream repository license: GPL-3.0. Everything described here is tracked commit content, not adjacent worktree edits.
 
-`src/upstream/variables.css`, `sections.css`, and `sidebar.css` come from
-`ui-html/webview2/settings/ime-settings/src/styles/` (sections is under
-`components/`). SVG files in `src/assets/` come from that settings project's
-`public/assets/`, with category icons under `sidebar/`. Upstream repository
-license: GPL-3.0. These are tracked commit contents, not adjacent worktree edits.
+## Copied assets
 
-The React layout adapts the sidebar, cards, and helpcode rows to the shared
-preferences client. Native checkbox/select semantics and focus indicators are
-retained. Explicit save/reload and cross-page drafts use the existing shared
-revision protocol. Only migrated settings categories are currently shown;
-native titlebar controls, remaining categories, custom dropdown menus, and
-full visual parity remain outstanding. The current palette follows upstream's
-default dark appearance; persisted theme settings remain outstanding.
+`src/upstream/settings-variables.css` comes from `ui-html/webview2/settings/ime-settings/src/styles/variables.css`. The SVG files in `src/assets/` come from that settings project's `public/assets/`, with category icons under `sidebar/`; `utilities.svg` is `public/assets/sidebar/utilities.svg`. The window control icons `minimize.svg`, `maximize.svg`, `restore.svg` and `close.svg` come from the same `public/assets/` directory at `04a8df56f86312474a069f4335a1b58da7afaa9e`, with only a final newline added.
 
-Input mode and scheme controls follow `src/partials/input.html` and
-`src/modules/input.ts` at the same commit. Radio sizes, colors, dividers, and
-mode layout are adapted from `styles/components/forms.css` and
-`styles/modules/input.css`, retaining keyboard focus and forced-color support.
-The shared active `scheme` remains compatible with existing hosts; optional
-`last_chinese_scheme` preserves the Chinese choice while Japanese is active.
+`src/upstream/skin-toolbar-preview.html` is extracted from `ui-html/webview2/ftb/default.html` at `04a8df56f86312474a069f4335a1b58da7afaa9e`, following upstream `skin.ts` fillToolbar: retain only `.status-bar`, remove `#en`, `#fullwidth`, `#puncEn`, and remove descendant IDs. No scripts or host handlers are included.
 
-Frequency controls follow the same `input.html`: five modes and numeric choices
-1–6. Shared validation follows `server/assets/config/config.toml` (1–10);
-existing values above 6 stay visible without truncation. Defaults are promote/1/1.
-The existing learning switch remains the Engine's independent master gate.
+Rules adapted from the upstream settings styles — `styles/sidebar.css`, `styles/components/sections.css` and `components/forms.css`, the module sheets `styles/modules/input.css`, `skin.css`, `candidate/style-h.css`, `candidate/style-v.css`, `titlebar.css`, `floating-toolbar.css` and `appearance.css` — live in `src/styles.css`, scoped to React-owned selectors. Declaration bodies are kept as upstream wrote them; only the selectors are rewritten. All of these sources are GPL-3.0.
 
-Mixed English/emoji/kaomoji controls follow `input.html` and `input.ts` at the
-same pinned Windows commit. Persisted defaults follow `config.toml`: English
-enabled with a two-character threshold, emoji and kaomoji disabled. The English
-threshold has eight choices and is disabled (but retained) when English mixing
-is off. Candidate generation and ordering remain owned by Engine.
+## Layout and shared behaviour
 
-The utilities category and eight local-mode toggles follow
-`src/partials/tools-settings.html`; `src/assets/utilities.svg` is copied from
-`public/assets/sidebar/utilities.svg` at the same commit (GPL-3.0). Descriptions
-are condensed for the shared cards. Clipboard history now uses the shared
-bounded store and desktop host actions; system clipboard observation remains a
-host responsibility. The quick-phrase CRUD/import/export manager is not
-migrated in this increment.
+The React layout adapts the sidebar, cards, and helpcode rows to the shared preferences client. Native checkbox/select semantics and focus indicators are retained deliberately: the page keeps platform `<select>` elements rather than reimplementing upstream's custom dropdown, so keyboard, screen-reader and forced-colors behaviour comes from the platform. Explicit save/reload and cross-page drafts use the shared revision protocol. Titlebar window controls are driven by the host-injected `windowControl` action, and maximize/restore icons follow the injected host state subscription. The palette follows the saved `theme` and `settings_theme` preferences, defaulting to upstream's dark appearance when both are left at `system`/`follow`.
 
-The dedicated skin category follows `src/partials/skin.html` at the same pinned
-commit. The four built-in theme cards retain the shared `candidate_skin` values;
-the compact candidate previews are CSS adaptations for the React settings page.
-External skin directory scanning and live preview asset loading remain pending.
+Titlebar drag initiation follows `src/main.ts` at `04a8df56`: primary press, two-pixel Manhattan movement threshold, no second double-click press, and no drag/maximize on resize edges. The shared React host uses pointer cancellation, leave and window blur to discard pending gestures.
 
-Window control icons (`src/assets/minimize.svg`, `maximize.svg`, `restore.svg`,
-and `close.svg`) come from the upstream settings `public/assets/` directory at
-`develop` commit `04a8df56f86312474a069f4335a1b58da7afaa9e` (GPL-3.0), with only
-a final newline added. Dimensions and light-theme filters follow that commit's
-`src/styles/components/titlebar.css`. Maximize/restore icons follow the injected
-host state subscription; native behavior and full visual parity remain unverified.
+## Input, frequency and mixed candidates
 
-Titlebar drag initiation follows `src/main.ts` at `04a8df56`: primary press,
-two-pixel Manhattan movement threshold, no second double-click press, and no
-drag/maximize on resize edges. The shared React host uses pointer cancellation,
-leave and window blur to discard pending gestures. Native drag delivery and
-maximized-window restore-on-drag still require actual platform verification.
+Input mode and scheme controls follow `src/partials/input.html` and `src/modules/input.ts` at the base commit. Radio sizes, colors, dividers, and mode layout are adapted from `styles/components/forms.css` and `styles/modules/input.css`, retaining keyboard focus and forced-color support. The shared active `scheme` remains compatible with existing hosts; optional `last_chinese_scheme` preserves the Chinese choice while Japanese is active.
 
-Independent built-in card light/dark preview switches follow `src/modules/skin.ts`
-at `04a8df56f86312474a069f4335a1b58da7afaa9e`. `src/skin-preview.css` adapts the
-six WeChat/Graphite/Willow color-variable rules from that commit's
-`src/styles/modules/skin.css` with scoped selectors; Fluent uses shared upstream
-variables. License: GPL-3.0. Preview state is UI-only, separate from saved skin
-selection. Candidate markup, toolbar previews and external skin catalog parity
-remain incomplete; these palette changes are not full visual parity.
+Frequency controls follow the same `input.html`: five modes and numeric choices 1–6. Shared validation follows `server/assets/config/config.toml` (1–10); existing values above 6 stay visible without truncation. Defaults are promote/1/1. The learning switch remains the Engine's independent master gate.
 
-Skin cards now render both candidate layouts with the first six fixed samples
-from `src/partials/candidate/candidate-wnd-h.html` and `candidate-wnd-v.html` at
-`04a8df56f86312474a069f4335a1b58da7afaa9e` (GPL-3.0). The React translation
-omits repeated `realContainer` IDs and unused hidden candidates 7–9. Scoped
-layout CSS comes from `src/styles/modules/candidate/style-h.css` and `style-v.css`;
-the vertical preview is constrained to the card width. Detailed skin-specific
-decoration, toolbar previews and native visual validation remain outstanding.
+Mixed English/emoji/kaomoji controls follow `input.html` and `input.ts` at the same pinned Windows commit. Persisted defaults follow `config.toml`: English enabled with a two-character threshold, emoji and kaomoji disabled. The English threshold has eight choices and is disabled (but retained) when English mixing is off. Candidate generation and ordering remain owned by Engine.
 
-`src/skin-candidate-decorations.css` now ports the 32 non-palette candidate
-decoration rules from the same pinned settings `src/styles/modules/skin.css`
-(GPL-3.0). Selectors map skin/theme classes onto the shared card and its preview
-appearance attribute; declaration bodies remain unchanged. This includes
-WeChat selected text, Graphite selected contrast and Willow full-row treatment.
-Toolbar previews and native visual validation remain outstanding.
+The utilities category and eight local-mode toggles follow `src/partials/tools-settings.html`, with descriptions condensed for the shared cards. Clipboard history uses the shared bounded store and desktop host actions; system clipboard observation remains a host responsibility. Quick phrases are one of the four local dictionary kinds on the dictionary page, with the same create/edit/delete, import and export path as pinyin, wubi and English.
 
-Each built-in skin card now includes a static toolbar preview. The tracked
-`src/upstream/skin-toolbar-preview.html` is extracted from
-`ui-html/webview2/ftb/default.html` at `04a8df56f86312474a069f4335a1b58da7afaa9e`,
-following upstream `skin.ts` fillToolbar: retain only `.status-bar`, remove
-`#en`, `#fullwidth`, `#puncEn`, and remove descendant IDs. No scripts or host
-handlers are included. `src/skin-toolbar-preview.css` adapts the toolbar rules
-from settings `floating-toolbar.css` and `skin.css` to card-local selectors.
-All sources are GPL-3.0. This preview is decorative and does not control the
-real toolbar; native visual parity and external skin support remain unverified.
+## Built-in skins
 
-Skin card arrangement follows the pinned `skin.html` and `skin.css`: one column,
-title and selection/preview actions above three preview stages, with 20px/24px
-header padding and 9px/24px stage padding. Selection uses a native button with
-switch semantics and the upstream 38px/19px toggle geometry. Like upstream
-`bindSkinSwitch`, activating an already-selected skin keeps it selected. Saving
-still uses the shared draft/revision workflow, not immediate WebView2 writes.
+The dedicated skin category follows `src/partials/skin.html` at the same pinned commit. The four built-in theme cards carry the shared `candidate_skin` values; the compact candidate previews are CSS adaptations for the React settings page.
 
-External skin discovery now connects the host-owned `scan_skin_catalog` command
-to `src/external-skins.tsx`. Metadata, manual refresh, empty state, invalid-folder
-diagnostics, compatibility-gated selection and independent preview themes follow
-the same pinned Windows `skin.ts`/`skin.html` (GPL-3.0). Candidate preview colour
-validation and supported palette rules follow upstream; generated rules are
-scoped to a React-owned identifier, never a manifest-provided selector. The
-directory/metadata/diagnostic CSS follows the pinned `skin.css` declarations.
-Selection uses the shared revisioned draft. Current host theme is dark; preview
-overrides do not alter compatibility. Refresh errors keep the last catalog and
-late responses from a replaced host are ignored. No local path is sent by UI.
+Independent built-in card light/dark preview switches follow `src/modules/skin.ts` at `04a8df56f86312474a069f4335a1b58da7afaa9e`. The six WeChat/Graphite/Willow color-variable rules from that commit's `src/styles/modules/skin.css` are adapted with scoped selectors; Fluent uses shared upstream variables. Preview state is UI-only, separate from the saved skin selection.
 
-This is still partial external-skin migration: opening the directory, loading
-external CSS/images, decoration geometry, native runtime resource delivery and
-native visual parity remain unfinished. Cards with external resources explicitly
-label the preview limitation. No arbitrary stylesheet or image URL is loaded.
+Skin cards render both candidate layouts with the first six fixed samples from `src/partials/candidate/candidate-wnd-h.html` and `candidate-wnd-v.html` at `04a8df56f86312474a069f4335a1b58da7afaa9e`. The React translation omits repeated `realContainer` IDs and unused hidden candidates 7–9. Scoped layout CSS comes from `src/styles/modules/candidate/style-h.css` and `style-v.css`; the vertical preview is constrained to the card width.
 
-The external catalog now exposes the pinned upstream `openSkinDirectory` action
-as a host-injected, argument-free `open_skin_directory` command. Like
-`server/src/settings/settings_app.cpp` at the same Windows commit, explicit
-opening creates the host's skin directory first. Scanning remains read-only.
-Windows uses ShellExecuteW (with COM initialized on a dedicated thread); macOS
-and Linux pass one absolute path argument to their directory opener, never a
-shell command. Failures are sanitized, existing files are preserved, and the
-UI guards duplicate requests and stale completions. Native file-manager
-interaction is not covered by the automated tests. External resource loading
-and native visual parity remain unfinished.
+The 32 non-palette candidate decoration rules from the same pinned `src/styles/modules/skin.css` are ported as well. Selectors map skin/theme classes onto the shared card and its preview appearance attribute; declaration bodies remain unchanged. This includes WeChat selected text, Graphite selected contrast and Willow full-row treatment.
 
-External candidate preview geometry now follows the same pinned Windows
-`skin.ts` `candidatePreviewCss` and `skin.css` decoration rules: conditional
-`containerParent`, manifest top/width/minimum-width variables, a 118px ornament
-layer, separate stacking, no pointer interception, and visible card/stage
-overflow. Both candidate orientations receive this wrapper; toolbar and built-in
-previews retain their markup. Numeric values are finite and bounded before use;
-refresh removes obsolete geometry. Like upstream, minimum width is applied by
-the decoration rule only when decoration is enabled. Image delivery remains
-unimplemented, so the ornament background is explicitly `none` for now.
+Each built-in skin card includes a static toolbar preview built from `src/upstream/skin-toolbar-preview.html`, with the toolbar rules from settings `floating-toolbar.css` and `skin.css` adapted to card-local selectors. This preview is decorative: it does not drive the real floating toolbar, which each native host draws itself.
 
-Sparse light palettes now layer over dark palette rules as upstream does,
-instead of dropping all unspecified dark fields. Tests cover geometry bindings,
-CSSOM declarations, refresh/reset and palette layering, not native pixel layout.
+Skin card arrangement follows the pinned `skin.html` and `skin.css`: one column, title and selection/preview actions above three preview stages, with 20px/24px header padding and 9px/24px stage padding. Selection uses a native button with switch semantics and the upstream 38px/19px toggle geometry. Like upstream `bindSkinSwitch`, activating an already-selected skin keeps it selected. Saving uses the shared draft/revision workflow, not immediate WebView2 writes.
 
-External decoration images now load through the host-owned `read_skin_image`
-command using the bounded core resource reader. The host returns image MIME
-types and bytes only; the shared UI creates an image data URL accepted by the
-existing desktop img-src CSP, without broadening it. Both preview orientations
-share one request and use an image element with the pinned 118px, right-aligned,
-contain geometry in place of upstream's background URL. SVG bytes are never
-inserted as markup. Missing/invalid images retain the base preview; refresh
-reloads unchanged filenames and discards late responses. This supersedes the
-earlier image-delivery limitation above. External toolbar CSS, native candidate
-resource delivery and browser/native visual verification remain unfinished.
+## External skins
 
-Palette delivery now uses constructed, adopted stylesheets instead of inline
-`<style>` text. A real Chromium fixture using the desktop CSP reproduced the
-old inline block and verified the compiled `skin-palette.ts` helper applies
-scoped colours, preserves light override order, and removes only its own sheet.
-Theme changes/unmount clean up sheets; unsupported browsers show a fallback
-notice without weakening CSP. Native WebView acceptance remains outstanding.
+External skin discovery connects the host-owned `scan_skin_catalog` command to `src/skin/external-skins.tsx`. Metadata, manual refresh, empty state, invalid-folder diagnostics, compatibility-gated selection and independent preview themes follow the same pinned Windows `skin.ts`/`skin.html`. Candidate preview colour validation and supported palette rules follow upstream; generated rules are scoped to a React-owned identifier, never a manifest-provided selector. The directory/metadata/diagnostic CSS follows the pinned `skin.css` declarations. Selection uses the shared revisioned draft. Preview overrides do not alter compatibility. Refresh errors keep the last catalog, and late responses from a replaced host are ignored. No local path is sent by the UI.
 
-Manual browser regression (no CI changes): compile `src/skin-palette.ts` with
-the desktop TypeScript compiler (`--ignoreConfig --target ES2022 --module ESNext
---lib ES2022,DOM --skipLibCheck --outDir <temporary-directory>`), serve that
-directory on a loopback HTTP port, then run `scripts/test-skin-palette-csp.py`
-with `--url http://127.0.0.1:<port>`, `--csp` from the desktop Tauri config and
-optionally `--executable <installed-chromium>`. Python Playwright is required.
-Stop the temporary server afterward. The fixture is synthetic and does not
-launch the native input method or access user input data.
+The external catalog exposes the pinned upstream `openSkinDirectory` action as a host-injected, argument-free `open_skin_directory` command. Like `server/src/settings/settings_app.cpp` at the same Windows commit, explicit opening creates the host's skin directory first; scanning remains read-only. Windows uses ShellExecuteW (with COM initialized on a dedicated thread); macOS and Linux pass one absolute path argument to their directory opener, never a shell command. Failures are sanitized, existing files are preserved, and the UI guards duplicate requests and stale completions. The automated tests stop at the host command and do not drive the platform file manager.
 
-External toolbar styles now connect the manifest-owned host reader to a
-constructed `@scope` around the external preview, following the fixed Windows
-`skin.ts` parse-then-insert approach. Ordinary rules, media/supports groups,
-`:root` mapping and light-theme selectors are wired; refresh/unmount remove
-owned sheets and late reads cannot install stale rules. Browser capability or
-parse/read failure retains the base preview. CSP is unchanged.
+External candidate preview geometry follows the same pinned Windows `skin.ts` `candidatePreviewCss` and `skin.css` decoration rules: conditional `containerParent`, manifest top/width/minimum-width variables, a 118px ornament layer, separate stacking, no pointer interception, and visible card/stage overflow. Both candidate orientations receive this wrapper; toolbar and built-in previews retain their markup. Numeric values are finite and bounded before use; refresh removes obsolete geometry. Like upstream, minimum width is applied by the decoration rule only when decoration is enabled.
 
-This is partial stylesheet support, not full parity: resource-valued/escaped
-declarations, imports, nested style rules and global font/keyframe/other at-rules
-are deferred with a visible partial-support notice. Resource URL rewriting and
-global name isolation remain follow-ups. Compile both `skin-palette.ts` and
-`skin-toolbar-css.ts` for the manual Chromium regression above; it verifies
-computed styles, conditional rules, root mapping, scope containment and cleanup.
+Sparse light palettes layer over dark palette rules as upstream does, instead of dropping all unspecified dark fields. Tests cover geometry bindings, CSSOM declarations, refresh/reset and palette layering.
 
-Native CSS nesting is now preserved by sanitizing the browser-parsed rule tree
-in place before scoped insertion. Parent declarations, nested selectors,
-media/supports groups and CSSNestedDeclarations retain their original ordering;
-this also preserves pseudo-element behavior that rebuilding declarations as an
-`&` rule would change. Unsupported resource/global rules are still filtered at
-every depth, without discarding their supported parent rule. The Chromium
-regression now checks declaration order, nested conditions, pseudo-elements,
-scope isolation, nested resource filtering and cleanup. This supersedes the
-earlier nesting limitation, not the remaining resource/font/keyframe limitations.
+## Palette, stylesheet and resource delivery
 
-Toolbar CSS image URLs now resolve against the same validated skin package via
-the existing host image reader, then become bounded image-only data URLs before
-scoped adoption. Repeated relative names share one read; nested declarations
-and conditional groups use the same rewrite path. Remote/absolute/traversal
-references never reach the reader. Failed resources omit only their declaration
-and keep the partial-support notice. Preparation is tied to the card's refresh
-generation, so stale image reads cannot install an old sheet. Per preparation,
-32 unique reads and 16 MiB resolved/expanded content budgets bound fan-out.
+Palette delivery uses constructed, adopted stylesheets rather than inline `<style>` text. `src/skin/skin-palette.ts` applies scoped colours, preserves light override order, and removes only its own sheet. Theme changes and unmount clean up sheets; unsupported browsers show a fallback notice without weakening CSP.
 
-Compile `toolbar-images.ts` together with the two stylesheet modules for the
-manual Chromium test (TypeScript also emits `css-image-value.ts`). The regression
-now verifies background data URLs, real image decoding under desktop CSP,
-deduplication, nested references, scope isolation and the read-count limit.
-Image-set, escaped resource syntax, fonts, animation/global rules, imports and
-native-platform visual acceptance remain unfinished; simple image URL support
-does not imply full external stylesheet parity.
+External decoration images load through the host-owned `read_skin_image` command using the bounded core resource reader. The host returns image MIME types and bytes only; the shared UI creates an image data URL accepted by the existing desktop img-src CSP, without broadening it. Both preview orientations share one request and use an image element with the pinned 118px, right-aligned, contain geometry in place of upstream's background URL. SVG bytes are never inserted as markup. Missing or invalid images retain the base preview; refresh reloads unchanged filenames and discards late responses.
 
-Image-set support now includes string/URL choices, resolution descriptors,
-type hints and the WebKit alias. Browser parsing normalizes each expression
-before the existing bounded image rewriter, including raw expressions stored
-in custom properties. Bare strings are never assumed safe if an older parser
-cannot normalize them. Quoted non-resource text is preserved. The Chromium
-regression covers nested/variable image sets, deduplication, scoped computed
-styles and rejection of unprepared remote options. This supersedes the
-image-set limitation above; escaped URLs, fonts, global animation/import rules
-and native platform acceptance remain outstanding.
+External toolbar styles connect the manifest-owned host reader to a constructed `@scope` around the external preview, following the fixed Windows `skin.ts` parse-then-insert approach. Ordinary rules, media/supports groups, `:root` mapping and light-theme selectors are wired; refresh and unmount remove owned sheets, and late reads cannot install stale rules. Browser capability or parse/read failure retains the base preview. CSP is unchanged.
 
-Literal url() payloads now support CSS hexadecimal/simple escapes and quoted
-line continuations. Decoded names pass the unchanged package path allowlist
-before image reads; escaped traversal and remote URLs are rejected. Quoted
-non-resource text (including icon code points) is preserved. Semantics follow
-https://www.w3.org/TR/css-syntax-3/#consume-escaped-code-point.
-Unit and Chromium regressions cover escapes in custom-property images,
-non-resource content, containment and scoped rendering. Escaped function
-identifiers and escaped image-set expressions remain unsupported, as do
-fonts, global animations/imports and native platform visual acceptance.
+Native CSS nesting is preserved by sanitizing the browser-parsed rule tree in place before scoped insertion. Parent declarations, nested selectors, media/supports groups and CSSNestedDeclarations retain their original ordering; this also preserves pseudo-element behavior that rebuilding declarations as an `&` rule would change. Unsupported rules are filtered at every depth, without discarding their supported parent rule.
 
-Image-set expressions now accept escaped string/URL options and quoted line
-continuations, including custom properties and the WebKit alias. A
-delimiter-aware scan preserves escaped quotes/parentheses and comments before
-browser normalization; normalized URLs still pass package-path validation.
-The Chromium regression covers rendering, cross-spelling deduplication,
-scope/cleanup and rejection of escaped traversal, remote and unsupported
-filename characters before reads. This supersedes the escaped image-set
-limitation above. Escaped outer function identifiers, fonts, global animations,
-imports and native platform visual parity remain unfinished.
+Toolbar CSS image URLs resolve against the same validated skin package through the host image reader, then become bounded image-only data URLs before scoped adoption. Repeated relative names share one read; nested declarations and conditional groups use the same rewrite path. Remote, absolute and traversal references never reach the reader. Failed resources omit only their declaration. Preparation is tied to the card's refresh generation, so stale image reads cannot install an old sheet. Per preparation, 32 unique reads and 16 MiB resolved/expanded content budgets bound fan-out.
 
-Toolbar keyframes now receive per-installation private names, with matching
-animation-name longhands rewritten after browser shorthand parsing. Duration,
-delay, easing, fill mode, play state and priority remain intact. Media/supports
-conditions, native nesting and duplicate definition order are retained. Quoted
-and escaped names use the browser's keyframes grammar. Keyframe image URLs use
-the existing bounded package reader, cache and final resource sanitizer.
-Chromium regressions seek paused animations to verify independent playback in
-two cards, name collisions, quoted/escaped names, nested declarations, image
-embedding, rejection of unprepared remote frames and cleanup.
-See https://www.w3.org/TR/css-animations-1/ for the animation-name/keyframes
-contract. This supersedes the blanket keyframes limitation above, not full
-animation compatibility: var()-dependent animation names/shorthands and
-unresolved external/inherited names are disabled with a partial-support notice.
-Fonts, imports, escaped resource function identifiers and native-platform
-visual parity remain unfinished.
+Image-set support includes string/URL choices, resolution descriptors, type hints and the WebKit alias, including raw expressions stored in custom properties. Browser parsing normalizes each expression before the bounded image rewriter. Bare strings are never assumed safe if an older parser cannot normalize them, and quoted non-resource text is preserved.
 
-Whole-value var() animation-name and animation shorthand references now use
-private, mode-specific custom-property aliases. Original variables remain
-unchanged for non-animation consumers. Alias definitions stay in the original
-rules with the original priorities, so browser inheritance, media/nesting,
-fallbacks and dependency-cycle handling remain active. Referenced definitions
-and nested whole-value fallback chains are rewritten with the same private
-keyframe names. Alias expansion is bounded to 256 source/mode pairs, 32 nested
-fallback levels and 16 MiB of duplicated values. Unit tests and real Chromium
-cover shorthand/name variables, inherited values, conditional priority,
-cyclic fallback, two-card isolation and cleanup through image preparation.
-Semantics follow https://www.w3.org/TR/css-variables-1/.
-This supersedes the blanket var() limitation, not full variable substitution:
-fragment substitutions (e.g. pulse var(--duration)), escaped/non-ASCII variable
-names and partially overridden pending shorthands remain partial support.
-Fonts, imports and native-platform visual acceptance remain unfinished.
+Literal `url()` payloads support CSS hexadecimal/simple escapes and quoted line continuations. Decoded names pass the unchanged package path allowlist before image reads; escaped traversal and remote URLs are rejected. Quoted non-resource text, including icon code points, is preserved. Semantics follow https://www.w3.org/TR/css-syntax-3/#consume-escaped-code-point. Image-set expressions accept the same escaped string/URL options and quoted line continuations, in custom properties and under the WebKit alias: a delimiter-aware scan preserves escaped quotes/parentheses and comments before browser normalization, and normalized URLs still pass package-path validation. Escaped outer function identifiers remain unsupported and are reported through the partial-support notice.
 
-Pending variable animation shorthands are now expanded before browser parsing,
-because Chromium drops their source when individual longhands override them.
-PostCSS 8.5.28 (MIT, already locked for the build toolchain, now an explicit UI
-dependency) preserves declaration order, comments and opaque custom values.
-Whole-value variables are projected into private per-longhand aliases; original
-custom properties are retained. This preserves later duration/play-state
-overrides, earlier important longhands and later shorthand resets through both
-image preparation and scoped installation. Browser validation remains in place;
-source maps are disabled and malformed input falls back to browser recovery
-with a partial notice. Source and expanded output are each capped at 16 MiB.
-The production JS bundle increases by approximately 13 KiB gzip.
+Top-level and conditional external `@import` rules are inlined by `src/skin/toolbar-imports.ts` before parsing, bounded to 16 imports, 8 levels of nesting and 16 MiB, with layer/supports/media conditions preserved and resource URLs rebased onto the importing file.
 
-For the CSP regression, replace the earlier raw tsc compile instructions with
-node scripts/build-skin-browser.mjs <temporary-directory>, then serve that
-directory on loopback and run the same Python test. The bundled entries include
-the parser's browser implementation with no external assets or relaxed CSP.
-The regression checks actual fixed-time playback, overridden longhands,
-priority/order, opaque quoted text and the complete prior skin tests.
-This supersedes the pending-shorthand override limitation. Fragment variable
-substitution, escaped/non-ASCII variable names, fonts, imports and native visual
-acceptance remain unfinished.
+## Animations, variables and fonts
 
-Animation custom-property names now support non-ASCII characters and CSS
-hexadecimal/simple escapes. Definitions and references share decoded logical
-names through source projection and private animation aliasing; escaped names
-also reserve their decoded spelling to avoid namespace collisions. Resource
-validation treats only a valid var() name as opaque, leaving fallback URLs
-subject to all existing image/path checks. Unit and Chromium regressions cover
-Chinese names, equivalent escaped/plain spellings, escaped punctuation,
-name-only variables, timing overrides and blocked remote fallbacks.
-This supersedes the non-ASCII/escaped variable-name limitation, not fragment
-substitution, fonts, imports or native-platform visual acceptance.
+Toolbar keyframes receive per-installation private names, with matching animation-name longhands rewritten after browser shorthand parsing. Duration, delay, easing, fill mode, play state and priority remain intact. Media/supports conditions, native nesting and duplicate definition order are retained. Quoted and escaped names use the browser's keyframes grammar. Keyframe image URLs use the bounded package reader, cache and final resource sanitizer. See https://www.w3.org/TR/css-animations-1/ for the animation-name/keyframes contract.
 
-Root selector mapping now happens on browser-parsed CSSStyleRule selectors,
-not by replacing text throughout the source. Actual :root pseudo-classes become
-:scope, while quoted attribute values, escaped class-name colons, custom values,
-content and animation names remain untouched. Browser-canonical escaped root
-pseudo-classes and root rules nested under supported conditions work too.
-Unit and Chromium regressions cover exact token matching, escaped/quoted text,
-conditional variable inheritance, scoped computed styles and cleanup. Existing
-animation, resource and native-platform limitations are unchanged.
+Whole-value `var()` animation-name and animation shorthand references use private, mode-specific custom-property aliases. Original variables remain unchanged for non-animation consumers. Alias definitions stay in the original rules with the original priorities, so browser inheritance, media/nesting, fallbacks and dependency-cycle handling remain active. Referenced definitions and nested whole-value fallback chains are rewritten with the same private keyframe names. Alias expansion is bounded to 256 source/mode pairs, 32 nested fallback levels and 16 MiB of duplicated values. Semantics follow https://www.w3.org/TR/css-variables-1/. Fragment substitutions such as `pulse var(--duration)` remain partial support.
 
-Top-level external @font-face rules now load through an injected font reader
-and the host-managed package resource API. The desktop command accepts only
-package ID/relative path and font MIME types, retaining the core containment and
-8 MiB per-resource limit. Binary FontFace loading needs no font URL or relaxed
-CSP. Private family names and family-variable aliases isolate preview cards;
-font shorthand family values and keyframe family declarations are rewritten
-where browser CSSOM exposes them. Fonts are adopted only after current-generation
-preparation and removed with the card stylesheet; stale results never register.
-Failures retain other styling and show partial support. Limits are 8 font faces,
-16 distinct source reads and 16 MiB total bytes per preparation.
+Pending variable animation shorthands are expanded before browser parsing, because Chromium drops their source when individual longhands override them. PostCSS 8.5.28 (MIT, locked for the build toolchain and an explicit UI dependency) preserves declaration order, comments and opaque custom values. Whole-value variables are projected into private per-longhand aliases; original custom properties are retained. This preserves later duration/play-state overrides, earlier important longhands and later shorthand resets through both image preparation and scoped installation. Browser validation remains in place; source maps are disabled and malformed input falls back to browser recovery with a partial notice. Source and expanded output are each capped at 16 MiB. The production JS bundle carries roughly 13 KiB gzip for this.
 
-Tests cover the Rust command contract, byte validation, settings-reader wiring,
-React stale/cleanup/rollback ownership and actual Chromium font rendering under
-desktop CSP, two-card isolation, decoder failure, remote rejection and limits.
-scripts/skin-font-fixture.json contains an original synthetic rectangular glyph
-font (1000 units/em and advance), not copied font artwork. Browser behavior
-follows https://www.w3.org/TR/css-font-loading/.
-Conditional font faces inside media/supports groups now follow nested conditions;
-media changes update registration in source order and cleanup removes listeners.
-Media resources preload within the existing budgets; false supports conditions
-do not read resources. Unit and Chromium resize tests cover this lifecycle.
-local()/data sources, tech() hints, variable font
-shorthand recovery and native-platform typography parity remain unfinished.
-This is preview font support, not full native candidate font delivery.
+Animation custom-property names support non-ASCII characters and CSS hexadecimal/simple escapes. Definitions and references share decoded logical names through source projection and private animation aliasing; escaped names also reserve their decoded spelling to avoid namespace collisions. Resource validation treats only a valid `var()` name as opaque, leaving fallback URLs subject to all existing image/path checks.
 
-Whole-value variable font shorthands now use the same bounded source projection
-as animation shorthands, before CSSOM can discard their pending substitution.
-Each font longhand receives a private variable alias; original variables and
-declaration priority/order are retained. Family projection subsequently passes
-through the existing per-card font namespace. Chromium tests reproduce failure
-on the previous implementation and verify actual font rendering after later
-size overrides, earlier important sizes, shorthand resets, inheritance,
-conditional definitions, nested fallback and cyclic fallback. The full font,
-animation, image and CSP regression also passes without relaxing policy.
-This supersedes whole-value variable font shorthand recovery above; fragment
-substitution, local()/data sources, tech() hints and native typography parity
-remain unfinished. No native platform acceptance is claimed.
+Root selector mapping happens on browser-parsed CSSStyleRule selectors, not by replacing text throughout the source. Actual `:root` pseudo-classes become `:scope`, while quoted attribute values, escaped class-name colons, custom values, content and animation names remain untouched. Browser-canonical escaped root pseudo-classes and root rules nested under supported conditions work too.
 
-The appearance page now includes the candidate preview section from pinned
-04a8df56 settings appearance.html / appearance.ts. It reuses the scoped candidate
-markup and built-in palettes, follows current draft layout, font size, page size,
-preedit visibility, helpcode visibility and built-in skin selection, and resets
-on reload without writing preferences. Fixed sample candidates 7–9 now also come
-from the same candidate-wnd-h.html partial (GPL-3.0); skin cards still default to
-six samples. No Engine input or private data is used. External skins explicitly
-direct users to the existing skin-page preview, not an inaccurate built-in
-substitute. Preview remains dark like the current settings host.
+External `@font-face` rules, including those inside media/supports groups, load through an injected font reader and the host-managed `read_skin_font` resource API. The desktop command accepts only package ID/relative path and font MIME types, retaining the core containment and 8 MiB per-resource limit. Binary FontFace loading needs no font URL or relaxed CSP. Private family names and family-variable aliases isolate preview cards; font shorthand family values and keyframe family declarations are rewritten where browser CSSOM exposes them. Media changes update registration in source order, cleanup removes listeners, media resources preload within the existing budgets, and false supports conditions do not read resources. Fonts are adopted only after current-generation preparation and removed with the card stylesheet; stale results never register. Limits are 8 font faces, 16 distinct source reads and 16 MiB total bytes per preparation. Browser behavior follows https://www.w3.org/TR/css-font-loading/. `local()` and data sources and `tech()` hints are not supported; this is skin-package font support for the settings preview, and is separate from the candidate font-family controls below.
 
-React tests cover draft/reload behavior and helpcode visibility. Local Chromium
-tests bundle the actual settings page with an in-memory host and production CSS:
-node scripts/build-settings-browser.mjs <temporary-directory>, serve on loopback,
-then run scripts/test-appearance-preview.py with --url, desktop --csp and optional
---executable / --screenshot. Actual font sizes, selected skin colours, both
-layouts, candidate count, preedit visibility and cleanup are checked. Native
-host parity, external-skin appearance-page previews, full upstream font controls
-and global theme selection remain unfinished.
+Whole-value variable font shorthands use the same bounded source projection as animation shorthands, before CSSOM can discard their pending substitution. Each font longhand receives a private variable alias; original variables and declaration priority/order are retained. Family projection then passes through the per-card font namespace. This covers later size overrides, earlier important sizes, shorthand resets, inheritance, conditional definitions, nested fallback and cyclic fallback.
 
-External skins now also render in the appearance preview, following the same
-pinned skin.ts candidate palette/decoration path already used on skin cards.
-The selected package is resolved through the host catalog on entry, selection
-or host changes, and manual refresh. Draft layout, size, count and visibility
-continue to update without writes. Palette validation, dimension bounds and the
-bounded image reader are shared with existing previews; no toolbar stylesheet
-is applied to the candidate-only appearance stage. Unsupported layouts/themes,
-missing packages and resource failures are explicit, not silent substitutions.
+## Appearance page
 
-Catalog generations discard late results when selection/host/page changes;
-refresh and leaving the page remove owned styles and discard pending image
-results. Unit tests cover lifecycle, retry, compatibility and failed images;
-the real settings Chromium fixture checks external colours, decoration geometry,
-decoded image pixels, draft layout updates and stylesheet cleanup under desktop
-CSP. This supersedes the appearance-page external-skin limitation above. Native
-host resource delivery, global theme and full typography controls remain open.
+The appearance page includes the candidate preview section from pinned `04a8df56` settings `appearance.html` / `appearance.ts`. It reuses the scoped candidate markup and built-in palettes, follows the current draft layout, font size, page size, preedit visibility, helpcode visibility and built-in skin selection, and resets on reload without writing preferences. Fixed sample candidates 7–9 come from the same `candidate-wnd-h.html` partial; skin cards still default to six samples. No Engine input or private data is used. The preview follows the settings host theme.
 
-Hidden preedit now retains the upstream `.pinyin` row and marks its container
-`preedit-hidden`, matching pinned appearance.ts instead of removing the row.
-This restores the adjacent-sibling selectors used by Willow green for leading
-corner highlights and padding. The hidden row is explicitly display:none so
-the preview's flex rule cannot override HTML hidden behavior. Chromium regression
-reproduces the old missing structure, then checks vertical top padding/highlight,
-horizontal leading highlight, the single-candidate solid highlight and restoring
-visible preedit. Existing external-skin and CSP checks still pass. This is a
-shared preview fidelity fix, not native-platform visual acceptance.
+External skins also render in the appearance preview, following the same pinned `skin.ts` candidate palette/decoration path used on skin cards. The selected package is resolved through the host catalog on entry, selection or host changes, and manual refresh. Draft layout, size, count and visibility continue to update without writes. Palette validation, dimension bounds and the bounded image reader are shared with the existing previews; no toolbar stylesheet is applied to the candidate-only appearance stage. Unsupported layouts/themes, missing packages and resource failures are explicit, not silent substitutions. Catalog generations discard late results when selection, host or page changes; refresh and leaving the page remove owned styles and discard pending image results.
 
-Candidate and preedit font-size controls now expose every integer from 12 to 32,
-matching pinned appearance.html and the existing client-core preference bounds.
-The shared UI declares and saves candidate_preedit_font_size independently, and
-uses the core's 16px default for both missing values (previous UI default was
-18px). Existing intermediate sizes such as 19 and 27 remain selected correctly.
-Bounded numeric CSS properties drive both built-in and external previews without
-changing their shared static skin-card samples or weakening CSP.
+Hidden preedit retains the upstream `.pinyin` row and marks its container `preedit-hidden`, matching pinned `appearance.ts` instead of removing the row. This keeps the adjacent-sibling selectors used by Willow green for leading corner highlights and padding. The hidden row is explicitly `display:none` so the preview's flex rule cannot override HTML hidden behavior.
 
-Unit tests cover all choices, independent draft values/save payloads and invalid
-CSS inputs. Chromium checks actual candidate/preedit text sizes for every 12–32
-value in both orientations on built-in and external skins; previous appearance
-regressions still pass. The existing core candidate-font boundary test also
-passes. No native host settings, typography implementation or platform acceptance
-was changed; platform-specific ranges (including macOS native settings) still
-need their own migration. Font-family/fallback controls and global theme remain
-unfinished.
+Candidate and preedit font-size controls expose every integer from 12 to 32, matching pinned `appearance.html` and the client-core preference bounds. The shared UI declares and saves `candidate_preedit_font_size` independently, and uses the core's 16px default for both missing values. Intermediate sizes such as 19 and 27 remain selected correctly. Bounded numeric CSS properties drive both built-in and external previews without weakening CSP. Native hosts keep their own platform ranges — the macOS native settings window still offers its 16/18/20 point list — and read the same shared fields.
 
-The shared appearance page now exposes the existing candidate_text_color field
-with the pinned appearance.html colour input/reset controls and appearance.css
-geometry/state styling (04a8df56, GPL-3.0). A six-digit hex colour sets candidate
-text and the upstream 0x9d-alpha number colour; reset saves null and removes both
-preview variables so the selected skin returns. Theme-following state is exposed
-through aria-pressed. Selected-skin contrast rules stay intact. Only bounded hex
-values become CSS; malformed values cannot inject declarations.
+The appearance page exposes `candidate_text_color` with the pinned `appearance.html` colour input/reset controls and `appearance.css` geometry/state styling. A six-digit hex colour sets candidate text and the upstream 0x9d-alpha number colour; reset saves null and removes both preview variables so the selected skin returns. Theme-following state is exposed through `aria-pressed`. Selected-skin contrast rules stay intact. Only bounded hex values become CSS; malformed values cannot inject declarations.
 
-Tests cover loaded/custom/reset save payloads, sanitization and real computed
-colours/number opacity under desktop CSP on Fluent, WeChat and external previews,
-including retaining WeChat selected white text. This uses the existing core
-contract; no native host typography changes or native acceptance are claimed.
+The core font preference contract accepts Unicode primary and fallback family names and up to 32 ordered fallbacks, matching pinned `04a8df56` `appearance.ts`, which permits 32 supplementary families. ASCII names, empty fallback lists, defaults and the per-name 128 UTF-8-byte bound are unchanged. Names are display strings, not paths or CSS declarations; consumers quote and encode them for their own rendering interface.
 
-The core font preference contract now accepts Unicode primary and fallback
-family names and up to 32 ordered fallbacks, preparing the shared controls for
-pinned 04a8df56 appearance.ts (which permits 32 supplementary families). Existing
-ASCII names, empty fallback lists, defaults and the per-name 128 UTF-8-byte bound
-remain unchanged. Names are display strings, not paths or CSS declarations;
-consumers must quote/encode them appropriately for their rendering interface.
-Storage tests preserve Unicode and order and reject overlong names/33 entries.
-The previous implementation rejects the new Unicode round-trip regression.
-This increment changes validation/storage only; font enumeration, shared font
-controls, rendering integration and native typography acceptance remain open.
+Shared appearance edits the primary family and up to 32 ordered fallback families with add/remove/reorder actions, using that Unicode/128-byte name contract. Invalid drafts show an error across settings pages and cannot submit. Both built-in and external previews use quoted literal family names followed by the system sans-serif fallback, like pinned `appearance.ts`; control characters, quotes and backslashes are escaped without interpreting names as CSS syntax. Other fallback selections are excluded from a control's own suggestions.
 
-Shared appearance now edits the primary family and up to 32 ordered fallback
-families with add/remove/reorder actions, using the core's Unicode/128-byte name
-contract. Invalid drafts show an error across settings pages and cannot submit.
-Both built-in and external previews use quoted literal family names followed by
-the system sans-serif fallback, like pinned appearance.ts; control characters,
-quotes and backslashes are escaped without interpreting names as CSS syntax.
+The font controls take an optional `SettingsClient.listFontFamilies` reader and present searchable comboboxes when it is available; the desktop shell supplies it through the `list_font_families` command backed by `crates/host-api`'s `system_fonts`. Loading is lazy and shared by the primary and fallback controls; refresh, failure, empty and unsupported states remain distinct. Unicode search, pointer selection, arrow/Enter/Escape navigation and active-option scrolling retain manual entry. Catalogs validate all names, deduplicate and cap at 16,384 entries; each popup shows at most 100 search results with a refinement notice. Reader changes discard old results without changing drafts.
 
-React tests cover load/edit/order/save, invalid submission and the 32-item bound.
-Chromium uses the original synthetic font fixture with distinct size-adjust and
-Unicode-range descriptors to verify actual missing-glyph fallback and reordering
-through measured glyph widths in both preview paths, plus CSS-injection-shaped
-names and all existing appearance regressions. System font enumeration and its
-searchable dropdown are not yet connected: the UI explicitly requests complete
-font names. Native host font delivery and native typography parity remain open.
+## Credential testing
 
-The shared font controls now accept an optional SettingsClient.listFontFamilies
-reader and present searchable comboboxes when it is available. Loading is lazy
-and shared by primary/fallback controls; refresh, failure, empty and unsupported
-states remain distinct. Unicode search, pointer selection, arrow/Enter/Escape
-navigation and active-option scrolling retain manual entry. Other fallback
-selections are excluded from suggestions. Catalogs validate all names, deduplicate
-and cap at 16,384 entries; each popup shows at most 100 search results with a
-refinement notice. Reader changes discard old results without changing drafts.
+The settings page adapts pinned Windows credential testing from `529060a` at upstream `4e5c96248e868ca5beca3f9cdc0c513a354b9cb0` through an optional host interface, covering Tencent, NiuTrans and custom translation, AI assistance, voice ASR and voice polishing. Windows, macOS, Linux and iOS each inject their own `testApiCredential` adapter. Unlike the Windows settings process, the Linux WebView and Tauri shell do not own private AI, Tencent or voice secrets: the shell routes a bounded `credential_test` request to the user-owned provider socket, which reloads its owner-only file, binds the selected provider/model/endpoint to that private credential and returns only a fixed bounded status. NiuTrans and custom translation reuse the credential fields already present in their normal provider query contract.
 
-Tests cover injection, shared loading, stale readers, retry, duplicate exclusion,
-keyboard selection without form submission and search after display capping.
-The synthetic browser host supplies a fixture catalog and exercises visible
-search/selection along with all appearance regressions. This delivers the UI
-interface and search control only: production native font enumeration is not
-connected yet and must be implemented separately, with no native acceptance claim.
+## Local verification
 
-The shared settings page now adapts pinned Windows credential testing from
-`529060a` at upstream `4e5c96248e868ca5beca3f9cdc0c513a354b9cb0` through an
-optional host interface. Linux exposes tests for Tencent, NiuTrans and custom
-translation, AI assistance, voice ASR and voice polishing. Unlike the Windows
-settings process, the Linux WebView and Tauri shell do not own private AI,
-Tencent or voice secrets: the shell routes a bounded `credential_test` request
-to the existing user-owned provider socket, which reloads its owner-only file,
-binds the selected provider/model/endpoint to that private credential and
-returns only a fixed bounded status. NiuTrans and custom translation reuse the
-credential fields already present in their normal provider query contract.
+React tests cover the draft/save/reload behaviour, catalog lifecycles, stale readers and the bounds described above. The browser-level regressions run real Chromium under the desktop CSP against bundles of the actual shared code, with no relaxed policy and no user data:
 
-React tests cover service/config routing, transport failures, stale-result
-discard and the absence of private Linux tokens from requests. Rust tests cover
-socket selection plus request/response bounds, and synthetic Python tests cover
-private-profile matching and failure redaction without network access. This is
-a Linux provider integration; native service calls and credential acceptance
-have not been exercised, and other platform hosts still need their own adapter.
+```sh
+node scripts/build-skin-browser.mjs <temporary-directory>   # skin palette, toolbar CSS, images, fonts
+node scripts/build-settings-browser.mjs <temporary-directory> # the settings page with an in-memory host
+```
+
+Serve the chosen directory on a loopback HTTP port, then run `scripts/test-skin-palette-csp.py` or `scripts/test-appearance-preview.py` with `--url http://127.0.0.1:<port>`, `--csp` from the desktop Tauri config and optionally `--executable <installed-chromium>` (and `--screenshot` for the appearance test). Python Playwright is required; stop the temporary server afterward. Between them these fixtures check computed styles, conditional rules, root mapping, scope containment and cleanup, declaration order and pseudo-elements, decoded image pixels and image-set deduplication, fixed-time animation playback with overridden longhands, real font rendering and measured glyph-width fallback, candidate/preedit text sizes for every 12–32 value in both orientations, selected skin colours on built-in and external previews, and rejection of remote or unprepared resources. `scripts/skin-font-fixture.json` contains an original synthetic rectangular glyph font (1000 units/em and advance), not copied font artwork.

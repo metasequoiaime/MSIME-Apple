@@ -4,14 +4,16 @@ on:
     inputs:
       version: {description: Semantic version (defaults to platforms/ios/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+      publish: {description: Publish the build as an ios-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-ios, cancel-in-progress: false}
 jobs:
   release:
     runs-on: macos-15
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
-        with: {fetch-depth: 0}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
       - id: version
         name: Resolve independent iOS version
         env: {REQUESTED: "${{ inputs.version }}"}
@@ -19,16 +21,39 @@ jobs:
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/ios/version.txt)}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
+      # build-app.sh takes the directory install_resources verified and unpacked, not the repository's
+      # resources/ directory -- that one holds the lock files install_resources reads. ci-ios.yml
+      # resolves it the same way before every Xcode build.
+      # install_resources reads vendor/MSIME-Engine for the Engine-sourced artifacts, so the archive
+      # has to be unpacked before it runs. ci-ios.yml orders these the same way.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
       - name: Build native iOS host
-        run: bash platforms/ios/build-app.sh resources simulator
+        run: |
+          set -euo pipefail
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/ios/build-app.sh "$resource_dir" simulator
       - name: Package iOS release
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           mkdir -p dist
           ditto target/ios/derived-simulator/Build/Products/Release-iphonesimulator/MSIMEApp.app "dist/MSIMEApp-${VERSION}.app"
           tar -czf "dist/msime-ios-${VERSION}.tar.gz" -C dist "MSIMEApp-${VERSION}.app"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-ios-${{ steps.version.outputs.value }}
+          path: dist/msime-ios-${{ steps.version.outputs.value }}.tar.gz
+          if-no-files-found: error
+      # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather
+      # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
       - name: Publish independent iOS release
+        if: ${{ inputs.publish }}
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
           tag="ios-v${VERSION}"
-          flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "dist/msime-ios-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "iOS ${VERSION}" --generate-notes "${flags[@]}"
+          # --generate-notes otherwise starts from whichever tag in the repository is newest, and the six platforms interleave prefixes, so a macOS release could be described by the diff since an ios-v tag. fetch-depth: 0 above is what makes this list complete.
+          start=$(git tag --list 'ios-v*' --sort=-v:refname | head -1)
+          flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
+          [[ -n "$start" ]] && flags+=(--notes-start-tag "$start")
+          gh release create "$tag" "dist/msime-ios-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "iOS ${VERSION}" --generate-notes "${flags[@]}"

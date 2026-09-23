@@ -126,6 +126,16 @@ public final class NativeClient {
      * <p>All four are the shared implementation. The protocol's framing and its auth modes are the
      * same on every host, and this one adds only the transport Android has no platform API for.
      */
+    /**
+     * The one clipboard history every mobile host shares.
+     *
+     * <p>Ordering, the fifty-entry limit, pinning and eviction are the shared store's, and the file
+     * is the one the settings page reads. A second implementation here would be a second history.
+     */
+    public static String mobileClipboardHistory(String request) {
+        return text(mobileClipboardHistoryRaw(utf8(request)));
+    }
+
     public static String doubaoDecodeFrame(byte[] frame) {
         return text(doubaoDecodeFrameRaw(frame));
     }
@@ -181,6 +191,10 @@ public final class NativeClient {
      * <p>The Engine decides what a punctuation key produces, so a toggle that only changed the key
      * faces on this keyboard would show one mark and commit the other.
      */
+    /** Drop the cached candidate list for this session; the next query is answered fresh. */
+    public static String resetCache(long session) {
+        return text(resetCacheRaw(session));
+    }
     public static String setChinesePunctuation(long session, boolean enabled) {
         return text(setChinesePunctuationRaw(session, enabled));
     }
@@ -310,6 +324,7 @@ public final class NativeClient {
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
     private static native byte[] polishPromptRaw(byte[] id, byte[] legacy, byte[] custom1,
         byte[] custom2, byte[] custom3);
+    private static native byte[] mobileClipboardHistoryRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
         byte[] boostingTableId);
@@ -321,6 +336,7 @@ public final class NativeClient {
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
+    private static native byte[] resetCacheRaw(long session);
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);

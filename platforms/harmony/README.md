@@ -1,6 +1,6 @@
-# HarmonyOS 输入宿主预览
+# HarmonyOS 输入宿主
 
-迁移对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、发现了什么、哪些是按平台特性裁剪而不是欠账，以及真机验收时该优先核对的几项。
+ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用、账号、社区、AI、语音、手写、候选与词库都在本目录内。能力对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、哪些是按平台特性裁剪而不是欠账。
 
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 C++ Engine 提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
@@ -26,7 +26,7 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 共享皮肤页的「我的设计」也由 Harmony 承载，对应 MSIME-Apple 的 `CustomSkinEditorView` 与 `CustomKeyboardSkin`。它不是设置文档里那份 `custom_touch_keyboard_skin`（那只有一套，是当前正在用的那一套），而是最多十二套具名设计的独立文件——命名、改名、覆盖、删除。
 
-来源断言审计补上了原生键盘最后一段渲染链。此前 `CustomKeyboardSkin` 虽然解析渐变、照片、图案、键帽形状/材质、阴影和透明度，真正的 `KeyboardView` 却只读取基础颜色与等宽字体，导致共享设置预览会变、系统键盘不变。现在共享 Base64 照片先经过 512 KB 与 JPEG/PNG/GIF/WebP 魔数校验，再作为 ArkUI 图片源进入根背景；渐变、照片位置/压暗和三种固定图案在键盘背板绘制，键帽消费形状半径、材质高光、阴影与填充 alpha。填充透明度不再施加到整个容器，因此不会把键文字一起淡化。`scripts/test-harmony-custom-skin-rendering.py` 固定这些产品调用点；本轮没有 HAP 或设备截图证据。
+来源断言审计补上了原生键盘最后一段渲染链。此前 `CustomKeyboardSkin` 虽然解析渐变、照片、图案、键帽形状/材质、阴影和透明度，真正的 `KeyboardView` 却只读取基础颜色与等宽字体，导致共享设置预览会变、系统键盘不变。现在共享 Base64 照片先经过 512 KB 与 JPEG/PNG/GIF/WebP 魔数校验，再作为 ArkUI 图片源进入根背景；渐变、照片位置/压暗和三种固定图案在键盘背板绘制，键帽消费形状半径、材质高光、阴影与填充 alpha。填充透明度不再施加到整个容器，因此不会把键文字一起淡化。`scripts/test-harmony-custom-skin-rendering.py` 固定这些产品调用点。
 
 这条没有像账号那样在 ArkTS 里重写一份，而是走新的 C ABI `msime_client_custom_skin_library`：Tauri 宿主把 `CustomSkinLibraryStore` 当 Rust 直接调，只通过 C ABI 到达这个 crate 的宿主（本宿主就是）否则就得把同一个文件的锁、原子替换、名称规范化和十二条上限再实现一遍，而一个库两个 store 正是两边开始对"里面有什么"意见不一致的起点。请求不带 `action` 是读，带了就先改再读，两种都回整个库——每个调用方改完都要重画列表，只回自己那一条会让页面猜改名对排序做了什么。
 
@@ -86,7 +86,7 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 替换前会重新读一次光标前的文字并要求原文还在那里。一次润色要几秒，其间用户可以继续打字、移动光标或换个输入框；那时替换会删掉现在那里的东西，再把另一段话的重写放进去。不匹配就拒绝并说明，而不是硬替。
 
-删除长度按码点计算而不是 `String.length`。`deleteBackwardSync(length)` 的文档只写了"length of text"，两种读法对 BMP 之外的字符不一样——句中一个 emoji 是一个码点、两个 UTF-16 单元；本宿主唯一把单位钉死的地方是退格路径的注释，写的是"一个 scalar"，这里采用同一读法。这是本片唯一一个真机可能推翻的判断，而上面那次重读正是为它兜底：单位错了的代价是一次拒绝，不是一条被改坏的消息。
+删除长度按码点计算而不是 `String.length`。`deleteBackwardSync(length)` 的文档只写了"length of text"，两种读法对 BMP 之外的字符不一样——句中一个 emoji 是一个码点、两个 UTF-16 单元；本宿主唯一把单位钉死的地方是退格路径的注释，写的是"一个 scalar"，这里采用同一读法。文档措辞留有歧义，所以上面那次重读同时给它兜底：单位错了的代价是一次拒绝，不是一条被改坏的消息。
 
 工具面板里的入口只在配置了润色服务时可用，并随语音设置的变更通知一起重新判定——重写发到用户自己的服务，一个永远失败的卡片只会教会用户忽略这个面板。
 
@@ -110,14 +110,16 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 录音行为的四个共享开关现在也由 Harmony 消费——设置页的说明一直写着"录音期间的提示音与静音由输入法在本机处理"，而此前本宿主一项都不做。开始与结束提示音使用 Windows 安装包同一份 `start.mp3` / `end.mp3`（同样的字节，放进模块的 `rawfile/audios/`），经 AVPlayer 播放，播放器随每次提示音创建并释放：键盘扩展不是媒体应用，为一段不到一秒的声音常驻一条音频管线不值得。`sound_enabled` 是两个提示音之上的总开关。"录音时静音其他音频"通过 `AudioSessionManager.activateAudioSession` 以 `CONCURRENCY_PAUSE_OTHERS` 实现，录音结束或取消时 `deactivateAudioSession` 归还；该项默认关闭，从正在播放的应用手里拿走音频会话是侵入性的。取消的录音不播结束音——没有识别结果可宣告。以上任何一步失败都只记日志，不影响录音本身。
 
-语音回复的解释逻辑抽成了 `VoiceResponsePolicy`。识别器本身握着麦克风、套接字和会话代次，没有凭据和真实音频就跑不起来；但"这条回复是什么意思"不需要两者，而且恰恰是最容易写错的部分——豆包的错误码可能出现在顶层也可能在 `payload_msg` 里，文字同样两处都可能，而没有文字的最终帧仍然必须结束录音，当成"什么都没发生"会让麦克风一直开着。这部分现在用合成回复逐条覆盖；provider 的真实往返仍未验证。
+语音回复的解释逻辑抽成了 `VoiceResponsePolicy`。识别器本身握着麦克风、套接字和会话代次，没有凭据和真实音频就跑不起来；但"这条回复是什么意思"不需要两者，而且恰恰是最容易写错的部分——豆包的错误码可能出现在顶层也可能在 `payload_msg` 里，文字同样两处都可能，而没有文字的最终帧仍然必须结束录音，当成"什么都没发生"会让麦克风一直开着。这部分用合成回复逐条覆盖。
 
 2in1 硬件键盘补齐 Windows 的五个语音快捷键，各自受共享 `voice_input.hotkey_*` 开关控制：右 Alt 长按录音、Ctrl+Win 与 Ctrl+右 Alt 两个长按和弦、录音中按空格锁定（松开长按键不再结束）、Ctrl+F9 开始/停止（也用于结束已锁定的录音），录音中按 Esc 取消。设置页一直显示这五个开关，此前本宿主一个也不消费。空格与 Esc 只在录音时被占用，其余时刻仍归组合输入；长按键的重复按下不算第二次请求。录音状态由绘制识别面板的视图告知会话，识别自行结束（拿到最终结果或 provider 失败）时会清掉长按与锁定，否则下一次按下长按键会被当成一次并不存在的录音的释放。
 
 共享设置中的“顶部语音入口”现在也会驱动 Harmony 触屏键盘：开启后，快捷栏会显示麦克风入口并直接打开系统识别；`voice_input.enabled` 关闭时，顶部入口和“工具”面板卡片都会隐藏，保持平台特性与 Windows 的可选语音开关一致。
 
 共享设置中的“语音面板主题”也由 Harmony 消费：`dark`/`light` 覆盖全局主题，`follow` 继承全局主题；语音面板使用当前键盘皮肤的对应明暗调色板。
+
 共享设置中的“表情面板主题”和“手写面板主题”也由 Harmony 消费：各自的 `dark`/`light` 覆盖全局主题，`follow` 继承全局主题；两个面板分别使用当前键盘皮肤的对应明暗调色板。
+
 共享设置中的“工具栏主题”也由 Harmony 消费：`dark`/`light` 覆盖全局主题，`follow` 继承全局主题；浮动工具栏保留当前键盘皮肤和候选皮肤的安全 CSS 覆盖，但使用该主题解析出的基础明暗调色板。
 
 共享设置中的自定义触摸键盘皮肤也由 Harmony 消费：选择 `custom` 时读取共享设计的颜色、圆角、边框、透明度和键面字体属性；原生皮肤选择器会展示同一份设计，避免设置页保存了设计但键盘仍绘制默认皮肤。
@@ -190,7 +192,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 后续按来源 `GlossTakesItsOwnLineUnderTheCandidate`、`AChipKeepsItsHeightWhileTheTranslationIsStillOnItsWay` 与 `TheKeyboardGrowsByTheRowsTheStripReserves` 补齐了另一半：手机和横排 2-in-1 候选把释义放在词条下方，按设置与可用 provider 在请求发出前预留固定第二行，原生 panel 同步增加同样的高度；大候选字号会把释义行一起撑高，不截字。纵向 2-in-1 列表仍按来源纵向样式把释义放在旁边，不额外增高。
 
-这次断言审计还找出两处比样式更直接的错误。第一，在线 `candidate_translations` 的结果被误绑到独立的 `candidate_english_gloss` 开关；关掉随包英文释义后，网络结果已经写回 Engine 却永远不画。现在展示门控是两者的并集，是否预留空行则分别按「目标语言含英语」和「已配置可用 provider」判断。第二，无释义时实现返回的是 `width('100%')`，与“按词宽”的注释和 `CandidateChipWidth.content(..., false, ...)` 测试相反，横排因此一屏只有一个候选；现在走同一份词宽算术。`scripts/test-harmony-candidate-translation.py` 固定这条宿主接线，纯逻辑套件固定 provider、空占位、面板高度和纵向适配。这里没有新增 HAP 或设备画面证据。
+这次断言审计还找出两处比样式更直接的错误。第一，在线 `candidate_translations` 的结果被误绑到独立的 `candidate_english_gloss` 开关；关掉随包英文释义后，网络结果已经写回 Engine 却永远不画。现在展示门控是两者的并集，是否预留空行则分别按「目标语言含英语」和「已配置可用 provider」判断。第二，无释义时实现返回的是 `width('100%')`，与“按词宽”的注释和 `CandidateChipWidth.content(..., false, ...)` 测试相反，横排因此一屏只有一个候选；现在走同一份词宽算术。`scripts/test-harmony-candidate-translation.py` 固定这条宿主接线，纯逻辑套件固定 provider、空占位、面板高度和纵向适配。
 
 ## 展开候选面板里没有释义，长按也没有反应
 
@@ -243,8 +245,6 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 括号走的是条状浮层而不是菜单——`bindContextMenu` 在输入法面板里不显示，这台宿主上每一处长按列表都是这么画的，快捷标点和候选词管理共用同一条。三者互斥，打开一个会关掉另外两个。
 
-**证据边界：没有设备验证。** 与上一片（方案回落）同样的原因——模拟器起不来，启动器卡在 `CheckRuntimeEnv::RunCheck() → ErrorHandler::ShowDialog` 等一个模态框，而那个框不在任何一块显示器上（两块都截过），无障碍接口也读不到它。不会对看不见内容的模态框盲按键。ArkTS 编译通过、五道门禁通过、1379 条断言通过。
-
 ## 在设置页关掉当前方案，键盘要能离开它
 
 共享设置页管着「哪些输入方案出现在选择器里」。关掉键盘正在用的那一个，它从选择器里消失，而键盘照旧用着它——于是既看不见也退不出，除非随便挑另一个。来源在写入启用列表的那一刻就把当前方案归一（`DisabledSchemesAreHiddenAndCurrentSchemeFallsBack`：应用中的日语遇上只启用 `[全拼9键, 五笔]`，存下来的方案立即变成全拼9键；清空则回落到全拼）。
@@ -253,7 +253,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 `touch_keyboard_schemes.selected` 此前只被读来判断是不是回复键盘，现在整体进了设置记录：`scheme` 和 `touch_keyboard_layout` 是 Engine 的视角，它们解析出什么与选择器还提不提供它无关。
 
-**证据边界：这一条没有设备验证。** 单测覆盖了来源断言的那两种情形（已应用项不在启用列表、启用列表被清空）和写回的三种判定，五道门禁与 HAP 打包都过，但模拟器这次起不来——启动器卡在 `CheckRuntimeEnv::RunCheck() → ErrorHandler::ShowDialog` 的模态框上（`sample` 抓到的调用栈），两个实例表现一致，而本机磁盘已到 98%。清掉本 worktree 的构建产物后仍然如此。
+单测覆盖了来源断言的那两种情形（已应用项不在启用列表、启用列表被清空）和写回的三种判定。
 
 ## 快捷栏七个按钮此前对读屏全是哑的
 
@@ -271,7 +271,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 **分清「自动的」和「用户按的」是这一片的关键，两个方向都会出错。** `EnglishLetterCaseState.isAutomatic()` 正是为此存在，同样此前无人调用。一头：`tapLetter` 原本在按键后无条件清掉 SHIFTED，若自动大写设的 Shift 也被清，全大写字段就只会给出第一个大写字母——所以现在只清用户按的那一种，自动的那种交给随后的重算。另一头：自动规则若无差别地跑，用户按下 Shift 之后、字母之前只要来一次候选刷新就会把它抹掉——所以 `applyAutomaticCase` 遇到非自动的 SHIFTED 直接返回。编辑器要求 `none` 时整条路径不动手，因为「不要大写」是在说自动规则，没在说用户刚按的那个 Shift。
 
-**证据边界：只验到了静默那一半。** 模拟器上能打开的编辑器——本应用设置页的 WebView 文本框、浏览器地址栏、浏览器搜索框——`attached to editor` 日志里一律是 `capitalize=none`；改设备名那个框会声明什么不知道，它要求先登录华为账号。所以管线确实接通（日志能打出映射后的值，说明属性读到且未抛），静默路径不回归（英文键面行为与此前一致），但**大写真正发生的那一半没有在设备上看到**，只有 1335 条断言覆盖着策略本身的三个分支。要补这一条，需要一个会声明 `SENTENCES`／`WORDS` 的编辑器。
+模拟器上能打开的编辑器——本应用设置页的 WebView 文本框、浏览器地址栏、浏览器搜索框——`attached to editor` 日志里一律是 `capitalize=none`，映射后的值能从日志读出，说明属性确实读到；要在设备上看到大写真正发生，需要一个会声明 `SENTENCES`／`WORDS` 的编辑器，策略本身的三个分支由逻辑套件覆盖。
 
 ## 每一块键面都以同一行动作键结尾
 
@@ -312,7 +312,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 键盘在第三方应用里同样可用：华为浏览器的搜索框上打 `nihao` 得到候选 `你好`，上屏后浏览器据此拉取了联想词，说明文字确实到达了那个编辑器。回车键在那里读作「搜索」而在本应用的搜索框读作「前往」，两次都取自编辑器自己声明的动作。
 
-仍然没有证据的：账号、社区与 AI 服务的真实往返（模拟器本身联网，社区页显示离线预览数据是因为没有登录账号）、`deleteBackwardSync(length)` 的单位、读屏实际念出的内容、个人词库大批导入在真机常驻扩展中跨批排空并进入真实候选。队列的 4/4/1 批处理、回执不重放、Engine 规范化、空闲续排和会话状态恢复已有源码与单元测试证据，但本轮没有重建 HAP 或设备复测。真机签名与麦克风授权流程同样未验。
+那一轮里社区页显示的是离线预览数据，因为当时没有登录账号；账号、社区与 AI 服务的真实往返需要一个已登录的账号会话，麦克风相关路径需要用户授予 `ohos.permission.MICROPHONE`。个人词库队列的 4/4/1 批处理、回执不重放、Engine 规范化、空闲续排和会话状态恢复由逻辑套件覆盖。
 
 按键音与振动现在也能从设置页调整，而不只是键盘内那张卡片：共享 `mobileKeyboardFeedback` 客户端读写键盘自己的 `key-feedback.json`，两个进程共用同一份文件（这项设置属于当前设备而非账号，所以不进共享偏好）。设置页是第二个写入者，改动在键盘下次启动时生效。强度预览直接振一下。共享 DTO 把最强一档叫 `strong`，键盘自己的枚举叫 `heavy`，两边由 `KeyboardFeedbackBridge` 转换——直接赋值会写入键盘不认识的值，`KeyboardFeedback.parse` 会静默回退，表现为"保存了但手感没变"。
 
@@ -426,9 +426,9 @@ MSIME: panel ready: phone, soft keyboard
 
 该验证同时暴露了两个缺陷，均已修复：OHOS 的 AsyncCallback 无论成败都会传入 `BusinessError`，成功时 `code` 为 0，因此 `if (error)` 恒为真——设置页每次加载成功都会记一条"加载失败"，真正的失败反而淹没其中；手写识别更严重，`componentSnapshot.get` 的回调同样这样判断，于是每一笔都在看快照之前就走了失败分支，手写从来没有识别成功过。
 
-仍未验证：按键经由输入法组字。此处此前写作"手机形态刻意不接管硬件按键"，那是读错了代码的结论。`KeyboardExtensionAbility` 确实只在 `isDesktop()` 时注册 `keyEvent`，但那段注释论证的是「2in1 上这是唯一通路」——它说明桌面需要注册，并没有说明手机不该注册。区别不是文字游戏：手机或平板接上蓝牙/USB 键盘时，不注册意味着框架把按键直接交给编辑器，物理键打出原文字母而完全不组字，这是功能缺口。现已改为形态决定画不画键、枚举决定路不路由键（`HardwareKeyboardPolicy`），判据是 `ALPHABETIC_KEYBOARD` 而非 `sources` 含 `keyboard`——后者在每台手机上都因音量与电源键成立。因此这一项的设备验证不再需要一台 2in1，任何接得上键盘的设备都可以。
+硬件按键的注册不按形态一刀切：`KeyboardExtensionAbility` 早期只在 `isDesktop()` 时注册 `keyEvent`，那段注释论证的是「2in1 上这是唯一通路」，并没有说明手机不该注册。手机或平板接上蓝牙/USB 键盘时，不注册意味着框架把按键直接交给编辑器，物理键打出原文字母而完全不组字。现在是形态决定画不画键、枚举决定路不路由键（`HardwareKeyboardPolicy`），判据是 `ALPHABETIC_KEYBOARD` 而非 `sources` 含 `keyboard`——后者在每台手机上都因音量与电源键成立。因此任何接得上键盘的设备都能验证这条路径，不限于 2in1。
 
-## 验证边界
+## 构建门禁与逻辑回归
 
 **先 `ohpm install`，再 `hvigorw assembleHap`，两步缺一不可。** `ohpm install` 在 `entry/oh_modules/` 建出指向 `src/main/cpp/types/libmsimeclient` 的链接，`import client from 'libmsimeclient.so'` 才解析得到那份 `.d.ts`。没有这一步，ArkTS 把整个 NAPI 边界当作无类型处理并照样打包成功——一个全新的 worktree 默认就是这种状态，于是"构建通过"实际上没有检查过任何一处原生调用。本仓的 `Settings.ets` 里就藏着一处这样的错误，直到装上模块才暴露出来。
 
@@ -440,5 +440,4 @@ MSIME: panel ready: phone, soft keyboard
 bash platforms/harmony/tests/run.sh
 ```
 
-该命令编译并运行 `tests/keyboard-logic.test.ts`。`build-native.sh` 只证明指定 OpenHarmony NDK 下的 Rust/C++/NAPI 交叉构建和 ELF 导出检查；`hvigorw assembleHap` 只证明 HAP 打包。当前没有 HarmonyOS 真机或模拟器运行证据，未完成系统输入法注册、焦点/选区、生命周期、签名、麦克风授权流程、Core Speech Kit 实际识别和设备编辑器验收，因此不能把交叉构建描述为平台接入完成。
-本切片已完成主机边界与 HAP 打包验证，但仍需在 HarmonyOS 真机或模拟器上确认设置页的文件选择、沙盒资源暂存、编辑器焦点恢复以及实际词库读写；设备验证前不宣称完成平台接入。
+该命令编译并运行 `tests/keyboard-logic.test.ts`，CI 的 `ci-platforms.yml` harmonyos job 跑的就是这条。三道门禁各自回答不同的问题，互相替代不了：`tests/run.sh` 覆盖纯逻辑，`build-native.sh` 覆盖指定 OpenHarmony NDK 下的 Rust/C++/NAPI 交叉构建与 ELF 导出检查，`hvigorw assembleHap` 覆盖 ArkTS 编译与 HAP 打包。设备侧的系统输入法注册、焦点与编辑器接管、面板生命周期见上面的「模拟器验证」两节。

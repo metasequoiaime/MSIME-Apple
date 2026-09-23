@@ -2473,6 +2473,15 @@ public final class MSIMEInputService extends InputMethodService {
                 return true;
             }
         }
+        // Before the modifier bail-out below, because both maintenance chords are Ctrl+Shift+Alt
+        // and that branch hands every such combination to the application.
+        int maintenance = HardwareMaintenancePolicy.action(keyCode, event.isShiftPressed(),
+            event.isCtrlPressed(), event.isAltPressed(), event.isMetaPressed(),
+            event.getRepeatCount(), hasEngineComposition());
+        if (maintenance != HardwareMaintenancePolicy.NONE && session != 0
+                && runMaintenanceChord(maintenance)) {
+            return true;
+        }
         if (session == 0 || event.isCtrlPressed() || event.isAltPressed() || event.isMetaPressed()) {
             if (session != 0 && connection != null) {
                 // Preserve displayed source text before the editor handles a shortcut.
@@ -4951,11 +4960,14 @@ public final class MSIMEInputService extends InputMethodService {
                     Toast.LENGTH_SHORT).show();
                 return;
             }
-            clipboardHistory.add(value.toString());
+            // The shared store refuses rather than throws when every entry is pinned, which is
+            // the one refusal the user can act on: it names unpinning rather than a save failure.
+            if (!clipboardHistory.add(value.toString())) {
+                Toast.makeText(this, ClipboardHistoryPolicy.message(
+                    ClipboardHistoryPolicy.Rejection.FULL), Toast.LENGTH_SHORT).show();
+                return;
+            }
             renderClipboardHistory();
-        } catch (ClipboardHistory.FullException error) {
-            Toast.makeText(this, ClipboardHistoryPolicy.message(
-                ClipboardHistoryPolicy.Rejection.FULL), Toast.LENGTH_SHORT).show();
         } catch (IllegalArgumentException | IllegalStateException | SecurityException error) {
             Toast.makeText(this, "无法保存当前剪贴板", Toast.LENGTH_SHORT).show();
         }
@@ -4967,8 +4979,8 @@ public final class MSIMEInputService extends InputMethodService {
         MenuItem remove = popup.getMenu().add("删除");
         popup.setOnMenuItemClickListener(selected -> {
             if (clipboardHistory == null) return false;
-            if (selected == pin) clipboardHistory.togglePinned(item.id());
-            else if (selected == remove) clipboardHistory.remove(item.id());
+            if (selected == pin) clipboardHistory.setPinned(item.text(), !item.pinned());
+            else if (selected == remove) clipboardHistory.remove(item.text());
             else return false;
             renderClipboardHistory();
             return true;
@@ -5336,6 +5348,35 @@ public final class MSIMEInputService extends InputMethodService {
             moreToolsCard("振动强度", MoreToolsLayout.Section.SETTINGS, hapticsEnabled,
                 hapticsEnabled, false, hapticStrengthTitle(), this::cycleHapticStrength));
         applySkin();
+    }
+
+    /**
+     * Run one maintenance chord, or decline so the key goes on to the application.
+     *
+     * <p>Deleting declines when the slot is empty or the candidate is not one the Engine will drop
+     * — a cloud or AI suggestion is not in the user dictionary to remove — and says so rather than
+     * swallowing the chord silently.
+     */
+    private boolean runMaintenanceChord(int action) {
+        try {
+            if (action == HardwareMaintenancePolicy.RESET_CACHE) {
+                apply(NativeClient.resetCache(session));
+                showDiagnostic("已清除候选缓存");
+                return true;
+            }
+            if (!candidateManagementEnabled()) return false;
+            JSONObject candidate = visibleCandidate(action);
+            JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+            if (id == null || id.optLong("session") != session) return false;
+            if (!apply(NativeClient.removeCandidate(session, id.getLong("generation"),
+                                                    id.getLong("index")))) {
+                showDiagnostic("当前候选不支持此操作");
+            }
+            return true;
+        } catch (JSONException | LinkageError error) {
+            fail();
+            return true;
+        }
     }
 
     private boolean candidateManagementEnabled() {
@@ -6704,8 +6745,10 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeySpellingIndices = java.util.List.of();
         nineKeySpellingGeneration = -1;
         loadFeedbackPreferences();
-        clipboardHistory = new ClipboardHistoryStore(this);
         File files = getFilesDir();
+        // The shared store keeps its file under this directory, which is the same one the settings
+        // page hands the shared entry; both sides therefore read one history.
+        clipboardHistory = new ClipboardHistoryStore(this, files);
         voiceResultStore = files == null ? null
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());

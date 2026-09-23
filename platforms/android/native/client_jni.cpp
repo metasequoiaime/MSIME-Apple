@@ -179,6 +179,16 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_polishPromptRaw(
     }
     return out;
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_mobileClipboardHistoryRaw(JNIEnv *env, jclass, jbyteArray request) {
+    if (!request) return response(env, msime_client_mobile_clipboard_history(nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_mobile_clipboard_history(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_doubaoDecodeFrameRaw(JNIEnv *env, jclass, jbyteArray frame) {
     if (!frame) return response(env, msime_client_doubao_decode_frame(nullptr, 0));
     jsize length = env->GetArrayLength(frame);
@@ -351,6 +361,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setNineKeyModeRa
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setEnglishModeRaw(JNIEnv *env, jclass, jlong handle, jboolean enabled) {
     return response(env, msime_client_set_english_mode(static_cast<uint64_t>(handle), enabled == JNI_TRUE));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_resetCacheRaw(JNIEnv *env, jclass, jlong handle) {
+    return response(env, msime_client_reset_cache(static_cast<uint64_t>(handle)));
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setChinesePunctuationRaw(JNIEnv *env, jclass, jlong handle, jboolean enabled) {
     return response(env, msime_client_set_chinese_punctuation(static_cast<uint64_t>(handle), enabled == JNI_TRUE));

@@ -11,6 +11,10 @@ namespace msime::windows {
 // without touching the shared store; the default writes it there.
 using TypingStatisticsSink =
     std::function<void(const std::string &, TypingSource)>;
+// Hands one record to the shared store on a detached thread. An empty directory or text records nothing; so does a store whose statistics are switched off, because the shared entry point checks that itself.
+void record_typing_statistics_async(const std::string &directory,
+                                    const std::string &text,
+                                    TypingSource source);
 enum class HideCandidateDisposition { Rejected, Cancelled, Suppressed };
 
 // One registered client's queue-owned adapter. No pipe I/O runs here; the

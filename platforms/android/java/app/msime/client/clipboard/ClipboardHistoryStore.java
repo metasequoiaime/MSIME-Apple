@@ -2,71 +2,137 @@ package app.msime.client;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Private, text-only Android clipboard history; it never writes clipboard contents to logs. */
+/**
+ * The clipboard history, in the one file every mobile host shares.
+ *
+ * <p>This used to be a private `SharedPreferences` document with its own ordering, eviction and
+ * pinning rules. The settings page reads the shared store — the same file iOS and HarmonyOS use —
+ * so the keyboard and the settings page were showing two different histories: text copied here
+ * never appeared there, and deleting an entry there left it on the keyboard.
+ *
+ * <p>Nothing about the history is decided here now. Ordering, the fifty-entry limit, eviction, the
+ * pinned-entries-cannot-be-evicted rule and the on-disk format all belong to the shared store; this
+ * class turns its answers into the model this keyboard draws, and carries the one-time move of
+ * whatever the old private document still held.
+ */
 public final class ClipboardHistoryStore {
-    private static final String ITEMS_KEY = "items";
-    private final SharedPreferences preferences;
+    private static final String LEGACY_DOCUMENT = "clipboard-history";
+    private static final String LEGACY_ITEMS_KEY = "items";
+    private static final String LEGACY_MIGRATED_KEY = "migrated-to-shared";
 
-    public ClipboardHistoryStore(Context context) {
-        preferences = context.getSharedPreferences("clipboard-history", Context.MODE_PRIVATE);
+    private final SharedPreferences legacy;
+    private final String directory;
+
+    /**
+     * @param directory the host's own data directory; the shared store keeps its file beneath it
+     */
+    public ClipboardHistoryStore(Context context, File directory) {
+        this.legacy = context.getSharedPreferences(LEGACY_DOCUMENT, Context.MODE_PRIVATE);
+        this.directory = directory == null ? null : directory.getAbsolutePath();
+        migrate();
     }
 
     public List<ClipboardHistory.Item> load() {
-        String encoded = preferences.getString(ITEMS_KEY, "[]");
+        return entries(request("load", null, false));
+    }
+
+    /** Add one entry. Returns false when every entry is pinned and none can be evicted. */
+    public boolean add(String text) {
+        if (!ClipboardHistoryPolicy.acceptable(text)) {
+            throw new IllegalArgumentException("Clipboard has no usable text");
+        }
+        JSONObject response = request("capture", text, false);
+        return response != null && response.optBoolean("captured", false);
+    }
+
+    /** Entries are identified by their text, which is how the shared store names them. */
+    public void remove(String text) {
+        request("remove", text, false);
+    }
+
+    public void setPinned(String text, boolean pinned) {
+        request("set_pinned", text, pinned);
+    }
+
+    public void clear() {
+        request("clear", null, false);
+    }
+
+    /** The request document the shared entry takes: one internally tagged `operation`. */
+    private JSONObject request(String operation, String text, boolean pinned) {
+        if (directory == null) return null;
         try {
-            JSONArray array = new JSONArray(encoded);
-            if (array.length() > ClipboardHistoryPolicy.LIMIT) throw new IllegalStateException("History is full");
-            List<ClipboardHistory.Item> items = new ArrayList<>();
-            for (int index = 0; index < array.length(); index++) {
-                JSONObject value = array.getJSONObject(index);
-                String text = value.getString("text");
-                if (!ClipboardHistoryPolicy.acceptable(text)) throw new IllegalStateException("Invalid history entry");
-                items.add(new ClipboardHistory.Item(value.getString("id"), text, value.getLong("timestamp"),
-                    value.optBoolean("pinned", false)));
+            JSONObject action = new JSONObject().put("operation", operation);
+            if (text != null) action.put("text", text);
+            if ("set_pinned".equals(operation)) action.put("pinned", pinned);
+            JSONObject payload = new JSONObject()
+                .put("directory", directory)
+                .put("action", action);
+            JSONObject response = new JSONObject(
+                NativeClient.mobileClipboardHistory(payload.toString()));
+            if (!response.optBoolean("ok", false)) {
+                throw new IllegalStateException("Clipboard history cannot be read");
             }
-            return new ClipboardHistory(items).items();
-        } catch (JSONException error) {
+            return response.optJSONObject("value");
+        } catch (JSONException | LinkageError error) {
             throw new IllegalStateException("Clipboard history cannot be read", error);
         }
     }
 
-    public void add(String text) {
-        if (!ClipboardHistoryPolicy.acceptable(text)) throw new IllegalArgumentException("Clipboard has no usable text");
-        ClipboardHistory history = new ClipboardHistory(load());
-        long now = System.currentTimeMillis();
-        history.add(text, UUID.randomUUID().toString(), now);
-        save(history.items());
-    }
-
-    public void remove(String id) { saveWithout(id, false); }
-
-    public void togglePinned(String id) { saveWithout(id, true); }
-
-    public void clear() { save(List.of()); }
-
-    private void saveWithout(String id, boolean togglePinned) {
-        ClipboardHistory history = new ClipboardHistory(load());
-        if (togglePinned) history.togglePinned(id); else history.remove(id);
-        save(history.items());
-    }
-
-    private void save(List<ClipboardHistory.Item> items) {
-        JSONArray array = new JSONArray();
-        try {
-            for (ClipboardHistory.Item item : items) {
-                array.put(new JSONObject().put("id", item.id()).put("text", item.text())
-                    .put("timestamp", item.timestamp()).put("pinned", item.pinned()));
-            }
-        } catch (JSONException error) {
-            throw new IllegalStateException("Clipboard history cannot be encoded", error);
+    private static List<ClipboardHistory.Item> entries(JSONObject value) {
+        List<ClipboardHistory.Item> items = new ArrayList<>();
+        JSONArray entries = value == null ? null : value.optJSONArray("entries");
+        if (entries == null) return items;
+        for (int index = 0; index < entries.length(); index++) {
+            JSONObject entry = entries.optJSONObject(index);
+            if (entry == null) continue;
+            String text = entry.optString("text", "");
+            if (text.isEmpty()) continue;
+            items.add(new ClipboardHistory.Item(text, entry.optLong("timestampMs", 0),
+                entry.optBoolean("pinned", false)));
         }
-        preferences.edit().putString(ITEMS_KEY, array.toString()).apply();
+        return items;
+    }
+
+    /**
+     * Move whatever the private document still holds into the shared store, once.
+     *
+     * <p>Without this the change would read as "the keyboard lost my clipboard history". Oldest
+     * first so the shared store's own ordering ends up the same way round, and pinned entries are
+     * re-pinned afterwards because capture does not carry that flag.
+     */
+    private void migrate() {
+        if (directory == null || legacy.getBoolean(LEGACY_MIGRATED_KEY, false)) return;
+        String encoded = legacy.getString(LEGACY_ITEMS_KEY, null);
+        // Mark first: a half-finished move must not be retried on every launch, and the entries it
+        // did carry across are already in the shared store.
+        legacy.edit().putBoolean(LEGACY_MIGRATED_KEY, true).remove(LEGACY_ITEMS_KEY).apply();
+        if (encoded == null || encoded.isEmpty()) return;
+        try {
+            JSONArray array = new JSONArray(encoded);
+            List<JSONObject> ordered = new ArrayList<>();
+            for (int index = 0; index < array.length(); index++) {
+                JSONObject value = array.optJSONObject(index);
+                if (value != null) ordered.add(value);
+            }
+            ordered.sort((left, right) ->
+                Long.compare(left.optLong("timestamp", 0), right.optLong("timestamp", 0)));
+            for (JSONObject value : ordered) {
+                String text = value.optString("text", "");
+                if (!ClipboardHistoryPolicy.acceptable(text)) continue;
+                if (!add(text)) break;
+                if (value.optBoolean("pinned", false)) setPinned(text, true);
+            }
+        } catch (JSONException | IllegalStateException | IllegalArgumentException ignored) {
+            // The old document is gone either way; a history that cannot be read is not worth
+            // failing the keyboard's startup over.
+        }
     }
 }
