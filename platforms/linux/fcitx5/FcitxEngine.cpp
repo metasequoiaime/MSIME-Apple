@@ -1024,6 +1024,11 @@ public:
   }
   bool toggleChinesePunctuation() {
     if (!session_) return false;
+    // A pinned lock holds, as Windows resolves Ctrl+. and the toolbar switch through ResolvePunctuationOpen: the request is consumed, nothing changes and nothing is saved.
+    if (punctuation_lock_ != 0) {
+      render();
+      return true;
+    }
     chinese_punctuation_ = !chinese_punctuation_;
     view_ = response(msime_client_set_chinese_punctuation(session_, chinese_punctuation_));
     session_chinese_punctuation_ = chinese_punctuation_;
@@ -1401,7 +1406,7 @@ public:
       space_convert_mark_.clear();
       space_convert_preceding_.clear();
     }
-    if (!smart_punctuation_ || !smart_punctuation_repeat_ || !paired_punctuation_)
+    if (!smart_punctuation_ || !smart_punctuation_repeat_)
       forgetSmartPunctuationRepeat();
     const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
     punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
@@ -2476,7 +2481,7 @@ public:
       // view_ at this point.
       const auto committedMark =
           msime::linux_host::ascii_mark_from_text(text, fullwidthOutput());
-      if (committedMark != 0 && smart_punctuation_ && paired_punctuation_) {
+      if (committedMark != 0 && smart_punctuation_) {
         last_smart_punctuation_ = committedMark;
         last_smart_punctuation_at_ = std::chrono::steady_clock::now();
       } else if (committedMark == 0) {
@@ -2541,7 +2546,7 @@ public:
   // the key is consumed and never reaches Engine.
   bool repeatSmartPunctuationToChinese(char ascii) {
     if (!chinese_punctuation_ || !smart_punctuation_ || !smart_punctuation_repeat_ ||
-        !paired_punctuation_ || last_smart_punctuation_ != ascii ||
+        last_smart_punctuation_ != ascii ||
         last_smart_punctuation_at_ == std::chrono::steady_clock::time_point{} ||
         composingOrCandidates())
       return false;
@@ -2598,11 +2603,22 @@ public:
     std::optional<std::string> spaceConvertPreceding;
     if (arm)
       spaceConvertPreceding = armedPreceding;
+    // The shared route keeps , . : ASCII beside an ASCII letter or digit only under the follow lock, with Chinese and smart punctuation on and nothing composing; idle, Engine then hands the key back and the editor types it, so apply() never sees a commit to arm the repeat gesture from. Decide that here, before the call changes the view, so the same key typed again inside the window still converts, as Windows arms it for the ASCII mark it resolved.
+    const bool keptAscii = punctuation_lock_ == 0 && chinese_punctuation_ && smart_punctuation_ &&
+                           msime::linux_host::is_smart_punctuation_key(ascii) &&
+                           preceding < 0x80 && std::isalnum(static_cast<int>(preceding)) != 0 &&
+                           !composingOrCandidates() && !view_.value("dedicated_english", false) &&
+                           view_.value("local_mode", std::string("none")) == "none" &&
+                           view_.value("scheme", 0u) != 3;
     const bool handled =
         apply(msime_client_punctuation_with_context(session_, value, preceding),
               std::move(spaceConvertPreceding), pairMode);
     if (handled && smart_punctuation_rejected_ == ascii)
       forgetSmartPunctuationRepeat();
+    if (!handled && keptAscii) {
+      last_smart_punctuation_ = ascii;
+      last_smart_punctuation_at_ = std::chrono::steady_clock::now();
+    }
     return handled;
   }
   // The character right after the caret. std::nullopt when the host publishes nothing usable; an empty string when the document ends at the caret.

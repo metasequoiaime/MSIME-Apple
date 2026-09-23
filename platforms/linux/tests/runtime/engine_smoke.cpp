@@ -778,6 +778,91 @@ int main(int argc, char **argv) {
       require(!key(IBUS_comma) && seen.committed.empty(),
               "English punctuation lock converted a comma after Ctrl+. in English mode");
       invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // The same lock holds in Chinese mode, as Windows resolves Ctrl+. and the toolbar switch through ResolvePunctuationOpen: the chord is eaten and Chinese punctuation stays off.
+      auto chinese_english_lock = english_lock;
+      chinese_english_lock["preferences"]["default_ime_mode"] = "chinese";
+      msime_ibus_configure(chinese_english_lock.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      if (!seen.input_enabled) {
+        key(IBUS_space, IBUS_CONTROL_MASK);
+        key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      }
+      require(seen.input_enabled && !seen.punctuation_enabled,
+              "Chinese-mode English lock fixture did not start in Chinese mode with ASCII punctuation");
+      require(key(IBUS_period, IBUS_CONTROL_MASK) && seen.committed.empty() &&
+                  !seen.punctuation_enabled,
+              "Chinese-mode Ctrl+. was not consumed or overrode the English punctuation lock");
+      key(IBUS_period, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      invoke("PropertyActivate", g_variant_new("(su)", "Punctuation", PROP_STATE_CHECKED));
+      require(!seen.punctuation_enabled,
+              "The Chinese punctuation menu overrode the English punctuation lock");
+      key(IBUS_comma);
+      require(seen.committed.find("，") == std::string::npos,
+              "Chinese mode converted a comma under the English punctuation lock");
+      seen.committed.clear();
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // With smart punctuation off, Chinese punctuation mode types the Chinese mark for every key, as Windows _ResolveSmartPunctuation returns ResolvePunctuation unchanged.
+      auto smart_off = follow;
+      smart_off["preferences"]["smart_punctuation"] = false;
+      msime_ibus_configure(smart_off.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      if (!seen.input_enabled) {
+        key(IBUS_space, IBUS_CONTROL_MASK);
+        key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      }
+      require(seen.input_enabled && seen.punctuation_enabled,
+              "Smart-off fixture did not start in Chinese mode with Chinese punctuation");
+      require(key(IBUS_comma) && seen.committed == "，",
+              "Chinese punctuation with smart punctuation off did not convert a comma");
+      seen.committed.clear();
+      require(key(IBUS_period) && seen.committed == "。",
+              "Chinese punctuation with smart punctuation off did not convert a period");
+      seen.committed.clear();
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // 重复标点转中文 depends only on smart punctuation and its repeat switch, as Windows _CanInterceptSmartPunctuationRevert does; paired completion is a separate feature. The mock editor publishes what it holds before each key.
+      auto repeat_unpaired = follow;
+      repeat_unpaired["preferences"]["paired_punctuation"] = false;
+      repeat_unpaired["preferences"]["smart_punctuation"] = true;
+      repeat_unpaired["preferences"]["smart_punctuation_repeat"] = true;
+      msime_ibus_configure(repeat_unpaired.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      if (!seen.input_enabled) {
+        key(IBUS_space, IBUS_CONTROL_MASK);
+        key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      }
+      require(seen.input_enabled && seen.punctuation_enabled,
+              "Unpaired repeat fixture did not start in Chinese mode with Chinese punctuation");
+      auto editor_holds = [&](const char *value, guint cursor) {
+        auto text = ibus_text_new_from_string(value);
+        g_object_ref_sink(text);
+        invoke("SetSurroundingText",
+               g_variant_new("(vuu)", ibus_serializable_serialize(IBUS_SERIALIZABLE(text)),
+                             cursor, cursor));
+        g_object_unref(text);
+      };
+      editor_holds("a", 1);
+      require(key(IBUS_comma) && seen.committed == ",",
+              "Smart punctuation did not keep a comma after a letter ASCII");
+      editor_holds("a,", 2);
+      const auto deletes_before_repeat = seen.delete_surrounding_calls;
+      require(key(IBUS_comma) && seen.committed == ",，" &&
+                  seen.delete_surrounding_calls == deletes_before_repeat + 1 &&
+                  seen.delete_surrounding_offset == -1 && seen.delete_surrounding_count == 1,
+              "A repeated comma did not turn Chinese with paired completion off");
+      seen.committed.clear();
+      invoke("FocusOut");
     }
     for (const auto *scope : {"app", "global"}) {
       ibus_object_destroy(IBUS_OBJECT(engine));
