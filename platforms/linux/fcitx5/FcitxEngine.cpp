@@ -403,6 +403,7 @@ public:
     japanese_conversion_.reset();
     backspace_hold_.reset();
     maintenance_reload_held_ = false;
+    toggle_chord_held_ = FcitxKey_None;
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
     // A failed status-bar save outlives the focus change, as the IBus host keeps its failed menu save; settle one still in flight so the retry records whether it landed.
@@ -2346,6 +2347,10 @@ public:
       if (voice_job_.valid()) return false;
     }
     if (voice_loading_) return false;
+    // Voice text takes the composition's place: Windows purges the typed keys when the voice composition starts, and the IBus host cancels the composition in voice_start. Left in place, the pinyin came back as preedit after the voice result was committed.
+    if (session_ && (!view_.value("editing_text", std::string{}).empty() ||
+                     !view_.value("candidates", Json::array()).empty()))
+      command(MSIME_CANCEL);
     voice_loading_ = true;
     voice_cancelled_ = false;
     const auto socket = voice_socket_;
@@ -2931,6 +2936,8 @@ public:
   bool voice_ralt_held_ = false;
   bool voice_f9_held_ = false;
   bool maintenance_reload_held_ = false;
+  // The key of the toggle chord being held (Ctrl+Space, Ctrl+Alt+Space, Ctrl+Shift+Space, Ctrl+Shift+F); FcitxKey_None when none is.
+  fcitx::KeySym toggle_chord_held_ = FcitxKey_None;
   bool voice_ctrl_win_held_ = false;
   bool voice_rctrl_ralt_held_ = false;
   bool voice_space_consumed_ = false;
@@ -4999,6 +5006,7 @@ public:
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
     state->backspace_hold_.reset();
+    state->toggle_chord_held_ = FcitxKey_None;
     try { if (state->session_) state->command(MSIME_CANCEL); } catch (...) { state->close(); }
     state->clearPanel();
   }
@@ -5361,6 +5369,12 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (event.isRelease()) maintenance_reload_held_ = false;
     return true;
   }
+  // A toggle chord flips its setting once per press, as on Windows: auto-repeat while it is held is swallowed instead of flipping the setting back and forth, and the release ends the hold. F and f are one key, because letting go of Shift first changes the keysym of the release.
+  if (toggle_chord_held_ != FcitxKey_None &&
+      (sym == FcitxKey_F ? FcitxKey_f : sym) == toggle_chord_held_) {
+    if (event.isRelease()) toggle_chord_held_ = FcitxKey_None;
+    return true;
+  }
   if (sym == FcitxKey_Alt_R && voice_ralt_held_) {
     if (event.isRelease()) {
       voice_ralt_held_ = false;
@@ -5595,11 +5609,15 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (sym == FcitxKey_space && ctrl && !shift &&
       (alt ? mode_ctrl_alt_space_enabled_ : true)) {
     if (composing) command(MSIME_COMMIT_RAW);
-    return toggleInputMode();
+    if (!toggleInputMode()) return false;
+    toggle_chord_held_ = sym;
+    return true;
   }
   if (sym == FcitxKey_space && ctrl && shift && !alt) {
     if (composing) command(MSIME_COMMIT_RAW);
-    return toggleWidth();
+    if (!toggleWidth()) return false;
+    toggle_chord_held_ = sym;
+    return true;
   }
   if (!input_enabled_) {
     // English mode still honours fullwidth output and the "always Chinese punctuation" lock, as Windows does with the IME closed; everything else passes through.
@@ -5618,8 +5636,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   }
   if (character_set_shortcut_enabled_ && ctrl && shift && !alt &&
       (sym == FcitxKey_f || sym == FcitxKey_F)) {
-    if (composing) command(MSIME_COMMIT_RAW);
-    return toggleTraditional();
+    // The composition stays: the character set only changes how its candidates are written, as on Windows.
+    if (!toggleTraditional()) return false;
+    toggle_chord_held_ = FcitxKey_f;
+    return true;
   }
   if (ctrl && shift && !alt && (sym == FcitxKey_e || sym == FcitxKey_E)) {
     if (composing) command(MSIME_COMMIT_RAW);

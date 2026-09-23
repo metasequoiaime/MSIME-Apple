@@ -308,6 +308,8 @@ struct State {
   bool right_ctrl_down = false;
   bool left_ctrl_down = false;
   bool mode_chord_held = false;
+  // Ctrl+Shift+F owns its stroke the way mode_chord_held owns Space: repeats while it is held toggle nothing, even while the first toggle's save is still pending.
+  bool character_set_chord_held = false;
   std::set<guint> host_shortcut_strokes;
   gint64 modifier_toggle_deadline = 0;
   void reset_mode_modifiers() {
@@ -319,6 +321,7 @@ struct State {
     left_ctrl_down = false;
     modifier_toggle_deadline = 0;
     mode_chord_held = false;
+    character_set_chord_held = false;
     host_shortcut_strokes.clear();
   }
   bool mode_shift_enabled = true;
@@ -5160,6 +5163,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
 void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
     state(engine).host_shortcut_strokes.clear();
+    // A chord release that never arrives must not swallow the next stroke of the same key.
+    state(engine).mode_chord_held = false;
+    state(engine).character_set_chord_held = false;
     state(engine).ai_context.clear();
     state(engine).native_compose.reset();
     state(engine).backspace_hold.reset();
@@ -5492,6 +5498,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (release) s.mode_chord_held = false;
     return TRUE;
   }
+  if ((key == IBUS_f || key == IBUS_F) && s.character_set_chord_held) {
+    if (release) s.character_set_chord_held = false;
+    return TRUE;
+  }
   if (flags & IBUS_RELEASE_MASK) {
     if (key == IBUS_space && s.voice_space_consumed) {
       s.voice_space_consumed = false;
@@ -5631,6 +5641,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return FALSE;
     if (menu_save_pending)
       return FALSE;
+    s.character_set_chord_held = true;
     const bool next = !s.traditional_output;
     const auto directory = configured.value("preferences_directory", std::string{});
     if (!directory.empty() && directory.front() == '/') {
@@ -5649,6 +5660,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     return TRUE;
   }
   if (fullwidth_toggle) {
+    s.mode_chord_held = true;
     s.fullwidth = !s.fullwidth;
     s.paired_tracker.clear();
     guarded(engine, "toggle_character_width", [&] {
@@ -5820,8 +5832,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (mode_toggle) {
-      if (ctrl_alt_space)
-        s.mode_chord_held = true;
+      // Plain Ctrl+Space owns its stroke too: its auto-repeat used to flip the input mode on every repeat.
+      s.mode_chord_held = true;
       toggle_input_mode(engine);
       handled = true;
       return;

@@ -12,7 +12,7 @@ Linux 另有一个原生 Fcitx5 插件。它与 IBus 宿主并列，不是挂在
 
 Fcitx5 的状态栏现在按共享 `floating_toolbar` 的八个组件开关提供一个「工具栏」子菜单。Windows 画的是一个悬浮窗口，IBus 把同一组开关映射到属性子菜单（脱离输入上下文的窗口不是 IBus engine 该拥有的东西），Fcitx5 这里的对应面就是状态栏；在此之前这些开关在这个宿主上一个都不起作用，而设置页按能力位把它们全都显示着。子菜单里放的是已有的那些 action 本身而不是副本——一个行为和旁边状态栏项目略有不同的入口，等于同一个开关有了两份实现。中英文模式项恒定存在（与 Windows、IBus 一致），其余各自跟随自己的开关，默认值也与那两个宿主相同，所以屏幕键盘是唯一默认隐藏的一项。偏好热重载时立即重建，不等下一次焦点变化。
 
-Fcitx5 现在也消费共享 `keybindings` 的四个模式快捷键与 `default_ime_mode`。此前这个宿主只在状态栏上提供中英文开关：设置页按 `mode_switch_shortcuts` 能力位把四个开关全都显示出来，而它们在这里一个都不生效，选了「英文」启动的用户照样得到中文。裸 Shift 与裸 Ctrl 按 Windows 的手势判定——按下只是布防，松开才切换，且期间不能打其他键、不能带别的修饰键、按住不超过 500ms；Ctrl+Space 与（开启时）Ctrl+Alt+Space 切换中英文，Ctrl+Shift+F 切换简繁。中英文切换位于英文透传门禁之前，因此用快捷键切到英文后仍能用同一个快捷键切回中文；屏幕键盘与语音的宿主快捷键也不随拼音输入一起被停用。`default_ime_mode` 按输入上下文只套用一次，重新聚焦或重建 Engine 会话保留用户已经选择的状态，与 IBus 一致。契约由 `tests/core/fcitx5_contract.py` 静态钉住。
+Fcitx5 现在也消费共享 `keybindings` 的四个模式快捷键与 `default_ime_mode`。此前这个宿主只在状态栏上提供中英文开关：设置页按 `mode_switch_shortcuts` 能力位把四个开关全都显示出来，而它们在这里一个都不生效，选了「英文」启动的用户照样得到中文。裸 Shift 与裸 Ctrl 按 Windows 的手势判定——按下只是布防，松开才切换，且期间不能打其他键、不能带别的修饰键、按住不超过 500ms；Ctrl+Space 与（开启时）Ctrl+Alt+Space 切换中英文，Ctrl+Shift+F 切换简繁；这些组合键和 Ctrl+Shift+Space 一样每按一次只切换一次，按住的自动重复与松开都被吞掉，Ctrl+Shift+F 切换时保留正在输入的拼音，只改写候选的简繁。中英文切换位于英文透传门禁之前，因此用快捷键切到英文后仍能用同一个快捷键切回中文；屏幕键盘与语音的宿主快捷键也不随拼音输入一起被停用。`default_ime_mode` 按输入上下文只套用一次，重新聚焦或重建 Engine 会话保留用户已经选择的状态，与 IBus 一致。契约由 `tests/core/fcitx5_contract.py` 静态钉住。
 
 Fcitx5 状态栏切换输入方案、双拼方案和辅助码方案时，除了写共享偏好库，还给当前输入上下文留一个 override：会话按 `runtime-options.json` 建立，而这份文件只有设置页会同步。override 只在与偏好库一致时保留；设置页或别的窗口改过偏好库后，偏好热重载和新建会话都会丢掉它、改用偏好库的值，所以与 Windows 一样，设置页改方案所有窗口都跟着变。新建会话时这几项一律取偏好库的值，不取 `runtime-options.json` 里可能已过时的值；状态栏切输入方案时与 IBus 一样清掉辅助码方案 override，全拼下选的辅助码不会带进双拼。保存失败的选择不回滚：与 IBus 的 `failed_menu_save` 一样，待重试的保存跨焦点保留，只在保存成功或偏好目录变更时清掉，「未落盘」标记记在各个 override 自己身上，偏好库真正存下这个值之前菜单不会跳回去。
 
@@ -169,7 +169,7 @@ Linux IBus 会话支持 `Ctrl+Shift+Super+K` 打开屏幕键盘面板。宿主�
 
 IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候选显示和提交文本经 `msime-host-api` 导出的 `msime_client_simplified_to_traditional` 转换为繁体，与 Windows 共用同一份 OpenCC `s2t` 词级表（「头发」→「頭髮」而不是逐字的「頭發」），不再依赖系统 ICU；Unicode 直接输入、日语方案和英文/Emoji 文本保持原样。配置绝对共享偏好目录时开关按 revision 保存 `traditional_chinese_output`，未配置目录时只覆盖当前会话。
 
-`Ctrl+Shift+F` 使用同一简繁输出路径：配置了共享偏好目录时通过 revision 保存 `traditional_chinese_output`，保存成功后更新当前会话；没有可写偏好目录时保留会话级切换。持久化写入进行中不会吞掉该快捷键，避免重复操作覆盖较新的 revision。
+`Ctrl+Shift+F` 使用同一简繁输出路径：配置了共享偏好目录时通过 revision 保存 `traditional_chinese_output`，保存成功后更新当前会话；没有可写偏好目录时保留会话级切换。持久化写入进行中，新的一次按下不切换也不吞掉该快捷键，避免重复操作覆盖较新的 revision；已经切换过的那次按下，按住时的自动重复和松开都归这个快捷键，不会再切换一次，与 Windows 一致。
 
 当前 IBus 会话支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除候选页对应的可编辑词条。宿主只传递候选快照中的会话、代次和全局索引，由 Host API 校验来源和执行词库删除；没有对应候选或不可编辑候选时按键交回应用。`Ctrl+Shift+Alt+C` 清除当前输入法会话的 Engine 候选缓存并刷新当前视图，不会结束正在进行的组合。`Ctrl+Shift+Alt+R` 通过用户会话的 `ibus restart` 重启 IBus 服务，设置页也提供同一动作的按钮。
 
