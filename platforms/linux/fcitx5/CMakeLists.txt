@@ -112,7 +112,8 @@ target_compile_features(msime-fcitx5 PRIVATE cxx_std_17)
 target_compile_options(msime-fcitx5 PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-fcitx5 PRIVATE ../../../crates/host-api/include)
 target_link_libraries(msime-fcitx5 PRIVATE Fcitx5::Core PkgConfig::GIO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
-target_compile_definitions(msime-fcitx5 PRIVATE MSIME_SYSTEM_OPTIONS="${CMAKE_INSTALL_FULL_SYSCONFDIR}/msime-client/runtime-options.json")
+target_compile_definitions(msime-fcitx5 PRIVATE MSIME_SYSTEM_OPTIONS="${CMAKE_INSTALL_FULL_SYSCONFDIR}/msime-client/runtime-options.json"
+  MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}")
 if(MSIME_FCITX5_CUSTOM_IM_INFORMATION)
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_CUSTOM_IM_INFORMATION)
 endif()
@@ -144,6 +145,10 @@ if(BUILD_TESTING)
   target_compile_options(fcitx5-native-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(fcitx5-native-test PRIVATE ../../../crates/host-api/include)
   target_link_libraries(fcitx5-native-test PRIVATE Fcitx5::Core PkgConfig::GIO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+  # The first-run case in tests/native.cpp needs a system options file that does not exist and a guide program it can stub, so neither may point at the installed locations.
+  target_compile_definitions(fcitx5-native-test PRIVATE
+    MSIME_SYSTEM_OPTIONS="${CMAKE_CURRENT_BINARY_DIR}/first-run-absent/runtime-options.json"
+    MSIME_BINDIR="${CMAKE_CURRENT_BINARY_DIR}/first-run-bin")
   set(MSIME_FCITX5_TEST_RESOURCES "" CACHE PATH "Verified resources directory for the native Fcitx5 test")
   if(MSIME_FCITX5_TEST_RESOURCES)
     add_test(NAME fcitx5-native-context

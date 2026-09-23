@@ -257,6 +257,12 @@ target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
 add_test(NAME linux-smart-punctuation-space COMMAND linux-smart-punctuation-space-test)
 add_test(NAME linux-setup-resolution
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_resolution.py")
+add_test(NAME linux-first-run-guide
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/first_run_guide.py")
+add_executable(linux-first-run-guidance-test tests/core/first_run_guidance.cpp)
+target_compile_options(linux-first-run-guidance-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-first-run-guidance-test PRIVATE src)
+add_test(NAME linux-first-run-guidance COMMAND linux-first-run-guidance-test)
 add_executable(linux-candidate-skin-catalog-test tests/core/candidate_skin_catalog.cpp)
 target_compile_options(linux-candidate-skin-catalog-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-skin-catalog-test PRIVATE src)
@@ -289,7 +295,7 @@ install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dic
 if(MSIME_LINUX_VOICE)
  install(TARGETS msime-voice-worker-test RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
-install(PROGRAMS scripts/msime-client-ibus-launcher scripts/msime-client-online-provider scripts/msime-client-voice-provider scripts/msime-client-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(PROGRAMS scripts/msime-client-ibus-launcher scripts/msime-client-first-run-guide scripts/msime-client-online-provider scripts/msime-client-voice-provider scripts/msime-client-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS scripts/msime-client-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # 安装后的首次配置入口。词库与状态目录此前没有任何产品侧的路径：词库要么在配置阶段随包
 # 装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而
