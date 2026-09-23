@@ -177,6 +177,24 @@ if rg -q 'putString\(ITEMS_KEY' \
   echo "Android must not write clipboard entries to its own private document" >&2
   exit 1
 fi
+# Dropping the history when the preference is off is housekeeping, and `onCreateInputView` does it
+# on every open. A store that cannot be written is not a reason to refuse to draw a keyboard: when
+# that clear threw, it threw out of the framework's showWindow and the input method died, so
+# Android fell back to another keyboard and the user never saw this one. The 清空 button keeps
+# `clear()` - there the user asked, and silence would be a lie.
+if ! rg -q 'clearQuietly' \
+    "$repo_root/platforms/android/java/app/msime/client/clipboard/ClipboardHistoryStore.java"; then
+  echo "Android clipboard housekeeping needs a clear that cannot stop the caller" >&2
+  exit 1
+fi
+for site in onCreateInputView applyClipboardPreference; do
+  if rg -A 40 "$site\([^)]*\) \{" \
+      "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+      | rg -q 'clipboardHistory\.clear\(\)'; then
+    echo "Android clipboard housekeeping in $site must use clearQuietly" >&2
+    exit 1
+  fi
+done
 # Both maintenance chords are Ctrl+Shift+Alt, and the modifier branch in onKeyDown hands every
 # such combination to the application. Routing them through one named policy, ahead of that branch,
 # is what keeps them reachable at all on a keyboard that has no long press.
@@ -430,4 +448,7 @@ for alias in MainActivityForest MainActivitySky MainActivityDusk MainActivityVer
     exit 1
   fi
 done
+# The JVM smokes cannot load org.json, so nothing else here can reach the one place where the
+# shared runtime's JSON nulls meet this host's reads of them.
+python3 "$repo_root/scripts/test-android-json-null-reads.py" || exit 1
 echo "Android service Java/API and manifest/resource checks passed; no installable/native APK produced"

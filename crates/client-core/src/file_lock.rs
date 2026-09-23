@@ -1,5 +1,10 @@
 //! Android std::fs::File::lock is unsupported; use rustix's safe flock on that target.
 //! The owning File keeps the lock alive and releases it when closed.
+//!
+//! This module is public so that no caller anywhere in the workspace has to re-derive which
+//! locking API works on which target. `host-api` had its own `File::lock` call, and on Android it
+//! failed on the first line of every shared clipboard operation - which made the keyboard's own
+//! `onCreateInputView` throw and the input method die before it could draw a single key.
 use std::fs::File;
 use std::io;
 
@@ -67,7 +72,7 @@ pub(crate) fn try_exclusive_with_grace(file: &File) -> io::Result<bool> {
     Ok(false)
 }
 
-pub(crate) fn exclusive(file: &File) -> io::Result<()> {
+pub fn exclusive(file: &File) -> io::Result<()> {
     #[cfg(not(target_os = "android"))]
     {
         file.lock()
