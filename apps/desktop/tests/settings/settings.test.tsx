@@ -93,6 +93,35 @@ test("Windows voice shortcuts describe hold-to-record, the right Ctrl chord and 
   expect(screen.getByText(/按住期间按空格锁定录音/)).toBeTruthy();
 });
 
+// Both Linux hosts (IBus ClientEngine voice_hotkey, Fcitx5 FcitxEngine) record while a modifier shortcut is held and lock on Space, as Windows does. Only IBus requires the right Ctrl in the two-key chord; Fcitx5 also accepts left Ctrl+Right Alt and stops only when Right Alt or Right Ctrl is released, but the right-Ctrl label is true on both. The labels used to read 切换语音, a toggle, which only Ctrl+F9 is.
+test("Linux voice shortcuts describe hold-to-record like Windows and keep Ctrl+F9 a toggle", async () => {
+  render(
+    <SettingsPage
+      initialPage="voice"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: { platform: "linux", panel_windows: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await screen.findByRole("checkbox", { name: "长按右 Alt 录音" });
+  expect(screen.getByRole("checkbox", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "长按录音时按空格锁定" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Ctrl+F9 切换语音" })).toBeTruthy();
+  for (const toggle of [
+    "右 Alt 切换语音",
+    "Ctrl+右 Alt 切换语音",
+    "Ctrl+Win 切换语音",
+    "空格锁定语音",
+  ])
+    expect(screen.queryByRole("checkbox", { name: toggle })).toBeNull();
+  expect(screen.getByText(/长按快捷键录音，松开结束/)).toBeTruthy();
+  expect(screen.getByText(/没有 provider 时快捷键不会拦截编辑器输入/)).toBeTruthy();
+  expect(screen.queryByText(/切换语音录音/)).toBeNull();
+});
+
 test("macOS exposes the non-activating input-mode HUD preference", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
@@ -1535,6 +1564,34 @@ test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {
   );
 });
 
+// On Linux the switch reaches the IBus panel's wheel directly but Fcitx5 classic UI only through its own desktop-wide WheelForPaging option (platforms/linux/README.md), so Linux explains both; other hosts do not get the note.
+test("Linux explains what the mouse-wheel paging switch does on IBus and Fcitx5", async () => {
+  for (const [platform, shown] of [
+    ["linux", true],
+    ["windows", false],
+  ] as const) {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: { platform } as HostCapabilities,
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    await screen.findByRole("checkbox", { name: "鼠标滚轮（候选面板支持时翻页）" });
+    const note = screen.queryByText(/在 IBus 候选窗口上滚动即翻页/);
+    if (shown) {
+      expect(note?.textContent).toContain("关闭时滚轮不做任何事");
+      expect(note?.textContent).toContain("对 Fcitx5 中的所有输入法生效");
+    } else {
+      expect(note).toBeNull();
+    }
+    cleanup();
+  }
+});
 test("helpcode schemes save independently and retain disabled selections", async () => {
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
@@ -4376,23 +4433,35 @@ test("Android help and about pages use mobile instructions and project links", a
   );
 });
 
-test("Linux about page exposes the shared privacy policy", async () => {
-  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        openExternalUrl,
-        host: { platform: "linux" } as HostCapabilities,
-      }}
-    />,
-  );
-
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  await screen.findByText("Metasequoia IME");
-  fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
+// The Linux section of msime.app/privacy/ does not match this host (it has an update check and keeps provider credentials in 0600 files), so Linux opens the PRIVACY.md that ships with this code, as the Windows reference opens its own. Every other host keeps msime.app/privacy/, which a looser Linux check would break.
+test("the privacy link opens PRIVACY.md on Linux and msime.app/privacy/ elsewhere", async () => {
+  const expected: Record<string, string> = {
+    linux: "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md",
+    windows: "https://msime.app/privacy/",
+    macos: "https://msime.app/privacy/",
+    android: "https://msime.app/privacy/",
+    harmony: "https://msime.app/privacy/",
+    ios: "https://msime.app/privacy/",
+  };
+  for (const [platform, url] of Object.entries(expected)) {
+    const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          openExternalUrl,
+          host: { platform } as HostCapabilities,
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    fireEvent.click(await screen.findByRole("button", { name: "隐私政策" }));
+    await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(url));
+    expect(openExternalUrl).toHaveBeenCalledTimes(1);
+    cleanup();
+  }
 });
 
 test("iOS help opens keyboard settings and feedback builds a visible report", async () => {
