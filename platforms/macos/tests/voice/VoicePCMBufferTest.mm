@@ -1,4 +1,5 @@
 #import "../../src/voice/VoicePCMBuffer.h"
+#include "../../../../shared/voice/VoiceProviders.h"
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -28,17 +29,23 @@ int main() {
             MSIMEVoicePCMBuffer *whole = [MSIMEVoicePCMBuffer new];
             assert([whole append:Fixture(rate.doubleValue, 2, rate.unsignedIntValue) error:nil]);
             assert([[whole finishWithError:nil] isEqual:pcm]);
-            MSIMEVoicePCMBuffer *limit = [MSIMEVoicePCMBuffer new];
+            // Reaching the limit stops the recording taking audio but never fails it: what was captured up to the limit is still submitted. The limit falls inside the second buffer, so the tail of that buffer is cut as well.
+            MSIMEVoicePCMBuffer *limit = [[MSIMEVoicePCMBuffer alloc] initWithSampleLimit:24000];
             AVAudioPCMBuffer *oneSecond = Fixture(rate.doubleValue, 1, rate.unsignedIntValue);
-            for (int second = 0; second < 60; ++second) assert([limit append:oneSecond error:nil]);
-            assert([limit finishWithError:nil].length == 16000 * 60 * sizeof(float));
+            for (int second = 0; second < 5; ++second) assert([limit append:oneSecond error:nil]);
+            NSData *capped = [limit finishWithError:nil];
+            assert(capped.length == 24000 * sizeof(float));
+            assert(std::fabs(((const float *)capped.bytes)[23999] - 0.25f) < 0.01f); // Recorded audio, not converter padding.
+            assert([[limit finishWithError:nil] isEqual:capped]);
         }
+        // A batch recording is no longer cut at 60 s. It keeps the MSIME-Windows batch upload budget, the 20 MiB of 16-bit WAV, less SiliconFlow's padding; past that it keeps accepting buffers and submits what fits.
         MSIMEVoicePCMBuffer *recording = [MSIMEVoicePCMBuffer new];
         AVAudioPCMBuffer *second = Fixture(16000, 1, 16000);
-        for (int index = 0; index < 60; ++index) assert([recording append:second error:nil]);
-        NSError *error = nil;
-        assert(![recording append:second error:&error] && error);
-        assert(![recording finishWithError:nil]); // Never upload a truncated recording.
+        const NSUInteger batchSeconds = msime::voice::batch_capture_sample_limit / 16000 + 2;
+        for (NSUInteger index = 0; index < batchSeconds; ++index) assert([recording append:second error:nil]);
+        NSData *batch = [recording finishWithError:nil];
+        assert(batch.length == msime::voice::batch_capture_sample_limit * sizeof(float));
+        assert(44 + 2 * (batch.length / sizeof(float)) + 2 * 3200 * 2 <= 20 * 1024 * 1024);
         recording = [MSIMEVoicePCMBuffer new];
         assert([recording append:second error:nil]);
         [recording cancel];

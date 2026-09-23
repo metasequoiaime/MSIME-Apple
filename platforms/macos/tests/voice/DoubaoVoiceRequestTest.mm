@@ -86,6 +86,16 @@ int main(int argc, const char *argv[]) {
             } error:nil]);
             Until(^BOOL { return failed; });
         }
+        // Streaming has no length cap: 61 s of audio, one second past the old limit, is all sent and recognised.
+        MSIMEDoubaoVoiceRequest *longStream = [[MSIMEDoubaoVoiceRequest alloc] initWithOptions:options(@"/long") error:nil];
+        __block NSString *longFinal = nil;
+        assert([longStream startWithResult:^(NSString *text, BOOL final, NSError *error) {
+            assert(!error); if (final) longFinal = text;
+        } error:nil]);
+        for (NSUInteger chunk = 0; chunk < 61 * 5; ++chunk) assert([longStream appendPCM:PCM(3200) error:nil]);
+        assert([longStream finishWithError:nil]);
+        Until(^BOOL { return longFinal != nil; }, 10);
+        assert([longFinal isEqual:@"synthetic long 976000"]);
         MSIMEDoubaoVoiceRequest *cancelled = [[MSIMEDoubaoVoiceRequest alloc] initWithOptions:options(@"/cancel") error:nil];
         __block BOOL heard = NO;
         __block NSUInteger calls = 0;

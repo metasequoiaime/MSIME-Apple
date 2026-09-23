@@ -18,8 +18,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             size = int(self.headers["Content-Length"])
-            assert 0 < size < 65536
+            # The long upload is the one request allowed near the 20 MiB batch budget.
+            assert 0 < size < (21 * 1024 * 1024 if self.path == "/asr-long" else 65536)
             body = self.rfile.read(size)
+            while len(body) < size:
+                more = self.rfile.read(size - len(body))
+                assert more
+                body += more
             assert self.headers["Authorization"] == "Bearer fixture-token"
             counts[self.path] = counts.get(self.path, 0) + 1
             if self.path == "/asr":
@@ -27,6 +32,12 @@ class Handler(BaseHTTPRequestHandler):
                 assert b"changed-after-snapshot" not in body
                 assert b'name="language"\r\n\r\nen\r\n' in body
                 response = {"text": "synthetic transcript"}
+            elif self.path == "/asr-long":
+                riff = body.index(b"RIFF")
+                assert body[riff + 36:riff + 40] == b"data"
+                samples = int.from_bytes(body[riff + 40:riff + 44], "little") // 2
+                assert 44 + samples * 2 <= 20 * 1024 * 1024
+                response = {"text": f"synthetic long {samples}"}
             else:
                 document = json.loads(body)
                 assert document["messages"][0]["content"] == "synthetic prompt"
@@ -57,7 +68,7 @@ try:
     # The six-second polish stall is waited out rather than abandoned, so the run needs room for it.
     result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}"], timeout=60)
     assert result.returncode == 0 and not errors, (result.returncode, errors)
-    assert counts == {"/asr": 3, "/polish": 1, "/polish-failure": 1, "/polish-timeout": 1}, counts
+    assert counts == {"/asr": 3, "/asr-long": 1, "/polish": 1, "/polish-failure": 1, "/polish-timeout": 1}, counts
 finally:
     server.shutdown()
     server.server_close()

@@ -1,4 +1,5 @@
 #import "VoicePCMBuffer.h"
+#include "../../../../shared/voice/VoiceProviders.h"
 #include <cmath>
 
 @implementation MSIMEVoicePCMBuffer {
@@ -8,14 +9,24 @@
     BOOL _failed;
     uint64_t _inputFrames;
     double _inputRate;
+    // Output samples already drained and released; _pcm holds the samples after them.
     NSUInteger _drainedFrames;
+    NSUInteger _sampleLimit;
+    uint64_t _inputLimit;
 }
+- (instancetype)init { return [self initWithSampleLimit:msime::voice::batch_capture_sample_limit]; }
+- (instancetype)initWithSampleLimit:(NSUInteger)sampleLimit {
+    self = [super init];
+    if (self) _sampleLimit = sampleLimit;
+    return self;
+}
+- (NSUInteger)convertedFrames { return _drainedFrames + _pcm.length / sizeof(float); }
 - (BOOL)fail:(NSError **)error {
     _failed = YES;
     _pcm = nil;
     _converter = nil;
     if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:3
-        userInfo:@{NSLocalizedDescriptionKey: @"录音格式无效或超过 60 秒限制"}];
+        userInfo:@{NSLocalizedDescriptionKey: @"录音格式无效"}];
     return NO;
 }
 - (BOOL)convert:(AVAudioPCMBuffer *)input final:(BOOL)final error:(NSError **)error {
@@ -40,9 +51,9 @@
             for (AVAudioFrameCount index = 0; index < output.frameLength; ++index) {
                 if (!std::isfinite(samples[index]) || std::fabs(samples[index]) > 1.0f) return [self fail:error];
             }
-            // The converter can append filter padding at end-of-stream. Input
-            // duration is bounded before conversion; padding is not recorded audio.
-            NSUInteger remaining = 16000 * 60 - _pcm.length / sizeof(float);
+            // The converter can append filter padding at end-of-stream, and the last admitted input buffer can run past the sample limit. Neither is kept.
+            NSUInteger converted = [self convertedFrames];
+            NSUInteger remaining = converted < _sampleLimit ? _sampleLimit - converted : 0;
             [_pcm appendBytes:samples length:MIN(remaining, output.frameLength) * sizeof(float)];
         }
         if (status == AVAudioConverterOutputStatus_EndOfStream || status == AVAudioConverterOutputStatus_InputRanDry)
@@ -64,11 +75,14 @@
             _converter.primeMethod = AVAudioConverterPrimeMethod_None;
             _pcm = [NSMutableData data];
             _inputRate = format.sampleRate;
+            _inputLimit = _sampleLimit == NSUIntegerMax ? UINT64_MAX
+                : (uint64_t)std::ceil(_sampleLimit * _inputRate / 16000.0);
         } else if (![_converter.inputFormat isEqual:format]) {
             return [self fail:error];
         }
         if (!buffer.frameLength) return YES;
-        if (_inputFrames + buffer.frameLength > _inputRate * 60) return [self fail:error];
+        // MSIME-Windows keeps recording until the user stops and then submits what it has. Past the limit this recording stops taking audio, which bounds memory, and the capture keeps running so the user still ends it the usual way.
+        if (_inputFrames >= _inputLimit) return YES;
         _inputFrames += buffer.frameLength;
         return [self convert:buffer final:NO error:error];
     }
@@ -78,8 +92,9 @@
         if (_failed) { [self fail:error]; return nil; }
         if (!_finished && _converter && ![self convert:nil final:YES error:error]) return nil;
         if (_inputRate > 0) {
-            NSUInteger frames = (NSUInteger)std::llround(_inputFrames * 16000.0 / _inputRate);
-            if (_pcm.length > frames * sizeof(float)) _pcm.length = frames * sizeof(float);
+            NSUInteger frames = MIN((NSUInteger)std::llround(_inputFrames * 16000.0 / _inputRate), _sampleLimit);
+            if ([self convertedFrames] > frames)
+                _pcm.length = frames > _drainedFrames ? (frames - _drainedFrames) * sizeof(float) : 0;
         }
         _finished = YES;
         _converter = nil;
@@ -96,14 +111,15 @@
 - (NSData *)drainWithError:(NSError **)error {
     @synchronized(self) {
         if (_failed) { [self fail:error]; return nil; }
-        NSUInteger available = _pcm.length / sizeof(float);
+        NSUInteger available = [self convertedFrames];
         if (!_finished && _inputRate > 0) {
             NSUInteger captured = (NSUInteger)std::floor(_inputFrames * 16000.0 / _inputRate);
             available = MIN(available, captured);
         }
         if (available <= _drainedFrames) return NSData.data;
-        NSData *result = [_pcm subdataWithRange:NSMakeRange(_drainedFrames * sizeof(float),
-            (available - _drainedFrames) * sizeof(float))];
+        const NSRange range = NSMakeRange(0, (available - _drainedFrames) * sizeof(float));
+        NSData *result = [_pcm subdataWithRange:range];
+        [_pcm replaceBytesInRange:range withBytes:NULL length:0];
         _drainedFrames = available;
         return result;
     }

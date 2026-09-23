@@ -18,6 +18,11 @@
 #include <utility>
 
 namespace msime::windows {
+static_assert(batch_upload_sample_limit ==
+              (metasequoia::voice::maximum_encoded_audio_bytes - 44) / 2);
+static_assert(batch_capture_sample_limit ==
+              batch_upload_sample_limit - 2 * (metasequoia::voice::sample_rate / 5));
+static_assert(local_asr_sample_limit == metasequoia::voice::maximum_samples);
 namespace {
 std::string lower(std::string_view value) {
   std::string result(value);
@@ -201,10 +206,8 @@ std::string recognize_cloud_asr(
       padded.resize(metasequoia::voice::sample_rate, 0.0f);
     audio = &padded;
   }
-  constexpr size_t upload_sample_limit =
-      (metasequoia::voice::maximum_encoded_audio_bytes - 44) / 2;
   const auto wav = metasequoia::voice::WavWriter::create_wav(
-      *audio, metasequoia::voice::sample_rate, upload_sample_limit);
+      *audio, metasequoia::voice::sample_rate, batch_upload_sample_limit);
   const auto request_language = transcription_language(id, language);
   const auto payload = metasequoia::voice::make_transcription_request(
       std::string_view(reinterpret_cast<const char *>(wav.data()), wav.size()),

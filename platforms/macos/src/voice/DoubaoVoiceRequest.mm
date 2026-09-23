@@ -35,7 +35,7 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
     NSURLSessionWebSocketTask *_socket;
     NSMutableArray<NSData *> *_packets;
     std::vector<float> _pending;
-    NSUInteger _totalSamples, _queuedBytes;
+    NSUInteger _queuedBytes;
     int32_t _sequence;
     BOOL _started, _finishing, _done, _cancelled, _sending, _finalDispatched;
     NSString *_lastText;
@@ -184,19 +184,14 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
         _started = YES; _result = [result copy];
         NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
         configuration.HTTPCookieStorage = nil; configuration.URLCredentialStorage = nil; configuration.URLCache = nil;
-        configuration.timeoutIntervalForRequest = 30; configuration.timeoutIntervalForResource = 100;
+        // No whole-session budget. The old 100 s one was sized for a 60 s recording, while MSIME-Windows streams for as long as the user records and bounds only individual network operations; a fixed session length cut dictation off while the user was still speaking. The 30 s request timeout stays, and a finished stream still has its own deadline in finishWithError:.
+        configuration.timeoutIntervalForRequest = 30;
         _session = [NSURLSession sessionWithConfiguration:configuration delegate:[MSIMEDoubaoSocketPolicy new] delegateQueue:nil];
         _socket = [_session webSocketTaskWithRequest:_request];
         _socket.maximumMessageSize = metasequoia::voice::doubao_response_limit;
         [_socket resume];
         [_packets addObject:_initialPacket]; _queuedBytes = _initialPacket.length;
         [self receive]; [self pump];
-        __weak MSIMEDoubaoVoiceRequest *weakSelf = self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_SEC), dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-            MSIMEDoubaoVoiceRequest *owner = weakSelf;
-            if (!owner) return;
-            @synchronized(owner) { if (!owner->_done && !owner->_cancelled) [owner deliver:nil final:YES error:DoubaoFailure()]; }
-        });
         return YES;
     }
 }
@@ -204,12 +199,11 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
     @synchronized(self) {
         if (!_started || _done || _cancelled || _finishing) { if (error) *error = DoubaoFailure(); return NO; }
         try {
-            if (!pcm.length || pcm.length % sizeof(float) || pcm.length / sizeof(float) > 16000 * 60 - _totalSamples)
+            if (!pcm.length || pcm.length % sizeof(float))
                 throw std::invalid_argument("size");
             std::vector<float> samples(pcm.length / sizeof(float));
             std::memcpy(samples.data(), pcm.bytes, pcm.length);
             for (float sample : samples) if (!std::isfinite(sample) || std::fabs(sample) > 1) throw std::invalid_argument("pcm");
-            _totalSamples += samples.size();
             _pending.insert(_pending.end(), samples.begin(), samples.end());
             std::size_t offset = 0;
             while (_pending.size() - offset >= metasequoia::voice::doubao_chunk_samples) {

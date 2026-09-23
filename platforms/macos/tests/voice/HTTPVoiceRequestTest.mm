@@ -60,6 +60,19 @@ int main(int argc, char **argv) {
         Wait(^BOOL { return done; });
         const NSTimeInterval elapsed = NSProcessInfo.processInfo.systemUptime - started;
         assert(elapsed >= 5.5);
+        // A recording past the old 60 s cut is uploaded, and one past the batch budget is sent up to it rather than refused: MSIME-Windows caps a batch upload at 20 MiB of 16-bit WAV, not at a duration.
+        NSMutableDictionary *longOptions = [options mutableCopy];
+        longOptions[@"asr_endpoint"] = [base stringByAppendingString:@"/asr-long"];
+        longOptions[@"polish_enabled"] = @NO;
+        request = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:longOptions error:nil];
+        NSMutableData *longPCM = [NSMutableData dataWithLength:(msime::voice::batch_capture_sample_limit + 16000) * sizeof(float)];
+        __block NSString *longText = nil;
+        assert([request recognizePCM:longPCM completion:^(NSString *text, NSError *error) {
+            assert(!error); longText = text;
+        } error:nil]);
+        Wait(^BOOL { return longText != nil; });
+        NSString *longExpected = [NSString stringWithFormat:@"synthetic long %zu", msime::voice::batch_capture_sample_limit];
+        assert([longText isEqual:longExpected]);
         request = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:options error:nil];
         [request cancel];
         assert(![request recognizePCM:valid completion:^(NSString *, NSError *) { assert(false); } error:nil]);

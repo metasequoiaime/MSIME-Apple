@@ -121,9 +121,12 @@ int main() {
         Drain();
         assert(failures == 1 && service.stops == stopped);
         buffer.floatChannelData[0][0] = 0.125f;
+        // Past the old 60 s cut the recording neither fails nor stops: all of it is submitted.
         for (NSUInteger i = 0; i < 601; ++i) service.capture(buffer);
         Drain();
-        assert(failures == 2 && service.stops == stopped + 1);
+        assert(failures == 1 && service.stops == stopped);
+        assert([service finishPCMRecordingWithError:nil].length == 601 * 1600 * sizeof(float));
+        assert(service.stops == stopped + 1);
         // Exercise the production tap wiring without opening an audio device.
         DurationCapture *durationService = [DurationCapture new];
         __block NSUInteger delivered = 0;
