@@ -32,6 +32,7 @@
 #include "../src/candidates/PairedPunctuation.h"
 #include "../src/core/CandidateSkinCatalog.h"
 #include "../src/core/DictionaryQuiesceLease.h"
+#include "../src/core/RuntimeOptionsRefresh.h"
 #include "../src/core/InputModeIndicator.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
@@ -204,7 +205,7 @@ extern "C" void fcitxVoiceLevel(float level, void *context) noexcept {
   } catch (...) {}
 }
 
-Json readOptions() {
+std::filesystem::path optionsPath() {
   std::filesystem::path path;
   if (const auto *overridePath = std::getenv("MSIME_FCITX5_OPTIONS")) {
     path = overridePath;
@@ -219,7 +220,11 @@ Json readOptions() {
       path = MSIME_SYSTEM_OPTIONS;
   }
   if (!path.is_absolute()) throw std::runtime_error("MSIME configuration unavailable");
-  std::ifstream file(path);
+  return path;
+}
+
+Json readOptions() {
+  std::ifstream file(optionsPath());
   std::array<char, 16385> data{};
   file.read(data.data(), data.size());
   if (file.bad() || file.gcount() <= 0 || file.gcount() >= static_cast<std::streamsize>(data.size()))
@@ -4403,6 +4408,17 @@ public:
     classicui->setConfig(config);
     candidate_theme_applied_ = std::move(theme);
   }
+  // Runs before any session exists: a package upgrade leaves the user's options on the previous dictionary generation until this re-prepares it. The system-wide file belongs to the administrator and is not rewritten.
+  static void refreshOptions() {
+    try {
+      const auto path = optionsPath();
+      if (path == MSIME_SYSTEM_OPTIONS) return;
+      if (msime::linux_host::refresh_runtime_options(path))
+        msime_linux_diagnostic_write("dictionary_generation_refreshed");
+    } catch (...) {
+      msime_linux_diagnostic_write("operation_failed operation=dictionary_generation_refresh");
+    }
+  }
   void applyCandidateWheelPaging(const Json &preferences) {
     const auto enabled =
         candidate_wheel_paging_sync_.next(msime::linux_host::read_candidate_wheel_paging(preferences));
@@ -4414,6 +4430,7 @@ public:
     classicui->setConfig(config);
   }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
+    refreshOptions();
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
     input_mode_action_.registerAction("msime-input-mode", &instance->userInterfaceManager());
