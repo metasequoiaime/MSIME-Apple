@@ -4,6 +4,8 @@
 // of that text in this repository. This host reads the shared one rather than adding a fifth.
 #include "voice/PolishPrompt.h"
 #include <cstring>
+#include <functional>
+#include <vector>
 #include <fstream>
 #include <limits>
 #include <string>
@@ -175,6 +177,57 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_polishPromptRaw(
         env->SetByteArrayRegion(out, 0, static_cast<jsize>(prompt.size()),
                                 reinterpret_cast<const jbyte *>(prompt.data()));
     }
+    return out;
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_doubaoDecodeFrameRaw(JNIEnv *env, jclass, jbyteArray frame) {
+    if (!frame) return response(env, msime_client_doubao_decode_frame(nullptr, 0));
+    jsize length = env->GetArrayLength(frame);
+    jbyte *bytes = env->GetByteArrayElements(frame, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_doubao_decode_frame(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(frame, bytes, JNI_ABORT);
+    return response(env, result);
+}
+// The two frame builders write into a caller-owned buffer and report the size they need when it is
+// too small. Ask first, then allocate exactly that: the alternative is a guessed ceiling that is
+// either wasteful for a start frame or silently truncating for a long PCM chunk.
+static jbyteArray build_frame(JNIEnv *env, const std::function<bool(uint8_t *, size_t, size_t *)> &build) {
+    size_t needed = 0;
+    if (!build(nullptr, 0, &needed) && needed == 0) return nullptr;
+    if (needed == 0 || needed > static_cast<size_t>(std::numeric_limits<jsize>::max())) return nullptr;
+    std::vector<uint8_t> buffer(needed);
+    size_t written = 0;
+    if (!build(buffer.data(), buffer.size(), &written) || written == 0 || written > buffer.size()) {
+        return nullptr;
+    }
+    jbyteArray out = env->NewByteArray(static_cast<jsize>(written));
+    if (out) {
+        env->SetByteArrayRegion(out, 0, static_cast<jsize>(written),
+                                reinterpret_cast<const jbyte *>(buffer.data()));
+    }
+    return out;
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_doubaoStartFrameRaw(JNIEnv *env, jclass, jboolean itn, jboolean punc, jboolean ddc, jbyteArray boosting) {
+    std::string table = utf8(env, boosting);
+    return build_frame(env, [&](uint8_t *out, size_t capacity, size_t *length) {
+        return msime_client_doubao_start_frame(
+            itn == JNI_TRUE, punc == JNI_TRUE, ddc == JNI_TRUE,
+            table.empty() ? nullptr : reinterpret_cast<const uint8_t *>(table.data()),
+            table.size(), out, capacity, length);
+    });
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_doubaoAudioFrameRaw(JNIEnv *env, jclass, jint sequence, jbyteArray pcm, jint pcmLength, jboolean finalChunk) {
+    jsize available = pcm ? env->GetArrayLength(pcm) : 0;
+    if (pcmLength < 0 || pcmLength > available) return nullptr;
+    jbyte *bytes = pcm && pcmLength > 0 ? env->GetByteArrayElements(pcm, nullptr) : nullptr;
+    if (pcmLength > 0 && !bytes) return nullptr;
+    jbyteArray out = build_frame(env, [&](uint8_t *buffer, size_t capacity, size_t *length) {
+        return msime_client_doubao_audio_frame(
+            static_cast<int32_t>(sequence), reinterpret_cast<const uint8_t *>(bytes),
+            static_cast<size_t>(pcmLength), finalChunk == JNI_TRUE, buffer, capacity, length);
+    });
+    if (bytes) env->ReleaseByteArrayElements(pcm, bytes, JNI_ABORT);
     return out;
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_shuangpinKeyHintsRaw(JNIEnv *env, jclass, jbyteArray profile) {

@@ -87,13 +87,14 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("provider?.provider, provider?.endpoint, provider?.model, provider?.token", plugin)
         # Absent or unusable provider must still reach the platform recognizer: that is the
         # default this host shipped with and it needs no account of any kind.
-        self.assertIn("provider == null && !VoiceRecognitionActivity.available(hostActivity)", plugin)
+        self.assertIn("provider == null && streaming == null", plugin)
+        self.assertIn("!VoiceRecognitionActivity.available(hostActivity)", plugin)
 
         # The activity runs whichever engine the request calls for.
         self.assertIn("private boolean usesProvider()", activity)
         self.assertIn("startProviderRecognition()", activity)
         self.assertIn("HttpAsrRecognizer", activity)
-        self.assertIn("if (!usesProvider() && !available(this))", activity)
+        self.assertIn("!usesProvider() && !available(this)", activity)
         # Cancelling has to release the microphone the recorder is holding.
         self.assertIn("provider.cancel()", activity)
 
@@ -117,6 +118,35 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # A failed rewrite keeps what was recognised.
         self.assertIn("return polished == null ? text : polished;", activity)
         self.assertIn("return null;", polisher)
+
+    def test_the_streaming_protocol_reaches_the_host_and_builds_no_frames_of_its_own(self):
+        """Android has no platform WebSocket, so this host carries one for a single endpoint. What
+        it must not carry is a second copy of the protocol: the frames and the authentication
+        headers are the shared implementation's, and drifting from them is silent."""
+        plugin = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoicePlugin.kt"
+        ).read_text()
+        activity = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+        ).read_text()
+        recognizer = (
+            ROOT / "platforms/android/java/app/msime/client/voice/DoubaoRecognizer.java"
+        ).read_text()
+
+        # The two protocols are chosen between, never both.
+        self.assertIn("DoubaoAsrPolicy.usable(", plugin)
+        self.assertIn("streaming == null && HttpAsrPolicy.usable(", plugin)
+        self.assertIn("VoiceRecognitionActivity.Streaming(", plugin)
+        self.assertIn("startStreamingRecognition()", activity)
+        self.assertIn("if (!usesStreaming() && !usesProvider() && !available(this))", activity)
+
+        # Frames come from the shared builders; nothing here encodes the protocol.
+        self.assertIn("NativeClient.doubaoStartFrame(", recognizer)
+        self.assertIn("NativeClient.doubaoAudioFrame(", recognizer)
+        self.assertIn("NativeClient.doubaoDecodeFrame(", recognizer)
+        # Cancelling has to release both the microphone and the socket.
+        self.assertIn("streaming.cancel()", activity)
+        self.assertIn("socket.close()", recognizer)
 
 
 if __name__ == "__main__":

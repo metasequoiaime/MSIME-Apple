@@ -143,6 +143,16 @@ if ! rg -q '<asr_text>' \
   echo "Android polish must wrap the transcript in the boundary the presets name" >&2
   exit 1
 fi
+# The streaming protocol's framing and authentication are the shared implementation's; this host
+# adds only the transport Android has no platform API for. A frame built here would be a second
+# encoder to keep in step with the provider.
+if ! rg -q 'NativeClient\.doubaoStartFrame|NativeClient\.doubaoAudioFrame' \
+    "$repo_root/platforms/android/java/app/msime/client/voice/DoubaoRecognizer.java" \
+  || ! rg -q 'msime_client_doubao_(start|audio)_frame' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android streaming recognition must build its frames through the shared Host API" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
@@ -233,6 +243,8 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/voice/VoiceResultStoreSmoke.java" \
   "$repo_root/platforms/android/tests/voice/AiPolishClientSmoke.java" \
   "$repo_root/platforms/android/tests/voice/HttpAsrPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/voice/WebSocketFramesSmoke.java" \
+  "$repo_root/platforms/android/tests/voice/DoubaoAsrPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/VoicePolishPolicySmoke.java" \
   "$repo_root/platforms/android/tests/candidate/ReplyKeyboardSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardSkinSmoke.java" \
@@ -304,6 +316,8 @@ java -cp "$output_dir" KeyboardLayoutAdjustPolicySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke
 java -cp "$output_dir" AiPolishClientSmoke
 java -cp "$output_dir" HttpAsrPolicySmoke
+java -cp "$output_dir" WebSocketFramesSmoke
+java -cp "$output_dir" DoubaoAsrPolicySmoke
 java -cp "$output_dir" VoicePolishPolicySmoke
 java -cp "$output_dir" ReplyKeyboardSmoke
 java -cp "$output_dir" app.msime.client.KeyboardSkinSmoke
