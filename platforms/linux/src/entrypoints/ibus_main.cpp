@@ -1,4 +1,5 @@
 #include "../core/ClientEngine.h"
+#include "../core/FirstRunGuidance.h"
 #include "../core/RuntimeOptionsRefresh.h"
 #include "../system/SystemTheme.h"
 #include <array>
@@ -7,6 +8,7 @@
 #include <iostream>
 #include <iterator>
 #include <exception>
+#include <filesystem>
 #include <cstdlib>
 #include <thread>
 #include "Telemetry.h"
@@ -69,6 +71,18 @@ void restore_global_engine(IBusBus *bus) {
       },
       nullptr);
 }
+
+// Downloaded dictionaries are not replaced by a package upgrade, so a release that raises the dictionary version leaves this user on the previous generation until they fetch the new files. The guide script beside this executable posts the notification, limited to once per login session; it is asynchronous so startup does not wait on it, and GLib reaps the intermediate child.
+void notify_dictionary_outdated() {
+  std::error_code error;
+  const auto executable = std::filesystem::read_symlink("/proc/self/exe", error);
+  if (error) return;
+  const auto guide = (executable.parent_path() / std::string(msime::linux_host::kFirstRunGuideProgram)).string();
+  if (!g_file_test(guide.c_str(), G_FILE_TEST_IS_EXECUTABLE)) return;
+  gchar *argv[] = {const_cast<gchar *>(guide.c_str()), const_cast<gchar *>("--reason"),
+                   const_cast<gchar *>("dictionary-outdated"), nullptr};
+  g_spawn_async(nullptr, argv, nullptr, G_SPAWN_STDOUT_TO_DEV_NULL, nullptr, nullptr, nullptr, nullptr);
+}
 } // namespace
 
 int main(int argc, char **argv) {
@@ -93,6 +107,9 @@ int main(int argc, char **argv) {
   try {
     if (msime::linux_host::refresh_runtime_options(options_path))
       std::cerr << "Dictionary updated to the installed generation\n";
+  } catch (const msime::linux_host::DictionaryOutdated &) {
+    std::cerr << "Installed dictionaries are older than this version; keeping the current ones. Run msime-client-setup --update --download\n";
+    notify_dictionary_outdated();
   } catch (...) {
     std::cerr << "Cannot update the dictionary to the installed generation; keeping the current one\n";
   }

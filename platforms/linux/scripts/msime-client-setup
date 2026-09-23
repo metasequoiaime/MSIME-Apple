@@ -12,11 +12,15 @@
 Windows 安装程序注册 TSF profile，装完输入法就出现在输入法列表里；这里对应的是在状态目录就绪后把输入法加进正在运行的 Fcitx5 或 IBus 的列表。任何一步失败都退回到打印手动步骤，不影响已经准备好的状态。
 
 Windows 卸载程序注销 TSF profile 和类别，输入法随之从列表里消失；对应的是 --unregister：卸载时（.deb 的 prerm、CMake 卸载）在删除文件之前把输入法从这些列表里移除，只做这一步，不准备状态也不下载。
+
+--update 对应 Windows 安装程序升级时的用户词库回放。随包提供词库的安装由包管理器换掉词库，宿主启动时自己切换代次；自行下载的词库没有人替换，升级抬高词库版本后宿主只能继续用旧的。--update 读出已有状态记录的词库目录，按已安装的词库锁核对；不符时加 --download 在旁边另建一份新词库目录，与旧目录一致的几项直接链接过去，只取回缺失或不符的几项，旧目录一个文件都不动。随后请两个宿主关掉输入会话，用 msime-client-prepare --refresh 切到新代次并回放用户词库，再让它们重新打开。已有状态时给 --download 即视为 --update。
 """
 from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -26,6 +30,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -92,9 +97,28 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
+# The Engine's helpcode tables live in this subdirectory of the resource directory; the host's verification lets it through (crates/client-core/src/resources.rs).
+HELPCODE_DIRECTORY = "helpcodes"
+
+
+def unexpected_entries(directory: Path, lock: dict) -> list[str]:
+    """目录里锁之外的条目。宿主要求词库目录恰好是锁里那几项，多一个文件就拒绝整份词库；下载补不掉它们，得由用户移走。"""
+    if not directory.is_dir():
+        return []
+    names = {artifact["name"] for artifact in lock["artifacts"]}
+    return [
+        f"{entry.name} 不在词库锁中或不是普通文件，宿主会拒绝这份词库；请把它移出 {directory}"
+        for entry in sorted(os.scandir(directory), key=lambda item: item.name)
+        if not (entry.name == HELPCODE_DIRECTORY and entry.is_dir(follow_symlinks=False))
+        and (entry.name not in names or not entry.is_file(follow_symlinks=False))
+    ]
+
+
 def verify_directory(directory: Path, lock: dict) -> list[str]:
-    """锁文件与目录不符之处，逐条列出；空列表表示这份词库可用。"""
-    problems = []
+    """锁文件与目录不符之处，逐条列出；空列表表示这份词库可用。
+
+    与宿主的校验一致，锁之外的条目也算：升级去掉某项词库时旧文件会留在下载目录里，在这里报出来，而不是等宿主拒绝后只剩一句笼统的失败。"""
+    problems = unexpected_entries(directory, lock)
     for artifact in lock["artifacts"]:
         name = artifact["name"]
         path = directory / name
@@ -125,10 +149,13 @@ def fetch(url: str, destination: Path) -> None:
 
 
 def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) -> None:
-    """按锁下载并校验，全部通过后才发布到目标目录。校验不过即中止，不留半份词库。"""
+    """按锁下载并校验，全部通过后才发布到目标目录。校验不过或下载中断即中止，目标目录一个文件都不动，不留半份词库。
+
+    先在同一文件系统的临时目录里备齐并逐个校验，再逐个改名发布。改名替换的是目录项而不是文件内容，所以更新时从旧词库目录硬链接过来的文件被替换后，旧目录里那一份不受影响。"""
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=directory.parent) as staging_name:
         staging = Path(staging_name)
+        verified = []
         for artifact in lock["artifacts"]:
             name = artifact["name"]
             target = directory / name
@@ -173,6 +200,8 @@ def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) ->
                 archive.unlink()
             if digest(staged) != artifact["sha256"]:
                 raise SystemExit(f"{name} 校验失败，已中止；目标目录未改动")
+            verified.append((staged, target))
+        for staged, target in verified:
             staged.replace(target)
 
 
@@ -182,13 +211,261 @@ def prepare_command(command: Path, resources: Path, state: Path, cloud_candidate
     return [str(command), *flags, str(resources), str(state)]
 
 
-def prepare_state(prefix: Path, resources: Path, state: Path, cloud_candidates: bool) -> None:
+def prepare_executable(prefix: Path) -> Path:
     command = prefix / "bin/msime-client-prepare"
-    if not command.is_file():
-        command = Path(shutil.which("msime-client-prepare") or "msime-client-prepare")
+    if command.is_file():
+        return command
+    return Path(shutil.which("msime-client-prepare") or "msime-client-prepare")
+
+
+def prepare_state(prefix: Path, resources: Path, state: Path, cloud_candidates: bool) -> None:
+    command = prepare_executable(prefix)
     result = subprocess.run(prepare_command(command, resources, state, cloud_candidates), check=False)
     if result.returncode != 0:
         raise SystemExit("准备状态目录失败，见上面的输出")
+
+
+def load_engine_lock(prefix: Path, lock_file: Path) -> dict | None:
+    for path in (prefix / "share/msime-client/engine-lock.json", lock_file.parent / "engine-lock.json"):
+        if path.is_file():
+            return json.loads(path.read_text())
+    return None
+
+
+def fetch_missing(lock: dict, engine_lock: dict | None, resources: Path, in_use: Path | None = None) -> list[str]:
+    """按锁取回缺失或不符的词库，返回取回之后仍然不符之处。网络失败时目标目录不变；有下载补不掉的多余条目时不下载。in_use 是更新时输入法正在用、这里不写入的那份目录。"""
+    unexpected = unexpected_entries(resources, lock)
+    if unexpected:
+        return unexpected
+    try:
+        download_artifacts(lock, engine_lock, resources)
+    except OSError as error:
+        raise SystemExit(f"下载失败：{error}\n词库目录未改动：{in_use or resources}")
+    return verify_directory(resources, lock)
+
+
+def print_problems(heading: str, problems: list[str]) -> None:
+    print(heading, file=sys.stderr)
+    for problem in problems[:5]:
+        print(f"  {problem}", file=sys.stderr)
+
+
+# msime-client-prepare --refresh exits 3 when the host library still finds the recorded dictionaries outdated.
+REFRESH_OUTDATED = 3
+
+
+def read_options(options_file: Path) -> dict:
+    try:
+        document = json.loads(options_file.read_text())
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"无法读取 {options_file}：{error}")
+    if not isinstance(document, dict):
+        raise SystemExit(f"{options_file} 不是 msime-client-prepare 生成的配置")
+    return document
+
+
+def recorded_path(document: dict, key: str, options_file: Path) -> Path:
+    """已有状态记录的某个目录：resources 是宿主校验、Engine 读取的那份词库，user_data 是输入会话持锁的用户目录。"""
+    value = document.get(key)
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise SystemExit(f"{options_file} 没有记录 {key}，不是 msime-client-prepare 生成的配置")
+    return Path(value)
+
+
+def updatable(path: Path, prefix: Path) -> bool:
+    """只更新当前用户自己下载的那份词库。随本次安装提供的词库归包管理器，哪怕装在用户可写的前缀下；别人的目录同样不碰。装在 ~/.local 这类前缀下时，随包词库的位置就是首次配置的下载目录，那里的词库是用户自己下载的，不算随包。目录不在时看它的上一级，下载会把它建出来。"""
+    packaged = (prefix / "share/msime-client/resources").resolve()
+    if path.resolve() == packaged and packaged != (data_home() / "msime-client/resources").resolve():
+        return False
+    existing = path if path.exists() else path.parent
+    try:
+        return existing.is_dir() and existing.stat().st_uid == os.geteuid() and os.access(existing, os.W_OK)
+    except OSError:
+        return False
+
+
+def link_or_copy(source: str, target: str) -> None:
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+
+
+def staged_resources(resources: Path, lock: dict) -> Path:
+    """新版本词库的目录：与正在使用的那份并列，按锁的内容命名，中断后再运行会接着用同一个目录。
+
+    正在使用的目录不能原地更新：旧代次的会话每次查询都按路径打开其中的 others.db 等文件，换掉其中几项它就读到新旧混杂的一份，切换失败时也无法退回。与锁一致的文件直接硬链接过来，只有缺失或不符的几项需要下载；下载总是改名替换，不写已有文件，所以链接不会改到旧目录。"""
+    tag = hashlib.sha256(
+        "\n".join(f"{artifact['name']}:{artifact['sha256']}" for artifact in lock["artifacts"]).encode()
+    ).hexdigest()[:16]
+    target = resources.parent / f"resources-{tag}"
+    if target.resolve() == resources.resolve():
+        # The recorded directory already carries this lock's name yet does not match it; stage beside it all the same.
+        target = Path(tempfile.mkdtemp(prefix=f"resources-{tag}-", dir=resources.parent))
+    target.mkdir(parents=True, exist_ok=True)
+    for artifact in lock["artifacts"]:
+        source, staged = resources / artifact["name"], target / artifact["name"]
+        if staged.exists() or not source.is_file() or source.stat().st_size != artifact["size"]:
+            continue
+        link_or_copy(str(source), str(staged))
+    helpcodes = resources / HELPCODE_DIRECTORY
+    if helpcodes.is_dir() and not helpcodes.is_symlink() and not (target / HELPCODE_DIRECTORY).exists():
+        shutil.copytree(helpcodes, target / HELPCODE_DIRECTORY, copy_function=link_or_copy)
+    return target
+
+
+# The lease the settings window writes for dictionary maintenance (platforms/linux/src/core/DictionaryQuiesceLease.h): while it is live both hosts finish the composition, close their sessions and open no new ones. They ignore an expiry more than 30 s out, so it is written for less and renewed while held.
+QUIESCE_LEASE = ".msime-dictionary-quiesce"
+QUIESCE_LEASE_SECONDS = 20
+QUIESCE_RENEW_SECONDS = 5
+# Every input session holds this lock shared on the user directory (crates/client-core/src/dictionary/access.rs), so holding it exclusively proves the sessions are gone and keeps new ones from opening.
+ACCESS_LOCK = ".msime-dictionary-access.lock"
+# Long enough for the IBus host's one-second lease check to come round twice, the same budget the settings window gives it.
+QUIESCE_BUDGET = 2.5
+# The IBus host rereads runtime-options.json within 100 ms when its directory monitor works and every 5 s otherwise; a session it opened before that would go back to the previous generation.
+IBUS_OPTIONS_RELOAD = 6
+
+
+class HostsBusy(Exception):
+    """An input session still held the dictionaries when the budget ran out."""
+
+
+@contextlib.contextmanager
+def hosts_held_off(user_data: Path):
+    """Keep both hosts' sessions closed on user_data while the body runs, as the settings window does for dictionary maintenance.
+
+    The refresh replays the user journal into the new generation once. A session left open would keep learning into the previous generation and the journal after that replay, and nothing replays it again, so those words would be missing from the new dictionaries. A missing user directory has no session to close."""
+    if not user_data.is_dir():
+        yield
+        return
+    lease = user_data / QUIESCE_LEASE
+
+    def publish() -> None:
+        staged = lease.with_name(f"{QUIESCE_LEASE}.{os.getpid()}")
+        staged.write_text(f"{int((time.time() + QUIESCE_LEASE_SECONDS) * 1000)}\n")
+        staged.replace(lease)
+
+    stop = threading.Event()
+
+    def renew() -> None:
+        while not stop.wait(QUIESCE_RENEW_SECONDS):
+            try:
+                publish()
+            except OSError:
+                # The exclusive lock below still keeps sessions from opening once the lease has lapsed.
+                pass
+
+    descriptor = -1
+    renewer = threading.Thread(target=renew, daemon=True)
+    try:
+        publish()
+        renewer.start()
+        descriptor = os.open(user_data / ACCESS_LOCK, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+        deadline = time.monotonic() + QUIESCE_BUDGET
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise HostsBusy from None
+                time.sleep(0.05)
+        yield
+    finally:
+        stop.set()
+        if renewer.is_alive():
+            renewer.join()
+        # Release the lock before the lease, as the settings window does, so a session reopening on the lease going away can take its shared lock.
+        if descriptor >= 0:
+            os.close(descriptor)
+        lease.unlink(missing_ok=True)
+
+
+def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Path) -> tuple[subprocess.CompletedProcess, bool]:
+    """msime-client-prepare --refresh, pointed at resources. Returns the result and whether runtime-options.json was rewritten.
+
+    A new resource directory is written into a copy of the options beside the file, and the copy replaces the file only once the refresh has rewritten it; on any failure the file never names the new directory."""
+    command = str(prepare_executable(prefix))
+    if Path(document["resources"]) == resources:
+        result = subprocess.run([command, "--refresh", str(options_file)], capture_output=True, text=True, check=False)
+        return result, result.returncode == 0 and result.stdout.strip() == "refreshed"
+    descriptor, name = tempfile.mkstemp(prefix=".runtime-options-update-", dir=options_file.parent)
+    staged = Path(name)
+    try:
+        with os.fdopen(descriptor, "w") as handle:
+            json.dump(dict(document, resources=str(resources)), handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        staged.chmod(options_file.stat().st_mode & 0o777)
+        result = subprocess.run([command, "--refresh", str(staged)], capture_output=True, text=True, check=False)
+        refreshed = result.returncode == 0 and result.stdout.strip() == "refreshed"
+        if refreshed:
+            staged.replace(options_file)
+        return result, refreshed
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def update_dictionaries(prefix: Path, lock_file: Path, lock: dict, options_file: Path, download: bool) -> int:
+    """把已有状态记录的那份词库补到已安装的锁，再切换代次并回放用户词库。"""
+    document = read_options(options_file)
+    resources = recorded_path(document, "resources", options_file)
+    user_data = recorded_path(document, "user_data", options_file)
+    if options_file.is_symlink():
+        print(f"{options_file} 是符号链接，不是 msime-client-prepare 生成的布局，不改写。", file=sys.stderr)
+        return 1
+    if not updatable(resources, prefix):
+        print(
+            f"词库目录 {resources} 不是当前用户自己下载的那份：随安装包提供的词库由包管理器更新，升级安装包后输入法会自己切换到新词库。",
+            file=sys.stderr,
+        )
+        return 1
+    problems = verify_directory(resources, lock)
+    if problems and not download:
+        print_problems(f"词库与当前版本不符：{resources}", problems)
+        print("\n加 --download 按锁文件只取回缺失或不符的几项。", file=sys.stderr)
+        return 1
+    target = resources
+    if problems:
+        try:
+            target = staged_resources(resources, lock)
+        except OSError as error:
+            raise SystemExit(f"无法建立新词库目录：{error}\n词库目录未改动：{resources}")
+        remaining = fetch_missing(lock, load_engine_lock(prefix, lock_file), target, resources)
+        if remaining:
+            print_problems("下载后仍不完整：", remaining)
+            return 1
+    print(f"词库已校验：{target}")
+    try:
+        with hosts_held_off(user_data):
+            result, refreshed = run_refresh(prefix, options_file, document, target)
+            if refreshed and running("ibus-daemon"):
+                time.sleep(IBUS_OPTIONS_RELOAD)
+    except HostsBusy:
+        print("输入法仍有输入会话占用词库，没有切换：runtime-options.json 未改动，输入法继续使用旧词库。请稍后再运行一次。", file=sys.stderr)
+        return 1
+    except OSError as error:
+        print(f"切换词库失败：{error}\nruntime-options.json 未改动，输入法继续使用旧词库。", file=sys.stderr)
+        return 1
+    if refreshed:
+        print("已切换到新版本的词库，用户词库已回放进去。输入法在切换期间暂停了输入会话，现在已恢复，新的输入即使用新词库。")
+        if target != resources:
+            print(f"旧词库目录 {resources} 保留未动，确认新词库正常后可以自行删除。")
+        return 0
+    if result.returncode == 0:
+        print(f"{options_file} 未改写：它已指向当前版本的词库，或不是 msime-client-prepare 生成的布局。")
+        return 0
+    if result.stderr.strip():
+        print(result.stderr.strip(), file=sys.stderr)
+    if result.returncode == REFRESH_OUTDATED:
+        print(
+            "输入法的宿主库与已安装的词库锁不是同一版本，请重新安装安装包。runtime-options.json 未改动，输入法继续使用旧词库。",
+            file=sys.stderr,
+        )
+    elif target != resources:
+        print(f"切换词库失败：runtime-options.json 未改动，输入法继续使用旧词库。新词库已备在 {target}，再运行一次本命令即可重试。", file=sys.stderr)
+    else:
+        print("切换词库失败：runtime-options.json 未改动，输入法继续使用旧词库，下次启动时会再试。", file=sys.stderr)
+    return 1
 
 
 def running(name: str) -> bool:
@@ -480,7 +757,12 @@ def main() -> int:
     parser.add_argument(
         "--download",
         action="store_true",
-        help="允许按已安装的词库锁下载缺失词库（首次约 170 MB），默认不下载",
+        help="允许按已安装的词库锁下载缺失词库（首次约 170 MB），默认不下载；状态目录已有 runtime-options.json 时即视为 --update",
+    )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="升级之后把已有状态记录的词库补到当前版本并切换过去，用户词库随之回放；缺的词库要配合 --download 取回",
     )
     parser.add_argument(
         "--no-cloud-candidates",
@@ -506,10 +788,17 @@ def main() -> int:
     state = (arguments.state or config_home() / "msime-client").expanduser()
     if not state.is_absolute():
         raise SystemExit("状态目录必须是绝对路径")
-    if state.exists():
+    options_file = state / "runtime-options.json"
+    update = arguments.update or (arguments.download and options_file.is_file())
+    if update and arguments.resources:
+        raise SystemExit("--update 使用状态目录记录的词库目录，不能再用 --resources 另指一份。")
+    if update and not options_file.is_file():
+        raise SystemExit(f"{state} 里没有 runtime-options.json，还没有完成首次配置：去掉 --update 先做一次首次配置。")
+    if state.exists() and not update:
         raise SystemExit(
             f"状态目录已存在：{state}\n"
-            "msime-client-prepare 不覆盖已有目录。要重新准备请另选目录，或先自行移走这一份。"
+            "msime-client-prepare 不覆盖已有目录。要重新准备请另选目录，或先自行移走这一份。\n"
+            "升级之后要把这份状态换到新版本的词库，运行 msime-client-setup --update --download。"
         )
 
     lock_file = next((path for path in lock_candidates(prefix) if path.is_file()), None)
@@ -519,6 +808,8 @@ def main() -> int:
             "自定义前缀可用 MSIME_DICTIONARY_LOCK 指向它。"
         )
     lock = json.loads(lock_file.read_text())
+    if update:
+        return update_dictionaries(prefix, lock_file, lock, options_file, arguments.download)
 
     if arguments.resources:
         resources = arguments.resources.expanduser()
@@ -532,9 +823,7 @@ def main() -> int:
 
     problems = verify_directory(resources, lock)
     if problems and not arguments.download:
-        print(f"词库目录不可用：{resources}", file=sys.stderr)
-        for problem in problems[:5]:
-            print(f"  {problem}", file=sys.stderr)
+        print_problems(f"词库目录不可用：{resources}", problems)
         print(
             "\n加 --download 按锁文件取回（首次约 170 MB），"
             "或用 --resources 指向一份已备齐的目录。",
@@ -542,24 +831,9 @@ def main() -> int:
         )
         return 1
     if problems:
-        engine_lock_file = next(
-            (
-                path
-                for path in (
-                    prefix / "share/msime-client/engine-lock.json",
-                    lock_file.parent / "engine-lock.json",
-                )
-                if path.is_file()
-            ),
-            None,
-        )
-        engine_lock = json.loads(engine_lock_file.read_text()) if engine_lock_file else None
-        download_artifacts(lock, engine_lock, resources)
-        remaining = verify_directory(resources, lock)
+        remaining = fetch_missing(lock, load_engine_lock(prefix, lock_file), resources)
         if remaining:
-            print("下载后仍不完整：", file=sys.stderr)
-            for problem in remaining[:5]:
-                print(f"  {problem}", file=sys.stderr)
+            print_problems("下载后仍不完整：", remaining)
             return 1
 
     print(f"词库已校验：{resources}")
