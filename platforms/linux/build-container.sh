@@ -29,7 +29,8 @@ command -v docker >/dev/null 2>&1 || {
 main_worktree="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")"
 vendor=""
 for candidate in "$repo_root/vendor" "$main_worktree/vendor"; do
-  [ -d "$candidate/MSIME-Engine" ] && vendor="$(cd "$candidate" && pwd)" && break
+  # Only a tree prepared for this checkout's engine-lock.json: one at the same Engine commit with older overlays compiles, or fails, against the wrong Engine source. With no match the container fetches its own.
+  [ -d "$candidate/MSIME-Engine" ] && python3 scripts/fetch_engine.py --matches "$candidate" && vendor="$(cd "$candidate" && pwd)" && break
 done
 
 build_root="$repo_root/target/linux-build-gate"
