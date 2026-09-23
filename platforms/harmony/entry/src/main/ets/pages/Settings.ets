@@ -56,6 +56,11 @@ interface CustomTranslationAction {
   text?: string;
 }
 
+interface ExportSaveRequest {
+  name: string;
+  contents: string;
+}
+
 interface TextReply {
   ok: boolean;
   value: string;
@@ -701,11 +706,77 @@ class SettingsBridge {
       this.aiTest(payload).then(deliver).catch(failed);
     } else if (kind === 'api_credential') {
       this.testApiCredential(payload).then(deliver).catch(failed);
+    } else if (kind === 'save_export') {
+      this.saveExport(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`export save failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'export_unavailable' }));
+      });
     } else {
       KeyboardLog.error(`unknown bridge request: ${kind}`);
       this.deliverReply(id, JSON.stringify({ ok: false, error: 'unknown_request' }));
     }
     return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+  }
+
+  /**
+   * Saves an exported dictionary where the user chooses, which is what the source's download link gets from WebView2.
+   *
+   * ArkWeb drops a blob download link unless a download delegate takes it, and a delegate would only save into the sandbox, where no file manager reaches. So the page hands the text over, it is staged privately, and the save picker decides where it goes, the same way the cloud dictionary export already works. The reply carries the saved file's name to show, or null when the user closed the picker, which is not a failure.
+   */
+  private async saveExport(document: string): Promise<string> {
+    let request: ExportSaveRequest;
+    try {
+      request = JSON.parse(document) as ExportSaveRequest;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'export_invalid' });
+    }
+    const name: string | null = SkinImportPolicy.destinationName(request.name);
+    if (name === null || typeof request.contents !== 'string' || this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'export_invalid' });
+    }
+    const directory: string = `${this.stateDirectory}/dictionary-exports`;
+    const staging: string = `${directory}/${util.generateRandomUUID(false)}.txt`;
+    let destination: string = '';
+    try {
+      if (!fs.accessSync(directory)) {
+        fs.mkdirSync(directory, true);
+      }
+      const file: fs.File = fs.openSync(staging, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      try {
+        fs.writeSync(file.fd, request.contents);
+      } finally {
+        fs.closeSync(file);
+      }
+      const options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
+      options.newFileNames = [name];
+      const selected: string[] = await new picker.DocumentViewPicker(this.context).save(options);
+      if (selected.length === 0) {
+        return JSON.stringify({ ok: true, value: null, error: '' });
+      }
+      destination = selected[0];
+      fs.copyFileSync(staging, destination);
+      KeyboardLog.info('export saved');
+      // The picker answers with a provider URI, which means nothing to the user; the file's own name is what they will look for.
+      return JSON.stringify({ ok: true, value: SkinImportPolicy.pickedName(destination) ?? name, error: '' });
+    } catch (error) {
+      KeyboardLog.error(`export save failed: ${describeError(error)}`);
+      try {
+        if (destination.length > 0 && fs.accessSync(destination)) {
+          fs.unlinkSync(destination);
+        }
+      } catch {
+        // Reporting the failure matters more than a picker URI which has already disappeared.
+      }
+      return JSON.stringify({ ok: false, error: 'export_storage' });
+    } finally {
+      try {
+        if (fs.accessSync(staging)) {
+          fs.unlinkSync(staging);
+        }
+      } catch {
+        // A missing staging file is already the desired postcondition.
+      }
+    }
   }
 
   /** Hands one reply back to the page, under the number it was asked with. */

@@ -1674,8 +1674,10 @@ export interface SettingsClient {
   openSkinDirectory?: () => Promise<void>;
   /**
    * Write an exported document into the user's Downloads folder and resolve to the absolute path written, which may carry a " (2)" suffix when the name was taken. A host whose webview drops download links (the macOS WKWebView cancels them) offers this; without it the page falls back to a download link.
+   *
+   * A host that asks the user where to save (HarmonyOS, whose sandbox has no Downloads folder the user can reach) resolves to the saved file's name instead, and to null when the user closed the picker. A rejection carrying an Error has its message shown as it is, because only the host knows what it failed to write.
    */
-  saveExport?: (name: string, contents: string) => Promise<string>;
+  saveExport?: (name: string, contents: string) => Promise<string | null>;
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
@@ -3237,20 +3239,31 @@ export function SettingsPage({
   /**
    * Hand an exported dictionary to the user as a file.
    *
-   * Resolves to the path when the host wrote the file, to null when a download link was used instead (the host reports nothing back, so there is no path to show), and to undefined when the host refused the write, in which case the error has already been shown and no success may be reported.
+   * Resolves to the path when the host wrote the file, to null when a download link was used instead (the host reports nothing back, so there is no path to show), and to undefined when the host refused the write or the user cancelled its save picker, in which case the error or the cancellation has already been shown and no success may be reported.
    */
   async function deliverDictionaryExport(
     name: string,
     body: string,
   ): Promise<string | null | undefined> {
     if (client.saveExport) {
+      let path: string | null;
       try {
-        return await client.saveExport(name, body);
-      } catch {
+        path = await client.saveExport(name, body);
+      } catch (error) {
         setPhraseNotice("");
-        setPhraseError("无法写入“下载”文件夹，词库未导出。");
+        setPhraseError(
+          error instanceof Error && error.message
+            ? error.message
+            : "无法写入“下载”文件夹，词库未导出。",
+        );
         return undefined;
       }
+      if (path === null) {
+        // Closing a save picker is a decision, not a failure, and nothing was written to report.
+        setPhraseNotice("已取消导出。");
+        return undefined;
+      }
+      return path;
     }
     const url = URL.createObjectURL(new Blob([body], { type: "text/plain;charset=utf-8" }));
     const anchor = document.createElement("a");
