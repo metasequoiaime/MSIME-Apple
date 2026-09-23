@@ -41,6 +41,11 @@ constexpr bool is_segment_caret_key(uint32_t keycode, uint32_t modifiers) {
          (modifiers & kKeyModifierMask) == kModifierControl;
 }
 
+// Ctrl+Shift+E without Alt toggles the dedicated English mode, matching the reference Server's IsEnglishModeToggleKey. The TSF claims the chord while the IME is open and cancels its own composition locally.
+constexpr bool is_english_mode_toggle_key(uint32_t keycode, uint32_t modifiers) {
+  return keycode == 'E' && (modifiers & kKeyModifierMask) == (kModifierShift | kModifierControl);
+}
+
 // A composing key needs a reverse-pipe reply when the TSF side cannot finish
 // the edit locally. Japanese long-vowel input follows the same explicit policy
 // as letters, separators, and Unicode digits.

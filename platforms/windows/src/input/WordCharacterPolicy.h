@@ -19,9 +19,10 @@ preference_word_character(const nlohmann::json &preferences) {
   return keys == "brackets" ? WordCharacterBinding::Brackets
                             : WordCharacterBinding::MinusEqual;
 }
+// In the Japanese scheme a bare '-' is the long-vowel mark, so it never takes the first character of a word; the reference passes `enabled && !is_japanese_long_vowel`. '=' keeps its meaning.
 inline std::optional<uint8_t>
 word_character_edge(const FanyImeNamedpipeData &packet,
-                    WordCharacterBinding binding) {
+                    WordCharacterBinding binding, bool japanese = false) {
   if (binding != WordCharacterBinding::Disabled &&
       binding != WordCharacterBinding::Brackets &&
       binding != WordCharacterBinding::MinusEqual)
@@ -32,6 +33,8 @@ word_character_edge(const FanyImeNamedpipeData &packet,
       PipeMetadata::key_modifiers(packet.modifiers_down) != 0)
     return std::nullopt;
   const bool minus = binding == WordCharacterBinding::MinusEqual;
+  if (japanese && packet.keycode == 0xBDu && packet.wch == '-')
+    return std::nullopt;
   if (packet.keycode == (minus ? 0xBDu : 0xDBu) &&
       packet.wch == (minus ? '-' : '['))
     return MSIME_FIRST_HAN;

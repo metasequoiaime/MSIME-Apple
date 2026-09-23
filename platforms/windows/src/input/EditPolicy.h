@@ -28,10 +28,8 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
     return EditKind::None;
   const auto key = normalize_digit_key(packet.keycode);
   const auto text = static_cast<uint32_t>(packet.wch);
-  // Japanese reserves the OEM minus key for the long-vowel mark. Route it
-  // through Engine while composing instead of treating it as navigation or
-  // punctuation.
-  if (composing && modifiers == 0 &&
+  // Japanese reserves the OEM minus key for the long-vowel mark. Route it through Engine instead of treating it as navigation or punctuation. Like the reference, it also starts a composition from an empty buffer: the TSF sends it as input there, and the Engine offers ー and the literal hyphen.
+  if (modifiers == 0 &&
       should_send_composition_reply(false, false, false, false, false,
                                     japanese_scheme && key == 0xBD &&
                                         text == '-'))

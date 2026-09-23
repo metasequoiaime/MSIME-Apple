@@ -669,6 +669,108 @@ fn unique_complete_wubi_code_auto_commits_unless_a_phrase_is_being_built() {
     assert_eq!(phrase.view().editing_text, "wqaa");
     assert_eq!(phrase.view().phrase_prefix, "合成前缀");
 }
+#[test]
+fn a_letter_after_a_complete_wubi_code_commits_the_first_candidate_and_starts_the_next() {
+    let create = |fixture| {
+        let mut runtime = Runtime::new(fixture, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let type_all = |runtime: &mut Runtime<Fixture>, keys: &[u8]| {
+        let mut last = None;
+        for value in keys {
+            last = Some(
+                runtime
+                    .dispatch(Action::Character {
+                        value: *value,
+                        shift: false,
+                    })
+                    .unwrap(),
+            );
+        }
+        last.unwrap()
+    };
+
+    // An ambiguous four-letter code stays open on its fourth key, and the fifth letter commits
+    // the first candidate and becomes the next composition instead of being dropped.
+    let mut ambiguous = create(Fixture {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        local_mode: "none".into(),
+        ..Fixture::default()
+    });
+    let fourth = type_all(&mut ambiguous, b"wqab");
+    assert!(fourth.commit.is_none());
+    assert_eq!(fourth.view.editing_text, "wqab");
+    let fifth = type_all(&mut ambiguous, b"x");
+    assert_eq!(fifth.commit.as_deref(), Some("合成甲"));
+    assert_eq!(
+        fifth.commit_context.as_ref().map(|context| context.scheme),
+        Some(2)
+    );
+    assert_eq!(fifth.view.editing_text, "x");
+
+    // Shorter codes, other schemes, local modes, dedicated English and a held phrase keep the
+    // letter in the composition.
+    let mut short = create(Fixture {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        local_mode: "none".into(),
+        ..Fixture::default()
+    });
+    let shorter = type_all(&mut short, b"wqa");
+    assert_eq!(shorter.view.editing_text, "wqa");
+    for (case, fixture) in [
+        Fixture {
+            scheme: 0,
+            words: vec!["候选".into(), "后续".into()],
+            local_mode: "none".into(),
+            ..Fixture::default()
+        },
+        Fixture {
+            scheme: 2,
+            local_mode: "unicode".into(),
+            words: vec!["合成甲".into(), "合成乙".into()],
+            ..Fixture::default()
+        },
+        Fixture {
+            scheme: 2,
+            dedicated_english: true,
+            words: vec!["wqab".into(), "wqabx".into()],
+            local_mode: "none".into(),
+            ..Fixture::default()
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut other = create(fixture);
+        let last = type_all(&mut other, b"wqabx");
+        assert!(last.commit.is_none(), "case {case}");
+        assert_eq!(last.view.editing_text, "wqabx", "case {case}");
+    }
+    let mut phrase = create(Fixture {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        local_mode: "none".into(),
+        ..Fixture::default()
+    });
+    phrase.phrase_prefix = "合成前缀".into();
+    let held = type_all(&mut phrase, b"wqabx");
+    assert!(held.commit.is_none());
+    assert_eq!(held.view.editing_text, "wqabx");
+
+    // A four-letter code with nothing to commit is not a complete code.
+    let mut unanswered = create(Fixture {
+        scheme: 2,
+        words: Vec::new(),
+        local_mode: "none".into(),
+        ..Fixture::default()
+    });
+    let empty = type_all(&mut unanswered, b"wqabx");
+    assert!(empty.commit.is_none());
+    assert_eq!(empty.view.editing_text, "wqabx");
+}
 fn runtime() -> Runtime<Fixture> {
     Runtime::new(
         Fixture {
