@@ -1688,6 +1688,33 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.chinesePunctuation;
   }
 
+  /**
+   * Insert a hardware key's printable ASCII character as its fullwidth form, the Windows double-byte mode. Returns false with fullwidth off, so the key goes back to the application.
+   */
+  widen(ascii: number): boolean {
+    if (!this.fullWidth || ascii < 0x20 || ascii > 0x7e || this.inputClient === undefined) {
+      return false;
+    }
+    this.clearSmartPunctuationRepeat();
+    this.insert(String.fromCharCode(ascii));
+    return true;
+  }
+
+  /** Whether direct ASCII is written in its fullwidth form. */
+  isFullWidth(): boolean {
+    return this.fullWidth;
+  }
+
+  /**
+   * Count a hardware character the keyboard handed to the application, as Windows counts the keys it does not eat (`stats_passthrough.h`). Only for an editor this keyboard composes for: a password field is not the user's typing to keep a record of.
+   */
+  recordPassthrough(character: number, ctrl: boolean, alt: boolean, logo: boolean): void {
+    if (!this.composes() || !TypingStatisticsPolicy.countsPassthrough(character, ctrl, alt, logo)) {
+      return;
+    }
+    this.recordTypingStatistics(String.fromCodePoint(character), this.typingSource());
+  }
+
   /** Halfwidth ASCII or its fullwidth twin, which Ctrl+Shift+F toggles. */
   toggleCharacterWidth(): boolean {
     if (this.handle === 0) {

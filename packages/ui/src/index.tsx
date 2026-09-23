@@ -1375,6 +1375,9 @@ export function dictionaryErrorMessage(
       return "词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
     case "dictionary_import_rejected":
       return "词库拒绝了这次写入，请检查编码与词是否匹配。";
+    case "dictionary_too_large":
+      // A file over the bridge's bound, or one line too long to fit any request to the host.
+      return "词库文件过大：文件不能超过 1 MB，单行不能超过 60 KB，请拆分后再导入。";
     case "dictionary_read_rejected":
       return "词库拒绝了这次读取，请稍后重试。";
     case "dictionary_bundled_readonly":
