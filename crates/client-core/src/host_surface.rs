@@ -71,6 +71,34 @@ impl HostPlatform {
     }
 }
 
+/// Why a Linux desktop's candidate panel ignores the candidate font, colour and skin settings. The Linux hosts do not draw the candidate list: IBus hands it to whichever panel the desktop runs and Fcitx5 to whichever user interface it loaded, and some of those draw it their own way.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidatePanelLimit {
+    /// GNOME Shell starts IBus with its panel disabled and draws the candidate popup itself, styled by the shell theme: it reads neither the IBus panel font nor the text attributes that carry the colours.
+    GnomeShell,
+    /// Fcitx5's classic UI is drawing a theme the user picked, which the host never replaces, so the colours and skin do not reach it. The font still does.
+    FcitxTheme,
+    /// Fcitx5 hands the list to the desktop's Kimpanel, which draws it with the desktop's own font and theme.
+    Kimpanel,
+}
+
+impl CandidatePanelLimit {
+    /// The file the running Linux host writes its finding to: `candidate-panel.json` under `$XDG_RUNTIME_DIR/msime-client`, the per-session directory that goes away with the session the finding describes. A relative or missing runtime directory yields nothing.
+    pub fn status_file(runtime_directory: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
+        let directory = std::path::PathBuf::from(runtime_directory?);
+        directory
+            .is_absolute()
+            .then(|| directory.join("msime-client").join("candidate-panel.json"))
+    }
+
+    /// Reads the host's report, `{"host": "ibus" | "fcitx5", "limit": <name> | null}`. Anything else - no file, a panel that honours the settings, a name this build does not know - reads as no limit, so the page never warns on a guess.
+    pub fn from_host_status(document: &str) -> Option<Self> {
+        let value: serde_json::Value = serde_json::from_str(document).ok()?;
+        serde_json::from_value(value.get("limit")?.clone()).ok()
+    }
+}
+
 /// What the surrounding host can actually do. The shared UI renders from this
 /// rather than guessing from `navigator.userAgent`, which previously hid working
 /// controls on Windows and macOS and left 打字统计 dead on every desktop.
@@ -140,6 +168,9 @@ pub struct HostCapabilities {
     pub candidate_row_colors: bool,
     /// The host can apply candidate accent, selection, hover and border appearance.
     pub candidate_selection_appearance: bool,
+    /// The host outlines the candidate panel in the border colour. Separate from `candidate_selection_appearance` because Linux draws the border (the Fcitx5 classic UI theme carries it) while neither Linux panel has a hover state.
+    #[serde(default)]
+    pub candidate_border_color: bool,
     /// The host places its own candidate window and can therefore pin it where
     /// it first appeared. A host whose desktop owns the placement - IBus draws
     /// and positions the candidate list itself - cannot honour the choice, so
@@ -258,6 +289,9 @@ pub struct HostCapabilities {
     /// falls back to what the web view knows about itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub os_version: Option<String>,
+    /// Why the desktop's candidate panel on this machine ignores the candidate font, colour and skin settings, when the running Linux host has found that it does. Filled in at runtime from what the host reports, the way `os_version` is; absent when the panel honours them or nothing has been reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_panel_limit: Option<CandidatePanelLimit>,
 }
 
 impl HostCapabilities {
@@ -411,6 +445,15 @@ impl HostCapabilities {
                     | HostPlatform::Android
                     | HostPlatform::Ios
             ),
+            candidate_border_color: matches!(
+                platform,
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
+                    | HostPlatform::Android
+                    | HostPlatform::Ios
+                    | HostPlatform::Linux
+            ),
             // macOS CandidatePanel and the HarmonyOS candidate panel track the current insertion
             // rect themselves; expose the shared toggle on both hosts.
             candidate_follow_cursor: matches!(
@@ -482,6 +525,7 @@ impl HostCapabilities {
             // skew: a host binary older than the entry point sends no field and gets `false`.
             vocabulary_review: true,
             os_version: None,
+            candidate_panel_limit: None,
         }
     }
 }
@@ -880,6 +924,8 @@ mod tests {
         assert!(!linux.candidate_preedit_font);
         assert!(linux.candidate_row_colors);
         assert!(!linux.candidate_selection_appearance);
+        // The Fcitx5 classic UI theme draws the border even though neither Linux panel has a hover state.
+        assert!(linux.candidate_border_color);
         // IBus owns the candidate list's placement, so the host cannot pin it.
         assert!(!linux.candidate_follow_cursor);
         // The host chooses the preedit string the panel draws, so the raw keys
@@ -922,6 +968,7 @@ mod tests {
         assert!(windows.candidate_preedit_font);
         assert!(windows.candidate_row_colors);
         assert!(windows.candidate_selection_appearance);
+        assert!(windows.candidate_border_color);
         // Windows positions its own card, so pinning it is a real choice there.
         assert!(windows.candidate_follow_cursor);
         let macos = HostCapabilities::for_platform(HostPlatform::Macos);
@@ -939,6 +986,7 @@ mod tests {
         assert!(macos.candidate_font_controls);
         assert!(macos.candidate_row_colors);
         assert!(macos.candidate_selection_appearance);
+        assert!(macos.candidate_border_color);
         assert!(macos.candidate_follow_cursor);
         assert!(macos.panel_shortcuts);
         // Only the two hosts that can put a badge beside the caret claim it; a touch keyboard says
@@ -962,6 +1010,7 @@ mod tests {
         assert!(android.candidate_font_controls);
         assert!(android.candidate_row_colors);
         assert!(android.candidate_selection_appearance);
+        assert!(android.candidate_border_color);
         let ios = HostCapabilities::for_platform(HostPlatform::Ios);
         assert!(ios.mobile_settings);
         assert!(ios.fuzzy_pinyin);
@@ -973,6 +1022,7 @@ mod tests {
         assert!(ios.candidate_preedit_font);
         assert!(ios.candidate_row_colors);
         assert!(ios.candidate_selection_appearance);
+        assert!(ios.candidate_border_color);
         // The Engine expands shuangpin keys for the candidate bar's spelling, and Shift marks a helper code in a quanpin or shuangpin composition, so both rows describe something the keyboard does.
         assert!(ios.shuangpin_preedit);
         assert!(ios.helpcode_shift_entry);
@@ -1148,12 +1198,67 @@ mod tests {
         assert!(harmony.candidate_font_controls);
         assert!(harmony.candidate_row_colors);
         assert!(harmony.candidate_selection_appearance);
+        assert!(harmony.candidate_border_color);
         assert!(harmony.candidate_follow_cursor);
         // The 2in1 status-bar badge is the only mode readout a machine with a hardware keyboard
         // gets when the toolbar is off, so the switch that governs it belongs on this host too.
         assert!(harmony.input_mode_hud);
         // Typing statistics are unconditional across every host.
         assert!(harmony.typing_statistics);
+    }
+
+    #[test]
+    fn candidate_panel_limit_reads_only_what_the_host_reported() {
+        assert_eq!(
+            CandidatePanelLimit::from_host_status(r#"{"host":"ibus","limit":"gnome_shell"}"#),
+            Some(CandidatePanelLimit::GnomeShell)
+        );
+        assert_eq!(
+            CandidatePanelLimit::from_host_status(r#"{"host":"fcitx5","limit":"fcitx_theme"}"#),
+            Some(CandidatePanelLimit::FcitxTheme)
+        );
+        assert_eq!(
+            CandidatePanelLimit::from_host_status(r#"{"host":"fcitx5","limit":"kimpanel"}"#),
+            Some(CandidatePanelLimit::Kimpanel)
+        );
+        for document in [
+            r#"{"host":"fcitx5","limit":null}"#,
+            r#"{"host":"ibus"}"#,
+            r#"{"host":"ibus","limit":"something_newer"}"#,
+            "not json",
+            "",
+        ] {
+            assert_eq!(
+                CandidatePanelLimit::from_host_status(document),
+                None,
+                "{document}"
+            );
+        }
+        assert_eq!(
+            CandidatePanelLimit::status_file(Some(std::ffi::OsStr::new("/run/user/1000"))),
+            Some(std::path::PathBuf::from(
+                "/run/user/1000/msime-client/candidate-panel.json"
+            ))
+        );
+        assert_eq!(
+            CandidatePanelLimit::status_file(Some(std::ffi::OsStr::new("relative"))),
+            None
+        );
+        assert_eq!(CandidatePanelLimit::status_file(None), None);
+        let mut linux = HostCapabilities::for_platform(HostPlatform::Linux);
+        linux.candidate_panel_limit = Some(CandidatePanelLimit::GnomeShell);
+        let encoded = serde_json::to_value(&linux).unwrap();
+        assert_eq!(encoded["candidate_panel_limit"], "gnome_shell");
+        assert_eq!(
+            serde_json::from_value::<HostCapabilities>(encoded).unwrap(),
+            linux
+        );
+        assert!(
+            serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Linux))
+                .unwrap()
+                .get("candidate_panel_limit")
+                .is_none()
+        );
     }
 
     /// The commit strategy is offered only where the host acts on it. Windows and macOS each have more than one way to put a result into the editor; the Linux hosts commit through IBus or Fcitx5 and ignore the stored mode, so a selector there would save a choice nothing reads.

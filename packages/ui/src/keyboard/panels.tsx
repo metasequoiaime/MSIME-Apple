@@ -1145,9 +1145,12 @@ function HandwritingCandidateButton({
 export function HandwritingPanel({
   client,
   theme = "dark",
+  platform,
 }: {
   client: PanelClient;
   theme?: "dark" | "light";
+  /** The host platform. Only Windows recognises through a handwriting pack the user may be missing; elsewhere an empty result just means the strokes were not read. */
+  platform?: string;
 }) {
   const [activationMode, setActivationMode] = useState<"copy" | "input">(() => {
     try {
@@ -1279,7 +1282,9 @@ export function HandwritingPanel({
             setNotice(
               nextCandidates.length
                 ? "选择候选可复制或输入"
-                : "未识别到内容，请确认已安装中文手写包",
+                : platform === "windows"
+                  ? "未识别到内容，请确认已安装中文手写包"
+                  : "未识别到内容，请重写",
             );
           } catch {
             if (request.revision === recognitionRevision.current) {

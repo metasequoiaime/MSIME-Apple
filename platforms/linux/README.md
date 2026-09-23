@@ -18,9 +18,9 @@ Fcitx5 状态栏切换输入方案、双拼方案和辅助码方案时，除了�
 
 Fcitx5 的 `ime_mode_scope` 也真正决定中英文状态的记忆范围：`app` 按输入上下文报告的程序名保存有界的应用级状态，`global` 在当前 Fcitx5 进程内共享一个状态；失焦时先记录再关闭会话，重新聚焦并重建会话时恢复，而不是重新套用 `default_ime_mode`。匿名或缺失程序名使用共享的匿名槽位，不把状态写入偏好文件。
 
-Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 status action（旧版本兼容入口）提供固定、取消固定和删除动作；动作携带候选身份，适配 Linux 面板而不依赖 IBus 兼容前端或 Windows 原生窗口。
+Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 status action（旧版本兼容入口）提供置顶、固定到第 N 位、取消固定和删除动作；动作携带候选身份，适配 Linux 面板而不依赖 IBus 兼容前端或 Windows 原生窗口。
 
-候选页显示时，Home/End 将当前高亮移动到该页首项或末项；没有候选页时仍交给编辑器处理。
+候选页显示时，Home/End 将高亮移动到整份候选列表的首项或末项，页码随之切换（End 会先展开按需加载的候选）；没有候选页时仍交给编辑器处理。
 
 ## 安装后首次使用
 
@@ -178,7 +178,7 @@ IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候�
 
 `Ctrl+Shift+F` 使用同一简繁输出路径：配置了共享偏好目录时通过 revision 保存 `traditional_chinese_output`，保存成功后更新当前会话；没有可写偏好目录时保留会话级切换。持久化写入进行中，新的一次按下不切换也不吞掉该快捷键，避免重复操作覆盖较新的 revision；已经切换过的那次按下，按住时的自动重复和松开都归这个快捷键，不会再切换一次，与 Windows 一致。
 
-当前 IBus 会话支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除候选页对应的可编辑词条。宿主只传递候选快照中的会话、代次和全局索引，由 Host API 校验来源和执行词库删除；没有对应候选或不可编辑候选时按键交回应用。`Ctrl+Shift+Alt+C` 清除当前输入法会话的 Engine 候选缓存并刷新当前视图，不会结束正在进行的组合。`Ctrl+Shift+Alt+R` 通过用户会话的 `ibus restart` 重启 IBus 服务，设置页也提供同一动作的按钮。
+IBus 与 Fcitx5 会话都支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除候选页对应的可编辑词条。宿主只传递候选快照中的会话、代次和全局索引，由 Host API 校验来源和执行词库删除；没有对应候选或不可编辑候选时按键交回应用。`Ctrl+Shift+Alt+C` 清除当前输入法会话的 Engine 候选缓存并刷新当前视图，不会结束正在进行的组合。`Ctrl+Shift+Alt+R` 重启或重载输入法：IBus 下执行用户会话的 `ibus restart` 重启服务，Fcitx5 下执行 `fcitx5-remote -r` 重新加载配置，设置页也提供同一动作的按钮。
 
 `Ctrl+Shift+Alt+T` 立即退出当前 Linux IBus 宿主进程，快捷键由宿主消费，不会停止用户正在运行的其他 IBus 服务；宿主以专用退出状态结束，launcher 的崩溃守护据此不会重启它。Fcitx5 插件与 Fcitx5 同进程，退出就会带走其他输入法，因此 Fcitx5 不提供这个快捷键，设置页也按此注明；需要恢复时使用 `Ctrl+Shift+Alt+R` 重载。`Ctrl+.` 在两个宿主上都切换中英文标点，与 Windows 相同；标点锁定为「跟随」时，Fcitx5 把中文模式下的切换结果保存到共享偏好，和状态菜单里的同一开关一致；锁定为中文或英文时不保存（见下文英文模式一段）。英文模式下 `Ctrl+.` 同样生效（见下文英文模式一段），只改本次会话、不写偏好，到下一次中英切换为止；Fcitx5 状态栏的「中文标点」在英文模式下显示和切换的也是这一状态。菜单主题不在 Linux 设置页出现：IBus 属性菜单和 Fcitx5 状态菜单由桌面面板按自己的主题绘制。
 
@@ -200,7 +200,7 @@ IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到
 
 候选行保留 Engine 的来源身份：本地词库和用户词库不额外标记，云候选显示 `云`，AI 候选显示 `AI`。来源标签只用于 IBus panel 展示，不进入提交文本、候选索引或异步结果校验。
 
-共享 `candidate_text_color`、`candidate_number_color`、`candidate_accent_color` 和 `candidate_surface_color` 设置分别映射为 IBus 候选文字、编号标签前景、固定候选的 accent 前景和候选背景属性；未设置时使用当前候选皮肤的 token，普通候选仍可交由 panel 主题决定。候选字体族、回退字体和字号由宿主写进桌面 panel 自己读取的那一个字体描述：IBus 写 `org.freedesktop.ibus.panel` 的 `custom-font` 并打开 `use-custom-font`（与 ibus-setup 写的是同一对键），Fcitx5 通过 classicui 插件自己的配置写 `Font`，立即生效并保存在 `classicui.conf`。描述按 Pango 格式把主字体和回退字体依次列出、去重，以像素为字号单位。这个字体归整个桌面所有，所以设置从未改过、仍是默认值时宿主不写，之后用户每次修改都会写一次，回到默认值也算一次修改。GNOME Shell 自带的候选弹窗跟随 Shell 主题、Plasma 的 kimpanel 跟随桌面字体，这两种面板上宿主不写任何东西。预编辑由应用自己绘制，因此 Linux 不提供单独的预编辑字号，设置页按 `candidate_preedit_font` 能力位隐藏它；英文字体同理不提供。
+共享 `candidate_text_color`、`candidate_number_color`、`candidate_accent_color` 和 `candidate_surface_color` 设置分别映射为 IBus 候选文字、编号标签前景、固定候选的 accent 前景和候选背景属性；未设置时使用当前候选皮肤的 token，普通候选仍可交由 panel 主题决定。编号与 accent 颜色只在 IBus 生效；`candidate_border_color` 只由 Fcitx5 classicui 主题的 `BorderColor` 绘制，IBus 的候选属性无法描边，两个宿主都没有 hover 状态；设置页按 `candidate_border_color` 能力位在 Linux 显示边框颜色，而 hover 等选中外观随 `candidate_selection_appearance` 隐藏。候选字体族、回退字体和字号由宿主写进桌面 panel 自己读取的那一个字体描述：IBus 写 `org.freedesktop.ibus.panel` 的 `custom-font` 并打开 `use-custom-font`（与 ibus-setup 写的是同一对键），Fcitx5 通过 classicui 插件自己的配置写 `Font`，立即生效并保存在 `classicui.conf`。描述按 Pango 格式把主字体和回退字体依次列出、去重，以像素为字号单位。这个字体归整个桌面所有，所以设置从未改过、仍是默认值时宿主不写，之后用户每次修改都会写一次，回到默认值也算一次修改。GNOME Shell 自带的候选弹窗跟随 Shell 主题、Plasma 的 kimpanel 跟随桌面字体，这两种面板上宿主不写任何东西：IBus 宿主在 GNOME Shell 会话（`XDG_CURRENT_DESKTOP` 含 `GNOME` 且会话总线上存在 `org.gnome.Shell`）中不写 `use-custom-font`。当前绘制候选的面板是否忽略这些设置由宿主写进会话运行目录的 `$XDG_RUNTIME_DIR/msime-client/candidate-panel.json`（`{"host":"ibus"|"fcitx5","limit":"gnome_shell"|"fcitx_theme"|"kimpanel"|null}`，仅在内容变化时原子替换），设置页的外观与皮肤页据此提示哪些设置不会生效；文件以最后写入的宿主为准。预编辑由应用自己绘制，因此 Linux 不提供单独的预编辑字号，设置页按 `candidate_preedit_font` 能力位隐藏它；英文字体同理不提供。
 
 中英混输默认在预编辑达到 5 个字母后显示英文候选，Emoji 与颜文字混输默认关闭；旧宿主选项缺少这些字段时使用相同默认值。用户仍可在设置中选择 1–8 个字符并分别切换 Emoji/颜文字，显式配置优先于默认值。
 
@@ -208,7 +208,7 @@ IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到
 
 Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳青的 surface、正文、序号、accent 与选中行颜色；外部皮肤的 `candidate.*.selected` 也会应用到高亮候选。IBus 的候选属性只携带 RGB 前景/背景，不能表达原生窗口的 alpha、圆角、边框、hover、选中条或布局间距，因此这些装饰继续由各平台实现，Linux 只发布可表达的行级颜色；外部皮肤声明的顶部装饰图同样无法经 panel 协议显示，IBus 忽略它。石墨的透明选中填充保留为无背景属性，改用选中正文和序号颜色；微信绿与杨柳青的实色选中行使用白色正文和序号。
 
-Fcitx5 的候选表由 classicui 插件按主题绘制，宿主把同一套解析结果（内置皮肤、外部皮肤、自定义颜色、`follow` 跟随全局主题）写成用户数据目录下的主题 `$XDG_DATA_HOME/fcitx5/themes/msime/theme.conf`（默认 `~/.local/share/fcitx5/themes/msime/`），再通过 classicui 自己的配置把 `Theme` 和 `DarkTheme` 指向它；配置一写入插件就重新读取主题，改皮肤或系统明暗切换后无需重启。只有当前主题是 Fcitx5 自带的 `default`、`default-dark`、未设置或已经是 `msime` 时宿主才接管，用户在 fcitx5-configtool 里选过的第三方主题保持不变，此时 MSIME 的候选颜色不生效。主题文件只在内容变化时原子替换。classicui 主题没有序号、accent 的独立颜色，也没有与选中分开的 hover 状态，因此序号跟随正文颜色、固定候选不单独着色；石墨的透明选中填充写成透明高亮，只靠选中正文颜色区分。外部皮肤声明了顶部装饰（清单的 `decoration.top_inset_dip`、`decoration.width_dip` 与通过校验的预览图）时，共享层发布给宿主的皮肤目录带上这两个尺寸和图片的绝对路径，宿主把图片按内容哈希命名（`decoration-<hash>.<扩展名>`）原子复制进主题目录，仅在内容变化时重写，再以 `Overlay=`、`Gravity=Top Right` 和 `HideOverlayIfOversize=False` 写进主题；切换到别的皮肤或无装饰的皮肤后，旧图片随即删除。classicui 只在候选窗内部绘制 overlay，也不能缩放它，所以与 Windows 画在卡片上方、按 `width_dip` × `top_inset_dip` 等比缩放不同：Linux 在候选窗顶部留出 `top_inset_dip` 高的一条（内容上边距加上这段高度，底色是皮肤的 surface），图片按原始像素尺寸靠右贴在边框内侧；PNG 能读出高度，矮于这条带时垂直居中，高于它时底边对齐、超出部分在窗口顶边裁掉，不会压到候选上；其他格式读不出高度，从带顶开始画。Plasma 的 kimpanel 和 GNOME Shell 面板不使用 classicui 主题。
+Fcitx5 的候选表由 classicui 插件按主题绘制，宿主把同一套解析结果（内置皮肤、外部皮肤、自定义颜色、`follow` 跟随全局主题）写成用户数据目录下的主题 `$XDG_DATA_HOME/fcitx5/themes/msime/theme.conf`（默认 `~/.local/share/fcitx5/themes/msime/`），再通过 classicui 自己的配置把 `Theme` 和 `DarkTheme` 指向它；配置一写入插件就重新读取主题，改皮肤或系统明暗切换后无需重启。只有当前主题是 Fcitx5 自带的 `default`、`default-dark`、未设置或已经是 `msime` 时宿主才接管，`Theme` 与 `DarkTheme` 分别判断；用户在 fcitx5-configtool 里选过的第三方主题保持不变，此时 MSIME 的候选颜色不生效，第三方 `DarkTheme` 则在深色模式下生效。主题文件只在内容变化时原子替换。classicui 主题没有序号、accent 的独立颜色，也没有与选中分开的 hover 状态，因此序号跟随正文颜色、固定候选不单独着色；石墨的透明选中填充写成透明高亮，只靠选中正文颜色区分。外部皮肤声明了顶部装饰（清单的 `decoration.top_inset_dip`、`decoration.width_dip` 与通过校验的预览图）时，共享层发布给宿主的皮肤目录带上这两个尺寸和图片的绝对路径，宿主把图片按内容哈希命名（`decoration-<hash>.<扩展名>`）原子复制进主题目录，仅在内容变化时重写，再以 `Overlay=`、`Gravity=Top Right` 和 `HideOverlayIfOversize=False` 写进主题；切换到别的皮肤或无装饰的皮肤后，旧图片随即删除。classicui 只在候选窗内部绘制 overlay，也不能缩放它，所以与 Windows 画在卡片上方、按 `width_dip` × `top_inset_dip` 等比缩放不同：Linux 在候选窗顶部留出 `top_inset_dip` 高的一条（内容上边距加上这段高度，底色是皮肤的 surface），图片按原始像素尺寸靠右贴在边框内侧；PNG 能读出高度，矮于这条带时垂直居中，高于它时底边对齐、超出部分在窗口顶边裁掉，不会压到候选上；其他格式读不出高度，从带顶开始画。Plasma 的 kimpanel 和 GNOME Shell 面板不使用 classicui 主题。Fcitx5 宿主在当前界面是 kimpanel 时报告 `kimpanel`，在 classicui 的 `Theme` 或 `DarkTheme` 是用户所选的第三方主题时报告 `fcitx_theme`，设置页据此提示颜色与皮肤不会生效。
 
 `tsf_preedit_style` 在 Linux IBus 中映射为：`raw` 显示 Engine 的 ASCII `editing_text`，`pinyin` 显示 Engine 的 `preedit`，`empty` 隐藏预编辑；设置热重载会更新当前会话的显示样式。IBus 预编辑（包括语音的流式预编辑）与 Fcitx5 一样整段加单下划线，是 Windows 组合串点状下划线（`TF_LS_DOT`）在 Linux 上的对应形式；`empty` 样式和清除预编辑时不带下划线。候选与上屏仍由 Engine 的共享状态决定。
 
@@ -302,7 +302,7 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 候选操作也通过 IBus 属性菜单提供：对当前候选页的 1–9 槽位分别注册固定和删除动作，动作携带当前视图代次调用共享 Host API；菜单只对可写入用户词典的中文/英文候选显示这些动作，云端、AI、Emoji、颜文字、快捷短语和日文候选保持只读。桌面 panel 不支持 Windows 式右键候选窗时仍可使用该菜单路径。
 
-候选操作菜单还提供将当前词库候选固定到位置 1–5 及取消固定。固定位置由 Engine 持久化并随候选快照返回；Linux 宿主只传递候选身份和目标槽位，不复制词典写入或排序逻辑，并在 IBus 候选行显示“固定 N”状态。
+候选操作菜单还提供将当前词库候选固定到第 1–5 位及取消固定。固定位置由 Engine 持久化并随候选快照返回；Linux 宿主只传递候选身份和目标槽位，不复制词典写入或排序逻辑，并在 IBus 候选行显示“固定 N”状态。
 
 `bash build-container.sh` 在容器里编译整个 Linux 原生宿主（IBus engine、Fcitx5 插件、全部 provider 入口和单测）并运行 `ctest`，不需要词库、不启动任何 daemon，也不需要本机是 Linux；它由 `scripts/verify-local.sh` 作为编译门禁自动调用，Linux 主机上则直接用系统 ibus 开发包跑同一套配置。镜像定义在 `tests/tools/Dockerfile.build-gate`，与隔离验收镜像分开，以免给后者加上会改变其构建内容的 X11/XFixes/Fcitx5 开发包。
 
@@ -320,7 +320,7 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 `candidate_follow_cursor` 是 Windows 候选窗口的定位选项。IBus Engine API 只提供候选表和输入上下文光标位置的通知，不提供由输入法宿主固定 panel 锚点的接口；候选 panel 的定位由桌面 panel 自己决定。因此 Linux 会读取并透传该共享配置，但不伪造 Windows 的固定候选窗口行为：在 Linux 上候选表始终交给 IBus panel 按当前输入上下文位置呈现。该限制属于 IBus/桌面环境边界，不影响候选内容、分页或选词。
 
-Linux 关于页的“输入法宿主日志”对应共享偏好中的 `diagnostic_log.server`。开启后，IBus 与 Fcitx5 宿主在偏好目录写入同一个仅用户可读的 `diagnostic.log`，记录焦点会话、偏好应用、菜单保存和固定操作失败阶段；文件达到 1 MiB 时保留一个 `.1` 轮转副本。记录经过长度和 ASCII 控制字符限制，不包含按键、输入文本、候选文本、凭据、路径或 provider 响应；关闭开关后不再写入。开关变更随偏好热重载立即生效，IBus 与 Fcitx5 都不需要切换焦点。Windows 专用的 `diagnostic_log.tsf` 在 Linux 设置页隐藏，旧配置字段仍原样保存以保持跨平台同步。
+Linux 关于页的“输入法宿主日志”对应共享偏好中的 `diagnostic_log.server`。开启后，IBus 与 Fcitx5 宿主在偏好目录写入同一个仅用户可读的 `diagnostic.log`，记录焦点会话、偏好应用、菜单保存、词库维护时释放会话和固定操作失败阶段；文件达到 1 MiB 时保留一个 `.1` 轮转副本。记录经过长度和 ASCII 控制字符限制，不包含按键、输入文本、候选文本、凭据、路径或 provider 响应；关闭开关后不再写入。开关变更随偏好热重载立即生效，IBus 与 Fcitx5 都不需要切换焦点。Windows 专用的 `diagnostic_log.tsf` 在 Linux 设置页隐藏，旧配置字段仍原样保存以保持跨平台同步。
 
 Linux 关于页的“检查更新”读取水杉输入法仓库的 GitHub 发行版列表，只取 `linux-v` 标签下非草稿、非预发布的版本，按版本号取最新，不复用只发布 Windows 安装程序的 `msime.app/update.json`。发行页地址必须属于固定的 `metasequoiaime/msime` releases 路径才会显示；仓库尚无 Linux 发行版时显示正常的“暂无可用发行版”状态，网络错误或无效响应才报告检查失败。更新提示注明软件包未签名，并给出 GitHub 为 `.deb`（没有时为 `.tar.gz`）附件计算的 SHA256 和 `sha256sum <文件名>` 核对命令；GitHub 没有返回该附件的摘要、或同一发行版带有多个架构的包时不显示校验值，改为提示下载发行版里的 `SHA256SUMS`，用 `sha256sum -c SHA256SUMS --ignore-missing` 核对。
 
@@ -500,7 +500,7 @@ Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和
 
 未显式指定 `clipboard_history_path` 时，IBus 使用 `preferences_directory/clipboard_history.json`，与共享设置存储及独立采集服务一致。显式历史路径仍优先；切换偏好目录时默认历史来源随之更新。监视器遇到非对象 JSON 或无效偏好结构时停止本轮采集并等待下次有效配置。
 
-“候选操作”按当前页候选分组，一级菜单显示候选序号与完整 UTF-8 字符预览，子菜单包含固定、删除、固定位置和取消固定。操作仍绑定会话与候选代次。九键拼音分支及外部皮肤选项在原生 IBus 菜单中可见并沿用既有选择回调。
+“候选操作”按当前页候选分组，一级菜单显示候选序号与完整 UTF-8 字符预览，子菜单包含置顶、删除、固定到第 N 位和取消固定。操作仍绑定会话与候选代次。九键拼音分支及外部皮肤选项在原生 IBus 菜单中可见并沿用既有选择回调。
 
 外部皮肤目录只由 Linux 展示层消费，不传给严格校验的 HostOptions。目录由桌面设置写入运行配置的 `candidate_skin_catalog`：保存设置，或设置的外观页、皮肤页扫描皮肤目录时，读取状态目录下的 `skins/`，每个包只保留 id、标题（清单 `name`）和清单声明的明暗主题下宿主会画的颜色（`#rrggbb`，边框另收 `#rrggbbaa` 与 `transparent`），最多 32 个，当前选中的皮肤总在其中；IBus 与 Fcitx5 整读运行配置，上限 16 KiB，写入时整份文件超过 15 KiB 就从目录末尾删包，当前选中的皮肤保留。只把包拷进 `skins/` 而不打开设置时，宿主看不到它。启动、菜单皮肤/主题选择及设置热更新均按最终选择计算外部配色；目录内容变化也会刷新当前展示。自定义候选文字颜色优先于皮肤文字色，外部背景色不写入共享 preferences。
 
@@ -726,7 +726,7 @@ IBus 菜单的云联想和候选翻译开关在配置绝对 preferences_director
 
 候选皮肤菜单使用统一的 CandidateSkin 单选动作分派内置和已加载的外部皮肤，按 ID 去重，并在点击时复查皮肤仍在可用目录。当前配置已不可用的皮肤只作禁用提示。配置共享偏好目录时，选择通过后台 revision 比较保存，成功后热重载显示；失败保持原皮肤。保存期间禁用选择，取消选中通知不触发切换。无存储目录的预览继续使用原有会话级切换。
 
-Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳青的 surface、正文、序号、accent 与选中行颜色；外部皮肤的 `candidate.*.selected` 也会应用到高亮候选。IBus 的候选属性只携带 RGB 前景/背景，不能表达原生窗口的 alpha、圆角、边框、hover、选中条或布局间距，因此这些装饰继续由各平台实现，Linux 只发布可表达的行级颜色。石墨的透明选中填充保留为无背景属性，改用选中正文和序号颜色；微信绿与杨柳青的实色选中行使用白色正文和序号。固定候选仅在未高亮时使用 accent，高亮后与其他候选一样优先使用选中行正文颜色。
+Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳青的 surface、正文、序号、accent 与选中行颜色；外部皮肤的 `candidate.*.selected` 也会应用到高亮候选。IBus 的候选属性只携带 RGB 前景/背景，不能表达原生窗口的 alpha、圆角、边框、hover、选中条或布局间距，因此这些装饰继续由各平台实现，Linux 只发布可表达的行级颜色；候选边框只由 Fcitx5 classicui 主题绘制，序号与 accent 颜色只在 IBus 生效。石墨的透明选中填充保留为无背景属性，改用选中正文和序号颜色；微信绿与杨柳青的实色选中行使用白色正文和序号。固定候选仅在未高亮时使用 accent，高亮后与其他候选一样优先使用选中行正文颜色。
 
 候选数量（1–9）、候选学习开关、词频调节模式、触发次数和线性调整步长菜单在配置共享偏好目录时持久化保存，后台只修改对应字段并保留其他调频参数。成功后由共享运行时接收偏好更新，组合中的应用时机和候选排序仍归 Engine，不主动完成组合。单选取消通知及保存期间的重复点击被忽略，页大小动作仅接受一个 1–9 数字，触发次数和线性步长仅接受 1–10；失败保留原设置。未配置存储目录的预览保留会话级覆盖，切换这些选项会先结束当前组合再重建 Engine 会话。私密输入和受限字段禁用候选学习开关。
 
