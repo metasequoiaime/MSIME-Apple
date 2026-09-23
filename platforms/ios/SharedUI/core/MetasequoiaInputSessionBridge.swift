@@ -36,6 +36,8 @@ private func msimeClientRemoveCandidate(_ session: UInt64, _ generation: UInt64,
 private func msimeClientFixCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ position: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_clear_candidate_position")
 private func msimeClientClearCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_balance_paired_punctuation_after_auto_close")
+private func msimeClientBalancePairedPunctuationAfterAutoClose(_ session: UInt64, _ opening: MSIMEByte) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_smart_punctuation_arm")
 private func msimeClientSmartPunctuationArm(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_smart_punctuation_decide")
@@ -583,6 +585,13 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                     preceding: UInt32) -> MetasequoiaInputSnapshot {
     guard let byte = Self.ascii(character) else { return diagnostic("标点输入无效") }
     return dispatch { msimeClientPunctuationWithContext(handle, byte, preceding) }
+  }
+
+  /// Tell the Engine the keyboard wrote the closing half of a pair it opened. Only book titles need it: the Engine nests 《 then 〈 until it sees a 》, and an auto-closed 》 never passes through it, so without this the next < would open 〈.
+  @discardableResult
+  func balancePairedPunctuationAfterAutoClose(opening: String) -> Bool {
+    guard let byte = Self.ascii(opening), handle != 0 else { return false }
+    return (try? Self.decode(msimeClientBalancePairedPunctuationAfterAutoClose(handle, byte))) != nil
   }
 
   /// What the commit just made arms, if anything.

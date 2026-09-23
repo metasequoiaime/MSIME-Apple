@@ -1619,10 +1619,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
 
     let preceding = KeyboardPunctuationContext.precedingScalar(documentContextBeforeComposition)
-    let snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
+    var snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
     if snapshot.isHandled {
+      let paired = session.sharedPreferences?["paired_punctuation"] as? Bool ?? true
+      let reopened = PairedPunctuationPolicy.reopenQuote(snapshot.commitText, ascii: punctuation, enabled: paired)
+      if reopened != snapshot.commitText { snapshot = snapshot.replacingCommit(reopened) }
       render(snapshot)
-      armSmartPunctuation(punctuation, commit: snapshot.commitText, editor: editor)
+      let completion = PairedPunctuationPolicy.completion(snapshot.commitText, enabled: paired)
+      if let completion { closePair(completion) }
+      armSmartPunctuation(punctuation, commit: snapshot.commitText, editor: editor, autoClosedPair: completion != nil)
       return
     }
 
@@ -1639,6 +1644,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       punctuation,
       commit: FullWidthInputPolicy.output(punctuation, enabled: fullWidthInput),
       editor: editor)
+  }
+
+  /// 成对标点自动补全: write the closing mark and put the caret back between the two. The Engine has just committed the opening mark, so nothing is composed and the caret move ends nothing.
+  private func closePair(_ completion: PairedPunctuationCompletion) {
+    insertOwnText(completion.closing)
+    if completion.opening == "<" { session.balancePairedPunctuationAfterAutoClose(opening: completion.opening) }
+    textDocumentProxy.adjustTextPosition(byCharacterOffset: -1)
   }
 
   /// Milliseconds on the host's own clock, for the two-second repeat window.
@@ -1674,15 +1686,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ///
   /// Only a commit arms anything: a press that left a composition running has not put a mark in
   /// the document for a follow-up gesture to be about.
-  private func armSmartPunctuation(_ ascii: String, commit: String?, editor: UInt64) {
+  private func armSmartPunctuation(_ ascii: String, commit: String?, editor: UInt64, autoClosedPair: Bool = false) {
     guard let commit, !commit.isEmpty, editor != 0 else {
       clearSmartPunctuationArming()
       return
     }
     let armed = session.smartPunctuationArming(
       ascii: ascii, commit: commit, timestampMilliseconds: smartPunctuationNow,
-      // This host never auto-closes a pair, and neither does the Engine: it commits only the mark the key produced (“ or ” in turn for the quote key, （ for `(`), so no closing half is ever waiting to the right of the caret.
-      editorGeneration: editor, autoClosedPair: false)
+      // With the closing half already to the right of the caret, a space typed next is inside the pair rather than after a finished mark, so the shared layer does not arm the space conversion.
+      editorGeneration: editor, autoClosedPair: autoClosedPair)
     armedPunctuationRepeat = armed["repeat"] as? [String: Any]
     armedSpaceConversion = armed["space"] as? [String: Any]
   }
