@@ -7,32 +7,12 @@
 #include <unistd.h>
 
 int main() {
-  using msime::linux_host::dictionary_quiesce_lease_live;
   using msime::linux_host::dictionary_quiesced;
   using msime::linux_host::preference_save_held;
 
-  assert(dictionary_quiesce_lease_live("1010000", 1000000));
-  assert(dictionary_quiesce_lease_live("1010000\n", 1000000));
-  assert(dictionary_quiesce_lease_live("1030000", 1000000));
-  // Expired, or further out than any real lease (a clock jump or a stray file), is ignored.
-  assert(!dictionary_quiesce_lease_live("1000000", 1000000));
-  assert(!dictionary_quiesce_lease_live("999999", 1000000));
-  assert(!dictionary_quiesce_lease_live("1030001", 1000000));
-  assert(!dictionary_quiesce_lease_live("", 1000000));
-  assert(!dictionary_quiesce_lease_live("10x0000", 1000000));
-  assert(!dictionary_quiesce_lease_live("-1010000", 1000000));
-  assert(!dictionary_quiesce_lease_live("99999999999999999999999", 1000000));
-
+  // The lease itself is covered by platforms/common/tests/dictionary_quiesce_lease.cpp; this is what the Linux hosts add on top of it.
   char pattern[] = "/tmp/msime-quiesce-XXXXXX";
   const std::filesystem::path root = mkdtemp(pattern);
-  assert(!dictionary_quiesced(root.string(), 1000000));
-  assert(!dictionary_quiesced("", 1000000));
-  assert(!dictionary_quiesced("relative", 1000000));
-  {
-    std::ofstream(root / ".msime-dictionary-quiesce") << "1005000";
-  }
-  assert(dictionary_quiesced(root.string(), 1000000));
-  assert(!dictionary_quiesced(root.string(), 1006000));
 
   // A data directory move holds the lease on the old user directory for the whole copy, in the form the settings window stages and renames into place. A host still configured for the old directory stays off it; one that has read the rewritten locator opens on the copy, which carries no lease.
   const auto old_user = root / "old" / "user";

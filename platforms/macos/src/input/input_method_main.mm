@@ -5,6 +5,7 @@
 #import "../settings/PreferencesWindowController.h"
 #import "../settings/RuntimeOptions.h"
 #import "../settings/AppearancePreferences.h"
+#import "../core/FloatingToolbarPanel.h"
 #import "../candidate/CandidateSkin.h"
 #import "../voice/VoiceAudioMuter.h"
 #include <cstring>
@@ -77,6 +78,7 @@ int main(int argc, const char *argv[]) {
                     [preferences resetRememberedInputModes];
                     [preferences resetAllRuntimeInputState];
                     MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+                    [[MSIMEFloatingToolbarPanel sharedPanel] deactivateForInputSourceSwitch];
                 }];
         Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
         id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;

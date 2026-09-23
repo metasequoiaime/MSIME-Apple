@@ -341,10 +341,9 @@ fn valid_stored(text: &str) -> bool {
         && valid_characters(text)
 }
 
+// Matches the Windows history, which keeps every control character as user content; NUL is the one exception because the source stores C strings and the native bridges rely on NUL-free text.
 fn valid_characters(text: &str) -> bool {
-    !text.chars().any(|character| {
-        character == '\0' || (character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-    })
+    !text.contains('\0')
 }
 
 #[cfg(test)]
@@ -453,15 +452,23 @@ mod tests {
     }
 
     #[test]
-    fn preserves_multiline_text_and_rejects_unsafe_control_data() {
+    fn preserves_multiline_and_control_text_and_rejects_nul() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("clipboard_history.json");
         let mut store = ClipboardHistoryStore::open(&path);
         assert!(store.push("line\nfeed\tvalue".into()).unwrap());
         assert!(!store.push("line\0feed".into()).unwrap());
-        assert!(!store.push("line\u{0007}feed".into()).unwrap());
-        assert_eq!(texts(&store), ["line\nfeed\tvalue"]);
-        assert!(path.exists());
+        assert!(store
+            .push("bell\u{0007}form\u{000C}delete\u{007F}next\u{0085}".into())
+            .unwrap());
+        let expected = [
+            "bell\u{0007}form\u{000C}delete\u{007F}next\u{0085}",
+            "line\nfeed\tvalue",
+        ];
+        assert_eq!(texts(&store), expected);
+        let mut loaded = ClipboardHistoryStore::open(&path);
+        loaded.load().unwrap();
+        assert_eq!(texts(&loaded), expected);
     }
 
     #[test]
