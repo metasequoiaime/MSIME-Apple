@@ -16,6 +16,8 @@ struct CandidateOptionsSettingsView: View {
   @State private var wordCharacter = true
   @AppStorage(CloudCandidatePreference.key, store: CloudCandidatePreference.defaults)
   private var cloudCandidates = false
+  @AppStorage(CandidatePageSizePreference.key, store: CandidatePageSizePreference.defaults)
+  private var pageSize = CandidatePageSizePreference.defaultSize
   @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
   private var englishSuggestions = true
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
@@ -92,6 +94,14 @@ struct CandidateOptionsSettingsView: View {
           + "字体与桌面端同步；中英文字体缺字时依次使用补充字体。此设备没有的字体会跳过，全都没有时使用系统字体。")
       }
       paletteSection
+      Section {
+        Stepper(value: Binding(get: { CandidatePageSizePreference.clamped(pageSize) }, set: { pageSize = CandidatePageSizePreference.clamped($0) }),
+                in: CandidatePageSizePreference.range) {
+          labelled("每页候选数：\(CandidatePageSizePreference.clamped(pageSize))", "候选栏编号的候选个数，其余的展开候选面板查看")
+        }.accessibilityIdentifier("candidatePageSize")
+      } footer: {
+        Text("默认 9 个，与符号键盘和 iPad 数字行的 1–9 对应；组字时按数字键选对应编号的候选。只在本机生效，不影响电脑上的候选窗口。")
+      }
       Section {
         Picker(selection: Binding(get: { inlinePreedit }, set: { inlinePreedit = $0; InlinePreeditPreference.style = $0 })) {
           ForEach(InlinePreeditPreference.Style.allCases, id: \.self) { Text($0.title).tag($0) }

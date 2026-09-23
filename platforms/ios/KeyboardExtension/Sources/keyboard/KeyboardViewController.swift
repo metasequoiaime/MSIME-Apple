@@ -246,9 +246,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// What 行内预编辑 last wrote into the host as marked text; empty when nothing is marked.
   private var inlineMarkedText = ""
 
-  // The strip numbers its chips 1-9 to match the digits on the symbol layer, so a page is nine.
-  // Not private: the expansion test asserts the panel reaches past what the strip shows.
-  static let candidatePageSize = 9
+  /// The chips the strip numbers, the page size the session was given (see CandidatePageSizePreference), so a digit picks the chip carrying its number. Everything past it is in the expanded panel.
+  private var candidatePageSize: Int {
+    CandidatePageSizePreference.clamped(session.sharedPreferences?["candidate_page_size"] as? Int)
+  }
   // The composition sits on its own line above the candidates. Both rows are reserved whether or
   // not anything is being composed, so no row appears or disappears mid-typing.
   // Not private: the height assertions derive from it rather than restating the sum.
@@ -1620,6 +1621,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateCandidateStrip(preedit: "", candidates: [])
   }
 
+  /// A digit past the chips on show while composing. The session answers it with an unhandled diagnostic carrying no preedit, which the path below would take for "no composition" and type the digit into the document mid-word, so it does nothing instead. Not private: the page-size tests pin it.
+  static func digitHasNoChip(_ digit: String, chips: Int, composing: Bool) -> Bool {
+    guard composing, let number = Int(digit) else { return false }
+    return number > chips
+  }
+
   private func handleSymbol(_ symbol: String) {
     playInputClick()
     if !isChineseMode {
@@ -1652,6 +1659,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // absolute index the chip with that number is actually displaying, and a digit with no chip
       // on this page has to do nothing: falling through would hand it to handleCandidateKey and
       // commit a first-page candidate the user cannot see.
+      let composing = !visiblePreedit.isEmpty || !visibleCandidates.isEmpty
+      if Self.digitHasNoChip(symbol, chips: min(candidatePageSize, visibleCandidates.count), composing: composing) { return }
       let snapshot = session.handleCandidateKey(symbol)
       if !snapshot.isHandled && snapshot.preedit.isEmpty {
         insertDirectText(symbol)
@@ -3329,7 +3338,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.isHidden = showsCandidates
     candidateContent?.isHidden = !showsCandidates
     updatePreeditButton()
-    let page = Array(visibleCandidates.prefix(Self.candidatePageSize))
+    let page = Array(visibleCandidates.prefix(candidatePageSize))
     while candidateStack.arrangedSubviews.count < page.count {
       let index = candidateStack.arrangedSubviews.count
       candidateStack.addArrangedSubview(makeCandidateButton(index: index))
@@ -3439,7 +3448,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           !visibleCandidates.isEmpty else { translations.cancel(); return }
     var codes = [CandidateTranslationPreference.primary.code]
     if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
-    translations.refresh(words: Array(visibleCandidates.prefix(Self.candidatePageSize)), codes: codes)
+    translations.refresh(words: Array(visibleCandidates.prefix(candidatePageSize)), codes: codes)
   }
 
   private func wubiCodeHint(code: String, typed: String) -> String {
