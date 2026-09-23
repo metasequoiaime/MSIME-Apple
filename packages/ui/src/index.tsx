@@ -706,6 +706,8 @@ export type Preferences = {
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   /** Optional second candidate-translation language; null/absent keeps one gloss row. */
   translation_secondary_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko" | null;
+  /** Anonymous start and crash events; off by default and honoured only by the Windows Server. */
+  telemetry_enabled?: boolean;
   floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
   fuzzy_pinyin?: FuzzyPinyinPreferences;
@@ -8584,6 +8586,31 @@ export function SettingsPage({
                             </label>
                           </>
                         )}
+                      </div>
+                    )}
+                    {/* Only the Windows Server reads this switch; the other hosts report on their own terms, described in PRIVACY.md, so offering it there would be a switch that changes nothing. */}
+                    {windowsPlatform && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            匿名使用统计
+                            <small>
+                              默认关闭。开启后，Server 每次启动向
+                              https://api.msime.app/v1/telemetry/events 发送一条事件，只含随机事件
+                              id、类型、平台名 windows 和版本号；Server 崩溃时再发一条，另带固定文本
+                              std::terminate。不含输入内容、候选、剪贴板或账号信息。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="匿名使用统计"
+                            className="toggle"
+                            type="checkbox"
+                            checked={draft?.telemetry_enabled ?? false}
+                            onChange={(event) =>
+                              setDraft({ ...draft, telemetry_enabled: event.target.checked })
+                            }
+                          />
+                        </label>
                       </div>
                     )}
                   </fieldset>
