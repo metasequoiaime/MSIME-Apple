@@ -685,6 +685,9 @@ export function KeyboardPanel({
     pending: QueuedKey[];
   }>({ active: true, running: false, openingVoice: false, pending: [] });
   const keyRepeat = useRef<{ delay?: number; interval?: number }>({});
+  // Windows sends on release, like the shipped KeyboardPanel::OnMouseUp: the key pressed on pointerdown is remembered and only sent if the pointer is released over that same key, so sliding off a key cancels it and there is no held-key repeat.
+  const releaseKey = useRef<{ button: HTMLButtonElement; key: KeyboardKey } | null>(null);
+  const sendsOnRelease = platform === "windows";
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   function stopKeyRepeat() {
     if (keyRepeat.current.delay !== undefined) window.clearTimeout(keyRepeat.current.delay);
@@ -853,7 +856,20 @@ export function KeyboardPanel({
       syncKeyboardFaces(next);
     }
   }
+  function endPointerKey(event: PointerEvent<HTMLButtonElement>) {
+    stopKeyRepeat();
+    const pressed = releaseKey.current;
+    releaseKey.current = null;
+    if (!sendsOnRelease || !pressed || pressed.button !== event.currentTarget) return;
+    if (!event.isPrimary || event.button !== 0) return;
+    pressKey(resolveRenderedKey(pressed.key, event.currentTarget.textContent ?? ""));
+  }
+  function cancelPointerKey() {
+    stopKeyRepeat();
+    releaseKey.current = null;
+  }
   function beginPointerKey(event: PointerEvent<HTMLButtonElement>, keyToPress: KeyboardKey) {
+    releaseKey.current = null;
     // Num Lock is a lock key in the Linux extended layout, so a held pointer
     // must not toggle it repeatedly like an ordinary keypad key.
     if (
@@ -865,6 +881,13 @@ export function KeyboardPanel({
     )
       return;
     stopKeyRepeat();
+    if (sendsOnRelease) {
+      // Touch and pen capture the pointer implicitly, which would deliver the release to this key wherever it happens; release the capture so pointerup lands on the key actually under the pointer.
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId))
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      releaseKey.current = { button: event.currentTarget, key: keyToPress };
+      return;
+    }
     pressKey(resolveRenderedKey(keyToPress, event.currentTarget.textContent ?? ""));
     keyRepeat.current.delay = window.setTimeout(() => {
       pressKey(keyToPress);
@@ -962,13 +985,11 @@ export function KeyboardPanel({
                       wide: keyToRender.label.length > 1,
                     })}`}
                     onPointerDown={(event) => beginPointerKey(event, keyToRender)}
-                    onPointerUp={stopKeyRepeat}
-                    onPointerCancel={stopKeyRepeat}
+                    onPointerUp={endPointerKey}
+                    onPointerCancel={cancelPointerKey}
                     onPointerLeave={stopKeyRepeat}
                     onClick={(event) => {
-                      // Pointer activation is delivered on pointerdown for immediate
-                      // response and repeat. A detail-zero click comes from keyboard or
-                      // assistive activation and still sends exactly one key.
+                      // Pointer activation is delivered on pointerdown for immediate response and repeat, or on Windows on release over the same key. A detail-zero click comes from keyboard or assistive activation and still sends exactly one key.
                       if (
                         keyToRender.modifier ||
                         keyToRender.virtualKey === 0x90 ||
