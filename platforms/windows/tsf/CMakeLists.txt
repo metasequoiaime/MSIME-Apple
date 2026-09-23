@@ -102,6 +102,9 @@ add_test(NAME msime-tsf-punctuation-key-policy COMMAND msime-tsf-punctuation-key
 add_executable(msime-tsf-paired-punctuation-wiring-test tests/input/paired_punctuation_wiring.cpp)
 target_compile_features(msime-tsf-paired-punctuation-wiring-test PRIVATE cxx_std_17)
 add_test(NAME msime-tsf-paired-punctuation-wiring COMMAND msime-tsf-paired-punctuation-wiring-test ${CMAKE_CURRENT_SOURCE_DIR})
+add_executable(msime-tsf-smart-punctuation-focus-wiring-test tests/input/smart_punctuation_focus_wiring.cpp)
+target_compile_features(msime-tsf-smart-punctuation-focus-wiring-test PRIVATE cxx_std_17)
+add_test(NAME msime-tsf-smart-punctuation-focus-wiring COMMAND msime-tsf-smart-punctuation-focus-wiring-test ${CMAKE_CURRENT_SOURCE_DIR})
 
 # The TSF tip is an in-process DLL.  It is intentionally a separate target
 # from the out-of-process Windows Server.

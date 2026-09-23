@@ -70,9 +70,8 @@ test("Windows is not told its voice input runs through a Linux provider", async 
   // SystemAudioMuter in-process; there is no provider socket involved.
   expect(screen.getByText("语音快捷键")).toBeTruthy();
   expect(screen.getByText("录音行为")).toBeTruthy();
-  expect(screen.queryByText("Linux IBus 快捷键")).toBeNull();
   expect(screen.queryByText("Linux provider 行为")).toBeNull();
-  expect(screen.queryByText(/IBus 属性/)).toBeNull();
+  expect(screen.queryByText(/语音需要 provider 服务/)).toBeNull();
   expect(screen.queryByText(/录音和识别由已配置的 provider 服务完成/)).toBeNull();
   expect(screen.getByText(/录音和识别在本机完成/)).toBeTruthy();
   expect(screen.getByText(/随识别请求发送给豆包/)).toBeTruthy();
@@ -89,9 +88,11 @@ test("macOS keeps voice submission in the native input-method process", async ()
 test("Linux keeps the wording that is accurate there", async () => {
   await openVoice("linux");
   expect(screen.getByText("Linux provider 行为")).toBeTruthy();
-  expect(screen.getByText("Linux IBus 快捷键")).toBeTruthy();
-  expect(screen.getByText(/IBus 属性/)).toBeTruthy();
-  expect(screen.queryByText("语音快捷键")).toBeNull();
+  // The shortcuts work the same under IBus and Fcitx5, so the section is not named after one host.
+  expect(screen.getByText("语音快捷键")).toBeTruthy();
+  expect(screen.queryByText(/IBus 快捷键/)).toBeNull();
+  expect(screen.getByText(/语音需要 provider 服务/)).toBeTruthy();
+  expect(screen.queryByText(/IBus 属性/)).toBeNull();
   expect(screen.queryByText("录音行为")).toBeNull();
 });
 

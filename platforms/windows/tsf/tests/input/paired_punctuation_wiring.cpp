@@ -32,6 +32,7 @@ int main(int argc, char **argv) {
     const std::string handler = read(root + "/Key/KeyHandler.cpp");
     expect(handler, "_TryStepOverPairedPunctuation(ec, pContext,", true, "a typed closing half steps over the auto-completed one");
     expect(handler, "BalanceNestPairAfterAutoClose(", true, "the auto-close balances the nest-pair count");
+    expect(handler, "SendPairedPunctuationAutoClosedToServerViaNamedPipe(wch)", true, "the auto-close also balances the count in the Server's Engine");
     expect(handler, "_PushPairedPunctuation(", true, "the auto-close records the pair");
     expect(handler, "_QueuePairedPunctuationCaretMove(-1)", true, "the caret move carries the focus token");
     expect(handler, "PostMessage(_msgWndHandle, WM_PairedPunctuationCaretMove", false, "no untokened caret move that the handler drops");

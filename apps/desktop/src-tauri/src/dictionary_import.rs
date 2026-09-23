@@ -7,8 +7,8 @@ use msime_client_core::dictionary::import::{
 };
 use serde_json::{json, Value};
 
-/// The largest file text the page imports. The page refuses files over 1 MiB before reading them, and a file that size decodes to at most 1.5 MiB of UTF-8, since a two-byte GBK or UTF-16 character becomes three; this is that bound, so a file the page accepted is never refused here.
-pub(crate) const MAX_IMPORT_TEXT_BYTES: usize = 3 * 512 * 1024;
+/// The largest file text the page imports. The page refuses files over 32 MiB (`MAX_DICTIONARY_FILE_BYTES` in `packages/ui/src/dictionary/dictionary-file.ts`) before reading them, and a file that size decodes to at most 48 MiB of UTF-8, since a two-byte GBK or UTF-16 character becomes three; this is that bound, so a file the page accepted is never refused here. At 60 KiB a request, text this size is at least 820 requests, and more for a file of short lines, since a request also carries at most `import::MAX_ENTRIES` rows. That takes longer than the 30 seconds input sessions stay released, so every request renews the release before it goes: the lease through `QuiescedHosts::run` on Linux and macOS, the Server's DictionaryQuiesce on Windows.
+pub(crate) const MAX_IMPORT_TEXT_BYTES: usize = 3 * 16 * 1024 * 1024;
 
 /// One serialized request, below the host's 65536-byte limit with room to spare.
 const BATCH_REQUEST_BYTES: usize = 60 * 1024;

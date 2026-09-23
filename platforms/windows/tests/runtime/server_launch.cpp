@@ -30,6 +30,10 @@ int main() {
     // It is the same request as the documented production switch.
     require(parse({L"--production"}).kind == ServerLaunchKind::Managed);
     require(parse({L"--production"}).config.empty());
+    // Only the Watchdog's own launch is supervised; a Server that TSF started with --production must start the Watchdog itself.
+    require(parse({L"--watchdog-managed"}).supervised);
+    require(!parse({L"--production"}).supervised);
+    require(!parse({L"--config", L"C:\\state\\runtime.json"}).supervised);
 
     require(parse({L"--help"}).kind == ServerLaunchKind::Help);
 

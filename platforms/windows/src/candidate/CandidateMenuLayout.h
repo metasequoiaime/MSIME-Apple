@@ -1,6 +1,8 @@
 #pragma once
+#include "CandidateAction.h"
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -67,6 +69,53 @@ candidate_menu_submenu_items(bool actionable = true, int fixed_position = 0) {
                    false, actionable && fixed_position > 0});
   return items;
 }
+
+// What a chosen row asks the Engine to do. 固定排位 only opens the submenu, so it maps to nothing; so does a position outside the five slots the protocol accepts.
+struct CandidateMenuAction {
+  CandidateAction action;
+  uint8_t position = 0;
+};
+inline std::optional<CandidateMenuAction>
+candidate_menu_action(CandidateMenuCommand command, unsigned position) {
+  switch (command) {
+  case CandidateMenuCommand::PinToTop:
+    return CandidateMenuAction{CandidateAction::Pin, 0};
+  case CandidateMenuCommand::Remove:
+    return CandidateMenuAction{CandidateAction::Remove, 0};
+  case CandidateMenuCommand::FixAtPosition:
+    if (position < 1 || position > 5)
+      return std::nullopt;
+    return CandidateMenuAction{CandidateAction::FixPosition,
+                               static_cast<uint8_t>(position)};
+  case CandidateMenuCommand::ClearFixedPosition:
+    return CandidateMenuAction{CandidateAction::ClearPosition, 0};
+  case CandidateMenuCommand::FixPosition:
+    break;
+  }
+  return std::nullopt;
+}
+
+// The candidate the open menu acts on. The flyout is built once and reused for every right click, so its choice callback must not capture the click that first created it: that is how later 置顶 / 删除 / 固定排位 used to reach whichever candidate was right-clicked first, in a session and generation that had long since moved on. Each opening records its own target here and a choice consumes it, as the reference gets by rebuilding its menu on every open (candidate_presenter.cpp:560-563, :698-765). A template only so the rule is testable without the IPC contract that the Server's click type pulls in.
+template <class Click> class CandidateMenuTarget final {
+public:
+  void open(const Click &target) { target_ = target; }
+  // The click to send for this choice, or nothing when no menu is open or the row carries no action. One choice per opening: the menu closes after it.
+  std::optional<Click> choose(CandidateMenuCommand command, unsigned position) {
+    if (!target_)
+      return std::nullopt;
+    const auto action = candidate_menu_action(command, position);
+    if (!action)
+      return std::nullopt;
+    Click click = *target_;
+    target_.reset();
+    click.action = action->action;
+    click.position = action->position;
+    return click;
+  }
+
+private:
+  std::optional<Click> target_;
+};
 
 struct CandidateMenuMetrics {
   double width = 108.0;

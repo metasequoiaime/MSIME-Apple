@@ -135,6 +135,11 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                    packet.event_type == FanyImePipeEventType::FocusRestored) &&
                   !state.synchronize_input_mode(*route.route, packet))
                 return;
+              if (route.route &&
+                  packet.event_type ==
+                      FanyImePipeEventType::PairedPunctuationAutoClosed &&
+                  !state.balance_paired_punctuation(*route.route, packet))
+                return;
               if (delivered_packet.event_type ==
                       FanyImePipeEventType::HideCandidateWnd &&
                   input_.current_task_wait() >= std::chrono::milliseconds(24))

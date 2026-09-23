@@ -8,6 +8,8 @@ public final class CandidateNavigationPolicySmoke {
     static final int PREVIOUS_PAGE = 101;
     static final int NEXT_CANDIDATE = 102;
     static final int PREVIOUS_CANDIDATE = 103;
+    static final int FIRST_CANDIDATE = 104;
+    static final int LAST_CANDIDATE = 105;
 
     static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -95,6 +97,21 @@ public final class CandidateNavigationPolicySmoke {
                 && CandidateNavigationPolicy.commandFor(KeyEvent.KEYCODE_PAGE_DOWN, false, all, true)
                 == NEXT_PAGE,
             "the other pairs still page in the Japanese scheme");
+
+        // Home and End reach the ends of the whole list. No binding gates them - the source does not
+        // offer them as a rebindable pair - so they answer even when every switch is off, which is
+        // what these two assertions pin. The caller only consults this policy while something is
+        // being composed, so with an empty composition they remain the editor's caret keys.
+        check(command(KeyEvent.KEYCODE_MOVE_HOME, all) == FIRST_CANDIDATE
+                && command(KeyEvent.KEYCODE_MOVE_END, all) == LAST_CANDIDATE,
+            "Home and End reach the first and last candidate");
+        check(command(KeyEvent.KEYCODE_MOVE_HOME, none) == FIRST_CANDIDATE
+                && command(KeyEvent.KEYCODE_MOVE_END, none) == LAST_CANDIDATE,
+            "Home and End are not one of the rebindable pairs");
+        // The Japanese exception is about the long-vowel mark on - and =, and does not reach these.
+        check(CandidateNavigationPolicy.commandFor(KeyEvent.KEYCODE_MOVE_END, false, all, true)
+                == LAST_CANDIDATE,
+            "Home and End are unaffected by the Japanese scheme");
 
         // The shared defaults: brackets off because 以词定字 owns that pair by default.
         Bindings defaults = Bindings.defaults();

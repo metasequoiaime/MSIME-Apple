@@ -1036,14 +1036,14 @@ int main(int argc, char **argv) {
         translation_enter.request_id = request++;
         const auto translated = basic.configured_key(
             session, translation_enter, epoch, TsfPreeditStyle::Pinyin, {});
-        require(translated && translated->ui_selection &&
-                    translated->next_prefix.empty(),
-                "Ctrl+Enter did not route the highlighted translation");
-        basic.confirm_ui_delivery(
-            42, epoch,
-            translated->source.transition.at("view")
-                .at("generation")
-                .get<uint64_t>());
+        // A single sense is committed as exact text, like the reference, and never selects the candidate the Engine would learn from.
+        require(translated && !translated->ui_selection && translated->encoded &&
+                    translated->encoded->packet.msg_type ==
+                        FanyImeReplyType::CommitExactText &&
+                    translated->next_prefix.empty() &&
+                    session.view().at("editing_text") == "",
+                "Ctrl+Enter did not commit the highlighted translation as exact text");
+        basic.confirm_delivery(42, epoch, translation_enter.request_id);
         const auto unchanged = session.view();
         FanyImeNamedpipeData digit{};
         digit.client_id = 42;
