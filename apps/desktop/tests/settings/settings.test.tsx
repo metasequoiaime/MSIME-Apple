@@ -2329,7 +2329,7 @@ test("macOS reveals the diagnostic log in Finder and names what it records", asy
   const log = await screen.findByLabelText("输入法日志");
   // The macOS log covers key latency, candidate placement and statistics failures as well as focus and preferences, and the copy points at the action instead of a path the Finder hides.
   const description = log.closest("label")?.textContent ?? "";
-  expect(description).toContain("按键的处理耗时");
+  expect(description).toContain("超过 8 毫秒的按键处理耗时");
   expect(description).toContain("候选窗的显示位置");
   expect(description).toContain("输入统计写入失败");
   expect(description).toContain("不记录按键、输入内容或候选文本");

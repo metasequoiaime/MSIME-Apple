@@ -30,7 +30,7 @@ import java.util.Map;
  */
 public final class StatisticsFragment extends HomeTabFragment {
     /** 趋势默认画 30 天；记录不足 30 天就画到最早那条。 */
-    /** 趋势最多画一年：引擎那边每日明细就保留 366 天，再往前没有数据可画。 */
+    /** 趋势最多画一年；这是图表的宽度上限，不是保留期限。 */
     private static final int TREND_DAY_LIMIT = 366;
     /** 下限三十天，和 Apple 一致：一个月以下看不出「这个月比上个月多」。 */
     private static final int TREND_DAY_FLOOR = 30;

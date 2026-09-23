@@ -79,6 +79,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger englishCandidateCalls;
 @property(nonatomic) BOOL dedicatedEnglish;
 @property(nonatomic, copy) NSDictionary *nextTransition;
+// Holds the engine call for this long, so a test can make one key slow enough to be logged.
+@property(nonatomic) useconds_t stall;
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
 @property(nonatomic) BOOL lastShift;
@@ -208,6 +210,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
     ++self.asciiCalls;
     self.lastASCII = ascii;
     self.lastShift = shift;
+    if (self.stall) usleep(self.stall);
     return self.nextTransition;
 }
 - (NSDictionary *)punctuationASCII:(uint8_t)ascii error:(NSError **)error {
@@ -379,7 +382,7 @@ static void TestPassthroughKeysAreCounted() {
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
 }
 
-// The diagnostic log times every key through handleEvent:client: the way MSIME-Windows' [key-latency] stage=handle lines do, and records the event type and outcome but never the key itself.
+// The diagnostic log times every key through handleEvent:client: and, like MSIME-Windows' [key-latency] stage=handle lines, writes only a key that took at least 8 ms, recording the event type and outcome but never the key itself.
 static void TestKeyLatencyIsLoggedWithoutTheKey() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -409,6 +412,13 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 
     msime_macos_diagnostic_configure(root.fileSystemRepresentation, true);
     assert(![controller handleEvent:key client:client]);
+    NSString *fast = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
+    assert(![fast containsString:@"[key-latency]"]); // A key handled well under 8 ms is not written.
+    appearance.englishMode = NO;
+    session.stall = 12000;
+    assert(![controller handleEvent:key client:client]);
+    assert(session.asciiCalls > 0);
+    session.stall = 0;
     msime_macos_diagnostic_configure(root.fileSystemRepresentation, false);
     NSString *contents = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
     assert([contents containsString:@"[key-latency] stage=handle type=down handled=0 elapsed_ms="]);

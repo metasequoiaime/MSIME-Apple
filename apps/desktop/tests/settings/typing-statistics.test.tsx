@@ -236,6 +236,10 @@ test("desktop statistics show a 12-month calendar heatmap with Monday-first week
   fireEvent.click(yesterday);
   expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("6");
   expect(yesterday.getAttribute("aria-pressed")).toBe("true");
+  // A day outside the trend range still gets the page's M月D日 title, not its raw key.
+  fireEvent.click(within(heatmap).getByRole("button", { name: `热力图：${label(-40)}，0 字符` }));
+  expect(screen.getByText(label(-40))).toBeTruthy();
+  expect(screen.queryByText(key(-40))).toBeNull();
 });
 
 test("mobile statistics refresh when the settings surface returns to the foreground", async () => {

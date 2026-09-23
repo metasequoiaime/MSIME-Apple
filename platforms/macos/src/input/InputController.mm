@@ -3472,12 +3472,14 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     const uint64_t started = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     const BOOL handled = [self routeEvent:event client:sender];
     if (!handled) [self recordPassthroughKey:event client:sender];
-    if (timed) {
+    // Like the source's ScopedServerKeyLatency and kSlowStageThresholdMs, only a slow stage is written: logging every key would rotate the focus, preference and statistics lines out of the file within a few thousand keystrokes.
+    constexpr double kSlowKeyLatencyMs = 8.0;
+    const double elapsedMs = timed ? static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6 : 0;
+    if (timed && elapsedMs >= kSlowKeyLatencyMs) {
         const NSEventType type = event.type;
         const char *label = type == NSEventTypeKeyDown ? "down" : type == NSEventTypeKeyUp ? "up"
             : type == NSEventTypeFlagsChanged ? "flags" : "other";
-        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, handled ? 1 : 0,
-            static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6);
+        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, handled ? 1 : 0, elapsedMs);
     }
     return handled;
 }

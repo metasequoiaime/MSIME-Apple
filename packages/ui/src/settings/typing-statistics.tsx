@@ -1119,7 +1119,7 @@ export function TypingStatisticsPage({
       : scopeKeys.reduce((total, key) => total + (statistics.days[key] ?? 0), 0);
   const today = recentDays(1)[0];
   const scopeTitle = selectedDay
-    ? (trendDays.find((day) => day.key === selectedDay)?.label ?? selectedDay)
+    ? (trendDays.find((day) => day.key === selectedDay)?.label ?? dayLabel(selectedDay))
     : mobile || period === 0
       ? "累计输入"
       : `近 ${period} 天输入`;
@@ -1531,7 +1531,7 @@ export function TypingStatisticsPage({
       {mobile ? (
         <section className="section m-0 pt-0.5">
           <p className={`${privacy} mt-0`}>
-            仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留；自动清理删除的日期同时从累计总数与分类中扣除。
+            仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留。
           </p>
         </section>
       ) : (
@@ -1610,7 +1610,7 @@ export function TypingStatisticsPage({
             </button>
           </div>
           <p className={privacy}>
-            仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。
+            统计水杉键盘提交的字符，以及英文模式和放行给应用的字母、数字与符号（按按键时估计），含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。
           </p>
         </section>
       )}
