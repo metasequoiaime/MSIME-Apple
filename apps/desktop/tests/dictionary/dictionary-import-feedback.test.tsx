@@ -62,7 +62,10 @@ describe("describeImportResult", () => {
   });
 });
 
-async function importFile(dictionary: Record<string, unknown>) {
+async function importFile(
+  dictionary: Record<string, unknown>,
+  file = new File(["你好\tni'hao\n"], "dict.txt", { type: "text/plain" }),
+) {
   render(
     <SettingsPage
       client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }}
@@ -71,7 +74,6 @@ async function importFile(dictionary: Record<string, unknown>) {
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-  const file = new File(["你好\tni'hao\n"], "dict.txt", { type: "text/plain" });
   Object.defineProperty(input, "files", { value: [file] });
   fireEvent.change(input);
 }
@@ -102,6 +104,46 @@ test("a failed import surfaces the host's reason rather than a generic hint", as
   await importFile(dictionary);
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("dictionary import is too large");
+});
+
+test("an import the host finds too large names the size limits", async () => {
+  const dictionary = {
+    list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+    edit: vi.fn(),
+    import: vi.fn().mockRejectedValue({ code: "dictionary_too_large" }),
+  };
+  await importFile(dictionary);
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("导入失败：词库文件过大");
+  expect(alert.textContent).toContain("1 MB");
+  expect(alert.textContent).toContain("拆分");
+});
+
+test("a file over 1 MB is refused before anything is sent", async () => {
+  const dictionary = {
+    list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+    edit: vi.fn(),
+    import: vi.fn().mockResolvedValue({ applied: 1 }),
+  };
+  // Well over the old 64 KiB request bound is fine; only the file bound refuses.
+  const large = new File(["a".repeat(1_048_577)], "large.txt", { type: "text/plain" });
+  await importFile(dictionary, large);
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("1 MB");
+  expect(dictionary.import).not.toHaveBeenCalled();
+});
+
+test("a file between 64 KiB and 1 MB goes to the host whole", async () => {
+  const dictionary = {
+    list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+    edit: vi.fn(),
+    import: vi.fn().mockResolvedValue({ applied: 5000 }),
+  };
+  const text = Array.from({ length: 5000 }, (_, index) => `词${index}\tci\n`).join("");
+  await importFile(dictionary, new File([text], "large.txt", { type: "text/plain" }));
+  await waitFor(() => expect(dictionary.import).toHaveBeenCalled());
+  expect(dictionary.import.mock.calls[0][2]).toBe(text);
+  expect((await screen.findByRole("status")).textContent).toContain("5000");
 });
 
 test("an engine rejection is explained differently from a malformed line", () => {
