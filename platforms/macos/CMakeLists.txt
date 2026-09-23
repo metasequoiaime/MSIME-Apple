@@ -501,6 +501,10 @@ add_executable(typing-statistics-test tests/core/TypingStatisticsTest.cpp)
 target_compile_options(typing-statistics-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(typing-statistics-test PRIVATE apple-client)
 add_test(NAME typing-statistics COMMAND typing-statistics-test)
+add_executable(runtime-options-refresh-test tests/core/RuntimeOptionsRefreshTests.mm)
+target_compile_options(runtime-options-refresh-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(runtime-options-refresh-test PRIVATE apple-client "-framework Foundation")
+add_test(NAME runtime-options-refresh COMMAND runtime-options-refresh-test)
 add_executable(typing-statistics-notification-test
     tests/core/TypingStatisticsNotificationTest.mm
     ../../crates/host-macos/native/dictionary.mm)

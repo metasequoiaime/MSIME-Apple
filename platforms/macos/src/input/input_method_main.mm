@@ -4,6 +4,7 @@
 #import "InputSourceRegistration.h"
 #import "../settings/PreferencesWindowController.h"
 #import "../settings/RuntimeOptions.h"
+#import "../settings/RuntimeOptionsRefresh.h"
 #import "../settings/AppearancePreferences.h"
 #import "../candidate/CandidateSkin.h"
 #import "../voice/VoiceAudioMuter.h"
@@ -40,6 +41,20 @@ int main(int argc, const char *argv[]) {
             return status == noErr ? 0 : 1;
         }
         [NSApplication sharedApplication];
+        // After an app upgrade the options still point at the previous dictionary generation; bring them to the installed one (replaying the user dictionary) before any session, including the standalone preferences window's, reads them.
+        // A missing file is the not-yet-configured state, which is not a refresh failure.
+        NSString *optionsPath = MSIMERuntimeOptionsPath();
+        switch (optionsPath && [NSFileManager.defaultManager fileExistsAtPath:optionsPath]
+                    ? MSIMERefreshRuntimeOptions(optionsPath) : MSIMERuntimeOptionsRefreshCurrent) {
+        case MSIMERuntimeOptionsRefreshUpdated:
+            NSLog(@"MSIME dictionary updated to the installed generation");
+            break;
+        case MSIMERuntimeOptionsRefreshFailed:
+            NSLog(@"MSIME cannot update the dictionary to the installed generation; keeping the current one");
+            break;
+        case MSIMERuntimeOptionsRefreshCurrent:
+            break;
+        }
         MSIMEConfigureMovableState();
         NSString *swiftBackend = [NSBundle.mainBundle.privateFrameworksPath stringByAppendingPathComponent:@"MSIMEBackend.dylib"];
         if (swiftBackend.length > 0 && dlopen(swiftBackend.fileSystemRepresentation, RTLD_NOW | RTLD_GLOBAL) == nullptr) return 1;

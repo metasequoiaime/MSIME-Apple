@@ -310,7 +310,9 @@ pub(crate) fn recover_default_options(application_directory: &Path, native_optio
 /// Bring options written before an app upgrade up to the dictionary generation this build's lock describes, the counterpart of the user-dictionary replay the Windows installer runs on every upgrade: the Host API prepares the new generation, replays the user journal into it and atomically rewrites only `resources` and `dictionaries`. This runs before any session exists. Symlinks and documents outside the prepared layout are left alone by the Host API. A failure keeps the previous generation in use and the next launch tries again; the error is not printed because it can name private paths.
 fn refresh_options(options_path: &Path) {
     if msime_host_api::refresh_host_options(options_path).is_err() {
-        eprintln!("Cannot update the dictionary to the installed generation; keeping the current one");
+        eprintln!(
+            "Cannot update the dictionary to the installed generation; keeping the current one"
+        );
     }
 }
 
