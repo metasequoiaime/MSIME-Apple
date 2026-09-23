@@ -50,6 +50,7 @@
 }
 @end
 @interface LivePresentationFixture : NSObject
+@property(copy) NSString *detail;
 // The controller picks the overlay screen from the caret on every failure; model the real overlay property so the assignment lands somewhere.
 @property(nonatomic, weak) NSScreen *preferredScreen;
 @property float lastLevel;
@@ -69,7 +70,7 @@
 - (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; }
 - (void)setTranscript:(NSString *)text { self.preview = text; }
-- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; self.preview = @""; }
+- (void)showFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail { self.failure = failure; self.detail = detail; self.phase = 4; ++self.failures; self.preview = @""; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 - (void)applyThemePreferences:(NSDictionary *)preferences { (void)preferences; }

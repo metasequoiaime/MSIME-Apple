@@ -69,6 +69,7 @@
 @end
 
 @interface HTTPOverlayFixture : NSObject
+@property(copy) NSString *detail;
 // The controller picks the overlay screen from the caret on every failure; model the real overlay property so the assignment lands somewhere.
 @property(nonatomic, weak) NSScreen *preferredScreen;
 @property float lastLevel;
@@ -83,7 +84,7 @@
 - (void)setInputLevel:(float)level { self.lastLevel = level; ++self.levelUpdates; }
 - (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
-- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; }
+- (void)showFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail { self.failure = failure; self.detail = detail; self.phase = 4; ++self.failures; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 @end
@@ -210,8 +211,14 @@ int main() {
         controller.requestFixture.completion(nil, [NSError errorWithDomain:@"synthetic" code:1
             userInfo:@{NSLocalizedDescriptionKey:@"synthetic detail must not be presented"}]);
         assert(overlay.failure == MSIMEVoiceFailureProvider && overlay.failures == beforeErrors + 1 && !capture.active);
+        assert(!overlay.detail); // Only the voice requests' own detail reaches the overlay.
         controller.requestFixture.completion(nil, nil);
         assert(overlay.failures == beforeErrors + 1);
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        controller.requestFixture.completion(nil, [NSError errorWithDomain:@"app.msime.client.voice" code:6
+            userInfo:@{NSLocalizedFailureReasonErrorKey:@"语音识别失败：synthetic provider message"}]);
+        assert(overlay.failure == MSIMEVoiceFailureProvider && [overlay.detail isEqual:@"语音识别失败：synthetic provider message"]);
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
         [controller finishHTTPVoiceInput];
         controller.requestFixture.completion(@"", nil);

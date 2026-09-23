@@ -46,6 +46,7 @@
 @end
 
 @interface DoubaoPresentationFixture : NSObject
+@property(copy) NSString *detail;
 // The controller picks the overlay screen from the caret on every failure; model the real overlay property so the assignment lands somewhere.
 @property(nonatomic, weak) NSScreen *preferredScreen;
 @property float lastLevel;
@@ -66,7 +67,7 @@
 - (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; }
 - (void)setTranscript:(NSString *)text { self.preview = text; }
-- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; self.preview = @""; }
+- (void)showFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail { self.failure = failure; self.detail = detail; self.phase = 4; ++self.failures; self.preview = @""; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
 - (void)setInputLevel:(float)level { self.lastLevel = level; ++self.levelUpdates; }
@@ -235,8 +236,15 @@ int main() {
         // Exercise the actual toggle route without touching persistent defaults.
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         NSDictionary *oldArguments = [defaults volatileDomainForName:NSArgumentDomain];
-        [defaults setVolatileDomain:@{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"doubao", @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES} forName:NSArgumentDomain];
+        NSDictionary *toggleArguments = @{@"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceASRProvider": @"doubao", @"MSIMEClientVoiceMuteSystemAudio": @NO, @"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES};
+        [defaults setVolatileDomain:toggleArguments forName:NSArgumentDomain];
         assert([controller usesNativeDoubaoVoice] && ![controller usesNativeHTTPVoice]);
+        // No token: Windows asks for one before recording rather than failing after the user has spoken.
+        [controller toggleVoiceInput:nil];
+        assert(!capture.active && presentation.failure == MSIMEVoiceFailureMissingToken);
+        NSMutableDictionary *withToken = [toggleArguments mutableCopy];
+        withToken[@"MSIMEClientVoiceASRToken"] = @"synthetic-token";
+        [defaults setVolatileDomain:withToken forName:NSArgumentDomain];
         assert([session setFocused:YES error:nil]);
         assert([session typeASCII:'U' shift:YES error:nil]);
         for (const char *key = "4e2d"; *key; ++key) assert([session typeASCII:*key shift:NO error:nil]);

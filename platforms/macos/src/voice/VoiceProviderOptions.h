@@ -16,6 +16,13 @@ static inline BOOL MSIMEVoiceUsesNativeHTTPProvider(NSString *provider,
         containsObject:identifier];
 }
 
+// MSIME-Windows StartRecording refuses to record when the current ASR provider has no API token, and tells the user where to fill it in. Here that covers the providers this host calls itself with a token - the HTTPS presets and Doubao, which an unset provider preference means - and not the on-device, system Speech or external-socket paths, which take none from this preference.
+static inline BOOL MSIMEVoiceASRTokenMissing(NSString *provider, NSString *token, BOOL providerSocketAvailable) {
+    if (providerSocketAvailable || token.length) return NO;
+    return !provider || [provider.lowercaseString isEqual:@"doubao"] ||
+        MSIMEVoiceUsesNativeHTTPProvider(provider, NO, NO);
+}
+
 // Adapt native preferences to the existing provider contract. Do not infer an
 // authentication mode here: older configurations rely on provider-side inference.
 static inline NSDictionary *MSIMEVoiceProviderOptions(NSDictionary *query, NSUserDefaults *defaults) {

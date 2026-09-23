@@ -13,7 +13,8 @@ typedef NS_ENUM(NSUInteger, MSIMEVoiceFailure) {
     MSIMEVoiceFailureProvider,
     MSIMEVoiceFailureNoSpeech,
     MSIMEVoiceFailureTimeout,
-    MSIMEVoiceFailureSession
+    MSIMEVoiceFailureSession,
+    MSIMEVoiceFailureMissingToken
 };
 @interface MSIMEVoiceWaveOverlay : NSPanel
 // Host presentation only; all calls are made on the main thread.
@@ -28,6 +29,8 @@ typedef NS_ENUM(NSUInteger, MSIMEVoiceFailure) {
 - (void)setListening:(BOOL)listening;
 - (void)setProcessing:(BOOL)polishing;
 - (void)showFailure:(MSIMEVoiceFailure)failure;
+/// `detail` is the provider's own account of the failure, as MSIME-Windows shows it: the status line keeps the category's fixed message and the detail takes the transcript area. Nil or empty shows the category alone.
+- (void)showFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail;
 - (void)dismissFailure;
 - (void)setInputLevel:(float)level;
 - (void)setTranscript:(NSString *)text;

@@ -32,6 +32,17 @@ class Handler(BaseHTTPRequestHandler):
                 assert b"changed-after-snapshot" not in body
                 assert b'name="language"\r\n\r\nen\r\n' in body
                 response = {"text": "synthetic transcript"}
+            elif self.path in ("/asr-denied", "/asr-trace"):
+                assert b"RIFF" in body
+                if self.path == "/asr-denied":
+                    self.send_response(401)
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": {"message": "Incorrect synthetic key"}}).encode())
+                else:
+                    self.send_response(500)
+                    self.send_header("X-SiliconCloud-Trace-Id", "synthetic-trace")
+                    self.end_headers()
+                return
             elif self.path == "/asr-long":
                 riff = body.index(b"RIFF")
                 assert body[riff + 36:riff + 40] == b"data"
@@ -68,7 +79,7 @@ try:
     # The six-second polish stall is waited out rather than abandoned, so the run needs room for it.
     result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}"], timeout=60)
     assert result.returncode == 0 and not errors, (result.returncode, errors)
-    assert counts == {"/asr": 3, "/asr-long": 1, "/polish": 1, "/polish-failure": 1, "/polish-timeout": 1}, counts
+    assert counts == {"/asr": 3, "/asr-long": 1, "/asr-denied": 1, "/asr-trace": 2, "/polish": 1, "/polish-failure": 1, "/polish-timeout": 1}, counts
 finally:
     server.shutdown()
     server.server_close()

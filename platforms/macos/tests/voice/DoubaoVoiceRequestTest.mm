@@ -76,12 +76,25 @@ int main(int argc, const char *argv[]) {
             Until(^BOOL { return final; });
             assert(calls == 2);
         }
-        for (NSString *path in @[@"/malformed", @"/server-error", @"/oversized", @"/redirect"]) {
-            MSIMEDoubaoVoiceRequest *request = [[MSIMEDoubaoVoiceRequest alloc] initWithOptions:options(path) error:nil];
+        // The failures MSIME-Windows names carry its sentence, with the credential hint for the console in use; the rest keep only the generic description. None carries the token.
+        NSMutableDictionary *refusedLegacy = [options(@"/refused") mutableCopy];
+        refusedLegacy[@"asr_endpoint"] = @"ws://127.0.0.1:1/refused";
+        refusedLegacy[@"doubao_auth_mode"] = @"legacy";
+        NSArray *failures = @[
+            @[options(@"/malformed"), NSNull.null], @[options(@"/oversized"), NSNull.null],
+            @[options(@"/server-error"), @"豆包语音识别失败（code 45000001）。请检查 Access Token。"],
+            @[options(@"/redirect"), @"无法连接豆包语音识别。请检查 API Key 和接口地址。"],
+            @[refusedLegacy, @"无法连接豆包语音识别。请检查 App ID、Access Token 和接口地址。"]];
+        for (NSArray *failure in failures) {
+            MSIMEDoubaoVoiceRequest *request = [[MSIMEDoubaoVoiceRequest alloc] initWithOptions:failure[0] error:nil];
+            id expected = failure[1];
             __block BOOL failed = NO;
             assert([request startWithResult:^(NSString *text, BOOL final, NSError *error) {
                 assert(NSThread.isMainThread && final && error && !text);
-                assert([error.domain isEqual:@"app.msime.client.voice.doubao"] && error.userInfo.count == 1);
+                assert([error.domain isEqual:@"app.msime.client.voice.doubao"]);
+                if (expected == NSNull.null) assert(error.userInfo.count == 1);
+                else assert(error.userInfo.count == 2 && [error.userInfo[NSLocalizedFailureReasonErrorKey] isEqual:expected]);
+                assert(![error.userInfo.description containsString:@"fixture-token"]);
                 failed = YES;
             } error:nil]);
             Until(^BOOL { return failed; });

@@ -1,4 +1,5 @@
 #import "DoubaoVoiceRequest.h"
+#import "VoiceFailureMessages.h"
 #include <msime/voice/doubao_protocol.h>
 #include "msime_client.h"
 #include <cmath>
@@ -7,9 +8,10 @@
 #include <stdexcept>
 
 namespace {
-NSError *DoubaoFailure() {
-    return [NSError errorWithDomain:@"app.msime.client.voice.doubao" code:1
-        userInfo:@{NSLocalizedDescriptionKey:@"豆包语音请求失败，请检查服务设置或重试"}];
+NSError *DoubaoFailure(NSString *detail = nil) {
+    NSMutableDictionary *info = [@{NSLocalizedDescriptionKey:@"豆包语音请求失败，请检查服务设置或重试"} mutableCopy];
+    if (detail.length) info[MSIMEVoiceFailureDetailKey] = detail;
+    return [NSError errorWithDomain:@"app.msime.client.voice.doubao" code:1 userInfo:info];
 }
 NSData *PacketData(const std::vector<std::uint8_t> &packet) {
     return [NSData dataWithBytes:packet.data() length:packet.size()];
@@ -37,7 +39,7 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
     std::vector<float> _pending;
     NSUInteger _queuedBytes;
     int32_t _sequence;
-    BOOL _started, _finishing, _done, _cancelled, _sending, _finalDispatched;
+    BOOL _started, _finishing, _done, _cancelled, _sending, _finalDispatched, _legacyAuth, _opened;
     NSString *_lastText;
     MSIMEDoubaoResult _result;
 }
@@ -91,6 +93,8 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
             if (error) *error = DoubaoFailure(); return nil;
         }
         [request setValue:header[1] forHTTPHeaderField:header[0]];
+        // Which console the credentials belong to decides which of them a failure message asks the user to check; the shared policy has already resolved it, so read it back from the headers rather than inferring it again.
+        if ([header[0] caseInsensitiveCompare:@"x-api-app-key"] == NSOrderedSame) _legacyAuth = YES;
     }
     metasequoia::voice::DoubaoRequestOptions config;
     bool *flags[] = {&config.enable_itn, &config.enable_punc, &config.enable_ddc};
@@ -128,6 +132,12 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
         if (result) result(text, final, error);
     });
 }
+// Whether the websocket upgrade completed: a message has arrived, or the task holds the 101 answer. A refused connection has no response and a rejected upgrade (a wrong key is answered 401) has another status, and both are the connection failure Windows reports.
+- (BOOL)socketOpened {
+    if (_opened) return YES;
+    NSHTTPURLResponse *response = (NSHTTPURLResponse *)_socket.response;
+    return [response isKindOfClass:NSHTTPURLResponse.class] && response.statusCode == 101;
+}
 - (void)receive {
     __weak MSIMEDoubaoVoiceRequest *weakSelf = self;
     [_socket receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage *message, NSError *error) {
@@ -135,7 +145,13 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
         if (!owner) return;
         @synchronized(owner) {
             if (owner->_done || owner->_cancelled) return;
-            if (error || message.type != NSURLSessionWebSocketMessageTypeData) {
+            if (error) {
+                [owner deliver:nil final:YES error:[owner socketOpened] ? DoubaoFailure()
+                    : DoubaoFailure(MSIMEDoubaoFailureMessage(MSIMEDoubaoFailureConnect, owner->_legacyAuth, 0))];
+                return;
+            }
+            owner->_opened = YES;
+            if (message.type != NSURLSessionWebSocketMessageTypeData) {
                 [owner deliver:nil final:YES error:DoubaoFailure()]; return;
             }
             try {
@@ -145,7 +161,12 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
                 if (data.length) std::memcpy(bytes.data(), data.bytes, data.length);
                 const auto response = metasequoia::voice::parse_doubao_response(bytes);
                 NSString *text = [[NSString alloc] initWithBytes:response.text.data() length:response.text.size() encoding:NSUTF8StringEncoding];
-                if (response.code || (response.last && !owner->_finalDispatched)) {
+                if (response.code) {
+                    [owner deliver:nil final:YES error:DoubaoFailure(MSIMEDoubaoFailureMessage(MSIMEDoubaoFailureServerCode,
+                        owner->_legacyAuth, static_cast<int32_t>(response.code)))];
+                    return;
+                }
+                if (response.last && !owner->_finalDispatched) {
                     [owner deliver:nil final:YES error:DoubaoFailure()]; return;
                 }
                 BOOL changed = text.length && ![text isEqual:owner->_lastText];
@@ -173,8 +194,12 @@ NSData *PacketData(const std::vector<std::uint8_t> &packet) {
             if (owner->_done || owner->_cancelled) return;
             owner->_sending = NO;
             owner->_queuedBytes -= data.length;
-            if (error) [owner deliver:nil final:YES error:DoubaoFailure()];
-            else [owner pump];
+            if (!error) { [owner pump]; return; }
+            // Windows names the two failures before any audio moves: a socket that never opened, and an opening request that could not be sent over one that did. A later audio send failing is left to the generic message, as Windows shows none of its own.
+            NSString *detail = nil;
+            if (![owner socketOpened]) detail = MSIMEDoubaoFailureMessage(MSIMEDoubaoFailureConnect, owner->_legacyAuth, 0);
+            else if (data == owner->_initialPacket) detail = MSIMEDoubaoFailureMessage(MSIMEDoubaoFailureHandshake, owner->_legacyAuth, 0);
+            [owner deliver:nil final:YES error:DoubaoFailure(detail)];
         }
     }];
 }

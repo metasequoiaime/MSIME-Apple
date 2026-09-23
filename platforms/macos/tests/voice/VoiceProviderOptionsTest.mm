@@ -16,6 +16,15 @@ int main() {
         assert(!MSIMEVoiceUsesNativeHTTPProvider(@"everyapi", YES, NO));
         assert(!MSIMEVoiceUsesNativeHTTPProvider(@"local", NO, NO));
         assert(MSIMEVoiceUsesNativeHTTPProvider(@"local", NO, YES));
+        // Every provider this host calls with the stored token asks for one before recording; an unset provider preference means Doubao.
+        for (NSString *provider in @[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"cloud", @"doubao", @"Doubao"]) {
+            assert(MSIMEVoiceASRTokenMissing(provider, nil, NO) && MSIMEVoiceASRTokenMissing(provider, @"", NO));
+            assert(!MSIMEVoiceASRTokenMissing(provider, @"synthetic-token", NO));
+            assert(!MSIMEVoiceASRTokenMissing(provider, nil, YES));
+        }
+        assert(MSIMEVoiceASRTokenMissing(nil, nil, NO));
+        for (NSString *provider in @[@"local", @"system", @"", @"unknown"])
+            assert(!MSIMEVoiceASRTokenMissing(provider, nil, NO));
         NSDictionary *base = @{@"generation": @42, @"language": @"en-us", @"asr_provider": @"doubao"};
         NSDictionary *query = MSIMEVoiceProviderOptions(base, defaults);
         assert([query[@"commit_mode"] isEqual:@"tsf"]);

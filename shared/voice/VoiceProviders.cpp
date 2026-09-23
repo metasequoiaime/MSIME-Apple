@@ -156,6 +156,26 @@ struct Response {
   std::string body;
 };
 
+// SiliconFlow answers every request with this header; its support needs the value to find a failed one.
+size_t write_trace_header(char *data, size_t size, size_t count, void *context) {
+  if (size && count > (std::numeric_limits<size_t>::max)() / size)
+    return 0;
+  const auto length = size * count;
+  constexpr std::string_view name = "x-siliconcloud-trace-id:";
+  std::string_view line(data, length);
+  if (line.size() > name.size() && lower(line.substr(0, name.size())) == name) {
+    line.remove_prefix(name.size());
+    while (!line.empty() && (line.front() == ' ' || line.front() == '\t'))
+      line.remove_prefix(1);
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' '))
+      line.remove_suffix(1);
+    // A trace id is a short token; anything else is not worth showing anyone.
+    if (line.size() <= 128)
+      *static_cast<std::string *>(context) = std::string(line);
+  }
+  return length;
+}
+
 size_t write_response(char *data, size_t size, size_t count, void *context) {
   if (size && count > (std::numeric_limits<size_t>::max)() / size)
     return 0;
@@ -180,6 +200,55 @@ void initialize_curl() {
     throw metasequoia::voice::VoiceError("Cannot initialize HTTP runtime");
 }
 } // namespace
+
+std::string cloud_asr_error_detail(std::string_view body) {
+  try {
+    const auto json = nlohmann::json::parse(body);
+    if (json.is_object()) {
+      if (json.contains("error")) {
+        const auto &error = json["error"];
+        if (error.is_string())
+          return error.get<std::string>();
+        if (error.is_object() && error.contains("message") && error["message"].is_string())
+          return error["message"].get<std::string>();
+      }
+      if (json.contains("message") && json["message"].is_string()) {
+        std::string message = json["message"].get<std::string>();
+        if (json.contains("code") && !json["code"].is_null())
+          message += "（code " + json["code"].dump() + "）";
+        if (json.contains("data") && json["data"].is_string() && !json["data"].get<std::string>().empty())
+          message += " " + json["data"].get<std::string>();
+        return message;
+      }
+    }
+  } catch (const nlohmann::json::exception &) {
+  }
+  if (body.size() <= 240)
+    return std::string(body);
+  size_t cut = 240;
+  while (cut && (static_cast<unsigned char>(body[cut]) & 0xC0) == 0x80)
+    --cut;
+  return std::string(body.substr(0, cut)) + "...";
+}
+
+std::string cloud_asr_status_message(long status, std::string_view body,
+                                     std::string_view provider,
+                                     std::string_view model,
+                                     std::string_view trace_id) {
+  std::string detail = cloud_asr_error_detail(body);
+  if (detail.empty())
+    detail = "HTTP " + std::to_string(status);
+  if (status >= 500 && normalize_voice_provider(provider) == "siliconflow") {
+    detail += "。这是硅基流动服务端内部错误，模型名 " + std::string(model) + " 本身是官方支持的。";
+    if (!trace_id.empty())
+      detail += " 追踪 ID：" + std::string(trace_id) + "。";
+  }
+  return "语音识别失败：" + detail;
+}
+
+std::string cloud_asr_transport_message(std::string_view detail) {
+  return "语音识别请求失败：" + std::string(detail);
+}
 
 std::string recognize_cloud_asr(
     const std::vector<float> &samples, std::string_view provider,
@@ -206,12 +275,16 @@ std::string recognize_cloud_asr(
       padded.resize(metasequoia::voice::sample_rate, 0.0f);
     audio = &padded;
   }
-  const auto wav = metasequoia::voice::WavWriter::create_wav(
-      *audio, metasequoia::voice::sample_rate, batch_upload_sample_limit);
-  const auto request_language = transcription_language(id, language);
-  const auto payload = metasequoia::voice::make_transcription_request(
-      std::string_view(reinterpret_cast<const char *>(wav.data()), wav.size()),
-      model, request_language);
+  metasequoia::voice::MultipartRequest payload;
+  try {
+    const auto wav = metasequoia::voice::WavWriter::create_wav(
+        *audio, metasequoia::voice::sample_rate, batch_upload_sample_limit);
+    payload = metasequoia::voice::make_transcription_request(
+        std::string_view(reinterpret_cast<const char *>(wav.data()), wav.size()),
+        model, transcription_language(id, language));
+  } catch (const metasequoia::voice::VoiceError &error) {
+    throw CloudAsrError(error.what(), "录音数据无效或超过 20 MiB 上传限制。");
+  }
   initialize_curl();
   const std::string endpoint_value(endpoint);
 
@@ -220,12 +293,14 @@ std::string recognize_cloud_asr(
   long status = 0;
   CURLcode result = CURLE_OK;
   char error[CURL_ERROR_SIZE] = {};
+  std::string trace_id;
   for (int attempt = 0; attempt < attempts; ++attempt) {
     if (attempt)
       std::this_thread::sleep_for(std::chrono::milliseconds(400));
     if (cancelled && cancelled->load())
       throw metasequoia::voice::VoiceError("Voice request cancelled");
     response.clear();
+    trace_id.clear();
     Response response_data;
     error[0] = '\0';
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(
@@ -258,6 +333,8 @@ std::string recognize_cloud_asr(
                      static_cast<curl_off_t>(payload.body.size()));
     curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_response);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &response_data);
+    curl_easy_setopt(curl.get(), CURLOPT_HEADERFUNCTION, write_trace_header);
+    curl_easy_setopt(curl.get(), CURLOPT_HEADERDATA, &trace_id);
     curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, error);
     curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress);
@@ -272,14 +349,19 @@ std::string recognize_cloud_asr(
     if (result == CURLE_OK && status < 500)
       break;
   }
-  if (result != CURLE_OK)
-    throw metasequoia::voice::VoiceError(
-        std::string("Voice HTTP request failed: ") +
-        (error[0] ? error : curl_easy_strerror(result)));
+  if (result != CURLE_OK) {
+    const std::string detail = error[0] ? error : curl_easy_strerror(result);
+    throw CloudAsrError("Voice HTTP request failed: " + detail,
+                        cloud_asr_transport_message(detail));
+  }
   if (status < 200 || status >= 300)
-    throw metasequoia::voice::VoiceError("Voice HTTP status " +
-                                         std::to_string(status));
-  return metasequoia::voice::parse_transcription(response);
+    throw CloudAsrError("Voice HTTP status " + std::to_string(status),
+                        cloud_asr_status_message(status, response, id, model, trace_id));
+  try {
+    return metasequoia::voice::parse_transcription(response);
+  } catch (const metasequoia::voice::VoiceError &error) {
+    throw CloudAsrError(error.what(), "语音识别返回了无法解析的结果。");
+  }
 }
 
 std::string polish_cloud_text(

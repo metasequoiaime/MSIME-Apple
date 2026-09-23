@@ -227,11 +227,12 @@ static BOOL VoiceAppearanceIsDark(NSAppearance *appearance)
 }
 - (void)setProcessing:(BOOL)polishing { [self showStatus:polishing ? @"正在润色…" : @"正在识别…" listening:NO]; }
 - (NSTimeInterval)failureDisplayDuration { return 6; }
-- (void)showFailure:(MSIMEVoiceFailure)failure {
+- (void)showFailure:(MSIMEVoiceFailure)failure { [self showFailure:failure detail:nil]; }
+- (void)showFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail {
     self.actionHandler = nil;
     _dismissed = NO;
-    _transcriptView.string = @"";
-    // Never surface raw transport errors, transcripts, URLs or credentials.
+    // A pending transcript is discarded. The detail is the sentence the voice request built for the user from the provider's answer - its message, HTTP status or trace id - never a transcript, credential or request body, and it is shown where Windows shows it, in the transcript area.
+    _transcriptView.string = [detail isKindOfClass:NSString.class] && detail.length <= 65536 ? [detail copy] : @"";
     NSString *message;
     switch (failure) {
         case MSIMEVoiceFailureMicrophonePermission: message = @"请在系统设置允许麦克风访问"; break;
@@ -240,6 +241,7 @@ static BOOL VoiceAppearanceIsDark(NSAppearance *appearance)
         case MSIMEVoiceFailureProvider: message = @"识别失败，请检查语音服务设置"; break;
         case MSIMEVoiceFailureNoSpeech: message = @"未识别到语音，请重试"; break;
         case MSIMEVoiceFailureTimeout: message = @"语音处理超时，请重试"; break;
+        case MSIMEVoiceFailureMissingToken: message = @"请先在设置的“语音输入”分区填写当前 ASR 提供商的 API Token。"; break;
         default: message = @"语音输入未能启动，请重试"; break;
     }
     [self showStatus:message listening:NO];

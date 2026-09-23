@@ -7,6 +7,8 @@
 #include <atomic>
 #include <cstddef>
 #include <memory>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace msime::windows {
@@ -29,6 +31,25 @@ bool is_doubao_asr_provider(std::string_view provider);
 bool voice_endpoint_is_websocket(std::string_view endpoint);
 std::string resolved_asr_endpoint(std::string_view provider,
                                   std::string_view configured_endpoint);
+// What recognize_cloud_asr throws when the request is built, sent or answered badly. what() keeps the terse English diagnostic hosts already log; user_message() is the sentence MSIME-Windows voice_input_service.cpp Recognize() shows the person dictating - the provider's own JSON message or the HTTP status, and for SiliconFlow the trace id its support asks for. It never carries the token or the request body.
+class CloudAsrError : public std::runtime_error {
+public:
+  CloudAsrError(const std::string &diagnostic, std::string user_message)
+      : std::runtime_error(diagnostic), user_message_(std::move(user_message)) {}
+  const std::string &user_message() const noexcept { return user_message_; }
+
+private:
+  std::string user_message_;
+};
+// MSIME-Windows JsonErrorMessage: the provider's error text from a failed response body - error (string or object.message), else message with its code and data - or, when the body is not such JSON, the body itself cut to 240 bytes. The cut never splits a UTF-8 sequence.
+std::string cloud_asr_error_detail(std::string_view body);
+// The message for a non-2xx answer: "语音识别失败：" and the detail above, "HTTP <status>" when there is none, plus the SiliconFlow 5xx explanation and trace id.
+std::string cloud_asr_status_message(long status, std::string_view body,
+                                     std::string_view provider,
+                                     std::string_view model,
+                                     std::string_view trace_id);
+// The message for a request that never got an HTTP answer; `detail` is the transport's own error text.
+std::string cloud_asr_transport_message(std::string_view detail);
 std::string recognize_cloud_asr(
     const std::vector<float> &samples, std::string_view provider,
     std::string_view endpoint, std::string_view model, std::string_view token,
@@ -60,6 +81,10 @@ using windows::default_polish_model;
 using windows::is_doubao_asr_provider;
 using windows::voice_endpoint_is_websocket;
 using windows::resolved_asr_endpoint;
+using windows::CloudAsrError;
+using windows::cloud_asr_error_detail;
+using windows::cloud_asr_status_message;
+using windows::cloud_asr_transport_message;
 using windows::recognize_cloud_asr;
 using windows::polish_cloud_text;
 using windows::local_asr_available;
