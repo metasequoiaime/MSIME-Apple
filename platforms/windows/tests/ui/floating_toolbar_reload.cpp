@@ -13,6 +13,16 @@ int main() {
   auto settings = floating_toolbar_settings(preferences);
   assert(settings && settings->scale_percent == 125 && settings->font_size == 28);
   assert((settings->items == std::array<bool, 6>{false, false, false, false, true, false}));
+  // The shared `english_mode` item governs the 中/英 button; absent it stays, as in the reference.
+  assert(defaults->language && settings->language);
+  assert((floating_toolbar_slots(defaults->items, defaults->language) == std::vector<int>{0, 1, 2, 3, 4, 6}));
+  auto english_off = preferences;
+  english_off["floating_toolbar"]["english_mode"] = false;
+  const auto without_language = floating_toolbar_settings(english_off);
+  assert(without_language && !without_language->language);
+  assert((floating_toolbar_slots(without_language->items, without_language->language) == std::vector<int>{5}));
+  english_off["floating_toolbar"]["english_mode"] = "false";
+  assert(!floating_toolbar_settings(english_off));
   for (const auto &invalid : {nlohmann::json(-1), nlohmann::json(74),
                             nlohmann::json(151), nlohmann::json(1ULL << 40),
                             nlohmann::json(100.5), nlohmann::json("100")}) {

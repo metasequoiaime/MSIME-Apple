@@ -84,7 +84,7 @@
 | 谷歌云候选与 AI 联想 | README 云 / AI 联想、设置 `ai-settings.ts` | `src/candidate/CloudCandidateWorker.cpp`、`src/candidate/AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 |
 | 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译 / 自定义翻译 | `src/candidate/TranslationWorker.cpp`、`src/candidate/CandidateTranslationPolicy.h`，共享 `crates/client-core/src/translation.rs` 与 `translation/store.rs` |
 | 设置读取、保存、热更新与窗口行为 | `settings_app.cpp`、`config-sync.ts` | Tauri `load_preferences` / `save_preferences`、`src/system/PreferenceMonitor.cpp` 与 Server 的发布回调 |
-| API 凭据测试（本仓库新增，来源没有此功能） | 来源无对应物 | Tauri `test_api_credential` → `crates/client-core/src/credential/`（豆包、批量 ASR、腾讯 / NiuTrans / DeepLX） |
+| API 凭据测试 | 来源 `server/src/settings/api_credential_test.cpp`，经设置窗 `apiCredentialTest` 消息测试 `translation.tencent` / `translation.niutrans` / 自定义翻译、`voice.asr`、`voice.polish` 与 `ai.assistant` | Tauri `test_api_credential` → `crates/client-core/src/credential/`（豆包、批量 ASR、腾讯 / NiuTrans / DeepLX） |
 | 词库查询、增改删、导入导出、快捷短语 | `dictionary_manager.cpp`、设置 `dict.ts` / `tools-settings.ts` | Tauri `dictionary_request`、共享 `dictionary/access.rs` 与 `dictionary/import.rs`，回放 CLI 为 `crates/engine-bridge` 的 `MetasequoiaImeDictionaryReplay` |
 | 语音热键、流式 / 批量 ASR、润色、声音 / 静音、上屏方式 | `server/src/voice-input/`、设置 `voice.ts` | `src/voice/`（`VoiceHotkey.cpp`、`VoiceInputSession.cpp`、`DoubaoAsrClient.cpp`、`CuePlayer.cpp`、`SystemAudioMuter.cpp`、`WaveOverlay.cpp`、`VoiceSessionEpoch.h`）+ Tauri 语音面板 |
 | 录音设备选择 | 来源语音设置 | `src/voice/VoiceCaptureSelection.h` 与 `VoiceInputSession`，按稳定设备 ID 枚举、保存并透传给 `AudioCapture::start` |
@@ -107,7 +107,7 @@
 - **自动造词**：锁定 Engine 的 `InputSession::commit` 内部已自带整条链，门面的 `select` 走的就是它，所以本仓库不需要来源在 Server 里手工串的那几步。判据是**简拼**——组合出来的短语答 `htpb`，重新生成的整句不答。
 - **混输候选的座位表**：来源 `candidate_selection_policy.h` 的四种排布已实现进运行时的 `normalize_online_slots`，只在快照里确实存在云 / AI 候选时生效。插入是压缩的而非固定编号：没有英文候选时 AI 落第二。多于一个的云 / AI 候选按本地候选处理而不是丢弃。
 - **以词定字**：`[` 上屏高亮候选的首个汉字、`]` 上屏末字，覆盖三字候选、组合被消耗、无汉字候选与越界索引。
-- **辅助码**：单码调序与双码筛选按来源规格逐条核对，全拼与双拼两套方案及候选窗显示都在；五笔的逐键提示按共享 `wubi_code_hint` 显示严格前缀的剩余编码，回退与本地模式不标注。
+- **辅助码**：单码调序与双码筛选按来源规格逐条核对，全拼与双拼两套方案及候选窗显示都在；五笔的逐键提示按共享 `wubi_code_hint` 显示严格前缀的剩余编码，回退与本地模式不标注。来源没有这个开关，它的逐键提示只是让前缀候选排在精确匹配之后；剩余编码提示是本仓各宿主共有的补充，Windows 从 2026-09-23 起才真正读取它（此前这句写在这里，宿主里却没有任何代码读这个偏好）。
 - **八个快捷模式**（K/T/U/E/M/J/Y/R）：带锁定词库的 `ServerSession` 回归逐个验证 Shift 入口、候选生成与选词提交。Unicode 模式的数字键是「打码位」而不是选词序号，判断分在两层——引擎报 handled，运行时只把引擎拒绝的数字落到选词；这个组合有真引擎回归覆盖。
 - **中英文状态**：按应用 / 全局的作用域是纯决策函数并有 `windows-mode-authority` 覆盖；标点重复与成对补全随配置帧下发并由 `windows-tsf-config-frames` 钉住；CapsLock 由 Server 持有并经 `CapsLockChanged` 帧下发；热更新有 `preference_monitor` 用例。macOS 上切到其他输入源（ABC 或其他输入法）会同时清空按应用与全局记忆的模式，切回时两种作用域都从 `default_ime_mode` 开始，对应来源 `ActivateEx` 重新写入 KEYBOARD_OPENCLOSE 与 `ClientDeactivated` 复位 `g_authoritative_cn_mode`；本输入法自身模式间的切换不触发复位，由 `shortcut` 原生测试的 `TestInputSourceModeReset` 钉住。
 - **日语**：`-` 交给长音符输入而不是翻页，`-`/`=` 不再用作翻页键，TSF 与 Server 两侧保持一致，且这条走的是物理按键到真实 Engine 的完整路径。（2026-09-23 更正：此前 Server 一侧并不一致。`ServerSession::navigate` 用 `local_mode == "japanese"` 判日语，而日语是方案（`scheme` 3）不是本地模式，这个分支从未生效，开了 `-`/`=` 翻页时 Server 仍会翻页；`=` 在 TSF 里是组字中的标点，Server 却不认；空缓冲区的 `-` TSF 当输入开组字，Server 的 `edit` 只在已有组字时接；开了 `-`/`=` 以词定字时 `-` 被当成取字键吞掉。现在四处都按 `scheme == 3` 判：不翻页、`=`/`+`/`_` 走候选标点、空缓冲区 `-` 进 Engine、以词定字跳过长音符 `-`（`=` 仍取末字，与来源 `WordToCharacterDirection` 一致）。回归：`tests/input/japanese_keys.cpp` 用真实 Engine 走 `configured_key`，另有 `edit_policy`、`punctuation_policy`、`word_character_policy` 的纯函数用例。）
@@ -465,7 +465,7 @@ cargo run -p msime-input-runtime --example local_modes -- <verified-dictionary-d
 
 增量记录（2026-09-21，每页候选项数量：macOS 把共享默认值改写掉了）：来源外观页的「每页候选项数量」提供 3–9，默认 6；共享偏好 `candidate_page_size` 接受 1–9，默认也是 6。macOS 这一侧是 `NormalizeCandidatePageSize`：只认 5、7、9，**其余一律改写成 9**。于是一个谁都没动过的设置，在这个平台上显示并保存为 9，而别的平台是 6；从别处写下的配置（另一个宿主、手改、云端同步回来的外观快照）带着 4 或 6 进来也会被静默改掉。云外观校验器 `MSIMECloudAppearanceCandidatePageSize` 同样只接受这三个值，一份别的宿主写的快照会被整条拒绝。
 
-这三个值来自 Apple 来源那个窗口，是本仓早先对齐它时引入的（#ecaf6a069「align macos candidate page sizes」），不是 macOS 的平台约束——面板画几行就是几行。按当前目标（复刻 MSIME-Windows）改回来：宿主接受共享偏好的整个 1–9 并把越界值拉到最近一端而不是顶到 9，未设置读作共享默认的 6，原生窗口与共享设置页都列出来源的 3–9，云快照按同一范围校验。
+这三个值来自 Apple 来源那个窗口，是本仓早先对齐它时引入的（#ecaf6a069「align macos candidate page sizes」），不是 macOS 的平台约束——面板画几行就是几行。按当前目标（复刻 MSIME-Windows）改回来：宿主接受共享偏好的整个 1–9 并把越界值拉到最近一端而不是顶到 9，未设置读作共享默认的 6，原生窗口与共享设置页都列出来源的 3–9，云快照按同一范围校验。（2026-09-23 订正：这句当时只对 macOS 原生窗口成立，共享设置页实际对所有宿主列出 1–9；现在共享设置页也只列 3–9，文档里存着 1 或 2 时把这个值留在列表里，不改写。）
 
 顺带发现 `CandidatePageSizeTest.cpp` 根本没注册进 CMake——有文件、没目标，从来没跑过，这正是那条改写规则一直没被重新审视的原因。已接进 CTest（126 项），并把它从「5/7/9 的三值表」改成覆盖整个范围、越界拉到最近一端、以及窗口列出的那七项。
 
@@ -1962,7 +1962,7 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 ### HarmonyOS 2in1：菜单主题（`menu_theme`）
 
-- Windows 的 `menu_theme` 决定托盘菜单和候选右键菜单是深色还是浅色。鸿蒙 2in1 没有托盘；和候选右键菜单对应的是候选词管理条，所以现在这条按 `menu_theme` 配色，跟随全局时和其他面板一样回落到全局主题。常用标点、括弧、释义这几条属于键盘本身，仍然用键盘配色。
+- 订正（2026-09-23）：Windows 的 `menu_theme` 只决定托盘语言菜单是深色还是浅色，候选右键菜单并不读它。来源 `windows_webview2.cpp` 用 `GetConfiguredThemeMenu()` 选托盘菜单页面，`tray_menu_presenter.cpp` 同样只给托盘菜单取色；候选右键菜单的 `menuFill` / `menuBorder` 在 `candidate_presenter.cpp` 里跟着候选窗主题（`candLight`）和皮肤走。本仓 Windows 宿主一致，`server_main.cpp` 只把 `menu_theme` 交给 `TrayMenuWindow`。鸿蒙 2in1 没有托盘；它把候选词管理条按 `menu_theme` 配色，跟随全局时和其他面板一样回落到全局主题，这是借用这个设置的平台取舍，不是 Windows 的对等行为。常用标点、括弧、释义这几条属于键盘本身，仍然用键盘配色。
 - 手机的设置页不显示这一项（`mobile_settings` 为真），手机上的管理条也继续用键盘配色。
 
 ### HarmonyOS 硬件键盘：全角模式与交给应用的字符统计
@@ -1993,3 +1993,13 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - **豆包数组结果**：`bigmodel_nostream` 的 `result` 可以是分段数组，`DoubaoTranscript.h` 按顺序拼接各段 `text`，对象形式与 `payload_msg` 信封照旧，与来源 `ExtractTranscript` 一致。
 - **快捷键文案**：共享设置页只在 Windows 上改为「长按右 Alt 录音」「长按右 Ctrl+右 Alt 录音」「长按 Ctrl+Win 录音」「长按录音时按空格锁定」，说明文字写明松开结束、空格锁定后再按快捷键或 ✓ 结束、Escape 或 ✗ 取消；macOS 与其他平台的文案不变。
 - **验证**：新增 `windows-voice-session-policy` 与 `windows-doubao-transcript` 两个纯逻辑 ctest，在 macOS 上用宿主编译器经 `scripts/test-windows-native-run.py` 运行通过，撤掉改动（60 秒上限、只认对象形式）时会失败；x64 MinGW 交叉编译链接通过；设置页用例在 `apps/desktop` 的 vitest 下通过。没有在 Windows 上实际运行。
+
+### Windows 宿主读取共享设置页已提供的几项设置（2026-09-23）
+
+一次审计找出共享设置页在 Windows 上显示、但 Windows 宿主从不读取的几项设置。逐项对照来源后的处理：
+
+- **五笔剩余编码提示（`wubi_code_hint`）**：候选投影按 macOS 的 `WubiCodeHintPolicy` 规则算出每个候选在已输入前缀之后剩下的编码（仅五笔方案、严格前缀、非拼音回退、非本地模式），偏好开启时候选窗把它写成注释 `(hy)`，与 macOS 的写法相同。开关和候选排列方式放在同一个原子值里下发，所以切换它会让同一代候选重新绘制。来源没有这项设置，见上文「辅助码」一条。用例：`windows-wubi-code-hint`、`windows-candidate-layout-reload`。
+- **悬浮工具栏的中英切换按钮（`floating_toolbar.english_mode`）**：来源的中/英按钮始终显示，没有这个开关；共享设置页提供了它，macOS、Linux 和设置预览都遵守，Windows 只读另外六项。现在 Windows 也读它，缺省为显示，因此不改这项的用户看到的仍是来源的样子。用例：`windows-floating-toolbar-reload`。
+- **屏幕键盘高度（`touch_keyboard_height_adjustment`）**：Windows 的屏幕键盘是 Tauri 面板，固定按 1100×400 打开。现在按设置预览的同一算式 `400 + clamp(调整值, -12, 48)` 决定窗口高度，对设置页命令、托盘菜单启动路由和二次启动三条打开路径都生效；窗口已存在时重新打开会按新高度调整。页面本身按窗口高度伸缩，不需要另外传参。其他宿主不在本次范围内。
+- **每页候选项数量**：见上文 2026-09-21 那条的订正。共享设置页现在对所有宿主列出来源的 3–9；共享偏好仍接受 1–9，文档里存着 1 或 2 时这个值留在列表里并保持选中，保存别的改动不会把它改写掉。
+- **候选英文释义的默认值（`candidate_english_gloss`）**：来源默认显示 `english.db` 的释义，共享默认关闭。这一项**刻意保留差异**，不单独改 Windows 的默认：共享偏好没有按平台区分默认值的机制（`HostCapabilities` 只描述能力，不带偏好默认值），所有宿主都读同一份 `Preferences::default()`，而 Linux、Android、HarmonyOS 的测试和 README 都把「默认关闭」写成了约定。为 Windows 单独翻默认值需要先引入按平台的偏好默认，这属于产品取舍，留给所有者定。

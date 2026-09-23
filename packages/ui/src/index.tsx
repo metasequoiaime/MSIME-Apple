@@ -2196,10 +2196,10 @@ export function SettingsPage({
   // Hosts with a system recogniser of their own. Android's is what it falls back to when nothing
   // is configured, so `system` is a real choice there rather than a value to report unavailable.
   const nativeVoicePlatform = macosPlatform || harmonyPlatform || androidPlatform;
-  // One list for every host. macOS used to be given 5, 7 and 9 - the Apple reference's set - while its
-  // own normalisation rewrote anything else to 9, so the shared default of six displayed and saved as
-  // nine on that platform alone.
-  const candidatePageSizes = Array.from({ length: 9 }, (_, index) => index + 1);
+  // One list for every host, and it is the reference window's three through nine. macOS used to be given 5, 7 and 9 - the Apple reference's set - while its own normalisation rewrote anything else to 9, so the shared default of six displayed and saved as nine on that platform alone. The shared preference still accepts one and two, so a document carrying one keeps it listed rather than showing a choice it does not hold.
+  const candidatePageSizes = Array.from({ length: 7 }, (_, index) => index + 3);
+  const offeredCandidatePageSizes = (current: number) =>
+    candidatePageSizes.includes(current) ? candidatePageSizes : [current, ...candidatePageSizes];
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -4968,7 +4968,7 @@ export function SettingsPage({
                               })
                             }
                           >
-                            {candidatePageSizes.map((size) => (
+                            {offeredCandidatePageSizes(draft.candidate_page_size).map((size) => (
                               <option key={size} value={size}>
                                 {size}
                               </option>
