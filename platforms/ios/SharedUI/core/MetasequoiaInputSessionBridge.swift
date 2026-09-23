@@ -285,6 +285,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "smart_punctuation", "smart_punctuation_repeat", "smart_punctuation_space_convert",
     "smart_punctuation_direct_digit", "smart_punctuation_direct_letter",
     "paired_punctuation", "punctuation_lock",
+    // 「双拼显示原始按键」 on the candidate page: the session rebuilds its Engine with it once idle, like the punctuation fields.
+    "shuangpin_preedit_uses_raw",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
     "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
     // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.

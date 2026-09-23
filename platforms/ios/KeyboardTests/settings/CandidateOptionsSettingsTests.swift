@@ -52,6 +52,47 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     XCTAssertEqual(firstCandidates(bridge, "gau").first, "挂")
   }
 
+  /// 「双拼预编辑」 turned off in the app makes the live session spell out the pinyin behind the raw shuangpin keys the strip otherwise shows.
+  func testReloadHandsShuangpinPreeditToTheLiveSession() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.switch(toShuangpin: true)
+    XCTAssertEqual(spelling(bridge, "ui"), "ui", "raw keys ship on")
+
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["shuangpin_preedit_uses_raw"] = false
+    })
+    let reloaded = expectation(description: "reload")
+    var accepted = false
+    bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
+    wait(for: [reloaded], timeout: 5)
+    XCTAssertTrue(accepted, "the reload was refused")
+
+    XCTAssertEqual(spelling(bridge, "ui"), "shi")
+  }
+
+  /// 「候选栏预编辑」 hides only what is being spelled: the chosen half of a phrase and a local mode's name stay on the strip.
+  func testCandidatePreeditStyleKeepsThePhrasePrefixAndModeName() {
+    XCTAssertEqual(CandidatePreeditStyle(in: nil), .pinyin)
+    XCTAssertEqual(CandidatePreeditStyle(in: [CandidatePreeditStyle.key: "empty"]), .empty)
+    XCTAssertEqual(CandidatePreeditStyle(in: [CandidatePreeditStyle.key: "raw"]), .pinyin)
+    XCTAssertEqual(CandidatePreeditStyle(in: [CandidatePreeditStyle.key: 1]), .pinyin)
+
+    let pinyin = CandidatePreeditStyle.pinyin
+    XCTAssertEqual(pinyin.title(composition: "水杉shu'ru", phrasePrefix: "水杉", localModeName: nil), "水杉shu'ru")
+    let empty = CandidatePreeditStyle.empty
+    XCTAssertEqual(empty.title(composition: "shu'ru", phrasePrefix: "", localModeName: nil), "")
+    XCTAssertEqual(empty.title(composition: "水杉shu'ru", phrasePrefix: "水杉", localModeName: nil), "水杉")
+    XCTAssertEqual(empty.title(composition: "Vrq", phrasePrefix: "", localModeName: "日期与时间"), "日期与时间")
+  }
+
+  /// The composition after typing `letters` from an empty one, which is then abandoned.
+  private func spelling(_ bridge: MetasequoiaInputSessionBridge, _ letters: String) -> String {
+    var snapshot = bridge.cancel()
+    for letter in letters { snapshot = bridge.handleCharacter(String(letter)) }
+    _ = bridge.cancel()
+    return snapshot.preedit
+  }
+
   /// The first few candidate texts after typing `letters` from an empty composition, which is then abandoned.
   private func firstCandidates(_ bridge: MetasequoiaInputSessionBridge, _ letters: String) -> [String] {
     var snapshot = bridge.cancel()

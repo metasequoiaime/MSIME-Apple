@@ -172,6 +172,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var replyPanelSuppressed = false
   private var reportedStatisticsFailure = false
   private var visiblePreedit = ""
+  /// The already-chosen half of a phrase at the front of `visiblePreedit`, which 「候选栏预编辑」 never hides.
+  private var visiblePhrasePrefix = ""
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
   private var visibleCandidateCodes: [String] = []
@@ -2369,8 +2371,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let title = isInLocalMode && visiblePreedit == localModeTrigger
       ? (modeName ?? visiblePreedit)
       : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
+    // 「候选栏预编辑」 only changes what is drawn: `visiblePreedit` still says a composition is running, which keeps the strip up while a spelling has no candidates yet, and VoiceOver still reads the full title. The setting names pinyin, so a Japanese reading is left as it is.
+    let drawnTitle = idle || title != visiblePreedit || inputScheme.isJapanese
+      ? title
+      : CandidatePreeditStyle(in: session.sharedPreferences).title(
+        composition: visiblePreedit, phrasePrefix: visiblePhrasePrefix,
+        localModeName: isInLocalMode ? modeName : nil)
     if var configuration = preeditButton.configuration {
-      configuration.title = title
+      configuration.title = drawnTitle
       preeditButton.configuration = configuration
     }
 
@@ -2852,6 +2860,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 没有编辑框里的组字，候选条这一行就是用户唯一能看见它的地方。
     let composing = snapshot.phrasePrefix
       + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
+    visiblePhrasePrefix = snapshot.phrasePrefix
     updateCandidateStrip(
                          preedit: composing,
                          candidates: snapshot.candidates,

@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Candidate text size, pinyin typo correction, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
+/// Candidate text size, what the strip shows while spelling, pinyin typo correction, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
 ///
 /// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. Cloud candidates are the exception: an iOS-only switch in the App Group (see CloudCandidatePreference). The keyboard hands a change to its live session the next time it appears.
 struct CandidateOptionsSettingsView: View {
@@ -17,6 +17,8 @@ struct CandidateOptionsSettingsView: View {
   private var cloudCandidates = false
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
   @State private var preeditSize = CandidateFontPreference.defaultPreeditSize
+  @State private var preeditStyle = CandidatePreeditStyle.pinyin.rawValue
+  @State private var shuangpinRaw = true
   @State private var saveFailed = false
   /// A docked iPad keyboard has room for larger candidates than a phone strip; the keyboard applies the same limits when it draws.
   private let tablet = UIDevice.current.userInterfaceIdiom == .pad
@@ -46,6 +48,18 @@ struct CandidateOptionsSettingsView: View {
         Text(tablet
           ? "默认 18 和 15，与桌面端同步。候选栏会随字号变高；浮动的小键盘按手机的上限显示。"
           : "默认 18 和 15，与桌面端同步。候选栏会随字号变高；桌面端设得更大时，手机上最多显示到 24 和 20。")
+      }
+      Section {
+        Picker("候选栏预编辑", selection: storedTop(CandidatePreeditStyle.key, $preeditStyle)) {
+          ForEach(CandidatePreeditStyle.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
+        }.accessibilityIdentifier("candidatePreeditStyle")
+        Toggle(isOn: storedTop("shuangpin_preedit_uses_raw", $shuangpinRaw)) {
+          labelled("双拼显示原始按键", "关闭后显示按键对应的完整拼音，只对双拼生效")
+        }.accessibilityIdentifier("shuangpinPreeditUsesRaw")
+      } header: {
+        Text("预编辑")
+      } footer: {
+        Text("选「不显示」时，候选栏不再显示正在拼写的编码，把位置留给候选；已选定的半个词和本地输入模式的名称仍会显示。")
       }
       Section {
         Toggle(isOn: stored("quanpin", "autocorrect_transposition", $transposition)) {
@@ -138,6 +152,8 @@ struct CandidateOptionsSettingsView: View {
     kaomoji = mixed["kaomoji"] as? Bool ?? kaomoji
     candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: tablet)
     preeditSize = CandidateFontPreference.preeditSize(in: preferences, tablet: tablet)
+    preeditStyle = CandidatePreeditStyle(in: preferences).rawValue
+    shuangpinRaw = preferences["shuangpin_preedit_uses_raw"] as? Bool ?? true
     wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
   }
 }
