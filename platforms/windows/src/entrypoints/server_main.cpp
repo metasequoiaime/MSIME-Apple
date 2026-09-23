@@ -34,6 +34,7 @@
 #include "VoiceInputSession.h"
 #include "WatchdogPolicy.h"
 #include "Telemetry.h"
+#include "TelemetryConsent.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
 #include <fstream>
@@ -42,6 +43,8 @@
 #include <mutex>
 #include <cstdlib>
 #include <exception>
+#include <thread>
+#include <curl/curl.h>
 #ifdef _WIN32
 #include <shlobj.h>
 #endif
@@ -137,6 +140,8 @@ std::atomic<bool> stopping{false};
 std::atomic<bool> restart_requested{false};
 // Set by the maintenance stop shortcut. The Watchdog reads any other exit as a crash and starts the Server again, so a user's stop has to leave with stop_exit_code, as the reference's window hook does.
 std::atomic<bool> stop_requested{false};
+// The user's `telemetry_enabled` preference, read by the terminate hook on whatever thread fails. Off until the stored preferences say otherwise, so a Server that dies before reading them reports nothing.
+std::atomic<bool> telemetry_allowed{false};
 static_assert(std::atomic<bool>::is_always_lock_free);
 BOOL WINAPI console_control(DWORD event) {
   if (event != CTRL_C_EVENT && event != CTRL_BREAK_EVENT)
@@ -550,8 +555,13 @@ private:
 };
 } // namespace
 int wmain(int argc, wchar_t **argv) {
-  msime::telemetry::start("windows", MSIME_WINDOWS_VERSION);
-  std::set_terminate([] { msime::telemetry::crash("windows", MSIME_WINDOWS_VERSION, "std::terminate"); std::abort(); });
+  // Before any thread exists: libcurl's global init is not thread-safe, and the startup event's thread, a crash report on any thread and the online workers all use it.
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  std::set_terminate([] {
+    if (telemetry_allowed.load(std::memory_order_acquire))
+      msime::telemetry::crash("windows", MSIME_WINDOWS_VERSION, "std::terminate");
+    std::abort();
+  });
   using namespace msime::windows;
   const auto launch = parse_server_arguments(argc, argv);
   attach_launching_console(launch);
@@ -622,6 +632,11 @@ int wmain(int argc, wchar_t **argv) {
     if (stopping.load())
       return 0;
     apply_diagnostic_log(diagnostic_log, prepared.at("value").at("preferences"));
+    // Opt-in: nothing is sent and telemetry.json is not written unless the stored preferences turn it on. The startup event runs off the main thread so an unreachable endpoint (up to the 8 s request timeout) cannot delay the Server; the thread is never joined, so exiting mid-request only drops this event.
+    if (msime::windows::telemetry_consented(prepared.at("value").at("preferences"))) {
+      telemetry_allowed.store(true, std::memory_order_release);
+      std::thread([] { msime::telemetry::start("windows", MSIME_WINDOWS_VERSION); }).detach();
+    }
     diagnostic_log.server(std::string(production ? "Production" : "Preview") +
                           " Server starting");
     auto traditional_output = std::make_shared<std::atomic<bool>>(
@@ -712,6 +727,9 @@ int wmain(int argc, wchar_t **argv) {
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           candidate_theme->publish(preferences);
           apply_diagnostic_log(diagnostic_log, preferences);
+          // A change applies to crash reports straight away; the startup event is sent at the next Server start.
+          telemetry_allowed.store(msime::windows::telemetry_consented(preferences),
+                                  std::memory_order_release);
           if (auto settings = floating_toolbar_settings(preferences))
             toolbar_settings->publish(snapshot.revision(), *settings);
           if (auto fonts = candidate_font_settings(preferences))

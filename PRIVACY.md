@@ -10,7 +10,7 @@
 
 默认配置下，**只有一个功能会把你输入的内容发出设备：云联想**。它默认开启，把当前正在组的拼音串发给 Google 输入工具。其余所有联网功能——语音识别、语音润色、候选翻译、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。
 
-另有一条不携带输入内容的自有上报路径：六个平台都会在启动时发一次安装计数，其中五个平台还会在进程崩溃时发送异常信息，端点是本项目自己的 `https://api.msime.app`。去重、调用栈和离线重试这三件事逐平台不同，不要按「六个平台一样」理解，差异逐条列在[安装与崩溃上报](#安装与崩溃上报默认开启)。仓库不接入任何第三方统计或崩溃上报 SDK。
+另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：macOS、iOS、Android、Linux、HarmonyOS 会在启动时发一次安装计数，其中除 HarmonyOS 外还会在进程崩溃时发送异常信息，这五个平台默认开启且没有开关；Windows 的同一条路径**默认关闭**，只有在设置页「关于」里打开「匿名使用统计」（`telemetry_enabled`）之后才发送启动与崩溃事件。去重、调用栈和离线重试这三件事逐平台不同，不要按「六个平台一样」理解，差异逐条列在[安装与崩溃上报](#安装与崩溃上报)。仓库不接入任何第三方统计或崩溃上报 SDK。
 
 ## 逐项说明
 
@@ -71,25 +71,25 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 
 Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模型**，之后在设备上离线识别。Linux 与桌面端使用 Engine 随附的离线 Zinnia 模型，从安装路径读取，全程不联网。
 
-### 安装与崩溃上报（默认开启）
+### 安装与崩溃上报
 
-六个平台都会向 `https://api.msime.app/v1/telemetry/events` POST 事件。**事件里没有任何输入内容、候选、剪贴板或账号标识**，字段只有事件 id、类型、平台名、版本号，崩溃事件另带异常信息，其中两个平台还带调用栈。
+六个平台都实现了向 `https://api.msime.app/v1/telemetry/events` POST 事件的路径：Windows 默认关闭、要用户在设置里打开，其余五个平台默认开启。**事件里没有任何输入内容、候选、剪贴板或账号标识**，字段只有事件 id、类型、平台名、版本号，崩溃事件另带异常信息，其中两个平台还带调用栈。
 
 | | |
 | --- | --- |
 | 目的地 | `https://api.msime.app/v1/telemetry/events` |
-| `kind: "download"` | 启动计数。字段：随机 id、平台名、版本号。**只有 Apple 与 Android 做了本地去重**，各自只在首次启动发一次；Linux（IBus 宿主）、Windows、HarmonyOS 的宿主进程每次拉起都发一次（Linux 上 launcher 在崩溃后重启的宿主除外），且 id 每次随机，服务端无法合并，所以这三个平台上它实际是启动计数而不是装机计数 |
+| `kind: "download"` | 启动计数。字段：随机 id、平台名、版本号。**只有 Apple 与 Android 做了本地去重**，各自只在首次启动发一次；Linux（IBus 宿主）、Windows（开关打开时）、HarmonyOS 的宿主进程每次拉起都发一次（Linux 上 launcher 在崩溃后重启的宿主除外），且 id 每次随机，服务端无法合并，所以这三个平台上它实际是启动计数而不是装机计数 |
 | `kind: "crash"` | 进程崩溃。异常信息截断到 2048 字节。**调用栈只有 Apple 与 Android 有**（截断到 12000 字节）；Linux 与 Windows 的崩溃事件没有 stack 字段，message 是固定字面量 `"std::terminate"`，不携带真实异常信息；HarmonyOS 没有崩溃上报 |
 | 需要凭据 | 否 |
-| 偏好开关 | **没有**。这条路径不读任何偏好字段 |
+| 偏好开关 | Windows：`telemetry_enabled`，默认 `false`，即设置页「关于」里的「匿名使用统计」，设置页只在 Windows 上显示它。其余五个平台**没有**，这条路径不读任何偏好字段 |
 
 实现分三份，能力逐份不同：
 
 - Apple（macOS 输入法进程、iOS 主 App）：`shared/backend/account/BackendTelemetryClient.swift`。macOS 由 `platforms/macos/src/input/input_method_main.mm` 在启动时 `dlsym` 调起，iOS 由 `platforms/ios/App/Sources/MetasequoiaImeApp.swift` 的 `init` 调起；两者同时注册 `NSSetUncaughtExceptionHandler`。首次启动以 `UserDefaults` 的 `msime.telemetry.firstLaunchRecorded` 去重。
-- Linux 与 Windows（C++ 宿主进程）：`platforms/common/Telemetry.cpp`，没有首次启动去重。download 事件的 JSON 只有 id（随机十六进制串）、kind、platform（`"linux"` 或 `"windows"`）、version 四个字段，version 是构建时写入的发布版本：Linux 为 CMake 的 `MSIME_LINUX_VERSION`，与 `.deb`/`.tar.gz` 的包版本相同（发布工作流取 `platforms/linux/version.txt`），Windows 为 `MSIME_WINDOWS_VERSION`。Windows 由 `platforms/windows/src/entrypoints/server_main.cpp` 在 `wmain` 开头调用，Server 每被拉起一次就同步 POST 一次。Linux 只有 IBus 宿主 `msime-client-ibus` 上报：`platforms/linux/src/entrypoints/ibus_main.cpp` 在向 ibus-daemon 注册 component 成功之后，另起一个不等待的后台线程发送，所以端点慢或不可达都不会拖住输入法注册；每次由 ibus-daemon 或用户拉起的宿主发一次，`msime-client-ibus-launcher` 的崩溃守护重启的宿主（带 `--recovered`）不发。Fcitx5 插件（`msime-fcitx5`）不链接 `Telemetry.cpp`，既不发启动事件也不发崩溃事件。崩溃走 `std::set_terminate`，回调传的 message 是写死的 `"std::terminate"`，既没有异常内容也没有调用栈——`crash()` 组装的 JSON 只有 id、kind、platform、version、message 五个字段；Linux 上崩溃守护重启的宿主同样注册这个回调。
+- Linux 与 Windows（C++ 宿主进程）：`platforms/common/Telemetry.cpp`，没有首次启动去重。download 事件的 JSON 只有 id（随机十六进制串）、kind、platform（`"linux"` 或 `"windows"`）、version 四个字段，version 是构建时写入的发布版本：Linux 为 CMake 的 `MSIME_LINUX_VERSION`，与 `.deb`/`.tar.gz` 的包版本相同（发布工作流取 `platforms/linux/version.txt`），Windows 为 `MSIME_WINDOWS_VERSION`。Windows 由 `platforms/windows/src/entrypoints/server_main.cpp` 在读到已保存的偏好之后判断 `telemetry_enabled`（`platforms/windows/src/system/TelemetryConsent.h`，只有显式的 `true` 算开启，缺省、类型不对都算关闭）：开启时另起一个不等待的后台线程发送启动事件，端点慢或不可达都不会拖住 Server 启动；关闭时既不发送，也不写 `telemetry.json`。崩溃回调在 `wmain` 开头注册，但只在开关当时为开时才上报，设置页保存后立即按新值生效；启动事件则在 Server 下一次启动时按当时的值决定。Linux 只有 IBus 宿主 `msime-client-ibus` 上报：`platforms/linux/src/entrypoints/ibus_main.cpp` 在向 ibus-daemon 注册 component 成功之后，另起一个不等待的后台线程发送，所以端点慢或不可达都不会拖住输入法注册；每次由 ibus-daemon 或用户拉起的宿主发一次，`msime-client-ibus-launcher` 的崩溃守护重启的宿主（带 `--recovered`）不发。Fcitx5 插件（`msime-fcitx5`）不链接 `Telemetry.cpp`，既不发启动事件也不发崩溃事件。崩溃走 `std::set_terminate`，回调传的 message 是写死的 `"std::terminate"`，既没有异常内容也没有调用栈——`crash()` 组装的 JSON 只有 id、kind、platform、version、message 五个字段；Linux 上崩溃守护重启的宿主同样注册这个回调。
 - Android 与 HarmonyOS：`platforms/android/java/app/msime/client/core/Telemetry.java`（由 `HomeActivity` 调起，`SharedPreferences` 的 `first-launch` 去重，`Thread.setDefaultUncaughtExceptionHandler` 捕获崩溃）和 `platforms/harmony/entry/src/main/ets/telemetry/Telemetry.ets`（由 `EntryAbility.onCreate` 调起，只有装机事件，没有崩溃捕获，也没有本地去重）。
 
-事件都是先落盘再发送、发送成功才从队列移除，但**补发只有 Apple 与 Android 做了**：这两份实现在每次启动时遍历整个队列重试，所以离线期间攒下的事件联网后会补发。Linux 与 Windows 只落盘、只尝试发当前这一条，从不回头读队列里的历史事件——离线时写进 `telemetry.json` 的事件会一直留在那里，直到被 64 条上限挤掉，永远不会补发。HarmonyOS 连落盘都没有，`Telemetry.ets` 直接发一次 HTTP 请求，失败即丢弃。队列上限 64 条，文件位置：Apple 为应用支持目录下的 `MSIME/telemetry-events.json`（iOS 放在 App Group 容器里，文件权限 0600）、Windows 为 `%LOCALAPPDATA%\MSIME\telemetry.json`、Linux 为 `$XDG_STATE_HOME/msime/telemetry.json`（未设时为 `~/.local/state/msime/telemetry.json`）、Android 在 `msime-telemetry` 这个 SharedPreferences 里。想让它彻底不发，目前只能在构建时去掉调用点，或者在网络层阻断该端点。
+事件都是先落盘再发送、发送成功才从队列移除，但**补发只有 Apple 与 Android 做了**：这两份实现在每次启动时遍历整个队列重试，所以离线期间攒下的事件联网后会补发。Linux 与 Windows 只落盘、只尝试发当前这一条，从不回头读队列里的历史事件——离线时写进 `telemetry.json` 的事件会一直留在那里，直到被 64 条上限挤掉，永远不会补发。HarmonyOS 连落盘都没有，`Telemetry.ets` 直接发一次 HTTP 请求，失败即丢弃。队列上限 64 条，文件位置：Apple 为应用支持目录下的 `MSIME/telemetry-events.json`（iOS 放在 App Group 容器里，文件权限 0600）、Windows 为 `%LOCALAPPDATA%\MSIME\telemetry.json`、Linux 为 `$XDG_STATE_HOME/msime/telemetry.json`（未设时为 `~/.local/state/msime/telemetry.json`）、Android 在 `msime-telemetry` 这个 SharedPreferences 里。在 Windows 上保持「匿名使用统计」关闭（出厂即关闭）就不会发送；从此前版本升级的 Windows 用户，旧版本已写下的 `telemetry.json` 会留在原处，关闭开关不会删除它，也不会补发。其余平台想让它彻底不发，目前只能在构建时去掉调用点，或者在网络层阻断该端点。
 
 ## 留在本地的东西
 
@@ -99,7 +99,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 ## 没有的东西
 
-没有第三方统计、用户行为分析或崩溃上报 SDK：Sentry、Mixpanel、Amplitude、Crashlytics、Google Analytics 及其等价物既不在依赖里，也不在代码里。全仓库唯一的上报路径是上面那条自己实现的[安装与崩溃上报](#安装与崩溃上报默认开启)，命中的文件应当只有它的那几份实现、调用点与构建配置（`platforms/linux/CMakeLists.txt`、`platforms/windows/CMakeLists.txt`），外加描述它的 `platforms/linux/README.md` 和钉住它的测试（`shared/backend/Tests/BackendTelemetryClientTests.swift`、`platforms/linux/tests/core/ibus_startup_telemetry.py`）：
+没有第三方统计、用户行为分析或崩溃上报 SDK：Sentry、Mixpanel、Amplitude、Crashlytics、Google Analytics 及其等价物既不在依赖里，也不在代码里。全仓库唯一的上报路径是上面那条自己实现的[安装与崩溃上报](#安装与崩溃上报)，命中的文件应当只有它的那几份实现、调用点与构建配置（`platforms/linux/CMakeLists.txt`、`platforms/windows/CMakeLists.txt`），外加描述它的 `platforms/linux/README.md`、Windows 开关所在的偏好定义与设置页（`crates/client-core/src/preferences.rs`、`packages/ui/src/index.tsx`）和钉住它的测试（`shared/backend/Tests/BackendTelemetryClientTests.swift`、`platforms/linux/tests/core/ibus_startup_telemetry.py`、`platforms/windows/tests/runtime/telemetry_consent.cpp`、`crates/client-core/src/preferences/tests.rs`、`apps/desktop/tests/settings/settings.test.tsx`）：
 
 ```sh
 git grep -ilwE '(telemetry|analytics|sentry|mixpanel|crashlytics)' -- crates apps packages platforms shared

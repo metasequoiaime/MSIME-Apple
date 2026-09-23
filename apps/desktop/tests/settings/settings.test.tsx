@@ -2492,6 +2492,54 @@ test("macOS exposes its native server logger without a Windows TSF switch", asyn
   expect(screen.queryByLabelText("输入法宿主日志")).toBeNull();
 });
 
+test("the telemetry switch is offered on Windows only, starts off and says what it sends", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+    host: { platform: "windows" } as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  const toggle = (await screen.findByLabelText("匿名使用统计")) as HTMLInputElement;
+  // A configuration that never mentioned telemetry must not start reporting.
+  expect(toggle.checked).toBe(false);
+  const description = toggle.closest("label")?.textContent ?? "";
+  expect(description).toContain("默认关闭");
+  expect(description).toContain("https://api.msime.app/v1/telemetry/events");
+  expect(description).toContain("std::terminate");
+  expect(description).toContain("不含输入内容");
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    telemetry_enabled: true,
+  });
+});
+
+test.each(["linux", "macos", "android", "ios", "harmony", undefined])(
+  "the telemetry switch is not offered where the host does not read it (%s)",
+  async (platform) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: platform ? ({ platform } as HostCapabilities) : undefined,
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
+    expect(screen.queryByLabelText("匿名使用统计")).toBeNull();
+  },
+);
+
 const initial: Snapshot = {
   format_version: 1,
   revision: 7,
