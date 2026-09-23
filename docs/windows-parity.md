@@ -49,7 +49,7 @@
 - pipe-only 配置（`-DMSIME_WINDOWS_PIPE_ONLY=ON`）在 x86_64 与 i686 两个架构上各配置构建一次：`windows_ipc.h` 的 `static_assert` 钉的是帧大小与字段偏移，两个位数都要成立。
 - 运行：`platforms/windows/run-tests-wine.sh x64` 在 `xvfb-run -a wine` 下运行交叉产物（C++ 套件与 `cargo test --no-run` 产出的 Rust 套件），每个套件 120 秒超时，失败集合与 `scripts/known-failures.txt` 比对，只对不在清单里的名字失败。
 - MSVC 全量构建与打包：`platforms/windows/Build-Client.ps1`（x64 出 Server/Watchdog/prepare/TSF，x86 出 TSF 与 Host DLL；完成前读五个 x64 EXE 与两对 TSF/Host DLL 的 PE 头做架构与类型门禁），安装包走 `platforms/windows/installer/Package-SimplySign.ps1`。
-- CI：`.github/workflows/ci-platforms.yml` 的 Windows 作业跑在 `debian:trixie-slim` 容器里（环境与 `platforms/windows/cross/Dockerfile` 一致；Ubuntu 24.04 的 MinGW 头文件没有 `msimeui` SVG 渲染要用的 `d2d1_3.h`），执行 `build-cross.sh x64`。`.github/workflows/release-windows.yml` 手动触发，同样走交叉构建并把 `target/windows-full/x64/` 打成压缩包发布。
+- CI：`.github/workflows/ci-platforms.yml` 的 Windows 作业跑在 `debian:trixie-slim` 容器里（环境与 `platforms/windows/cross/Dockerfile` 一致；Ubuntu 24.04 的 MinGW 头文件没有 `msimeui` SVG 渲染要用的 `d2d1_3.h`），执行 `build-cross.sh x64`。同一工作流的 `windows-scripts` 作业在 `windows-2025` 上用 pwsh 跑 `tests/tools/` 下发布脚本的探针测试（`portable_executable`、`runtime_dependencies`、`collect_notices`、`build_client`），不编译任何东西；这些测试随测试目录重组失修过一段时间（相对路径少了一层），此后由这个作业看住。`.github/workflows/release-windows.yml` 手动触发，在 `windows-2025` 上用 MSVC 构建并编出未签名的 Inno Setup 安装包，签名仍是发布机上的本地步骤。
 
 ### 原生测试套件
 
