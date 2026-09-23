@@ -132,6 +132,36 @@ int main() {
   require(!parse_aux_langbar_right_click(L"TerminalDeactivation|7|42"));
   require(!parse_aux_terminal_deactivation(L"LangbarRightClick|1|2|3|4"));
 
+  // Passthrough typing statistics: what the DLL builds is what the Server parses, sorted, and split to fit the pipe.
+  {
+    const auto messages = aux_typing_statistics_messages(true, L"hello");
+    require(messages.size() == 1 && messages[0] == L"TypingStatistics|E|ehllo");
+    const auto bytes = wire(messages[0]);
+    const auto text = aux_text_from_bytes(bytes.data(), bytes.size());
+    require(text.has_value());
+    const auto parsed = parse_aux_typing_statistics(*text);
+    require(parsed && parsed->english && parsed->characters == L"ehllo");
+    const auto chinese = parse_aux_typing_statistics(
+        aux_typing_statistics_messages(false, L"3,1")[0]);
+    require(chinese && !chinese->english && chinese->characters == L",13");
+    require(aux_typing_statistics_messages(true, L"").empty());
+    const std::wstring many(300, L'x');
+    size_t carried = 0;
+    for (const auto &message : aux_typing_statistics_messages(true, many)) {
+      require(message.size() * sizeof(wchar_t) <= max_aux_message_bytes);
+      const auto piece = parse_aux_typing_statistics(message);
+      require(piece.has_value());
+      carried += piece->characters.size();
+    }
+    require(carried == many.size());
+    require(!parse_aux_typing_statistics(L"TypingStatistics|E|"));
+    require(!parse_aux_typing_statistics(L"TypingStatistics|X|a"));
+    require(!parse_aux_typing_statistics(L"TypingStatistics|Ea"));
+    require(!parse_aux_typing_statistics(L"TypingStatisticsX|E|a"));
+    require(!parse_aux_typing_statistics(std::wstring(L"TypingStatistics|E|") + wchar_t(0xD83D)));
+    require(!parse_aux_langbar_right_click(L"TypingStatistics|E|a"));
+  }
+
   std::cout << "Aux message: langbar rectangle parsed, malformed rejected\n";
     return 0;
   } catch (const std::exception &error) {

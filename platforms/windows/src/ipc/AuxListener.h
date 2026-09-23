@@ -37,12 +37,15 @@ public:
   // then is the "OK" the settings process is waiting on written back: it takes
   // that as permission to open the dictionaries exclusively.
   using MaintenanceSink = std::function<bool(AuxDictionaryMaintenance)>;
+  // Keys the TIP let through to the application, batched. Return true once the batch has been handed to the store; the "OK" that follows tells the DLL to keep sending, and its absence makes it back off.
+  using StatisticsSink = std::function<bool(const AuxTypingStatistics &)>;
   static std::unique_ptr<AuxListener> create(const std::wstring &name,
                                              Sink sink, DWORD &error,
                                              MessageSink message_sink = {},
                                              ActivationSink activation = {},
                                              TerminalSink terminal = {},
-                                             MaintenanceSink maintenance = {});
+                                             MaintenanceSink maintenance = {},
+                                             StatisticsSink statistics = {});
   ~AuxListener();
   AuxListener(const AuxListener &) = delete;
   AuxListener &operator=(const AuxListener &) = delete;
@@ -62,6 +65,7 @@ private:
   ActivationSink activation_;
   TerminalSink terminal_;
   MaintenanceSink maintenance_;
+  StatisticsSink statistics_;
   HANDLE cancel_ = nullptr;
   std::thread worker_;
   std::mutex stop_mutex_;
