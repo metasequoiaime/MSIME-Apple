@@ -67,6 +67,38 @@ Check ($text.Contains('Rust crates statically linked into the MSIME host library
 Check ($text.Contains('npm packages bundled into the MSIME desktop settings frontend')) 'installed notices contain the npm package section'
 Check (Test-Path -LiteralPath (Join-Path $pf64 'LICENSE.txt') -PathType Leaf) 'LICENSE.txt installed'
 
+# ---- upgrade in place, then move the data directory ----
+# DataDir is the Server state root, so a reinstall must keep everything that is not a package file, and choosing a new directory must move all of it, as the source installer does. The new directory is nested inside the old one on purpose: the source installer's recursive delete of the old directory would take the moved data with it.
+function Install([string]$Directory, [string]$Log) {
+    $run = Start-Process -FilePath $Installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DATADIR=`"$Directory`"", "/LOG=`"$logs\$Log`"" -Wait -PassThru
+    if ($run.ExitCode -ne 0) { Get-Content -LiteralPath "$logs\$Log" -Tail 60; throw "installer exited with $($run.ExitCode)" }
+}
+$seeded = @{ 'preferences.json' = '{"smoke":"preferences"}'; 'user\smoke-user.txt' = 'user'; 'skins\smoke\skin.json' = 'skin' }
+foreach ($item in $seeded.GetEnumerator()) {
+    $path = Join-Path $dataDir $item.Key
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+    Set-Content -LiteralPath $path -Value $item.Value -NoNewline -Encoding utf8
+}
+Set-Content -LiteralPath (Join-Path $dataDir 'runtime-options.json') -Value 'smoke-stale-runtime-options' -NoNewline -Encoding utf8
+Install $dataDir 'upgrade.log'
+foreach ($item in $seeded.GetEnumerator()) {
+    $path = Join-Path $dataDir $item.Key
+    Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw) -eq $item.Value) "reinstall keeps $($item.Key)"
+}
+$movedDir = Join-Path $dataDir 'moved'
+Install $movedDir 'move.log'
+$app = Get-ItemProperty -LiteralPath $appKey
+Check ($app.DataDir -eq $movedDir) "DataDir recorded as the new directory ($($app.DataDir))"
+foreach ($item in $seeded.GetEnumerator()) {
+    $path = Join-Path $movedDir $item.Key
+    Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw) -eq $item.Value) "move carries $($item.Key)"
+}
+$runtimeOptions = Join-Path $movedDir 'runtime-options.json'
+Check (-not ((Test-Path -LiteralPath $runtimeOptions) -and (Get-Content -LiteralPath $runtimeOptions -Raw) -eq 'smoke-stale-runtime-options')) 'move leaves the old runtime-options.json behind'
+Check (Test-Path -LiteralPath (Join-Path $movedDir 'msime.db') -PathType Leaf) 'moved DataDir has the package dictionary'
+$left = @(Get-ChildItem -LiteralPath $dataDir -Force | ForEach-Object Name)
+Check ($left.Count -eq 1 -and $left[0] -eq 'moved') "previous DataDir emptied around the nested new one ($($left -join ', '))"
+
 # ---- uninstall ----
 # The uninstaller relaunches itself from a temporary copy and returns at once, so wait for the program directory to go away instead of the process.
 $uninstaller = Join-Path $pf64 'unins000.exe'

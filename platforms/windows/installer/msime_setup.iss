@@ -182,6 +182,8 @@ var
   UserConfigExistedBeforeInstall: Boolean;
   DataDirValue: String;
   PreviousDataDir: String;
+  { Set once MigrateUserDataDir has copied every user item out of a different previous directory; FinishDataDirMove only removes that directory when it is. }
+  DataDirMigrated: Boolean;
 
 { WebView2 Runtime 与 VC 运行库都不随包分发：前者有自己的 Evergreen 更新通道，
   后者是系统级共享组件，安装器不该替用户装。但缺了任何一个，输入法装完就是坏的，
@@ -746,14 +748,45 @@ begin
   Result := CompareText(FileName, 'skins') = 0;
 end;
 
+function IsPackageDatabaseItem(const FileName, DatabaseName: String): Boolean;
+begin
+  Result :=
+    (CompareText(FileName, DatabaseName) = 0) or
+    (CompareText(FileName, DatabaseName + '-wal') = 0) or
+    (CompareText(FileName, DatabaseName + '-shm') = 0) or
+    (CompareText(FileName, DatabaseName + '-journal') = 0);
+end;
+
+{ DataDir 顶层里属于安装包的条目：Prepare-PackageFiles.ps1 放进 app_data 的每一项（每次完整安装都会重新写入），加上来源安装包布局独有的几项和早期版本的 html 目录。除此之外的一切都是用户状态：来源布局的 msime_user.db / config.toml / skins，以及本仓库 Server 以 DataDir 为状态根写下的 preferences.json、user\、cache\、logs\、runtime-options.json、统计与剪贴板历史等。}
+function IsPackageAppDataItem(const FileName: String): Boolean;
+begin
+  Result :=
+    (CompareText(FileName, 'pinyin.txt') = 0) or
+    IsPackageDatabaseItem(FileName, 'msime.db') or
+    (CompareText(FileName, 'dictionary-manifest.json') = 0) or
+    (CompareText(FileName, 'dict_japanese.dat') = 0) or
+    (CompareText(FileName, 'MOZC_DICTIONARY_LICENSE.txt') = 0) or
+    IsPackageDatabaseItem(FileName, 'english.db') or
+    IsPackageDatabaseItem(FileName, 'others.db') or
+    (CompareText(FileName, 'config.default.toml') = 0) or
+    (CompareText(FileName, 'helpcodes') = 0) or
+    (CompareText(FileName, 'audios') = 0) or
+    (CompareText(FileName, 'html') = 0) or
+    (CompareText(FileName, 'dict_pinyin.dat') = 0) or
+    (CompareText(FileName, 'sc.lm') = 0) or
+    (CompareText(FileName, 'libime-lm-NOTICE.md') = 0);
+end;
+
 function IsPreservedAppDataItem(const FileName: String): Boolean;
 begin
   { 所有权标记也要留下。PrepareToInstall 先写标记再清理旧文件，ssPostInstall 才重写；安装若在两者之间失败，没有标记的非空自定义目录就不再被认作我们建的，重试安装会拒绝它，卸载也会跳过它。}
+  { 升级只清安装包自己的条目。Server 的状态根就是 DataDir，按来源布局只留 msime_user.db / config.toml / skins 会在每次完整升级时删掉 preferences.json、user\ 里的用户词库和其余状态。}
   Result :=
     IsUserDatabaseFile(FileName) or
     IsUserConfigFile(FileName) or
     IsUserSkinDirectory(FileName) or
-    (CompareText(FileName, DataDirMarkerName) = 0);
+    (CompareText(FileName, DataDirMarkerName) = 0) or
+    (not IsPackageAppDataItem(FileName));
 end;
 
 function InitializeUninstall(): Boolean;
@@ -1056,67 +1089,133 @@ begin
   end;
 end;
 
-function MigrateUserDataDir(const OldDir, NewDir: String): String;
+{ 迁移到新目录的条目：安装包条目由本次安装重新写入，所有权标记由 PrepareToInstall 另写，写入探针是 DataDirRejectionReason 的残留；runtime-options.json 记着旧目录的绝对路径，不带过去，Server 首次启动时会在新目录里重新生成（FirstRun.h）。}
+function IsMigratedDataItem(const FileName: String): Boolean;
+begin
+  Result :=
+    (not IsPackageAppDataItem(FileName)) and
+    (CompareText(FileName, DataDirMarkerName) <> 0) and
+    (CompareText(FileName, 'runtime-options.json') <> 0) and
+    (CompareText(FileName, '.runtime-options-prepared') <> 0) and
+    (CompareText(Copy(FileName, 1, 18), 'msime-write-probe-') <> 0);
+end;
+
+function RobocopySucceeded(const Params: String): Boolean;
 var
   ResultCode: Integer;
-  Copied: Boolean;
+begin
+  ResultCode := -1;
+  Result := Exec(
+    ExpandConstant('{sys}\robocopy.exe'),
+    Params + ' /COPY:DAT /R:2 /W:1 /NJH /NJS /NP /NFL /NDL',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) and (ResultCode >= 0) and (ResultCode < 8);
+end;
+
+{ 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），用户词库回放或登录任务失败都会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接 robocopy /MOVE，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
+function MigrateUserDataDir(const OldDir, NewDir: String): String;
+var
+  FindRec: TFindRec;
+  Source: String;
+  Destination: String;
 begin
   Result := '';
+  DataDirMigrated := False;
   if (OldDir = '') or (CompareText(OldDir, NewDir) = 0) or
     (not DirExists(OldDir)) then
     exit;
 
-  { Keep the source intact until the entire installation has succeeded. A move
-    can remove the main SQLite file before a locked WAL or configuration fails,
-    leaving neither directory with a complete recoverable user state. }
-  Log('Copying user data; the previous directory is retained for recovery.');
+  Log('Copying user data; the previous directory is kept until installation succeeds.');
   if not ForceDirectories(NewDir) then
   begin
     Result := '无法创建新的数据目录：' + NewDir;
     exit;
   end;
 
-  ResultCode := -1;
-  Copied := Exec(
-    ExpandConstant('{sys}\robocopy.exe'),
-    '"' + OldDir + '" "' + NewDir + '" ' +
-    'msime_user.db msime_user.db-wal msime_user.db-shm msime_user.db-journal ' +
-    'config.toml config.base.toml /COPY:DAT /R:2 /W:1 /NJH /NJS /NP /NFL /NDL',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  ) and (ResultCode >= 0) and (ResultCode < 8);
-
-  if not Copied then
+  if FindFirst(AddBackslash(OldDir) + '*', FindRec) then
   begin
-    Result := '用户数据复制失败，安装已停止；原目录中的数据保持不变。请关闭相关程序并检查目标磁盘后重试。';
+    try
+      repeat
+        Source := AddBackslash(OldDir) + FindRec.Name;
+        Destination := AddBackslash(NewDir) + FindRec.Name;
+        { 新目录就在这一项里面（新目录是旧目录的子目录）时跳过：它不是用户数据，不能复制进自己。}
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') and
+          IsMigratedDataItem(FindRec.Name) and
+          (not IsPathInside(NewDir, Source)) then
+        begin
+          { 目标恰好就是旧目录或它的上级（旧目录是新目录的子目录且同名），复制会写进源头自身。}
+          if IsPathInside(OldDir, Destination) then
+          begin
+            Result := '旧数据目录与新数据目录中的 ' + FindRec.Name + ' 位置冲突，安装已停止；原目录中的数据保持不变。请另选一个数据目录。';
+            exit;
+          end;
+          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+          begin
+            if not RobocopySucceeded('"' + Source + '" "' + Destination + '" /E') then
+            begin
+              Result := '用户数据复制失败（' + FindRec.Name + '），安装已停止；原目录中的数据保持不变。请关闭相关程序并检查目标磁盘后重试。';
+              exit;
+            end;
+          end
+          else if not RobocopySucceeded('"' + OldDir + '" "' + NewDir + '" "' + FindRec.Name + '"') then
+          begin
+            Result := '用户数据复制失败（' + FindRec.Name + '），安装已停止；原目录中的数据保持不变。请关闭相关程序并检查目标磁盘后重试。';
+            exit;
+          end;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+  DataDirMigrated := True;
+end;
+
+{ 安装全部成功后才删除旧目录，而且只删带所有权标记（或默认位置）的目录。新目录在旧目录里面时不能递归删除整个旧目录——来源安装包就是这样把刚迁过去的数据一起删掉的——只删旧目录顶层除新目录所在那一项之外的条目。}
+procedure FinishDataDirMove;
+var
+  OldDir: String;
+  NewDir: String;
+  FindRec: TFindRec;
+  ItemPath: String;
+begin
+  if not DataDirMigrated then
+    exit;
+  OldDir := ResolvePreviousDataDir;
+  NewDir := GetDataDir('');
+  if (CompareText(OldDir, NewDir) = 0) or (not DirExists(OldDir)) or
+    (not OwnsDataDir(OldDir)) then
+    exit;
+  if not IsPathInside(NewDir, OldDir) then
+  begin
+    Log('Removing the previous data directory after a successful move.');
+    TryDeleteTree(OldDir);
     exit;
   end;
-
-  if DirExists(AddBackslash(OldDir) + 'skins') then
+  Log('Removing the previous data directory''s entries around the new one inside it.');
+  if FindFirst(AddBackslash(OldDir) + '*', FindRec) then
   begin
-    ResultCode := -1;
-    Copied := Exec(
-      ExpandConstant('{sys}\robocopy.exe'),
-      '"' + AddBackslash(OldDir) + 'skins" "' +
-      AddBackslash(NewDir) + 'skins" /E /COPY:DAT /R:2 /W:1 /NJH /NJS /NP /NFL /NDL',
-      '',
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ResultCode
-    ) and (ResultCode >= 0) and (ResultCode < 8);
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          ItemPath := AddBackslash(OldDir) + FindRec.Name;
+          if not IsPathInside(NewDir, ItemPath) then
+          begin
+            if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+              TryDeleteTree(ItemPath)
+            else
+              DeleteFile(ItemPath);
+          end;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
   end;
-
-  if not Copied then
-  begin
-    Result := '用户皮肤复制失败，安装已停止；原目录中的数据保持不变。请检查目标磁盘后重试。';
-    exit;
-  end;
-
-  { Do not recursively delete OldDir, even if it has an ownership marker.
-    NewDir may be a child of it, and later replay/installation can still fail.
-    The retained copy is a recovery snapshot, not a second active data store. }
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -1206,6 +1305,8 @@ begin
       'Software\Microsoft\Windows\CurrentVersion\Run',
       'MetasequoiaImeWatchdog'
     );
+    { Last: every step above that can fail raises before this, so a failed install keeps the previous data directory. }
+    FinishDataDirMove;
   end;
 end;
 
