@@ -151,6 +151,11 @@ jobs:
           name: msime-windows-${{ steps.version.outputs.value }}
           path: dist/
           if-no-files-found: error
+      # The runner is a disposable elevated Windows machine, so install the built package on it and uninstall it again before anything is published. The artifact is uploaded first so a failing package can still be inspected.
+      - name: Install and uninstall the package
+        shell: pwsh
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        run: ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/MetasequoiaIME_Setup_v$env:VERSION.exe"
       - name: Publish independent Windows release
         if: inputs.publish
         shell: bash
