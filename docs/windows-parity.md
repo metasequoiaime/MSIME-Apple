@@ -896,7 +896,7 @@ macOS（`shared/apple/TextClient.mm`，iOS 共用）与 Linux 两套前端改成
 
 **其二：成对模式下引号的左右交替。** 引号只有一个物理键，引擎靠一个 toggle 交替给出“与”。宿主补右引号时，那次「本该给”」的按键不会发生，toggle 停在「下一个是右引号」，于是**用户下一次打引号得到的是”**。来源同样在这里改写：成对模式下每一次按键都开一对新的（`punctuationStr.back() == L'”' → L'“'`）。macOS 照做。
 
-落点都在 `apply:` 里补右符号那一段，开关关掉时两件事都不做（引擎自己的交替与嵌套正是没有成对补全时该有的行为）。`MSIMEClientSession` 新增 `balancePairedPunctuationAfterAutoClose:error:`（iOS 共用这个类，纯新增）。
+落点都在 `apply:` 里补右符号那一段，开关关掉时两件事都不做——宿主不补右半边，交替与嵌套留给引擎。**更正（2026-09-23）**：这里原先写「引擎自己的交替与嵌套正是没有成对补全时该有的行为」，暗示开关关掉时引擎会交替、会嵌套。当时没有验证，而且是错的：锁定引擎的 `PunctuationPolicy::translate` 在成对关闭时引号永远给左半边、`<` `>` 永远给不嵌套的《》，见文末同日记录。`MSIMEClientSession` 新增 `balancePairedPunctuationAfterAutoClose:error:`（iOS 共用这个类，纯新增）。
 
 用例接在既有的成对标点整链用例后面：（不触发回退、《与〈各触发一次且带的是 `'<'`、右引号被读成新一对的开始、关掉开关后三者都恢复原样。反向验证两处（去掉回退调用、让引号改写成为空操作）分别红在各自断言上。全量 macOS `ctest` 129/129，`--quick` 通过。
 
@@ -2478,3 +2478,11 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - provider：`translations()` 按 `provider` 分派。`none`、未知值、所选的 NiuTrans 或自定义服务没有随请求带来配置，都返回空结果，不访问网络；只有 `provider=tencent` 时才读取腾讯文件。后续发请求也按所选服务分派，请求里夹带的其他服务配置不会改变去向。缺少该字段的请求来自旧版宿主，这时沿用旧规则（NiuTrans、自定义、腾讯依次取第一个可用的），混用新旧版本时行为不变。
 - 宿主侧：`UnixSocketProvider::translate` 遇到 `none` 直接返回空结果，连本地 socket 都不连接，候选文字不会离开输入法进程。IBus 与 Fcitx5 引擎代码没有改动：它们转发的是 host-api 生成的查询，`provider` 变化会让去重键变化，从而重新发起请求。
 - 证据：`platforms/linux/tests/dictionary/translation_provider_selection.py` 放了一份有效的腾讯凭据，断言关闭、NiuTrans 缺凭据、自定义缺 endpoint、未知服务这几种情况都不会发出网络请求，并断言只会请求所选的那一家，旧版宿主的请求保持原来的选择。该用例在改动前的脚本上失败 8 项，改动后全部通过。input-runtime 单测覆盖 `provider` 在 JSON 往返中不丢失、缺省时仍为缺省、`none` 不连接 socket；host-api 单测经 `msime_client_translation_provider_request` 走真实 socket，确认腾讯、NiuTrans（凭据不全）、自定义（endpoint 为空）三种选择原样到达 provider，关闭时不发生连接。未在 Linux 桌面上连接真实翻译服务做验收。
+
+### 成对补全关闭或被排除的宿主里，引号恢复左右轮换、书名号恢复嵌套（2026-09-23）
+
+- 来源：`CompositionProcessorEngine.cpp` 的 `GetPunctuation` 对引号总是翻转 `_isPairToggle`（“ 之后是 ”，‘ 之后是 ’），对 `<` `>` 总是按 `_nestCount` 计数（《 〈 〉 》），两者都不看成对开关；`KeyHandler.cpp` 只在成对开启且宿主未被排除时把 ” 改写回 “ 并补右半边，注释原话是「被排除的宿主里既不补全右半边，也不做跨越式闭合，标点回落到原有的左右轮换行为」。
+- 目标：锁定引擎 `core/punctuation_policy.cpp` 在 `paired_enabled_` 为假时引号直接返回左半边、书名号返回不嵌套的《/》。macOS 对被排除的宿主（Excel）传给引擎的正是 `pairedPunctuation && !excludedHost`，各宿主在用户关掉开关时也把假值交给引擎，于是恰恰在没有任何一方补右半边的场景里，右引号打不出来，嵌套书名号变成《《》》。
+- 修法：新增 overlay `scripts/apply_engine_punctuation_alternation.py`（登记进 `engine-lock.json` 的 `overlay_scripts`），只去掉 `translate` 里两处 `paired_enabled_` 判断。成对开启时的输出不变；状态仍随会话存活，切换开关不重置，与来源一致（来源的 toggle 与计数只在建立标点对时初始化，此后不随开关、提交或焦点重置）；`balance_after_auto_close` 保留开关判断，因为只有刚补过右半边的宿主才会调它。
+- 宿主侧逐个核过，没有哪一个在成对关闭时自己做轮换，不会重复生效：macOS 的 ” → “ 改写与 Linux 两套前端的 `normalize_punctuation_pair` 都只在成对开启且未排除时执行；Windows TSF 与 Server、iOS、Android、HarmonyOS 都直接用引擎的提交结果。
+- 证据：`crates/host-api/src/tests.rs` 新增用例，经 FFI 驱动真实引擎，断言成对关闭时连按四次 `"` 得到 “”“”、`''` 得到 ‘’、`<<>>` 得到 《〈〉》、多余的 `>` 不把深度压成负数，以及打开开关不重置状态；去掉 overlay 后该用例红在第一条断言上（得到 ““““）。`shared/apple/tests/session_smoke.mm` 经 `MSIMEClientSession` 加了同样的序列，macOS `ctest` 130/130。只到源码与单元测试这一级，未在 Excel 或其它真实编辑器里验收。

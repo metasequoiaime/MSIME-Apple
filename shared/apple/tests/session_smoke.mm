@@ -93,6 +93,14 @@ int main() {
         assert([[session typeASCII:',' shift:NO error:&error][@"handled"] isEqual:@NO]);
         assert([session setChinesePunctuationEnabled:YES error:&error]);
         assert([[session typeASCII:',' shift:NO error:&error][@"commit"] isEqual:@"，"]);
+        // With paired completion off (the macOS host also sends this for an excluded app) no host supplies the closing half, so the Engine alone alternates quotes and nests book titles, as the reference does regardless of the setting. See scripts/apply_engine_punctuation_alternation.py.
+        assert([session setPairedPunctuationEnabled:NO error:&error]);
+        const struct { uint8_t key; NSString *mark; } unpaired[] = {
+            {'"', @"“"}, {'"', @"”"}, {'"', @"“"}, {'"', @"”"}, {'\'', @"‘"}, {'\'', @"’"},
+            {'<', @"《"}, {'<', @"〈"}, {'>', @"〉"}, {'>', @"》"}, {'>', @"》"}, {'<', @"《"}, {'>', @"》"},
+        };
+        for (const auto &step : unpaired) assert([[session punctuation:step.key error:&error][@"commit"] isEqual:step.mark]);
+        assert([session setPairedPunctuationEnabled:YES error:&error]);
         error = nil;
         assert([[session resetCacheWithError:&error][@"handled"] isEqual:@YES] && !error);
         dispatch_semaphore_t done = dispatch_semaphore_create(0);

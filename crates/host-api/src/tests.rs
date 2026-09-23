@@ -2879,6 +2879,42 @@ fn paired_book_title_auto_close_balance_is_narrow_and_owned() {
 }
 
 #[test]
+fn unpaired_punctuation_keeps_quote_alternation_and_book_title_nesting() {
+    // With paired completion off (or in an excluded host) nothing supplies the closing half, so the Engine's own alternation and nesting are the only way to type it - the reference's GetPunctuation does both regardless of the setting. See `scripts/apply_engine_punctuation_alternation.py`.
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(
+        read(msime_client_set_paired_punctuation(handle, false))["ok"],
+        true
+    );
+    let marks = |keys: &[u8]| -> Vec<String> {
+        keys.iter()
+            .map(|&key| {
+                read(msime_client_punctuation(handle, key))["value"]["commit"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .collect()
+    };
+    assert_eq!(marks(b"\"\"\"\""), ["“", "”", "“", "”"]);
+    assert_eq!(marks(b"''"), ["‘", "’"]);
+    assert_eq!(marks(b"<<>>"), ["《", "〈", "〉", "》"]);
+    // An unmatched closing mark leaves the depth at zero, so the next pair opens with 《 again.
+    assert_eq!(marks(b"><>"), ["》", "《", "》"]);
+
+    // The state belongs to the session, not to the setting: turning pairing on mid-quote does not reset it, as the reference's toggle is never reset by the switch either. Paired-on output is unchanged by the overlay.
+    assert_eq!(marks(b"\"<"), ["“", "《"]);
+    assert_eq!(
+        read(msime_client_set_paired_punctuation(handle, true))["ok"],
+        true
+    );
+    assert_eq!(marks(b"\"<>>"), ["”", "〈", "〉", "》"]);
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn candidate_edge_uses_engine_han_text_and_preserves_unsupported_composition() {
     for (code, first, last) in [("4e2d", "中", "中"), ("20000", "𠀀", "𠀀"), ("41", "", "")] {
         for (edge, expected) in [(0, first), (1, last)] {
