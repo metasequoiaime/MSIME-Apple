@@ -170,6 +170,8 @@
 
 **智能标点在 Windows 上默认关闭。** Windows 随包的 `config.default.toml` 五个开关全为关，来源也已把整族改成默认关；但那只是安装模板，运行中的 Server 读的是共享偏好文档。默认函数写成 `!cfg!(windows)`：只动 Windows，其余宿主一直是开着发的，让偏好在老用户脚下变掉比按平台不同更糟；两边都不影响已存下来的值。判据在 `scripts/test-default-config-parity.py`。
 
+**三个语音开关在 Windows 与 macOS 上默认打开，其余宿主默认关闭。** 来源的 `config.default.toml` 出厂就打开 `mute_system_audio`、`doubao_enable_ddc` 与 `polish_text`，Windows 随包模板也一样，但运行中的宿主读的是共享偏好文档，而它原来三个全关，于是 Windows 的全新 profile 拿到的恰好与自己随包的模板相反——和智能标点是同一个坑。默认函数 `source_voice_default()` 写成 `cfg!(any(windows, target_os = "macos"))`，同时用作缺键时的 serde 默认；Linux、Android、iOS、HarmonyOS 保持原样，理由同上一条；已存下来的值不受影响。macOS 原生侧在共享快照写进 NSUserDefaults 之前使用的回退值（`VoiceProviderOptions.h` 的润色与 DDC、`MSIMEVoiceMuteSystemAudioEnabled`、原生语音设置窗口的勾选框）与之一致。`default_ime_mode` 在 macOS 仍是中文：用户是从输入法菜单里主动选中本输入法之后才开始打字的。判据在 `scripts/test-default-config-parity.py`，模板与共享默认任一边改回去都会报出来。
+
 **智能标点的三个子开关不走独立 opcode。** 来源 `windows_ipc.h` 的 22/24/25 三个 opcode 在这边由一帧打包的标点配置携带。
 
 **打字统计的落点与存储都与来源不同。** 采集放在 Server 而不是 TSF DLL：来源的 Engine 与 DLL 同进程，而这边 Server 是唯一看得到每一条上屏字符串的地方，共享 Host API 也链在这一侧，文本本来就要作为上屏载荷从 Server 走到 DLL，采集不让它多跨任何一道边界。唯一的例外是 TIP 不吃掉的按键：它们由应用自己插入，永远到不了 Server 的上屏出口，于是英文模式的字母、中文模式下的半角数字与标点表之外的符号由 DLL 在 `OnTestKeyDown` 的三个放行出口采集，按批经已有的 Aux 管道（`TypingStatistics` 动词）交给 Server 落盘，和上屏出口共用同一段代码——即便如此，来源为此另开的那条统计命名管道（`FANY_IME_STATS_*` 契约）这边仍然不需要。统计默认关闭，关闭时 Server 不回 OK，DLL 据此退避，不在关闭期间持续把按键字符送过管道。存储则做在共享 `crates/client-core/src/typing_statistics.rs` 与共享设置页，而不是来源的 Windows 私有 SQLite 表：这些维度和「每天多少字」是同一件事，后者早就在共享层、六个宿主写同一份文档，单开一套 Windows 私有存储会让同一个用户的统计分裂成两份。速度指标另有一处有意不同：来源只数 `cjk + latin`，而它的 `latin` 是纯 ASCII 字母、假名落在 `other`，于是纯日文输入的速度恒为零；这边有完整日文模式，所以假名与谚文等也算进可读字符，数字与标点仍然不算。

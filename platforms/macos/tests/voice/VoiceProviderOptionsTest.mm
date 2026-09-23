@@ -27,19 +27,22 @@ int main() {
             [defaults setObject:invalid forKey:@"MSIMEClientVoiceCommitMode"];
             assert([MSIMEVoiceProviderOptions(base, defaults)[@"commit_mode"] isEqual:@"tsf"]);
         }
-        assert([query[@"polish_text"] isEqual:@NO]);
+        assert([query[@"polish_text"] isEqual:@YES]);
         assert(!query[@"doubao_auth_mode"]);
         assert([query[@"doubao_enable_itn"] isEqual:@YES]);
         assert([query[@"doubao_enable_punc"] isEqual:@YES]);
-        assert([query[@"doubao_enable_ddc"] isEqual:@NO]);
+        assert([query[@"doubao_enable_ddc"] isEqual:@YES]);
+        assert(MSIMEVoiceMuteSystemAudioEnabled(defaults));
+        MSIMEApplySharedVoicePreferences(@{@"mute_system_audio": @NO}, defaults);
+        assert(!MSIMEVoiceMuteSystemAudioEnabled(defaults));
         // Test the actual shared-settings -> native preferences -> request path.
         MSIMEApplySharedVoicePreferences(@{@"doubao_auth_mode": @"api_key",
-            @"doubao_enable_itn": @NO, @"doubao_enable_punc": @NO, @"doubao_enable_ddc": @YES}, defaults);
+            @"doubao_enable_itn": @NO, @"doubao_enable_punc": @NO, @"doubao_enable_ddc": @NO}, defaults);
         query = MSIMEVoiceProviderOptions(base, defaults);
         assert([query[@"doubao_auth_mode"] isEqual:@"api_key"]);
         assert([query[@"doubao_enable_itn"] isEqual:@NO]);
         assert([query[@"doubao_enable_punc"] isEqual:@NO]);
-        assert([query[@"doubao_enable_ddc"] isEqual:@YES]);
+        assert([query[@"doubao_enable_ddc"] isEqual:@NO]);
         for (NSString *key in base) assert([query[key] isEqual:base[key]]);
         assert(base.count == 3 && [NSJSONSerialization isValidJSONObject:query]);
         MSIMEApplySharedVoicePreferences(@{@"polish_text": @YES, @"polish_enabled": @NO}, defaults);
@@ -54,11 +57,11 @@ int main() {
         }
         [defaults setObject:@"false" forKey:@"MSIMEClientVoiceDoubaoEnableITN"];
         [defaults setObject:@[] forKey:@"MSIMEClientVoiceDoubaoEnablePunctuation"];
-        [defaults setObject:@"true" forKey:@"MSIMEClientVoiceDoubaoEnableDDC"];
+        [defaults setObject:@"false" forKey:@"MSIMEClientVoiceDoubaoEnableDDC"];
         query = MSIMEVoiceProviderOptions(base, defaults);
         assert([query[@"doubao_enable_itn"] isEqual:@YES]);
         assert([query[@"doubao_enable_punc"] isEqual:@YES]);
-        assert([query[@"doubao_enable_ddc"] isEqual:@NO]);
+        assert([query[@"doubao_enable_ddc"] isEqual:@YES]);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
 }

@@ -7,6 +7,12 @@ static inline BOOL MSIMEVoiceInputEnabled(NSUserDefaults *defaults) {
         [defaults boolForKey:@"MSIMEClientVoiceEnabled"];
 }
 
+// Muting other audio is on out of the box, like the source and the shared macOS default.
+static inline BOOL MSIMEVoiceMuteSystemAudioEnabled(NSUserDefaults *defaults) {
+    return [defaults objectForKey:@"MSIMEClientVoiceMuteSystemAudio"] == nil ||
+        [defaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"];
+}
+
 static inline BOOL MSIMEVoiceCueEnabled(NSUserDefaults *defaults, BOOL start) {
     NSString *key = start ? @"MSIMEClientVoiceStartSound" : @"MSIMEClientVoiceEndSound";
     return ([defaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil ||

@@ -314,6 +314,8 @@ fn ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
     preferences.voice_input.asr_app_key = "stale-app".into();
     preferences.voice_input.doubao_auth_mode = "api_key".into();
     preferences.voice_input.doubao_boosting_table_id = "fixture-table".into();
+    // The first-run value differs between the macOS test host and the mobile hosts, so state it.
+    preferences.voice_input.doubao_enable_ddc = false;
     let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
     assert_eq!(configuration.provider, "doubao");
     assert_eq!(
