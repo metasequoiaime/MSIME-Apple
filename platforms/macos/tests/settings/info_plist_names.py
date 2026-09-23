@@ -5,6 +5,8 @@ Nothing fails when the key is missing. TISRegisterInputSource still returns noEr
 
 A rename is what produces that. The identifiers live in Info.plist.in and the names live in one .strings per language, with nothing connecting the two files, so changing the identifiers in the plist leaves the old keys behind as valid syntax attached to an input source that no longer exists.
 
+The bundle declares a Chinese and an English mode, so each appears as its own entry in the input menu and in System Settings. They must read differently in every language, or the list shows the same name twice and the user cannot tell which entry types Chinese.
+
 Hence both directions: every identifier the plist declares must be named in every language, and every identifier-shaped key in a .strings must name something the plist still declares. The plist's mode identifier and TISInputSourceID are checked against each other for the same reason - a mode whose identifier disagrees, or that is absent from the visible order, is registered and then never offered.
 
 The names are not the only thing keyed on the identifier, so the last pass reads the sources: the settings app validates the packaged bundle by looking the identifier up inside it, launches the input method by it, and reads the preferences domain NSUserDefaults derives from it, and the uninstaller deletes that domain. Each of those is a string literal in another language in another directory, and each fails silently in its own way - an install that rejects the correct bundle, a restart that finds no application, a settings page that saves into a plist nobody reads.
@@ -54,6 +56,8 @@ def main() -> int:
             failures.append(f"input mode {mode} does not extend {bundle}; that is how the system tells one bundle's modes apart")
         if body.get("tsInputModeIsVisibleKey") and mode not in visible:
             failures.append(f"input mode {mode} is visible but absent from tsVisibleInputModeOrderedArrayKey; it never reaches the picker")
+    if len(visible) < 2:
+        failures.append("tsVisibleInputModeOrderedArrayKey offers fewer than two modes; the menu bar needs the Chinese and the English mode to show 中 and 英")
     for mode in visible:
         if mode not in modes:
             failures.append(f"tsVisibleInputModeOrderedArrayKey lists {mode}, which tsInputModeListKey does not declare")
@@ -78,6 +82,13 @@ def main() -> int:
                 failures.append(f"{identifier} has no name in {lproj.name}; the menu prints the identifier instead")
             elif not value.strip():
                 failures.append(f"{identifier} is named with an empty string in {lproj.name}")
+        mode_names: dict[str, list[str]] = {}
+        for mode in sorted(modes):
+            if names.get(mode, "").strip():
+                mode_names.setdefault(names[mode].strip(), []).append(mode)
+        for name, sharing in sorted(mode_names.items()):
+            if len(sharing) > 1:
+                failures.append(f"{', '.join(sharing)} are all named {name!r} in {lproj.name}; the input menu would list the same name twice")
         for key in sorted(names):
             if key not in identifiers and key not in keys:
                 failures.append(f"{lproj.name} names {key}, which {plist_path.name} does not declare; a renamed identifier leaves its old key behind")
