@@ -123,3 +123,28 @@ test.each([
   expect(recognizeHandwriting).toHaveBeenCalledOnce();
   expect(await screen.findByText(notice)).toBeTruthy();
 });
+
+test.each([
+  [undefined, 32],
+  ["linux", 32],
+  ["windows", 64],
+])("handwriting on %s keeps at most %i strokes", (platform, limit) => {
+  const recognizeHandwriting = vi.fn().mockResolvedValue({ candidates: [] });
+  render(
+    <HandwritingPanel client={{ close: vi.fn(), recognizeHandwriting }} platform={platform} />,
+  );
+  const canvas = screen.getByLabelText("手写画布");
+  function pointer(type: string, pointerId: number, x: number, y: number) {
+    const event = new Event(type, { bubbles: true });
+    Object.assign(event, { pointerId, clientX: x, clientY: y, button: 0, isPrimary: true });
+    fireEvent(canvas, event);
+  }
+  for (let index = 0; index <= limit; index++) {
+    pointer("pointerdown", index + 1, 20, 20 + index);
+    pointer("pointermove", index + 1, 60, 20 + index);
+    pointer("pointerup", index + 1, 80, 20 + index);
+  }
+  // Every stroke up to the limit is kept; the one after it is refused with a notice.
+  expect(canvas.querySelectorAll("polyline")).toHaveLength(limit);
+  expect(screen.getByRole("status").textContent).toContain("笔画已达上限");
+});
