@@ -993,6 +993,55 @@ int main(int argc, char **argv) {
                   state->session_chinese_punctuation_,
               "switching back to Chinese under the follow lock restores Chinese punctuation");
     }
+    // In Chinese mode a pinned lock holds as well, as Windows resolves Ctrl+. and the toolbar switch through ResolvePunctuationOpen: the chord is eaten, the punctuation state stays, and no preference save starts. The lock is set on the host field directly so no lock save races the checks.
+    {
+      require(state->input_enabled_ && !state->composingOrCandidates(),
+              "Chinese-mode lock test starts idle in Chinese");
+      require(!state->options_path_.empty(), "Chinese-mode lock test has a preference store a toggle would save to");
+      state->waitForPreferenceSave();
+      state->punctuation_lock_ = 2;
+      state->chinese_punctuation_ = false;
+      state->syncSessionChinesePunctuation();
+      const auto savedPunctuation = state->preferences_.value("chinese_punctuation", Json());
+      fcitx::KeyEvent chord(&ic, fcitx::Key(FcitxKey_period, fcitx::KeyStates(fcitx::KeyState::Ctrl)));
+      engine.keyEvent(entry, chord);
+      fcitx::KeyEvent chordRelease(&ic, fcitx::Key(FcitxKey_period, fcitx::KeyStates(fcitx::KeyState::Ctrl)), true);
+      engine.keyEvent(entry, chordRelease);
+      require(chord.accepted(), "Chinese-mode Ctrl+. is consumed under the English punctuation lock");
+      require(!state->chinese_punctuation_ && !state->session_chinese_punctuation_,
+              "Chinese-mode Ctrl+. does not override the English punctuation lock");
+      require(!state->preferences_save_job_.valid() &&
+                  state->preferences_.value("chinese_punctuation", Json()) == savedPunctuation,
+              "Chinese-mode Ctrl+. under a lock saves nothing");
+      engine.chinese_punctuation_action_.activate(&ic);
+      require(!state->chinese_punctuation_ && !state->session_chinese_punctuation_ &&
+                  !engine.chinese_punctuation_action_.isChecked(&ic),
+              "the Chinese punctuation status item does not override the English punctuation lock");
+      require(!state->preferences_save_job_.valid() &&
+                  state->preferences_.value("chinese_punctuation", Json()) == savedPunctuation,
+              "the Chinese punctuation status item under a lock saves nothing");
+      state->punctuation_lock_ = 0;
+      state->chinese_punctuation_ = true;
+      state->syncSessionChinesePunctuation();
+    }
+    // 重复标点转中文 depends only on smart punctuation and its repeat switch, as Windows _CanInterceptSmartPunctuationRevert does; paired completion is a separate feature. A comma after an ASCII letter goes to the editor as ASCII, and the same key again inside the window replaces it with the Chinese mark.
+    {
+      require(state->input_enabled_ && !state->composingOrCandidates(),
+              "repeat test starts idle in Chinese");
+      state->paired_punctuation_ = false;
+      state->smart_punctuation_ = true;
+      state->smart_punctuation_repeat_ = true;
+      state->forgetSmartPunctuationRepeat();
+      const auto before = ic.committed;
+      ic.surroundingText().setText("a", 1, 1);
+      require(!key(FcitxKey_comma) && ic.committed == before,
+              "smart punctuation hands a comma after a letter back to the editor");
+      ic.surroundingText().setText("a,", 2, 2);
+      require(key(FcitxKey_comma) && ic.committed == before + "，",
+              "a repeated comma turns Chinese with paired completion off");
+      ic.surroundingText().invalidate();
+      state->paired_punctuation_ = true;
+    }
     // 四个模式快捷键里的裸修饰键：按下只是布防，松开才切换，期间打了别的键或按住太久都
     // 不算。这一段此前没有任何覆盖，而实现被一条「松开或修饰键一律不处理」的返回挡在后
     // 面，于是裸 Shift 在这个宿主上一次都没生效过。

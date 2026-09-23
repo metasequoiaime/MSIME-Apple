@@ -806,7 +806,7 @@ struct State {
         chinese_punctuation != previous_chinese_punctuation ||
         fullwidth != previous_fullwidth)
       paired_tracker.clear();
-    if (!smart_punctuation || !smart_punctuation_repeat || !paired_punctuation) {
+    if (!smart_punctuation || !smart_punctuation_repeat) {
       last_smart_punctuation = 0;
       last_smart_punctuation_time = 0;
       smart_punctuation_rejected = 0;
@@ -3473,7 +3473,7 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode,
     const auto space_convert_mark =
         space_convert_ascii == 0 ? std::string{} : text;
     const bool inserted_pair = normalize_punctuation_pair(text, pair_mode);
-    if (s.smart_punctuation && s.paired_punctuation && text.size() == 1 &&
+    if (s.smart_punctuation && text.size() == 1 &&
         smart_punctuation_pair(text.front())) {
       s.last_smart_punctuation = text.front();
       s.last_smart_punctuation_time = g_get_monotonic_time();
@@ -4874,8 +4874,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.paired_punctuation_override = enabled;
       s.paired_punctuation = enabled;
       s.paired_tracker.clear();
-      s.last_smart_punctuation = 0;
-      s.smart_punctuation_rejected = 0;
       publish_mode(engine);
       return;
     }
@@ -5219,6 +5217,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (std::string(name) == "Punctuation") {
       if (!s.input_enabled || !s.session || menu_save_pending)
         return;
+      // A pinned lock holds, as Windows routes the toolbar switch through ResolvePunctuationOpen: nothing changes and nothing is saved. Republishing puts the toggle back.
+      if (s.punctuation_lock != "follow") {
+        publish_mode(engine);
+        return;
+      }
       const auto directory = configured.value("preferences_directory", std::string{});
       if (!directory.empty() && directory.front() == '/') {
         save_menu_preference(engine, MenuPreference::ChinesePunctuation, enabled);
@@ -6157,6 +6160,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (modifiers == IBUS_CONTROL_MASK && key == IBUS_period) {
+      // A pinned lock holds here too, as Windows resolves Ctrl+. through ResolvePunctuationOpen: the chord is eaten and changes nothing.
+      if (s.punctuation_lock != "follow") {
+        handled = true;
+        return;
+      }
       s.chinese_punctuation = !s.chinese_punctuation;
       s.punctuation_override = s.chinese_punctuation;
       s.view = response(msime_client_set_chinese_punctuation(
@@ -6308,7 +6316,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     // 触发 -Werror=sign-compare（新编译器上整个 IBus 宿主因此编不出来），也会让任何
     // 高位为 1 的字节提升成一个巨大的无符号数去和键值比。按 unsigned char 取值。
     if (s.chinese_punctuation && s.smart_punctuation_repeat &&
-        s.paired_punctuation &&
         static_cast<guint>(static_cast<unsigned char>(s.last_smart_punctuation)) == key &&
         s.last_smart_punctuation_time != 0 &&
         g_get_monotonic_time() - s.last_smart_punctuation_time <=
@@ -6348,23 +6355,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         if (s.fullwidth)
           text = fullwidth_text(text);
         commit_text(engine, text);
-        if (s.paired_punctuation) {
-          s.last_smart_punctuation = static_cast<char>(key);
-          s.last_smart_punctuation_time = g_get_monotonic_time();
-        }
+        s.last_smart_punctuation = static_cast<char>(key);
+        s.last_smart_punctuation_time = g_get_monotonic_time();
         handled = true;
       }
-      return;
-    }
-    if (s.chinese_punctuation && !s.smart_punctuation &&
-        s.view.at("editing_text").get<std::string>().empty() &&
-        std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
-            std::string::npos) {
-      auto text = std::string(1, static_cast<char>(key));
-      if (s.fullwidth)
-        text = fullwidth_text(text);
-      commit_text(engine, text);
-      handled = true;
       return;
     }
     const bool has_composition =
