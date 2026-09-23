@@ -3916,10 +3916,6 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void toggleChineseOutput() {
-        if (!AndroidChineseTextConversion.available()) {
-            Toast.makeText(this, "简繁转换需要 Android 10 或更高版本", Toast.LENGTH_SHORT).show();
-            return;
-        }
         if (!canSaveChineseOutput()) {
             Toast.makeText(this, "简繁设置尚未就绪", Toast.LENGTH_SHORT).show();
             return;
@@ -5255,7 +5251,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean traditionalOutputToolAvailable() {
         int scheme = view == null ? -1 : view.optInt("scheme", -1);
-        return AndroidChineseTextConversion.available() && scheme != 3
+        return scheme != 3
             && canSaveChineseOutput();
     }
 
@@ -7362,12 +7358,9 @@ public final class MSIMEInputService extends InputMethodService {
                     || selectedScheme == KeyboardScheme.JAPANESE_NINE_KEY) ? 3 : -1)
                 : view.optInt("scheme", -1);
             boolean japanese = scheme == 3;
-            boolean conversionAvailable = AndroidChineseTextConversion.available();
-            scriptShortcutButton.setEnabled(
-                conversionAvailable && !japanese && canSaveChineseOutput());
+            scriptShortcutButton.setEnabled(!japanese && canSaveChineseOutput());
             String label = traditionalChineseOutput ? "切换到简体" : "切换到繁体";
-            String outputState = !conversionAvailable ? "需要 Android 10 或更高版本"
-                : japanese ? "日语不使用简繁转换"
+            String outputState = japanese ? "日语不使用简繁转换"
                 : traditionalOutputSaving ? "正在保存"
                 : traditionalChineseOutput ? "繁体" : "简体";
             scriptShortcutButton.setContentDescription(

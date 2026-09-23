@@ -187,6 +187,15 @@ if ! rg -q 'HardwareMaintenancePolicy\.action' \
   echo "Android maintenance chords must route through HardwareMaintenancePolicy and the shared API" >&2
   exit 1
 fi
+# Simplified/Traditional output is the shared OpenCC s2t tables, phrase-level, and the same
+# conversion Windows and Linux use. This host converted one character at a time through
+# android.icu.Transliterator, which turns 头发 into 頭發 and is silently unavailable below API 29.
+if ! rg -q 'NativeClient::simplifiedToTraditional' \
+    "$repo_root/platforms/android/java/app/msime/client/core/AndroidChineseTextConversion.java" \
+  || rg -q '^import android\.icu\.text\.Transliterator' "$repo_root/platforms/android/java"; then
+  echo "Android Simplified/Traditional output must use the shared converter" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling

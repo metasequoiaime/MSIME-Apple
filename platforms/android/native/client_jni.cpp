@@ -362,6 +362,20 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setNineKeyModeRa
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_setEnglishModeRaw(JNIEnv *env, jclass, jlong handle, jboolean enabled) {
     return response(env, msime_client_set_english_mode(static_cast<uint64_t>(handle), enabled == JNI_TRUE));
 }
+// Returns the converted text directly rather than a JSON envelope, which is why it reuses the
+// same response helper: both are NUL-terminated strings this side must free. A null answer means
+// the text was not convertible and the caller keeps the original.
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_simplifiedToTraditionalRaw(JNIEnv *env, jclass, jbyteArray text) {
+    if (!text) return nullptr;
+    jsize length = env->GetArrayLength(text);
+    if (length <= 0) return nullptr;
+    jbyte *bytes = env->GetByteArrayElements(text, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_simplified_to_traditional(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(text, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_resetCacheRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_reset_cache(static_cast<uint64_t>(handle)));
 }
