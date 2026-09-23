@@ -2444,7 +2444,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           guard let self, indexes.indices.contains(index) else { return }
           closeKeyboardPicker()
           playInputClick()
-          render(session.selectCandidate(generation: generation, globalIndex: indexes[index]))
+          render(session.selectAnyCandidate(generation: generation, globalIndex: indexes[index]))
         },
         onClose: { [weak self] in self?.closeKeyboardPicker() })
       panel.accessibilityViewIsModal = true
@@ -3606,6 +3606,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       return true
     }
+    guard session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses }
     let management = candidateMenuElements { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }

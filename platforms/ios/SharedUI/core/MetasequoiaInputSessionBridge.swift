@@ -24,6 +24,8 @@ private func msimeClientPunctuationWithContext(
 private func msimeClientCommand(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select")
 private func msimeClientSelect(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_select_any_candidate")
+private func msimeClientSelectAnyCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select_edge")
 private func msimeClientSelectEdge(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ edge: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_pin_candidate")
@@ -636,6 +638,22 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func selectCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
     guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
     return dispatch { msimeClientSelect(handle, generation, index) }
+  }
+
+  /// Select an entry of the expanded panel. Panel positions index the Engine's whole answer, and `selectCandidate(generation:globalIndex:)` only accepts the page the strip is showing, so anything past the ninth candidate came back as stale.
+  func selectAnyCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
+    guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
+    return dispatch { msimeClientSelectAnyCandidate(handle, generation, index) }
+  }
+
+  /// Whether a whole-answer candidate sits on the page the strip is showing. Pin, remove, fix and 以词定字 are page-bounded in the runtime, so the expanded panel offers them only for these entries.
+  func isOnCurrentPage(generation: UInt64, globalIndex: UInt64) -> Bool {
+    guard let rows = try? currentCandidates() else { return false }
+    return rows.contains { row in
+      guard let identity = row["id"] as? [String: Any] else { return false }
+      return (identity["generation"] as? NSNumber)?.uint64Value == generation
+        && (identity["index"] as? NSNumber)?.uint64Value == globalIndex
+    }
   }
 
   /// Commit only the first or the last Han character of a candidate (以词定字); the Engine ends the composition with it.
