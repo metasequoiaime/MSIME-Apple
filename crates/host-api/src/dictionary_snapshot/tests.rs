@@ -408,10 +408,21 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     }
     fs::create_dir_all(staged.join("cache")).unwrap();
     fs::write(staged.join("cache").join("marker"), b"new").unwrap();
-    assert_eq!(
-        activate(handle, &expected).unwrap(),
-        serde_json::json!({"activated": true})
-    );
+    // Other tests spawn processes concurrently, and a fork can briefly inherit the dropped session's locked file description before close-on-exec runs, so maintenance access may read busy for a moment. Same allowance as the access lock's own test.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let activated = loop {
+        match activate(handle, &expected) {
+            Err(error) if error == "snapshot access busy" => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "released dictionary lock remained busy"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            result => break result.unwrap(),
+        }
+    };
+    assert_eq!(activated, serde_json::json!({"activated": true}));
     for name in ["user", "cache", dictionaries] {
         assert_eq!(fs::read(active.join(name).join("marker")).unwrap(), b"new");
     }

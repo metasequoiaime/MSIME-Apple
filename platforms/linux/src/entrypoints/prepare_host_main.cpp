@@ -48,20 +48,51 @@ bool publish(const std::filesystem::path &state, const std::string &document) {
   const bool removed = unlinkat(directory.value, temporary.c_str(), 0) == 0;
   return fsync(directory.value) == 0 && success && removed;
 }
+
+using Owned = std::unique_ptr<char, decltype(&msime_client_string_free)>;
+
+nlohmann::json value_of(Owned raw) {
+  if (!raw) throw std::runtime_error("host call failed");
+  auto result = nlohmann::json::parse(raw.get());
+  if (!result.value("ok", false)) throw std::runtime_error("host call failed");
+  return result.at("value");
+}
+
+// The Windows installer asks on a first install whether cloud candidates may run, since they are the one network feature active without any token; declining writes the preference before the input method first starts.
+void disable_cloud_candidates(const std::filesystem::path &state, nlohmann::json &options) {
+  const auto directory = state.string();
+  auto snapshot = value_of(Owned(
+      msime_client_load_preferences(reinterpret_cast<const uint8_t *>(directory.data()), directory.size()),
+      msime_client_string_free));
+  snapshot.at("preferences")["cloud_candidates"] = false;
+  const auto revision = snapshot.at("revision").get<uint64_t>();
+  const auto document = snapshot.dump();
+  const auto saved = value_of(Owned(
+      msime_client_save_preferences(reinterpret_cast<const uint8_t *>(directory.data()), directory.size(), revision,
+                                    reinterpret_cast<const uint8_t *>(document.data()), document.size()),
+      msime_client_string_free));
+  options["preferences"] = saved.at("preferences");
+}
 } // namespace
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-prepare <absolute-resource-directory> <absolute-new-state-directory>\n"
-                 "       msime-client-prepare --installed <absolute-new-state-directory>\n"
+    std::cout << "Usage: msime-client-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
+                 "       msime-client-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
                  "The state directory must not exist; its parent must exist.\n"
                  "--installed uses the resource bundle installed beside this executable.\n"
+                 "--no-cloud-candidates turns cloud candidates off in the new preferences.\n"
                  "Prints the new runtime-options.json path on success.\n";
     return 0;
   }
+  const bool no_cloud = argc > 1 && std::string(argv[1]) == "--no-cloud-candidates";
+  if (no_cloud) {
+    --argc;
+    ++argv;
+  }
   if (argc != 3) {
-    std::cerr << "Usage: msime-client-prepare <absolute-resource-directory> <absolute-new-state-directory>\n"
-                 "       msime-client-prepare --installed <absolute-new-state-directory>\n";
+    std::cerr << "Usage: msime-client-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
+                 "       msime-client-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n";
     return 2;
   }
   try {
@@ -107,7 +138,16 @@ int main(int argc, char **argv) {
       std::cerr << "State preparation failed; check the pinned resources and use a fresh directory to retry\n";
       return 1;
     }
-    if (!publish(state, result.at("value").dump(2) + "\n")) {
+    auto options = result.at("value");
+    if (no_cloud) {
+      try {
+        disable_cloud_candidates(state, options);
+      } catch (...) {
+        std::cerr << "Cannot record the cloud candidate choice; nothing was published, use a fresh directory to retry\n";
+        return 1;
+      }
+    }
+    if (!publish(state, options.dump(2) + "\n")) {
       std::cerr << "Cannot publish runtime configuration; prepared data has been retained\n";
       return 1;
     }

@@ -155,11 +155,17 @@ def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) ->
             staged.replace(target)
 
 
-def prepare_state(prefix: Path, resources: Path, state: Path) -> None:
+def prepare_command(command: Path, resources: Path, state: Path, cloud_candidates: bool) -> list[str]:
+    """云候选是装完就会联网的唯一一项，与 Windows 安装程序的「联网功能」页一样，在首次准备时决定。"""
+    flags = [] if cloud_candidates else ["--no-cloud-candidates"]
+    return [str(command), *flags, str(resources), str(state)]
+
+
+def prepare_state(prefix: Path, resources: Path, state: Path, cloud_candidates: bool) -> None:
     command = prefix / "bin/msime-client-prepare"
     if not command.is_file():
         command = Path(shutil.which("msime-client-prepare") or "msime-client-prepare")
-    result = subprocess.run([str(command), str(resources), str(state)], check=False)
+    result = subprocess.run(prepare_command(command, resources, state, cloud_candidates), check=False)
     if result.returncode != 0:
         raise SystemExit("准备状态目录失败，见上面的输出")
 
@@ -219,6 +225,11 @@ def main() -> int:
         "--download",
         action="store_true",
         help="允许按已安装的词库锁下载缺失词库（首次约 170 MB），默认不下载",
+    )
+    parser.add_argument(
+        "--no-cloud-candidates",
+        action="store_true",
+        help="关闭云候选：默认开启时，输入过程中会把正在输入的拼写经 HTTPS 发给 Google input-tools（inputtools.google.com）换回一条额外候选；已上屏文本、词库和词频不会发送。之后可在设置里改",
     )
     arguments = parser.parse_args()
 
@@ -283,7 +294,7 @@ def main() -> int:
             return 1
 
     print(f"词库已校验：{resources}")
-    prepare_state(prefix, resources, state)
+    prepare_state(prefix, resources, state, not arguments.no_cloud_candidates)
     enable_services(service_units(state, config_home() / "msime-client"))
     next_steps(state)
     return 0

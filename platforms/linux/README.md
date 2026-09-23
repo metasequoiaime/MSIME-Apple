@@ -54,13 +54,13 @@ msime-client-setup --download   # 允许按随装的词库锁取回缺失词库�
 
 ## 卸载 CMake 安装
 
-保留执行安装的构建目录，可用 `cmake --build <build-dir> --target uninstall` 删除该构建的 `install_manifest.txt` 中记录的程序、资源和桌面入口。卸载前先切换到其他输入法并关闭 MSIME 面板；已启用的用户 provider 服务应先停止。执行卸载所需权限与原安装相同。
+保留执行安装的构建目录，可用 `cmake --build <build-dir> --target uninstall` 删除该构建的 `install_manifest.txt` 中记录的程序、资源和桌面入口。卸载前先切换到其他输入法并关闭 MSIME 面板。执行卸载所需权限与原安装相同。对应 Windows 卸载时停止输入法进程并删除登录任务：以普通用户身份卸载时，删除文件前会在当前用户的 systemd 用户实例里逐个 `disable --now` `msime-client-setup` 启用过的在线、语音和剪贴板服务，免得它们指着已删除的程序反复重启；以 root 或带 `DESTDIR` 卸载时够不到各用户的实例，只打印每个用户需要执行的那条 `systemctl --user disable --now …` 命令。
 
 从带 `-preview` 后缀的旧安装升级时，先执行一次上面的卸载，或手工删除 `${CMAKE_INSTALL_DATADIR}/ibus/component/msime-client-preview.xml`。安装只写入当前的 `msime-client.xml`，不会带走改名前留下的那一份，两份并存会让 IBus 的输入法列表里同时出现新旧两项。Fcitx5 侧的 addon 与 inputmethod 配置文件名未变，不受影响。
 
 暂存安装使用相同的 `DESTDIR`，例如 `DESTDIR=/absolute/staging cmake --build <build-dir> --target uninstall`。若安装时用 `cmake --install` 的 `--prefix` 覆盖了配置前缀，使用 `cmake -DMSIME_UNINSTALL_PREFIX=/actual/prefix -P <build-dir>/uninstall.cmake`。程序文件必须位于该前缀内；前缀外的自定义绝对安装目录会使卸载在删除前中止，需要按原安装布局单独处理。
 
-卸载保留 `msime-client/runtime-options.json`、用户配置及学习数据，不递归删除目录，不修改 IBus 选择或自动停止其他进程。通过发行版包管理器安装的文件应由原包管理器卸载。
+卸载保留 `msime-client/runtime-options.json`、用户配置及学习数据，不递归删除目录，不修改 IBus 选择，也不停止用户服务以外的进程。这一点与 Windows 不同：Windows 卸载程序删除它自己管理的数据目录，而 CMake 卸载无法得知哪些用户用这份安装准备过状态，所以不碰任何人的数据；需要清除时手动删除各自的 `$XDG_CONFIG_HOME/msime-client`。通过发行版包管理器安装的文件应由原包管理器卸载。
 
 本目录只处理 IBus 系统入口，使用同一个 `msime-host-api` 动态库；不直接创建 C++ Engine、不复制候选分页、数字选词或配置持久化逻辑，不依赖 Tauri 常驻。按键与焦点在 GLib 主线程调用线程绑定会话，系统候选点击取当前共享视图中的代次和全局索引。预编辑采用 Engine 的 ASCII editing_text，避免把字节光标用于中文显示串。失焦、禁用和 reset 清除组合；修饰键与 key-up 透传，快捷键取消组合后透传。密码、PIN、数字与电话字段不处理输入，private/no-spellcheck 文本会话关闭学习。
 
@@ -296,7 +296,7 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 `candidate_follow_cursor` 是 Windows 候选窗口的定位选项。IBus Engine API 只提供候选表和输入上下文光标位置的通知，不提供由输入法宿主固定 panel 锚点的接口；候选 panel 的定位由桌面 panel 自己决定。因此 Linux 会读取并透传该共享配置，但不伪造 Windows 的固定候选窗口行为：在 Linux 上候选表始终交给 IBus panel 按当前输入上下文位置呈现。该限制属于 IBus/桌面环境边界，不影响候选内容、分页或选词。
 
-Linux 关于页的“IBus 宿主日志”对应共享偏好中的 `diagnostic_log.server`。开启后，IBus 宿主在偏好目录写入仅用户可读的 `diagnostic.log`，记录焦点会话、偏好应用、菜单保存和固定操作失败阶段；文件达到 1 MiB 时保留一个 `.1` 轮转副本。记录经过长度和 ASCII 控制字符限制，不包含按键、输入文本、候选文本、凭据、路径或 provider 响应；关闭开关后不再写入。Windows 专用的 `diagnostic_log.tsf` 在 Linux 设置页隐藏，旧配置字段仍原样保存以保持跨平台同步。
+Linux 关于页的“输入法宿主日志”对应共享偏好中的 `diagnostic_log.server`。开启后，IBus 与 Fcitx5 宿主在偏好目录写入同一个仅用户可读的 `diagnostic.log`，记录焦点会话、偏好应用、菜单保存和固定操作失败阶段；文件达到 1 MiB 时保留一个 `.1` 轮转副本。记录经过长度和 ASCII 控制字符限制，不包含按键、输入文本、候选文本、凭据、路径或 provider 响应；关闭开关后不再写入。Windows 专用的 `diagnostic_log.tsf` 在 Linux 设置页隐藏，旧配置字段仍原样保存以保持跨平台同步。
 
 Linux 关于页的“检查更新”查询水杉输入法自身的 GitHub 最新发行版，不复用只发布 Windows 安装程序的 `msime.app/update.json`。发行页地址必须属于固定的 `metasequoiaime/msime` releases 路径才会显示；仓库尚无发行版时显示正常的“暂无可用发行版”状态，网络错误或无效响应才报告检查失败。Windows 继续使用带安装程序签名和 SHA256 元数据的原有清单。
 

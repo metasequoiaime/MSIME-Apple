@@ -97,6 +97,22 @@ assert match and Path(match[1]).resolve() == expected.resolve(), \
     "Installed host did not resolve the staged Host API library"
 print("Installed host resolves staged Host API library")
 PYTHON
+# The installed prepare records a declined cloud-candidate choice in both the shared store and the published options.
+declined=$(mktemp -d /tmp/msime-prepare-declined.XXXXXX)
+/build/stage/usr/local/bin/msime-client-prepare --no-cloud-candidates /resources "$declined/state" >/dev/null
+python3 - "$declined/state" <<'PYTHON'
+import json
+import sys
+from pathlib import Path
+
+state = Path(sys.argv[1])
+assert json.loads((state / "preferences.json").read_text())["preferences"]["cloud_candidates"] is False
+assert json.loads((state / "runtime-options.json").read_text())["preferences"]["cloud_candidates"] is False
+print("Declined cloud candidates are recorded at preparation")
+PYTHON
+/build/stage/usr/local/bin/msime-client-prepare /resources "$declined/default" >/dev/null
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["preferences"]["cloud_candidates"] is True' "$declined/default/runtime-options.json"
+rm -rf "$declined"
 fixture=$(mktemp -d /tmp/msime-ibus-bootstrap.XXXXXX)
 options=$(cargo run --quiet -p msime-host-api --example prepare_host --locked -- /resources "$fixture")
 global_mode_options="$fixture/global-runtime-options.json"
@@ -129,3 +145,9 @@ runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayl
 
 
 runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/runtime/portal_smoke.py
+
+# The staged uninstall cannot reach any user's systemd manager, so it names the units to disable instead of touching them, and still removes the program files.
+uninstall_log=$(DESTDIR=/build/stage cmake -P /build/ibus/uninstall.cmake)
+grep -F "systemctl --user disable --now msime-client-online.socket msime-client-online.service msime-client-voice.socket msime-client-voice.service msime-client-clipboard.service" <<<"$uninstall_log" >/dev/null
+test ! -e /build/stage/usr/local/bin/msime-client-ibus
+echo "Staged uninstall names the user units and removes the programs"

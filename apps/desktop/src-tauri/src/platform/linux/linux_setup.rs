@@ -105,10 +105,17 @@ fn status_for(options: Option<&Path>, program: Option<&Path>) -> LinuxSetupStatu
     }
 }
 
-fn setup_arguments(state_directory: &Path, download: bool) -> Vec<OsString> {
+fn setup_arguments(
+    state_directory: &Path,
+    download: bool,
+    cloud_candidates: bool,
+) -> Vec<OsString> {
     let mut arguments = vec![OsString::from("--state"), state_directory.into()];
     if download {
         arguments.push("--download".into());
+    }
+    if !cloud_candidates {
+        arguments.push("--no-cloud-candidates".into());
     }
     arguments
 }
@@ -210,6 +217,7 @@ pub async fn run_linux_setup(
     options: State<'_, RuntimeOptionsState>,
     running: State<'_, LinuxSetupState>,
     download: bool,
+    cloud_candidates: bool,
 ) -> Result<LinuxSetupStatus, LinuxSetupError> {
     let program = setup_program().ok_or(LinuxSetupError::new("setup_unavailable"))?;
     let options_path = options
@@ -231,7 +239,7 @@ pub async fn run_linux_setup(
         return Err(LinuxSetupError::new("setup_running"));
     }
     let flag = Arc::clone(&running.0);
-    let arguments = setup_arguments(&state_directory, download);
+    let arguments = setup_arguments(&state_directory, download, cloud_candidates);
     let emitter = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let result = run_setup(&program, &arguments, SETUP_TIMEOUT, move |line| {
@@ -327,12 +335,25 @@ mod tests {
     fn download_is_only_requested_when_the_user_allowed_it() {
         let state = Path::new("/home/user/.config/msime-client");
         assert_eq!(
-            setup_arguments(state, false),
+            setup_arguments(state, false, true),
             ["--state", "/home/user/.config/msime-client"]
         );
         assert_eq!(
-            setup_arguments(state, true),
+            setup_arguments(state, true, true),
             ["--state", "/home/user/.config/msime-client", "--download"]
+        );
+    }
+
+    #[test]
+    fn a_declined_cloud_candidate_choice_reaches_the_setup_script() {
+        let state = Path::new("/home/user/.config/msime-client");
+        assert_eq!(
+            setup_arguments(state, false, false),
+            [
+                "--state",
+                "/home/user/.config/msime-client",
+                "--no-cloud-candidates"
+            ]
         );
     }
 

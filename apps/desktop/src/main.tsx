@@ -133,12 +133,12 @@ async function downloadCloudEntryToLocal(
   await dictionaryClient.importPersonal(text, `ui-cloud-download-${Date.now()}`);
 }
 const linuxSetupClient: LinuxSetupClient = {
-  run: async (download, onLine) => {
+  run: async ({ download, cloudCandidates }, onLine) => {
     const unlisten = await listen<LinuxSetupLine>("linux-setup-output", (event) =>
       onLine(event.payload),
     );
     try {
-      return await invoke<LinuxSetupStatus>("run_linux_setup", { download });
+      return await invoke<LinuxSetupStatus>("run_linux_setup", { download, cloudCandidates });
     } finally {
       unlisten();
     }
