@@ -6,6 +6,7 @@ import { CandidateAnchor, CandidateAnchorPolicy } from './CandidateAnchorPolicy'
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import fs from '@ohos.file.fs';
 import display from '@ohos.display';
+import window from '@ohos.window';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
 import { KeyboardMetrics } from '../keyboard/KeyboardMetrics';
 import { KeyboardFormFactor } from '../keyboard/KeyboardFormFactor';
@@ -74,6 +75,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   // every composition and every editor: it is on screen whenever the keyboard is running at all.
   private toolbar: inputMethodEngine.Panel | undefined = undefined;
   private toolbarPosition: [number, number] = [0, 0];
+  // Set while the toolbar is hidden because the focused editor's window fills the screen.
+  private toolbarHiddenForFullscreen: boolean = false;
   private toolbarDragOrigin: [number, number] = [0, 0];
   private screenWidth: number = 0;
   private screenHeight: number = 0;
@@ -202,6 +205,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     KeyboardSession.shared.onToolbarDrag = undefined;
     engine.destroyPanel(this.toolbar);
     this.toolbar = undefined;
+    this.toolbarHiddenForFullscreen = false;
   }
 
   private async openModeBadge(): Promise<void> {
@@ -475,8 +479,32 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       // nothing to offer until something is being spelled, and waits for onComposition to say so.
       if (!KeyboardFormFactor.isDesktop()) {
         this.panel.show();
+      } else {
+        this.followCallingWindow(inputClient);
       }
     };
+
+  /**
+   * Keep the floating toolbar off an application that fills the screen, and bring it back when the focus is in a window that does not.
+   *
+   * The Windows host hides its toolbar while the foreground window is fullscreen (`OnWinEvent` in `window_hook.cpp`), so a game or a video is not covered by a bar nobody is using. HarmonyOS tells the keyboard the calling window's status, and only when asked, so it is asked each time an editor takes focus; a window that goes fullscreen while its editor keeps the focus is noticed at the next focus.
+   */
+  private followCallingWindow(inputClient: inputMethodEngine.InputClient): void {
+    const toolbar: inputMethodEngine.Panel | undefined = this.toolbar;
+    if (toolbar === undefined) {
+      return;
+    }
+    inputClient.getCallingWindowInfo().then((info: inputMethodEngine.WindowInfo): Promise<void> | undefined => {
+      const fullscreen: boolean = info.status === window.WindowStatusType.FULL_SCREEN;
+      if (this.toolbar !== toolbar || fullscreen === this.toolbarHiddenForFullscreen) {
+        return undefined;
+      }
+      this.toolbarHiddenForFullscreen = fullscreen;
+      return fullscreen ? toolbar.hide() : toolbar.show();
+    }).catch((error: Object): void => {
+      KeyboardLog.error(`calling window unavailable: ${describeError(error)}`);
+    });
+  }
 
   private readonly stopped: () => void = (): void => {
     KeyboardSession.shared.detach();
