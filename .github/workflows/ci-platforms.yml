@@ -130,6 +130,10 @@ jobs:
       - name: Type-check and run Harmony keyboard logic tests
         if: ${{ needs.changes.outputs.harmonyos == 'true' }}
         run: bash platforms/harmony/tests/run.sh
+      # The settings window is a WebView over a generated artefact committed to the repository, and nothing rebuilds it. It sat fifty-two commits out of date once, and it goes stale again on every merge that touches packages/ui -- where the only thing that notices is whoever next runs verify-local.sh, and until they regenerate it the pre-push hook rejects everyone else's pushes too. This job already runs for every shared-UI change and already has pnpm, which is all the check needs.
+      - name: Check the settings bundle matches the shared UI
+        if: ${{ needs.changes.outputs.harmonyos == 'true' }}
+        run: python3 scripts/test-harmony-settings-bundle.py
       - name: HarmonyOS platform unchanged
         if: ${{ needs.changes.outputs.harmonyos != 'true' }}
         run: echo 'No HarmonyOS or shared-platform changes; platform gate skipped.'
