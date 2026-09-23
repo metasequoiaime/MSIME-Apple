@@ -12,6 +12,7 @@ mod panel_input;
 mod panel_window;
 mod platform;
 mod shared;
+mod vocabulary;
 mod voice;
 
 // The refactor that moved panel delivery out of the crate root left these calls
@@ -388,6 +389,13 @@ struct UserDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
 /// The shared preferences directory, where the input method writes `diagnostic.log` when its diagnostic switch is on.
 struct DiagnosticLogState(PathBuf);
+
+/// The application data directory the 背单词 store and wordbook library live under.
+///
+/// The directory rather than the stores themselves: an imported book is written through one and
+/// read back through the other, and holding the path means both are constructed from the same
+/// place every time instead of two handles that could be pointed at different roots.
+struct VocabularyState(std::path::PathBuf, std::path::PathBuf);
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -3860,6 +3868,22 @@ pub fn run() {
             }
             app.manage(TypingStatisticsState(typing_statistics));
             app.manage(DiagnosticLogState(directory.clone()));
+            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
+            // sibling of `EngineResources/` because `ResourceStore::verify` requires that
+            // directory to hold exactly the pinned dictionary artifacts, and one extra entry
+            // would break the check whose job is to prove a shipped dictionary is intact. A host
+            // that stages no books simply offers the imported ones.
+            // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
+            // sibling of `EngineResources/` because `ResourceStore::verify` requires that
+            // directory to hold exactly the pinned dictionary artifacts, and one extra entry
+            // would break the check whose job is to prove a shipped dictionary is intact. A host
+            // that stages no books simply offers the imported ones.
+            app.manage(VocabularyState(
+                directory.clone(),
+                app.path()
+                    .resource_dir()
+                    .unwrap_or_else(|_| directory.clone()),
+            ));
             app.manage(SkinDirectoryState(directory.join("skins")));
             app.manage(UserDirectoryState(directory.join("user")));
             app.manage(preferences.clone());
@@ -4150,6 +4174,12 @@ pub fn run() {
             reset_typing_statistics,
             open_typing_statistics_directory,
             open_diagnostic_log_directory,
+            vocabulary::load_vocabulary_review,
+            vocabulary::answer_vocabulary_card,
+            vocabulary::set_vocabulary_settings,
+            vocabulary::import_vocabulary_wordbook,
+            vocabulary::remove_vocabulary_wordbook,
+            vocabulary::reset_vocabulary_review,
             save_export,
             scan_skin_catalog,
             read_skin_image,

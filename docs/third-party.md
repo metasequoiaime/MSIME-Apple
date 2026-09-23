@@ -96,6 +96,28 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 
 构成这张表所用的部件拆分与笔顺数据另有来源（rime-radical-pinyin，GPL-3.0，上游含 chaizi/CC-BY-3.0、CHISE/GPL-2+、yi-bai/ids/MIT；笔顺来自 cnchar，MIT），逐条同样见 NOTICE.md。Engine 自带的五套辅助码表随 `engine-lock.json` 锁定的归档一起来，来源说明在 `vendor/MSIME-Engine/helpcode/NOTICE.md`。
 
+## 背单词词书（`resources/wordbook.lock.json`）
+
+背单词模式的八本内置词书来自 ECDICT，不在 `desktop-dictionary.lock.json` 的覆盖范围里，所以单列一节。
+
+| 项 | 值 |
+| --- | --- |
+| 来源仓库 | [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) |
+| 来源提交 | `82c9872576b23118d7c42e920c11beb77f510ae2` |
+| 文件 | `ecdict.csv` |
+| 内容摘要 | `sha256:1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf`，65,933,428 字节 |
+| 许可 | MIT，`Copyright (c) 2025 Linwei` |
+| 取用方式 | `scripts/fetch_wordbooks.py` 按锁校验后展开到被忽略的 `target/wordbooks/` |
+| 分发限制 | MIT，保留版权声明与许可全文即可；与本仓库的 GPL-3.0 分发兼容 |
+
+**源文件不进版本库，也不整份随包**。脚本只取 `word`、`phonetic` 和 `translation` 的首行释义——卡片要显示的就这三样——按 `tag` 列（`zk`/`gk`/`cet4`/`cet6`/`ky`/`ielts`/`toefl`/`gre`）分成八本，写成 `client-core::vocabulary::wordbook::Wordbook` 直接能反序列化的 JSON。八本合计约 3 MB，宿主用 serde_json 读，不需要 CSV 解析器或 SQLite 驱动。
+
+考纲归属是 ECDICT 提供的：仓库自带的 `english.db` 有中英释义和语料频次，够做「最常用的一千词」，但不足以断言某个词在四级大纲里。那是已发布的考纲，凭频次给它安一个名字就是编的。
+
+词书**放在 `EngineResources/` 的兄弟目录 `wordbooks/`**，不放进去：`ResourceStore::verify` 要求固定资源目录与词库锁逐字节一致，多一个文件就会破坏那道「证明随包词库完整」的检查。`settled-model` 出于同样理由也是兄弟目录。
+
+退出方式：不运行 `scripts/fetch_wordbooks.py` 即可。设置页随之只提供用户自行导入的词表，不影响其余功能。
+
 ## 编译进共享库的数据
 
 | 组件 | 许可证 | 位置与说明 |

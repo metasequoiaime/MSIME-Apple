@@ -1,0 +1,21 @@
+{
+  "source": "https://github.com/skywind3000/ECDICT",
+  "source_commit": "82c9872576b23118d7c42e920c11beb77f510ae2",
+  "license": "MIT",
+  "artifact": {
+    "name": "ecdict.csv",
+    "url": "https://raw.githubusercontent.com/skywind3000/ECDICT/82c9872576b23118d7c42e920c11beb77f510ae2/ecdict.csv",
+    "sha256": "1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf",
+    "size": 65933428
+  },
+  "books": [
+    { "id": "zk", "tag": "zk", "name": "中考" },
+    { "id": "gk", "tag": "gk", "name": "高考" },
+    { "id": "cet4", "tag": "cet4", "name": "CET-4" },
+    { "id": "cet6", "tag": "cet6", "name": "CET-6" },
+    { "id": "ky", "tag": "ky", "name": "考研" },
+    { "id": "ielts", "tag": "ielts", "name": "雅思" },
+    { "id": "toefl", "tag": "toefl", "name": "托福" },
+    { "id": "gre", "tag": "gre", "name": "GRE" }
+  ]
+}

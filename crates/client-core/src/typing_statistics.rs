@@ -788,63 +788,14 @@ fn validate_counts(value: &TypingBreakdown, total: u64) -> Result<(), TypingStat
 }
 
 /// The day key `days` days before `day`, or `None` when `day` is not a date.
-///
-/// Days-since-epoch arithmetic on the calendar fields, so it stays correct across months, years
-/// and leap days without pulling a timezone into a pure function.
 fn day_before(day: &str, days: u32) -> Option<String> {
-    let year: i64 = day.get(0..4)?.parse().ok()?;
-    let month: i64 = day.get(5..7)?.parse().ok()?;
-    let date: i64 = day.get(8..10)?.parse().ok()?;
-    let shifted = days_from_civil(year, month, date).checked_sub(i64::from(days))?;
-    let (year, month, date) = civil_from_days(shifted);
-    Some(format!("{year:04}-{month:02}-{date:02}"))
-}
-
-/// Howard Hinnant's civil-date algorithms, for a proleptic Gregorian calendar.
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = (year - era * 400) as u64;
-    let month_position = if month > 2 { month - 3 } else { month + 9 } as u64;
-    let day_of_year = (153 * month_position + 2) / 5 + day as u64 - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era as i64 - 719_468
-}
-
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let days = days + 719_468;
-    let era = if days >= 0 { days } else { days - 146_096 } / 146_097;
-    let day_of_era = (days - era * 146_097) as u64;
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let year = year_of_era as i64 + era * 400;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_position = (5 * day_of_year + 2) / 153;
-    let day = (day_of_year - (153 * month_position + 2) / 5 + 1) as i64;
-    let month = if month_position < 10 {
-        month_position + 3
-    } else {
-        month_position - 9
-    } as i64;
-    (if month <= 2 { year + 1 } else { year }, month, day)
+    crate::calendar::shift_day(day, -i64::from(days))
 }
 
 fn validate_day(day: &str) -> Result<(), TypingStatisticsError> {
-    let bytes = day.as_bytes();
-    let valid = bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes
-            .iter()
-            .enumerate()
-            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
-        && day[5..7]
-            .parse::<u8>()
-            .is_ok_and(|month| (1..=12).contains(&month))
-        && day[8..10]
-            .parse::<u8>()
-            .is_ok_and(|date| (1..=31).contains(&date));
-    valid.then_some(()).ok_or(TypingStatisticsError::InvalidDay)
+    crate::calendar::is_valid_day(day)
+        .then_some(())
+        .ok_or(TypingStatisticsError::InvalidDay)
 }
 
 fn classify(grapheme: &str) -> &'static str {
