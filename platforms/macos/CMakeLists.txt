@@ -161,6 +161,12 @@ target_sources(MSIMEClientInputMethod
   PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff")
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff"
   PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+# The voice start/end cues are the product's own, not system sounds. They are staged straight from the Windows installer's copy rather than adding another copy to the tree; VoiceCuePlayer looks them up in Resources/audios, mirroring the assets/audios layout Windows installs.
+set(MSIME_VOICE_CUE_RESOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../windows/installer/assets/audios/start.mp3"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../windows/installer/assets/audios/end.mp3")
+target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_VOICE_CUE_RESOURCES})
+set_source_files_properties(${MSIME_VOICE_CUE_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/audios")
 # LaunchServices takes the Dock and menu bar name from a localized InfoPlist.strings, not from the
 # CFBundleDisplayName in the plist; without these the Dock falls back to the executable's filename.
 # The TIS identifier keys name the entry in the system input menu.
@@ -916,6 +922,12 @@ add_executable(voice-audio-muter-test tests/voice/VoiceAudioMuterTest.mm src/voi
 target_compile_options(voice-audio-muter-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-audio-muter-test PRIVATE "-framework Foundation" "-framework CoreAudio")
 add_test(NAME voice-audio-muter COMMAND voice-audio-muter-test)
+
+add_executable(voice-cue-player-test tests/voice/VoiceCuePlayerTest.mm src/voice/VoiceCuePlayer.mm)
+target_compile_options(voice-cue-player-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_compile_definitions(voice-cue-player-test PRIVATE MSIME_VOICE_CUE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../windows/installer/assets/audios")
+target_link_libraries(voice-cue-player-test PRIVATE "-framework AppKit")
+add_test(NAME voice-cue-player COMMAND voice-cue-player-test)
 
 add_executable(voice-input-level-test tests/voice/VoiceInputLevelTest.mm)
 target_compile_options(voice-input-level-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

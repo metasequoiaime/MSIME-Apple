@@ -2478,3 +2478,10 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - provider：`translations()` 按 `provider` 分派。`none`、未知值、所选的 NiuTrans 或自定义服务没有随请求带来配置，都返回空结果，不访问网络；只有 `provider=tencent` 时才读取腾讯文件。后续发请求也按所选服务分派，请求里夹带的其他服务配置不会改变去向。缺少该字段的请求来自旧版宿主，这时沿用旧规则（NiuTrans、自定义、腾讯依次取第一个可用的），混用新旧版本时行为不变。
 - 宿主侧：`UnixSocketProvider::translate` 遇到 `none` 直接返回空结果，连本地 socket 都不连接，候选文字不会离开输入法进程。IBus 与 Fcitx5 引擎代码没有改动：它们转发的是 host-api 生成的查询，`provider` 变化会让去重键变化，从而重新发起请求。
 - 证据：`platforms/linux/tests/dictionary/translation_provider_selection.py` 放了一份有效的腾讯凭据，断言关闭、NiuTrans 缺凭据、自定义缺 endpoint、未知服务这几种情况都不会发出网络请求，并断言只会请求所选的那一家，旧版宿主的请求保持原来的选择。该用例在改动前的脚本上失败 8 项，改动后全部通过。input-runtime 单测覆盖 `provider` 在 JSON 往返中不丢失、缺省时仍为缺省、`none` 不连接 socket；host-api 单测经 `msime_client_translation_provider_request` 走真实 socket，确认腾讯、NiuTrans（凭据不全）、自定义（endpoint 为空）三种选择原样到达 provider，关闭时不发生连接。未在 Linux 桌面上连接真实翻译服务做验收。
+
+### macOS 录音提示音改用产品自己的 start.mp3 / end.mp3（2026-09-23）
+
+- 缺口：来源 `server/src/voice-input/cue_player.cpp` 在服务启动时加载安装目录 `assets\audios` 下的 `start.mp3` / `end.mp3`，开始录音（`voice_input_service.cpp` 的 `StartRecording`）与结束录音时播放。macOS 的 `VoiceCuePlayer.mm` 播的却是系统自带的 `Glass` / `Pop`，用户听到的是 macOS 提示音而不是水杉的提示音；Windows、HarmonyOS、Linux 三个宿主都已随包带着这两段音频。
+- 做法：CMake 直接把 `platforms/windows/installer/assets/audios/` 里的那两份文件放进 bundle 的 `Resources/audios/`，不在仓库里再添一份拷贝（Harmony 的 `rawfile/audios/` 与 Linux 转换后的 PCM 见各自说明，来源记录在 `platforms/linux/data/voice/SOURCE.md`）。`MSIMEVoiceCuePlayer` 初始化时一次性解码为 `NSSound`，与来源在 `init` 里预加载一致；每次播放先 `stop` 再 `play`，即从头重播，对应来源的 stop / seek 到 0 / start（`NSSound` 对正在播放的实例调用 `play` 会直接返回 NO）。声音由输入法进程自己的 `NSSound` 播出，后续「静音其他音频」若改为按进程豁免，提示音可以留在外面。
+- 回退：bundle 里缺某一个文件或无法解码时，该侧单独回落到原来的系统声音并写一行 `NSLog`，而不是没有声音；来源在文件缺失时不出声，这里保留可听见的开始/结束反馈，属于有意的差异。
+- 证据：新增 `voice-cue-player`（`tests/voice/VoiceCuePlayerTest.mm`），在临时 bundle 里验证两段产品音频被找到并能解码、只缺结束音时开始音仍用产品音频而结束音回落、没有资源的主 bundle 下初始化不失败；`bundle-contents` 增加对 `Resources/audios/start.mp3` / `end.mp3` 的检查，并实测删掉构建产物中的 `end.mp3` 后该项失败。未在已安装的输入法里实际听过提示音，也未验证录音期间开启「静音其他音频」时提示音能否听到（当前静音实现改的是输出设备，会连同提示音一起静音，留给后续静音工作处理）。
