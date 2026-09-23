@@ -100,6 +100,7 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
       # Cheap and runs before the build so a formatting slip fails in seconds rather than after the
       # full compile. Formatting is architecture independent, so only one leg checks it. Same
       # pinned formatter version as MSIME-Linux and MSIME-Engine.

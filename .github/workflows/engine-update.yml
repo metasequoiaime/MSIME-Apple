@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      # persist-credentials stays on here, unlike every other checkout in this repository: the "Create pull request" step below pushes the bump branch with plain git, and that push authenticates with the credentials checkout leaves in .git/config. Removing them makes the push fail rather than making this job safer.
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

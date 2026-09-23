@@ -10,6 +10,10 @@ name: Branch guard
 
 on:
   pull_request:
+    # `edited` is not in the default set, and retargeting a pull request's base branch is an edit
+    # rather than a synchronize. Without it a pull request opened against develop and then pointed at
+    # main never re-runs this check, which is exactly the move the check exists to catch.
+    types: [opened, synchronize, reopened, edited]
     branches:
       - main
 
