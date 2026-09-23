@@ -292,6 +292,9 @@ def transcribe(pcm, config, language, session):
 
 
 def polish_prompt(options):
+    # The prompt box text wins whenever the host sends it, as in the Windows service: it is a built-in preset as the user edited it, or the selected custom slot.
+    if options.get("polish_prompt"):
+        return options["polish_prompt"]
     preset = options.get("polish_prompt_id") or "cleanup"
     if preset in ("custom", "custom_1"):
         return options.get("polish_prompt_custom_1") or options.get("polish_prompt") or PROMPTS["cleanup"]

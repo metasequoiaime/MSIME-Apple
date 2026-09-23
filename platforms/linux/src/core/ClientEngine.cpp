@@ -15,6 +15,7 @@
 #include "SmartPunctuationSpace.h"
 #include "WordCharacterBinding.h"
 #include "../voice/VoiceAction.h"
+#include "../voice/VoiceProviderOptions.h"
 #include "../voice/VoiceWorker.h"
 #include "../overlay/WaveOverlayModel.h"
 #include "../overlay/WaveOverlayIbusSurface.h"
@@ -3475,49 +3476,6 @@ extern "C" void voice_provider_stream_update(const uint8_t *text,
                        std::string(reinterpret_cast<const char *>(text), length)),
                    final);
 }
-Json voice_provider_options(const Json &preferences) {
-  const auto voice = preferences.value("voice_input", Json::object());
-  Json options = Json::object();
-  constexpr const char *boolean_keys[] = {
-      "sound_enabled", "start_sound", "end_sound", "mute_system_audio",
-      "polish_enabled", "polish_text", "doubao_enable_itn",
-      "doubao_enable_punc", "doubao_enable_ddc", "stream_inline_preedit"};
-  for (const auto *key : boolean_keys) {
-    if (voice.contains(key) && voice.at(key).is_boolean())
-      options[key] = voice.at(key);
-  }
-  constexpr const char *string_keys[] = {
-      "capture_backend", "capture_device", "commit_mode", "asr_provider", "asr_model", "asr_resource_id",
-      "doubao_auth_mode",
-      "polish_provider", "polish_model", "doubao_boosting_table_id",
-      "polish_prompt_id"};
-  for (const auto *key : string_keys) {
-    if (!voice.contains(key) || !voice.at(key).is_string())
-      continue;
-    auto value = voice.at(key).get<std::string>();
-    if (std::string_view(key) == "doubao_auth_mode" && value != "api_key" && value != "legacy")
-      continue;
-    if (value.size() > 512) {
-      size_t end = 512;
-      while (end && (static_cast<unsigned char>(value[end]) & 0xc0) == 0x80) --end;
-      value.resize(end);
-    }
-    options[key] = std::move(value);
-  }
-  const auto preset = voice.value("polish_prompt_id", std::string{"cleanup"});
-  const char *prompt_key = nullptr;
-  if (preset == "custom" || preset == "custom_1") prompt_key = "polish_prompt_custom_1";
-  else if (preset == "custom_2") prompt_key = "polish_prompt_custom_2";
-  else if (preset == "custom_3") prompt_key = "polish_prompt_custom_3";
-  if (prompt_key) {
-    auto prompt = voice.value(prompt_key, std::string{});
-    if (prompt.empty() && std::string(prompt_key) == "polish_prompt_custom_1")
-      prompt = voice.value("polish_prompt", std::string{});
-    if (prompt.size() > 8192) throw std::runtime_error("Voice prompt exceeds limit");
-    if (!prompt.empty()) options[prompt_key] = std::move(prompt);
-  }
-  return options;
-}
 void voice_cancel(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.voice_active && !s.voice_provider_socket.empty())
@@ -3620,7 +3578,7 @@ void voice_start_impl(IBusEngine *engine) {
   if (!s.voice_enabled || s.voice_provider_socket.empty() || !s.session ||
       !s.focused || s.blocked || !s.input_enabled || s.voice_active)
     return;
-  const auto provider_options = voice_provider_options(
+  const auto provider_options = msime::linux_host::voice_provider_options(
       configured.value("preferences", Json::object()));
   const auto editing_text =
       s.view.value("editing_text", std::string{});

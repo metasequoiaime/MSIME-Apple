@@ -103,6 +103,10 @@ IBus 属性菜单中的“候选翻译”在配置绝对共享偏好目录时按
 Fcitx5 对同一组流式语音设置采用同样语义：豆包流式识别且 `stream_inline_preedit=true`、`commit_mode=tsf` 时把 partial 写入原生预编辑；其他提交模式或关闭开关时只在辅助区域显示。最终响应为空但已经收到有效 partial 时，保留最后一份有界中间转写作为最终提交；完成、取消、失焦和会话关闭都会清除预编辑与缓存，避免旧代次重新出现。
 Fcitx5 宿主复用同一套 X11/Wayland 原生浮层和取消、结束按钮；浮层不可用或 `MSIME_WAVE_OVERLAY_BACKEND=ibus`（也接受 `auxiliary`）时，实时状态回退到 Fcitx5 辅助栏。Fcitx5 的浮层同样不请求键盘焦点，完成、取消、异常和焦点关闭都会清理浮层。
 
+语音失败时两个宿主都会告诉用户，对应 Windows 语音服务弹出的提示框：浮层（没有浮层时是辅助栏）显示固定的一句话约 1.2 秒，分别说明未识别到文字、语音服务或提供商出错、结束录音被拒（本次语音随之取消）以及没有配置语音服务。文字是固定的，不透传 provider 的错误信息，以免其中带出凭据等私人内容。Fcitx5 此前在这些情况下只是收起浮层，看上去像按键没有反应。Fcitx5 浮层也和 IBus 一样区分「识别中」与「整理中」两种收尾状态，并在按住空格锁定录音时显示锁定标记。
+
+两个宿主向 provider 转发的语音选项由共享的 `src/voice/VoiceProviderOptions.h` 生成，不再各维护一份：Fcitx5 以前那份漏掉了提示词，选了自定义润色方案的用户在这里得到的其实是默认的整理提示词。设置页提示词框里的文字（内置方案被就地修改后的全文，或所选自定义槽位的内容）以 `polish_prompt` 转发，provider 只要它非空就用它润色，与 Windows 的 `ResolvePolishSystemPrompt` 一致；此前在 Linux 上改内置方案的提示词不起作用。超过 8 KiB 的提示词直接拒绝，不截断，以免被截断的指令改变润色的意思。
+
 Fcitx5 每 5 秒通过 freedesktop Settings portal 读取 `org.freedesktop.appearance/color-scheme`，因此 `voice_theme=follow` 且全局主题为 `system` 时，已显示的语音浮层会跟随系统明暗变化；portal 不可用时保留上一次主题，不阻塞输入。
 同一个 socket 也承载候选翻译请求。候选视图更新后，宿主发送一行 JSON：
 
