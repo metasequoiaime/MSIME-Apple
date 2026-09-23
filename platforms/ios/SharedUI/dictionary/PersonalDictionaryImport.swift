@@ -37,11 +37,35 @@ struct PersonalDictionaryImport: Codable, Sendable {
     return Self(entries: entries)
   }
 
+  /// Plain Chinese words, one per line, annotated with pinyin by the shared Engine. Repeated words collapse to their first line; the queue takes at most 128 at a time, the same as a JSON import.
+  static func hans(_ text: String,
+                   annotate: (String) throws -> [PersonalWord] = { try PersonalDictionaryBridge.hansEntries($0) }) throws -> Self {
+    guard text.utf8.count <= maximumBytes else { throw ImportError(message: "词表不能超过 1 MB。") }
+    var identities = Set<String>()
+    let entries = try annotate(text).filter { identities.insert($0.id).inserted }
+    guard !entries.isEmpty, entries.count <= 128 else {
+      throw ImportError(message: "每次导入需要 1–128 个词语，请将较大的词表拆分后导入。")
+    }
+    return Self(entries: entries)
+  }
+
   static func read(from url: URL) throws -> Self {
+    try decode(readData(from: url))
+  }
+
+  /// A UTF-8 word list from a file, for `hans`.
+  static func readText(from url: URL) throws -> String {
+    guard let text = String(data: try readData(from: url), encoding: .utf8) else {
+      throw ImportError(message: "词表需要是 UTF-8 编码的文本文件。")
+    }
+    return text
+  }
+
+  private static func readData(from url: URL) throws -> Data {
     let granted = url.startAccessingSecurityScopedResource()
     defer { if granted { url.stopAccessingSecurityScopedResource() } }
     var coordinationError: NSError?
-    var result: Result<Self, Error>?
+    var result: Result<Data, Error>?
     // File providers may need to materialize a cloud document before it can be read.
     // Create and use this coordinator on the worker thread, never on the UI thread.
     NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readableURL in
@@ -54,7 +78,8 @@ struct PersonalDictionaryImport: Codable, Sendable {
           if chunk.isEmpty { break }
           data.append(chunk)
         }
-        return try decode(data)
+        guard data.count <= maximumBytes else { throw ImportError(message: "文件不能超过 1 MB。") }
+        return data
       }
     }
     if let coordinationError { throw coordinationError }

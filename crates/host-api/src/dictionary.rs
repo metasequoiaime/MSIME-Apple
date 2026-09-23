@@ -257,6 +257,58 @@ pub unsafe extern "C" fn msime_client_dictionary_validate(
     })
 }
 
+/// Read plain Chinese words, one per line, and answer the pinyin entries they would import as, without opening or changing any dictionary state.
+///
+/// For a host whose settings surface cannot take the Engine's maintenance lock or run `msime_client_prepare_host` while the keyboard may hold a session: iOS shows the result for confirmation and then queues it itself. The readings come from the packaged main dictionary under `resources`, opened read-only, and follow the same rules as the `hans` import format.
+/// # Safety
+/// Both pointers must reference readable buffers of the stated lengths. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_dictionary_hans_entries(
+    text: *const u8,
+    text_length: usize,
+    resources: *const u8,
+    resources_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if text.is_null()
+            || resources.is_null()
+            || text_length > msime_client_core::cloud::dictionary::MAX_IMPORT_BYTES
+            || resources_length > 4096
+        {
+            return Err("invalid dictionary buffer".into());
+        }
+        // SAFETY: guaranteed by the caller contract above.
+        let text = std::str::from_utf8(unsafe { std::slice::from_raw_parts(text, text_length) })
+            .map_err(|_| "invalid dictionary import")?;
+        // SAFETY: guaranteed by the caller contract above.
+        let resources =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
+                .map_err(|_| "resources path is not UTF-8")?;
+        hans_entries_json(text, resources)
+    })
+}
+
+fn hans_entries_json(text: &str, resources: &str) -> Result<serde_json::Value, String> {
+    if !Path::new(resources).is_absolute() {
+        return Err("resources path must be absolute".into());
+    }
+    // The packaged directory stands in for every runtime path: only the read-only main dictionary is opened.
+    let options: HostOptions = serde_json::from_value(json!({
+        "api_version": 1,
+        "resources": resources,
+        "user_data": resources,
+        "cache": resources,
+        "dictionaries": resources,
+        "preferences": msime_client_core::preferences::Preferences::default(),
+    }))
+    .map_err(|_| "invalid dictionary options")?;
+    let entries = parse_hans_import(&Kind::Pinyin, text, &options.into_engine_options())?
+        .into_iter()
+        .map(Entry::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(json!({ "entries": entries }))
+}
+
 pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
     if bytes.len() > 65536 {
         return Err("invalid dictionary buffer".into());
@@ -1076,6 +1128,57 @@ mod tests {
             local_temporary_japanese: true,
             sentence_alternatives: true,
         }
+    }
+
+    #[test]
+    fn hans_entries_reject_what_the_import_format_rejects_without_touching_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let resources = directory.path().to_str().unwrap();
+        assert_eq!(
+            hans_entries_json("你好", "relative/resources").unwrap_err(),
+            "resources path must be absolute"
+        );
+        for text in ["", "# comment only\n", "hello", "你好\u{0}", "你好\t世界"] {
+            assert_eq!(
+                hans_entries_json(text, resources).unwrap_err(),
+                "invalid dictionary import",
+                "{text:?}"
+            );
+        }
+        // No packaged dictionary: nothing to read a reading from, and nothing created in its place.
+        assert_eq!(
+            hans_entries_json("你好", resources).unwrap_err(),
+            "dictionary pinyin unavailable"
+        );
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+
+        let read = |text: &[u8], resources: &[u8]| -> serde_json::Value {
+            let pointer = unsafe {
+                msime_client_dictionary_hans_entries(
+                    text.as_ptr(),
+                    text.len(),
+                    resources.as_ptr(),
+                    resources.len(),
+                )
+            };
+            let value = unsafe { std::ffi::CStr::from_ptr(pointer) }
+                .to_str()
+                .unwrap()
+                .to_owned();
+            unsafe { crate::msime_client_string_free(pointer) };
+            serde_json::from_str(&value).unwrap()
+        };
+        assert_eq!(read(b"\xff", resources.as_bytes())["ok"], false);
+        assert_eq!(read("你好".as_bytes(), &[0xff])["ok"], false);
+        let null = unsafe {
+            msime_client_dictionary_hans_entries(std::ptr::null(), 0, std::ptr::null(), 0)
+        };
+        let value = unsafe { std::ffi::CStr::from_ptr(null) }
+            .to_str()
+            .unwrap()
+            .to_owned();
+        unsafe { crate::msime_client_string_free(null) };
+        assert!(value.contains("\"ok\":false"));
     }
 
     #[test]
