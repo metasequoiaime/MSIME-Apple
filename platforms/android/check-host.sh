@@ -448,6 +448,14 @@ for alias in MainActivityForest MainActivitySky MainActivityDusk MainActivityVer
     exit 1
   fi
 done
+# The layout bar's buttons carry the keyboard's action-key fill, so their text has to be the colour
+# that fill is paired with. `accent` is that same fill in the shipped skins, and using it here made
+# 恢复默认 and 完成 invisible - dark green on dark green, three blank tiles where the controls are.
+if rg -q 'button\.setTextColor\(accent\)' \
+    "$repo_root/platforms/android/java/app/msime/client/keyboard/KeyboardLayoutAdjustView.java"; then
+  echo "Android layout bar buttons must take actionForeground, not the accent they sit on" >&2
+  exit 1
+fi
 # The JVM smokes cannot load org.json, so nothing else here can reach the one place where the
 # shared runtime's JSON nulls meet this host's reads of them.
 python3 "$repo_root/scripts/test-android-json-null-reads.py" || exit 1
