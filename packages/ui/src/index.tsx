@@ -89,7 +89,11 @@ import {
   type CommunityResourceClient,
 } from "./community/community-resources";
 export { useConfirm, type ConfirmRequest } from "./core/confirm";
-export { decodeDictionaryBytes, readDictionaryFile } from "./dictionary/dictionary-file";
+export {
+  decodeDictionaryBytes,
+  readDictionaryFile,
+  UNBATCHED_DICTIONARY_FILE_BYTES,
+} from "./dictionary/dictionary-file";
 export {
   TypingStatisticsPage,
   retentionChoices,
@@ -1195,6 +1199,8 @@ export interface DictionaryClient {
     text: string,
     request_id: string,
   ): Promise<DictionaryImportResult>;
+  /** The largest file, in bytes, the page reads for `import`. Absent means the desktop bridge's batched bound, `MAX_DICTIONARY_FILE_BYTES`; a host that sends the file in one request declares its own. */
+  maxImportFileBytes?: number;
   importPersonal?(
     text: string,
     request_id: string,
@@ -1380,7 +1386,7 @@ export function dictionaryErrorMessage(
       return "词库拒绝了这次写入，请检查编码与词是否匹配。";
     case "dictionary_too_large":
       // A file over the bridge's bound, or one line too long to fit any request to the host.
-      return "词库文件过大：文件不能超过 1 MB，单行不能超过 60 KB，请拆分后再导入。";
+      return "词库文件过大：文件不能超过 32 MB，单行不能超过 60 KB，请拆分后再导入。";
     case "dictionary_read_rejected":
       return "词库拒绝了这次读取，请稍后重试。";
     case "dictionary_bundled_readonly":
@@ -2000,8 +2006,8 @@ function PersonalDictionaryImportCard({
     setNotice("");
     setBusy(true);
     try {
-      if (file.size > 1_048_576) throw new Error("文件不能超过 1 MB。");
-      setEntries(parsePersonalDictionaryImport(await readDictionaryFile(file)));
+      // The Apple-compatible personal dictionary file is at most 1 MiB.
+      setEntries(parsePersonalDictionaryImport(await readDictionaryFile(file, 1_048_576)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。");
     } finally {
@@ -3205,7 +3211,7 @@ export function SettingsPage({
     setPhraseError("");
     setPhraseNotice("");
     try {
-      const text = await readDictionaryFile(file);
+      const text = await readDictionaryFile(file, client.dictionary.maxImportFileBytes);
       let imported: DictionaryImportResult | null = null;
       if (client.dictionary.import) {
         imported = await client.dictionary.import(

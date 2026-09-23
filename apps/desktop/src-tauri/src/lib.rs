@@ -1658,7 +1658,7 @@ fn dictionary_maintenance_handshake(verb: &str) -> bool {
 fn dictionary_error_code(reason: &str) -> &'static str {
     match reason {
         "dictionary maintenance busy" => "dictionary_busy",
-        // A request over the host's 64 KiB, which the batched desktop import only gives for a file over its own bound or a single line too long for any request. The shared parser's own "dictionary import is too large" is deliberately not mapped here: only Android, which sends the whole file in one request, reaches it, and there the limit is 64 KiB rather than the 1 MB this code's message names.
+        // A request over the host's 64 KiB, which the batched desktop import only gives for a file over its own bound or a single line too long for any request. The shared parser's own "dictionary import is too large" is deliberately not mapped here: only Android, which sends the whole file in one request, reaches it, and there the limit is 64 KiB rather than the 32 MB this code's message names.
         "invalid dictionary buffer" => "dictionary_too_large",
         "dictionary import rejected" => "dictionary_import_rejected",
         "dictionary read rejected" => "dictionary_read_rejected",
@@ -1782,14 +1782,16 @@ async fn dictionary_request(
                     host(bytes)
                 }
             };
-            // Only the lock is worth a handshake. Every other failure is about the request itself and would fail again with sessions released.
+            // Only the lock is worth a handshake. Every other failure is about the request itself and would fail again with sessions released. The Server gives its sessions back 30 seconds after the last DictionaryQuiesce, and a large import runs longer than that, so once quiesced each later request renews it first, the way `QuiescedHosts::run` renews the lease. A renewal that fails or comes too late makes the request busy, which is handshaken and retried like the first.
             #[cfg(target_os = "windows")]
             let mut quiesced = false;
             #[cfg(target_os = "windows")]
             let send = |bytes: &[u8]| {
+                if quiesced {
+                    let _ = dictionary_maintenance_handshake("DictionaryQuiesce");
+                }
                 let result = host(bytes);
-                if !quiesced
-                    && matches!(&result, Err(reason) if reason == "dictionary maintenance busy")
+                if matches!(&result, Err(reason) if reason == "dictionary maintenance busy")
                     && dictionary_maintenance_handshake("DictionaryQuiesce")
                 {
                     quiesced = true;

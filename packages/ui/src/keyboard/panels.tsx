@@ -2797,7 +2797,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         // replacement characters with no NUL anywhere, so it passed the check below and uploaded
         // a cloud dictionary of `\ufffd`. Reading it here the way the other panel does means one
         // file behaves the same in both.
-        text = await readDictionaryFile(selected);
+        text = await readDictionaryFile(selected, 65536);
       } catch {
         throw new Error("invalid file");
       }
