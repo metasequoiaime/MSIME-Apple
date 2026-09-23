@@ -1,9 +1,8 @@
 import SwiftUI
 
 struct FuzzyPinyinSettingsView: View {
-  @AppStorage(FuzzyPinyinPreference.enabledKey, store: FuzzyPinyinPreference.defaults) private var enabled = false
-  @AppStorage(FuzzyPinyinPreference.rulesKey, store: FuzzyPinyinPreference.defaults) private var storedRules = ""
-  @AppStorage(FuzzyPinyinPreference.seededKey, store: FuzzyPinyinPreference.defaults) private var seeded = false
+  @State private var settings = FuzzyPinyinPreference.Settings.pristine
+  @State private var saveFailed = false
   @State private var confirmingReset = false
 
   private let groups: [(String, [(String, String)])] = [
@@ -13,12 +12,29 @@ struct FuzzyPinyinSettingsView: View {
     ("其他韵母", [("ian-iang", "ian ↔ iang"), ("uan-uang", "uan ↔ uang")]),
   ]
 
-  private func selection(_ id: String) -> Binding<Bool> {
-    Binding(get: { storedRules.split(separator: ",").contains(Substring(id)) }, set: { selected in
-      var rules = Set(storedRules.split(separator: ",").map(String.init))
-      if selected { rules.insert(id) } else { rules.remove(id) }
-      storedRules = rules.sorted().joined(separator: ",")
+  private var enabled: Binding<Bool> {
+    Binding(get: { settings.enabled }, set: { value in
+      var next = settings
+      next.enabled = value
+      if value && !next.seeded {
+        next.rules = Set(FuzzyPinyinPreference.ruleIDs)
+        next.seeded = true
+      }
+      save(next)
     })
+  }
+
+  private func selection(_ id: String) -> Binding<Bool> {
+    Binding(get: { settings.rules.contains(id) }, set: { selected in
+      var next = settings
+      if selected { next.rules.insert(id) } else { next.rules.remove(id) }
+      save(next)
+    })
+  }
+
+  private func save(_ next: FuzzyPinyinPreference.Settings) {
+    saveFailed = !FuzzyPinyinPreference.save(next)
+    if !saveFailed { settings = next }
   }
 
   var body: some View {
@@ -29,14 +45,18 @@ struct FuzzyPinyinSettingsView: View {
         Text("勾选容易混淆的读音后，会补充对应候选。更改会在当前输入结束后生效。").font(.footnote).foregroundStyle(.secondary)
       }
       Section {
-        Toggle("启用模糊音", isOn: $enabled).accessibilityIdentifier("fuzzyPinyinEnabled")
+        Toggle("启用模糊音", isOn: enabled).accessibilityIdentifier("fuzzyPinyinEnabled")
       } footer: {
-        Text("模糊音用于兼容容易混淆的拼音读音。只选择你需要的规则，避免增加无关候选。关闭总开关会保留已选规则。")
+        if saveFailed {
+          Text("设置没有保存，键盘仍使用之前的模糊音。请稍后再试。").foregroundStyle(.red)
+        } else {
+          Text("模糊音用于兼容容易混淆的拼音读音。只选择你需要的规则，避免增加无关候选。关闭总开关会保留已选规则。")
+        }
       }
       ForEach(groups, id: \.0) { title, rules in
         Section(title) {
           ForEach(rules, id: \.0) { id, label in
-            Toggle(label, isOn: selection(id)).disabled(!enabled)
+            Toggle(label, isOn: selection(id)).disabled(!settings.enabled)
               .accessibilityIdentifier("fuzzyPinyinRule_" + id)
           }
         }
@@ -45,13 +65,17 @@ struct FuzzyPinyinSettingsView: View {
         Button("重置模糊音配置", role: .destructive) { confirmingReset = true }
       }
     }.navigationTitle("模糊音").navigationBarTitleDisplayMode(.inline)
-      .onChange(of: enabled) { value in
-        guard value, !seeded else { return }
-        storedRules = FuzzyPinyinPreference.seededSelection(enabled: true, seeded: false, current: storedRules)
-        seeded = true
+      .onAppear {
+        let document = MetasequoiaInputSessionBridge.loadSharedPreferences()
+        settings = FuzzyPinyinPreference.resolve(document: document) ?? FuzzyPinyinPreference.legacySettings ?? .pristine
       }
       .confirmationDialog("关闭模糊音并清空所有规则？", isPresented: $confirmingReset, titleVisibility: .visible) {
-        Button("重置", role: .destructive) { enabled = false; storedRules = "" }
+        Button("重置", role: .destructive) {
+          var next = settings
+          next.enabled = false
+          next.rules = []
+          save(next)
+        }
       }
   }
 }

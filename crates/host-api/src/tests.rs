@@ -1708,6 +1708,42 @@ fn save_preferences_uses_compare_and_swap_and_rejects_invalid_snapshots() {
     assert_eq!(std::fs::read_to_string(file).unwrap(), original);
 }
 #[test]
+#[cfg(not(target_os = "android"))]
+fn a_document_holding_a_custom_skin_photo_can_still_be_saved_and_applied() {
+    // base64 of a PNG signature followed by zero bytes: about 40 KiB, well past the 16 KiB other buffers are held to.
+    let photo = format!("iVBORw0KGgoA{}", "AAAA".repeat(10_000));
+    let mut preferences = Preferences::default();
+    preferences.custom_touch_keyboard_skin.photo = Some(photo.clone());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_string_lossy().into_owned();
+    let snapshot = serde_json::to_string(&PreferencesSnapshot {
+        format_version: 1,
+        revision: 0,
+        preferences: preferences.clone(),
+    })
+    .unwrap();
+    assert!(snapshot.len() > 16_384);
+    let saved = read(unsafe {
+        msime_client_save_preferences(
+            path.as_ptr(),
+            path.len(),
+            0,
+            snapshot.as_ptr(),
+            snapshot.len(),
+        )
+    });
+    assert_eq!(saved["ok"], true, "{saved}");
+    let loaded = PreferencesStore::new(directory.path()).load().unwrap();
+    assert_eq!(
+        loaded.preferences.custom_touch_keyboard_skin.photo,
+        Some(photo)
+    );
+
+    let handle = test_host(&directory.path().join("host"));
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    read(msime_client_destroy(handle));
+}
+#[test]
 fn background_preferences_reader_uses_shared_store_and_preserves_bad_files() {
     let directory = tempfile::tempdir().unwrap();
     let saved = PreferencesStore::new(directory.path())

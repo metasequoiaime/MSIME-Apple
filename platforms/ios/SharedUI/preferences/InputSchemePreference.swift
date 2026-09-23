@@ -102,6 +102,18 @@ enum InputSchemePreference {
     }
   }
 
+  /// Save a selection and the enabled list where the keyboard reads them.
+  ///
+  /// Once the keyboard has recorded a scheme in the shared document it copies that selection over the App Group every time it appears, so a choice written only to the App Group was undone the next time the keyboard opened. The App Group is written after the document, and only when the document took the change.
+  @discardableResult
+  static func save(scheme: ChineseInputScheme, enabled: [ChineseInputScheme], stateRoot: URL? = nil) -> Bool {
+    guard let mapping = MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: enabled),
+          MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, mapping) else { return false }
+    enabledSchemes = enabled
+    self.scheme = scheme
+    return true
+  }
+
   static let appGroupIdentifier = "group.app.msime.ios"
   private static let key = "inputSchemeUsesShuangpin"
 

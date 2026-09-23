@@ -2486,6 +2486,40 @@ test("the iOS skin page hands the candidate strip to the desktop candidate skin"
   );
 });
 
+test("iOS offers 行内预编辑 as its own keyboard switch instead of the shared preedit style", async () => {
+  const load = vi.fn().mockResolvedValue({
+    soundEnabled: true,
+    hapticsEnabled: false,
+    hapticStrength: "medium",
+    englishSuggestions: true,
+    candidatePaletteFollowsDesktop: false,
+    inlinePreedit: false,
+  });
+  const saveFeedback = vi.fn().mockImplementation(async (settings) => settings);
+  const save = vi.fn().mockImplementation(async (value) => value);
+  const client = {
+    load: vi.fn().mockResolvedValue(initial),
+    save,
+    host: { platform: "ios" } as HostCapabilities,
+    home: { openKeyboard: vi.fn() },
+    mobileKeyboardFeedback: { load, save: saveFeedback },
+  };
+  render(<SettingsPage initialPage="appearance" client={client} />);
+  const inline = (await screen.findByLabelText("行内预编辑", undefined, {
+    timeout: 3000,
+  })) as HTMLInputElement;
+  expect(inline.type).toBe("checkbox");
+  expect(inline.checked).toBe(false);
+  expect(screen.queryByRole("option", { name: "原始按键" })).toBeNull();
+  fireEvent.click(inline);
+  await waitFor(() =>
+    expect(saveFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ inlinePreedit: true, candidatePaletteFollowsDesktop: false }),
+    ),
+  );
+  expect(save).not.toHaveBeenCalled();
+});
+
 test("iOS describes local modes and 以词定字 the way its keyboard reaches them", async () => {
   const client = {
     load: vi.fn().mockResolvedValue(initial),
@@ -6264,4 +6298,31 @@ test("a host can open the settings window on the section its menu named", async 
   render(<SettingsPage client={client} initialPage="not-a-page" />);
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByRole("heading", { name: "外观" })).toBeDefined();
+});
+
+test("a host that fixes the candidate page size and layout does not offer them", async () => {
+  const client = (host?: HostCapabilities) => ({
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    host,
+  });
+  const { unmount } = render(
+    <SettingsPage
+      initialPage="appearance"
+      client={client({
+        platform: "ios",
+        candidate_row_colors: true,
+        fixed_candidate_page_size: 9,
+        fixed_candidate_layout: "horizontal",
+      } as HostCapabilities)}
+    />,
+  );
+  await screen.findByLabelText("候选栏预编辑", undefined, { timeout: 3000 });
+  expect(screen.queryByLabelText("每页候选项数量")).toBeNull();
+  expect(screen.queryByLabelText("候选项排列方式")).toBeNull();
+  unmount();
+
+  render(<SettingsPage initialPage="appearance" client={client()} />);
+  expect(await screen.findByLabelText("每页候选项数量", undefined, { timeout: 3000 })).toBeTruthy();
+  expect(screen.getByLabelText("候选项排列方式")).toBeTruthy();
 });
