@@ -274,6 +274,7 @@ struct ServiceSettingsView: View {
   @State private var voiceGeneration: UInt64 = 0
   @State private var voiceSettings = VoicePolishSettings(MetasequoiaInputSessionBridge.loadSharedPreferences())
   @State private var voiceSettingsSaveFailed = false
+  @State private var polishService = VoicePolishService.load()
   /// The recognized text before polishing, so the user can take it instead of the polished result.
   @State private var transcript = ""
   @StateObject private var recorder = VoiceRecorder()
@@ -482,6 +483,12 @@ struct ServiceSettingsView: View {
             Text(voiceSettings.systemPrompt).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
           }
         }
+        NavigationLink {
+          VoicePolishServiceView(service: $polishService)
+        } label: {
+          LabeledContent("润色服务", value: polishService.separate ? polishService.provider.title : "跟随 AI 设置")
+        }
+        .accessibilityIdentifier("voicePolishService")
       }
       if voiceSettingsSaveFailed {
         Text("未能保存语音设置，请重试。").foregroundStyle(.red)
@@ -489,8 +496,10 @@ struct ServiceSettingsView: View {
     } header: {
       Text("识别后润色")
     } footer: {
-      Text(CustomServiceConfiguration.load(.ai).endpoint.isEmpty
-        ? "润色使用“AI 设置”里保存的服务，目前尚未设置；识别结果会原样保留。"
+      Text(polishService.separate
+        ? "识别完成后把文字发给单独设置的润色服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”。"
+        : CustomServiceConfiguration.load(.ai).endpoint.isEmpty
+        ? "润色使用“AI 设置”里保存的服务，目前尚未设置；也可以在“润色服务”里单独设置。识别结果会原样保留。"
         : "识别完成后把文字发给“AI 设置”里保存的服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”。")
     }
   }
@@ -863,17 +872,12 @@ struct ServiceSettingsView: View {
       if requestID == id { busy = false }
     }
   }
-  /// The polish pass after recognition, on the AI service saved under 「AI 设置」.
+  /// The polish pass after recognition, on its own saved service or the one under 「AI 设置」.
   private static func polish(_ transcript: String, settings: VoicePolishSettings) async throws -> String {
-    var configuration = CustomServiceConfiguration.load(.ai)
-    let url: URL
-    do { url = try configuration.validatedURL() } catch {
-      throw ServiceFailure(message: "请先在“AI 设置”里保存服务。")
-    }
+    var (configuration, token) = try VoicePolishService.resolved()
     configuration.prompt = settings.systemPrompt
     let polished = try await CustomServiceClient.request(
-      kind: .ai, configuration: configuration, text: VoicePolishSettings.userMessage(transcript),
-      token: ServiceTokenStore.read(.ai, url: url))
+      kind: .ai, configuration: configuration, text: VoicePolishSettings.userMessage(transcript), token: token)
     let trimmed = polished.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { throw ServiceFailure(message: "服务未返回可用文字。") }
     return trimmed

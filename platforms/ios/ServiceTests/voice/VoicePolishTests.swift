@@ -89,4 +89,57 @@ final class VoicePolishTests: XCTestCase {
   func testTheTranscriptIsFramedAsData() {
     XCTAssertEqual(VoicePolishSettings.userMessage("你好"), "<asr_text>\n你好\n</asr_text>")
   }
+
+  func testThePolishServiceFollowsAISettingsUntilOneIsSavedForIt() throws {
+    let suite = "msime-polish-service-tests-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    var keys: [String: String] = [:]
+    let read: (String, URL) throws -> String = { keys["\($0)|\($1.host ?? "")"] ?? "" }
+
+    XCTAssertFalse(VoicePolishService.load(defaults: defaults).separate)
+    XCTAssertThrowsError(try VoicePolishService.resolved(defaults: defaults, readToken: read)) {
+      XCTAssertTrue($0.localizedDescription.contains("AI 设置"))
+    }
+    var ai = CustomServiceConfiguration.loadPreset(.openAI, defaults: defaults)
+    try ai.save(.ai, token: "", defaults: defaults)
+    keys["ai|api.openai.com"] = "ai-key"
+    var resolved = try VoicePolishService.resolved(defaults: defaults, readToken: read)
+    XCTAssertEqual(resolved.configuration.endpoint, AIProviderPreset.openAI.endpoint)
+    XCTAssertEqual(resolved.token, "ai-key")
+
+    var service = VoicePolishService.load(defaults: defaults)
+    service.separate = true
+    service.select(.groq)
+    XCTAssertEqual(service.endpoint, "https://api.groq.com/openai/v1/chat/completions")
+    XCTAssertEqual(service.model, "llama-3.3-70b-versatile")
+    service.endpoint = "http://api.groq.com/openai/v1/chat/completions"
+    XCTAssertThrowsError(try service.save(token: "x", defaults: defaults) { _, _ in XCTFail("wrote a key for a bad endpoint") })
+    XCTAssertFalse(VoicePolishService.load(defaults: defaults).separate)
+
+    service.select(.groq)
+    service.model = "  openai/gpt-oss-120b "
+    var written: [String] = []
+    try service.save(token: "groq-key", defaults: defaults) { token, url in
+      written.append("\(token)|\(url.host ?? "")")
+      keys["\(ServiceTokenStore.polishScope)|\(url.host ?? "")"] = token
+    }
+    XCTAssertEqual(written, ["groq-key|api.groq.com"])
+    let loaded = VoicePolishService.load(defaults: defaults)
+    XCTAssertTrue(loaded.separate)
+    XCTAssertEqual(loaded.provider, .groq)
+    XCTAssertEqual(loaded.model, "openai/gpt-oss-120b")
+    resolved = try VoicePolishService.resolved(defaults: defaults, readToken: read)
+    XCTAssertEqual(resolved.configuration.endpoint, AIProviderPreset.groq.endpoint)
+    XCTAssertEqual(resolved.configuration.model, "openai/gpt-oss-120b")
+    XCTAssertEqual(resolved.token, "groq-key")
+
+    // An empty key keeps the saved one; turning the switch off goes back to AI 设置 but keeps the separate service for later.
+    try loaded.save(token: "", defaults: defaults) { _, _ in XCTFail("an empty key overwrote the saved one") }
+    var off = loaded
+    off.separate = false
+    try off.save(token: "", defaults: defaults)
+    XCTAssertEqual(try VoicePolishService.resolved(defaults: defaults, readToken: read).token, "ai-key")
+    XCTAssertEqual(VoicePolishService.load(defaults: defaults).provider, .groq)
+  }
 }
