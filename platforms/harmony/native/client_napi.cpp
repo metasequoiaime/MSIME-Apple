@@ -189,6 +189,7 @@ TEXT_ENTRY(CommunityResourceLibrary, msime_client_community_resource_library)
 TEXT_ENTRY(AiSkinPlan, msime_client_ai_skin_plan)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
+TEXT_ENTRY(VocabularyReview, msime_client_vocabulary_review)
 TEXT_ENTRY(MobileClipboardHistory, msime_client_mobile_clipboard_history)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
@@ -713,6 +714,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("savePreferences", SavePreferences),
         ENTRY("updatePreferences", UpdatePreferences),
         ENTRY("typingStatistics", TypingStatistics),
+        ENTRY("vocabularyReview", VocabularyReview),
         ENTRY("mobileClipboardHistory", MobileClipboardHistory),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),

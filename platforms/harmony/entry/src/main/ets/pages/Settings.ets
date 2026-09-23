@@ -199,6 +199,24 @@ interface TypingStatisticsAction {
   retention?: string;
 }
 
+/** 背单词 request, as `msime_client_vocabulary_review` reads it. */
+interface VocabularyRequest {
+  directory: string;
+  day: string;
+  action: VocabularyAction;
+}
+
+interface VocabularyAction {
+  operation: string;
+  word?: string;
+  known?: boolean;
+  wordbook?: string;
+  new_per_day?: number;
+  session_limit?: number;
+  name?: string;
+  text?: string;
+}
+
 interface TypingStatisticsDocument {
   enabled: boolean;
   total: number;
@@ -449,7 +467,7 @@ struct Settings {
               ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                 'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
                 'customSkinLibrary', 'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
-                'typingStatistics', 'openExternalUrl', 'copyText',
+                'typingStatistics', 'vocabularyReview', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'customTranslations', 'onboardingStatus',
                 'showInputMethodPicker', 'importSkinFolder', 'startRequest'],
@@ -1067,6 +1085,41 @@ class SettingsBridge {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'snapshot_unavailable' }));
     }
     return this.accountBridge.snapshot(action, `${this.context.filesDir}/engine`, this.stateDirectory);
+  }
+
+  /**
+   * 背单词: forward one action to the shared review session.
+   *
+   * Synchronous, like `typingStatistics` beside it, because a bridge method must not return a
+   * Promise — the async channel never settles on this WebView, which is recorded twice in this
+   * file. An imported word list is a few hundred kilobytes, which the shared entry point reads in
+   * one call; the ceiling here is the envelope, not the file.
+   *
+   * The day is resolved here rather than in the page. This process is the one that knows the
+   * device's timezone, and the shared layer never derives a day from one.
+   */
+  vocabularyReview(actionDocument: string): string {
+    if (actionDocument.length === 0 || actionDocument.length > 8 * 1024 * 1024) {
+      return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
+    }
+    try {
+      const action: VocabularyAction = JSON.parse(actionDocument) as VocabularyAction;
+      if (!['load', 'answer', 'set_settings', 'import', 'remove', 'reset'].includes(action.operation)) {
+        return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
+      }
+      const now: Date = new Date();
+      const month: string = `${now.getMonth() + 1}`.padStart(2, '0');
+      const date: string = `${now.getDate()}`.padStart(2, '0');
+      const request: VocabularyRequest = {
+        directory: this.stateDirectory,
+        day: `${now.getFullYear()}-${month}-${date}`,
+        action: action,
+      };
+      return client.vocabularyReview(JSON.stringify(request));
+    } catch (error) {
+      KeyboardLog.error(`vocabulary review failed: ${describeError(error)}`);
+      return JSON.stringify({ ok: false, error: 'vocabulary review failed' });
+    }
   }
 
   typingStatistics(actionDocument: string): string {
