@@ -14,11 +14,19 @@ enum PersonalWordKind: String, Codable, CaseIterable, Identifiable, Sendable {
   }
 }
 
+/// Where a listed row comes from, as the Engine list says. Only `bundled` is kept: a user row is what every word without a source already is.
+enum PersonalWordSource: String, Codable, Sendable {
+  case bundled
+}
+
 struct PersonalWord: Codable, Hashable, Sendable, Identifiable {
   var kind: PersonalWordKind = .pinyin
   var key: String
   var value: String
   var weight: Int64 = Self.defaultWeight
+  /// Set on a row the dictionary shipped or learned rather than one the user added. Its code and word are fixed, so it can only be re-weighted or deleted, and the edit goes back to the keyboard carrying this mark.
+  var source: PersonalWordSource?
+  var isBundled: Bool { source == .bundled }
   /// The weights the Engine stores (`validate_personal_dictionary_entry`); anything outside is refused.
   static let weightRange: ClosedRange<Int64> = 1...100_000_000
   static let defaultWeight: Int64 = 100_000

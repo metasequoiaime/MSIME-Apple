@@ -311,6 +311,67 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertThrowsError(try host.requestPage(offset: 0, query: String(repeating: "a", count: 257)))
   }
 
+  @MainActor
+  func testABundledWordIsFoundReweightedAndDeletedThroughTheQueue() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let host = PersonalDictionaryStore(directory: root)
+    let keyboard = PersonalDictionaryStore(directory: root)
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let session = MetasequoiaInputSessionBridge(resources: resources,
+                                                 stateRoot: root.appendingPathComponent("EngineState"))
+    defer { _ = session.cancel() }
+    func sync() throws {
+      try keyboard.synchronize(apply: { request in
+        try session.applyPersonalPrevious(request.previous?.bridgeValue, replacement: request.replacement?.bridgeValue,
+                                          requestID: request.id)
+      }, page: { request in
+        let result = try session.personalEntries(atOffset: UInt(request.offset), kind: request.kind, query: request.query)
+        let entries = try XCTUnwrap(result["entries"] as? [[String: Any]])
+        return .init(entries: try entries.map { try PersonalWord(bridgeValue: $0) },
+                     hasMore: try XCTUnwrap(result["hasMore"] as? Bool))
+      })
+    }
+
+    // Without a kind the page stays the user's own words, as before.
+    try host.requestPage(offset: 0, query: "nihao")
+    try sync()
+    XCTAssertFalse(try host.read().entries.contains(where: \.isBundled))
+
+    try host.requestPage(offset: 0, kind: .pinyin, query: "nihao")
+    try sync()
+    let listed = try XCTUnwrap(host.read().entries.first { $0.value == "你好" })
+    XCTAssertTrue(listed.isBundled)
+    XCTAssertEqual(try PersonalWord(bridgeValue: listed.bridgeValue), listed, "the mark survives the queue")
+    var validatedCopy = listed
+    validatedCopy.source = nil
+    XCTAssertFalse(try validatedCopy.validated().isBundled)
+
+    var reweighted = listed
+    reweighted.weight = 7
+    _ = try host.enqueue(previous: listed, replacement: reweighted)
+    try sync()
+    var state = try host.read()
+    XCTAssertEqual(state.pendingCount, 0, "\(state.requests.map { $0.error ?? "" })")
+    XCTAssertEqual(state.entries.first { $0.value == "你好" }?.weight, 7)
+
+    // A bundled row's code and word are fixed; the Engine refuses anything else.
+    let current = try XCTUnwrap(state.entries.first { $0.value == "你好" })
+    var renamed = current
+    renamed.value = "拟好"
+    _ = try host.enqueue(previous: current, replacement: renamed)
+    try sync()
+    state = try host.read()
+    XCTAssertEqual(state.requests.last?.status, .failed)
+    try host.dismissFailure(try XCTUnwrap(state.requests.last?.id))
+
+    _ = try host.enqueue(previous: current, replacement: nil)
+    try sync()
+    state = try host.read()
+    XCTAssertEqual(state.pendingCount, 0, "\(state.requests.map { $0.error ?? "" })")
+    XCTAssertNil(state.entries.first { $0.value == "你好" && $0.key == current.key })
+  }
+
   func testStateUsesRustCompatibleRefreshKeys() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

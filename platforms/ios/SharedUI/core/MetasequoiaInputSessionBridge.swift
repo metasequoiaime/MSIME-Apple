@@ -1142,9 +1142,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard (result["applied"] as? Bool) == true else { throw InputBridgeFailure.response("个人词条未能应用") }
   }
 
-  /// One page of the user's own words. The queue's edits cannot carry a bundled row, so a code search here never reaches the bundled tables.
+  /// One page of the dictionary. Without a kind it is the user's own words; a code prefix within one kind, or the quick phrases, is looked up in the dictionary itself, so bundled rows come back marked `source: bundled` and can be re-weighted or deleted through the queue.
   func personalEntries(atOffset offset: UInt, kind: PersonalWordKind? = nil, query: String = "") throws -> [String: Any] {
-    var action: [String: Any] = ["operation": "list", "offset": offset, "limit": 100, "user_only": true]
+    var action: [String: Any] = ["operation": "list", "offset": offset, "limit": 100]
     if let kind { action["kind"] = kind.bridgeName }
     if !query.isEmpty { action["query"] = query }
     let request: [String: Any] = ["options": options, "action": action]

@@ -94,7 +94,8 @@ enum TauriPersonalDictionaryBridge {
           format == "standard" || format == "windows" else { throw Failure.invalid }
     let offset = try boundedInteger(action["offset"], range: 0...1_000_000)
     let limit = try boundedInteger(action["limit"], range: 1...1_000)
-    let matching = state.entries.filter { $0.kind == kind }
+    // The export holds the user's own words; a code search may have left bundled rows on the page.
+    let matching = state.entries.filter { $0.kind == kind && !$0.isBundled }
     let page = matching.dropFirst(min(offset, matching.count)).prefix(limit)
     var text = page.map { word in
       format == "windows"
@@ -108,7 +109,9 @@ enum TauriPersonalDictionaryBridge {
   private static func word(_ value: Any?) throws -> PersonalWord? {
     if value == nil || value is NSNull { return nil }
     guard let fields = value as? [String: Any] else { throw Failure.invalid }
-    return try PersonalWord(bridgeValue: fields).validated()
+    // A bundled row goes back as listed; the keyboard's Engine refuses anything but a new weight for it.
+    let word = try PersonalWord(bridgeValue: fields)
+    return word.isBundled ? word : try word.validated()
   }
 
   private static func requestID(_ action: [String: Any]) throws -> String {

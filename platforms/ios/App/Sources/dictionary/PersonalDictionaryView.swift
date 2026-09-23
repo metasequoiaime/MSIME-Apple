@@ -9,6 +9,8 @@ struct PersonalDictionaryView: View {
   @State private var lastReadError: String?
   @State private var trial = ""
   @State private var search = ""
+  /// `nil` searches the user's own words; a kind searches that whole dictionary, bundled words included, the way the Windows dictionary manager does.
+  @State private var searchKind: PersonalWordKind?
   @State private var importing = false
   @State private var exportKind = PersonalWordKind.pinyin
   @State private var exportFormat = "standard"
@@ -34,9 +36,14 @@ struct PersonalDictionaryView: View {
           query.utf8.count <= PersonalDictionaryStore.maximumQueryBytes else { return nil }
     return query
   }
-  private var showsSearchResults: Bool { codeQuery != nil && codeQuery == state.pageQuery }
+  private var showsSearchResults: Bool { codeQuery != nil && codeQuery == state.pageQuery && searchKind == state.pageKind }
   private var awaitingKeyboard: Bool {
     state.requestedPageOffset != state.pageOffset || state.requestedQuery != state.pageQuery
+      || state.requestedKind != state.pageKind
+  }
+  private func requestSearch() {
+    guard let codeQuery, codeQuery != state.requestedQuery || searchKind != state.requestedKind else { return }
+    perform { try store.requestPage(offset: 0, kind: searchKind, query: codeQuery) }
   }
   private var visibleEntries: [PersonalWord] {
     // The keyboard matched the code with the Engine's own rule, which ignores pinyin separators, so its answer is shown whole.
@@ -44,7 +51,7 @@ struct PersonalDictionaryView: View {
     return state.entries.filter { search.isEmpty || $0.value.localizedCaseInsensitiveContains(search) || $0.key.localizedCaseInsensitiveContains(search) }
   }
   private func requestPage(_ offset: Int) {
-    perform { try store.requestPage(offset: offset, query: state.requestedQuery) }
+    perform { try store.requestPage(offset: offset, kind: state.requestedKind, query: state.requestedQuery) }
   }
   var body: some View {
     List {
@@ -85,27 +92,35 @@ struct PersonalDictionaryView: View {
         }
       }
       Section {
-        if let codeQuery, codeQuery == state.requestedQuery, codeQuery != state.pageQuery {
-          Text("已请求在整个词库里搜索「\(codeQuery)」，打开上方试打框让键盘查找。").foregroundStyle(.secondary)
+        if let codeQuery, codeQuery == state.requestedQuery, searchKind == state.requestedKind, awaitingKeyboard {
+          Text("已请求在\(searchedDictionary(searchKind))里搜索「\(codeQuery)」，打开上方试打框让键盘查找。").foregroundStyle(.secondary)
         }
         if visibleEntries.isEmpty {
           Text(search.isEmpty ? "本页暂无个人词条。点击右上角添加。"
-               : showsSearchResults ? "个人词库里没有以「\(state.pageQuery)」开头的编码。" : "本页没有匹配的词条。")
+               : showsSearchResults ? "\(searchedDictionary(state.pageKind))里没有以「\(state.pageQuery)」开头的编码。" : "本页没有匹配的词条。")
             .foregroundStyle(.secondary)
         }
         ForEach(visibleEntries) { word in
           Button { editing = Editing(previous: word) } label: {
             VStack(alignment: .leading, spacing: 4) {
-              Text(word.value).foregroundStyle(.primary).lineLimit(3)
+              HStack(spacing: 6) {
+                Text(word.value).foregroundStyle(.primary).lineLimit(3)
+                if word.isBundled {
+                  Text("内置").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .overlay(Capsule().stroke(Color.secondary.opacity(0.5)))
+                }
+              }
               Text("\(word.kind.title) · \(word.key) · 权重 \(word.weight)").font(.caption).foregroundStyle(.secondary)
             }
           }
+          .accessibilityHint(word.isBundled ? "内置词条，只能调整权重或删除" : "编辑词条")
           .swipeActions {
             Button("删除", role: .destructive) { deleting = word }
           }
         }
       } header: { Text(showsSearchResults ? "编码以「\(state.pageQuery)」开头的词条" : "已生效词条") } footer: {
-        Text("包括手动添加和引擎学习生成的词条。每页最多 100 条；搜索编码时在键盘里查整个个人词库，搜索汉字只筛当前页。滑动词条可删除。刷新、翻页或搜索编码后打开上方试打框，同步新的列表。")
+        Text("包括手动添加和引擎学习生成的词条。每页最多 100 条；搜索编码时在键盘里查整个个人词库，搜索汉字只筛当前页。搜索时选拼音、五笔、快捷短语或英文，会在那一整个词库里查，内置词条也在其中，标着「内置」：它的编码和词不能改，只能调权重或删除。滑动词条可删除。刷新、翻页或搜索编码后打开上方试打框，同步新的列表。")
       }
       // 翻页原本是词条组最后一行里三个并排的小按钮,和词条自己的点按、侧滑挤在同一片区域。
       if state.pageOffset > 0 || state.hasMore {
@@ -126,13 +141,15 @@ struct PersonalDictionaryView: View {
     .settingsStatus(busy: false, message: state.snapshotError)
     .navigationTitle("个人词库")
     .searchable(text: $search, prompt: "搜索编码或本页词条")
-    .onSubmit(of: .search) {
-      guard let codeQuery, codeQuery != state.requestedQuery else { return }
-      perform { try store.requestPage(offset: 0, query: codeQuery) }
+    .searchScopes($searchKind, activation: .onSearchPresentation) {
+      Text("我的词条").tag(PersonalWordKind?.none)
+      ForEach(PersonalWordKind.allCases) { Text($0.title).tag(Optional($0)) }
     }
+    .onSubmit(of: .search) { requestSearch() }
+    .onChange(of: searchKind) { _ in requestSearch() }
     .onChange(of: search) { value in
       // Clearing the search goes back to the whole store's first page rather than leaving the last search's results in place.
-      guard value.isEmpty, !state.requestedQuery.isEmpty else { return }
+      guard value.isEmpty, !state.requestedQuery.isEmpty || state.requestedKind != nil else { return }
       perform { try store.requestPage(offset: 0) }
     }
     .toolbar {
@@ -157,13 +174,17 @@ struct PersonalDictionaryView: View {
         refresh()
       }
     }
-    .alert("删除个人词条？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+    .alert(deleting?.isBundled == true ? "删除内置词条？" : "删除个人词条？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
       Button("取消", role: .cancel) { deleting = nil }
       Button("删除", role: .destructive) {
         if let word = deleting { perform { try store.enqueue(previous: word, replacement: nil) } }
         deleting = nil
       }
-    } message: { Text("删除将在键盘同步后生效，并保留到之后的词库升级。") }
+    } message: {
+      Text(deleting?.isBundled == true
+           ? "这个词随词库一起安装。删除后它不再出现在候选里，这一改动在键盘同步后生效，并保留到之后的词库升级。"
+           : "删除将在键盘同步后生效，并保留到之后的词库升级。")
+    }
     .alert("个人词库", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
       Button("好", role: .cancel) { error = nil }
     } message: { Text(error ?? "") }
@@ -229,6 +250,10 @@ struct PersonalDictionaryView: View {
     }
   }
 
+  private func searchedDictionary(_ kind: PersonalWordKind?) -> String {
+    kind.map { "\($0.title)词库" } ?? "个人词库"
+  }
+
   private func perform<T>(_ work: () throws -> T) {
     do { _ = try work(); refresh() } catch { self.error = error.localizedDescription }
   }
@@ -248,6 +273,13 @@ private struct PersonalWordEditor: View {
   var body: some View {
     NavigationView {
       Form {
+        if word.isBundled {
+          Section {
+            SettingsFactRow(title: word.value, detail: "\(word.kind.title) · \(word.key)", symbol: "lock.fill")
+          } footer: {
+            Text("这是随词库安装的词条，编码和词不能修改。可以调整它的权重，或在列表里滑动删除。")
+          }
+        } else {
         Section {
           Picker("类型", selection: $word.kind) { ForEach(PersonalWordKind.allCases) { Text($0.title).tag($0) } }
           if word.kind == .quickPhrase {
@@ -264,6 +296,7 @@ private struct PersonalWordEditor: View {
         } footer: {
           Text(word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : "五笔使用 1–4 个字母；快捷短语使用字母或数字，在键盘“本地输入 → 快捷短语”输入；英文编码使用字母、连字符或撇号，可以和词条不同，例如用 dont 打出 don't。")
         }
+        }
         Section {
           TextField("权重", value: $word.weight, format: .number.grouping(.never))
             .keyboardType(.numberPad)
@@ -276,7 +309,7 @@ private struct PersonalWordEditor: View {
         if let error { Section { Text(error).foregroundStyle(.red) } }
         Section { Text("保存后等待水杉键盘确认同步。这里只保存本机词条，不会发送到 AI 或语音服务。").font(.footnote).foregroundStyle(.secondary) }
       }
-      .navigationTitle(previous == nil ? "添加词条" : "编辑词条")
+      .navigationTitle(previous == nil ? "添加词条" : word.isBundled ? "调整权重" : "编辑词条")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
@@ -286,7 +319,8 @@ private struct PersonalWordEditor: View {
               error = "权重需要在 1–\(PersonalWord.weightRange.upperBound) 之间。"
               return
             }
-            do { try save(word.validated()); dismiss() } catch { self.error = error.localizedDescription }
+            // A bundled row keeps the code and word it was listed with; the keyboard's Engine checks that only the weight changed.
+            do { try save(word.isBundled ? word : word.validated()); dismiss() } catch { self.error = error.localizedDescription }
           }.disabled(word.key.isEmpty || word.value.isEmpty).accessibilityIdentifier("savePersonalWord")
         }
       }
