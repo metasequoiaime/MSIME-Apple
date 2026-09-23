@@ -2486,6 +2486,42 @@ test("the iOS skin page hands the candidate strip to the desktop candidate skin"
   );
 });
 
+test("iOS describes local modes and 以词定字 the way its keyboard reaches them", async () => {
+  const client = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    host: { platform: "ios" } as HostCapabilities,
+    home: { openKeyboard: vi.fn() },
+  };
+  const { unmount } = render(<SettingsPage initialPage="tools" client={client} />);
+  const tools = await screen.findByRole("group", { name: "实用功能" }, { timeout: 3000 });
+  expect(within(tools).getByText(/「更多 → 本地输入」里选「快捷短语」/)).toBeTruthy();
+  expect(within(tools).getByText(/「更多 → 本地输入」里选「英文补全」/)).toBeTruthy();
+  expect(within(tools).queryByText(/Shift\+[A-Z]/)).toBeNull();
+  unmount();
+
+  render(<SettingsPage initialPage="input" client={client} />);
+  const input = await screen.findByRole("group", { name: "输入" }, { timeout: 3000 });
+  expect(within(input).getByText(/长按两个字以上的候选/)).toBeTruthy();
+  expect(within(input).queryByText("以词定字快捷键")).toBeNull();
+});
+
+test("desktop hosts keep the chord wording for local modes and 以词定字", async () => {
+  const client = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    host: { platform: "windows" } as HostCapabilities,
+  };
+  const { unmount } = render(<SettingsPage initialPage="tools" client={client} />);
+  const tools = await screen.findByRole("group", { name: "实用功能" }, { timeout: 3000 });
+  expect(within(tools).getByText(/中文模式下按 Shift\+K/)).toBeTruthy();
+  unmount();
+
+  render(<SettingsPage initialPage="input" client={client} />);
+  const input = await screen.findByRole("group", { name: "输入" }, { timeout: 3000 });
+  expect(within(input).getByText("以词定字快捷键")).toBeTruthy();
+});
+
 test("a mobile host without the candidate palette switch shows neither the switch nor the hint", async () => {
   render(
     <SettingsPage
