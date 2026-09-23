@@ -22,6 +22,27 @@ pub(crate) fn panel_accepts_focus(label: &str) -> bool {
     label != "keyboard-panel"
 }
 
+/// The screen keyboard's height for the shared `touch_keyboard_height_adjustment`, the same `base + adjustment` (clamped to -12..=48) the settings preview draws, so the window matches what the slider showed.
+pub(crate) fn keyboard_panel_height(base: f64, adjustment: i8) -> f64 {
+    base + f64::from(adjustment.clamp(-12, 48))
+}
+
+/// A panel's height on Windows, where the keyboard panel follows the saved height adjustment. Every other panel, and a document that cannot be read, keeps the surface's own height.
+#[cfg(target_os = "windows")]
+pub(crate) fn windows_panel_height(app: &tauri::AppHandle, label: &str, height: f64) -> f64 {
+    if label != "keyboard-panel" {
+        return height;
+    }
+    app.try_state::<std::sync::Arc<msime_client_core::preferences::PreferencesStore>>()
+        .and_then(|store| store.load().ok())
+        .map_or(height, |snapshot| {
+            keyboard_panel_height(
+                height,
+                snapshot.preferences.touch_keyboard_height_adjustment,
+            )
+        })
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) fn visible_panel_position(
     window: &tauri::WebviewWindow,
@@ -98,6 +119,13 @@ pub(crate) fn open_panel_window(
                 return macos_keyboard::show(&window).map_err(|_| HostActionError {
                     code: "unavailable",
                 });
+            }
+            // The window is reused, so a height saved since it was created is applied here; the minimum goes first because it was created at the old height.
+            #[cfg(target_os = "windows")]
+            if label == "keyboard-panel" {
+                let size = tauri::LogicalSize::new(width, height);
+                let _ = window.set_min_size(Some(size));
+                let _ = window.set_size(size);
             }
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             if let Some(position) = position {
@@ -188,9 +216,13 @@ pub(crate) fn open_keyboard_panel(
         // The panel never activates, so the window that owns the caret now is
         // the one synthetic input has to reach later.
         #[cfg(target_os = "windows")]
+        let height = windows_panel_height(&app, "keyboard-panel", 400.0);
+        #[cfg(not(target_os = "windows"))]
+        let height = 400.0;
+        #[cfg(target_os = "windows")]
         let position = {
             let _ = remember_panel_input_target(&state);
-            windows_panel_position(1100.0, 400.0)
+            windows_panel_position(1100.0, height)
         };
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let position = None;
@@ -200,7 +232,7 @@ pub(crate) fn open_keyboard_panel(
             "keyboard",
             "水杉屏幕键盘",
             1100.0,
-            400.0,
+            height,
             position,
         )
     }
@@ -472,4 +504,19 @@ pub(crate) fn close_panel(
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keyboard_panel_height;
+
+    #[test]
+    fn keyboard_panel_height_follows_the_settings_preview() {
+        // The preview draws 400 + clamp(adjustment, -12, 48); the window has to open at that height.
+        assert_eq!(keyboard_panel_height(400.0, 0), 400.0);
+        assert_eq!(keyboard_panel_height(400.0, 48), 448.0);
+        assert_eq!(keyboard_panel_height(400.0, -12), 388.0);
+        assert_eq!(keyboard_panel_height(400.0, 100), 448.0);
+        assert_eq!(keyboard_panel_height(400.0, -100), 388.0);
+    }
 }

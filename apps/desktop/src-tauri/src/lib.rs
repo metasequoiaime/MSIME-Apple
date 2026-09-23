@@ -2697,9 +2697,14 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
             )
         };
         #[cfg(target_os = "windows")]
+        let height =
+            panel_window::windows_panel_height(app, surface.label, f64::from(surface.height));
+        #[cfg(not(target_os = "windows"))]
+        let height = f64::from(surface.height);
+        #[cfg(target_os = "windows")]
         let position = {
             let _ = remember_panel_input_target(&state);
-            windows_panel_position(f64::from(surface.width), f64::from(surface.height))
+            windows_panel_position(f64::from(surface.width), height)
         };
         let _ = panel_window::open_panel_window(
             app,
@@ -2707,7 +2712,7 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
             surface.query,
             surface.title,
             f64::from(surface.width),
-            f64::from(surface.height),
+            height,
             position,
         );
         return;
@@ -4061,6 +4066,8 @@ pub fn run() {
                         let _ = remember_panel_input_target(&panel_input, label, true);
                         panel_position(&panel_input, label, width, height)
                     };
+                    #[cfg(target_os = "windows")]
+                    let height = panel_window::windows_panel_height(app.handle(), label, height);
                     #[cfg(target_os = "windows")]
                     let position = {
                         let _ = remember_panel_input_target(&panel_input);
