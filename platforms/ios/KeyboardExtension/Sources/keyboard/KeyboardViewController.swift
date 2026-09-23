@@ -322,6 +322,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
     isChineseMode = Self.startsInChinese(session.sharedPreferences)
+    applyKeyboardAppearance()
     configureDiagnosticLog()
     DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone")")
     if session.initializationFailed { DiagnosticLog.shared.write("runtime_initialization_failed") }
@@ -415,6 +416,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       DiagnosticLog.shared.write("preferences_applied")
       // A candidate skin, theme or colour synced from the desktop arrives with the document.
       self.refreshCandidatePalette()
+      self.applyKeyboardAppearance()
       self.synchronizeSharedTouchPreferences()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
@@ -2098,6 +2100,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let text = try store.consume(entry.id)
         insertOwnText(text, source: .voice)
       }, close: { [weak self] in self?.closeKeyboardService() }))
+      panel.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.voiceKey, in: session.sharedPreferences)
       servicePanel = panel
       addChild(panel)
       panel.view.frame = view.bounds
@@ -3701,6 +3704,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       onDelete: { [weak self] in self?.deleteOwnBackward() },
       onClose: { [weak self] in self?.closeKeyboardPicker() })
     picker.accessibilityViewIsModal = true
+    picker.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.emojiKey, in: session.sharedPreferences)
     picker.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(picker)
     NSLayoutConstraint.activate([
@@ -3882,6 +3886,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
     for (_, _, hint) in letterButtons { hint.textColor = skin.accent }
     view.tintColor = skin.accent
+  }
+
+  /// Draw the keyboard and its panels in the light or dark form the shared themes ask for (see KeyboardAppearancePreference). A changed style reaches `traitCollectionDidChange`, which redraws the skin.
+  private func applyKeyboardAppearance() {
+    let preferences = session.sharedPreferences
+    let keyboard = KeyboardAppearancePreference.style(KeyboardAppearancePreference.keyboardKey, in: preferences)
+    if overrideUserInterfaceStyle != keyboard { overrideUserInterfaceStyle = keyboard }
+    handwriting.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.handwritingKey, in: preferences)
+    emojiPicker?.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.emojiKey, in: preferences)
   }
 
   private func currentCandidatePalette() -> CandidatePalette? {
