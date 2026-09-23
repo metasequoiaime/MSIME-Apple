@@ -29,6 +29,7 @@ struct CustomSkinEditorView: View {
   @AppStorage(KeyboardFeedbackPreference.hapticsKey, store: KeyboardFeedbackPreference.defaults) private var hapticsEnabled = false
   @AppStorage(KeyboardFeedbackPreference.strengthKey, store: KeyboardFeedbackPreference.defaults) private var hapticStrength = KeyboardHapticStrength.medium.rawValue
   @State private var feedback: UIImpactFeedbackGenerator?
+  @State private var documentWrite: Task<Void, Never>?
 
 
   private func apply(_ next: CustomKeyboardSkin, record: Bool = true) {
@@ -37,6 +38,39 @@ struct CustomSkinEditorView: View {
     if record { undo.append(design); undo = Array(undo.suffix(30)); redo.removeAll() }
     CustomKeyboardSkinStore.save(next)
     design = next
+    scheduleDocumentWrite()
+  }
+
+  /// The keyboard reads the design from the shared document, which a colour drag would otherwise rewrite on every frame; the write waits for the edits to settle. The App Group copy above only feeds this page's previews.
+  private func scheduleDocumentWrite() {
+    documentWrite?.cancel()
+    documentWrite = Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 400_000_000)
+      guard !Task.isCancelled else { return }
+      documentWrite = nil
+      writeDocument()
+    }
+  }
+
+  private func flushDocumentWrite() {
+    guard let pending = documentWrite else { return }
+    pending.cancel()
+    documentWrite = nil
+    writeDocument()
+  }
+
+  private func writeDocument() {
+    if !KeyboardSkinPreference.writeDocument(nil, design: design) {
+      message = "这次修改没能交给键盘，请稍后再改一次。"
+    }
+  }
+
+  private func useCustomSkin() {
+    documentWrite?.cancel()
+    documentWrite = nil
+    if !KeyboardSkinPreference.save(.custom, design: design) {
+      message = "没能切换到我的皮肤，请稍后重试。"
+    }
   }
   @AppStorage(KeyboardSkinPreference.key, store: KeyboardFeedbackPreference.defaults)
   private var selected = KeyboardSkin.forest.rawValue
@@ -101,7 +135,7 @@ struct CustomSkinEditorView: View {
           Text("26 键").tag(false); Text("9 键").tag(true)
         }.pickerStyle(.segmented).frame(width: 124).accessibilityIdentifier("skinEditorPreviewLayout")
         Spacer(minLength: 0)
-        Button { selected = KeyboardSkin.custom.rawValue } label: {
+        Button { useCustomSkin() } label: {
           Label(selected == KeyboardSkin.custom.rawValue ? "正在使用" : "使用皮肤", systemImage: "checkmark.circle.fill")
             .font(.caption.weight(.semibold))
         }.accessibilityIdentifier("applyCustomSkin")
@@ -334,6 +368,7 @@ if section == "我的" {
       if current != design { design = current; undo.removeAll(); redo.removeAll() }
       saved = CustomSkinLibrary.designs
     }
+    .onDisappear { flushDocumentWrite() }
     .navigationTitle("自定义皮肤")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
@@ -357,7 +392,7 @@ if section == "我的" {
       }
     }
     .sheet(isPresented: $showAI, onDismiss: { saved = CustomSkinLibrary.designs }) {
-      AISkinGenerationView { next in apply(next); selected = KeyboardSkin.custom.rawValue; section = "按键" }
+      AISkinGenerationView { next in apply(next); useCustomSkin(); section = "按键" }
     }
     .sheet(item: $publishingSkin) { item in SavedSkinPublishFlow(skinID: item.id) }
     .sheet(isPresented: $showPhotos) {
@@ -384,7 +419,7 @@ if section == "我的" {
               saved = CustomSkinLibrary.designs
               showSave = false; message = "保存失败，请检查设备可用空间后重试。"; return
             }
-            if renaming == nil { selected = KeyboardSkin.custom.rawValue }
+            if renaming == nil { useCustomSkin() }
             showSave = false
             section = "我的"
           }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

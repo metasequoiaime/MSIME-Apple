@@ -52,6 +52,10 @@ mod dictionary;
 // The exports live in `ffi`, but Rust consumers - this crate's own tests and
 // examples, and anything linking the rlib - have always reached them at the
 // crate root. Re-exported so moving the file changes no caller.
+/// Largest preference document a host may hand to the C ABI, in bytes.
+///
+/// A valid document carries the custom touch-keyboard skin, whose photo alone may be 682,668 base64 characters; at the 16 KiB every other buffer uses, a document holding a photo could never be written back, which failed every later preference write from that host.
+pub(crate) const PREFERENCES_DOCUMENT_LIMIT: usize = 1 << 20;
 mod ffi;
 pub use ffi::*;
 mod doubao_auth;

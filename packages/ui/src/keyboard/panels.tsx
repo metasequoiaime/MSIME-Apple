@@ -5332,7 +5332,13 @@ export function EmojiPanel({
             </p>
           )}
           {!displayGroups.length && !catalogLoading && (
-            <p className={panelEmpty}>{query ? "No results" : "暂无可显示内容"}</p>
+            <p className={panelEmpty}>
+              {page === "emoji" && activeCategory === "recent" && !recent.length
+                ? "Your recently used items will appear here"
+                : query
+                  ? "No results"
+                  : "暂无可显示内容"}
+            </p>
           )}
           {itemPageCount > 1 && (
             <div className={panelToolbar} role="navigation" aria-label="Emoji 分页">

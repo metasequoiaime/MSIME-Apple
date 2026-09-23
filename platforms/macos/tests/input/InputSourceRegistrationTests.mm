@@ -31,6 +31,7 @@ std::vector<TISInputSourceRef> enabledSources;
 TISInputSourceRef rejectedSource = nullptr;
 TISInputSourceRef parentSource = reinterpret_cast<TISInputSourceRef>(0x101);
 TISInputSourceRef modeSource = reinterpret_cast<TISInputSourceRef>(0x102);
+TISInputSourceRef englishModeSource = reinterpret_cast<TISInputSourceRef>(0x103);
 
 void require(bool condition, const char *message)
 {
@@ -67,8 +68,9 @@ void *GetInputSourceProperty(TISInputSourceRef inputSource, CFStringRef property
     {
         return nullptr;
     }
-    CFStringRef identifier = inputSource == parentSource ? CFSTR("com.houko.inputmethod.MetasequoiaIME")
-                                                         : CFSTR("com.houko.inputmethod.MetasequoiaIME.Hans");
+    CFStringRef identifier = inputSource == parentSource        ? CFSTR("com.houko.inputmethod.MetasequoiaIME")
+                             : inputSource == englishModeSource ? CFSTR("com.houko.inputmethod.MetasequoiaIME.Roman")
+                                                                : CFSTR("com.houko.inputmethod.MetasequoiaIME.Hans");
     return const_cast<void *>(reinterpret_cast<const void *>(identifier));
 }
 
@@ -168,6 +170,19 @@ int main()
                 "An input mode without a top-level source was rejected.");
         require(enabledSources.size() == 1 && enabledSources[0] == modeSource,
                 "The primary input mode was not enabled when the top-level source was absent.");
+        CFRelease(sourceList);
+        sourceList = nullptr;
+
+        // The bundle declares a Chinese and an English mode; the menu bar can only show the 英 icon if registration enables both.
+        const void *twoModeSources[] = {modeSource, englishModeSource};
+        sourceList = CFArrayCreate(nullptr, twoModeSources, 2, nullptr);
+        enabledSources.clear();
+        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+                                                         CopyInputSources, GetInputSourceProperty,
+                                                         EnableInputSource) == noErr,
+                "A bundle with a Chinese and an English mode was rejected.");
+        require(enabledSources.size() == 2 && enabledSources[0] == modeSource && enabledSources[1] == englishModeSource,
+                "Registration did not enable both the Chinese and the English input mode.");
         CFRelease(sourceList);
         sourceList = nullptr;
 
