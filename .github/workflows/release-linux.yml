@@ -34,4 +34,8 @@ jobs:
         if: ${{ inputs.publish }}
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
-          tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "msime-linux-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "Linux ${VERSION}" --generate-notes "${flags[@]}"
+          # --generate-notes otherwise starts from whichever tag in the repository is newest, and the six platforms interleave prefixes, so a macOS release could be described by the diff since an ios-v tag. fetch-depth: 0 above is what makes this list complete.
+          start=$(git tag --list 'linux-v*' --sort=-v:refname | head -1)
+          tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
+          [[ -n "$start" ]] && flags+=(--notes-start-tag "$start")
+          gh release create "$tag" "msime-linux-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "Linux ${VERSION}" --generate-notes "${flags[@]}"
