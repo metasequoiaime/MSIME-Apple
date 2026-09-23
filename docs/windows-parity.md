@@ -1959,10 +1959,14 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - Linux 的 Ctrl+Space 等切换组合键（`FcitxEngine.cpp`）同样发 2，存在同样的差异。那是 Linux 宿主的事，这里没有改动。
 
 ### HarmonyOS 2in1 硬件键盘：长按退格、组字中的数字、小键盘小数点、英文模式下锁定的中文标点
+### HarmonyOS 2in1 硬件键盘：长按退格、组字中的数字、小键盘小数点、英文模式下锁定的中文标点、译文页、日语标点、Ctrl+Enter
 
-四处差异都只在硬件键盘路径上，手机的软键盘不受影响。
+七处差异都只在硬件键盘路径上，手机的软键盘不受影响。
 
 - **长按退格。** 来源在每次新按下退格时记下当时是否在组字（`_ApplyBackspaceHoldGuard`），长按从组字开始时，组字清空之后的自动重复也照样吃掉（`ShouldSuppressBackspaceRepeat`，#347），长按清完拼写就停，不会接着删文档里已经上屏的字。鸿蒙以前只在组字期间认领退格，拼写一清空，后面的重复就交给了应用。现在由 `HardwareBackspaceGuard` 按同样的规则处理。鸿蒙的按键事件没有重复位，所以「重复」指上次抬起之后又来的按下；按下其他键或编辑框失焦时解除，漏掉的抬起不会让它一直生效。触屏键盘原有的 `BackspaceHoldPolicy.firstRepeat` 不变。
-- **组字中的数字。** 来源遇到组字用不上、但带字符的键（`0`，或关掉数字选词后的 1–9），会先定稿再把键交给应用（`IsVirtualKeyNeed` 的 `FUNCTION_FINALIZE_TEXTSTORE`，`_HandleCompositionFinalize`）。鸿蒙以前直接放行，应用先插入数字，随后的 textChange 才把拼写提交到数字后面：打 nihao 再按 0 得到「0你好」。现在路由返回 `COMMIT_THEN_TYPE`：先 `FINISH_COMPOSITION`，再由键盘自己插入这个字符，保证顺序。插入的是按键原样的半角字符，与来源放行给应用的结果一致。日文标点仍按既有取舍交给应用。
+- **组字中的数字。** 来源遇到组字用不上、但带字符的键（`0`，或关掉数字选词后的 1–9），会先定稿再把键交给应用（`IsVirtualKeyNeed` 的 `FUNCTION_FINALIZE_TEXTSTORE`，`_HandleCompositionFinalize`）。鸿蒙以前直接放行，应用先插入数字，随后的 textChange 才把拼写提交到数字后面：打 nihao 再按 0 得到「0你好」。现在路由返回 `COMMIT_THEN_TYPE`：先 `FINISH_COMPOSITION`，再由键盘自己插入这个字符，保证顺序。插入的是按键原样的半角字符，与来源放行给应用的结果一致。
 - **小键盘小数点。** 来源 `VK_DECIMAL` 永远输出 ASCII `.`（`KeyHandler.cpp`「Numpad decimal should always commit ASCII '.'」），组字中先上屏高亮候选再接 `.`。鸿蒙以前只把小键盘数字当数字，小数点走中文标点，变成「。」。现在不在组字时放行给应用，组字中走 `COMMIT_THEN_TYPE`。主键盘的句号不变。
 - **英文模式下锁定的中文标点。** 来源的标点开关不看中英文模式，`punctuation_lock` 为中文时英文模式下也保持打开（`ResolvePunctuationOpen`），`_IsKeyEaten` 的标点分支在 `isOpen` 之外。鸿蒙以前在英文模式下放行所有标点，这个锁在硬件键盘上没有作用。现在锁为中文时，英文模式的标点也交给共享层，`chinese_punctuation_lock_holds_in_english_mode` 钉住共享层此时给出中文标点。英文模式下按 Ctrl+. 临时打开中文标点仍未对齐：来源翻转的是按应用存在的 compartment，这边的 Ctrl+. 写的是持久偏好，要对齐需要引入按应用的运行时标点状态（macOS 的做法），另行处理。
+- **Ctrl+Enter 译文页。** 来源在多条译义时把候选框换成译义（`g_translation_candidates_active`），这一页只认不带 Ctrl/Alt 的选词键与翻页/移动高亮键；其他任何键先 `ExitTranslationCandidateMode` 把原来的候选、页码、高亮放回去，再照常处理，像译文页从没出现过（`event_listener.cpp` 译文页分支）。鸿蒙以前只有 Esc 和选中会关掉译文页，而 `render()` 在译文页期间直接返回：译文页上再打字母，组字变长了候选条却还是旧译义；回车或标点经引擎上屏后，译义留在屏上、后面的渲染全被跳过；方向键移动的是引擎藏在后面的列表，空格永远提交第一条译义。现在 `apply()`/`applyView()` 开头先退出译文页，所有经引擎的按键（字母、退格、回车、标点、光标、模式切换、失焦）都先还原候选再处理；上下键、Home/End 在译文页上移动译文高亮，空格提交高亮的那条。译义最多 9 条，不超过一页，所以翻页键在译文页上什么都不做。异步的云、AI、翻译结果在译文页期间仍不渲染，与来源一致。
+- **日语组字中的标点。** 来源日语模式下 `=`、`_`、`+` 等不作翻页键（`IsJapaneseDisabledPagingKey`），与 `!`、`?`、`/` 等一样在列表 `IsCommitWithHighlightedCandidatePunctuationInCandidateMode` 里：有组字时先上屏高亮候选，再接标点。鸿蒙以前在日语组字中把 `=` 和 Shift+`-` 直接放行，其余标点也因分支写的是 `chinese && !japanese` 一并放行，应用把标点插在还没上屏的假名前面。现在日语组字中标点走共享层的标点路由（先定稿再出标点，手机软键盘本来就走这条），`-`/`=` 在日语下跳过翻页判定；没有组字时日语标点仍交给应用，与来源 `IsJapaneseMinusEqualPunctuationKey` 要求有键入一致。单独的 `-` 仍是长音符。
+- **没有译文时的 Ctrl+Enter。** 来源在候选框打开时总是认领 Ctrl+Enter，没有译文（关了翻译、日语、高亮行没有释义、已在译文页）时回 `NavigationIgnored`，吃掉按键、不上屏（`HandleTranslationCommitKey`）。鸿蒙以前没有译文就把 Ctrl+Enter 放给应用，在用 Ctrl+Enter 发送的聊天应用里，消息会带着没上屏的拼写发出去。现在组字中的 Ctrl+Enter（含小键盘回车）没有译文时返回 `IGNORED`；没有组字时照旧交给应用。

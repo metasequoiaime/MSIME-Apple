@@ -2594,8 +2594,8 @@ group("a character the composition cannot use ends it before it is typed", () =>
   );
   check(
     HardwareKeyRouter.route(key(0, 0x21), true, true, false, undefined, false, true).action ===
-      HardwareKeyAction.RELEASE,
-    "Japanese punctuation is still the application's",
+      HardwareKeyAction.PUNCTUATION,
+    "Japanese punctuation goes through the punctuation route, which also finishes the composition first",
   );
 });
 
@@ -2714,11 +2714,18 @@ group("commits the highlighted candidate when punctuation arrives mid-compositio
     ).action === HardwareKeyAction.PREVIOUS_PAGE,
     "a comma bound to paging still pages",
   );
-  // Japanese punctuation stays with the application, as it already did.
+  // Japanese punctuation ends a composition the same way; with nothing composed it is the application's.
+  for (const character of ["!", "?", "/", ";", "."]) {
+    check(
+      HardwareKeyRouter.route(mark(character), true, true, false, undefined, false, true).action ===
+        HardwareKeyAction.PUNCTUATION,
+      `Japanese ${character} finishes the composition rather than landing ahead of the kana`,
+    );
+  }
   check(
-    HardwareKeyRouter.route(mark("!"), true, true, false, undefined, false, true).action ===
+    HardwareKeyRouter.route(mark("!"), false, true, false, undefined, false, true).action ===
       HardwareKeyAction.RELEASE,
-    "Japanese leaves punctuation to the application",
+    "Japanese leaves punctuation to the application while nothing is composed",
   );
 });
 
@@ -3029,10 +3036,21 @@ group("maps hardware composition editing commands like Windows", () => {
       HardwareKeyAction.COMMIT_TRANSLATION,
     "Ctrl+Enter commits a highlighted candidate translation",
   );
+  // Windows claims Ctrl+Enter whenever candidates are up and answers NavigationIgnored without a translation (`HandleTranslationCommitKey`); a chat application must not send the message with the spelling still open.
   check(
     HardwareKeyRouter.route(key(2054, true), true, true, false, navigation, false).action ===
+      HardwareKeyAction.IGNORED,
+    "Ctrl+Enter without a translation is consumed mid-composition",
+  );
+  check(
+    HardwareKeyRouter.route(key(2119, true), true, true, false, navigation, false).action ===
+      HardwareKeyAction.IGNORED,
+    "and so is the keypad Enter",
+  );
+  check(
+    HardwareKeyRouter.route(key(2054, true), false, true, false, navigation, false).action ===
       HardwareKeyAction.RELEASE,
-    "Ctrl+Enter remains with the editor without a translation",
+    "with nothing composed Ctrl+Enter is the application's",
   );
   const japaneseMinus: HardwareKey = {
     keyCode: 2057,
@@ -3057,15 +3075,31 @@ group("maps hardware composition editing commands like Windows", () => {
       HardwareKeyAction.COMPOSE,
     "Japanese minus remains a long-vowel composition key",
   );
+  // Japanese '=' and '_' never page (`IsJapaneseDisabledPagingKey`), even with minus/equals paging on; mid-composition they commit the highlighted candidate and then the mark, as the source's commit-with-highlighted-candidate list does.
+  const japaneseMark = (keyCode: number, character: string, shiftKey: boolean): HardwareKey => ({
+    keyCode,
+    unicodeChar: character.charCodeAt(0),
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey,
+  });
+  const equals: HardwareKey = japaneseMark(2058, "=", false);
+  const underscore: HardwareKey = japaneseMark(2057, "_", true);
   check(
-    HardwareKeyRouter.route(key(2058), true, true, false, navigation, false, true).action ===
-      HardwareKeyAction.RELEASE,
-    "Japanese equals stays ordinary editor punctuation",
+    HardwareKeyRouter.route(equals, true, true, false, navigation, false, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "Japanese equals mid-composition commits and then types the mark",
   );
   check(
-    HardwareKeyRouter.route(key(2057, false, true), true, true, false, navigation, false, true)
-      .action === HardwareKeyAction.RELEASE,
-    "Shift+minus stays ordinary editor punctuation in Japanese",
+    HardwareKeyRouter.route(underscore, true, true, false, navigation, false, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "so does Shift+minus",
+  );
+  check(
+    HardwareKeyRouter.route(equals, false, true, false, navigation, false, true).action ===
+      HardwareKeyAction.RELEASE,
+    "with nothing composed Japanese equals is the application's",
   );
   check(
     HardwareKeyRouter.route(key(2050), true, true, false, navigation, false, true).action ===

@@ -266,8 +266,7 @@ export class HardwareKeyRouter {
     // resolves nothing, which is why the chord matches on the code, but candidate selection reads
     // the character and a keypad digit does not always carry one.
     key = HardwareKeyRouter.normalizeNumpad(key);
-    // Japanese romaji reserves an unmodified minus for the long-vowel mark. It is a composition
-    // key even before the first kana exists; '=' and shifted '-' remain ordinary editor input.
+    // Japanese romaji reserves an unmodified minus for the long-vowel mark. It is a composition key even before the first kana exists. '=' and shifted '-' are never paging keys in Japanese (`IsJapaneseDisabledPagingKey` on Windows): mid-composition they are punctuation that commits the highlighted candidate first, and with nothing composed they are the application's.
     if (
       japanese &&
       !key.ctrlKey &&
@@ -278,16 +277,6 @@ export class HardwareKeyRouter {
       key.unicodeChar === 0x2d
     ) {
       return decision(HardwareKeyAction.COMPOSE, 0x2d);
-    }
-    if (
-      japanese &&
-      composing &&
-      !key.ctrlKey &&
-      !key.altKey &&
-      !key.logoKey &&
-      (key.keyCode === KEYCODE_MINUS || key.keyCode === KEYCODE_EQUALS)
-    ) {
-      return RELEASE;
     }
     // The Windows maintenance chord: Ctrl+Shift+Alt+1..8 deletes the candidate in that slot from
     // the user dictionary. On a 2in1 it is the only way to reach that action, the long press the
@@ -314,8 +303,13 @@ export class HardwareKeyRouter {
     // Windows reserves Ctrl+Backspace/Left/Right for editing one Engine segment at a time. Other
     // modifier chords belong to the application, even in the middle of a composition.
     if (composing && key.ctrlKey && !key.altKey && !key.logoKey && !key.shiftKey) {
-      if (key.keyCode === KEYCODE_ENTER && hasHighlightedTranslation) {
-        return decision(HardwareKeyAction.COMMIT_TRANSLATION);
+      // The Windows host claims Ctrl+Enter whenever candidates are up and answers `NavigationIgnored` when there is no translation to commit (`HandleTranslationCommitKey`), so the key is eaten rather than reaching an application that sends a message on it with the spelling still open.
+      if (key.keyCode === KEYCODE_ENTER || key.keyCode === KEYCODE_NUMPAD_ENTER) {
+        return decision(
+          hasHighlightedTranslation
+            ? HardwareKeyAction.COMMIT_TRANSLATION
+            : HardwareKeyAction.IGNORED,
+        );
       }
       if (key.keyCode === KEYCODE_DEL) {
         return decision(HardwareKeyAction.BACKSPACE_SEGMENT);
@@ -395,10 +389,11 @@ export class HardwareKeyRouter {
       if (spellingDecision !== undefined) {
         return spellingDecision;
       }
-      const navigationDecision: HardwareKeyDecision | undefined = HardwareKeyRouter.navigation(
-        key,
-        navigation,
-      );
+      const japanesePunctuation: boolean =
+        japanese && (key.keyCode === KEYCODE_MINUS || key.keyCode === KEYCODE_EQUALS);
+      const navigationDecision: HardwareKeyDecision | undefined = japanesePunctuation
+        ? undefined
+        : HardwareKeyRouter.navigation(key, navigation);
       if (navigationDecision !== undefined) {
         return navigationDecision;
       }
@@ -417,28 +412,15 @@ export class HardwareKeyRouter {
       (key.unicodeChar >= 0x61 && key.unicodeChar <= 0x7a) ||
       (key.unicodeChar >= 0x41 && key.unicodeChar <= 0x5a);
     if (!letter) {
-      // A Chinese hardware keyboard owns punctuation, composing or not, just as the touch keyboard
-      // does. Mid-composition the mark ends it: the shared runtime finishes with the highlighted
-      // candidate before translating the mark, which is what the source does in
-      // `IsCommitWithHighlightedCandidatePunctuationInCandidateMode`. Releasing it instead left the
-      // composition open and dropped the mark into the editor ahead of the letters still being
-      // spelled. Navigation punctuation has already been consumed above while composing, so the
-      // keys a preference turned into paging keys still page; modifiers and Japanese punctuation
-      // remain application-owned.
+      // A Chinese hardware keyboard owns punctuation, composing or not, just as the touch keyboard does. Mid-composition the mark ends it: the shared runtime finishes with the highlighted candidate before translating the mark, which is what the source does in `IsCommitWithHighlightedCandidatePunctuationInCandidateMode`. Releasing it instead left the composition open and dropped the mark into the editor ahead of the letters still being spelled. Navigation punctuation has already been consumed above while composing, so the keys a preference turned into paging keys still page; modifiers remain application-owned. Japanese punctuation is the application's only while nothing is composed: mid-composition it commits the highlighted candidate first, as the source's list of such marks includes Japanese '=', '_' and '+'.
       if (
-        (chinese || chinesePunctuationInEnglish) &&
-        !japanese &&
+        (((chinese || chinesePunctuationInEnglish) && !japanese) || (japanese && composing)) &&
         isAsciiPunctuation(key.unicodeChar)
       ) {
         return decision(HardwareKeyAction.PUNCTUATION, key.unicodeChar);
       }
-      // Any other character the composition has no use for — a 0, a digit when the number row does not pick — still ends it first. Released as it was, the application inserted the digit while the letters were still open and the commit that followed landed after it: nihao then 0 gave 0你好. The Windows host finalizes the composition before the key goes on (`FUNCTION_FINALIZE_TEXTSTORE` in `IsVirtualKeyNeed`). Japanese punctuation stays the application's, as above.
-      if (
-        composing &&
-        key.unicodeChar >= 0x20 &&
-        key.unicodeChar <= 0x7e &&
-        !(japanese && isAsciiPunctuation(key.unicodeChar))
-      ) {
+      // Any other character the composition has no use for — a 0, a digit when the number row does not pick — still ends it first. Released as it was, the application inserted the digit while the letters were still open and the commit that followed landed after it: nihao then 0 gave 0你好. The Windows host finalizes the composition before the key goes on (`FUNCTION_FINALIZE_TEXTSTORE` in `IsVirtualKeyNeed`).
+      if (composing && key.unicodeChar >= 0x20 && key.unicodeChar <= 0x7e) {
         return decision(HardwareKeyAction.COMMIT_THEN_TYPE, key.unicodeChar);
       }
       return HardwareKeyRouter.passThrough(key, composing, fullWidth);

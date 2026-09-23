@@ -2607,7 +2607,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   commitHighlighted(): void {
     if (this.translationPage !== null) {
-      this.choose(0);
+      this.choose(this.translationHighlight);
       return;
     }
     this.command(InputCommand.SELECT_HIGHLIGHTED);
@@ -2650,6 +2650,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (translations.length === 0) return;
     if (translations.length > 1) {
       this.translationPage = translations;
+      this.translationHighlight = 0;
       this.publishTranslationPage();
       return;
     }
@@ -2673,8 +2674,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Throw the composition away without committing it, which is what 重输 means. */
   cancel(): void {
     if (this.translationPage !== null) {
-      this.translationPage = null;
-      this.publishCurrentCandidates();
+      this.exitTranslationPage();
       return;
     }
     this.command(InputCommand.CANCEL);
@@ -2758,10 +2758,12 @@ export class KeyboardSession implements HardwareKeyTarget {
    * Home and End go to the ends of the whole candidate list while there are candidates, as the Windows source's `FUNCTION_MOVE_PAGE_TOP`/`BOTTOM` do and the other hosts' shared `FirstCandidate`/`LastCandidate` actions now do; with none on screen they move the caret in the spelling instead.
    */
   moveHome(): void {
+    if (this.moveTranslationHighlight(-TranslationSensePolicy.MAX_SENSES)) return;
     this.command(this.currentCandidates.length > 0 ? InputCommand.FIRST_CANDIDATE : InputCommand.MOVE_HOME);
   }
 
   moveEnd(): void {
+    if (this.moveTranslationHighlight(TranslationSensePolicy.MAX_SENSES)) return;
     this.command(this.currentCandidates.length > 0 ? InputCommand.LAST_CANDIDATE : InputCommand.MOVE_END);
   }
 
@@ -2782,19 +2784,43 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   nextPage(): void {
+    // A translation page is never more than one page: it holds at most MAX_SENSES, which is the largest page size.
+    if (this.translationPage !== null) return;
     this.command(InputCommand.NEXT_PAGE);
   }
 
   previousPage(): void {
+    if (this.translationPage !== null) return;
     this.command(InputCommand.PREVIOUS_PAGE);
   }
 
   nextCandidate(): void {
+    if (this.moveTranslationHighlight(1)) return;
     this.command(InputCommand.NEXT_CANDIDATE);
   }
 
   previousCandidate(): void {
+    if (this.moveTranslationHighlight(-1)) return;
     this.command(InputCommand.PREVIOUS_CANDIDATE);
+  }
+
+  /** Moves the highlight on the Ctrl+Enter translation page, if that page is up; false otherwise, so the key goes on to the Engine. */
+  private moveTranslationHighlight(delta: number): boolean {
+    const translations: string[] | null = this.translationPage;
+    if (translations === null) return false;
+    this.translationHighlight = Math.max(0, Math.min(translations.length - 1, this.translationHighlight + delta));
+    this.publishTranslationPage();
+    return true;
+  }
+
+  /**
+   * Puts the candidates back as they were before Ctrl+Enter, as the Windows host's `ExitTranslationCandidateMode` does. The composition was not touched while the page was up, so the Engine's own list is still the one to show.
+   */
+  private exitTranslationPage(): void {
+    if (this.translationPage === null) return;
+    this.translationPage = null;
+    this.translationHighlight = 0;
+    this.publishCurrentCandidates();
   }
 
   choose(index: number): void {
@@ -2841,6 +2867,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private apply(raw: string): boolean {
+    // Every key the translation page does not answer itself ends up here, and on Windows every such key first puts the candidates back and then does what it would have done without the page (`ExitTranslationCandidateMode`). Left up, the page swallowed every later render, so a letter lengthened a composition the strip no longer showed and Enter committed under translations that stayed on screen.
+    this.exitTranslationPage();
     let response: Response;
     try {
       response = JSON.parse(raw) as Response;
@@ -2878,6 +2906,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** For the entry points whose reply is a bare view. */
   private applyView(raw: string): void {
+    this.exitTranslationPage();
     let response: ViewResponse;
     try {
       response = JSON.parse(raw) as ViewResponse;
@@ -2930,6 +2959,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private editingCaret: number = 0;
   private currentCandidates: Candidate[] = [];
   private translationPage: string[] | null = null;
+  private translationHighlight: number = 0;
   private lastView: EngineView | undefined = undefined;
   private scheme: number = 0;
   private localMode: string = 'none';
@@ -3052,7 +3082,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const view: EngineView | undefined = this.lastView;
     const entries: CandidateEntry[] = translations.map((text: string, index: number): CandidateEntry => ({
       text: text, hint: '', annotation: '', annotationIsTranslation: false,
-      highlighted: index === 0, badge: '',
+      highlighted: index === this.translationHighlight, badge: '',
       fixedPosition: 0, source: 0, translation: null
     }));
     this.onChanged({
