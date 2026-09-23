@@ -3458,6 +3458,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         [voiceDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"] == nil || [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyHoldSpace"]
     }, _voiceService.active) : MSIMEVoiceHoldShortcut::Result{};
     if (voiceShortcut.consumed || voiceShortcut.action != MSIMEVoiceHoldShortcut::Action::None) _modifierTap.reset();
+    // MSIME-Windows shows the overlay's cancel and confirm buttons once the hold is locked (ControlCommand::Lock).
+    if (voiceShortcut.consumed && _voiceHoldShortcut.locked() && _voiceService.active) [_voiceOverlay setRecordingLocked:YES];
     if (voiceShortcut.action == MSIMEVoiceHoldShortcut::Action::Toggle) {
         _voiceHoldStarting = !voiceShortcut.onRelease && !_voiceService.active;
         if (!voiceShortcut.onRelease || _voiceHoldGeneration == _voiceGeneration) [self toggleVoiceInput:nil];

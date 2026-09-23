@@ -61,6 +61,7 @@
 @property NSUInteger phase;
 @property NSUInteger failure;
 @property NSUInteger failures;
+@property BOOL locked;
 - (void)setListening:(BOOL)listening;
 - (void)setProcessing:(BOOL)polishing;
 - (void)restore;
@@ -68,7 +69,8 @@
 @implementation LivePresentationFixture
 - (void)setInputLevel:(float)level { self.lastLevel = level; ++self.levelUpdates; }
 - (void)dismissProcessing { self.dismissed = YES; }
-- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; }
+- (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; self.locked = NO; }
+- (void)setRecordingLocked:(BOOL)locked { self.locked = locked; }
 - (void)setTranscript:(NSString *)text { self.preview = text; }
 - (void)showFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail { self.failure = failure; self.detail = detail; self.phase = 4; ++self.failures; self.preview = @""; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
@@ -294,7 +296,9 @@ int main(int argc, char **) {
         const auto option = NSEventModifierFlagOption | NX_DEVICERALTKEYMASK;
         assert([controller handleEvent:key(61, option, NSEventTypeFlagsChanged) client:client]);
         assert(capture.active);
+        assert(!presentation.locked);
         assert([controller handleEvent:key(49, option, NSEventTypeKeyDown) client:client]);
+        assert(presentation.locked); // Locking the hold shows the overlay's actions.
         assert([controller handleEvent:key(61, 0, NSEventTypeFlagsChanged) client:client]);
         assert([controller handleEvent:key(49, 0, NSEventTypeKeyUp) client:client]);
         assert(capture.active && ![[controller valueForKey:@"liveVoiceProcessing"] boolValue]);
