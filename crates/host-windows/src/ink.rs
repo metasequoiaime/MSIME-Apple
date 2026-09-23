@@ -135,7 +135,7 @@ fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, 
     let results = container
         .RecognizeAsync(&strokes_container, InkRecognitionTarget::All)
         .map_err(|_| InkError::Unavailable)?
-        .get()
+        .join()
         .map_err(|_| InkError::Unavailable)?;
 
     let mut chinese: Vec<String> = Vec::new();
