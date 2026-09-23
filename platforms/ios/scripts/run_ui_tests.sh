@@ -82,9 +82,14 @@ for scheme in "${schemes[@]}"; do
     -scheme "$scheme"
     -destination "platform=iOS Simulator,id=$device"
     -derivedDataPath "$derived_data"
-    -resultBundlePath "$derived_data/Logs/Test/$scheme.xcresult"
     CODE_SIGNING_ALLOWED=NO
   )
+  # Only the run phase writes a result bundle. Passing -resultBundlePath to both phases makes the
+  # second invocation fail with "Existing file at -resultBundlePath", because the build phase has
+  # already created it. Removing a bundle left by an earlier attempt keeps a re-run idempotent.
+  result_bundle="$derived_data/Logs/Test/$scheme.xcresult"
+  rm -rf "$result_bundle"
+  mkdir -p "$(dirname "$result_bundle")"
   # Only MSIMEClientTests contains the handwriting cases; passing -skip-testing for a target a scheme does not build makes xcodebuild fail outright.
   if [[ "$scheme" == MSIMEClientTests ]]; then
     for case_name in "${recognition_cases[@]}"; do
@@ -93,7 +98,7 @@ for scheme in "${schemes[@]}"; do
   fi
   # Separate phases so a compile failure is reported as a compile failure rather than as a test run that produced nothing.
   xcodebuild "${arguments[@]}" build-for-testing
-  xcodebuild "${arguments[@]}" test-without-building || status=$?
+  xcodebuild "${arguments[@]}" -resultBundlePath "$result_bundle" test-without-building || status=$?
 done
 
 exit "$status"
