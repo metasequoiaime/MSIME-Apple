@@ -564,6 +564,13 @@ function DesktopSettings() {
                       },
                 }
               : {}),
+            // This shell registers no download handler, and the macOS WKWebView cancels every download link without one, so the host writes the export into Downloads itself and the page can say where the file went. Linux runs the same shell and takes the same path; Windows' WebView2 and the mobile webviews keep the download link.
+            ...(host.platform === "macos" || host.platform === "linux"
+              ? {
+                  saveExport: (name: string, contents: string) =>
+                    invoke<string>("save_export", { name, contents }),
+                }
+              : {}),
             ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
             ...(host.platform === "ios" || host.platform === "android"
               ? createMobileHostServices(host.platform, {
