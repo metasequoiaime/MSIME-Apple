@@ -1009,6 +1009,9 @@ export const AI_PROVIDER_OPTIONS: readonly {
   },
   { id: "custom", title: "自定义", endpoint: "", model: "" },
 ];
+/** What 「AI 润色测试」 asks the configured service to do. It is its own instruction: `ai_assistant.prompt` is the associative-candidate prompt, which demands candidate JSON and would make a polish sample come back as JSON. */
+const aiPolishTestPrompt = "请润色以下文字，保持原意，只返回修改后的文字。";
+// The prompt slots start empty as in AiAssistantPreferences::default(). The associative-candidate paths (client-core's chat_completion_http_request and the Linux online provider) treat a blank slot as the built-in DEFAULT_CANDIDATE_PROMPT, the text Windows compiles into ai_assistant.prompt. Android and the iOS keyboard mirror instead read ai_assistant.prompt as a polish instruction and use their own polish text when it is blank, which is why this default stays empty rather than holding the associative prompt.
 const defaultAiAssistant: AiAssistantPreferences = {
   enabled: false,
   provider: "deepseek",
@@ -1018,7 +1021,7 @@ const defaultAiAssistant: AiAssistantPreferences = {
   token: "",
   tokens: {},
   prompt_id: "custom_1",
-  prompt: "请润色以下文字，保持原意，只返回修改后的文字。",
+  prompt: "",
   prompt_custom_1: "",
   prompt_custom_2: "",
   prompt_custom_3: "",
@@ -3325,10 +3328,7 @@ export function SettingsPage({
         endpoint: ai.endpoint,
         model: ai.model,
         provider: ai.provider,
-        prompt:
-          ai.prompt ??
-          defaultAiAssistant.prompt ??
-          "请润色以下文字，保持原意，只返回修改后的文字。",
+        prompt: aiPolishTestPrompt,
         token: aiToken,
         text,
       });
@@ -9744,6 +9744,7 @@ export function SettingsPage({
                       </label>
                       <textarea
                         aria-label="AI 润色提示词"
+                        placeholder="留空时使用内置的联想提示词"
                         value={ai.prompt ?? defaultAiAssistant.prompt}
                         onChange={(event) => updateAi({ prompt: event.target.value })}
                       />

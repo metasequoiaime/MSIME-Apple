@@ -1437,6 +1437,30 @@ fn ai_assistant_rejects_unknown_provider_and_invalid_candidate_limit() {
 }
 
 #[test]
+fn default_ai_assistant_requests_carry_the_builtin_associative_prompt() {
+    // The stored slot stays empty on purpose. Android's keyboard and the iOS keyboard mirror read `ai_assistant.prompt` as their polish instruction and substitute a polish prompt only when it is blank, so storing the Windows associative text here would turn their polish answers into candidate JSON. Blank means "use the built-in prompt" at request time instead: here, and in the Linux provider's copy of the same text.
+    let mut ai = Preferences::default().ai_assistant;
+    assert!(ai.prompt.is_empty());
+    ai.enabled = true;
+    ai.endpoint = "https://synthetic.invalid/chat".into();
+    ai.model = "synthetic-model".into();
+    ai.token = "synthetic-token".into();
+    let request = crate::ai::AiSuggestionRequest {
+        segmented_pinyin: vec!["shu".into(), "ru".into()],
+        context: String::new(),
+        candidate_limit: ai.candidate_limit,
+    };
+    let descriptor = crate::ai::chat_completion_http_request(&ai, &request)
+        .unwrap()
+        .unwrap();
+    let system = &descriptor["body"]["messages"][0];
+    assert_eq!(system["role"], "system");
+    assert_eq!(system["content"], crate::ai::DEFAULT_CANDIDATE_PROMPT);
+    assert!(crate::ai::DEFAULT_CANDIDATE_PROMPT.contains("JSON"));
+    assert!(crate::ai::DEFAULT_CANDIDATE_PROMPT.contains("\"candidates\""));
+}
+
+#[test]
 fn candidate_font_size_bounds_are_strict() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
