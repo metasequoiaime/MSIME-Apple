@@ -144,6 +144,11 @@ python3 scripts/test-conflict-markers.py || fail "conflict markers"
 note "tracked symlinks"
 python3 scripts/test-tracked-symlinks.py || fail "tracked symlinks"
 
+# Same shape again, one target further out: `std::fs::File::lock` compiles for Android and then
+# fails at runtime, so only a keyboard running on a handset ever finds out.
+note "file locking helper"
+python3 scripts/test-file-locking-goes-through-client-core.py || fail "file locking helper"
+
 note "default config contracts"
 python3 scripts/test-default-config-parity.py || fail "default config contracts"
 

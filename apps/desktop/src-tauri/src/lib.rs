@@ -101,6 +101,7 @@ use tauri::Emitter;
 use tauri::Manager;
 
 use msime_host_api::system_fonts;
+use shared::export_file;
 use shared::skin_directory;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use shared::voice::voice_output;
@@ -504,6 +505,26 @@ async fn open_typing_statistics_directory(
     tauri::async_runtime::spawn_blocking(move || skin_directory::open(&root))
         .await
         .map_err(|_| CommandError { code: "storage" })?
+        .map_err(|code| CommandError { code })
+}
+
+/// Write a document the settings page exported into the user's Downloads folder and return the path.
+///
+/// The page names the file and the host picks the folder, the same outcome as the Windows source's WebView2 download. A download link cannot do it here: the WKWebView behind the macOS window cancels downloads it has no handler for. A taken name becomes `name (2).txt` rather than being overwritten.
+#[tauri::command]
+async fn save_export(
+    app: tauri::AppHandle,
+    name: String,
+    contents: String,
+) -> Result<String, CommandError> {
+    let directory = app
+        .path()
+        .download_dir()
+        .map_err(|_| CommandError { code: "storage" })?;
+    tauri::async_runtime::spawn_blocking(move || export_file::save(&directory, &name, &contents))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+        .map(|path| path.to_string_lossy().into_owned())
         .map_err(|code| CommandError { code })
 }
 
@@ -4073,6 +4094,7 @@ pub fn run() {
             set_typing_statistics_retention,
             reset_typing_statistics,
             open_typing_statistics_directory,
+            save_export,
             scan_skin_catalog,
             read_skin_image,
             read_skin_font,
