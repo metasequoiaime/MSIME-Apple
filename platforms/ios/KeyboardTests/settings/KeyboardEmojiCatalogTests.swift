@@ -316,6 +316,73 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertTrue(typed.allSatisfy { $0 == "x" || $0 == "xi" }, "only typed queries reach the catalog: \(typed)")
   }
 
+  func testSearchCanLookThroughTheKaomojiCatalog() throws {
+    let search = try XCTUnwrap(KeyboardEmojiCatalog.search("Kiss", kaomoji: true))
+    XCTAssertTrue(search.isKaomoji)
+    XCTAssertEqual(search.group, KeyboardEmojiCatalog.kaomoji.group)
+    XCTAssertEqual(search.search, "kiss")
+    XCTAssertNil(KeyboardEmojiCatalog.search("笑", kaomoji: true))
+
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-kaomoji-search-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let resources = try XCTUnwrap(MetasequoiaInputSessionBridge(stateRoot: state).candidateGlossResources())
+    for query in ["kiss", "qian"] {
+      let page = try KeyboardEmojiCatalog.loadPage(
+        resources: resources, category: try XCTUnwrap(KeyboardEmojiCatalog.search(query, kaomoji: true)), offset: 0)
+      XCTAssertFalse(page.items.isEmpty, query)
+    }
+  }
+
+  func testPickerSearchScopeFollowsTheKaomojiTabAndCanBeSwitched() async throws {
+    final class Requests: @unchecked Sendable {
+      private let lock = NSLock()
+      private var values: [(search: String, kaomoji: Bool)] = []
+      func append(_ value: (String, Bool)) { lock.lock(); values.append(value); lock.unlock() }
+      var all: [(search: String, kaomoji: Bool)] { lock.lock(); defer { lock.unlock() }; return values }
+    }
+    let requests = Requests()
+    let picker = KeyboardEmojiPickerView(
+      resources: "/fixture",
+      loader: { requested, _ in
+        if !requested.search.isEmpty { requests.append((requested.search, requested.isKaomoji)) }
+        return KeyboardEmojiCatalog.Page(items: [
+          .init(text: requested.isKaomoji ? "(^_^)" : "😀", annotation: "fixture", group: requested.group),
+        ], nextOffset: 1, complete: true)
+      },
+      onInsert: { _ in },
+      onDelete: {},
+      onClose: {},
+      onCatalogChange: nil)
+    picker.frame = CGRect(x: 0, y: 0, width: 390, height: 260)
+    picker.layoutIfNeeded()
+    let tabs = descendants(picker).compactMap { $0 as? UIButton }.filter { $0.accessibilityIdentifier?.hasPrefix("emojiCategory-") == true }
+    let kaomojiTab = try XCTUnwrap(tabs.first { $0.accessibilityLabel == "颜文字" })
+    let scope = try button("emojiSearchScopeEmoji", in: picker).superview
+    XCTAssertEqual(scope?.isHidden, true)
+
+    kaomojiTab.sendActions(for: .primaryActionTriggered)
+    try button("emojiSearchButton", in: picker).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(picker.searchesKaomoji, "a search from the kaomoji tab looks through kaomoji")
+    XCTAssertEqual(scope?.isHidden, false)
+    let title = try XCTUnwrap(descendants(picker).first { $0.accessibilityIdentifier == "emojiTitle" } as? UILabel)
+    XCTAssertEqual(title.text, "搜索颜文字")
+    try button("emojiSearchKey-k", in: picker).sendActions(for: .primaryActionTriggered)
+    try button("emojiSearchScopeEmoji", in: picker).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(picker.searchesKaomoji)
+    XCTAssertEqual(picker.searchQuery, "k", "switching scope keeps the letters")
+    try await Task.sleep(nanoseconds: 300_000_000)
+    let seen = requests.all
+    XCTAssertTrue(seen.contains { $0.search == "k" && $0.kaomoji }, "\(seen)")
+    XCTAssertTrue(seen.contains { $0.search == "k" && !$0.kaomoji }, "\(seen)")
+
+    try button("closeEmojiPicker", in: picker).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(scope?.isHidden, true)
+    tabs[0].sendActions(for: .primaryActionTriggered)
+    try button("emojiSearchButton", in: picker).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(picker.searchesKaomoji, "a search from an Emoji tab looks through Emoji")
+  }
+
   func testKaomojiIsTheLastTabAndAcceptsLongerLines() throws {
     let kaomoji = KeyboardEmojiCatalog.kaomoji
     XCTAssertEqual(kaomoji.title, "颜文字")

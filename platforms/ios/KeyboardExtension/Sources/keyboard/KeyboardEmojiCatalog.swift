@@ -57,10 +57,13 @@ enum KeyboardEmojiCatalog {
   /// The longest search the letter pad accepts; the longest pinyin syllable run worth typing for one Emoji is far shorter.
   static let maximumSearchLength = 32
 
-  /// A search over every Emoji group for `query`, lowercased and limited to ASCII letters, or `nil` when nothing is left to search for.
-  static func search(_ query: String) -> Category? {
+  /// A search for `query`, lowercased and limited to ASCII letters, or `nil` when nothing is left to search for. It spans every Emoji group, or with `kaomoji` the kaomoji catalog, whose keywords are pinyin and English too.
+  static func search(_ query: String, kaomoji: Bool = false) -> Category? {
     let letters = String(query.lowercased().unicodeScalars.filter { ("a"..."z").contains($0) }.prefix(maximumSearchLength))
-    return letters.isEmpty ? nil : Category(group: "", title: "搜索", search: letters)
+    guard !letters.isEmpty else { return nil }
+    return kaomoji
+      ? Category(group: Self.kaomoji.group, title: "搜索", catalog: Self.kaomoji.catalog, search: letters)
+      : Category(group: "", title: "搜索", search: letters)
   }
 
   static func loadPage(resources: String, category: Category, offset: Int) throws -> Page {
