@@ -23,6 +23,14 @@ pub struct AndroidVoicePlatform<R: Runtime>(PluginHandle<R>);
 struct AndroidVoiceRequest<'a> {
     request_id: &'a str,
     language: &'a str,
+    /// The configured transcription provider, when there is a usable one.
+    ///
+    /// Absent means the host should use the platform recognizer, which is what this host has
+    /// always done and remains the right default here: Android ships a speech service that needs
+    /// no account, no token and no network of the user's choosing. The provider is what a user
+    /// gets by configuring one in settings, not something to be required of everyone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<MobileVoiceTranscriptionRequest>,
 }
 
 #[cfg(target_os = "android")]
@@ -45,10 +53,19 @@ fn valid_android_voice_request(request_id: &str, language: &str) -> bool {
 
 #[cfg(target_os = "android")]
 impl<R: Runtime> AndroidVoicePlatform<R> {
-    pub async fn recognize_voice(&self, request_id: &str, language: &str) -> Result<String, ()> {
+    /// `provider` is passed on only when it validates; an invalid one falls back to the platform
+    /// recognizer rather than failing the request, because a misconfigured token should not take
+    /// away the recognizer the user had before they configured anything.
+    pub async fn recognize_voice(
+        &self,
+        request_id: &str,
+        language: &str,
+        provider: Option<MobileVoiceTranscriptionRequest>,
+    ) -> Result<String, ()> {
         if !valid_android_voice_request(request_id, language) {
             return Err(());
         }
+        let provider = provider.filter(MobileVoiceTranscriptionRequest::is_valid);
         let response = self
             .0
             .run_mobile_plugin_async::<AndroidVoiceResponse>(
@@ -56,6 +73,7 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
                 AndroidVoiceRequest {
                     request_id,
                     language,
+                    provider,
                 },
             )
             .await
@@ -107,13 +125,13 @@ pub struct AppIconInfo {
 const MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES: usize = 800_000;
 #[cfg(any(target_os = "ios", test))]
 const MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS: usize = 4_000;
-const MAX_IOS_VOICE_ENDPOINT_BYTES: usize = 2_048;
-const MAX_IOS_VOICE_MODEL_BYTES: usize = 512;
-const MAX_IOS_VOICE_TOKEN_BYTES: usize = 16 * 1024;
+const MAX_MOBILE_VOICE_ENDPOINT_BYTES: usize = 2_048;
+const MAX_MOBILE_VOICE_MODEL_BYTES: usize = 512;
+const MAX_MOBILE_VOICE_TOKEN_BYTES: usize = 16 * 1024;
 #[cfg(any(target_os = "ios", test))]
-const MAX_IOS_VOICE_TEXT_CHARS: usize = 10_000;
-const MAX_IOS_VOICE_HEADER_BYTES: usize = 8_192;
-const MAX_IOS_VOICE_BOOSTING_TABLE_BYTES: usize = 4_096;
+const MAX_MOBILE_VOICE_TEXT_CHARS: usize = 10_000;
+const MAX_MOBILE_VOICE_HEADER_BYTES: usize = 8_192;
+const MAX_MOBILE_VOICE_BOOSTING_TABLE_BYTES: usize = 4_096;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -165,27 +183,27 @@ impl IosKeyboardAiPreferences {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct IosVoiceRequestHeader {
+pub struct MobileVoiceRequestHeader {
     pub name: String,
     pub value: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct IosVoiceTranscriptionRequest {
+pub struct MobileVoiceTranscriptionRequest {
     pub request_id: String,
     pub provider: String,
     pub endpoint: String,
     pub model: String,
     pub token: String,
-    pub headers: Vec<IosVoiceRequestHeader>,
+    pub headers: Vec<MobileVoiceRequestHeader>,
     pub enable_itn: bool,
     pub enable_punctuation: bool,
     pub enable_ddc: bool,
     pub boosting_table_id: String,
 }
 
-impl IosVoiceTranscriptionRequest {
+impl MobileVoiceTranscriptionRequest {
     pub fn is_valid(&self) -> bool {
         let common = !self.request_id.is_empty()
             && self.request_id.len() <= 64
@@ -193,13 +211,13 @@ impl IosVoiceTranscriptionRequest {
                 .request_id
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-            && self.endpoint.len() <= MAX_IOS_VOICE_ENDPOINT_BYTES
+            && self.endpoint.len() <= MAX_MOBILE_VOICE_ENDPOINT_BYTES
             && !self.endpoint.chars().any(char::is_control)
-            && self.model.len() <= MAX_IOS_VOICE_MODEL_BYTES
+            && self.model.len() <= MAX_MOBILE_VOICE_MODEL_BYTES
             && !self.model.chars().any(char::is_control)
-            && self.token.len() <= MAX_IOS_VOICE_TOKEN_BYTES
+            && self.token.len() <= MAX_MOBILE_VOICE_TOKEN_BYTES
             && !self.token.chars().any(char::is_control)
-            && self.boosting_table_id.len() <= MAX_IOS_VOICE_BOOSTING_TABLE_BYTES
+            && self.boosting_table_id.len() <= MAX_MOBILE_VOICE_BOOSTING_TABLE_BYTES
             && !self.boosting_table_id.chars().any(char::is_control);
         if !common {
             return false;
@@ -223,7 +241,7 @@ impl IosVoiceTranscriptionRequest {
     }
 }
 
-fn valid_doubao_headers(headers: &[IosVoiceRequestHeader]) -> bool {
+fn valid_doubao_headers(headers: &[MobileVoiceRequestHeader]) -> bool {
     if !(3..=4).contains(&headers.len())
         || headers.iter().any(|header| {
             !matches!(
@@ -234,7 +252,7 @@ fn valid_doubao_headers(headers: &[IosVoiceRequestHeader]) -> bool {
                     | "x-api-resource-id"
                     | "x-api-request-id"
             ) || header.value.is_empty()
-                || header.value.len() > MAX_IOS_VOICE_HEADER_BYTES
+                || header.value.len() > MAX_MOBILE_VOICE_HEADER_BYTES
                 || header.value.chars().any(char::is_control)
         })
     {
@@ -252,14 +270,14 @@ fn valid_doubao_headers(headers: &[IosVoiceRequestHeader]) -> bool {
 #[cfg(any(target_os = "ios", test))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct IosVoiceTranscriptionResponse {
+pub struct MobileVoiceTranscriptionResponse {
     pub text: String,
 }
 
 #[cfg(any(target_os = "ios", test))]
-impl IosVoiceTranscriptionResponse {
+impl MobileVoiceTranscriptionResponse {
     fn is_valid(&self) -> bool {
-        self.text.chars().count() <= MAX_IOS_VOICE_TEXT_CHARS && !self.text.contains('\0')
+        self.text.chars().count() <= MAX_MOBILE_VOICE_TEXT_CHARS && !self.text.contains('\0')
     }
 }
 
@@ -571,14 +589,14 @@ impl<R: Runtime> MobilePlatform<R> {
 
     pub async fn recognize_voice(
         &self,
-        request: IosVoiceTranscriptionRequest,
-    ) -> Result<IosVoiceTranscriptionResponse, ()> {
+        request: MobileVoiceTranscriptionRequest,
+    ) -> Result<MobileVoiceTranscriptionResponse, ()> {
         if !request.is_valid() {
             return Err(());
         }
         let response = self
             .0
-            .run_mobile_plugin_async::<IosVoiceTranscriptionResponse>("recognizeVoice", request)
+            .run_mobile_plugin_async::<MobileVoiceTranscriptionResponse>("recognizeVoice", request)
             .await
             .map_err(|_| ())?;
         response.is_valid().then_some(response).ok_or(())
@@ -673,9 +691,9 @@ mod tests {
     use super::{
         is_supported_app_icon_style, is_valid_account_session_payload, is_valid_ios_clipboard_text,
         migrated_account_session_payload, valid_android_voice_request, IosKeyboardAiPreferences,
-        IosKeyboardPreferences, IosVoiceRequestHeader, IosVoiceTranscriptionRequest,
-        IosVoiceTranscriptionResponse, MAX_ACCOUNT_SESSION_BYTES,
-        MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_IOS_VOICE_TEXT_CHARS,
+        IosKeyboardPreferences, MobileVoiceRequestHeader, MobileVoiceTranscriptionRequest,
+        MobileVoiceTranscriptionResponse, MAX_ACCOUNT_SESSION_BYTES,
+        MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_MOBILE_VOICE_TEXT_CHARS,
     };
     use serde_json::Value;
 
@@ -730,7 +748,7 @@ mod tests {
 
     #[test]
     fn ios_voice_requests_accept_only_bounded_batch_providers() {
-        let request = IosVoiceTranscriptionRequest {
+        let request = MobileVoiceTranscriptionRequest {
             request_id: "fixture-request-1".into(),
             provider: "openai".into(),
             endpoint: "https://fixture.invalid/v1/audio/transcriptions".into(),
@@ -744,25 +762,25 @@ mod tests {
         };
         assert!(request.is_valid());
         for provider in ["openai", "siliconflow", "groq", "everyapi", "mistral"] {
-            assert!(IosVoiceTranscriptionRequest {
+            assert!(MobileVoiceTranscriptionRequest {
                 provider: provider.into(),
                 ..request.clone()
             }
             .is_valid());
         }
         for provider in ["system", "custom", ""] {
-            assert!(!IosVoiceTranscriptionRequest {
+            assert!(!MobileVoiceTranscriptionRequest {
                 provider: provider.into(),
                 ..request.clone()
             }
             .is_valid());
         }
-        assert!(!IosVoiceTranscriptionRequest {
+        assert!(!MobileVoiceTranscriptionRequest {
             endpoint: "http://fixture.invalid/transcriptions".into(),
             ..request.clone()
         }
         .is_valid());
-        assert!(!IosVoiceTranscriptionRequest {
+        assert!(!MobileVoiceTranscriptionRequest {
             model: "fixture\nmodel".into(),
             ..request
         }
@@ -772,20 +790,20 @@ mod tests {
     #[test]
     fn ios_voice_requests_accept_only_provider_bound_doubao_headers() {
         let headers = vec![
-            IosVoiceRequestHeader {
+            MobileVoiceRequestHeader {
                 name: "x-api-key".into(),
                 value: "synthetic-key".into(),
             },
-            IosVoiceRequestHeader {
+            MobileVoiceRequestHeader {
                 name: "x-api-resource-id".into(),
                 value: "fixture-resource".into(),
             },
-            IosVoiceRequestHeader {
+            MobileVoiceRequestHeader {
                 name: "x-api-request-id".into(),
                 value: "00000000-0000-4000-8000-000000000000".into(),
             },
         ];
-        let request = IosVoiceTranscriptionRequest {
+        let request = MobileVoiceTranscriptionRequest {
             request_id: "fixture-request-1".into(),
             provider: "doubao".into(),
             endpoint: "wss://fixture.invalid/asr".into(),
@@ -798,27 +816,27 @@ mod tests {
             boosting_table_id: "fixture-table".into(),
         };
         assert!(request.is_valid());
-        assert!(!IosVoiceTranscriptionRequest {
+        assert!(!MobileVoiceTranscriptionRequest {
             endpoint: "https://fixture.invalid/asr".into(),
             ..request.clone()
         }
         .is_valid());
-        assert!(!IosVoiceTranscriptionRequest {
+        assert!(!MobileVoiceTranscriptionRequest {
             token: "synthetic-duplicate".into(),
             ..request.clone()
         }
         .is_valid());
-        assert!(!IosVoiceTranscriptionRequest {
+        assert!(!MobileVoiceTranscriptionRequest {
             headers: vec![
-                IosVoiceRequestHeader {
+                MobileVoiceRequestHeader {
                     name: "authorization".into(),
                     value: "synthetic-key".into(),
                 },
-                IosVoiceRequestHeader {
+                MobileVoiceRequestHeader {
                     name: "x-api-resource-id".into(),
                     value: "fixture-resource".into(),
                 },
-                IosVoiceRequestHeader {
+                MobileVoiceRequestHeader {
                     name: "x-api-request-id".into(),
                     value: "fixture-request".into(),
                 },
@@ -830,15 +848,15 @@ mod tests {
 
     #[test]
     fn ios_voice_responses_reject_unbounded_or_nul_text() {
-        assert!(IosVoiceTranscriptionResponse {
+        assert!(MobileVoiceTranscriptionResponse {
             text: "fixture result".into()
         }
         .is_valid());
-        assert!(!IosVoiceTranscriptionResponse {
-            text: "x".repeat(MAX_IOS_VOICE_TEXT_CHARS + 1)
+        assert!(!MobileVoiceTranscriptionResponse {
+            text: "x".repeat(MAX_MOBILE_VOICE_TEXT_CHARS + 1)
         }
         .is_valid());
-        assert!(!IosVoiceTranscriptionResponse {
+        assert!(!MobileVoiceTranscriptionResponse {
             text: "fixture\0result".into()
         }
         .is_valid());

@@ -223,7 +223,7 @@ fn ios_voice_batch_configuration_uses_current_preferences_and_safe_defaults() {
         .voice_input
         .asr_tokens
         .insert("openai".into(), "synthetic-stale".into());
-    let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
+    let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
     assert_eq!(configuration.provider, "openai");
     assert_eq!(
         configuration.endpoint,
@@ -241,7 +241,7 @@ fn ios_voice_batch_configuration_uses_current_preferences_and_safe_defaults() {
         .voice_input
         .asr_tokens
         .insert("groq".into(), "synthetic-slot".into());
-    let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
+    let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
     assert_eq!(configuration.endpoint, "https://fixture.invalid/transcribe");
     assert_eq!(configuration.model, "fixture-model");
     assert_eq!(configuration.token, "synthetic-slot");
@@ -274,7 +274,8 @@ fn ios_voice_batch_configuration_covers_everyapi_and_mistral() {
             .asr_tokens
             .insert(provider.into(), "synthetic-slot".into());
         assert!(preferences.validate().is_ok());
-        let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
+        let configuration =
+            crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
         assert_eq!(configuration.provider, provider);
         assert_eq!(configuration.endpoint, endpoint);
         assert_eq!(configuration.model, model);
@@ -313,7 +314,7 @@ fn ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
     preferences.voice_input.asr_app_key = "stale-app".into();
     preferences.voice_input.doubao_auth_mode = "api_key".into();
     preferences.voice_input.doubao_boosting_table_id = "fixture-table".into();
-    let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
+    let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
     assert_eq!(configuration.provider, "doubao");
     assert_eq!(
         configuration.endpoint,
@@ -336,7 +337,7 @@ fn ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
 
     preferences.voice_input.doubao_auth_mode = "legacy".into();
     preferences.voice_input.asr_app_key = "synthetic-app".into();
-    let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
+    let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
     assert!(configuration
         .headers
         .iter()
