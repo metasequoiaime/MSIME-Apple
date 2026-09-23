@@ -50,6 +50,7 @@ import {
 import {
   EmojiPanelKey, EmojiPanelKeyAction, EmojiPanelKeyDecision, EmojiPanelKeyPolicy
 } from './emoji/EmojiPanelKeyPolicy';
+import { EMOJI_TOOLTIP_DELAY_MS, CLIPBOARD_TOOLTIP_MAX_LINES, EmojiPanelTooltipPolicy } from './emoji/EmojiPanelTooltipPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { DesktopSurface } from './DesktopSurface';
@@ -300,6 +301,12 @@ struct KeyboardView {
   private clipListScroller: Scroller = new Scroller();
   // Every item of a panel with its keywords, read once per panel the first time it is searched.
   private emojiSearchIndex: Map<string, EmojiItem[]> = new Map<string, EmojiItem[]>();
+  // The keywords of every item the panel has read, so a 2in1 hover can name it; recents that were never read show no name.
+  private emojiKeywords: Map<string, string> = new Map<string, string>();
+  // The 2in1 hover tooltip: which item it belongs to and what it says. See EmojiPanelTooltipPolicy.
+  @State hoverTipKey: string = '';
+  @State hoverTip: string = '';
+  private hoverTimer: number = -1;
   @State symbolCategory: number = 0;
   @State symbolLocked: boolean = false;
   @State nineKeyHoldOptions: string[] = [];
@@ -542,7 +549,9 @@ struct KeyboardView {
     KeyboardSession.shared.onEditorChanged = undefined;
     KeyboardSession.shared.onViewPreferencesReloaded = undefined;
     KeyboardSession.shared.onReplyContextChanged = undefined;
+    KeyboardSession.shared.onPanelKey = undefined;
     KeyboardSession.shared.invalidateReplyContext(false);
+    this.cancelHoverTip();
     this.cancelBackspace();
     this.cancelHandwritingTimer();
     this.handwritingRecognition.changed();
@@ -751,6 +760,9 @@ struct KeyboardView {
       }
       for (const item of items) {
         collected.push(item);
+        if (item.annotation.length > 0) {
+          this.emojiKeywords.set(item.text, item.annotation);
+        }
       }
       offset = result.next_offset;
       if (result.complete) {
@@ -778,6 +790,46 @@ struct KeyboardView {
     this.emojiQuery = '';
     this.emojiResults = [];
     this.emojiSelected = 0;
+    this.cancelHoverTip();
+  }
+
+  /**
+   * The pointer entered or left an item. The tooltip waits until the pointer has rested for `EMOJI_TOOLTIP_DELAY_MS` and goes as soon as it leaves, like `ArmTooltip` and `CancelTooltip` on Windows. A phone has no pointer, so it never arms one.
+   */
+  private hoverItem(key: string, tip: string, isHover: boolean): void {
+    if (!KeyboardFormFactor.isDesktop()) {
+      return;
+    }
+    if (!isHover) {
+      if (this.hoverTipKey === key) {
+        this.cancelHoverTip();
+      }
+      return;
+    }
+    this.cancelHoverTip();
+    if (tip.length === 0) {
+      return;
+    }
+    this.hoverTimer = setTimeout((): void => {
+      this.hoverTimer = -1;
+      this.hoverTip = tip;
+      this.hoverTipKey = key;
+    }, EMOJI_TOOLTIP_DELAY_MS);
+  }
+
+  private cancelHoverTip(): void {
+    if (this.hoverTimer >= 0) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = -1;
+    }
+    this.hoverTipKey = '';
+    this.hoverTip = '';
+  }
+
+  /** An emoji cell's hover name; nothing when the only name there is would be the emoji itself. */
+  private emojiHoverName(item: string): string {
+    const name: string = EmojiPanelTooltipPolicy.displayName(this.emojiKeywords.get(item) ?? '', item);
+    return name === item ? '' : name;
   }
 
   /**
@@ -4312,6 +4364,9 @@ struct KeyboardView {
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .layoutWeight(1)
                 .onClick(() => KeyboardSession.shared.insert(entry.text))
+                .onHover((isHover: boolean): void => this.hoverItem(`clip:${entry.text}`,
+                  EmojiPanelTooltipPolicy.clipboardText(entry.text), isHover))
+                .bindPopup(this.hoverTipKey === `clip:${entry.text}`, this.hoverTipOptions(`clip:${entry.text}`))
               Text(entry.pinned ? '已固定' : '固定')
                 .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
                 .fontColor(entry.pinned ? this.clipboardSkin().accent : this.clipboardSkin().keyForeground)
@@ -4339,6 +4394,34 @@ struct KeyboardView {
       .scrollBar(BarState.Off)
       .width('100%')
       .layoutWeight(1)
+  }
+
+  /** The hover tooltip itself, in the Windows tooltip's dark plate whatever the panel's theme. */
+  @Builder
+  hoverTipBody() {
+    Text(this.hoverTip)
+      .fontSize(13)
+      .fontColor('#F5F5F7')
+      .maxLines(CLIPBOARD_TOOLTIP_MAX_LINES)
+      .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .constraintSize({ maxWidth: 360 })
+      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+  }
+
+  private hoverTipOptions(key: string): CustomPopupOptions {
+    return {
+      builder: this.hoverTipBody,
+      placement: Placement.Top,
+      enableArrow: false,
+      popupColor: '#F52B2B33',
+      autoCancel: true,
+      onStateChange: (event: PopupStateChangeParam): void => {
+        // Only the item that owns the tooltip may clear it; every other item's popup reports hidden too.
+        if (!event.isVisible && this.hoverTipKey === key) {
+          this.hoverTipKey = '';
+        }
+      }
+    };
   }
 
   /** Says what typing will search, the way the Windows box's placeholder follows the page. */
@@ -4531,6 +4614,9 @@ struct KeyboardView {
                 .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
                 .backgroundColor(this.panelKeySelected(index) ? this.emojiSkin.keyBackground : Color.Transparent)
                 .onClick(() => this.selectEmoji(item))
+                .onHover((isHover: boolean): void => this.hoverItem(`emoji:${index}:${item}`,
+                  this.emojiHoverName(item), isHover))
+                .bindPopup(this.hoverTipKey === `emoji:${index}:${item}`, this.hoverTipOptions(`emoji:${index}:${item}`))
             }
           }, (item: string, index: number) => `${index}:${item}`)
         }

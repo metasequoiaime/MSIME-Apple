@@ -253,6 +253,7 @@ import {
   EmojiPanelKeyAction,
   EmojiPanelKeyPolicy,
 } from "../entry/src/main/ets/keyboard/emoji/EmojiPanelKeyPolicy";
+import { EmojiPanelTooltipPolicy } from "../entry/src/main/ets/keyboard/emoji/EmojiPanelTooltipPolicy";
 import {
   CandidateTranslationStyle,
   TRANSLATION_OPACITY,
@@ -8772,5 +8773,44 @@ group("the 2in1 emoji panel answers keys the way the focused Windows panel does"
   check(
     !EmojiPanelKeyPolicy.matches("😺", "grinning cat", "dog"),
     "an unrelated search does not match",
+  );
+});
+
+group("2in1 emoji panel tooltips read the way the Windows tooltips do", () => {
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("a\tb\r\n\n") === "a b ",
+    "tabs and returns become spaces, trailing newlines go",
+  );
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("line\nnext") === "line\nnext",
+    "inner newlines stay",
+  );
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("x".repeat(200)) === "x".repeat(200),
+    "200 characters are shown whole",
+  );
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("x".repeat(201)) === "x".repeat(200) + "...",
+    "a longer entry is cut at 200",
+  );
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("😀".repeat(201)) === "😀".repeat(200) + "...",
+    "an emoji counts as one character and is never split",
+  );
+  check(
+    EmojiPanelTooltipPolicy.displayName("grinning face 笑 高兴", "😀") === "笑",
+    "the first Chinese keyword names the item",
+  );
+  check(
+    EmojiPanelTooltipPolicy.displayName("grinning  face", "😀") === "grinning",
+    "without Chinese the first keyword does",
+  );
+  check(
+    EmojiPanelTooltipPolicy.displayName("  ", "😀") === "😀",
+    "no keywords falls back to the item",
+  );
+  check(
+    EmojiPanelTooltipPolicy.displayName("arrow 「箭头」", "→") === "「箭头」",
+    "CJK punctuation counts as Chinese, as IsCjk does",
   );
 });
