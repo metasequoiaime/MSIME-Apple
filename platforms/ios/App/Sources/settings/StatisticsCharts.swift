@@ -290,3 +290,28 @@ struct StatisticsRankChart: View {
     }
   }
 }
+
+/// 今日时段:二十四小时每小时一根柱子。没有输入的小时也占一格 —— 只画有输入的那几个小时,上午和深夜就挤成相邻的两根,看不出一天的节奏。
+struct StatisticsHourlyChart: View {
+  let hours: [Int]
+  let accent: Color
+  let progress: Double
+
+  var body: some View {
+    Chart(Array(hours.enumerated()), id: \.offset) { hour, count in
+      BarMark(x: .value("时", hour), y: .value("字符", Double(count) * progress))
+        .cornerRadius(3)
+        .foregroundStyle(accent)
+    }
+    .chartXScale(domain: -0.5...23.5)
+    .chartXAxis {
+      AxisMarks(values: [0, 6, 12, 18, 23]) { value in
+        AxisGridLine()
+        AxisValueLabel { if let hour = value.as(Int.self) { Text("\(hour)时") } }
+      }
+    }
+    .chartYAxis { AxisMarks(position: .trailing) }
+    .frame(height: 140)
+    .accessibilityIdentifier("statisticsHours")
+  }
+}

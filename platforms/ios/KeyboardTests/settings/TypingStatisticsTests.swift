@@ -6,6 +6,7 @@ final class TypingStatisticsTests: XCTestCase {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = TypingStatisticsStore(directory: directory)
+    try store.setEnabled(true)
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
     let today = calendar.date(from: DateComponents(year: 2026, month: 9, day: 7))!
@@ -76,6 +77,7 @@ final class TypingStatisticsTests: XCTestCase {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
+    try TypingStatisticsStore(directory: directory).setEnabled(true)
     DispatchQueue.concurrentPerform(iterations: 100) { _ in
       try! TypingStatisticsStore(directory: directory).record("字")
     }
@@ -92,12 +94,13 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(snapshot.detail.sources["unknown"], 470)
   }
 
-  /// Retention prunes daily records, today included in the window, and never the lifetime counts; it survives a reset like the pause does.
+  /// Retention prunes daily records older than the window and never the lifetime counts; it survives a reset like the pause does.
   func testRetentionPrunesDailyRecordsButNotTheLifetimeCounts() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = TypingStatisticsStore(directory: directory)
+    try store.setEnabled(true)
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
     let today = calendar.date(from: DateComponents(year: 2026, month: 9, day: 23))!
@@ -107,14 +110,14 @@ final class TypingStatisticsTests: XCTestCase {
     try store.setRetention(30, today: today, calendar: calendar)
     var snapshot = try store.load()
     XCTAssertEqual(snapshot.retentionDays, 30)
-    XCTAssertEqual(snapshot.days.keys.sorted(), ["2026-08-25", "2026-09-23"], "30 days are today and the 29 before it")
+    XCTAssertEqual(snapshot.days.keys.sorted(), ["2026-08-24", "2026-08-25", "2026-09-23"], "The shared store keeps the day 30 days back and everything after it")
     XCTAssertEqual(Set(snapshot.dailyDetails.keys), Set(snapshot.days.keys))
     XCTAssertEqual(snapshot.total, 4)
     XCTAssertEqual(snapshot.detail.characters["han"], 4)
 
     // Recording applies the window from the day being recorded.
     try store.record("字", at: day(30), calendar: calendar)
-    XCTAssertEqual(try store.load().days.keys.sorted(), ["2026-10-23"])
+    XCTAssertEqual(try store.load().days.keys.sorted(), ["2026-09-23", "2026-10-23"])
 
     try store.reset()
     XCTAssertEqual(try store.load().retentionDays, 30)
@@ -123,6 +126,115 @@ final class TypingStatisticsTests: XCTestCase {
     snapshot = try store.load()
     XCTAssertNil(snapshot.retentionDays)
     XCTAssertEqual(snapshot.days.count, 2)
+  }
+
+  func testActiveTimeAndHoursAreRecordedByTheSharedStore() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = TypingStatisticsStore(directory: directory)
+    try store.setEnabled(true)
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let date = calendar.date(from: DateComponents(year: 2026, month: 9, day: 23, hour: 14))!
+    try store.record("水杉", source: .quanpin, at: date, calendar: calendar)
+    Thread.sleep(forTimeInterval: 0.05)
+    try store.record("输入法", source: .quanpin, at: date, calendar: calendar)
+    let snapshot = try store.load()
+    XCTAssertGreaterThan(snapshot.dailyActiveMs["2026-09-23"] ?? 0, 0, "间隔不到 10 秒的两次上屏算活跃时间")
+    XCTAssertLessThan(snapshot.dailyActiveMs["2026-09-23"] ?? 0, 10_000)
+    XCTAssertEqual(snapshot.dailyHours["2026-09-23"]?.count, 24)
+    XCTAssertEqual(snapshot.dailyHours["2026-09-23"]?[14], 5)
+
+    try store.reset()
+    let cleared = try store.load()
+    XCTAssertTrue(cleared.dailyActiveMs.isEmpty)
+    XCTAssertTrue(cleared.dailyHours.isEmpty)
+  }
+
+  func testRetentionTheSwiftStoreWroteSurvivesTheSharedStore() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let key = TypingStatistics.dayKey(Date())
+    let old: [String: Any] = ["enabled": true, "total": 3, "days": [key: 3], "retentionDays": 90]
+    let url = directory.appendingPathComponent("typing-statistics.json")
+    try JSONSerialization.data(withJSONObject: old).write(to: url)
+    let store = TypingStatisticsStore(directory: directory)
+    try store.record("字")
+    let snapshot = try store.load()
+    XCTAssertEqual(snapshot.retentionDays, 90)
+    XCTAssertEqual(snapshot.total, 4)
+    let document = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    XCTAssertEqual(document["retention"] as? String, "90d")
+    XCTAssertNil(document["retentionDays"])
+  }
+
+  func testLongCommitsAreSplitOnCharacterBoundaries() throws {
+    let family = "👨‍👩‍👧‍👦"
+    let text = String(repeating: family, count: 1_000)
+    let chunks = TypingStatisticsStore.chunks(text)
+    XCTAssertGreaterThan(chunks.count, 1)
+    XCTAssertEqual(chunks.joined(), text)
+    XCTAssertTrue(chunks.allSatisfy { $0.utf8.count <= 8_000 && $0.allSatisfy { $0 == Character(family) } })
+
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = TypingStatisticsStore(directory: directory)
+    try store.setEnabled(true)
+    try store.record(String(repeating: "字", count: 20_000))
+    XCTAssertEqual(try store.load().total, 20_000)
+  }
+
+  func testRhythmMatchesTheSharedPage() throws {
+    let fixture: [String: Any] = [
+      "total": 1_000,
+      "days": ["2026-08-30": 100, "2026-08-31": 300, "2026-09-01": 200, "2026-09-03": 400],
+      "dailyDetails": [
+        "2026-08-31": ["characters": ["han": 200, "latin": 40, "otherLetter": 20, "number": 40]],
+        "2026-09-01": ["characters": ["han": 100, "punctuation": 100]],
+        "2026-09-03": ["characters": ["han": 300, "emoji": 100]],
+      ],
+      "dailyActiveMs": ["2026-08-31": 120_000, "2026-09-01": 30_000, "2026-09-03": 240_000],
+      "dailyHours": ["2026-09-03": Array(repeating: 0, count: 23) + [400], "2026-09-01": [1]],
+      "retention": "180d",
+    ]
+    let statistics = try JSONDecoder().decode(
+      TypingStatistics.self, from: JSONSerialization.data(withJSONObject: fixture))
+    XCTAssertEqual(statistics.retentionDays, 180)
+
+    let today = statistics.activity(todayKey: "2026-09-03")
+    XCTAssertEqual(today.recordedDays, 4)
+    XCTAssertEqual(today.averagePerDay, 250)
+    XCTAssertEqual(today.currentStreak, 1)
+    XCTAssertEqual(today.longestStreak, 3, "跨月的连续天数不能按字符串数字比较")
+    XCTAssertEqual(today.bestDay, "2026-09-03")
+    XCTAssertEqual(today.bestDayCharacters, 400)
+    XCTAssertEqual(today.todayActiveMs, 240_000)
+    XCTAssertEqual(today.todaySpeed, 75, accuracy: 0.001, "表情不算进速度")
+    XCTAssertEqual(today.averageSpeed, Double(260 + 100 + 300) / 6.5, accuracy: 0.001)
+    XCTAssertEqual(today.fastestDay, "2026-08-31", "活跃不到一分钟的那天不参与最快")
+    XCTAssertEqual(today.fastestSpeed, 130, accuracy: 0.001)
+    XCTAssertEqual(today.todayHours?.last, 400)
+    XCTAssertTrue(today.hasActivity)
+
+    // Today with nothing typed yet keeps yesterday's streak; a malformed hour list is not drawn.
+    XCTAssertEqual(statistics.activity(todayKey: "2026-09-04").currentStreak, 1)
+    XCTAssertEqual(statistics.activity(todayKey: "2026-09-05").currentStreak, 0)
+    XCTAssertEqual(statistics.activity(todayKey: "2026-09-02").currentStreak, 3)
+    XCTAssertNil(statistics.activity(todayKey: "2026-09-01").todayHours)
+    XCTAssertFalse(TypingStatistics().activity(todayKey: "2026-09-01").hasActivity)
+
+    XCTAssertEqual(TypingStatistics.addDays("2028-02-28", 1), "2028-02-29")
+    XCTAssertEqual(TypingStatistics.addDays("2026-02-28", 1), "2026-03-01")
+    XCTAssertEqual(TypingStatistics.addDays("2026-01-01", -1), "2025-12-31")
+    XCTAssertEqual(TypingStatistics.addDays("not-a-day", 1), "not-a-day")
+    XCTAssertEqual(TypingActivity.formatActiveTime(0), "0分")
+    XCTAssertEqual(TypingActivity.formatActiveTime(45_000), "45秒")
+    XCTAssertEqual(TypingActivity.formatActiveTime(12 * 60_000), "12分")
+    XCTAssertEqual(TypingActivity.formatActiveTime(60 * 60_000), "1小时")
+    XCTAssertEqual(TypingActivity.formatActiveTime(83 * 60_000), "1小时23分")
   }
 
   func testAvailabilityTellsAnEmptyRunApartFromABrokenOne() throws {
@@ -138,6 +250,7 @@ final class TypingStatisticsTests: XCTestCase {
     let store = TypingStatisticsStore(directory: directory)
     XCTAssertEqual(store.availability(), .neverWritten)
 
+    try store.setEnabled(true)
     try store.record("水杉")
     guard case .ready(let lastWritten) = store.availability() else {
       return XCTFail("A written store still reported that the keyboard had never written.")
@@ -153,6 +266,7 @@ final class TypingStatisticsTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: container) }
 
     let legacy = TypingStatisticsStore(directory: container)
+    try legacy.setEnabled(true)
     try legacy.record("迁移", source: .quanpin)
     let store = TypingStatisticsStore(directory: sharedState, legacyDirectory: container)
     guard case .ready = store.availability() else {
