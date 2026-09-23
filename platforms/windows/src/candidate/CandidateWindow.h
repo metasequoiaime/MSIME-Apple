@@ -74,6 +74,9 @@ private:
   void invalidate_geometry();
   CandidateBounds card_bounds(const CandidatePresentation &value,
                               const RECT &work, unsigned dpi);
+  // Each candidate's runs measured the way paint() draws them, and their wrapped heights. card_bounds and paint share both, so the card is sized for exactly the rows that get drawn.
+  std::vector<CandidateItemWidths> measure_items(const CandidatePresentation &value);
+  CandidateWrapMeasure wrap_measure(const CandidatePresentation &value);
   void paint();
   std::optional<CandidateClick> hit(int x, int y);
   void show_context_menu(const CandidateClick &click, POINT client_point);
@@ -85,6 +88,8 @@ private:
   std::optional<CandidatePresentation> shown_;
   unsigned shown_dpi_ = 0;
   std::optional<CandidatePresentation> painted_;
+  // Rows as last drawn, set together with painted_. Hit testing reads these rather than recomputing, because row heights depend on text the click path should not measure again.
+  std::vector<CandidateRowLayout> painted_rows_;
   std::optional<CandidateClick> pressed_;
   std::optional<size_t> hovered_;
   unsigned painted_dpi_ = 0;

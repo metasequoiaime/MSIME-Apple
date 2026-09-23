@@ -24,7 +24,7 @@ int main() {
                        nlohmann::json::array()})
     assert(!candidate_layout_settings(invalid));
   CandidateCardInput input;
-  input.item_widths = {90, 90, 90};
+  input.items = {{90}, {90}, {90}};
   input.max_width = 1000;
   input.max_height = 1000;
   input.preedit_visible = true;
