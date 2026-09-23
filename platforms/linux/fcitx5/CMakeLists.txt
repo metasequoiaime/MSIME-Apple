@@ -95,8 +95,11 @@ if(X11_SURFACE_FOUND)
   target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::X11_SURFACE)
 endif()
 if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
-  list(APPEND MSIME_FCITX5_WAVE_SOURCES ../src/overlay/WaveOverlayWaylandSurface.cpp
-       "${MSIME_LAYER_SHELL_CODE}" "${MSIME_XDG_SHELL_CODE}")
+  list(APPEND MSIME_FCITX5_WAVE_SOURCES ../src/overlay/WaveOverlayWaylandSurface.cpp)
+  # The badge's Wayland backend already compiles the same layer-shell and xdg-shell protocol code into this module; a second copy is a multiple-definition link error. It only shows where pangocairo is installed (any desktop with GTK development files), which the build-gate image does not have.
+  if(NOT MSIME_BADGE_WAYLAND_SOURCES)
+    list(APPEND MSIME_FCITX5_WAVE_SOURCES "${MSIME_LAYER_SHELL_CODE}" "${MSIME_XDG_SHELL_CODE}")
+  endif()
   target_include_directories(msime-fcitx5 PRIVATE "${MSIME_WAYLAND_PROTOCOL_DIR}")
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_LINUX_HAS_WAYLAND_SURFACE)
   target_link_libraries(msime-fcitx5 PRIVATE PkgConfig::WAYLAND_CLIENT)

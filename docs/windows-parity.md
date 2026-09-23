@@ -124,7 +124,7 @@
 - **AI 候选只看 AI 助手开关**：来源 `event_listener.cpp` 的 `ai_eligible` 由英文模式、特殊模式、全拼 / 双拼、纯完整拼音、无辅助码且不在造词组成，`UpdateAiInput` 只再加上 `ai_assistant.enabled`、输入会话存在与非空的拼音切分；`general.candidate_translations`（显示候选释义）只控制释义与翻译请求。Windows 宿主有在线查询就提交 AI，macOS 的 `synchronizeAITranslations` 同样只以 `ai_assistant.enabled` 为开关，关闭释义既不阻止也不取消在途的 AI 请求；`shortcut` 原生测试的 `TestAiCandidatesIgnoreGlossSwitch` 钉住这一点。
 - **智能标点**：重写标点前回读两个字符核对指纹（arm 时记下标点前面的字符），避免用户把光标移到文档里另一处同样的标点上时改错位置；文本存储读不出内容（终端与代理存储）判为匹配，以免在这些宿主里直接废掉该功能。读不回待改写字符时改走 SendInput 改写队列，执行前校验焦点 token、前台窗口与 500ms 期限。
 - **成对补全关闭时的引号与书名号**：来源 `GetPunctuation` 的引号轮换（“ 之后是 ”）与 `<` `>` 嵌套计数（《〈〉》）不看成对开关，被排除的宿主（Excel）因此回落到左右轮换。锁定引擎在成对关闭时只给左半边，由 overlay `scripts/apply_engine_punctuation_alternation.py` 去掉 `PunctuationPolicy::translate` 里的两处开关判断；状态随会话存活、切换开关不重置，与来源一致。各宿主都只在成对开启且未排除时自己改写 ” → “，不会重复轮换；HarmonyOS 成对开启时由 `PairedPunctuationPolicy.reopenQuote` 做同样的改写。`crates/host-api/src/tests.rs` 经 FFI 驱动真实引擎钉住“”“”、‘’、《〈〉》与不重置。
-- **候选窗绘制**：行按逐项测量而非定高，带按外观字体的回退（`ApplyFontFallback`）与卡片的显式阴影 pass；超过工作区上限的候选截在行矩形处，命中测试用的是同一个矩形。合成路径复用渲染目标时刷新 DPI，语音波形浮层的定位与缩放取自同一份 per-monitor 快照。
+- **候选窗绘制**：行按逐项测量而非定高，带按外观字体的回退（`ApplyFontFallback`）与卡片的显式阴影 pass。每个候选按来源 `CandidateList::MeasureItem` 分成三段：候选文字（含角标）、辅助码、译文。辅助码与候选同字号同颜色，接在文字后 4 DIP；译文字号为候选的 0.78，间隔为候选字号的 0.65，颜色是辅助码颜色的 alpha 乘 0.62，选中行两者都跟随选中文字色。竖排时放得下就同一行，放不下就移到文字下方并按列宽换行，辅助码一旦下移译文也跟着下移；横排时译文总在文字下方。几何在 `CandidateCardSize.h` 的 `candidate_item_layout` / `candidate_page_layout`：竖排各行按自身高度堆叠，横排各列取最高一行的高度，卡片高度按夹紧后的宽度计算；换行高度由 DirectWrite 以绘制同款 NEAR + WRAP 格式实测。`paint` 以实际绘制宽度排版并缓存行矩形，`hit` 用这份缓存，点击与绘制不会错位；`windows-candidate-card-size` 覆盖这些规则。合成路径复用渲染目标时刷新 DPI，语音波形浮层的定位与缩放取自同一份 per-monitor 快照。
 - **屏幕键盘**：普通键 450ms 首次延迟、75ms 间隔自动重复，粘滞修饰键与 Num Lock 单次切换；投递失败、失焦或关闭会停止重复且不自动重放。修饰键按下 / 释放的扩展键集合与来源逐键相同，布局为来源的超集（多出 F10–F12、PrtSc/Scroll/Pause、导航簇与 Menu 键）。
 - **剪贴板**：历史上限 50 条，文本边界为 4000 UTF-16 单位与 12000 UTF-8 字节；`normalize_clipboard_text` 只去掉 CF_UNICODETEXT 带来的东西（首个 NUL 起截断、剥掉尾部 `\r`），换行与空白是用户内容、原样往返。
 - **简繁转换**：共享层 `crates/client-core/src/chinese_conversion.rs` 按 OpenCC `data/config/s2t.json` 实现词级转换（兼容表归一化，再以 STPhrases ∪ 地区词派生表 → STCharacters 做最大正向匹配，完整 IDS 序列整体透传），数据取自来源钉的同一个 OpenCC 提交并登记在 `docs/third-party.md`。边界导出 `msime_client_simplified_to_traditional` 返回裸文本而非 JSON——它在每个候选上都要调用；Windows、Linux 与 macOS 宿主都调这一个导出，不使用系统的 `LCMapStringEx`、`libicu` 或 `CFStringTransform` 逐字转换；首次调用解析词典，之后单次约 1 µs。与该提交构建出的 OpenCC CLI 做对照，4 万行随机文本逐字节一致。
@@ -185,9 +185,11 @@
 
 **半截词的 preedit 不在 Windows 打开。** 其余五个宿主（macOS、Linux、HarmonyOS、Android、iOS）把「已选的那一段 + 读音」画在组字里，Windows 的 TSF 侧自己累积前缀，打开会重复；桌面外壳没有候选窗，不适用。
 
-**候选行超宽时截断而不是换行。** 来源对应路径是换行，但那要求行高可变，而这个渲染器的行高来自固定的 `candidate_row` 度量。超出的部分截在行矩形处，与命中测试用的是同一个矩形。
+**候选文字本身超宽时截断而不是换行。** 辅助码与译文已按来源在行内放不下时换到文字下方、行高随之可变（见上文「候选窗绘制」），但候选文字自身仍是单行，超出的部分截在行矩形处，与命中测试用的是同一个矩形。横排仍把卡片等分成等宽列，比列宽还宽的候选照旧被截断；来源按每项自然宽度分列，这一处尚未迁移。
 
 **诊断日志固定写数据目录。** 来源先写桌面、失败再退回数据目录；这边固定写数据目录下的 `logs\server.log`，因为输入法在桌面上凭空出现文件不是用户预期的副作用。设置页的「Server 端日志」「TSF 端日志」两个开关（`diagnostic_log.server` / `diagnostic_log.tsf`）分别控制写入，内容只有 Server 启停原因、各组件是否就绪、退出码与 TIP 上报的诊断批次，不记按键、输入内容或候选文本；4 MiB 轮转为 `server.log.1`，最多保留两份；UTF-8 BOM 与 CRLF 行尾与来源一致；偏好发布时立即生效，无需重启 Server。
+
+**macOS 语音有三处刻意与来源不同。** 静音其他声音是整台默认输出设备而不是按进程，因为 macOS 13 没有公开接口，时序上改为开始提示音播完再静音、先恢复再播结束提示音，以保证提示音听得见；录音录满上传上限时自动结束并提交已录部分，而不是像来源那样提交时报超限并丢掉整段；提示音文件缺失时回落到系统声音而不是不出声。细节见 `platforms/macos/README.md` 的「语音输入」。
 
 **设置页有几处措辞与控件刻意与来源不同**：「始终使用英文标点」与这边的「中文标点」绑同一个 `chinese_punctuation` 但极性相反，只改名不反转控件即是错标；剪贴板管理来源写「关闭后立即清空」，这边写「保存关闭设置后清空」，因为这边的清空发生在偏好保存时；候选窗字体一项 Windows 显示的是「候选窗英文字体 + 补充字体」而非来源的「主字体 + 中文补充字体」，是 Windows 字体路径上的既有取舍。
 
@@ -213,3 +215,10 @@
 **TSF DLL 的 COM 边界。** 类工厂契约由 `msime-tsf-class-factory` 钉住：从同目录加载出货 DLL，解析 `DllGetClassObject`，用固定 CLSID 取得 `IClassFactory`，实例化的对象实现 `ITfTextInputProcessor`；未知 CLSID 返回 `CLASS_E_CLASSNOTAVAILABLE`，已知 CLSID 但请求不支持的类工厂接口返回 `E_NOINTERFACE`，空输出指针在 `QueryInterface` 返回 `E_POINTER`、在 `CreateInstance` 返回 `E_INVALIDARG`；类工厂拒绝聚合；`DllCanUnloadNow` 钉住「类工厂或 TIP 仍被引用时不可卸载、全部释放后可卸载」，并覆盖 `LockServer(TRUE/FALSE)`。生产的 `DllGetClassObject` 先清空输出，再按 CLSID、然后按接口判定，不把这两类错误混为一谈。
 
 **安装布局与注册。** 32 位与 64 位 TSF DLL 分别装到 `{commonpf32|64}\metasequoiaime\msime_v<ver>\` 并带 `regserver` 标志注册 TIP，PDB 同目录；Server 装在 `{commonpf64}\metasequoiaime\server`；应用数据装到用户选定的 `DataDir`；HKLM `Software\Metasequoia\MetasequoiaIME` 写 `VersionDir` / `ServerPath` / `DataDir`；`THIRD_PARTY_NOTICES.txt` 与 `LICENSE.txt` 随包分发（GPLv3 第 4、6 条）。`ISCC /DLightPackage=1` 出不含词库的轻量包。
+
+### Windows 发布流水线产出真实安装包（2026-09-23）
+
+- 流水线：`.github/workflows/release-windows.yml` 在 windows-2025（MSVC，Visual Studio 18 2026）上按 `installer/Package-SimplySign.ps1` 的顺序走完 `Build-Client.ps1` → `Collect-Notices.ps1` → `Prepare-PackageFiles.ps1` → `Compile-Installer.ps1`，只是跳过签名。原生依赖按 `platforms/windows/vcpkg.json` 的 baseline 装进 x64/x86 两个前缀并缓存；Inno Setup 固定 6.7.1，`ChineseSimplified.isl` 取自同版本标签并校验 SHA-256。
+- 产物：`MetasequoiaIME_Setup_v<版本>.exe` 与 `.sha256` 作为 workflow artifact 上传；`publish` 输入默认关闭，打开时才创建 `windows-v<版本>` Release。安装包未签名，因为代码签名证书是只在发布机上的 Certum SimplySign 卡，签名仍是本地步骤。
+- 第一次在 MSVC 上完整构建暴露并修掉的问题：Engine overlay 脚本按 ANSI 代码页读写 UTF-8 源；engine-bridge 的 MSVC 编译拿不到 vcpkg 头文件；strict 目标的 `/W4 /WX` 窄化、遮蔽与 `getenv` 弃用告警；TSF 引入 Engine 管道契约时被 SDK 的 `max` 宏改写；PowerShell 调 pnpm（`.cmd`）时 Tauri `--config` 的内联 JSON 丢了引号；`Collect-Notices.ps1` 按整个文件比较 Engine 标记；安装脚本 `[Code]` 里有先用后声明的 `UserConfigPath` 和保留字 `Protected`。
+- 证据：https://github.com/metasequoiaime/msime/actions/runs/35815935438 成功，artifact `msime-windows-0.1.0` 内含 201 MB 的 `MetasequoiaIME_Setup_v0.1.0.exe`，下载后 `.sha256` 校验通过。安装包尚未在真实 Windows 上安装验收；通知集合仍缺 Rust/前端依赖的补充声明。

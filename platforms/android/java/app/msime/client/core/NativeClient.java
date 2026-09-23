@@ -192,6 +192,18 @@ public final class NativeClient {
      * faces on this keyboard would show one mark and commit the other.
      */
     /** Drop the cached candidate list for this session; the next query is answered fresh. */
+    /**
+     * Simplified to Traditional with the shared OpenCC tables, the same conversion the other
+     * hosts use. Phrase-level, so 头发 becomes 頭髮 rather than 頭發.
+     *
+     * <p>Returns null when the text was not convertible; the caller keeps the original.
+     */
+    public static String simplifiedToTraditional(String text) {
+        if (text == null || text.isEmpty()) return text;
+        byte[] converted = simplifiedToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8));
+        return converted == null ? null : text(converted);
+    }
+
     public static String resetCache(long session) {
         return text(resetCacheRaw(session));
     }
@@ -336,6 +348,7 @@ public final class NativeClient {
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
+    private static native byte[] simplifiedToTraditionalRaw(byte[] text);
     private static native byte[] resetCacheRaw(long session);
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);

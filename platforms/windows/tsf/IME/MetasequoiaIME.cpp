@@ -22,7 +22,11 @@
 #include "Utils/FanyUtils.h"
 #include "../Utils/PerfTimer.h"
 #include "../HostOptionsPaths.h"
+// The TSF sources use the Windows SDK max macro under MSVC; the Engine contract calls std::numeric_limits<...>::max(), which that macro would rewrite.
+#pragma push_macro("max")
+#undef max
 #include "keyboard_composition_pipe.h"
+#pragma pop_macro("max")
 
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")

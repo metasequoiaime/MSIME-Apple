@@ -309,11 +309,76 @@ pub unsafe extern "C" fn msime_client_dictionary_hans_entries(
 }
 
 fn hans_entries_json(text: &str, resources: &str) -> Result<serde_json::Value, String> {
+    let options = read_only_options(resources)?;
+    let entries = parse_hans_import(&Kind::Pinyin, text, &options.into_engine_options())?
+        .into_iter()
+        .map(Entry::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(json!({ "entries": entries }))
+}
+
+/// Parse a dictionary file into the words the personal dictionary queue accepts, with the report the settings page shows for it, without opening or changing any dictionary state.
+///
+/// `request` is `{kind, format, text}` in the shape of the `import` dictionary action. For the iOS host, whose Tauri settings page queues the words itself in the App Group store the keyboard reads; the readings for `hans` come from the packaged main dictionary under `resources`, opened read-only.
+/// # Safety
+/// Both pointers must reference readable buffers of the stated lengths. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_dictionary_import_entries(
+    request: *const u8,
+    request_length: usize,
+    resources: *const u8,
+    resources_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null()
+            || resources.is_null()
+            || request_length > 1_200_000
+            || resources_length > 4096
+        {
+            return Err("invalid dictionary buffer".into());
+        }
+        // SAFETY: guaranteed by the caller contract above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, request_length) };
+        // SAFETY: guaranteed by the caller contract above.
+        let resources =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
+                .map_err(|_| "resources path is not UTF-8")?;
+        import_entries_json(bytes, resources)
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportEntriesRequest {
+    kind: Kind,
+    format: String,
+    text: String,
+}
+
+fn import_entries_json(bytes: &[u8], resources: &str) -> Result<serde_json::Value, String> {
+    let request: ImportEntriesRequest =
+        serde_json::from_slice(bytes).map_err(|_| "invalid dictionary import".to_owned())?;
+    let options = read_only_options(resources)?;
+    let (words, mut result) = queued_import(
+        &request.kind,
+        &request.format,
+        &request.text,
+        &options.into_engine_options(),
+    )?;
+    result["entries"] = json!(words
+        .into_iter()
+        .map(personal_to_entry)
+        .collect::<Result<Vec<_>, _>>()?);
+    Ok(result)
+}
+
+/// Host options that open nothing but the packaged, read-only main dictionary.
+fn read_only_options(resources: &str) -> Result<HostOptions, String> {
     if !Path::new(resources).is_absolute() {
         return Err("resources path must be absolute".into());
     }
     // The packaged directory stands in for every runtime path: only the read-only main dictionary is opened.
-    let options: HostOptions = serde_json::from_value(json!({
+    serde_json::from_value(json!({
         "api_version": 1,
         "resources": resources,
         "user_data": resources,
@@ -321,12 +386,73 @@ fn hans_entries_json(text: &str, resources: &str) -> Result<serde_json::Value, S
         "dictionaries": resources,
         "preferences": msime_client_core::preferences::Preferences::default(),
     }))
-    .map_err(|_| "invalid dictionary options")?;
-    let entries = parse_hans_import(&Kind::Pinyin, text, &options.into_engine_options())?
-        .into_iter()
-        .map(Entry::try_from)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(json!({ "entries": entries }))
+    .map_err(|_| "invalid dictionary options".into())
+}
+
+/// The personal dictionary queue takes at most this many words per import.
+const MAX_QUEUED_IMPORT: usize = 128;
+
+/// A dictionary file as the words the mobile queue accepts, and the import report the settings page shows for it.
+///
+/// The queue refuses a whole batch for one invalid or repeated word, or for more than 128, where the desktop import applies what it can and names the rest. So rows the Engine would refuse are counted with their line, a repeated word is queued once, and rows past the queue's capacity are reported as truncated: a real file imports on a phone the way it does on a desktop.
+fn queued_import(
+    kind: &Kind,
+    format: &str,
+    text: &str,
+    options: &msime_engine_bridge::EngineOptions,
+) -> Result<(Vec<PersonalWord>, serde_json::Value), String> {
+    let (entries, report) = if format == "hans" {
+        (parse_hans_import(kind, text, options)?, None)
+    } else {
+        let (entries, report) = parse_import(kind, format, text, Some(options))?;
+        (entries, Some(report))
+    };
+    // The bridge entry carries no line number; the parsed report lists the same rows in the same order.
+    let source_lines: Vec<usize> = report
+        .as_ref()
+        .map(|parsed| parsed.entries.iter().map(|entry| entry.line).collect())
+        .unwrap_or_default();
+    let mut report = report.unwrap_or(msime_client_core::dictionary::import::ImportReport {
+        entries: Vec::new(),
+        failed: 0,
+        first_failures: Vec::new(),
+        truncated: false,
+        swapped: false,
+    });
+    let mut words = Vec::new();
+    let mut identities = std::collections::HashSet::new();
+    let mut rejected_lines = Vec::new();
+    for (index, entry) in entries.into_iter().enumerate() {
+        let Ok(word) = normalize_personal_word(PersonalWord {
+            kind: personal_kind(entry.kind),
+            key: entry.key,
+            value: entry.value,
+            weight: entry.weight,
+        }) else {
+            rejected_lines.push(source_lines.get(index).copied().unwrap_or(0));
+            continue;
+        };
+        if !identities.insert(word.identity()) {
+            continue;
+        }
+        if words.len() == MAX_QUEUED_IMPORT {
+            report.truncated = true;
+            break;
+        }
+        words.push(word);
+    }
+    if words.is_empty() {
+        return Err("dictionary import rejected".into());
+    }
+    report.record_rejected(&rejected_lines);
+    let result = json!({
+        "applied": words.len(),
+        "failed": report.failed,
+        "truncated": report.truncated,
+        "swapped": report.swapped,
+        "first_failures": serde_json::to_value(&report.first_failures).map_err(|error| error.to_string())?,
+    });
+    Ok((words, result))
 }
 
 pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
@@ -710,25 +836,14 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             request_id,
         } => {
             let options = request.options.into_engine_options();
-            let entries = if format == "hans" {
-                parse_hans_import(&kind, &text, &options)?
-            } else {
-                parse_import(&kind, &format, &text, Some(&options))?.0
-            };
-            let words = entries
-                .into_iter()
-                .map(|entry| PersonalWord {
-                    kind: personal_kind(entry.kind),
-                    key: entry.key,
-                    value: entry.value,
-                    weight: entry.weight,
-                })
-                .collect();
+            let (words, mut result) = queued_import(&kind, &format, &text, &options)?;
             store
                 .enqueue_import(words, request_id)
                 .map_err(personal_dictionary_error)?;
             let state = store.read().map_err(personal_dictionary_error)?;
-            Ok(json!({ "queued": true, "pending_count": state.pending_count() }))
+            result["queued"] = json!(true);
+            result["pending_count"] = json!(state.pending_count());
+            Ok(result)
         }
         Operation::ImportPersonal { text, request_id } => {
             let entries = parse_personal_dictionary_import(&text)?;

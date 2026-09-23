@@ -37,6 +37,43 @@ final class PersonalDictionaryHansImportTests: XCTestCase {
     XCTAssertEqual(try PersonalDictionaryImport.hans("fixture") { _ in Array(words.prefix(128)) }.entries.count, 128)
   }
 
+  func testSharedImportFormatsQueueWhatTheEngineAcceptsAndReportTheRest() throws {
+    // Standard puts the word first; the second row is jianpin the Engine refuses and the third repeats the first.
+    let standard = try PersonalDictionaryBridge.importEntries(
+      kind: "pinyin", format: "standard", text: "水杉\tshui'shan\t100\n你好\tnihaoma\t100\n水杉\tshui'shan\t100\n在家\tzai'jia\t100\n")
+    XCTAssertEqual(standard.entries.map(\.value), ["水杉", "在家"])
+    XCTAssertEqual(standard.entries.map(\.key), ["shui'shan", "zai'jia"])
+    XCTAssertEqual(standard.report["applied"] as? Int, 2)
+    XCTAssertEqual(standard.report["failed"] as? Int, 1)
+    XCTAssertEqual((standard.report["first_failures"] as? [[String: Any]])?.first?["line"] as? Int, 2)
+    XCTAssertNil(standard.report["entries"], "the words travel separately from the report")
+
+    let windows = try PersonalDictionaryBridge.importEntries(kind: "quick_phrase", format: "windows", text: "zjd\t在家等\t100\n")
+    XCTAssertEqual(windows.entries, [PersonalWord(kind: .quickPhrase, key: "zjd", value: "在家等", weight: 100)])
+
+    // The queue holds 128 words, so a longer file is queued in part and says so instead of being refused.
+    let long = (0..<200).map { "短语\($0)\tq\($0)\t100\n" }.joined()
+    let capped = try PersonalDictionaryBridge.importEntries(kind: "quick_phrase", format: "standard", text: long)
+    XCTAssertEqual(capped.entries.count, 128)
+    XCTAssertEqual(capped.report["truncated"] as? Bool, true)
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-import-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = PersonalDictionaryStore(directory: directory)
+    try store.enqueueImport(capped.entries, requestID: "ui-import-1")
+    XCTAssertEqual(try store.read().pendingCount, 128)
+
+    let hans = try PersonalDictionaryBridge.importEntries(kind: "pinyin", format: "hans", text: "你好\n世界\n")
+    XCTAssertEqual(hans.entries.map { $0.key.filter(\.isLetter) }, ["nihao", "shijie"])
+
+    XCTAssertThrowsError(try PersonalDictionaryBridge.importEntries(kind: "pinyin", format: "standard", text: "你好\tnihaoma\t100\n")) {
+      XCTAssertEqual($0 as? DictionaryFileImportFailure, .rejected)
+    }
+    XCTAssertThrowsError(try PersonalDictionaryBridge.importEntries(kind: "pinyin", format: "csv", text: "x")) {
+      XCTAssertEqual($0 as? DictionaryFileImportFailure, .rejected)
+    }
+  }
+
   func testEditedWeightIsQueuedAsWritten() throws {
     XCTAssertEqual(PersonalWord.weightRange, 1...100_000_000)
     XCTAssertEqual(PersonalWord(key: "ni hao", value: "你好").weight, PersonalWord.defaultWeight)

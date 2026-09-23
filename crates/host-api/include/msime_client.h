@@ -127,6 +127,9 @@ char *msime_client_dictionary_validate(const uint8_t *request, size_t length);
 /* Plain Chinese words, one per line, answered as the pinyin entries the "hans" import format would produce: {entries:[Entry]}. Reads only the packaged main dictionary under resources, read-only; needs no prepared host or session and changes no dictionary state. */
 char *msime_client_dictionary_hans_entries(const uint8_t *text, size_t text_length,
                                            const uint8_t *resources, size_t resources_length);
+/* A dictionary file ({kind, format, text}, as the "import" dictionary action) answered as the words the personal dictionary queue accepts, with the import report: {entries:[Entry], applied, failed, truncated, swapped, first_failures}. Invalid rows are counted with their line, repeated words appear once, and at most 128 words are returned. Reads only the packaged main dictionary under resources; changes no dictionary state. Maximum 1,200,000 bytes. */
+char *msime_client_dictionary_import_entries(const uint8_t *request, size_t request_length,
+                                             const uint8_t *resources, size_t resources_length);
 /* Android personal-dictionary queue synchronization. The request contains the
  * same HostOptions object as msime_client_create. The caller must have no
  * Engine session using its user_data/dictionaries paths. */

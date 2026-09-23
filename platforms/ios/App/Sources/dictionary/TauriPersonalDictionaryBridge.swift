@@ -26,6 +26,17 @@ enum TauriPersonalDictionaryBridge {
       guard previous != nil || replacement != nil else { throw Failure.invalid }
       _ = try store.enqueue(previous: previous, replacement: replacement, requestID: requestID)
       return ["queued": true, "pending_count": try store.read().pendingCount]
+    case "import":
+      // A file in one of the shared formats. The Engine route would need the maintenance lock the keyboard holds while typing, so the words are parsed here and queued like any other import.
+      let requestID = try requestID(action)
+      guard let kind = action["kind"] as? String, let format = action["format"] as? String,
+            let text = action["text"] as? String else { throw Failure.invalid }
+      let parsed = try PersonalDictionaryBridge.importEntries(kind: kind, format: format, text: text)
+      try store.enqueueImport(parsed.entries, requestID: requestID)
+      var result = parsed.report
+      result["queued"] = true
+      result["pending_count"] = try store.read().pendingCount
+      return result
     case "import_personal":
       let requestID = try requestID(action)
       guard let text = action["text"] as? String,
@@ -116,7 +127,8 @@ private func tauriPersonalDictionaryError(_ error: Error) -> String {
   case PersonalDictionaryStore.StoreError.busy: return "dictionary_busy"
   case PersonalDictionaryStore.StoreError.tooManyRequests: return "dictionary_too_many"
   case PersonalDictionaryStore.StoreError.conflict: return "dictionary_conflict"
-  case PersonalDictionaryStore.StoreError.invalidState, PersonalDictionaryStore.StoreError.unavailable:
+  case PersonalDictionaryStore.StoreError.invalidState, PersonalDictionaryStore.StoreError.unavailable,
+       DictionaryFileImportFailure.unavailable:
     return "dictionary_unavailable"
   default: return "dictionary_import_rejected"
   }

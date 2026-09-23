@@ -4,9 +4,9 @@ from pathlib import Path
 
 
 def replace(path: Path, old: str, new: str) -> None:
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     if old in text:
-        path.write_text(text.replace(old, new, 1))
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
     elif new not in text:
         raise RuntimeError(f"Wubi overlay did not match {path}")
 

@@ -19,12 +19,12 @@ def replace_once(path: Path, before: str, after: str, applied: str) -> None:
     to be asked separately, or a second run appends the same code again and the Engine stops
     compiling on a redefinition.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     if applied in text:
         return
     if before not in text:
         raise RuntimeError(f"Engine overlay did not match: {path}")
-    path.write_text(text.replace(before, after, 1))
+    path.write_text(text.replace(before, after, 1), encoding="utf-8")
 
 
 def apply(root: Path) -> None:

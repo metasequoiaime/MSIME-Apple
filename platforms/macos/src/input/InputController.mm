@@ -25,6 +25,7 @@
 #import "../voice/HTTPVoiceRequest.h"
 #import "../voice/VoiceHoldShortcut.h"
 #import "../voice/DoubaoVoiceRequest.h"
+#import "../voice/VoiceFailureMessages.h"
 #import "../core/SupportWindowController.h"
 #import "../backend/account/BackendAccountEntry.h"
 #import "../backend/core/BackendSelectionObservation.h"
@@ -2408,7 +2409,12 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)voiceCaptureDidStart {
     if (_voiceCueRecording) return;
     _voiceCueRecording = YES;
-    if (MSIMEVoiceCueEnabled(NSUserDefaults.standardUserDefaults, YES)) [_voiceCuePlayer playStartCue];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    // Windows plays the start cue and only then mutes other audio. The macOS mute is device-wide and would swallow the cue, so it waits for the cue to finish; any restore before then cancels it.
+    void (^mute)(void) = nil;
+    if (MSIMEVoiceMuteSystemAudioEnabled(defaults)) mute = [_voiceAudioMuter deferredMute];
+    if (MSIMEVoiceCueEnabled(defaults, YES)) [_voiceCuePlayer playStartCueThen:mute];
+    else if (mute) mute();
 }
 - (void)voiceCaptureDidEnd {
     if (!_voiceCueRecording) return;
@@ -2428,7 +2434,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)refreshVoiceOverlayScreen {
     if (_voiceOverlay) _voiceOverlay.preferredScreen = [self voiceInputScreen];
 }
-- (void)reportVoiceFailure:(MSIMEVoiceFailure)failure {
+- (void)reportVoiceFailure:(MSIMEVoiceFailure)failure { [self reportVoiceFailure:failure detail:nil]; }
+- (void)reportVoiceFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail {
     _voicePermissionToken = nil; _voiceHoldShortcut.reset();
     [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
     if (_voiceService.active) [_voiceService cancelWithError:nil];
@@ -2439,7 +2446,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [_voiceOverlay applyThemePreferences:_voiceThemePreferences ?: @{}];
     }
     [self refreshVoiceOverlayScreen];
-    [_voiceOverlay showFailure:failure];
+    [_voiceOverlay showFailure:failure detail:detail];
 }
 - (void)cancelDoubaoVoiceInput {
     if (!_doubaoVoiceRequest) return;
@@ -2465,7 +2472,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     NSDictionary *finished = request && _activeClient && _session ? [_session command:MSIME_FINISH_COMPOSITION error:&error] : nil;
     if (!finished) {
         [request cancel]; [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
-        [self reportVoiceFailure:request ? MSIMEVoiceFailureSession : MSIMEVoiceFailureProvider];
+        [self reportVoiceFailure:request ? MSIMEVoiceFailureSession : MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)];
         return NO;
     }
     [self apply:finished];
@@ -2488,7 +2495,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         if (!controller || !liveRequest || controller->_doubaoVoiceRequest != liveRequest) return;
         if (![controller ownsDoubaoVoiceFocus]) { [controller cancelDoubaoVoiceInput]; return; }
         if (controller->_doubaoFinalReceived) return;
-        if (failure) { [controller reportVoiceFailure:MSIMEVoiceFailureProvider]; return; }
+        if (failure) { [controller reportVoiceFailure:MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(failure)]; return; }
         if (!final) {
             if (controller->_doubaoVoiceInline && text) {
                 [(id<MSIMETextClient>)controller->_doubaoVoiceClient setMarkedText:text selectionRange:NSMakeRange(text.length, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
@@ -2517,7 +2524,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             [weakSelf applyDoubaoFinalText:!polishError && polished.length ? polished : text request:liveRequest];
         } error:nil]) return;
         [controller applyDoubaoFinalText:text request:liveRequest];
-    } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureProvider]; return NO; }
+    } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)]; return NO; }
     NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
     if (![_voiceService startPCMStreaming:^(NSData *pcm, NSError *failure) {
         MSIMEDoubaoVoiceRequest *liveRequest = weakRequest;
@@ -2550,7 +2557,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [_voiceOverlay setProcessing:NO];
     [self voiceCaptureDidEnd];
     if (!tail || error || (tail.length && ![_doubaoVoiceRequest appendPCM:tail error:&error]) ||
-        ![_doubaoVoiceRequest finishWithError:&error]) [self reportVoiceFailure:MSIMEVoiceFailureProvider];
+        ![_doubaoVoiceRequest finishWithError:&error]) [self reportVoiceFailure:MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)];
 }
 - (MSIMEHTTPVoiceRequest *)makeHTTPVoiceRequest:(NSDictionary *)options error:(NSError **)error {
     return [[MSIMEHTTPVoiceRequest alloc] initWithOptions:options error:error];
@@ -2572,7 +2579,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     MSIMEHTTPVoiceRequest *request = [self makeHTTPVoiceRequest:options error:&error];
     if (!request || !_activeClient || !_session) {
         [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
-        [self reportVoiceFailure:request ? MSIMEVoiceFailureSession : MSIMEVoiceFailureProvider];
+        [self reportVoiceFailure:request ? MSIMEVoiceFailureSession : MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)];
         return NO;
     }
     _httpVoiceRequest = request;
@@ -2592,14 +2599,20 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [controller->_voiceOverlay setProcessing:YES];
     };
     NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
+    const NSUInteger sampleLimit = request.sampleLimit;
     if (![_voiceService startPCMRecording:^(AVAudioPCMBuffer *buffer) {
         const float level = MSIMEVoiceInputLevel(buffer);
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
-            if (controller && controller->_httpVoiceRequest == request && !controller->_httpVoiceProcessing &&
-                controller->_activeClient == controller->_httpVoiceClient && controller->_session == controller->_httpVoiceSession &&
-                controller->_voiceGeneration == controller->_httpVoiceGeneration && controller->_voiceService.active)
-                [controller->_voiceOverlay setInputLevel:level];
+            if (!controller || controller->_httpVoiceRequest != request || controller->_httpVoiceProcessing ||
+                controller->_activeClient != controller->_httpVoiceClient || controller->_session != controller->_httpVoiceSession ||
+                controller->_voiceGeneration != controller->_httpVoiceGeneration || !controller->_voiceService.active) return;
+            [controller->_voiceOverlay setInputLevel:level];
+            // MSIME-Windows keeps every sample and tells the user when the upload is too large; this host keeps only what the provider takes. Once it has that much, end the recording the way a release does, so the overlay turns to 识别中... and the end cue plays instead of the wave animating over audio that is no longer kept. The physical release that follows must not cancel the recognition.
+            if (controller->_voiceService.recordedDuration * 16000.0 >= sampleLimit) {
+                controller->_voiceHoldShortcut.reset();
+                [controller finishHTTPVoiceInput];
+            }
         });
     } deviceUID:device failure:^(NSError *failure) {
         (void)failure;
@@ -2633,7 +2646,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         if (!controller || controller->_httpVoiceRequest != request) return;
         if (controller->_activeClient != client || controller->_session != session ||
             controller->_voiceGeneration != generation || !controller->_voiceService.active) { [controller cancelHTTPVoiceInput]; return; }
-        if (failure || !text.length) { [controller reportVoiceFailure:failure ? MSIMEVoiceFailureProvider : MSIMEVoiceFailureNoSpeech]; return; }
+        if (failure || !text.length) { [controller reportVoiceFailure:failure ? MSIMEVoiceFailureProvider : MSIMEVoiceFailureNoSpeech detail:MSIMEVoiceFailureDetail(failure)]; return; }
         if (!failure && text.length && controller->_activeClient == client &&
             controller->_session == session && controller->_voiceGeneration == generation && controller->_voiceService.active) {
             // Native host session methods are main-thread-only. Recheck the
@@ -2642,7 +2655,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             if (result) [controller applyVoiceResult:result route:controller->_httpVoiceCommit];
         }
         [controller cancelHTTPVoiceInput];
-    } error:&error]) [self reportVoiceFailure:MSIMEVoiceFailureProvider];
+    } error:&error]) [self reportVoiceFailure:MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)];
 }
 - (BOOL)ownsLiveVoiceToken:(id)token {
     return token && token == _liveVoiceToken && _activeClient == _liveVoiceClient &&
@@ -2841,6 +2854,13 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (_doubaoVoiceRequest) { [self finishDoubaoVoiceInput]; return; }
     if (_liveVoiceToken) { [self finishLiveVoiceInput]; return; }
     if (_voiceService.active) { [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO]; return; }
+    // Checked before any permission prompt or capture, where MSIME-Windows StartRecording checks it: without a token the recording could only fail after the user had spoken.
+    NSUserDefaults *voiceDefaults = NSUserDefaults.standardUserDefaults;
+    if (MSIMEVoiceASRTokenMissing([voiceDefaults stringForKey:@"MSIMEClientVoiceASRProvider"],
+                                  [voiceDefaults stringForKey:@"MSIMEClientVoiceASRToken"], MSIMEVoiceProviderSocket() != nil)) {
+        [self reportVoiceFailure:MSIMEVoiceFailureMissingToken];
+        return;
+    }
     __weak MSIMEInputController *weakSelf = self;
     void (^start)(void) = ^{
         MSIMEInputController *controller = weakSelf;
@@ -2852,7 +2872,6 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         }
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureSession]; return; }
-        if (MSIMEVoiceMuteSystemAudioEnabled(defaults)) [controller->_voiceAudioMuter mute:&error];
         [controller->_voiceOverlay setListening:YES];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = MSIMEVoiceProviderSocket();
@@ -3486,6 +3505,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         [voiceDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"] == nil || [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyHoldSpace"]
     }, _voiceService.active) : MSIMEVoiceHoldShortcut::Result{};
     if (voiceShortcut.consumed || voiceShortcut.action != MSIMEVoiceHoldShortcut::Action::None) _modifierTap.reset();
+    // MSIME-Windows shows the overlay's cancel and confirm buttons once the hold is locked (ControlCommand::Lock).
+    if (voiceShortcut.consumed && _voiceHoldShortcut.locked() && _voiceService.active) [_voiceOverlay setRecordingLocked:YES];
     if (voiceShortcut.action == MSIMEVoiceHoldShortcut::Action::Toggle) {
         _voiceHoldStarting = !voiceShortcut.onRelease && !_voiceService.active;
         if (!voiceShortcut.onRelease || _voiceHoldGeneration == _voiceGeneration) [self toggleVoiceInput:nil];

@@ -108,6 +108,30 @@ double measured_width(msimeui::DeviceResources &device, const std::wstring &text
   // Without a usable factory the card is still sized, just less precisely.
   return static_cast<double>(text.size()) * static_cast<double>(size) * 0.92;
 }
+// Height of text wrapped to `width` DIPs, with the same top aligned, wrapping format paint() draws a run below the first line with.
+double wrapped_height(msimeui::DeviceResources &device, const std::wstring &text,
+                      const std::wstring &family, float size, double width,
+                      IDWriteFontFallback *fallback) {
+  if (text.empty() || size <= 0.0f || !(width > 0.0))
+    return 0.0;
+  auto *factory = device.GetDWriteFactory();
+  auto *format = device.GetTextFormat(
+      family, size, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING,
+      DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_WORD_WRAPPING_WRAP);
+  set_candidate_font_fallback(format, fallback);
+  Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+  DWRITE_TEXT_METRICS metrics{};
+  if (factory && format &&
+      SUCCEEDED(factory->CreateTextLayout(text.c_str(),
+                                          static_cast<UINT32>(text.size()),
+                                          format, static_cast<float>(width),
+                                          65536.0f, layout.GetAddressOf())) &&
+      layout && SUCCEEDED(layout->GetMetrics(&metrics)))
+    return std::ceil(metrics.height);
+  // Same fallback as the shipped presenter: whole lines of the estimated width.
+  return std::ceil(measured_width(device, text, family, size, fallback) / width) *
+         static_cast<double>(size) * 1.25;
+}
 struct Painting {
   HWND window;
   PAINTSTRUCT state{};
@@ -432,14 +456,8 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                                          font_family_,
                                          static_cast<float>(preedit_font_size_),
                                          font_fallback_.Get());
-  for (const auto &candidate : value.candidates) {
-    auto label = candidate.text + candidate.annotation + candidate.badge;
-    if (!candidate.translation.empty())
-      label += "  · " + candidate.translation;
-    input.item_widths.push_back(measured_width(
-        device_, wide(label), font_family_, static_cast<float>(font_size_),
-        font_fallback_.Get()));
-  }
+  input.items = measure_items(value);
+  input.wrapped = wrap_measure(value);
   const auto card = candidate_card_size(input);
   const auto shadow_left =
       static_cast<int64_t>(std::lround(shadow_insets_.left * scale));
@@ -490,6 +508,45 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                                              static_cast<int>(shadow_right),
                                              static_cast<int>(shadow_bottom)});
 }
+// The shipped presenter draws three runs per candidate: the text with its badge, the annotation (辅助码) and the translation, the last at a smaller size. Measuring them apart is what lets a long annotation or translation wrap under the text instead of being clipped off the end of one long label.
+std::vector<CandidateItemWidths>
+CandidateWindow::measure_items(const CandidatePresentation &value) {
+  const auto metrics =
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_);
+  std::vector<CandidateItemWidths> items;
+  items.reserve(value.candidates.size());
+  for (const auto &candidate : value.candidates) {
+    auto width = [&](const std::string &text, double size) {
+      return measured_width(device_, wide(text), font_family_,
+                            static_cast<float>(size), font_fallback_.Get());
+    };
+    items.push_back({width(candidate.text + candidate.badge, font_size_),
+                     width(candidate.annotation, font_size_),
+                     width(candidate.translation, metrics.translation_font)});
+  }
+  return items;
+}
+CandidateWrapMeasure
+CandidateWindow::wrap_measure(const CandidatePresentation &value) {
+  const auto metrics =
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_);
+  // Copies, not references: the measure outlives neither call, but it must not depend on that.
+  std::vector<std::pair<std::wstring, std::wstring>> runs;
+  runs.reserve(value.candidates.size());
+  for (const auto &candidate : value.candidates)
+    runs.emplace_back(wide(candidate.annotation), wide(candidate.translation));
+  return [this, runs = std::move(runs), font = static_cast<float>(font_size_),
+          translation_font = static_cast<float>(metrics.translation_font)](
+             size_t index, CandidateRun run, double width) {
+    if (index >= runs.size())
+      return 0.0;
+    const bool annotation = run == CandidateRun::annotation;
+    return wrapped_height(device_,
+                          annotation ? runs[index].first : runs[index].second,
+                          font_family_, annotation ? font : translation_font,
+                          width, font_fallback_.Get());
+  };
+}
 void CandidateWindow::paint() {
   DpiScope dpi_scope;
   Painting painting(window_);
@@ -532,11 +589,15 @@ void CandidateWindow::paint() {
   if (!fallback_families_.empty() && !font_fallback_)
     font_fallback_ = build_font_fallback(device_.GetDWriteFactory(),
                                          fallback_families_);
-  auto format = [&](unsigned points, DWRITE_TEXT_ALIGNMENT alignment) {
+  // A run placed below the first line is top aligned and wraps, matching wrapped_height(); everything on a first line is centred in it and does not wrap.
+  auto format = [&](double points, DWRITE_TEXT_ALIGNMENT alignment,
+                    bool wrap = false) {
     auto *value = device_.GetTextFormat(
-        font_family_, static_cast<float>(points),
-        DWRITE_FONT_WEIGHT_NORMAL, alignment, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-        DWRITE_WORD_WRAPPING_NO_WRAP);
+        font_family_, static_cast<float>(points), DWRITE_FONT_WEIGHT_NORMAL,
+        alignment,
+        wrap ? DWRITE_PARAGRAPH_ALIGNMENT_NEAR
+             : DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+        wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
     if (!value)
       throw std::runtime_error("Candidate text format unavailable");
     set_candidate_font_fallback(value, font_fallback_.Get());
@@ -631,9 +692,13 @@ void CandidateWindow::paint() {
   const float number = static_cast<float>(font_size_) * 0.8f;
   const float gutter = static_cast<float>(metrics.number_and_bar);
   const size_t count = value->candidates.size();
+  // Laid out at the width actually drawn, which the work area may have narrowed below what card_bounds asked for.
+  auto rows = candidate_page_layout(measure_items(*value), frame.card_width,
+                                    metrics, horizontal_, wrap_measure(*value));
+  const float first_line = static_cast<float>(metrics.candidate_row);
   for (size_t i = 0; i < count; ++i) {
-    const auto row =
-        candidate_row_bounds(i, count, frame.card_width, metrics, horizontal_);
+    const auto &row = rows[i].bounds;
+    const auto &item = rows[i].item;
     // Rows are laid out in card coordinates; the decoration strip sits above
     // the card, so every row moves down with it. Without this the rows would
     // be drawn over the artwork and the hit test below would disagree.
@@ -670,14 +735,9 @@ void CandidateWindow::paint() {
     target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
                       format(font_size_, DWRITE_TEXT_ALIGNMENT_TRAILING),
                       D2D1_RECT_F{rect.left, rect.top, rect.left + number,
-                                  rect.bottom},
+                                  rect.top + first_line},
                       brush(number_color));
-    auto candidate_label = value->candidates[i].text +
-                           value->candidates[i].annotation +
-                           value->candidates[i].badge;
-    if (!value->candidates[i].translation.empty())
-      candidate_label += "  · " + value->candidates[i].translation;
-    const auto text = wide(candidate_label);
+    const auto text = wide(value->candidates[i].text + value->candidates[i].badge);
     // Clipped to the row. The card is clamped to the work area, the format
     // does not wrap, and without this a candidate wider than that clamp paints
     // straight past the card edge - onto the transparent shadow margin, so the
@@ -686,8 +746,32 @@ void CandidateWindow::paint() {
     target->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()),
         format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
-        D2D1_RECT_F{rect.left + gutter, rect.top, rect.right, rect.bottom},
+        D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
+                    rect.top + first_line},
         brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    // The annotation keeps the plain text colour even on a fixed-position row, and follows the selected text colour like the text does; the translation is the same colour at 0.62 of its alpha, as the shipped presenter draws both.
+    const auto annotation_color =
+        candidate_row_text_color(palette_, text_color, selected, false);
+    auto translation_color = annotation_color;
+    translation_color.a *= 0.62f;
+    // Runs extend to the row's right edge rather than their measured width, so rounding cannot wrap or clip a run that was laid out as fitting.
+    auto draw_run = [&](const std::string &run, const CandidateRunBox &box,
+                        double size, const CandidateColor &color) {
+      if (run.empty() || box.width <= 0.0)
+        return;
+      const auto run_text = wide(run);
+      const float left = rect.left + gutter + static_cast<float>(box.x);
+      const float top = rect.top + static_cast<float>(box.y);
+      target->DrawText(run_text.c_str(), static_cast<UINT32>(run_text.size()),
+                        format(size, DWRITE_TEXT_ALIGNMENT_LEADING, box.below),
+                        D2D1_RECT_F{left, top, rect.right,
+                                    top + static_cast<float>(box.height)},
+                        brush(color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    };
+    draw_run(value->candidates[i].annotation, item.annotation, font_size_,
+             annotation_color);
+    draw_run(value->candidates[i].translation, item.translation,
+             metrics.translation_font, translation_color);
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
@@ -711,6 +795,7 @@ void CandidateWindow::paint() {
   if (FAILED(drawn))
     throw std::runtime_error("Candidate drawing failed");
   painted_ = value;
+  painted_rows_ = std::move(rows);
   painted_dpi_ = GetDpiForWindow(window_);
   if (rendered_)
     rendered_(*painted_);
@@ -733,11 +818,9 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
                              shadow_insets_.bottom - decoration_offset_;
   if (card_x < 0.0 || card_y < 0.0)
     return std::nullopt;
-  const auto row = candidate_card_hit(
-      card_x, card_y, card_width, card_height, painted_->candidates.size(),
-      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_),
-      horizontal_);
-  if (!row)
+  const auto row =
+      candidate_card_hit(card_x, card_y, card_width, card_height, painted_rows_);
+  if (!row || *row >= painted_->candidates.size())
     return std::nullopt;
   const auto &candidate = painted_->candidates[*row];
   return CandidateClick{painted_->lease, candidate.session,

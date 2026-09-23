@@ -3,7 +3,9 @@
 #include <cassert>
 #include <string_view>
 
+using msime::linux_host::PassthroughModifiers;
 using msime::linux_host::resolve_typing_source;
+using msime::linux_host::should_count_passthrough_character;
 using msime::linux_host::typing_source_id;
 using msime::linux_host::TypingSource;
 
@@ -35,5 +37,34 @@ int main() {
   assert(typing_source_id(TypingSource::NineKey) ==
          std::string_view("nineKey"));
   assert(typing_source_id(TypingSource::Voice) == std::string_view("voice"));
+
+  // Passthrough keys count as typed text only when they are printable and no shortcut modifier is held; Shift picks a character and does not make a shortcut.
+  assert(should_count_passthrough_character(U'a', {}));
+  assert(should_count_passthrough_character(U' ', {}));
+  assert(should_count_passthrough_character(U'~', {}));
+  assert(should_count_passthrough_character(U'\u00e9', {}));
+  assert(should_count_passthrough_character(U'\U0001F600', {}));
+  assert(!should_count_passthrough_character(U'\t', {}));
+  assert(!should_count_passthrough_character(U'\r', {}));
+  assert(!should_count_passthrough_character(0x1b, {}));
+  assert(!should_count_passthrough_character(0x7f, {}));
+  assert(!should_count_passthrough_character(0, {}));
+  assert(!should_count_passthrough_character(0xd800, {}));
+  assert(!should_count_passthrough_character(0x110000, {}));
+  PassthroughModifiers control;
+  control.control = true;
+  assert(!should_count_passthrough_character(U'c', control));
+  PassthroughModifiers alt;
+  alt.alt = true;
+  assert(!should_count_passthrough_character(U'f', alt));
+  PassthroughModifiers super;
+  super.super = true;
+  assert(!should_count_passthrough_character(U'l', super));
+  PassthroughModifiers hyper;
+  hyper.hyper = true;
+  assert(!should_count_passthrough_character(U'h', hyper));
+  PassthroughModifiers meta;
+  meta.meta = true;
+  assert(!should_count_passthrough_character(U'm', meta));
   return 0;
 }

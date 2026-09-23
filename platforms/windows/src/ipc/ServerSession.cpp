@@ -238,7 +238,7 @@ nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
       if (id.at("generation").get<uint64_t>() == generation &&
           id.at("index").get<size_t>() == index) {
         completes_composition = candidate_finishes_composition(
-            candidate.value("source", 0u));
+            candidate.value("source", uint8_t{}));
         break;
       }
     }

@@ -25,11 +25,14 @@ int main() {
         step(61, 0, true, Action::None, false);
         shortcut.reset();
         step(61, ro, false, Action::Toggle, true);
+        assert(!shortcut.locked());
         step(49, ro, true, Action::None, true, NSEventTypeKeyDown);
+        assert(shortcut.locked()); // The overlay shows its actions from here on.
         step(61, 0, true, Action::None, true); // Space lock survives modifier release.
         step(49, 0, true, Action::None, true, NSEventTypeKeyDown);
         step(49, 0, true, Action::None, true, NSEventTypeKeyUp);
         step(61, ro, true, Action::Toggle, true); // Next shortcut stops locked recording.
+        assert(!shortcut.locked());
         step(61, 0, true, Action::None, true); // Release must not cancel pending final.
         shortcut.reset();
         step(59, lc, false, Action::None, false);

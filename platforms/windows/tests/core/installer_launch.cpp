@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
                                     "procedure DataDirBrowseClick");
     contains(validation, "IsPathInside(Critical[Index], Directory)",
              "Data directory may contain a system or user root");
-    contains(validation, "IsPathInside(Directory, Protected[Index])",
+    contains(validation, "IsPathInside(Directory, ProtectedDirs[Index])",
              "Data directory may be placed inside a protected root");
     contains(validation, "Pos('\\..\\', WithSlash)",
              "Data-directory traversal is not rejected");

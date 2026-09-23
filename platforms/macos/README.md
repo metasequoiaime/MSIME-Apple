@@ -8,7 +8,7 @@ macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/
 
 ## 安装与输入源注册
 
-`scripts/install.sh` 会停掉正在运行的实例、在暂存目录用本机 Developer ID 连同 `resources/VoiceInput.entitlements` 重签名（`--deep`，因为 Sparkle 自带其发布方的签名，hardened runtime 下 Team ID 不一致会导致进程加载失败）、原子替换并保留旧 bundle，任一步失败自动回滚，最后调用 `--register-input-source` 并用 `scripts/check_input_source.swift` 查注册表，而不是只看退出码。LaunchServices 会把每个 worktree `target/` 下的构建产物都按同一个发布 identifier 登记，`install.sh` 因此在注册前只保留已安装的那一条。bundle 本身是否装配正确由 `bundle-contents` 这项 CTest 检查（图标是否真的暂存进去、用途字符串是否每种语言都有、可执行文件是否链接了本地识别器）。
+`scripts/install.sh` 会停掉正在运行的实例、在暂存目录用本机 Developer ID 连同 `resources/VoiceInput.entitlements` 重签名（`--deep`，因为 Sparkle 自带其发布方的签名，hardened runtime 下 Team ID 不一致会导致进程加载失败）、原子替换并保留旧 bundle，任一步失败自动回滚，最后调用 `--register-input-source` 并用 `scripts/check_input_source.swift` 查注册表，而不是只看退出码。LaunchServices 会把每个 worktree `target/` 下的构建产物都按同一个发布 identifier 登记，`install.sh` 因此在注册前只保留已安装的那一条。bundle 本身是否装配正确由 `bundle-contents` 这项 CTest 检查（图标是否真的暂存进去、用途字符串是否每种语言都有、语音提示音 `audios/start.mp3` / `end.mp3` 是否随包、可执行文件是否链接了本地识别器）。
 
 bundle 使用系统已登记的 `app.msime.inputmethod.MetasequoiaIME`，已在列表中的 identifier 原地更新正常：`install.sh` 安装之后，`check_input_source.swift` 稳定报 `app.msime.inputmethod.MetasequoiaIME` 与 `.Hans` 两条 enabled。
 
@@ -101,6 +101,16 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 语音设置的原生备用窗口提供 CoreAudio 录音设备选择：只列出有输入流且有稳定 UID 的设备，将当前系统默认置顶，按名称/UID 稳定排序；保存 UID 而非易变的序号或显示名，设备暂时不可用时保留选择并让下一次录音明确失败，不静默切换麦克风。空选择使用系统默认设备。共享 `capture_device` 与该 UID 双向同步；`voice-capture-device` CTest 覆盖输入设备过滤、默认排序、UID 缺失和失败路径。Tauri 设置页通过 `list_voice_capture_devices` 提供刷新列表。
 
 原生备用窗口修改的有效语音字段会回写共享 `voice_input` 偏好，避免与 Tauri 页面形成第二套配置；ASR 与润色 Token 都按 provider 槽位保存，切换 provider 会先保存旧槽位再加载新槽位，缺失槽位继续兼容旧扁平字段。豆包鉴权模式与 Tauri 同步支持新版 API Key 和旧版 App ID + Access Token，缺失模式时按已有 App ID 兼容推断。文本润色开关同时维护 `polish_text` 与兼容的 `polish_enabled`，保证所有原生请求路径一致。损坏的 provider 值回退到安全首项，缺失或非法的本机默认值不会覆盖共享字段。凭据不纳入云端外观同步，CoreAudio 设备仍以稳定 UID 保存。共享快照写进 NSUserDefaults 之前，润色服务的原生回退值统一是 DeepSeek（`https://api.deepseek.com/chat/completions`、`deepseek-v4-flash`，定义在 `SharedVoicePreferences.h`），与共享层在 macOS 上的首次运行默认一致，原生语音设置窗口、备用 provider 窗口与录音请求不会各报一个 provider。
+
+录音提示音是产品自己的 `start.mp3` / `end.mp3`，CMake 直接从 `platforms/windows/installer/assets/audios/` 放进 bundle 的 `Resources/audios/`，仓库里不另存一份。`VoiceCuePlayer.mm` 启动时一次性解码为 `NSSound`，每次播放先 `stop` 再 `play`，与来源 `cue_player.cpp` 一样从头重播。某一个文件缺失或解码失败时该侧回落到系统的 Glass / Pop 并写一行日志，而来源此时不出声：这里宁可保留一个能听见的开始 / 结束反馈。`voice-cue-player` 与 `bundle-contents` 覆盖这两点。
+
+「录音时静音其他声音」按来源的时序：开始提示音播完再静音，结束、取消与失败时先恢复再播结束提示音，所以两段提示音都听得见；录音在开始提示音播完前就结束时不会再去静音。macOS 13（部署目标）没有只静音其他进程的公开接口，`VoiceAudioMuter.mm` 仍静音整台默认输出设备；14.2 起的 CoreAudio process tap 能做到，但要抬高部署目标并申请「系统录音」权限，为一个静音选项不值得。静音期间监听默认输出设备，插拔耳机或连上 AirPods 时恢复原设备、静音新设备；用户自己已静音的设备不接管，事后也不解除。崩溃恢复记录最多同时记 8 台欠恢复的设备，只欠一台时写旧的 `version 1` 格式；仍找不到的设备留在记录里，但不挡住下一次录音静音当前设备。`voice-audio-muter`、`voice-mute-recovery` 与 `http-voice-controller` 覆盖切换、恢复与提示音顺序。
+
+录音时长按实际上传的格式封顶，不再在 60 秒处作废。批量识别上传的是共享层编出的 16 位 WAV，上限与来源同为 20 MiB（`shared/voice/VoiceProviders.h` 的 `batch_upload_sample_limit`，16 kHz 下约 655 秒），再扣掉 SiliconFlow 两端的补静音，保证录满的一段对每家都编得出来；本机 Whisper 按 Engine 自己校验的 60 秒（`local_asr_sample_limit`）。录满上限时宿主像用户松开一样结束录音：浮层转为「识别中...」、播结束提示音、提交已录的部分。来源的做法是攒下全部音频、提交时报「超过 20 MiB 上传限制」并丢掉整段；这里提交前 11 分钟的文字，内存也有界。豆包流式不设长度上限，缓冲只保留尚未发送的样本，只保留 30 秒请求超时与结束后等最终结果的 30 秒，不再有按 60 秒录音估出的 100 秒整场时限。
+
+识别失败时浮层状态行显示类别文案，正文区显示服务商给出的原因，文案逐字取自来源：HTTP 失败取服务商 JSON 的 `error` / `message`（附 `code`），取不到则显示 `HTTP N`，SiliconFlow 5xx 附追踪 ID；豆包分别报连接失败（按新版 API Key 或旧版 App ID + Access Token 提示该检查哪项）、握手失败与带 `code` 的服务端错误。原因来自 `shared/voice` 的 `CloudAsrError` 与 `VoiceFailureMessages.h`，不含 API Key、请求头或请求体；共享错误的 `what()` 不变，Windows 宿主不受影响。没填 ASR Token 且没有共享 provider socket 时，在请求权限和开始采集之前就在浮层提示去设置里填写，不弹模态窗口。来源的失败提示是模态消息框，这里留在浮层上。
+
+浮层的尺寸与布局照来源 `wave_overlay.cpp`：录音时 78×32 的紧凑波形，识别或润色时 112×40 的「识别中...」/「处理中...」胶囊，锁定录音或等待结果时 142×40、两端带圆形「×」/「✓」的操作条，流式转写时 420×112 的转写面板，最多 3 行，放不下时丢掉最早的文字并以「…」开头，切点落在组合字符边界上。12 条波形每 16 ms 刷新，只在浮层显示波形时计时。圆形按钮只在按住录音后按 Space 锁定、或识别与润色进行中出现，点击由透明按钮接收并保留「取消」/「确认」无障碍标签，只有操作条可见时浮层才接收鼠标。浮层位于可用区域底边上方 10 pt。与来源的两处不同：锁定且有转写时操作条内不画转写；三条识别路径停止录音后一律显示「识别中...」胶囊加按钮。
 
 ## 菜单主题
 

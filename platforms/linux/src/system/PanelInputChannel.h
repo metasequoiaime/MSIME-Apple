@@ -21,7 +21,7 @@
 
 namespace msime::linux_host {
 
-// The shared desktop panels (screen keyboard, handwriting, emoji, clipboard, voice) are ordinary Tauri windows with no input context of their own. Windows hands their output to SendInput; the Linux equivalent that works on every session type is the input method itself, which already owns a connection to the focused editor. The panel process sends one JSON line over a user-private socket and the host commits the text, or forwards the key, into the focused context. xdotool, wtype and ydotool stay as the fallback for sessions where the MSIME host is not the active one.
+// The shared desktop panels (screen keyboard, handwriting, emoji, clipboard, voice) are ordinary Tauri windows with no input context of their own. Windows hands their output to SendInput, which passes through the active IME before it reaches the editor; the Linux equivalent that works on every session type is the input method itself, which already owns a connection to the focused editor. The panel process sends one JSON line over a user-private socket and the host commits the text, or runs the key through its own key handling first (see deliver_panel_key_stroke), into the focused context. xdotool, wtype and ydotool stay as the fallback for sessions where the MSIME host is not the active one.
 //
 // Requests:
 //   {"op":"generation"}
@@ -123,6 +123,17 @@ struct PanelInputFocus {
   bool focused = false;
   uint64_t generation = 0;
 };
+
+// A screen keyboard key takes the path SendInput gives it on Windows: through the input method first, so letters build a composition and digits, Space and BackSpace act on an open one, and on to the editor only when the input method leaves the press alone. The release always reaches the input method too, since hosts track state across a stroke (a BackSpace hold, a consumed shortcut stroke). When the press goes to the editor its release follows, whatever the input method did with the release, so the editor never sees half a stroke.
+//
+// Process takes whether the event is the release and returns whether the input method consumed it; Forward takes whether the event is the release and sends it on to the editor.
+template <class Process, class Forward>
+void deliver_panel_key_stroke(Process process, Forward forward) {
+  const bool consumed = process(false);
+  if (!consumed) forward(false);
+  process(true);
+  if (!consumed) forward(true);
+}
 
 // Holds requests until a context can take them. A request that cannot be delivered within kPanelInputWaitUs is answered no_focus and dropped, so a focus that arrives later can never type it a second time after the panel has already fallen back to another route.
 class PanelInputBroker {

@@ -1,34 +1,25 @@
 package app.msime.client;
 
-import android.annotation.TargetApi;
-import android.icu.text.Transliterator;
-import android.os.Build;
-
 /**
- * Android platform conversion matching Apple's Simplified-Traditional host boundary.
- * Android exposes Transliterator from API 29; older systems safely preserve Engine text.
+ * Simplified to Traditional output, through the conversion every other host uses.
+ *
+ * <p>This host used to call {@code android.icu.text.Transliterator("Simplified-Traditional")},
+ * which converts one character at a time: 头发 came out 頭發 rather than 頭髮, because whether 发
+ * is 發 or 髮 is a property of the word and not of the character. Windows and Linux both go through
+ * the shared OpenCC s2t tables, which are phrase-level, and those tables are compiled into the
+ * shared library rather than loaded from a resource directory.
+ *
+ * <p>The transliterator also arrived in API 29 while this host declares minSdk 28, so on an API 28
+ * device the 繁体输出 setting did nothing at all and said nothing about it. The shared converter
+ * has no such floor.
  */
 public final class AndroidChineseTextConversion {
     private AndroidChineseTextConversion() {}
 
-    public static boolean available() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
-    }
-
     public static String outputString(String text, boolean traditional, boolean dedicatedEnglish,
                                       int scheme, String localMode) {
         boolean applies = ChineseOutputPolicy.applies(dedicatedEnglish, scheme, localMode);
-        if (!available()) return text;
-        return ChineseOutputPolicy.output(text, traditional, applies, Api29::convert);
-    }
-
-    @TargetApi(Build.VERSION_CODES.Q)
-    private static final class Api29 {
-        private static final Transliterator SIMPLIFIED_TO_TRADITIONAL =
-            Transliterator.getInstance("Simplified-Traditional");
-
-        private static String convert(String text) {
-            return SIMPLIFIED_TO_TRADITIONAL.transliterate(text);
-        }
+        return ChineseOutputPolicy.output(text, traditional, applies,
+            NativeClient::simplifiedToTraditional);
     }
 }

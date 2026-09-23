@@ -49,9 +49,17 @@ msime-client-setup --download   # 允许按随装的词库锁取回缺失词库�
 
 ## 生成 Linux 安装包
 
-在 Linux 上配置构建时显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并按原构建流程提供 Host API 库、可选桌面二进制和已固定来源的资源。打包构建必定包含 Fcitx5 原生插件（不受开发机上是否装有 Fcitx5 开发包影响）；若只需 IBus 开发构建，可显式传入 `-DMSIME_ENABLE_FCITX5=OFF`。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。
+发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件是一个 Debian 包 `msime-client_<版本>_<架构>.deb`、一个与它同一套文件、按 `/usr` 布局的归档 `msime-client-<版本>-linux-<架构>.tar.gz` 和二者的 `SHA256SUMS`。设置页的检查更新只按 `linux-v` 标签前缀挑选发行版并打开发行页，不依赖附件文件名。
 
-完成正常构建后，可运行 `cpack --config <build-dir>/CPackConfig.cmake -G TGZ` 生成按 `/usr` 布局安装的归档，或在具备 Debian 打包工具的 Linux 环境运行相同命令并使用 `-G DEB` 生成 Debian 包。归档不是可任意搬移的便携包。Debian 包声明 IBus、Python 依赖，并由 `dpkg-shlibdeps` 从 ELF 文件生成共享库依赖；包中包含许可证及本构建说明。包版本取自桌面 `tauri.conf.json`，不另建版本序列。
+安装前先核对校验值：`sha256sum -c SHA256SUMS --ignore-missing`。Debian/Ubuntu 用 `sudo apt install ./msime-client_<版本>_<架构>.deb`，依赖由 apt 一并装好，卸载用 `sudo apt remove msime-client`。归档给不经 apt 安装的 Debian 系系统用，不是跨发行版的通用包：库目录是 Debian 的多架构布局 `usr/lib/<三元组>/`（例如 `usr/lib/x86_64-linux-gnu/`），Fcitx5 插件因此在 `usr/lib/<三元组>/fcitx5/`，Arch（`/usr/lib/fcitx5`）和 Fedora（`/usr/lib64/fcitx5`）上的 Fcitx5 不会去那里加载它。用法：`sudo tar -xzf msime-client-<版本>-linux-<架构>.tar.gz --strip-components=1 -C /`，再执行 `sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor`；归档没有依赖声明，需由发行版提供 IBus 1.5.20+ 或 Fcitx5 5.0.20+、Python 3.9+，以及二进制链接的共享库（WebKitGTK 4.1、GTK 3、libsoup 3、ICU、libcurl、SQLite、D-Bus、Wayland、X11、xkbcommon 等，完整列表以同版本 `.deb` 的 Depends 为准）；它也没有卸载入口，删除时按归档内的文件列表（`tar -tzf`）逐个移除。两种方式装完都按上面的「安装后首次使用」执行 `msime-client-setup`。
+
+两种附件都在 Debian 12（bookworm）容器里构建，链接的是 bookworm 的库版本：`.deb` 的 Depends 因此含 `libicu72`、`libfcitx5core7 (>= 5.0.21)` 等，只能装在提供这些包的发行版上（Debian 12 可以；Ubuntu 22.04 与 24.04 提供的分别是 `libicu70` 与 `libicu74`，都不满足），归档在 ICU 版本不同的系统上同样无法启动。支持更多发行版需要按目标发行版分别构建，本流程目前只产出这一个基线。
+
+本地生成同一套附件：先 `pnpm install --frozen-lockfile && pnpm --filter @msime/desktop build`（桌面二进制在编译期嵌入前端产物），再 `bash platforms/linux/package-container.sh [版本]`。脚本在构建门禁镜像之上叠加 Tauri 与 Debian 打包依赖（`tests/tools/Dockerfile.package`），依次构建 Release 版 Host API 库、带 `tauri/custom-protocol` 的桌面二进制（报告的版本与包版本一致），用 `collect-notices.py` 收集这两个 Rust 产物静态链接的 crate 与前端打包进去的 npm 包的许可证文件，以 `-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DMSIME_ENABLE_PACKAGING=ON -DMSIME_ENABLE_FCITX5=ON` 配置并构建原生宿主、跑与门禁相同的 ctest，最后用 CPack 生成 DEB 与 TGZ，产物在 `target/linux-package/dist`。`MSIME_PACKAGE_DESKTOP=0` 可在没有前端产物时只打原生宿主，但那样的包没有设置窗口，不能作为发行版。`build-container.sh` 仍是 Debug 构建的合并前门禁，不产出安装包。
+
+在 Linux 上手工打包时，同样显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并提供 Release 版 Host API 库、桌面二进制和已固定来源的资源；`-DMSIME_PACKAGE_VERSION=<版本>` 指定包版本，不传时取桌面 `tauri.conf.json` 的版本。打包构建必定包含 Fcitx5 原生插件（不受开发机上是否装有 Fcitx5 开发包影响）；若只需 IBus 开发构建，可显式传入 `-DMSIME_ENABLE_FCITX5=OFF`。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。打包构建还必须传入 `-DMSIME_RUST_NOTICES=<文件>`（`python3 platforms/linux/collect-notices.py cargo <文件> msime-host-api msime-desktop:tauri/custom-protocol`，不打桌面二进制时去掉后一项），打包桌面二进制时再传 `-DMSIME_FRONTEND_NOTICES=<文件>`（`python3 platforms/linux/collect-notices.py npm <文件> apps/desktop`，需先装好 `node_modules`），缺哪一个配置就失败。构建完成后运行 `cpack --config <build-dir>/CPackConfig.cmake -G "TGZ;DEB"`；DEB 需要 `dpkg-shlibdeps`（`dpkg-dev`）与 `file`。Debian 包在手写的 IBus、Python、Fcitx5 依赖之外，由 `dpkg-shlibdeps` 从 ELF 文件生成共享库依赖。归档不是可任意搬移的便携包。
+
+许可证与第三方声明装在 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/`，普通 `cmake --install` 与安装包相同：`copyright`（本项目 GPL-3.0）、`THIRD_PARTY_NOTICES.txt`（本平台随附组件总览，源文件 `data/THIRD_PARTY_NOTICES.txt`），Engine 的许可证与 `NOTICE.md`、词库与辅助码声明、`makecikudb` 脚本许可、Engine 语音模块与 miniaudio、googlepinyinime、utfcpp、zinnia 与手写模型、OpenCC 词典的许可证，编进原生宿主与 Fcitx5 插件的 nlohmann/json（`nlohmann_json-MIT.txt`，固定副本在 `data/licenses/`）与 Wayland 协议代码（配置时从实际编译的 `wlr-layer-shell-unstable-v1.xml`、`xdg-shell.xml` 取出 `<copyright>` 段，只在找到 `xdg-shell.xml`、协议代码确实编入时安装），以及打包时收集的 `rust-crates-NOTICES.txt` 与 `frontend-npm-NOTICES.txt`。Engine 组件的声明与 macOS 包内 `Resources/Licenses` 同名；两边的集合并不相同：本项目许可证在这里按 Debian 的要求叫 `copyright`（macOS 是 `GPL-3.0.txt`），`makecikudb`、OpenCC、nlohmann/json、Wayland 协议和 Rust/npm 汇总只有 Linux 有，whisper.cpp 只有 macOS 有——Linux 的 Host API 库只编译 Engine 的录音采集文件，不链接 whisper。打包配置时任何一份声明的来源缺失（通常是没有准备 `vendor/MSIME-Engine`，或没有传入 Rust/npm 汇总）都会直接失败；普通开发配置不要求 Rust/npm 汇总，其余缺失只给出警告并安装剩下的部分。
 
 安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用由随装的 `msime-client-setup` 备齐词库并准备运行配置（见上面的「安装后首次使用」）；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。包的内容取决于配置阶段传入了什么：没有传入桌面二进制或资源的构建只打包实际配置的部分，完整包需要同时提供二者。
 
@@ -143,6 +151,8 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 IBus 和 Fcitx5 宿主还提供一条比上述工具更直接的提交路径，对应 Windows 面板经 TSF 回填当前编辑器的行为：输入法进程在 `$XDG_RUNTIME_DIR/msime-client/panel-input.sock`（目录 0700、socket 0600，只接受同一 uid 的对端）监听，面板的按键、手写候选、语音结果和 Ctrl+V 优先通过它由输入法自身提交或转发，不需要 `xdotool`、`wtype` 或 `ydotool`，Wayland 下也不依赖 compositor 支持虚拟键盘协议。请求为一行 JSON：`{"op":"generation"}` 取当前焦点代次，`{"op":"text","text":"…","after_generation":N}` 提交单行文本，`{"op":"key","key":"BackSpace","keycode":14,"shift":false,"control":false,"alt":false,"super":false}` 以 X keysym 名和 evdev 键码转发按键；应答为 `{"ok":true}` 或 `{"ok":false,"error":"no_focus|restricted|invalid"}`。面板获得焦点时先取代次、释放焦点，再要求输入法只在更新的焦点上投递，所以文本不会落回面板自己的 webview；700ms 内没有新的焦点则应答 `no_focus` 并丢弃请求，不会迟到上屏。密码等受限字段应答 `restricted`，面板不再改用注入工具绕过。含换行或制表符的文本仍走剪贴板或注入工具。两个宿主同时运行时先绑定的一方提供服务，不抢占仍存活的 socket。应答缺失或无法解析时桌面宿主报告错误而不回退，避免同一文本被提交两次。
 
+`key` 请求与 Windows 屏幕键盘的 `SendInput` 一样先交给输入法：按下、松开各送一次，只有按下没被输入法消费时，才把这一对事件转发给编辑器，编辑器因此不会只收到半次按键；松开事件总会交给输入法，退格长按和已消费的快捷键都靠它收尾。这个顺序集中在 `PanelInputChannel.h` 的 `deliver_panel_key_stroke`，IBus 调引擎自己的按键处理，Fcitx5 构造 `fcitx::KeyEvent` 交给 `InputContext::keyEvent`，走该输入上下文当前的输入法。因此中文模式下屏幕键盘打出的字母起拼音组合，数字键、空格、退格作用于已有的组合串（包括物理键盘起的组合）；要打英文先切到英文模式。面板请求不带 CapsLock 状态，宿主沿用最近一次真实按键报告的锁定位，锁定时字母按物理键的规则变大写（同时按 Shift 则小写）并直接交给编辑器，不开始组字。`text` 请求（手写、Emoji、语音）仍原样上屏，不经过组字。
+
 桌面手写和语音面板支持 `preferences.handwriting_theme` 与 `preferences.voice_theme`，取值为 `follow`、`dark` 或 `light`；`follow` 继承全局主题。设置保存后，已打开的面板通过偏好变更事件立即更新外观。
 
 桌面 Emoji 面板（包括颜文字、符号和剪贴板页）支持 `preferences.emoji_theme`，同样取值为 `follow`、`dark` 或 `light`；设置保存后已打开的面板实时同步主题。
@@ -171,7 +181,9 @@ Linux 的 `floating_toolbar` 偏好映射为 IBus 原生属性菜单中的“工
 
 ## 构建与运行
 
-IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到 IBus 后异步写入 Host API，按当前方案、本地模式、英文模式或语音来源计数；只保留字符类别、来源和日期的聚合数据，不保存输入文本。未配置绝对的 `preferences_directory` 时跳过统计，统计写入失败不会影响输入。
+IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到 IBus 后异步写入 Host API，按当前方案、本地模式、英文模式或语音来源计数；只保留字符类别、来源和日期的聚合数据，不保存输入文本。输入法没有消费、交还给应用的可打印字符也计入统计（英文模式记为 `english` 来源），判据与 Windows `ShouldCountPassthroughChar` 相同，写在 `TypingStatistics.h` 的 `should_count_passthrough_character`：只算按下、有焦点、非密码与隐私输入、不带 Ctrl/Alt/Super 的键，不算控制字符和 DEL；Fcitx5 同样如此。未配置绝对的 `preferences_directory` 时跳过统计，统计写入失败不会影响输入。
+
+英文模式与 Windows 一样仍处理两个设置：标点锁定为「始终中文标点」时先把 ASCII 标点换成中文标点（引号交替、书名号嵌套，按 Engine `contracts/punctuation/policy.h` 的正向表），全角开着时再把可打印 ASCII 换成全角（空格为 U+3000），其余键交给应用；小键盘不转中文标点，带 Ctrl/Alt/Super/Hyper 的组合键照旧透传。IBus 与 Fcitx5 共用 `SmartPunctuationSpace.h` 的 `english_mode_output`。每次中英切换后按标点锁定重设会话标点：「跟随」时中文模式用中文标点、英文模式用英文标点，锁定为中文或英文时保持锁定值；这只改本次会话，不写偏好文件。裸 Shift/Ctrl 松开时切换模式，但这次松开仍交给应用，跟踪修饰键状态的程序不会以为它一直按着。
 
 候选辅助文本在页码后展示 Engine 快照提供的本地模式标签（U+、日期时间、短语、Emoji、颜文字、简拼、EN、日文）。普通或未知模式不附加标签，取消组合或没有候选时隐藏辅助文本；不从预编辑前缀推断模式。
 
@@ -265,7 +277,7 @@ Linux 桌面设置保存时会先按 `PreferencesStore` 的 revision 规则写�
 
 Linux Tauri 设置窗口也会监视同一 `PreferencesStore` 的 revision。其他窗口或 IBus 侧写入新 revision 后，未编辑的设置页自动刷新；若当前有未保存草稿，只提示外部变更并保留草稿，用户通过“重新读取”显式解决冲突。事件只携带已验证的偏好快照，不携带输入内容或凭据。
 
-设置页「关于 → 数据目录」可以把词库、学习记录、缓存、偏好、皮肤和剪贴板历史移到另一个空目录（例如另一块磁盘）。目录用桌面自带的选择器挑选：KDE 下优先 `kdialog`，其他桌面优先 `zenity`，两者都没有时设置页提示安装。Linux 上默认状态目录 `$XDG_CONFIG_HOME/msime-client` 同时是 IBus 启动器、Fcitx5 插件、剪贴板监视服务和设置启动器读取 `runtime-options.json` 的固定位置，在线服务和语音服务也从这里读取凭据，所以移动时这个目录本身不动：`runtime-options.json` 和三个 provider 凭据文件留在原处，其余状态条目先复制到目标目录内的临时目录，再逐个 rename 到位，然后只把 `runtime-options.json` 里位于旧目录下的绝对路径改写到新目录，provider socket、模型等其他键原样保留。任一步失败都会回滚已放置的条目和 locator，原数据不动。发布成功后才删除旧目录中的这些条目；目标目录写入 `.metasequoiaime-data` 标记，以后再移走时整个目录只在确认归水杉所有时才删除，否则保留并告知用户。移回默认目录同样可行。完成后宿主重启当前输入法框架（Fcitx5 为 `ReloadConfig`，否则 `ibus restart`）让已运行的 Engine 会话立刻改用新路径，剪贴板监视服务每轮都重读 locator，无需重启；设置窗口随后关闭。
+设置页「关于 → 数据目录」可以把词库、学习记录、缓存、偏好、皮肤和剪贴板历史移到另一个空目录（例如另一块磁盘）。目录用桌面自带的选择器挑选：KDE 下优先 `kdialog`，其他桌面优先 `zenity`，两者都没有时设置页提示安装。Linux 上默认状态目录 `$XDG_CONFIG_HOME/msime-client` 同时是 IBus 启动器、Fcitx5 插件、剪贴板监视服务和设置启动器读取 `runtime-options.json` 的固定位置，在线服务和语音服务也从这里读取凭据，所以移动时这个目录本身不动：`runtime-options.json` 和三个 provider 凭据文件留在原处，复制开始前设置窗口先在旧的 `user` 目录写入词库维护用的 quiesce lease，并等到拿到词库的独占锁：两个宿主都在计时器上看到 lease 后结束组字、关闭会话，锁拿到才说明它们确实放手了，此后直到迁移结束都不会有会话在旧目录打开（lease 过期也挡得住），翻译词义缓存的写入也要同一把锁，一并被挡住；两个宿主的菜单偏好保存在 lease 生效期间同样暂缓（按保存失败处理，可重试），旧 `user` 目录被移走后，仍按旧配置发起的保存直接放弃，不会在旧目录里重建 `preferences.json`，Fcitx5 每次保存前都重读 locator，保存到它当前指向的目录；约 2.5 秒内还有会话不放手就以“输入法仍在使用数据目录”失败，什么都不复制。没有运行的宿主不持有锁，不会让迁移一直忙。其余状态条目先复制到目标目录内的临时目录（lease 文件不复制），再逐个 rename 到位，然后只把 `runtime-options.json` 里位于旧目录下的绝对路径改写到新目录，provider socket、模型等其他键原样保留。任一步失败都会回滚已放置的条目和 locator，原数据不动。发布成功后才删除旧目录中的这些条目，先整体 rename 进旧目录内的临时目录再删除，仍按旧路径打开会话的宿主只会找不到目录而打不开，不会在半空的旧目录里重建空词库；删除只成功一部分时，删不掉的条目放回原来的名字，设置页提示旧数据已保留，用户能在原处找到它们，以 `.msime-data-migration-` 开头的遗留临时目录以后既不会被当作状态复制，也不会让目标目录被判为非空；目标目录写入 `.metasequoiaime-data` 标记，以后再移走时整个目录只在确认归水杉所有时才删除，否则保留并告知用户。移回默认目录同样可行。完成后仍在持有 lease 和锁的时候重启当前输入法框架（Fcitx5 为 `ReloadConfig`，否则 `ibus restart`），再放开旧目录，宿主按改写后的 locator 在新目录重新打开会话；重启失败不会撤销已完成的迁移，设置页会提示手动重启输入法，窗口多停留几秒再关闭。剪贴板监视服务每轮都重读 locator，无需重启；设置窗口随后关闭。
 
 安装时可使用 `cmake --install target/linux-ibus`。安装产物包含 IBus 主程序、`msime-client-online` 在线候选请求入口、`msime-client-translation` 候选翻译请求入口、`msime-client-dictionary` 个人词典请求入口、`msime-client-cloud-dictionary` 云词典请求入口、`msime-client-cloud-clipboard` 云剪贴板请求入口、`msime-client-clipboard` 剪贴板历史工具、`msime-client-handwriting` 手写识别请求入口、`msime-client-voice` 语音识别请求入口和 `msime-client-emoji` Emoji 目录请求入口；工具与主程序使用相同的安装前缀。需要预置系统配置时，在 CMake 配置阶段传入 `-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`，安装到 `${CMAKE_INSTALL_SYSCONFDIR}/msime-client/runtime-options.json`。该文件必须来自已准备且匹配安装环境的状态目录，不能直接分发开发机上的私人状态。
 
@@ -295,7 +307,7 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 嵌套偏好对象整体可以省略（共享 `Preferences` 会给默认值），但它的成员一个都不能少：宿主若把单个键补进一个 runtime-options 文档里本来没有的 `mixed_input` / `local_modes`，写出的就是残缺对象，Host API 会判为 invalid options document。这些默认值因此由 `msime_client_default_preferences` 从共享层发布，宿主据此补全缺失成员，不在 C++ 里另写一份契约。
 
-已验证的环境包括 Debian bookworm arm64、IBus 1.5.27 的容器链路，以及 Arch x86_64（Hyprland/Wayland、Fcitx5 5.1.22、IBus 1.5.34）上的真实安装：`cmake --install` 到 `/usr` 后，Fcitx5 加载 addon（日志中的 `Loaded addon msime`）、输入法出现在可用列表与当前输入法组、`msime-client-settings` 拉起的设置窗口实际映射。CI 在固定容器里构建并跑 ctest；换发行版、换架构或改动桌面环境时，按本节的容器脚本和上面的安装步骤各跑一遍即可确认。
+已验证的环境包括 Debian bookworm arm64、IBus 1.5.27 的容器链路，以及 Arch x86_64（Hyprland/Wayland、Fcitx5 5.1.22、IBus 1.5.34）上的真实安装：`cmake --install` 到 `/usr` 后，Fcitx5 加载 addon（日志中的 `Loaded addon msime`）、输入法出现在可用列表与当前输入法组、`msime-client-settings` 拉起的设置窗口实际映射。CI 在固定容器里构建并跑 ctest；发行附件 `.deb`/`.tar.gz` 的包内文件、Depends 与动态链接在打包容器里检查过，尚未在真实系统上用 apt 安装验收；换发行版、换架构或改动桌面环境时，按本节的容器脚本和上面的安装步骤各跑一遍即可确认。
 
 系统行为依据 [IBus Engine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html) 和 [IBus InputContext API](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html)。
 

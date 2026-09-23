@@ -11,6 +11,8 @@
 // Text-only optional polishing; no ASR provider or audio credentials required.
 - (instancetype)initWithPolishOptions:(NSDictionary *)options error:(NSError **)error;
 - (BOOL)polishText:(NSString *)text completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error;
+// The most 16 kHz samples recognizePCM: submits: the 20 MiB batch upload budget MSIME-Windows uses, or the 60 s the Engine's Whisper worker accepts on device. The host ends the recording once it has captured this much, so nothing the user says after that point is silently left out.
+@property(nonatomic, readonly) NSUInteger sampleLimit;
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error;
 - (void)cancel;
 @end

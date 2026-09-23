@@ -7,6 +7,8 @@
 using msime::linux_host::ascii_mark_from_text;
 using msime::linux_host::ascii_mark_text;
 using msime::linux_host::chinese_punctuation_mark;
+using msime::linux_host::english_mode_output;
+using msime::linux_host::EnglishPunctuationState;
 using msime::linux_host::is_auto_paired_opening_key;
 using msime::linux_host::is_smart_punctuation_key;
 using msime::linux_host::is_space_conversion_key;
@@ -118,5 +120,36 @@ int main() {
   assert(!repeat_conversion_matches_document(',', false, {}));
   assert(repeat_conversion_matches_document('.', true, {"．"}));
   assert(!repeat_conversion_matches_document('.', true, {"."}));
+
+  // English mode: plain keys pass through, fullwidth widens printable ASCII, and the Chinese punctuation lock converts marks ahead of width.
+  EnglishPunctuationState english;
+  assert(english_mode_output(U'a', false, false, false, english).empty());
+  assert(english_mode_output(U',', false, false, false, english).empty());
+  assert(english_mode_output(U'a', false, false, true, english) == "ａ");
+  assert(english_mode_output(U' ', false, false, true, english) == "\u3000");
+  assert(english_mode_output(U'1', true, false, true, english) == "１");
+  assert(english_mode_output(U'\t', false, true, true, english).empty());
+  assert(english_mode_output(U'\u00e9', false, true, true, english).empty());
+  assert(english_mode_output(U',', false, true, false, english) == "，");
+  assert(english_mode_output(U',', false, true, true, english) == "，");
+  assert(english_mode_output(U'a', false, true, false, english).empty());
+  assert(english_mode_output(U'a', false, true, true, english) == "ａ");
+  assert(english_mode_output(U'\\', false, true, false, english) == "、");
+  assert(english_mode_output(U'/', false, true, false, english).empty());
+  assert(english_mode_output(U'^', false, true, false, english) == "……");
+  // The keypad keeps its ASCII mark, then width applies.
+  assert(english_mode_output(U'.', true, true, false, english).empty());
+  assert(english_mode_output(U'.', true, true, true, english) == "．");
+  // Quotes alternate and book titles nest, as in Engine's policy.
+  assert(english_mode_output(U'"', false, true, false, english) == "“");
+  assert(english_mode_output(U'"', false, true, false, english) == "”");
+  assert(english_mode_output(U'\'', false, true, false, english) == "‘");
+  assert(english_mode_output(U'\'', false, true, false, english) == "’");
+  assert(english_mode_output(U'<', false, true, false, english) == "《");
+  assert(english_mode_output(U'<', false, true, false, english) == "〈");
+  assert(english_mode_output(U'>', false, true, false, english) == "〉");
+  assert(english_mode_output(U'>', false, true, false, english) == "》");
+  assert(english_mode_output(U'>', false, true, false, english) == "》");
+  assert(english_mode_output(U'<', false, true, false, english) == "《");
   return 0;
 }

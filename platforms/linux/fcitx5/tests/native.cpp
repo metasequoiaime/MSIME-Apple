@@ -20,9 +20,12 @@ public:
   const char *frontend() const override { return "msime-test"; }
   void commitStringImpl(const std::string &text) override { committed += text; }
   void deleteSurroundingTextImpl(int, unsigned int) override {}
-  void forwardKeyImpl(const fcitx::ForwardKeyEvent &) override {}
+  void forwardKeyImpl(const fcitx::ForwardKeyEvent &event) override {
+    forwarded.emplace_back(event.rawKey(), event.isRelease());
+  }
   void updatePreeditImpl() override {}
   std::string committed;
+  std::vector<std::pair<fcitx::Key, bool>> forwarded;
 };
 void require(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 // The autocorrect marker is display-only: Windows appends '*' to the row text of a candidate whose spelling the Engine corrected, and the IBus host does the same. It sits right after the word and before the cloud/AI badge, and the text the candidate selects with stays the Engine's. Runs before the resource fixture so it needs nothing but the plugin code.
@@ -698,6 +701,53 @@ int main(int argc, char **argv) {
       engine.keyEvent(entry, event);
       return event.accepted();
     };
+    // English mode keeps the "always Chinese punctuation" lock and fullwidth output, as Windows does with the IME closed; without either, keys pass through. The lock is set on the host field directly so no preference save races the checks.
+    {
+      require(ctrlSpace() && !state->input_enabled_, "English output test starts in English");
+      const auto committedBy = [&](fcitx::KeySym sym, fcitx::KeyStates states = fcitx::KeyStates()) {
+        const auto before = ic.committed;
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym, states));
+        engine.keyEvent(entry, event);
+        return std::make_pair(event.accepted(), ic.committed.substr(before.size()));
+      };
+      require(!state->fullwidthOutput(), "English output test starts halfwidth");
+      require(committedBy(FcitxKey_comma) == std::make_pair(false, std::string{}),
+              "English mode passes a comma through under the follow lock");
+      state->punctuation_lock_ = 1;
+      require(committedBy(FcitxKey_comma) == std::make_pair(true, std::string("，")),
+              "the Chinese punctuation lock converts a comma in English mode");
+      require(committedBy(FcitxKey_less) == std::make_pair(true, std::string("《")) &&
+                  committedBy(FcitxKey_greater) == std::make_pair(true, std::string("》")),
+              "the Chinese punctuation lock converts book title marks in English mode");
+      require(committedBy(FcitxKey_a) == std::make_pair(false, std::string{}),
+              "a halfwidth letter passes through under the Chinese punctuation lock");
+      require(committedBy(FcitxKey_comma, fcitx::KeyStates(fcitx::KeyState::Ctrl)).first == false,
+              "a Ctrl chord passes through under the Chinese punctuation lock");
+      state->punctuation_lock_ = 0;
+      fcitx::KeyEvent widen(&ic, fcitx::Key(FcitxKey_space,
+                                            fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}));
+      engine.keyEvent(entry, widen);
+      require(widen.accepted() && state->fullwidthOutput(), "Ctrl+Shift+Space turns on fullwidth in English mode");
+      require(committedBy(FcitxKey_a) == std::make_pair(true, std::string("ａ")),
+              "fullwidth English mode widens a letter");
+      require(committedBy(FcitxKey_space) == std::make_pair(true, std::string("\u3000")),
+              "fullwidth English mode widens Space");
+      require(committedBy(FcitxKey_period) == std::make_pair(true, std::string("．")),
+              "fullwidth English mode widens an ASCII period under the follow lock");
+      fcitx::KeyEvent narrow(&ic, fcitx::Key(FcitxKey_space,
+                                             fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}));
+      engine.keyEvent(entry, narrow);
+      require(narrow.accepted() && !state->fullwidthOutput(), "Ctrl+Shift+Space restores halfwidth");
+      require(ctrlSpace() && state->input_enabled_, "English output test returns to Chinese");
+      // Under the follow lock a mode switch re-resolves punctuation: English mode takes ASCII marks, and coming back restores Chinese ones even after a Ctrl+. choice.
+      state->chinese_punctuation_ = false;
+      state->syncSessionChinesePunctuation();
+      require(ctrlSpace() && !state->input_enabled_ && !state->chinese_punctuation_,
+              "switching to English under the follow lock selects ASCII punctuation");
+      require(ctrlSpace() && state->input_enabled_ && state->chinese_punctuation_ &&
+                  state->session_chinese_punctuation_,
+              "switching back to Chinese under the follow lock restores Chinese punctuation");
+    }
     // 四个模式快捷键里的裸修饰键：按下只是布防，松开才切换，期间打了别的键或按住太久都
     // 不算。这一段此前没有任何覆盖，而实现被一条「松开或修饰键一律不处理」的返回挡在后
     // 面，于是裸 Shift 在这个宿主上一次都没生效过。
@@ -711,7 +761,8 @@ int main(int argc, char **argv) {
       require(state->input_enabled_, "bare modifier test starts in Chinese");
       modifier(FcitxKey_Shift_L, false);
       require(state->pure_shift_candidate_, "a bare Shift press arms the gesture");
-      require(modifier(FcitxKey_Shift_L, true, shiftHeld), "the release is consumed by the toggle");
+      // Windows toggles on the bare release but still lets the application see it.
+      require(!modifier(FcitxKey_Shift_L, true, shiftHeld), "the toggling release still reaches the application");
       require(!state->input_enabled_, "a bare Shift switches to English");
       // 切到英文之后还要能切回来：宿主在英文透传时依然处理模式快捷键，与 IBus 一致。
       modifier(FcitxKey_Shift_L, false);
@@ -741,7 +792,7 @@ int main(int argc, char **argv) {
       };
       std::this_thread::sleep_for(std::chrono::milliseconds(600));
       require(state->input_enabled_, "release-only gesture starts in Chinese");
-      require(capsLockShift(), "a release-only Shift is consumed even as Caps_Lock");
+      require(!capsLockShift(), "a release-only Shift toggles without being consumed, even as Caps_Lock");
       require(!state->input_enabled_, "a release-only Shift identified by keycode switches");
       std::this_thread::sleep_for(std::chrono::milliseconds(600));
       capsLockShift();
@@ -1012,6 +1063,28 @@ int main(int argc, char **argv) {
             "CapsLock does not begin composition");
     state->close();
     state->clearPanel();
+    // Screen keyboard keys go through the context's input method before the editor; the daemon test covers the MSIME composition this leads to. This fixture's instance has no input method of its own (the engine above is driven directly), so here nothing consumes the key: it has to reach the editor as one whole stroke, with the evdev code turned into an X keycode. Panel text still commits as it is.
+    {
+      using msime::linux_host::PanelInputDelivery;
+      using msime::linux_host::PanelInputRequest;
+      PanelInputRequest panelKey;
+      panelKey.kind = PanelInputRequest::Kind::Key;
+      panelKey.key = "BackSpace";
+      panelKey.keycode = 14;
+      ic.forwarded.clear();
+      require(engine.deliverPanelInput(panelKey) == PanelInputDelivery::Delivered, "panel key delivered");
+      require(ic.forwarded.size() == 2 && !ic.forwarded[0].second && ic.forwarded[1].second &&
+                  ic.forwarded[0].first.sym() == FcitxKey_BackSpace &&
+                  ic.forwarded[0].first.code() == 22 && ic.forwarded[1].first == ic.forwarded[0].first,
+              "unconsumed panel key reaches the editor as one stroke");
+      PanelInputRequest panelText;
+      panelText.kind = PanelInputRequest::Kind::Text;
+      panelText.text = "好";
+      const auto beforePanelText = ic.committed;
+      require(engine.deliverPanelInput(panelText) == PanelInputDelivery::Delivered &&
+                  ic.committed == beforePanelText + "好" && ic.forwarded.size() == 2,
+              "panel text commits as it is");
+    }
     // Real translation socket: no HTTP, credentials, or user input in this fixture.
     const auto translationPath = std::string(directory) + "/translation.sock";
     const int translationServer = socket(AF_UNIX, SOCK_STREAM, 0);

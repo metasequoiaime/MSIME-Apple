@@ -1659,7 +1659,13 @@ export interface SettingsClient {
   dataDirectory?: {
     status(): Promise<{ path: string; isDefault: boolean }>;
     pick(): Promise<string | null>;
-    move(): Promise<{ path: string; isDefault: boolean; retainedOldData: boolean }>;
+    /** `inputMethodRestarted` is false when the data moved but the host could not restart the input method; absent means the host restarts nothing itself or it succeeded. */
+    move(): Promise<{
+      path: string;
+      isDefault: boolean;
+      retainedOldData: boolean;
+      inputMethodRestarted?: boolean;
+    }>;
   };
   /**
    * Ask the host for a file path, resolving to null when the user cancels. A local speech model is loaded
@@ -2811,10 +2817,14 @@ export function SettingsPage({
       if (!confirmed) return;
       const result = await client.dataDirectory.move();
       setDataDirectory({ path: result.path, isDefault: result.isDefault });
+      const restartNote =
+        result.inputMethodRestarted === false
+          ? "输入法未能自动重启，请手动重启输入法后再继续输入。"
+          : "";
       setDataDirectoryResult(
         result.retainedOldData
-          ? "数据已切换到新目录；旧目录不属于水杉输入法，已为安全起见保留。设置窗口即将关闭。"
-          : "数据已移动。设置窗口即将关闭，请重新打开后继续使用。",
+          ? `数据已切换到新目录；旧目录不属于水杉输入法，已为安全起见保留。${restartNote}设置窗口即将关闭。`
+          : `数据已移动。${restartNote}设置窗口即将关闭，请重新打开后继续使用。`,
       );
     } catch (reason) {
       const code =
@@ -3928,8 +3938,9 @@ export function SettingsPage({
   // letter to the Engine as a helper code, and the Engine reads the schema and
   // the candidate-row hint from these very preferences. Hiding the page left
   // that shipping feature with no way to pick a schema or turn it off. The
-  // Apple keyboard extension has no helper-code input at all, so iOS keeps the
-  // page hidden.
+  // iOS keyboard extension marks a helper code the same way, so the page also
+  // follows the host's `helpcode_shift_entry`; the platform names stay for
+  // hosts that predate the capability.
   //
   // HarmonyOS was in the hidden list while shipping the same input: its
   // ChineseHelpcodePolicy is the Android one, ported, and the session calls it
@@ -3945,7 +3956,9 @@ export function SettingsPage({
       ? []
       : (["shortcuts"] as const)),
     "floating-toolbar",
-    ...(androidPlatform || harmonyPlatform ? [] : (["helpcode"] as const)),
+    ...(showHelpcodeShiftEntry || androidPlatform || harmonyPlatform
+      ? []
+      : (["helpcode"] as const)),
   ];
   // The sidebar is the list this page duplicates, so it does not list it. A mobile host above phone width still shows the sidebar, and `selectPage` refuses the pages hidden above, so listing them there left buttons that did nothing when tapped.
   const sidebarPages = availablePages.filter(

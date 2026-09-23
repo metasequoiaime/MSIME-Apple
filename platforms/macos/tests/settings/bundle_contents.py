@@ -123,6 +123,12 @@ def main() -> int:
             if not localised.get(identifier, "").strip():
                 failures.append(f"{identifier} has no name in {lproj.name}; the input menu shows the identifier there")
 
+    # The voice cues are the product's start.mp3/end.mp3. Missing from the bundle, VoiceCuePlayer quietly falls back to the system Glass/Pop sounds, so only the bundle can say the product sound actually shipped.
+    for cue in ("start.mp3", "end.mp3"):
+        staged = resources / "audios" / cue
+        if not staged.is_file() or staged.stat().st_size == 0:
+            failures.append(f"audios/{cue} was not staged; the voice cue falls back to a system sound")
+
     # A macOS framework is mostly symlinks - Headers, Resources and the binary all point into
     # Versions/Current. A copy that follows them produces a directory codesign calls ambiguous and refuses
     # to seal, and an input method that cannot be signed cannot be registered as an input source at all.
@@ -152,7 +158,7 @@ def main() -> int:
             print(failure, file=sys.stderr)
         return 1
     print(f"{bundle.name}: icons staged, {len(usage)} usage descriptions and {len(identifiers)} input source names "
-          f"localised in {len(lprojs)} languages, local recogniser linked.")
+          f"localised in {len(lprojs)} languages, voice cues staged, local recogniser linked.")
     return 0
 
 

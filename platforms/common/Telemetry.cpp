@@ -7,14 +7,21 @@
 #include <random>
 #include <sstream>
 #include <cstdlib>
+#ifdef _WIN32
+#include <vector>
+#include <windows.h>
+#endif
 
 namespace msime::telemetry {
 namespace {
 std::mutex lock;
 std::filesystem::path file() {
 #ifdef _WIN32
-  const char *base = std::getenv("LOCALAPPDATA");
-  return (base ? std::filesystem::path(base) : std::filesystem::temp_directory_path()) / "MSIME" / "telemetry.json";
+  // Read the wide value through Win32: getenv is deprecated under MSVC /WX and would pass the path through the ANSI code page, and MinGW's msvcrt import library has no _wdupenv_s.
+  std::vector<wchar_t> base(32768);
+  const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", base.data(), static_cast<DWORD>(base.size()));
+  std::filesystem::path root = length && length < base.size() ? std::filesystem::path(std::wstring(base.data(), length)) : std::filesystem::temp_directory_path();
+  return root / "MSIME" / "telemetry.json";
 #else
   const char *base = std::getenv("XDG_STATE_HOME");
   if (!base) { const char *home = std::getenv("HOME"); base = home ? home : "/tmp"; }

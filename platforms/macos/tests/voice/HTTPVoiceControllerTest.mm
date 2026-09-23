@@ -9,10 +9,12 @@
 @property(copy) void (^completion)(NSString *, NSError *);
 @property NSUInteger cancellations;
 @property BOOL submitted;
+@property NSUInteger sampleLimit;
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error;
 - (void)cancel;
 @end
 @implementation HTTPRequestFixture
+- (instancetype)init { self = [super init]; if (self) _sampleLimit = NSUIntegerMax; return self; }
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error {
     (void)error; assert(pcm.length == 640); self.submitted = YES; self.completion = completion; return YES;
 }
@@ -55,11 +57,14 @@
 @property NSUInteger externalCommits;
 @property MSIMEVoiceCommitOutcome commitOutcome;
 @property(copy) NSString *commitMode;
+@property NSUInteger requestSampleLimit;
 @end
 @implementation HTTPControllerFixture
 - (void)ensureAppearance {}
 - (MSIMEHTTPVoiceRequest *)makeHTTPVoiceRequest:(NSDictionary *)options error:(NSError **)error {
-    (void)options; (void)error; self.requestFixture = [HTTPRequestFixture new]; return (id)self.requestFixture;
+    (void)options; (void)error; self.requestFixture = [HTTPRequestFixture new];
+    if (self.requestSampleLimit) self.requestFixture.sampleLimit = self.requestSampleLimit;
+    return (id)self.requestFixture;
 }
 - (void)apply:(NSDictionary *)result { if (result[@"commit"]) ++self.imkCommits; ++self.applies; }
 - (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
@@ -69,6 +74,7 @@
 @end
 
 @interface HTTPOverlayFixture : NSObject
+@property(copy) NSString *detail;
 // The controller picks the overlay screen from the caret on every failure; model the real overlay property so the assignment lands somewhere.
 @property(nonatomic, weak) NSScreen *preferredScreen;
 @property float lastLevel;
@@ -83,9 +89,38 @@
 - (void)setInputLevel:(float)level { self.lastLevel = level; ++self.levelUpdates; }
 - (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
-- (void)showFailure:(MSIMEVoiceFailure)failure { self.failure = failure; self.phase = 4; ++self.failures; }
+- (void)showFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail { self.failure = failure; self.detail = detail; self.phase = 4; ++self.failures; }
 - (void)dismissFailure { if (self.failure) [self setListening:NO]; }
 - (void)setProcessing:(BOOL)polishing { self.phase = polishing ? 3 : 2; }
+@end
+
+// Records the audible order of cues and system-audio mute changes on a synthetic output device.
+namespace {
+NSMutableArray<NSString *> *audioEvents;
+UInt32 outputMuted;
+OSStatus OrderGet(AudioObjectID object, const AudioObjectPropertyAddress *address,
+    UInt32 qualifierSize, const void *qualifier, UInt32 *size, void *data) {
+    (void)object; (void)qualifierSize; (void)qualifier; (void)size;
+    if (address->mSelector == kAudioHardwarePropertyDefaultOutputDevice ||
+        address->mSelector == kAudioHardwarePropertyTranslateUIDToDevice) *static_cast<AudioDeviceID *>(data) = 7;
+    else if (address->mSelector == kAudioDevicePropertyDeviceUID)
+        *static_cast<CFStringRef *>(data) = static_cast<CFStringRef>(CFBridgingRetain(@"synthetic-http-output"));
+    else *static_cast<UInt32 *>(data) = outputMuted;
+    return noErr;
+}
+OSStatus OrderSet(AudioObjectID object, const AudioObjectPropertyAddress *address,
+    UInt32 qualifierSize, const void *qualifier, UInt32 size, const void *data) {
+    (void)object; (void)address; (void)qualifierSize; (void)qualifier; (void)size;
+    outputMuted = *static_cast<const UInt32 *>(data);
+    [audioEvents addObject:outputMuted ? @"mute" : @"unmute"];
+    return noErr;
+}
+}
+@interface HTTPOrderedCueFixture : MSIMEVoiceCueFixture
+@end
+@implementation HTTPOrderedCueFixture
+- (void)playStartCueThen:(void (^)(void))completion { [audioEvents addObject:@"start"]; [super playStartCueThen:completion]; }
+- (void)playStopCue { [audioEvents addObject:@"stop"]; [super playStopCue]; }
 @end
 
 int main() {
@@ -181,8 +216,14 @@ int main() {
         controller.requestFixture.completion(nil, [NSError errorWithDomain:@"synthetic" code:1
             userInfo:@{NSLocalizedDescriptionKey:@"synthetic detail must not be presented"}]);
         assert(overlay.failure == MSIMEVoiceFailureProvider && overlay.failures == beforeErrors + 1 && !capture.active);
+        assert(!overlay.detail); // Only the voice requests' own detail reaches the overlay.
         controller.requestFixture.completion(nil, nil);
         assert(overlay.failures == beforeErrors + 1);
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        controller.requestFixture.completion(nil, [NSError errorWithDomain:@"app.msime.client.voice" code:6
+            userInfo:@{NSLocalizedFailureReasonErrorKey:@"语音识别失败：synthetic provider message"}]);
+        assert(overlay.failure == MSIMEVoiceFailureProvider && [overlay.detail isEqual:@"语音识别失败：synthetic provider message"]);
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
         [controller finishHTTPVoiceInput];
         controller.requestFixture.completion(@"", nil);
@@ -247,6 +288,22 @@ int main() {
                 assert(controller.imkCommits == imk + (outcome == MSIMEVoiceCommitOutcome::unavailable ? 1 : 0));
             }
         }
+        // Capturing as much as the provider takes ends the recording the way a release does: 识别中 shows, the end cue plays, and what was kept is submitted once.
+        controller.requestSampleLimit = 16000 * 60;
+        capture.capturedSeconds = 59.9;
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        const NSUInteger stopsBeforeLimit = cues.stops, submissionsBeforeLimit = session.submissions;
+        capture.bufferHandler(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(!controller.requestFixture.submitted && capture.active && cues.stops == stopsBeforeLimit);
+        capture.capturedSeconds = 60;
+        capture.bufferHandler(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(controller.requestFixture.submitted && overlay.phase == 2 && cues.stops == stopsBeforeLimit + 1);
+        capture.bufferHandler(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(!controller.requestFixture.cancellations); // A meter queued behind the stop cannot stop it again, which would cancel.
+        controller.requestFixture.completion(@"synthetic", nil);
+        assert(session.submissions == submissionsBeforeLimit + 1 && !capture.active);
+        controller.requestSampleLimit = 0;
+        capture.capturedSeconds = 0.25;
         // IMK may deliver a new client's event before deactivateServer for the old one.
         // Revoke both active capture and pending recognition immediately.
         for (NSNumber *processing in @[@NO, @YES]) {
@@ -272,6 +329,38 @@ int main() {
             assert(session.submissions == submissions && overlay.levelUpdates == levels && overlay.phase != 3);
             [controller cancelHTTPVoiceInput];
         }
+        // Windows plays the start cue before muting other audio and unmutes before the end cue. The macOS mute covers the whole output device, so it must wait for the start cue to finish.
+        [controller setValue:client forKey:@"activeClient"];
+        audioEvents = [NSMutableArray array];
+        HTTPOrderedCueFixture *ordered = [HTTPOrderedCueFixture new];
+        [controller setValue:ordered forKey:@"voiceCuePlayer"];
+        [controller setValue:[[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{OrderGet, OrderSet, nullptr, nullptr}] forKey:@"voiceAudioMuter"];
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES, @"MSIMEClientVoiceMuteSystemAudio": @YES} forName:NSArgumentDomain];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        assert([audioEvents isEqual:@[@"start"]] && !outputMuted && ordered.startCompletion);
+        ordered.startCompletion();
+        assert([audioEvents isEqual:(@[@"start", @"mute"])] && outputMuted);
+        [controller finishHTTPVoiceInput];
+        assert([audioEvents isEqual:(@[@"start", @"mute", @"unmute", @"stop"])] && !outputMuted);
+        controller.requestFixture.completion(@"synthetic", nil);
+        // Stopping before the start cue ends leaves other audio untouched; its late completion cannot mute.
+        [audioEvents removeAllObjects];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        void (^late)(void) = ordered.startCompletion;
+        [controller cancelHTTPVoiceInput];
+        late();
+        assert([audioEvents isEqual:(@[@"start", @"stop"])] && !outputMuted);
+        // A failed start never mutes either.
+        [audioEvents removeAllObjects];
+        capture.failStart = YES;
+        assert(![controller startHTTPVoiceInputWithOptions:@{}] && !audioEvents.count && !outputMuted);
+        capture.failStart = NO;
+        // Without a start cue the mute follows the start of capture directly.
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @NO, @"MSIMEClientVoiceEndSound": @YES, @"MSIMEClientVoiceMuteSystemAudio": @YES} forName:NSArgumentDomain];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        assert([audioEvents isEqual:@[@"mute"]] && outputMuted);
+        [controller cancelHTTPVoiceInput];
+        assert([audioEvents isEqual:(@[@"mute", @"unmute", @"stop"])] && !outputMuted);
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
     }
 }

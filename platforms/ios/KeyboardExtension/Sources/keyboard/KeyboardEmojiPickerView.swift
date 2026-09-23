@@ -3,6 +3,8 @@ import UIKit
 /// Apple-style category browser backed by the shared paged Emoji catalog, with the kaomoji catalog as its last tab.
 ///
 /// A kaomoji is a line of text, not a pictograph, so its tab lays out as many columns as fit its width: two on a phone, more on an iPad. Kaomoji stay out of 最近, whose eight-column grid is sized for Emoji.
+///
+/// Search swaps the category bar for a letter pad of the picker's own. A keyboard extension has no text field it can type into, and the Engine matches Emoji by pinyin and English keywords, both of which are letters, so the pad types the query and the grid above it shows the matches.
 final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
   typealias PageLoader = @Sendable (
     KeyboardEmojiCatalog.Category, Int
@@ -38,6 +40,20 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   private var loading = false
   private var loadGeneration: UInt64 = 0
   private let skin = KeyboardSkinPreference.selected
+  private let titleLabel = UILabel()
+  private let letterPad = UIStackView()
+  /// The letters typed so far while searching, `nil` while browsing categories.
+  private(set) var searchQuery: String?
+  private var gridToBottom: NSLayoutConstraint!
+  private var gridToPad: NSLayoutConstraint!
+
+  /// What the grid shows: the search while one is open, otherwise the selected tab.
+  private var currentTab: Tab? {
+    if let searchQuery {
+      return KeyboardEmojiCatalog.search(searchQuery).map(Tab.category)
+    }
+    return availableTabs.indices.contains(selectedTab) ? availableTabs[selectedTab] : nil
+  }
 
   init(
     resources: String,
@@ -61,15 +77,22 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     accessibilityIdentifier = "keyboardEmojiPicker"
     backgroundColor = skin.background
 
-    let title = UILabel()
+    let title = titleLabel
     title.text = "表情"
     title.font = .systemFont(ofSize: 17, weight: .semibold)
     title.textColor = skin.keyForeground
+    title.lineBreakMode = .byTruncatingHead
+    title.accessibilityIdentifier = "emojiTitle"
 
     let close = headerButton(symbol: "chevron.left", label: "返回键盘", id: "closeEmojiPicker")
-    close.addAction(UIAction { _ in onClose() }, for: .primaryActionTriggered)
+    // Back from a search returns to the categories; back from the categories returns to the keyboard.
+    close.addAction(UIAction { [weak self] _ in
+      if self?.searchQuery != nil { self?.endSearch() } else { onClose() }
+    }, for: .primaryActionTriggered)
     let delete = headerButton(symbol: "delete.left", label: "删除", id: "emojiDeleteKey")
     delete.addAction(UIAction { [weak self] _ in self?.onDelete() }, for: .primaryActionTriggered)
+    let search = headerButton(symbol: "magnifyingglass", label: "搜索表情", id: "emojiSearchButton")
+    search.addAction(UIAction { [weak self] _ in self?.beginSearch() }, for: .primaryActionTriggered)
 
     tabs.axis = .horizontal
     tabs.spacing = 4
@@ -99,8 +122,11 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     grid.register(KeyboardEmojiCell.self, forCellWithReuseIdentifier: KeyboardEmojiCell.reuseIdentifier)
     grid.disableEdgeEffects()
 
+    buildLetterPad()
+    letterPad.isHidden = true
+
     tabScroll.addSubview(tabs)
-    for child in [title, close, delete, tabScroll, status, grid] {
+    for child in [title, close, search, delete, tabScroll, status, grid, letterPad] {
       child.translatesAutoresizingMaskIntoConstraints = false
       addSubview(child)
     }
@@ -112,6 +138,12 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
       close.heightAnchor.constraint(equalToConstant: 40),
       title.centerXAnchor.constraint(equalTo: centerXAnchor),
       title.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+      title.leadingAnchor.constraint(greaterThanOrEqualTo: close.trailingAnchor, constant: 4),
+      title.trailingAnchor.constraint(lessThanOrEqualTo: search.leadingAnchor, constant: -4),
+      search.trailingAnchor.constraint(equalTo: delete.leadingAnchor),
+      search.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+      search.widthAnchor.constraint(equalToConstant: 44),
+      search.heightAnchor.constraint(equalToConstant: 40),
       delete.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
       delete.centerYAnchor.constraint(equalTo: close.centerYAnchor),
       delete.widthAnchor.constraint(equalToConstant: 44),
@@ -134,8 +166,14 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
       grid.topAnchor.constraint(equalTo: status.bottomAnchor),
       grid.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
       grid.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-      grid.bottomAnchor.constraint(equalTo: bottomAnchor),
+      letterPad.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+      letterPad.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+      letterPad.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+      letterPad.heightAnchor.constraint(equalToConstant: 3 * 38 + 2 * 6),
     ])
+    gridToBottom = grid.bottomAnchor.constraint(equalTo: bottomAnchor)
+    gridToPad = grid.bottomAnchor.constraint(equalTo: letterPad.topAnchor, constant: -4)
+    gridToBottom.isActive = true
     selectTab(0)
   }
 
@@ -151,8 +189,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   }
 
   private var showsKaomoji: Bool {
-    guard availableTabs.indices.contains(selectedTab),
-          case .category(let category) = availableTabs[selectedTab] else { return false }
+    guard case .category(let category) = currentTab else { return false }
     return category.isKaomoji
   }
 
@@ -222,8 +259,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   }
 
   private func loadNextPage() {
-    guard !loading, !complete, availableTabs.indices.contains(selectedTab),
-          case .category(let category) = availableTabs[selectedTab],
+    guard !loading, !complete, case .category(let category) = currentTab,
           items.count < KeyboardEmojiCatalog.maximumItems else { return }
     loading = true
     updateStatus()
@@ -242,12 +278,12 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
     page: KeyboardEmojiCatalog.Page?, category: KeyboardEmojiCatalog.Category,
     offset: Int, generation: UInt64
   ) {
-    guard generation == loadGeneration, availableTabs.indices.contains(selectedTab),
-          availableTabs[selectedTab] == .category(category), nextOffset == offset else { return }
+    guard generation == loadGeneration, currentTab == .category(category),
+          nextOffset == offset else { return }
     loading = false
     guard let page, items.count + page.items.count <= KeyboardEmojiCatalog.maximumItems else {
       complete = true
-      status.text = "表情目录暂时不可用；点分类重试"
+      status.text = searchQuery == nil ? "表情目录暂时不可用；点分类重试" : "表情目录暂时不可用；改一下搜索词重试"
       onCatalogChange?()
       return
     }
@@ -267,11 +303,108 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
 
   private func updateStatus() {
     let noun = showsKaomoji ? "颜文字" : "表情"
-    if loading && items.isEmpty { status.text = "正在加载\(noun)…" }
-    else if items.isEmpty { status.text = selectedTab >= 0 && availableTabs[selectedTab] == .recent
-      ? "暂无最近使用" : "暂无\(noun)" }
+    if searchQuery?.isEmpty == true { status.text = "输入拼音或英文搜索表情" }
+    else if loading && items.isEmpty { status.text = searchQuery == nil ? "正在加载\(noun)…" : "正在搜索…" }
+    else if items.isEmpty { status.text = searchQuery != nil ? "没有找到相关表情"
+      : currentTab == .recent ? "暂无最近使用" : "暂无\(noun)" }
     else if complete { status.text = "\(items.count) 个\(noun)" }
     else { status.text = "\(items.count) 个\(noun) · 继续滚动加载" }
+  }
+
+  private func buildLetterPad() {
+    letterPad.axis = .vertical
+    letterPad.spacing = 6
+    letterPad.distribution = .fillEqually
+    letterPad.accessibilityIdentifier = "emojiSearchPad"
+    for (index, row) in ["qwertyuiop", "asdfghjkl", "zxcvbnm"].enumerated() {
+      let line = UIStackView()
+      line.axis = .horizontal
+      line.spacing = 5
+      line.distribution = .fillEqually
+      for letter in row {
+        line.addArrangedSubview(padKey(title: String(letter), id: "emojiSearchKey-\(letter)") { [weak self] in
+          self?.typeSearch(String(letter))
+        })
+      }
+      if index == 2 {
+        line.addArrangedSubview(padKey(symbol: "delete.left", label: "删除搜索字母", id: "emojiSearchDelete") { [weak self] in
+          self?.deleteSearchLetter()
+        })
+      }
+      letterPad.addArrangedSubview(line)
+    }
+  }
+
+  private func padKey(
+    title: String? = nil, symbol: String? = nil, label: String? = nil, id: String, action: @escaping () -> Void
+  ) -> UIButton {
+    var configuration = UIButton.Configuration.filled()
+    configuration.title = title
+    configuration.image = symbol.flatMap { UIImage(systemName: $0) }
+    configuration.baseBackgroundColor = skin.keyBackground
+    configuration.baseForegroundColor = skin.keyForeground
+    configuration.cornerStyle = .medium
+    configuration.contentInsets = .zero
+    configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+      var attributes = attributes
+      attributes.font = .systemFont(ofSize: 18)
+      return attributes
+    }
+    let button = UIButton(configuration: configuration)
+    button.accessibilityIdentifier = id
+    button.accessibilityLabel = label ?? title
+    button.addAction(UIAction { _ in action() }, for: .primaryActionTriggered)
+    return button
+  }
+
+  /// Open the search with an empty query: the category bar gives way to the letter pad.
+  func beginSearch() {
+    guard searchQuery == nil else { return }
+    searchQuery = ""
+    tabScroll.isHidden = true
+    letterPad.isHidden = false
+    gridToBottom.isActive = false
+    gridToPad.isActive = true
+    showSearch()
+  }
+
+  /// Close the search and return to the category that was showing before it.
+  func endSearch() {
+    guard searchQuery != nil else { return }
+    searchQuery = nil
+    titleLabel.text = "表情"
+    titleLabel.textColor = skin.keyForeground
+    letterPad.isHidden = true
+    tabScroll.isHidden = false
+    gridToPad.isActive = false
+    gridToBottom.isActive = true
+    selectTab(selectedTab)
+  }
+
+  private func typeSearch(_ letter: String) {
+    guard let searchQuery, searchQuery.count < KeyboardEmojiCatalog.maximumSearchLength else { return }
+    self.searchQuery = searchQuery + letter
+    showSearch()
+  }
+
+  private func deleteSearchLetter() {
+    guard let searchQuery, !searchQuery.isEmpty else { return }
+    self.searchQuery = String(searchQuery.dropLast())
+    showSearch()
+  }
+
+  /// Show the query in the title and restart the results from the first page; a page still loading for the previous query is dropped by the generation check.
+  private func showSearch() {
+    let query = searchQuery ?? ""
+    titleLabel.text = query.isEmpty ? "搜索表情" : query
+    titleLabel.textColor = query.isEmpty ? skin.keyForeground.withAlphaComponent(0.5) : skin.keyForeground
+    loadGeneration &+= 1
+    items = []
+    nextOffset = 0
+    loading = false
+    complete = query.isEmpty
+    reloadCatalog()
+    loadNextPage()
   }
 
   func numberOfSections(in collectionView: UICollectionView) -> Int { 1 }

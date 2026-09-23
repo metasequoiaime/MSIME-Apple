@@ -353,6 +353,8 @@ struct State {
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
   msime::linux_host::PairedPunctuationTracker paired_tracker;
+  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock; reset on every mode switch.
+  msime::linux_host::EnglishPunctuationState english_punctuation;
   // Japanese converts with Space and commits with Enter; see core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion;
   msime::linux_host::BackspaceHoldPolicy backspace_hold;
@@ -1073,7 +1075,8 @@ struct TypingStatisticsTask {
 
 void record_typing_statistics(IBusEngine *engine, std::string text,
                               msime::linux_host::TypingSource source) {
-  if (text.empty())
+  // Private fields (passwords, no-spellcheck) never reach the statistics store, matching the Fcitx5 host.
+  if (text.empty() || state(engine).private_input)
     return;
   const auto directory = configured.value("preferences_directory", std::string{});
   if (directory.empty() || directory.front() != '/')
@@ -3084,6 +3087,20 @@ void clear(IBusEngine *engine) {
   ibus_engine_update_property(engine, candidate_actions(engine));
   ibus_engine_update_property(engine, nine_key_spellings(engine));
 }
+// Windows re-resolves the punctuation state on every Chinese/English switch: under the "follow" lock it tracks the mode (Chinese punctuation in Chinese mode, ASCII in English), and a pinned lock keeps its value. The switch supersedes a Ctrl+. choice, so the session override is dropped and the saved preference is the authority again on the next focus or refresh; the preference file itself is not written. Call after open(), because opening a session re-derives chinese_punctuation from the preferences.
+void resync_punctuation_for_mode(IBusEngine *engine) {
+  auto &s = state(engine);
+  s.english_punctuation = {};
+  if (s.punctuation_lock != "follow")
+    return;
+  s.punctuation_override.reset();
+  s.chinese_punctuation = s.input_enabled;
+  if (s.session && s.session_chinese_punctuation != s.chinese_punctuation) {
+    s.view = response(
+        msime_client_set_chinese_punctuation(s.session, s.chinese_punctuation));
+    s.session_chinese_punctuation = s.chinese_punctuation;
+  }
+}
 void sync_global_input_mode(IBusEngine *engine) {
   auto &s = state(engine);
   if (!s.mode_scope_global || !global_input_enabled ||
@@ -3096,6 +3113,7 @@ void sync_global_input_mode(IBusEngine *engine) {
     apply(engine, msime_client_command(s.session, MSIME_COMMIT_RAW));
   s.input_enabled = *global_input_enabled;
   s.open();
+  resync_punctuation_for_mode(engine);
   if (s.session)
     apply(engine, msime_client_focus(s.session, s.input_enabled));
   clear(engine);
@@ -3891,6 +3909,7 @@ uint64_t panel_input_generation = 0;
 msime::linux_host::PanelInputSocket panel_input_socket;
 msime::linux_host::PanelInputBroker panel_input_broker;
 guint panel_input_timer = 0;
+gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags);
 
 msime::linux_host::PanelInputDelivery panel_input_deliver(
     const msime::linux_host::PanelInputRequest &request) {
@@ -3914,8 +3933,23 @@ msime::linux_host::PanelInputDelivery panel_input_deliver(
   if (request.control) modifiers |= IBUS_CONTROL_MASK;
   if (request.alt) modifiers |= IBUS_MOD1_MASK;
   if (request.super) modifiers |= IBUS_SUPER_MASK | IBUS_MOD4_MASK;
-  ibus_engine_forward_key_event(engine, keyval, request.keycode, modifiers);
-  ibus_engine_forward_key_event(engine, keyval, request.keycode, modifiers | IBUS_RELEASE_MASK);
+  // The panel knows nothing of the lock; carry the one the last real key reported so this stroke does not flip the CapsLock indicator.
+  if (state(engine).caps_lock) {
+    modifiers |= IBUS_LOCK_MASK;
+    // The panel sends letters lowercase; apply the lock the way xkb does for a physical key, so the stroke meets the CapsLock passthrough as an uppercase letter (and Shift under the lock gives lowercase).
+    if (keyval < 0x80 && g_ascii_isalpha(static_cast<gchar>(keyval)))
+      keyval = request.shift ? ibus_keyval_to_lower(keyval) : ibus_keyval_to_upper(keyval);
+  }
+  // Through this engine first, the way SendInput passes through the IME on Windows: letters compose, and digits, Space and BackSpace act on an open composition.
+  msime::linux_host::deliver_panel_key_stroke(
+      [&](bool release) {
+        return process_key(engine, keyval, request.keycode,
+                           modifiers | (release ? IBUS_RELEASE_MASK : 0)) != FALSE;
+      },
+      [&](bool release) {
+        ibus_engine_forward_key_event(engine, keyval, request.keycode,
+                                      modifiers | (release ? IBUS_RELEASE_MASK : 0));
+      });
   return PanelInputDelivery::Delivered;
 }
 
@@ -5072,6 +5106,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         global_input_enabled = enabled;
       s.input_enabled = enabled;
       s.open();
+      resync_punctuation_for_mode(engine);
       if (s.session)
         apply(engine, msime_client_focus(s.session, enabled));
       clear(engine);
@@ -5284,6 +5319,7 @@ void toggle_input_mode(IBusEngine *engine) {
   if (s.mode_scope_global)
     global_input_enabled = s.input_enabled;
   s.open();
+  resync_punctuation_for_mode(engine);
   if (s.session)
     apply(engine, msime_client_focus(s.session, s.input_enabled));
   clear(engine);
@@ -5358,7 +5394,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     guarded(engine, "process_key", [&] {
       toggle_input_mode(engine);
     });
-    return TRUE;
+    // Windows toggles on the bare modifier release but still lets the application see it, so a program tracking Shift state does not keep it latched.
+    return FALSE;
   }
   if (shift_key && !(flags & IBUS_RELEASE_MASK)) {
     if (repeated_modifier) return FALSE;
@@ -5392,7 +5429,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (!s.focused || s.blocked)
       return FALSE;
     guarded(engine, "process_key", [&] { toggle_input_mode(engine); });
-    return TRUE;
+    // As with Shift: toggle, then let the application see the release.
+    return FALSE;
   }
   if (ctrl_key && !(flags & IBUS_RELEASE_MASK)) {
     if (repeated_modifier) return FALSE;
@@ -5499,6 +5537,18 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       }
     } else {
       s.native_compose.reset();
+    }
+  }
+  // English mode still honours fullwidth output and the "always Chinese punctuation" lock, as Windows does with the IME closed; everything else passes through.
+  if (s.focused && !s.blocked && !s.input_enabled && !release &&
+      (modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
+    const bool keypad = key >= IBUS_KP_Space && key <= IBUS_KP_9;
+    const auto text = msime::linux_host::english_mode_output(
+        ibus_keyval_to_unicode(key), keypad, s.punctuation_lock == "chinese",
+        s.fullwidth, s.english_punctuation);
+    if (!text.empty()) {
+      commit_text(engine, text, msime::linux_host::TypingSource::English);
+      return TRUE;
     }
   }
   if (!s.focused || s.blocked || (!s.input_enabled && !mode_toggle && !fullwidth_toggle) ||
@@ -6584,6 +6634,7 @@ struct MenuPreferenceSave {
   uint64_t configuration;
   MenuPreference preference;
   Json value;
+  std::string user_data;
 };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value) {
   const auto directory = configured.value("preferences_directory", std::string{});
@@ -6708,13 +6759,17 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
           publish_mode(IBUS_ENGINE(source));
         });
       }, nullptr);
-  g_task_set_task_data(task, new MenuPreferenceSave{directory, configuration_generation, preference, std::move(value)},
+  g_task_set_task_data(task, new MenuPreferenceSave{directory, configuration_generation, preference, std::move(value),
+                                                    configured.value("user_data", std::string{})},
       +[](gpointer value) { delete static_cast<MenuPreferenceSave *>(value); });
   g_task_run_in_thread(task,
       +[](GTask *task, gpointer, gpointer data, GCancellable *) {
         const auto &request = *static_cast<MenuPreferenceSave *>(data);
         Json *saved = nullptr;
         try {
+          // The launcher refreshes `configured` only every few seconds, so a data directory move can be copying this root, or have taken it away, under a save; a held save fails like a conflict and can be retried (core/DictionaryQuiesceLease.h).
+          if (msime::linux_host::preference_save_held(request.user_data))
+            throw std::runtime_error("MSIME preferences held");
           const auto *path = reinterpret_cast<const uint8_t *>(request.directory.data());
           auto snapshot = response(msime_client_load_preferences(path, request.directory.size()));
           const auto revision = snapshot.at("revision").get<uint64_t>();
@@ -6974,6 +7029,31 @@ void destroy(IBusObject *object) {
   self->state = nullptr;
   IBUS_OBJECT_CLASS(msime_ibus_engine_parent_class)->destroy(object);
 }
+// Characters the IME hands back to the application are still typed text: Windows counts them in the statistics (ShouldCountPassthroughChar), so English-mode letters and Chinese-mode keys the Engine declines show up in the daily totals. Keys the IME consumed already recorded their committed text.
+gboolean process_key_and_count(IBusEngine *engine, guint key, guint keycode,
+                               guint flags) {
+  const gboolean handled = process_key(engine, key, keycode, flags);
+  if (handled || (flags & IBUS_RELEASE_MASK))
+    return handled;
+  const auto &s = state(engine);
+  if (!s.focused || s.blocked || s.private_input)
+    return handled;
+  msime::linux_host::PassthroughModifiers held;
+  held.control = (flags & IBUS_CONTROL_MASK) != 0;
+  held.alt = (flags & IBUS_MOD1_MASK) != 0;
+  held.super = (flags & (IBUS_MOD4_MASK | IBUS_SUPER_MASK)) != 0;
+  held.hyper = (flags & IBUS_HYPER_MASK) != 0;
+  held.meta = (flags & IBUS_META_MASK) != 0;
+  const gunichar character = ibus_keyval_to_unicode(key);
+  if (!msime::linux_host::should_count_passthrough_character(character, held))
+    return handled;
+  gchar encoded[8] = {};
+  const auto length = g_unichar_to_utf8(character, encoded);
+  record_typing_statistics(
+      engine, std::string(encoded, static_cast<std::size_t>(length)),
+      s.input_enabled ? typing_source(s) : msime::linux_host::TypingSource::English);
+  return handled;
+}
 } // namespace
 
 static void msime_ibus_engine_init(MsimeIbusEngine *engine) {
@@ -6996,7 +7076,7 @@ static void msime_ibus_engine_init(MsimeIbusEngine *engine) {
 }
 static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   auto engine = IBUS_ENGINE_CLASS(klass);
-  engine->process_key_event = process_key;
+  engine->process_key_event = process_key_and_count;
   engine->property_activate = property_activate;
   engine->enable = [](IBusEngine *engine) {
     // Advertise surrounding-text use so native IM modules send document updates.

@@ -87,6 +87,8 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # VoicePolishPrompt.cpp includes shared/voice/PolishPrompt.h, which the desktop hosts build as C++17.
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIconForest AppIconSky AppIconDusk AppIconVermilion
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
         # 没有这一条时 `Color.accentColor` 是系统蓝,而设置行的图标块、列表里的控件都取它。资源里的两个值就是 MetasequoiaTheme.forestUIColor 的浅色与深色两支。
@@ -237,6 +239,8 @@ targets:
       - path: ServiceTests
       - path: App/Sources/settings/AppIconSettingsView.swift
       - path: App/Services/CustomService.swift
+      - path: App/Services/VoicePolish.swift
+      - path: App/Services/VoicePolishPrompt.cpp
       - path: App/Services/DoubaoHostFrameCodec.swift
       - path: App/Services/DoubaoVoiceCoordinator.swift
       - path: App/Services/DoubaoWebSocketTransport.swift
@@ -251,6 +255,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.service-tests
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
         PRODUCT_NAME: MSIMEServiceTests
         ARCHS: arm64
         GENERATE_INFOPLIST_FILE: YES

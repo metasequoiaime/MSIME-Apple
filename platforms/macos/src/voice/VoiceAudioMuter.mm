@@ -3,12 +3,21 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+// The default output can move mid-recording while the device it left is already gone and cannot be handed back yet, so one journal may owe restores to several devices.
+static const NSUInteger MSIMEVoiceOwnedDeviceLimit = 8;
+static const AudioObjectPropertyAddress MSIMEVoiceDefaultOutputAddress = {kAudioHardwarePropertyDefaultOutputDevice,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+static BOOL MSIMEVoiceValidUID(id uid) {
+    return [uid isKindOfClass:NSString.class] && [uid length] && [uid length] <= 4096;
+}
 @implementation MSIMEVoiceAudioMuter {
     MSIMEVoiceAudioAPI _api;
-    NSString *_deviceUID;
-    UInt32 _old;
-    BOOL _changed;
+    // Devices this object muted and still owes a restore. Only unmuted devices are ever taken, so the original state of each is always unmuted.
+    NSMutableArray<NSString *> *_ownedUIDs;
     BOOL _activeMute;
+    // Bumped by every restore so a deferred mute created before it becomes inert.
+    NSUInteger _epoch;
+    AudioObjectPropertyListenerBlock _listener;
     NSURL *_recoveryDirectory;
     int _journalFD;
 }
@@ -26,7 +35,7 @@
 }
 - (instancetype)initWithAudioAPI:(MSIMEVoiceAudioAPI)api recoveryDirectory:(NSURL *)directory {
     self = [super init];
-    if (self) { _api = api; _recoveryDirectory = [directory copy]; _journalFD = -1; }
+    if (self) { _api = api; _recoveryDirectory = [directory copy]; _journalFD = -1; _ownedUIDs = [NSMutableArray array]; }
     return self;
 }
 - (void)closeJournal {
@@ -59,22 +68,32 @@
         NSMutableData *data = [NSMutableData dataWithLength:(NSUInteger)info.st_size];
         if (pread(fd, data.mutableBytes, data.length, 0) != (ssize_t)data.length) { close(fd); return NO; }
         id record = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        if (![record isKindOfClass:NSDictionary.class] ||
-            ![record[@"version"] isEqual:@1] || ![record[@"previous"] isEqual:@0] ||
-            ![record[@"uid"] isKindOfClass:NSString.class] ||
-            ![record[@"uid"] length] || [record[@"uid"] length] > 4096) { close(fd); return NO; }
-        _deviceUID = [record[@"uid"] copy]; _old = 0; _changed = YES;
+        NSArray *uids = nil;
+        if (![record isKindOfClass:NSDictionary.class]) { close(fd); return NO; }
+        if ([record[@"version"] isEqual:@1] && [record[@"previous"] isEqual:@0] && MSIMEVoiceValidUID(record[@"uid"])) {
+            uids = @[record[@"uid"]];
+        } else if ([record[@"version"] isEqual:@2] && [record[@"uids"] isKindOfClass:NSArray.class] &&
+            [record[@"uids"] count] && [record[@"uids"] count] <= MSIMEVoiceOwnedDeviceLimit) {
+            uids = record[@"uids"];
+            for (id uid in uids) if (!MSIMEVoiceValidUID(uid)) uids = nil;
+        }
+        if (!uids) { close(fd); return NO; }
+        for (NSString *uid in uids) if (![_ownedUIDs containsObject:uid]) [_ownedUIDs addObject:[uid copy]];
     }
     _journalFD = fd;
     return YES;
 }
-- (BOOL)persistUID:(NSString *)uid previous:(UInt32)previous {
+- (BOOL)persistUIDs:(NSArray<NSString *> *)uids {
     if (!_recoveryDirectory) return YES;
     if (_journalFD < 0) return NO;
-    NSData *data = [NSJSONSerialization dataWithJSONObject:@{@"version":@1, @"uid":uid, @"previous":@(previous)}
-        options:0 error:nil];
+    // Never unlink the locked inode: other instances must lock this same file.
+    if (!uids.count) return ftruncate(_journalFD, 0) == 0 && fsync(_journalFD) == 0;
+    // A single device keeps the original record shape, so an older build can still recover the common case.
+    NSDictionary *record = uids.count == 1 ? @{@"version":@1, @"uid":uids.firstObject, @"previous":@0} :
+        @{@"version":@2, @"uids":uids};
+    NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:nil];
     if (!data || data.length > 32768) return NO;
-    // A new snapshot is only written after the prior snapshot has been restored.
+    // A device is only added to the snapshot before it is muted and only dropped after it has been restored.
     return ftruncate(_journalFD, 0) == 0 &&
         pwrite(_journalFD, data.bytes, data.length, 0) == (ssize_t)data.length && fsync(_journalFD) == 0;
 }
@@ -89,6 +108,94 @@
         ![result length] || [result length] > 4096) return nil;
     return [result copy];
 }
+- (AudioDeviceID)defaultOutputDevice {
+    AudioDeviceID device = kAudioObjectUnknown;
+    UInt32 bytes = sizeof(device);
+    if (_api.get(kAudioObjectSystemObject, &MSIMEVoiceDefaultOutputAddress, 0, nullptr, &bytes, &device) != noErr ||
+        bytes != sizeof(device)) return kAudioObjectUnknown;
+    return device;
+}
+// Hands one owned device back to unmuted. NO keeps it owed for the next cleanup.
+- (BOOL)restoreUID:(NSString *)owned {
+    // Numeric IDs can be reused after disconnect. Resolve only the owned UID.
+    AudioObjectPropertyAddress address = {kAudioHardwarePropertyTranslateUIDToDevice,
+        kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    CFStringRef uid = (__bridge CFStringRef)owned;
+    AudioDeviceID device = kAudioObjectUnknown;
+    UInt32 bytes = sizeof(device);
+    if (_api.get(kAudioObjectSystemObject, &address, sizeof(uid), &uid, &bytes, &device) != noErr ||
+        bytes != sizeof(device) || device == kAudioObjectUnknown ||
+        ![[self deviceUID:device] isEqual:owned]) return NO;
+    address = {kAudioDevicePropertyMute,
+        kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain};
+    UInt32 current = 0, original = 0;
+    bytes = sizeof(current);
+    if (_api.get(device, &address, 0, nullptr, &bytes, &current) != noErr ||
+        bytes != sizeof(current) || current > 1) return NO;
+    // The user may already have unmuted it. Never resolve the new default here.
+    return current == original || _api.set(device, &address, 0, nullptr, sizeof(original), &original) == noErr;
+}
+- (void)restoreOwnedExcept:(NSString *)kept {
+    if (!_ownedUIDs.count || !_api.get || !_api.set) return;
+    NSMutableArray<NSString *> *remaining = [NSMutableArray array];
+    for (NSString *uid in _ownedUIDs)
+        if ([uid isEqual:kept] || ![self restoreUID:uid]) [remaining addObject:uid];
+    if (remaining.count == _ownedUIDs.count) return;
+    // Failed reads/writes retain the original snapshot for the next cleanup.
+    if ([self persistUIDs:remaining]) [_ownedUIDs setArray:remaining];
+}
+- (void)releaseIdleJournal {
+    if (!_ownedUIDs.count) [self closeJournal];
+}
+// Takes the current default output device. YES also covers a device the user had already muted, which is left alone and never restored.
+- (BOOL)muteDefaultOutputDevice {
+    if (!_api.get || !_api.set || ![self loadJournal]) return NO;
+    AudioDeviceID device = [self defaultOutputDevice];
+    if (device == kAudioObjectUnknown) return NO;
+    NSString *uid = [self deviceUID:device];
+    // A device still owed a restore could not be resolved just now, so its current state says nothing about the user's.
+    if (!uid || [_ownedUIDs containsObject:uid] || _ownedUIDs.count >= MSIMEVoiceOwnedDeviceLimit) return NO;
+    AudioObjectPropertyAddress address = {kAudioDevicePropertyMute, kAudioDevicePropertyScopeOutput,
+        kAudioObjectPropertyElementMain};
+    UInt32 previous = 0;
+    UInt32 bytes = sizeof(previous);
+    if (_api.get(device, &address, 0, nullptr, &bytes, &previous) != noErr ||
+        bytes != sizeof(previous) || previous > 1) return NO;
+    // Do not take ownership of a mute that was already enabled by the user.
+    if (previous) return YES;
+    if (![self persistUIDs:[_ownedUIDs arrayByAddingObject:uid]]) return NO;
+    [_ownedUIDs addObject:uid];
+    UInt32 muted = 1;
+    if (_api.set(device, &address, 0, nullptr, sizeof(muted), &muted) != noErr) {
+        [self restoreOwnedExcept:nil]; return NO;
+    }
+    return YES;
+}
+- (void)defaultOutputDeviceDidChange {
+    if (!_activeMute || ![self loadJournal]) return;
+    AudioDeviceID device = [self defaultOutputDevice];
+    NSString *current = device == kAudioObjectUnknown ? nil : [self deviceUID:device];
+    // Hand every previous device back first, as stop would. A spurious notification for a device already held keeps it muted rather than flickering it.
+    [self restoreOwnedExcept:current];
+    if (!current || ![_ownedUIDs containsObject:current]) [self muteDefaultOutputDevice];
+    [self releaseIdleJournal];
+}
+- (void)observeDefaultOutputDevice {
+    if (_listener || !_api.addListener || !_api.removeListener) return;
+    __weak MSIMEVoiceAudioMuter *weakSelf = self;
+    AudioObjectPropertyListenerBlock listener = ^(UInt32 count, const AudioObjectPropertyAddress *addresses) {
+        (void)count; (void)addresses;
+        [weakSelf defaultOutputDeviceDidChange];
+    };
+    // The main queue owns every other call on this object.
+    if (_api.addListener(kAudioObjectSystemObject, &MSIMEVoiceDefaultOutputAddress, dispatch_get_main_queue(), listener) == noErr)
+        _listener = listener;
+}
+- (void)stopObservingDefaultOutputDevice {
+    if (!_listener) return;
+    _api.removeListener(kAudioObjectSystemObject, &MSIMEVoiceDefaultOutputAddress, dispatch_get_main_queue(), _listener);
+    _listener = nil;
+}
 - (BOOL)mute:(NSError **)error {
     // Repeated starts must not replace the original device or mute snapshot.
     if (_activeMute) return YES;
@@ -98,62 +205,29 @@
         return NO;
     };
     if (![self loadJournal]) return fail();
-    if (_changed) {
-        [self restore];
-        if (_changed || ![self loadJournal]) return fail();
-    }
-    AudioDeviceID device = kAudioObjectUnknown;
-    AudioObjectPropertyAddress address = {kAudioHardwarePropertyDefaultOutputDevice,
-        kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
-    UInt32 bytes = sizeof(device);
-    if (!_api.get || !_api.set ||
-        _api.get(kAudioObjectSystemObject, &address, 0, nullptr, &bytes, &device) != noErr ||
-        bytes != sizeof(device) || device == kAudioObjectUnknown) return fail();
-    address = {kAudioDevicePropertyMute, kAudioDevicePropertyScopeOutput, kAudioObjectPropertyElementMain};
-    UInt32 previous = 0;
-    bytes = sizeof(previous);
-    if (_api.get(device, &address, 0, nullptr, &bytes, &previous) != noErr ||
-        bytes != sizeof(previous) || previous > 1) return fail();
-    // Do not take ownership of a mute that was already enabled by the user.
-    if (previous) { [self closeJournal]; return YES; }
-    NSString *uid = [self deviceUID:device];
-    if (!uid) return fail();
-    if (![self persistUID:uid previous:previous]) { [self closeJournal]; return fail(); }
-    _deviceUID = uid; _old = previous; _changed = YES;
-    UInt32 muted = 1;
-    if (_api.set(device, &address, 0, nullptr, sizeof(muted), &muted) != noErr) {
-        [self restore]; return fail();
-    }
+    // Hand back what a crash, or a device that vanished while muted, left behind. One that is still missing stays journaled and does not block muting the current default.
+    [self restoreOwnedExcept:nil];
+    if (![self muteDefaultOutputDevice]) { [self releaseIdleJournal]; return fail(); }
+    [self releaseIdleJournal];
     _activeMute = YES;
+    [self observeDefaultOutputDevice];
     return YES;
+}
+- (void (^)(void))deferredMute {
+    __weak MSIMEVoiceAudioMuter *weakSelf = self;
+    const NSUInteger epoch = _epoch;
+    return ^{
+        MSIMEVoiceAudioMuter *muter = weakSelf;
+        if (muter && muter->_epoch == epoch) [muter mute:nil];
+    };
 }
 - (void)restore {
     _activeMute = NO;
+    ++_epoch;
+    [self stopObservingDefaultOutputDevice];
     if (![self loadJournal]) return;
-    if (!_changed) { [self closeJournal]; return; }
-    if (!_api.get || !_api.set) return;
-    // Numeric IDs can be reused after disconnect. Resolve only the owned UID.
-    AudioObjectPropertyAddress address = {kAudioHardwarePropertyTranslateUIDToDevice,
-        kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
-    CFStringRef uid = (__bridge CFStringRef)_deviceUID;
-    AudioDeviceID device = kAudioObjectUnknown;
-    UInt32 bytes = sizeof(device);
-    if (_api.get(kAudioObjectSystemObject, &address, sizeof(uid), &uid, &bytes, &device) != noErr ||
-        bytes != sizeof(device) || device == kAudioObjectUnknown ||
-        ![[self deviceUID:device] isEqual:_deviceUID]) return;
-    address = {kAudioDevicePropertyMute,
-        kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain};
-    UInt32 current = 0;
-    bytes = sizeof(current);
-    if (_api.get(device, &address, 0, nullptr, &bytes, &current) != noErr ||
-        bytes != sizeof(current) || current > 1) return;
-    // The user may already have unmuted it. Never resolve the new default here.
-    if (current != _old && _api.set(device, &address, 0, nullptr, sizeof(_old), &_old) != noErr) return;
-    // Never unlink the locked inode: other instances must lock this same file.
-    if (_journalFD >= 0 && (ftruncate(_journalFD, 0) || fsync(_journalFD))) return;
-    // Failed reads/writes retain the original snapshot for the next cleanup.
-    _changed = NO; _deviceUID = nil;
-    [self closeJournal];
+    [self restoreOwnedExcept:nil];
+    [self releaseIdleJournal];
 }
 - (void)dealloc { [self restore]; [self closeJournal]; }
 @end
