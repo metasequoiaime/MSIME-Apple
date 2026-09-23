@@ -2091,6 +2091,108 @@ test("dictionary manager creates entries with the Windows settings default weigh
   );
 });
 
+function exportingDictionaryClient(saveExport?: SettingsClient["saveExport"]): SettingsClient {
+  return {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    ...(saveExport ? { saveExport } : {}),
+    dictionary: {
+      list: vi.fn().mockImplementation(async (_offset: number, _limit: number, kind?: string) => ({
+        entries:
+          kind === "quick_phrase"
+            ? [{ kind: "quick_phrase", key: "fixture", value: "synthetic phrase", weight: 10 }]
+            : [],
+        has_more: false,
+      })),
+      edit: vi.fn(),
+      export: vi
+        .fn()
+        .mockResolvedValue({ text: "synthetic phrase\tfixture\t10\n", has_more: false }),
+    },
+  };
+}
+
+test("a host-saved dictionary export reports the path only once the host has written it", async () => {
+  let written: (path: string) => void = () => undefined;
+  const saveExport = vi.fn(
+    () =>
+      new Promise<string>((resolve) => {
+        written = resolve;
+      }),
+  );
+  const createObjectURL = vi.fn(() => "blob:fixture");
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+  render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  await waitFor(() =>
+    expect(saveExport).toHaveBeenCalledWith(
+      "水杉IME-快捷短语用户词库.txt",
+      "\ufeffsynthetic phrase\tfixture\t10\n",
+    ),
+  );
+  expect(screen.queryByText(/已导出/)).toBeNull();
+  await act(async () => written("/Users/fixture/Downloads/水杉IME-快捷短语用户词库 (2).txt"));
+  expect(
+    await screen.findByText(
+      "已导出 1 条用户词条到 /Users/fixture/Downloads/水杉IME-快捷短语用户词库 (2).txt。",
+    ),
+  ).toBeDefined();
+
+  const exportAll = screen.getByRole<HTMLButtonElement>("button", { name: "导出全部" });
+  // The previous export holds the dictionary buttons until it settles.
+  await waitFor(() => expect(exportAll.disabled).toBe(false));
+  fireEvent.click(exportAll);
+  await waitFor(() =>
+    expect(saveExport).toHaveBeenLastCalledWith(
+      "水杉用户词库.txt",
+      "# 类别\t编码\t词条\t权重\n快捷短语\tfixture\tsynthetic phrase\t10\n",
+    ),
+  );
+  expect(screen.queryByText(/已导出全部/)).toBeNull();
+  await act(async () => written("/Users/fixture/Downloads/水杉用户词库.txt"));
+  expect(
+    await screen.findByText(
+      "已导出全部 1 条用户词条到 /Users/fixture/Downloads/水杉用户词库.txt。",
+    ),
+  ).toBeDefined();
+  // The host wrote the file, so the page must not also start a download the webview would drop.
+  expect(createObjectURL).not.toHaveBeenCalled();
+});
+
+test("a refused host-saved dictionary export shows an error and never claims success", async () => {
+  const saveExport = vi.fn().mockRejectedValue({ code: "storage" });
+  render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("无法写入“下载”文件夹，词库未导出。");
+  const exportAll = screen.getByRole<HTMLButtonElement>("button", { name: "导出全部" });
+  // The previous export holds the dictionary buttons until it settles.
+  await waitFor(() => expect(exportAll.disabled).toBe(false));
+  fireEvent.click(exportAll);
+  await waitFor(() => expect(saveExport).toHaveBeenCalledTimes(2));
+  expect((await screen.findByRole("alert")).textContent).toBe("无法写入“下载”文件夹，词库未导出。");
+  expect(screen.queryByText(/已导出/)).toBeNull();
+  expect(screen.queryByText("正在读取全部用户词库…")).toBeNull();
+});
+
+test("a host without saveExport keeps the download link", async () => {
+  const createObjectURL = vi.fn(() => "blob:fixture");
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+  render(<SettingsPage client={exportingDictionaryClient()} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  expect(await screen.findByText("已导出 1 条用户词条。")).toBeDefined();
+  expect(createObjectURL).toHaveBeenCalledTimes(1);
+  expect(click).toHaveBeenCalledTimes(1);
+  click.mockRestore();
+});
+
 test("dictionary fallback import uses 10000 by default and preserves an explicit zero", async () => {
   const edit = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = {

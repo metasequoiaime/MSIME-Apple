@@ -5,6 +5,7 @@
 //! would compile code nobody asked for. Left in place rather than deleted
 //! because the bound it implements is the one an updater will need.
 
+pub(crate) mod export_file;
 pub(crate) mod mobile_ai;
 pub(crate) mod skin_directory;
 pub(crate) mod voice;

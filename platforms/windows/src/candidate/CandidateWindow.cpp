@@ -531,19 +531,26 @@ CandidateWindow::wrap_measure(const CandidatePresentation &value) {
   const auto metrics =
       candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_);
   // Copies, not references: the measure outlives neither call, but it must not depend on that.
-  std::vector<std::pair<std::wstring, std::wstring>> runs;
+  struct Runs {
+    std::wstring text, annotation, translation;
+  };
+  std::vector<Runs> runs;
   runs.reserve(value.candidates.size());
   for (const auto &candidate : value.candidates)
-    runs.emplace_back(wide(candidate.annotation), wide(candidate.translation));
+    runs.push_back({wide(candidate.text + candidate.badge),
+                    wide(candidate.annotation), wide(candidate.translation)});
   return [this, runs = std::move(runs), font = static_cast<float>(font_size_),
           translation_font = static_cast<float>(metrics.translation_font)](
              size_t index, CandidateRun run, double width) {
     if (index >= runs.size())
       return 0.0;
-    const bool annotation = run == CandidateRun::annotation;
+    const auto &item = runs[index];
+    const bool translation = run == CandidateRun::translation;
     return wrapped_height(device_,
-                          annotation ? runs[index].first : runs[index].second,
-                          font_family_, annotation ? font : translation_font,
+                          run == CandidateRun::text ? item.text
+                          : translation            ? item.translation
+                                                   : item.annotation,
+                          font_family_, translation ? translation_font : font,
                           width, font_fallback_.Get());
   };
 }
@@ -589,14 +596,14 @@ void CandidateWindow::paint() {
   if (!fallback_families_.empty() && !font_fallback_)
     font_fallback_ = build_font_fallback(device_.GetDWriteFactory(),
                                          fallback_families_);
-  // A run placed below the first line is top aligned and wraps, matching wrapped_height(); everything on a first line is centred in it and does not wrap.
+  // A run placed below the first line is top aligned and wraps, matching wrapped_height(); everything on a first line is centred in it and does not wrap. Candidate text wider than its column wraps too but stays centred in its measured box, as the shipped presenter draws it.
   auto format = [&](double points, DWRITE_TEXT_ALIGNMENT alignment,
-                    bool wrap = false) {
+                    bool wrap = false, bool centred = false) {
     auto *value = device_.GetTextFormat(
         font_family_, static_cast<float>(points), DWRITE_FONT_WEIGHT_NORMAL,
         alignment,
-        wrap ? DWRITE_PARAGRAPH_ALIGNMENT_NEAR
-             : DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+        wrap && !centred ? DWRITE_PARAGRAPH_ALIGNMENT_NEAR
+                         : DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
         wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
     if (!value)
       throw std::runtime_error("Candidate text format unavailable");
@@ -738,16 +745,12 @@ void CandidateWindow::paint() {
                                   rect.top + first_line},
                       brush(number_color));
     const auto text = wide(value->candidates[i].text + value->candidates[i].badge);
-    // Clipped to the row. The card is clamped to the work area, the format
-    // does not wrap, and without this a candidate wider than that clamp paints
-    // straight past the card edge - onto the transparent shadow margin, so the
-    // overflow reads as text floating beside the window. It is also text the
-    // user cannot click: hit testing uses this same row rectangle.
+    // Text wider than its column was laid out wrapped (wrapped_height() at this same width), and the row already grew by that height, so it wraps here inside the row that hit testing uses. Text that fits keeps the single-line format, so rounding cannot wrap what was laid out as one line. Still clipped to the row as a guard: without it anything the layout did not account for would paint past the card edge onto the transparent shadow margin.
     target->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()),
-        format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
+        format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING, item.text_wrapped, true),
         D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
-                    rect.top + first_line},
+                    rect.top + static_cast<float>(item.text_height)},
         brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
     // The annotation keeps the plain text colour even on a fixed-position row, and follows the selected text colour like the text does; the translation is the same colour at 0.62 of its alpha, as the shipped presenter draws both.
     const auto annotation_color =
