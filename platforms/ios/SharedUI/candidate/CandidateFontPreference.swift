@@ -1,6 +1,6 @@
 import UIKit
 
-/// Candidate and composition text size, read from the shared preference document.
+/// Candidate and composition text size, and the candidates' font family chain, read from the shared preference document.
 ///
 /// The document stores points as the desktop candidate window uses them, 18 for candidates and 15 for the composition. iOS draws with Dynamic Type instead, so those defaults stand for the `.body` and `.subheadline` styles the keyboard already used, and any other value scales them by the same ratio; the user's system text size keeps applying on top. A phone strip has far less width than an iPad one, so a size synced from a desktop is clamped to what that surface can show.
 enum CandidateFontPreference {
@@ -8,6 +8,11 @@ enum CandidateFontPreference {
   static let preeditKey = "candidate_preedit_font_size"
   static let defaultCandidateSize = 18
   static let defaultPreeditSize = 15
+  static let familyKey = "candidate_font_family"
+  static let englishFamilyKey = "candidate_english_font"
+  static let fallbackFamiliesKey = "candidate_fallback_fonts"
+  /// client-core's default family. iOS does not ship it, so a document nobody changed draws in the system font as before.
+  static let defaultFamily = "Noto Sans SC"
 
   static func candidateRange(tablet: Bool) -> ClosedRange<Int> { tablet ? 12...32 : 12...24 }
   static func preeditRange(tablet: Bool) -> ClosedRange<Int> { tablet ? 12...24 : 12...20 }
@@ -36,6 +41,29 @@ enum CandidateFontPreference {
     let base = UIFont.preferredFont(
       forTextStyle: style, compatibleWith: UITraitCollection(preferredContentSizeCategory: .large))
     return UIFontMetrics(forTextStyle: style).scaledFont(for: base.withSize((base.pointSize * scale).rounded()))
+  }
+
+  /// The families the candidates are drawn in, in order: the Latin face, the family, then its fallbacks, as the desktop candidate window chains them. Only families this device has are kept, since a document synced from Windows names faces an iPhone has never heard of; an empty chain means the system font.
+  static func families(in preferences: [String: Any]?, installed: (String) -> Bool = isInstalled) -> [String] {
+    let named = [preferences?[englishFamilyKey] as? String, preferences?[familyKey] as? String ?? defaultFamily]
+      + ((preferences?[fallbackFamiliesKey] as? [Any]) ?? []).map { $0 as? String }
+    var seen = Set<String>()
+    return named.compactMap { $0 }.filter { !$0.isEmpty && installed($0) && seen.insert($0).inserted }
+  }
+
+  static func isInstalled(_ family: String) -> Bool { !UIFont.fontNames(forFamilyName: family).isEmpty }
+
+  /// `font(_:scale:)` drawn in `families`: the first face leads and the rest cascade, so a Latin face takes the letters and a CJK face the Han characters, and whatever none of them has comes from the system font.
+  static func font(_ style: UIFont.TextStyle, scale: CGFloat, families: [String]) -> UIFont {
+    guard let first = families.first else { return font(style, scale: scale) }
+    let base = UIFont.preferredFont(
+      forTextStyle: style, compatibleWith: UITraitCollection(preferredContentSizeCategory: .large))
+    let descriptor = UIFontDescriptor(fontAttributes: [
+      .family: first,
+      .cascadeList: families.dropFirst().map { UIFontDescriptor(fontAttributes: [.family: $0]) },
+    ])
+    return UIFontMetrics(forTextStyle: style).scaledFont(
+      for: UIFont(descriptor: descriptor, size: (base.pointSize * scale).rounded()))
   }
 
   private static func size(_ value: Any?, default fallback: Int, range: ClosedRange<Int>) -> Int {

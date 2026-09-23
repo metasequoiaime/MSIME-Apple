@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Candidate text size, the candidate skin, what the strip shows while spelling, pinyin typo correction, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
+/// Candidate text size and font, the candidate skin, what the strip shows while spelling, pinyin typo correction, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
 ///
 /// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. Cloud candidates are the exception: an iOS-only switch in the App Group (see CloudCandidatePreference). The keyboard hands a change to its live session the next time it appears. The candidate skin, theme and colours are shared too, and the switch that lets them replace the keyboard skin's colours is iOS-only (see CandidatePalette).
 struct CandidateOptionsSettingsView: View {
@@ -17,6 +17,9 @@ struct CandidateOptionsSettingsView: View {
   private var cloudCandidates = false
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
   @State private var preeditSize = CandidateFontPreference.defaultPreeditSize
+  @State private var fontFamily = CandidateFontPreference.defaultFamily
+  @State private var englishFamily: String?
+  @State private var fontFamilies: [String] = []
   @State private var preeditStyle = CandidatePreeditStyle.pinyin.rawValue
   @State private var shuangpinRaw = true
   @AppStorage(CandidatePalette.followsDesktopKey, store: CandidatePalette.defaults)
@@ -37,8 +40,9 @@ struct CandidateOptionsSettingsView: View {
                 in: CandidateFontPreference.candidateRange(tablet: tablet)) {
           VStack(alignment: .leading, spacing: 2) {
             Text("候选字号：\(candidateSize)")
-            Text("水杉输入法").font(Font(CandidateFontPreference.font(
-              .body, scale: CGFloat(candidateSize) / CGFloat(CandidateFontPreference.defaultCandidateSize))))
+            Text("水杉输入法 MSIME").font(Font(CandidateFontPreference.font(
+              .body, scale: CGFloat(candidateSize) / CGFloat(CandidateFontPreference.defaultCandidateSize),
+              families: fontFamilies)))
           }
         }.accessibilityIdentifier("candidateFontSize")
         Stepper(value: storedTop(CandidateFontPreference.preeditKey, $preeditSize),
@@ -49,12 +53,27 @@ struct CandidateOptionsSettingsView: View {
               .subheadline, scale: CGFloat(preeditSize) / CGFloat(CandidateFontPreference.defaultPreeditSize))))
           }
         }.accessibilityIdentifier("candidatePreeditFontSize")
+        NavigationLink {
+          CandidateFontFamilyList(title: "中文字体", selection: fontFamily, none: nil) { family in
+            write { $0[CandidateFontPreference.familyKey] = family ?? CandidateFontPreference.defaultFamily }
+          }
+        } label: {
+          LabeledContent("中文字体", value: familyTitle(fontFamily))
+        }.accessibilityIdentifier("candidateFontFamily")
+        NavigationLink {
+          CandidateFontFamilyList(title: "英文字体", selection: englishFamily, none: "跟随中文字体") { family in
+            write { $0[CandidateFontPreference.englishFamilyKey] = family }
+          }
+        } label: {
+          LabeledContent("英文字体", value: englishFamily.map(familyTitle) ?? "跟随中文字体")
+        }.accessibilityIdentifier("candidateEnglishFont")
       } header: {
-        Text("字号")
+        Text("字号与字体")
       } footer: {
-        Text(tablet
+        Text((tablet
           ? "默认 18 和 15，与桌面端同步。候选栏会随字号变高；浮动的小键盘按手机的上限显示。"
           : "默认 18 和 15，与桌面端同步。候选栏会随字号变高；桌面端设得更大时，手机上最多显示到 24 和 20。")
+          + "字体与桌面端同步；此设备没有的字体会跳过，全都没有时使用系统字体。")
       }
       paletteSection
       Section {
@@ -233,6 +252,16 @@ struct CandidateOptionsSettingsView: View {
     })
   }
 
+  /// A family name, marked when this device does not have it and the keyboard therefore skips it.
+  private func familyTitle(_ family: String) -> String {
+    CandidateFontPreference.isInstalled(family) ? family : "\(family)（未安装）"
+  }
+
+  private func write(_ mutate: (inout [String: Any]) -> Void) {
+    saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences(mutate)
+    reload()
+  }
+
   /// A binding that writes one top-level field of the shared document; a refused write puts the stored value back.
   private func storedTop<Value>(_ key: String, _ state: Binding<Value>) -> Binding<Value> {
     Binding(get: { state.wrappedValue }, set: { value in
@@ -254,6 +283,9 @@ struct CandidateOptionsSettingsView: View {
     kaomoji = mixed["kaomoji"] as? Bool ?? kaomoji
     candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: tablet)
     preeditSize = CandidateFontPreference.preeditSize(in: preferences, tablet: tablet)
+    fontFamily = preferences[CandidateFontPreference.familyKey] as? String ?? CandidateFontPreference.defaultFamily
+    englishFamily = (preferences[CandidateFontPreference.englishFamilyKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    fontFamilies = CandidateFontPreference.families(in: preferences)
     preeditStyle = CandidatePreeditStyle(in: preferences).rawValue
     candidateSkin = preferences["candidate_skin"] as? String ?? CandidatePalette.defaultSkin
     candidateTheme = preferences["candidate_theme"] as? String ?? "follow"
@@ -263,5 +295,52 @@ struct CandidateOptionsSettingsView: View {
     }
     shuangpinRaw = preferences["shuangpin_preedit_uses_raw"] as? Bool ?? true
     wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
+  }
+}
+
+/// The font families this device has, each drawn in itself, for one of the candidate font fields. A name synced from another device that this one lacks stays listed at the top, so the page shows what the document says rather than silently picking something else.
+private struct CandidateFontFamilyList: View {
+  let title: String
+  let selection: String?
+  /// The title of the "no family" row, or nil when the field always names one; choosing it passes nil.
+  let none: String?
+  let choose: (String?) -> Void
+  @Environment(\.dismiss) private var dismiss
+  @State private var query = ""
+  private let installed = UIFont.familyNames.sorted()
+
+  var body: some View {
+    List {
+      if let none, query.isEmpty { row(none, family: nil, font: .body) }
+      if let selection, !installed.contains(selection), query.isEmpty {
+        Section {
+          row(selection, family: selection, font: .body)
+        } footer: {
+          Text("此设备没有这个字体，键盘会跳过它。")
+        }
+      }
+      Section {
+        ForEach(installed.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }, id: \.self) { family in
+          row(family, family: family, font: .custom(family, size: UIFont.preferredFont(forTextStyle: .body).pointSize,
+                                                  relativeTo: .body))
+        }
+      }
+    }
+    .searchable(text: $query)
+    .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+  }
+
+  private func row(_ title: String, family: String?, font: Font) -> some View {
+    Button {
+      choose(family)
+      dismiss()
+    } label: {
+      HStack {
+        Text(title).font(font).foregroundStyle(.primary)
+        Spacer()
+        if family == selection { Image(systemName: "checkmark").foregroundStyle(.tint) }
+      }
+    }
+    .accessibilityAddTraits(family == selection ? .isSelected : [])
   }
 }

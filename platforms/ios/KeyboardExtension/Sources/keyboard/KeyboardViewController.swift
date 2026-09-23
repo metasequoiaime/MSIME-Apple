@@ -275,6 +275,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var glossLineCount = 0
   private var candidateFontScale: CGFloat = 1
   private var preeditFontScale: CGFloat = 1
+  private var candidateFontFamilies: [String] = []
   private var candidateStripHeightConstraint: NSLayoutConstraint?
   private var compositionRowHeightConstraint: NSLayoutConstraint?
   private var shortcutBarTopConstraint: NSLayoutConstraint?
@@ -1908,8 +1909,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let tablet = formFactor == .tablet
     let candidateScale = CandidateFontPreference.candidateScale(in: session.sharedPreferences, tablet: tablet)
     let preeditScale = CandidateFontPreference.preeditScale(in: session.sharedPreferences, tablet: tablet)
+    let families = CandidateFontPreference.families(in: session.sharedPreferences)
     guard lines != glossLineCount || candidateScale != candidateFontScale
-      || preeditScale != preeditFontScale else { return }
+      || preeditScale != preeditFontScale || families != candidateFontFamilies else { return }
+    candidateFontFamilies = families
     glossLineCount = lines
     if preeditScale != preeditFontScale {
       preeditFontScale = preeditScale
@@ -1925,11 +1928,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private static func fontTransformer(
-    _ style: UIFont.TextStyle, scale: CGFloat
+    _ style: UIFont.TextStyle, scale: CGFloat, families: [String] = []
   ) -> UIConfigurationTextAttributesTransformer {
     UIConfigurationTextAttributesTransformer { attributes in
       var attributes = attributes
-      attributes.font = CandidateFontPreference.font(style, scale: scale)
+      attributes.font = CandidateFontPreference.font(style, scale: scale, families: families)
       return attributes
     }
   }
@@ -2342,7 +2345,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
                                    typed: snapshot.preedit)
         },
-        candidateScale: candidateFontScale, preeditScale: preeditFontScale,
+        candidateScale: candidateFontScale, preeditScale: preeditFontScale, candidateFamilies: candidateFontFamilies,
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         menuElements: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return [] }
@@ -3297,7 +3300,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if annotation.isEmpty && glosses.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
       configuration.attributedTitle = nil
-      configuration.titleTextAttributesTransformer = Self.fontTransformer(.body, scale: candidateFontScale)
+      configuration.titleTextAttributesTransformer = Self.fontTransformer(
+        .body, scale: candidateFontScale, families: candidateFontFamilies)
       configuration.title = display
     } else {
       configuration.titleLineBreakMode = .byWordWrapping
@@ -3307,7 +3311,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       paragraph.alignment = .natural
       paragraph.lineBreakMode = .byTruncatingTail
       var title = AttributedString(display, attributes: AttributeContainer([
-        .font: CandidateFontPreference.font(.body, scale: candidateFontScale), .paragraphStyle: paragraph,
+        .font: CandidateFontPreference.font(.body, scale: candidateFontScale, families: candidateFontFamilies),
+        .paragraphStyle: paragraph,
       ]))
       if !annotation.isEmpty {
         title += AttributedString(" " + annotation, attributes: AttributeContainer([

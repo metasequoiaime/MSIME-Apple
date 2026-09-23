@@ -332,19 +332,12 @@ impl HostCapabilities {
                     | HostPlatform::Harmony
             ),
             // Native Windows/macOS candidate windows consume the shared font
-            // controls. Harmony's desktop candidate panel and Android's
-            // native candidate bar also apply the family chain and both
-            // candidate/preedit sizes; iOS remains touch-only here. Linux
-            // writes the family chain and candidate size into the panel's
-            // font: the IBus panel settings or the Fcitx5 classic UI.
-            candidate_font_controls: matches!(
-                platform,
-                HostPlatform::Windows
-                    | HostPlatform::Macos
-                    | HostPlatform::Harmony
-                    | HostPlatform::Android
-                    | HostPlatform::Linux
-            ),
+            // controls. Harmony's desktop candidate panel and Android's and
+            // iOS's native candidate bars also apply the family chain and both
+            // candidate/preedit sizes. Linux writes the family chain and
+            // candidate size into the panel's font: the IBus panel settings or
+            // the Fcitx5 classic UI.
+            candidate_font_controls: true,
             candidate_preedit_font: matches!(
                 platform,
                 HostPlatform::Windows
@@ -425,13 +418,7 @@ impl HostCapabilities {
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
             ai_provider_credentials: platform == HostPlatform::Linux,
-            candidate_english_font: matches!(
-                platform,
-                HostPlatform::Windows
-                    | HostPlatform::Macos
-                    | HostPlatform::Android
-                    | HostPlatform::Harmony
-            ),
+            candidate_english_font: platform != HostPlatform::Linux,
             os_version: None,
         }
     }
@@ -912,6 +899,9 @@ mod tests {
         assert!(ios.fuzzy_pinyin);
         assert!(ios.typing_statistics);
         assert!(!ios.panel_windows);
+        // The candidate bar cascades the Latin face, the family and its fallbacks.
+        assert!(ios.candidate_font_controls);
+        assert!(ios.candidate_english_font);
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);
