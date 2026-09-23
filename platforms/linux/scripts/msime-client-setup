@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""安装之后的首次配置：备齐词库、准备状态目录、说清楚接下来在哪里选中输入法。
+"""安装之后的首次配置：备齐词库、准备状态目录、把输入法加入当前的输入法列表。
 
 这三步此前都没有产品侧的入口。词库要么在配置阶段用 -DMSIME_ENGINE_RESOURCES 随包装好，
 要么只能在仓库检出里跑一个 Cargo 示例去取——也就是说一个只拿到安装包的用户没有任何办法
@@ -8,22 +8,40 @@
 
 这里不重新实现校验和准备：词库按已安装的 desktop-dictionary.lock.json 逐个核对名称、大小
 和 SHA-256，状态交给 msime-client-prepare。下载默认不发生，必须显式 --download。
+
+Windows 安装程序注册 TSF profile，装完输入法就出现在输入法列表里；这里对应的是在状态目录就绪后把输入法加进正在运行的 Fcitx5 或 IBus 的列表。任何一步失败都退回到打印手动步骤，不影响已经准备好的状态。
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
 CHUNK = 1024 * 1024
+# Each registration step is a local D-Bus or dconf round trip; a wedged daemon must not hold up the end of setup.
+COMMAND_TIMEOUT = 10
+FCITX5_INPUT_METHOD = "msime"
+FCITX5_NAME = "水杉输入法"
+IBUS_ENGINE = "msime-client"
+# The IBus <longname>, the same name the Windows TSF profile registers.
+IBUS_NAME = "Metasequoia 水杉输入法"
+FCITX5_CONTROLLER = [
+    "gdbus", "call", "--session", "--dest", "org.fcitx.Fcitx5", "--object-path", "/controller", "--method",
+]
+FCITX5_INTERFACE = "org.fcitx.Fcitx.Controller1"
+GNOME_SOURCES = ("org.gnome.desktop.input-sources", "sources")
+IBUS_PRELOAD = ("org.freedesktop.ibus.general", "preload-engines")
 
 
 def data_home() -> Path:
@@ -202,18 +220,183 @@ def enable_services(units: list[str]) -> None:
             print("  " + result.stderr.strip().splitlines()[-1], file=sys.stderr)
 
 
-def next_steps(state: Path) -> None:
+class RegistrationFailed(Exception):
+    """One step of adding the input method to the host's list did not work; setup falls back to printing the manual steps."""
+
+
+def command_output(arguments: list[str]) -> str:
+    try:
+        result = subprocess.run(arguments, capture_output=True, text=True, timeout=COMMAND_TIMEOUT, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RegistrationFailed(f"无法执行 {arguments[0]}") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip().splitlines()
+        raise RegistrationFailed(f"{' '.join(arguments[:2])} 失败" + (f"：{detail[-1]}" if detail else ""))
+    return result.stdout
+
+
+# A quoted string, kept verbatim; a GVariant type annotation such as the `@a(ss)` gdbus and gsettings print before an empty array, dropped; or a GVariant boolean, spelled the Python way.
+GVARIANT_TOKEN = re.compile(r"""('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")|@[a-z(){}]+\s*|\b(true|false)\b""")
+GVARIANT_BOOLEANS = {"true": "True", "false": "False"}
+
+
+def parse_gvariant(text: str):
+    """The GVariant text gdbus and gsettings print, for the shapes read here: strings, booleans and tuples and arrays of them. Those are Python literals once the type annotations are gone and the booleans are capitalised."""
+    try:
+        return ast.literal_eval(GVARIANT_TOKEN.sub(
+            lambda match: match.group(1) or GVARIANT_BOOLEANS.get(match.group(2), ""), text.strip()
+        ))
+    except (ValueError, SyntaxError) as error:
+        raise RegistrationFailed("无法解析返回值：" + text.strip()[:80]) from error
+
+
+def gvariant_text(value) -> str:
+    """The inverse of parse_gvariant for strings, tuples and non-empty arrays, the only values written here."""
+    if isinstance(value, str):
+        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+    if isinstance(value, tuple):
+        return "(" + ", ".join(gvariant_text(item) for item in value) + ("," if len(value) == 1 else "") + ")"
+    return "[" + ", ".join(gvariant_text(item) for item in value) + "]"
+
+
+def fcitx5_call(method: str, *arguments: str) -> str:
+    return command_output([*FCITX5_CONTROLLER, f"{FCITX5_INTERFACE}.{method}", *arguments])
+
+
+def fcitx5_group(name: str) -> tuple[str, list]:
+    """The group's default layout and its (input method, layout) entries."""
+    value = parse_gvariant(fcitx5_call("InputMethodGroupInfo", gvariant_text(name)))
+    if not (
+        isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], str) and isinstance(value[1], list)
+        and all(isinstance(item, tuple) and len(item) == 2 and all(isinstance(part, str) for part in item)
+                for item in value[1])
+    ):
+        raise RegistrationFailed("Fcitx5 返回的输入法组格式不符")
+    return value
+
+
+def fcitx5_loaded() -> bool:
+    # AvailableInputMethods returns one (unique name, name, native name, icon, label, language, configurable) entry per input method Fcitx5 has loaded.
+    value = parse_gvariant(fcitx5_call("AvailableInputMethods"))
+    entries = value[0] if isinstance(value, tuple) and value and isinstance(value[0], list) else []
+    return any(isinstance(entry, tuple) and entry[:1] == (FCITX5_INPUT_METHOD,) for entry in entries)
+
+
+def register_fcitx5() -> str:
+    """Make Fcitx5 load the input method, then append it to Fcitx5's current group the way fcitx5-configtool would. Returns what happened, for the summary line."""
+    if not fcitx5_loaded():
+        # Fcitx5 loads addons when it starts, so an input method installed after it started is unknown until a restart, and SetInputMethodGroupInfo would drop the entry. The new instance takes a moment to come up.
+        fcitx5_call("Restart")
+        for _ in range(20):
+            time.sleep(0.25)
+            try:
+                if fcitx5_loaded():
+                    break
+            except RegistrationFailed:
+                pass
+        else:
+            raise RegistrationFailed(f"Fcitx5 重启之后仍没有加载 {FCITX5_INPUT_METHOD}")
+    current = parse_gvariant(fcitx5_call("CurrentInputMethodGroup"))
+    group = current[0] if isinstance(current, tuple) and current else ""
+    if not isinstance(group, str) or not group:
+        raise RegistrationFailed("Fcitx5 没有返回当前输入法组")
+    layout, items = fcitx5_group(group)
+    if any(item[0] == FCITX5_INPUT_METHOD for item in items):
+        return f"「{FCITX5_NAME}」已在 Fcitx5 当前输入法组「{group}」中。"
+    if not items:
+        # The first entry of a group is the input method Fcitx5 falls back to when inactive, which should be a keyboard layout; a group holding only this input method would leave nothing to switch back to.
+        raise RegistrationFailed(f"Fcitx5 当前输入法组「{group}」为空，自动添加会让它没有可切回的键盘布局")
+    fcitx5_call(
+        "SetInputMethodGroupInfo", gvariant_text(group), gvariant_text(layout),
+        gvariant_text([*items, (FCITX5_INPUT_METHOD, "")]),
+    )
+    # Fcitx5 drops entries naming an input method it has not loaded. Read the group back rather than report an addition that did not happen.
+    _, items = fcitx5_group(group)
+    if not any(item[0] == FCITX5_INPUT_METHOD for item in items):
+        raise RegistrationFailed("Fcitx5 没有保存加入的水杉输入法")
+    return f"已把「{FCITX5_NAME}」加入 Fcitx5 当前输入法组「{group}」，用 Fcitx5 的输入法切换快捷键即可切换到它。"
+
+
+def ibus_lists_engine() -> bool:
+    # `ibus list-engine` prints one "  <name> - <longname>" line per engine under each language heading.
+    return any(line.split()[:1] == [IBUS_ENGINE] for line in command_output(["ibus", "list-engine"]).splitlines())
+
+
+def gnome_desktop() -> bool:
+    return "GNOME" in os.environ.get("XDG_CURRENT_DESKTOP", "").split(":")
+
+
+def ibus_input_list() -> tuple[str, str, object]:
+    """Where this desktop keeps the IBus engines it offers: GNOME Shell reads its own input sources and ignores IBus's preload list, every other IBus panel reads the preload list."""
+    schemas = set(command_output(["gsettings", "list-schemas"]).split())
+    if gnome_desktop() and GNOME_SOURCES[0] in schemas:
+        return (*GNOME_SOURCES, ("ibus", IBUS_ENGINE))
+    if IBUS_PRELOAD[0] in schemas:
+        return (*IBUS_PRELOAD, IBUS_ENGINE)
+    raise RegistrationFailed(f"没有 {IBUS_PRELOAD[0]} 设置项")
+
+
+def register_ibus() -> str:
+    """Make ibus-daemon know the engine, then append it to the desktop's input source list."""
+    if not ibus_lists_engine():
+        # ibus-daemon reads the component files when it starts, so an engine installed after it started is unknown until a restart. The new daemon takes a moment to come up.
+        command_output(["ibus", "restart"])
+        for _ in range(20):
+            time.sleep(0.25)
+            try:
+                if ibus_lists_engine():
+                    break
+            except RegistrationFailed:
+                pass
+        else:
+            raise RegistrationFailed(f"ibus restart 之后 IBus 仍没有列出 {IBUS_ENGINE}")
+    schema, key, entry = ibus_input_list()
+    current = parse_gvariant(command_output(["gsettings", "get", schema, key]))
+    if not isinstance(current, list):
+        raise RegistrationFailed(f"{schema} {key} 不是列表")
+    if entry in current:
+        return f"「{IBUS_NAME}」已在输入源列表中。"
+    if not current:
+        # An empty list means the desktop is falling back to a default it does not store here; writing a list with only this engine would take that default layout away.
+        raise RegistrationFailed(f"{schema} {key} 为空，桌面正在使用未写入该项的默认输入源，自动添加会把它替换掉")
+    command_output(["gsettings", "set", schema, key, gvariant_text([*current, entry])])
+    return f"已把「{IBUS_NAME}」加入输入源列表，用桌面的输入法切换快捷键即可切换到它。"
+
+
+def active_host() -> str | None:
+    if running("fcitx5"):
+        return "fcitx5"
+    if running("ibus-daemon"):
+        return "ibus"
+    return None
+
+
+def register_input_method(host: str | None) -> str | None:
+    """Add the input method to the running host's list. Returns the line to print, or None when the manual steps should be printed instead."""
+    if host is None:
+        return None
+    try:
+        return register_fcitx5() if host == "fcitx5" else register_ibus()
+    except RegistrationFailed as error:
+        print(f"未能自动加入输入法列表：{error}", file=sys.stderr)
+        return None
+
+
+def next_steps(state: Path, host: str | None, registered: str | None) -> None:
     print()
     print(f"状态目录已就绪：{state}")
-    if running("fcitx5"):
-        print("下一步：用 fcitx5-configtool 把「MSIME」加入当前输入法组。")
+    if registered:
+        print(registered)
+    elif host == "fcitx5":
+        print(f"下一步：用 fcitx5-configtool 把「{FCITX5_NAME}」（英文界面显示为「MSIME」）加入当前输入法组。")
+    elif host == "ibus":
+        print(f"下一步：ibus restart，再在输入源里添加「{IBUS_NAME}」。")
+    else:
+        print("下一步：启动 fcitx5 或 ibus，再在各自的设置里加入水杉输入法。")
+    if host == "fcitx5":
         print("  状态栏上的中英文、简繁、工具栏等入口挂在输入法状态区，需要桌面提供托盘")
         print("  宿主；若发行版以 fcitx5 --disable notificationitem 启动，这些入口不会显示，")
         print("  但输入本身不受影响，设置也可以从应用列表里的「水杉输入法」打开。")
-    elif running("ibus-daemon"):
-        print("下一步：ibus restart，再在输入源里选择「MSIME Client」。")
-    else:
-        print("下一步：启动 fcitx5 或 ibus，再在各自的设置里选中 MSIME。")
     print("设置面板：msime-client-settings（需要安装时提供了桌面二进制）")
 
 
@@ -230,6 +413,11 @@ def main() -> int:
         "--no-cloud-candidates",
         action="store_true",
         help="关闭云候选：默认开启时，输入过程中会把正在输入的拼写经 HTTPS 发给 Google input-tools（inputtools.google.com）换回一条额外候选；已上屏文本、词库和词频不会发送。之后可在设置里改",
+    )
+    parser.add_argument(
+        "--no-register",
+        action="store_true",
+        help="不把输入法加入正在运行的 Fcitx5 或 IBus 的输入法列表，只打印手动添加的步骤",
     )
     arguments = parser.parse_args()
 
@@ -296,7 +484,8 @@ def main() -> int:
     print(f"词库已校验：{resources}")
     prepare_state(prefix, resources, state, not arguments.no_cloud_candidates)
     enable_services(service_units(state, config_home() / "msime-client"))
-    next_steps(state)
+    host = active_host()
+    next_steps(state, host, None if arguments.no_register else register_input_method(host))
     return 0
 
 

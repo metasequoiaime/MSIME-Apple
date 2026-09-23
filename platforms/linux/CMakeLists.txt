@@ -270,6 +270,8 @@ target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
 add_test(NAME linux-smart-punctuation-space COMMAND linux-smart-punctuation-space-test)
 add_test(NAME linux-setup-resolution
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_resolution.py")
+add_test(NAME linux-setup-registration
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_registration.py")
 add_test(NAME linux-first-run-guide
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/first_run_guide.py")
 add_test(NAME linux-deb-maintainer-scripts

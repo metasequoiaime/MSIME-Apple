@@ -120,6 +120,8 @@ int main(int argc, char **argv) {
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["clipboard_history"] = true;
     options["preferences"]["voice_input"]["hotkey_hold_space_lock"] = false;
+    // A stored commit strategy, which the Linux settings page does not offer and the hosts ignore: the streaming preedit below must still appear.
+    options["preferences"]["voice_input"]["commit_mode"] = "ctrl_v";
     const auto clipboardPath = std::filesystem::path(options.at("preferences_directory").get<std::string>()) /
                                "clipboard_history.json";
     std::ofstream(clipboardPath) << Json::array({"剪贴板合成测试", "第二条"}).dump();
@@ -1189,7 +1191,7 @@ int main(int argc, char **argv) {
     }
     require(observedVoicePartial || state->voice_partial_seen_, "voice action receives provider partial text");
     require(observedVoicePreedit,
-            "streaming Doubao text reaches preedit in tsf commit mode");
+            "streaming Doubao text reaches preedit even with a stored ctrl_v commit mode");
     require(state->voice_phase_seen_ && state->voice_level_seen_,
             "voice action receives provider status and level");
     require(ic.committed == committedBeforeVoice + "语音测试",
