@@ -66,9 +66,8 @@ if(MSIME_BADGE_WAYLAND_FOUND AND MSIME_BADGE_WAYLAND_SCANNER)
   endif()
 endif()
 add_library(msime-fcitx5 MODULE FcitxEngine.cpp SystemTheme.cpp ../src/system/ChineseTextConversion.cpp ../src/system/DiagnosticLog.cpp ${MSIME_BADGE_WAYLAND_SOURCES})
-# X11 会话下的后端。两个后端互不依赖：只有一种可用时徽章照常工作，都没有时宿主只发
-# 面板那半文字提示。
-pkg_check_modules(MSIME_BADGE_X11 QUIET IMPORTED_TARGET x11 xext cairo-xlib pangocairo)
+# X11 会话下的后端。两个后端互不依赖：只有一种可用时徽章照常工作，都没有时宿主只发面板那半文字提示。xrandr 用来找焦点所在的显示器，和语音浮层同一套定位。
+pkg_check_modules(MSIME_BADGE_X11 QUIET IMPORTED_TARGET x11 xext xrandr cairo-xlib pangocairo)
 set(MSIME_BADGE_X11_SOURCES "")
 if(MSIME_BADGE_X11_FOUND)
   set(MSIME_BADGE_X11_SOURCES ../src/overlay/ModeBadgeX11Surface.cpp)

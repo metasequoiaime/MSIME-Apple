@@ -103,10 +103,25 @@ void candidateThemeDecoration() {
   require(copies().empty(), "previous skin's overlay removed");
   std::filesystem::remove_all(root);
 }
+// The mode badge draws in the candidate panel's appearance. The default candidate_theme "follow" and global "system" on a light desktop used to give a dark badge, because only an explicit "light" counted. Runs before the resource fixture.
+void modeBadgeTheme() {
+  require(fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, false),
+          "follow on a light desktop gives a light badge");
+  require(!fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, true),
+          "follow on a dark desktop gives a dark badge");
+  require(fcitx_mode_badge_light_theme(Json::object(), false), "absent keys follow a light desktop");
+  require(!fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "follow"}}, false),
+          "follow defers to a dark global theme");
+  require(fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true),
+          "an explicit light candidate theme wins");
+  require(!fcitx_mode_badge_light_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false),
+          "an explicit dark candidate theme wins");
+}
 int main(int argc, char **argv) {
   try {
     autocorrectMarker();
     candidateThemeDecoration();
+    modeBadgeTheme();
     require(argc == 2 || (argc == 3 && std::string(argv[2]) == "--ai"),
             "usage: fcitx5-native-test <verified-resources> [--ai]");
     const bool ai = argc == 3;
