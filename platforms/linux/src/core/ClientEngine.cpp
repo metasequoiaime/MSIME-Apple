@@ -296,6 +296,9 @@ struct State {
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
   bool smart_punctuation_space_convert = false;
+  // Which preceding characters keep a smart mark ASCII: the settings page's "direct digit" and "direct letter" switches, which the shared route (and so the Fcitx5 host) already honours.
+  bool smart_punctuation_direct_digit = true;
+  bool smart_punctuation_direct_letter = true;
   bool paired_punctuation = true;
   bool pure_shift_candidate = false;
   bool pure_ctrl_candidate = false;
@@ -692,6 +695,8 @@ struct State {
     smart_punctuation_repeat = smart_repeat_override.value_or(preferences.value("smart_punctuation_repeat", true));
     smart_punctuation_space_convert =
         preferences.value("smart_punctuation_space_convert", false);
+    smart_punctuation_direct_digit = preferences.value("smart_punctuation_direct_digit", true);
+    smart_punctuation_direct_letter = preferences.value("smart_punctuation_direct_letter", true);
     paired_punctuation = options.at("preferences").value("paired_punctuation", true);
     punctuation_lock = preferences.value("punctuation_lock", "follow");
     if (punctuation_lock == "chinese")
@@ -765,6 +770,8 @@ struct State {
         preferences.value("smart_punctuation_repeat", true));
     smart_punctuation_space_convert =
         preferences.value("smart_punctuation_space_convert", false);
+    smart_punctuation_direct_digit = preferences.value("smart_punctuation_direct_digit", true);
+    smart_punctuation_direct_letter = preferences.value("smart_punctuation_direct_letter", true);
     paired_punctuation = paired_punctuation_override.value_or(
         preferences.value("paired_punctuation", true));
     punctuation_lock = punctuation_lock_override.value_or(
@@ -1407,69 +1414,9 @@ const char *smart_punctuation_pair(char value) {
   const auto mark = msime::linux_host::chinese_punctuation_mark(value);
   return mark.empty() ? nullptr : mark.data();
 }
-const char *paired_punctuation_closing(std::string_view text) {
-  for (const auto &[opening, closing] : {
-           std::pair<std::string_view, const char *> {"（", "）"},
-           {"【", "】"},
-           {"《", "》"},
-           {"〈", "〉"}}) {
-    if (text.size() >= opening.size() &&
-        text.compare(text.size() - opening.size(), opening.size(), opening) == 0)
-      return closing;
-  }
-  return nullptr;
-}
-enum class PunctuationPairMode {
-  None,
-  Bracket,
-  Brace,
-  DoubleQuote,
-  SingleQuote
-};
-bool normalize_punctuation_pair(std::string &text, PunctuationPairMode mode) {
-  if (mode == PunctuationPairMode::None)
-    return false;
-  if (mode == PunctuationPairMode::Brace) {
-    if (!text.empty() && text.back() == '{') {
-      text.push_back('}');
-      return true;
-    }
-    return false;
-  }
-  if (mode == PunctuationPairMode::Bracket) {
-    if (const auto *closing = paired_punctuation_closing(text)) {
-      text += closing;
-      return true;
-    }
-    return false;
-  }
-  const std::string_view opening =
-      mode == PunctuationPairMode::DoubleQuote ? "“" : "‘";
-  const std::string_view closing =
-      mode == PunctuationPairMode::DoubleQuote ? "”" : "’";
-  for (const auto suffix : {opening, closing}) {
-    if (text.size() < suffix.size() ||
-        text.compare(text.size() - suffix.size(), suffix.size(), suffix) != 0)
-      continue;
-    text.erase(text.size() - suffix.size());
-    text += opening;
-    text += closing;
-    return true;
-  }
-  return false;
-}
-std::optional<std::string> paired_closing_from_text(std::string_view text) {
-  for (const auto closing : {std::string_view("）"), std::string_view("】"),
-                             std::string_view("》"), std::string_view("〉"),
-                             std::string_view("｝"), std::string_view("}"),
-                             std::string_view("”"), std::string_view("’")}) {
-    if (text.size() >= closing.size() &&
-        text.compare(text.size() - closing.size(), closing.size(), closing) ==
-            0)
-      return std::string(closing);
-  }
-  return std::nullopt;
-}
+using msime::linux_host::normalize_punctuation_pair;
+using msime::linux_host::paired_closing_from_text;
+using msime::linux_host::PunctuationPairMode;
 bool is_smart_punctuation_key(guint key) {
   return key <= 0x7f &&
          msime::linux_host::is_smart_punctuation_key(static_cast<char>(key));
@@ -1493,6 +1440,11 @@ std::size_t surrounding_byte_offset(const State &s, guint offset) {
   }
   return static_cast<std::size_t>(position - utf8);
 }
+bool smart_punctuation_keeps_ascii_after(const State &s, unsigned char value) {
+  if (value >= 0x80) return false;
+  if (value >= '0' && value <= '9') return s.smart_punctuation_direct_digit;
+  return is_ascii_alphanumeric(value) && s.smart_punctuation_direct_letter;
+}
 bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
   // A highlighted candidate is the preceding text for punctuation finishing
   // an active composition. This mirrors the Windows TSF path, while IBus
@@ -1508,7 +1460,7 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
         if (text.empty())
           break;
         const auto last = static_cast<unsigned char>(text.back());
-        return last < 0x80 && is_ascii_alphanumeric(last);
+        return smart_punctuation_keeps_ascii_after(s, last);
       }
     }
   }
@@ -1520,7 +1472,7 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
     return false;
   const auto value = static_cast<unsigned char>(surrounding[cursor - 1]);
   // A UTF-8 continuation byte means the preceding code point is non-ASCII.
-  return value < 0x80 && is_ascii_alphanumeric(value);
+  return smart_punctuation_keeps_ascii_after(s, value);
 }
 bool smart_punctuation_repeat_matches_document(const State &s) {
   if (s.surrounding_cursor != s.surrounding_anchor)
@@ -1672,7 +1624,7 @@ struct TranslationTask {
   Json local_translations = Json::array();
 };
 bool apply(IBusEngine *engine, char *raw,
-           PunctuationPairMode pair_mode = PunctuationPairMode::None,
+           PunctuationPairMode pair_mode = PunctuationPairMode::Unpaired,
            std::optional<std::string> space_convert_preceding = std::nullopt);
 void render(IBusEngine *engine, const Json &view);
 void exit_translation_candidates(IBusEngine *engine);
@@ -6301,7 +6253,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = apply(
           engine,
           msime_client_punctuation(s.session, static_cast<uint8_t>(ascii)),
-          PunctuationPairMode::None, std::move(space_convert_preceding));
+          PunctuationPairMode::Unpaired, std::move(space_convert_preceding));
       if (!handled)
         handled = fullwidth_idle_commit(key);
       if (is_smart_punctuation_key(key))

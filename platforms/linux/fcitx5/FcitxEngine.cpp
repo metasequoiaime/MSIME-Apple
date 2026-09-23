@@ -29,6 +29,7 @@
 #include "../src/candidates/CandidateWheelPaging.h"
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
+#include "../src/candidates/PairedPunctuation.h"
 #include "../src/core/CandidateSkinCatalog.h"
 #include "../src/core/DictionaryQuiesceLease.h"
 #include "../src/core/InputModeIndicator.h"
@@ -400,6 +401,7 @@ public:
     last_smart_punctuation_ = 0;
     last_smart_punctuation_at_ = {};
     smart_punctuation_rejected_ = 0;
+    paired_tracker_.clear();
     japanese_conversion_.reset();
     backspace_hold_.reset();
     maintenance_reload_held_ = false;
@@ -2285,8 +2287,11 @@ public:
     return true;
   }
   bool apply(char *raw,
-             std::optional<std::string> spaceConvertPreceding = std::nullopt) {
+             std::optional<std::string> spaceConvertPreceding = std::nullopt,
+             msime::linux_host::PunctuationPairMode pairMode =
+                 msime::linux_host::PunctuationPairMode::Unpaired) {
     auto result = response(raw);
+    pair_inserted_ = false;
     if (result.contains("commit") && result["commit"].is_string()) {
       auto text = result["commit"].get<std::string>();
       if (traditional_ && view_.value("scheme", 0u) != 3)
@@ -2295,6 +2300,7 @@ public:
           spaceConvertPreceding
               ? msime::linux_host::smart_punctuation_ascii_mark(text)
               : 0;
+      pair_inserted_ = msime::linux_host::normalize_punctuation_pair(text, pairMode);
       // An ASCII mark smart punctuation kept can be taken back to Chinese by
       // typing the same key again. Engine applies the width itself here, so the
       // commit is matched in whichever width it went out as - and against the
@@ -2313,7 +2319,11 @@ public:
         last_smart_punctuation_at_ = {};
       }
       commitText(text);
-      if (spaceConvertAscii != 0) {
+      if (pair_inserted_) {
+        if (const auto closing = msime::linux_host::paired_closing_from_text(text))
+          paired_tracker_.push(*closing);
+      }
+      if (spaceConvertAscii != 0 && !pair_inserted_) {
         // Preserve Engine's actual half (notably opening/closing quotes).
         space_convert_mark_ = text;
         space_convert_preceding_ = std::move(*spaceConvertPreceding);
@@ -2383,7 +2393,9 @@ public:
     space_convert_preceding_.clear();
     return true;
   }
-  bool punctuation(uint8_t value) {
+  bool punctuation(uint8_t value,
+                   msime::linux_host::PunctuationPairMode pairMode =
+                       msime::linux_host::PunctuationPairMode::Unpaired) {
     uint32_t preceding = 0;
     const auto &surrounding = ic_.surroundingText();
     if (!privateInput() && ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) &&
@@ -2420,9 +2432,80 @@ public:
       spaceConvertPreceding = armedPreceding;
     const bool handled =
         apply(msime_client_punctuation_with_context(session_, value, preceding),
-              std::move(spaceConvertPreceding));
+              std::move(spaceConvertPreceding), pairMode);
     if (handled && smart_punctuation_rejected_ == ascii)
       forgetSmartPunctuationRepeat();
+    return handled;
+  }
+  // The character right after the caret. std::nullopt when the host publishes nothing usable; an empty string when the document ends at the caret.
+  std::optional<std::string> followingCharacter() {
+    const auto &surrounding = ic_.surroundingText();
+    if (privateInput() || !ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) ||
+        !surrounding.isValid() || surrounding.cursor() != surrounding.anchor())
+      return std::nullopt;
+    const auto &text = surrounding.text();
+    const auto length = fcitx::utf8::lengthValidated(text);
+    if (length == fcitx::utf8::INVALID_LENGTH || surrounding.cursor() > length)
+      return std::nullopt;
+    if (surrounding.cursor() == length) return std::string{};
+    const auto start = fcitx::utf8::nextNChar(text.begin(), surrounding.cursor());
+    return std::string(start, fcitx::utf8::nextChar(start));
+  }
+  void forwardCaret(fcitx::KeySym sym) {
+    ic_.forwardKey(fcitx::Key(sym), false);
+    ic_.forwardKey(fcitx::Key(sym), true);
+  }
+  bool pairedPunctuationEnabled() const {
+    return chinese_punctuation_ && paired_punctuation_ &&
+           !msime::linux_host::paired_punctuation_excluded_client(ic_.program());
+  }
+  // Typing the closing mark of a pair this host completed steps over the one already in the document instead of adding a second, as Windows and the IBus host do. The tracker only agrees while that mark is still right after the caret.
+  bool skipPairedClosing(fcitx::KeySym sym, fcitx::KeyStates states) {
+    if (!pairedPunctuationEnabled()) return false;
+    const auto typed = fcitx::Key::keySymToUTF8(sym);
+    if (typed.size() != 1) return false;
+    const auto closing = msime::linux_host::paired_closing_for_key(typed[0], fullwidthOutput());
+    if (!closing) return false;
+    using Modifier = msime::linux_host::PairedPunctuationModifier;
+    std::uint32_t modifiers = 0;
+    if (states.test(fcitx::KeyState::Ctrl)) modifiers |= static_cast<std::uint32_t>(Modifier::Control);
+    if (states.test(fcitx::KeyState::Alt)) modifiers |= static_cast<std::uint32_t>(Modifier::Alt);
+    if (states.test(fcitx::KeyState::Super)) modifiers |= static_cast<std::uint32_t>(Modifier::Super);
+    if (states.test(fcitx::KeyState::Meta)) modifiers |= static_cast<std::uint32_t>(Modifier::Meta);
+    if (states.test(fcitx::KeyState::Hyper)) modifiers |= static_cast<std::uint32_t>(Modifier::Hyper);
+    if (states.test(fcitx::KeyState::Mod5)) modifiers |= static_cast<std::uint32_t>(Modifier::Mod5);
+    const auto following = followingCharacter();
+    if (!paired_tracker_.consume(*closing, following.value_or(""), following.has_value(),
+                                 msime::linux_host::paired_closing_modifiers_allowed(modifiers)))
+      return false;
+    forgetSmartPunctuationRepeat();
+    forwardCaret(FcitxKey_Right);
+    return true;
+  }
+  // Brackets, the book title, braces and quotes are completed with their closing mark and the caret is stepped back between the two, following the Windows host. `{` goes out as the literal brace, as it does in the IBus host.
+  // std::nullopt: not a paired key here, route it as ordinary punctuation.
+  std::optional<bool> pairedPunctuation(char ascii, bool composing) {
+    using Mode = msime::linux_host::PunctuationPairMode;
+    Mode mode = Mode::Unpaired;
+    if (ascii == '"') mode = Mode::DoubleQuote;
+    else if (ascii == '\'' && !composing) mode = Mode::SingleQuote;
+    else if (ascii == '(' || ascii == '[' || ascii == '<') mode = Mode::Bracket;
+    else if (ascii == '{') mode = Mode::Brace;
+    if (mode == Mode::Unpaired || !pairedPunctuationEnabled()) return std::nullopt;
+    const auto value = static_cast<uint8_t>(ascii);
+    bool handled = mode == Mode::Brace
+                       ? apply(msime_client_punctuation_ascii(session_, value), std::nullopt, mode)
+                       : punctuation(value, mode);
+    if (handled && pair_inserted_ && ascii == '<')
+      (void)response(msime_client_balance_paired_punctuation_after_auto_close(session_, value));
+    if (!handled && mode == Mode::Brace) {
+      const auto text = fullwidthOutput() ? std::string("｛｝") : std::string("{}");
+      commitText(text);
+      paired_tracker_.push(fullwidthOutput() ? "｝" : "}");
+      pair_inserted_ = true;
+      handled = true;
+    }
+    if (handled && pair_inserted_) forwardCaret(FcitxKey_Left);
     return handled;
   }
   // A Space right after a Chinese mark the user did not want takes that mark
@@ -2606,6 +2689,9 @@ public:
   // Monotonic per session; see effectiveContextSnapshot().
   uint64_t applied_preferences_revision_ = 0;
   bool paired_punctuation_ = true;
+  // Closing marks this host inserted after the caret, innermost last; whether the last apply() completed a pair.
+  msime::linux_host::PairedPunctuationTracker paired_tracker_;
+  bool pair_inserted_ = false;
   // Japanese converts with Space and commits with Enter; see ../src/core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion_;
   msime::linux_host::BackspaceHoldPolicy backspace_hold_;
@@ -5415,6 +5501,28 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       }
     }
   }
+  if (skipPairedClosing(sym, states)) return true;
+  switch (sym) {
+  case FcitxKey_BackSpace: case FcitxKey_Delete: case FcitxKey_KP_Delete:
+  case FcitxKey_Return: case FcitxKey_KP_Enter: case FcitxKey_Escape:
+  case FcitxKey_Left: case FcitxKey_KP_Left: case FcitxKey_Right: case FcitxKey_KP_Right:
+  case FcitxKey_Up: case FcitxKey_KP_Up: case FcitxKey_Down: case FcitxKey_KP_Down:
+  case FcitxKey_Home: case FcitxKey_KP_Home: case FcitxKey_End: case FcitxKey_KP_End:
+  case FcitxKey_Page_Up: case FcitxKey_KP_Page_Up: case FcitxKey_Page_Down:
+  case FcitxKey_KP_Page_Down: case FcitxKey_Tab: case FcitxKey_KP_Tab:
+  case FcitxKey_ISO_Left_Tab:
+    paired_tracker_.clear();
+    break;
+  default: break;
+  }
+  // AltGr picks layout text (German @ or [, for example), so it is neither an application shortcut nor IME punctuation: finish the spelling and let the character through, as the IBus host and Windows do.
+  if (states.test(fcitx::KeyState::Mod5) &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
+                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
+      !fcitx::Key::keySymToUTF8(sym).empty()) {
+    if (composing) command(MSIME_COMMIT_RAW);
+    return false;
+  }
   // Keep Ctrl-only segment editing consistent with IBus and the Windows
   // composition editor. The shared runtime resolves the actual segment
   // boundaries and falls back safely for local modes.
@@ -5426,7 +5534,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       return command(MSIME_MOVE_RIGHT_SEGMENT);
   }
   if (states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
-                                      fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
+                                      fcitx::KeyState::Super, fcitx::KeyState::Hyper,
+                                      fcitx::KeyState::Mod5})) {
     if (composing) command(MSIME_CANCEL);
     return false;
   }
@@ -5519,15 +5628,23 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       break;
     default: break;
     }
+    // Windows selects by virtual key, which does not depend on the layout: the number row picks a candidate on AZERTY too, where it types & é " unshifted. The XKB keycode (evdev + 8) is that physical key. Unicode candidates use Shift plus the row, as on Windows and in the IBus host, because the bare digits are hex input there.
+    const bool unicodeMode = view_.value("local_mode", std::string("none")) == "unicode";
+    // Fcitx5 drops Shift from a normalised symbol such as '!', so ask the raw event.
+    const bool rawShift = event.rawKey().states().test(fcitx::KeyState::Shift);
     const auto number = [&]() -> std::optional<size_t> {
+      if (rawShift != unicodeMode) return std::nullopt;
+      const auto code = event.rawKey().code();
+      if (code >= 10 && code <= 19) return code == 19 ? size_t{9} : static_cast<size_t>(code - 10);
+      if (unicodeMode) return std::nullopt;
       if (sym >= FcitxKey_1 && sym <= FcitxKey_9)
         return static_cast<size_t>(sym - FcitxKey_1);
+      if (sym == FcitxKey_0 || sym == FcitxKey_KP_0) return size_t{9};
       if (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_9)
         return static_cast<size_t>(sym - FcitxKey_KP_1);
       return std::nullopt;
     }();
-    if (number && !shift &&
-        view_.value("local_mode", std::string("none")) != "unicode" &&
+    if (number &&
         !view_.value("nine_key", false) &&
         preferences_.value("number_row_selection", true)) {
       const size_t index = *number;
@@ -5537,6 +5654,26 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       }
       return false;
     }
+  }
+  // Keypad marks: the decimal point always stays ASCII (Windows keeps numpad '.' for numbers), and while composing the arithmetic keys finish the spelling with their ASCII mark instead of the Chinese one. The same rule as the IBus host.
+  const auto keypad = [&]() -> char {
+    switch (sym) {
+    case FcitxKey_KP_Decimal: return '.';
+    case FcitxKey_KP_Separator: return ',';
+    case FcitxKey_KP_Subtract: return '-';
+    case FcitxKey_KP_Add: return '+';
+    case FcitxKey_KP_Divide: return '/';
+    case FcitxKey_KP_Multiply: return '*';
+    case FcitxKey_KP_Equal: return '=';
+    default: return 0;
+    }
+  }();
+  if (keypad && (keypad == '.' || composingOrCandidates())) {
+    if (apply(msime_client_punctuation_ascii(session_, static_cast<uint8_t>(keypad))))
+      return true;
+    if (keypad != '.') return false;
+    commitText(fullwidthOutput() ? std::string("．") : std::string("."));
+    return true;
   }
   const auto text = fcitx::Key::keySymToUTF8(sym);
   if (text.size() == 1 && text[0] >= 0x20 && text[0] <= 0x7e) {
@@ -5560,6 +5697,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (asciiPunctuation) {
       if (repeatSmartPunctuationToChinese(text[0]))
         return true;
+      if (!keypad) {
+        if (const auto paired = pairedPunctuation(text[0], composing)) return *paired;
+      }
       return punctuation(static_cast<uint8_t>(text[0]));
     }
     return apply(msime_client_character(session_, static_cast<uint8_t>(text[0]), key.states().test(fcitx::KeyState::Shift)));

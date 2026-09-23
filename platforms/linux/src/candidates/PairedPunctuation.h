@@ -90,6 +90,75 @@ inline std::optional<std::string> paired_closing_for_key(char key,
   }
 }
 
+inline const char *paired_punctuation_closing(std::string_view text) {
+  for (const auto &[opening, closing] : {
+           std::pair<std::string_view, const char *> {"（", "）"},
+           {"【", "】"},
+           {"《", "》"},
+           {"〈", "〉"}}) {
+    if (text.size() >= opening.size() &&
+        text.compare(text.size() - opening.size(), opening.size(), opening) == 0)
+      return closing;
+  }
+  return nullptr;
+}
+// How a host completes the opening mark Engine committed for a paired key: brackets and the book title get their closing mark, `{` its brace, and a quote key always yields an opening and closing quote pair whichever half Engine chose. Both Linux hosts use this, then step the caret back between the two marks.
+enum class PunctuationPairMode {
+  Unpaired,
+  Bracket,
+  Brace,
+  DoubleQuote,
+  SingleQuote
+};
+inline bool normalize_punctuation_pair(std::string &text, PunctuationPairMode mode) {
+  if (mode == PunctuationPairMode::Unpaired)
+    return false;
+  if (mode == PunctuationPairMode::Brace) {
+    if (!text.empty() && text.back() == '{') {
+      text.push_back('}');
+      return true;
+    }
+    // The Fcitx5 host receives the mark after Engine applied full width.
+    if (text.size() >= 3 && text.compare(text.size() - 3, 3, "｛") == 0) {
+      text += "｝";
+      return true;
+    }
+    return false;
+  }
+  if (mode == PunctuationPairMode::Bracket) {
+    if (const auto *closing = paired_punctuation_closing(text)) {
+      text += closing;
+      return true;
+    }
+    return false;
+  }
+  const std::string_view opening =
+      mode == PunctuationPairMode::DoubleQuote ? "“" : "‘";
+  const std::string_view closing =
+      mode == PunctuationPairMode::DoubleQuote ? "”" : "’";
+  for (const auto suffix : {opening, closing}) {
+    if (text.size() < suffix.size() ||
+        text.compare(text.size() - suffix.size(), suffix.size(), suffix) != 0)
+      continue;
+    text.erase(text.size() - suffix.size());
+    text += opening;
+    text += closing;
+    return true;
+  }
+  return false;
+}
+inline std::optional<std::string> paired_closing_from_text(std::string_view text) {
+  for (const auto closing : {std::string_view("）"), std::string_view("】"),
+                             std::string_view("》"), std::string_view("〉"),
+                             std::string_view("｝"), std::string_view("}"),
+                             std::string_view("”"), std::string_view("’")}) {
+    if (text.size() >= closing.size() &&
+        text.compare(text.size() - closing.size(), closing.size(), closing) ==
+            0)
+      return std::string(closing);
+  }
+  return std::nullopt;
+}
 // Spreadsheet cells on Linux cannot reliably preserve the caret move used by
 // paired punctuation.  IBus supplies the focused client name, so keep the
 // exclusion narrow to applications whose executable identifies as a
