@@ -129,6 +129,20 @@ if ! rg -q 'CandidatePreeditStylePolicy\.composedText' \
   echo "Android candidate preedit style must gate the spelling, never the phrase prefix" >&2
   exit 1
 fi
+# The polish presets carry their own prompt-injection wording and already exist in four places in
+# this repository. This host reads the shared table through JNI rather than adding a fifth copy,
+# and the transcript travels inside the tags that wording refers to.
+if ! rg -q 'msime::windows::polish_prompt_for' \
+    "$repo_root/platforms/android/native/client_jni.cpp" \
+  || rg -q '语音转写整理助手' "$repo_root/platforms/android/java"; then
+  echo "Android must read the polish presets from the shared table, not a copy" >&2
+  exit 1
+fi
+if ! rg -q '<asr_text>' \
+    "$repo_root/platforms/android/java/app/msime/client/voice/VoicePolishPolicy.java"; then
+  echo "Android polish must wrap the transcript in the boundary the presets name" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
@@ -143,7 +157,7 @@ esac
 jni_compiler="$ndk/toolchains/llvm/prebuilt/$host_tag/bin/aarch64-linux-android28-clang++"
 if [[ -n "$host_tag" && -x "$jni_compiler" ]]; then
   "$jni_compiler" -std=c++20 -fsyntax-only -Wall -Werror \
-    -I"$repo_root/crates/host-api/include" \
+    -I"$repo_root/crates/host-api/include" -I"$repo_root/shared" \
     "$repo_root/platforms/android/native/client_jni.cpp"
   echo "client_jni.cpp: aarch64-linux-android compile against the shared header passed"
 else
@@ -219,6 +233,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/voice/VoiceResultStoreSmoke.java" \
   "$repo_root/platforms/android/tests/voice/AiPolishClientSmoke.java" \
   "$repo_root/platforms/android/tests/voice/HttpAsrPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/voice/VoicePolishPolicySmoke.java" \
   "$repo_root/platforms/android/tests/candidate/ReplyKeyboardSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardSkinSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackSmoke.java" \
@@ -289,6 +304,7 @@ java -cp "$output_dir" KeyboardLayoutAdjustPolicySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke
 java -cp "$output_dir" AiPolishClientSmoke
 java -cp "$output_dir" HttpAsrPolicySmoke
+java -cp "$output_dir" VoicePolishPolicySmoke
 java -cp "$output_dir" ReplyKeyboardSmoke
 java -cp "$output_dir" app.msime.client.KeyboardSkinSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke

@@ -23,6 +23,21 @@ class VoiceRecognitionArgs {
      * this host's default and works with no account at all.
      */
     var provider: VoiceProviderArgs? = null
+
+    /** The optional rewrite over whatever was transcribed, absent unless the user asked for it. */
+    var polish: VoicePolishArgs? = null
+}
+
+@InvokeArg
+class VoicePolishArgs {
+    var endpoint: String = ""
+    var model: String = ""
+    var token: String = ""
+    var promptId: String = ""
+    var promptLegacy: String = ""
+    var promptCustom1: String = ""
+    var promptCustom2: String = ""
+    var promptCustom3: String = ""
 }
 
 @InvokeArg
@@ -92,6 +107,17 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
             VoiceRecognitionActivity.launch(
                 hostActivity, args.requestId, args.language,
                 provider?.provider, provider?.endpoint, provider?.model, provider?.token,
+                args.polish?.let {
+                    // The prompt itself is resolved from the shared preset table on the way in,
+                    // so the activity carries text rather than a slot id to look up again.
+                    VoiceRecognitionActivity.Polish(
+                        it.endpoint, it.model, it.token,
+                        NativeClient.polishPrompt(
+                            it.promptId, it.promptLegacy,
+                            it.promptCustom1, it.promptCustom2, it.promptCustom3,
+                        ),
+                    )
+                },
             )
         } catch (_: RuntimeException) {
             VoiceRecognitionActivity.clearRequest(args.requestId)

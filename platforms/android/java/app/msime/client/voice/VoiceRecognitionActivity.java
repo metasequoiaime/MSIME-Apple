@@ -35,6 +35,10 @@ public final class VoiceRecognitionActivity extends Activity {
     private static final String EXTRA_ENDPOINT = "app.msime.client.voice.ENDPOINT";
     private static final String EXTRA_MODEL = "app.msime.client.voice.MODEL";
     private static final String EXTRA_TOKEN = "app.msime.client.voice.TOKEN";
+    private static final String EXTRA_POLISH_ENDPOINT = "app.msime.client.voice.POLISH_ENDPOINT";
+    private static final String EXTRA_POLISH_MODEL = "app.msime.client.voice.POLISH_MODEL";
+    private static final String EXTRA_POLISH_TOKEN = "app.msime.client.voice.POLISH_TOKEN";
+    private static final String EXTRA_POLISH_PROMPT = "app.msime.client.voice.POLISH_PROMPT";
     private static volatile WeakReference<VoiceRecognitionActivity> active =
         new WeakReference<>(null);
     private static volatile String activeRequestId;
@@ -60,8 +64,11 @@ public final class VoiceRecognitionActivity extends Activity {
         return requestId != null && requestId.equals(activeRequestId);
     }
 
+    /** The optional rewrite, already resolved: the prompt is text here, not a slot to look up. */
+    public record Polish(String endpoint, String model, String token, String prompt) {}
+
     public static void launch(Context context, String requestId, String language) {
-        launch(context, requestId, language, null, null, null, null);
+        launch(context, requestId, language, null, null, null, null, null);
     }
 
     /**
@@ -70,7 +77,8 @@ public final class VoiceRecognitionActivity extends Activity {
      * activity only checks that it can speak that protocol before using them.
      */
     public static void launch(Context context, String requestId, String language,
-                              String provider, String endpoint, String model, String token) {
+                              String provider, String endpoint, String model, String token,
+                              Polish polish) {
         markLaunched(requestId);
         Intent intent = new Intent(context, VoiceRecognitionActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -80,6 +88,12 @@ public final class VoiceRecognitionActivity extends Activity {
         if (endpoint != null) intent.putExtra(EXTRA_ENDPOINT, endpoint);
         if (model != null) intent.putExtra(EXTRA_MODEL, model);
         if (token != null) intent.putExtra(EXTRA_TOKEN, token);
+        if (polish != null) {
+            intent.putExtra(EXTRA_POLISH_ENDPOINT, polish.endpoint());
+            intent.putExtra(EXTRA_POLISH_MODEL, polish.model());
+            intent.putExtra(EXTRA_POLISH_TOKEN, polish.token());
+            intent.putExtra(EXTRA_POLISH_PROMPT, polish.prompt());
+        }
         context.startActivity(intent);
     }
 
@@ -190,7 +204,12 @@ public final class VoiceRecognitionActivity extends Activity {
                 if (finished) return;
                 ArrayList<String> values = results == null
                     ? null : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                if (values != null && !values.isEmpty()) saveResult(values.get(0));
+                if (values != null && !values.isEmpty()) {
+                    // Off the main thread: polishing is a network round trip, and onResults is
+                    // delivered on the thread drawing this window.
+                    deliver(values.get(0));
+                    return;
+                }
                 finishRequest();
             }
             @Override public void onPartialResults(Bundle partialResults) { }
@@ -233,9 +252,10 @@ public final class VoiceRecognitionActivity extends Activity {
             }
             String finalText = text;
             String finalMessage = message;
+            String polishedText = finalText == null ? null : polished(finalText);
             runOnUiThread(() -> {
                 if (finished) return;
-                if (finalText != null) saveResult(finalText);
+                if (polishedText != null) saveResult(polishedText);
                 else if (finalMessage != null) fail(finalMessage);
                 finishRequest();
             });
@@ -272,6 +292,42 @@ public final class VoiceRecognitionActivity extends Activity {
 
     private void fail(String message) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * The rewrite the user asked for, or the transcript unchanged.
+     *
+     * <p>Best effort: a rewrite improves text the user already has, so any failure keeps the
+     * original rather than losing a recognised sentence to an unreachable service. It runs for
+     * both engines, because the setting is about the result and not about who produced it.
+     */
+    /** Polish on a worker, then save and finish on the thread that owns this window. */
+    private void deliver(String text) {
+        if (getIntent().getStringExtra(EXTRA_POLISH_ENDPOINT) == null) {
+            saveResult(text);
+            finishRequest();
+            return;
+        }
+        if (providerWorker == null) providerWorker = Executors.newSingleThreadExecutor();
+        providerWorker.execute(() -> {
+            String result = polished(text);
+            runOnUiThread(() -> {
+                if (finished) return;
+                saveResult(result);
+                finishRequest();
+            });
+        });
+    }
+
+    private String polished(String text) {
+        Intent intent = getIntent();
+        String endpoint = intent.getStringExtra(EXTRA_POLISH_ENDPOINT);
+        if (endpoint == null) return text;
+        String polished = VoicePolisher.polish(endpoint,
+            intent.getStringExtra(EXTRA_POLISH_MODEL),
+            intent.getStringExtra(EXTRA_POLISH_TOKEN),
+            intent.getStringExtra(EXTRA_POLISH_PROMPT), text);
+        return polished == null ? text : polished;
     }
 
     private void saveResult(String text) {

@@ -31,6 +31,51 @@ struct AndroidVoiceRequest<'a> {
     /// gets by configuring one in settings, not something to be required of everyone.
     #[serde(skip_serializing_if = "Option::is_none")]
     provider: Option<MobileVoiceTranscriptionRequest>,
+    /// The optional rewrite that runs over whatever was transcribed, by either engine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    polish: Option<AndroidVoicePolishRequest>,
+}
+
+/// The optional rewrite that runs over a transcript, when the user asked for one.
+///
+/// The prompt is not here: the host resolves the selected slot through the shared preset table so
+/// there is one copy of the wording that marks the transcript as data rather than instructions.
+#[cfg(any(target_os = "android", test))]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AndroidVoicePolishRequest {
+    pub endpoint: String,
+    pub model: String,
+    pub token: String,
+    pub prompt_id: String,
+    pub prompt_legacy: String,
+    pub prompt_custom_1: String,
+    pub prompt_custom_2: String,
+    pub prompt_custom_3: String,
+}
+
+#[cfg(any(target_os = "android", test))]
+impl AndroidVoicePolishRequest {
+    pub fn is_valid(&self) -> bool {
+        self.endpoint.starts_with("https://")
+            && self.endpoint.len() <= 2048
+            && !self.endpoint.chars().any(char::is_control)
+            && !self.model.trim().is_empty()
+            && self.model.len() <= 512
+            && !self.model.chars().any(char::is_control)
+            && !self.token.trim().is_empty()
+            && self.token.len() <= 16 * 1024
+            && !self.token.chars().any(char::is_control)
+            && self.prompt_id.len() <= 64
+            && [
+                &self.prompt_legacy,
+                &self.prompt_custom_1,
+                &self.prompt_custom_2,
+                &self.prompt_custom_3,
+            ]
+            .iter()
+            .all(|slot| slot.len() <= 8192)
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -61,11 +106,13 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
         request_id: &str,
         language: &str,
         provider: Option<MobileVoiceTranscriptionRequest>,
+        polish: Option<AndroidVoicePolishRequest>,
     ) -> Result<String, ()> {
         if !valid_android_voice_request(request_id, language) {
             return Err(());
         }
         let provider = provider.filter(MobileVoiceTranscriptionRequest::is_valid);
+        let polish = polish.filter(AndroidVoicePolishRequest::is_valid);
         let response = self
             .0
             .run_mobile_plugin_async::<AndroidVoiceResponse>(
@@ -74,6 +121,7 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
                     request_id,
                     language,
                     provider,
+                    polish,
                 },
             )
             .await
