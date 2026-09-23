@@ -31,7 +31,7 @@ final class VoicePolishTests: XCTestCase {
     var document: [String: Any] = ["voice_input": [
       "polish_enabled": true, "polish_prompt_id": "zh2en", "polish_prompt_custom_3": "三",
       "language": "en-US", "sound_enabled": false, "end_sound": false, "asr_provider": "doubao",
-      "stream_inline_preedit": false,
+      "stream_inline_preedit": false, "mute_system_audio": true,
     ]]
     var settings = VoicePolishSettings(document)
     XCTAssertTrue(settings.polishEnabled)
@@ -42,6 +42,7 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertTrue(settings.startSound)
     XCTAssertFalse(settings.endSound)
     XCTAssertFalse(settings.streamLive)
+    XCTAssertTrue(settings.muteOthers)
 
     settings.promptID = "custom_1"
     settings.customPrompts[0] = "  \n"
@@ -49,6 +50,7 @@ final class VoicePolishTests: XCTestCase {
     settings.startSound = false
     settings.endSound = true
     settings.streamLive = true
+    settings.muteOthers = false
     settings.write(into: &document)
     let voice = document["voice_input"] as? [String: Any]
     XCTAssertEqual(voice?["polish_text"] as? Bool, false)
@@ -61,6 +63,7 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(voice?["end_sound"] as? Bool, true)
     XCTAssertEqual(voice?["sound_enabled"] as? Bool, false)
     XCTAssertEqual(voice?["stream_inline_preedit"] as? Bool, true)
+    XCTAssertEqual(voice?["mute_system_audio"] as? Bool, false)
   }
 
   func testUnknownValuesFallBackToTheDefaults() {
@@ -69,6 +72,7 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(settings.language, "zh-cn")
     XCTAssertFalse(settings.polishEnabled)
     XCTAssertTrue(settings.streamLive)
+    XCTAssertFalse(settings.muteOthers)
   }
 
   func testTranscriptionLanguageFollowsTheSharedNormalization() {

@@ -354,9 +354,9 @@ struct ServiceSettingsView: View {
                 if voiceSettings.soundEnabled && voiceSettings.startSound { await VoiceCue.playStart() }
                 do {
                   if live {
-                    if let pcm = try await recorder.startStreaming() { recognizeLive(pcm) }
+                    if let pcm = try await recorder.startStreaming(quietensOthers: voiceSettings.muteOthers) { recognizeLive(pcm) }
                   } else {
-                    try await recorder.start()
+                    try await recorder.start(quietensOthers: voiceSettings.muteOthers)
                   }
                 }
                 catch is CancellationError {} catch { status = error.localizedDescription }
@@ -480,6 +480,8 @@ struct ServiceSettingsView: View {
         Toggle("边说边识别", isOn: $voiceSettings.streamLive)
           .accessibilityIdentifier("voiceStreamLive")
       }
+      Toggle("录音时暂停其他声音", isOn: $voiceSettings.muteOthers)
+        .accessibilityIdentifier("voiceMuteOthers")
       Toggle("录音提示音", isOn: $voiceSettings.soundEnabled)
         .accessibilityIdentifier("voiceSoundEnabled")
       // 和桌面「开始录音提示音」「结束录音提示音」同两个键。总开关关着时两项都不响,收起来免得看着像还开着。
@@ -491,10 +493,10 @@ struct ServiceSettingsView: View {
       }
     } footer: {
       Text(configuration.voiceProvider == .doubao
-        ? "豆包自动判断语言，不使用这里的选择。边说边识别时录音同步发给豆包，结果随说随显示，停止录音即得到结果；关掉则录完再发送。开始和结束录音时各有一声系统提示音，可以分别关掉。"
+        ? "豆包自动判断语言，不使用这里的选择。边说边识别时录音同步发给豆包，结果随说随显示，停止录音即得到结果；关掉则录完再发送。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
         : configuration.voiceProvider == .siliconFlow
-        ? "当前服务自动判断语言，不使用这里的选择。开始和结束录音时各有一声系统提示音，可以分别关掉。"
-        : "识别语言随录音一起发送；选“自动识别”时由服务判断。开始和结束录音时各有一声系统提示音，可以分别关掉。")
+        ? "当前服务自动判断语言，不使用这里的选择。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
+        : "识别语言随录音一起发送；选“自动识别”时由服务判断。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。")
     }
   }
 

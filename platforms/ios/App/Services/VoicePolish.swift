@@ -30,6 +30,8 @@ struct VoicePolishSettings: Equatable {
   var endSound = true
   /// The desktop's `stream_inline_preedit`: Doubao recognizes while the user speaks. Windows writes the partial text into the document; iOS records in the app, so the partial text shows on the page instead.
   var streamLive = true
+  /// The desktop's `mute_system_audio`. iOS cannot mute other apps, but a recording session can take the audio from them, which stops their playback; off, they keep playing under the recording. Off unless asked for, as the shared default is on this host.
+  var muteOthers = false
 
   init() {}
 
@@ -47,6 +49,7 @@ struct VoicePolishSettings: Equatable {
     startSound = voice["start_sound"] as? Bool ?? true
     endSound = voice["end_sound"] as? Bool ?? true
     streamLive = voice["stream_inline_preedit"] as? Bool ?? true
+    muteOthers = voice["mute_system_audio"] as? Bool ?? false
   }
 
   /// Writes the fields this page owns and keeps the rest of `voice_input` (desktop providers, hotkeys, Doubao settings) as it was.
@@ -63,6 +66,7 @@ struct VoicePolishSettings: Equatable {
     voice["start_sound"] = startSound
     voice["end_sound"] = endSound
     voice["stream_inline_preedit"] = streamLive
+    voice["mute_system_audio"] = muteOthers
     preferences["voice_input"] = voice
   }
 

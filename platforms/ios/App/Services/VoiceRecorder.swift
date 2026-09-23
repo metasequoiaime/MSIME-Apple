@@ -15,8 +15,8 @@ final class VoiceRecorder: ObservableObject {
   private var live: AsyncStream<Data>.Continuation?
   private var capture: LiveCapture?
 
-  func start() async throws {
-    guard try await prepare() else { return }
+  func start(quietensOthers: Bool) async throws {
+    guard try await prepare(quietensOthers: quietensOthers) else { return }
     do {
       let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
       file = url
@@ -38,8 +38,8 @@ final class VoiceRecorder: ObservableObject {
   }
 
   /// Records through the audio engine and hands out 16 kHz mono PCM16 as it is captured, for a service that recognizes while the user speaks. The stream finishes when recording stops, and `audio` then holds the whole recording, so it can still be sent the ordinary way if the live request failed.
-  func startStreaming() async throws -> AsyncStream<Data>? {
-    guard try await prepare() else { return nil }
+  func startStreaming(quietensOthers: Bool) async throws -> AsyncStream<Data>? {
+    guard try await prepare(quietensOthers: quietensOthers) else { return nil }
     let (stream, continuation) = AsyncStream<Data>.makeStream()
     do {
       let engine = AVAudioEngine()
@@ -66,7 +66,8 @@ final class VoiceRecorder: ObservableObject {
     }
   }
 
-  private func prepare() async throws -> Bool {
+  /// `quietensOthers` takes the audio from other apps for the recording, which is as close as iOS comes to the desktop muting system audio; otherwise they keep playing and the route stays on the speaker rather than moving to the receiver.
+  private func prepare(quietensOthers: Bool) async throws -> Bool {
     guard !isPreparing && !isRecording else { return false }
     isPreparing = true
     defer { isPreparing = false }
@@ -78,7 +79,11 @@ final class VoiceRecorder: ObservableObject {
     guard allowed else { throw ServiceFailure(message: "请在系统设置中允许水杉使用麦克风。") }
     discard()
     do {
-      try session.setCategory(.record, mode: .default)
+      if quietensOthers {
+        try session.setCategory(.record, mode: .default)
+      } else {
+        try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker])
+      }
       try session.setActive(true)
     } catch {
       discard()
