@@ -2470,3 +2470,9 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 边框：Linux 调色板补上 Windows 皮肤的容器边框——fluent 浅色为黑色 0.12、深色为 `#9B9B9B` 0.18，wechat 为 `#DEDEDE`/`#292929`，graphite 为 `#E2E5E9`/`#30353B`，willow_green 无边框。外部皮肤在 Windows 上以 fluent 为底，因此默认带 fluent 的边框；皮肤包的 `border` 字段（`#rrggbb`、`#rrggbbaa` 或 `transparent`）经 `candidate_display_preferences` 生效，用户的 `candidate_border_color` 仍优先；自定义颜色沿用皮肤宽度，willow_green 始终无边框；皮肤包里的 `rgba()` 等本宿主不解析的写法保留原边框，与 Windows 对无法解析值的处理相同。Fcitx5 classic UI 用 SOURCE 运算符绘制边框，半透明边框会把桌面透出来，所以颜色在解析时先与面板底色合成为不透明色再写入 `BorderColor`。宽度取整数：Windows 原生卡片用 Direct2D 画 1.5 DIP 的抗锯齿描边（fluent；wechat/graphite 为 1），Fcitx5 classic UI 的 `BorderWidth` 只能是整数，所以所有带边框的皮肤在这里都取 1px，作为最接近且不改变布局的近似值；Background/ContentMargin 取 `max(2, 宽度 + 1)`，在现有宽度下保持 2，布局不变。IBus 的 lookup table 属性画不了边框，IBus 继续无边框，两端的颜色解析仍共用 `resolve_candidate_colors`。
 - 悬浮工具栏主题：Linux 的悬浮工具栏是 IBus 属性菜单和 Fcitx5 状态菜单，由桌面 panel 按自己的主题绘制，没有 Linux 宿主读取 `toolbar_theme`（只有 macOS `FloatingToolbarPanel.mm`、Windows `server_main.cpp` 和 HarmonyOS `KeyboardSession.ets` 读取）。设置页照「菜单主题」的做法对 Linux 隐藏该项。
 - 证据：Linux 构建门禁容器（GCC 12，`-Wall -Wextra -Werror`）编译并运行字体策略、调色板、Fcitx 主题用例；Fcitx5 原生用例的纠错标记断言在容器内手动运行；`cargo test -p msime-client-core host_surface`、clippy；设置页 vitest 与 `tsc`。未在真实 Fcitx5/IBus 桌面上目视确认边框、字体和标记。
+
+### macOS 竖排候选可见时左右键移动组合光标（2026-09-23）
+
+- 来源：`CompositionProcessorEngine.cpp` 在候选显示时把 `VK_LEFT`/`VK_RIGHT` 映射为 `FUNCTION_MOVE_LEFT`/`FUNCTION_MOVE_RIGHT`，Server `ApplyCompositionEditKey` 移动组合光标（Ctrl 按分词跳），随后按新光标刷新候选；上下键才是候选选择。macOS 原来在竖排候选可见时直接吞掉左右键（027ec68a8 按 Apple 来源加的消费规则），光标只能在候选隐藏时移动。现在竖排面板下左右键落到与候选隐藏时相同的 `MSIME_MOVE_LEFT`/`MSIME_MOVE_RIGHT` 路径，按键仍由输入法消费、不漏给宿主程序；横排面板的左右键选候选、上下键消费保持不变。
+- 差异：来源的这条映射不区分候选窗布局，横排（`candidate_window_layout = "horizontal"`）下左右键同样移动光标，而 macOS 横排仍用左右键切换候选。本次只改竖排，横排是否对齐待定。
+- 证据：`ShortcutTest.mm` 覆盖竖排候选可见与隐藏时左右键都发出光标移动命令、横排左右键仍是上/下一个候选；macOS 原生构建与 ctest 全部通过。未在真实编辑器中目视确认。

@@ -3797,10 +3797,13 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     }
     if (_panel.isVisible && [_appearance navigationEnabled:@"arrows"] && event.keyCode >= 123 && event.keyCode <= 126) {
         const BOOL horizontal = event.keyCode == 123 || event.keyCode == 124;
-        if (horizontal == _appearance.vertical) return YES;
-        const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
-        [self apply:[_session command:backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE error:nil]];
-        return YES;
+        // A vertical panel leaves Left/Right to the composition caret below, as Windows maps VK_LEFT/VK_RIGHT to FUNCTION_MOVE_LEFT/RIGHT while candidates are shown; the Engine answers the move with candidates for the new caret. Up/Down in a horizontal panel are still consumed so they never reach the host.
+        if (horizontal != _appearance.vertical) {
+            const BOOL backwards = event.keyCode == 123 || event.keyCode == 126;
+            [self apply:[_session command:backwards ? MSIME_PREVIOUS_CANDIDATE : MSIME_NEXT_CANDIDATE error:nil]];
+            return YES;
+        }
+        if (!horizontal) return YES;
     }
     if (_panel.isVisible && event.keyCode == 49 &&
         !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
