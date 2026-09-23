@@ -158,8 +158,7 @@ target_include_directories(msime-tsf PRIVATE
   ../../../crates/host-api/include
 )
 target_compile_features(msime-tsf PRIVATE cxx_std_17)
-# NOMINMAX: the Engine contracts call std::numeric_limits<...>::max(), which the Windows SDK min/max macros break under MSVC.
-target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE NOMINMAX)
+target_compile_definitions(msime-tsf PRIVATE UNICODE _UNICODE)
 target_link_libraries(msime-tsf PRIVATE nlohmann_json::nlohmann_json fmt::fmt-header-only ole32 oleaut32 user32 advapi32 shell32 uuid)
 # TSF objects are obtained through COM; GUIDs come from uuid. No direct TF_*
 # exports are used, and MinGW distributions need not ship an msctf import lib.
