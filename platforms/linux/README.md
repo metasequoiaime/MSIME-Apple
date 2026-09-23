@@ -299,7 +299,7 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 `bash build-container.sh` 在容器里编译整个 Linux 原生宿主（IBus engine、Fcitx5 插件、全部 provider 入口和单测）并运行 `ctest`，不需要词库、不启动任何 daemon，也不需要本机是 Linux；它由 `scripts/verify-local.sh` 作为编译门禁自动调用，Linux 主机上则直接用系统 ibus 开发包跑同一套配置。镜像定义在 `tests/tools/Dockerfile.build-gate`，与隔离验收镜像分开，以免给后者加上会改变其构建内容的 X11/XFixes/Fcitx5 开发包。
 
-隔离验收脚本会像 Windows 门禁找 vcpkg 那样，按「本仓 `vendor` → 主 worktree 的 `vendor`」的顺序找到已有的 `vendor/MSIME-Engine` 并只读挂进容器，因此在 worktree 里也能跑（`/source` 是只读挂载，Engine 归档没法在容器里就地取回）。随包在线/语音/剪贴板 provider、凭据、豆包鉴权、翻译缓存、录音设备这一整片 Python 测试都在容器内执行。
+隔离验收脚本会像 Windows 门禁找 vcpkg 那样，按「本仓 `vendor` → 主 worktree 的 `vendor`」的顺序找到已有的 `vendor/MSIME-Engine` 并只读挂进容器，因此在 worktree 里也能跑（`/source` 是只读挂载，Engine 归档没法在容器里就地取回）。`check-container.sh` 为此在本仓留一个空的 `vendor/` 作挂载点（只读的 `/source` 里 Docker 建不出它），并设 `MSIME_SKIP_ENGINE_FETCH=1`，构建直接使用挂进来的 Engine 树，不再往只读挂载里取回。随包在线/语音/剪贴板 provider、凭据、豆包鉴权、翻译缓存、录音设备这一整片 Python 测试都在容器内执行。
 
 `bash tests/tools/check-container.sh /absolute/verified-resources` 创建专用 Linux 容器，源码与词库只读挂载，构建缓存仅写入本仓 target/linux。基础 Rust 镜像固定摘要，apt 开发依赖来自 Debian bookworm 仓库；不声称所有系统包字节级可复现。容器内创建独立 D-Bus 和 IBus daemon，不连接宿主桌面，不修改现有输入源，结束后移除容器并保留构建缓存。
 

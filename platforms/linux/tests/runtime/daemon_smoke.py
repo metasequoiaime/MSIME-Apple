@@ -68,28 +68,25 @@ context.set_capabilities(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT | 
 context.focus_in()
 assert bus.set_global_engine("msime-client"), "Global engine activation failed"
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client")
-assert not context.process_key_event(ord("n"), 0, 0), "Configured English default intercepted input"
-context.property_activate("InputMode", IBus.PropState.CHECKED)
 context.property_activate("ChinesePunctuation", IBus.PropState.UNCHECKED)
 context.property_activate("EnglishCandidates", IBus.PropState.CHECKED)
 context.property_activate("EmojiCandidates", IBus.PropState.CHECKED)
 context.property_activate("KaomojiCandidates", IBus.PropState.CHECKED)
-for character in "nihao":
+# The fixture carries the shipped default_ime_mode, which is Chinese as on Windows (in-container.sh checks it), so the first letter composes without touching the mode.
+assert context.process_key_event(ord("n"), 0, 0), "Shipped Chinese default passed input through"
+for character in "ihao":
     assert context.process_key_event(ord(character), 0, 0)
 assert context.process_key_event(IBus.KEY_space, 0, 0)
 wait(lambda: commits == ["你好"])
-# This fixture uses global CN/EN mode. A different input source must clear
-# that authority so returning starts with the configured English default.
+# This fixture uses global CN/EN mode. A different input source must clear that authority, so returning starts from the configured Chinese default rather than the English the user left it in.
 context.property_activate("InputMode", IBus.PropState.UNCHECKED)
-assert not context.process_key_event(ord("n"), 0, 0)
+assert not context.process_key_event(ord("n"), 0, 0), "InputMode property did not leave Chinese"
 assert bus.set_global_engine("xkb:us::eng"), "US input source activation failed"
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "xkb:us::eng")
 assert bus.set_global_engine("msime-client"), "Input source reactivation failed"
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client")
-assert not context.process_key_event(ord("n"), 0, 0), "Source switch did not restore configured English mode"
-context.property_activate("InputMode", IBus.PropState.CHECKED)
 for character in "nihao":
-    assert context.process_key_event(ord(character), 0, 0)
+    assert context.process_key_event(ord(character), 0, 0), "Source switch retained global English mode"
 assert context.process_key_event(IBus.KEY_space, 0, 0)
 wait(lambda: commits == ["你好", "你好"])
 

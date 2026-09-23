@@ -20,6 +20,8 @@ vendor=""
 for candidate in "$repo_root/vendor" "$main_worktree/vendor"; do
   [[ -d $candidate/MSIME-Engine ]] && vendor=$(cd "$candidate" && pwd) && break
 done
+# Docker cannot create the /source/vendor mountpoint inside the read-only /source mount, and a worktree has no vendor/ of its own, so leave an empty (ignored) one for it. The build then uses the mounted tree as it is instead of fetching into it.
+[[ -z $vendor ]] || mkdir -p "$repo_root/vendor"
 docker build -t msime-client-linux-test:local -f "$repo_root/platforms/linux/tests/tools/Dockerfile" "$repo_root/platforms/linux/tests"
 test_image=msime-client-linux-test:local
 if [[ ${2:-} == --ibus-1.5.32 ]]; then
@@ -33,6 +35,7 @@ fi
 docker run --rm --init \
   -v "$repo_root:/source:ro" -v "$repo_root/target/linux:/build" -v "$resource_dir:/resources:ro" \
   ${vendor:+-v "$vendor:/source/vendor:ro"} \
+  ${vendor:+-e MSIME_SKIP_ENGINE_FETCH=1} \
   -e CARGO_TARGET_DIR=/build/cargo -e CARGO_HOME=/build/cargo-home -e CARGO_BUILD_JOBS=4 \
   -e MSIME_ISOLATED_LINUX_TEST=1 \
   -e MSIME_TEST_FCITX5=$( [[ ${2:-} == --fcitx5 ]] && echo 1 || echo 0 ) \
