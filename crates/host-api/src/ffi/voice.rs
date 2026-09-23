@@ -290,7 +290,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
                 }
             }
         };
-        let value = UnixSocketProvider::new(path).voice_stream_with_options_feedback(
+        let value = UnixSocketProvider::new(path).voice_stream_with_options_diagnosed(
             &query.language,
             query.generation,
             &query.options,
@@ -307,9 +307,12 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
                 None
             },
         );
-        Ok(value
-            .map(|text| json!({"text": text}))
-            .unwrap_or(Value::Null))
+        match value {
+            Ok(text) => Ok(json!({"text": text})),
+            // A named missing dependency is the one provider failure reported as an error, so hosts can show what to install; older callers see it as any other failed call.
+            Err(Some(detail)) => Err(format!("voice_dependency_missing:{detail}")),
+            Err(None) => Ok(Value::Null),
+        }
     })
 }
 

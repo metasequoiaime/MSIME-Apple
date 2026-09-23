@@ -619,7 +619,8 @@ char *msime_client_voice_provider_stream_events(
     size_t socket_length, msime_client_voice_update_callback callback,
     msime_client_voice_status_callback status_callback, void *context);
 /* Normalized microphone level in [0, 1]; never transcript text or audio.
- * Callback runs synchronously on the caller thread and must not throw. */
+ * Callback runs synchronously on the caller thread and must not throw.
+ * All three stream calls return {"ok":true,"value":{"text":...}} on success and value null when the provider gave no result. A provider that names a missing optional dependency returns {"ok":false,"error":"voice_dependency_missing:websockets"} or "voice_dependency_missing:recorder". */
 typedef void (*msime_client_voice_level_callback)(float level, void *context);
 char *msime_client_voice_provider_stream_feedback(
     const uint8_t *query, size_t query_length, const uint8_t *socket_path,

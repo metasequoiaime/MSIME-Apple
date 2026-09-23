@@ -1244,6 +1244,65 @@ int main(int argc, char **argv) {
     }
     require(!state->voice_job_.valid(), "cancelled voice future is reclaimed asynchronously");
     require(ic.committed == committedBeforeCancel, "cancelled voice result is not committed");
+    // A native surface that cannot show (GNOME Wayland has no layer-shell) hands the recording's status to the auxiliary text, as the IBus FallbackSurface does, instead of leaving the recording invisible.
+    {
+      struct UnavailableSurface final : msime::linux_host::WaveOverlaySurface {
+        explicit UnavailableSurface(int &count) : shows(count) {}
+        bool show(const msime::linux_host::WaveOverlayModel &) override {
+          ++shows;
+          return false;
+        }
+        void update(const msime::linux_host::WaveOverlayModel &) override {}
+        void hide() override {}
+        int &shows;
+      };
+      int shows = 0;
+      auto nativeSurface = std::move(state->wave_overlay_surface_);
+      state->wave_overlay_surface_ = std::make_unique<UnavailableSurface>(shows);
+      state->wave_overlay_failed_ = false;
+      state->wave_overlay_visible_ = false;
+      state->voice_loading_ = true;
+      state->voice_phase_ = "录音中";
+      const auto voiceAux = [&] { return ic.inputPanel().auxUp().toString(); };
+      state->updateVoiceOverlay();
+      require(shows == 1 && state->wave_overlay_failed_ && !state->wave_overlay_visible_,
+              "a surface that cannot show is marked failed");
+      require(voiceAux().rfind("语音：录音中", 0) == 0, "a failed surface falls back to the auxiliary text");
+      state->voice_transcript_ = "你好";
+      state->updateVoiceOverlay();
+      require(shows == 1 && voiceAux() == "语音：录音中：你好",
+              "later updates stay on the auxiliary text without retrying the surface");
+      state->render();
+      require(voiceAux() == "语音：录音中：你好", "a panel redraw keeps the voice status");
+      state->voice_loading_ = false;
+      state->voice_transcript_.clear();
+      state->wave_overlay_failed_ = false;
+      state->wave_overlay_surface_ = std::move(nativeSurface);
+      ic.inputPanel().setAuxUp(fcitx::Text());
+    }
+    // A provider that gives no result is a provider failure, as in the IBus host, and a named missing dependency says what to install; neither may read as 未识别到文字, which recording again cannot fix.
+    for (const auto &[providerError, notice] : std::vector<std::pair<std::string, std::string>>{
+             {"voice_dependency_missing:websockets", "豆包语音需要 websockets 15 或更高版本，请安装 python3-websockets"},
+             {"voice_dependency_missing:recorder", "未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils"},
+             {"", "语音输入失败，请检查语音服务、麦克风及提供商配置后重试"}}) {
+      const auto committedBeforeFailure = ic.committed;
+      const auto error = providerError;
+      state->voice_job_ = std::async(std::launch::async, [error] {
+        return Json{{"provider_error", error}};
+      }).share();
+      state->voice_job_.wait();
+      state->voice_mailbox_ = std::make_shared<FcitxVoiceMailbox>();
+      state->voice_loading_ = true;
+      state->voice_cancelled_ = false;
+      state->refreshVoice();
+      require(!state->voice_job_.valid() && !state->voice_loading_, "a failed voice result is reclaimed");
+      require(ic.committed == committedBeforeFailure, "a failed voice result commits nothing");
+      require(ic.inputPanel().auxUp().toString() == "语音：" + notice,
+              "a provider failure shows its fixed notice");
+      state->voice_failure_visible_ = false;
+      state->hideVoiceOverlay();
+      ic.inputPanel().setAuxUp(fcitx::Text());
+    }
     require(key(FcitxKey_n), "restart composition");
     ic.setCapabilityFlags(fcitx::CapabilityFlag::Password);
     require(state->session_ == 0, "password capability immediately closes session");
