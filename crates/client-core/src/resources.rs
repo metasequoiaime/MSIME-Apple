@@ -104,7 +104,7 @@ impl ResourceSet {
     pub fn generation(&self) -> Result<String, ResourceError> {
         self.validate()?;
         let encoded = serde_json::to_vec(self).map_err(|_| ResourceError::InvalidManifest)?;
-        Ok(format!("{:x}", Sha256::digest(encoded)))
+        Ok(hex::encode(Sha256::digest(encoded)))
     }
 }
 
@@ -258,7 +258,7 @@ fn copy_verified(
         hash.update(&buffer[..count]);
         output.write_all(&buffer[..count])?;
     }
-    if remaining != 0 || format!("{:x}", hash.finalize()) != artifact.sha256 {
+    if remaining != 0 || hex::encode(hash.finalize()) != artifact.sha256 {
         return Err(ResourceError::Integrity);
     }
     Ok(())
@@ -350,7 +350,7 @@ mod tests {
                 name: "msime.db".into(),
                 url: "https://example.invalid/msime.db".into(),
                 engine_path: String::new(),
-                sha256: format!("{:x}", Sha256::digest(b"fixture")),
+                sha256: hex::encode(Sha256::digest(b"fixture")),
                 size: 7,
             }],
         }

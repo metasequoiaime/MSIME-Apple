@@ -297,6 +297,11 @@ impl<'de> DeserializeSeed<'de> for StrictSnapshotValue {
     }
 }
 
+// sha2 0.11 digests no longer implement `LowerHex`, and this crate has no hex dependency for two call sites.
+fn lower_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, AccountError> {
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     let value = StrictSnapshotValue { depth: 0 }
@@ -718,7 +723,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
                 // Cloned, not consumed: the loop keeps reading after the footer
                 // so that trailing data is rejected, and those iterations still
                 // reach the digest.
-                let actual = format!("{:x}", digest.clone().finalize());
+                let actual = lower_hex(&digest.clone().finalize());
                 if expected_records != records || expected_sha != actual {
                     return Err(AccountError::Invalid);
                 }
@@ -753,7 +758,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
     Ok(SnapshotMetadata {
         cloud_revision: revision,
         sha256,
-        file_sha256: format!("{:x}", file_digest.finalize()),
+        file_sha256: lower_hex(&file_digest.finalize()),
         bytes: total_bytes,
         records,
         entries: counts[0],

@@ -355,7 +355,7 @@ impl DictionarySnapshotQueue {
                 .write_all(&buffer[..count])
                 .map_err(|_| SnapshotQueueError::Unavailable)?;
         }
-        if total == 0 || format!("{:x}", hash.finalize()) != file_sha256 {
+        if total == 0 || hex::encode(hash.finalize()) != file_sha256 {
             return Err(SnapshotQueueError::Invalid);
         }
         incoming
@@ -571,7 +571,7 @@ mod tests {
         let root = parent.path().join("queue");
         let source = parent.path().join("snapshot.ndjson");
         fs::write(&source, b"synthetic snapshot\n").unwrap();
-        let digest = format!("{:x}", Sha256::digest(fs::read(&source).unwrap()));
+        let digest = hex::encode(Sha256::digest(fs::read(&source).unwrap()));
         let initial = version("legacy", 'a');
         let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
         assert_eq!(queue.read().unwrap().request, None);
@@ -604,7 +604,7 @@ mod tests {
         let root = parent.path().join("queue");
         let source = parent.path().join("snapshot.ndjson");
         fs::write(&source, b"synthetic snapshot\n").unwrap();
-        let digest = format!("{:x}", Sha256::digest(fs::read(&source).unwrap()));
+        let digest = hex::encode(Sha256::digest(fs::read(&source).unwrap()));
         let initial = version("legacy", 'a');
         let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
         queue.publish_local_version(&initial).unwrap();
@@ -637,7 +637,7 @@ mod tests {
         let root = parent.path().join("queue");
         let source = parent.path().join("snapshot.ndjson");
         fs::write(&source, b"synthetic snapshot\n").unwrap();
-        let digest = format!("{:x}", Sha256::digest(fs::read(&source).unwrap()));
+        let digest = hex::encode(Sha256::digest(fs::read(&source).unwrap()));
         let initial = version("legacy", 'a');
         let changed = version("legacy", 'b');
         let queue = DictionarySnapshotQueue::new(root).unwrap();
@@ -667,7 +667,7 @@ mod tests {
         let root = parent.path().join("queue");
         let source = parent.path().join("snapshot.ndjson");
         fs::write(&source, b"synthetic snapshot\n").unwrap();
-        let digest = format!("{:x}", Sha256::digest(fs::read(&source).unwrap()));
+        let digest = hex::encode(Sha256::digest(fs::read(&source).unwrap()));
         let initial = version("legacy", 'a');
         let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
         queue.publish_local_version(&initial).unwrap();

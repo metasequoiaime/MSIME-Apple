@@ -5,7 +5,7 @@
 
 pub mod store;
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use md5::Md5;
 use serde_json::Value;
 use sha2::Digest;
@@ -237,7 +237,7 @@ pub fn niutrans_auth_string(
         "apikey={apikey}&appId={app_id}&from={from}&srcText={source_text}&timestamp={timestamp}&to={to}"
     );
     let digest = Md5::digest(canonical.as_bytes());
-    format!("{digest:x}")
+    hex::encode(digest)
 }
 
 pub fn usable_niutrans_credential(value: &str) -> bool {
