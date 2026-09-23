@@ -3498,7 +3498,14 @@ static void TestCloudCandidatePreference() {
 - (void)presentCloudConsent:(void (^)(NSNumber *))completion { ++self.prompts; self.answer = completion; }
 @end
 
-static void DrainMainQueue() { CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false); }
+// Runs the main queue until everything already enqueued on it has run: the main queue is FIFO, so a sentinel enqueued now runs after them. A fixed run-loop slice was not enough on slow CI runners.
+static void DrainMainQueue() {
+    __block BOOL drained = NO;
+    dispatch_async(dispatch_get_main_queue(), ^{ drained = YES; });
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+    while (!drained && deadline.timeIntervalSinceNow > 0) CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, true);
+    assert(drained);
+}
 
 static void TestCloudCandidateConsent() {
     NSDictionary *query = @{@"scheme":@0, @"generation":@1, @"identity":@"synthetic", @"query_text":@"nihao", @"cache_key":@"nihao", @"pinyin_segments":@[@"ni", @"hao"], @"cloud_eligible":@YES, @"ai_eligible":@NO, @"cloud_candidates":@YES, @"session_id":@1};
