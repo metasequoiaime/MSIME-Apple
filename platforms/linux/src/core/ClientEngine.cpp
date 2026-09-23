@@ -356,8 +356,10 @@ struct State {
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
   msime::linux_host::PairedPunctuationTracker paired_tracker;
-  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock; reset on every mode switch.
+  // Quote and book-title state for Chinese marks committed in English mode under the Chinese punctuation lock or after Ctrl+.; reset on every mode switch.
   msime::linux_host::EnglishPunctuationState english_punctuation;
+  // Ctrl+. pressed in English mode under the "follow" lock: English mode types Chinese punctuation until the next Chinese/English switch, as Windows does with its punctuation compartment on and the IME closed. Kept apart from chinese_punctuation, which a focus or preference refresh re-derives from the saved preference.
+  bool english_chinese_punctuation = false;
   // Japanese converts with Space and commits with Enter; see core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion;
   msime::linux_host::BackspaceHoldPolicy backspace_hold;
@@ -3100,6 +3102,7 @@ void clear(IBusEngine *engine) {
 void resync_punctuation_for_mode(IBusEngine *engine) {
   auto &s = state(engine);
   s.english_punctuation = {};
+  s.english_chinese_punctuation = false;
   if (s.punctuation_lock != "follow")
     return;
   s.punctuation_override.reset();
@@ -3176,6 +3179,14 @@ void sync_global_input_mode(IBusEngine *engine) {
     ibus_engine_update_property(engine, property);
     }
 }
+// A composition is drawn single-underlined, the IBus convention and what the Fcitx5 host does with TextFormatFlag::Underline; it is this platform's form of the dotted TF_LS_DOT attribute Windows gives its composition. Empty text and the clear paths carry no attribute.
+void underline_preedit(IBusText *text, guint length) {
+  if (length == 0)
+    return;
+  ibus_text_append_attribute(text, IBUS_ATTR_TYPE_UNDERLINE,
+                             IBUS_ATTR_UNDERLINE_SINGLE, 0,
+                             static_cast<gint>(length));
+}
 void render(IBusEngine *engine, const Json &view) {
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
@@ -3183,11 +3194,13 @@ void render(IBusEngine *engine, const Json &view) {
   const auto style = state(engine).preedit_style;
   if (state(engine).voice_active) {
     auto &s = state(engine);
+    const auto voice_length =
+        static_cast<guint>(g_utf8_strlen(s.voice_preedit.c_str(), -1));
+    auto voice_text = ibus_text_new_from_string(s.voice_preedit.c_str());
+    underline_preedit(voice_text, voice_length);
     ibus_engine_update_preedit_text_with_mode(
-        engine,
-        ibus_text_new_from_string(s.voice_preedit.c_str()),
-        static_cast<guint>(g_utf8_strlen(s.voice_preedit.c_str(), -1)),
-        !s.voice_preedit.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
+        engine, voice_text, voice_length, !s.voice_preedit.empty(),
+        IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
     s.rendered_candidates = Json::array();
     s.rendered_scheme = 255;
@@ -3236,8 +3249,12 @@ void render(IBusEngine *engine, const Json &view) {
       view.value("phrase_prefix", std::string{}), text, caret);
   text = composed.text;
   // IBus counts the cursor in Unicode scalars, and the piece is not ASCII.
+  auto preedit_text = ibus_text_new_from_string(text.c_str());
+  if (style != "empty")
+    underline_preedit(preedit_text, static_cast<guint>(
+                                        msime::linux_host::utf8_scalar_count(text)));
   ibus_engine_update_preedit_text_with_mode(
-      engine, ibus_text_new_from_string(text.c_str()),
+      engine, preedit_text,
       static_cast<guint>(style == "raw"
                              ? composed.caret_scalars
                              : msime::linux_host::utf8_scalar_count(text)),
@@ -4048,8 +4065,12 @@ void focus_in(IBusEngine *engine) {
     // open() only resolves provider sockets when it creates a session, so an English-mode context would otherwise wait for the reload timer before voice input is reachable.
     if (!s.session)
       s.refresh_provider_sockets(engine);
+    const bool mode_before_restore = s.input_enabled;
     s.restore_app_input_mode();
     s.open();
+    // Windows re-resolves punctuation on every OPENCLOSE change, including one the focus brings, so a Ctrl+. choice or override from the previous app does not outlive the switch.
+    if (s.input_enabled != mode_before_restore)
+      resync_punctuation_for_mode(engine);
     s.key_router.set_lease(
         {s.client_token, s.focus_epoch,
          msime::linux_host::KeyRouterAdapter::lease_token(s.client_token,
@@ -5575,6 +5596,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         ctrl_alt_space));
   const bool fullwidth_toggle = key == IBUS_space &&
                                 modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
+  const bool punctuation_toggle = modifiers == IBUS_CONTROL_MASK && key == IBUS_period;
   const bool character_set_chord =
       (key == IBUS_f || key == IBUS_F) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK);
@@ -5593,12 +5615,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       s.native_compose.reset();
     }
   }
-  // English mode still honours fullwidth output and the "always Chinese punctuation" lock, as Windows does with the IME closed; everything else passes through.
+  // English mode still honours fullwidth output, the "always Chinese punctuation" lock and a Ctrl+. choice made in English mode, as Windows does with the IME closed; everything else passes through.
   if (s.focused && !s.blocked && !s.input_enabled && !release &&
       (modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
     const bool keypad = key >= IBUS_KP_Space && key <= IBUS_KP_9;
     const auto text = msime::linux_host::english_mode_output(
-        ibus_keyval_to_unicode(key), keypad, s.punctuation_lock == "chinese",
+        ibus_keyval_to_unicode(key), keypad,
+        s.punctuation_lock == "chinese" ||
+            (s.punctuation_lock == "follow" && s.english_chinese_punctuation),
         s.fullwidth, s.english_punctuation);
     if (!text.empty()) {
       commit_text(engine, text, msime::linux_host::TypingSource::English);
@@ -5610,7 +5634,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       (s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers)) ||
       (s.voice_active && (key == IBUS_Escape || (key == IBUS_space && s.voice_hold_key != 0)));
   if (!s.focused || s.blocked ||
-      (!s.input_enabled && !mode_toggle && !fullwidth_toggle && !voice_key) ||
+      (!s.input_enabled && !mode_toggle && !fullwidth_toggle && !punctuation_toggle && !voice_key) ||
       (flags & IBUS_RELEASE_MASK))
     return FALSE;
   // Windows locks an active hold-to-record shortcut when Space is pressed.
@@ -5876,6 +5900,22 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     }
     if (key == IBUS_Escape && s.voice_active) {
       voice_cancel(engine);
+      handled = true;
+      return;
+    }
+    // Windows eats Ctrl+. with the IME closed too and flips its punctuation compartment, which a pinned lock holds in place. The choice is session-only: it is never saved, and the next Chinese/English switch (resync_punctuation_for_mode) undoes it.
+    if (punctuation_toggle && !s.input_enabled) {
+      if (s.punctuation_lock == "follow") {
+        s.english_chinese_punctuation = !s.english_chinese_punctuation;
+        s.chinese_punctuation = s.english_chinese_punctuation;
+        s.punctuation_override = s.chinese_punctuation;
+        if (s.session) {
+          s.view = response(msime_client_set_chinese_punctuation(
+              s.session, s.chinese_punctuation));
+          s.session_chinese_punctuation = s.chinese_punctuation;
+        }
+        publish_mode(engine);
+      }
       handled = true;
       return;
     }

@@ -173,7 +173,7 @@ IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候�
 
 当前 IBus 会话支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除候选页对应的可编辑词条。宿主只传递候选快照中的会话、代次和全局索引，由 Host API 校验来源和执行词库删除；没有对应候选或不可编辑候选时按键交回应用。`Ctrl+Shift+Alt+C` 清除当前输入法会话的 Engine 候选缓存并刷新当前视图，不会结束正在进行的组合。`Ctrl+Shift+Alt+R` 通过用户会话的 `ibus restart` 重启 IBus 服务，设置页也提供同一动作的按钮。
 
-`Ctrl+Shift+Alt+T` 立即退出当前 Linux IBus 宿主进程，快捷键由宿主消费，不会停止用户正在运行的其他 IBus 服务。Fcitx5 插件与 Fcitx5 同进程，退出就会带走其他输入法，因此 Fcitx5 不提供这个快捷键，设置页也按此注明；需要恢复时使用 `Ctrl+Shift+Alt+R` 重载。`Ctrl+.` 在两个宿主上都切换中英文标点，与 Windows 相同；Fcitx5 把切换结果保存到共享偏好，和状态菜单里的同一开关一致。菜单主题不在 Linux 设置页出现：IBus 属性菜单和 Fcitx5 状态菜单由桌面面板按自己的主题绘制。
+`Ctrl+Shift+Alt+T` 立即退出当前 Linux IBus 宿主进程，快捷键由宿主消费，不会停止用户正在运行的其他 IBus 服务。Fcitx5 插件与 Fcitx5 同进程，退出就会带走其他输入法，因此 Fcitx5 不提供这个快捷键，设置页也按此注明；需要恢复时使用 `Ctrl+Shift+Alt+R` 重载。`Ctrl+.` 在两个宿主上都切换中英文标点，与 Windows 相同；Fcitx5 把中文模式下的切换结果保存到共享偏好，和状态菜单里的同一开关一致。英文模式下 `Ctrl+.` 同样生效（见下文英文模式一段），只改本次会话、不写偏好，到下一次中英切换为止；Fcitx5 状态栏的「中文标点」在英文模式下显示和切换的也是这一状态。菜单主题不在 Linux 设置页出现：IBus 属性菜单和 Fcitx5 状态菜单由桌面面板按自己的主题绘制。
 
 Windows 配置中的 `candidate_arrow_navigation` 兼容名称也会映射到共享导航的 `arrows` 开关，保证迁移配置在 Linux 上保持一致。
 
@@ -183,7 +183,7 @@ Linux 的 `floating_toolbar` 偏好映射为 IBus 原生属性菜单中的“工
 
 IBus 提交也接入共享的聚合打字统计。统计在文本成功提交到 IBus 后异步写入 Host API，按当前方案、本地模式、英文模式或语音来源计数；只保留字符类别、来源和日期的聚合数据，不保存输入文本。输入法没有消费、交还给应用的可打印字符也计入统计（英文模式记为 `english` 来源），判据与 Windows `ShouldCountPassthroughChar` 相同，写在 `TypingStatistics.h` 的 `should_count_passthrough_character`：只算按下、有焦点、非密码与隐私输入、不带 Ctrl/Alt/Super 的键，不算控制字符和 DEL；Fcitx5 同样如此。未配置绝对的 `preferences_directory` 时跳过统计，统计写入失败不会影响输入。统计开关（默认关闭）由宿主缓存在 `TypingStatistics.h` 的 `TypingStatisticsSwitch` 里：启动时和每次偏好热重载时刷新，统计文件没变时只做一次 stat，变了才经 `msime_client_typing_statistics_enabled` 重读；关闭时上屏和透传按键在入口处直接返回，不取日期、不序列化请求、不起 GTask 或线程，也不碰统计文件和锁。在设置里打开统计后，要到下一次热重载（IBus 约 1 秒、Fcitx5 约 250 毫秒）才开始计入，这之间的上屏不记录，与 macOS 的做法一致。
 
-英文模式与 Windows 一样仍处理两个设置：标点锁定为「始终中文标点」时先把 ASCII 标点换成中文标点（引号交替、书名号嵌套，按 Engine `contracts/punctuation/policy.h` 的正向表），全角开着时再把可打印 ASCII 换成全角（空格为 U+3000），其余键交给应用；小键盘不转中文标点，带 Ctrl/Alt/Super/Hyper 的组合键照旧透传，已启用的语音快捷键除外（见「语音输入」段）。IBus 与 Fcitx5 共用 `SmartPunctuationSpace.h` 的 `english_mode_output`。每次中英切换后按标点锁定重设会话标点：「跟随」时中文模式用中文标点、英文模式用英文标点，锁定为中文或英文时保持锁定值；这只改本次会话，不写偏好文件。裸 Shift/Ctrl 松开时切换模式，但这次松开仍交给应用，跟踪修饰键状态的程序不会以为它一直按着。
+英文模式与 Windows 一样仍处理中文标点和全角：标点锁定为「始终中文标点」，或锁定为「跟随」时在英文模式下按过 `Ctrl+.`，先把 ASCII 标点换成中文标点（引号交替、书名号嵌套，按 Engine `contracts/punctuation/policy.h` 的正向表），全角开着时再把可打印 ASCII 换成全角（空格为 U+3000），其余键交给应用；小键盘不转中文标点，带 Ctrl/Alt/Super/Hyper 的组合键照旧透传，`Ctrl+.` 和已启用的语音快捷键除外（见「语音输入」段）。英文模式下的 `Ctrl+.` 由宿主消费，锁定为中文或英文时不改变结果，与 Windows 按锁定值解析标点状态一致。IBus 与 Fcitx5 共用 `SmartPunctuationSpace.h` 的 `english_mode_output`。每次中英切换后（包括焦点切换时按应用记忆恢复出另一种模式）按标点锁定重设会话标点：「跟随」时中文模式用中文标点、英文模式用英文标点（英文模式下 `Ctrl+.` 的选择随之作废），锁定为中文或英文时保持锁定值；这只改本次会话，不写偏好文件。裸 Shift/Ctrl 松开时切换模式，但这次松开仍交给应用，跟踪修饰键状态的程序不会以为它一直按着。
 
 候选辅助文本在页码后展示 Engine 快照提供的本地模式标签（U+、日期时间、短语、Emoji、颜文字、简拼、EN、日文）。普通或未知模式不附加标签，取消组合或没有候选时隐藏辅助文本；不从预编辑前缀推断模式。
 
@@ -203,7 +203,7 @@ Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳�
 
 Fcitx5 的候选表由 classicui 插件按主题绘制，宿主把同一套解析结果（内置皮肤、外部皮肤、自定义颜色、`follow` 跟随全局主题）写成用户数据目录下的主题 `$XDG_DATA_HOME/fcitx5/themes/msime/theme.conf`（默认 `~/.local/share/fcitx5/themes/msime/`），再通过 classicui 自己的配置把 `Theme` 和 `DarkTheme` 指向它；配置一写入插件就重新读取主题，改皮肤或系统明暗切换后无需重启。只有当前主题是 Fcitx5 自带的 `default`、`default-dark`、未设置或已经是 `msime` 时宿主才接管，用户在 fcitx5-configtool 里选过的第三方主题保持不变，此时 MSIME 的候选颜色不生效。主题文件只在内容变化时原子替换。classicui 主题没有序号、accent 的独立颜色，也没有与选中分开的 hover 状态，因此序号跟随正文颜色、固定候选不单独着色；石墨的透明选中填充写成透明高亮，只靠选中正文颜色区分。Plasma 的 kimpanel 和 GNOME Shell 面板不使用 classicui 主题。
 
-`tsf_preedit_style` 在 Linux IBus 中映射为：`raw` 显示 Engine 的 ASCII `editing_text`，`pinyin` 显示 Engine 的 `preedit`，`empty` 隐藏预编辑；设置热重载会更新当前会话的显示样式。候选与上屏仍由 Engine 的共享状态决定。
+`tsf_preedit_style` 在 Linux IBus 中映射为：`raw` 显示 Engine 的 ASCII `editing_text`，`pinyin` 显示 Engine 的 `preedit`，`empty` 隐藏预编辑；设置热重载会更新当前会话的显示样式。IBus 预编辑（包括语音的流式预编辑）与 Fcitx5 一样整段加单下划线，是 Windows 组合串点状下划线（`TF_LS_DOT`）在 Linux 上的对应形式；`empty` 样式和清除预编辑时不带下划线。候选与上屏仍由 Engine 的共享状态决定。
 
 `candidate_preedit_style` 在 Linux 中映射为候选面板辅助文本：`pinyin` 在页码后显示当前拼音，`empty` 只显示页码和模式标签；设置热重载立即更新现有会话。
 
