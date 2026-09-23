@@ -3829,23 +3829,6 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 
 - (BOOL)handleKeyEvent:(NSEvent *)event client:(id)sender {
     CGEventRef nativeEvent = event.CGEvent;
-    // Voice text is posted back as synthetic key events and is already counted as Voice.
-    if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return;
-    NSString *characters = event.characters;
-    if (characters.length != 1) return; // Dead keys produce no characters.
-    if (!msime::mac::ShouldCountPassthroughCharacter([characters characterAtIndex:0],
-            (event.modifierFlags & NSEventModifierFlagControl) != 0,
-            (event.modifierFlags & NSEventModifierFlagCommand) != 0)) return;
-    // English mode can leave the view without a scheme, which resolves to Unknown before dedicated English is considered, so it is labelled explicitly.
-    const msime::mac::TypingSource source = _appearance.englishMode
-        ? msime::mac::TypingSource::English
-        : MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), NO);
-    MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"],
-                                characters, source);
-}
-
-- (BOOL)handleKeyEvent:(NSEvent *)event client:(id)sender {
-    CGEventRef nativeEvent = event.CGEvent;
     if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return NO;
     if (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp && event.type != NSEventTypeFlagsChanged) return NO;
     const BOOL capsLock = (event.modifierFlags & NSEventModifierFlagCapsLock) != 0;
