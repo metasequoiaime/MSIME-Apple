@@ -17,7 +17,14 @@ enum TauriPersonalDictionaryBridge {
     case "list":
       let offset = try boundedInteger(action["offset"], range: 0...1_000_000)
       _ = try boundedInteger(action["limit"], range: 1...1_000)
-      try store.requestPage(offset: offset)
+      // The kind and code prefix go to the keyboard with the page, which answers them from the user's whole store.
+      let kind = try (action["kind"] as? String).map {
+        guard let kind = PersonalWordKind(bridgeName: $0) else { throw Failure.invalid }
+        return kind
+      }
+      let query = action["query"] as? String ?? ""
+      guard query.utf8.count <= PersonalDictionaryStore.maximumQueryBytes else { throw Failure.invalid }
+      try store.requestPage(offset: offset, kind: kind, query: query)
       return response(try store.read())
     case "edit":
       let requestID = try requestID(action)
@@ -75,6 +82,8 @@ enum TauriPersonalDictionaryBridge {
       "snapshot_error": state.snapshotError ?? NSNull(),
       "page_offset": state.pageOffset,
       "requested_page_offset": state.requestedPageOffset,
+      "page_kind": state.pageKind?.bridgeName ?? NSNull(),
+      "page_query": state.pageQuery,
     ]
   }
 

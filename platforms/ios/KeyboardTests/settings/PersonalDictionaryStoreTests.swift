@@ -27,7 +27,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     try host.retry(removal)
     try host.requestPage(offset: 100)
     try keyboard.synchronize(apply: { XCTAssertEqual($0.id, removal) }, page: {
-      XCTAssertEqual($0, 100)
+      XCTAssertEqual($0.offset, 100)
       return .init(entries: [], hasMore: false)
     })
     XCTAssertEqual(try host.read().pageOffset, 100)
@@ -58,7 +58,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         try session.applyPersonalPrevious($0.previous?.bridgeValue, replacement: $0.replacement?.bridgeValue,
                                           requestID: $0.id)
       }, page: {
-        let result = try session.personalEntries(atOffset: UInt($0))
+        let result = try session.personalEntries(atOffset: UInt($0.offset))
         let entries = try XCTUnwrap(result["entries"] as? [[String: Any]])
         return .init(entries: try entries.map { try PersonalWord(bridgeValue: $0) },
                      hasMore: try XCTUnwrap(result["hasMore"] as? Bool))
@@ -192,6 +192,50 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertThrowsError(try store.enqueue(previous: nil, replacement: .init(key: "ni", value: "拟")))
     XCTAssertEqual(try Data(contentsOf: file), original)
     XCTAssertThrowsError(try PersonalDictionaryStore(directory: nil).read())
+  }
+
+  @MainActor
+  func testACodeSearchReachesTheWholeStoreThroughTheKeyboardEngine() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let host = PersonalDictionaryStore(directory: root)
+    let keyboard = PersonalDictionaryStore(directory: root)
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let session = MetasequoiaInputSessionBridge(resources: resources,
+                                                 stateRoot: root.appendingPathComponent("EngineState"))
+    let wanted = try PersonalWord(kind: .quickPhrase, key: "msimesearch", value: "search fixture").validated()
+    let other = try PersonalWord(kind: .quickPhrase, key: "msimeother", value: "other fixture").validated()
+    defer {
+      _ = session.cancel()
+      for word in [wanted, other] {
+        try? session.applyPersonalPrevious(word.bridgeValue, replacement: nil, requestID: UUID().uuidString)
+      }
+    }
+    for word in [wanted, other] {
+      try session.applyPersonalPrevious(nil, replacement: word.bridgeValue, requestID: UUID().uuidString)
+    }
+
+    try host.requestPage(offset: 0, kind: .quickPhrase, query: " msimes ")
+    var asked: PersonalPageRequest?
+    try keyboard.synchronize(apply: { _ in }, page: { request in
+      asked = request
+      let result = try session.personalEntries(atOffset: UInt(request.offset), kind: request.kind, query: request.query)
+      let entries = try XCTUnwrap(result["entries"] as? [[String: Any]])
+      return .init(entries: try entries.map { try PersonalWord(bridgeValue: $0) },
+                   hasMore: try XCTUnwrap(result["hasMore"] as? Bool))
+    })
+    XCTAssertEqual(asked, PersonalPageRequest(offset: 0, kind: .quickPhrase, query: "msimes"))
+    let state = try host.read()
+    XCTAssertEqual(state.entries, [wanted])
+    XCTAssertEqual(state.pageKind, .quickPhrase)
+    XCTAssertEqual(state.pageQuery, "msimes")
+
+    // The filter is written under the keys the Rust queue reads.
+    let file = root.appendingPathComponent("PersonalDictionary/sync.json")
+    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+    XCTAssertEqual(object["requestedKind"] as? String, "quickPhrase")
+    XCTAssertEqual(object["pageQuery"] as? String, "msimes")
+    XCTAssertThrowsError(try host.requestPage(offset: 0, query: String(repeating: "a", count: 257)))
   }
 
   func testStateUsesRustCompatibleRefreshKeys() throws {

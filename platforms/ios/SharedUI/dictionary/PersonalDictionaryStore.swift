@@ -46,7 +46,7 @@ struct PersonalDictionaryState: Codable, Sendable {
   // acknowledge the same refresh cycle instead of silently resetting it.
   enum CodingKeys: String, CodingKey {
     case version, requests, entries, hasMore, snapshotDate, snapshotError
-    case pageOffset, requestedPageOffset
+    case pageOffset, requestedPageOffset, requestedKind, requestedQuery, pageKind, pageQuery
     case refreshID = "refreshId"
     case completedRefreshID = "completedRefreshId"
   }
@@ -62,6 +62,11 @@ struct PersonalDictionaryState: Codable, Sendable {
   var snapshotError: String?
   var pageOffset = 0
   var requestedPageOffset = 0
+  /// The dictionary and code prefix the host asked for; the keyboard answers them from the user's whole store. `pageKind` and `pageQuery` describe the entries it last confirmed.
+  var requestedKind: PersonalWordKind?
+  var requestedQuery = ""
+  var pageKind: PersonalWordKind?
+  var pageQuery = ""
   var refreshID = UUID()
   var completedRefreshID: UUID?
   var pendingCount: Int { requests.filter { $0.status == .pending }.count }
@@ -79,11 +84,22 @@ struct PersonalDictionaryState: Codable, Sendable {
     snapshotError = try values.decodeIfPresent(String.self, forKey: .snapshotError)
     pageOffset = try values.decodeIfPresent(Int.self, forKey: .pageOffset) ?? 0
     requestedPageOffset = try values.decodeIfPresent(Int.self, forKey: .requestedPageOffset) ?? 0
+    requestedKind = try values.decodeIfPresent(PersonalWordKind.self, forKey: .requestedKind)
+    requestedQuery = try values.decodeIfPresent(String.self, forKey: .requestedQuery) ?? ""
+    pageKind = try values.decodeIfPresent(PersonalWordKind.self, forKey: .pageKind)
+    pageQuery = try values.decodeIfPresent(String.self, forKey: .pageQuery) ?? ""
     refreshID = try values.decodeIfPresent(UUID.self, forKey: .refreshID)
       ?? legacy.decodeIfPresent(UUID.self, forKey: .refreshID) ?? UUID()
     completedRefreshID = try values.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
       ?? legacy.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
   }
+}
+
+/// One page of the user's own words, optionally within one dictionary and under one code prefix.
+struct PersonalPageRequest: Equatable, Sendable {
+  var offset: Int
+  var kind: PersonalWordKind?
+  var query: String
 }
 
 struct PersonalWordPage: Sendable {
@@ -110,6 +126,8 @@ final class PersonalDictionaryStore: @unchecked Sendable {
   private let directory: URL?
   private static let processLock = NSLock()
   private let maximumBytes = 8 * 1024 * 1024
+  /// The code prefix a page may be filtered by, as the Engine list accepts it.
+  static let maximumQueryBytes = 256
 
   private static func decoder() -> JSONDecoder {
     let decoder = JSONDecoder()
@@ -158,6 +176,8 @@ final class PersonalDictionaryStore: @unchecked Sendable {
           state.version == 1, state.requests.count <= 160, state.entries.count <= 100,
           state.pageOffset >= 0, state.pageOffset <= 1_000_000,
           state.requestedPageOffset >= 0, state.requestedPageOffset <= 1_000_000,
+          state.requestedQuery.utf8.count <= Self.maximumQueryBytes,
+          state.pageQuery.utf8.count <= Self.maximumQueryBytes,
           Set(state.requests.map(\.id)).count == state.requests.count
     else { throw StoreError.invalidState }
     return state
@@ -253,15 +273,23 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     try update { $0.requests.removeAll { $0.id == id && $0.status == .failed } }
   }
 
-  func requestPage(offset: Int) throws {
-    guard (0...1_000_000).contains(offset) else { throw StoreError.invalidState }
-    try update { $0.requestedPageOffset = offset; $0.refreshID = UUID() }
+  func requestPage(offset: Int, kind: PersonalWordKind? = nil, query: String = "") throws {
+    let query = query.trimmingCharacters(in: .whitespaces)
+    guard (0...1_000_000).contains(offset), query.utf8.count <= Self.maximumQueryBytes else {
+      throw StoreError.invalidState
+    }
+    try update {
+      $0.requestedPageOffset = offset
+      $0.requestedKind = kind
+      $0.requestedQuery = query
+      $0.refreshID = UUID()
+    }
   }
 
   // Keep the queue lock through apply and acknowledgement. If writing sync.json is interrupted,
   // the same UUID is retried; Engine's transaction receipt makes that retry a no-op success.
   func synchronize(apply: (PersonalWordRequest) throws -> Void,
-                   page: (Int) throws -> PersonalWordPage) throws {
+                   page: (PersonalPageRequest) throws -> PersonalWordPage) throws {
     try update { state in
       // Each edit closes and reopens the Engine session. Limit work per keyboard timer turn
       // so a full import cannot monopolize the main thread or hold the host's queue lock.
@@ -278,11 +306,15 @@ final class PersonalDictionaryStore: @unchecked Sendable {
       }
       if state.pendingCount == 0 { state.completedRefreshID = state.refreshID }
       do {
-        let snapshot = try page(state.requestedPageOffset)
+        let request = PersonalPageRequest(offset: state.requestedPageOffset, kind: state.requestedKind,
+                                          query: state.requestedQuery)
+        let snapshot = try page(request)
         guard snapshot.entries.count <= 100 else { throw StoreError.invalidState }
         state.entries = snapshot.entries
         state.hasMore = snapshot.hasMore
-        state.pageOffset = state.requestedPageOffset
+        state.pageOffset = request.offset
+        state.pageKind = request.kind
+        state.pageQuery = request.query
         state.snapshotDate = Date()
         state.snapshotError = nil
       } catch {

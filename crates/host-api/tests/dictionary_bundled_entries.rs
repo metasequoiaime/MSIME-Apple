@@ -301,3 +301,40 @@ fn quick_phrases_list_whole_and_english_words_are_found_by_prefix() {
     // A code no dictionary of the kind can hold matches nothing rather than failing.
     assert!(fixture.lookup("wubi", "你").is_empty());
 }
+
+#[test]
+fn a_user_only_search_finds_the_user_word_by_code_and_leaves_the_bundled_ones_out() {
+    let fixture = Fixture::new();
+    fixture
+        .edit(
+            &json!(null),
+            json!({"kind": "pinyin", "key": "ni'hao", "value": "你号", "weight": 100000}),
+            "user-word",
+        )
+        .unwrap();
+    fixture
+        .edit(
+            &json!(null),
+            json!({"kind": "quick_phrase", "key": "nh", "value": "你好短语", "weight": 100000}),
+            "user-phrase",
+        )
+        .unwrap();
+    let search = |kind: Value, query: &str| {
+        let page = fixture
+            .request(json!({"operation": "list", "offset": 0, "limit": 100, "kind": kind, "query": query, "user_only": true}))
+            .unwrap();
+        page["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["value"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+
+    // Without user_only the same code also reaches the bundled 你好 and 拟好.
+    assert_eq!(search(json!("pinyin"), "nihao"), ["你号"]);
+    assert_eq!(search(json!(null), "n"), ["你号", "你好短语"]);
+    assert_eq!(search(json!("quick_phrase"), ""), ["你好短语"]);
+    assert_eq!(search(json!("wubi"), ""), Vec::<String>::new());
+    assert_eq!(fixture.lookup("pinyin", "nihao").len(), 3);
+}

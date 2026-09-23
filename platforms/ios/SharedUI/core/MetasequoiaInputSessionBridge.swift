@@ -1136,9 +1136,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard (result["applied"] as? Bool) == true else { throw InputBridgeFailure.response("个人词条未能应用") }
   }
 
-  func personalEntries(atOffset offset: UInt) throws -> [String: Any] {
-    let request: [String: Any] = ["options": options,
-                                  "action": ["operation": "list", "offset": offset, "limit": 100]]
+  /// One page of the user's own words. The queue's edits cannot carry a bundled row, so a code search here never reaches the bundled tables.
+  func personalEntries(atOffset offset: UInt, kind: PersonalWordKind? = nil, query: String = "") throws -> [String: Any] {
+    var action: [String: Any] = ["operation": "list", "offset": offset, "limit": 100, "user_only": true]
+    if let kind { action["kind"] = kind.bridgeName }
+    if !query.isEmpty { action["query"] = query }
+    let request: [String: Any] = ["options": options, "action": action]
     var result = try withDictionaryMaintenance {
       try Self.callOptions(msimeClientDictionary, request)
     }

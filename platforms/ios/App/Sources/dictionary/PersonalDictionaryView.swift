@@ -23,8 +23,24 @@ struct PersonalDictionaryView: View {
     #endif
     store = PersonalDictionaryStore()
   }
+  /// An ASCII search is a code prefix, which the keyboard looks up across the whole store; anything else, such as the word itself, can only filter the page already here.
+  private var codeQuery: String? {
+    let query = search.trimmingCharacters(in: .whitespaces).lowercased()
+    guard !query.isEmpty, query.allSatisfy(\.isASCII),
+          query.utf8.count <= PersonalDictionaryStore.maximumQueryBytes else { return nil }
+    return query
+  }
+  private var showsSearchResults: Bool { codeQuery != nil && codeQuery == state.pageQuery }
+  private var awaitingKeyboard: Bool {
+    state.requestedPageOffset != state.pageOffset || state.requestedQuery != state.pageQuery
+  }
   private var visibleEntries: [PersonalWord] {
-    state.entries.filter { search.isEmpty || $0.value.localizedCaseInsensitiveContains(search) || $0.key.localizedCaseInsensitiveContains(search) }
+    // The keyboard matched the code with the Engine's own rule, which ignores pinyin separators, so its answer is shown whole.
+    if showsSearchResults { return state.entries }
+    return state.entries.filter { search.isEmpty || $0.value.localizedCaseInsensitiveContains(search) || $0.key.localizedCaseInsensitiveContains(search) }
+  }
+  private func requestPage(_ offset: Int) {
+    perform { try store.requestPage(offset: offset, query: state.requestedQuery) }
   }
   var body: some View {
     List {
@@ -64,8 +80,12 @@ struct PersonalDictionaryView: View {
         }
       }
       Section {
+        if let codeQuery, codeQuery == state.requestedQuery, codeQuery != state.pageQuery {
+          Text("已请求在整个词库里搜索「\(codeQuery)」，打开上方试打框让键盘查找。").foregroundStyle(.secondary)
+        }
         if visibleEntries.isEmpty {
-          Text(search.isEmpty ? "本页暂无个人词条。点击右上角添加。" : "本页没有匹配的词条。")
+          Text(search.isEmpty ? "本页暂无个人词条。点击右上角添加。"
+               : showsSearchResults ? "个人词库里没有以「\(state.pageQuery)」开头的编码。" : "本页没有匹配的词条。")
             .foregroundStyle(.secondary)
         }
         ForEach(visibleEntries) { word in
@@ -79,20 +99,20 @@ struct PersonalDictionaryView: View {
             Button("删除", role: .destructive) { deleting = word }
           }
         }
-      } header: { Text("已生效词条") } footer: {
-        Text("包括手动添加和引擎学习生成的词条。每页最多 100 条，搜索作用于当前页；滑动词条可删除。刷新或翻页后打开上方试打框，同步新的列表。")
+      } header: { Text(showsSearchResults ? "编码以「\(state.pageQuery)」开头的词条" : "已生效词条") } footer: {
+        Text("包括手动添加和引擎学习生成的词条。每页最多 100 条；搜索编码时在键盘里查整个个人词库，搜索汉字只筛当前页。滑动词条可删除。刷新、翻页或搜索编码后打开上方试打框，同步新的列表。")
       }
       // 翻页原本是词条组最后一行里三个并排的小按钮,和词条自己的点按、侧滑挤在同一片区域。
       if state.pageOffset > 0 || state.hasMore {
         Section {
           SettingsActionRow(title: "上一页", symbol: "chevron.left", enabled: state.pageOffset > 0) {
-            perform { try store.requestPage(offset: max(0, state.pageOffset - 100)) }
+            requestPage(max(0, state.pageOffset - 100))
           }
           SettingsActionRow(title: "下一页", symbol: "chevron.right", enabled: state.hasMore) {
-            perform { try store.requestPage(offset: state.pageOffset + 100) }
+            requestPage(state.pageOffset + 100)
           }
         } footer: {
-          Text(state.requestedPageOffset != state.pageOffset
+          Text(awaitingKeyboard
                ? "等待键盘读取第 \(state.requestedPageOffset / 100 + 1) 页…"
                : "第 \(state.pageOffset / 100 + 1) 页")
         }
@@ -100,14 +120,23 @@ struct PersonalDictionaryView: View {
     }
     .settingsStatus(busy: false, message: state.snapshotError)
     .navigationTitle("个人词库")
-    .searchable(text: $search, prompt: "搜索本页词条或编码")
+    .searchable(text: $search, prompt: "搜索编码或本页词条")
+    .onSubmit(of: .search) {
+      guard let codeQuery, codeQuery != state.requestedQuery else { return }
+      perform { try store.requestPage(offset: 0, query: codeQuery) }
+    }
+    .onChange(of: search) { value in
+      // Clearing the search goes back to the whole store's first page rather than leaving the last search's results in place.
+      guard value.isEmpty, !state.requestedQuery.isEmpty else { return }
+      perform { try store.requestPage(offset: 0) }
+    }
     .toolbar {
       ToolbarItem(placement: .navigationBarTrailing) {
         Button { editing = Editing(previous: nil) } label: { Image(systemName: "plus") }
           .accessibilityLabel("添加词条").accessibilityIdentifier("addPersonalWord")
       }
       ToolbarItem(placement: .navigationBarTrailing) {
-        Button { perform { try store.requestPage(offset: state.pageOffset) } } label: { Image(systemName: "arrow.clockwise") }
+        Button { requestPage(state.pageOffset) } label: { Image(systemName: "arrow.clockwise") }
           .accessibilityLabel("刷新个人词库")
       }
     }
