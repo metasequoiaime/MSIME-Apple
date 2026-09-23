@@ -136,4 +136,66 @@ inline bool space_conversion_matches_document(
          std::string_view(preceding.front()) == armed_preceding;
 }
 
+// English mode never reaches Engine's punctuation policy, because the session is closed or ignored while the IME is off. The "always Chinese punctuation" lock still has to convert marks there, as it does on Windows, so the hosts carry a forward copy of Engine's contract (vendor/MSIME-Engine/contracts/punctuation/policy.h). This is deliberately not chinese_punctuation_mark above: that table is the reverse Space rewrite, maps '/' to 、 and has no alternating quotes.
+struct EnglishPunctuationState {
+  bool double_quote_open = false;
+  bool single_quote_open = false;
+  int book_title_nesting = 0;
+};
+
+inline std::string english_mode_chinese_punctuation(
+    char value, EnglishPunctuationState &state) {
+  switch (value) {
+  case ',': return "，";
+  case '.': return "。";
+  case '?': return "？";
+  case '!': return "！";
+  case ';': return "；";
+  case ':': return "：";
+  case '(': return "（";
+  case ')': return "）";
+  case '[': return "【";
+  case ']': return "】";
+  case '\\': return "、";
+  case '`': return "·";
+  case '$': return "￥";
+  case '^': return "……";
+  case '_': return "——";
+  case '"':
+    state.double_quote_open = !state.double_quote_open;
+    return state.double_quote_open ? "“" : "”";
+  case '\'':
+    state.single_quote_open = !state.single_quote_open;
+    return state.single_quote_open ? "‘" : "’";
+  case '<':
+    return state.book_title_nesting++ == 0 ? "《" : "〈";
+  case '>':
+    // An unmatched '>' leaves the depth at zero, as Engine's policy does.
+    if (state.book_title_nesting > 0 && --state.book_title_nesting > 0)
+      return "〉";
+    return "》";
+  default:
+    return {};
+  }
+}
+
+// What an English-mode key press commits instead of passing through, empty when the key should go to the application unchanged. Windows order: Chinese punctuation first (only while the lock pins it on), then fullwidth, which covers printable ASCII including Space (U+3000). Keypad keys never become Chinese punctuation, matching Chinese mode.
+inline std::string english_mode_output(char32_t character, bool keypad,
+                                       bool chinese_punctuation, bool fullwidth,
+                                       EnglishPunctuationState &state) {
+  if (character < 0x20 || character > 0x7e)
+    return {};
+  const auto value = static_cast<char>(character);
+  if (chinese_punctuation && !keypad) {
+    auto mark = english_mode_chinese_punctuation(value, state);
+    if (!mark.empty())
+      return mark;
+  }
+  if (!fullwidth)
+    return {};
+  if (value == ' ')
+    return "\u3000";
+  return ascii_mark_text(value, true);
+}
+
 } // namespace msime::linux_host
