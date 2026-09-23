@@ -456,9 +456,8 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Android | HostPlatform::Harmony | HostPlatform::Ios
             ),
-            // The skin folder is inside the sandbox on HarmonyOS, where no file
-            // manager reaches it, so the skin is picked and copied in instead.
-            skin_directory_import: platform == HostPlatform::Harmony,
+            // The skin folder is inside the sandbox on HarmonyOS and in the App Group container on iOS, where no file manager reaches it, so the skin is picked and copied in instead.
+            skin_directory_import: matches!(platform, HostPlatform::Harmony | HostPlatform::Ios),
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
@@ -954,6 +953,8 @@ mod tests {
         // The Engine expands shuangpin keys for the candidate bar's spelling, and Shift marks a helper code in a quanpin or shuangpin composition, so both rows describe something the keyboard does.
         assert!(ios.shuangpin_preedit);
         assert!(ios.helpcode_shift_entry);
+        // Files cannot reach the App Group skin folder, so the skin button imports a picked folder.
+        assert!(ios.skin_directory_import);
         // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
         // panel shortcut row is real there now.
         assert!(windows.panel_shortcuts);

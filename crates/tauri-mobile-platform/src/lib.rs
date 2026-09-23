@@ -415,6 +415,12 @@ struct AppleSignInResponse {
 }
 
 #[cfg(target_os = "ios")]
+#[derive(Deserialize)]
+struct SkinFolderPickResponse {
+    path: Option<String>,
+}
+
+#[cfg(target_os = "ios")]
 #[derive(Serialize)]
 struct CopyTextRequest<'a> {
     text: &'a str,
@@ -618,6 +624,26 @@ impl<R: Runtime> MobilePlatform<R> {
             && !response.credential.chars().any(char::is_control))
         .then_some(response.credential)
         .ok_or(())
+    }
+
+    /// Let the user pick a skin folder in Files. `None` when they dismissed the picker. The folder stays readable to this process until [`Self::end_skin_folder_access`], which the caller must invoke once it has copied the folder.
+    pub async fn pick_skin_folder(&self) -> Result<Option<std::path::PathBuf>, ()> {
+        let response = self
+            .0
+            .run_mobile_plugin_async::<SkinFolderPickResponse>("pickSkinFolder", ())
+            .await
+            .map_err(|_| ())?;
+        match response.path {
+            None => Ok(None),
+            Some(path) if std::path::Path::new(&path).is_absolute() => Ok(Some(path.into())),
+            Some(_) => Err(()),
+        }
+    }
+
+    pub fn end_skin_folder_access(&self) -> Result<(), ()> {
+        self.0
+            .run_mobile_plugin("endSkinFolderAccess", ())
+            .map_err(|_| ())
     }
 
     pub fn copy_text(&self, text: &str) -> Result<(), ()> {
