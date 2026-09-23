@@ -2491,3 +2491,10 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 现在：`CandidateSkin.h` 新增 `CandidateRowRadius`（高亮行取 `selectedRadius`，悬停及其余取 `candidateRadius`），`refreshCandidateSkin` 按它给每个候选按钮设置 `cornerRadius`，自定义皮肤包沿用其 `base` 内置皮肤的解析结果，同样生效。内置皮肤的两个值都改为来源 `itemRadius`：`fluent` 4/4、`wechat` 4/4、`graphite` 2/2、`willow_green` 4/4（macOS 的候选卡片同样不裁剪行）。
 - 差异：macOS 候选按钮没有单独的按下态背景，来源按下时用选中色与同一圆角，这一点未改。
 - 证据：`CandidateSkinTest.cpp` 覆盖四个内置皮肤明暗两套的行圆角与 `CandidateRowRadius` 的选中/悬停取值；macOS 原生构建与 ctest 全部通过。未在真实编辑器中目视确认。
+
+### macOS 候选窗翻转迟滞接入实际上屏路径（2026-09-23）
+
+- 来源：Server `window_utils.cpp` 的 `AdjustCandidateWindowPosition` 在竖排布局下把本次会话出现过的最高列表高度记入 `g_max_vertical_container_height_dip`，用它判断是否翻到光标上方，放置却用当前高度；`ResetCandidatePlacementMemory` 在候选窗隐藏时（`ime_windows.cpp`）清除该记忆。macOS 实际上屏的 `InputController.mm` `renderCandidates` 原来调用的 `MSIMECandidateOrigin` 只看当前尺寸，列表随候选增多变高时会从光标下方跳到上方；迟滞只存在于未上屏的 Apple 快照适配器 `CandidatePanel.mm`，`docs/implementation.md` 把它写成了已上屏行为。
+- 现在：`CandidatePlacement.h` 新增 `MSIMETallestCandidateHeight`（竖排累计最高高度，面板不可见时从零开始，横排不累计），`MSIMECandidateOrigin` 新增第四个参数作为翻转判定高度、放置仍用当前高度，原三参数形式等同无记忆。控制器新增 `_tallestVerticalCandidateHeight`，每次定位前以 `_panel.isVisible` 判断面板是否曾隐藏：所有隐藏路径都是 `orderOut:`，因此不必逐处清零。`docs/implementation.md` 对应段落已改为指明实际上屏路径。
+- 差异：来源重置为默认窗口高度 `DEFAULT_WINDOW_HEIGHT_DIP`，macOS 重置为 0（即只看当前高度）；来源的翻转判定含 2px 边距与 24px 行高，macOS 沿用既有的 4pt 间距与整条光标矩形，未改。
+- 证据：`CandidatePlacementTest.mm` 覆盖记忆高度使短列表保持在光标上方且贴近输入行、记忆不高于当前高度时不生效、下方放得下时不影响、隐藏后重置与横排不累计；macOS 原生构建与 ctest 全部通过。未在真实编辑器中目视确认。

@@ -1037,7 +1037,7 @@ Linux IBus 的 `Ctrl+Shift+F` 简繁切换现在与属性菜单共用 revision �
 
 ### macOS 候选卡片位置迟滞
 
-macOS 自绘候选面板沿用 Windows 候选卡片的定位语义：竖排候选页在当前组词期间记录出现过的最高卡片高度，用最高高度决定是否从光标下方翻到上方，但实际放置仍使用当前页高度。候选面板隐藏后清除该记忆，短页不会在同一组词中因暂时变矮而跳回光标下方，也不会在翻转后留下按最高页高度计算的空洞。Linux IBus 候选位置仍由桌面 panel 管理，保持已记录的平台边界。
+macOS 实际上屏的候选面板（`InputController.mm` 的 `renderCandidates`，定位纯函数在 `CandidatePlacement.h`）沿用 Windows 候选卡片的定位语义：竖排候选页在面板持续可见期间记录出现过的最高卡片高度（`MSIMETallestCandidateHeight`），用最高高度决定是否从光标下方翻到上方，但实际放置仍使用当前页高度（`MSIMECandidateOrigin` 的第四个参数）。候选面板隐藏后清除该记忆（下一次出现时从当前高度重新开始），短页不会在同一组词中因暂时变矮而跳回光标下方，也不会在翻转后留下按最高页高度计算的空洞。Linux IBus 候选位置仍由桌面 panel 管理，保持已记录的平台边界。
 
 ### iOS 表情目录与最近使用
 
