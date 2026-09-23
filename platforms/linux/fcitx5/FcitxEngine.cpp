@@ -36,6 +36,7 @@
 #include "../src/core/RuntimeOptionsRefresh.h"
 #include "../src/core/FirstRunGuidance.h"
 #include "../src/core/InputModeIndicator.h"
+#include "../src/core/ReplacedProgram.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
 #endif
@@ -4962,6 +4963,7 @@ public:
       }
     } catch (const OptionsNotConfigured &) { notConfigured(*state, true); }
     catch (...) { unavailable(*state); }
+    noticeReplacedAddon(*state);
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
@@ -5052,6 +5054,19 @@ public:
     msime_linux_diagnostic_write("operation_failed operation=fcitx_event");
     state.close(); state.clearPanel();
     state.ic_.inputPanel().setAuxUp(fcitx::Text("MSIME：请检查运行配置"));
+    state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  }
+  // dpkg renames a new build over this addon's shared object on upgrade and deletes it on removal, and fcitx5 keeps running the one it loaded until it restarts. The addon cannot restart itself the way the IBus host does without taking every other input method down with the process, and the reload behind the settings page's restart button loads no new code, so the first activation that finds the addon replaced or removed tells the user how to finish, once for each change of state, so a reinstall after a removal is announced as an upgrade; the next composition's render replaces the message. It takes precedence over the configuration hints, which a removed or half-upgraded installation would otherwise show.
+  static void noticeReplacedAddon(FcitxState &state) {
+    using msime::linux_host::ProgramFileState;
+    static ProgramFileState shown = ProgramFileState::Current;
+    const auto current = msime::linux_host::mapped_file_state(reinterpret_cast<const void *>(&noticeReplacedAddon));
+    if (current == ProgramFileState::Current || current == shown) return;
+    shown = current;
+    msime_linux_diagnostic_write(current == ProgramFileState::Replaced ? "addon_replaced_notice" : "addon_removed_notice");
+    state.ic_.inputPanel().setAuxUp(fcitx::Text(current == ProgramFileState::Replaced
+        ? "水杉输入法已升级：执行 fcitx5 -r 或注销后重新登录即可使用新版本"
+        : "水杉输入法已卸载：执行 fcitx5 -r 或注销后重新登录即可完成卸载"));
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   }
   // Keys still reach the application: the addon never filters an event it could not route, so the user can keep typing while the hint is up. Only activation may open the settings window; a key never does, because a window that appears mid-typing can take the keyboard focus and swallow what follows.

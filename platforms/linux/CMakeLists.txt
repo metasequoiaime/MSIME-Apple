@@ -9,6 +9,12 @@ set(MSIME_USER_SERVICES ${MSIME_USER_UNITS})
 list(FILTER MSIME_USER_SERVICES INCLUDE REGEX "\\.service$")
 list(JOIN MSIME_USER_UNITS " " MSIME_USER_UNIT_LIST)
 list(JOIN MSIME_USER_SERVICES " " MSIME_USER_SERVICE_LIST)
+# Session managers read XDG autostart entries from $XDG_CONFIG_DIRS/autostart, /etc/xdg/autostart by default. GNUInstallDirs maps the system configuration directory of a /usr prefix to /etc, so only then is the entry installed there, as an absolute directory the CMake uninstall accepts as a second root. Every other prefix keeps the directory relative, so `cmake --install --prefix` relocates it with the rest of the installation; that includes /opt/<name>, whose /etc/opt/<name> no session manager reads.
+if(CMAKE_INSTALL_FULL_SYSCONFDIR STREQUAL "/etc")
+  set(MSIME_XDG_AUTOSTART_DIR "/etc/xdg/autostart")
+else()
+  set(MSIME_XDG_AUTOSTART_DIR "${CMAKE_INSTALL_SYSCONFDIR}/xdg/autostart")
+endif()
 configure_file(cmake/uninstall.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake @ONLY)
 # Configured for every build, not only packaging ones, so the gate's ctest exercises the scripts the .deb ships; packaging.cmake hands them to CPack.
 foreach(MSIME_DEB_SCRIPT prerm postinst)
@@ -281,6 +287,10 @@ add_executable(linux-phrase-preedit-test tests/core/phrase_preedit.cpp)
 target_compile_options(linux-phrase-preedit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-phrase-preedit-test PRIVATE src)
 add_test(NAME linux-phrase-preedit COMMAND linux-phrase-preedit-test)
+add_executable(linux-replaced-program-test tests/core/replaced_program.cpp)
+target_compile_options(linux-replaced-program-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-replaced-program-test PRIVATE src)
+add_test(NAME linux-replaced-program COMMAND linux-replaced-program-test)
 add_executable(linux-smart-punctuation-space-test tests/core/smart_punctuation_space.cpp)
 target_compile_options(linux-smart-punctuation-space-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
@@ -294,6 +304,9 @@ add_test(NAME linux-first-run-guide
 add_test(NAME linux-deb-maintainer-scripts
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/deb_maintainer_scripts.py"
                  "${CMAKE_CURRENT_BINARY_DIR}/debian" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" "${MSIME_USER_UNIT_LIST}")
+add_test(NAME linux-clipboard-autostart
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/clipboard_autostart.py"
+                 "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}" "${MSIME_XDG_AUTOSTART_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake")
 add_test(NAME linux-ibus-launcher-supervisor
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/ibus_launcher_supervisor.py")
 add_executable(linux-ibus-registration-bus tests/core/ibus_registration_bus.cpp)
@@ -360,6 +373,8 @@ foreach(MSIME_PROVIDER online voice clipboard)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-${MSIME_PROVIDER}.service
           DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
 endforeach()
+# Starts the clipboard service at login on sessions without graphical-session.target, for users who enabled it; see the comment in the file. Its own component lets the test install just this file.
+install(FILES data/msime-client-clipboard.desktop DESTINATION "${MSIME_XDG_AUTOSTART_DIR}" COMPONENT clipboard-autostart)
 # Socket units keep the provider paths present from login, so the input method and the panels find the services the way the Windows server is simply there; systemd starts a provider on its first request.
 install(FILES data/msime-client-online.socket data/msime-client-voice.socket
         DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")

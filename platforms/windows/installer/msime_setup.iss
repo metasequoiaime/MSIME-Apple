@@ -25,6 +25,8 @@
 #define MyWatchdogName "MetasequoiaImeWatchdog.exe"
 #define MyWatchdogTaskName "Metasequoia IME Watchdog"
 #define MyReplayName   "MetasequoiaImeDictionaryReplay.exe"
+; Global::MetasequoiaIMECLSID in platforms/windows/tsf/Global/Globals.cpp.
+#define MyTipKey       "SOFTWARE\Microsoft\CTF\TIP\{E3062E9A-D834-4637-8958-ED8CFA427D01}"
 #define MyVersionDirBase "msime_v" + MyAppVersion
 #define MySourceRoot   "."
 #ifdef LightPackage
@@ -1181,6 +1183,9 @@ begin
   end
   else if CurUninstallStep = usPostUninstall then
   begin
+    { Both TSF DLLs have been unregistered by now. DllUnregisterServer removes the language profile but, like the SampleIME code it came from, never calls ITfInputProcessorProfiles::Unregister, so the TIP key and its category entries stay behind; remove them from both registry views. }
+    RegDeleteKeyIncludingSubkeys(HKLM64, '{#MyTipKey}');
+    RegDeleteKeyIncludingSubkeys(HKLM32, '{#MyTipKey}');
     TryDeleteTree(ExpandConstant(
       '{commonpf64}\metasequoiaime\server'));
     if VersionDirName <> '' then
