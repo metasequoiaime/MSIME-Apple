@@ -66,6 +66,8 @@ struct Observation {
   bool emoji_candidates = false;
   std::string candidate_skin;
   bool traditional_output = false;
+  // The CharacterMode menu item, which shows the host's width flag.
+  bool character_width = false;
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
   bool clipboard_toggle_sensitive = false;
@@ -182,6 +184,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.candidate_skin = key.substr(std::string("CandidateSkin/").size());
     if (key == "TraditionalOutput")
       seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (key == "CharacterMode")
+      seen.character_width = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "Punctuation")
       seen.punctuation_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
@@ -1651,6 +1655,22 @@ int main(int argc, char **argv) {
                      "fullwidth";
             }),
             "Fullwidth character mode was not persisted");
+    // The saved width has to reach the session as well as the host flag: the raw spelling Enter commits is widened by the session, the idle digit after it by the host.
+    const auto width_committed = seen.committed;
+    const auto width_probe = [&] {
+      seen.committed.clear();
+      phrase();
+      require(key(IBUS_Return), "Width probe spelling was not committed");
+      settle_lookup();
+      key('1');
+      const auto committed = seen.committed;
+      seen.committed.clear();
+      return committed;
+    };
+    require(wait_until([&] { return seen.character_width; }),
+            "Fullwidth menu save did not reach the host flag");
+    require(width_probe() == "ｎｉｈａｏ１",
+            "Fullwidth menu save did not reach the session");
     invoke("PropertyActivate",
            g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
@@ -1658,6 +1678,27 @@ int main(int argc, char **argv) {
                      "halfwidth";
             }),
             "Halfwidth character mode was not restored");
+    require(wait_until([&] { return !seen.character_width; }) && width_probe() == "nihao",
+            "Halfwidth menu save did not reach the session");
+    // The settings page writes the store; the open session follows it on the next poll, with no focus change.
+    const auto store_width = [&](const char *width) {
+      nlohmann::json snapshot;
+      {
+        std::ifstream input(root / "preferences.json");
+        input >> snapshot;
+      }
+      snapshot["revision"] = snapshot.at("revision").get<uint64_t>() + 1;
+      snapshot["preferences"]["character_width"] = width;
+      std::ofstream(root / "width-next.json") << snapshot.dump();
+      std::filesystem::rename(root / "width-next.json", root / "preferences.json");
+    };
+    store_width("fullwidth");
+    require(wait_until([&] { return seen.character_width; }) && width_probe() == "ｎｉｈａｏ１",
+            "A fullwidth store did not reach the open session");
+    store_width("halfwidth");
+    require(wait_until([&] { return !seen.character_width; }) && width_probe() == "nihao",
+            "A halfwidth store did not reach the open session");
+    seen.committed = width_committed;
     require(seen.punctuation_enabled, "Chinese punctuation was not enabled");
     invoke("PropertyActivate",
            g_variant_new("(su)", "PunctuationLock/english", PROP_STATE_CHECKED));

@@ -401,6 +401,7 @@ public:
     last_smart_punctuation_at_ = {};
     smart_punctuation_rejected_ = 0;
     paired_tracker_.clear();
+    session_fullwidth_ = false;
     japanese_conversion_.reset();
     backspace_hold_.reset();
     maintenance_reload_held_ = false;
@@ -919,6 +920,7 @@ public:
     snapshot["preferences"]["character_width"] = fullwidth ? "fullwidth" : "halfwidth";
     if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     view_ = response(msime_client_set_character_width(session_, fullwidth));
+    session_fullwidth_ = fullwidth;
     saveStringPreference("character_width", fullwidth ? "fullwidth" : "halfwidth");
     render();
     return true;
@@ -936,6 +938,8 @@ public:
   }
   void startPreferenceSave(PendingPreferenceSave request) {
     waitForPreferenceSave();
+    // A store read already in flight predates the choice being saved; applied after the save it would put back what the status bar just changed (the width and punctuation it re-states to the session included), so refreshPreferences() drops it and reads again once the save lands, as refreshProviderSockets() fences a read from a moved store.
+    preferences_job_session_ = 0;
     preferences_save_retry_ = request;
     preferences_save_job_ = std::async(std::launch::async, [request = std::move(request)] {
       try { return savePreference(request); }
@@ -1334,6 +1338,15 @@ public:
     view_ = response(msime_client_set_chinese_punctuation(session_, chinese_punctuation_));
     session_chinese_punctuation_ = chinese_punctuation_;
   }
+  // The runtime takes its width only from set_character_width, never from the preferences it is handed, and fullwidthOutput() reads it back from the view, so the saved character_width reaches this host only when it is stated here: when the session opens and whenever a reload moves it.
+  void syncSessionCharacterWidth() {
+    const bool fullwidth =
+        preferences_.value("character_width", std::string("halfwidth")) == "fullwidth";
+    if (!session_ || session_fullwidth_ == fullwidth) return;
+    view_ = response(msime_client_set_character_width(session_, fullwidth));
+    session_fullwidth_ = fullwidth;
+    paired_tracker_.clear();
+  }
   bool applyPreferenceSnapshot(Json snapshot) {
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
@@ -1366,7 +1379,6 @@ public:
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
     applyContextOverrides(preferences_);
-    configureDiagnostics();
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
@@ -1422,7 +1434,7 @@ public:
           // Status-bar saves reach the store but never the runtime options file, so for the choices the status bar makes the store is the authority: the file can hold a value no window has chosen since, e.g. after another window's status bar or the settings page moved the store while this context had no session.
           const auto &stored = preferences_snapshot_.at("preferences");
           auto base = options.value("preferences", Json::object());
-          for (const auto *key : {"scheme", "shuangpin_profile"})
+          for (const auto *key : {"scheme", "shuangpin_profile", "character_width"})
             if (stored.contains(key) && stored.at(key).is_string()) base[key] = stored.at(key);
           for (const auto *section : {"quanpin_helpcode", "shuangpin_helpcode"})
             if (stored.contains(section) && stored.at(section).is_object() &&
@@ -1437,6 +1449,8 @@ public:
         // through the normal save/reload path when the store becomes available.
       }
     }
+    // Only now is options_path_ this session's store: configured any earlier, the sink saw the empty path close() left and stayed shut whatever the switch said.
+    configureDiagnostics();
     resources_ = options.value("resources", std::string());
     auto clipboard_path = options.value("clipboard_history_path", std::string());
     if (clipboard_path.empty()) clipboard_path = options.value("preferences_directory", std::string());
@@ -1496,6 +1510,8 @@ public:
     session_chinese_punctuation_ =
         options.at("preferences").value("chinese_punctuation", true);
     syncSessionChinesePunctuation();
+    session_fullwidth_ = false;
+    syncSessionCharacterWidth();
     // A mode the focus restores is a Chinese/English switch like any other; resolved here, once the lock is read and the session exists.
     if (restore_changed_mode) resyncPunctuationForMode();
     view_ = response(msime_client_focus(session_, true)).at("view");
@@ -1530,6 +1546,9 @@ public:
             view_ = response(msime_client_update_preferences(session_,
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
             preferences_ = std::move(effectivePreferences);
+            configureDiagnostics();
+            // A width chosen here that the store does not hold - its save failed, or a private window, which never saves - is not undone by the store, as a failed scheme choice is kept; the next session re-reads the store.
+            if (!private_ && !unsavedChoice("", "character_width")) syncSessionCharacterWidth();
             traditional_ = preferences_.value("traditional_chinese_output", traditional_);
             chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
             syncSessionChinesePunctuation();
@@ -2875,6 +2894,8 @@ public:
   bool chinese_punctuation_ = true;
   // What the session was last told; see syncSessionChinesePunctuation().
   bool session_chinese_punctuation_ = true;
+  // The width the session was last told; see syncSessionCharacterWidth(). A new session starts halfwidth.
+  bool session_fullwidth_ = false;
   // Monotonic per session; see effectiveContextSnapshot().
   uint64_t applied_preferences_revision_ = 0;
   bool paired_punctuation_ = true;
