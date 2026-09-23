@@ -11,7 +11,7 @@
   <engines>
     <engine>
       <name>msime-client</name>
-      <longname>MSIME Client</longname>
+      <longname>Metasequoia 水杉输入法</longname>
       <description>Shared MSIME Linux input runtime</description>
       <language>zh</language>
       <license>GPL-3.0-only</license>

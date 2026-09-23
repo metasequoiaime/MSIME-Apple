@@ -744,6 +744,21 @@ fn japanese_mode_switch_defers_and_restores_chinese_profile() {
 }
 
 #[test]
+fn raw_commit_without_learning_crosses_the_host_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    for character in b"xq" {
+        read(msime_client_character(handle, *character, false));
+    }
+    let committed = read(msime_client_command(handle, 15));
+    assert_eq!(committed["ok"], true);
+    assert_eq!(committed["value"]["commit"], "xq");
+    assert_eq!(committed["value"]["view"]["editing_text"], "");
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn japanese_commands_are_unhandled_for_non_japanese_schemes() {
     let dir = tempfile::tempdir().unwrap();
     let handle = test_host(dir.path());

@@ -4019,12 +4019,42 @@ test("Linux help quick start covers both Fcitx5 and IBus", async () => {
   expect(intro.textContent).toContain("Fcitx5");
   expect(intro.textContent).toContain("IBus");
   const quickStart = screen.getByText(/fcitx5-configtool/);
+  // First-run setup adds the input method on its own; the manual steps are the fallback.
+  expect(quickStart.textContent).toContain("自动加入正在运行的 Fcitx5 或 IBus 的输入法列表");
   expect(quickStart.textContent).toContain(
     "「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组",
   );
-  expect(quickStart.textContent).toContain("「MSIME Client」");
-  expect(quickStart.textContent).toContain("IBus");
+  // The name IBus lists is the component's longname.
+  expect(quickStart.textContent).toContain("「Metasequoia 水杉输入法」");
+  expect(quickStart.textContent).not.toContain("MSIME Client");
   expect(screen.queryByText(/Win \+ Space/)).toBeNull();
+});
+
+test("Linux help network section says what goes online and where credentials live", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    host: { platform: "linux" } as never,
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  const network = await screen.findByText(/日常拼音输入无需联网/);
+  const text = network.textContent ?? "";
+  // Cloud candidates are on after first-run setup unless declined, and they send the spelling being typed.
+  expect(text).toContain("云候选默认开启");
+  expect(text).toContain("Google input-tools");
+  expect(text).toContain("msime-client-online-provider");
+  expect(text).toContain("msime-client-voice-provider");
+  // A custom translation service goes online with only an endpoint, its API key being optional, so the gate is a configured service rather than a credential.
+  expect(text).toContain("只在启用并配置好对应服务（凭据，或自定义翻译的服务地址）后联网");
+  expect(text).not.toContain("填好凭据后联网");
+  // The provider credentials are private files; NiuTrans and custom translation keys are the exception and the copy says so.
+  expect(text).toContain("ai-provider.json、tencent-provider.json 和 voice-provider.json");
+  expect(text).toContain("不进入共享设置");
+  expect(text).toContain("小牛翻译和自定义翻译服务的密钥则保存在共享设置中");
+  expect(text).not.toContain("不保存或转发 provider 的凭据");
 });
 
 test("Android help and about pages use mobile instructions and project links", async () => {

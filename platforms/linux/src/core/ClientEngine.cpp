@@ -3722,10 +3722,10 @@ void voice_start_impl(IBusEngine *engine) {
   s.voice_space_locked = false;
   const auto socket = s.voice_provider_socket;
   const auto language = s.voice_language;
+  // IBus commit is the only voice commit path on Linux and the settings page offers no strategy, so a stored commit_mode must not turn the inline preedit off.
   const bool stream_inline_preedit = msime_voice_stream_inline_enabled(
       provider_options.value("stream_inline_preedit", false),
-      provider_options.value("asr_provider", std::string{"doubao"}),
-      provider_options.value("commit_mode", std::string{"tsf"}));
+      provider_options.value("asr_provider", std::string{"doubao"}), "tsf");
   const auto alive = s.alive;
   const auto provider_succeeded = std::make_shared<std::atomic_bool>(false);
   s.voice_worker.run_stream(

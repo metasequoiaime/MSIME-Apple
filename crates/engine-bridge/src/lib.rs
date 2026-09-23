@@ -675,6 +675,8 @@ pub enum Command {
     DeleteForward,
     CycleKanaVariant,
     CommitReading,
+    /// Commit the letters as typed without learning them as an English word. Windows learns an entered word only on Enter (`event_listener.cpp`, `ShouldLearnEnteredEnglishWord`); a mode switch commits the keystroke buffer and learns nothing (`KeyHandler.cpp`, `_HandleToogleIMEMode`).
+    CommitRawWithoutLearning,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1502,6 +1504,53 @@ mod tests {
             )
             .unwrap();
         assert_eq!(learned, "hello");
+    }
+
+    #[test]
+    fn raw_commit_without_learning_leaves_the_english_dictionary_alone() {
+        for dedicated in [true, false] {
+            raw_commit_without_learning_case(dedicated);
+        }
+    }
+
+    fn raw_commit_without_learning_case(dedicated: bool) {
+        let dir = tempfile::tempdir().unwrap();
+        let value = options(dir.path());
+        let mut session = Session::new(&value).unwrap();
+        session.set_dedicated_english(dedicated).unwrap();
+        for character in b"hello" {
+            assert!(session.character(*character, false).unwrap().handled);
+        }
+        assert_eq!(
+            session
+                .command(Command::CommitRawWithoutLearning)
+                .unwrap()
+                .commit,
+            "hello"
+        );
+        let database = std::path::Path::new(&value.dictionaries).join("english.db");
+        if database.exists() {
+            let database = rusqlite::Connection::open(database).unwrap();
+            let learned: i64 = database
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='english_words'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let learned = if learned == 0 {
+                0
+            } else {
+                database
+                    .query_row(
+                        "SELECT COUNT(*) FROM english_words WHERE word='hello'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap()
+            };
+            assert_eq!(learned, 0);
+        }
     }
 
     #[test]

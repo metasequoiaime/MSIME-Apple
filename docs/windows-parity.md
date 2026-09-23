@@ -1954,3 +1954,10 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 全角：Windows 开着全角且候选窗未打开时，会吃掉每个可打印 ASCII 键（`' '` 到 `'~'`，`CompositionProcessorEngine.cpp` 的 `IsDoubleSingleByte`，由 `KeyEventSink.cpp` 分类为 `FUNCTION_DOUBLE_SINGLE_BYTE`），改为插入全角形式。鸿蒙原先把这些键直接交给应用，于是英文字母、空闲时的数字和空格、英文模式的标点、引擎拒收的大写字母都以半角出现。现在路由在全角开启且未组字时返回 `WIDEN`，会话按 `FullWidthInputPolicy` 插入（空格变成 U+3000，与其他路径一致）；引擎拒收的大写字母也改为插入全角。Ctrl / Alt / Win 组合键仍交给应用；中文模式的标点仍走标点路径，那条路径本来就会把字面标点转成全角。
 - 统计：Windows 会把交给应用的字符也记进打字统计（`stats_passthrough.h` 的 `ShouldCountPassthroughChar`：可打印、未按 Ctrl / Alt / Win，Shift 可以；控制字符和 DEL 不算）。鸿蒙原先只统计自己插入的文字，硬件键盘直接交给应用的字符漏记。现在按键按下且被交给应用时按同一规则计入（`TypingStatisticsPolicy.countsPassthrough`）；键盘不组字的编辑框（例如密码框）不计，这是本仓的取舍：输入法不记录密码框里敲了多少字。
 - 手机接实体键盘时走的是同一条硬件键路径，所以行为一致；软键盘本来就由输入法自己插入文字，不受影响。
+
+### HarmonyOS：切换中英文时上屏的原始字母不再学成英文词
+
+- Windows 只在按 Enter 时把输入的原始字母学成英文词（`event_listener.cpp` 里 `VK_RETURN` 分支调用 `ShouldLearnEnteredEnglishWord`）。Shift 切换中英文时 `_HandleToogleIMEMode`（`KeyHandler.cpp`）只把按键缓冲原样上屏，不学习。
+- 鸿蒙切换中英文时发的是 `MSIME_COMMIT_RAW`（2）。这条命令会走 `commit_raw_with_policy`，按 Enter 的规则学习；在 Ctrl+Shift+E 英文候选模式下，引擎自己的原始上屏也会学习。于是在中文模式下打了 `hello` 再切到英文，`hello` 会被记进英文词库。
+- 共享层新增 `MSIME_COMMIT_RAW_WITHOUT_LEARNING`（15）：同样把字母原样上屏，但不学习。在英文候选模式下，它读取预编辑后取消组字，绕开引擎自带的学习；临时模式的引导字母照 `InputSession` 的做法去掉。鸿蒙切换中英文的边界改用这条命令；Enter 和触屏上的原样上屏仍用 2，继续学习。手机和 2in1 走的是同一条路径。
+- Linux 的 Ctrl+Space 等切换组合键（`FcitxEngine.cpp`）同样发 2，存在同样的差异。那是 Linux 宿主的事，这里没有改动。
