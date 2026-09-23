@@ -36,6 +36,7 @@ private enum StatisticsSymbol {
 
 struct TypingStatisticsView: View {
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var statistics = TypingStatistics()
   @State private var errorMessage = ""
   @State private var confirmsReset = false
@@ -46,11 +47,12 @@ struct TypingStatisticsView: View {
 
   /// 三块内容轮流占这一屏,不再一路往下滚。
   private enum Tab: String, CaseIterable {
-    case trend, kind, mode, scheme
+    case trend, rhythm, kind, mode, scheme
     /// 标签只给两个字 —— 四格分段控件上放「语言模式」「输入方案」会挤成一行小字;全名在下面的分组标题里。
     var title: String {
       switch self {
       case .trend: return "趋势"
+      case .rhythm: return "节奏"
       case .kind: return "类型"
       case .mode: return "模式"
       case .scheme: return "方案"
@@ -163,6 +165,8 @@ struct TypingStatisticsView: View {
           }
         } header: { Text(trendDays >= 360 ? "每日趋势 · 近一年" : "每日趋势 · 近 \(trendDays) 天") }
           footer: { Text("折线画到最早那条记录，最多一年。方块每天一格、一列一周，铺满一屏后可以左右拖，没有记录的日子是最浅的一档；点一个方块只看那一天的分类与占比。") }
+      case .rhythm:
+        rhythmSections
       case .kind:
         Section {
           distribution(characterSlices, chart: .pie)
@@ -251,6 +255,59 @@ struct TypingStatisticsView: View {
         selectedDay = selectedDay == date ? nil : date
       }
     }.padding(.vertical, 8).accessibilityElement(children: .contain).accessibilityIdentifier("statisticsTrend")
+  }
+
+  private var activity: TypingActivity { statistics.activity(todayKey: TypingStatistics.dayKey(Date())) }
+
+  /// 输入节奏:速度、活跃时长、连续天数和今日时段,和共享统计页的「输入节奏」同一套算法。手机上两列,iPad 的宽窗口一行放下四格。
+  @ViewBuilder private var rhythmSections: some View {
+    let activity = activity
+    Section {
+      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading),
+                               count: horizontalSizeClass == .regular ? 4 : 2), spacing: 18) {
+        rhythmMetric("今日速度", value: "\(Int(activity.todaySpeed.rounded()))", unit: "字 / 分钟", identifier: "typingTodaySpeed")
+        rhythmMetric("平均速度", value: "\(Int(activity.averageSpeed.rounded()))", unit: "字 / 分钟", identifier: "typingAverageSpeed")
+        rhythmMetric("今日活跃", value: TypingActivity.formatActiveTime(activity.todayActiveMs), unit: "连续打字的时间", identifier: "typingTodayActive")
+        rhythmMetric("连续天数", value: "\(activity.currentStreak)", unit: "最长 \(activity.longestStreak) 天", identifier: "typingStreak")
+      }.padding(.vertical, 8)
+      VStack(alignment: .leading, spacing: 4) {
+        Text("日均 \(Int(activity.averagePerDay.rounded())) 字符 · \(activity.recordedDays) 天有记录")
+        if let best = activity.bestDay {
+          Text("最多 \(dayLabel(best))，\(activity.bestDayCharacters) 字符")
+        }
+        if let fastest = activity.fastestDay {
+          Text("最快 \(dayLabel(fastest))，\(Int(activity.fastestSpeed.rounded())) 字 / 分钟")
+        }
+      }.font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("typingRhythmSummary")
+    } header: { Text("输入节奏") }
+      footer: {
+        Text(activity.hasActivity
+          ? "速度按连续打字的时间计算，两次上屏间隔超过 10 秒算休息、不计入；只统计汉字与各种文字的字母，数字、标点和表情不参与。"
+          : "还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。")
+      }
+    if let hours = activity.todayHours {
+      Section {
+        StatisticsHourlyChart(hours: hours, accent: MetasequoiaTheme.forest, progress: revealed ? 1 : 0)
+          .animation(.easeOut(duration: 0.6), value: revealed)
+          .padding(.vertical, 8)
+      } header: { Text("今日时段") }
+    }
+  }
+
+  private func rhythmMetric(_ title: String, value: String, unit: String, identifier: String) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title).font(.subheadline).foregroundStyle(.secondary)
+      Text(value).font(.system(size: 26, weight: .semibold, design: .rounded))
+        .foregroundStyle(MetasequoiaTheme.forest).lineLimit(1).minimumScaleFactor(0.6)
+        .accessibilityIdentifier(identifier)
+      Text(unit).font(.caption).foregroundStyle(.secondary)
+    }
+  }
+
+  /// `9月21日`,和趋势轴的标签一样。
+  private func dayLabel(_ key: String) -> String {
+    guard let date = Self.dayKeyFormatter.date(from: key) else { return key }
+    return date.formatted(.dateTime.month().day())
   }
 
   /// 一块分布 = 一张图 + 一份图例。图形按这一块回答的问题选,图例给准确数字。

@@ -78,6 +78,76 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertGreaterThan(page.nextOffset, 0)
   }
 
+  func testSymbolParentsAndPagesAreValidatedAndDeduplicated() throws {
+    XCTAssertEqual(try KeyboardEmojiCatalog.decodeSymbolParents(["symbol_groups": [
+      ["parent": "Math", "title": "Operators"],
+      ["parent": "Math", "title": "Fractions"],
+      ["parent": "", "title": "Empty"],
+      ["parent": "Hearts", "title": "Hearts"],
+    ]]), ["Math", "Hearts"])
+    XCTAssertThrowsError(try KeyboardEmojiCatalog.decodeSymbolParents(["items": []]))
+
+    var offsets: [Int] = []
+    let symbols = try KeyboardEmojiCatalog.collectSymbols { offset in
+      offsets.append(offset)
+      return offset == 0
+        ? ["items": [["text": "+"], ["text": "−"]], "next_offset": 2, "complete": false]
+        : ["items": [["text": "−"], ["text": "×"]], "next_offset": 4, "complete": true]
+    }
+    XCTAssertEqual(offsets, [0, 2])
+    XCTAssertEqual(symbols, ["+", "−", "×"], "一个符号挂在两个子组下只出现一次")
+    XCTAssertThrowsError(try KeyboardEmojiCatalog.collectSymbols { _ in
+      ["items": [["text": "+"]], "next_offset": 0, "complete": false]
+    }, "游标不前进时不能死循环")
+    XCTAssertThrowsError(try KeyboardEmojiCatalog.collectSymbols { _ in
+      ["items": [["text": ""]], "next_offset": 1, "complete": true]
+    })
+  }
+
+  func testSharedBridgeReadsPackagedSymbolCatalog() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-symbol-catalog-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let resources = try XCTUnwrap(bridge.candidateGlossResources())
+    let parents = try KeyboardEmojiCatalog.symbolParents(resources: resources)
+    XCTAssertTrue(parents.contains("Punctuation"))
+    XCTAssertTrue(parents.contains("Letters"))
+    for parent in parents {
+      XCTAssertNotNil(KeyboardEmojiCatalog.symbolParentTitles[parent], "\(parent) 要有中文标题")
+    }
+    let letters = try KeyboardEmojiCatalog.loadSymbols(resources: resources, parent: "Letters")
+    XCTAssertGreaterThan(letters.count, 255, "最大的一类要翻过不止一页")
+    XCTAssertEqual(Set(letters).count, letters.count)
+  }
+
+  func testSymbolPanelAppendsCatalogCategoriesAndLoadsThemOffTheMainThread() async throws {
+    let panel = KeyboardSymbolPanelView(
+      catalog: .init(parents: { ["Math", "Unlisted"] }, symbols: { parent in
+        XCTAssertFalse(Thread.isMainThread)
+        return parent == "Math" ? ["∑", "∞"] : []
+      }),
+      onInsert: { _ in }, onDelete: {}, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 260)
+    panel.layoutIfNeeded()
+    let fixed = KeyboardSymbolPanelView.categories.count
+    XCTAssertEqual(panel.categoryCount, fixed + 2)
+    XCTAssertEqual(try button("symbolCategory_\(fixed)", in: panel).title(for: .normal), "数学")
+    XCTAssertEqual(try button("symbolCategory_\(fixed + 1)", in: panel).title(for: .normal), "Unlisted",
+                   "目录以后新增的类别按原名显示")
+
+    try button("symbolCategory_\(fixed)", in: panel).sendActions(for: .primaryActionTriggered)
+    for _ in 0..<100 where descendants(panel).first(where: { $0.accessibilityIdentifier == "symbolKey_∑" }) == nil {
+      try await Task.sleep(nanoseconds: 20_000_000)
+    }
+    XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == "symbolKey_∞" })
+
+    let unreadable = KeyboardSymbolPanelView(
+      catalog: .init(parents: { throw KeyboardEmojiCatalogError.invalidPage }, symbols: { _ in [] }),
+      onInsert: { _ in }, onDelete: {}, onClose: {})
+    XCTAssertEqual(unreadable.categoryCount, fixed, "目录读不出来时手机常用的几类照常可用")
+  }
+
   func testPickerLoadsInBackgroundAndRoutesInsertDeleteAndClose() async throws {
     let category = try XCTUnwrap(KeyboardEmojiCatalog.categories.first)
     let changed = expectation(description: "initial state and loaded page")
