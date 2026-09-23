@@ -35,6 +35,9 @@ pub struct AiSuggestionResponse {
     pub candidates: Vec<AiSuggestion>,
 }
 
+/// The system prompt a blank prompt slot stands for. It used to exist only in the Windows installer's default configuration, so every other host that never wrote a prompt sent an empty system message and got replies the JSON parser rejects.
+pub const DEFAULT_CANDIDATE_PROMPT: &str = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。";
+
 pub trait AiSuggestor {
     fn suggest(&self, request: &AiSuggestionRequest) -> Result<AiSuggestionResponse, AiError>;
 }
@@ -157,6 +160,11 @@ pub fn chat_completion_http_request(
         "custom_3" => &config.prompt_custom_3,
         _ if !config.prompt_custom_1.is_empty() => &config.prompt_custom_1,
         _ => &config.prompt,
+    };
+    let prompt = if prompt.trim().is_empty() {
+        DEFAULT_CANDIDATE_PROMPT
+    } else {
+        prompt
     };
     let body = chat_completion_body(request, &config.provider, &config.model, prompt)?;
     if serde_json::to_vec(&body)
@@ -496,7 +504,10 @@ mod tests {
         assert_eq!(value["connect_timeout_ms"], 2500);
         assert_eq!(value["max_response_bytes"], 1048576);
         config.prompt_id = "custom_3".into();
-        assert_eq!(descriptor(&config)["body"]["messages"][0]["content"], "");
+        assert_eq!(
+            descriptor(&config)["body"]["messages"][0]["content"],
+            DEFAULT_CANDIDATE_PROMPT
+        );
         config
             .tokens
             .insert("deepseek".into(), "<placeholder>".into());

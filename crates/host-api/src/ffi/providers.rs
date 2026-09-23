@@ -62,15 +62,49 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
             // built from: chat_completion_http_request rejects a request whose
             // limit disagrees with its config, and the query document's copy
             // can lag the pending preferences this call is meant to follow.
-            let config = &preferences.ai_assistant;
+            let mut config = preferences.ai_assistant.clone();
+            if let Some(token) = &session.ai_credential {
+                config.tokens.insert(config.provider.clone(), token.clone());
+            }
             let request = AiSuggestionRequest {
                 segmented_pinyin: query.pinyin_segments,
                 context: query.ai_context,
                 candidate_limit: config.candidate_limit,
             };
-            msime_client_core::ai::chat_completion_http_request(config, &request)
+            msime_client_core::ai::chat_completion_http_request(&config, &request)
                 .map(|value| value.unwrap_or(Value::Null))
                 .map_err(|error| error.to_string())
+        })
+    })
+}
+
+/// Hand the session an AI provider credential kept outside the preferences. It is used for the active provider in place of any token the preferences carry, lives only as long as the session, and is never persisted or reported back. An empty token clears it.
+/// # Safety
+/// `token` references `token_length` readable UTF-8 bytes; null is accepted only with a zero length. No buffers are retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_set_ai_credential(
+    handle: u64,
+    token: *const u8,
+    token_length: usize,
+) -> *mut c_char {
+    response(|| {
+        if (token.is_null() && token_length != 0) || token_length > 4096 {
+            return Err("invalid AI credential buffer".into());
+        }
+        let token = if token_length == 0 {
+            None
+        } else {
+            let text =
+                std::str::from_utf8(unsafe { std::slice::from_raw_parts(token, token_length) })
+                    .map_err(|_| "invalid AI credential")?;
+            if text.chars().any(char::is_control) {
+                return Err("invalid AI credential".into());
+            }
+            Some(text.to_owned())
+        };
+        with_session(handle, |session| {
+            session.ai_credential = token;
+            Ok(Value::Bool(true))
         })
     })
 }

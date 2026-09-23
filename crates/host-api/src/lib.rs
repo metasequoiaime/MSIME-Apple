@@ -160,6 +160,8 @@ struct HostSession {
     english_mode: bool,
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
+    /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
+    ai_credential: Option<String>,
     voice: VoiceSessionState,
     // Declared after runtime so the Engine is dropped before releasing access.
     _dictionary_access: DictionaryAccess,

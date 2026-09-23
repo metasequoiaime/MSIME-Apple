@@ -3243,6 +3243,49 @@ fn cloud_candidate_requires_an_existing_local_candidate_page() {
 }
 
 #[test]
+fn an_ai_credential_handed_over_in_memory_signs_requests_without_being_stored() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    preferences.ai_assistant.provider = "deepseek".into();
+    preferences.ai_assistant.model = "synthetic-model".into();
+    preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
+    let handle = test_host_preferences(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let query = read(msime_client_online_query(handle))["value"].to_string();
+    let request = |handle: u64| {
+        read(unsafe { msime_client_ai_request_for_query(handle, query.as_ptr(), query.len()) })
+    };
+    let set = |token: &str| {
+        read(unsafe { msime_client_set_ai_credential(handle, token.as_ptr(), token.len()) })
+    };
+    assert_ne!(request(handle)["ok"], true, "no token anywhere");
+    assert_eq!(set("synthetic-keychain")["ok"], true);
+    let descriptor = request(handle);
+    assert_eq!(descriptor["ok"], true);
+    assert_eq!(
+        descriptor["value"]["headers"]["Authorization"],
+        "Bearer synthetic-keychain"
+    );
+    assert!(!read(msime_client_view(handle))
+        .to_string()
+        .contains("synthetic-keychain"));
+    assert!(!read(msime_client_online_query(handle))
+        .to_string()
+        .contains("synthetic-keychain"));
+    assert_eq!(set("bad\ntoken")["ok"], false);
+    assert_eq!(set("")["ok"], true);
+    assert_ne!(request(handle)["ok"], true, "cleared");
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn ai_queries_and_delivery_follow_pending_preferences() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = Preferences {

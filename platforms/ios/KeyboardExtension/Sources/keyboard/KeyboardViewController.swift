@@ -336,6 +336,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     setFullWidthInput(CharacterWidthPreference.startsFullwidth(in: session.sharedPreferences))
     appliedChinesePunctuation = Self.sharedChinesePunctuation(session.sharedPreferences)
     chinesePunctuation = appliedChinesePunctuation
+    synchronizeAICredential()
     applyKeyboardAppearance()
     configureDiagnosticLog()
     DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone")")
@@ -435,6 +436,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.synchronizeSharedTouchPreferences()
       self.synchronizeCharacterWidth()
       self.synchronizeChinesePunctuation()
+      self.synchronizeAICredential()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
       self.synchronizeTranslationRoute()
@@ -2911,6 +2913,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func setChinesePunctuation(_ enabled: Bool) {
     chinesePunctuation = enabled
     session.setChinesePunctuation(enabled)
+  }
+
+  /// Hand the runtime the Keychain key for candidate-bar AI, and take it back when the settings app turns it off or points it somewhere the saved keyboard configuration does not.
+  private func synchronizeAICredential() {
+    let configuration = KeyboardAIService.configuration()
+    guard let configuration,
+          AICandidatePreference.credentialEndpoint(session.sharedPreferences,
+                                                   configuredEndpoint: configuration.endpoint) != nil
+    else {
+      session.setAICredential(nil)
+      return
+    }
+    session.setAICredential(try? KeyboardAIService.token(for: configuration))
   }
 
   /// A value changed in the settings app replaces the card's switch; a document that only changed something else leaves it.
