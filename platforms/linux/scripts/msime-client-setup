@@ -11,7 +11,7 @@
 
 Windows 安装程序注册 TSF profile，装完输入法就出现在输入法列表里；这里对应的是在状态目录就绪后把输入法加进正在运行的 Fcitx5 或 IBus 的列表。任何一步失败都退回到打印手动步骤，不影响已经准备好的状态。
 
-Windows 卸载程序注销 TSF profile 和类别，输入法随之从列表里消失；对应的是 --unregister：卸载时（.deb 的 prerm、CMake 卸载）在删除文件之前把输入法从这些列表里移除，只做这一步，不准备状态也不下载。
+Windows 卸载程序注销 TSF profile 和类别，输入法随之从列表里消失，并删除水杉留下的全部状态；对应的是 --unregister：卸载时（.deb 的 prerm、CMake 卸载）在删除文件之前把输入法从这些列表里移除，再把宿主改过的桌面候选面板设置（Fcitx5 classicui 的主题、字体和滚轮翻页，IBus 面板的字体）恢复成接管之前的值——用户之后自己改过的不动——并删除水杉生成的 Fcitx5 主题。只做这些，不准备状态也不下载。
 
 --update 对应 Windows 安装程序升级时的用户词库回放。随包提供词库的安装由包管理器换掉词库，宿主启动时自己切换代次；自行下载的词库没有人替换，升级抬高词库版本后宿主只能继续用旧的。--update 读出已有状态记录的词库目录，按已安装的词库锁核对；不符时加 --download 在旁边另建一份新词库目录，与旧目录一致的几项直接链接过去，只取回缺失或不符的几项，旧目录一个文件都不动。随后请两个宿主关掉输入会话，用 msime-client-prepare --refresh 切到新代次并回放用户词库，再让它们重新打开。已有状态时给 --download 即视为 --update。
 """
@@ -50,6 +50,13 @@ FCITX5_INTERFACE = "org.fcitx.Fcitx.Controller1"
 FCITX5_BUS_NAME = "org.fcitx.Fcitx5"
 GNOME_SOURCES = ("org.gnome.desktop.input-sources", "sources")
 IBUS_PRELOAD = ("org.freedesktop.ibus.general", "preload-engines")
+# The desktop panel settings the hosts take over, and the record of what they replaced (src/candidates/PanelRestoreRecord.h).
+PANEL_RESTORE_FILE = "msime-client/panel-restore.json"
+FCITX5_CLASSICUI_URI = "fcitx://config/addon/classicui"
+FCITX5_THEME = "msime"
+# Fcitx5's stock themes, the only ones the hosts take over (src/candidates/CandidateFcitxTheme.h), for the options that name a theme.
+FCITX5_STOCK_THEMES = {"Theme": "default", "DarkTheme": "default-dark"}
+IBUS_PANEL = "org.freedesktop.ibus.panel"
 
 
 def data_home() -> Path:
@@ -531,7 +538,9 @@ def parse_gvariant(text: str):
 
 
 def gvariant_text(value) -> str:
-    """The inverse of parse_gvariant for strings, tuples and non-empty arrays, the only values written here."""
+    """The inverse of parse_gvariant for strings, booleans, tuples and non-empty arrays, the only values written here."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, str):
         return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
     if isinstance(value, tuple):
@@ -688,6 +697,194 @@ def unregister_setting(schema: str, key: str, entry) -> str:
     return f"已从 {schema} {key} 移除「{IBUS_NAME}」。"
 
 
+def xdg_base(variable: str, fallback: str) -> Path:
+    """An XDG base directory as the hosts resolve it: a relative value is ignored, as the specification requires."""
+    value = os.environ.get(variable)
+    return Path(value) if value and Path(value).is_absolute() else Path.home() / fallback
+
+
+def fcitx5_unescape(value: str) -> str:
+    """A value as Fcitx5's INI reader returns it: a quoted value loses its quotes and its escaped quotes, and backslash escapes are resolved in either form."""
+    quoted = len(value) >= 2 and value[0] == value[-1] == '"'
+    if quoted:
+        value = value[1:-1]
+    return re.sub(r"\\(.)", lambda match: "\n" if match.group(1) == "n" else match.group(1), value)
+
+
+def fcitx5_escape(value: str) -> str:
+    """The inverse, as Fcitx5 writes it: a value holding whitespace or a quote is quoted."""
+    escaped = value.replace("\\", "\\\\").replace("\n", "\\n")
+    if not any(character.isspace() or character == '"' for character in value):
+        return escaped
+    return '"' + escaped.replace('"', '\\"') + '"'
+
+
+def classicui_file() -> Path:
+    return config_home() / "fcitx5/conf/classicui.conf"
+
+
+def classicui_options(path: Path) -> dict[str, str]:
+    """The top-level options of classicui.conf, which is where Fcitx5 saves every change to the addon's configuration, whether MSIME, fcitx5-configtool or anything else made it."""
+    options = {}
+    with contextlib.suppress(FileNotFoundError):
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("["):
+                break
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                options[key.strip()] = fcitx5_unescape(value.strip())
+    return options
+
+
+def edit_classicui(path: Path, values: dict[str, str]) -> None:
+    """Set top-level options in classicui.conf in place, for a Fcitx5 that is not running; the other lines, comments and sections stay as they were. Only options the file holds are restored, since only those can hold what MSIME wrote."""
+    lines = path.read_text().splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("["):
+            break
+        key = stripped.split("=", 1)[0].strip()
+        if "=" in stripped and not stripped.startswith("#") and key in values:
+            lines[index] = f"{key}={fcitx5_escape(values[key])}"
+    staged = path.with_name(path.name + ".msime-new")
+    staged.write_text("".join(line + "\n" for line in lines))
+    os.replace(staged, path)
+
+
+def fcitx5_config_variant(values: dict[str, str]) -> str:
+    """SetConfig's argument: a variant holding the a{sv} map Fcitx5 turns back into the addon's raw configuration."""
+    return "<{" + ", ".join(f"{gvariant_text(key)}: <{gvariant_text(value)}>" for key, value in values.items()) + "}>"
+
+
+def restorable(entries: dict, current) -> tuple[dict, list[str]]:
+    """Split a host's record into the values to put back, for settings that still hold what MSIME wrote, and the names of those the user has changed since."""
+    restore, kept = {}, []
+    for key, entry in entries.items():
+        if isinstance(entry, dict) and "prior" in entry and "written" in entry and current(key) == entry["written"]:
+            restore[key] = entry["prior"]
+        else:
+            kept.append(key)
+    return restore, kept
+
+
+def kept_note(kept: list[str]) -> str:
+    return f"；{'、'.join(kept)} 在水杉写入之后已被改动，保持不变" if kept else ""
+
+
+def restore_fcitx5_panel(entries: dict) -> str | None:
+    """Put back the classicui options MSIME replaced. A running Fcitx5 takes them over D-Bus, the way fcitx5-configtool writes them, so it applies and saves them itself; otherwise classicui.conf is edited, since a file edited under a running Fcitx5 is overwritten by its next save."""
+    path = classicui_file()
+    current = classicui_options(path)
+    restore, kept = restorable(entries, current.get)
+    # A value never read from the addon cannot be put back.
+    restore = {key: value for key, value in restore.items() if isinstance(value, str)}
+    # MSIME's theme is removed after this, so a theme option left naming it goes back to the stock theme: one set by a build that kept no record, or recorded by it as the value it replaced.
+    for key, stock in FCITX5_STOCK_THEMES.items():
+        if restore.get(key, current.get(key)) == FCITX5_THEME:
+            restore[key] = stock
+            if key in kept:
+                kept.remove(key)
+    if not restore:
+        return "Fcitx5 候选面板设置无需恢复" + kept_note(kept) + "。" if entries else None
+    names = "、".join(restore)
+    try:
+        if fcitx5_on_bus():
+            fcitx5_call("SetConfig", gvariant_text(FCITX5_CLASSICUI_URI), fcitx5_config_variant(restore))
+            return f"已恢复 Fcitx5 候选面板设置 {names}" + kept_note(kept) + "。"
+    except RegistrationFailed as error:
+        print(f"未能经 D-Bus 恢复 Fcitx5 候选面板设置：{error}，改为直接编辑 {path}", file=sys.stderr)
+    try:
+        edit_classicui(path, restore)
+    except OSError as error:
+        raise RegistrationFailed(f"无法写入 {path}：{error.strerror}") from error
+    return f"已在 {path} 恢复 Fcitx5 候选面板设置 {names}" + kept_note(kept) + "。"
+
+
+def restore_ibus_panel(entries: dict) -> str | None:
+    """Put back the IBus panel font keys MSIME replaced; a key the user had never set is reset to the schema default."""
+    if not entries:
+        return None
+    if IBUS_PANEL not in set(command_output(["gsettings", "list-schemas"]).split()):
+        return f"没有 {IBUS_PANEL} 设置项，IBus 候选面板设置无需恢复。"
+    restore, kept = restorable(
+        entries, lambda key: parse_gvariant(command_output(["gsettings", "get", IBUS_PANEL, key]))
+    )
+    # The hosts record strings, booleans and null; anything else did not come from them.
+    kept += [key for key, value in restore.items() if not isinstance(value, (str, bool, type(None)))]
+    restore = {key: value for key, value in restore.items() if key not in kept}
+    for key, value in restore.items():
+        if value is None:
+            command_output(["gsettings", "reset", IBUS_PANEL, key])
+        else:
+            command_output(["gsettings", "set", IBUS_PANEL, key, gvariant_text(value)])
+    if not restore:
+        return "IBus 候选面板设置无需恢复" + kept_note(kept) + "。"
+    return f"已恢复 IBus 候选面板设置 {'、'.join(restore)}" + kept_note(kept) + "。"
+
+
+@contextlib.contextmanager
+def panel_restore_lock(record_file: Path):
+    """The lock the hosts hold around each change to the record (src/candidates/PanelRestoreRecord.h). Its file is never removed: a host waiting on the old one while another opened a new one would put both in the critical section at once."""
+    descriptor = os.open(record_file.with_name(record_file.name + ".lock"), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def restore_panel_settings() -> None:
+    """Undo what the hosts changed in the desktop's candidate panel settings, which every input method shares, and remove the theme MSIME generated for Fcitx5. The record is removed once every host's settings were dealt with; a failure keeps it, so a later --unregister can still restore them.
+
+    The hosts replace the record atomically, so it is read without the lock. The lock is not held while restoring either: a running Fcitx5 applies the options on the thread its host would be waiting on the lock from. Instead the record is removed under the lock only if it is still the one read, so a change a host still running recorded meanwhile is kept for a later --unregister."""
+    record_file = xdg_base("XDG_STATE_HOME", ".local/state") / PANEL_RESTORE_FILE
+    text = None
+    try:
+        text = record_file.read_text()
+        record = json.loads(text)
+    except FileNotFoundError:
+        record = {}
+    except (OSError, ValueError) as error:
+        print(f"无法读取候选面板设置的恢复记录 {record_file}：{error}", file=sys.stderr)
+        record = None
+    complete = record is not None
+    for host, restore in (("fcitx5", restore_fcitx5_panel), ("ibus", restore_ibus_panel)):
+        entries = record.get(host) if isinstance(record, dict) else None
+        try:
+            # The Fcitx5 theme options are looked at even without a record: builds before it set MSIME's theme without one.
+            message = restore(entries if isinstance(entries, dict) else {})
+        except RegistrationFailed as error:
+            complete = False
+            print(f"未能恢复候选面板设置：{error}", file=sys.stderr)
+        else:
+            if message:
+                print(message)
+    theme = xdg_base("XDG_DATA_HOME", ".local/share") / "fcitx5/themes" / FCITX5_THEME
+    if theme.is_dir():
+        try:
+            shutil.rmtree(theme)
+            print(f"已删除水杉生成的 Fcitx5 主题 {theme}。")
+        except OSError as error:
+            print(f"未能删除水杉生成的 Fcitx5 主题 {theme}：{error.strerror}", file=sys.stderr)
+    if text is None:
+        return
+    if complete:
+        try:
+            with panel_restore_lock(record_file):
+                if record_file.read_text() == text:
+                    record_file.unlink()
+                    return
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            print(f"未能删除候选面板设置的恢复记录 {record_file}：{error.strerror}", file=sys.stderr)
+            return
+        print(f"恢复期间宿主又记下了候选面板设置的改动，恢复记录保留在 {record_file}，可稍后再次运行 msime-client-setup --unregister。", file=sys.stderr)
+    elif record is not None:
+        print(f"恢复记录保留在 {record_file}，可稍后再次运行 msime-client-setup --unregister。", file=sys.stderr)
+
+
 def unregister_input_method() -> None:
     """Remove the input method from every list setup may have added it to, one list at a time so a missing tool or bus only skips its own list.
 
@@ -711,6 +908,7 @@ def unregister_input_method() -> None:
             print(step())
         except RegistrationFailed as error:
             print(f"未能从输入法列表移除：{error}", file=sys.stderr)
+    restore_panel_settings()
 
 
 def active_host() -> str | None:
@@ -777,7 +975,7 @@ def main() -> int:
     parser.add_argument(
         "--unregister",
         action="store_true",
-        help="把水杉输入法从 GNOME 输入源、IBus 预载引擎和 Fcitx5 当前输入法组中移除后退出，不准备状态也不下载；卸载时自动执行",
+        help="把水杉输入法从 GNOME 输入源、IBus 预载引擎和 Fcitx5 当前输入法组中移除，恢复被改过的候选面板主题、字体和滚轮翻页设置后退出，不准备状态也不下载；卸载时自动执行",
     )
     arguments = parser.parse_args()
     if arguments.unregister:
