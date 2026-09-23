@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Build the installable Linux release in a container: a Release host library, the Tauri desktop binary, the native hosts configured for /usr with packaging on, and the CPack .deb and .tar.gz with a SHA256SUMS beside them.
+#
+# Separate from build-container.sh on purpose. That script is the pre-merge compile-and-unit-test gate and builds Debug against the debug host library; a release must not ship that tree, and the gate must not grow a Tauri build and a packaging step it does not need.
+#
+# Usage: platforms/linux/package-container.sh [VERSION]
+#   VERSION defaults to platforms/linux/version.txt, the version release-linux.yml tags as linux-vVERSION. It becomes both the package version and the version the desktop binary reports, so the in-app update check compares like with like.
+#   MSIME_PACKAGE_DESKTOP=0 packages without the Tauri desktop binary (no settings window); the default requires it.
+#   CARGO_BUILD_JOBS and CMAKE_BUILD_PARALLEL_LEVEL are passed through when set, to bound memory on a shared Docker VM.
+#
+# The desktop binary embeds the web frontend at compile time, so apps/desktop/dist must be built first (`pnpm install --frozen-lockfile && pnpm --filter @msime/desktop build`). It is built outside the container because the container has no Node toolchain and a bind-mounted node_modules would mix host and container binaries.
+#
+# Output: target/linux-package/dist/{*.deb,*.tar.gz,SHA256SUMS}.
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$repo_root"
+
+command -v docker >/dev/null 2>&1 || {
+  echo "docker is required; run this on a Linux host with docker instead" >&2
+  exit 2
+}
+
+version="${1:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "version must be MAJOR.MINOR.PATCH: $version" >&2
+  exit 2
+}
+desktop="${MSIME_PACKAGE_DESKTOP:-1}"
+if [ "$desktop" = 1 ] && [ ! -f apps/desktop/dist/index.html ]; then
+  echo "apps/desktop/dist is missing; run 'pnpm install --frozen-lockfile && pnpm --filter @msime/desktop build' first, or set MSIME_PACKAGE_DESKTOP=0" >&2
+  exit 2
+fi
+
+# Same Engine lookup as build-container.sh: mount whichever tree already holds the prepared archive.
+main_worktree="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")"
+vendor=""
+for candidate in "$repo_root/vendor" "$main_worktree/vendor"; do
+  [ -d "$candidate/MSIME-Engine" ] && vendor="$(cd "$candidate" && pwd)" && break
+done
+
+build_root="$repo_root/target/linux-package"
+mkdir -p "$build_root"
+# Third-party notices of the statically linked Rust crates and the bundled npm packages. The npm walk runs here because the container has no node_modules of its own; the crate walk runs in the container after the builds that resolve those crates. Cleared first so a desktop-less run cannot pick up an earlier frontend notice.
+rm -rf "$build_root/notices"
+mkdir -p "$build_root/notices"
+if [ "$desktop" = 1 ]; then
+  python3 platforms/linux/collect-notices.py npm "$build_root/notices/frontend-npm-NOTICES.txt" apps/desktop
+fi
+
+# Per-checkout tags for the same reason as the gate: parallel worktrees must not run each other's images.
+checkout_hash="$(printf %s "$repo_root" | shasum | cut -c1-12)"
+gate_image="msime-client-linux-build-gate:$checkout_hash"
+package_image="msime-client-linux-package:$checkout_hash"
+docker build -q -t "$gate_image" \
+  -f platforms/linux/tests/tools/Dockerfile.build-gate platforms/linux/tests >/dev/null
+docker build -q -t "$package_image" --build-arg MSIME_BUILD_GATE_IMAGE="$gate_image" \
+  -f platforms/linux/tests/tools/Dockerfile.package platforms/linux/tests >/dev/null
+echo "package image: $package_image" >&2
+
+docker run --rm --init \
+  -v "$repo_root":/source \
+  ${vendor:+-v "$vendor":/source/vendor:ro} \
+  -v "$build_root":/build \
+  -w /source \
+  -e CARGO_TARGET_DIR=/build/cargo \
+  -e MSIME_VERSION="$version" \
+  -e MSIME_PACKAGE_DESKTOP="$desktop" \
+  ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
+  ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
+  ${vendor:+-e MSIME_SKIP_ENGINE_FETCH=1} \
+  "$package_image" bash -euo pipefail -c '
+    cargo build --release --locked -p msime-host-api
+    desktop_args=()
+    crate_roots=(msime-host-api)
+    if [ "$MSIME_PACKAGE_DESKTOP" = 1 ]; then
+      # tauri/custom-protocol is what `tauri build` enables: without it the binary is a dev build that loads devUrl instead of the embedded frontend. TAURI_CONFIG sets the version the app reports, as Build-Client.ps1 does for Windows.
+      TAURI_CONFIG="{\"version\":\"$MSIME_VERSION\"}" \
+        cargo build --release --locked -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
+      desktop_args=(-DMSIME_DESKTOP_BINARY=/build/cargo/release/msime-desktop -DMSIME_FRONTEND_NOTICES=/build/notices/frontend-npm-NOTICES.txt)
+      crate_roots+=(msime-desktop:tauri/custom-protocol)
+    fi
+    python3 platforms/linux/collect-notices.py cargo /build/notices/rust-crates-NOTICES.txt "${crate_roots[@]}"
+    # Configure from scratch every time: a cached MSIME_DESKTOP_BINARY or version from an earlier run must not leak into this package.
+    rm -rf /build/cmake /build/dist
+    cmake -S platforms/linux -B /build/cmake -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/usr \
+      -DMSIME_ENABLE_PACKAGING=ON \
+      -DMSIME_ENABLE_FCITX5=ON \
+      -DMSIME_HOST_LIBRARY=/build/cargo/release/libmsime_host_api.so \
+      -DMSIME_PACKAGE_VERSION="$MSIME_VERSION" \
+      -DMSIME_RUST_NOTICES=/build/notices/rust-crates-NOTICES.txt \
+      "${desktop_args[@]}"
+    cmake --build /build/cmake
+    ctest --test-dir /build/cmake --output-on-failure
+    cpack --config /build/cmake/CPackConfig.cmake -G "TGZ;DEB" -B /build/dist
+    rm -rf /build/dist/_CPack_Packages
+    cd /build/dist
+    sha256sum -- *.deb *.tar.gz > SHA256SUMS
+    cat SHA256SUMS
+  '

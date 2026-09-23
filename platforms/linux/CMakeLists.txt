@@ -518,6 +518,92 @@ if(NOT MSIME_ENABLE_FCITX5)
   message(STATUS "跳过：Fcitx5 插件；请安装 Fcitx5 开发包（Fcitx5Core 5.0.20+），"
                  "或在配置时传入 -DMSIME_ENABLE_FCITX5=ON")
 endif()
+# License and third-party notices, the Linux counterpart of the macOS bundle's Resources/Licenses. Every install redistributes the Engine code compiled into the host library, so plain `cmake --install` gets them as well, not only packages. The Engine component notices use the same file names as macOS Resources/Licenses; the sets differ where the builds differ: the project license is `copyright` here (GPL-3.0.txt on macOS), makecikudb, OpenCC, nlohmann/json, the Wayland protocols and the collected Rust/npm notices are Linux-only, and whisper.cpp is macOS-only.
+set(MSIME_ENGINE_NOTICE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine")
+set(MSIME_NOTICE_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
+  "${CMAKE_CURRENT_SOURCE_DIR}/data/THIRD_PARTY_NOTICES.txt"
+  "${MSIME_ENGINE_NOTICE_ROOT}/LICENSE"
+  "${MSIME_ENGINE_NOTICE_ROOT}/NOTICE.md"
+  "${MSIME_ENGINE_NOTICE_ROOT}/dictionary/NOTICE.md"
+  "${MSIME_ENGINE_NOTICE_ROOT}/dictionary/makecikudb/LICENSE"
+  "${MSIME_ENGINE_NOTICE_ROOT}/helpcode/NOTICE.md"
+  "${MSIME_ENGINE_NOTICE_ROOT}/voice/LICENSE"
+  "${MSIME_ENGINE_NOTICE_ROOT}/googlepinyinime-rev/LICENSE"
+  "${MSIME_ENGINE_NOTICE_ROOT}/utfcpp/LICENSE"
+  "${MSIME_ENGINE_NOTICE_ROOT}/voice/third_party/miniaudio/LICENSE"
+  "${MSIME_ENGINE_NOTICE_ROOT}/handwriting/models/HandwritingModel-LICENSE.txt"
+  "${MSIME_ENGINE_NOTICE_ROOT}/handwriting/third_party/zinnia/Zinnia-LICENSE.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/client-core/data/opencc/LICENSE")
+# `copyright` is the name Debian policy requires for the package license. whisper.cpp is absent on purpose: the Linux host library compiles only the Engine's audio capture file, not its whisper voice target.
+set(MSIME_NOTICE_NAMES
+  copyright
+  THIRD_PARTY_NOTICES.txt
+  msime-engine-GPL-3.0.txt
+  msime-engine-NOTICE.md
+  msime-engine-dictionary-NOTICE.md
+  msime-engine-dictionary-makecikudb-LICENSE.txt
+  msime-engine-helpcode-NOTICE.md
+  msime-engine-voice-LICENSE.txt
+  Apache-2.0-googlepinyinime.txt
+  Boost-1.0-utfcpp.txt
+  miniaudio-LICENSE.txt
+  HandwritingModel-LICENSE.txt
+  Zinnia-LICENSE.txt
+  OpenCC-Apache-2.0.txt)
+# Header-only nlohmann/json is compiled into the IBus engine, the provider programs and the Fcitx5 addon; no runtime package carries its copyright, so a pinned copy of its license ships instead.
+list(APPEND MSIME_NOTICE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/licenses/nlohmann_json-MIT.txt")
+list(APPEND MSIME_NOTICE_NAMES nlohmann_json-MIT.txt)
+# wayland-scanner compiles the layer-shell and xdg-shell protocol code into the IBus host, the wave overlay and the Fcitx5 addon, and only when xdg-shell.xml was found (both the IBus and the Fcitx5 side require it). The layer-shell license (HPND) asks for its notice in supporting documentation and xdg-shell's (MIT) in all copies, so the <copyright> block of the XML actually compiled is written out as the notice.
+if(MSIME_XDG_SHELL_XML)
+  set(MSIME_PROTOCOL_XMLS "${CMAKE_CURRENT_SOURCE_DIR}/data/wayland/wlr-layer-shell-unstable-v1.xml" "${MSIME_XDG_SHELL_XML}")
+  set(MSIME_PROTOCOL_NOTICES wayland-wlr-layer-shell-LICENSE.txt wayland-xdg-shell-LICENSE.txt)
+  foreach(MSIME_PROTOCOL_XML MSIME_PROTOCOL_NOTICE IN ZIP_LISTS MSIME_PROTOCOL_XMLS MSIME_PROTOCOL_NOTICES)
+    file(READ "${MSIME_PROTOCOL_XML}" MSIME_PROTOCOL_CONTENT)
+    if(NOT MSIME_PROTOCOL_CONTENT MATCHES "<copyright>(.*)</copyright>")
+      message(FATAL_ERROR "No <copyright> block in ${MSIME_PROTOCOL_XML}")
+    endif()
+    get_filename_component(MSIME_PROTOCOL_FILE "${MSIME_PROTOCOL_XML}" NAME)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/notices/${MSIME_PROTOCOL_NOTICE}" "Wayland protocol ${MSIME_PROTOCOL_FILE}, compiled in as wayland-scanner output\n${CMAKE_MATCH_1}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${MSIME_PROTOCOL_XML}")
+    list(APPEND MSIME_NOTICE_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/notices/${MSIME_PROTOCOL_NOTICE}")
+    list(APPEND MSIME_NOTICE_NAMES "${MSIME_PROTOCOL_NOTICE}")
+  endforeach()
+endif()
+# Rust crates are statically linked into the host library (a cdylib) and the desktop binary, and the desktop binary embeds a frontend bundled from npm packages. collect-notices.py gathers their license files from the resolved graphs; package-container.sh runs it and passes the results here. A development checkout has no such files, so only packaging requires them.
+set(MSIME_RUST_NOTICES "" CACHE FILEPATH "Collected license files of the Rust crates linked into the host library and desktop binary")
+set(MSIME_FRONTEND_NOTICES "" CACHE FILEPATH "Collected license files of the npm packages bundled into the desktop frontend")
+if(MSIME_ENABLE_PACKAGING AND NOT MSIME_RUST_NOTICES)
+  message(FATAL_ERROR "Packaging requires MSIME_RUST_NOTICES; generate it with platforms/linux/collect-notices.py cargo (package-container.sh does)")
+endif()
+if(MSIME_ENABLE_PACKAGING AND MSIME_DESKTOP_BINARY AND NOT MSIME_FRONTEND_NOTICES)
+  message(FATAL_ERROR "Packaging the desktop binary requires MSIME_FRONTEND_NOTICES; generate it with platforms/linux/collect-notices.py npm (package-container.sh does)")
+endif()
+if(MSIME_RUST_NOTICES)
+  list(APPEND MSIME_NOTICE_SOURCES "${MSIME_RUST_NOTICES}")
+  list(APPEND MSIME_NOTICE_NAMES rust-crates-NOTICES.txt)
+endif()
+if(MSIME_FRONTEND_NOTICES)
+  list(APPEND MSIME_NOTICE_SOURCES "${MSIME_FRONTEND_NOTICES}")
+  list(APPEND MSIME_NOTICE_NAMES frontend-npm-NOTICES.txt)
+endif()
+set(MSIME_MISSING_NOTICES "")
+foreach(MSIME_NOTICE_SOURCE MSIME_NOTICE_NAME IN ZIP_LISTS MSIME_NOTICE_SOURCES MSIME_NOTICE_NAMES)
+  if(EXISTS "${MSIME_NOTICE_SOURCE}" AND NOT IS_DIRECTORY "${MSIME_NOTICE_SOURCE}")
+    install(FILES "${MSIME_NOTICE_SOURCE}"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/msime-client" RENAME "${MSIME_NOTICE_NAME}")
+  else()
+    list(APPEND MSIME_MISSING_NOTICES "${MSIME_NOTICE_SOURCE}")
+  endif()
+endforeach()
+if(MSIME_MISSING_NOTICES)
+  list(JOIN MSIME_MISSING_NOTICES "\n  " MSIME_MISSING_NOTICE_LIST)
+  # A redistributable package without the notices of the code it contains must not be produced; a development install only warns so a checkout without the prepared Engine tree still configures.
+  if(MSIME_ENABLE_PACKAGING)
+    message(FATAL_ERROR "Packaging requires every third-party notice; missing:\n  ${MSIME_MISSING_NOTICE_LIST}\nRun scripts/fetch_engine.py to prepare vendor/MSIME-Engine")
+  endif()
+  message(WARNING "Installing without these third-party notices:\n  ${MSIME_MISSING_NOTICE_LIST}")
+endif()
 if(MSIME_ENABLE_PACKAGING)
   include(cmake/packaging.cmake)
 endif()
