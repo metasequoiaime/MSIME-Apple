@@ -92,6 +92,17 @@ impl PersonalWord {
         }
         Ok(())
     }
+
+    /// Validation for an entry that is being written: `validate` plus the stricter rules new input and imports follow. A quick phrase code must be letters only, as in the reference; a stored row with a digit still passes `validate`, so it loads and can be deleted.
+    pub fn validate_new(&self) -> Result<(), &'static str> {
+        self.validate()?;
+        if self.kind == PersonalWordKind::QuickPhrase
+            && !super::quick_phrase_code_is_well_formed(&self.key)
+        {
+            return Err("invalid personal dictionary entry");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -240,8 +251,13 @@ impl PersonalDictionaryStore {
             return Err(PersonalDictionaryError::InvalidRequest);
         }
         validate_request_id(&request.id)?;
-        for word in request.previous.iter().chain(request.replacement.iter()) {
+        // The previous entry is a stored row and only has to be one the store can hold; the replacement is new input and follows the stricter rules.
+        if let Some(word) = &request.previous {
             word.validate()
+                .map_err(|_| PersonalDictionaryError::InvalidRequest)?;
+        }
+        if let Some(word) = &request.replacement {
+            word.validate_new()
                 .map_err(|_| PersonalDictionaryError::InvalidRequest)?;
         }
         self.update(|state| enqueue_request(state, request))
@@ -258,7 +274,7 @@ impl PersonalDictionaryStore {
         validate_request_id(&id_prefix)?;
         let mut identities = std::collections::HashSet::new();
         for word in &words {
-            word.validate()
+            word.validate_new()
                 .map_err(|_| PersonalDictionaryError::InvalidRequest)?;
             if !identities.insert(word.identity()) {
                 return Err(PersonalDictionaryError::InvalidRequest);
@@ -607,7 +623,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let store = PersonalDictionaryStore::new(root.path());
         let words: Vec<_> = (0..9)
-            .map(|index| word(&format!("batch{index}"), "fixture"))
+            .map(|index| word(&format!("batch{}", char::from(b'a' + index)), "fixture"))
             .collect();
         store.enqueue_import(words, "import".into()).unwrap();
         let ids: Vec<_> = store
@@ -671,5 +687,49 @@ mod tests {
         .validate()
         .is_err());
         assert!(word("fixture", "first\0second").validate().is_err());
+    }
+
+    #[test]
+    fn digit_quick_phrase_codes_are_refused_for_new_input_but_stored_rows_stay_usable() {
+        let legacy = word("nh1", "你好");
+        assert!(legacy.validate().is_ok());
+        assert!(legacy.validate_new().is_err());
+        assert!(word("nh", "你好").validate_new().is_ok());
+
+        let root = tempfile::tempdir().unwrap();
+        let store = PersonalDictionaryStore::new(root.path());
+        assert!(matches!(
+            store.enqueue(None, Some(legacy.clone()), "add".into()),
+            Err(PersonalDictionaryError::InvalidRequest)
+        ));
+        assert!(matches!(
+            store.enqueue_import(vec![legacy.clone()], "import".into()),
+            Err(PersonalDictionaryError::InvalidRequest)
+        ));
+
+        // A row the Engine already holds with a digit still lands in the stored snapshot and loads back.
+        store
+            .synchronize(
+                |_| Ok(()),
+                |_| {
+                    Ok(PersonalWordPage {
+                        entries: vec![legacy.clone()],
+                        has_more: false,
+                    })
+                },
+            )
+            .unwrap();
+        assert_eq!(store.read().unwrap().entries, vec![legacy.clone()]);
+        // It can be deleted, and edited to a letters-only code, but not re-saved with the digit.
+        assert!(matches!(
+            store.enqueue(
+                Some(legacy.clone()),
+                Some(word("nh2", "你好")),
+                "edit-digit".into()
+            ),
+            Err(PersonalDictionaryError::InvalidRequest)
+        ));
+        store.enqueue(Some(legacy), None, "delete".into()).unwrap();
+        assert_eq!(store.read().unwrap().pending_count(), 1);
     }
 }

@@ -87,6 +87,14 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 - (BOOL)fuzzyPinyinRuleEnabled:(NSString *)rule;
 - (void)setFuzzyPinyinRule:(NSString *)rule enabled:(BOOL)enabled;
 @property(nonatomic) BOOL cloudCandidates;
+/// Records, once per profile, whether the first-use cloud consent still has to be asked. An existing NSUserDefaults choice, an existing `<directory>/preferences.json`, or a non-empty Engine `userDataDirectory` counts as an upgrade and is never asked about; otherwise the consent becomes pending. Nothing is recorded without a preferences directory. Later calls do nothing.
+- (void)resolveCloudCandidatesConsentWithPreferencesDirectory:(NSString *)directory userDataDirectory:(NSString *)userDataDirectory;
+/// NO only while the first-use consent is pending. A profile that was never resolved counts as answered.
+@property(nonatomic, readonly) BOOL cloudCandidatesAnswered;
+/// The gate for sending anything to the cloud candidate service: answered and enabled.
+@property(nonatomic, readonly) BOOL cloudCandidatesEnabled;
+/// Store the user's answer to the consent prompt (or the settings checkbox) and mark the consent answered.
+- (void)answerCloudCandidates:(BOOL)enabled;
 @property(nonatomic) BOOL candidateTranslations;
 /// Offline Engine glossary lookup; independent from online candidate translation providers.
 @property(nonatomic) BOOL candidateEnglishGloss;

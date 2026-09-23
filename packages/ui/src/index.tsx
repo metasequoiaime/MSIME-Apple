@@ -1198,7 +1198,7 @@ export function dictionaryKindKeyHint(kind: LocalDictionaryKind): string {
     case "wubi":
       return "1–4 个字母";
     case "quick_phrase":
-      return "1–32 个字母或数字";
+      return "1–32 个字母";
     case "english":
       return "1–64 个字母";
     case "pinyin":
@@ -1383,7 +1383,7 @@ function invalidDictionaryEntryMessage(kind: LocalDictionaryKind | undefined): s
     case "wubi":
       return "五笔编码须为 1 到 4 个字母。";
     case "quick_phrase":
-      return "快捷短语编码须为 1 到 32 个字母或数字。";
+      return "快捷短语编码只能包含英文字母，长度 1 到 32。";
     case "english":
       return "英文编码只能包含字母、连字符和撇号。";
     default:

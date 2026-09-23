@@ -109,7 +109,7 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
         : entry.kind === "wubi"
           ? normalizedKey.length > 0 && keyBytes <= 4 && /^[a-z]+$/.test(normalizedKey)
           : entry.kind === "quickPhrase"
-            ? normalizedKey.length > 0 && keyBytes <= 32 && /^[a-z0-9]+$/.test(normalizedKey)
+            ? normalizedKey.length > 0 && keyBytes <= 32 && /^[a-z]+$/.test(normalizedKey)
             : normalizedKey.length > 0 && keyBytes <= 64 && /^[a-z'-]+$/.test(normalizedKey);
     if (
       !keyValid ||
