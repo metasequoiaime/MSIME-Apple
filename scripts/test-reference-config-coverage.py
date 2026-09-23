@@ -2,8 +2,8 @@
 """Every setting the reference ships a default for has a field here that still exists.
 
 `test-windows-config-keys.py` already asks the other half of this question - whether the reference
-has a configuration key this repository's Windows template does not - and asks it against the tip of
-the reference's default branch. This one does not repeat that. What it adds is the mapping that
+has a configuration key this repository's Windows template does not - and asks it against the pinned
+reference commit in `reference_source.py`. This one does not repeat that. What it adds is the mapping that
 check has no room for: which field on *this* side answers each reference setting, so a rename here
 cannot quietly orphan one.
 
@@ -14,10 +14,9 @@ two false results: a key that looks missing because it was deliberately renamed 
 a key that looks present because some unrelated identifier happens to contain the same word. The
 mapping is written down once, here, and every target is checked to still exist.
 
-Six keys are mapped to a reason instead of a field, written as `!kind: why`. Four are written by the
-reference's own template and read by nothing in it, one is the reference Server's internal switch
-between its old and new session implementations, and one is a path this repository takes as a host
-runtime option rather than a preference.
+A target is a field path from `Preferences` (`floating_toolbar.scale_percent`), or from another root struct when it names one first (`TypingStatistics.retention`). Every segment is resolved against the `pub <field>: <Type>` declarations of the structs in the shared Rust sources, so a target is satisfied by that field on that struct and not by the same word in a comment, a local variable or a field of some unrelated struct. The first version matched bare words, and `appearance.theme_menu -> menu` or `general.floating_toolbar_scale -> scale` passed while naming no field at all.
+
+Eight keys are mapped to a reason instead of a field, written as `!kind: why`. Six are written by the reference's own template and read by nothing in it, one is the reference Server's internal switch between its old and new session implementations, and one is a path this repository takes as a host runtime option rather than a preference.
 
 A field is also checked to be *named in the shared settings page*, not only present in the
 preferences crate. The arrangement this client is built around puts shared behaviour and its
@@ -42,58 +41,57 @@ SHARED = [
     # The typing statistics switch and retention live in their own document rather than in the preferences.
     ROOT / "crates/client-core/src/typing_statistics.rs",
 ]
-# reference `section.key` -> the name to look for on this side, or `!kind: why` for the ones that
-# deliberately have no target.
+# reference `section.key` -> the field path that answers it on this side (see the module docstring), or `!kind: why` for the ones that deliberately have no target. A per-provider token such as `token_deepseek` maps to the provider-keyed `tokens` map that holds it.
 MAPPING: dict[str, str] = {
-    "ai_assistant.candidate_limit": "candidate_limit",
-    "ai_assistant.enabled": "enabled",
-    "ai_assistant.endpoint": "endpoint",
-    "ai_assistant.model": "model",
-    "ai_assistant.prompt": "prompt",
-    "ai_assistant.prompt_custom_1": "prompt_custom_1",
-    "ai_assistant.prompt_custom_2": "prompt_custom_2",
-    "ai_assistant.prompt_custom_3": "prompt_custom_3",
-    "ai_assistant.prompt_id": "prompt_id",
-    "ai_assistant.provider": "provider",
-    "ai_assistant.token": "token",
-    "ai_assistant.token_deepseek": "deepseek",
-    "ai_assistant.token_groq": "groq",
-    "ai_assistant.token_openai": "openai",
-    "ai_assistant.token_siliconflow": "siliconflow",
+    "ai_assistant.candidate_limit": "ai_assistant.candidate_limit",
+    "ai_assistant.enabled": "ai_assistant.enabled",
+    "ai_assistant.endpoint": "ai_assistant.endpoint",
+    "ai_assistant.model": "ai_assistant.model",
+    "ai_assistant.prompt": "ai_assistant.prompt",
+    "ai_assistant.prompt_custom_1": "ai_assistant.prompt_custom_1",
+    "ai_assistant.prompt_custom_2": "ai_assistant.prompt_custom_2",
+    "ai_assistant.prompt_custom_3": "ai_assistant.prompt_custom_3",
+    "ai_assistant.prompt_id": "ai_assistant.prompt_id",
+    "ai_assistant.provider": "ai_assistant.provider",
+    "ai_assistant.token": "ai_assistant.token",
+    "ai_assistant.token_deepseek": "ai_assistant.tokens",
+    "ai_assistant.token_groq": "ai_assistant.tokens",
+    "ai_assistant.token_openai": "ai_assistant.tokens",
+    "ai_assistant.token_siliconflow": "ai_assistant.tokens",
     "appearance.cand_text_color": "candidate_text_color",
     "appearance.candidate_skin": "candidate_skin",
     "appearance.candidate_window_follow_cursor": "candidate_follow_cursor",
-    "appearance.candidate_window_layout": "layout",
+    "appearance.candidate_window_layout": "candidate_layout",
     "appearance.candidate_window_preedit_font_size": "candidate_preedit_font_size",
-    "appearance.candidate_window_preedit_style": "preedit_style",
+    "appearance.candidate_window_preedit_style": "candidate_preedit_style",
     "appearance.default_font": "candidate_fallback_fonts",
     "appearance.english_font": "candidate_english_font",
     "appearance.fallback_fonts": "candidate_fallback_fonts",
-    "appearance.font": "font",
-    "appearance.font_size": "font_size",
+    "appearance.font": "candidate_font_family",
+    "appearance.font_size": "candidate_font_size",
     "appearance.page_size": "candidate_page_size",
     "appearance.theme_cand": "candidate_theme",
-    "appearance.theme_emoji": "emoji",
+    "appearance.theme_emoji": "emoji_theme",
     "appearance.theme_ftb": "toolbar_theme",
-    "appearance.theme_handwriting": "handwriting",
-    "appearance.theme_menu": "menu",
-    "appearance.theme_mode": "mode",
-    "appearance.theme_screen_keyboard": "screen_keyboard",
-    "appearance.theme_settings": "settings",
-    "appearance.theme_voice": "voice",
+    "appearance.theme_handwriting": "handwriting_theme",
+    "appearance.theme_menu": "menu_theme",
+    "appearance.theme_mode": "theme",
+    "appearance.theme_screen_keyboard": "screen_keyboard_theme",
+    "appearance.theme_settings": "settings_theme",
+    "appearance.theme_voice": "voice_theme",
     "appearance.tsf_preedit_style": "tsf_preedit_style",
     "appearance.ui_backend": "ui_backend",
-    "custom_translation.api_key": "api_key",
-    "custom_translation.enabled": "enabled",
-    "custom_translation.endpoint": "endpoint",
+    "custom_translation.api_key": "custom_translation.api_key",
+    "custom_translation.enabled": "custom_translation.enabled",
+    "custom_translation.endpoint": "custom_translation.endpoint",
     "dictionary.dictionary_path": "!runtime: the dictionary directory is a host runtime option here, not a preference",
-    "frequency_adjustment.linear_step": "linear_step",
-    "frequency_adjustment.mode": "mode",
-    "frequency_adjustment.trigger_count": "trigger_count",
+    "frequency_adjustment.linear_step": "frequency.linear_step",
+    "frequency_adjustment.mode": "frequency.mode",
+    "frequency_adjustment.trigger_count": "frequency.trigger_count",
     # The field is `arrows`; `candidate_arrow_navigation` is the serde alias kept for profiles
     # written before the rename, and naming the alias here hid the fact that the page spells the
     # field.
-    "general.candidate_arrow_navigation": "arrows",
+    "general.candidate_arrow_navigation": "navigation.arrows",
     "general.candidate_translations": "candidate_translations",
     "general.candidate_window_diagnostic_log": "diagnostic_log",
     "general.clean_mode": "!dead: written by the reference's config template and read by nothing in it",
@@ -103,131 +101,131 @@ MAPPING: dict[str, str] = {
     "general.diagnostic_log": "diagnostic_log",
     "general.emoji_mixed_input": "mixed_input.emoji",
     "general.enable_emoji": "!dead: written by the reference's config template and read by nothing in it",
-    "general.floating_toolbar": "floating_toolbar",
-    "general.floating_toolbar_character_set": "character_set",
-    "general.floating_toolbar_emoji": "emoji",
-    "general.floating_toolbar_font_size": "font_size",
-    "general.floating_toolbar_fullwidth": "fullwidth",
-    "general.floating_toolbar_punctuation": "punctuation",
-    "general.floating_toolbar_scale": "scale",
-    "general.floating_toolbar_screen_keyboard": "screen_keyboard",
-    "general.floating_toolbar_settings": "settings",
+    "general.floating_toolbar": "floating_toolbar.enabled",
+    "general.floating_toolbar_character_set": "floating_toolbar.character_set",
+    "general.floating_toolbar_emoji": "floating_toolbar.emoji",
+    "general.floating_toolbar_font_size": "floating_toolbar.font_size",
+    "general.floating_toolbar_fullwidth": "floating_toolbar.fullwidth",
+    "general.floating_toolbar_punctuation": "floating_toolbar.punctuation",
+    "general.floating_toolbar_scale": "floating_toolbar.scale_percent",
+    "general.floating_toolbar_screen_keyboard": "floating_toolbar.screen_keyboard",
+    "general.floating_toolbar_settings": "floating_toolbar.settings",
     "general.kaomoji_mixed_input": "mixed_input.kaomoji",
-    "general.paging_brackets": "brackets",
-    "general.paging_comma_period": "comma_period",
-    "general.paging_minus_equal": "minus_equal",
-    "general.paging_mouse_wheel": "mouse_wheel",
-    "general.paging_page_up_down": "page_up_down",
-    "general.paging_tab": "tab",
-    "helpcode.quanpin_helpcode": "quanpin_helpcode",
-    "helpcode.quanpin_helpcode_schema": "quanpin_helpcode",
-    "helpcode.show_qp_helpcode_in_candidate_window": "show_in_candidate_window",
-    "helpcode.show_sp_helpcode_in_candidate_window": "show_in_candidate_window",
-    "helpcode.shuangpin_helpcode": "shuangpin_helpcode",
-    "helpcode.shuangpin_helpcode_schema": "shuangpin_helpcode",
-    "input.character_set": "character_set",
+    "general.paging_brackets": "navigation.brackets",
+    "general.paging_comma_period": "navigation.comma_period",
+    "general.paging_minus_equal": "navigation.minus_equal",
+    "general.paging_mouse_wheel": "navigation.mouse_wheel",
+    "general.paging_page_up_down": "navigation.page_up_down",
+    "general.paging_tab": "navigation.tab",
+    "helpcode.quanpin_helpcode": "quanpin_helpcode.enabled",
+    "helpcode.quanpin_helpcode_schema": "quanpin_helpcode.schema",
+    "helpcode.show_qp_helpcode_in_candidate_window": "quanpin_helpcode.show_in_candidate_window",
+    "helpcode.show_sp_helpcode_in_candidate_window": "shuangpin_helpcode.show_in_candidate_window",
+    "helpcode.shuangpin_helpcode": "shuangpin_helpcode.enabled",
+    "helpcode.shuangpin_helpcode_schema": "shuangpin_helpcode.schema",
+    "input.character_set": "traditional_chinese_output",
     "input.default_ime_mode": "default_ime_mode",
-    "input.fuzzy_an_ang": "fuzzy_pinyin",
-    "input.fuzzy_c_ch": "fuzzy_pinyin",
-    "input.fuzzy_en_eng": "fuzzy_pinyin",
-    "input.fuzzy_f_h": "fuzzy_pinyin",
-    "input.fuzzy_ian_iang": "fuzzy_pinyin",
-    "input.fuzzy_in_ing": "fuzzy_pinyin",
-    "input.fuzzy_n_l": "fuzzy_pinyin",
-    "input.fuzzy_pinyin": "fuzzy_pinyin",
-    "input.fuzzy_r_l": "fuzzy_pinyin",
-    "input.fuzzy_s_sh": "fuzzy_pinyin",
-    "input.fuzzy_seeded": "seeded",
-    "input.fuzzy_uan_uang": "fuzzy_pinyin",
-    "input.fuzzy_z_zh": "fuzzy_pinyin",
+    "input.fuzzy_an_ang": "fuzzy_pinyin.rules",
+    "input.fuzzy_c_ch": "fuzzy_pinyin.rules",
+    "input.fuzzy_en_eng": "fuzzy_pinyin.rules",
+    "input.fuzzy_f_h": "fuzzy_pinyin.rules",
+    "input.fuzzy_ian_iang": "fuzzy_pinyin.rules",
+    "input.fuzzy_in_ing": "fuzzy_pinyin.rules",
+    "input.fuzzy_n_l": "fuzzy_pinyin.rules",
+    "input.fuzzy_pinyin": "fuzzy_pinyin.enabled",
+    "input.fuzzy_r_l": "fuzzy_pinyin.rules",
+    "input.fuzzy_s_sh": "fuzzy_pinyin.rules",
+    "input.fuzzy_seeded": "fuzzy_pinyin.seeded",
+    "input.fuzzy_uan_uang": "fuzzy_pinyin.rules",
+    "input.fuzzy_z_zh": "fuzzy_pinyin.rules",
     "input.ime_mode_scope": "ime_mode_scope",
-    "input.japanese_schema": "schema",
-    "input.mode": "mode",
+    "input.japanese_schema": "scheme",
+    "input.mode": "scheme",
     "input.paired_punctuation": "paired_punctuation",
     "input.punctuation_lock": "punctuation_lock",
-    "input.schema": "schema",
+    "input.schema": "scheme",
     "input.session_backend": "!internal: the reference Server's own legacy/new session switch, and this repo has one runtime",
     "input.shuangpin_preedit_mode": "shuangpin_preedit_uses_raw",
-    "input.shuangpin_schema": "schema",
+    "input.shuangpin_schema": "shuangpin_profile",
     "input.smart_punctuation": "smart_punctuation",
     "input.smart_punctuation_direct_digit": "smart_punctuation_direct_digit",
     "input.smart_punctuation_direct_letter": "smart_punctuation_direct_letter",
     "input.smart_punctuation_repeat_to_chinese": "smart_punctuation_repeat",
     "input.smart_punctuation_space_convert": "smart_punctuation_space_convert",
-    "input.word_to_character": "word_character",
-    "input.word_to_character_keys": "word_character",
-    "input.wubi_schema": "schema",
-    "keybindings.switch_language_ctrl": "switch_language_ctrl",
-    "keybindings.switch_language_ctrl_alt_space": "switch_language_ctrl_alt_space",
-    "keybindings.switch_language_shift": "switch_language_shift",
-    "keybindings.toggle_character_set_ctrl_shift_f": "toggle_character_set_ctrl_shift_f",
-    "niutrans.apikey": "apikey",
-    "niutrans.app_id": "app_id",
-    "niutrans.enabled": "enabled",
-    "quanpin.autocorrect_neighbor": "autocorrect_neighbor",
-    "quanpin.autocorrect_transposition": "autocorrect_transposition",
-    "settings_page.theme": "theme",
+    "input.word_to_character": "word_character.enabled",
+    "input.word_to_character_keys": "word_character.keys",
+    "input.wubi_schema": "scheme",
+    "keybindings.switch_language_ctrl": "keybindings.switch_language_ctrl",
+    "keybindings.switch_language_ctrl_alt_space": "keybindings.switch_language_ctrl_alt_space",
+    "keybindings.switch_language_shift": "keybindings.switch_language_shift",
+    "keybindings.toggle_character_set_ctrl_shift_f": "keybindings.toggle_character_set_ctrl_shift_f",
+    "niutrans.apikey": "niutrans.apikey",
+    "niutrans.app_id": "niutrans.app_id",
+    "niutrans.enabled": "niutrans.enabled",
+    "quanpin.autocorrect_neighbor": "quanpin.autocorrect_neighbor",
+    "quanpin.autocorrect_transposition": "quanpin.autocorrect_transposition",
+    "settings_page.theme": "!dead: written by the reference's config template and read by nothing in it",
     "skin.skin_name": "candidate_skin",
     "soft_keyboard.background_img": "!dead: written by the reference's config template and read by nothing in it",
-    "soft_keyboard.theme_mode": "mode",
-    "statistics.enabled": "enabled",
-    "statistics.retention": "retention",
-    "tencent_tmt.enabled": "enabled",
-    "tencent_tmt.region": "region",
-    "tencent_tmt.secret_id": "secret_id",
-    "tencent_tmt.secret_key": "secret_key",
+    "soft_keyboard.theme_mode": "!dead: written by the reference's config template and read by nothing in it",
+    "statistics.enabled": "TypingStatistics.enabled",
+    "statistics.retention": "TypingStatistics.retention",
+    "tencent_tmt.enabled": "tencent_tmt.enabled",
+    "tencent_tmt.region": "tencent_tmt.region",
+    "tencent_tmt.secret_id": "tencent_tmt.secret_id",
+    "tencent_tmt.secret_key": "tencent_tmt.secret_key",
     "tencent_tmt.target_language": "translation_target_language",
     "utility.clipboard_history": "clipboard_history",
-    "utility.date_time_mode": "local_modes",
-    "utility.emoji_mode": "local_modes",
-    "utility.jianpin_mode": "local_modes",
-    "utility.kaomoji_mode": "local_modes",
-    "utility.quick_phrase": "quick_phrase",
-    "utility.r_mode": "local_modes",
+    "utility.date_time_mode": "local_modes.date_time",
+    "utility.emoji_mode": "local_modes.emoji",
+    "utility.jianpin_mode": "local_modes.super_jianpin",
+    "utility.kaomoji_mode": "local_modes.kaomoji",
+    "utility.quick_phrase": "local_modes.quick_phrase",
+    "utility.r_mode": "local_modes.temporary_japanese",
     "utility.study_english_word": "!dead: written by the reference's config template and read by nothing in it",
-    "utility.unicode_mode": "local_modes",
-    "utility.y_mode": "local_modes",
-    "voice_input.asr_app_key": "asr_app_key",
-    "voice_input.asr_endpoint": "asr_endpoint",
-    "voice_input.asr_model": "asr_model",
-    "voice_input.asr_provider": "asr_provider",
-    "voice_input.asr_resource_id": "asr_resource_id",
-    "voice_input.asr_token": "asr_token",
-    "voice_input.asr_token_doubao": "doubao",
-    "voice_input.asr_token_groq": "groq",
-    "voice_input.asr_token_openai": "openai",
-    "voice_input.asr_token_siliconflow": "siliconflow",
-    "voice_input.commit_mode": "commit_mode",
-    "voice_input.doubao_auth_mode": "doubao_auth_mode",
-    "voice_input.doubao_boosting_table_id": "doubao_boosting_table_id",
-    "voice_input.doubao_enable_ddc": "doubao_enable_ddc",
-    "voice_input.doubao_enable_itn": "doubao_enable_itn",
-    "voice_input.doubao_enable_punc": "doubao_enable_punc",
-    "voice_input.end_sound": "end_sound",
-    "voice_input.hotkey_ctrl_f9": "hotkey_ctrl_f9",
-    "voice_input.hotkey_ctrl_win": "hotkey_ctrl_win",
-    "voice_input.hotkey_hold_space_lock": "hotkey_hold_space_lock",
-    "voice_input.hotkey_ralt": "hotkey_ralt",
-    "voice_input.hotkey_rctrl_ralt": "hotkey_rctrl_ralt",
-    "voice_input.language": "language",
-    "voice_input.mute_system_audio": "mute_system_audio",
-    "voice_input.polish_endpoint": "polish_endpoint",
-    "voice_input.polish_model": "polish_model",
-    "voice_input.polish_prompt": "polish_prompt",
-    "voice_input.polish_prompt_custom_1": "polish_prompt_custom_1",
-    "voice_input.polish_prompt_custom_2": "polish_prompt_custom_2",
-    "voice_input.polish_prompt_custom_3": "polish_prompt_custom_3",
-    "voice_input.polish_prompt_id": "polish_prompt_id",
-    "voice_input.polish_provider": "polish_provider",
-    "voice_input.polish_text": "polish_text",
-    "voice_input.polish_token": "polish_token",
-    "voice_input.polish_token_deepseek": "deepseek",
-    "voice_input.polish_token_groq": "groq",
-    "voice_input.polish_token_openai": "openai",
-    "voice_input.polish_token_siliconflow": "siliconflow",
-    "voice_input.start_sound": "start_sound",
-    "voice_input.stream_inline_preedit": "stream_inline_preedit",
-    "voice_input.voice_input": "voice_input",
+    "utility.unicode_mode": "local_modes.unicode",
+    "utility.y_mode": "local_modes.temporary_english",
+    "voice_input.asr_app_key": "voice_input.asr_app_key",
+    "voice_input.asr_endpoint": "voice_input.asr_endpoint",
+    "voice_input.asr_model": "voice_input.asr_model",
+    "voice_input.asr_provider": "voice_input.asr_provider",
+    "voice_input.asr_resource_id": "voice_input.asr_resource_id",
+    "voice_input.asr_token": "voice_input.asr_token",
+    "voice_input.asr_token_doubao": "voice_input.asr_tokens",
+    "voice_input.asr_token_groq": "voice_input.asr_tokens",
+    "voice_input.asr_token_openai": "voice_input.asr_tokens",
+    "voice_input.asr_token_siliconflow": "voice_input.asr_tokens",
+    "voice_input.commit_mode": "voice_input.commit_mode",
+    "voice_input.doubao_auth_mode": "voice_input.doubao_auth_mode",
+    "voice_input.doubao_boosting_table_id": "voice_input.doubao_boosting_table_id",
+    "voice_input.doubao_enable_ddc": "voice_input.doubao_enable_ddc",
+    "voice_input.doubao_enable_itn": "voice_input.doubao_enable_itn",
+    "voice_input.doubao_enable_punc": "voice_input.doubao_enable_punc",
+    "voice_input.end_sound": "voice_input.end_sound",
+    "voice_input.hotkey_ctrl_f9": "voice_input.hotkey_ctrl_f9",
+    "voice_input.hotkey_ctrl_win": "voice_input.hotkey_ctrl_win",
+    "voice_input.hotkey_hold_space_lock": "voice_input.hotkey_hold_space_lock",
+    "voice_input.hotkey_ralt": "voice_input.hotkey_ralt",
+    "voice_input.hotkey_rctrl_ralt": "voice_input.hotkey_rctrl_ralt",
+    "voice_input.language": "voice_input.language",
+    "voice_input.mute_system_audio": "voice_input.mute_system_audio",
+    "voice_input.polish_endpoint": "voice_input.polish_endpoint",
+    "voice_input.polish_model": "voice_input.polish_model",
+    "voice_input.polish_prompt": "voice_input.polish_prompt",
+    "voice_input.polish_prompt_custom_1": "voice_input.polish_prompt_custom_1",
+    "voice_input.polish_prompt_custom_2": "voice_input.polish_prompt_custom_2",
+    "voice_input.polish_prompt_custom_3": "voice_input.polish_prompt_custom_3",
+    "voice_input.polish_prompt_id": "voice_input.polish_prompt_id",
+    "voice_input.polish_provider": "voice_input.polish_provider",
+    "voice_input.polish_text": "voice_input.polish_text",
+    "voice_input.polish_token": "voice_input.polish_token",
+    "voice_input.polish_token_deepseek": "voice_input.polish_tokens",
+    "voice_input.polish_token_groq": "voice_input.polish_tokens",
+    "voice_input.polish_token_openai": "voice_input.polish_tokens",
+    "voice_input.polish_token_siliconflow": "voice_input.polish_tokens",
+    "voice_input.start_sound": "voice_input.start_sound",
+    "voice_input.stream_inline_preedit": "voice_input.stream_inline_preedit",
+    "voice_input.voice_input": "voice_input.enabled",
 }
 
 
@@ -295,6 +293,59 @@ def shared_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in SHARED if path.is_file())
 
 
+ROOT_STRUCT = "Preferences"
+
+
+def rust_structs() -> dict[str, dict[str, str]]:
+    """`struct name -> {field name -> declared type}` for the braced structs in the shared Rust sources."""
+    structs: dict[str, dict[str, str]] = {}
+    for path in SHARED:
+        if path.suffix != ".rs" or not path.is_file():
+            continue
+        source = path.read_text(encoding="utf-8")
+        for match in re.finditer(r"\bpub struct (\w+)\s*\{", source):
+            depth, index = 1, match.end()
+            while depth and index < len(source):
+                depth += {"{": 1, "}": -1}.get(source[index], 0)
+                index += 1
+            body = re.sub(r"//[^\n]*", "", source[match.end() : index - 1])
+            structs[match.group(1)] = {
+                field.group(1): field.group(2).strip()
+                for field in re.finditer(r"^\s*pub (\w+)\s*:\s*([^\n]+?),?\s*$", body, re.M)
+            }
+    return structs
+
+
+def resolve(target: str, structs: dict[str, dict[str, str]]) -> str | None:
+    """Why `target` does not name a declared field path, or None when it does."""
+    segments = target.split(".")
+    struct = segments.pop(0) if segments[0] in structs else ROOT_STRUCT
+    for position, segment in enumerate(segments):
+        fields = structs.get(struct)
+        if fields is None:
+            return f"`{struct}` is not a struct in the shared Rust sources"
+        if segment not in fields:
+            return f"`{struct}` has no `pub {segment}:` field"
+        if position + 1 < len(segments):
+            # Descend through wrappers such as `Option<T>` to the struct the next segment belongs to.
+            nested = [name for name in re.findall(r"\w+", fields[segment]) if name in structs]
+            if not nested:
+                return f"`{struct}.{segment}` is `{fields[segment]}`, not a struct with fields"
+            struct = nested[-1]
+    return None
+
+
+def page_uses(name: str, text: str) -> bool:
+    """Whether the page spells `name` as a field: `.name` or `?.name` access, a `name:` / `name?:` object key or member, or a `["name"]` index. A bare word in a comment, a string or an unrelated identifier does not count."""
+    escaped = re.escape(name)
+    return bool(
+        re.search(
+            rf"(?:\.{escaped}\b|(?<![\w$.]){escaped}\??\s*:(?!:)|\[\s*[\"']{escaped}[\"']\s*\])",
+            text,
+        )
+    )
+
+
 def main() -> int:
     text = shared_text()
     if not text:
@@ -311,14 +362,13 @@ def main() -> int:
         return 1
 
     orphaned = []
+    structs = rust_structs()
     for key, target in sorted(MAPPING.items()):
         if target.startswith("!"):
             continue
-        # The last segment is the field name; nested targets name their struct, which is what the
-        # shared sources spell.
-        needle = target.split(".")[-1]
-        if not re.search(rf"\b{re.escape(needle)}\b", text):
-            orphaned.append(f"{key} -> {target}")
+        problem = resolve(target, structs)
+        if problem:
+            orphaned.append(f"{key} -> {target} ({problem})")
 
     # And a field alone is not the setting. This client's arrangement is that shared behaviour and
     # its interface both live in the Tauri settings page, so a reference setting with a field here
@@ -330,11 +380,13 @@ def main() -> int:
     # failure that actually happens - a preference added to the crate and nothing done in the page
     # - and not a control deleted while its type stays. Reported wording says only that much.
     unreachable = []
+    page_source = page_text()
     for key, target in sorted(MAPPING.items()):
         if target.startswith("!") or target in PLATFORM_LOCAL:
             continue
-        needle = target.split(".")[-1]
-        if not re.search(rf"\b{re.escape(needle)}\b", page_text()):
+        # Every field segment has to be spelled as a field, so `floating_toolbar.enabled` needs both `floating_toolbar` and `enabled`; a root struct name is not a field and is skipped.
+        segments = [segment for segment in target.split(".") if segment not in structs]
+        if not all(page_uses(segment, page_source) for segment in segments):
             unreachable.append(f"{key} -> {target}")
 
     # A declaration is not code. A field can be added to the page's types and defaults and then
