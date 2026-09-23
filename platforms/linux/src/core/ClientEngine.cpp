@@ -3952,16 +3952,32 @@ void voice_start(IBusEngine *engine) {
         engine, "无法启动语音输入，请检查语音设置后重试");
   }
 }
+// Super reaches IBus as MOD4, as the virtual SUPER bit, or as both, depending on the client (GTK3 adds SUPER next to MOD4, some clients send only one). Fold them into MOD4 so every exact modifier match sees one Super.
+guint canonical_modifiers(guint flags) {
+  const guint m = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
+                           IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
+                           IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
+  if (m & (IBUS_MOD4_MASK | IBUS_SUPER_MASK))
+    return (m & ~IBUS_SUPER_MASK) | IBUS_MOD4_MASK;
+  return m;
+}
+// Hold shortcuts match the physical key, as the Windows hook does: X11, GDK and mutter report the modifier state from before the key, so a modifier's own bit may or may not be set on its own press and is ignored here.
 bool voice_hotkey(const State &s, guint key, guint modifiers) {
   if (key == IBUS_F9 && modifiers == IBUS_CONTROL_MASK)
     return s.voice_hotkey_ctrl_f9;
-  if (key == IBUS_Alt_R && modifiers == (IBUS_MOD1_MASK | IBUS_CONTROL_MASK))
-    return s.voice_hotkey_rctrl_ralt && s.right_ctrl_down;
-  if (key == IBUS_Alt_R && modifiers == IBUS_MOD1_MASK)
-    return s.voice_hotkey_ralt;
-  if ((key == IBUS_Super_L || key == IBUS_Super_R) &&
-      modifiers == (IBUS_CONTROL_MASK | IBUS_MOD4_MASK))
-    return s.voice_hotkey_ctrl_win;
+  if (key == IBUS_Alt_R) {
+    const guint m = modifiers & ~IBUS_MOD1_MASK;
+    if (m == IBUS_CONTROL_MASK)
+      return s.voice_hotkey_rctrl_ralt && s.right_ctrl_down;
+    if (m == 0)
+      return s.voice_hotkey_ralt;
+    return false;
+  }
+  if (key == IBUS_Super_L || key == IBUS_Super_R) {
+    const guint m = modifiers & ~(IBUS_MOD4_MASK | IBUS_SUPER_MASK);
+    if (m == IBUS_CONTROL_MASK)
+      return s.voice_hotkey_ctrl_win;
+  }
   return false;
 }
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
@@ -5592,9 +5608,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   }
   s.pure_shift_candidate = false;
   s.pure_ctrl_candidate = false;
-  const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
-                                   IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
-                                   IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
+  const guint modifiers = canonical_modifiers(flags);
   const bool screen_keyboard_key =
       (key == IBUS_k || key == IBUS_K) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD4_MASK);
@@ -5656,8 +5670,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool character_set_toggle = character_set_chord;
   // Disabling IME spelling must not disable the system layout's Compose table.
   // GTK's asynchronous IBus passthrough does not perform dead-key composition.
+  // A voice hold key must reach the voice path even with a dead key pending: X11/GDK/mutter send Alt_R with no modifier bits, and xkb_compose ignores modifier keysyms, so feeding it would swallow the press. Windows starts voice regardless of dead-key state.
+  const bool voice_hotkey_match =
+      s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers);
   if (s.focused && !s.blocked && !s.input_enabled && !release) {
-    if ((modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
+    if (!voice_hotkey_match && (modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
       if (const auto text = s.native_compose.feed(key)) {
         if (!text->empty()) commit_text(engine, *text);
         return TRUE;
@@ -5913,7 +5930,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = true;
       return;
     }
-    if ((modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
+    if (!voice_hotkey_match && (modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
       if (const auto text = s.native_compose.feed(key)) {
         if (!s.view.value("editing_text", std::string{}).empty() ||
             !s.view.value("candidates", Json::array()).empty())
