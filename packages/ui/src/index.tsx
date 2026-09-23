@@ -1704,6 +1704,15 @@ export type MobileKeyboardFeedbackClient = {
   save(settings: MobileKeyboardFeedback): Promise<MobileKeyboardFeedback>;
   preview?(strength: MobileKeyboardFeedback["hapticStrength"]): Promise<void>;
 };
+/** What the macOS settings app did with the input method it carries when it started. */
+export type InputSourceStartupStatus = {
+  /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. */
+  action: "installed" | "updated" | "up_to_date" | "login_required" | "failed";
+  /** Whether the input source is in the System Settings list; `null` when that list could not be read. */
+  enabled: boolean | null;
+  bundled_version: string | null;
+  installed_version: string | null;
+};
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
   host?: HostCapabilities;
@@ -1780,6 +1789,13 @@ export interface SettingsClient {
   restartInputMethod?: () => Promise<void>;
   /** macOS installs/updates the separate InputMethodKit bundle before registering it. */
   installInputSource?: () => Promise<void>;
+  /** macOS installs or refreshes the input method on every start; this reports what that did. */
+  inputSourceStartup?: {
+    /** Resolves once the start-time check has finished; `null` when it did not run for this launch. */
+    status(): Promise<InputSourceStartupStatus | null>;
+    /** Opens the System Settings page where input sources are added and enabled. */
+    openSettings(): Promise<void>;
+  };
   /** macOS moves the installed input source to Trash; data removal is explicit. */
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
   /** macOS keeps small fixed locators while the state root itself may move to another volume. */
@@ -2360,7 +2376,7 @@ export function SettingsPage({
     : linuxPlatform
       ? "首次配置（首次配置页或 msime-client-setup）完成后会把水杉输入法自动加入正在运行的 Fcitx5 或 IBus 的输入法列表，之后用输入法切换快捷键切换即可。未能自动加入时手动添加：使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组；使用 IBus 时，执行 ibus restart 后在系统设置的输入源中添加「Metasequoia 水杉输入法」。默认是全拼输入法。"
       : macosPlatform
-        ? "在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。默认是全拼输入法。"
+        ? "设置应用每次启动时会自动安装或更新随附的水杉输入法，并在系统设置的键盘输入法中启用它；首次安装后如提示需要重新登录，注销并重新登录一次即可。之后使用系统配置的输入法切换快捷键。默认是全拼输入法。"
         : harmonyPlatform
           ? mobilePlatform
             ? "在系统设置中启用并选择水杉输入法，再从输入法键盘使用语音和触屏输入。默认是全拼输入法。"
@@ -2415,6 +2431,9 @@ export function SettingsPage({
   const [dataDirectory, setDataDirectory] = useState<{ path: string; isDefault: boolean }>();
   const [dataDirectoryBusy, setDataDirectoryBusy] = useState(false);
   const [dataDirectoryResult, setDataDirectoryResult] = useState("");
+  const [inputSourceStartup, setInputSourceStartup] = useState<InputSourceStartupStatus | null>(
+    null,
+  );
   const restoredMobilePage =
     mobilePlatform &&
     typeof window !== "undefined" &&
@@ -2730,6 +2749,26 @@ export function SettingsPage({
       active = false;
     };
   }, [client, mobilePlatform]);
+
+  // The Windows installer registers the input method on every install and upgrade; on macOS the settings app does it when it starts, and this tells the user what happened and whether the source still has to be enabled in System Settings.
+  useEffect(() => {
+    if (!macosPlatform || !client.inputSourceStartup) {
+      setInputSourceStartup(null);
+      return;
+    }
+    let active = true;
+    void client.inputSourceStartup
+      .status()
+      .then((value) => {
+        if (active) setInputSourceStartup(value);
+      })
+      .catch(() => {
+        if (active) setInputSourceStartup(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, macosPlatform]);
 
   useEffect(() => {
     if (!macosPlatform || !client.loadMacosShuangpinKeymap) {
@@ -4532,6 +4571,72 @@ export function SettingsPage({
                 {notice}
               </p>
             )}
+            {inputSourceStartup &&
+              (inputSourceStartup.action !== "up_to_date" ||
+                inputSourceStartup.enabled === false) && (
+                <div
+                  role={inputSourceStartup.action === "failed" ? "alert" : "status"}
+                  className={inputSourceStartup.action === "failed" ? "error" : "notice"}
+                  aria-label="水杉输入法安装状态"
+                >
+                  {inputSourceStartup.action === "installed" && (
+                    <p>
+                      水杉输入法已安装
+                      {inputSourceStartup.installed_version
+                        ? `：${inputSourceStartup.installed_version}`
+                        : ""}
+                      。
+                    </p>
+                  )}
+                  {inputSourceStartup.action === "updated" && (
+                    <p>
+                      水杉输入法已更新
+                      {inputSourceStartup.installed_version
+                        ? `到 ${inputSourceStartup.installed_version}`
+                        : ""}
+                      。
+                    </p>
+                  )}
+                  {inputSourceStartup.action === "login_required" && (
+                    <p>
+                      水杉输入法已安装到本机，但本次登录的输入法列表还看不到它。请注销并重新登录，然后在
+                      系统设置 &gt; 键盘 &gt; 输入法 中添加水杉输入法。
+                    </p>
+                  )}
+                  {inputSourceStartup.action === "failed" && (
+                    <p>
+                      水杉输入法未能自动安装或更新。请在「快捷键」页的「输入法服务」中点「安装 /
+                      更新」重试。
+                    </p>
+                  )}
+                  {inputSourceStartup.enabled === false &&
+                    inputSourceStartup.action !== "login_required" && (
+                      <p>
+                        请在 系统设置 &gt; 键盘 &gt; 输入法 中添加并启用水杉输入法。
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            void client.inputSourceStartup
+                              ?.openSettings()
+                              .catch(() =>
+                                setError("无法打开系统设置，请手动前往 系统设置 > 键盘 > 输入法。"),
+                              )
+                          }
+                        >
+                          打开键盘设置
+                        </button>
+                      </p>
+                    )}
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setInputSourceStartup(null)}
+                  >
+                    知道了
+                  </button>
+                </div>
+              )}
             {busy && !draft && <p role="status">正在读取设置…</p>}
             {client.home && draft && page === "home" && (
               <HomePage

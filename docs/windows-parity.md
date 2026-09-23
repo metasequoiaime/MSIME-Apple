@@ -233,6 +233,7 @@
 - 产物：`MetasequoiaIME_Setup_v<版本>.exe` 与 `.sha256` 作为 workflow artifact 上传；`publish` 输入默认关闭，打开时才创建 `windows-v<版本>` Release。安装包未签名，因为代码签名证书是只在发布机上的 Certum SimplySign 卡，签名仍是本地步骤。
 - 第一次在 MSVC 上完整构建暴露并修掉的问题：Engine overlay 脚本按 ANSI 代码页读写 UTF-8 源；engine-bridge 的 MSVC 编译拿不到 vcpkg 头文件；strict 目标的 `/W4 /WX` 窄化、遮蔽与 `getenv` 弃用告警；TSF 引入 Engine 管道契约时被 SDK 的 `max` 宏改写；PowerShell 调 pnpm（`.cmd`）时 Tauri `--config` 的内联 JSON 丢了引号；`Collect-Notices.ps1` 按整个文件比较 Engine 标记；安装脚本 `[Code]` 里有先用后声明的 `UserConfigPath` 和保留字 `Protected`。
 - 证据：https://github.com/metasequoiaime/msime/actions/runs/35815935438 成功，artifact `msime-windows-0.1.0` 内含 201 MB 的 `MetasequoiaIME_Setup_v0.1.0.exe`，下载后 `.sha256` 校验通过。安装包尚未在真实 Windows 上安装验收。Rust crate 与 npm 包的补充声明已由 #650 收进通知集合，随后的发布运行 https://github.com/metasequoiaime/msime/actions/runs/35830590535（`publish=false`）成功。
+
 macOS（`shared/apple/TextClient.mm`，iOS 共用）与 Linux 两套前端改成：视图带非空 `reading` 时，组字就是假名。**唯一的例外是用户把光标移进字母中间**——引擎给的偏移是罗马字里的偏移，没有到假名的映射（与 `MSIMEPreeditCaretPosition` 拒绝为双拼猜测是同一条理由），这时继续显示光标所属的那串字母，而不是把光标画在不属于它的地方；正常打字永远碰不到这条，光标一直在末尾。判据写成 `composition_shows_reading`（Linux 侧，带四条用例），Apple 侧在 `TextClientTest` 里四条（假名显示、raw 样式同样显示假名、光标移进中间保留字母、其余方案不受影响），反向验证过。
 
 **Windows 同日也改了，而且比预计简单**：上一段里「TIP 自己按按键本地追加组字」的说法只对没有宿主引擎适配器的回退路径成立。挂着适配器时 `_HandleCompositionInputWorker` **本来就**把 `readingStrings` 整串换成视图里的 `preedit`，所以改的只是「换成哪一个字段」。TIP 的视图结构体补上 `reading`（解析器一行，用例钉住），显示判据直接用共享那条。
@@ -768,6 +769,14 @@ Linux 在线 provider 的 AI 凭据测试与 Windows 终态契约对齐：只有
 2. **Tauri 语音运行链**：明确控制器与输入目标是两个身份。OS 对端认证、有限消息/队列/关闭时限、request ID 与代际、事件与最终结果都必须连起来。Tauri 面板收结果后提交和原生直接提交只能有一个最终提交所有者，防止双重上屏。
 3. **字段级配置与设备选择**：从来源 `ime_config.h` / `ime_config.cpp`、设置模块逐字段映射到共享偏好，再确认每个字段的原生消费者；设备选择单独验证稳定 ID 和实际采集。
 4. **输入与面板产品行为**：按上表方案、在线候选、翻译、词库、面板、外观、服务/安装分组补差异与本地回归，每组及时合并。不因缺少一种验证环境而停止可执行的实现工作，也不声称未执行的原生验证通过。
+
+### macOS 发布包
+
+- 来源的安装形态是一个安装程序：装好签名的 TSF DLL、Server、词库、辅助码、出厂配置与许可证，双击后输入法就在列表里。macOS 的对应物是 DMG 加拖拽安装：`.github/workflows/release-macos.yml` 调用 `platforms/macos/package-release.sh`，依次取锁定的 Engine 与词库（`install_resources` → `stage-resources.sh`）、构建 Release 版 Rust 静态库并显式交给 CMake（`MSIME_HOST_LIBRARY`）、构建并签名 `水杉输入法.app`、构建内嵌它与 `EngineResources`、手写模型和许可证的 Tauri 设置应用，最后打成 `msime-macos-<版本>-arm64.dmg` 并写 `SHA256SUMS`。用户把应用拖进「应用程序」并打开，输入法就被复制到 `~/Library/Input Methods`，以 `--register-input-source` 登记并启用中英两个模式，不需要再到系统设置里手动添加。例外是这个 bundle identifier 在本次登录会话开始时还不在输入源列表里（全新的机器就是这样）：macOS 在下次登录前不接受它（见 `platforms/macos/README.md`「安装与输入源注册」），此时首次安装保留已就位的 bundle，设置页提示注销并重新登录，重新登录后在系统设置里添加即可，与 `scripts/install.sh` 的处理相同。
+- 安装与升级：来源安装器每次安装和升级都带 `regserver` 注册 TSF DLL（`installer/msime_setup.iss`），程序与输入法不会停在两个版本上。macOS 由设置应用在每次启动时做同一件事（`macos_input_source.rs` 的 `ensure_current`）：比较随附与已安装 `水杉输入法.app` 的 `CFBundleShortVersionString` 与 `CFBundleVersion`，未安装时安装、随附的更新时替换并以 `--register-input-source` 重新登记和启用，已安装的相同或更新时不动。不降级是平台差异带来的规则：Windows 每次安装都是用户主动运行的那个安装包，而 macOS 的设置应用每次启动都会检查，已安装的可能比正在打开的这份设置应用带的更新——先装了新版 DMG 又打开了旧版 DMG 里的设置应用，或用 `scripts/install.sh` 装了更新的构建；带 `SUFeedURL` 的构建还可能经 Sparkle 自行更新。刷新在后台进行，不阻塞窗口，失败不影响启动；设置页据结果提示已安装或更新的版本、首次安装要等下次登录，输入源不在系统设置的输入法列表里时提示去「系统设置 > 键盘 > 输入法」添加并提供打开该页的按钮，失败时指向「安装 / 更新」手动按钮（它保留为不比较版本的强制重装）。只认打包好的 `.app` 自身 `Contents/Resources` 里的 bundle：`tauri dev`、`cargo run` 与 `target/<profile>` 下的二进制都不是打包应用（它们的资源目录是 cargo 产物目录，tauri-build 在那里放了一份符号链接被展开的开发构建），不做这一步；设置了 `MSIME_CLIENT_HOST_OPTIONS` 的运行和输入法拉起的面板进程也不做。启动检查与「安装 / 更新」、卸载在进程内互斥，不会同时改写同一个 bundle。与来源一样，升级会把用户在系统设置里移除过的输入源重新加回列表。
+- 验证：脚本在构建后和挂载 DMG 后各检查一遍内嵌词库（`verify_resources`）、手写模型、许可证、输入法 bundle identifier、Sparkle.framework 的符号链接与麦克风 entitlement，以及两层签名的 `codesign --verify --deep --strict`；工作流再核对只有一个 DMG 且 `SHA256SUMS` 通过。Tauri 的资源复制会展开符号链接、破坏输入法里 Sparkle.framework 的签名，因此打包时用 `ditto` 放回签过名的副本，设置页的安装也原样重建包内相对链接（`macos_input_source.rs` 的 `keeps_framework_symlinks_as_links`，指向 bundle 之外的链接被拒绝）。
+- 签名：与 Windows 相同，签名证书不在仓库里。配置 `MACOS_CERTIFICATE_P12_BASE64`、`MACOS_CERTIFICATE_PASSWORD`、`MACOS_SIGNING_IDENTITY` 时以 Developer ID 签名，再有 `APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD` 时公证并 staple；只有这样的包才等价于来源的「下载、安装、打字」。没有 secrets 时全部 ad-hoc：Gatekeeper 隔离下载的应用，设置应用右键「打开」后可以运行，但 macOS 不登记 ad-hoc 签名的输入源，只有自带 Developer ID 的开发者能用 `platforms/macos/scripts/install.sh` 重签安装。本机只跑通过 ad-hoc 路径，Developer ID 签名与公证路径没有运行过。
+- 差异：只出 arm64 包（runner 上的 Homebrew 依赖只有 arm64），Intel Mac 没有发布包；桌面整句重排模型不随包（Windows 安装包带它）；没有 Sparkle appcast，「检查更新…」打开发布页。
 
 ## 语音传输必须保留的边界
 
