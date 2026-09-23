@@ -518,6 +518,10 @@ group("projects the same form factor into every settings capability", () => {
     "2-in-1 settings expose candidate and toolbar controls",
   );
   check(
+    desktop.floatingToolbarHandwriting && desktop.floatingToolbarVoice,
+    "2-in-1 settings offer the pad and microphone switches its toolbar honours",
+  );
+  check(
     desktop.modeSwitchShortcuts && desktop.panelShortcuts && desktop.numberRowSelection,
     "2-in-1 settings expose physical-keyboard shortcuts",
   );
@@ -528,7 +532,9 @@ group("projects the same form factor into every settings capability", () => {
     !phone.panelWindows &&
       !phone.floatingToolbar &&
       !phone.floatingToolbarAppearance &&
-      !phone.floatingToolbarComponents,
+      !phone.floatingToolbarComponents &&
+      !phone.floatingToolbarHandwriting &&
+      !phone.floatingToolbarVoice,
     "phone settings hide candidate and toolbar controls",
   );
   check(
@@ -3714,10 +3720,90 @@ group("every toolbar button is optional, the settings gear included", () => {
     fullwidth: false,
     characterSet: false,
     emoji: false,
+    handwriting: false,
     screenKeyboard: false,
+    voice: false,
     settings: false,
   };
   check(FloatingToolbarLayout.buttons(none).length === 0, "turning everything off leaves nothing");
+});
+
+group("the 2in1 toolbar carries the pad and the microphone, as the macOS one does", () => {
+  const all: ToolbarComponents = FloatingToolbarLayout.allComponents();
+  const order: ToolbarButton[] = FloatingToolbarLayout.buttons(all);
+  check(order.length === 9, "all nine buttons are drawn when every switch is on");
+  check(
+    order.indexOf(ToolbarButton.EMOJI) < order.indexOf(ToolbarButton.HANDWRITING) &&
+      order.indexOf(ToolbarButton.HANDWRITING) < order.indexOf(ToolbarButton.SCREEN_KEYBOARD) &&
+      order.indexOf(ToolbarButton.SCREEN_KEYBOARD) < order.indexOf(ToolbarButton.VOICE) &&
+      order.indexOf(ToolbarButton.VOICE) < order.indexOf(ToolbarButton.SETTINGS),
+    "emoji, pad, keyboard, microphone, then the gear last",
+  );
+  check(
+    !FloatingToolbarLayout.buttons({ ...all, handwriting: false }).includes(
+      ToolbarButton.HANDWRITING,
+    ),
+    "the shared handwriting switch hides the pad button",
+  );
+  check(
+    !FloatingToolbarLayout.buttons({ ...all, voice: false }).includes(ToolbarButton.VOICE),
+    "the shared voice switch hides the microphone button",
+  );
+  check(
+    FloatingToolbarLayout.widthVp(order.length) > FloatingToolbarLayout.widthVp(order.length - 2),
+    "the bar grows to hold both rather than clipping at the old seven",
+  );
+  const idle = FloatingToolbarLayout.idleState();
+  check(
+    FloatingToolbarLayout.face(ToolbarButton.HANDWRITING, idle) !==
+      FloatingToolbarLayout.face(ToolbarButton.SETTINGS, idle) &&
+      FloatingToolbarLayout.face(ToolbarButton.VOICE, idle) !==
+        FloatingToolbarLayout.face(ToolbarButton.SETTINGS, idle),
+    "neither new button falls through to the gear's face",
+  );
+  check(
+    (ToolbarButton.SCREEN_KEYBOARD as number) === (PanelSurfaceAction.SCREEN_KEYBOARD as number),
+    "adding them did not renumber the button the panel chord mirrors",
+  );
+});
+
+group("toolbar surfaces route candidates and end their own work on the 2in1", () => {
+  check(
+    SurfaceRoutingPolicy.showsHandwritingCandidates(true, DesktopSurface.HANDWRITING, false),
+    "the toolbar pad shows its results whatever the scheme",
+  );
+  check(
+    SurfaceRoutingPolicy.showsHandwritingCandidates(true, DesktopSurface.SCREEN_KEYBOARD, true),
+    "a handwriting scheme's screen keyboard still shows them",
+  );
+  check(
+    !SurfaceRoutingPolicy.showsHandwritingCandidates(true, DesktopSurface.NONE, true),
+    "the bare candidate window belongs to the physical keys",
+  );
+  check(
+    !SurfaceRoutingPolicy.showsHandwritingCandidates(true, DesktopSurface.SCREEN_KEYBOARD, false),
+    "a letter screen keyboard does not show ink results",
+  );
+  check(
+    SurfaceRoutingPolicy.showsHandwritingCandidates(false, DesktopSurface.NONE, true) &&
+      !SurfaceRoutingPolicy.showsHandwritingCandidates(false, DesktopSurface.HANDWRITING, false),
+    "a phone follows its scheme alone",
+  );
+  check(
+    SurfaceRoutingPolicy.endsVoice(DesktopSurface.VOICE, DesktopSurface.NONE) &&
+      SurfaceRoutingPolicy.endsVoice(DesktopSurface.VOICE, DesktopSurface.HANDWRITING),
+    "leaving the voice face by any route ends the recording",
+  );
+  check(
+    !SurfaceRoutingPolicy.endsVoice(DesktopSurface.VOICE, DesktopSurface.VOICE) &&
+      !SurfaceRoutingPolicy.endsVoice(DesktopSurface.NONE, DesktopSurface.VOICE),
+    "opening or re-asserting it does not",
+  );
+  check(
+    SurfaceRoutingPolicy.endsHandwriting(DesktopSurface.HANDWRITING, DesktopSurface.NONE) &&
+      !SurfaceRoutingPolicy.endsHandwriting(DesktopSurface.EMOJI, DesktopSurface.NONE),
+    "closing the pad drops its ink, closing something else does not",
+  );
 });
 
 group("the other Windows maintenance chord clears the engine cache", () => {

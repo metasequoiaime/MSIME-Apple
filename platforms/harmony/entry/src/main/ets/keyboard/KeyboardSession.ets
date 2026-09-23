@@ -680,7 +680,11 @@ interface PreparedFloatingToolbar {
   fullwidth: boolean;
   character_set: boolean;
   emoji: boolean;
+  /** Absent in documents written before the 2in1 toolbar carried it; shown there, as the shared default is. */
+  handwriting?: boolean;
   screen_keyboard: boolean;
+  /** Absent in documents written before the 2in1 toolbar carried it; shown there, as the shared default is. */
+  voice?: boolean;
   /** Shared switch for the settings button; absent in older documents, where it was always shown. */
   settings?: boolean;
   scale_percent: number;
@@ -1620,7 +1624,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     return {
       englishMode: this.toolbar.english_mode, punctuation: this.toolbar.punctuation,
       fullwidth: this.toolbar.fullwidth, characterSet: this.toolbar.character_set,
-      emoji: this.toolbar.emoji, screenKeyboard: this.toolbar.screen_keyboard,
+      emoji: this.toolbar.emoji, handwriting: this.toolbar.handwriting !== false,
+      screenKeyboard: this.toolbar.screen_keyboard, voice: this.toolbar.voice !== false,
       settings: this.toolbar.settings !== false
     };
   }
@@ -1690,6 +1695,12 @@ export class KeyboardSession implements HardwareKeyTarget {
         break;
       case ToolbarButton.SCREEN_KEYBOARD:
         this.requestSurface(DesktopSurface.SCREEN_KEYBOARD);
+        break;
+      case ToolbarButton.HANDWRITING:
+        this.requestSurface(DesktopSurface.HANDWRITING);
+        break;
+      case ToolbarButton.VOICE:
+        this.requestSurface(DesktopSurface.VOICE);
         break;
       default:
         if (this.onToolbarSettings !== undefined) {
