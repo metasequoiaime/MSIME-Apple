@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Private.h"
-#include "define.h"
+#include "Define.h"
 #include "MetasequoiaIMEBaseStructure.h"
 #include <iostream>
 #include <string>

@@ -5,7 +5,7 @@
 #include "CandidateListUIPresenter.h"
 #include "CompositionProcessorEngine.h"
 #include "MetasequoiaIMEBaseStructure.h"
-#include "define.h"
+#include "Define.h"
 #include <algorithm>
 #include <cwchar>
 #include <string>

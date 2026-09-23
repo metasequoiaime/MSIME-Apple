@@ -1,7 +1,7 @@
 #include "Globals.h"
 #include "Private.h"
 #include "resource.h"
-#include "define.h"
+#include "Define.h"
 #include "MetasequoiaIMEBaseStructure.h"
 #include <unordered_set>
 #include <windows.h>

@@ -3260,14 +3260,17 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
         });
     }
     #[cfg(target_os = "windows")]
-    let result = std::process::Command::new("cmd")
-        .args(["/C", "start", ""])
-        .arg(&url)
-        .status();
+    {
+        return msime_host_windows::open_url(&url)
+            .then_some(())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            });
+    }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let result: Result<std::process::ExitStatus, std::io::Error> =
         Err(std::io::Error::other("unsupported"));
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     match result {
         Ok(status) if status.success() => Ok(()),
         _ => Err(HostActionError {
