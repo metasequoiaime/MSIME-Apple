@@ -63,7 +63,16 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("private static let pcmChunkBytes = 6_400", doubao)
         self.assertIn("willPerformHTTPRedirection", doubao)
         self.assertIn("MobileVoiceRequestHeader", rust_voice)
-        self.assertIn("msime_client_core::credential::doubao_auth::headers(", rust_voice)
+        # The resolution moved into the shared crate so the Android keyboard, which never goes
+        # through this shell, reads the same answer. What this pins is unchanged: the Doubao
+        # authentication headers come from the shared policy rather than a copy in a host.
+        self.assertIn(
+            "use msime_client_core::voice::provider::{", rust_voice
+        )
+        shared_voice = (
+            TAURI_ROOT.parents[2] / "crates/client-core/src/voice/provider.rs"
+        ).read_text()
+        self.assertIn("crate::credential::doubao_auth::headers(", shared_voice)
         self.assertIn('#[cfg(not(target_os = "ios"))]', rust_entry)
         self.assertIn("mobile_voice_provider_configuration(&snapshot.preferences)", rust_voice)
         self.assertIn('phase: Some("recording".into())', rust_voice)
