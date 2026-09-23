@@ -89,7 +89,7 @@ if [ -z "$settings" ]; then
   fi
 fi
 
-# What to do once setup is done differs per host. Fcitx5 retries the options on the next key or focus change, so nothing more is needed. The IBus component has already exited and ibus-daemon only starts it again when the engine is selected anew, so the user has to switch away and back; ibus restart is the fallback when the daemon still holds the failed engine.
+# What to do once setup is done differs per host. Fcitx5 retries the options on the next key or focus change, so nothing more is needed. The IBus component has already exited and ibus-daemon only starts it again when the engine is selected anew, so the user has to switch away and back; ibus restart is the fallback when the daemon still holds the failed engine. The launcher's crash supervisor does not help here: without a readable configuration the launcher exits before it starts supervising, and a restart could not read the configuration either.
 case "$host" in
   fcitx5) resume="完成后即可直接输入。" ;;
   ibus) resume="完成后请先切换到其他输入法再切回「水杉输入法」；如仍无法输入，请运行 ibus restart。" ;;

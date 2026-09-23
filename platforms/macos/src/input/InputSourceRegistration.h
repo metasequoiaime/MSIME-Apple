@@ -23,6 +23,8 @@ OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleId
                                             MSIMEInputSourceLister lister,
                                             MSIMEInputSourcePropertyGetter propertyGetter,
                                             MSIMEInputSourceEnabler enabler);
+/// Whether the input source with this identifier is enabled, so the system can select it.
+BOOL MSIMEInputSourceIsEnabled(NSString *identifier);
 /// Starts a separate non-activating helper instance of the current input method
 /// to re-register its source. Completion is always delivered on the main thread.
 void MSIMELaunchInputSourceReregistration(NSURL *bundleURL, NSWorkspace *workspace,

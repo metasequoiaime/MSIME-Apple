@@ -14,6 +14,7 @@ struct SkinSettingsView: View {
   @State private var savedDesigns = CustomSkinLibrary.designs.count
   @State private var themes: [String: String] = [:]
   @State private var themeSaveFailed = false
+  @State private var skinSaveFailed = false
   @Environment(\.horizontalSizeClass) private var sizeClass
 
   var body: some View {
@@ -46,7 +47,8 @@ struct SkinSettingsView: View {
       Section {
         ForEach(KeyboardSkin.allCases, id: \.rawValue) { option in
           Button {
-            skin = option.rawValue
+            skinSaveFailed = !KeyboardSkinPreference.save(
+              option, design: option == .custom ? CustomKeyboardSkinStore.current : nil)
           } label: {
             HStack(spacing: 14) {
               SkinDesignThumbnail(skin: option)
@@ -65,7 +67,9 @@ struct SkinSettingsView: View {
       } header: {
         Text("皮肤 · \(KeyboardSkin.allCases.count) 款")
       } footer: {
-        Text("选择后预览立即更新，下次打开水杉键盘时应用。霓虹夜航与工程蓝图保留深色设计，其余随系统外观切换。")
+        Text(skinSaveFailed
+          ? "皮肤没有保存，键盘可能正在写入同一份设置，请再试一次。"
+          : "选择后预览立即更新，下次打开水杉键盘时应用。霓虹夜航与工程蓝图保留深色设计，其余随系统外观切换。")
       }
 
     }

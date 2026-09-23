@@ -48,9 +48,64 @@ void autocorrectMarker() {
   require(shown(row(Json{{"text", "汉语"}, {"corrected", true}}, true)) == "漢語*",
           "marker follows the traditional-converted word");
 }
+// An installed skin's decoration reaches the classic UI as the msime theme's overlay, with the image copied beside theme.conf; a built-in skin, or a switch back to one, leaves no image behind. This composes the theme exactly as applyCandidatePanelTheme does, against the shared layer's built-in catalogue, but writes it without the classic UI addon, which the fixture instance does not load. Runs before the resource fixture.
+void candidateThemeDecoration() {
+  namespace host = msime::linux_host;
+  char temporary[] = "/tmp/msime-fcitx5-theme-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "theme fixture directory");
+  const std::filesystem::path root(directory);
+  const auto image = root / "skins" / "sakura" / "images" / "ears.png";
+  std::filesystem::create_directories(image.parent_path());
+  {
+    std::ofstream out(image, std::ios::binary);
+    // PNG signature and IHDR header of a 32 x 12 image.
+    out << std::string("\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x20\0\0\0\x0c\x08\x06\0\0\0", 29);
+  }
+  const Json catalog = {{"packages", Json::array({{{"id", "sakura"},
+                                                   {"title", "樱花"},
+                                                   {"decoration_top_dip", 24.5},
+                                                   {"decoration_width_dip", 180},
+                                                   {"decoration_image", image.string()}}})}};
+  const auto themeFor = [&](const std::string &skin) {
+    const auto display = host::candidate_display_preferences(Json{{"candidate_skin", skin}}, false, builtinSkins(),
+                                                             defaultSkin(), catalog);
+    const auto colors = host::resolve_candidate_colors(display, defaultSkin());
+    const auto decoration =
+        host::candidate_skin_decoration(catalog, display.value("candidate_skin", defaultSkin()), builtinSkins());
+    const auto file = host::fcitx_theme_file((root / "data").c_str(), nullptr);
+    require(file && host::write_fcitx_candidate_theme(*file, colors, decoration), "candidate theme written");
+    std::ifstream in(*file, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+  };
+  const auto themeDirectory = root / "data" / "fcitx5" / "themes" / "msime";
+  const auto copies = [&] {
+    std::vector<std::string> names;
+    for (const auto &entry : std::filesystem::directory_iterator(themeDirectory))
+      if (entry.path().filename().string().rfind("decoration-", 0) == 0) names.push_back(entry.path().filename().string());
+    return names;
+  };
+  require(!builtinSkins().empty() && !defaultSkin().empty(), "shared layer publishes the built-in skins");
+  const auto decorated = themeFor("sakura");
+  const auto named = decorated.find("\nOverlay=decoration-");
+  require(named != std::string::npos, "decorated skin names its overlay");
+  const auto copy = decorated.substr(named + 9, decorated.find('\n', named + 1) - named - 9);
+  require(copies() == std::vector<std::string>{copy}, "overlay image staged beside theme.conf");
+  require(std::filesystem::file_size(themeDirectory / copy) == std::filesystem::file_size(image), "overlay is the skin's image");
+  require(decorated.find("Gravity=Top Right\nOverlayOffsetX=1\nOverlayOffsetY=8\nHideOverlayIfOversize=False\n") !=
+              std::string::npos,
+          "overlay pinned top right and centred in the band");
+  require(decorated.find("[InputPanel/ContentMargin]\nLeft=2\nRight=2\nTop=27\n") != std::string::npos,
+          "band reserved above the candidates");
+  const auto plain = themeFor(defaultSkin());
+  require(plain.find("Overlay") == std::string::npos, "built-in skin has no overlay");
+  require(copies().empty(), "previous skin's overlay removed");
+  std::filesystem::remove_all(root);
+}
 int main(int argc, char **argv) {
   try {
     autocorrectMarker();
+    candidateThemeDecoration();
     require(argc == 2 || (argc == 3 && std::string(argv[2]) == "--ai"),
             "usage: fcitx5-native-test <verified-resources> [--ai]");
     const bool ai = argc == 3;
@@ -853,6 +908,43 @@ int main(int argc, char **argv) {
                                                     fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift}), true);
       engine.keyEvent(entry, narrowRelease);
       require(narrow.accepted() && !state->fullwidthOutput(), "Ctrl+Shift+Space restores halfwidth");
+      // Ctrl+. works in English mode too, as Windows does with the IME closed: the chord is eaten, commas become Chinese until the next mode switch, and nothing is saved. A pinned English lock keeps ASCII whatever Ctrl+. says.
+      const auto ctrlPeriod = [&] {
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_period, fcitx::KeyStates(fcitx::KeyState::Ctrl)));
+        engine.keyEvent(entry, event);
+        const bool accepted = event.accepted();
+        fcitx::KeyEvent release(&ic, fcitx::Key(FcitxKey_period, fcitx::KeyStates(fcitx::KeyState::Ctrl)), true);
+        engine.keyEvent(entry, release);
+        return accepted && !release.accepted();
+      };
+      const auto savedPunctuation = state->preferences_.value("chinese_punctuation", Json());
+      require(ctrlPeriod(), "Ctrl+. is handled in English mode and its release passes through");
+      require(committedBy(FcitxKey_comma) == std::make_pair(true, std::string("，")),
+              "English mode converts a comma after Ctrl+.");
+      require(state->preferences_.value("chinese_punctuation", Json()) == savedPunctuation,
+              "English-mode Ctrl+. leaves the saved punctuation preference alone");
+      // The status item shows what English mode types, and clicking it there is the same session-only toggle.
+      require(engine.chinese_punctuation_action_.isChecked(&ic),
+              "the punctuation status item shows the English-mode Ctrl+. choice");
+      engine.chinese_punctuation_action_.activate(&ic);
+      require(!engine.chinese_punctuation_action_.isChecked(&ic) &&
+                  committedBy(FcitxKey_comma) == std::make_pair(false, std::string{}) &&
+                  state->preferences_.value("chinese_punctuation", Json()) == savedPunctuation,
+              "the punctuation status item toggles English-mode punctuation without saving");
+      engine.chinese_punctuation_action_.activate(&ic);
+      require(engine.chinese_punctuation_action_.isChecked(&ic),
+              "the punctuation status item turns English-mode Chinese punctuation back on");
+      require(ctrlSpace() && state->input_enabled_ && ctrlSpace() && !state->input_enabled_,
+              "the English-mode Ctrl+. test switches modes twice");
+      require(committedBy(FcitxKey_comma) == std::make_pair(false, std::string{}),
+              "a mode round trip drops the English-mode Ctrl+. choice");
+      state->punctuation_lock_ = 2;
+      require(ctrlPeriod(), "Ctrl+. is handled in English mode under the English punctuation lock");
+      require(committedBy(FcitxKey_comma) == std::make_pair(false, std::string{}),
+              "the English punctuation lock keeps a comma ASCII after Ctrl+. in English mode");
+      state->punctuation_lock_ = 0;
+      require(committedBy(FcitxKey_comma) == std::make_pair(false, std::string{}),
+              "Ctrl+. under the English punctuation lock left no choice behind");
       require(ctrlSpace() && state->input_enabled_, "English output test returns to Chinese");
       // Under the follow lock a mode switch re-resolves punctuation: English mode takes ASCII marks, and coming back restores Chinese ones even after a Ctrl+. choice.
       state->chinese_punctuation_ = false;

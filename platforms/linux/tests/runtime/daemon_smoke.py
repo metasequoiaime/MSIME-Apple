@@ -1,4 +1,7 @@
 """Real IBus daemon/client acceptance inside an isolated D-Bus session only."""
+import os
+import signal
+import subprocess
 import sys
 import time
 
@@ -13,8 +16,8 @@ if not bus.is_connected():
     sys.exit("Test IBus daemon is unavailable")
 
 
-def wait(predicate):
-    deadline = time.monotonic() + 10
+def wait(predicate, timeout=10):
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         while GLib.MainContext.default().iteration(False):
             pass
@@ -22,6 +25,39 @@ def wait(predicate):
             return
         time.sleep(0.02)
     raise AssertionError("Expected IBus state was not observed")
+
+
+def running(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as stat:
+            fields = stat.read().rsplit(")", 1)[1].split()
+    except OSError:
+        return None
+    return fields if fields[0] != "Z" else None
+
+
+def hosts(parent=None):
+    """Live msime-client-ibus processes, optionally only the children of one supervisor."""
+    found = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        fields = running(int(entry))
+        if fields is None or (parent is not None and int(fields[1]) != parent):
+            continue
+        try:
+            with open(f"/proc/{entry}/cmdline", "rb") as cmdline:
+                arguments = cmdline.read().decode(errors="replace").split("\0")
+        except OSError:
+            continue
+        if os.path.basename(arguments[0]) == "msime-client-ibus":
+            found.append((int(entry), arguments[1:]))
+    return found
+
+
+def host_of(supervisor):
+    children = hosts(supervisor)
+    return children[0] if len(children) == 1 else (None, None)
 
 
 wait(lambda: any(engine.get_name() == "msime-client" for engine in bus.list_active_engines()))
@@ -56,6 +92,57 @@ for character in "nihao":
     assert context.process_key_event(ord(character), 0, 0)
 assert context.process_key_event(IBus.KEY_space, 0, 0)
 wait(lambda: commits == ["你好", "你好"])
+
+supervisor = int(os.environ.get("MSIME_SMOKE_SUPERVISOR_PID", "0"))
+if supervisor:
+    # ibus-daemon never respawns a dead component. The launcher's supervisor does, and the restarted host puts MSIME back on the focused context, so typing resumes without the user reselecting the input source. The second crash lands inside the backoff window and waits 4 s instead of 2 s.
+    for crash in (signal.SIGSEGV, signal.SIGKILL):
+        crashed, _ = host_of(supervisor)
+        assert crashed, "supervised host is not running"
+        os.kill(crashed, crash)
+        wait(lambda: host_of(supervisor)[0] not in (None, crashed), timeout=15)
+        _, arguments = host_of(supervisor)
+        assert arguments[0] == "--recovered", arguments
+
+        def typing_resumed():
+            if context.get_engine() is None or context.get_engine().get_name() != "msime-client":
+                return False
+            context.property_activate("InputMode", IBus.PropState.CHECKED)
+            return context.process_key_event(ord("n"), 0, 0)
+
+        expected = commits + ["你好"]
+        wait(typing_resumed, timeout=15)
+        for character in "ihao":
+            assert context.process_key_event(ord(character), 0, 0)
+        assert context.process_key_event(IBus.KEY_space, 0, 0)
+        wait(lambda: commits == expected)
+        print(f"Host restarted after {crash.name} and typing resumed without reselecting")
+
+    # Ctrl+Shift+Alt+T is a deliberate stop: the supervisor lets the host go and ends too, and nothing comes back after the first restart delay would have elapsed.
+    stopped, _ = host_of(supervisor)
+    context.process_key_event(IBus.KEY_t, 0, IBus.ModifierType.CONTROL_MASK | IBus.ModifierType.SHIFT_MASK | IBus.ModifierType.MOD1_MASK)
+    wait(lambda: running(stopped) is None and running(supervisor) is None)
+    time.sleep(3)
+    assert hosts() == [], hosts()
+    print("Maintenance stop ended the host without a restart")
+
 context.focus_out()
 context.destroy()
+
+if supervisor:
+    # ibus exit disconnects the host, which returns 0; the supervisor does not restart it and exits too. Nothing starts again, since no daemon is left.
+    environment = dict(os.environ, MSIME_IBUS_OPTIONS=os.environ["MSIME_SMOKE_OPTIONS"])
+    launcher = subprocess.Popen([os.environ["MSIME_SMOKE_LAUNCHER"]], env=environment)
+    try:
+        wait(lambda: host_of(launcher.pid)[0] is not None
+             and any(engine.get_name() == "msime-client" for engine in bus.list_active_engines()))
+        bus.exit(False)  # What `ibus exit` sends.
+        assert launcher.wait(timeout=10) == 0, launcher.returncode
+    finally:
+        if launcher.poll() is None:
+            launcher.terminate()
+            launcher.wait(timeout=10)
+    assert hosts() == [], hosts()
+    print("ibus exit ended the supervisor")
+
 print("IBus daemon factory and input-context acceptance passed")

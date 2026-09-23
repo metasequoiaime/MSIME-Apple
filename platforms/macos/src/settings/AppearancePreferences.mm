@@ -423,6 +423,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     BOOL _activeModeGlobal;
     NSMutableDictionary<NSString *, NSNumber *> *_applicationInputModes;
     NSNumber *_globalInputMode;
+    // Per-app punctuation and width toggles. Like the reference's thread compartments they live only in memory, and a missing entry means the saved starting value.
+    NSMutableDictionary<NSString *, NSNumber *> *_runtimeChinesePunctuation;
+    NSMutableDictionary<NSString *, NSNumber *> *_runtimeFullWidthInput;
     NSPopUpButton *_defaultImeModeButton;
     NSPopUpButton *_imeModeScopeButton;
     NSNumber *_sharedToolbarEnabled;
@@ -811,6 +814,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (BOOL)applyCloudSettingsSnapshot:(NSDictionary *)values {
     if (!MSIMEValidateCloudAppearance(values)) return NO;
+    const BOOL punctuationBefore = self.chinesePunctuation, widthBefore = self.fullWidthInput;
     NSInteger preset = [values[@"platform.macos.candidate_page_shortcut"] integerValue];
     NSString *pagingKey = preset == 0 ? @"minus_equal" : preset == 1 ? @"brackets" : @"page_up_down";
     if ([[self wordCharacterOptions][@"enabled"] boolValue] && [[self wordCharacterOptions][@"keys"] isEqual:pagingKey]) return NO;
@@ -837,6 +841,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _sharedShuangpinHelpcode = nil;
     _sharedHelpcodeOptions = nil;
     _sharedLocalModes = nil;
+    [self dropRuntimeOverridesUnlessPunctuation:punctuationBefore width:widthBefore];
     [self reloadSkins]; // Resolve the imported skin and publish one complete update.
     return YES;
 }
@@ -1098,6 +1103,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)applySharedInputPreferences:(NSDictionary *)preferences {
     if (![preferences isKindOfClass:NSDictionary.class]) return;
+    const BOOL punctuationBefore = self.chinesePunctuation, widthBefore = self.fullWidthInput;
     id defaultMode = preferences[@"default_ime_mode"], scope = preferences[@"ime_mode_scope"];
     if ([@[@"chinese", @"english"] containsObject:defaultMode]) _sharedDefaultImeMode = defaultMode;
     if ([@[@"app", @"global"] containsObject:scope]) _sharedImeModeScope = scope;
@@ -1143,6 +1149,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     id characterWidth = preferences[@"character_width"];
     if ([characterWidth isEqual:@"fullwidth"] || [characterWidth isEqual:@"halfwidth"])
         _sharedFullWidthInput = @([characterWidth isEqual:@"fullwidth"]);
+    [self dropRuntimeOverridesUnlessPunctuation:punctuationBefore width:widthBefore];
     id cloud = preferences[@"cloud_candidates"];
     if (LocalModeBoolean(cloud)) _sharedCloudCandidates = cloud;
     id translations = preferences[@"candidate_translations"];
@@ -1200,7 +1207,40 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     }
 }
 - (void)lockActiveInputMode { [self rememberActiveInputMode:self.englishMode]; }
-- (void)resetGlobalInputMode { _globalInputMode = nil; }
+// Punctuation and width toggles are always per app, whatever ime_mode_scope says: the reference keeps them in compartments of each UI thread. Without an active application they share one unnamed slot.
+- (NSString *)runtimeInputStateKey { return _activeModeApplication ?: @""; }
+- (BOOL)runtimeChinesePunctuation {
+    NSNumber *value = _runtimeChinesePunctuation[[self runtimeInputStateKey]];
+    return value ? value.boolValue : self.chinesePunctuation;
+}
+- (void)setRuntimeChinesePunctuation:(BOOL)value {
+    if (!_runtimeChinesePunctuation) _runtimeChinesePunctuation = [NSMutableDictionary dictionary];
+    _runtimeChinesePunctuation[[self runtimeInputStateKey]] = @(value);
+}
+- (BOOL)runtimeFullWidthInput {
+    NSNumber *value = _runtimeFullWidthInput[[self runtimeInputStateKey]];
+    return value ? value.boolValue : self.fullWidthInput;
+}
+- (void)setRuntimeFullWidthInput:(BOOL)value {
+    if (!_runtimeFullWidthInput) _runtimeFullWidthInput = [NSMutableDictionary dictionary];
+    _runtimeFullWidthInput[[self runtimeInputStateKey]] = @(value);
+}
+- (void)resetRuntimePunctuationForActiveApplication { [_runtimeChinesePunctuation removeObjectForKey:[self runtimeInputStateKey]]; }
+- (void)resetRuntimeInputStateForActiveApplication {
+    [self resetRuntimePunctuationForActiveApplication];
+    [_runtimeFullWidthInput removeObjectForKey:[self runtimeInputStateKey]];
+}
+- (void)resetAllRuntimeInputState { _runtimeChinesePunctuation = nil; _runtimeFullWidthInput = nil; }
+// A new saved starting value applies to every app at once, as re-activation does in the reference. An unchanged value keeps the toggles: the shared document is re-applied on every reload.
+- (void)dropRuntimeOverridesUnlessPunctuation:(BOOL)punctuation width:(BOOL)width {
+    if (self.chinesePunctuation != punctuation) _runtimeChinesePunctuation = nil;
+    if (self.fullWidthInput != width) _runtimeFullWidthInput = nil;
+}
+// Switching to another input source ends the mode session in both scopes, as the source's TIP re-activation re-seeds default_ime_mode. The active application and scope stay, so the current activation keeps its scope.
+- (void)resetRememberedInputModes {
+    _globalInputMode = nil;
+    [_applicationInputModes removeAllObjects];
+}
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return _sharedFullWidthInput ? _sharedFullWidthInput.boolValue : [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
@@ -1291,11 +1331,13 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)setFullWidthInput:(BOOL)value {
     _sharedFullWidthInput = nil;
+    _runtimeFullWidthInput = nil;
     [_defaults setBool:value forKey:FullWidthKey];
     [self preferencesChanged];
 }
 - (void)setChinesePunctuation:(BOOL)value {
     _sharedChinesePunctuation = nil;
+    _runtimeChinesePunctuation = nil;
     [_defaults setBool:value forKey:ChinesePunctuationKey];
     [self preferencesChanged];
 }

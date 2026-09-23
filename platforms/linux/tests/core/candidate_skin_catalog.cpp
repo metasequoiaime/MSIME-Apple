@@ -98,5 +98,53 @@ int main() {
       candidate_display_preferences(light_preferences, true, builtin, "willow_green", catalog), "willow_green");
   assert(custom.text == 0x000000u);
   assert(custom.background == 0xfff0f5u);
+
+  // A decoration comes with its bounds and an absolute image path, as the shared host catalog publishes it; IBus reads the same package and simply has no use for it.
+  using msime::linux_host::candidate_skin_decoration;
+  using msime::linux_host::parse_skin_decoration;
+  const auto decorated = nlohmann::json::parse(
+      R"({"id":"sakura","title":"樱花","decoration_top_dip":24.5,"decoration_width_dip":180,)"
+      R"("decoration_image":"/home/u/.local/share/msime/skins/sakura/images/ears.png"})");
+  const auto decoration = parse_skin_decoration(decorated);
+  assert(decoration && decoration->top_dip == 24.5 && decoration->width_dip == 180);
+  assert(decoration->image == "/home/u/.local/share/msime/skins/sakura/images/ears.png");
+  assert(parse_configured_skins(nlohmann::json{{"candidate_skin_catalog", {{"packages", nlohmann::json::array({decorated})}}}}).size() == 1);
+  // The manifest's own bounds hold at both ends.
+  auto edge = decorated;
+  edge["decoration_top_dip"] = 500;
+  edge["decoration_width_dip"] = 1000;
+  assert(parse_skin_decoration(edge));
+  // Anything outside them, a missing key, a relative or embedded-NUL path, and the package keeps its place with no decoration.
+  const auto rejected = [&decorated](const char *key, const nlohmann::json &value) {
+    auto package = decorated;
+    if (value.is_discarded()) package.erase(key);
+    else package[key] = value;
+    return !parse_skin_decoration(package);
+  };
+  const auto absent = nlohmann::json(nlohmann::json::value_t::discarded);
+  assert(rejected("decoration_top_dip", 0));
+  assert(rejected("decoration_top_dip", -1));
+  assert(rejected("decoration_top_dip", 500.5));
+  assert(rejected("decoration_top_dip", "24"));
+  assert(rejected("decoration_top_dip", absent));
+  assert(rejected("decoration_width_dip", 0));
+  assert(rejected("decoration_width_dip", 1000.1));
+  assert(rejected("decoration_width_dip", absent));
+  assert(rejected("decoration_image", "images/ears.png"));
+  assert(rejected("decoration_image", ""));
+  assert(rejected("decoration_image", std::string("/skins/a\0b.png", 14)));
+  assert(rejected("decoration_image", "/" + std::string(4096, 'a')));
+  assert(rejected("decoration_image", 7));
+  assert(rejected("decoration_image", absent));
+  assert(!parse_skin_decoration(nlohmann::json::array()));
+  // Only the selected installed skin's decoration is drawn; a built-in id never takes one from a package of the same name.
+  auto shadowing = decorated;
+  shadowing["id"] = "fluent";
+  const nlohmann::json decorated_catalog = {{"packages", nlohmann::json::array({decorated, shadowing})}};
+  assert(candidate_skin_decoration(decorated_catalog, "sakura", builtin));
+  assert(!candidate_skin_decoration(decorated_catalog, "fluent", builtin));
+  assert(!candidate_skin_decoration(decorated_catalog, "absent", builtin));
+  assert(!candidate_skin_decoration(catalog, "sakura", builtin));
+  assert(!candidate_skin_decoration(nlohmann::json(), "sakura", builtin));
   return 0;
 }

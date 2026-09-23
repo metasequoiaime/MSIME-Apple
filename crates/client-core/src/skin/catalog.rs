@@ -402,6 +402,34 @@ pub struct SkinResource {
     pub bytes: Vec<u8>,
 }
 
+/// The content type a package resource is served with, by extension; `None` for a type packages may not ship.
+fn resource_content_type(relative: &str) -> Option<&'static str> {
+    Some(
+        match relative
+            .rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "css" => "text/css; charset=utf-8",
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "svg" => "image/svg+xml",
+            "ico" => "image/x-icon",
+            "bmp" => "image/bmp",
+            "avif" => "image/avif",
+            "woff" => "font/woff",
+            "woff2" => "font/woff2",
+            "ttf" => "font/ttf",
+            "otf" => "font/otf",
+            _ => return None,
+        },
+    )
+}
+
 /// Read an asset from a currently valid package under a host-selected root.
 /// Paths are decoded relative names, never URLs. Canonical containment rejects
 /// symlink escapes, but is not a sandbox against concurrent hostile filesystem
@@ -415,28 +443,7 @@ pub fn read_resource(
     if !safe_id(id) || !safe_resource(relative, 256) {
         return Err(ResourceError::InvalidPath);
     }
-    let content_type = match relative
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "css" => "text/css; charset=utf-8",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        "ico" => "image/x-icon",
-        "bmp" => "image/bmp",
-        "avif" => "image/avif",
-        "woff" => "font/woff",
-        "woff2" => "font/woff2",
-        "ttf" => "font/ttf",
-        "otf" => "font/otf",
-        _ => return Err(ResourceError::UnsupportedType),
-    };
+    let content_type = resource_content_type(relative).ok_or(ResourceError::UnsupportedType)?;
     let root = root.as_ref();
     let directory = root.join(id);
     // Match scan(): symlinked package directories are not catalog entries.
@@ -509,12 +516,16 @@ pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {
 /// Most installed skins published to hosts that draw the candidate panel from `candidate_skin_catalog` (the Linux IBus and Fcitx5 hosts). Beyond this a skin menu is no longer usable, and every entry costs the document those hosts read whole.
 pub const HOST_CATALOG_MAX_PACKAGES: usize = 32;
 
-/// The installed skins in the shape a native candidate host reads (`candidate_skin_catalog` in the Linux runtime options): the id, the manifest name as `title`, and per theme only the colours such a host draws, in the forms it parses.
+/// The installed skins in the shape a native candidate host reads (`candidate_skin_catalog` in the Linux runtime options): the id, the manifest name as `title`, per theme only the colours such a host draws, in the forms it parses, and for a package that declares a decoration its size and the absolute path of the image drawn there (`decoration_top_dip`, `decoration_width_dip`, `decoration_image`). `root` is the directory `catalog` was scanned from.
 ///
-/// Everything else in a package - paths, stylesheets, decoration, hover and the selected bar - stays out: the host has no use for it and every byte counts against the size limit of the document it reads. A palette is kept only for a theme the package declares, since Windows drops an external skin for a theme it does not support rather than drawing its colours there. Ids and names are already bounded by `scan`; the hosts re-check both.
+/// Everything else in a package - other paths, stylesheets, hover and the selected bar - stays out: the host has no use for it and every byte counts against the size limit of the document it reads, which is also why an undecorated package carries no decoration keys at all. A palette is kept only for a theme the package declares, since Windows drops an external skin for a theme it does not support rather than drawing its colours there. Ids and names are already bounded by `scan`; the hosts re-check both, and the decoration's bounds.
 ///
 /// At most `HOST_CATALOG_MAX_PACKAGES` are listed, in the catalog's order. The `selected` skin is always among them when installed, taking the last place if it falls beyond the cap, because its colours are the ones on screen.
-pub fn host_candidate_catalog(catalog: &SkinCatalog, selected: &str) -> serde_json::Value {
+pub fn host_candidate_catalog(
+    catalog: &SkinCatalog,
+    root: &Path,
+    selected: &str,
+) -> serde_json::Value {
     let mut listed = catalog
         .packages
         .iter()
@@ -545,10 +556,31 @@ pub fn host_candidate_catalog(catalog: &SkinCatalog, selected: &str) -> serde_js
             if !candidate.is_empty() {
                 entry["candidate"] = serde_json::Value::Object(candidate);
             }
+            if let Some(image) = host_decoration_image(root, package) {
+                entry["decoration_top_dip"] = package.decoration_top_dip.into();
+                entry["decoration_width_dip"] = package.decoration_width_dip.into();
+                entry["decoration_image"] = image.into();
+            }
             entry
         })
         .collect::<Vec<_>>();
     serde_json::json!({ "packages": packages })
+}
+
+/// The image a decorated package draws above its candidate window: its preview, as on Windows (candidate_presenter.cpp draws `<skins>/<id>/<preview>` trailing-aligned in a band `decoration_top_dip` tall). `scan` has already confined the preview to the package directory. No decoration is published for a preview that is not an image, or when the path would not be absolute or not UTF-8, since the host could not open it.
+fn host_decoration_image(root: &Path, package: &SkinSummary) -> Option<String> {
+    if package.decoration_top_dip <= 0.0 || package.decoration_width_dip <= 0.0 {
+        return None;
+    }
+    let preview = package.preview.as_deref()?;
+    if !resource_content_type(preview)?.starts_with("image/") {
+        return None;
+    }
+    let path = root.join(&package.id).join(preview);
+    if !path.is_absolute() {
+        return None;
+    }
+    path.to_str().map(str::to_owned)
 }
 
 fn host_palette(palette: &CandidatePalette) -> serde_json::Map<String, serde_json::Value> {

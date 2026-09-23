@@ -113,7 +113,12 @@ use shared::voice::voice_sessions;
 
 #[tauri::command]
 fn supports_font_catalog() -> bool {
-    system_fonts::supported()
+    font_catalog_supported()
+}
+
+/// iOS lists UIKit's families through the mobile-platform plugin rather than host-api, the way the HarmonyOS page asks ArkUI.
+fn font_catalog_supported() -> bool {
+    cfg!(target_os = "ios") || system_fonts::supported()
 }
 
 /// The platform this shell is running on. The shared UI previously inferred this
@@ -155,7 +160,7 @@ fn requested_surface_route() -> Option<SurfaceRoute> {
 fn host_capabilities() -> HostCapabilities {
     let mut capabilities = HostCapabilities::for_platform(host_platform());
     // Font enumeration is a build-time capability, not a platform assumption.
-    capabilities.system_fonts = system_fonts::supported();
+    capabilities.system_fonts = font_catalog_supported();
     capabilities.os_version = macos_product_version();
     capabilities
 }
@@ -234,8 +239,26 @@ fn requested_settings_page(value: Option<&str>) -> Option<String> {
 }
 
 #[tauri::command]
-async fn list_font_families() -> Result<Vec<String>, CommandError> {
-    tauri::async_runtime::spawn_blocking(system_fonts::list)
+async fn list_font_families(app: tauri::AppHandle) -> Result<Vec<String>, CommandError> {
+    #[cfg(target_os = "ios")]
+    let listed = {
+        let platform = app
+            .try_state::<MobilePlatform<tauri::Wry>>()
+            .ok_or(CommandError {
+                code: "font_catalog",
+            })?
+            .inner()
+            .clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            platform.list_font_families().map_err(|_| "font_catalog")
+        })
+    };
+    #[cfg(not(target_os = "ios"))]
+    let listed = {
+        let _ = app;
+        tauri::async_runtime::spawn_blocking(system_fonts::list)
+    };
+    listed
         .await
         .map_err(|_| CommandError {
             code: "font_catalog",
@@ -1329,7 +1352,7 @@ fn sync_runtime_options(
         let catalog = runtime
             .skins
             .as_deref()
-            .map(msime_client_core::skin::catalog::scan);
+            .map(|root| (root, msime_client_core::skin::catalog::scan(root)));
         let mut document = runtime
             .document
             .lock()
@@ -1341,7 +1364,9 @@ fn sync_runtime_options(
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         #[cfg(target_os = "linux")]
         let bytes = match &catalog {
-            Some(catalog) => runtime_options_with_skin_catalog(&mut current, catalog)?,
+            Some((root, catalog)) => {
+                runtime_options_with_skin_catalog(&mut current, root, catalog)?
+            }
             None => serde_json::to_vec_pretty(&current)
                 .map_err(|error| std::io::Error::other(error.to_string()))?,
         };
@@ -1362,12 +1387,13 @@ fn sync_runtime_options(
 #[cfg(target_os = "linux")]
 const LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET: usize = 16384 - 1024;
 
-/// Serialize `document` with the installed skins as `candidate_skin_catalog`, dropping packages from the end until the document fits within `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET`.
+/// Serialize `document` with the installed skins, scanned from `root`, as `candidate_skin_catalog`, dropping packages from the end until the document fits within `LINUX_RUNTIME_OPTIONS_CATALOG_BUDGET`.
 ///
 /// The currently selected skin is dropped last, since its colours are the ones on screen. When not even an empty catalog fits, the key is left out, so the catalog never becomes the reason a document the hosts could read no longer loads.
 #[cfg(target_os = "linux")]
 fn runtime_options_with_skin_catalog(
     document: &mut Value,
+    root: &std::path::Path,
     catalog: &msime_client_core::skin::catalog::SkinCatalog,
 ) -> Result<Vec<u8>, std::io::Error> {
     let serialize = |document: &Value| {
@@ -1379,7 +1405,7 @@ fn runtime_options_with_skin_catalog(
         .unwrap_or_default()
         .to_owned();
     let mut published =
-        msime_client_core::skin::catalog::host_candidate_catalog(catalog, &selected);
+        msime_client_core::skin::catalog::host_candidate_catalog(catalog, root, &selected);
     loop {
         document["candidate_skin_catalog"] = published.clone();
         let bytes = serialize(document)?;
@@ -1410,7 +1436,7 @@ fn publish_candidate_skin_catalog(
     runtime: &RuntimeOptionsState,
     catalog: &msime_client_core::skin::catalog::SkinCatalog,
 ) -> Result<(), std::io::Error> {
-    let (Some(path), Some(_)) = (runtime.path.as_ref(), runtime.skins.as_ref()) else {
+    let (Some(path), Some(root)) = (runtime.path.as_ref(), runtime.skins.as_ref()) else {
         return Ok(());
     };
     let mut document = runtime
@@ -1423,7 +1449,7 @@ fn publish_candidate_skin_catalog(
         Err(error) => return Err(error),
     };
     let unchanged = current.get("candidate_skin_catalog").cloned();
-    let bytes = runtime_options_with_skin_catalog(&mut current, catalog)?;
+    let bytes = runtime_options_with_skin_catalog(&mut current, root, catalog)?;
     // A rescan that finds what was already published leaves the file alone, so the hosts watching it do not reload for nothing.
     if current.get("candidate_skin_catalog") != unchanged.as_ref() {
         atomic_write(path, &bytes)?;

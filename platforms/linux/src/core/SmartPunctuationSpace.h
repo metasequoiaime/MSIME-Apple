@@ -179,7 +179,7 @@ inline std::string english_mode_chinese_punctuation(
   }
 }
 
-// What an English-mode key press commits instead of passing through, empty when the key should go to the application unchanged. Windows order: Chinese punctuation first (only while the lock pins it on), then fullwidth, which covers printable ASCII including Space (U+3000). Keypad keys never become Chinese punctuation, matching Chinese mode.
+// What an English-mode key press commits instead of passing through, empty when the key should go to the application unchanged. Windows order: Chinese punctuation first (only while the lock pins it on or a Ctrl+. in English mode turned it on), then fullwidth, which covers printable ASCII including Space (U+3000). Keypad keys never become Chinese punctuation, matching Chinese mode.
 inline std::string english_mode_output(char32_t character, bool keypad,
                                        bool chinese_punctuation, bool fullwidth,
                                        EnglishPunctuationState &state) {

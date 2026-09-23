@@ -24,6 +24,8 @@ private func msimeClientPunctuationWithContext(
 private func msimeClientCommand(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select")
 private func msimeClientSelect(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_select_any_candidate")
+private func msimeClientSelectAnyCandidate(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select_edge")
 private func msimeClientSelectEdge(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ edge: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_pin_candidate")
@@ -34,6 +36,8 @@ private func msimeClientRemoveCandidate(_ session: UInt64, _ generation: UInt64,
 private func msimeClientFixCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ position: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_clear_candidate_position")
 private func msimeClientClearCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_balance_paired_punctuation_after_auto_close")
+private func msimeClientBalancePairedPunctuationAfterAutoClose(_ session: UInt64, _ opening: MSIMEByte) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_smart_punctuation_arm")
 private func msimeClientSmartPunctuationArm(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_smart_punctuation_decide")
@@ -384,7 +388,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return updateAndPersist(mapping)
   }
 
-  private static func geometryMapping(keySpacing: Double, rowSpacing: Double,
+  static func geometryMapping(keySpacing: Double, rowSpacing: Double,
                                       heightAdjustment: Double,
                                       voiceEnabled: Bool) -> ((inout [String: Any]) -> Void)? {
     guard keySpacing.isFinite, rowSpacing.isFinite, heightAdjustment.isFinite else { return nil }
@@ -416,8 +420,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   @discardableResult
   func setTouchKeyboardScheme(_ scheme: ChineseInputScheme,
                               enabledSchemes: [ChineseInputScheme]) -> Bool {
+    guard let mapping = Self.schemeMapping(scheme, enabledSchemes: enabledSchemes) else { return false }
+    return updateAndPersist(mapping)
+  }
+
+  /// The document fields a scheme selection writes; nil when no scheme is enabled. The settings app writes the same fields, so the keyboard does not put its own older selection back.
+  static func schemeMapping(_ scheme: ChineseInputScheme,
+                            enabledSchemes: [ChineseInputScheme]) -> ((inout [String: Any]) -> Void)? {
     let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) }
-    guard !enabled.isEmpty else { return false }
+    guard !enabled.isEmpty else { return nil }
     let selected = enabled.contains(scheme) ? scheme : enabled[0]
     let engineScheme: String
     switch selected {
@@ -451,7 +462,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         "selected": selectedID,
       ]
     }
-    return updateAndPersist(mapping)
+    return mapping
   }
 
   /// Apply a selection the user made in this keyboard to both places it has to hold.
@@ -501,6 +512,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     persistSharedPreferences(stateRoot: sharedStateRoot(stateRoot), mutate) != nil
   }
 
+  /// `msime_client_save_preferences`'s snapshot bound: large enough for a custom skin's photo.
+  private static let preferencesDocumentLimit = 1_048_576
+
   /// The App Group directory holding the shared preference document, where the keyboard also keeps its diagnostic log.
   static var sharedStateDirectory: String { sharedStateRoot(nil) }
 
@@ -525,7 +539,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                    "preferences": preferences]
     guard JSONSerialization.isValidJSONObject(document),
           let snapshot = try? JSONSerialization.data(withJSONObject: document),
-          snapshot.count <= 16_384 else { return nil }
+          snapshot.count <= Self.preferencesDocumentLimit else { return nil }
     let saved: [String: Any]
     do {
       saved = try directory.withUnsafeBytes { directoryBytes -> [String: Any] in
@@ -546,12 +560,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return (saved["revision"] as? NSNumber)?.uint64Value ?? storedRevision.uint64Value
   }
 
-  /// Persist a built-in touch-keyboard skin in the canonical PreferencesStore.
+  /// Persist a touch-keyboard skin in the canonical PreferencesStore, with the custom design when one is given: the next appearance copies both back over the App Group, so a custom pick saved without its design reverted to the document's.
   /// The native App Group value remains a compatibility mirror for old hosts.
   @discardableResult
-  func setTouchKeyboardSkin(_ skin: KeyboardSkin) -> Bool {
-    updateAndPersist { preferences in
+  func setTouchKeyboardSkin(_ skin: KeyboardSkin, design: CustomKeyboardSkin? = nil) -> Bool {
+    let value = design.map(CustomKeyboardSkin.documentValue)
+    if design != nil, value == nil { return false }
+    return updateAndPersist { preferences in
       preferences["touch_keyboard_skin"] = skin.rawValue
+      if let value { preferences["custom_touch_keyboard_skin"] = value }
     }
   }
 
@@ -581,6 +598,13 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                     preceding: UInt32) -> MetasequoiaInputSnapshot {
     guard let byte = Self.ascii(character) else { return diagnostic("标点输入无效") }
     return dispatch { msimeClientPunctuationWithContext(handle, byte, preceding) }
+  }
+
+  /// Tell the Engine the keyboard wrote the closing half of a pair it opened. Only book titles need it: the Engine nests 《 then 〈 until it sees a 》, and an auto-closed 》 never passes through it, so without this the next < would open 〈.
+  @discardableResult
+  func balancePairedPunctuationAfterAutoClose(opening: String) -> Bool {
+    guard let byte = Self.ascii(opening), handle != 0 else { return false }
+    return (try? Self.decode(msimeClientBalancePairedPunctuationAfterAutoClose(handle, byte))) != nil
   }
 
   /// What the commit just made arms, if anything.
@@ -636,6 +660,22 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func selectCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
     guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
     return dispatch { msimeClientSelect(handle, generation, index) }
+  }
+
+  /// Select an entry of the expanded panel. Panel positions index the Engine's whole answer, and `selectCandidate(generation:globalIndex:)` only accepts the page the strip is showing, so anything past the ninth candidate came back as stale.
+  func selectAnyCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
+    guard let index = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
+    return dispatch { msimeClientSelectAnyCandidate(handle, generation, index) }
+  }
+
+  /// Whether a whole-answer candidate sits on the page the strip is showing. Pin, remove, fix and 以词定字 are page-bounded in the runtime, so the expanded panel offers them only for these entries.
+  func isOnCurrentPage(generation: UInt64, globalIndex: UInt64) -> Bool {
+    guard let rows = try? currentCandidates() else { return false }
+    return rows.contains { row in
+      guard let identity = row["id"] as? [String: Any] else { return false }
+      return (identity["generation"] as? NSNumber)?.uint64Value == generation
+        && (identity["index"] as? NSNumber)?.uint64Value == globalIndex
+    }
   }
 
   /// Commit only the first or the last Han character of a candidate (以词定字); the Engine ends the composition with it.

@@ -14,7 +14,7 @@ pub unsafe extern "C" fn msime_client_update_preferences(
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        if snapshot.is_null() || length > 16384 {
+        if snapshot.is_null() || length > PREFERENCES_DOCUMENT_LIMIT {
             return Err("invalid preferences buffer".into());
         }
         // SAFETY: guaranteed by the caller's buffer contract.

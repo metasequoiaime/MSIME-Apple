@@ -56,8 +56,7 @@ foreach(installed IN LISTS installed_files)
 endforeach()
 
 # The Windows uninstaller stops the IME processes and removes their logon task. The Linux counterpart is the user units msime-client-setup enabled, which would otherwise keep restarting against deleted programs. An uninstall run as the user disables them in that user's manager, one unit at a time so an absent one does not stop the rest; a root or staged uninstall cannot reach other users' managers and prints the command instead.
-set(user_units msime-client-online.socket msime-client-online.service msime-client-voice.socket
-    msime-client-voice.service msime-client-clipboard.service)
+set(user_units @MSIME_USER_UNIT_LIST@)
 list(JOIN user_units " " user_unit_list)
 execute_process(COMMAND id -u OUTPUT_VARIABLE user_id OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 find_program(systemctl_program systemctl)

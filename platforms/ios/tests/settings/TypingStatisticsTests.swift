@@ -6,6 +6,7 @@ final class TypingStatisticsTests: XCTestCase {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = TypingStatisticsStore(directory: directory)
+    try store.setEnabled(true)
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
     let today = calendar.date(from: DateComponents(year: 2026, month: 9, day: 7))!
@@ -76,6 +77,7 @@ final class TypingStatisticsTests: XCTestCase {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
+    try TypingStatisticsStore(directory: directory).setEnabled(true)
     DispatchQueue.concurrentPerform(iterations: 100) { _ in
       try! TypingStatisticsStore(directory: directory).record("字")
     }
@@ -105,6 +107,7 @@ final class TypingStatisticsTests: XCTestCase {
     let store = TypingStatisticsStore(directory: directory)
     XCTAssertEqual(store.availability(), .neverWritten)
 
+    try store.setEnabled(true)
     try store.record("水杉")
     guard case .ready(let lastWritten) = store.availability() else {
       return XCTFail("A written store still reported that the keyboard had never written.")
@@ -120,6 +123,7 @@ final class TypingStatisticsTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: container) }
 
     let legacy = TypingStatisticsStore(directory: container)
+    try legacy.setEnabled(true)
     try legacy.record("迁移", source: .quanpin)
     let store = TypingStatisticsStore(directory: sharedState, legacyDirectory: container)
     guard case .ready = store.availability() else {
