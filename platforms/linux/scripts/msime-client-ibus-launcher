@@ -51,8 +51,10 @@ config="$config_dir/$(basename -- "$config")"
 
 # ---- crash supervision ----
 # ibus-daemon starts this launcher when the engine is selected and never starts it again when the component dies, so a crashed host would leave the user typing into nothing until they reselect the input source or restart IBus. Stay in front of msime-client-ibus instead of exec'ing it and restart it after a crash, with the Windows watchdog's backoff (server/src/watchdog/main.cpp): the wait doubles from a 2 s floor to 30 s, and a host that ran for at least 30 s counts as healthy, so its crash waits 2 s again. A restarted host gets --recovered so it puts MSIME back on the focused context.
-# Three endings are not crashes and are never restarted: the maintenance stop shortcut (stop_status, which must match msime_ibus_maintenance_stop_exit in src/core/ClientEngine.h); exit 0, which means the bus went away because ibus-daemon is exiting or restarting (after `ibus restart` the new daemon starts this launcher again once the engine is selected; after `ibus exit` nothing runs again), or that a restarted host found no bus at all; and a configuration that can no longer be read, which a restart cannot fix.
+# Three endings are not crashes and are never restarted: the maintenance stop shortcut (stop_status, which must match msime_ibus_maintenance_stop_exit in src/core/ClientEngine.h); exit 0, which means the bus went away because ibus-daemon is exiting or restarting (after `ibus restart` the new daemon starts this launcher again once the engine is selected; after `ibus exit` nothing runs again), or that a restarted host found no bus at all; and a configuration that can no longer be read or a host program that is gone or no longer executable (the package was removed under a running host that then crashed), which a restart cannot fix.
+# One ending is not a crash but is restarted: upgraded_status (msime_ibus_upgraded_exit) means a package upgrade replaced msime-client-ibus and the host quit on a focus change with nothing composed so the new build can take over, the way the Windows installer starts the new IME after replacing it. That restart happens at once, still with --recovered, and leaves the backoff exactly as it was.
 stop_status=77
+upgraded_status=78
 healthy_seconds=30
 min_delay=2
 max_delay=30
@@ -87,20 +89,29 @@ while :; do
     0) exit 0 ;;
     "$stop_status") exit "$status" ;;
   esac
-  if [ $(($(date +%s) - started)) -ge "$healthy_seconds" ]; then
-    delay=$min_delay
-  else
-    delay=$((delay * 2))
-    if [ "$delay" -lt "$min_delay" ]; then delay=$min_delay; fi
-    if [ "$delay" -gt "$max_delay" ]; then delay=$max_delay; fi
+  # Checked before the backoff, so a removed package does not keep a launcher sleeping and retrying a file that is not there until ibus-daemon stops it.
+  if [ ! -x "$launcher_dir/msime-client-ibus" ]; then
+    echo "msime-client-ibus is no longer installed: $launcher_dir/msime-client-ibus; not restarting" >&2
+    exit 1
   fi
-  echo "msime-client-ibus exited with status $status; restarting in ${delay}s" >&2
-  sleep "$delay" &
-  pause=$!
-  if [ -n "$stopping" ]; then kill -TERM "$pause" 2>/dev/null || :; fi
-  wait "$pause" || :
-  pause=
-  [ -z "$stopping" ] || exit "$status"
+  if [ "$status" -eq "$upgraded_status" ]; then
+    echo "msime-client-ibus was replaced by an upgrade; starting the new build" >&2
+  else
+    if [ $(($(date +%s) - started)) -ge "$healthy_seconds" ]; then
+      delay=$min_delay
+    else
+      delay=$((delay * 2))
+      if [ "$delay" -lt "$min_delay" ]; then delay=$min_delay; fi
+      if [ "$delay" -gt "$max_delay" ]; then delay=$max_delay; fi
+    fi
+    echo "msime-client-ibus exited with status $status; restarting in ${delay}s" >&2
+    sleep "$delay" &
+    pause=$!
+    if [ -n "$stopping" ]; then kill -TERM "$pause" 2>/dev/null || :; fi
+    wait "$pause" || :
+    pause=
+    [ -z "$stopping" ] || exit "$status"
+  fi
   if [ ! -r "$config" ]; then
     echo "MSIME runtime options are no longer readable: $config; not restarting" >&2
     exit 1
