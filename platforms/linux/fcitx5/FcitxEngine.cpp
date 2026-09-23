@@ -395,8 +395,8 @@ public:
     maintenance_reload_held_ = false;
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
-    preferences_save_job_ = {};
-    preferences_save_retry_.reset();
+    // A failed status-bar save outlives the focus change, as the IBus host keeps its failed menu save; settle one still in flight so the retry records whether it landed.
+    waitForPreferenceSave();
     online_socket_.clear();
     online_query_.clear();
     online_job_session_ = 0;
@@ -544,7 +544,10 @@ public:
     saveStringPreference("scheme", next);
     waitForPreferenceSave();
     scheme_override_ = next;
+    scheme_unsaved_ = unsavedChoice("", "scheme");
     if (std::string(next) != "shuangpin") shuangpin_profile_override_.reset();
+    // The helpcode schema is chosen per scheme; carried over, quanpin's choice would replace the one shuangpin keeps in the store. The IBus host clears it on a scheme switch the same way.
+    helpcode_schema_override_.reset();
     close();
     if (!ensure()) return false;
     view_ = response(msime_client_focus(session_, true)).at("view");
@@ -566,8 +569,10 @@ public:
       command(MSIME_FINISH_COMPOSITION);
     saveStringPreference("shuangpin_profile", next.value);
     waitForPreferenceSave();
+    // An earlier scheme choice keeps its own unsaved mark: this save replaces its retry but says nothing about whether the store holds shuangpin.
     scheme_override_ = "shuangpin";
     shuangpin_profile_override_ = next.value;
+    shuangpin_profile_unsaved_ = unsavedChoice("", "shuangpin_profile");
     close();
     if (!ensure()) return false;
     view_ = response(msime_client_focus(session_, true)).at("view");
@@ -593,6 +598,7 @@ public:
     saveNestedStringPreference(section, "schema", next);
     waitForPreferenceSave();
     helpcode_schema_override_ = next;
+    helpcode_schema_unsaved_ = unsavedChoice(section, "schema");
     close();
     if (!ensure()) return false;
     view_ = response(msime_client_focus(session_, true)).at("view");
@@ -1230,6 +1236,35 @@ public:
     }
     if (skin_override_) preferences["candidate_skin"] = *skin_override_;
   }
+  // A status-bar save that has not landed: its retry is still pending for this very key.
+  bool unsavedChoice(const char *section, const char *key) const {
+    return preferences_save_retry_ && preferences_save_retry_->section == section &&
+           preferences_save_retry_->key == key;
+  }
+  // The scheme, shuangpin and helpcode overrides bridge one gap: status-bar saves reach the preference store, but sessions are built from the runtime options file, which only the settings page rewrites. They must not outrank the store: once it holds a different value - the settings page or another window changed it - the override is dropped. A choice whose own save failed stays until the store holds it, as the IBus host keeps a failed menu choice, so the menu does not jump back; that mark belongs to the choice rather than to the single retry slot, which any later save replaces. Returns whether anything was dropped.
+  bool expireContextOverrides(const Json &stored) {
+    if (!stored.is_object()) return false;
+    bool dropped = false;
+    const auto expire = [&](std::optional<std::string> &choice, bool &unsaved, const Json &source,
+                            const char *key) {
+      if (!choice || !source.is_object() || !source.contains(key) || !source.at(key).is_string())
+        return;
+      if (source.at(key).get<std::string>() == *choice) {
+        unsaved = false;
+        return;
+      }
+      if (unsaved) return;
+      choice.reset();
+      dropped = true;
+    };
+    expire(scheme_override_, scheme_unsaved_, stored, "scheme");
+    expire(shuangpin_profile_override_, shuangpin_profile_unsaved_, stored, "shuangpin_profile");
+    // Checked against the section it would be written to, after the scheme above has settled, as applyContextOverrides picks it.
+    const auto scheme = scheme_override_.value_or(stored.value("scheme", std::string("quanpin")));
+    const auto section = scheme == "shuangpin" ? "shuangpin_helpcode" : "quanpin_helpcode";
+    expire(helpcode_schema_override_, helpcode_schema_unsaved_, stored.value(section, Json::object()), "schema");
+    return dropped;
+  }
   // Every caller hands the result to the session. Store revisions belong to the
   // store: the same revision can carry two different documents once this host
   // edits one for a menu toggle, and the runtime rejects that as a conflicting
@@ -1350,12 +1385,28 @@ public:
     word_character_enabled_ = wordCharacter.value("enabled", true);
     word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
     options_path_ = options.value("preferences_directory", std::string());
+    // The failed save kept across the focus change belongs to its store; once the runtime options point elsewhere it is not retried there, as refreshProviderSockets does while focused.
+    if (preferences_save_retry_ && preferences_save_retry_->directory != options_path_)
+      preferences_save_retry_.reset();
     if (!options_path_.empty()) {
       try {
         auto snapshot = response(msime_client_load_preferences(
             reinterpret_cast<const uint8_t *>(options_path_.data()), options_path_.size()));
-        if (snapshot.is_object() && snapshot.contains("revision") && snapshot.contains("preferences"))
+        if (snapshot.is_object() && snapshot.contains("revision") && snapshot.contains("preferences")) {
           preferences_snapshot_ = std::move(snapshot);
+          // Status-bar saves reach the store but never the runtime options file, so for the choices the status bar makes the store is the authority: the file can hold a value no window has chosen since, e.g. after another window's status bar or the settings page moved the store while this context had no session.
+          const auto &stored = preferences_snapshot_.at("preferences");
+          auto base = options.value("preferences", Json::object());
+          for (const auto *key : {"scheme", "shuangpin_profile"})
+            if (stored.contains(key) && stored.at(key).is_string()) base[key] = stored.at(key);
+          for (const auto *section : {"quanpin_helpcode", "shuangpin_helpcode"})
+            if (stored.contains(section) && stored.at(section).is_object() &&
+                stored.at(section).contains("schema") && stored.at(section).at("schema").is_string())
+              base[section]["schema"] = stored.at(section).at("schema");
+          expireContextOverrides(stored);
+          preferences_ = std::move(base);
+          applyContextOverrides(preferences_);
+        }
       } catch (...) {
         // The prepared options remain usable for composition; preference actions will retry
         // through the normal save/reload path when the store becomes available.
@@ -1441,6 +1492,8 @@ public:
             snapshot["preferences"]["ai_assistant"]["enabled"] = false;
           }
           if (snapshot != preferences_snapshot_) {
+            // A status-bar choice the store no longer agrees with gives way to it.
+            expireContextOverrides(snapshot.at("preferences"));
             // Same document the menu toggles send, so it carries the session's
             // own revision too; mixing store revisions with those would make
             // the next toggle look stale.
@@ -2736,6 +2789,10 @@ public:
   std::string mode_indicator_label_;
   std::optional<std::string> shuangpin_profile_override_;
   std::optional<std::string> helpcode_schema_override_;
+  // Set while the matching override's own status-bar save has not reached the store.
+  bool scheme_unsaved_ = false;
+  bool shuangpin_profile_unsaved_ = false;
+  bool helpcode_schema_unsaved_ = false;
   std::optional<std::string> skin_override_;
   CandidateSkinCatalog candidate_skin_catalog_;
   // The catalogue as runtime-options.json carries it, palettes included: an installed skin's colours are read from here when the classic UI theme is built.
