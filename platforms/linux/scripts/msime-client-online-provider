@@ -45,6 +45,8 @@ AI_CONNECT_TIMEOUT = 2.5
 # One request line from client-core. UnixSocketProvider::ai_test lets a polish test carry an 8192-byte prompt and an 8192-byte sample in a request up to 32768 bytes, so that kind alone gets the larger limit; every other request keeps the 16384-byte one.
 REQUEST_LINE_LIMIT = 16384
 AI_TEST_REQUEST_LINE_LIMIT = 32768
+# The associative prompt a blank prompt slot stands for: Windows compiles it into AiAssistantConfig::prompt (ime_config.h) and client-core keeps the same text as ai::DEFAULT_CANDIDATE_PROMPT for the hosts that build their request there. The shared preferences leave the slot empty, so without this every Linux AI request carried an empty system message and the model answered prose the JSON parser rejects. ai_service_contract.py keeps this copy equal to the client-core one.
+DEFAULT_AI_PROMPT = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。"
 
 
 class ConnectBoundedHTTPSConnection(http.client.HTTPSConnection):
@@ -212,10 +214,12 @@ def ai_prompt(options):
         selected = "custom_1"
     if selected not in ("custom_1", "custom_2", "custom_3"):
         return None
-    prompt = options.get("prompt_" + selected) or options.get("prompt", "")
+    # Only slot one inherits the legacy single `prompt`; an empty slot two or three stays empty, as in client-core's chat_completion_http_request.
+    prompt = options.get("prompt_" + selected) or (options.get("prompt", "") if selected == "custom_1" else "")
     if not isinstance(prompt, str) or len(prompt.encode()) > 8192:
         return None
-    return prompt
+    # Blank means "not customised", including an old configuration whose prompt was cleared by hand, and gets the same built-in text client-core falls back to.
+    return prompt if prompt.strip() else DEFAULT_AI_PROMPT
 
 
 def select_ai_config(config, query):

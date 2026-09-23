@@ -10,12 +10,14 @@ import importlib.machinery
 import importlib.util
 import json
 from pathlib import Path
+import re
 from types import SimpleNamespace
 import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY = ROOT.parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 
@@ -192,6 +194,62 @@ class AiServiceContract(unittest.TestCase):
                 server,
             )
             self.assertIn(key, self.requests[0]["body"])
+
+    def test_default_preferences_send_the_builtin_associative_prompt(self):
+        # AiAssistantPreferences::default() with AI switched on: slot one selected and every prompt field empty. Before the fallback this sent an empty system message, so the model had no reason to answer JSON and no candidate ever parsed.
+        options = {
+            "enabled": True,
+            "provider": PRIVATE["provider"],
+            "model": PRIVATE["model"],
+            "endpoint": PRIVATE["endpoint"],
+            "candidate_limit": 3,
+            "prompt_id": "custom_1",
+            "prompt": "",
+            "prompt_custom_1": "",
+            "prompt_custom_2": "",
+            "prompt_custom_3": "",
+        }
+        query = {"ai_eligible": True, "ai_assistant": options,
+                 "pinyin_segments": ["shu", "ru", "fa"], "ai_context": ""}
+        answer = {"candidates": [{"text": "输入法", "type": "chinese", "confidence": 0.9},
+                                 {"text": "输入法", "type": "chinese", "confidence": 0.5},
+                                 {"text": "书入法", "type": "chinese", "confidence": 0.1}]}
+        sent = []
+
+        def fetch(url, timeout, body=None, token=None, **kwargs):
+            sent.append(body)
+            return {"choices": [{"message": {"content": json.dumps(answer, ensure_ascii=False)}}]}
+
+        online.fetch = fetch
+        # A prompt someone cleared by hand, whitespace included, is still "not customised".
+        for legacy in ("", "  \n"):
+            sent.clear()
+            rows = online.ai(query | {"ai_assistant": options | {"prompt": legacy}}, PRIVATE)
+            self.assertEqual([row["text"] for row in rows], ["输入法", "书入法"])
+            system = sent[0]["messages"][0]
+            self.assertEqual(system["role"], "system")
+            self.assertTrue(system["content"].strip())
+            self.assertIn("json", system["content"].lower())
+            self.assertIn("candidates", system["content"])
+        # A prompt the user did write is sent untouched.
+        sent.clear()
+        online.ai(query | {"ai_assistant": options | {"prompt_custom_1": "synthetic prompt"}}, PRIVATE)
+        self.assertEqual(sent[0]["messages"][0]["content"], "synthetic prompt")
+        # Slot one alone inherits the legacy prompt; an empty slot two or three gets the built-in text, not the legacy one, as client-core does.
+        sent.clear()
+        online.ai(query | {"ai_assistant": options | {"prompt": "legacy prompt"}}, PRIVATE)
+        self.assertEqual(sent[0]["messages"][0]["content"], "legacy prompt")
+        for slot in ("custom_2", "custom_3"):
+            sent.clear()
+            online.ai(query | {"ai_assistant": options | {"prompt_id": slot, "prompt": "legacy prompt"}}, PRIVATE)
+            self.assertEqual(sent[0]["messages"][0]["content"], online.DEFAULT_AI_PROMPT)
+
+    def test_builtin_prompt_matches_client_core(self):
+        # The provider cannot import the Rust constant at run time, so keep the two copies from drifting apart here. The Rust literal only uses escapes JSON shares (\n and \").
+        source = (REPOSITORY / "crates/client-core/src/ai.rs").read_text()
+        literal = re.search(r'pub const DEFAULT_CANDIDATE_PROMPT: &str = ("(?:[^"\\]|\\.)*");', source)
+        self.assertIsNotNone(literal)
+        self.assertEqual(online.DEFAULT_AI_PROMPT, json.loads(literal.group(1)))
 
 
 if __name__ == "__main__":
