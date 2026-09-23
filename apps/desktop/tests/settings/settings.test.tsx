@@ -2186,6 +2186,10 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   const description = log.closest("label")?.textContent ?? "";
   expect(description).toContain("Fcitx5");
   expect(description).toContain("diagnostic.log");
+  // The Linux hosts log focus, preference, menu-save and failure stages only; they time nothing and have no server link to trace, so the copy must not promise either.
+  expect(description).toContain("操作失败的阶段");
+  expect(description).not.toContain("延迟");
+  expect(description).not.toContain("通信");
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
 });
 
@@ -3669,6 +3673,28 @@ test("help, about and feedback pages expose their Windows content and actions", 
   await waitFor(() =>
     expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"),
   );
+});
+
+test("Linux help quick start covers both Fcitx5 and IBus", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    host: { platform: "linux" } as never,
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+
+  fireEvent.click(screen.getByRole("button", { name: "帮助" }));
+  const intro = await screen.findByText(/Linux 桌面环境下的中文输入法/);
+  expect(intro.textContent).toContain("Fcitx5");
+  expect(intro.textContent).toContain("IBus");
+  const quickStart = screen.getByText(/fcitx5-configtool/);
+  expect(quickStart.textContent).toContain(
+    "「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组",
+  );
+  expect(quickStart.textContent).toContain("「MSIME Client」");
+  expect(quickStart.textContent).toContain("IBus");
+  expect(screen.queryByText(/Win \+ Space/)).toBeNull();
 });
 
 test("Android help and about pages use mobile instructions and project links", async () => {

@@ -2150,7 +2150,7 @@ export function SettingsPage({
   const platformHelpIntro = androidPlatform
     ? "水杉输入法是一款 Android 平台的中文输入法，通过系统输入法服务接入应用。"
     : linuxPlatform
-      ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 IBus 接入 GTK、Qt 等应用。"
+      ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 Fcitx5 或 IBus 接入 GTK、Qt 等应用。"
       : macosPlatform
         ? "水杉输入法是一款 macOS 平台的中文输入法，通过系统输入法组件接入应用。"
         : harmonyPlatform
@@ -2161,7 +2161,7 @@ export function SettingsPage({
   const platformQuickStart = androidPlatform
     ? "在系统设置的“语言和输入法”或“屏幕键盘”中启用并选择水杉输入法，也可以从首次启动页打开这些入口。默认是全拼输入法。"
     : linuxPlatform
-      ? "安装并启动 IBus 宿主后，在系统设置的输入法列表中添加水杉输入法，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。"
+      ? "使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组，再使用 Fcitx5 的输入法切换快捷键切换。使用 IBus 时，安装并启动 IBus 宿主后，在系统设置的输入法列表中添加「MSIME Client」，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。"
       : macosPlatform
         ? "在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。默认是全拼输入法。"
         : harmonyPlatform
@@ -8166,7 +8166,7 @@ export function SettingsPage({
                                 : "Server 端日志"}
                             <small>
                               {linuxPlatform
-                                ? "排查 IBus 或 Fcitx5 宿主的通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
+                                ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库刷新的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
                                 : macosPlatform
                                   ? "排查焦点切换和设置加载失败时开启。记录焦点进出与偏好加载、应用、保存的结果，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后可直接发送。"
                                   : "排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。"}
@@ -9551,13 +9551,11 @@ export function SettingsPage({
                                     : `已保存的凭据绑定 ${storedAiCredential.endpoint}（${storedAiCredential.model}），与上方设置不一致；保存后改为绑定当前接口和模型`}
                             </small>
                           </span>
-                          <input
-                            aria-label="AI API Token"
-                            type="password"
-                            autoComplete="off"
+                          <SecretInput
+                            label="AI API Token"
                             disabled={!aiOrigin}
                             value={aiCredentialInput}
-                            onChange={(event) => setAiCredentialInput(event.target.value)}
+                            onChange={setAiCredentialInput}
                           />
                         </label>
                         <div className={settings.serviceRow}>
@@ -9640,13 +9638,11 @@ export function SettingsPage({
                               {aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}
                             </small>
                           </span>
-                          <input
-                            aria-label="AI API Token"
-                            type="password"
-                            autoComplete="off"
+                          <SecretInput
+                            label="AI API Token"
                             disabled={!aiOrigin}
                             value={aiToken}
-                            onChange={(event) => updateAiToken(event.target.value)}
+                            onChange={updateAiToken}
                           />
                         </label>
                       </div>

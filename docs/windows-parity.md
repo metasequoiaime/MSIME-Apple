@@ -2490,3 +2490,10 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - `input.default_ime_mode` 保持 `chinese`。这是平台适配：macOS 上用户是明确从输入菜单选中本输入法才开始打字的，起手英文与这个动作相悖；Windows 模板仍是 `english`，与来源一致。
 
 证据：`client-core` 新增 `voice_first_run_follows_the_source_on_desktop_ports`，钉住默认值、缺键时的默认值，以及显式相反值被保留；`voice-provider-options` 用例改为钉住新的原生兜底和静音开关；`scripts/test-default-config-parity.py` 钉住 Windows 模板与共享默认值两边一致，任一侧回退都会失败（已用改回 `false` 验证过失败）。
+
+### Linux 设置页文案对齐实际行为：诊断日志、帮助页、AI Token 显示按钮（2026-09-23）
+
+- 诊断日志：Linux「输入法宿主日志」的说明原来写着排查「通信、焦点会话、菜单和输入延迟」。两个 Linux 宿主实际只调用 `msime_linux_diagnostic_write` 记录焦点进出、偏好应用、菜单保存成败、Fcitx5 升级后的词库代际刷新（`dictionary_generation_refreshed`）和固定的操作失败阶段（`operation_failed operation=...`），没有 Server 通信可记，也不计时。照 macOS「输入法日志」那次的做法，说明改为按真实记录的内容写；补记延迟不在本次范围内。
+- 帮助页：Linux 的简介与「快速上手」只讲了 IBus，而 Fcitx5 插件是并列的原生宿主。现在简介写明通过 Fcitx5 或 IBus 接入，快速上手分别说明 Fcitx5 用 `fcitx5-configtool` 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组、IBus 在输入法列表中添加「MSIME Client」，名称分别与 `msime-inputmethod.conf` 的 `Name[zh_CN]` / `Name` 和 IBus 组件的 `longname`（无翻译）一致。
+- AI Token：Windows/macOS/iOS 的 AI API Token 与 Linux 写入 `ai-provider.json` 的 Token 原来都是纯密码框，粘贴后无法核对。现在与 NiuTrans、语音识别等凭据一样使用共享的 `SecretInput`，带 `aria-pressed` 的显示/隐藏按钮，接口地址无效时输入框与按钮一起禁用。
+- 证据：设置页 vitest 覆盖 Linux 帮助页同时含 Fcitx5 与 IBus、诊断说明不再出现「延迟」「通信」、两个平台的 Token 显示切换与禁用状态，并在还原实现后确认这些用例失败；`platforms/linux/tests/core/settings_launcher_contract.py`。未在真实 Linux 桌面上目视确认。
