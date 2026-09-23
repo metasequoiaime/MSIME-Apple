@@ -1307,7 +1307,11 @@ const localDictionaryKinds: [LocalDictionaryKind, string][] = [
  * them as codes. Printing one fixed "请稍后重试" for all of them told a user
  * whose IME was simply locked by another process to retry forever.
  */
-export function dictionaryErrorMessage(error: unknown, fallback: string): string {
+export function dictionaryErrorMessage(
+  error: unknown,
+  fallback: string,
+  kind?: LocalDictionaryKind,
+): string {
   const code =
     typeof error === "object" && error !== null && "code" in error
       ? String((error as { code: unknown }).code)
@@ -1325,9 +1329,42 @@ export function dictionaryErrorMessage(error: unknown, fallback: string): string
       return "清除学习数据失败，请关闭正在使用输入法的程序后重试。";
     case "dictionary_unavailable":
       return "无法打开用户词库，请检查输入法是否正在运行。";
+    case "dictionary_invalid_entry":
+      // The entry itself was refused, so retrying cannot help; say what the code has to look like.
+      return invalidDictionaryEntryMessage(kind);
+    case "dictionary_invalid_word":
+      // The code was fine; the word or weight broke a rule, so point at those fields instead.
+      return "词条内容为空、过长或含控制字符，或权重超出 1 到 100000000 的范围。";
     default:
       return fallback;
   }
+}
+
+function invalidDictionaryEntryMessage(kind: LocalDictionaryKind | undefined): string {
+  switch (kind) {
+    case "pinyin":
+      return "拼音必须由完整音节组成，音节数需与汉字数一致，例如“你好”填 nihao 或 ni'hao。";
+    case "wubi":
+      return "五笔编码须为 1 到 4 个字母。";
+    case "quick_phrase":
+      return "快捷短语编码须为 1 到 32 个字母或数字。";
+    case "english":
+      return "英文编码只能包含字母、连字符和撇号。";
+    default:
+      return "词条不符合词库规则，请检查编码与词条后再保存。";
+  }
+}
+
+/**
+ * Does a listed entry match the code prefix the page was queried with?
+ *
+ * The shared host's rule (`dictionary_row_matches`): from the start of the code, ASCII case-insensitive, and for pinyin with syllable separators ignored on both sides, so `nihao` and `nih` find `ni'hao`. A host that honours the query has already returned only matches, so this removes nothing there; it keeps the prefix working on a host that lists its page whole, as the mobile personal dictionary does. The case-sensitive `startsWith` this replaces dropped every pinyin result the host had matched without separators.
+ */
+function dictionaryKeyMatches(kind: LocalDictionaryKind, key: string, query: string): boolean {
+  if (!query) return true;
+  const fold = (text: string) => text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  const code = (text: string) => (kind === "pinyin" ? fold(text).replace(/[' ]/g, "") : fold(text));
+  return code(kind === "pinyin" ? key : key.trim()).startsWith(code(query));
 }
 
 function importFailureMessage(kind: string, error: unknown): string {
@@ -2928,15 +2965,13 @@ export function SettingsPage({
       // had already chosen meant a user with more than a page of pinyin words
       // saw an empty list when they picked another dictionary, and the status
       // line counted the filtered rows against the unfiltered page.
-      const page = await client.dictionary.list(
-        offset,
-        DICTIONARY_PAGE_SIZE,
-        kind,
-        phraseSearch.trim(),
-      );
+      const query = phraseSearch.trim();
+      const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, query);
       if (generation !== phraseRequestGeneration.current) return;
-      // Older hosts ignore the extra arguments, so keep filtering defensively.
-      const entries = page.entries.filter((entry) => entry.kind === kind);
+      // Older hosts and the mobile personal dictionary ignore the extra arguments, so keep filtering defensively - with the host's own rule, so nothing it matched is dropped here.
+      const entries = page.entries.filter(
+        (entry) => entry.kind === kind && dictionaryKeyMatches(kind, entry.key, query),
+      );
       setPhrases(entries);
       setDictionaryPendingCount(page.pending_count ?? 0);
       setDictionaryFailures(page.failed_requests ?? []);
@@ -3024,6 +3059,7 @@ export function SettingsPage({
         dictionaryErrorMessage(
           error,
           `${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`,
+          dictionaryKind,
         ),
       );
     } finally {
@@ -5272,41 +5308,39 @@ export function SettingsPage({
                             className={settings.phraseList}
                             aria-label="词库查询结果"
                           >
-                            {phrases
-                              .filter((entry) => entry.key.startsWith(phraseSearch))
-                              .map((entry, index) => (
-                                <li key={`${entry.key}-${entry.value}-${index}`}>
-                                  <span>
-                                    <code>{entry.key}</code>　{entry.value}　
-                                    <small>{entry.weight}</small>
-                                  </span>
-                                  <span>
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      disabled={phraseBusy}
-                                      onClick={() =>
-                                        setPhraseForm({
-                                          key: entry.key,
-                                          value: entry.value,
-                                          weight: entry.weight,
-                                          previous: entry,
-                                        })
-                                      }
-                                    >
-                                      编辑
-                                    </button>{" "}
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      disabled={phraseBusy}
-                                      onClick={() => void removePhrase(entry)}
-                                    >
-                                      删除
-                                    </button>
-                                  </span>
-                                </li>
-                              ))}
+                            {phrases.map((entry, index) => (
+                              <li key={`${entry.key}-${entry.value}-${index}`}>
+                                <span>
+                                  <code>{entry.key}</code>　{entry.value}　
+                                  <small>{entry.weight}</small>
+                                </span>
+                                <span>
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={phraseBusy}
+                                    onClick={() =>
+                                      setPhraseForm({
+                                        key: entry.key,
+                                        value: entry.value,
+                                        weight: entry.weight,
+                                        previous: entry,
+                                      })
+                                    }
+                                  >
+                                    编辑
+                                  </button>{" "}
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={phraseBusy}
+                                    onClick={() => void removePhrase(entry)}
+                                  >
+                                    删除
+                                  </button>
+                                </span>
+                              </li>
+                            ))}
                           </ul>
                         )}
                         <div className="flex items-center justify-center gap-4 text-xs text-secondary">

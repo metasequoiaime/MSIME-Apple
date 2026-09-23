@@ -1405,8 +1405,25 @@ fn dictionary_error_code(reason: &str) -> &'static str {
         "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
         "dictionary access unavailable" => "dictionary_unavailable",
         "learned-data reset rejected" => "dictionary_reset_rejected",
-        _ => "storage",
+        // The host appends which rule the entry broke. The page words a code refusal per dictionary kind, so a word or weight refusal must not share that code, or it would send the user to fix a code that is already valid.
+        reason if reason == msime_host_api::INVALID_DICTIONARY_ENTRY => "dictionary_invalid_entry",
+        reason => match reason
+            .strip_prefix(msime_host_api::INVALID_DICTIONARY_ENTRY)
+            .and_then(|rest| rest.strip_prefix(": "))
+        {
+            Some(rule) if invalid_entry_rule_is_about_word(rule) => "dictionary_invalid_word",
+            Some(_) => "dictionary_invalid_entry",
+            None => "storage",
+        },
     }
+}
+
+/// Does a refusal reason name the word or the weight rather than the code? These are the host's `validate_entry` rules (`word ...`, `weight ...`) and the Engine's own sentences for the same rules in `validate_personal_dictionary_entry`.
+fn invalid_entry_rule_is_about_word(rule: &str) -> bool {
+    rule.starts_with("word ")
+        || rule.starts_with("weight ")
+        || rule == "Weight must be between 1 and 100000000"
+        || rule == "The word contains an unsupported control character"
 }
 
 fn dictionary_action_requires_quiesce(action: &Value) -> bool {
