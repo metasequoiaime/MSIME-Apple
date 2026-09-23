@@ -1,6 +1,8 @@
 #include "../src/candidates/PairedPunctuation.h"
 
 #include <cassert>
+#include <optional>
+#include <string>
 
 int main() {
   using msime::linux_host::PairedPunctuationTracker;
@@ -59,5 +61,27 @@ int main() {
   assert(!tracker.consume("）", "）", true, false));
   assert(tracker.matches("）"));
   assert(tracker.consume("）", "）", true));
+  {
+    using msime::linux_host::normalize_punctuation_pair;
+    using msime::linux_host::paired_closing_from_text;
+    using Mode = msime::linux_host::PunctuationPairMode;
+    std::string text = "（";
+    assert(normalize_punctuation_pair(text, Mode::Bracket) && text == "（）");
+    assert(paired_closing_from_text(text) == std::optional<std::string>("）"));
+    text = "你好《";
+    assert(normalize_punctuation_pair(text, Mode::Bracket) && text == "你好《》");
+    text = "{";
+    assert(normalize_punctuation_pair(text, Mode::Brace) && text == "{}");
+    text = "｛";
+    assert(normalize_punctuation_pair(text, Mode::Brace) && text == "｛｝");
+    // Engine alternates quote halves; either one becomes a complete pair.
+    text = "”";
+    assert(normalize_punctuation_pair(text, Mode::DoubleQuote) && text == "“”");
+    text = "‘";
+    assert(normalize_punctuation_pair(text, Mode::SingleQuote) && text == "‘’");
+    text = "(";
+    assert(!normalize_punctuation_pair(text, Mode::Bracket) && text == "(");
+    assert(!normalize_punctuation_pair(text, Mode::Unpaired));
+  }
   return 0;
 }
