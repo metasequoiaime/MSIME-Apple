@@ -166,6 +166,11 @@ char *msime_client_default_preferences(void);
  * 数组顺序就是宿主的展示与循环顺序。宿主不要另存一份 id 或标题：两个 Linux 宿主曾
  * 各存一份，于是同一个 graphite 在一边叫 Graphite、在另一边叫石墨。
  */
+/* The transcription provider and optional rewrite this device is configured for, read from an
+ * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null}; both
+ * absent means nothing is configured and the host uses whatever it falls back to. Contains
+ * credentials: never log the response; release with msime_client_string_free. */
+char *msime_client_mobile_voice_configuration(const uint8_t *directory, size_t length);
 char *msime_client_builtin_skins(void);
 /* Per-key double-pinyin hint text for one profile name, as a JSON object mapping
  * an uppercase key to "initials / finals" - or to whichever side that key carries.

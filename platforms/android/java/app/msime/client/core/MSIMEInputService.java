@@ -4328,16 +4328,23 @@ public final class MSIMEInputService extends InputMethodService {
             Toast.makeText(this, "请先在共享设置中启用语音输入", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (!VoiceRecognitionActivity.available(this)) {
+        String requestId = "ime-" + Long.toUnsignedString(SystemClock.uptimeMillis());
+        // The configuration the settings app resolves, read through the same shared entry. This
+        // keyboard's voice button used to launch the platform recogniser unconditionally, so a
+        // user who had configured a provider got it from the settings panel and not from here.
+        VoiceConfiguration configured = VoiceConfiguration.read(preferencesDirectory, requestId);
+        if (configured.provider() == null && !VoiceRecognitionActivity.available(this)) {
             Toast.makeText(this, "设备没有可用的系统语音识别服务", Toast.LENGTH_SHORT).show();
             return;
         }
         closeVoiceResult();
-        String requestId = "ime-" + Long.toUnsignedString(SystemClock.uptimeMillis());
-        try { VoiceRecognitionActivity.launch(this, requestId, voiceLanguage); }
-        catch (RuntimeException error) {
+        try {
+            VoiceRecognitionActivity.launch(this, requestId, voiceLanguage,
+                configured.providerName(), configured.endpoint(), configured.model(),
+                configured.token(), configured.streaming(), configured.polish());
+        } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
-            Toast.makeText(this, "系统语音识别服务无法启动", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "语音识别服务无法启动", Toast.LENGTH_SHORT).show();
         }
     }
 
