@@ -9,10 +9,12 @@
 @property(copy) void (^completion)(NSString *, NSError *);
 @property NSUInteger cancellations;
 @property BOOL submitted;
+@property NSUInteger sampleLimit;
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error;
 - (void)cancel;
 @end
 @implementation HTTPRequestFixture
+- (instancetype)init { self = [super init]; if (self) _sampleLimit = NSUIntegerMax; return self; }
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error {
     (void)error; assert(pcm.length == 640); self.submitted = YES; self.completion = completion; return YES;
 }
@@ -55,11 +57,14 @@
 @property NSUInteger externalCommits;
 @property MSIMEVoiceCommitOutcome commitOutcome;
 @property(copy) NSString *commitMode;
+@property NSUInteger requestSampleLimit;
 @end
 @implementation HTTPControllerFixture
 - (void)ensureAppearance {}
 - (MSIMEHTTPVoiceRequest *)makeHTTPVoiceRequest:(NSDictionary *)options error:(NSError **)error {
-    (void)options; (void)error; self.requestFixture = [HTTPRequestFixture new]; return (id)self.requestFixture;
+    (void)options; (void)error; self.requestFixture = [HTTPRequestFixture new];
+    if (self.requestSampleLimit) self.requestFixture.sampleLimit = self.requestSampleLimit;
+    return (id)self.requestFixture;
 }
 - (void)apply:(NSDictionary *)result { if (result[@"commit"]) ++self.imkCommits; ++self.applies; }
 - (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
@@ -283,6 +288,22 @@ int main() {
                 assert(controller.imkCommits == imk + (outcome == MSIMEVoiceCommitOutcome::unavailable ? 1 : 0));
             }
         }
+        // Capturing as much as the provider takes ends the recording the way a release does: 识别中 shows, the end cue plays, and what was kept is submitted once.
+        controller.requestSampleLimit = 16000 * 60;
+        capture.capturedSeconds = 59.9;
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        const NSUInteger stopsBeforeLimit = cues.stops, submissionsBeforeLimit = session.submissions;
+        capture.bufferHandler(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(!controller.requestFixture.submitted && capture.active && cues.stops == stopsBeforeLimit);
+        capture.capturedSeconds = 60;
+        capture.bufferHandler(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(controller.requestFixture.submitted && overlay.phase == 2 && cues.stops == stopsBeforeLimit + 1);
+        capture.bufferHandler(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
+        assert(!controller.requestFixture.cancellations); // A meter queued behind the stop cannot stop it again, which would cancel.
+        controller.requestFixture.completion(@"synthetic", nil);
+        assert(session.submissions == submissionsBeforeLimit + 1 && !capture.active);
+        controller.requestSampleLimit = 0;
+        capture.capturedSeconds = 0.25;
         // IMK may deliver a new client's event before deactivateServer for the old one.
         // Revoke both active capture and pending recognition immediately.
         for (NSNumber *processing in @[@NO, @YES]) {

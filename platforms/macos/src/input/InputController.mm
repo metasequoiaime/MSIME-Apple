@@ -2558,14 +2558,20 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [controller->_voiceOverlay setProcessing:YES];
     };
     NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
+    const NSUInteger sampleLimit = request.sampleLimit;
     if (![_voiceService startPCMRecording:^(AVAudioPCMBuffer *buffer) {
         const float level = MSIMEVoiceInputLevel(buffer);
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
-            if (controller && controller->_httpVoiceRequest == request && !controller->_httpVoiceProcessing &&
-                controller->_activeClient == controller->_httpVoiceClient && controller->_session == controller->_httpVoiceSession &&
-                controller->_voiceGeneration == controller->_httpVoiceGeneration && controller->_voiceService.active)
-                [controller->_voiceOverlay setInputLevel:level];
+            if (!controller || controller->_httpVoiceRequest != request || controller->_httpVoiceProcessing ||
+                controller->_activeClient != controller->_httpVoiceClient || controller->_session != controller->_httpVoiceSession ||
+                controller->_voiceGeneration != controller->_httpVoiceGeneration || !controller->_voiceService.active) return;
+            [controller->_voiceOverlay setInputLevel:level];
+            // MSIME-Windows keeps every sample and tells the user when the upload is too large; this host keeps only what the provider takes. Once it has that much, end the recording the way a release does, so the overlay turns to 识别中... and the end cue plays instead of the wave animating over audio that is no longer kept. The physical release that follows must not cancel the recognition.
+            if (controller->_voiceService.recordedDuration * 16000.0 >= sampleLimit) {
+                controller->_voiceHoldShortcut.reset();
+                [controller finishHTTPVoiceInput];
+            }
         });
     } deviceUID:device failure:^(NSError *failure) {
         (void)failure;

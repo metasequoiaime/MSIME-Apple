@@ -65,6 +65,7 @@ int main(int argc, char **argv) {
         longOptions[@"asr_endpoint"] = [base stringByAppendingString:@"/asr-long"];
         longOptions[@"polish_enabled"] = @NO;
         request = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:longOptions error:nil];
+        assert(request.sampleLimit == msime::voice::batch_capture_sample_limit); // The host ends the recording here.
         NSMutableData *longPCM = [NSMutableData dataWithLength:(msime::voice::batch_capture_sample_limit + 16000) * sizeof(float)];
         __block NSString *longText = nil;
         assert([request recognizePCM:longPCM completion:^(NSString *text, NSError *error) {
@@ -121,6 +122,7 @@ int main(int argc, char **argv) {
         MSIMEHTTPVoiceRequest *localRequest = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:local error:nil];
         // A build without the recognizer must refuse the provider rather than quietly recognising elsewhere.
         assert((localRequest != nil) == msime::voice::local_asr_available());
+        assert(!localRequest || localRequest.sampleLimit == msime::voice::local_asr_sample_limit);
         assert([NSFileManager.defaultManager removeItemAtPath:directory error:nil]);
     }
 }

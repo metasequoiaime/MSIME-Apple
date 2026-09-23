@@ -3,7 +3,7 @@
 @class NSSound;
 // The product's cues ship in the bundle's Resources/audios, the same start.mp3/end.mp3 the Windows installer stages into assets\audios. Returns nil when the resource is absent.
 NSURL *MSIMEVoiceCueResourceURL(NSBundle *bundle, BOOL start);
-// Plays through NSSound, i.e. from the input method's own process, so muting other applications' audio can leave the cue audible.
+// Plays through NSSound in the input method process. The system-audio mute is device-wide, so the controller mutes only after playStartCueThen: reports the start cue finished, and restores before the stop cue plays.
 @interface MSIMEVoiceCuePlayer : NSObject
 - (instancetype)init;
 - (instancetype)initWithBundle:(NSBundle *)bundle NS_DESIGNATED_INITIALIZER;

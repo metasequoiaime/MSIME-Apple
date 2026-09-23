@@ -81,7 +81,7 @@
             return [self fail:error];
         }
         if (!buffer.frameLength) return YES;
-        // MSIME-Windows keeps recording until the user stops and then submits what it has. Past the limit this recording stops taking audio, which bounds memory, and the capture keeps running so the user still ends it the usual way.
+        // Past the limit this recording stops taking audio, which bounds memory. The host ends a batch recording as soon as it reaches the provider's limit (InputController startHTTPVoiceInputWithOptions:), so this only drops the tail of the buffer that arrives before that stop lands.
         if (_inputFrames >= _inputLimit) return YES;
         _inputFrames += buffer.frameLength;
         return [self convert:buffer final:NO error:error];

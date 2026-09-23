@@ -127,15 +127,18 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     _options = [snapshot copy];
     return self;
 }
+- (NSUInteger)sampleLimit {
+    return String(_options, @"asr_provider") == "local"
+        ? msime::voice::local_asr_sample_limit : msime::voice::batch_capture_sample_limit;
+}
 - (BOOL)recognizePCM:(NSData *)pcm completion:(void (^)(NSString *, NSError *))completion error:(NSError **)error {
     @synchronized(self) {
         if (!_recognitionRequired || _started || _cancelled->load() || !completion || !pcm.length ||
             pcm.length % sizeof(float)) {
             if (error) *error = Failure(); return NO;
         }
-        // Submit what was captured up to what the provider can take, as the capture buffer does: the 20 MiB batch upload budget MSIME-Windows uses, or the 60 s the Engine's Whisper worker accepts on device.
-        const std::size_t limit = String(_options, @"asr_provider") == "local"
-            ? msime::voice::local_asr_sample_limit : msime::voice::batch_capture_sample_limit;
+        // Submit what was captured up to what the provider can take, as the capture buffer does.
+        const std::size_t limit = self.sampleLimit;
         std::vector<float> samples(std::min<std::size_t>(pcm.length / sizeof(float), limit));
         std::memcpy(samples.data(), pcm.bytes, samples.size() * sizeof(float));
         for (float value : samples) if (!std::isfinite(value) || std::fabs(value) > 1) {
