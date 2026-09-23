@@ -5127,6 +5127,10 @@ public final class MSIMEInputService extends InputMethodService {
         card.setContentDescription(title);
         card.setSelected(active);
         card.setEnabled(enabled);
+        // A disabled card swallows the press, and the 工具 section draws no state text, so without
+        // this 剪贴板历史 and AI 润色 looked exactly like the cards that work and did nothing when
+        // pressed. A screen reader was told "不可用"; nobody else was.
+        card.setAlpha(enabled ? 1f : .45f);
         if (Build.VERSION.SDK_INT >= 30) card.setStateDescription(state);
         styleButton(card, true);
         card.setOnClickListener(ignored -> {

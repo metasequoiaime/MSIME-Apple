@@ -448,6 +448,13 @@ for alias in MainActivityForest MainActivitySky MainActivityDusk MainActivityVer
     exit 1
   fi
 done
+# A disabled tool card swallows the press and the 工具 section draws no state text, so the only
+# thing left to say it is unavailable is how it looks.
+if ! rg -q 'card\.setAlpha\(enabled \?' \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+  echo "Android tool cards must look disabled when they are" >&2
+  exit 1
+fi
 # The layout bar's buttons carry the keyboard's action-key fill, so their text has to be the colour
 # that fill is paired with. `accent` is that same fill in the shipped skins, and using it here made
 # 恢复默认 and 完成 invisible - dark green on dark green, three blank tiles where the controls are.
