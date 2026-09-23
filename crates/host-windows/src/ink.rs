@@ -132,10 +132,11 @@ fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, 
             .map_err(|_| InkError::Unavailable)?;
     }
 
+    // windows-future named the blocking wait `get` through 0.2 and renamed it to `join` in 0.3, which is what windows 0.62 projects these operations through.
     let results = container
         .RecognizeAsync(&strokes_container, InkRecognitionTarget::All)
         .map_err(|_| InkError::Unavailable)?
-        .get()
+        .join()
         .map_err(|_| InkError::Unavailable)?;
 
     let mut chinese: Vec<String> = Vec::new();
