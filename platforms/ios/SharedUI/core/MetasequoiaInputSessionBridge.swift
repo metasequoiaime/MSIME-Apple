@@ -149,6 +149,9 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidateGlosses: [String]
   /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, or the spelling a typo correction replaced. Never part of the committed text.
   let candidateAnnotations: [String]
+  /// The Engine source (cloud, AI, dictionary...) and pinned slot of each candidate, aligned with `candidates`; zero is a dictionary word ranked by use.
+  let candidateSources: [Int]
+  let candidateFixedPositions: [Int]
   let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
@@ -160,15 +163,26 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// paying for that several times over.
   let localMode: String
   let nineKeySpellings: [String]
+  /// The Engine's ASCII spelling and the caret inside it, as a byte offset. The caret leaves the end only when the user moves it (dragging the space bar while composing), which is the Windows host's ← / → editing of the input string.
+  let editingText: String
+  let caretPosition: Int
 
   var isInLocalMode: Bool { !localMode.isEmpty && localMode != "none" }
+
+  /// The spelling with a bar where the caret sits, or nil while the caret is at the end, where the strip keeps showing the segmented pinyin. Windows draws the same caret inside the composition. The offset indexes characters directly because the editing text is ASCII; anything else is not split.
+  var editingTextWithCaret: String? {
+    guard caretPosition >= 0, caretPosition < editingText.count, editingText.allSatisfy(\.isASCII) else { return nil }
+    let caret = editingText.index(editingText.startIndex, offsetBy: caretPosition)
+    return editingText[..<caret] + "|" + editingText[caret...]
+  }
 
   init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
        phrasePrefix: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
-       candidateAnnotations: [String] = [], candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
+       candidateAnnotations: [String] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
+       candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
-       nineKeySpellings: [String] = []) {
+       nineKeySpellings: [String] = [], editingText: String = "", caretPosition: Int = 0) {
     self.isHandled = isHandled
     self.commitText = commitText
     self.preedit = preedit
@@ -178,11 +192,15 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.candidateCodes = candidateCodes
     self.candidateGlosses = candidateGlosses
     self.candidateAnnotations = candidateAnnotations
+    self.candidateSources = candidateSources
+    self.candidateFixedPositions = candidateFixedPositions
     self.candidatePageCount = candidatePageCount
     self.answeredByPinyinFallback = answeredByPinyinFallback
     self.diagnosticText = diagnosticText
     self.localMode = localMode
     self.nineKeySpellings = nineKeySpellings
+    self.editingText = editingText
+    self.caretPosition = caretPosition
   }
 }
 
@@ -647,6 +665,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func finishComposition() -> MetasequoiaInputSnapshot { command(9) }
   func cycleKanaVariant() -> MetasequoiaInputSnapshot { command(10) }
   func commitReading() -> MetasequoiaInputSnapshot { command(11) }
+  func moveCaretLeft() -> MetasequoiaInputSnapshot { command(4) }
+  func moveCaretRight() -> MetasequoiaInputSnapshot { command(5) }
+  /// The segment edits the Windows composition binds to Ctrl+Backspace and Ctrl+← / →: a whole syllable (or a held phrase) at a time, on the unit boundaries the Engine owns.
+  func segmentBackspace() -> MetasequoiaInputSnapshot { command(12) }
+  func moveCaretLeftBySegment() -> MetasequoiaInputSnapshot { command(13) }
+  func moveCaretRightBySegment() -> MetasequoiaInputSnapshot { command(14) }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
@@ -1122,14 +1146,41 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard (result["applied"] as? Bool) == true else { throw InputBridgeFailure.response("个人词条未能应用") }
   }
 
-  func personalEntries(atOffset offset: UInt) throws -> [String: Any] {
-    let request: [String: Any] = ["options": options,
-                                  "action": ["operation": "list", "offset": offset, "limit": 100]]
+  /// One page of the dictionary. Without a kind it is the user's own words; a code prefix within one kind, or the quick phrases, is looked up in the dictionary itself, so bundled rows come back marked `source: bundled` and can be re-weighted or deleted through the queue.
+  func personalEntries(atOffset offset: UInt, kind: PersonalWordKind? = nil, query: String = "") throws -> [String: Any] {
+    var action: [String: Any] = ["operation": "list", "offset": offset, "limit": 100]
+    if let kind { action["kind"] = kind.bridgeName }
+    if !query.isEmpty { action["query"] = query }
+    let request: [String: Any] = ["options": options, "action": action]
     var result = try withDictionaryMaintenance {
       try Self.callOptions(msimeClientDictionary, request)
     }
     if let hasMore = result.removeValue(forKey: "has_more") { result["hasMore"] = hasMore }
     return result
+  }
+
+  /// One dictionary in a shared text layout, read a page at a time inside one maintenance window so the session is reopened once rather than per page. It stops at `maximumPages` pages or `PersonalDictionaryStore.maximumExportBytes`, whichever comes first, and says so with `complete`. Pinyin carries the weights of bundled words the user changed or taught, and omits single characters, as the Windows export does.
+  func personalExport(kind: PersonalWordKind, format: String, maximumPages: Int = 200) throws -> PersonalExportText {
+    try withDictionaryMaintenance {
+      var text = ""
+      for page in 0..<maximumPages {
+        let action: [String: Any] = ["operation": "export", "kind": kind.bridgeName, "format": format,
+                                     "offset": page * 1000, "limit": 1000]
+        let result = try Self.callOptions(msimeClientDictionary, ["options": options, "action": action])
+        guard let chunk = result["text"] as? String, let hasMore = result["has_more"] as? Bool else {
+          throw InputBridgeFailure.invalidResponse
+        }
+        text += chunk
+        if text.utf8.count > PersonalDictionaryStore.maximumExportBytes {
+          // Keep whole rows up to the cap, so the file still imports.
+          let bytes = Array(text.utf8.prefix(PersonalDictionaryStore.maximumExportBytes))
+          let end = bytes.lastIndex(of: UInt8(ascii: "\n")).map { $0 + 1 } ?? 0
+          return PersonalExportText(text: String(decoding: bytes[..<end], as: UTF8.self), complete: false)
+        }
+        if !hasMore { return PersonalExportText(text: text, complete: true) }
+      }
+      return PersonalExportText(text: text, complete: false)
+    }
   }
 
   private func withDictionaryMaintenance<T>(_ operation: () throws -> T) throws -> T {
@@ -1263,11 +1314,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
+      candidateSources: rows.map { ($0["source"] as? NSNumber)?.intValue ?? 0 },
+      candidateFixedPositions: rows.map { ($0["fixed_position"] as? NSNumber)?.intValue ?? 0 },
       candidatePageCount: max(0, (view["page_count"] as? NSNumber)?.intValue ?? 0),
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
       diagnosticText: value["diagnostic"] as? String,
       localMode: view["local_mode"] as? String ?? "none",
-      nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [])
+      nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [],
+      editingText: view["editing_text"] as? String ?? "",
+      caretPosition: (view["caret_position"] as? NSNumber)?.intValue ?? 0)
   }
 
   private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {

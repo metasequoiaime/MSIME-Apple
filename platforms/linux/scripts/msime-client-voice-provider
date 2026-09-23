@@ -350,6 +350,10 @@ def validate_capture_device(device, allow_empty=False):
     return device
 
 
+class RecorderMissing(ValueError):
+    """No recorder for the selected capture backend is installed."""
+
+
 def capture_command(backend, device=None):
     device = validate_capture_device(device)
     if backend in ("auto", "pulse") and shutil.which("parec"):
@@ -362,7 +366,7 @@ def capture_command(backend, device=None):
     if backend in ("auto", "alsa") and shutil.which("arecord"):
         return ["arecord", "-q", "-t", "raw", "-f", "S16_LE", "-r", "16000", "-c", "1"] + (
             ["--device=" + device] if device else [])
-    raise ValueError("install parec, pw-cat, or arecord for the selected capture backend")
+    raise RecorderMissing("install parec, pw-cat, or arecord for the selected capture backend")
 
 
 def request_capture_command(options, default_backend, default_device):
@@ -906,6 +910,13 @@ class Handler(socketserver.StreamRequestHandler):
                                     "ok": ok}, ensure_ascii=False).encode() + b"\n")
         self.wfile.flush()
 
+    def dependency_missing(self, generation, detail, reason):
+        # The terminal failure every host already handles (ok:false bound to the generation), naming the missing piece so the service can stay up for requests that do not need it.
+        print("msime-client-voice-provider: %s unavailable: %s" % (detail, reason), file=sys.stderr, flush=True)
+        self.wfile.write(json.dumps({"generation": generation, "text": "", "type": "final", "ok": False,
+                                    "error": "voice_dependency_missing", "detail": detail}).encode() + b"\n")
+        self.wfile.flush()
+
     def level(self, generation, value):
         self.wfile.write(json.dumps({"generation": generation, "type": "level",
                                     "level": round(value, 4), "ok": True}).encode() + b"\n")
@@ -978,8 +989,12 @@ class Handler(socketserver.StreamRequestHandler):
             if any(not isinstance(value, (bool, str)) for value in options.values()):
                 self.send(generation, ok=False)
                 return
-            capture_args = request_capture_command(options, self.server.capture_backend,
-                                                   self.server.capture_device)
+            try:
+                capture_args = request_capture_command(options, self.server.capture_backend,
+                                                       self.server.capture_device)
+            except RecorderMissing as error:
+                self.dependency_missing(generation, "recorder", error)
+                return
             # One validated snapshot owns both recognition and polishing for
             # this recording, even if the private file changes mid-session.
             config = load_config(self.server.config_path)
@@ -990,7 +1005,11 @@ class Handler(socketserver.StreamRequestHandler):
             polish_config = select_profile(config, options, "polish")
             if asr["provider"] == "doubao":
                 from msime_voice_doubao import websocket_dependency
-                websocket_dependency()
+                try:
+                    websocket_dependency()
+                except RuntimeError as error:
+                    self.dependency_missing(generation, "websockets", error)
+                    return
             if (asr["provider"] == "doubao" and options.get("asr_resource_id") and
                 options["asr_resource_id"] != asr["resource_id"]):
                 self.send(generation, ok=False)
@@ -1134,6 +1153,12 @@ def credential_test(query, server):
         elif service == "voice.polish":
             ok = polish_credential_test(selected)
         elif selected["provider"] == "doubao":
+            from msime_voice_doubao import WEBSOCKETS_MIN_MAJOR, websocket_dependency
+            try:
+                websocket_dependency()
+            except RuntimeError:
+                return {"ok": False, "message": "豆包语音需要 websockets %d 或更高版本，请安装 python3-websockets 后重试。"
+                        % WEBSOCKETS_MIN_MAJOR}
             if options.get("asr_resource_id") and options["asr_resource_id"] != selected["resource_id"]:
                 ok = False
             else:
@@ -1276,16 +1301,26 @@ def main():
     args = parser.parse_args()
     try:
         config = load_config(args.config)
-        if config["asr"]["provider"] == "doubao" or "doubao" in config.get("asr_profiles", {}):
-            from msime_voice_doubao import websocket_dependency
-            websocket_dependency()
-        capture_args = capture_command(args.capture, args.capture_device)
+        validate_capture_device(args.capture_device)
         parent = args.socket.parent.stat()
         if (not args.socket.is_absolute() or parent.st_uid != os.getuid() or parent.st_mode & 0o077 or
             not stat.S_ISDIR(parent.st_mode) or not 1 <= args.max_recording_seconds <= 600):
             raise ValueError()
     except Exception:
-        parser.error("invalid private configuration/socket directory, capture backend, recording limit, or missing websockets 15.x for Doubao")
+        # Exit status 2 stops systemd restarting the unit, so it is kept for configuration only the user can fix.
+        parser.error("invalid private configuration/socket directory, capture device, or recording limit")
+    # A missing optional package only disables what needs it: batch providers keep working, and each request that needs the missing piece answers voice_dependency_missing. Requests check again, so a recorder installed later is used by the next recording; replacing a websockets package this process already imported takes a service restart.
+    if config["asr"]["provider"] == "doubao" or "doubao" in config.get("asr_profiles", {}):
+        from msime_voice_doubao import websocket_dependency
+        try:
+            websocket_dependency()
+        except RuntimeError as error:
+            print("msime-client-voice-provider: Doubao unavailable: %s" % error, file=sys.stderr, flush=True)
+    try:
+        capture_args = capture_command(args.capture, args.capture_device)
+    except RecorderMissing as error:
+        capture_args = None
+        print("msime-client-voice-provider: recording unavailable: %s" % error, file=sys.stderr, flush=True)
     os.umask(0o077)
     try:
         server, service_lock = open_server(Server, args.socket, Handler)

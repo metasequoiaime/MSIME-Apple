@@ -3523,6 +3523,7 @@ struct VoiceResult {
   unsigned level = 0;
   bool provider_failed = false;
   bool inline_preedit = false;
+  std::string provider_error{};
 };
 struct VoiceFailureNotice {
   IBusEngine *engine;
@@ -3730,9 +3731,11 @@ void voice_start_impl(IBusEngine *engine) {
       provider_options.value("asr_provider", std::string{"doubao"}), "tsf");
   const auto alive = s.alive;
   const auto provider_succeeded = std::make_shared<std::atomic_bool>(false);
+  // Written by the stream task and read by the result callback, which the worker runs afterwards on the same thread.
+  const auto provider_error = std::make_shared<std::string>();
   s.voice_worker.run_stream(
       [socket, language, generation, session_id, focus_epoch, engine, alive, provider_succeeded,
-       provider_options](const std::atomic_bool &cancelled,
+       provider_error, provider_options](const std::atomic_bool &cancelled,
                          const MsimeVoiceWorker::Progress &progress) {
         if (cancelled.load())
           return std::string{};
@@ -3795,8 +3798,10 @@ void voice_start_impl(IBusEngine *engine) {
           return std::string{};
         try {
           const auto document = Json::parse(raw);
-          if (!document.value("ok", false))
+          if (!document.value("ok", false)) {
+            *provider_error = document.value("error", std::string{});
             return std::string{};
+          }
           const auto value = document.at("value");
           if (!value.is_object())
             return std::string{};
@@ -3839,9 +3844,10 @@ void voice_start_impl(IBusEngine *engine) {
             },
             result, nullptr);
       },
-      [engine, alive, generation, session_id, focus_epoch, provider_succeeded](std::string text) {
+      [engine, alive, generation, session_id, focus_epoch, provider_succeeded, provider_error](std::string text) {
         auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, std::move(text),
                                        true, 0, !provider_succeeded->load()};
+        result->provider_error = *provider_error;
         g_idle_add_full(
             G_PRIORITY_DEFAULT,
             +[](gpointer data) -> gboolean {
@@ -3867,7 +3873,7 @@ void voice_start_impl(IBusEngine *engine) {
                   publish_mode(result->engine);
                   show_voice_failure(result->engine,
                                      result->provider_failed
-                                         ? "语音输入失败，请检查语音服务、麦克风及提供商配置后重试"
+                                         ? msime_voice_provider_failure_notice(result->provider_error)
                                          : "未识别到文字，请重新录音");
                   return G_SOURCE_REMOVE;
                 }

@@ -92,8 +92,15 @@ enum DoubaoHostFrameCodec {
           let payloadData = payload.data(using: .utf8),
           let body = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any]
     else { return (isFinal, nil) }
-    let result = body["result"] as? [String: Any]
-    let text = (result?["text"] as? String) ?? (body["text"] as? String)
-    return (isFinal, text)
+    return (isFinal, transcript(in: body))
+  }
+
+  /// `bigmodel_async` returns `result` as one object, while `bigmodel_nostream` documents it as a list of sentence segments; the Windows client reads both, and so does this.
+  static func transcript(in body: [String: Any]) -> String? {
+    if let result = body["result"] as? [String: Any], let text = result["text"] as? String { return text }
+    if let segments = body["result"] as? [[String: Any]] {
+      return segments.compactMap { $0["text"] as? String }.joined()
+    }
+    return body["text"] as? String
   }
 }

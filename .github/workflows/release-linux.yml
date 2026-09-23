@@ -28,7 +28,7 @@ jobs:
       - name: Build Linux packages
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: bash platforms/linux/package-container.sh "$VERSION"
-      # Asset names come from CPack (msime-client_VERSION_ARCH.deb, msime-client-VERSION-linux-ARCH.tar.gz). The in-app update check selects releases by the linux-v tag prefix and opens the release page, so it does not depend on them.
+      # Asset names come from CPack (msime-client_VERSION_ARCH.deb, msime-client-VERSION-linux-ARCH.tar.gz). The in-app update check selects releases by the linux-v tag prefix and opens the release page; it shows the digest GitHub computes for the single .deb (else .tar.gz), matching only the extension, so it does not depend on the version or arch parts of the names.
       - name: Verify Linux packages
         run: |
           shopt -s nullglob

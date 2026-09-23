@@ -105,6 +105,11 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
     case .custom: ""
     }
   }
+  /// Doubao's two streaming recognizers, as on Windows and the desktop settings page: nostream uploads while the user speaks and answers with whole sentences, which Volcengine recommends for input methods; async answers incrementally.
+  static let doubaoStreamEndpoints: [(endpoint: String, title: String)] = [
+    ("wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream", "整句流式（准确率更高）"),
+    ("wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", "双向流式（增量结果）"),
+  ]
   var models: [String] {
     switch self {
     case .everyAPI: ["openai/whisper-large-v3-turbo", "volc.seedasr.sauc.duration"]

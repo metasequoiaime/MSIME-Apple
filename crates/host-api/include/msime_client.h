@@ -85,7 +85,7 @@ char *msime_client_refresh_host(const uint8_t *path, size_t length);
 char *msime_client_create(const uint8_t *options, size_t length);
 /* Management JSON (<=65536 bytes), trusted native caller only:
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
- * List takes optional kind and query (a code prefix). Without them it lists the user's own words; with a kind and a nonblank query (quick_phrase needs none) it also finds the bundled words of that dictionary, user words first.
+ * List takes optional kind and query (a code prefix). Without them it lists the user's own words; with a kind and a nonblank query (quick_phrase needs none) it also finds the bundled words of that dictionary, user words first. user_only:true keeps any list to the user's own words, filtered by the kind and code prefix across the whole store.
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
  * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"quick_phrase"|"english",
  * format:"standard"|"windows"|"rime"|"hans",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.
@@ -242,6 +242,10 @@ char *msime_client_skin_resource(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id}; returns a nullable stylesheet
  * string from the manifest, after revalidating the package and path. */
 char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length);
+/* JSON {source:absolute picked folder,directory:absolute skin root}. Copies the
+ * folder under its own name, replacing a skin of that name whole; returns {id}.
+ * The error message is skin_name, skin_manifest or storage. Touches the disk. */
+char *msime_client_skin_import(const uint8_t *request, size_t length);
 /* The queued personal dictionary, for a host that cannot take the Engine's
  * maintenance lock when the request arrives. Same request shape as
  * msime_client_dictionary - {options,action} - but the operations act on
@@ -619,7 +623,8 @@ char *msime_client_voice_provider_stream_events(
     size_t socket_length, msime_client_voice_update_callback callback,
     msime_client_voice_status_callback status_callback, void *context);
 /* Normalized microphone level in [0, 1]; never transcript text or audio.
- * Callback runs synchronously on the caller thread and must not throw. */
+ * Callback runs synchronously on the caller thread and must not throw.
+ * All three stream calls return {"ok":true,"value":{"text":...}} on success and value null when the provider gave no result. A provider that names a missing optional dependency returns {"ok":false,"error":"voice_dependency_missing:websockets"} or "voice_dependency_missing:recorder". */
 typedef void (*msime_client_voice_level_callback)(float level, void *context);
 char *msime_client_voice_provider_stream_feedback(
     const uint8_t *query, size_t query_length, const uint8_t *socket_path,
