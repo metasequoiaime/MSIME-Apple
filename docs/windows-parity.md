@@ -1904,3 +1904,9 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 纠正上文「`Ctrl+Shift+E` ……`InputModeRouting` 已实现」的判断：本宿主原来把它和 Shift 轻点一样当成中英切换，进入的是直接英文，硬件字母原样交给应用。来源里这是两件事：Shift 由 TSF 切中英（`FUNCTION_TOGGLE_IME_MODE`，上屏原始字母），`Ctrl+Shift+E` 是 `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState`，打开服务端的英文输入模式，字母进入组字、候选框列英文词（`UpdateEnglishInput`），TSF 侧按 `FUNCTION_CANCEL` 处理，什么都不上屏。macOS 宿主也区分两者（`toggleDedicatedEnglishMode:`，工具栏显示 En）。
 
 本宿主的引擎侧本来就是 dedicated-English 标志，差别只在硬件键是否送进引擎。现在 `ModeGesture.ENGLISH_CANDIDATES` 调 `KeyboardSession.toggleEnglishCandidates()`：打开英文模式并记下英文候选子模式，`HardwareKeyRouter` 此时把字母送进组字，音节分隔符、U 模式和微软双拼的特殊键规则都不生效（引擎在该模式只收字母），标点和中文态一样结束组字后按标点设置输出。再按一次、Shift 轻点或工具栏语言按钮都回到中文；密码与网址类编辑框强制直接英文。工具栏语言按钮显示 `En`，与来源和 macOS 一致。手机软键盘的字母一直走引擎，两种英文在手机上本就是同一个模式，不受影响。
+
+### HarmonyOS 2in1：表情面板的剪贴板页（2026-09-23）
+
+来源的表情面板最后一页是剪贴板历史（`server/src/emoji-panel/EmojiPanel.h` 的 `Page::Clipboard`）。本宿主的剪贴板历史原来只能从手机键盘的工具面板进入，2in1 没有入口。现在 2in1 的表情面板（工具栏 ☺ 打开的 `DesktopSurface.EMOJI`）在「表情 / 颜文字 / 符号」之后多一个「剪贴板」页：点条目上屏，可固定、删除、清空（二次确认）。手机不加这一页，仍从工具面板进入，两处共用同一份条目列表 `clipboardEntries()`。
+
+与来源的差异：来源由 `ClipboardMonitor` 在后台记录每次复制；HarmonyOS 只把剪贴板读取权限给系统应用，本宿主也不在后台记录，所以这一页和手机一样用「保存当前」按钮手动保存。设置里关闭剪贴板历史时这一页只显示提示，来源的「启用」按钮不照搬，开关统一留在设置页。
