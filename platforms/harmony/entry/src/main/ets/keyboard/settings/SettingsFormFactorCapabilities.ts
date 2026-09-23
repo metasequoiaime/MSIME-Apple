@@ -7,6 +7,9 @@ export interface SettingsFormFactorProjection {
   floatingToolbar: boolean;
   floatingToolbarAppearance: boolean;
   floatingToolbarComponents: boolean;
+  /** The pad and voice buttons exist only on the 2in1 toolbar, so only there is switching them off an outcome. */
+  floatingToolbarHandwriting: boolean;
+  floatingToolbarVoice: boolean;
   modeSwitchShortcuts: boolean;
   panelShortcuts: boolean;
   numberRowSelection: boolean;
@@ -24,6 +27,8 @@ export class SettingsFormFactorCapabilities {
       floatingToolbar: desktop,
       floatingToolbarAppearance: desktop,
       floatingToolbarComponents: desktop,
+      floatingToolbarHandwriting: desktop,
+      floatingToolbarVoice: desktop,
       modeSwitchShortcuts: desktop,
       panelShortcuts: desktop,
       numberRowSelection: desktop,

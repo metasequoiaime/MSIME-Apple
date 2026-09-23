@@ -16,7 +16,7 @@
 /** The subset of the multimodal key event this decision needs. */
 export interface HardwareKey {
   readonly keyCode: number;
-  /** Resolved by the system, so shift and caps lock are already applied. */
+  /** Resolved by the system, except that a letter's case is not to be trusted: see normalizeLetterCase. */
   readonly unicodeChar: number;
   readonly ctrlKey: boolean;
   readonly altKey: boolean;
@@ -166,6 +166,26 @@ export class HardwareKeyRouter {
     return {
       keyCode: KEYCODE_0 + digit,
       unicodeChar: key.unicodeChar === 0 ? DIGIT_ZERO + digit : key.unicodeChar,
+      ctrlKey: key.ctrlKey,
+      altKey: key.altKey,
+      shiftKey: key.shiftKey,
+      logoKey: key.logoKey,
+    };
+  }
+
+  /**
+   * A letter's case decided by the modifiers rather than by `unicodeChar`.
+   *
+   * A 2in1 reports an upper-case `unicodeChar` for a plain letter key, with neither shift nor caps lock down. The Engine reads an upper-case letter as a help code, which only means something mid-composition, so every first letter typed on a hardware keyboard was declined and the composition never started. Shift and caps lock are both on the event, so the case is rebuilt from them, as the Windows host does from the virtual key and the keyboard state.
+   */
+  static normalizeLetterCase(key: HardwareKey, capsLock: boolean): HardwareKey {
+    const lower: number = key.unicodeChar | 0x20;
+    if (lower < 0x61 || lower > 0x7a) {
+      return key;
+    }
+    return {
+      keyCode: key.keyCode,
+      unicodeChar: key.shiftKey !== capsLock ? lower - 0x20 : lower,
       ctrlKey: key.ctrlKey,
       altKey: key.altKey,
       shiftKey: key.shiftKey,

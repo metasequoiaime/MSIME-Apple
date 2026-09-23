@@ -910,31 +910,31 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
     }
 }
 
-/// Synchronize the Android queue with the Engine. The caller must invoke this
+/// Synchronize the queue with the Engine. The caller must invoke this
 /// only after its Engine session has been destroyed; the shared dictionary lock
 /// then prevents races with any other host.
+///
+/// The request is the bare HostOptions a host passes to `msime_client_create`, as the C header documents and as both the Android and HarmonyOS hosts send it. Parsing it as an `{options, action}` envelope refused every call, which Android swallowed and HarmonyOS answered by rebuilding its session every two seconds.
 pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
     if bytes.len() > 65536 {
         return Err("invalid dictionary buffer".into());
     }
-    let request: Request =
+    let options: HostOptions =
         serde_json::from_slice(bytes).map_err(|_| "invalid dictionary request".to_owned())?;
-    if request.options.api_version != 1 {
+    if options.api_version != 1 {
         return Err("unsupported host API version".into());
     }
-    request
-        .options
+    options
         .preferences
         .validate()
         .map_err(|_| "invalid dictionary options".to_owned())?;
-    let directory = request
-        .options
+    let directory = options
         .preferences_directory
         .as_deref()
         .filter(|path| Path::new(path).is_absolute())
         .ok_or("personal dictionary shared directory unavailable")?;
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
-    let options = request.options.into_engine_options();
+    let options = options.into_engine_options();
     store
         .synchronize(
             |queued| {

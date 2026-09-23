@@ -962,6 +962,8 @@ class SettingsBridge {
       value['floating_toolbar'] = projection.floatingToolbar;
       value['floating_toolbar_appearance'] = projection.floatingToolbarAppearance;
       value['floating_toolbar_components'] = projection.floatingToolbarComponents;
+      value['floating_toolbar_handwriting'] = projection.floatingToolbarHandwriting;
+      value['floating_toolbar_voice'] = projection.floatingToolbarVoice;
       value['mode_switch_shortcuts'] = projection.modeSwitchShortcuts;
       value['panel_shortcuts'] = projection.panelShortcuts;
       value['number_row_selection'] = projection.numberRowSelection;
