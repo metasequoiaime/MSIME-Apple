@@ -2476,3 +2476,10 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 来源：`CompositionProcessorEngine.cpp` 在候选显示时把 `VK_LEFT`/`VK_RIGHT` 映射为 `FUNCTION_MOVE_LEFT`/`FUNCTION_MOVE_RIGHT`，Server `ApplyCompositionEditKey` 移动组合光标（Ctrl 按分词跳），随后按新光标刷新候选；上下键才是候选选择。macOS 原来在竖排候选可见时直接吞掉左右键（027ec68a8 按 Apple 来源加的消费规则），光标只能在候选隐藏时移动。现在竖排面板下左右键落到与候选隐藏时相同的 `MSIME_MOVE_LEFT`/`MSIME_MOVE_RIGHT` 路径，按键仍由输入法消费、不漏给宿主程序；横排面板的左右键选候选、上下键消费保持不变。
 - 差异：来源的这条映射不区分候选窗布局，横排（`candidate_window_layout = "horizontal"`）下左右键同样移动光标，而 macOS 横排仍用左右键切换候选。本次只改竖排，横排是否对齐待定。
 - 证据：`ShortcutTest.mm` 覆盖竖排候选可见与隐藏时左右键都发出光标移动命令、横排左右键仍是上/下一个候选；macOS 原生构建与 ctest 全部通过。未在真实编辑器中目视确认。
+
+### macOS 候选滚轮翻页累计位移，一次触控板滑动只翻一页（2026-09-23）
+
+- 来源：Server `candidate_wheel_paging.h` 的 `ConsumeWheelDelta` 把 `WM_MOUSEWHEEL` 位移累加进累加器，满一格（`WHEEL_DELTA` = 120）才翻一页，反向时清空残留，多格位移拆成多次翻页，候选隐藏时清零（`candidate_presenter.cpp`）。macOS 的 `MSIMECandidatePanel scrollWheel:` 原来对每个非零 `scrollingDeltaY` 都翻一页，而触控板每帧都会送来几个点的精确位移外加惯性事件，一次滑动就连翻很多页。
+- 现在：`CandidateWheelRouting.h` 新增纯函数 `ConsumeCandidateWheelDelta`。精确位移（`hasPreciseScrollingDeltas`）累计满 40 点才翻一页（WebKit 一格滚轮对应的像素距离，作为 macOS 上的「一格」），多格拆成多次翻页并逐次检查是否还有上/下一页；惯性阶段（`momentumPhase` 非 None）不翻页并清空残留；反向、手势开始（began/may begin）、面板 `orderOut:`、以及非滚轮翻页引起的候选刷新都会清零。传统滚轮（非精确）仍是一个事件一格一页，不受加速后的行数影响。
+- 差异：来源的累加器以整数 notch 计，macOS 用点数阈值替代 `WHEEL_DELTA`；来源没有惯性概念，macOS 显式忽略惯性事件。仍保留的 Apple 快照适配器 `CandidatePanel.mm` 的 `MetasequoiaCandidateWindow` 滚轮逻辑未改（不属于当前宿主）。
+- 证据：`CandidatePaginationTest.cpp` 覆盖短滑动只翻一页并保留残留、惯性不翻页、反向清零、手势开始清零、多格拆分、传统滚轮一格一页；macOS 原生构建与 ctest 全部通过。未在真实触控板上目视确认翻页手感。

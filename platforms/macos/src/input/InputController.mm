@@ -531,18 +531,36 @@ static NSString *MSIMEFullWidthSmartMark(unichar character, BOOL fullWidth) {
 @property(nonatomic) BOOL hasPreviousPage;
 @property(nonatomic) BOOL hasNextPage;
 @property(nonatomic, copy) void (^pageHandler)(BOOL previous);
+// True while a wheel page is being applied, so the re-render it causes keeps the scroll remainder.
+@property(nonatomic, readonly) BOOL wheelPaging;
+- (void)resetWheelAccumulator;
 @end
-@implementation MSIMECandidatePanel
+@implementation MSIMECandidatePanel {
+    double _wheelAccumulator;
+}
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (BOOL)canBecomeMainWindow { return NO; }
+- (void)resetWheelAccumulator { _wheelAccumulator = 0.0; }
+- (void)orderOut:(id)sender {
+    _wheelAccumulator = 0.0;
+    [super orderOut:sender];
+}
 - (void)scrollWheel:(NSEvent *)event {
     const auto action = msime::mac::CandidateWheelPageAction(
         event.scrollingDeltaY, self.mouseWheelEnabled, self.hasPreviousPage, self.hasNextPage);
-    if (action != msime::mac::CandidateWheelAction::None && self.pageHandler) {
-        self.pageHandler(action == msime::mac::CandidateWheelAction::PreviousPage);
+    if (action == msime::mac::CandidateWheelAction::None || !self.pageHandler) {
+        _wheelAccumulator = 0.0;
+        [super scrollWheel:event];
         return;
     }
-    [super scrollWheel:event];
+    const int steps = msime::mac::ConsumeCandidateWheelDelta(_wheelAccumulator, event.scrollingDeltaY,
+        event.hasPreciseScrollingDeltas, (event.phase & (NSEventPhaseBegan | NSEventPhaseMayBegin)) != 0,
+        event.momentumPhase != NSEventPhaseNone);
+    const BOOL previous = steps > 0;
+    _wheelPaging = YES;
+    for (int remaining = previous ? steps : -steps; remaining > 0 && self.pageHandler && (previous ? self.hasPreviousPage : self.hasNextPage); --remaining)
+        self.pageHandler(previous);
+    _wheelPaging = NO;
 }
 @end
 
@@ -4210,6 +4228,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         if (_appearance.candidateAppearanceOverrideConfigured) _panel.appearance = candidateAppearance;
     }
     MSIMECandidatePanel *candidatePanel = (MSIMECandidatePanel *)_panel;
+    if (!candidatePanel.wheelPaging) [candidatePanel resetWheelAccumulator];
     candidatePanel.mouseWheelEnabled = [_appearance navigationEnabled:@"mouse_wheel"];
     candidatePanel.hasPreviousPage = page > 0;
     candidatePanel.hasNextPage = page + 1 < pageCount;
