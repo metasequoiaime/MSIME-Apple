@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The Debian prerm and postinst: which systemctl and systemd-run calls they make for which dpkg action.
+"""The Debian prerm and postinst: which systemctl and systemd-run calls they make for which dpkg action, including the prerm's msime-client-setup --unregister.
 
 systemctl, systemd-run, notify-send and loginctl are stubs that record their arguments, and PATH holds nothing else, so the scripts also prove they need no other program. A real systemd user manager is not started here; the build-gate container runs under an init that is not systemd.
 
-Usage: deb_maintainer_scripts.py <configured-debian-dir> <configured-uninstall.cmake> <unit list>
+Usage: deb_maintainer_scripts.py <configured-debian-dir> <configured-uninstall.cmake> <unit list> <installed msime-client-setup>
 """
 import os
 import subprocess
@@ -15,6 +15,9 @@ DEBIAN = Path(sys.argv[1])
 UNINSTALL = Path(sys.argv[2])
 UNITS = sys.argv[3].split()
 SERVICES = [unit for unit in UNITS if unit.endswith(".service")]
+SETUP = sys.argv[4]
+# Removing the input method from each user's lists, the counterpart of the Windows uninstaller unregistering the TSF profile.
+MANUAL_LISTS = "remove the input method from its lists: Metasequoia 水杉输入法 from the desktop input sources (IBus), MSIME from the current group in fcitx5-configtool (Fcitx5)"
 
 # systemd 252 prints UID USER LINGER, newer releases add STATE and indent the UID column; both must parse.
 USERS = "1000 alice no\n   1001 bob yes active\n"
@@ -87,6 +90,14 @@ def disable_calls(uid: str) -> list:
     return [f"--user -M {uid}@ show --property=Version"] + [f"--user -M {uid}@ disable --now {unit}" for unit in UNITS]
 
 
+def unregister_call(uid: str) -> list:
+    return [f"systemd-run --user -M {uid}@ --wait --collect --quiet {SETUP} --unregister"]
+
+
+def removal_calls(uid: str) -> list:
+    return disable_calls(uid) + unregister_call(uid)
+
+
 def restart_calls(uid: str) -> list:
     return [f"--user -M {uid}@ daemon-reload"] + [f"--user -M {uid}@ try-restart {service}" for service in SERVICES]
 
@@ -97,6 +108,7 @@ def notify_call(uid: str) -> list:
 
 def main() -> None:
     assert UNITS and SERVICES and len(SERVICES) < len(UNITS), UNITS
+    assert SETUP.startswith("/") and SETUP.endswith("/bin/msime-client-setup"), SETUP
     # Both removal paths stop the same units: the CMake uninstall is configured from the same list.
     assert f"set(user_units {' '.join(UNITS)})" in UNINSTALL.read_text()
 
@@ -129,6 +141,24 @@ def main() -> None:
     expect(result, calls, disable_calls("1000")[:1] + disable_calls("1001"), stderr_lines=1)
     assert "alice" in result.stderr and f"systemctl --user disable --now {' '.join(UNITS)}" in result.stderr, result.stderr
 
+    # With systemd-run, removal also takes the input method out of each user's input method lists, in that user's manager so it reaches the session bus, after the units are disabled and while the program still exists. prerm waits for it.
+    result, calls = run("prerm", "remove", tools=("systemctl", "loginctl", "systemd-run"))
+    expect(result, calls, removal_calls("1000") + removal_calls("1001"))
+
+    # A failure to unregister does not fail the removal or skip the next user.
+    result, calls = run("prerm", "remove", tools=("systemctl", "loginctl", "systemd-run"), STUB_SYSTEMD_RUN_FAILS="1")
+    expect(result, calls, removal_calls("1000") + removal_calls("1001"))
+
+    # An unreachable user is told what to remove by hand: the program that would do it is deleted right after prerm, so naming it would be no help.
+    result, calls = run("prerm", "remove", tools=("systemctl", "loginctl", "systemd-run"), STUB_UNREACHABLE="1000")
+    expect(result, calls, disable_calls("1000")[:1] + removal_calls("1001"), stderr_lines=1)
+    assert "alice" in result.stderr and MANUAL_LISTS in result.stderr, result.stderr
+    assert "msime-client-setup --unregister" not in result.stderr, result.stderr
+
+    # An upgrade keeps the input method, and a deconfigure keeps the package installed: neither unregisters.
+    for args in (("upgrade", "1.0.1"), ("failed-upgrade", "1.0.0"), ("deconfigure", "in-favour", "breaker", "2.0")):
+        expect(*run("prerm", *args, tools=("systemctl", "loginctl", "systemd-run")), [])
+
     # An upgrade reloads each user manager and restarts only running services; sockets are left listening.
     result, calls = run("postinst", "configure", "1.0.0")
     expect(result, calls, restart_calls("1000") + restart_calls("1001"))
@@ -160,7 +190,7 @@ def main() -> None:
         expect(result, calls, restart_calls("1000") + restart_calls("1001"))
 
     # Removal and a first installation notify nobody.
-    expect(*run("prerm", "remove", tools=NOTIFYING), disable_calls("1000") + disable_calls("1001"))
+    expect(*run("prerm", "remove", tools=NOTIFYING), removal_calls("1000") + removal_calls("1001"))
     for args in (("configure", ""), ("configure",), ("abort-upgrade", "1.0.1")):
         expect(*run("postinst", *args, tools=NOTIFYING), [])
 
@@ -175,7 +205,7 @@ def main() -> None:
         expect(*run(script, *args, STUB_LOGINCTL_FAILS="1"), [])
         expect(*run(script, *args, STUB_USERS=""), [])
 
-    print("Debian maintainer scripts stop units on removal, and restart services and notify users on upgrade")
+    print("Debian maintainer scripts stop units and unregister the input method on removal, and restart services and notify users on upgrade")
 
 
 if __name__ == "__main__":

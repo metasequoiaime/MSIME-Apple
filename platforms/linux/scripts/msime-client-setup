@@ -10,6 +10,8 @@
 和 SHA-256，状态交给 msime-client-prepare。下载默认不发生，必须显式 --download。
 
 Windows 安装程序注册 TSF profile，装完输入法就出现在输入法列表里；这里对应的是在状态目录就绪后把输入法加进正在运行的 Fcitx5 或 IBus 的列表。任何一步失败都退回到打印手动步骤，不影响已经准备好的状态。
+
+Windows 卸载程序注销 TSF profile 和类别，输入法随之从列表里消失；对应的是 --unregister：卸载时（.deb 的 prerm、CMake 卸载）在删除文件之前把输入法从这些列表里移除，只做这一步，不准备状态也不下载。
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ FCITX5_CONTROLLER = [
     "gdbus", "call", "--session", "--dest", "org.fcitx.Fcitx5", "--object-path", "/controller", "--method",
 ]
 FCITX5_INTERFACE = "org.fcitx.Fcitx.Controller1"
+FCITX5_BUS_NAME = "org.fcitx.Fcitx5"
 GNOME_SOURCES = ("org.gnome.desktop.input-sources", "sources")
 IBUS_PRELOAD = ("org.freedesktop.ibus.general", "preload-engines")
 
@@ -221,7 +224,7 @@ def enable_services(units: list[str]) -> None:
 
 
 class RegistrationFailed(Exception):
-    """One step of adding the input method to the host's list did not work; setup falls back to printing the manual steps."""
+    """One step of adding the input method to, or removing it from, the host's list did not work; setup falls back to printing the manual steps, and --unregister reports it and goes on with the other lists."""
 
 
 def command_output(arguments: list[str]) -> str:
@@ -275,6 +278,14 @@ def fcitx5_group(name: str) -> tuple[str, list]:
     return value
 
 
+def fcitx5_current_group() -> str:
+    current = parse_gvariant(fcitx5_call("CurrentInputMethodGroup"))
+    group = current[0] if isinstance(current, tuple) and current else ""
+    if not isinstance(group, str) or not group:
+        raise RegistrationFailed("Fcitx5 没有返回当前输入法组")
+    return group
+
+
 def fcitx5_loaded() -> bool:
     # AvailableInputMethods returns one (unique name, name, native name, icon, label, language, configurable) entry per input method Fcitx5 has loaded.
     value = parse_gvariant(fcitx5_call("AvailableInputMethods"))
@@ -296,10 +307,7 @@ def register_fcitx5() -> str:
                 pass
         else:
             raise RegistrationFailed(f"Fcitx5 重启之后仍没有加载 {FCITX5_INPUT_METHOD}")
-    current = parse_gvariant(fcitx5_call("CurrentInputMethodGroup"))
-    group = current[0] if isinstance(current, tuple) and current else ""
-    if not isinstance(group, str) or not group:
-        raise RegistrationFailed("Fcitx5 没有返回当前输入法组")
+    group = fcitx5_current_group()
     layout, items = fcitx5_group(group)
     if any(item[0] == FCITX5_INPUT_METHOD for item in items):
         return f"「{FCITX5_NAME}」已在 Fcitx5 当前输入法组「{group}」中。"
@@ -363,6 +371,71 @@ def register_ibus() -> str:
     return f"已把「{IBUS_NAME}」加入输入源列表，用桌面的输入法切换快捷键即可切换到它。"
 
 
+def fcitx5_on_bus() -> bool:
+    """Whether Fcitx5 owns its name on this session bus. Asked of the bus itself, so a Fcitx5 that is not running is never D-Bus activated just to be edited, and one running in another user's session does not count."""
+    owner = parse_gvariant(command_output([
+        "gdbus", "call", "--session", "--dest", "org.freedesktop.DBus", "--object-path", "/org/freedesktop/DBus",
+        "--method", "org.freedesktop.DBus.NameHasOwner", gvariant_text(FCITX5_BUS_NAME),
+    ]))
+    return owner == (True,)
+
+
+def unregister_fcitx5() -> str:
+    """The inverse of register_fcitx5: drop the input method from Fcitx5's current group. Returns what happened."""
+    if not fcitx5_on_bus():
+        return "Fcitx5 没有在运行，其输入法组未改动。"
+    group = fcitx5_current_group()
+    layout, items = fcitx5_group(group)
+    remaining = [item for item in items if item[0] != FCITX5_INPUT_METHOD]
+    if len(remaining) == len(items):
+        return f"「{FCITX5_NAME}」不在 Fcitx5 当前输入法组「{group}」中。"
+    if not remaining:
+        # Same rule as registering: an empty group leaves Fcitx5 nothing to fall back to when inactive, so a group holding only this input method is left for the user to fix.
+        return f"Fcitx5 当前输入法组「{group}」只有「{FCITX5_NAME}」，移除后会变空，保持不变。"
+    fcitx5_call("SetInputMethodGroupInfo", gvariant_text(group), gvariant_text(layout), gvariant_text(remaining))
+    return f"已从 Fcitx5 当前输入法组「{group}」移除「{FCITX5_NAME}」。"
+
+
+def unregister_setting(schema: str, key: str, entry) -> str:
+    """The inverse of register_ibus for one list. Returns what happened."""
+    current = parse_gvariant(command_output(["gsettings", "get", schema, key]))
+    if not isinstance(current, list):
+        raise RegistrationFailed(f"{schema} {key} 不是列表")
+    remaining = [item for item in current if item != entry]
+    if len(remaining) == len(current):
+        return f"「{IBUS_NAME}」不在 {schema} {key} 中。"
+    if not remaining:
+        # An empty list hands the desktop back to a default it does not store here, which may not be what the user had before; leave the list for the user to change.
+        return f"{schema} {key} 只有「{IBUS_NAME}」，移除后会变空，保持不变。"
+    command_output(["gsettings", "set", schema, key, gvariant_text(remaining)])
+    return f"已从 {schema} {key} 移除「{IBUS_NAME}」。"
+
+
+def unregister_input_method() -> None:
+    """Remove the input method from every list setup may have added it to, one list at a time so a missing tool or bus only skips its own list.
+
+    Unlike registering, this does not depend on which host is running or on the desktop: the uninstaller runs it from the user's systemd manager, where XDG_CURRENT_DESKTOP is often unset, and a list can hold the entry from an earlier session under another desktop. Both IBus lists are cleaned whenever their schema is installed.
+    """
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS") and runtime and (Path(runtime) / "bus").exists():
+        # A transient unit in the user's systemd manager inherits only what the desktop imported into it; without the session bus address gsettings would write to a throwaway backend and gdbus would find no bus. The user bus of systemd sessions lives at this path.
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={Path(runtime) / 'bus'}"
+    steps = [unregister_fcitx5]
+    try:
+        schemas = set(command_output(["gsettings", "list-schemas"]).split())
+    except RegistrationFailed as error:
+        print(f"未能读取输入源设置：{error}", file=sys.stderr)
+        schemas = set()
+    for schema, key, entry in ((*GNOME_SOURCES, ("ibus", IBUS_ENGINE)), (*IBUS_PRELOAD, IBUS_ENGINE)):
+        if schema in schemas:
+            steps.append(lambda schema=schema, key=key, entry=entry: unregister_setting(schema, key, entry))
+    for step in steps:
+        try:
+            print(step())
+        except RegistrationFailed as error:
+            print(f"未能从输入法列表移除：{error}", file=sys.stderr)
+
+
 def active_host() -> str | None:
     if running("fcitx5"):
         return "fcitx5"
@@ -419,7 +492,15 @@ def main() -> int:
         action="store_true",
         help="不把输入法加入正在运行的 Fcitx5 或 IBus 的输入法列表，只打印手动添加的步骤",
     )
+    parser.add_argument(
+        "--unregister",
+        action="store_true",
+        help="把水杉输入法从 GNOME 输入源、IBus 预载引擎和 Fcitx5 当前输入法组中移除后退出，不准备状态也不下载；卸载时自动执行",
+    )
     arguments = parser.parse_args()
+    if arguments.unregister:
+        unregister_input_method()
+        return 0
 
     prefix = install_prefix()
     state = (arguments.state or config_home() / "msime-client").expanduser()
