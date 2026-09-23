@@ -442,9 +442,7 @@ impl HostCapabilities {
             // Every host calls `msime_client_set_character_width` when its session starts and
             // from its own width switch, so the preference always has something to act on.
             character_width: true,
-            // The Android recognition window shows the transcript once it is settled and has no
-            // row for a partial one; putting half-written text there that the final result may
-            // contradict is worse than waiting for it. Every other host draws its own composition.
+            // The Android recognition window shows the transcript once it is settled and has no row for a partial one; putting half-written text there that the final result may contradict is worse than waiting for it. iOS records in the app, because a keyboard extension cannot use the microphone, and hands the keyboard only the final transcript, so it has no row for one either. Every other host draws its own composition.
             // Every host reaches its provider one way or another: the desktops and both mobile
             // hosts call it themselves, and Linux hands the same configuration to its provider
             // service. None of them wants these controls hidden.
@@ -455,7 +453,7 @@ impl HostCapabilities {
             // for its own Alt+Shift+H. No other host binds that chord.
             fullwidth_chord: matches!(platform, HostPlatform::Macos | HostPlatform::Android),
             voice_provider_settings: true,
-            voice_stream_preedit: platform != HostPlatform::Android,
+            voice_stream_preedit: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
             helpcode_shift_entry: matches!(
@@ -1074,10 +1072,11 @@ mod tests {
         ] {
             assert!(HostCapabilities::for_platform(platform).character_width);
         }
-        // Android runs the configured transcription provider, streaming one included, but draws
-        // no interim text, so it is the one host without that switch.
-        assert!(!HostCapabilities::for_platform(HostPlatform::Android).voice_stream_preedit);
-        assert!(HostCapabilities::for_platform(HostPlatform::Android).voice_provider_settings);
+        // Android and iOS run the configured transcription provider, streaming one included, but draw no interim text, so they are the hosts without that switch.
+        for platform in [HostPlatform::Android, HostPlatform::Ios] {
+            assert!(!HostCapabilities::for_platform(platform).voice_stream_preedit);
+            assert!(HostCapabilities::for_platform(platform).voice_provider_settings);
+        }
         // The two chords exist wherever a keyboard can send them and the host routes them.
         assert!(HostCapabilities::for_platform(HostPlatform::Android).maintenance_shortcuts);
         assert!(HostCapabilities::for_platform(HostPlatform::Windows).maintenance_shortcuts);
@@ -1096,7 +1095,6 @@ mod tests {
             HostPlatform::Windows,
             HostPlatform::Macos,
             HostPlatform::Linux,
-            HostPlatform::Ios,
             HostPlatform::Harmony,
         ] {
             assert!(HostCapabilities::for_platform(platform).voice_stream_preedit);
