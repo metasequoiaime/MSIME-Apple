@@ -1,0 +1,60 @@
+#include "../DictionaryQuiesceLease.h"
+
+#include <cassert>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <unistd.h>
+
+// The lease every desktop input host reads: built by both the Linux and the macOS test suites.
+int main() {
+  using msime::dictionary_lease::dictionary_quiesce_lease_live;
+  using msime::dictionary_lease::dictionary_quiesced;
+
+  assert(dictionary_quiesce_lease_live("1010000", 1000000));
+  assert(dictionary_quiesce_lease_live("1010000\n", 1000000));
+  assert(dictionary_quiesce_lease_live("1030000", 1000000));
+  // Expired, or further out than any real lease (a clock jump or a stray file), is ignored.
+  assert(!dictionary_quiesce_lease_live("1000000", 1000000));
+  assert(!dictionary_quiesce_lease_live("999999", 1000000));
+  assert(!dictionary_quiesce_lease_live("1030001", 1000000));
+  assert(!dictionary_quiesce_lease_live("", 1000000));
+  assert(!dictionary_quiesce_lease_live("10x0000", 1000000));
+  assert(!dictionary_quiesce_lease_live("-1010000", 1000000));
+  assert(!dictionary_quiesce_lease_live("99999999999999999999999", 1000000));
+
+  char pattern[] = "/tmp/msime-quiesce-XXXXXX";
+  const std::filesystem::path root = mkdtemp(pattern);
+  assert(!dictionary_quiesced(root.string(), 1000000));
+  assert(!dictionary_quiesced("", 1000000));
+  assert(!dictionary_quiesced("relative", 1000000));
+  {
+    std::ofstream(root / ".msime-dictionary-quiesce") << "1005000";
+  }
+  assert(dictionary_quiesced(root.string(), 1000000));
+  assert(dictionary_quiesced(root.string() + "/", 1000000));
+  assert(!dictionary_quiesced(root.string(), 1006000));
+  // A lease still being staged is not the lease; the rename is what raises it.
+  std::filesystem::remove(root / ".msime-dictionary-quiesce");
+  {
+    std::ofstream(root / ".msime-dictionary-quiesce.4242") << "1030000\n";
+  }
+  assert(!dictionary_quiesced(root.string(), 1000000));
+  std::filesystem::remove(root / ".msime-dictionary-quiesce.4242");
+  // A host raising the lease itself leaves exactly the lease behind, live for the bound, and lowering it clears it.
+  using msime::dictionary_lease::lower_dictionary_quiesce_lease;
+  using msime::dictionary_lease::raise_dictionary_quiesce_lease;
+  assert(raise_dictionary_quiesce_lease(root.string(), 1000000));
+  assert(dictionary_quiesced(root.string(), 1000000));
+  assert(dictionary_quiesced(root.string(), 1029999));
+  assert(!dictionary_quiesced(root.string(), 1030000));
+  assert(std::distance(std::filesystem::directory_iterator(root), std::filesystem::directory_iterator()) == 1);
+  lower_dictionary_quiesce_lease(root.string());
+  assert(!dictionary_quiesced(root.string(), 1000000));
+  assert(std::filesystem::is_empty(root));
+  assert(!raise_dictionary_quiesce_lease("relative", 1000000));
+  assert(!raise_dictionary_quiesce_lease((root / "missing").string(), 1000000));
+  std::filesystem::remove_all(root);
+  return 0;
+}

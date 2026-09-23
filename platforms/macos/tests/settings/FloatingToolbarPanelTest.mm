@@ -47,6 +47,21 @@ static NSButton *FindButton(NSView *view, NSString *identifier) {
     return nil;
 }
 
+static NSView *FindView(NSView *view, NSString *identifier) {
+    if ([view.accessibilityIdentifier isEqualToString:identifier]) return view;
+    for (NSView *subview in view.subviews) {
+        NSView *found = FindView(subview, identifier);
+        if (found) return found;
+    }
+    return nil;
+}
+
+// Mirrors the panel's width: buttons and their gaps, the 20pt trailing run, and the 29.2pt leading run of grip (18), gap (2), divider (1.2) and gap (8).
+static double ExpectedWidth(double count, double fontSize, double factor) {
+    const double gaps = count > 0 ? count - 1 : 0;
+    return std::ceil((count * (fontSize + 18.0) + gaps * 8.0 + 20.0 + (18.0 + 2.0 + 1.2 + 8.0)) * factor);
+}
+
 static void SendButton(NSButton *button) {
     assert(button != nil && button.target != nil && button.action != nullptr);
     [NSApp sendAction:button.action to:button.target from:button];
@@ -58,8 +73,9 @@ int main() {
 
         NSRect visible = NSMakeRect(-1200.0, -800.0, 1920.0, 1080.0);
         NSRect defaultFrame = MSIMEFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 1.0, 1.0), visible, NO);
-        assert(defaultFrame.size.width == 422.0 && defaultFrame.size.height == 44.0);
-        assert(defaultFrame.origin.x == NSMaxX(visible) - 442.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
+        assert(defaultFrame.size.width == 442.0 && defaultFrame.size.height == 44.0);
+        assert(defaultFrame.size.width == ExpectedWidth(8, 24, 1));
+        assert(defaultFrame.origin.x == NSMaxX(visible) - 462.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
         NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
         assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
         assert(MetasequoiaFloatingToolbarShouldShow(YES, YES, NO));
@@ -163,6 +179,44 @@ int main() {
         assert([voice.accessibilityLabel isEqualToString:@"开始或结束语音输入"]);
         assert([voice.toolTip isEqualToString:voice.accessibilityLabel]);
         assert(inputMode && punctuation && fullWidth && traditional && handwriting && voice && settings);
+
+        // The reference's ToolbarDragHandle and ToolbarDivider lead the row. Dragging the grip moves the panel; pressing a button never does.
+        NSView *grip = FindView(panel.contentView, @"MetasequoiaFloatingToolbarGrip");
+        NSView *divider = FindView(panel.contentView, @"MetasequoiaFloatingToolbarDivider");
+        assert(grip != nil && divider != nil && grip.mouseDownCanMoveWindow && panel.movableByWindowBackground);
+        [panel.contentView layoutSubtreeIfNeeded];
+        {
+            const NSRect gripRect = [grip convertRect:grip.bounds toView:panel.contentView];
+            const NSRect dividerRect = [divider convertRect:divider.bounds toView:panel.contentView];
+            const NSRect firstRect = [inputMode convertRect:inputMode.bounds toView:panel.contentView];
+            assert(NSMaxX(gripRect) <= NSMinX(dividerRect) && NSMaxX(dividerRect) <= NSMinX(firstRect));
+        }
+        for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, handwriting, keyboard, voice, settings]) {
+            assert(!button.mouseDownCanMoveWindow);
+            [button updateTrackingAreas];
+            BOOL alwaysActive = NO;
+            for (NSTrackingArea *area in button.trackingAreas)
+                if ((area.options & NSTrackingActiveAlways) != 0 && (area.options & NSTrackingMouseEnteredAndExited) != 0) alwaysActive = YES;
+            assert(alwaysActive);
+        }
+
+        // Hover and pressed fill: the reference's ToolbarIconButton constants, white 0.10 on dark and black 0.08 on light, never the candidate-row hover token.
+        NSEvent *entered = [NSEvent enterExitEventWithType:NSEventTypeMouseEntered location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:panel.windowNumber context:nil eventNumber:0 trackingNumber:0 userData:NULL];
+        NSEvent *exited = [NSEvent enterExitEventWithType:NSEventTypeMouseExited location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:panel.windowNumber context:nil eventNumber:0 trackingNumber:0 userData:NULL];
+        [inputMode mouseEntered:entered];
+        assert([[inputMode valueForKey:@"hovered"] boolValue]);
+        [inputMode mouseExited:exited];
+        assert(![[inputMode valueForKey:@"hovered"] boolValue]);
+        // A hidden window gets no mouseExited:, so hiding the toolbar clears the hover itself.
+        [inputMode mouseEntered:entered];
+        [panel orderOut:nil];
+        assert(![[inputMode valueForKey:@"hovered"] boolValue]);
+        [panel applyThemePreferences:@{@"toolbar_theme": @"dark"}];
+        assert([[inputMode valueForKey:@"hoverFillColor"] isEqual:[NSColor colorWithSRGBRed:1 green:1 blue:1 alpha:0.10]]);
+        assert([[divider valueForKey:@"fillColor"] isEqual:[NSColor colorWithSRGBRed:1 green:1 blue:1 alpha:0.15]]);
+        [panel applyThemePreferences:@{@"toolbar_theme": @"light"}];
+        assert([[inputMode valueForKey:@"hoverFillColor"] isEqual:[NSColor colorWithSRGBRed:0 green:0 blue:0 alpha:0.08]]);
+        assert([[divider valueForKey:@"fillColor"] isEqual:[NSColor colorWithSRGBRed:0 green:0 blue:0 alpha:0.12]]);
         for (NSNumber *scale in @[@75, @100, @125, @150]) {
             for (NSNumber *size in @[@16, @18, @20, @22, @24, @26, @28]) {
                 NSDictionary *preferences = @{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size}};
@@ -172,7 +226,7 @@ int main() {
                 // the frame: setVisible: applies it when the toolbar is placed. Resizing a hidden window
                 // would otherwise persist a frame through its autosave name.
                 const NSSize preferred = [[panel valueForKey:@"preferredSize"] sizeValue];
-                assert(preferred.width == std::ceil((422.0 + 8.0 * (size.doubleValue - 24.0)) * factor));
+                assert(preferred.width == ExpectedWidth(8, size.doubleValue, factor));
                 assert(preferred.height == std::ceil((size.doubleValue + 20.0) * factor));
                 // Every size here scales to a multiple of half a point, which is a whole pixel on a Retina screen and not on a 1x one - the CI runner's display - where AppKit rounds the first item too.
                 assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 18.0) * factor) <= 1.0 / panel.backingScaleFactor);
@@ -197,7 +251,7 @@ int main() {
                 assert(NSEqualSizes(stablePreferred, [[panel valueForKey:@"preferredSize"] sizeValue]));
                 [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size, @"screen_keyboard": @YES}}];
                 assert(!keyboard.hidden && keyboard.superview != nil);
-                assert([[panel valueForKey:@"preferredSize"] sizeValue].width == std::ceil((472.0 + 9.0 * (size.doubleValue - 24.0)) * factor));
+                assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(9, size.doubleValue, factor));
                 assert([keyboard.contentTintColor isEqual:settings.contentTintColor]);
                 NSImage *expectedKeyboard = [keyboard.image imageWithSymbolConfiguration:
                     [NSImageSymbolConfiguration configurationWithPointSize:size.doubleValue * factor weight:NSFontWeightRegular]];
@@ -206,7 +260,7 @@ int main() {
             }
         }
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
-        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(422.0, 44.0)));
+        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(442.0, 44.0)));
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
         FloatingToolbarTestDelegate *sizingDelegate = [FloatingToolbarTestDelegate new];
         // Configured while hidden, so it is the preferred size that carries it; showing the toolbar is what
@@ -232,9 +286,14 @@ int main() {
             [panel applySizingPreferences:@{@"floating_toolbar": components}];
             for (NSUInteger index = 0; index < keys.count; ++index)
                 assert(optionalButtons[index].hidden == ((mask & (1u << index)) == 0));
-            assert([[panel valueForKey:@"preferredSize"] sizeValue].width == std::ceil((count * 46.0 + (count - 1) * 8.0 + 30.0) * 1.5));
+            assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(count, 28, 1.5));
             assert(inputMode.superview != nil);
-            CGFloat previousRight = 0;
+            // The grip and then the divider lead the row; every visible button sits right of them.
+            const NSRect gripRect = [grip convertRect:grip.bounds toView:panel.contentView];
+            const NSRect dividerRect = [divider convertRect:divider.bounds toView:panel.contentView];
+            assert(!divider.hidden && std::abs(NSMinX(gripRect)) < 0.01 && std::abs(NSWidth(gripRect) - 27.0) <= 1.0 / panel.backingScaleFactor);
+            assert(NSMinX(dividerRect) >= NSMaxX(gripRect) && std::abs(NSWidth(dividerRect) - 1.8) <= 1.0 / panel.backingScaleFactor);
+            CGFloat previousRight = NSMaxX(dividerRect);
             for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, handwriting, keyboard, voice, settings]) {
                 if (button.hidden) continue;
                 const NSRect rect = [button convertRect:button.bounds toView:panel.contentView];
@@ -243,16 +302,21 @@ int main() {
                 previousRight = NSMaxX(rect);
             }
         }
+        // With every button off the divider goes, but the grip stays so the panel can still be dragged.
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"english_mode": @NO, @"punctuation": @NO, @"fullwidth": @NO, @"character_set": @NO, @"emoji": @NO, @"handwriting": @NO, @"screen_keyboard": @NO, @"voice": @NO, @"settings": @NO}}];
+        assert(FindView(panel.contentView, @"MetasequoiaFloatingToolbarGrip") == grip && !grip.hidden && divider.hidden);
+        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(0, 24, 1));
         [panel applySizingPreferences:@{}];
+        assert(!divider.hidden);
         for (NSButton *button in optionalButtons) {
             assert(button.hidden == (button == keyboard));
             if (!button.hidden) assert(button.superview != nil);
         }
-        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 422.0);
+        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 442.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @"invalid"}}];
-        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 422.0);
+        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 442.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @YES}}];
-        assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 472.0);
+        assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(9, 24, 1));
 
         [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
         assert([inputMode.title isEqualToString:@"英"] && [punctuation.title isEqualToString:@"."] &&
@@ -349,5 +413,34 @@ int main() {
         SendButton(emoji);
         assert(newDelegate.emojiRequests == 1 && delegate.emojiRequests == 1);
         [panel deactivateForDelegate:newDelegate];
+
+        // Selecting another input source is the reference's WM_IMEDEACTIVATE: the toolbar hides and lets go of whichever controller owned it, so that controller can no longer show it again. Whether the first show actually puts the panel on screen depends on the frontmost app being fullscreen, so the reactivation is compared against it rather than against a fixed value.
+        FloatingToolbarTestDelegate *residentOwner = [FloatingToolbarTestDelegate new];
+        [panel activateForDelegate:residentOwner visible:YES];
+        const BOOL shownWhenActive = panel.visible;
+        assert(panel.toolbarDelegate == residentOwner);
+        [panel deactivateForInputSourceSwitch];
+        assert(!panel.visible && panel.toolbarDelegate == nil);
+        [panel setVisible:YES forDelegate:residentOwner];
+        assert(!panel.visible && panel.toolbarDelegate == nil);
+        SendButton(keyboard);
+        assert(residentOwner.keyboardRequests == 0);
+
+        // The next activation, which is the user selecting MSIME again, shows it as before.
+        FloatingToolbarTestDelegate *returningOwner = [FloatingToolbarTestDelegate new];
+        [panel activateForDelegate:returningOwner visible:YES];
+        assert(panel.toolbarDelegate == returningOwner && panel.visible == shownWhenActive);
+        [panel deactivateForInputSourceSwitch];
+        assert(!panel.visible && panel.toolbarDelegate == nil);
+
+        // A resident toolbar whose owner is freed (the client app quit) hides on the next refresh, which every application activation triggers, instead of leaving buttons that reach nobody.
+        @autoreleasepool {
+            FloatingToolbarTestDelegate *transientOwner = [FloatingToolbarTestDelegate new];
+            [panel activateForDelegate:transientOwner visible:YES];
+            assert(panel.visible == shownWhenActive);
+        }
+        assert(panel.toolbarDelegate == nil);
+        [[NSWorkspace sharedWorkspace].notificationCenter postNotificationName:NSWorkspaceDidActivateApplicationNotification object:[NSWorkspace sharedWorkspace]];
+        assert(!panel.visible);
     }
 }

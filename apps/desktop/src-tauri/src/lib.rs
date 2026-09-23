@@ -5,6 +5,8 @@
 ))]
 mod ai;
 mod clipboard_history;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod dictionary_quiesce;
 // Only the two hosts that have to replay input into another window build this.
 // macOS delivers through the input method itself and needs none of it.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -1626,12 +1628,8 @@ async fn dictionary_request(
         let requires_quiesce = dictionary_action_requires_quiesce(&action);
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         let _ = requires_quiesce;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let user_data = options["user_data"].as_str().map(str::to_owned);
-        #[cfg(target_os = "macos")]
-        if requires_quiesce {
-            msime_host_macos::quiesce_input_sessions();
-        }
         let request = serde_json::json!({ "options": options, "action": action });
         #[cfg(target_os = "ios")]
         if ios_personal_dictionary_action(&request["action"]) {
@@ -1649,29 +1647,16 @@ async fn dictionary_request(
         #[cfg(not(target_os = "android"))]
         {
             let first = msime_host_api::dictionary_request_json(&bytes);
-            #[cfg(target_os = "macos")]
-            if requires_quiesce {
-                // Distributed notifications are delivered asynchronously to
-                // the IMK process.  Retry only the lock-acquisition failure;
-                // a completed write is never replayed.
-                let mut result = first;
-                for _ in 0..20 {
-                    if !matches!(&result, Err(reason) if reason == "dictionary maintenance busy") {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                    result = msime_host_api::dictionary_request_json(&bytes);
-                }
-                return result.map_err(|reason| CommandError {
-                    code: dictionary_error_code(&reason),
-                });
-            }
-            // The IBus and Fcitx5 hosts release their sessions when they next see the lease, so the lock failure is retried under it.
-            #[cfg(target_os = "linux")]
+            // The input hosts release their sessions when they see the lease, so the lock failure is retried under it. The IBus and Fcitx5 hosts find it on their timers; the macOS input method is also told at once over a distributed notification, and its one-second timer catches one that was missed.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             if requires_quiesce {
                 let mut first = Some(first);
-                return platform::linux::linux_dictionary_quiesce::with_quiesced_hosts(
+                return dictionary_quiesce::with_quiesced_hosts(
                     user_data.as_deref(),
+                    || {
+                        #[cfg(target_os = "macos")]
+                        msime_host_macos::quiesce_input_sessions();
+                    },
                     || match first.take() {
                         Some(result) => result,
                         None => msime_host_api::dictionary_request_json(&bytes),

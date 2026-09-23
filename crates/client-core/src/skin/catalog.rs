@@ -230,6 +230,13 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     if !contained(root, &dir) || !contained(&dir, &manifest) {
         return Err("manifest escapes skin directory".into());
     }
+    // Check the type before opening: opening a FIFO for reading blocks until a writer appears, which would stall the scan and every host that resolves a skin.
+    if !fs::metadata(&manifest)
+        .map_err(|_| "missing skin.toml".to_owned())?
+        .is_file()
+    {
+        return Err("skin.toml is not a regular file".into());
+    }
     let input = fs::File::open(&manifest).map_err(|_| "missing skin.toml".to_owned())?;
     if !input
         .metadata()
@@ -480,6 +487,21 @@ pub fn read_resource(
         content_type,
         bytes,
     })
+}
+
+/// Validate one installed package with the same rules `scan` applies, without reading the rest of the root. Native presenters use this to resolve the selected skin, so a package the settings page lists as valid is the one they draw. Like `scan`, a symlinked package directory is not a package.
+pub fn load_package(root: impl AsRef<Path>, id: &str) -> Result<SkinSummary, String> {
+    let root = root.as_ref();
+    if !safe_id(id) || is_builtin(id) {
+        return Err("invalid skin id".into());
+    }
+    if !fs::symlink_metadata(root.join(id))
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
+    {
+        return Err("missing skin directory".into());
+    }
+    load(root, id)
 }
 
 pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {

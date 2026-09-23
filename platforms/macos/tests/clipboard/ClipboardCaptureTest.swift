@@ -33,11 +33,30 @@ import AppKit
       assert(capture.sample(enabled: true) == nil && source.reads == reads)
     }
     source.types = [.string]
-    for invalid in ["", "synthetic\0invalid", String(repeating: "界", count: 4001)] {
+    for invalid in ["", "\r", "synthetic\0invalid"] {
       source.changeCount += 1
       source.value = invalid
       assert(capture.sample(enabled: true) == nil)
     }
+    let normalizedCases: [(String, String)] = [
+      (String(repeating: "界", count: 4001), String(repeating: "界", count: 4000)),
+      (String(repeating: "😀", count: 2001), String(repeating: "😀", count: 2000)),
+      (String(repeating: "a", count: 3999) + "😀", String(repeating: "a", count: 3999)),
+      ("synthetic\r\0", "synthetic"),
+      ("form\u{000C}feed\u{007F}", "form\u{000C}feed\u{007F}")
+    ]
+    for (input, expected) in normalizedCases {
+      source.changeCount += 1
+      source.value = input
+      let normalized = capture.sample(enabled: true)!
+      assert(normalized.text == expected && normalized.text.utf16.count <= MacClipboardTextLimits.maxUTF16Units)
+      capture.acknowledge(normalized)
+    }
+    source.changeCount += 1
+    source.value = String(repeating: "界", count: 4001)
+    let truncated = capture.sample(enabled: true)!
+    assert(truncated.text.utf16.count == MacClipboardTextLimits.maxUTF16Units && truncated.text.utf8.count == MacClipboardTextLimits.maxUTF8Bytes)
+    capture.acknowledge(truncated)
     source.changeCount += 1
     source.value = String(repeating: "界", count: 4000)
     let bounded = capture.sample(enabled: true)!
@@ -70,6 +89,6 @@ import AppKit
     board.setString("synthetic marked", forType: .string)
     board.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
     assert(native.sample(enabled: true) == nil)
-    print("Clipboard sampling baseline, filters, retry, race, restart and isolated pasteboard tests passed")
+    print("Clipboard sampling baseline, filters, normalization, retry, race, restart and isolated pasteboard tests passed")
   }
 }

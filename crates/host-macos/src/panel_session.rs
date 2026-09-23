@@ -164,9 +164,7 @@ pub fn validate_clipboard_text(text: &str) -> Result<(), SessionError> {
     if text.is_empty()
         || text.len() > 12_000
         || text.encode_utf16().count() > 4_000
-        || text
-            .chars()
-            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+        || text.contains('\0')
     {
         return Err(SessionError::Invalid);
     }
@@ -214,6 +212,7 @@ mod tests {
             "中".repeat(4000),
             "😀".repeat(2000),
             "中".repeat(3997) + "\r\n\t",
+            "form\u{000C}feed\u{1b}escape".into(),
         ] {
             assert_eq!(validate_clipboard_text(&text), Ok(()));
         }
@@ -222,7 +221,7 @@ mod tests {
             "a".repeat(4001),
             "😀".repeat(2001),
             "synthetic\0".into(),
-            "synthetic\u{1b}".into(),
+            "synthetic\0\u{1b}".into(),
         ] {
             assert_eq!(validate_clipboard_text(&text), Err(SessionError::Invalid));
         }
