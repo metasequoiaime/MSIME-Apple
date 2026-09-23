@@ -197,6 +197,24 @@ char *msime_client_typing_statistics(const uint8_t *request, size_t length);
  * invalid directory or unreadable document. Intended for native capture gates:
  * call on activation or a settings-change notification, never per keystroke. */
 int32_t msime_client_typing_statistics_enabled(const uint8_t *directory, size_t length);
+/* Read or update 背单词 wordbooks and review progress under an absolute UTF-8
+ * application data directory. Every action answers with the whole status
+ * -- {wordbooks,settings,due,answeredToday,introducing,remaining,queue} -- so a
+ * host keeps one request in flight and never follows a change with its own read.
+ * {directory,day:"YYYY-MM-DD",action:{operation:"load"}}
+ * {directory,day,action:{operation:"answer",word,known}}
+ *   known is the 认识 button; false is 不认识 and returns the card to the same day.
+ * {directory,day,action:{operation:"set_settings",wordbook,new_per_day,session_limit}}
+ * {directory,day,action:{operation:"import",name,text}}
+ *   text is a CSV/TXT word list; the library mints the id and selects the book.
+ * {directory,day,action:{operation:"remove",wordbook}}
+ * {directory,day,action:{operation:"reset"}} clears progress, keeps the books.
+ * `day` is the caller's local day and is required by every action: the counts and
+ * the queue are per-day and this layer cannot resolve the host's timezone.
+ * Requests may be up to 8 MiB rather than the usual 64 KiB, because an imported
+ * word list is a few hundred kilobytes of text. Takes a file lock and reads the
+ * library: call on a worker, never on the input path. */
+char *msime_client_vocabulary_review(const uint8_t *request, size_t length);
 /* Scan an absolute UTF-8 skin root and return the catalog the settings page
  * sees: {packages:[...],issues:[...]}. Reads the directory: use a worker.
  * An unreadable root is an empty catalog; an invalid package becomes an issue
