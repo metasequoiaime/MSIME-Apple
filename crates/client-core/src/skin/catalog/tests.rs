@@ -655,3 +655,21 @@ fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
     );
     assert_eq!(published.last(), Some(&beyond));
 }
+
+#[test]
+fn external_ids_are_the_folder_names_the_scan_lists() {
+    for id in ["sample", "0day", "a.b_c-d"] {
+        assert!(is_external_id(id), "{id}");
+    }
+    for id in [
+        "",
+        "Sample",
+        ".hidden",
+        "-dash",
+        "a b",
+        "willow_green",
+        &"a".repeat(65),
+    ] {
+        assert!(!is_external_id(id), "{id}");
+    }
+}
