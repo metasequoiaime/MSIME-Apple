@@ -420,8 +420,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   @discardableResult
   func setTouchKeyboardScheme(_ scheme: ChineseInputScheme,
                               enabledSchemes: [ChineseInputScheme]) -> Bool {
+    guard let mapping = Self.schemeMapping(scheme, enabledSchemes: enabledSchemes) else { return false }
+    return updateAndPersist(mapping)
+  }
+
+  /// The document fields a scheme selection writes; nil when no scheme is enabled. The settings app writes the same fields, so the keyboard does not put its own older selection back.
+  static func schemeMapping(_ scheme: ChineseInputScheme,
+                            enabledSchemes: [ChineseInputScheme]) -> ((inout [String: Any]) -> Void)? {
     let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) }
-    guard !enabled.isEmpty else { return false }
+    guard !enabled.isEmpty else { return nil }
     let selected = enabled.contains(scheme) ? scheme : enabled[0]
     let engineScheme: String
     switch selected {
@@ -455,7 +462,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         "selected": selectedID,
       ]
     }
-    return updateAndPersist(mapping)
+    return mapping
   }
 
   /// Apply a selection the user made in this keyboard to both places it has to hold.
@@ -505,6 +512,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     persistSharedPreferences(stateRoot: sharedStateRoot(stateRoot), mutate) != nil
   }
 
+  /// `msime_client_save_preferences`'s snapshot bound: large enough for a custom skin's photo.
+  private static let preferencesDocumentLimit = 1_048_576
+
   /// The App Group directory holding the shared preference document, where the keyboard also keeps its diagnostic log.
   static var sharedStateDirectory: String { sharedStateRoot(nil) }
 
@@ -529,7 +539,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                    "preferences": preferences]
     guard JSONSerialization.isValidJSONObject(document),
           let snapshot = try? JSONSerialization.data(withJSONObject: document),
-          snapshot.count <= 16_384 else { return nil }
+          snapshot.count <= Self.preferencesDocumentLimit else { return nil }
     let saved: [String: Any]
     do {
       saved = try directory.withUnsafeBytes { directoryBytes -> [String: Any] in
@@ -550,12 +560,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return (saved["revision"] as? NSNumber)?.uint64Value ?? storedRevision.uint64Value
   }
 
-  /// Persist a built-in touch-keyboard skin in the canonical PreferencesStore.
+  /// Persist a touch-keyboard skin in the canonical PreferencesStore, with the custom design when one is given: the next appearance copies both back over the App Group, so a custom pick saved without its design reverted to the document's.
   /// The native App Group value remains a compatibility mirror for old hosts.
   @discardableResult
-  func setTouchKeyboardSkin(_ skin: KeyboardSkin) -> Bool {
-    updateAndPersist { preferences in
+  func setTouchKeyboardSkin(_ skin: KeyboardSkin, design: CustomKeyboardSkin? = nil) -> Bool {
+    let value = design.map(CustomKeyboardSkin.documentValue)
+    if design != nil, value == nil { return false }
+    return updateAndPersist { preferences in
       preferences["touch_keyboard_skin"] = skin.rawValue
+      if let value { preferences["custom_touch_keyboard_skin"] = value }
     }
   }
 
