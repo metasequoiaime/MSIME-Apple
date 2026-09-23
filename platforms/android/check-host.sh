@@ -177,6 +177,16 @@ if rg -q 'putString\(ITEMS_KEY' \
   echo "Android must not write clipboard entries to its own private document" >&2
   exit 1
 fi
+# Both maintenance chords are Ctrl+Shift+Alt, and the modifier branch in onKeyDown hands every
+# such combination to the application. Routing them through one named policy, ahead of that branch,
+# is what keeps them reachable at all on a keyboard that has no long press.
+if ! rg -q 'HardwareMaintenancePolicy\.action' \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+  || ! rg -q 'msime_client_reset_cache' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android maintenance chords must route through HardwareMaintenancePolicy and the shared API" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
@@ -309,6 +319,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareShortcutPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/settings/HardwareMaintenancePolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/NumberRowSelectionPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/WordCharacterPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/CandidateNavigationPolicySmoke.java" \
@@ -382,6 +393,7 @@ java -cp "$output_dir" AppIconStyleSmoke
 java -cp "$output_dir" SmartPunctuationContextSmoke
 java -cp "$output_dir" HardwareKeyPolicySmoke
 java -cp "$output_dir" app.msime.client.HardwareShortcutPolicySmoke
+java -cp "$output_dir" HardwareMaintenancePolicySmoke
 java -cp "$output_dir" NumberRowSelectionPolicySmoke
 java -cp "$output_dir" WordCharacterPolicySmoke
 java -cp "$output_dir" CandidateNavigationPolicySmoke

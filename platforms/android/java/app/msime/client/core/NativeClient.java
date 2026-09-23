@@ -191,6 +191,10 @@ public final class NativeClient {
      * <p>The Engine decides what a punctuation key produces, so a toggle that only changed the key
      * faces on this keyboard would show one mark and commit the other.
      */
+    /** Drop the cached candidate list for this session; the next query is answered fresh. */
+    public static String resetCache(long session) {
+        return text(resetCacheRaw(session));
+    }
     public static String setChinesePunctuation(long session, boolean enabled) {
         return text(setChinesePunctuationRaw(session, enabled));
     }
@@ -332,6 +336,7 @@ public final class NativeClient {
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
+    private static native byte[] resetCacheRaw(long session);
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
