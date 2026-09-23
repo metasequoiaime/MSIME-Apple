@@ -66,4 +66,83 @@ final class CandidatePaletteTests: XCTestCase {
     let color = try XCTUnwrap(CandidatePalette.color(hex: "#A0b1C2"))
     XCTAssertEqual(CandidatePalette.hex(color), "#a0b1c2")
   }
+
+  private func skinsRoot(_ manifests: [String: String]) throws -> URL {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+    for (id, manifest) in manifests {
+      let folder = root.appendingPathComponent(id, isDirectory: true)
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      try manifest.write(to: folder.appendingPathComponent("skin.toml"), atomically: true, encoding: .utf8)
+    }
+    return root
+  }
+
+  private func manifest(_ id: String, layouts: String = "'horizontal', 'vertical'", themes: String = "'light'",
+                        colors: String) -> String {
+    """
+    schema_version = 1
+    id = '\(id)'
+    name = 'Sample'
+    version = '1.0'
+    base = 'wechat'
+    [supports]
+    layouts = [\(layouts)]
+    themes = [\(themes)]
+    [candidate_window]
+    [candidate_window.decoration]
+    [candidate.light]
+    \(colors)
+    """
+  }
+
+  /// An imported skin extends its base with the colours it declares; the user's own overrides still come last.
+  func testImportedSkinExtendsItsBase() throws {
+    let root = try skinsRoot(["sakura": manifest("sakura", colors: """
+      surface = '#fff0f5'
+      text = '#112233'
+      border = '#ff000080'
+      accent = 'pink'
+      """)])
+    let palette = CandidatePalette.resolve(["candidate_skin": "sakura", "candidate_theme": "light"],
+                                           systemDark: false, skinsRoot: root)
+    let base = CandidatePalette.builtIn("wechat", dark: false)
+    XCTAssertEqual(hex(palette.surface), "#fff0f5")
+    XCTAssertEqual(hex(palette.text), "#112233")
+    XCTAssertEqual(hex(palette.border), "#ff0000")
+    XCTAssertEqual(palette.border.cgColor.alpha, CGFloat(0x80) / 255, accuracy: 0.001)
+    XCTAssertEqual(palette.accent, base.accent, "a colour the desktop windows would refuse is ignored")
+    XCTAssertEqual(palette.selected, base.selected)
+
+    let overridden = CandidatePalette.resolve(
+      ["candidate_skin": "sakura", "candidate_theme": "light", "candidate_surface_color": "#010203"],
+      systemDark: false, skinsRoot: root)
+    XCTAssertEqual(hex(overridden.surface), "#010203")
+  }
+
+  /// A package is drawn only for the horizontal layout and a theme it declares; a folder the catalog rejects is never drawn.
+  func testImportedSkinOutsideWhatItSupportsFallsBack() throws {
+    let root = try skinsRoot([
+      "tall": manifest("tall", layouts: "'vertical'", colors: "surface = '#fff0f5'"),
+      "lightonly": manifest("lightonly", colors: "surface = '#fff0f5'"),
+      "mismatch": manifest("other", colors: "surface = '#fff0f5'"),
+    ])
+    let fallbackLight = CandidatePalette.builtIn("willow_green", dark: false)
+    XCTAssertEqual(CandidatePalette.resolve(["candidate_skin": "tall", "candidate_theme": "light"],
+                                            systemDark: false, skinsRoot: root), fallbackLight)
+    XCTAssertEqual(CandidatePalette.resolve(["candidate_skin": "mismatch", "candidate_theme": "light"],
+                                            systemDark: false, skinsRoot: root), fallbackLight)
+    XCTAssertEqual(CandidatePalette.resolve(["candidate_skin": "lightonly", "candidate_theme": "dark"],
+                                            systemDark: false, skinsRoot: root),
+                   CandidatePalette.builtIn("willow_green", dark: true))
+    XCTAssertEqual(hex(CandidatePalette.resolve(["candidate_skin": "lightonly", "candidate_theme": "light"],
+                                                systemDark: false, skinsRoot: root).surface), "#fff0f5")
+  }
+
+  func testBorderAcceptsAlphaAndTransparent() {
+    XCTAssertEqual(CandidatePalette.borderColor("transparent")?.cgColor.alpha, 0)
+    XCTAssertEqual(CandidatePalette.borderColor("#00ff00").map(hex), "#00ff00")
+    XCTAssertNil(CandidatePalette.borderColor("#00ff0"))
+    XCTAssertNil(CandidatePalette.borderColor("#00ff00zz"))
+  }
 }

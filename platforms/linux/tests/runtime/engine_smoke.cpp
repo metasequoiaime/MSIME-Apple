@@ -537,6 +537,106 @@ int main(int argc, char **argv) {
       invoke("FocusOut");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
+      // Voice input is not part of the input mode, as on Windows: it records in English mode, where no Engine session exists yet, and switching modes mid-recording does not cancel it.
+      auto english_voice = options;
+      english_voice.erase("preferences_directory");
+      english_voice["preferences"]["ime_mode_scope"] = "app";
+      english_voice["preferences"]["default_ime_mode"] = "english";
+      english_voice["preferences"]["keybindings"]["switch_language_shift"] = true;
+      msime_ibus_configure(english_voice.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      require(!seen.input_enabled, "English voice fixture did not start in English mode");
+      // The menu entry records too, and Esc still cancels, without an Engine session.
+      auto voice_starts = voice_provider.started.load();
+      auto voice_cancels = voice_provider.cancelled.load();
+      auto voice_finals = voice_provider.finished.load();
+      invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Voice menu did not start recording in English mode");
+      voice_provider.release_partial = true;
+      require(wait_until([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
+              "English-mode recording did not show streaming preedit");
+      require(key(IBUS_Escape) && !seen.preedit_visible && seen.committed.empty(),
+              "Esc did not cancel an English-mode recording");
+      require(wait_until([&] { return voice_provider.cancelled.load() == voice_cancels + 1; }),
+              "Esc did not cancel English-mode capture at the provider");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return voice_provider.finished.load() == voice_finals + 1; }),
+              "Cancelled English-mode provider did not finish");
+      // Ctrl+F9 starts, stops and commits a recording without ever leaving English mode, so the result lands with no Engine session or view to render.
+      voice_starts = voice_provider.started.load();
+      voice_cancels = voice_provider.cancelled.load();
+      auto voice_stops = voice_provider.stop_requests.load();
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 was not consumed in English mode");
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Ctrl+F9 did not start recording in English mode");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 did not stop an English-mode recording");
+      require(wait_until([&] { return voice_provider.stop_requests.load() == voice_stops + 1; }),
+              "Ctrl+F9 stop did not reach the provider in English mode");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return !seen.committed.empty(); }),
+              "English-mode recording without a mode switch did not commit");
+      require(seen.committed == "synthetic voice" && !seen.preedit_visible &&
+                  !seen.input_enabled && voice_provider.cancelled.load() == voice_cancels,
+              "English-mode recording did not commit the provider text once and stay in English mode");
+      seen.committed.clear();
+      // Ctrl+F9 starts a recording in English mode; a Shift switch to Chinese leaves it running, and the provider text is committed without an Engine session to confirm it.
+      voice_starts = voice_provider.started.load();
+      voice_cancels = voice_provider.cancelled.load();
+      voice_stops = voice_provider.stop_requests.load();
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 was not consumed in English mode");
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Ctrl+F9 did not start recording in English mode");
+      voice_provider.release_partial = true;
+      require(wait_until([&] { return seen.preedit == "测试😀" && seen.preedit_visible; }),
+              "Ctrl+F9 English-mode recording did not show streaming preedit");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
+              "Shift did not switch to Chinese during an English-mode recording");
+      require(seen.preedit == "测试😀" && seen.preedit_visible,
+              "Switching modes took down the voice preedit");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 did not stop the recording after the mode switch");
+      require(wait_until([&] { return voice_provider.stop_requests.load() == voice_stops + 1; }),
+              "Ctrl+F9 stop did not reach the provider after the mode switch");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return seen.committed == "synthetic voice"; }),
+              "English-mode recording did not commit the provider text");
+      require(voice_provider.cancelled.load() == voice_cancels && !seen.preedit_visible,
+              "Switching modes cancelled an English-mode recording");
+      seen.committed.clear();
+      // A recording bound to the Engine session in Chinese mode survives a switch to English and still goes through the Engine.
+      voice_starts = voice_provider.started.load();
+      voice_stops = voice_provider.stop_requests.load();
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 was not consumed in Chinese mode");
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Ctrl+F9 did not start recording in Chinese mode");
+      require(!key(IBUS_Shift_L) && !key(IBUS_Shift_L, IBUS_RELEASE_MASK) && !seen.input_enabled,
+              "Shift did not switch to English during a Chinese-mode recording");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK) &&
+                  key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+              "Ctrl+F9 did not stop the Chinese-mode recording in English mode");
+      require(wait_until([&] { return voice_provider.stop_requests.load() == voice_stops + 1; }),
+              "Ctrl+F9 stop did not reach the provider in English mode");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return seen.committed == "synthetic voice"; }),
+              "Chinese-mode recording did not commit after switching to English");
+      require(voice_provider.cancelled.load() == voice_cancels,
+              "Switching to English cancelled a Chinese-mode recording");
+      seen.committed.clear();
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
       // Under the "follow" lock the mode switch re-resolves punctuation: a Ctrl+. choice made in Chinese mode does not survive a round trip through English mode, and English mode leaves ASCII marks alone.
       auto follow = options;
       follow.erase("preferences_directory");
@@ -1604,8 +1704,12 @@ int main(int argc, char **argv) {
       }
       return ready();
     };
+    // The English-mode voice cases above already used the shared provider fixture, whose counters only grow.
+    const auto base_voice_starts = voice_provider.started.load();
+    const auto base_voice_cancels = voice_provider.cancelled.load();
+    const auto base_voice_finals = voice_provider.finished.load();
     invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
-    require(wait_voice([&] { return voice_provider.started.load() == 1; }),
+    require(wait_voice([&] { return voice_provider.started.load() == base_voice_starts + 1; }),
             "Synthetic voice capture did not start");
     require(seen.first_candidate_fix_name.empty() &&
                 seen.first_candidate_clear_name.empty(),
@@ -1618,13 +1722,19 @@ int main(int argc, char **argv) {
     invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
     require(seen.preedit == "测试😀" && seen.preedit_cursor == 3 && seen.preedit_visible,
             "Voice preedit redraw used a UTF-8 byte offset");
+    // Switching modes through the menu keeps the recording, like the mode shortcuts.
     mode(PROP_STATE_UNCHECKED);
-    require(!seen.preedit_visible, "Voice cancellation left streaming preedit visible");
-    require(wait_voice([&] { return voice_provider.cancelled.load() == 1; }),
-            "Disabling input through the menu did not cancel voice capture");
+    require(!seen.input_enabled && seen.preedit == "测试😀" && seen.preedit_visible,
+            "Disabling input through the menu took down the voice recording");
     mode(PROP_STATE_CHECKED);
+    require(seen.input_enabled && seen.preedit == "测试😀" && seen.preedit_visible,
+            "Re-enabling input through the menu took down the voice recording");
+    require(key(IBUS_Escape) && !seen.preedit_visible,
+            "Voice cancellation left streaming preedit visible");
+    require(wait_voice([&] { return voice_provider.cancelled.load() == base_voice_cancels + 1; }),
+            "Esc did not cancel voice capture after the menu mode switches");
     voice_provider.release_final = true;
-    require(wait_voice([&] { return voice_provider.finished.load() == 1; }),
+    require(wait_voice([&] { return voice_provider.finished.load() == base_voice_finals + 1; }),
             "Synthetic late voice result did not finish");
     const auto voice_settle = g_get_monotonic_time() + 100000;
     while (g_get_monotonic_time() < voice_settle) {
@@ -1632,14 +1742,14 @@ int main(int argc, char **argv) {
       g_usleep(1000);
     }
     require(seen.committed.empty() && seen.input_enabled,
-            "Cancelled voice result committed after input was re-enabled");
+            "Cancelled voice result committed late");
     invoke("PropertyActivate", g_variant_new("(su)", "VoiceInput", PROP_STATE_CHECKED));
-    require(wait_voice([&] { return voice_provider.started.load() == 2; }),
-            "Voice capture could not restart after mode cancellation");
+    require(wait_voice([&] { return voice_provider.started.load() == base_voice_starts + 2; }),
+            "Voice capture could not restart after cancellation");
     voice_provider.release_final = true;
     const bool fresh_committed = wait_voice([&] { return seen.committed == "synthetic voice"; });
     require(fresh_committed,
-            "Fresh voice result did not commit after mode cancellation");
+            "Fresh voice result did not commit after cancellation");
     seen.committed.clear();
     // Recreating the Engine session on the same IBus object must invalidate
     // callbacks from the old session, even when the voice generation resets.

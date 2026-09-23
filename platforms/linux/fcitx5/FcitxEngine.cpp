@@ -252,6 +252,8 @@ using CandidateSkinCatalog = std::vector<msime::linux_host::CandidateSkin>;
 // policy bounds this table and provides an anonymous fallback.
 msime::linux_host::ClientInputModeMemory fcitx_app_input_modes;
 std::optional<bool> fcitx_global_input_mode;
+// Addon scope too: the statistics store is one per preferences directory, not one per input context.
+msime::linux_host::TypingStatisticsSwitch fcitx_typing_statistics{msime_client_typing_statistics_enabled};
 
 CandidateSkinCatalog parseCandidateSkinCatalog(const Json &options) {
   return msime::linux_host::parse_configured_skins(options);
@@ -1569,6 +1571,7 @@ public:
       if (!session_ || options_path_.empty() || !ic_.hasFocus() || restricted()) return;
       preferences_job_session_ = session_;
       preferences_job_ = std::async(std::launch::async, [directory = options_path_] {
+        fcitx_typing_statistics.refresh(directory);
         return response(msime_client_try_load_preferences(
             reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
       }).share();
@@ -1858,6 +1861,8 @@ public:
   }
   void recordTypingStatistics(const std::string &text,
                               msime::linux_host::TypingSource source) const {
+    // With statistics off nothing below runs: no date, no request, no thread, no store lock.
+    if (!fcitx_typing_statistics.enabled()) return;
     if (text.empty() || options_path_.empty() || privateInput()) return;
     const auto directory = options_path_;
     if (directory.front() != '/') return;
@@ -2796,7 +2801,7 @@ public:
   bool key(fcitx::KeyEvent &event);
   // Characters the IME hands back to the application are still typed text: Windows counts them in the statistics (ShouldCountPassthroughChar), so English-mode letters and Chinese-mode keys the Engine declines show up in the daily totals. Keys the IME consumed already recorded their committed text.
   void countPassthroughKey(const fcitx::KeyEvent &event) const {
-    if (event.isRelease() || !ic_.hasFocus() || restricted()) return;
+    if (event.isRelease() || !ic_.hasFocus() || restricted() || !fcitx_typing_statistics.enabled()) return;
     const auto states = event.key().states();
     msime::linux_host::PassthroughModifiers held;
     held.control = states.test(fcitx::KeyState::Ctrl);
@@ -4583,6 +4588,17 @@ public:
       msime_linux_diagnostic_write("operation_failed operation=dictionary_generation_refresh");
     }
   }
+  // At startup, before any context has a session: the first commits should not wait for a preference tick to learn whether statistics are on.
+  static void refreshTypingStatistics() {
+    try {
+      const auto options = readOptions();
+      const auto directory = options.find("preferences_directory");
+      if (directory != options.end() && directory->is_string())
+        fcitx_typing_statistics.refresh(directory->get<std::string>());
+    } catch (...) {
+      // No options yet (first run) or a document being replaced; the preference ticks refresh the switch once a context has a session.
+    }
+  }
   void applyCandidateWheelPaging(const Json &preferences) {
     const auto enabled =
         candidate_wheel_paging_sync_.next(msime::linux_host::read_candidate_wheel_paging(preferences));
@@ -4595,6 +4611,7 @@ public:
   }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     refreshOptions();
+    refreshTypingStatistics();
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
     input_mode_action_.registerAction("msime-input-mode", &instance->userInterfaceManager());

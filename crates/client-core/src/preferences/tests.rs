@@ -796,7 +796,10 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
         store.load().unwrap().preferences.mixed_input.minimum_prefix,
         5
     );
-    assert!(!store.load().unwrap().preferences.mixed_input.emoji);
+    assert_eq!(
+        store.load().unwrap().preferences.mixed_input.emoji,
+        cfg!(any(windows, target_os = "macos"))
+    );
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
     for mask in 0..8 {
         let preferences = Preferences {
@@ -1848,7 +1851,7 @@ fn smart_punctuation_sub_switches_survive_a_save() {
 
     // A document that predates them reads them as their defaults, which is what the family's
     // parent says: the two halves of 智能标点 follow it, and the space rewrite does not.
-    let following_parent = !cfg!(windows);
+    let following_parent = !cfg!(any(windows, target_os = "macos"));
     let defaults = serde_json::to_value(Preferences::default()).unwrap();
     assert_eq!(
         defaults["smart_punctuation_space_convert"],
@@ -1905,13 +1908,10 @@ fn smart_punctuation_sub_switches_survive_a_save() {
     }
 }
 
-// The Windows installer ships every smart-punctuation switch disabled, and the
-// running Server reads this document rather than that template. A fresh
-// Windows profile must therefore start with the family off; every other host
-// keeps what it has shipped. A stored value is never reinterpreted either way.
+// The source ships every smart-punctuation switch disabled, and the running host reads this document rather than the installed template. A fresh Windows or macOS profile must therefore start with the family off, macOS following the desktop product it ports; Linux, Android, iOS and HarmonyOS keep what they have shipped. A stored value is never reinterpreted either way.
 #[test]
-fn smart_punctuation_first_run_follows_the_windows_baseline() {
-    let expected = !cfg!(windows);
+fn smart_punctuation_first_run_follows_the_source_on_desktop_ports() {
+    let expected = !cfg!(any(windows, target_os = "macos"));
     let defaults = Preferences::default();
     assert_eq!(defaults.smart_punctuation, expected);
     assert_eq!(defaults.smart_punctuation_repeat, expected);
@@ -1983,6 +1983,87 @@ fn voice_first_run_follows_the_source_on_desktop_ports() {
     assert_eq!(loaded.polish_text, !expected);
 }
 
+// The source template ships voice polishing through DeepSeek (`deepseek-v4-flash`) and the AI assistant on against the same endpoint and model; the Windows installer template says the same, and macOS follows the desktop product it ports. The other hosts keep SiliconFlow/Qwen and the assistant off, and a stored value is never reinterpreted.
+#[test]
+fn polish_and_ai_first_run_follow_the_source_on_desktop_ports() {
+    let desktop = cfg!(any(windows, target_os = "macos"));
+    let defaults = Preferences::default();
+    defaults.validate().expect("default preferences validate");
+    let voice = &defaults.voice_input;
+    let ai = &defaults.ai_assistant;
+    if desktop {
+        assert_eq!(voice.polish_provider, "deepseek");
+        assert_eq!(
+            voice.polish_endpoint,
+            "https://api.deepseek.com/chat/completions"
+        );
+        assert_eq!(voice.polish_model, "deepseek-v4-flash");
+        assert!(ai.enabled);
+        assert_eq!(ai.endpoint, "https://api.deepseek.com/chat/completions");
+        assert_eq!(ai.model, "deepseek-v4-flash");
+    } else {
+        assert_eq!(voice.polish_provider, "siliconflow");
+        assert_eq!(
+            voice.polish_endpoint,
+            "https://api.siliconflow.cn/v1/chat/completions"
+        );
+        assert_eq!(voice.polish_model, "Qwen/Qwen3-8B");
+        assert!(!ai.enabled);
+        assert!(ai.endpoint.is_empty());
+        assert!(ai.model.is_empty());
+    }
+    assert_eq!(ai.provider, "deepseek");
+    // No token ships, so turning the assistant on sends nothing until the user adds one.
+    assert!(ai.token.is_empty() && ai.tokens.is_empty());
+    assert!(voice.polish_token.is_empty() && voice.polish_tokens.is_empty());
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    legacy["preferences"]["ai_assistant"]
+        .as_object_mut()
+        .unwrap()
+        .remove("enabled")
+        .unwrap();
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded.ai_assistant.enabled, desktop);
+
+    let mut stored = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    stored["preferences"]["ai_assistant"]["enabled"] = false.into();
+    stored["preferences"]["voice_input"]["polish_provider"] = "siliconflow".into();
+    stored["preferences"]["voice_input"]["polish_endpoint"] =
+        "https://api.siliconflow.cn/v1/chat/completions".into();
+    stored["preferences"]["voice_input"]["polish_model"] = "Qwen/Qwen3-8B".into();
+    fs::write(store.path(), serde_json::to_vec(&stored).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert!(!loaded.ai_assistant.enabled);
+    assert_eq!(loaded.voice_input.polish_provider, "siliconflow");
+    assert_eq!(
+        loaded.voice_input.polish_endpoint,
+        "https://api.siliconflow.cn/v1/chat/completions"
+    );
+    assert_eq!(loaded.voice_input.polish_model, "Qwen/Qwen3-8B");
+}
+
+#[test]
+fn mixed_emoji_first_run_follows_the_source_on_desktop_ports() {
+    let expected = cfg!(any(windows, target_os = "macos"));
+    let mixed = Preferences::default().mixed_input;
+    assert_eq!(mixed.emoji, expected);
+    // The source ships kaomoji mixed-input off on every platform.
+    assert!(!mixed.kaomoji);
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut stored = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    stored["preferences"]["mixed_input"]["emoji"] = (!expected).into();
+    fs::write(store.path(), serde_json::to_vec(&stored).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences.mixed_input;
+    assert_eq!(loaded.emoji, !expected);
+    assert!(!loaded.kaomoji);
+}
+
 /// The HarmonyOS host has no way to match on this type.
 ///
 /// Its settings page reaches this store through the C ABI, whose error channel is a single string
@@ -2051,7 +2132,7 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     edited.voice_input.polish_token = "fixture-polish-token".into();
     edited.voice_input.polish_enabled = true;
     edited.ai_assistant.token = "fixture-ai-token".into();
-    edited.ai_assistant.enabled = true;
+    edited.ai_assistant.enabled = !Preferences::default().ai_assistant.enabled;
     edited.custom_translation.api_key = "fixture-custom-key".into();
     edited.tencent_tmt.secret_id = "fixture-tencent-id".into();
     edited.tencent_tmt.secret_key = "fixture-tencent-key".into();
@@ -2071,7 +2152,7 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     );
     assert_eq!(restored.fuzzy_pinyin.enabled, defaults.fuzzy_pinyin.enabled);
     assert!(!restored.voice_input.polish_enabled);
-    assert!(!restored.ai_assistant.enabled);
+    assert_eq!(restored.ai_assistant.enabled, defaults.ai_assistant.enabled);
 
     // The fixture itself has to be a document the store would accept, or this proves nothing.
     edited.validate().expect("edited fixture validates");

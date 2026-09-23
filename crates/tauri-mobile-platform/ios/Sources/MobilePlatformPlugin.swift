@@ -5,6 +5,7 @@ import Darwin
 import Security
 import Tauri
 import UIKit
+import UniformTypeIdentifiers
 
 private struct SetAppIconArgs: Decodable {
   let style: String
@@ -476,6 +477,7 @@ private struct SaveKeyboardPreferencesArgs: Decodable {
   let hapticsEnabled: Bool
   let hapticStrength: String
   let englishSuggestions: Bool
+  let candidatePaletteFollowsDesktop: Bool
   let dictionaryLearning: Bool
   let keyboardSkin: String
   let customKeyboardSkin: String?
@@ -654,6 +656,7 @@ private struct IOSKeyboardPreferenceStore {
       "hapticsEnabled": defaults.bool(forKey: "keyboardHapticsEnabled"),
       "hapticStrength": Self.hapticStrengths.contains(strength) ? strength : "medium",
       "englishSuggestions": defaults.object(forKey: "english.suggestions") as? Bool ?? true,
+      "candidatePaletteFollowsDesktop": defaults.bool(forKey: "candidate_palette_follows_desktop"),
       "dictionaryLearning": defaults.bool(forKey: "dictionaryLearningEnabled"),
       "keyboardSkin": Self.skinOrder.contains(skin) ? skin : "forest",
       "customKeyboardSkin": customSkinJSON() as Any? ?? NSNull(),
@@ -685,6 +688,7 @@ private struct IOSKeyboardPreferenceStore {
     defaults.set(args.hapticsEnabled, forKey: "keyboardHapticsEnabled")
     defaults.set(args.hapticStrength, forKey: "keyboardHapticStrength")
     defaults.set(args.englishSuggestions, forKey: "english.suggestions")
+    defaults.set(args.candidatePaletteFollowsDesktop, forKey: "candidate_palette_follows_desktop")
     defaults.set(args.dictionaryLearning, forKey: "dictionaryLearningEnabled")
     defaults.set(args.keyboardSkin, forKey: "keyboardSkin")
     if let custom = args.customKeyboardSkin {
@@ -832,6 +836,34 @@ private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerD
   }
 }
 
+/// Keeps the folder picker's delegate alive while the invoke is pending. It reports the folder, or nil when the user dismissed the picker, exactly once, whichever way the sheet went away.
+private final class SkinFolderPickerCoordinator: NSObject, UIDocumentPickerDelegate,
+    UIAdaptivePresentationControllerDelegate {
+  private var finish: ((URL?) -> Void)?
+
+  init(finish: @escaping (URL?) -> Void) {
+    self.finish = finish
+  }
+
+  private func complete(_ url: URL?) {
+    let finish = self.finish
+    self.finish = nil
+    finish?(url)
+  }
+
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    complete(urls.first)
+  }
+
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    complete(nil)
+  }
+
+  func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+    complete(nil)
+  }
+}
+
 final class MobilePlatformPlugin: Plugin {
   private static let onboardingKey = "hasCompletedOnboarding"
   private let accountSession = AccountSessionKeychain()
@@ -840,6 +872,9 @@ final class MobilePlatformPlugin: Plugin {
   private let voiceHandoff = VoiceTextHandoffWriter()
   private let voiceTranscription = IOSVoiceTranscriptionService()
   private var appleSignIn: AppleSignInCoordinator?
+  private var skinFolderPicker: SkinFolderPickerCoordinator?
+  /// The picked folder while Rust copies it; security-scoped access is per process, so holding it here is what lets the copy read the folder.
+  private var skinFolderAccess: (url: URL, scoped: Bool)?
   private var previewFeedback: UIImpactFeedbackGenerator?
 
   private func onMain(_ action: @escaping () -> Void) {
@@ -1005,6 +1040,53 @@ final class MobilePlatformPlugin: Plugin {
       controller.delegate = coordinator
       controller.presentationContextProvider = coordinator
       controller.performRequests()
+    }
+  }
+
+  /// Lets the user pick a skin folder in Files and hands its path to Rust, which copies it into the App Group skin folder. The folder stays readable until `endSkinFolderAccess`. Dismissing the picker resolves with no path: changing one's mind is not a failure.
+  @objc public func pickSkinFolder(_ invoke: Invoke) {
+    onMain { [weak self] in
+      guard let self else { return }
+      guard self.skinFolderPicker == nil, self.skinFolderAccess == nil else {
+        invoke.reject("busy", code: "busy")
+        return
+      }
+      var presenter = self.manager.viewController
+      while let presented = presenter?.presentedViewController {
+        presenter = presented
+      }
+      // The app itself targets iOS 16; the guard is for this package's older manifest floor.
+      guard let presenter, #available(iOS 14.0, *) else {
+        invoke.reject("skin_import", code: "skin_import")
+        return
+      }
+      let coordinator = SkinFolderPickerCoordinator { [weak self] url in
+        guard let self else { return }
+        self.skinFolderPicker = nil
+        guard let url else {
+          invoke.resolve(["path": NSNull()])
+          return
+        }
+        // A folder inside the app's own container is readable without a scope, and reports false here.
+        self.skinFolderAccess = (url, url.startAccessingSecurityScopedResource())
+        invoke.resolve(["path": url.path])
+      }
+      self.skinFolderPicker = coordinator
+      let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+      picker.allowsMultipleSelection = false
+      picker.delegate = coordinator
+      picker.presentationController?.delegate = coordinator
+      presenter.present(picker, animated: true)
+    }
+  }
+
+  @objc public func endSkinFolderAccess(_ invoke: Invoke) {
+    onMain { [self] in
+      if let access = skinFolderAccess, access.scoped {
+        access.url.stopAccessingSecurityScopedResource()
+      }
+      skinFolderAccess = nil
+      invoke.resolve()
     }
   }
 

@@ -162,7 +162,7 @@ jobs:
       # nothing. The release build is what verifies the real data, against the digests in the lock.
       - name: Create test dictionary
         if: ${{ needs.changes.outputs.build == 'true' }}
-        run: if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime.db"; else touch "$RUNNER_TEMP/msime.db"; fi
+        run: python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime.db"
       - name: Type-check registration helper
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: |

@@ -1302,6 +1302,20 @@ const localModeRows = [
     "中文模式下按 Shift+R，之后按日语罗马字处理。空格上屏首选；数字选词；上屏后回到中文",
   ],
 ] as const;
+/** The iOS keyboard has no Shift chords for these: a mode opens from its 本地输入 menu, reached by tapping the idle 水杉输入法 title on the candidate bar or from 更多, under the names that menu uses, and candidates are tapped rather than numbered. */
+function iosLocalModeEntry(title: string): string {
+  return `在候选栏点「水杉输入法」，或在「更多 → 本地输入」里选「${title}」，`;
+}
+const iosLocalModeDescriptions: Record<(typeof localModeRows)[number][0], string> = {
+  quick_phrase: `${iosLocalModeEntry("快捷短语")}再输入编码即可调用快捷短语`,
+  date_time: `${iosLocalModeEntry("日期时间")}再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期`,
+  unicode: `${iosLocalModeEntry("Unicode 码点")}再输入十六进制码位（如 4e00 / +1f600）。空格或点候选上屏`,
+  emoji: `${iosLocalModeEntry("表情")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,
+  kaomoji: `${iosLocalModeEntry("颜文字")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,
+  super_jianpin: `${iosLocalModeEntry("超级简拼")}每个字母作为简拼；双拼按当前方案转换声母。空格或点候选上屏`,
+  temporary_english: `${iosLocalModeEntry("英文补全")}之后按英文处理。空格上屏当前输入，也可以点候选；上屏后回到中文`,
+  temporary_japanese: `${iosLocalModeEntry("临时日语")}之后按日语罗马字处理。空格上屏首选，也可以点候选；上屏后回到中文`,
+};
 const localDictionaryKinds: [LocalDictionaryKind, string][] = [
   ["pinyin", "全拼"],
   ["wubi", "五笔"],
@@ -1575,6 +1589,8 @@ export type MobileKeyboardFeedback = {
   hapticStrength: "light" | "medium" | "strong";
   /** iOS keeps this Apple keyboard preference in the native App Group store. */
   englishSuggestions?: boolean;
+  /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
+  candidatePaletteFollowsDesktop?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -3504,6 +3520,10 @@ export function SettingsPage({
   }
   const voiceInput = { ...defaultVoiceInput, ...draft?.voice_input };
   const systemVoice = nativeVoicePlatform && voiceInput.asr_provider === "system";
+  // Naming the host rather than assuming macOS. This read `harmonyPlatform ? "HarmonyOS" : "macOS"`
+  // and was correct while those were the only two; Android gained a system recogniser of its own
+  // and the card then announced itself as macOS on an Android phone.
+  const systemVoiceHostName = harmonyPlatform ? "HarmonyOS" : androidPlatform ? "Android" : "macOS";
   // On-device Whisper. Like the system recognizer it has no service behind it, so it hides the same endpoint, token and model rows - but unlike it, the user has to say which model file to load.
   const localVoice = macosPlatform && voiceInput.asr_provider === "local";
   const serviceVoice = !systemVoice && !localVoice;
@@ -4590,6 +4610,13 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
+                    {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
+                      <div className="section">
+                        <small>
+                          候选栏正在使用键盘皮肤的颜色，下面的候选颜色要在「皮肤」页打开「使用桌面候选皮肤」后才生效。
+                        </small>
+                      </div>
+                    )}
                     <div className="section">
                       <div className="section-header">
                         <span className="section-title">候选文字颜色</span>
@@ -5438,6 +5465,31 @@ export function SettingsPage({
                         ? "选择候选栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"
                         : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
                     </div>
+                    {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            使用桌面候选皮肤
+                            <small>
+                              关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用这里的候选皮肤和「外观」里的候选颜色。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="使用桌面候选皮肤"
+                            className="toggle"
+                            type="checkbox"
+                            disabled={mobileKeyboardFeedbackBusy}
+                            checked={mobileKeyboardFeedback.candidatePaletteFollowsDesktop}
+                            onChange={(event) =>
+                              void saveMobileKeyboardFeedback({
+                                ...mobileKeyboardFeedback,
+                                candidatePaletteFollowsDesktop: event.target.checked,
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
                     {snapshot?.candidate_skin_catalog && (
                       <div className={settings.externalMeta} role="status">
                         外部皮肤目录：
@@ -6589,7 +6641,9 @@ export function SettingsPage({
                         <span className="section-title">
                           以词定字
                           <small>
-                            开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字
+                            {iosPlatform
+                              ? "开启后，长按两个字以上的候选，可以只上屏它的首字或末字"
+                              : "开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字"}
                           </small>
                         </span>
                         <input
@@ -6612,42 +6666,45 @@ export function SettingsPage({
                           }
                         />
                       </label>
-                      <div className="word-to-character-keys-row">
-                        <div className="section-title" id="word-character-title">
-                          以词定字快捷键
+                      {/* An iOS keyboard extension never receives hardware keys; its candidates offer the first and last character on a long press instead. */}
+                      {!iosPlatform && (
+                        <div className="word-to-character-keys-row">
+                          <div className="section-title" id="word-character-title">
+                            以词定字快捷键
+                          </div>
+                          <div
+                            className="input-option-content"
+                            role="radiogroup"
+                            aria-labelledby="word-character-title"
+                          >
+                            {(
+                              [
+                                ["brackets", "[ / ]"],
+                                ["minus_equal", "- / ="],
+                              ] as const
+                            ).map(([keys, label], index) => (
+                              <div className="input-option-item" key={keys}>
+                                {index > 0 && <div className="input-option-divider" />}
+                                <label className="radio-option">
+                                  <input
+                                    type="radio"
+                                    name="word-character-keys"
+                                    checked={wordCharacter.keys === keys}
+                                    disabled={(draft.navigation ?? defaultNavigation)[keys]}
+                                    onChange={() =>
+                                      setDraft({
+                                        ...draft,
+                                        word_character: { ...wordCharacter, keys },
+                                      })
+                                    }
+                                  />
+                                  <span>{label}</span>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div
-                          className="input-option-content"
-                          role="radiogroup"
-                          aria-labelledby="word-character-title"
-                        >
-                          {(
-                            [
-                              ["brackets", "[ / ]"],
-                              ["minus_equal", "- / ="],
-                            ] as const
-                          ).map(([keys, label], index) => (
-                            <div className="input-option-item" key={keys}>
-                              {index > 0 && <div className="input-option-divider" />}
-                              <label className="radio-option">
-                                <input
-                                  type="radio"
-                                  name="word-character-keys"
-                                  checked={wordCharacter.keys === keys}
-                                  disabled={(draft.navigation ?? defaultNavigation)[keys]}
-                                  onChange={() =>
-                                    setDraft({
-                                      ...draft,
-                                      word_character: { ...wordCharacter, keys },
-                                    })
-                                  }
-                                />
-                                <span>{label}</span>
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      )}
                     </div>
                     <div className="section" role="group" aria-label="全拼纠错">
                       <div className="section-title">
@@ -7896,7 +7953,9 @@ export function SettingsPage({
                         <label className="section-header">
                           <span className="section-title">
                             {label}
-                            <small>{description}</small>
+                            <small>
+                              {iosPlatform ? iosLocalModeDescriptions[key] : description}
+                            </small>
                           </span>
                           <input
                             className="toggle"
@@ -8702,9 +8761,7 @@ export function SettingsPage({
                       </div>
                     ) : systemVoice ? (
                       <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">
-                          {harmonyPlatform ? "HarmonyOS" : "macOS"} 系统语音
-                        </div>
+                        <div className="section-title">{systemVoiceHostName} 系统语音</div>
                         <p className={settings.panelPreviewLabel}>
                           保存设置后，在目标应用中启用水杉输入法，使用键盘内的语音入口录音。不需要识别
                           API
@@ -8713,9 +8770,13 @@ export function SettingsPage({
                       </div>
                     ) : androidPlatform ? (
                       <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">Android 系统语音</div>
+                        <div className="section-title">
+                          {showVoiceProviderSettings ? "Android 语音输入" : "Android 系统语音"}
+                        </div>
                         <p className={settings.panelPreviewLabel}>
-                          从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。
+                          {showVoiceProviderSettings
+                            ? "键盘工具栏的“语音”入口按这里配置的服务商录音并转写；没有配置可用的服务商时回退到设备自带的系统语音识别，不需要任何 API Key。识别结果会回到键盘，确认后才插入当前输入框。"
+                            : "从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。"}
                         </p>
                       </div>
                     ) : iosPlatform ? (

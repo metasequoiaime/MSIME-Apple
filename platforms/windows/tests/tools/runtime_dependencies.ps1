@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 $root = Join-Path ([IO.Path]::GetTempPath()) ('msime-runtime-deps-' + [Guid]::NewGuid())
 $prefix = Join-Path $root 'dependency prefix'
 $destination = Join-Path $root 'output'
-$copy = Join-Path $PSScriptRoot '../Copy-RuntimeDependencies.ps1'
+$copy = Join-Path $PSScriptRoot '../../Copy-RuntimeDependencies.ps1'
 try {
     New-Item -ItemType Directory -Force $prefix, $destination | Out-Null
     & $copy -DependencyPrefix $prefix -Destination $destination -Architecture x64
