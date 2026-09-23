@@ -4099,8 +4099,8 @@ group("the Windows mode chords are answered on a hardware keyboard", () => {
   routing.use(DEFAULT_MODE_BINDINGS);
   check(
     routing.accept(modeKey(KEY_E, true, 0, { ctrlKey: true, shiftKey: true })) ===
-      ModeGesture.SWITCH_LANGUAGE,
-    "Ctrl+Shift+E switches the composing language",
+      ModeGesture.ENGLISH_CANDIDATES,
+    "Ctrl+Shift+E switches the English candidate mode, as Windows IsEnglishModeToggleKey does",
   );
   check(
     routing.accept(modeKey(KEY_SPACE, true, 0, { ctrlKey: true, shiftKey: true })) ===
@@ -4141,7 +4141,7 @@ group("the Windows chords are fixed rather than following the four optional bind
   // Turning off the Shift tap says nothing about Ctrl+Shift+E, and Windows binds these fixed.
   check(
     routing.accept(modeKey(KEY_E, true, 0, { ctrlKey: true, shiftKey: true })) ===
-      ModeGesture.SWITCH_LANGUAGE,
+      ModeGesture.ENGLISH_CANDIDATES,
     "Ctrl+Shift+E still answers",
   );
   check(
@@ -7662,6 +7662,21 @@ group("a hardware key spells or punctuates depending on what is being spelled", 
     route({ keyCode: 2062, unicodeChar: 0x3b }, { editing: "x", caret: 1 }).action ===
       HardwareKeyAction.PUNCTUATION,
     "other layouts never spell with ;",
+  );
+
+  const english: Partial<HardwareSpelling> = { editing: "don", caret: 3, englishCandidates: true };
+  check(
+    route({ keyCode: 2063, unicodeChar: 0x27 }, english).action === HardwareKeyAction.PUNCTUATION,
+    "in the English candidate mode ' ends the word instead of being spelled into it",
+  );
+  check(
+    route({ keyCode: 2062, unicodeChar: 0x3b }, { ...english, microsoftShuangpin: true }).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "and ; is not a shuangpin final there",
+  );
+  check(
+    route({ keyCode: 2004, unicodeChar: 0x34 }, english).action === HardwareKeyAction.SELECT,
+    "a digit still picks an English word",
   );
 });
 

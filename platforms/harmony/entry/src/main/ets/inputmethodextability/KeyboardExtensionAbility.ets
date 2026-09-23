@@ -557,6 +557,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       }
       return true;
     }
+    if (gesture === ModeGesture.ENGLISH_CANDIDATES) {
+      this.modeKeys.disarm();
+      this.showModeBadge(session.toggleEnglishCandidates());
+      KeyboardSession.shared.refreshToolbar();
+      return true;
+    }
     if (gesture === ModeGesture.TOGGLE_WIDTH) {
       session.toggleCharacterWidth();
       return true;
@@ -580,7 +586,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       return false;
     }
     const decision: HardwareKeyDecision =
-      HardwareKeyRouter.route(key, session.composing(), !session.isEnglish(),
+      HardwareKeyRouter.route(key, session.composing(), !session.isEnglish() || session.isEnglishCandidates(),
         KeyboardSession.shared.preferences().numberRowSelection,
       KeyboardSession.shared.preferences().navigation,
         session.hasHighlightedTranslation(), session.isJapanese(),

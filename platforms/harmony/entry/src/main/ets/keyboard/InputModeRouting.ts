@@ -3,7 +3,7 @@
  *
  * Four bindings, each of which the user can turn off. Three switch between Chinese and English and one, Ctrl+Shift+F, switches between simplified and traditional output, as the Windows host's `IsCharacterSetShortcut` does; which of them are live is the document's business, not this file's, so the settings page and the keyboard cannot disagree about what is bound.
  *
- * Three more come from the Windows baseline and are fixed there, so they are fixed here: Ctrl+Shift+E for the Chinese/English state, Ctrl+Shift+Space for halfwidth/fullwidth and Ctrl+. for the punctuation set. Turning off the Shift tap says nothing about any of them.
+ * Three more come from the Windows baseline and are fixed there, so they are fixed here: Ctrl+Shift+E for the English candidate mode (`IsEnglishModeToggleKey`), Ctrl+Shift+Space for halfwidth/fullwidth and Ctrl+. for the punctuation set. Turning off the Shift tap says nothing about any of them.
  *
  * Two of them are a modifier pressed and released with nothing in between, which no single event can
  * decide: Shift+A begins exactly the same way as a solitary Shift. The press only arms it and the
@@ -63,6 +63,8 @@ export enum ModeGesture {
   TOGGLE_WIDTH,
   /** Chinese punctuation becomes ASCII and back; the Windows Ctrl+. binding. */
   TOGGLE_PUNCTUATION,
+  /** Letters spell English words from the candidate list instead of Chinese, and back; the Windows Ctrl+Shift+E binding. */
+  ENGLISH_CANDIDATES,
 }
 
 function isShift(keyCode: number): boolean {
@@ -134,7 +136,7 @@ export class InputModeRouting {
       !key.logoKey
     ) {
       this.disarm();
-      return ModeGesture.SWITCH_LANGUAGE;
+      return ModeGesture.ENGLISH_CANDIDATES;
     }
     if (
       key.down &&

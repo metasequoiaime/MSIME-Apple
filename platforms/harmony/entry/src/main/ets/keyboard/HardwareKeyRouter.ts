@@ -105,6 +105,8 @@ export interface HardwareSpelling {
   readonly caret: number;
   readonly wubi: boolean;
   readonly microsoftShuangpin: boolean;
+  /** Ctrl+Shift+E's English candidate mode, where the Engine spells letters only. */
+  readonly englishCandidates: boolean;
 }
 
 export const PLAIN_SPELLING: HardwareSpelling = {
@@ -113,6 +115,7 @@ export const PLAIN_SPELLING: HardwareSpelling = {
   caret: 0,
   wubi: false,
   microsoftShuangpin: false,
+  englishCandidates: false,
 };
 
 const KEYCODE_SPACE: number = 2050;
@@ -426,6 +429,10 @@ export class HardwareKeyRouter {
     key: HardwareKey,
     spelling: HardwareSpelling,
   ): HardwareKeyDecision | undefined {
+    // An English word has no syllables, code points or shuangpin finals; the Engine takes letters only there, so these keys stay punctuation.
+    if (spelling.englishCandidates) {
+      return undefined;
+    }
     if (spelling.localMode === "unicode") {
       // U mode spells a hexadecimal code point, so the plain digits are input and Shift+1..9 picks, as on Windows.
       if (!key.shiftKey && key.unicodeChar >= DIGIT_ZERO && key.unicodeChar <= DIGIT_ZERO + 9) {

@@ -1898,3 +1898,9 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 输入法扩展（`onPreferencesReloaded`）：重新绑定模式切换键；2in1 上按新设置开关浮动工具栏与模式角标（两者共用唯一的 STATUS_BAR 面板，工具栏优先），已开的工具栏按新按钮集重排。
 
 正在组字或处于本地模式（U 模式、emoji 等）时不重建，下次获得焦点再取。云同步把偏好写入同一文档，同样通过这条路径生效。键盘自己经 `changePreferences` 写入时会同步记下新 `revision`，不会因此触发重建。
+
+### HarmonyOS 2in1 硬件键盘：Ctrl+Shift+E 英文候选模式（2026-09-23）
+
+纠正上文「`Ctrl+Shift+E` ……`InputModeRouting` 已实现」的判断：本宿主原来把它和 Shift 轻点一样当成中英切换，进入的是直接英文，硬件字母原样交给应用。来源里这是两件事：Shift 由 TSF 切中英（`FUNCTION_TOGGLE_IME_MODE`，上屏原始字母），`Ctrl+Shift+E` 是 `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState`，打开服务端的英文输入模式，字母进入组字、候选框列英文词（`UpdateEnglishInput`），TSF 侧按 `FUNCTION_CANCEL` 处理，什么都不上屏。macOS 宿主也区分两者（`toggleDedicatedEnglishMode:`，工具栏显示 En）。
+
+本宿主的引擎侧本来就是 dedicated-English 标志，差别只在硬件键是否送进引擎。现在 `ModeGesture.ENGLISH_CANDIDATES` 调 `KeyboardSession.toggleEnglishCandidates()`：打开英文模式并记下英文候选子模式，`HardwareKeyRouter` 此时把字母送进组字，音节分隔符、U 模式和微软双拼的特殊键规则都不生效（引擎在该模式只收字母），标点和中文态一样结束组字后按标点设置输出。再按一次、Shift 轻点或工具栏语言按钮都回到中文；密码与网址类编辑框强制直接英文。工具栏语言按钮显示 `En`，与来源和 macOS 一致。手机软键盘的字母一直走引擎，两种英文在手机上本就是同一个模式，不受影响。

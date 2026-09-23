@@ -1606,6 +1606,37 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.englishMode;
   }
 
+  /**
+   * True in the Windows Ctrl+Shift+E mode: English, but a hardware letter spells a word from the English candidate list instead of going straight to the editor.
+   *
+   * The Engine side is the same dedicated-English flag either way; what differs is only whether a hardware key reaches it. The touch keyboard always sends its letters through, so on a phone the two are one mode.
+   */
+  isEnglishCandidates(): boolean {
+    return this.englishMode && this.englishCandidates;
+  }
+
+  /**
+   * Ctrl+Shift+E, as `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState` on Windows.
+   *
+   * Unlike the Shift tap it commits nothing: the TSF side answers this chord with `FUNCTION_CANCEL`, and the Engine drops its composition when the dedicated-English flag flips. Leaving the mode goes back to Chinese, as the macOS host's `toggleDedicatedEnglishMode:` does.
+   */
+  toggleEnglishCandidates(): boolean {
+    if (this.handle === 0) {
+      return this.isEnglishCandidates();
+    }
+    const enabled: boolean = !this.isEnglishCandidates();
+    if (this.composing() && this.englishMode === enabled) {
+      // Direct English with a local-mode composition open: the flag does not flip, so the Engine would keep it.
+      this.cancel();
+    }
+    this.englishCandidates = enabled;
+    this.englishMode = enabled;
+    this.manualLanguageGeneration = this.editorGeneration;
+    this.modeScope.remember(this.englishMode);
+    this.applyView(client.setEnglishMode(this.handle, this.englishMode));
+    return enabled;
+  }
+
   /** True when the editor now attached needs the full letter face instead of a nine-key grid. */
   prefersFullFace(): boolean {
     return EditorPolicy.prefersFullFace(this.traits);
@@ -1684,7 +1715,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const state: ToolbarState = {
       english: this.englishMode,
-      temporaryEnglish: this.localMode === 'temporary_english',
+      temporaryEnglish: this.localMode === 'temporary_english' || this.isEnglishCandidates(),
       japanese: !this.englishMode && this.schemeName === 'japanese',
       capsLock: this.capsLock,
       chinesePunctuation: this.chinesePunctuation,
@@ -1851,6 +1882,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.finishCompositionBoundary(CompositionBoundary.MODE_SWITCH);
     this.englishMode = !this.englishMode;
+    // The Shift tap and the toolbar button go between Chinese and direct English; out of the Ctrl+Shift+E mode they go back to Chinese.
+    this.englishCandidates = false;
     this.manualLanguageGeneration = this.editorGeneration;
     // The user asked for this one, so it is the choice this application is remembered by.
     this.modeScope.remember(this.englishMode);
@@ -2052,6 +2085,10 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.manualLanguageGeneration === editorGeneration)) {
         this.englishMode = english;
         this.applyView(client.setEnglishMode(this.handle, english));
+      }
+      if (EditorPolicy.prefersLatin(this.traits)) {
+        // A password or address field takes its letters as typed, never through a candidate list.
+        this.englishCandidates = false;
       }
       if (this.onEditorChanged !== undefined) {
         this.onEditorChanged();
@@ -2481,6 +2518,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       caret: this.editingCaret,
       wubi: this.schemeName === 'wubi',
       microsoftShuangpin: this.lastView?.microsoft_shuangpin === true,
+      englishCandidates: this.isEnglishCandidates(),
     };
   }
 
@@ -2775,6 +2813,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private localMode: string = 'none';
   /** Revision of the preference document the session was last built from; -1 before the first. */
   private preferencesRevision: number = -1;
+  /** Set by Ctrl+Shift+E; only meaningful while `englishMode` is on. */
+  private englishCandidates: boolean = false;
 
   private render(view: EngineView): void {
     this.generation = view.generation;
