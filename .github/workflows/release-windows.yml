@@ -40,8 +40,9 @@ jobs:
           python scripts/fetch_engine.py
           python scripts/fetch_settled_model.py
       # Build-Client.ps1 takes installed dependency prefixes rather than a vcpkg toolchain, so the manifest is installed into one prefix per architecture: x64 for the Server, Watchdog and 64-bit TSF DLL, x86 for the 32-bit TSF DLL.
+      # Restore and save separately so a run that fails after this point still keeps the installed dependencies for the retry.
       - id: vcpkg-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/msime-deps
           key: windows-deps-${{ hashFiles('platforms/windows/vcpkg.json') }}-${{ steps.version.outputs.vcpkg-baseline }}
@@ -62,6 +63,11 @@ jobs:
             & (Join-Path $vcpkg 'vcpkg.exe') install --triplet $triplet --x-manifest-root=platforms/windows "--x-install-root=$(Join-Path $env:RUNNER_TEMP "msime-deps/$triplet")"
             if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed for $triplet" }
           }
+      - if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/msime-deps
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
       - name: Download desktop resources
         shell: pwsh
         run: |
@@ -106,9 +112,16 @@ jobs:
         # Unsigned: the code-signing certificate is a Certum SimplySign card that only exists on the release machine, so signing stays a local step (installer/Package-SimplySign.ps1). This job produces the installer that step would sign.
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
-            choco install innosetup --no-progress -y
+          $inno = "${env:ProgramFiles(x86)}\Inno Setup 6"
+          if (-not (Test-Path -LiteralPath "$inno\ISCC.exe")) {
+            choco install innosetup --version 6.7.1 --no-progress -y
             if ($LASTEXITCODE -ne 0) { throw 'Inno Setup install failed' }
+          }
+          # msime_setup.iss uses compiler:Languages\ChineseSimplified.isl, which is a user-contributed translation that the Inno Setup installer does not ship; take it from the is-6_7_1 tag.
+          $isl = "$inno\Languages\ChineseSimplified.isl"
+          if (-not (Test-Path -LiteralPath $isl)) {
+            Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/cfdf48923178df4b4f040e038b423aa555a61ffc/Files/Languages/Unofficial/ChineseSimplified.isl' -OutFile $isl
+            if ((Get-FileHash -LiteralPath $isl -Algorithm SHA256).Hash -ne '7D544B9BB1D142CFA11F2E5D3CC8ABE2E55F8E066C5124E3772675AA236E1278') { throw 'ChineseSimplified.isl digest mismatch' }
           }
           ./platforms/windows/installer/Compile-Installer.ps1
           $installer = "platforms/windows/installer/Output/MetasequoiaIME_Setup_v$env:VERSION.exe"
