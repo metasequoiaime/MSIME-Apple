@@ -4785,19 +4785,29 @@ public:
     }
     auto sym = fcitx::Key::keySymFromString(request.key);
     if (sym == FcitxKey_None) return PanelInputDelivery::Invalid;
+    // The panel knows nothing of the lock; carry the one the last real key reported so this stroke does not flip the CapsLock indicator. Only this input method has been watching the lock.
+    const bool caps = instance_->inputMethodEngine(ic) == this && ic->propertyFor(&factory_)->caps_lock_;
     fcitx::KeyStates states;
-    if (request.shift) {
-      states |= fcitx::KeyState::Shift;
-      if (sym >= FcitxKey_a && sym <= FcitxKey_z)
-        sym = static_cast<fcitx::KeySym>(sym - FcitxKey_a + FcitxKey_A);
-    }
+    if (request.shift) states |= fcitx::KeyState::Shift;
+    if (caps) states |= fcitx::KeyState::CapsLock;
+    // The panel sends letters lowercase; apply Shift and the lock the way xkb does for a physical key, so under CapsLock the stroke is an uppercase letter the editor gets, not the start of a composition.
+    const bool upper = request.shift != caps;
+    if (upper && sym >= FcitxKey_a && sym <= FcitxKey_z)
+      sym = static_cast<fcitx::KeySym>(sym - FcitxKey_a + FcitxKey_A);
+    else if (caps && !upper && sym >= FcitxKey_A && sym <= FcitxKey_Z)
+      sym = static_cast<fcitx::KeySym>(sym - FcitxKey_A + FcitxKey_a);
     if (request.control) states |= fcitx::KeyState::Ctrl;
     if (request.alt) states |= fcitx::KeyState::Alt;
     if (request.super) states |= fcitx::KeyState::Super;
     // Fcitx5 key codes are X keycodes, the evdev code plus eight.
     const fcitx::Key key(sym, states, request.keycode ? static_cast<int>(request.keycode) + 8 : 0);
-    ic->forwardKey(key, false);
-    ic->forwardKey(key, true);
+    // Through the context's input method first, the way SendInput passes through the IME on Windows: letters compose, and digits, Space and BackSpace act on an open composition.
+    msime::linux_host::deliver_panel_key_stroke(
+        [&](bool release) {
+          fcitx::KeyEvent event(ic, key, release);
+          return ic->keyEvent(event);
+        },
+        [&](bool release) { ic->forwardKey(key, release); });
     return PanelInputDelivery::Delivered;
   }
   void activate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {

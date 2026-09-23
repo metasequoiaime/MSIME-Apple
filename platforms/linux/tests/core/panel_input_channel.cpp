@@ -151,6 +151,30 @@ void keeps_requests_in_order() {
   assert(harness.replies[0].first == 1 && harness.replies[1].first == 2);
 }
 
+std::vector<std::string> stroke(bool press_consumed, bool release_consumed) {
+  std::vector<std::string> events;
+  msime::linux_host::deliver_panel_key_stroke(
+      [&](bool release) {
+        events.push_back(release ? "process release" : "process press");
+        return release ? release_consumed : press_consumed;
+      },
+      [&](bool release) { events.push_back(release ? "forward release" : "forward press"); });
+  return events;
+}
+
+void runs_keys_through_the_input_method_first() {
+  // A letter, or a digit or Space with a composition open: the input method keeps the whole stroke, and the editor sees none of it.
+  assert((stroke(true, true) == std::vector<std::string>{"process press", "process release"}));
+  // The release still reaches the input method after a consumed press, which is what ends a BackSpace hold or a shortcut stroke.
+  assert((stroke(true, false) == std::vector<std::string>{"process press", "process release"}));
+  // Nothing to compose: the editor gets the key, in the order a physical key would reach it.
+  assert((stroke(false, false) == std::vector<std::string>{"process press", "forward press",
+                                                           "process release", "forward release"}));
+  // Once the press went to the editor its release follows, or the editor would hold the key down.
+  assert((stroke(false, true) == std::vector<std::string>{"process press", "forward press",
+                                                          "process release", "forward release"}));
+}
+
 }  // namespace
 
 int main() {
@@ -162,5 +186,6 @@ int main() {
   expires_rather_than_typing_late();
   refuses_a_restricted_context_without_waiting();
   keeps_requests_in_order();
+  runs_keys_through_the_input_method_first();
   return 0;
 }

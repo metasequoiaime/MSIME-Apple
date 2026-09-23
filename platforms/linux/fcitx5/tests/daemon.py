@@ -3,6 +3,7 @@ import ctypes
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
@@ -94,6 +95,75 @@ def main():
                 assert context.ProcessKeyEvent(32, 0, 0, False, 0), "Commit key rejected"
                 wait(lambda: len(commits) == 1)
                 assert commits == ["你好"], "Unexpected committed result"
+                # Screen keyboard keys come over panel-input.sock and go through MSIME before the editor, the way SendInput passes through the IME on Windows. Keycodes are evdev codes, as the panel sends them.
+                forwarded = []
+                context.connect_to_signal("ForwardKey", lambda sym, states, release: forwarded.append((int(sym), bool(release))))
+                panel_socket = runtime / "msime-client" / "panel-input.sock"
+                wait(panel_socket.exists)
+
+                def panel(request):
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                        client.settimeout(5)
+                        client.connect(str(panel_socket))
+                        client.sendall((json.dumps(request) + "\n").encode())
+                        return json.loads(client.makefile().readline())
+
+                def panel_key(name, keycode):
+                    reply = panel({"op": "key", "key": name, "keycode": keycode})
+                    assert reply == {"ok": True}, f"Screen keyboard {name} refused"
+
+                for name, keycode in (("n", 49), ("i", 23), ("h", 35), ("a", 30), ("o", 24)):
+                    panel_key(name, keycode)
+                wait(lambda: preedits and preedits[-1] == "nihao")
+                panel_key("space", 57)
+                wait(lambda: len(commits) == 2)
+                assert commits[1] == "你好" and not forwarded, "Screen keyboard typed raw letters instead of composing"
+                # A composition started on the physical keyboard: the screen keyboard's digits select from it and its BackSpace edits it.
+                for character in "nihao":
+                    assert context.ProcessKeyEvent(ord(character), 0, 0, False, 0), "Composition key rejected"
+                wait(lambda: preedits[-1] == "nihao")
+                panel_key("2", 3)
+                wait(lambda: len(commits) == 3)
+                assert commits[2] != "你好" and all(ord(c) > 0x7f for c in commits[2]) and not forwarded, \
+                    "Screen keyboard digit did not select the second candidate"
+                # A candidate shorter than the reading leaves the rest composing.
+                context.ProcessKeyEvent(0xff1b, 0, 0, False, 0)
+                for character in "nihao":
+                    assert context.ProcessKeyEvent(ord(character), 0, 0, False, 0), "Composition key rejected"
+                wait(lambda: preedits[-1] == "nihao")
+                panel_key("BackSpace", 14)
+                wait(lambda: preedits[-1] == "niha")
+                assert not forwarded, "Screen keyboard BackSpace left the composition"
+                assert context.ProcessKeyEvent(0xff1b, 0, 0, False, 0), "Cancel key rejected"
+                # With nothing to compose, the whole stroke goes on to the editor.
+                panel_key("BackSpace", 14)
+                wait(lambda: len(forwarded) == 2)
+                assert forwarded == [(0xff08, False), (0xff08, True)], "Idle BackSpace did not reach the editor as one stroke"
+                # Handwriting, emoji and voice text is committed as it is.
+                assert panel({"op": "text", "text": "好"}) == {"ok": True}, "Panel text refused"
+                wait(lambda: len(commits) == 4)
+                assert commits[3] == "好" and len(forwarded) == 2, "Panel text did not commit as it is"
+                # Under CapsLock a physical letter arrives uppercase and goes to the editor; the screen keyboard's lowercase letter has to do the same rather than start a composition. X LockMask is 2.
+                assert not context.ProcessKeyEvent(ord("A"), 38, 2, False, 0), "CapsLock letter was composed"
+                context.ProcessKeyEvent(ord("A"), 38, 2, True, 0)
+                shown = len(preedits)
+                panel_key("a", 30)
+                wait(lambda: len(forwarded) == 4)
+                assert forwarded[2:] == [(ord("A"), False), (ord("A"), True)] and not any(preedits[shown:]), \
+                    "Screen keyboard letter under CapsLock did not reach the editor uppercase"
+                # A key without the lock reports it off again.
+                context.ProcessKeyEvent(0xff1b, 9, 0, False, 0)
+                context.ProcessKeyEvent(0xff1b, 9, 0, True, 0)
+                # In English mode the engine passes the letter on untouched, as one whole stroke. Ctrl+Alt+Space, since Fcitx5 itself claims Ctrl+Space and Shift_L. Ctrl is 4 and Alt 8.
+                assert context.ProcessKeyEvent(0x20, 65, 4 | 8, False, 0), "Ctrl+Alt+Space rejected"
+                context.ProcessKeyEvent(0x20, 65, 4 | 8, True, 0)
+                shown = len(preedits)
+                panel_key("n", 49)
+                wait(lambda: len(forwarded) == 6)
+                assert forwarded[4:] == [(ord("n"), False), (ord("n"), True)] and not any(preedits[shown:]), \
+                    "Screen keyboard letter in English mode did not reach the editor as one stroke"
+                assert context.ProcessKeyEvent(0x20, 65, 4 | 8, False, 0), "Ctrl+Alt+Space could not restore Chinese"
+                context.ProcessKeyEvent(0x20, 65, 4 | 8, True, 0)
                 context.FocusOut()
                 context.DestroyIC()
                 if os.environ.get("MSIME_TEST_GTK") == "1":

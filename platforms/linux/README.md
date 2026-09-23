@@ -143,6 +143,8 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 IBus 和 Fcitx5 宿主还提供一条比上述工具更直接的提交路径，对应 Windows 面板经 TSF 回填当前编辑器的行为：输入法进程在 `$XDG_RUNTIME_DIR/msime-client/panel-input.sock`（目录 0700、socket 0600，只接受同一 uid 的对端）监听，面板的按键、手写候选、语音结果和 Ctrl+V 优先通过它由输入法自身提交或转发，不需要 `xdotool`、`wtype` 或 `ydotool`，Wayland 下也不依赖 compositor 支持虚拟键盘协议。请求为一行 JSON：`{"op":"generation"}` 取当前焦点代次，`{"op":"text","text":"…","after_generation":N}` 提交单行文本，`{"op":"key","key":"BackSpace","keycode":14,"shift":false,"control":false,"alt":false,"super":false}` 以 X keysym 名和 evdev 键码转发按键；应答为 `{"ok":true}` 或 `{"ok":false,"error":"no_focus|restricted|invalid"}`。面板获得焦点时先取代次、释放焦点，再要求输入法只在更新的焦点上投递，所以文本不会落回面板自己的 webview；700ms 内没有新的焦点则应答 `no_focus` 并丢弃请求，不会迟到上屏。密码等受限字段应答 `restricted`，面板不再改用注入工具绕过。含换行或制表符的文本仍走剪贴板或注入工具。两个宿主同时运行时先绑定的一方提供服务，不抢占仍存活的 socket。应答缺失或无法解析时桌面宿主报告错误而不回退，避免同一文本被提交两次。
 
+`key` 请求与 Windows 屏幕键盘的 `SendInput` 一样先交给输入法：按下、松开各送一次，只有按下没被输入法消费时，才把这一对事件转发给编辑器，编辑器因此不会只收到半次按键；松开事件总会交给输入法，退格长按和已消费的快捷键都靠它收尾。这个顺序集中在 `PanelInputChannel.h` 的 `deliver_panel_key_stroke`，IBus 调引擎自己的按键处理，Fcitx5 构造 `fcitx::KeyEvent` 交给 `InputContext::keyEvent`，走该输入上下文当前的输入法。因此中文模式下屏幕键盘打出的字母起拼音组合，数字键、空格、退格作用于已有的组合串（包括物理键盘起的组合）；要打英文先切到英文模式。面板请求不带 CapsLock 状态，宿主沿用最近一次真实按键报告的锁定位，锁定时字母按物理键的规则变大写（同时按 Shift 则小写）并直接交给编辑器，不开始组字。`text` 请求（手写、Emoji、语音）仍原样上屏，不经过组字。
+
 桌面手写和语音面板支持 `preferences.handwriting_theme` 与 `preferences.voice_theme`，取值为 `follow`、`dark` 或 `light`；`follow` 继承全局主题。设置保存后，已打开的面板通过偏好变更事件立即更新外观。
 
 桌面 Emoji 面板（包括颜文字、符号和剪贴板页）支持 `preferences.emoji_theme`，同样取值为 `follow`、`dark` 或 `light`；设置保存后已打开的面板实时同步主题。
