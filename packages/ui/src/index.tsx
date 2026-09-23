@@ -69,6 +69,7 @@ export type {
 } from "./keyboard/touch-keyboard-skin-design";
 import { ExternalSkins, type SkinCatalog } from "./skin/external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
+import { VocabularyReviewPage, type VocabularyReviewClient } from "./settings/vocabulary-review";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -104,6 +105,14 @@ export {
   type TypingStatisticsClient,
   type TypingStatisticsStatus,
 } from "./settings/typing-statistics";
+export {
+  VocabularyReviewPage,
+  type VocabularyCard,
+  type VocabularyReviewClient,
+  type VocabularyReviewSettings,
+  type VocabularyReviewStatus,
+  type VocabularyWordbook,
+} from "./settings/vocabulary-review";
 export {
   AccountPage,
   type AccountChallenge,
@@ -453,6 +462,11 @@ const pages = [
     title: "词库",
     icon: new URL("./assets/dictionary.svg", import.meta.url).href,
   },
+  {
+    id: "vocabulary",
+    title: "背单词",
+    icon: new URL("./assets/vocabulary.svg", import.meta.url).href,
+  },
   { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
   {
     id: "voice",
@@ -589,6 +603,8 @@ export interface HostCapabilities {
   panel_windows: boolean;
   ime_mode_scope: boolean;
   typing_statistics: boolean;
+  /** The host has wired the shared 背单词 entry point. Absent on a host older than the field. */
+  vocabulary_review?: boolean;
   fuzzy_pinyin: boolean;
   system_fonts: boolean;
   window_chrome: boolean;
@@ -1359,6 +1375,9 @@ export function dictionaryErrorMessage(
       return "词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
     case "dictionary_import_rejected":
       return "词库拒绝了这次写入，请检查编码与词是否匹配。";
+    case "dictionary_too_large":
+      // A file over the bridge's bound, or one line too long to fit any request to the host.
+      return "词库文件过大：文件不能超过 1 MB，单行不能超过 60 KB，请拆分后再导入。";
     case "dictionary_read_rejected":
       return "词库拒绝了这次读取，请稍后重试。";
     case "dictionary_bundled_readonly":
@@ -1731,6 +1750,8 @@ export interface SettingsClient {
     setPinned?(text: string, pinned: boolean): Promise<void>;
   };
   typingStatistics?: TypingStatisticsClient;
+  /** Absent on a host that has not wired the shared vocabulary entry point. */
+  vocabularyReview?: VocabularyReviewClient;
   /** The host exposes the shared fuzzy-pinyin settings. */
   fuzzyPinyin?: boolean;
   /** Android exposes Apple-compatible touch-keyboard scheme visibility and selection. */
@@ -4053,6 +4074,7 @@ export function SettingsPage({
     (item) =>
       (item.id !== "home" || Boolean(client.home)) &&
       (item.id !== "typing-statistics" || Boolean(client.typingStatistics)) &&
+      (item.id !== "vocabulary" || Boolean(client.vocabularyReview)) &&
       (item.id !== "account" || Boolean(client.account || client.appIcon)) &&
       (item.id !== "chat" || Boolean(client.chat)) &&
       (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)) &&
@@ -4639,8 +4661,12 @@ export function SettingsPage({
                 openSystemSettings={client.openSystemKeyboardSettings}
               />
             )}
+            {client.vocabularyReview && page === "vocabulary" && (
+              <VocabularyReviewPage client={client.vocabularyReview} mobile={mobilePlatform} />
+            )}
             {draft &&
               page !== "typing-statistics" &&
+              page !== "vocabulary" &&
               page !== "account" &&
               page !== "chat" &&
               page !== "more" &&
@@ -10292,6 +10318,7 @@ export function SettingsPage({
                 </form>
               )}
             {page !== "typing-statistics" &&
+              page !== "vocabulary" &&
               page !== "account" &&
               page !== "chat" &&
               page !== "community" && (

@@ -412,7 +412,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     let activated = loop {
         match activate(handle, &expected) {
-            Err(error) if error == "snapshot access busy" => {
+            Err("snapshot access busy") => {
                 assert!(
                     std::time::Instant::now() < deadline,
                     "released dictionary lock remained busy"

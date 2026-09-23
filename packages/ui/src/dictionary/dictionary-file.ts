@@ -31,7 +31,12 @@ export function decodeDictionaryBytes(bytes: Uint8Array): string {
   }
 }
 
+/** The largest dictionary file the settings page reads. The desktop bridge sends a larger import to the host as several requests, so this, not the host's 64 KiB per request, is the bound a user meets. */
+export const MAX_DICTIONARY_FILE_BYTES = 1_048_576;
+
 export async function readDictionaryFile(file: File): Promise<string> {
+  if (file.size > MAX_DICTIONARY_FILE_BYTES)
+    throw new Error("文件不能超过 1 MB，请拆分后分别导入。");
   return decodeDictionaryBytes(new Uint8Array(await file.arrayBuffer()));
 }
 

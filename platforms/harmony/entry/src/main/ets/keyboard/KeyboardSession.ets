@@ -21,7 +21,6 @@ import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFe
 import { HardwareNavigationPreferences, HardwareSpelling } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import common from '@ohos.app.ability.common';
-import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
 import { HardwareKeyTarget } from './HardwareKeyDispatch';
@@ -1688,6 +1687,33 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.chinesePunctuation;
   }
 
+  /**
+   * Insert a hardware key's printable ASCII character as its fullwidth form, the Windows double-byte mode. Returns false with fullwidth off, so the key goes back to the application.
+   */
+  widen(ascii: number): boolean {
+    if (!this.fullWidth || ascii < 0x20 || ascii > 0x7e || this.inputClient === undefined) {
+      return false;
+    }
+    this.clearSmartPunctuationRepeat();
+    this.insert(String.fromCharCode(ascii));
+    return true;
+  }
+
+  /** Whether direct ASCII is written in its fullwidth form. */
+  isFullWidth(): boolean {
+    return this.fullWidth;
+  }
+
+  /**
+   * Count a hardware character the keyboard handed to the application, as Windows counts the keys it does not eat (`stats_passthrough.h`). Only for an editor this keyboard composes for: a password field is not the user's typing to keep a record of.
+   */
+  recordPassthrough(character: number, ctrl: boolean, alt: boolean, logo: boolean): void {
+    if (!this.composes() || !TypingStatisticsPolicy.countsPassthrough(character, ctrl, alt, logo)) {
+      return;
+    }
+    this.recordTypingStatistics(String.fromCodePoint(character), this.typingSource());
+  }
+
   /** Halfwidth ASCII or its fullwidth twin, which Ctrl+Shift+F toggles. */
   toggleCharacterWidth(): boolean {
     if (this.handle === 0) {
@@ -1809,6 +1835,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   toggleCharacterSet(): void {
     this.traditional = !this.traditional;
     this.writePreference('traditional_chinese_output', this.traditional);
+    // The candidate bar shows converted text, so the list on screen follows the switch at once.
+    this.publishCurrentCandidates();
   }
 
   /** One value, through the same store the settings page writes, revision check and all. */
@@ -2874,10 +2902,6 @@ export class KeyboardSession implements HardwareKeyTarget {
   private translationSignature: string = '';
   private readonly translationCache: Map<string, string> = new Map<string, string>();
   private readonly translationNegativeCache: Map<string, number> = new Map<string, number>();
-  // ICU's Simplified-Traditional, which is the same transliteration Android reaches through its own
-  // ICU and Apple through its host boundary. Built once: constructing one per commit would pay for
-  // the table on every keystroke.
-  private converter: i18n.Transliterator | undefined = undefined;
   private editing: string = '';
   private japaneseConversionIndex: number = -1;
   private japaneseConversionReading: string = '';
@@ -2922,7 +2946,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const entries: CandidateEntry[] = [];
     for (const candidate of view.candidates) {
       entries.push({
-        text: candidate.text,
+        text: this.asTraditional(candidate.text),
         highlighted: candidate.highlighted,
         badge: CandidatePresentationPolicy.badge(candidate.source),
         fixedPosition: candidate.fixed_position,
@@ -2976,7 +3000,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const view: EngineView | undefined = this.lastView;
     if (view === undefined || this.onChanged === undefined) return;
     const entries: CandidateEntry[] = view.candidates.map((candidate: Candidate): CandidateEntry => ({
-      text: candidate.text, highlighted: candidate.highlighted,
+      text: this.asTraditional(candidate.text), highlighted: candidate.highlighted,
       badge: CandidatePresentationPolicy.badge(candidate.source),
       fixedPosition: candidate.fixed_position, source: candidate.source,
       translation: candidate.translation ?? null,
@@ -4077,27 +4101,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   /**
    * Simplified to Traditional, where the user asked for it and the text is Chinese to begin with.
    *
-   * A converter that fails must not lose the text, so anything it cannot do falls back to what came
-   * in. The policy decides whether it applies at all; Japanese and the local modes are not Chinese
-   * output however the setting reads.
+   * The conversion is the shared phrase-level OpenCC s2t tables compiled into the native library, the same one the Windows, macOS, Linux and Android hosts call, so 头发 becomes 頭髮 and 发展 becomes 發展 here exactly as there. A converter that fails must not lose the text, so anything it cannot do falls back to what came in. The policy decides whether it applies at all; dedicated English, Japanese and the temporary Japanese mode are not Chinese output however the setting reads.
    */
   private asTraditional(text: string): string {
-    if (!this.traditional) {
-      return text;
-    }
-    if (this.converter === undefined) {
-      try {
-        this.converter = i18n.Transliterator.getInstance('Simplified-Traditional');
-      } catch (error) {
-        KeyboardLog.error(`no simplified-to-traditional transliterator: ${describeError(error)}`);
-        this.traditional = false;
-        return text;
-      }
-    }
-    const converter: i18n.Transliterator = this.converter;
-    return ChineseOutputPolicy.output(text, true,
+    return ChineseOutputPolicy.output(text, this.traditional,
       ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode),
-      (value: string): string => converter.transform(value));
+      (value: string): string | null => client.simplifiedToTraditional(value));
   }
 
   /**
@@ -4443,7 +4452,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const entries: ExpandedCandidate[] = [];
       for (const candidate of response.value.candidates) {
         entries.push({
-          text: candidate.text,
+          text: this.asTraditional(candidate.text),
           annotation: CandidateGlossPolicy.annotation(candidate.annotation,
             candidate.translation ?? null, this.candidateGlossEnabled),
           annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(

@@ -36,6 +36,7 @@ import {
   type ProviderCredentialStatus,
   type VoiceCredentialSaveResult,
   type TypingStatisticsClient,
+  type VocabularyReviewClient,
   type PanelClient,
   type VoicePanelClient,
   type Preferences,
@@ -150,6 +151,22 @@ const typingStatistics: TypingStatisticsClient = {
   setEnabled: (enabled: boolean) => invoke("set_typing_statistics_enabled", { enabled }),
   setRetention: (retention: string) => invoke("set_typing_statistics_retention", { retention }),
   reset: () => invoke("reset_typing_statistics"),
+};
+// Every method answers with the whole status, so the page keeps one request in flight rather than
+// following each change with a read of its own. The local day is resolved on the Rust side, which
+// is the process that knows the machine's timezone.
+const vocabularyReview: VocabularyReviewClient = {
+  load: () => invoke("load_vocabulary_review"),
+  answer: (word, known) => invoke("answer_vocabulary_card", { word, known }),
+  setSettings: (settings) =>
+    invoke("set_vocabulary_settings", {
+      wordbook: settings.wordbook,
+      newPerDay: settings.newPerDay,
+      sessionLimit: settings.sessionLimit,
+    }),
+  importWordbook: (name, text) => invoke("import_vocabulary_wordbook", { name, text }),
+  removeWordbook: (wordbook) => invoke("remove_vocabulary_wordbook", { wordbook }),
+  reset: () => invoke("reset_vocabulary_review"),
 };
 const client: SettingsClient = {
   readAppVersion: getVersion,
@@ -565,6 +582,9 @@ function DesktopSettings() {
                       },
                 }
               : {}),
+            // A host binary older than the capability sends no field and reads as false, which
+            // hides the page rather than offering buttons whose every press would fail.
+            ...(host.vocabulary_review ? { vocabularyReview } : {}),
             // This shell registers no download handler, and the macOS WKWebView cancels every download link without one, so the host writes the export into Downloads itself and the page can say where the file went. Linux runs the same shell and takes the same path; Windows' WebView2 and the mobile webviews keep the download link.
             ...(host.platform === "macos" || host.platform === "linux"
               ? {

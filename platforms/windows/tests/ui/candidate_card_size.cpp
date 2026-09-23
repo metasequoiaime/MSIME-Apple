@@ -621,4 +621,27 @@ int main() {
     }
     require(caught);
   }
+
+  // The selection bar keeps the shipped presenter's fixed height and stays centred when the row grows, instead of stretching with it.
+  {
+    const auto metrics = candidate_card_metrics(16.0, 16.0, true);
+    const double row_top = 30.0;
+    const auto single =
+        candidate_selection_bar(row_top, row_top + metrics.candidate_row, 16.0);
+    require(near(single.bottom - single.top, 16.0 * 0.85));
+    require(near((single.top + single.bottom) / 2.0,
+                 row_top + metrics.candidate_row / 2.0));
+    const double wrapped_bottom = row_top + metrics.candidate_row * 3.0;
+    const auto tall = candidate_selection_bar(row_top, wrapped_bottom, 16.0);
+    require(near(tall.bottom - tall.top, single.bottom - single.top));
+    require(near((tall.top + tall.bottom) / 2.0,
+                 (row_top + wrapped_bottom) / 2.0));
+    // The height follows the font size, not the row.
+    const auto large = candidate_selection_bar(0.0, 200.0, 32.0);
+    require(near(large.bottom - large.top, 32.0 * 0.85));
+    // A row shorter than the bar starts it at the row top, as the presenter clamps it.
+    const auto squeezed = candidate_selection_bar(10.0, 15.0, 16.0);
+    require(near(squeezed.top, 10.0) &&
+            near(squeezed.bottom - squeezed.top, 16.0 * 0.85));
+  }
 }

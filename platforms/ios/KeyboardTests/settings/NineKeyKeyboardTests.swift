@@ -45,7 +45,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         for width in [320.0, 414.0] {
           let controller = KeyboardViewController()
           controller.loadViewIfNeeded()
-          controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+          controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
           controller.view.layoutIfNeeded()
           let space = try button("spaceKey", in: controller)
           let enter = try button("returnKey", in: controller)
@@ -281,7 +281,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       let ordinary = UUID()
       controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
       for type in [UIKeyboardType.asciiCapable, .emailAddress, .URL] {
@@ -417,7 +417,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       try button("skinShortcut", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
@@ -647,7 +647,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       KeyboardFeedbackPreference.defaults.set(true, forKey: KeyboardFeedbackPreference.soundKey)
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
       let more = try button("moreShortcut", in: controller)
@@ -821,7 +821,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
@@ -1062,7 +1062,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" })
       XCTAssertFalse(toolbar.isHidden)
@@ -1218,7 +1218,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       let reference = try button("nineKey6", in: controller).bounds.height
       // Handwriting has a taller canvas, covered by HandwritingTests. The kana nine-key panel
@@ -1853,7 +1853,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
-      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       let keys = try (1...9).map { try button("nineKey\($0)", in: controller) }
       let frames = keys.map { $0.convert($0.bounds, to: controller.view) }

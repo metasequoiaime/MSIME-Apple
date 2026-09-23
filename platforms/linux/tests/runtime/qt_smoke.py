@@ -1,8 +1,12 @@
 """Real Qt5/Qt6 IM-module acceptance on isolated X11 or Wayland displays, synthetic text only."""
 import os
+from pathlib import Path
 import sys
 import subprocess
 import time
+
+# The surrounding-text cases shared by the GTK and Qt smokes live in tests/input, not beside this script.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "input"))
 
 import gi
 
@@ -103,7 +107,7 @@ if os.environ.get("MSIME_TEST_INITIAL_FOCUS") == "1":
          "Initial Qt focus did not identify UTF-16 document positions")
     first.setText("")
     print(f"{qt_version} initial-focus Unicode document acceptance passed")
-keys("Shift_L")
+# The prepared options carry the shipped Chinese default, so the first letters compose without a mode switch.
 keys("n", "i", "h", "a", "o")
 wait(lambda: bool(first.preedit), "Qt did not receive composition preedit")
 assert first.text() == "", "Qt committed spelling before selection"
