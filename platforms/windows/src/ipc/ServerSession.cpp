@@ -214,9 +214,10 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
   const auto current = view();
   if (current.at("editing_text").get<std::string>().empty())
     return std::nullopt;
-  const auto local_mode = current.at("local_mode").get<std::string>();
-  action = navigation_action(packet, bindings, local_mode == "unicode",
-                              local_mode == "japanese");
+  // Japanese is a scheme (3), not a local mode; no local mode is ever named "japanese".
+  action = navigation_action(packet, bindings,
+                             current.at("local_mode").get<std::string>() == "unicode",
+                             current.value("scheme", 0u) == 3u);
   if (!action)
     return std::nullopt;
   auto result = action->command
@@ -494,7 +495,8 @@ ServerSession::word_character(const FanyImeNamedpipeData &packet,
     return std::nullopt;
   const auto current = view();
   if (current.at("local_mode") == "unknown" ||
-      current.at("editing_text").get<std::string>().empty())
+      current.at("editing_text").get<std::string>().empty() ||
+      !word_character_edge(packet, binding, current.value("scheme", 0u) == 3u))
     return std::nullopt;
   std::string fallback;
   for (const auto &candidate : current.at("candidates")) {

@@ -43,6 +43,10 @@ EncodedReply uiless_composition(uint64_t request, const std::string &display,
     throw std::logic_error("Missing candidate highlight");
   return uiless_reply(request, display, candidates, highlighted);
 }
+// The reference's CandidateTextForOutput: the Japanese scheme's kana and kanji never go through the simplified-to-traditional table, whatever the character-set toggle says. The toggle itself is untouched, so leaving Japanese restores traditional output.
+bool traditional_projection(const ServerSession &session) {
+  return session.traditional_output() && session.view().value("scheme", 0u) != 3u;
+}
 } // namespace
 ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch)
     : client_(client), epoch_(epoch) {
@@ -206,7 +210,7 @@ const PendingReply &ReplyComposer::dispatch(
     ReplyPath path, bool uiless, std::optional<std::string> local_text) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (session_ && session.view().at("session").get<uint64_t>() != session_)
     throw std::logic_error("Reply changed host session");
   if (path == ReplyPath::LocalCommit && session.input_enabled()) {
@@ -272,7 +276,7 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     TsfPreeditStyle style, std::optional<std::string> local_text) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
@@ -347,7 +351,7 @@ std::optional<PendingReply> ReplyComposer::toggle_character_set(
                      (!persist || persist(desired));
   if (apply)
     (void)session.toggle_traditional_output(epoch);
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   KeyResult result{client_, epoch_, packet.request_id, false,
                    nlohmann::json{{"commit", nullptr}, {"view", session.view()}}};
   return stage(result, ReplyPath::NoReply,
@@ -358,7 +362,7 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                     uint64_t epoch, TsfPreeditStyle style) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
@@ -401,7 +405,7 @@ ReplyComposer::navigate(ServerSession &session,
                         const NavigationBindings &bindings) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (session_ && session.view().at("session").get<uint64_t>() != session_)
     throw std::logic_error("Reply changed host session");
   auto result = session.navigate(packet, epoch, bindings);
@@ -453,7 +457,7 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
 std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
     uint64_t expected_session, uint64_t generation, size_t index) {
   if (pending_ || !session.input_enabled()) return std::nullopt;
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   const auto view = session.view();
   if (!expected_session || view.at("session") != expected_session ||
       (session_ && session_ != expected_session) ||
@@ -541,7 +545,7 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
       PipeMetadata::key_modifiers(packet.modifiers_down) != 2u ||
       (packet.modifiers_down & PipeMetadata::CandidateActive) == 0)
     return std::nullopt;
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   const auto view = session.view();
   if (!view.at("focused").get<bool>() || view.at("candidates").empty())
     return std::nullopt;
@@ -740,7 +744,7 @@ std::optional<PendingReply> ReplyComposer::configured_key(
     std::optional<std::string> local_text, WordCharacterBinding word_binding) {
   if (pending_ || packet.client_id != client_ || epoch != epoch_)
     throw std::logic_error("Pending or expired Windows reply route");
-  traditional_output_ = session.traditional_output();
+  traditional_output_ = traditional_projection(session);
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
@@ -759,7 +763,7 @@ std::optional<PendingReply> ReplyComposer::configured_key(
       !current.at("editing_text").get<std::string>().empty();
   // Checked first: the numpad decimal is also on the candidate punctuation list, where it would be translated to '。'.
   if ((composing && literal_candidate_punctuation(packet)) ||
-      candidate_punctuation(packet, bindings))
+      candidate_punctuation(packet, bindings, current.value("scheme", 0u) == 3u))
     return dispatch(session, packet, epoch, ReplyPath::Punctuation,
                     (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
   if (!composing)
