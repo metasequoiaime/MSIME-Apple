@@ -61,3 +61,41 @@ test("clipboard panel exposes host paste and keeps copy separate", async () => {
   await waitFor(() => expect(paste).toHaveBeenCalledWith("synthetic clipboard entry"));
   expect(copyText).not.toHaveBeenCalled();
 });
+
+const recentCatalogClient = {
+  close: async () => {},
+  loadCatalog: async () => ({
+    emoji: [{ title: "Smileys", icon: "😀", items: [{ text: "😀", keywords: "grinning" }] }],
+    kaomoji: [],
+    symbols: [],
+  }),
+};
+
+async function openRecentTab() {
+  render(<EmojiPanel client={recentCatalogClient} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Emoji" }));
+  fireEvent.click(await screen.findByRole("button", { name: "◷ 最近使用" }));
+}
+
+test("empty recent tab shows the source hint with or without a search", async () => {
+  await openRecentTab();
+  expect(await screen.findByText("Your recently used items will appear here")).toBeDefined();
+  expect(screen.queryByText("暂无可显示内容")).toBeNull();
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), {
+    target: { value: "synthetic" },
+  });
+  await waitFor(() =>
+    expect(screen.getByText("Your recently used items will appear here")).toBeDefined(),
+  );
+  expect(screen.queryByText("No results")).toBeNull();
+});
+
+test("recent tab with history but no search match shows no results", async () => {
+  localStorage.setItem("msime.emoji.recent", JSON.stringify([{ text: "⚙", keywords: "gear" }]));
+  await openRecentTab();
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), {
+    target: { value: "synthetic" },
+  });
+  expect(await screen.findByText("No results")).toBeDefined();
+  expect(screen.queryByText("Your recently used items will appear here")).toBeNull();
+});
