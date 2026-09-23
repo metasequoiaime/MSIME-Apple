@@ -1496,85 +1496,12 @@ pub unsafe extern "C" fn msime_client_save_preferences(
     })
 }
 
-/// The largest 背单词 request this entry point will read.
-///
-/// Deliberately not the 65_536 the other entry points use. Those carry a setting or one clipboard
-/// row; this one carries an imported word list, and a five-thousand-word CET book is a few hundred
-/// kilobytes of text. Copying the smaller cap here would have made the import path reject every
-/// real file while looking like it was merely being careful. The parser applies its own row and
-/// entry ceilings underneath, so this bounds the read rather than the result.
-const MAX_VOCABULARY_REQUEST_BYTES: usize = 8 * 1024 * 1024;
-
-/// Everything the 背单词 page draws, for one day.
-///
-/// Assembled here rather than in each host: resolving the queue means joining the progress
-/// document against the selected wordbook, and six hosts each doing that join their own way is six
-/// chances for the counts on the page to disagree with the cards it deals.
-fn vocabulary_status(directory: &str, day: &str) -> Result<Value, String> {
-    use msime_client_core::vocabulary::{library::WordbookLibrary, progress};
-
-    let library = WordbookLibrary::new(directory);
-    let store = progress::VocabularyProgressStore::new(directory);
-    let books = library.list().map_err(|error| error.to_string())?;
-    let document = store.load().map_err(|error| error.to_string())?;
-
-    let settings = &document.settings;
-    // A selected book that is no longer in the library is reported as no queue rather than as an
-    // error: the user deleted it, and the page should offer the picker instead of a failure.
-    let selected = if settings.wordbook.is_empty() {
-        None
-    } else {
-        library
-            .load(&settings.wordbook)
-            .map_err(|error| error.to_string())?
-    };
-
-    let (queue, due, introducing, remaining) = match selected.as_ref() {
-        None => (Vec::new(), 0, 0, 0),
-        Some(book) => {
-            let built = progress::build_queue(
-                &document,
-                book,
-                day,
-                settings.new_per_day as usize,
-                settings.session_limit as usize,
-            )
-            .ok_or("invalid vocabulary review day")?;
-            let cards: Vec<Value> = built
-                .words
-                .iter()
-                .filter_map(|word| book.entry(word))
-                .map(|entry| {
-                    json!({
-                        "word": entry.word,
-                        "phonetic": entry.phonetic,
-                        "meaning": entry.meaning,
-                    })
-                })
-                .collect();
-            (cards, built.due, built.introducing, built.remaining)
-        }
-    };
-
-    Ok(json!({
-        "wordbooks": books,
-        "settings": {
-            "wordbook": settings.wordbook,
-            "newPerDay": settings.new_per_day,
-            "sessionLimit": settings.session_limit,
-        },
-        "due": due,
-        "answeredToday": document.answered_on(day),
-        "introducing": introducing,
-        "remaining": remaining,
-        "queue": queue,
-    }))
-}
-
 /// Read or update 背单词 wordbooks and review progress.
 ///
-/// Every action answers with the whole status, so a host keeps one request in flight and never has
-/// to follow a mutation with a read of its own.
+/// A shim: the request is parsed into the shared action type and the answer is the shared status,
+/// serialised. Every rule — what an action does, how the queue is built, what counts as today —
+/// belongs to `msime_client_core::vocabulary::session`, so this host and the Tauri command layer
+/// cannot drift from each other.
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
 #[no_mangle]
@@ -1582,9 +1509,7 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
-    use msime_client_core::vocabulary::{
-        import as wordbook_import, library::WordbookLibrary, progress, schedule::ReviewGrade,
-    };
+    use msime_client_core::vocabulary::session;
 
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -1593,33 +1518,15 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
         /// The caller's local day. Required by every action, because the counts and the queue are
         /// both per-day and this layer cannot resolve the host's timezone.
         day: String,
-        action: VocabularyAction,
-    }
-    #[derive(Deserialize)]
-    #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
-    enum VocabularyAction {
-        Load,
-        Answer {
-            word: String,
-            known: bool,
-        },
-        SetSettings {
-            wordbook: String,
-            new_per_day: u32,
-            session_limit: u32,
-        },
-        Import {
-            name: String,
-            text: String,
-        },
-        Remove {
-            wordbook: String,
-        },
-        Reset,
+        action: session::ReviewAction,
     }
 
     response(|| {
-        if request.is_null() || length > MAX_VOCABULARY_REQUEST_BYTES {
+        // Deliberately not the 65_536 the other entry points use. Those carry a setting or one
+        // clipboard row; this one carries an imported word list, and a five-thousand-word CET book
+        // is a few hundred kilobytes of text. Copying the smaller cap here would have made the
+        // import path reject every real file while looking like it was merely being careful.
+        if request.is_null() || length > session::MAX_IMPORT_BYTES {
             return Err("invalid vocabulary review buffer".into());
         }
         // SAFETY: guaranteed by the documented caller contract.
@@ -1631,98 +1538,12 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
         {
             return Err("invalid vocabulary review directory".into());
         }
-        // Before dispatching, not after. Every action ends by assembling the status for this day,
-        // and validating there meant an import wrote the book to disk and only then reported the
-        // day was unreadable — a refused request that had already changed the library.
-        if !msime_client_core::vocabulary::day_is_well_formed(&request.day) {
-            return Err("invalid vocabulary review day".into());
-        }
-
-        let library = WordbookLibrary::new(&request.directory);
-        let store = progress::VocabularyProgressStore::new(&request.directory);
-
-        match request.action {
-            VocabularyAction::Load => {}
-            VocabularyAction::Answer { word, known } => {
-                let document = store.load().map_err(|error| error.to_string())?;
-                let book = library
-                    .load(&document.settings.wordbook)
-                    .map_err(|error| error.to_string())?
-                    .ok_or("vocabulary wordbook is not in the library")?;
-                let grade = if known {
-                    ReviewGrade::Known
-                } else {
-                    ReviewGrade::Unknown
-                };
-                store
-                    .answer(&book, &word, grade, &request.day)
-                    .map_err(|error| error.to_string())?;
-            }
-            VocabularyAction::SetSettings {
-                wordbook,
-                new_per_day,
-                session_limit,
-            } => {
-                store
-                    .set_settings(progress::VocabularyReviewSettings {
-                        wordbook,
-                        new_per_day,
-                        session_limit,
-                    })
-                    .map_err(|error| error.to_string())?;
-            }
-            VocabularyAction::Import { name, text } => {
-                let report = wordbook_import::parse(&text, MAX_VOCABULARY_REQUEST_BYTES)
-                    .map_err(|error| error.to_string())?;
-                // The id is minted here and never taken from the file. A book keys the review
-                // progress, so a file that named its own id could inherit or destroy the schedule
-                // of a book the user imported earlier.
-                let id = format!("user-{}", msime_client_core::uuid::Uuid::new_v4().simple());
-                let book = library
-                    .import(&name, report.entries, &id)
-                    .map_err(|error| error.to_string())?;
-                // Selecting it is the only useful next step, and leaving the user to pick the book
-                // they just imported out of a list is a step that has exactly one right answer.
-                let document = store.load().map_err(|error| error.to_string())?;
-                store
-                    .set_settings(progress::VocabularyReviewSettings {
-                        wordbook: book.id,
-                        ..document.settings
-                    })
-                    .map_err(|error| error.to_string())?;
-            }
-            VocabularyAction::Remove { wordbook } => {
-                library
-                    .remove(&wordbook)
-                    .map_err(|error| error.to_string())?;
-                // The book is gone, so its schedule is unreachable; leaving it behind would grow
-                // the progress document forever and would silently return if the same id ever came
-                // back.
-                store
-                    .reset_wordbook(&wordbook)
-                    .map_err(|error| error.to_string())?;
-                let document = store.load().map_err(|error| error.to_string())?;
-                if document.settings.wordbook == wordbook {
-                    store
-                        .set_settings(progress::VocabularyReviewSettings {
-                            wordbook: String::new(),
-                            ..document.settings
-                        })
-                        .map_err(|error| error.to_string())?;
-                }
-            }
-            VocabularyAction::Reset => {
-                // Only the review progress. The imported books are the user's own material and are
-                // deleted one at a time, deliberately.
-                let document = store.load().map_err(|error| error.to_string())?;
-                let settings = document.settings.clone();
-                store.reset().map_err(|error| error.to_string())?;
-                store
-                    .set_settings(settings)
-                    .map_err(|error| error.to_string())?;
-            }
-        }
-
-        vocabulary_status(&request.directory, &request.day)
+        let status = session::apply(
+            std::path::Path::new(&request.directory),
+            &request.day,
+            request.action,
+        )
+        .map_err(|error| error.to_string())?;
+        serde_json::to_value(status).map_err(|_| "vocabulary review response failed".to_owned())
     })
 }

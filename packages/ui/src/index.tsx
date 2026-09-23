@@ -603,6 +603,8 @@ export interface HostCapabilities {
   panel_windows: boolean;
   ime_mode_scope: boolean;
   typing_statistics: boolean;
+  /** The host has wired the shared 背单词 entry point. Absent on a host older than the field. */
+  vocabulary_review?: boolean;
   fuzzy_pinyin: boolean;
   system_fonts: boolean;
   window_chrome: boolean;

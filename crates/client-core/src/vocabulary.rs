@@ -24,6 +24,7 @@ pub mod import;
 pub mod library;
 pub mod progress;
 pub mod schedule;
+pub mod session;
 pub mod wordbook;
 
 /// Whether `day` is a local day this module can store and compare.
