@@ -14,6 +14,12 @@ struct ClipboardHistoryItem: Equatable, Identifiable {
   var text: String
   var date = Date()
   var pinned = false
+
+  /// Windows' clipboard search: a case-insensitive substring match that keeps the stored order, with an empty query showing everything.
+  static func matching(_ items: [Self], query: String) -> [Self] {
+    guard !query.isEmpty else { return items }
+    return items.filter { $0.text.range(of: query, options: .caseInsensitive) != nil }
+  }
 }
 
 struct ClipboardHistoryStore {
