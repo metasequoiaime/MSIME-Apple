@@ -476,6 +476,7 @@ private struct SaveKeyboardPreferencesArgs: Decodable {
   let hapticsEnabled: Bool
   let hapticStrength: String
   let englishSuggestions: Bool
+  let candidatePaletteFollowsDesktop: Bool
   let dictionaryLearning: Bool
   let keyboardSkin: String
   let customKeyboardSkin: String?
@@ -654,6 +655,7 @@ private struct IOSKeyboardPreferenceStore {
       "hapticsEnabled": defaults.bool(forKey: "keyboardHapticsEnabled"),
       "hapticStrength": Self.hapticStrengths.contains(strength) ? strength : "medium",
       "englishSuggestions": defaults.object(forKey: "english.suggestions") as? Bool ?? true,
+      "candidatePaletteFollowsDesktop": defaults.bool(forKey: "candidate_palette_follows_desktop"),
       "dictionaryLearning": defaults.bool(forKey: "dictionaryLearningEnabled"),
       "keyboardSkin": Self.skinOrder.contains(skin) ? skin : "forest",
       "customKeyboardSkin": customSkinJSON() as Any? ?? NSNull(),
@@ -685,6 +687,7 @@ private struct IOSKeyboardPreferenceStore {
     defaults.set(args.hapticsEnabled, forKey: "keyboardHapticsEnabled")
     defaults.set(args.hapticStrength, forKey: "keyboardHapticStrength")
     defaults.set(args.englishSuggestions, forKey: "english.suggestions")
+    defaults.set(args.candidatePaletteFollowsDesktop, forKey: "candidate_palette_follows_desktop")
     defaults.set(args.dictionaryLearning, forKey: "dictionaryLearningEnabled")
     defaults.set(args.keyboardSkin, forKey: "keyboardSkin")
     if let custom = args.customKeyboardSkin {

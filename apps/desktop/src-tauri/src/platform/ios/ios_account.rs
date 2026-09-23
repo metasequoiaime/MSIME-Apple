@@ -1762,6 +1762,8 @@ pub struct MobileKeyboardFeedback {
     pub haptic_strength: String,
     #[serde(default = "default_english_suggestions")]
     pub english_suggestions: bool,
+    #[serde(default)]
+    pub candidate_palette_follows_desktop: bool,
 }
 
 #[cfg(target_os = "ios")]
@@ -1788,6 +1790,7 @@ fn keyboard_feedback(native: &IosKeyboardPreferences) -> MobileKeyboardFeedback 
         haptics_enabled: native.haptics_enabled,
         haptic_strength: native.haptic_strength.clone(),
         english_suggestions: native.english_suggestions,
+        candidate_palette_follows_desktop: native.candidate_palette_follows_desktop,
     }
 }
 
@@ -1836,6 +1839,8 @@ pub async fn mobile_keyboard_feedback_save(
         native.haptics_enabled = request.settings.haptics_enabled;
         native.haptic_strength = request.settings.haptic_strength.clone();
         native.english_suggestions = request.settings.english_suggestions;
+        native.candidate_palette_follows_desktop =
+            request.settings.candidate_palette_follows_desktop;
         let saved =
             platform
                 .save_keyboard_preferences(&native)

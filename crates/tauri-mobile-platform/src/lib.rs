@@ -190,6 +190,9 @@ pub struct IosKeyboardPreferences {
     pub haptics_enabled: bool,
     pub haptic_strength: String,
     pub english_suggestions: bool,
+    /// The candidate strip draws the shared desktop candidate skin and colours instead of the keyboard skin's; the switch lives in the App Group because the keyboard reads it on every redraw.
+    #[serde(default)]
+    pub candidate_palette_follows_desktop: bool,
     pub dictionary_learning: bool,
     pub keyboard_skin: String,
     pub custom_keyboard_skin: Option<String>,
@@ -959,6 +962,7 @@ mod tests {
             haptics_enabled: true,
             haptic_strength: "strong".into(),
             english_suggestions: true,
+            candidate_palette_follows_desktop: true,
             dictionary_learning: false,
             keyboard_skin: "custom".into(),
             custom_keyboard_skin: Some(r#"{"background":15269867}"#.into()),
@@ -984,6 +988,21 @@ mod tests {
         let mut invalid = keyboard_preferences();
         invalid.custom_keyboard_skin = Some("[]".into());
         assert!(!invalid.is_valid());
+    }
+
+    #[test]
+    fn ios_keyboard_preferences_round_trip_the_candidate_palette_switch() {
+        let encoded = serde_json::to_value(keyboard_preferences()).unwrap();
+        assert_eq!(encoded["candidatePaletteFollowsDesktop"], true);
+
+        // A snapshot from a plugin that predates the switch leaves the strip on the keyboard skin.
+        let mut legacy = encoded;
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("candidatePaletteFollowsDesktop");
+        let decoded: IosKeyboardPreferences = serde_json::from_value(legacy).unwrap();
+        assert!(!decoded.candidate_palette_follows_desktop);
     }
 
     #[test]

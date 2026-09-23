@@ -1575,6 +1575,8 @@ export type MobileKeyboardFeedback = {
   hapticStrength: "light" | "medium" | "strong";
   /** iOS keeps this Apple keyboard preference in the native App Group store. */
   englishSuggestions?: boolean;
+  /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
+  candidatePaletteFollowsDesktop?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -4590,6 +4592,13 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
+                    {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
+                      <div className="section">
+                        <small>
+                          候选栏正在使用键盘皮肤的颜色，下面的候选颜色要在「皮肤」页打开「使用桌面候选皮肤」后才生效。
+                        </small>
+                      </div>
+                    )}
                     <div className="section">
                       <div className="section-header">
                         <span className="section-title">候选文字颜色</span>
@@ -5438,6 +5447,31 @@ export function SettingsPage({
                         ? "选择候选栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"
                         : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
                     </div>
+                    {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            使用桌面候选皮肤
+                            <small>
+                              关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用这里的候选皮肤和「外观」里的候选颜色。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="使用桌面候选皮肤"
+                            className="toggle"
+                            type="checkbox"
+                            disabled={mobileKeyboardFeedbackBusy}
+                            checked={mobileKeyboardFeedback.candidatePaletteFollowsDesktop}
+                            onChange={(event) =>
+                              void saveMobileKeyboardFeedback({
+                                ...mobileKeyboardFeedback,
+                                candidatePaletteFollowsDesktop: event.target.checked,
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
                     {snapshot?.candidate_skin_catalog && (
                       <div className={settings.externalMeta} role="status">
                         外部皮肤目录：
