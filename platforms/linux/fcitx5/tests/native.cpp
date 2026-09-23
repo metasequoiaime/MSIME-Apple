@@ -164,6 +164,83 @@ int main(int argc, char **argv) {
     fcitx::Instance instance(2, args);
     instance.initialize();
     FcitxEngine engine(&instance);
+    {
+      // First-run state: no override, an empty config home and no system file (this target's MSIME_SYSTEM_OPTIONS points into the build tree). The addon must show the setup hint instead of the generic error, pass keys through, open the guide only on activation and not again within its throttle, and log no refresh or event failure. MSIME_BINDIR also points into the build tree, where a stub stands in for the guide script.
+      require(!std::filesystem::exists(MSIME_SYSTEM_OPTIONS), "first-run fixture needs an absent system options file");
+      const auto *configHome = std::getenv("XDG_CONFIG_HOME");
+      const std::optional<std::string> savedConfigHome = configHome ? std::optional<std::string>(configHome) : std::nullopt;
+      const auto firstRunConfig = std::string(directory) + "/first-run-config";
+      const auto firstRunDiagnostics = std::string(directory) + "/first-run-diagnostics";
+      std::filesystem::create_directory(firstRunConfig);
+      std::filesystem::create_directory(firstRunDiagnostics);
+      unsetenv("MSIME_FCITX5_OPTIONS");
+      setenv("XDG_CONFIG_HOME", firstRunConfig.c_str(), 1);
+      const auto guideLog = std::string(directory) + "/first-run-guide.log";
+      setenv("MSIME_TEST_FIRST_RUN_LOG", guideLog.c_str(), 1);
+      // The context and AI runs share the build tree and may run in parallel; a rename replaces the stub without ever exposing a half-written file.
+      std::filesystem::create_directories(MSIME_BINDIR);
+      const auto guidePath = std::filesystem::path(MSIME_BINDIR) / std::string(msime::linux_host::kFirstRunGuideProgram);
+      const auto stagedGuide = guidePath.string() + "." + std::to_string(getpid());
+      std::ofstream(stagedGuide) << "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$MSIME_TEST_FIRST_RUN_LOG\"\n";
+      require(chmod(stagedGuide.c_str(), 0755) == 0, "first-run guide stub permissions");
+      std::filesystem::rename(stagedGuide, guidePath);
+      const auto guideCalls = [&guideLog] {
+        std::vector<std::string> lines;
+        std::ifstream file(guideLog);
+        for (std::string line; std::getline(file, line);) lines.push_back(line);
+        return lines;
+      };
+      const auto diagnosticText = [&firstRunDiagnostics] {
+        std::ifstream file(firstRunDiagnostics + "/diagnostic.log");
+        return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+      };
+      msime_linux_diagnostic_configure(firstRunDiagnostics, true);
+      FcitxEngine::refreshOptions();
+      require(diagnosticText().find("dictionary_generation_refresh") == std::string::npos,
+              "first-run state is not a refresh failure");
+      {
+        FixtureContext firstRun(instance.inputContextManager());
+        firstRun.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit,
+                                                           fcitx::CapabilityFlag::SurroundingText});
+        firstRun.focusIn();
+        fcitx::InputMethodEntry firstRunEntry("msime", "MSIME", "zh_CN", "msime");
+        const auto hint = std::string(msime::linux_host::kFirstRunHint);
+        fcitx::KeyEvent typed(&firstRun, fcitx::Key(FcitxKey_n));
+        engine.keyEvent(firstRunEntry, typed);
+        require(!typed.filtered() && !typed.accepted(), "first-run keys reach the application");
+        require(firstRun.inputPanel().auxUp().toString() == hint, "a first-run key shows the setup hint");
+        require(firstRun.propertyFor(&engine.factory_)->session_ == 0, "no session before first-run setup");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        require(guideCalls().empty(), "a key never opens the first-run guide");
+        fcitx::InputContextEvent firstFocus(&firstRun, fcitx::EventType::InputContextFocusIn);
+        engine.activate(firstRunEntry, firstFocus);
+        require(firstRun.inputPanel().auxUp().toString() == hint, "first-run activation shows the setup hint");
+        const auto guideDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (guideCalls().empty() && std::chrono::steady_clock::now() < guideDeadline)
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        require(guideCalls() == std::vector<std::string>{"--host fcitx5"},
+                "first-run activation opens the guide once, naming the Fcitx5 host");
+        fcitx::InputContextEvent secondFocus(&firstRun, fcitx::EventType::InputContextFocusIn);
+        engine.activate(firstRunEntry, secondFocus);
+        fcitx::KeyEvent typedAgain(&firstRun, fcitx::Key(FcitxKey_i));
+        engine.keyEvent(firstRunEntry, typedAgain);
+        require(!typedAgain.filtered(), "first-run keys keep reaching the application");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        require(guideCalls().size() == 1, "repeated activation within the throttle does not respawn the guide");
+        require(diagnosticText().find("operation_failed") == std::string::npos,
+                "first-run state is not reported as an event failure");
+      }
+      // Positive control: the log above was live, so an actual failure does show up in it.
+      setenv("MSIME_FCITX5_OPTIONS", "relative-runtime-options.json", 1);
+      FcitxEngine::refreshOptions();
+      require(diagnosticText().find("operation_failed operation=dictionary_generation_refresh") != std::string::npos,
+              "diagnostic log records a real refresh failure");
+      msime_linux_diagnostic_configure(std::string(), false);
+      unsetenv("MSIME_TEST_FIRST_RUN_LOG");
+      if (savedConfigHome) setenv("XDG_CONFIG_HOME", savedConfigHome->c_str(), 1);
+      else unsetenv("XDG_CONFIG_HOME");
+      setenv("MSIME_FCITX5_OPTIONS", path.c_str(), 1);
+    }
     FixtureContext ic(instance.inputContextManager());
     ic.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit,
                                                fcitx::CapabilityFlag::SurroundingText});

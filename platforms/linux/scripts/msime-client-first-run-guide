@@ -1,0 +1,110 @@
+#!/usr/bin/env sh
+# Called by the IBus launcher and the Fcitx5 addon when MSIME is selected before first-run setup has published any runtime-options.json. It opens the settings window, which shows its first-run page while that file is missing, and posts a desktop notification. It never prepares state and never downloads anything: the first-run page and msime-client-setup only fetch dictionaries when the user asks for it.
+#
+# Both frontends may call this repeatedly: ibus-daemon starts the component again every time the engine is selected, and Fcitx5 activates the input method on every focus change. A stamp outside the state directory limits the guidance to once per login session across both frontends; a window that keeps reappearing while the user types elsewhere is worse than none. The state directory itself is never created here, because msime-client-setup refuses to prepare a directory that already exists.
+#
+# Usage: msime-client-first-run-guide [--host ibus|fcitx5]. The host only selects the recovery step named in the notification.
+set -u
+
+host=
+if [ "${1:-}" = "--host" ]; then
+  host=${2:-}
+fi
+
+# Only used when the session has no XDG_RUNTIME_DIR, so there is no per-session place for the stamp.
+cooldown_seconds=300
+
+# Without a graphical session there is no window to open and nobody to notify; the caller's stderr line is all there is.
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+  exit 0
+fi
+
+# XDG_RUNTIME_DIR is per login session, so a stamp there means "already guided in this session" and a fresh login gets the guidance again. The cache directory outlives sessions, so a stamp there only holds for the cooldown.
+guide_dir=
+per_session=
+case "${XDG_RUNTIME_DIR:-}" in
+  /*) [ -d "$XDG_RUNTIME_DIR" ] && guide_dir=$XDG_RUNTIME_DIR/msime-client && per_session=1 ;;
+esac
+if [ -z "$guide_dir" ]; then
+  guide_dir=${XDG_CACHE_HOME:-${HOME:-}/.cache}/msime-client
+fi
+case "$guide_dir" in
+  /*) ;;
+  *) exit 0 ;;
+esac
+umask 077
+mkdir -p "$guide_dir" 2>/dev/null || exit 0
+stamp=$guide_dir/first-run-guide.stamp
+
+now=$(date +%s 2>/dev/null) || exit 0
+case "$now" in ''|*[!0-9]*) exit 0 ;; esac
+if [ -n "$per_session" ]; then
+  # Once per session: the stamp never expires. noclobber makes the create exclusive, so of two callers that race here exactly one proceeds.
+  ( set -C; printf '%s\n' "$now $$" >"$stamp" ) 2>/dev/null || exit 0
+else
+  last=$(cat "$stamp" 2>/dev/null) || last=
+  last=${last%% *}
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  elapsed=$((now - last))
+  # A stamp from the future (clock moved back) does not suppress the guidance forever.
+  if [ "$elapsed" -ge 0 ] && [ "$elapsed" -lt "$cooldown_seconds" ]; then
+    exit 0
+  fi
+  # Claim this round by replacing the stamp with a token only this process writes. Of two launchers that race here, the one whose token survives the rename proceeds.
+  token="$now $$"
+  if ! { printf '%s\n' "$token" >"$stamp.$$" && mv -f "$stamp.$$" "$stamp"; } 2>/dev/null; then
+    rm -f "$stamp.$$"
+    exit 0
+  fi
+  [ "$(cat "$stamp" 2>/dev/null)" = "$token" ] || exit 0
+fi
+
+# Detach from the caller: the IBus launcher exits right after this, and neither ibus-daemon nor Fcitx5 should end up owning the settings window or a notify-send stuck waiting on D-Bus.
+detach() {
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" </dev/null >/dev/null 2>&1 &
+  else
+    nohup "$@" </dev/null >/dev/null 2>&1 &
+  fi
+}
+
+# Same override the IBus and Fcitx5 hosts honour; otherwise prefer the settings launcher installed beside this script, then PATH.
+settings=${MSIME_CLIENT_SETTINGS_COMMAND:-}
+if [ -z "$settings" ]; then
+  script_path=$0
+  link_depth=0
+  while [ -L "$script_path" ] && [ "$link_depth" -le 32 ]; do
+    link_depth=$((link_depth + 1))
+    link=$(readlink "$script_path") || break
+    case "$link" in
+      /*) script_path=$link ;;
+      *) script_path=$(dirname -- "$script_path")/$link ;;
+    esac
+  done
+  script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" 2>/dev/null && pwd) || script_dir=
+  if [ -n "$script_dir" ] && [ -x "$script_dir/msime-client-settings" ]; then
+    settings=$script_dir/msime-client-settings
+  elif command -v msime-client-settings >/dev/null 2>&1; then
+    settings=msime-client-settings
+  fi
+fi
+
+# What to do once setup is done differs per host. Fcitx5 retries the options on the next key or focus change, so nothing more is needed. The IBus component has already exited and ibus-daemon only starts it again when the engine is selected anew, so the user has to switch away and back; ibus restart is the fallback when the daemon still holds the failed engine.
+case "$host" in
+  fcitx5) resume="完成后即可直接输入。" ;;
+  ibus) resume="完成后请先切换到其他输入法再切回「水杉输入法」；如仍无法输入，请运行 ibus restart。" ;;
+  *) resume="完成后请重新选择输入法。" ;;
+esac
+
+if [ -n "$settings" ]; then
+  # The window opens on its first-run page on its own; strip any panel request inherited from the caller so nothing routes it elsewhere.
+  detach env -u MSIME_CLIENT_PANEL -u MSIME_CLIENT_ROUTE -u MSIME_CLIENT_SETTINGS_PAGE "$settings"
+  body="已打开「水杉输入法」设置，请在首次配置页完成配置。$resume"
+else
+  body="请在终端运行 msime-client-setup 完成首次配置。$resume"
+fi
+
+if command -v notify-send >/dev/null 2>&1; then
+  detach notify-send -a "水杉输入法" -i msime-client "水杉输入法尚未完成首次配置" "$body"
+fi
+exit 0

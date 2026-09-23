@@ -247,4 +247,15 @@ for action in ("input_mode_action_", "english_action_", "width_action_",
 # A rebuild removes exactly what it added; the menu is shared across contexts.
 assert "toolbar_entries_" in source
 
+# 还没做首次配置时，激活和按键两条路径都要给出具体提示，而不是笼统的「请检查运行配置」；但只有激活会打开设置窗口，打字途中弹出的窗口可能抢走键盘焦点。引导走与 IBus 启动器同一个脚本，每个登录会话只弹一次的限制因此两边共用。
+assert source.count("catch (const OptionsNotConfigured &) { notConfigured(*state, true); }") == 1
+assert source.count("catch (const OptionsNotConfigured &) { notConfigured(*state, false); }") == 1
+keyEvent = source[source.index("void keyEvent(const fcitx::InputMethodEntry &"):]
+keyEvent = keyEvent[:keyEvent.index("\n  }\n")]
+assert "notConfigured(*state, false)" in keyEvent and "notConfigured(*state, true)" not in keyEvent
+assert "kFirstRunHint" in source and "kFirstRunGuideProgram" in source
+assert 'fcitx::startProcess({guide, "--host", "fcitx5"})' in source
+assert 'MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}"' in cmake_fcitx5
+assert "scripts/msime-client-first-run-guide" in cmake
+
 print("Fcitx5 addon metadata passed")

@@ -2450,3 +2450,13 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 外部链接：设置页「打开链接」在 Windows 上原来是 `cmd /C start "" <url>`，从 GUI 进程起一个控制台，会闪一下黑框，而且 URL 要经过 cmd 解析。现在走 `msime_host_windows::open_url`，用 `ShellExecuteW` 把 https URL 直接交给默认浏览器，非 https 一律拒绝；与已有的 `open_directory` 共用同一段调用。
 - CI：`ci-platforms.yml` 的「Windows GNU cross build」跑在 ubuntu-24.04 上，那里的 MinGW 头文件没有 `d2d1_3.h`（`msimeui` 的 SVG 渲染要用），凡是真正进入构建步骤的运行都失败，develop 上的绿色只是因为构建被跳过。现在该作业跑在 `debian:trixie-slim` 容器里，环境与 `platforms/windows/cross/Dockerfile` 一致；改动 `ci-platforms.yml` 本身也会触发全部平台门禁，门禁的修改因此能被自己验证。
 - 证据：`msime-host-windows` 与 `msime-desktop` 对 `x86_64-pc-windows-gnu` 通过 clippy（无新增告警）；本 PR 的 CI 运行即 Windows 门禁的验证。未在 Windows 主机上实际点击链接。
+
+### Linux 先选中输入法、后做首次配置时有引导（2026-09-23）
+
+来源的安装程序在安装时就把词库和出厂配置写进数据目录，输入法一能选中就能用，不存在「选中了但没准备好」这个状态。Linux 安装包按设计不产生用户状态，首次配置要由 `msime-client-setup` 或设置窗口的首次配置页完成；此前用户若先在 IBus 里选中 MSIME，启动器只往 stderr 写一行就退出，界面上什么也看不到，Fcitx5 则只显示笼统的「MSIME：请检查运行配置」，两者都不告诉用户下一步做什么。
+
+适配方式不是照搬安装程序（包管理器安装不应按用户写状态，也不能替用户决定是否联网下载词库），而是在这个状态下把用户引到已有的首次配置页：新增随装脚本 `platforms/linux/scripts/msime-client-first-run-guide`，有图形会话时脱离调用方打开 `msime-client-settings`（窗口在缺少 `runtime-options.json` 时自己进入首次配置页），并用 `notify-send` 发一条通知；IBus 启动器与 Fcitx5 插件在「没有显式覆盖、用户与系统配置都不存在」时调用它，Fcitx5 面板同时显示「水杉输入法尚未完成首次配置：请打开「水杉输入法」设置，或在终端运行 msime-client-setup」。显式覆盖无效、文件不可读或悬空符号链接仍按配置损坏处理。
+
+限流放在脚本里、两个宿主共用：`$XDG_RUNTIME_DIR/msime-client/first-run-guide.stamp` 存在就不再弹窗与通知，每个登录会话只引导一次，因为 ibus-daemon 每次选中都会重新拉起启动器、Fcitx5 每次聚焦都会激活输入法，按时间过期的冷却期会让继续打字的用户每隔几分钟被打断一次；会话没有 `XDG_RUNTIME_DIR` 时退到跨会话保留的缓存目录，只能按 5 分钟冷却期限流。Fcitx5 只在激活输入法时拉起引导，按键只显示面板提示，打字途中弹出的窗口可能抢走键盘焦点；插件另外把自身的拉起频率压到 30 秒一次。通知里的后续步骤按宿主区分：Fcitx5 下次按键就会重读配置，写「完成后即可直接输入」；IBus 组件已退出，写先切换到其他输入法再切回、仍不行就 `ibus restart`（后者未在真实 IBus 会话里验证）。脚本不创建状态目录（`msime-client-setup` 拒绝准备已存在的目录），不发起任何网络请求。
+
+证据：`platforms/linux/tests/core/first_run_guide.py` 用桩替换设置窗口、`notify-send` 与 `msime-client-ibus`，验证有图形会话时各调用一次、同一会话内（包括记录很旧时）不再调用、并发调用只引导一次、缓存目录下冷却期过后与时钟回拨后恢复、按宿主区分的通知文案、无图形会话与配置损坏时不调用、只装输入法时通知改指向终端命令；`platforms/linux/tests/core/first_run_guidance.cpp` 覆盖 Fcitx5 的配置定位与「尚未配置」判定；`fcitx5_contract.py` 钉住激活与按键两条路径都走新提示且只有激活拉起引导；`platforms/linux/fcitx5/tests/native.cpp` 在真实插件上验证面板提示、按键不被拦截、按键不拉起引导、激活只拉起一次、不写失败诊断（该测试需要校验过的资源目录，构建门禁只编译不运行）。未在真实 Linux 桌面上目视确认弹窗与通知。

@@ -4,6 +4,7 @@
 #include <fcitx-utils/key.h>
 #include <fcitx-utils/utf8.h>
 #include <fcitx-utils/event.h>
+#include <fcitx-utils/misc.h>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
 #include <fcitx/addoninstance.h>
@@ -33,6 +34,7 @@
 #include "../src/core/CandidateSkinCatalog.h"
 #include "../src/core/DictionaryQuiesceLease.h"
 #include "../src/core/RuntimeOptionsRefresh.h"
+#include "../src/core/FirstRunGuidance.h"
 #include "../src/core/InputModeIndicator.h"
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
@@ -71,6 +73,7 @@
 #include <chrono>
 #include <cmath>
 #include <spawn.h>
+#include <unistd.h>
 #include <vector>
 #include <cstring>
 #include <cctype>
@@ -84,6 +87,9 @@
 
 #ifndef MSIME_SYSTEM_OPTIONS
 #define MSIME_SYSTEM_OPTIONS "/etc/msime-client/runtime-options.json"
+#endif
+#ifndef MSIME_BINDIR
+#define MSIME_BINDIR "/usr/bin"
 #endif
 
 extern char **environ;
@@ -206,22 +212,20 @@ extern "C" void fcitxVoiceLevel(float level, void *context) noexcept {
   } catch (...) {}
 }
 
+// Neither the user nor the system runtime options exist: first-run setup has not run. Kept apart from every other load failure so the panel can say what to do about it.
+struct OptionsNotConfigured : std::runtime_error {
+  OptionsNotConfigured() : std::runtime_error("MSIME not configured") {}
+};
+
 std::filesystem::path optionsPath() {
-  std::filesystem::path path;
-  if (const auto *overridePath = std::getenv("MSIME_FCITX5_OPTIONS")) {
-    path = overridePath;
-  } else {
-    const auto *config = std::getenv("XDG_CONFIG_HOME");
-    const auto *home = std::getenv("HOME");
-    path = config && *config ? std::filesystem::path(config) :
-           home && *home ? std::filesystem::path(home) / ".config" : std::filesystem::path();
-    if (!path.is_absolute()) throw std::runtime_error("MSIME configuration unavailable");
-    path /= "msime-client/runtime-options.json";
-    if (!std::filesystem::exists(path) && !std::filesystem::is_symlink(path))
-      path = MSIME_SYSTEM_OPTIONS;
-  }
-  if (!path.is_absolute()) throw std::runtime_error("MSIME configuration unavailable");
-  return path;
+  const auto located = msime::linux_host::locate_runtime_options(
+      std::getenv("MSIME_FCITX5_OPTIONS"), std::getenv("XDG_CONFIG_HOME"), std::getenv("HOME"),
+      MSIME_SYSTEM_OPTIONS);
+  if (located.state == msime::linux_host::RuntimeOptionsState::NotConfigured)
+    throw OptionsNotConfigured();
+  if (located.state != msime::linux_host::RuntimeOptionsState::Found)
+    throw std::runtime_error("MSIME configuration unavailable");
+  return located.path;
 }
 
 Json readOptions() {
@@ -4471,6 +4475,8 @@ public:
       if (path == MSIME_SYSTEM_OPTIONS) return;
       if (msime::linux_host::refresh_runtime_options(path))
         msime_linux_diagnostic_write("dictionary_generation_refreshed");
+    } catch (const OptionsNotConfigured &) {
+      // Nothing to refresh before first-run setup; activation shows the setup hint.
     } catch (...) {
       msime_linux_diagnostic_write("operation_failed operation=dictionary_generation_refresh");
     }
@@ -4797,7 +4803,8 @@ public:
               fcitx::StatusGroup::InputMethod, &voice_action_);
         state->render();
       }
-    } catch (...) { unavailable(*state); }
+    } catch (const OptionsNotConfigured &) { notConfigured(*state, true); }
+    catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
@@ -4870,6 +4877,7 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     state->noteCapsLock(event.rawKey().states().test(fcitx::KeyState::CapsLock));
     try { if (state->ensure() && state->key(event)) event.filterAndAccept(); }
+    catch (const OptionsNotConfigured &) { notConfigured(*state, false); }
     catch (...) { unavailable(*state); }
   }
   std::string subModeLabelImpl(const fcitx::InputMethodEntry &, fcitx::InputContext &ic) override {
@@ -4882,6 +4890,23 @@ public:
     state.close(); state.clearPanel();
     state.ic_.inputPanel().setAuxUp(fcitx::Text("MSIME：请检查运行配置"));
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  }
+  // Keys still reach the application: the addon never filters an event it could not route, so the user can keep typing while the hint is up. Only activation may open the settings window; a key never does, because a window that appears mid-typing can take the keyboard focus and swallow what follows.
+  static void notConfigured(FcitxState &state, bool guide) {
+    state.close(); state.clearPanel();
+    state.ic_.inputPanel().setAuxUp(fcitx::Text(std::string(msime::linux_host::kFirstRunHint)));
+    state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    if (guide) launchFirstRunGuide();
+  }
+  // Activation runs on every focus change, so the spawn itself is throttled here; the script owns the real limit (once per login session), shared with the IBus launcher. fcitx::startProcess double-forks, leaving no child for the addon to reap.
+  static void launchFirstRunGuide() {
+    static std::optional<std::chrono::steady_clock::time_point> last_launch;
+    const auto now = std::chrono::steady_clock::now();
+    if (last_launch && now - *last_launch < std::chrono::seconds(30)) return;
+    last_launch = now;
+    const auto guide = std::string(MSIME_BINDIR "/") + std::string(msime::linux_host::kFirstRunGuideProgram);
+    if (access(guide.c_str(), X_OK) != 0) return;
+    fcitx::startProcess({guide, "--host", "fcitx5"});
   }
   fcitx::Instance *instance_;
   msime::linux_host::CandidateFontSync candidate_font_sync_;
