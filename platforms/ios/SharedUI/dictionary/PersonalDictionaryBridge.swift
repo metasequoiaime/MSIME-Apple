@@ -144,7 +144,7 @@ private enum PersonalDictionaryBridgeFailure: LocalizedError {
     case .invalid(.pinyin): "请填写完整拼音，用空格或英文单引号分隔音节，例如 ni hao。"
     case .invalid(.wubi): "五笔编码使用 1–4 个字母。"
     case .invalid(.quickPhrase): "快捷短语编码只能使用字母或数字。"
-    case .invalid(.english): "英文编码需与词条字母一致。"
+    case .invalid(.english): "英文编码只能包含字母、连字符和撇号。"
     case .invalid(nil): "个人词条格式无效。"
     }
   }

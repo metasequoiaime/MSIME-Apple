@@ -14,8 +14,8 @@ private struct PersonalDictionaryDocument: FileDocument {
 }
 
 struct PersonalDictionaryImportView: View {
-  /// Windows imports a JSON-free word list as its own action (“导入纯中文”); here it is the second source of the same preview, so both kinds of import are confirmed the same way.
-  private enum Source: Hashable { case json, hans }
+  /// Windows imports a JSON-free word list as its own action (“导入纯中文”), and a word-first or code-first dictionary file per kind; here each is a source of the same preview, so every import is confirmed the same way.
+  private enum Source: Hashable { case json, hans, file }
   let save: ([PersonalWord]) throws -> Void
   @Environment(\.dismiss) private var dismiss
   @State private var choosing = false
@@ -29,6 +29,10 @@ struct PersonalDictionaryImportView: View {
   @State private var source = Source.json
   @State private var hansText = ""
   @State private var choosingText = false
+  @State private var fileKind = PersonalWordKind.pinyin
+  @State private var fileFormat = "standard"
+  @State private var choosingDictionary = false
+  @State private var notice = ""
 
   var body: some View {
     NavigationView {
@@ -37,10 +41,11 @@ struct PersonalDictionaryImportView: View {
           Picker("导入来源", selection: $source) {
             Text("JSON 文件").tag(Source.json)
             Text("纯中文词表").tag(Source.hans)
+            Text("词库文件").tag(Source.file)
           }
           .pickerStyle(.segmented)
           .accessibilityIdentifier("personalDictionaryImportSource")
-          .onChange(of: source) { _ in readTask?.cancel(); preview = nil; loading = false }
+          .onChange(of: source) { _ in clearPreview() }
         }
         if source == .json {
           Section {
@@ -52,6 +57,23 @@ struct PersonalDictionaryImportView: View {
             }
           } footer: {
             Text("支持拼音、五笔、英文和快捷短语，每次最多 128 条、文件不超过 1 MB。请按示例填写；不支持其他输入法的专有词库文件。")
+          }
+        } else if source == .file {
+          Section {
+            Picker("词库类型", selection: $fileKind) {
+              ForEach(PersonalWordKind.allCases) { Text($0.title).tag($0) }
+            }
+            .accessibilityIdentifier("personalDictionaryFileKind")
+            .onChange(of: fileKind) { _ in clearPreview() }
+            Picker("文件格式", selection: $fileFormat) {
+              ForEach(PersonalDictionaryImport.fileFormats, id: \.format) { Text($0.title).tag($0.format) }
+            }
+            .accessibilityIdentifier("personalDictionaryFileFormat")
+            .onChange(of: fileFormat) { _ in clearPreview() }
+            Button("选择词库文件") { choosingDictionary = true }.disabled(loading)
+              .accessibilityIdentifier("choosePersonalDictionaryDictionaryFile")
+          } footer: {
+            Text("与电脑版设置页导入的是同一种文件：每行一条，用 Tab 分隔词、编码和可选的权重。标准格式词在前，Windows 格式编码在前；两列放反时会按文件本身的顺序读取。Rime 格式读取 userdb 导出或 dict.yaml 的词条部分。无法导入的行会被跳过并在预览里说明，每次最多导入 128 条，文件不超过 1 MB，需要 UTF-8 编码。")
           }
         } else {
           Section {
@@ -75,6 +97,10 @@ struct PersonalDictionaryImportView: View {
                  ? "已为 \(preview.entries.count) 个词语标注拼音，请确认读音。"
                  : "已校验 \(preview.entries.count) 条，请确认内容。编码已按输入引擎规范化。")
               .font(.footnote).foregroundStyle(.secondary)
+            if !notice.isEmpty {
+              Text(notice).font(.footnote).foregroundStyle(.orange)
+                .accessibilityIdentifier("personalDictionaryImportNotice")
+            }
             ForEach(PersonalWordKind.allCases) { kind in
               let count = preview.entries.filter { $0.kind == kind }.count
               if count > 0 { LabeledContentCompat(title: kind.title, value: "\(count) 条") }
@@ -109,9 +135,8 @@ struct PersonalDictionaryImportView: View {
         // Invalidate an earlier preview before attempting to load a replacement file.
         do {
           let url = try result.get()
-          preview = nil
+          clearPreview()
           loading = true
-          readTask?.cancel()
           readTask = Task { @MainActor in
             do {
               let imported = try await Task.detached(priority: .userInitiated) {
@@ -134,6 +159,12 @@ struct PersonalDictionaryImportView: View {
           annotate(name: url.lastPathComponent) { try PersonalDictionaryImport.readText(from: url) }
         } catch { self.error = error.localizedDescription }
       })
+      .background(EmptyView().fileImporter(isPresented: $choosingDictionary, allowedContentTypes: [.text]) { result in
+        do {
+          let url = try result.get()
+          readDictionary(url)
+        } catch { self.error = error.localizedDescription }
+      })
       .fileExporter(isPresented: $exporting, document: document, contentType: .json,
                     defaultFilename: "msime-personal-dictionary-example") { result in
         if case .failure(let error) = result { self.error = error.localizedDescription }
@@ -145,11 +176,39 @@ struct PersonalDictionaryImportView: View {
     }
   }
 
+  private func clearPreview() {
+    readTask?.cancel()
+    preview = nil
+    notice = ""
+    loading = false
+  }
+
+  /// The Engine parses the file against the packaged dictionary, so like annotation it runs off the main thread.
+  private func readDictionary(_ url: URL) {
+    clearPreview()
+    loading = true
+    let kind = fileKind, format = fileFormat
+    readTask = Task { @MainActor in
+      do {
+        let imported = try await Task.detached(priority: .userInitiated) {
+          try PersonalDictionaryImport.file(PersonalDictionaryImport.readText(from: url), kind: kind, format: format)
+        }.value
+        guard !Task.isCancelled else { return }
+        preview = imported.file
+        notice = imported.notice
+        fileName = url.lastPathComponent
+      } catch {
+        guard !Task.isCancelled else { return }
+        self.error = error.localizedDescription
+      }
+      loading = false
+    }
+  }
+
   /// Annotation opens the packaged dictionary and walks it once per word, so it runs off the main thread like a file read.
   private func annotate(name: String, read: @escaping @Sendable () throws -> String) {
-    preview = nil
+    clearPreview()
     loading = true
-    readTask?.cancel()
     readTask = Task { @MainActor in
       do {
         let imported = try await Task.detached(priority: .userInitiated) {

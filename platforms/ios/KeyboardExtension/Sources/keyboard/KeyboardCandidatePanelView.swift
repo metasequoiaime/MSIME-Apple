@@ -19,6 +19,7 @@ final class KeyboardCandidatePanelView: UIView {
   private let candidateScale: CGFloat
   private let candidateFamilies: [String]
   private var annotations: [KeyboardCandidateAnnotation]
+  private let markers: [[CandidateMarker]]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
   /// What a long press on a chip offers. Shared with the strip -- a press that manages an entry
@@ -29,6 +30,7 @@ final class KeyboardCandidatePanelView: UIView {
   private var laidOutWidth: CGFloat = 0
 
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
+       markers: [[CandidateMarker]] = [],
        candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, candidateFamilies: [String] = [],
        display: @escaping (String) -> String,
        menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
@@ -37,6 +39,7 @@ final class KeyboardCandidatePanelView: UIView {
     self.candidateScale = candidateScale
     self.candidateFamilies = candidateFamilies
     self.annotations = annotations
+    self.markers = markers
     self.display = display
     self.menuElements = menuElements
     self.onSelect = onSelect
@@ -176,6 +179,8 @@ final class KeyboardCandidatePanelView: UIView {
   private func makeChip(candidate: String, number: Int) -> UIButton {
     let text = display(candidate)
     let annotation = annotations.indices.contains(number - 1) ? annotations[number - 1] : .none
+    let marks = markers.indices.contains(number - 1) ? markers[number - 1] : []
+    let secondary = KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55)
     var configuration = UIButton.Configuration.plain()
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
@@ -183,17 +188,19 @@ final class KeyboardCandidatePanelView: UIView {
       .font: CandidateFontPreference.font(.body, scale: candidateScale, families: candidateFamilies),
       .paragraphStyle: paragraph,
     ]))
+    title += KeyboardViewController.markerRun(marks, color: secondary, scale: candidateScale)
     if !annotation.text.isEmpty {
       let lines = annotation.text.split(separator: "\n", omittingEmptySubsequences: false)
       for line in lines {
         title += AttributedString("\n" + String(line), attributes: AttributeContainer([
           .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
-          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+          .foregroundColor: secondary,
         ]))
       }
     }
     configuration.attributedTitle = title
-    configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
+    configuration.baseForegroundColor = marks.contains { $0.symbol == "pin.fill" }
+      ? KeyboardSkinPreference.selected.accent : KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11)
     configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
     configuration.background.strokeColor =
@@ -209,6 +216,7 @@ final class KeyboardCandidatePanelView: UIView {
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"
       : "候选词 \(number)：\(text)，\(annotation.accessibilityDescription)"
+    for marker in marks { chip.accessibilityLabel? += "，\(marker.spoken)" }
     // Built when the press opens it, not for every chip up front: this panel lays out the whole
     // list, which for a query like `yi` is several hundred of them.
     chip.menu = UIMenu(children: [

@@ -85,7 +85,7 @@ char *msime_client_refresh_host(const uint8_t *path, size_t length);
 char *msime_client_create(const uint8_t *options, size_t length);
 /* Management JSON (<=65536 bytes), trusted native caller only:
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
- * List takes optional kind and query (a code prefix). Without them it lists the user's own words; with a kind and a nonblank query (quick_phrase needs none) it also finds the bundled words of that dictionary, user words first.
+ * List takes optional kind and query (a code prefix). Without them it lists the user's own words; with a kind and a nonblank query (quick_phrase needs none) it also finds the bundled words of that dictionary, user words first. user_only:true keeps any list to the user's own words, filtered by the kind and code prefix across the whole store.
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
  * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"quick_phrase"|"english",
  * format:"standard"|"windows"|"rime"|"hans",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.
@@ -242,6 +242,10 @@ char *msime_client_skin_resource(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id}; returns a nullable stylesheet
  * string from the manifest, after revalidating the package and path. */
 char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length);
+/* JSON {source:absolute picked folder,directory:absolute skin root}. Copies the
+ * folder under its own name, replacing a skin of that name whole; returns {id}.
+ * The error message is skin_name, skin_manifest or storage. Touches the disk. */
+char *msime_client_skin_import(const uint8_t *request, size_t length);
 /* The queued personal dictionary, for a host that cannot take the Engine's
  * maintenance lock when the request arrives. Same request shape as
  * msime_client_dictionary - {options,action} - but the operations act on

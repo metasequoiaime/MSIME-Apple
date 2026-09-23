@@ -74,6 +74,39 @@ final class PersonalDictionaryHansImportTests: XCTestCase {
     }
   }
 
+  func testTheNativePagesDictionaryFileImportPreviewsWhatItSkipped() throws {
+    let standard = try PersonalDictionaryImport.file(
+      "水杉\tshui'shan\t100\n你好\tni\t100\n在家\tzai'jia\t100\n", kind: .pinyin, format: "standard")
+    XCTAssertEqual(standard.file.entries.map(\.value), ["水杉", "在家"])
+    XCTAssertEqual(standard.notice, "跳过 1 行，首先出现在第 2 行。")
+    // A row that parsed but that the Engine refused gets the desktop's extra hint.
+    XCTAssertEqual(
+      PersonalDictionaryImport.notice(["failed": 2, "first_failures": [["line": 4, "issue": "pinyin"], ["line": 9, "issue": "rejected"]]]),
+      "跳过 2 行，首先出现在第 4、9 行。其中部分行的编码与词不匹配，例如简拼、或音节数与汉字数不一致。")
+
+    let rime = try PersonalDictionaryImport.file(
+      "---\nname: demo\n...\n你好\tni hao\tc=3\n世界\tshi jie\n", kind: .pinyin, format: "rime")
+    XCTAssertEqual(rime.file.entries.map(\.value), ["你好", "世界"])
+    XCTAssertEqual(rime.notice, "")
+
+    // A word-first file read as code-first is read the way round it was written, and the page says so.
+    let swapped = try PersonalDictionaryImport.file("在家等\tzjd\t100\n", kind: .quickPhrase, format: "windows")
+    XCTAssertEqual(swapped.file.entries, [PersonalWord(kind: .quickPhrase, key: "zjd", value: "在家等", weight: 100)])
+    XCTAssertTrue(swapped.notice.contains("两列与所选格式相反"), swapped.notice)
+
+    let long = (0..<200).map { "短语\($0)\tq\($0)\t100\n" }.joined()
+    let capped = try PersonalDictionaryImport.file(long, kind: .quickPhrase, format: "standard")
+    XCTAssertEqual(capped.file.entries.count, 128)
+    XCTAssertTrue(capped.notice.contains("仅导入前 128 条"), capped.notice)
+
+    XCTAssertThrowsError(try PersonalDictionaryImport.file("你好\tnihaoma\t100\n", kind: .pinyin, format: "standard")) {
+      XCTAssertEqual($0.localizedDescription, "文件里没有能导入的拼音词条，请确认词库类型和文件格式。")
+    }
+    XCTAssertThrowsError(try PersonalDictionaryImport.file("x", kind: .pinyin, format: "standard") { _, _, _ in
+      throw DictionaryFileImportFailure.unavailable
+    }) { XCTAssertEqual($0.localizedDescription, "键盘词典暂时无法读取，请稍后再试。") }
+  }
+
   func testEditedWeightIsQueuedAsWritten() throws {
     XCTAssertEqual(PersonalWord.weightRange, 1...100_000_000)
     XCTAssertEqual(PersonalWord(key: "ni hao", value: "你好").weight, PersonalWord.defaultWeight)

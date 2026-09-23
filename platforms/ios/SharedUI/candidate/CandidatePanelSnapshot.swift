@@ -8,6 +8,8 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
     let translation: String
     /// The Engine's display suffix: a helpcode, or the spelling a correction replaced.
     var annotation = ""
+    var source = 0
+    var fixedPosition = 0
     let index: UInt64
   }
 
@@ -44,7 +46,9 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
       let annotation = candidate["annotation"] as? String ?? ""
       guard code.utf8.count <= WubiCodeHintPreference.maxCodeLength,
             bounded(translation), bounded(annotation) else { throw Failure.invalidResponse }
-      return Entry(text: text, code: code, translation: translation, annotation: annotation, index: index)
+      return Entry(text: text, code: code, translation: translation, annotation: annotation,
+                   source: (candidate["source"] as? NSNumber)?.intValue ?? 0,
+                   fixedPosition: (candidate["fixed_position"] as? NSNumber)?.intValue ?? 0, index: index)
     }
     return CandidatePanelSnapshot(generation: generation, preedit: preedit, entries: entries)
   }

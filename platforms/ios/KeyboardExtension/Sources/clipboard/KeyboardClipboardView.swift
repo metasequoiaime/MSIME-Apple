@@ -1,5 +1,18 @@
 import UIKit
 
+/// iOS shows a paste notice whenever a keyboard reads what is on the pasteboard, so history is never recorded in the background the way the desktop records it. The change count and `hasStrings` can be read without that notice: they tell the panel that text has been copied since the last save, and the user's tap does the actual read.
+enum ClipboardCapturePrompt {
+  static let key = "clipboard.lastCapturedChangeCount"
+
+  static func hasNewCopy(changeCount: Int, hasStrings: Bool, defaults: UserDefaults = .standard) -> Bool {
+    hasStrings && defaults.object(forKey: key) as? Int != changeCount
+  }
+
+  static func markCaptured(changeCount: Int, defaults: UserDefaults = .standard) {
+    defaults.set(changeCount, forKey: key)
+  }
+}
+
 final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDelegate {
   private let store: ClipboardHistoryStore
   private var items: [ClipboardHistoryItem] = []
@@ -39,17 +52,32 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     let header = UIStackView(arrangedSubviews: [title, clear, close])
     header.spacing = 8
     let capture = UIButton(type: .system)
-    var config = UIButton.Configuration.tinted()
-    config.title = "保存当前剪贴板"
+    let pasteboard = UIPasteboard.general
+    let newCopy = hasFullAccess && ClipboardCapturePrompt.hasNewCopy(
+      changeCount: pasteboard.changeCount, hasStrings: pasteboard.hasStrings)
+    var config = newCopy ? UIButton.Configuration.filled() : UIButton.Configuration.tinted()
+    config.title = newCopy ? "保存新复制的内容" : "保存当前剪贴板"
     config.image = UIImage(systemName: "doc.on.clipboard")
     config.imagePadding = 8
     capture.configuration = config
     capture.accessibilityIdentifier = "captureClipboard"
     capture.isEnabled = hasFullAccess
     clear.isEnabled = hasFullAccess
-    capture.addAction(UIAction { [weak self] _ in
+    capture.addAction(UIAction { [weak self, weak capture] _ in
       guard let self else { return }
-      perform { try store.add(UIPasteboard.general.string ?? "") }
+      let changeCount = pasteboard.changeCount
+      var captured = false
+      perform {
+        try store.add(pasteboard.string ?? "")
+        ClipboardCapturePrompt.markCaptured(changeCount: changeCount)
+        captured = true
+      }
+      guard captured else { return }
+      var saved = UIButton.Configuration.tinted()
+      saved.title = "保存当前剪贴板"
+      saved.image = UIImage(systemName: "doc.on.clipboard")
+      saved.imagePadding = 8
+      capture?.configuration = saved
     }, for: .primaryActionTriggered)
     status.font = .systemFont(ofSize: 12)
     status.textColor = .secondaryLabel

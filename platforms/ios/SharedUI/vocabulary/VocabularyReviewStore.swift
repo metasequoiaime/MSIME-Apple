@@ -59,12 +59,15 @@ struct VocabularyReviewStatus: Equatable {
 /// prevent. This type only moves JSON across the boundary.
 struct VocabularyReviewStore {
   let root: URL
+  /// The verified Engine resources, whose `wordbooks/` sibling would hold bundled books. The shared entry point requires an absolute path, so a host without packaged resources passes its own directory, where no bundled book is found and only imported books are offered.
+  let resources: URL
 
-  init(directory: URL? = nil) {
+  init(directory: URL? = nil, resources: URL? = PersonalDictionaryBridge.packagedResources) {
     root = directory ?? FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)?
       .appendingPathComponent("MSIME", isDirectory: true)
       ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    self.resources = resources ?? root
   }
 
   func load() throws -> VocabularyReviewStatus { try call(["operation": "load"]) }
@@ -106,6 +109,7 @@ struct VocabularyReviewStore {
   private func call(_ action: [String: Any]) throws -> VocabularyReviewStatus {
     let request = try JSONSerialization.data(withJSONObject: [
       "directory": root.path,
+      "resources": resources.path,
       "day": Self.today(),
       "action": action,
     ])

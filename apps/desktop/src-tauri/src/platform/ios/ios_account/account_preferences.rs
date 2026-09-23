@@ -478,6 +478,8 @@ mod tests {
             english_suggestions: true,
             candidate_palette_follows_desktop: false,
             inline_preedit: false,
+            haptics_available: true,
+            tablet_full_keys: None,
             dictionary_learning: false,
             keyboard_skin: "custom".into(),
             custom_keyboard_skin: None,

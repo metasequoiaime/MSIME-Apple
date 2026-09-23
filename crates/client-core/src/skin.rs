@@ -6,4 +6,5 @@ pub mod ai;
 pub mod catalog;
 pub mod community;
 pub mod custom_library;
+pub mod folder_import;
 pub mod keyboard_trial;

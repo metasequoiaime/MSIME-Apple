@@ -64,6 +64,7 @@ struct SettingsSyncView: View {
   @State private var applying = false
   @State private var uploading = false
   @State private var pending: Task<Void, Never>?
+  private let device = UIDevice.current.userInterfaceIdiom == .pad ? " iPad " : " iPhone "
 
   var body: some View {
     Form {
@@ -76,10 +77,10 @@ struct SettingsSyncView: View {
         }
       }
       Section {
-        SettingsActionRow(title: "上传本机设置", detail: "用这台手机的设置覆盖云端",
+        SettingsActionRow(title: "上传本机设置", detail: "用这台\(device)的设置覆盖云端",
                           symbol: "icloud.and.arrow.up",
                           enabled: cloud != nil && schema != nil) { uploading = true }
-        SettingsActionRow(title: "下载并应用", detail: "用云端设置覆盖这台手机",
+        SettingsActionRow(title: "下载并应用", detail: "用云端设置覆盖这台\(device)",
                           symbol: "icloud.and.arrow.down",
                           enabled: cloud?.settings.isEmpty == false) { applying = true }
       } header: {
