@@ -1753,7 +1753,7 @@ export interface SettingsClient {
   /**
    * Write an exported document into the user's Downloads folder and resolve to the absolute path written, which may carry a " (2)" suffix when the name was taken. A host whose webview drops download links (the macOS WKWebView cancels them) offers this; without it the page falls back to a download link.
    */
-  saveExport?: (name: string, contents: string) => Promise<string>;
+  saveExport?: (name: string, contents: string) => Promise<string | null>;
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
