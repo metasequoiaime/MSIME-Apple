@@ -508,6 +508,7 @@ int main(int argc, char **argv) {
             "emoji search commits the first result and exits");
     require(!engine.english_action_.isChecked(&ic), "English candidates initially disabled");
     require(msime_linux_simplified_to_traditional("汉语") == "漢語", "traditional conversion available");
+    require(msime_linux_simplified_to_traditional("头发") == "頭髮", "traditional conversion is phrase-level OpenCC, not character by character");
     engine.traditional_action_.activate(&ic);
     require(state->traditional_, "traditional status action enables conversion");
     require(state->preferences_.value("traditional_chinese_output", false),

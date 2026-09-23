@@ -2422,6 +2422,15 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 证据：用 OpenCC 在该提交构建出的 CLI 做对照，4 万行随机文本逐字节一致；Rust 单测与 host-api 边界测试；Windows 侧为交叉构建与原生用例，未在真实编辑器里验收。
 - Linux（ICU）与 macOS（`CFStringTransform`）仍是逐字转换，要统一只需改调同一个导出，本批不动。
 
+### Linux 简繁转换改调共享 OpenCC 导出（2026-09-23）
+
+上一条记的「Linux（ICU）仍是逐字转换」这次收掉。Linux 原来用系统 ICU 的 `Simplified-Traditional` transliterator，逐字映射解决不了一对多的字，「头发」会成「頭發」，与 Windows 现在的 OpenCC 词级输出不一致，还让 IBus 和 Fcitx5 两个宿主都硬依赖 `libicu`。
+
+- `platforms/linux/src/system/ChineseTextConversion.cpp` 改调 `msime_client_simplified_to_traditional`，结果用 `msime_client_string_free` 释放；返回 NULL（非法 UTF-8、内嵌 NUL）时保留原文。C++ 签名不变，`ClientEngine.cpp` 与 `fcitx5/FcitxEngine.cpp` 的调用点不动。
+- 去掉 `platforms/linux/CMakeLists.txt`、`platforms/linux/fcitx5/CMakeLists.txt` 里的 ICU `pkg_check_modules` 和链接，以及两份测试镜像里的 `libicu-dev`；仓库内没有别的 ICU 使用者。Debian 包的共享库依赖由 `dpkg-shlibdeps` 生成，随之不再带 ICU。
+- 证据：`linux-traditional-output-test` 钉了与 `chinese_conversion.rs` 单测相同的词级对照（头发→頭髮、干面→乾麪、后天→後天、里面→裏面等）和 NULL 回退，Fcitx5 原生测试加了「头发→頭髮」。Linux 容器构建门禁（`platforms/linux/build-container.sh`，镜像已不装 `libicu-dev`）31/31 通过；Fcitx5 原生测试只编译链接，运行需要锁定资源目录，本次未跑。未在真实桌面会话里目视验收。
+- macOS（`CFStringTransform`）仍是逐字转换。
+
 ### Server 不再弹控制台窗口；维护快捷键「停止」真正停下；诊断日志落盘（2026-09-23）
 
 - 控制台窗口：`msime-client-server`（`MetasequoiaImeServer.exe`）原是控制台子系统程序，Watchdog 与 TSF DLL 每次拉起它都会带出一个黑色控制台窗口。来源的 Server 是窗口程序，没有这个窗口。现在链接为 Windows 子系统（MinGW `-mwindows`；MSVC `WIN32_EXECUTABLE` 加 `/ENTRY:wmainCRTStartup`，入口仍是 `wmain`）。`--config` 预览与 `--help` 从终端启动时挂到父控制台（`AttachConsole(ATTACH_PARENT_PROCESS)`），状态行与 Ctrl+C 照旧；受管启动（`--watchdog-managed` / `--production`）从不挂接，因为 TSF DLL 是在当前焦点程序里拉起 Server 的，那个程序本身可能是控制台程序。
