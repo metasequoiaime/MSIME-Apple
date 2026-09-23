@@ -75,6 +75,16 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),
+    # Ctrl+Enter translation commit, through the reply composer against a real Engine session.
+    "input/candidate_translation_commit.cpp": (
+        [
+            "src/ipc/ReplyComposer.cpp",
+            "src/ipc/ReplyCodec.cpp",
+            "src/ipc/ServerSession.cpp",
+            "src/input/ChineseTextConversion.cpp",
+        ],
+        True,
+    ),
     # The TIP's reply parser, which its own policy tests call. No host library: this is JSON in,
     # struct out.
     "tsf/input/raw_commit.cpp": (["tsf/EngineResponse.cpp"], False),
