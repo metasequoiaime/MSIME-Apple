@@ -1544,7 +1544,9 @@ fn dictionary_action_requires_quiesce(action: &Value) -> bool {
 fn ios_personal_dictionary_action(action: &Value) -> bool {
     matches!(
         action.get("operation").and_then(Value::as_str),
-        Some("list" | "edit" | "import_personal" | "export" | "retry" | "dismiss_failure")
+        Some(
+            "list" | "edit" | "import" | "import_personal" | "export" | "retry" | "dismiss_failure"
+        )
     )
 }
 
