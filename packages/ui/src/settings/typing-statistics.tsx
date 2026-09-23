@@ -304,6 +304,8 @@ export function activityMetrics(statistics: TypingStatistics, todayKey: string):
   let fastestDay: string | null = null;
   let bestDay: string | null = null;
   let bestDayCharacters = 0;
+  // The baseline's average is the sum of its day rows over the row count, so it divides what the recorded days hold rather than `total`, which a document pruned by an older build can keep above them.
+  let recordedCharacters = 0;
   for (const key of recorded) {
     const activeMs = activeByDay[key] ?? 0;
     const readable = readableCharacters(statistics.dailyDetails?.[key]);
@@ -320,6 +322,7 @@ export function activityMetrics(statistics: TypingStatistics, todayKey: string):
       }
     }
     const characters = statistics.days[key] ?? 0;
+    recordedCharacters += characters;
     if (characters > bestDayCharacters) {
       bestDayCharacters = characters;
       bestDay = key;
@@ -328,7 +331,7 @@ export function activityMetrics(statistics: TypingStatistics, todayKey: string):
   const todayHours = statistics.dailyHours?.[todayKey];
   return {
     recordedDays: recorded.length,
-    averagePerDay: recorded.length === 0 ? 0 : statistics.total / recorded.length,
+    averagePerDay: recorded.length === 0 ? 0 : recordedCharacters / recorded.length,
     todayActiveMs: activeByDay[todayKey] ?? 0,
     totalActiveMs,
     todaySpeed: charactersPerMinute(
@@ -405,6 +408,129 @@ function withUnknown(value: Partial<TypingBreakdown> | undefined, total: number)
   return { characters, sources: sourceCounts };
 }
 
+/** How many recorded days the per-day detail table lists, as in the Windows source's `DETAIL_DAYS`. */
+export const DETAIL_DAYS = 30;
+
+export type DailyDetailRow = {
+  key: string;
+  total: number;
+  han: number;
+  latin: number;
+  number: number;
+  punctuation: number;
+  /** Other scripts, emoji, symbols and the unclassified remainder a day's breakdown does not cover. */
+  other: number;
+  /** Null when the day predates active-time measurement, which is unknown rather than zero. */
+  activeMs: number | null;
+  /** Null exactly when `activeMs` is, so an unmeasured day never reads as zero speed. */
+  speed: number | null;
+};
+
+/**
+ * The per-day detail table's rows: the most recent recorded days up to today, newest first.
+ *
+ * Only recorded days become rows, like the source's `detailRows(overview.daily, DETAIL_DAYS)`, which takes the last rows of the recorded daily series and reverses them. The source's cjk/latin/digit/punct/other columns map onto this product's finer classes, with every class the source has no column for folded into `other`.
+ */
+export function dailyDetailRows(
+  statistics: TypingStatistics,
+  todayKey: string,
+  days = DETAIL_DAYS,
+): DailyDetailRow[] {
+  const keys = Object.keys(statistics.days)
+    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key) && key <= todayKey)
+    .sort()
+    .slice(-days)
+    .reverse();
+  return keys.map((key) => {
+    const total = statistics.days[key] ?? 0;
+    const detail = statistics.dailyDetails?.[key];
+    const characters = withUnknown(detail, total).characters;
+    const han = characters.han ?? 0;
+    const latin = characters.latin ?? 0;
+    const number = characters.number ?? 0;
+    const punctuation = characters.punctuation ?? 0;
+    const classified = Object.values(characters).reduce((sum, value) => sum + value, 0);
+    const recordedActive = statistics.dailyActiveMs?.[key];
+    const activeMs = typeof recordedActive === "number" ? recordedActive : null;
+    return {
+      key,
+      total,
+      han,
+      latin,
+      number,
+      punctuation,
+      other: Math.max(0, classified - han - latin - number - punctuation),
+      activeMs,
+      speed: activeMs === null ? null : charactersPerMinute(readableCharacters(detail), activeMs),
+    };
+  });
+}
+
+/** The table's columns: 汉字/字母 rather than the source's 中文/英文, because here kana and other scripts are neither and sit in 其他. */
+const detailColumns = [
+  "日期",
+  "字数",
+  "汉字",
+  "字母",
+  "数字",
+  "标点",
+  "其他",
+  "活跃",
+  "速度",
+] as const;
+
+function DailyDetails({ rows }: { rows: DailyDetailRow[] }) {
+  const count = (value: number) => value.toLocaleString("zh-CN");
+  return (
+    <section className="section m-0" aria-labelledby="statistics-details-title">
+      <h2 className={heading} id="statistics-details-title">
+        按日明细 · 最近 {DETAIL_DAYS} 天
+      </h2>
+      {rows.length === 0 ? (
+        <p className={`${empty} mt-3.5`}>暂无输入记录</p>
+      ) : (
+        <div className="mt-3 overflow-x-auto">
+          <table
+            className="w-full border-collapse text-xs tabular-nums [&_td]:border-t [&_td]:border-edge [&_td]:px-2 [&_td]:py-1.5 [&_td]:text-right [&_td]:whitespace-nowrap [&_td:first-child]:text-left [&_th]:px-2 [&_th]:pb-1.5 [&_th]:text-right [&_th]:font-medium [&_th]:whitespace-nowrap [&_th]:text-muted [&_th:first-child]:text-left"
+            aria-labelledby="statistics-details-title"
+          >
+            <thead>
+              <tr>
+                {detailColumns.map((title) => (
+                  <th scope="col" key={title}>
+                    {title}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  <td>{dayLabel(row.key)}</td>
+                  <td className="font-medium text-body">{count(row.total)}</td>
+                  {[row.han, row.latin, row.number, row.punctuation, row.other].map(
+                    (value, index) => (
+                      <td className="text-secondary" key={index}>
+                        {count(value)}
+                      </td>
+                    ),
+                  )}
+                  <td>{row.activeMs === null ? "—" : formatActiveTime(row.activeMs)}</td>
+                  <td>{row.speed === null ? "—" : `${count(Math.round(row.speed))} 字/分钟`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className={footerNote}>
+        列出最近 {DETAIL_DAYS}{" "}
+        个有记录的日期，新的在上；「其他」含其他文字、表情、符号与历史未分类。活跃与速度显示「—」的日期早于活跃时长的记录。
+      </p>
+    </section>
+  );
+}
+
 function scopedBreakdown(statistics: TypingStatistics, keys: string[] | null): TypingBreakdown {
   if (keys === null) return withUnknown(statistics.detail, statistics.total);
   const result: TypingBreakdown = { characters: {}, sources: {} };
@@ -423,11 +549,11 @@ type HeatmapDay = { key: string; label: string; count: number; future: boolean }
 
 function statisticsHeatmapWeeks(days: Record<string, number>, today = new Date()): HeatmapDay[][] {
   const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const sundayOffset = current.getDay();
-  const thisSunday = new Date(current);
-  thisSunday.setDate(current.getDate() - sundayOffset);
-  const start = new Date(thisSunday);
-  start.setDate(thisSunday.getDate() - 52 * 7);
+  // Weeks start on Monday, as in the Windows source's calendar, so the current week's column begins on this Monday.
+  const thisMonday = new Date(current);
+  thisMonday.setDate(current.getDate() - ((current.getDay() + 6) % 7));
+  const start = new Date(thisMonday);
+  start.setDate(thisMonday.getDate() - 52 * 7);
   return Array.from({ length: 53 }, (_, week) =>
     Array.from({ length: 7 }, (_, row) => {
       const date = new Date(start);
@@ -454,12 +580,10 @@ function StatisticsHeatmap({
 }) {
   const weeks = useMemo(() => statisticsHeatmapWeeks(days), [days]);
   const maximum = Math.max(1, ...weeks.flat().map((day) => day.count));
-  const monthLabels = weeks.map((week, index) => {
-    const current = week[0];
-    const previous = index > 0 ? weeks[index - 1][0] : undefined;
-    return index === 0 || current.key.slice(0, 7) !== previous?.key.slice(0, 7)
-      ? `${current.label.split("月")[0]}月`
-      : "";
+  // A month is labelled only on the column holding its 1st, so each label sits over the column where that month begins.
+  const monthLabels = weeks.map((week) => {
+    const first = week.find((day) => day.key.endsWith("-01"));
+    return first ? `${first.label.split("月")[0]}月` : "";
   });
   return (
     <div className="mt-2" role="group" aria-label="每日输入热力图">
@@ -478,7 +602,7 @@ function StatisticsHeatmap({
             className={`${heatWeek} w-[18px] flex-[0_0_18px] text-right text-[9px] leading-[14px] text-muted`}
             aria-hidden="true"
           >
-            {["", "一", "", "三", "", "五", ""].map((label, index) => (
+            {["一", "", "三", "", "五", "", ""].map((label, index) => (
               <span key={index}>{label}</span>
             ))}
           </div>
@@ -497,6 +621,7 @@ function StatisticsHeatmap({
                       type="button"
                       className={`${heatCell} ${heatLevels[level]} cursor-pointer${selectedDay === day.key ? " outline-2 outline-offset-1 outline-[#e59b43]" : ""}`}
                       key={day.key}
+                      title={`${day.label}：${day.count > 0 ? `${day.count.toLocaleString("zh-CN")} 字符` : "无记录"}`}
                       aria-label={`热力图：${day.label}，${day.count} 字符`}
                       aria-pressed={selectedDay === day.key}
                       onClick={() => onSelect(day.key)}
@@ -1242,7 +1367,11 @@ export function TypingStatisticsPage({
             <strong className={metricValue} aria-label="平均输入速度">
               {Math.round(activity.averageSpeed).toLocaleString("zh-CN")}
             </strong>
-            <small className="m-0">字 / 分钟</small>
+            <small className="m-0">
+              {activity.hasActivity
+                ? `字 / 分钟 · 共 ${formatActiveTime(activity.totalActiveMs)}`
+                : "字 / 分钟"}
+            </small>
           </div>
           <div className={metric}>
             <span className="text-secondary">今日活跃</span>
@@ -1365,6 +1494,19 @@ export function TypingStatisticsPage({
           )}
         </section>
       )}
+      {!mobile && (
+        <section className="section m-0" aria-labelledby="statistics-calendar-title">
+          <h2 className={heading} id="statistics-calendar-title">
+            日历热力图
+          </h2>
+          <p className="mt-[7px] mb-0 text-xs text-muted">近 12 个月，颜色越深输入越多</p>
+          <StatisticsHeatmap
+            days={statistics.days}
+            selectedDay={selectedDay}
+            onSelect={(key) => setSelectedDay((current) => (current === key ? null : key))}
+          />
+        </section>
+      )}
       {(!mobile || mobileTab === "kind") && (
         <Distribution title="字符类型" slices={characterSlices} variant={mobile ? "pie" : "bar"} />
       )}
@@ -1384,12 +1526,12 @@ export function TypingStatisticsPage({
           footer="输入方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。"
         />
       )}
+      {!mobile && <DailyDetails rows={dailyDetailRows(statistics, today.key)} />}
       {(!mobile || mobileTab === "ranks") && <CandidateRanks selections={statistics.selections} />}
       {mobile ? (
         <section className="section m-0 pt-0.5">
           <p className={`${privacy} mt-0`}>
-            仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细保留最近
-            366 个有记录的日期，累计分类持续保留。
+            仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留；自动清理删除的日期同时从累计总数与分类中扣除。
           </p>
         </section>
       ) : (
@@ -1410,7 +1552,8 @@ export function TypingStatisticsPage({
           {client.setRetention && (
             <label className="section-header mb-4">
               <span className="section-title">
-                自动清理<small>按保留策略删除超期的每日记录，跨天后首次记录时执行。</small>
+                自动清理
+                <small>按保留策略删除超期的每日记录并从累计中扣除，跨天后首次记录时执行。</small>
               </span>
               <select
                 aria-label="自动清理"
@@ -1467,8 +1610,7 @@ export function TypingStatisticsPage({
             </button>
           </div>
           <p className={privacy}>
-            仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细保留最近
-            366 个有记录的日期，累计分类持续保留。
+            仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。
           </p>
         </section>
       )}

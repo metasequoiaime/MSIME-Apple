@@ -94,6 +94,10 @@ macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直�
 
 原生语音波形面板消费共享 `voice_theme`：显式 `dark`/`light` 覆盖全局主题，`follow` 继承全局，全局主题为 `system` 时使用 `NSPanel.appearance = nil` 并让 AppKit 重绘跟随系统。波形、状态文字、转写预览和确认/取消按钮同步切换明暗 palette；主题热更新只改变展示，不取消录音、识别或润色请求。`voice-wave-overlay` CTest 覆盖四种解析路径、系统外观回退和原有动作/转写边界。
 
+设置页的「打字统计」由共享设置页渲染，统计文件在状态根下，与其余宿主同一份文档。页面除按所选范围画的每日趋势柱形外，还有来源统计页的独立一节「日历热力图」——近 12 个月每天一格、每列一周（周一开始），五档深浅按当天字数相对窗口内最高一天分级，悬停显示「日期：N 字符」或「无记录」，未来的日期不画；点按格子与点按柱形一样把分类与占比切到当天。其后的「按日明细 · 最近 30 天」表列出最近 30 个有记录的日期（新的在上）的字数、汉字、字母、数字、标点、其他、活跃时长与速度，早于活跃时长记录的日期在后两列显示「—」；「平均速度」下标出累计活跃时长。
+
+打字统计除了输入法自己上屏的文字，也计入输入法交还给应用的按键：英文模式下的字母、中文模式下 Engine 不接的半角数字与符号、Caps Lock 直出的大写字母，在 `handleEvent:client:` 返回 NO 时按 MSIME-Windows `ShouldCountPassthroughChar` 的规则计数——只计单个可打印字符，Command/Control 组合键与 AppKit 功能键（方向键、F 键等）不计，Option 打出的字符计入；英文模式记为 `english`，中文模式记为当前方案。这是按键时的估计：应用当作快捷键处理或在只读区域丢弃的按键同样会被计入。统计关闭时不检查任何按键。`typing-statistics` 与 `shortcut` CTest 覆盖判定规则与路由不变。
+
 语音设置的原生备用窗口提供 CoreAudio 录音设备选择：只列出有输入流且有稳定 UID 的设备，将当前系统默认置顶，按名称/UID 稳定排序；保存 UID 而非易变的序号或显示名，设备暂时不可用时保留选择并让下一次录音明确失败，不静默切换麦克风。空选择使用系统默认设备。共享 `capture_device` 与该 UID 双向同步；`voice-capture-device` CTest 覆盖输入设备过滤、默认排序、UID 缺失和失败路径。Tauri 设置页通过 `list_voice_capture_devices` 提供刷新列表。
 
 原生备用窗口修改的有效语音字段会回写共享 `voice_input` 偏好，避免与 Tauri 页面形成第二套配置；ASR 与润色 Token 都按 provider 槽位保存，切换 provider 会先保存旧槽位再加载新槽位，缺失槽位继续兼容旧扁平字段。豆包鉴权模式与 Tauri 同步支持新版 API Key 和旧版 App ID + Access Token，缺失模式时按已有 App ID 兼容推断。文本润色开关同时维护 `polish_text` 与兼容的 `polish_enabled`，保证所有原生请求路径一致。损坏的 provider 值回退到安全首项，缺失或非法的本机默认值不会覆盖共享字段。凭据不纳入云端外观同步，CoreAudio 设备仍以稳定 UID 保存。
@@ -262,6 +266,14 @@ Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `run
 `prepare_host` 生成的配置包含 `preferences_directory`。宿主激活时立即后台读取此目录，之后每秒检查一次，前一次未完成时不重叠读取；失活后停止定时器。文件锁和读取不占用会话主线程，应用仍在主线程且有组合时延迟；读取错误保留原配置。旧配置没有此字段时不自动重读，需要重新准备开发配置（先停止该开发宿主）。
 
 从仓库根目录让设置页写入同一份隔离配置：`MSIME_CLIENT_STATE_DIR="$PWD/target/macos-state" pnpm --filter @msime/desktop tauri dev`。保存后活跃宿主通常在下一次轮询收到快照，当前组词结束后生效；无需 Tauri 常驻。
+
+## 诊断日志
+
+设置页「关于 → 输入法日志」开关（`diagnostic_log.server`）控制输入法本体写诊断日志，偏好应用时立即生效，不用重启输入法。文件是偏好目录（`runtime-options.json` 的 `preferences_directory`，默认在 `~/Library/Application Support/app.msime.client/` 下，迁移数据目录后随之移动）里的 `diagnostic.log`，权限 0600，超过 1 MiB 轮转为 `diagnostic.log.1`，只留一份旧文件；每条记录带时间戳与进程号，单条截到 192 字节，不可打印字节写成 `?`。关闭时各记录点只做一次原子读，不计时也不格式化。
+
+记录的内容与来源 `candidate_diag_log` 的开关覆盖面对应：焦点进出；偏好加载、应用、保存的结果；每次按键经 `handleEvent:client:` 的处理耗时（`[key-latency] stage=handle type=down|up|flags handled=0|1 elapsed_ms=…`）；候选窗每次显示的行数、横竖排、光标矩形、窗口尺寸与原点、屏幕可见区域、是否翻到光标上方与构建耗时（`candidate-frame show …`），IMK 候选面板的定位（`candidate-position …`），以及候选窗隐藏的原因（`candidate hide reason=empty|english_mode|invalid_caret|no_screen|mode_switch|session_replaced|focus_out|panel_hide`）；输入统计写入失败只记类别（`stats: record_failed`、`stats: request_too_large`、`stats: invalid_source`、`stats: enabled_read_failed`）。来源按键路径上的 queue 与 reply-send 两段在这边没有对应：Engine 与输入法同进程，没有 IPC 跨越，一段 handle 就覆盖了同一段时间。日志从不记录按键码、字符、输入内容、候选文本、共享层返回的错误字符串（其中可能含文件路径）、账户凭据或服务商响应。
+
+来源把日志写到桌面方便用户找到并发送；这边文件留在 Application Support，由设置页开关下方的「在 Finder 中显示」按钮找到它：宿主自己解析偏好目录，文件已存在时在 Finder 中选中它，还没有写入时打开所在目录，不接受网页传入的路径；打开失败时页面给出错误提示。
 
 ## 数据目录迁移
 

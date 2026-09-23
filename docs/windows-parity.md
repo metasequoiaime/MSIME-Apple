@@ -93,7 +93,7 @@
 | Emoji、颜文字、符号、剪贴板历史 | README 与来源 `clipboard_history.cpp` | `src/clipboard/ClipboardMonitor.cpp`、`ClipboardHistory.cpp`、`ClipboardPaste.cpp`、`ClipboardPresentation.cpp`，面板与目录走 Tauri `load_emoji_catalog` / `paste_clipboard_text` |
 | 悬浮工具栏、托盘菜单、入口快捷键 | 来源 `window/*presenter*`、`ui-html/webview2/ftb` 与 `menu` | `src/candidate/FloatingToolbarWindow.cpp`、`src/candidate/TrayMenuWindow.cpp`、`src/input/MaintenanceHotkey.cpp`、`src/system/ShellSurfaces.h` 与 `ShellLauncher.cpp` |
 | 皮肤、主题、字体、外观预览 | 来源 `appearance.ts` / `skin.ts`、`candwnd/skins` | `src/candidate/CandidateSkin.h`、`CandidatePalette.h`、`CandidateShadow.h`、`CandidateWindow.cpp`，共享 `packages/ui/src/upstream/` 与 `crates/client-core/src/skin/catalog.rs` |
-| 打字统计 | 来源 Server 私有统计表与统计页 | 采集在 Server，存储与展示在共享 `crates/client-core/src/typing_statistics.rs` 与共享设置页 |
+| 打字统计 | 来源 Server 私有统计表与统计页 | 采集在 Server，存储与展示在共享 `crates/client-core/src/typing_statistics.rs` 与共享设置页；统计页含来源的 12 个月日历热力图与最近 30 天按日明细 |
 | 更新、关于、帮助、反馈、重启 | 来源 `about-settings.ts` / `feedback-settings.ts` / `update-manifest.ts`、`restartServer` | 共享 `update-manifest.ts` 与设置页，Tauri `open_external_url` / `restart_input_method`，重启走固定 UTF-16LE `RestartServer` Aux payload |
 | 服务守护、安装、升级、卸载、资源打包 | 来源 README 服务守护、`installer/`、构建脚本 | `platforms/windows/src/system/Watchdog.cpp` 与 `WatchdogPolicy.h`、`src/entrypoints/prepare_host_main.cpp`、`platforms/windows/installer/` |
 
@@ -175,13 +175,15 @@
 
 **智能标点的三个子开关不走独立 opcode。** 来源 `windows_ipc.h` 的 22/24/25 三个 opcode 在这边由一帧打包的标点配置携带。
 
-**打字统计的落点与存储都与来源不同。** 采集放在 Server 而不是 TSF DLL：来源的 Engine 与 DLL 同进程，而这边 Server 是唯一看得到每一条上屏字符串的地方，共享 Host API 也链在这一侧，文本本来就要作为上屏载荷从 Server 走到 DLL，采集不让它多跨任何一道边界。唯一的例外是 TIP 不吃掉的按键：它们由应用自己插入，永远到不了 Server 的上屏出口，于是英文模式的字母、中文模式下的半角数字与标点表之外的符号由 DLL 在 `OnTestKeyDown` 的三个放行出口采集，按批经已有的 Aux 管道（`TypingStatistics` 动词）交给 Server 落盘，和上屏出口共用同一段代码——即便如此，来源为此另开的那条统计命名管道（`FANY_IME_STATS_*` 契约）这边仍然不需要。统计默认关闭，关闭时 Server 不回 OK，DLL 据此退避，不在关闭期间持续把按键字符送过管道。存储则做在共享 `crates/client-core/src/typing_statistics.rs` 与共享设置页，而不是来源的 Windows 私有 SQLite 表：这些维度和「每天多少字」是同一件事，后者早就在共享层、六个宿主写同一份文档，单开一套 Windows 私有存储会让同一个用户的统计分裂成两份。速度指标另有一处有意不同：来源只数 `cjk + latin`，而它的 `latin` 是纯 ASCII 字母、假名落在 `other`，于是纯日文输入的速度恒为零；这边有完整日文模式，所以假名与谚文等也算进可读字符，数字与标点仍然不算。
+**打字统计的落点与存储都与来源不同。** 采集放在 Server 而不是 TSF DLL：来源的 Engine 与 DLL 同进程，而这边 Server 是唯一看得到每一条上屏字符串的地方，共享 Host API 也链在这一侧，文本本来就要作为上屏载荷从 Server 走到 DLL，采集不让它多跨任何一道边界。唯一的例外是 TIP 不吃掉的按键：它们由应用自己插入，永远到不了 Server 的上屏出口，于是英文模式的字母、中文模式下的半角数字与标点表之外的符号由 DLL 在 `OnTestKeyDown` 的三个放行出口采集，按批经已有的 Aux 管道（`TypingStatistics` 动词）交给 Server 落盘，和上屏出口共用同一段代码——即便如此，来源为此另开的那条统计命名管道（`FANY_IME_STATS_*` 契约）这边仍然不需要。统计默认关闭，关闭时 Server 不回 OK，DLL 据此退避，不在关闭期间持续把按键字符送过管道。macOS 按同一条规则在 `handleEvent:client:` 的出口采集输入法没有吃掉的按键：Command 与 Control 组合键、AppKit 功能键区（方向键、F 键、Home/End、向前删除落在 `NSEvent.characters` 的 0xF700–0xF8FF）不计，Option 打出的字符计入，因为 Option 是 macOS 的字符层、相当于 Windows 的 AltGr；英文模式记为 `english`，中文模式下放行的数字与符号记为当前方案的来源；和来源一样，这是按键时的预测而非编辑确认。存储则做在共享 `crates/client-core/src/typing_statistics.rs` 与共享设置页，而不是来源的 Windows 私有 SQLite 表：这些维度和「每天多少字」是同一件事，后者早就在共享层、六个宿主写同一份文档，单开一套 Windows 私有存储会让同一个用户的统计分裂成两份。速度指标另有一处有意不同：来源只数 `cjk + latin`，而它的 `latin` 是纯 ASCII 字母、假名落在 `other`，于是纯日文输入的速度恒为零；这边有完整日文模式，所以假名与谚文等也算进可读字符，数字与标点仍然不算。「自动清理」的保留策略与来源一致：「永久保留」从不删除任何一天，「30/90/180/365 天」在每天第一次写入时删掉边界之前的日期，收窄设置时立即生效；和来源 `ClearThrough` 删掉概览所求和的 `stats_daily` 行一样，被删的日期同时从累计总数与分类中扣除，于是「累计」、分类占比与日均都只覆盖保留下来的日期，日均按保留日期的字数之和除以日期数计算。来源统计页的「日历热力图」在共享设置页原样保留：近 12 个月每天一格、每列一周且周一开始，月份只标在含该月 1 日的那一列，五档深浅按当天字数占窗口内最高一天的四分位分级，每格悬停显示当天字数或「无记录」，未来的日期不画；桌面宿主把它作为趋势之后的独立一节，手机放在「趋势」标签下，点按格子会把分类与占比切到当天。来源的「按日明细」表同样在桌面布局保留：列出最近 30 个有记录的日期、新的在上，列为日期、字数、汉字、字母、数字、标点、其他、活跃与速度，「平均速度」下同时标出累计活跃时长；分类列按这边更细的字符类别对应，「其他」含其他文字、表情、符号与历史未分类，列名用「汉字 / 字母」而非来源的「中文 / 英文」，因为假名等文字在这边不算英文；早于活跃时长记录的日期「活跃」与「速度」显示为未知（「—」），不按来源记作零；手机布局放不下九列，不画这张表。
 
 **半截词的 preedit 不在 Windows 打开。** 其余五个宿主（macOS、Linux、HarmonyOS、Android、iOS）把「已选的那一段 + 读音」画在组字里，Windows 的 TSF 侧自己累积前缀，打开会重复；桌面外壳没有候选窗，不适用。
 
 **候选行超宽时截断而不是换行。** 来源对应路径是换行，但那要求行高可变，而这个渲染器的行高来自固定的 `candidate_row` 度量。超出的部分截在行矩形处，与命中测试用的是同一个矩形。
 
 **诊断日志固定写数据目录。** 来源先写桌面、失败再退回数据目录；这边固定写数据目录下的 `logs\server.log`，因为输入法在桌面上凭空出现文件不是用户预期的副作用。设置页的「Server 端日志」「TSF 端日志」两个开关（`diagnostic_log.server` / `diagnostic_log.tsf`）分别控制写入，内容只有 Server 启停原因、各组件是否就绪、退出码与 TIP 上报的诊断批次，不记按键、输入内容或候选文本；4 MiB 轮转为 `server.log.1`，最多保留两份；UTF-8 BOM 与 CRLF 行尾与来源一致；偏好发布时立即生效，无需重启 Server。
+
+**macOS 的诊断日志留在 Application Support，并由设置页在 Finder 中显示。** 对应 `windows-diagnostic-log`：来源 `candidate_diag_log` 用一个开关覆盖按键延迟、候选窗、工具栏、托盘菜单与 IPC 生命周期，文件写到桌面。macOS 输入法用同一个 `diagnostic_log.server` 开关写偏好目录下的 `diagnostic.log`（1 MiB 轮转为 `.1`），记录焦点进出、偏好加载/应用/保存、`handleEvent:client:` 的 `[key-latency] stage=handle` 耗时、候选窗的显示位置与构建耗时、隐藏原因，以及输入统计写入失败的类别；来源的 queue 与 reply-send 两段没有对应，因为 Engine 在输入法进程内，按键不跨 IPC；工具栏与托盘菜单的记录点也没有搬过来。文件不放桌面，设置页「在 Finder 中显示」由宿主解析位置后选中它。与 Windows 一样，不记按键、输入内容或候选文本，也不转写共享层返回的错误字符串。细节见 `platforms/macos/README.md` 的「诊断日志」。
 
 **macOS 语音有三处刻意与来源不同。** 静音其他声音是整台默认输出设备而不是按进程，因为 macOS 13 没有公开接口，时序上改为开始提示音播完再静音、先恢复再播结束提示音，以保证提示音听得见；录音录满上传上限时自动结束并提交已录部分，而不是像来源那样提交时报超限并丢掉整段；提示音文件缺失时回落到系统声音而不是不出声。细节见 `platforms/macos/README.md` 的「语音输入」。
 

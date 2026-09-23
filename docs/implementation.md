@@ -63,7 +63,7 @@
 
 ### 账号、云与社区
 
-`account` 提供客户端、会话、校验与 API 四层，凭据留在 Rust 侧，交给 WebView 的只有脱敏 DTO；各平台的原生登录（iOS 的 Apple 登录、Android 的 Google 凭据管理器）把身份 token 直接交回 Rust 会话，不经过 WebView，也不写日志。`cloud` 下是快照队列、云词典与云候选；`community` 是社区资源与资源库；`credential` 按 doubao / translation / asr / probe 分别提供凭据形态与探测。`skin` 覆盖内置皮肤目录、AI 生成皮肤、社区皮肤、自定义皮肤库与键盘试用；`translation` 持有译义存储与自定义译义；`voice` 是 controller 与豆包帧编解码；`dictionary` 是导入与个人词库；`typing_statistics` 保留 366 天的按日聚合，只记字符计数与分类，不保存输入内容。
+`account` 提供客户端、会话、校验与 API 四层，凭据留在 Rust 侧，交给 WebView 的只有脱敏 DTO；各平台的原生登录（iOS 的 Apple 登录、Android 的 Google 凭据管理器）把身份 token 直接交回 Rust 会话，不经过 WebView，也不写日志。`cloud` 下是快照队列、云词典与云候选；`community` 是社区资源与资源库；`credential` 按 doubao / translation / asr / probe 分别提供凭据形态与探测。`skin` 覆盖内置皮肤目录、AI 生成皮肤、社区皮肤、自定义皮肤库与键盘试用；`translation` 持有译义存储与自定义译义；`voice` 是 controller 与豆包帧编解码；`dictionary` 是导入与个人词库；`typing_statistics` 按用户选择的保留时长（默认永久）保留按日聚合，只记字符计数与分类，不保存输入内容。
 
 ### 有界性
 

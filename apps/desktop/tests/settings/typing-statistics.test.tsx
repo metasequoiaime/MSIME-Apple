@@ -201,6 +201,43 @@ test("mobile trend includes a calendar heatmap that selects a day", async () => 
   expect(screen.getByText("返回整个时间范围")).toBeTruthy();
 });
 
+test("desktop statistics show a 12-month calendar heatmap with Monday-first weeks", async () => {
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status()),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  render(
+    <SettingsPage
+      client={{
+        ...baseClient(),
+        host: { platform: "macos" } as HostCapabilities,
+        typingStatistics,
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  expect(await screen.findByRole("heading", { name: "日历热力图" })).toBeTruthy();
+  expect(screen.getByText("近 12 个月，颜色越深输入越多")).toBeTruthy();
+  const heatmap = screen.getByRole("group", { name: "每日输入热力图" });
+  const yesterday = within(heatmap).getByRole("button", { name: `热力图：${label(-1)}，6 字符` });
+  expect(yesterday.getAttribute("title")).toBe(`${label(-1)}：6 字符`);
+  expect(
+    within(heatmap)
+      .getByRole("button", { name: `热力图：${label(-2)}，0 字符` })
+      .getAttribute("title"),
+  ).toBe(`${label(-2)}：无记录`);
+  // The first cell is the Monday 52 weeks before this week's Monday, so every column runs Monday to Sunday.
+  const today = new Date();
+  const mondayOffset = -((today.getDay() + 6) % 7) - 52 * 7;
+  expect(within(heatmap).getAllByRole("button")[0].getAttribute("aria-label")).toBe(
+    `热力图：${label(mondayOffset)}，0 字符`,
+  );
+  fireEvent.click(yesterday);
+  expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("6");
+  expect(yesterday.getAttribute("aria-pressed")).toBe("true");
+});
+
 test("mobile statistics refresh when the settings surface returns to the foreground", async () => {
   let now = 10_000;
   vi.spyOn(Date, "now").mockImplementation(() => now);

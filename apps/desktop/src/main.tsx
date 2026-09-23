@@ -564,6 +564,10 @@ function DesktopSettings() {
                       },
                 }
               : {}),
+            // The macOS input method writes diagnostic.log under Application Support, which the Finder hides; the host reveals it rather than asking the user to navigate there.
+            ...(host.platform === "macos"
+              ? { openDiagnosticLogDirectory: () => invoke<void>("open_diagnostic_log_directory") }
+              : {}),
             ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
             ...(host.platform === "ios" || host.platform === "android"
               ? createMobileHostServices(host.platform, {

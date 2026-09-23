@@ -2,6 +2,7 @@
 #import "CandidateSkinAppearance.h"
 #import "CandidateTypography.h"
 
+#include "../core/DiagnosticLog.h"
 #include <cmath>
 
 @interface MetasequoiaCandidateWindow : NSPanel
@@ -460,9 +461,12 @@
     y = MIN(MAX(y, NSMinY(bounds)), MAX(NSMinY(bounds), NSMaxY(bounds) - size.height));
     [_window setFrameOrigin:NSMakePoint(x, y)];
     [_window orderFrontRegardless];
+    msime_macos_diagnostic_writef("candidate-position hint=%ld rows=%lu vertical=%d size=(%.0f,%.0f) origin=(%.0f,%.0f) flipped=%d",
+        (long)hint, (unsigned long)_data.count, vertical ? 1 : 0, size.width, size.height, x, y, y >= NSMaxY(caret) ? 1 : 0);
 }
 - (void)hide
 {
+    if (msime_macos_diagnostic_enabled() && _window.isVisible) msime_macos_diagnostic_write("candidate hide reason=panel_hide");
     _tallestVerticalHeight = 0;
     [_window orderOut:nil];
 }

@@ -2312,6 +2312,76 @@ test("macOS exposes its native server logger without a Windows TSF switch", asyn
   expect(screen.queryByLabelText("输入法宿主日志")).toBeNull();
 });
 
+test("macOS reveals the diagnostic log in Finder and names what it records", async () => {
+  const openDiagnosticLogDirectory = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+        openDiagnosticLogDirectory,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  const log = await screen.findByLabelText("输入法日志");
+  // The macOS log covers key latency, candidate placement and statistics failures as well as focus and preferences, and the copy points at the action instead of a path the Finder hides.
+  const description = log.closest("label")?.textContent ?? "";
+  expect(description).toContain("按键的处理耗时");
+  expect(description).toContain("候选窗的显示位置");
+  expect(description).toContain("输入统计写入失败");
+  expect(description).toContain("不记录按键、输入内容或候选文本");
+  expect(description).toContain("在 Finder 中显示");
+  fireEvent.click(screen.getByRole("button", { name: "在 Finder 中显示" }));
+  expect(openDiagnosticLogDirectory).toHaveBeenCalledTimes(1);
+  expect(openDiagnosticLogDirectory).toHaveBeenCalledWith();
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  openDiagnosticLogDirectory.mockRejectedValueOnce(new Error("storage"));
+  fireEvent.click(screen.getByRole("button", { name: "在 Finder 中显示" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "无法在 Finder 中显示诊断日志，请稍后重试。",
+  );
+});
+
+test("the diagnostic log action needs a host that can reveal the file", async () => {
+  const { unmount } = render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByLabelText("输入法日志")).toBeDefined();
+  // Without the host callback, as on the phones, there is no button that would fail when pressed.
+  expect(screen.queryByRole("button", { name: "在 Finder 中显示" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "打开日志目录" })).toBeNull();
+  unmount();
+
+  const openDiagnosticLogDirectory = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "linux" } as HostCapabilities,
+        openDiagnosticLogDirectory,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  // Outside macOS the action opens the folder and says so.
+  fireEvent.click(await screen.findByRole("button", { name: "打开日志目录" }));
+  expect(openDiagnosticLogDirectory).toHaveBeenCalledTimes(1);
+});
+
 const initial: Snapshot = {
   format_version: 1,
   revision: 7,
