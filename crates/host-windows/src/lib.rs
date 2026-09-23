@@ -205,6 +205,13 @@ impl WorkArea {
         let y = (self.bottom - height - 12.0).max(self.top);
         (x, y)
     }
+
+    /// Placement centred on the work area, where the shipped emoji and handwriting panels opened. Oversized panels stay pinned to the work area origin.
+    pub fn center(&self, width: f64, height: f64) -> (f64, f64) {
+        let x = self.left + ((self.right - self.left - width) / 2.0).max(0.0);
+        let y = self.top + ((self.bottom - self.top - height) / 2.0).max(0.0);
+        (x, y)
+    }
 }
 
 /// The foreground window, or `None` when the desktop has no active window.
@@ -820,6 +827,9 @@ mod tests {
             bottom: 980.0,
         };
         assert_eq!(offset.bottom_center(1100.0, 400.0), (-1510.0, 568.0));
+        assert_eq!(area.center(550.0, 610.0), (685.0, 215.0));
+        assert_eq!(area.center(3000.0, 2000.0), (0.0, 0.0));
+        assert_eq!(offset.center(980.0, 650.0), (-1450.0, 115.0));
     }
 
     #[test]

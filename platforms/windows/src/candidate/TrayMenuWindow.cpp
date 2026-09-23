@@ -269,16 +269,16 @@ void TrayMenuWindow::paint() {
     const float half = static_cast<float>(metrics_.toggle_height) / 2.0f;
     const D2D1_ROUNDED_RECT track{
         {track_left, centre - half, track_right, centre + half}, half, half};
-    if (items_[index].checked)
-      target->FillRoundedRectangle(track, brush(palette_.accent));
-    else
-      target->DrawRoundedRectangle(track, brush(palette_.number), 1.0f);
+    // Filled in both states with a white thumb, as the shipped MenuFlyoutItem draws it; only the track colour says on or off.
+    target->FillRoundedRectangle(track,
+                                 brush(items_[index].checked
+                                           ? palette_.accent
+                                           : tray_toggle_off_color(palette_)));
     const float knob = half - 3.0f;
     const float knob_x =
         items_[index].checked ? track_right - half : track_left + half;
     target->FillEllipse({{knob_x, centre}, knob, knob},
-                        brush(items_[index].checked ? palette_.surface
-                                                    : palette_.number));
+                        brush(candidate_rgb(0xFFFFFF)));
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.

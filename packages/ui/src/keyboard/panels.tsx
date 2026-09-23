@@ -685,6 +685,9 @@ export function KeyboardPanel({
     pending: QueuedKey[];
   }>({ active: true, running: false, openingVoice: false, pending: [] });
   const keyRepeat = useRef<{ delay?: number; interval?: number }>({});
+  // Windows sends on release, like the shipped KeyboardPanel::OnMouseUp: the key pressed on pointerdown is remembered and only sent if the pointer is released over that same key, so sliding off a key cancels it and there is no held-key repeat.
+  const releaseKey = useRef<{ button: HTMLButtonElement; key: KeyboardKey } | null>(null);
+  const sendsOnRelease = platform === "windows";
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   function stopKeyRepeat() {
     if (keyRepeat.current.delay !== undefined) window.clearTimeout(keyRepeat.current.delay);
@@ -853,7 +856,20 @@ export function KeyboardPanel({
       syncKeyboardFaces(next);
     }
   }
+  function endPointerKey(event: PointerEvent<HTMLButtonElement>) {
+    stopKeyRepeat();
+    const pressed = releaseKey.current;
+    releaseKey.current = null;
+    if (!sendsOnRelease || !pressed || pressed.button !== event.currentTarget) return;
+    if (!event.isPrimary || event.button !== 0) return;
+    pressKey(resolveRenderedKey(pressed.key, event.currentTarget.textContent ?? ""));
+  }
+  function cancelPointerKey() {
+    stopKeyRepeat();
+    releaseKey.current = null;
+  }
   function beginPointerKey(event: PointerEvent<HTMLButtonElement>, keyToPress: KeyboardKey) {
+    releaseKey.current = null;
     // Num Lock is a lock key in the Linux extended layout, so a held pointer
     // must not toggle it repeatedly like an ordinary keypad key.
     if (
@@ -865,6 +881,13 @@ export function KeyboardPanel({
     )
       return;
     stopKeyRepeat();
+    if (sendsOnRelease) {
+      // Touch and pen capture the pointer implicitly, which would deliver the release to this key wherever it happens; release the capture so pointerup lands on the key actually under the pointer.
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId))
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      releaseKey.current = { button: event.currentTarget, key: keyToPress };
+      return;
+    }
     pressKey(resolveRenderedKey(keyToPress, event.currentTarget.textContent ?? ""));
     keyRepeat.current.delay = window.setTimeout(() => {
       pressKey(keyToPress);
@@ -962,13 +985,11 @@ export function KeyboardPanel({
                       wide: keyToRender.label.length > 1,
                     })}`}
                     onPointerDown={(event) => beginPointerKey(event, keyToRender)}
-                    onPointerUp={stopKeyRepeat}
-                    onPointerCancel={stopKeyRepeat}
+                    onPointerUp={endPointerKey}
+                    onPointerCancel={cancelPointerKey}
                     onPointerLeave={stopKeyRepeat}
                     onClick={(event) => {
-                      // Pointer activation is delivered on pointerdown for immediate
-                      // response and repeat. A detail-zero click comes from keyboard or
-                      // assistive activation and still sends exactly one key.
+                      // Pointer activation is delivered on pointerdown for immediate response and repeat, or on Windows on release over the same key. A detail-zero click comes from keyboard or assistive activation and still sends exactly one key.
                       if (
                         keyToRender.modifier ||
                         keyToRender.virtualKey === 0x90 ||
@@ -995,6 +1016,8 @@ type Point = InkPoint;
 // Keep captured ink within the Linux provider's 32-stroke and 256 KiB envelope.
 // Two decimal places retain subpixel precision in the 420-unit drawing space.
 const MAX_HANDWRITING_STROKES = 32;
+// Windows never reaches that provider: it recognizes with the Windows Ink recognizer and then the packaged Engine model. The shipped HandwritingPanel keeps every stroke, so the only bound left is the shared request contract (MAX_STROKES in crates/client-core/src/panels.rs), which rejects anything longer before a recognizer sees it.
+const WINDOWS_HANDWRITING_STROKES = 64;
 const MAX_HANDWRITING_CANDIDATES = 12;
 
 function hasBmpCjk(text: string) {
@@ -1149,9 +1172,10 @@ export function HandwritingPanel({
 }: {
   client: PanelClient;
   theme?: "dark" | "light";
-  /** The host platform. Only Windows recognises through a handwriting pack the user may be missing; elsewhere an empty result just means the strokes were not read. */
+  /** The host platform. Only Windows recognises through a handwriting pack the user may be missing; elsewhere an empty result just means the strokes were not read. On Windows the stroke limit is also the shared contract's rather than the Linux provider's. */
   platform?: string;
 }) {
+  const maxStrokes = platform === "windows" ? WINDOWS_HANDWRITING_STROKES : MAX_HANDWRITING_STROKES;
   const [activationMode, setActivationMode] = useState<"copy" | "input">(() => {
     try {
       return window.localStorage.getItem("msime.handwriting.activation") === "input"
@@ -1319,7 +1343,7 @@ export function HandwritingPanel({
       (event.button !== undefined && event.button !== 0)
     )
       return;
-    if (strokes.length >= MAX_HANDWRITING_STROKES) {
+    if (strokes.length >= maxStrokes) {
       setNotice("笔画已达上限，请选择候选、撤销或重写");
       return;
     }
@@ -1385,8 +1409,7 @@ export function HandwritingPanel({
   }
   function redo() {
     if (!recognitionQueue.current.active || closingRef.current) return;
-    if (activeStroke.current || !redoStrokes.length || strokes.length >= MAX_HANDWRITING_STROKES)
-      return;
+    if (activeStroke.current || !redoStrokes.length || strokes.length >= maxStrokes) return;
     recognitionRevision.current++;
     const nextStrokes = [...strokes, redoStrokes[redoStrokes.length - 1]];
     setRedoStrokes((current) => current.slice(0, -1));

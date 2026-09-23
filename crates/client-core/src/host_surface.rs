@@ -652,6 +652,15 @@ pub enum SurfaceRoute {
     CloudDictionary,
 }
 
+/// Where a panel window opens on the work area, for hosts that place panels themselves.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PanelPlacement {
+    /// Centred horizontally, 12 pixels above the bottom of the work area.
+    BottomCenter,
+    /// Centred on the work area.
+    Center,
+}
+
 /// Geometry and identity of a panel surface, so the window size lives beside the
 /// route instead of being repeated per host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -661,6 +670,7 @@ pub struct PanelSurface {
     pub title: &'static str,
     pub width: u32,
     pub height: u32,
+    pub placement: PanelPlacement,
 }
 
 impl SurfaceRoute {
@@ -734,6 +744,7 @@ impl SurfaceRoute {
                 title: "水杉屏幕键盘",
                 width: 1100,
                 height: 400,
+                placement: PanelPlacement::BottomCenter,
             }),
             SurfaceRoute::Handwriting => Some(PanelSurface {
                 label: "handwriting-panel",
@@ -741,6 +752,7 @@ impl SurfaceRoute {
                 title: "水杉手写识别板",
                 width: 980,
                 height: 650,
+                placement: PanelPlacement::BottomCenter,
             }),
             SurfaceRoute::Emoji => Some(PanelSurface {
                 label: "emoji-panel",
@@ -748,6 +760,7 @@ impl SurfaceRoute {
                 title: "Emoji and more",
                 width: 720,
                 height: 720,
+                placement: PanelPlacement::BottomCenter,
             }),
             SurfaceRoute::Voice => Some(PanelSurface {
                 label: "voice-panel",
@@ -755,6 +768,7 @@ impl SurfaceRoute {
                 title: "水杉语音输入",
                 width: 620,
                 height: 520,
+                placement: PanelPlacement::BottomCenter,
             }),
             SurfaceRoute::Clipboard => Some(PanelSurface {
                 label: "clipboard-panel",
@@ -762,6 +776,7 @@ impl SurfaceRoute {
                 title: "水杉本地剪贴板",
                 width: 560,
                 height: 620,
+                placement: PanelPlacement::BottomCenter,
             }),
             SurfaceRoute::CloudClipboard => Some(PanelSurface {
                 label: "cloud-clipboard-panel",
@@ -769,6 +784,7 @@ impl SurfaceRoute {
                 title: "水杉云剪贴板",
                 width: 560,
                 height: 560,
+                placement: PanelPlacement::BottomCenter,
             }),
             SurfaceRoute::CloudDictionary => Some(PanelSurface {
                 label: "cloud-dictionary-panel",
@@ -776,8 +792,30 @@ impl SurfaceRoute {
                 title: "水杉云词典",
                 width: 760,
                 height: 700,
+                placement: PanelPlacement::BottomCenter,
             }),
         }
+    }
+
+    /// The panel window this route opens on the given host. Every host opens [`SurfaceRoute::panel`] except Windows, which follows the shipped native panels: the emoji panel opens at 550 by 610 and the handwriting panel at its shared size, both centred on the work area, while the keyboard and the rest stay bottom-centred.
+    pub fn panel_for(self, platform: HostPlatform) -> Option<PanelSurface> {
+        let panel = self.panel()?;
+        if platform != HostPlatform::Windows {
+            return Some(panel);
+        }
+        Some(match self {
+            SurfaceRoute::Emoji => PanelSurface {
+                width: 550,
+                height: 610,
+                placement: PanelPlacement::Center,
+                ..panel
+            },
+            SurfaceRoute::Handwriting => PanelSurface {
+                placement: PanelPlacement::Center,
+                ..panel
+            },
+            _ => panel,
+        })
     }
 
     pub const ALL: [SurfaceRoute; 8] = [
@@ -901,6 +939,45 @@ mod tests {
             // The window label is the query with the shared panel suffix.
             assert_eq!(panel.label, format!("{}-panel", panel.query));
             assert!(panel.width > 0 && panel.height > 0);
+        }
+    }
+
+    #[test]
+    fn windows_panels_open_where_the_shipped_native_panels_did() {
+        let emoji = SurfaceRoute::Emoji
+            .panel_for(HostPlatform::Windows)
+            .expect("emoji is a panel");
+        assert_eq!(
+            (emoji.width, emoji.height, emoji.placement),
+            (550, 610, PanelPlacement::Center)
+        );
+        let handwriting = SurfaceRoute::Handwriting
+            .panel_for(HostPlatform::Windows)
+            .expect("handwriting is a panel");
+        assert_eq!(
+            (handwriting.width, handwriting.height, handwriting.placement),
+            (980, 650, PanelPlacement::Center)
+        );
+        let keyboard = SurfaceRoute::Keyboard
+            .panel_for(HostPlatform::Windows)
+            .expect("keyboard is a panel");
+        assert_eq!(
+            (keyboard.width, keyboard.height, keyboard.placement),
+            (1100, 400, PanelPlacement::BottomCenter)
+        );
+        for route in SurfaceRoute::ALL {
+            // Labels and routes never change per host, only the geometry.
+            let windows = route.panel_for(HostPlatform::Windows);
+            assert_eq!(
+                windows.map(|panel| (panel.label, panel.query, panel.title)),
+                route
+                    .panel()
+                    .map(|panel| (panel.label, panel.query, panel.title))
+            );
+            // Every other host keeps the shared geometry.
+            for platform in [HostPlatform::Macos, HostPlatform::Linux] {
+                assert_eq!(route.panel_for(platform), route.panel());
+            }
         }
     }
 

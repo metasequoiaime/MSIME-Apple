@@ -135,3 +135,46 @@ test("Linux stops held-key retries after delivery failure and does not repeat Nu
   });
   expect(sendKey).toHaveBeenCalledTimes(3);
 });
+
+test("Windows sends a key on release over the same key, like the shipped panel's mouse-up", async () => {
+  vi.useFakeTimers();
+  const sendKey = vi.fn().mockResolvedValue(undefined);
+  render(<KeyboardPanel client={{ close: async () => {}, sendKey }} platform="windows" />);
+  const a = screen.getByRole("button", { name: "a" });
+  const s = screen.getByRole("button", { name: "s" });
+
+  // Pressing does nothing yet, and holding never repeats.
+  await act(async () => {
+    fireEvent.pointerDown(a, { button: 0, isPrimary: true, pointerId: 1 });
+    vi.advanceTimersByTime(900);
+    await Promise.resolve();
+  });
+  expect(sendKey).not.toHaveBeenCalled();
+
+  // Sliding off and back on still sends, as KeyboardPanel::OnMouseUp compares only the key under the release.
+  fireEvent.pointerLeave(a, { pointerId: 1 });
+  await act(async () => {
+    fireEvent.pointerUp(a, { button: 0, isPrimary: true, pointerId: 1 });
+    fireEvent.click(a, { detail: 1 });
+    await Promise.resolve();
+  });
+  expect(sendKey).toHaveBeenCalledTimes(1);
+  expect(sendKey).toHaveBeenCalledWith(expect.objectContaining({ virtual_key: 0x41 }));
+
+  // Released over a different key: nothing is sent for either key.
+  await act(async () => {
+    fireEvent.pointerDown(a, { button: 0, isPrimary: true, pointerId: 2 });
+    fireEvent.pointerUp(s, { button: 0, isPrimary: true, pointerId: 2 });
+    await Promise.resolve();
+  });
+  expect(sendKey).toHaveBeenCalledTimes(1);
+
+  // A cancelled pointer sends nothing either.
+  await act(async () => {
+    fireEvent.pointerDown(s, { button: 0, isPrimary: true, pointerId: 3 });
+    fireEvent.pointerCancel(s, { pointerId: 3 });
+    fireEvent.pointerUp(s, { button: 0, isPrimary: true, pointerId: 3 });
+    await Promise.resolve();
+  });
+  expect(sendKey).toHaveBeenCalledTimes(1);
+});

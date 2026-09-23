@@ -5484,7 +5484,7 @@ test("Linux checks the client release feed and treats no release as a normal res
     expect.stringMatching(
       /^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?per_page=100&t=\d+$/,
     ),
-    { cache: "no-store" },
+    expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
   );
   vi.unstubAllGlobals();
 });
@@ -5646,7 +5646,7 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
   for (const assets of [undefined, null, "x", [null, 3, { digest: `sha256:${digest}` }]]) {
     expect(pick(assets)).toEqual({ name: null, sha256: null, signed: false });
   }
-  // Other platforms keep ignoring assets.
+  // Windows never takes a Linux package for its installer.
   expect(
     selectPlatformRelease(
       [
@@ -5659,7 +5659,66 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
       "windows",
       page,
     ),
+  ).toMatchObject({ installerName: null, installerSha256: null, signed: false });
+  // Other platforms keep ignoring assets.
+  expect(
+    selectPlatformRelease(
+      [
+        {
+          tag_name: "macos-v1.2.0",
+          html_url: `${page}/tag/macos-v1.2.0`,
+          assets: [{ name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` }],
+        },
+      ],
+      "macos",
+      page,
+    ),
   ).toMatchObject({ installerName: null, installerSha256: null, signed: null });
+});
+
+test("Windows release assets yield the installer digest and mark the build unsigned", () => {
+  const page = "https://github.com/metasequoiaime/msime/releases";
+  const digest = "d".repeat(64);
+  const pick = (assets: unknown) => {
+    const update = selectPlatformRelease(
+      [{ tag_name: "windows-v1.2.0", html_url: `${page}/tag/windows-v1.2.0`, assets }],
+      "windows",
+      page,
+    );
+    return (
+      update && {
+        name: update.installerName,
+        sha256: update.installerSha256,
+        signed: update.signed,
+      }
+    );
+  };
+  // What release-windows.yml uploads: the installer and its .sha256 file.
+  expect(
+    pick([
+      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME_Setup_v1.2.0.exe.sha256", digest: `sha256:${"e".repeat(64)}` },
+    ]),
+  ).toEqual({ name: "MetasequoiaIME_Setup_v1.2.0.exe", sha256: digest, signed: false });
+  // An older API response without digests keeps the name, so the notice can point at the .sha256 file.
+  expect(pick([{ name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: null }])).toEqual({
+    name: "MetasequoiaIME_Setup_v1.2.0.exe",
+    sha256: null,
+    signed: false,
+  });
+  // Two installers are ambiguous; a name needing quoting never reaches the command.
+  expect(
+    pick([
+      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME_Setup_v1.2.0-x86.exe", digest: `sha256:${digest}` },
+    ]),
+  ).toEqual({ name: null, sha256: null, signed: false });
+  expect(pick([{ name: "Setup v1.2.0;calc.exe", digest: `sha256:${digest}` }])).toEqual({
+    name: null,
+    sha256: null,
+    signed: false,
+  });
+  expect(pick(undefined)).toEqual({ name: null, sha256: null, signed: false });
 });
 
 test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows", () => {
@@ -5695,7 +5754,8 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
     signed: false,
   };
   const expected = {
-    warning: "该版本未经代码签名，请务必核对下面的校验值。",
+    warning:
+      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗无法浮在以管理员身份运行的程序之上）。请务必核对下面的校验值。",
     verify: {
       command: "Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256",
       sha256: digest,
@@ -5703,6 +5763,12 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
   };
   expect(describeInstallerTrust(windows, "windows")).toEqual(expected);
   expect(describeInstallerTrust(windows, null)).toEqual(expected);
+  // Without a digest the unsigned warning points at the .sha256 file the release carries.
+  expect(describeInstallerTrust({ ...windows, installerSha256: null }, "windows")).toEqual({
+    warning:
+      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗无法浮在以管理员身份运行的程序之上）。请从发行页一并下载 MetasequoiaIME_Setup_v1.2.0.exe.sha256，用 Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256 核对。",
+    verify: null,
+  });
 });
 
 test("Windows checks this repository's Windows releases rather than the reference manifest", async () => {
@@ -5717,6 +5783,10 @@ test("Windows checks this repository's Windows releases rather than the referenc
       {
         tag_name: "windows-v1.2.0",
         html_url: "https://github.com/metasequoiaime/msime/releases/tag/windows-v1.2.0",
+        assets: [
+          { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${"b".repeat(64)}` },
+          { name: "MetasequoiaIME_Setup_v1.2.0.exe.sha256", digest: `sha256:${"c".repeat(64)}` },
+        ],
       },
     ],
   });
@@ -5735,9 +5805,15 @@ test("Windows checks this repository's Windows releases rather than the referenc
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  // The installer's digest and the unsigned warning reach the notice, as on the shipped settings page.
+  expect(screen.getByText(/SmartScreen 会拦截，且 uiAccess 失效/)).toBeDefined();
+  expect(screen.getByText("b".repeat(64))).toBeDefined();
+  expect(
+    screen.getByText("Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256"),
+  ).toBeDefined();
   expect(fetch).toHaveBeenCalledWith(
     expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?/),
-    { cache: "no-store" },
+    expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
   );
   fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
   await waitFor(() =>
@@ -5746,6 +5822,46 @@ test("Windows checks this repository's Windows releases rather than the referenc
     ),
   );
   vi.unstubAllGlobals();
+});
+
+test("an update check that never answers gives up after ten seconds", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let signal: AbortSignal | undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((_url: string, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise((_resolve, reject) =>
+        signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
+      );
+    }),
+  );
+  try {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: { platform: "windows" } as HostCapabilities,
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+    await waitFor(() => expect(signal).toBeDefined());
+    await act(async () => {
+      vi.advanceTimersByTime(9_000);
+    });
+    expect(signal?.aborted).toBe(false);
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(await screen.findByText("检查失败，请稍后重试")).toBeDefined();
+  } finally {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
 });
 
 test("about page uses the packaged app version for display and update comparison", async () => {

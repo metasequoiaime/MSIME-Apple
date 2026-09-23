@@ -2758,7 +2758,7 @@ fn cancel_settings_linger(app: &tauri::AppHandle) {
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
     cancel_settings_linger(app);
-    if let Some(surface) = route.panel() {
+    if let Some(surface) = route.panel_for(host_platform()) {
         let state = app.state::<PanelInputState>();
         #[cfg(target_os = "linux")]
         let position = {
@@ -2778,7 +2778,7 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
         #[cfg(target_os = "windows")]
         let position = {
             let _ = remember_panel_input_target(&state);
-            windows_panel_position(f64::from(surface.width), height)
+            windows_panel_position(f64::from(surface.width), height, surface.placement)
         };
         let _ = panel_window::open_panel_window(
             app,
@@ -4122,7 +4122,7 @@ pub fn run() {
             if let Some(route) = requested_surface_route() {
                 // A settings route targets the main window, which is already
                 // showing; only panel surfaces need a window opened here.
-                if let Some(surface) = route.panel() {
+                if let Some(surface) = route.panel_for(host_platform()) {
                     let (label, route, title, width, height) = (
                         surface.label,
                         surface.query,
@@ -4145,7 +4145,7 @@ pub fn run() {
                     #[cfg(target_os = "windows")]
                     let position = {
                         let _ = remember_panel_input_target(&panel_input);
-                        windows_panel_position(width, height)
+                        windows_panel_position(width, height, surface.placement)
                     };
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.hide();
