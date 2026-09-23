@@ -331,7 +331,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     super.viewDidLoad()
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
-    isChineseMode = Self.startsInChinese(session.sharedPreferences)
+    isChineseMode = ImeModeMemoryPreference.startsInChinese(fallback: Self.startsInChinese(session.sharedPreferences))
     appliedCharacterWidth = CharacterWidthPreference.value(in: session.sharedPreferences)
     setFullWidthInput(CharacterWidthPreference.startsFullwidth(in: session.sharedPreferences))
     appliedChinesePunctuation = Self.sharedChinesePunctuation(session.sharedPreferences)
@@ -1675,6 +1675,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let snapshot = isChineseMode ? endComposition(at: .modeSwitch) : session.cancel()
     render(snapshot)
     isChineseMode.toggle()
+    if !inputContext.isInLatinField {
+      ImeModeMemoryPreference.record(chinese: isChineseMode)
+    }
     if isChineseMode && chinesePunctuation != appliedChinesePunctuation {
       setChinesePunctuation(appliedChinesePunctuation)
     }
