@@ -371,6 +371,24 @@ impl IosKeyboardPreferences {
     }
 }
 
+/// The installed families UIKit reports, sorted and without duplicates, or nil when the list is not something a font picker should show.
+#[cfg(any(target_os = "ios", test))]
+fn installed_font_families(families: Vec<String>) -> Option<Vec<String>> {
+    const MAX_FAMILIES: usize = 16_384;
+    const MAX_FAMILY_BYTES: usize = 128;
+    if families.len() > MAX_FAMILIES
+        || families.iter().any(|family| {
+            family.trim().is_empty()
+                || family.len() > MAX_FAMILY_BYTES
+                || family.chars().any(char::is_control)
+        })
+    {
+        return None;
+    }
+    let families: std::collections::BTreeSet<String> = families.into_iter().collect();
+    Some(families.into_iter().collect())
+}
+
 #[cfg(any(target_os = "ios", test))]
 fn is_valid_ios_clipboard_text(value: &str) -> bool {
     !value.is_empty()
@@ -421,6 +439,12 @@ struct AppleSignInResponse {
 #[derive(Deserialize)]
 struct SkinFolderPickResponse {
     path: Option<String>,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Deserialize)]
+struct FontFamiliesResponse {
+    families: Vec<String>,
 }
 
 #[cfg(target_os = "ios")]
@@ -649,6 +673,15 @@ impl<R: Runtime> MobilePlatform<R> {
             .map_err(|_| ())
     }
 
+    /// Family names only, as the desktop font catalog gives them; the keyboard draws candidates with the same UIKit families, so a name picked here is one it can find.
+    pub fn list_font_families(&self) -> Result<Vec<String>, ()> {
+        let response = self
+            .0
+            .run_mobile_plugin::<FontFamiliesResponse>("listFontFamilies", ())
+            .map_err(|_| ())?;
+        installed_font_families(response.families).ok_or(())
+    }
+
     pub fn copy_text(&self, text: &str) -> Result<(), ()> {
         if !is_valid_ios_clipboard_text(text) {
             return Err(());
@@ -769,11 +802,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_supported_app_icon_style, is_valid_account_session_payload, is_valid_ios_clipboard_text,
-        migrated_account_session_payload, valid_android_voice_request, IosKeyboardAiPreferences,
-        IosKeyboardPreferences, MobileVoiceRequestHeader, MobileVoiceTranscriptionRequest,
-        MobileVoiceTranscriptionResponse, MAX_ACCOUNT_SESSION_BYTES,
-        MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_MOBILE_VOICE_TEXT_CHARS,
+        installed_font_families, is_supported_app_icon_style, is_valid_account_session_payload,
+        is_valid_ios_clipboard_text, migrated_account_session_payload, valid_android_voice_request,
+        IosKeyboardAiPreferences, IosKeyboardPreferences, MobileVoiceRequestHeader,
+        MobileVoiceTranscriptionRequest, MobileVoiceTranscriptionResponse,
+        MAX_ACCOUNT_SESSION_BYTES, MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_MOBILE_VOICE_TEXT_CHARS,
     };
     use serde_json::Value;
 
@@ -1045,6 +1078,23 @@ mod tests {
         legacy.as_object_mut().unwrap().remove("inlinePreedit");
         let decoded: IosKeyboardPreferences = serde_json::from_value(legacy).unwrap();
         assert!(!decoded.inline_preedit);
+    }
+
+    #[test]
+    fn ios_font_families_are_sorted_unique_and_bounded() {
+        assert_eq!(
+            installed_font_families(vec![
+                "PingFang SC".into(),
+                "Helvetica".into(),
+                "PingFang SC".into()
+            ]),
+            Some(vec!["Helvetica".to_string(), "PingFang SC".to_string()])
+        );
+        assert_eq!(installed_font_families(vec![]), Some(vec![]));
+        assert_eq!(installed_font_families(vec![" ".into()]), None);
+        assert_eq!(installed_font_families(vec!["a\nb".into()]), None);
+        assert_eq!(installed_font_families(vec!["x".repeat(129)]), None);
+        assert_eq!(installed_font_families(vec!["f".into(); 16_385]), None);
     }
 
     #[test]

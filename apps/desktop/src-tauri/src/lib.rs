@@ -112,7 +112,12 @@ use shared::voice::voice_sessions;
 
 #[tauri::command]
 fn supports_font_catalog() -> bool {
-    system_fonts::supported()
+    font_catalog_supported()
+}
+
+/// iOS lists UIKit's families through the mobile-platform plugin rather than host-api, the way the HarmonyOS page asks ArkUI.
+fn font_catalog_supported() -> bool {
+    cfg!(target_os = "ios") || system_fonts::supported()
 }
 
 /// The platform this shell is running on. The shared UI previously inferred this
@@ -154,7 +159,7 @@ fn requested_surface_route() -> Option<SurfaceRoute> {
 fn host_capabilities() -> HostCapabilities {
     let mut capabilities = HostCapabilities::for_platform(host_platform());
     // Font enumeration is a build-time capability, not a platform assumption.
-    capabilities.system_fonts = system_fonts::supported();
+    capabilities.system_fonts = font_catalog_supported();
     capabilities.os_version = macos_product_version();
     capabilities
 }
@@ -233,8 +238,26 @@ fn requested_settings_page(value: Option<&str>) -> Option<String> {
 }
 
 #[tauri::command]
-async fn list_font_families() -> Result<Vec<String>, CommandError> {
-    tauri::async_runtime::spawn_blocking(system_fonts::list)
+async fn list_font_families(app: tauri::AppHandle) -> Result<Vec<String>, CommandError> {
+    #[cfg(target_os = "ios")]
+    let listed = {
+        let platform = app
+            .try_state::<MobilePlatform<tauri::Wry>>()
+            .ok_or(CommandError {
+                code: "font_catalog",
+            })?
+            .inner()
+            .clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            platform.list_font_families().map_err(|_| "font_catalog")
+        })
+    };
+    #[cfg(not(target_os = "ios"))]
+    let listed = {
+        let _ = app;
+        tauri::async_runtime::spawn_blocking(system_fonts::list)
+    };
+    listed
         .await
         .map_err(|_| CommandError {
             code: "font_catalog",

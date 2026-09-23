@@ -2184,9 +2184,7 @@ export function SettingsPage({
   // Every host's Engine honours the preference; this is about which of them draw the composition
   // themselves, and so show the user a difference between the raw keys and the expanded pinyin.
   const showShuangpinPreedit = host?.shuangpin_preedit ?? macosPlatform;
-  // Was hidden for every touch platform, on the reading that a phone keyboard has no width to
-  // switch. It has: the keyboards route it to the runtime the same way the desktop hosts do, and
-  // reach it from their own surfaces. iOS is the one host that never tells the runtime a width.
+  // Was hidden for every touch platform, on the reading that a phone keyboard has no width to switch. It has: every keyboard, iOS included, routes it to the runtime the same way the desktop hosts do, and reaches it from its own surfaces.
   const showCharacterWidth = host?.character_width ?? !mobilePlatform;
   // The host's provider holds the AI credential, so the page does not ask for a token and does not
   // withhold the service controls for want of one. Reaching the service still works - through that

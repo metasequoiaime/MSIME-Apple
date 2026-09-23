@@ -1093,6 +1093,11 @@ final class MobilePlatformPlugin: Plugin {
     }
   }
 
+  /// Installed UIKit families for the shared font picker; the Rust side sorts and bounds them.
+  @objc public func listFontFamilies(_ invoke: Invoke) {
+    invoke.resolve(["families": UIFont.familyNames])
+  }
+
   @objc public func copyText(_ invoke: Invoke) {
     let args: CopyTextArgs
     do {
