@@ -408,10 +408,9 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Harmony | HostPlatform::Linux
             ),
-            // Every host but iOS calls `msime_client_set_character_width`; the iOS keyboard
-            // extension commits through its input client and never tells the runtime a width,
-            // so the preference has nothing to act on there.
-            character_width: platform != HostPlatform::Ios,
+            // Every host calls `msime_client_set_character_width` when its session starts and
+            // from its own width switch, so the preference always has something to act on.
+            character_width: true,
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android and HarmonyOS run the same ported ChineseHelpcodePolicy:
             // Shift during a quanpin or shuangpin composition hands the next
@@ -994,17 +993,17 @@ mod tests {
         assert!(!HostCapabilities::for_platform(HostPlatform::Linux).candidate_english_font);
         // 全角输入 was withheld from every touch platform, which was a statement about form
         // factor rather than about who can honour it. What decides is whether the host tells the
-        // runtime a width: five of the six do, from a toolbar, a menu or the keyboard's own tools.
+        // runtime a width: all six do, from a toolbar, a menu or the keyboard's own tools.
         for platform in [
             HostPlatform::Windows,
             HostPlatform::Macos,
             HostPlatform::Linux,
             HostPlatform::Android,
             HostPlatform::Harmony,
+            HostPlatform::Ios,
         ] {
             assert!(HostCapabilities::for_platform(platform).character_width);
         }
-        assert!(!HostCapabilities::for_platform(HostPlatform::Ios).character_width);
         // Drawn from the input method's status-bar panel, which scales itself by the shared
         // scale and font size, hides the buttons the user turned off, and opens the emoji panel
         // and the screen keyboard in the window its candidates otherwise occupy.

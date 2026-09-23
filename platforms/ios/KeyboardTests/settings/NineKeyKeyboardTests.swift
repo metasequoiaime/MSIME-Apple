@@ -734,7 +734,6 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testFullWidthInputConvertsOnlyDirectPrintableASCIIAndPreservesComposition() throws {
-    XCTAssertFalse(KeyboardLayoutPreference.fullWidthInputEnabled)
     XCTAssertEqual(FullWidthInputPolicy.output(" A!~9", enabled: true), "　Ａ！～９")
     XCTAssertEqual(FullWidthInputPolicy.output("中文，🙂\n", enabled: true), "中文，🙂\n")
     XCTAssertEqual(FullWidthInputPolicy.output(" A!~9", enabled: false), " A!~9")
@@ -750,7 +749,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("moreCard-全角输入", in: controller).accessibilityValue, "已关闭")
     try button("moreCard-全角输入", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(KeyboardLayoutPreference.fullWidthInputEnabled)
+    // The card switches the running keyboard; the setting that outlives it is the shared `character_width`.
+    XCTAssertNil(KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.fullWidthInputKey))
     XCTAssertEqual(try button("moreCard-全角输入", in: controller).accessibilityValue, "已开启")
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, preedit)
   }

@@ -12,6 +12,7 @@ struct MetasequoiaImeApp: App {
                                           stack: exception.callStackSymbols.joined(separator: "\n"))
     }
     try? KeyboardSkinTrialStore().restorePending()
+    CharacterWidthPreference.migrateLegacySwitch()
     #if DEBUG
     let arguments = ProcessInfo.processInfo.arguments
     if arguments.contains("--reset-onboarding-for-ui-tests") {

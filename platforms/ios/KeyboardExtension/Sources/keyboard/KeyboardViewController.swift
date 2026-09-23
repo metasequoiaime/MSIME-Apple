@@ -43,6 +43,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var sharedKeyboardHeightAdjustment =
     CGFloat(KeyboardLayoutPreference.heightAdjustment)
   private let session = MetasequoiaInputSessionBridge()
+  /// 「全角输入」 for the running keyboard: starts from the shared `character_width`, then the 全角 card switches it.
+  private var fullWidthInput = false
+  /// The document's `character_width` as last applied, so a reload replaces the card's switch only when that field changed.
+  private var appliedCharacterWidth: String?
   private lazy var snapshotWorker: DictionarySnapshotWorker = {
     let worker = DictionarySnapshotWorker(session: session)
     worker.report = { [weak self] in self?.showDiagnostic($0) }
@@ -322,6 +326,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     inputScheme = InputSchemePreference.scheme
     isChineseMode = Self.startsInChinese(session.sharedPreferences)
+    appliedCharacterWidth = CharacterWidthPreference.value(in: session.sharedPreferences)
+    setFullWidthInput(CharacterWidthPreference.startsFullwidth(in: session.sharedPreferences))
     applyKeyboardAppearance()
     configureDiagnosticLog()
     DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone")")
@@ -418,6 +424,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.refreshCandidatePalette()
       self.applyKeyboardAppearance()
       self.synchronizeSharedTouchPreferences()
+      self.synchronizeCharacterWidth()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
       // The local-mode menu follows the modes the settings app leaves on.
@@ -1066,9 +1073,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           self?.updateShortcutButtons()
         }),
         KeyboardTool(title: "全角输入", symbol: "character.cursor.ibeam",
-                     selected: KeyboardLayoutPreference.fullWidthInputEnabled) { [weak self] in
-          KeyboardLayoutPreference.fullWidthInputEnabled = !KeyboardLayoutPreference.fullWidthInputEnabled
-          self?.updateShortcutButtons()
+                     selected: fullWidthInput) { [weak self] in
+          guard let self else { return }
+          self.setFullWidthInput(!self.fullWidthInput)
+          self.updateShortcutButtons()
         },
         withHaptics(KeyboardTool(title: "振动强度", symbol: "waveform",
                      enabled: KeyboardFeedbackPreference.hapticsEnabled,
@@ -1552,8 +1560,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // a character that is not there.
     armSmartPunctuation(
       punctuation,
-      commit: FullWidthInputPolicy.output(
-        punctuation, enabled: KeyboardLayoutPreference.fullWidthInputEnabled),
+      commit: FullWidthInputPolicy.output(punctuation, enabled: fullWidthInput),
       editor: editor)
   }
 
@@ -2843,9 +2850,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func insertDirectText(_ text: String, source: TypingSource? = nil) {
-    insertOwnText(
-      FullWidthInputPolicy.output(text, enabled: KeyboardLayoutPreference.fullWidthInputEnabled),
-      source: source)
+    insertOwnText(FullWidthInputPolicy.output(text, enabled: fullWidthInput), source: source)
+  }
+
+  /// The runtime converts what it commits and the keyboard converts what it inserts itself, so both are told together.
+  private func setFullWidthInput(_ enabled: Bool) {
+    fullWidthInput = enabled
+    session.setCharacterWidth(fullwidth: enabled)
+  }
+
+  /// A width changed in the settings app replaces the card's switch; a document that only changed something else leaves it.
+  private func synchronizeCharacterWidth() {
+    let width = CharacterWidthPreference.value(in: session.sharedPreferences)
+    defer { appliedCharacterWidth = width }
+    guard CharacterWidthPreference.overridesToggle(previous: appliedCharacterWidth, next: width) else { return }
+    setFullWidthInput(width == CharacterWidthPreference.fullwidth)
   }
 
   // Swallowing this left the settings screen showing zeros with nothing to explain them, which is
