@@ -12,6 +12,11 @@ export const abiVersion: () => number;
 /** Capabilities for a named platform, e.g. "harmony". Drives what the shared settings UI renders. */
 export const hostCapabilities: (platform: string) => string;
 
+/**
+ * Simplified to Traditional through the shared phrase-level OpenCC s2t tables, the conversion the Windows, macOS, Linux and Android hosts use. Unlike the methods around it this answers with the converted text itself rather than a JSON response, and with null for text the C ABI refuses (an embedded NUL), in which case the caller keeps its own text.
+ */
+export const simplifiedToTraditional: (text: string) => string | null;
+
 export const loadPreferences: (directory: string) => string;
 export const skinCatalog: (directory: string) => string;
 /** Staged engine resources in; `{profile,sourceCommit}` from the packaged dictionary manifest out. */

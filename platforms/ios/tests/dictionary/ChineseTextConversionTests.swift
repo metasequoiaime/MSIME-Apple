@@ -21,6 +21,10 @@ struct ChineseTextConversionTests {
     expect("水杉输入法", "水杉输入法", traditional: false)
     expect("水杉輸入法", "水杉输入法", traditional: true)
 
+    // The shared OpenCC s2t tables resolve one-to-many characters by phrase.
+    expect("頭髮", "头发", traditional: true)
+    expect("發展", "发展", traditional: true)
+
     expect("", "", traditional: true)
     expect("metasequoia", "metasequoia", traditional: true)
     expect("，。！", "，。！", traditional: true)

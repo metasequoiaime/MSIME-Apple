@@ -350,6 +350,7 @@ python3 scripts/test-harmony-expanded-candidates.py || fail "harmony expanded ca
 python3 scripts/test-harmony-reply-lifecycle.py || fail "harmony reply lifecycle"
 python3 scripts/test-harmony-custom-skin-rendering.py || fail "harmony custom skin rendering"
 python3 scripts/test-harmony-typing-statistics.py || fail "harmony typing statistics"
+python3 scripts/test-harmony-traditional-output.py || fail "harmony traditional output"
 
 note "harmony bridge parity"
 python3 scripts/test-harmony-bridge-parity.py || fail "harmony bridge parity"
