@@ -388,7 +388,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return updateAndPersist(mapping)
   }
 
-  private static func geometryMapping(keySpacing: Double, rowSpacing: Double,
+  static func geometryMapping(keySpacing: Double, rowSpacing: Double,
                                       heightAdjustment: Double,
                                       voiceEnabled: Bool) -> ((inout [String: Any]) -> Void)? {
     guard keySpacing.isFinite, rowSpacing.isFinite, heightAdjustment.isFinite else { return nil }
