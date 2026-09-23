@@ -67,7 +67,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     arguments = parser.parse_args()
-    lock = json.loads(LOCK.read_text())
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
     arguments.out.mkdir(parents=True, exist_ok=True)
     for artifact in lock["artifacts"]:
         destination = arguments.out / artifact["name"]

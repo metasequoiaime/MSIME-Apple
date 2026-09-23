@@ -11,7 +11,7 @@ def replace_once(path: Path, before: str, after: str) -> None:
     the same call: the anchor was found, nothing raised, and the second copy went on compiling
     against a defaulted argument. A run that finds a number it did not expect should stop.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     if after in text and before not in text:
         return
     found = text.count(before)
@@ -20,17 +20,17 @@ def replace_once(path: Path, before: str, after: str) -> None:
             f"Engine overlay expected one match in {path}, found {found}; "
             f"use replace_every if the Engine now has more than one"
         )
-    path.write_text(text.replace(before, after, 1))
+    path.write_text(text.replace(before, after, 1), encoding="utf-8")
 
 
 def replace_every(path: Path, before: str, after: str) -> None:
     """Patch every place this text appears, for a call the Engine makes from more than one path."""
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     if before not in text:
         if after in text:
             return
         raise RuntimeError(f"Engine overlay did not match: {path}")
-    path.write_text(text.replace(before, after))
+    path.write_text(text.replace(before, after), encoding="utf-8")
 
 
 def apply(root: Path) -> None:
