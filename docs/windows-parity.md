@@ -1875,3 +1875,4 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 能力位：`floating_toolbar_handwriting` / `floating_toolbar_voice` 由 `SettingsFormFactorCapabilities` 投影，只在 2in1 上报 true，所以设置页只在 2in1 上显示这两个开关。手机没有悬浮工具栏，仍然是 false。
 - 顺带修复：表情面板的「‹」和语音面板的「返回」原来只调用 `show(SURFACE_NONE)`，那只改得了手机面板的状态。2in1 上由工具栏打开的是 desktop surface，这两个键点了没有任何反应，只能再点一次工具栏才能关掉。现在当前 desktop surface 正是这张面时，返回会关掉它；如果是在 2in1 屏幕键盘里打开的同一张面，返回仍然只退回键盘。
 - `ToolbarButton` 新成员加在枚举末尾：`PanelSurfaceAction.SCREEN_KEYBOARD = 5` 按数值镜像屏幕键盘按钮，插到中间会让屏幕键盘快捷键打开别的面。按钮的显示顺序由 `buttons()` 决定，和枚举顺序无关。
+- Rust 与前端依赖的通知：发布工作流在 Windows runner 上用 `platforms/linux/collect-notices.py`（与 Linux 发布同一个收集器）从 Cargo 解析出的 Windows 依赖图收集 `msime-host-api`、`msime-engine-bridge`（词库回放工具）和 `msime-desktop` 静态链接的 crate 许可证文件，再从 `apps/desktop` 的 `node_modules` 收集前端打包进去的 npm 包，两份文件作为 `-SupplementalNotices` 交给 `Collect-Notices.ps1`，随 `THIRD_PARTY_NOTICES.txt` 进安装包。
