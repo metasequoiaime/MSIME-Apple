@@ -805,6 +805,74 @@ fn shell_open(target: &[u16]) -> bool {
 
 use std::os::windows::ffi::OsStrExt;
 
+/// The state directory the managed Server uses, resolved the same way `production_state_directory` in `server_main.cpp` does: an absolute `METASEQUOIA_IME_DATA_DIR`, then the `DataDir` the installer records in the 64-bit machine view, then `%LOCALAPPDATA%\MSIME-Client`. The Server hands this directory to the shell it launches; a shell started any other way, such as from the Start Menu, needs it to find the same runtime options and preferences.
+pub fn server_state_directory() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    if let Some(value) = std::env::var_os("METASEQUOIA_IME_DATA_DIR") {
+        let path = PathBuf::from(value);
+        if path.is_absolute() {
+            return Some(path);
+        }
+    }
+    if let Some(path) = installed_data_directory().filter(|path| path.is_absolute()) {
+        return Some(path);
+    }
+    std::env::var_os("LOCALAPPDATA")
+        .map(|local| PathBuf::from(local).join("MSIME-Client"))
+        .filter(|path| path.is_absolute())
+}
+
+fn installed_data_directory() -> Option<std::path::PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY,
+    };
+    let key: Vec<u16> = "Software\\Metasequoia\\MetasequoiaIME\0"
+        .encode_utf16()
+        .collect();
+    let name: Vec<u16> = "DataDir\0".encode_utf16().collect();
+    let flags = RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY;
+    let mut bytes = 0u32;
+    // SAFETY: both names are NUL terminated; a null buffer asks only for the size.
+    let sized = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            name.as_ptr(),
+            flags,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut bytes,
+        )
+    };
+    if sized != ERROR_SUCCESS || (bytes as usize) < std::mem::size_of::<u16>() {
+        return None;
+    }
+    let mut value = vec![0u16; (bytes as usize).div_ceil(std::mem::size_of::<u16>())];
+    // SAFETY: the buffer holds `bytes` bytes, the size the first call reported.
+    let read = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            name.as_ptr(),
+            flags,
+            std::ptr::null_mut(),
+            value.as_mut_ptr().cast(),
+            &mut bytes,
+        )
+    };
+    if read != ERROR_SUCCESS {
+        return None;
+    }
+    // RRF_RT_REG_SZ guarantees a terminator; keep only what precedes it.
+    let length = value
+        .iter()
+        .position(|&unit| unit == 0)
+        .unwrap_or(value.len());
+    (length > 0).then(|| std::ffi::OsString::from_wide(&value[..length]).into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
