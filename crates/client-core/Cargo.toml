@@ -19,7 +19,7 @@ sha2 = "0.11"
 hmac = "0.13"
 hex = "0.4"
 md-5 = "0.11"
-base64 = "0.22"
+base64 = "0.23"
 flate2 = "1"
 uuid = { version = "1", features = ["serde", "v4"] }
 time = "0.3"
