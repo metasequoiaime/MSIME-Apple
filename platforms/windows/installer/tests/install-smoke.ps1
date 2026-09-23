@@ -63,11 +63,10 @@ Check (-not (Test-Path -LiteralPath $pf64)) '64-bit program directory removed'
 Check (-not (Test-Path -LiteralPath $pf32)) '32-bit program directory removed'
 Check ($null -eq (InprocServer 'HKLM:\SOFTWARE\Classes')) '64-bit COM registration removed'
 Check ($null -eq (InprocServer 'HKLM:\SOFTWARE\WOW6432Node\Classes')) '32-bit COM registration removed'
-# DllUnregisterServer removes the language profile and categories but, like the reference (the SampleIME pattern), never calls ITfInputProcessorProfiles::Unregister, so the bare TIP key can stay. What decides whether the input method is still offered is the language profile, so check that and log whatever is left.
+# DllUnregisterServer only removes the language profile and categories; the uninstaller then deletes the TIP key itself, so nothing of it may remain.
 $tipKey = "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$clsid"
-$profiles = @(if (Test-Path -LiteralPath "$tipKey\LanguageProfile") { Get-ChildItem -LiteralPath "$tipKey\LanguageProfile" -Recurse })
-Check ($profiles.Count -eq 0) 'TIP language profile removed'
-if (Test-Path -LiteralPath $tipKey) { Write-Output "note: TIP key left behind:"; Get-ChildItem -LiteralPath $tipKey -Recurse | ForEach-Object { Write-Output "  $($_.Name)" } }
+Check (-not (Test-Path -LiteralPath $tipKey)) 'TIP registration removed'
+if (Test-Path -LiteralPath $tipKey) { Get-ChildItem -LiteralPath $tipKey -Recurse | ForEach-Object { Write-Output "  left: $($_.Name)" } }
 Check (-not (TaskExists)) 'watchdog logon task removed'
 $remaining = @(if (Test-Path -LiteralPath $appKey) { (Get-Item -LiteralPath $appKey).GetValueNames() | Where-Object { $_ -in 'VersionDir', 'ServerPath', 'DataDir' } })
 Check ($remaining.Count -eq 0) 'installer registry values removed'
