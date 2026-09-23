@@ -1095,7 +1095,7 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 **再按右半边时不跳过。** `_TryStepOverPairedPunctuation` 与 `_PushPairedPunctuation` 都没有调用者，栈永远是空的，所以补出的 `）` 后面再按 `)` 会打出第二个。现按来源在没有组字、没有候选时先尝试跳过；哪些键能跳过由新增的 `PairedPunctuationStepOverCandidate` 判定（只认单字符的右半边，引号按键而不按翻译结果判定，`{}` 也算，因为本仓 `{` 同样会补全）。
 
-**嵌套计数不回退。** `BalanceNestPairAfterAutoClose` 没有调用者，补过一次《》之后下一次 `<` 给的是〈。现与来源一样在补全后调用。遗留一处：候选打开时左半边由 Server 的引擎翻译，它的嵌套计数本仓 Windows Server 没有回退（`msime_client_balance_paired_punctuation_after_auto_close` 存在但需要一条新的 IPC），这次不改。
+**嵌套计数不回退。** `BalanceNestPairAfterAutoClose` 没有调用者，补过一次《》之后下一次 `<` 给的是〈。现与来源一样在补全后调用。遗留一处：候选打开时左半边由 Server 的引擎翻译，它的嵌套计数本仓 Windows Server 没有回退（`msime_client_balance_paired_punctuation_after_auto_close` 存在但需要一条新的 IPC），这次不改。（2026-09-24 已补上，新增 Main 事件 `PairedPunctuationAutoClosed`，见当天的记录。）
 
 **候选打开时的小键盘标点（来源 `1d2431ad`）。** 小键盘 `+`/`-` 此前在 TSF 与 Server 两侧都被当成翻页键排除，按下后什么都不上屏；小键盘 `.` 与 `/` 则被翻译成中文标点。现在 TSF 的 `IsCandidateNavigationKeyBeforePunctuation` 只保留主键区 `-`/`=`、Tab、翻页与 Home/End，`CommitWithHighlightedCandPunc` 加入 `/`，`KeyEventSink` 先判断是否用高亮候选结束再看 `VK_DECIMAL`；Server 侧新增 `literal_candidate_punctuation`，在有组字时把这几个键交给 `msime_client_punctuation_ascii`，上屏高亮候选后接原样的 ASCII 字符。
 
@@ -2035,3 +2035,16 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - **升级清理删掉了所有权标记**：`CleanAppDataExceptUserFiles` 在 `PrepareToInstall` 写入 `.metasequoiaime-data` 之后、`ssPostInstall` 之前执行，保留名单里没有标记文件，升级中途失败时重试和卸载都不再认这个目录。标记现在列入保留名单。
 
 回归：新增 `installer/tests/lifecycle.ps1`（进程停止顺序、卸载用缓存路径、权限与标记），`watchdog-task.ps1` 改为要求内层引号并加 Task Scheduler 往返，`tauri-layout.ps1` 原本断言一个已不存在的 `DataDirIsSafe`，改为断言现在的 `DataDirRejectionReason`；这几个套件与 `tsf-registration.ps1` 接进 CI 的「Windows release script tests」。`windows-installer-launch` 另外钉住卸载使用缓存路径、安装器的 `--production` 启动不算受监管；`windows-server-launch` 钉住 `supervised` 的取值。发布流水线上的 `install-smoke.ps1` 改用 `/DATADIR` 指定的自定义数据目录安装，安装后核对登录任务存下的程序是完整的 Watchdog 路径且没有参数、数据目录授予 Users 修改权限并带 Medium 完整性标签，卸载后核对这个自定义目录已被删除。
+
+### Windows Server：书名号嵌套回退、智能标点失焦清理、Ctrl+Enter 精确上屏、混合文本翻译（2026-09-24）
+
+对照来源逐项核对了四处，四处都是真缺口。
+
+- **候选打开时的书名号嵌套。** 候选开着时 `<` 由 Server 的 Engine 转换，Engine 的嵌套计数加一；开启配对补全后右半边由 TSF 插入，之后的 `>` 只是跨过去，Server 收不到能回退计数的按键，于是之后每个书名号都成了〈〉。来源是单进程、单个计数器（`_nestCount`），补全后立即回退；本仓推进计数的是 Server 里的 Engine，TSF 够不着。现新增 Main 事件 `PairedPunctuationAutoClosed`（16），由 `scripts/apply_engine_paired_punctuation_ipc.py` 叠加进 Engine 的管道契约头：TSF 在 `_HandleCompositionPunctuation` 补全 `<` 后发出，keycode 为开口键；Server 的 `valid_main_frame` 只接受 `<`，经 FocusRouter 限定当前焦点，在输入队列里调用 `msime_client_balance_paired_punctuation_after_auto_close`。这是没有回复的通知，管道按序投递，所以回退先于下一个按键生效。开口由 TSF 本地解析时也照发，两边计数都在零处截止，多回退一次无害；Linux IBus 也是这样无条件回退的。契约说明写在 `platforms/windows/README.md`。
+- **智能标点在失焦时清掉。** 来源在三处调用 `_ClearSmartPunctuationAction`：`OnKillThreadFocus`、真正的焦点会话交接，以及顶层上下文变化。本仓一处都没有，排队中的连按标点改写可能在焦点移走后退格到新获得焦点的文档里。现新增同名的 `_ClearSmartPunctuationAction`（清掉已布防的空格转换与撤销、丢弃排队的改写及其焦点令牌、前台窗口和截止时间），在同样三处调用。
+- **Ctrl+Enter 单条释义精确上屏。** 来源 `HandleTranslationCommitKey` 只有一条释义时回 `CommitExactText` 并清空状态，不选中候选，Engine 不会把用户没选的中文词学进去。本仓以前走候选选择：先选中高亮候选（会学习），再把译文当作替换文本发出。现在 `ReplyComposer::commit_candidate_translation` 取消组合，按繁体输出设置转换后以 `CommitExactText` 上屏；多条释义的副候选页不变。
+- **混合文本也能翻译。** 来源 `IsCloudTranslatableChinese` 只要求含汉字、不含 emoji，「T恤」「3D打印」都可翻译；本仓 `is_cloud_translatable_chinese` 遇到任何 ASCII 就拒绝。现与来源同判据：含汉字（含扩展 A、兼容汉字、扩展 B 及以后与「〇」），且不含 emoji 码点。这是 `crates/client-core` 的共享判据，所有平台一并生效。
+
+用例：`msime-client-core` 的 `translation` 测试加了「T恤」「3D打印」、兼容汉字与扩展 B 的断言；`msime-tsf-smart-punctuation-focus-wiring` 检查三处调用与清理内容；`windows-candidate-translation-commit` 用真实 Engine 会话走 Ctrl+Enter，要求没有候选选择、回复为 `CommitExactText`、组合清空；`windows-paired-punctuation-balance` 用真实 Engine 会话验证回退后下一个 `<` 仍是《、不回退则成〈、回退过零无害、非 `<` 被拒；`windows-main-frame` 固定事件 16 的形状；`session_pump` 加了「`<`、通知、`<`」两次都得《的泵级用例；`msime-tsf-paired-punctuation-wiring` 要求补全路径发出通知；`session_smoke` 的 Ctrl+Enter 断言改为精确上屏。除 `session_pump`/`session_smoke`（只能在 Windows 上运行）外，这些用例对着改动前的源码都会红。
+
+验证层级：Rust 测试与 `scripts/test-windows-native-run.py` 在本机（macOS clang）运行通过；Windows 代码经 `build-cross.sh x64` 交叉编译通过。没有 Wine 或 Windows 机器，`session_pump`/`session_smoke` 没有在本机运行，真实编辑器里的焦点切换、书名号与 Ctrl+Enter 没有在 Windows 上实测。
