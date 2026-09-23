@@ -2473,6 +2473,15 @@ public final class MSIMEInputService extends InputMethodService {
                 return true;
             }
         }
+        // Before the modifier bail-out below, because both maintenance chords are Ctrl+Shift+Alt
+        // and that branch hands every such combination to the application.
+        int maintenance = HardwareMaintenancePolicy.action(keyCode, event.isShiftPressed(),
+            event.isCtrlPressed(), event.isAltPressed(), event.isMetaPressed(),
+            event.getRepeatCount(), hasEngineComposition());
+        if (maintenance != HardwareMaintenancePolicy.NONE && session != 0
+                && runMaintenanceChord(maintenance)) {
+            return true;
+        }
         if (session == 0 || event.isCtrlPressed() || event.isAltPressed() || event.isMetaPressed()) {
             if (session != 0 && connection != null) {
                 // Preserve displayed source text before the editor handles a shortcut.
@@ -5339,6 +5348,35 @@ public final class MSIMEInputService extends InputMethodService {
             moreToolsCard("振动强度", MoreToolsLayout.Section.SETTINGS, hapticsEnabled,
                 hapticsEnabled, false, hapticStrengthTitle(), this::cycleHapticStrength));
         applySkin();
+    }
+
+    /**
+     * Run one maintenance chord, or decline so the key goes on to the application.
+     *
+     * <p>Deleting declines when the slot is empty or the candidate is not one the Engine will drop
+     * — a cloud or AI suggestion is not in the user dictionary to remove — and says so rather than
+     * swallowing the chord silently.
+     */
+    private boolean runMaintenanceChord(int action) {
+        try {
+            if (action == HardwareMaintenancePolicy.RESET_CACHE) {
+                apply(NativeClient.resetCache(session));
+                showDiagnostic("已清除候选缓存");
+                return true;
+            }
+            if (!candidateManagementEnabled()) return false;
+            JSONObject candidate = visibleCandidate(action);
+            JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+            if (id == null || id.optLong("session") != session) return false;
+            if (!apply(NativeClient.removeCandidate(session, id.getLong("generation"),
+                                                    id.getLong("index")))) {
+                showDiagnostic("当前候选不支持此操作");
+            }
+            return true;
+        } catch (JSONException | LinkageError error) {
+            fail();
+            return true;
+        }
     }
 
     private boolean candidateManagementEnabled() {
