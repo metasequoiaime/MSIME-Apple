@@ -4,14 +4,16 @@ on:
     inputs:
       version: {description: Semantic version (defaults to platforms/harmony/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+      publish: {description: Publish the build as a harmony-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-harmony, cancel-in-progress: false}
 jobs:
   release:
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-        with: {fetch-depth: 0}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
@@ -21,7 +23,22 @@ jobs:
       - name: Build HarmonyOS HAP
         working-directory: platforms/harmony
         run: ./hvigorw assembleHap --no-daemon
-      - name: Publish independent HarmonyOS release
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
+      - id: hap
+        name: Locate the packaged HAP
         run: |
-          hap=$(find platforms/harmony -type f -name '*.hap' | head -1); test -n "$hap"; tag="harmony-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "$hap" --target "$GITHUB_SHA" --title "HarmonyOS ${VERSION}" --generate-notes "${flags[@]}"
+          set -euo pipefail
+          hap=$(find platforms/harmony -type f -name '*.hap' | head -1)
+          test -n "$hap"
+          echo "path=$hap" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-harmony-${{ steps.version.outputs.value }}
+          path: ${{ steps.hap.outputs.path }}
+          if-no-files-found: error
+      # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather
+      # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
+      - name: Publish independent HarmonyOS release
+        if: ${{ inputs.publish }}
+        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}", HAP: "${{ steps.hap.outputs.path }}"}
+        run: |
+          tag="harmony-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "$HAP" --target "$GITHUB_SHA" --title "HarmonyOS ${VERSION}" --generate-notes "${flags[@]}"

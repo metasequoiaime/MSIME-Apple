@@ -4,21 +4,36 @@ on:
     inputs:
       version: {description: Semantic version (defaults to platforms/android/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+      publish: {description: Publish the build as an android-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-android, cancel-in-progress: false}
 jobs:
   release:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-        with: {fetch-depth: 0}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/android/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      # build-apk.sh takes the directory install_resources verified and unpacked, not the repository's
+      # resources/ directory -- that one holds the lock files install_resources reads.
       - name: Build native Android host
-        run: bash platforms/android/build-apk.sh resources
+        run: |
+          set -euo pipefail
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/android/build-apk.sh "$resource_dir"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-android-${{ steps.version.outputs.value }}
+          path: target/android/msime-client.apk
+          if-no-files-found: error
+      # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather
+      # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
       - name: Publish independent Android release
+        if: ${{ inputs.publish }}
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
           tag="android-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" target/android/msime-client.apk --target "$GITHUB_SHA" --title "Android ${VERSION}" --generate-notes "${flags[@]}"

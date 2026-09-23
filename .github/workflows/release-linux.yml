@@ -4,14 +4,16 @@ on:
     inputs:
       version: {description: Semantic version (defaults to platforms/linux/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+      publish: {description: Publish the build as a linux-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
   release:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-        with: {fetch-depth: 0}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
@@ -21,7 +23,15 @@ jobs:
       - name: Package Linux release
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: tar -czf "msime-linux-${VERSION}.tar.gz" -C target/linux-build-gate cmake
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-linux-${{ steps.version.outputs.value }}
+          path: msime-linux-${{ steps.version.outputs.value }}.tar.gz
+          if-no-files-found: error
+      # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather
+      # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
       - name: Publish independent Linux release
+        if: ${{ inputs.publish }}
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
           tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" "msime-linux-${VERSION}.tar.gz" --target "$GITHUB_SHA" --title "Linux ${VERSION}" --generate-notes "${flags[@]}"

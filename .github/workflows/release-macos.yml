@@ -4,14 +4,16 @@ on:
     inputs:
       version: {description: Semantic version (defaults to platforms/macos/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+      publish: {description: Publish the build as a macos-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-macos, cancel-in-progress: false}
 jobs:
   release:
     runs-on: macos-15
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
-        with: {fetch-depth: 0}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
       - id: version
         name: Resolve independent macOS version
         env: {REQUESTED: "${{ inputs.version }}"}
@@ -19,15 +21,50 @@ jobs:
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/macos/version.txt)}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        run: brew install boost fmt spdlog nlohmann-json
+      # platforms/macos/CMakeLists.txt makes an empty MSIME_SPARKLE_ROOT a FATAL_ERROR, so the
+      # configure below cannot run without this. Same pinned version, same digest and same cache key
+      # as ci-macos.yml -- the digest lives beside the version in CMakeLists.txt.
+      - name: Cache the pinned Sparkle archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sparkle
+          key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+      - name: Prepare pinned Sparkle
+        run: |
+          set -euo pipefail
+          if [[ ! -d "$RUNNER_TEMP/sparkle/Sparkle.framework" ]]; then
+            archive="$RUNNER_TEMP/Sparkle-2.9.6.tar.xz"
+            curl --fail --location --retry 3 \
+              https://github.com/sparkle-project/Sparkle/releases/download/2.9.6/Sparkle-2.9.6.tar.xz \
+              --output "$archive"
+            printf '%s  %s\n' \
+              '52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192' \
+              "$archive" | shasum -a 256 --check
+            mkdir -p "$RUNNER_TEMP/sparkle"
+            tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
+          fi
+          test -d "$RUNNER_TEMP/sparkle/Sparkle.framework"
+          echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Build macOS native host
         run: |
+          set -euo pipefail
           cargo build --locked -p msime-host-api
-          cmake -S platforms/macos -B target/macos-release -DCMAKE_BUILD_TYPE=Release
-          cmake --build target/macos-release --config Release
+          cmake -S platforms/macos -B target/macos-release -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT"
+          cmake --build target/macos-release --config Release --parallel "$(sysctl -n hw.logicalcpu)"
       - name: Package macOS release
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: tar -czf "msime-macos-${VERSION}.tar.gz" -C target/macos-release .
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-macos-${{ steps.version.outputs.value }}
+          path: msime-macos-${{ steps.version.outputs.value }}.tar.gz
+          if-no-files-found: error
+      # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather
+      # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
       - name: Publish independent macOS release
+        if: ${{ inputs.publish }}
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
           tag="macos-v${VERSION}"
