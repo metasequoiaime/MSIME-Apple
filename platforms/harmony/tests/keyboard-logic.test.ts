@@ -185,6 +185,7 @@ import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPa
 import {
   BackspaceHoldAction,
   BackspaceHoldPolicy,
+  HardwareBackspaceGuard,
 } from "../entry/src/main/ets/keyboard/input/BackspaceHoldPolicy";
 import {
   CompositionBoundary,
@@ -236,6 +237,7 @@ import {
   HardwareKeyRouter,
   HardwareKeyAction,
   HardwareKey,
+  HardwareKeyDecision,
   HardwareSpelling,
   PLAIN_SPELLING,
 } from "../entry/src/main/ets/keyboard/HardwareKeyRouter";
@@ -2553,8 +2555,121 @@ group("releases the candidate number row when the shared preference asks", () =>
     "the default hardware route selects a candidate",
   );
   check(
-    HardwareKeyRouter.route(key, true, true, true).action === HardwareKeyAction.RELEASE,
-    "the preference releases the digit to the focused editor",
+    HardwareKeyRouter.route(key, true, true, true).action === HardwareKeyAction.COMMIT_THEN_TYPE,
+    "the preference turns the digit into text, after the composition it ends",
+  );
+  check(
+    HardwareKeyRouter.route(key, false, true, true).action === HardwareKeyAction.RELEASE,
+    "with nothing composed the digit is the editor's",
+  );
+});
+
+group("a character the composition cannot use ends it before it is typed", () => {
+  // The Windows host finalizes the composition and then lets the key through (`FUNCTION_FINALIZE_TEXTSTORE` in `IsVirtualKeyNeed`, `_HandleCompositionFinalize`). Releasing the key instead put the digit in the editor while the letters were still open, and the commit that followed landed after it: nihao then 0 gave 0你好.
+  const key = (keyCode: number, character: number): HardwareKey => ({
+    keyCode: keyCode,
+    unicodeChar: character,
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey: false,
+  });
+  const zero: HardwareKeyDecision = HardwareKeyRouter.route(key(2000, 0x30), true, true);
+  check(
+    zero.action === HardwareKeyAction.COMMIT_THEN_TYPE && zero.character === 0x30,
+    "0 finishes the composition and is typed after it",
+  );
+  check(
+    HardwareKeyRouter.route(key(2103, 0), true, true).action === HardwareKeyAction.COMMIT_THEN_TYPE,
+    "so does the keypad 0",
+  );
+  check(
+    HardwareKeyRouter.route(key(2000, 0x30), false, true).action === HardwareKeyAction.RELEASE,
+    "with nothing composed a 0 is the editor's",
+  );
+  check(
+    HardwareKeyRouter.route(key(2000, 0x30), true, true, false, undefined, false, true).action ===
+      HardwareKeyAction.COMMIT_THEN_TYPE,
+    "a Japanese composition ends before a digit too",
+  );
+  check(
+    HardwareKeyRouter.route(key(0, 0x21), true, true, false, undefined, false, true).action ===
+      HardwareKeyAction.RELEASE,
+    "Japanese punctuation is still the application's",
+  );
+});
+
+group("the keypad decimal point is always an ASCII full stop", () => {
+  // Windows: `VK_DECIMAL` "should always commit ASCII '.'" (`KeyHandler.cpp`), finishing a composition first. Here it reached the Chinese punctuation path and came out as 。.
+  const dot: HardwareKey = {
+    keyCode: 2114,
+    unicodeChar: 0x2e,
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey: false,
+  };
+  check(
+    HardwareKeyRouter.route(dot, false, true).action === HardwareKeyAction.RELEASE,
+    "with nothing composed the editor types the '.'",
+  );
+  const composing: HardwareKeyDecision = HardwareKeyRouter.route(dot, true, true);
+  check(
+    composing.action === HardwareKeyAction.COMMIT_THEN_TYPE && composing.character === 0x2e,
+    "mid-composition it finishes the composition and types '.' after it",
+  );
+  check(
+    HardwareKeyRouter.route({ ...dot, keyCode: 2044 }, false, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "the main keyboard's period is still Chinese punctuation",
+  );
+});
+
+group("punctuation locked to Chinese stays Chinese in English mode", () => {
+  // Windows keeps the punctuation compartment on in English mode when `punctuation_lock` is Chinese (`ResolvePunctuationOpen`), and `_IsKeyEaten` claims punctuation outside `isOpen`.
+  const comma: HardwareKey = {
+    keyCode: 2043,
+    unicodeChar: 0x2c,
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey: false,
+  };
+  const english = (locked: boolean): HardwareKeyAction =>
+    HardwareKeyRouter.route(
+      comma,
+      false,
+      false,
+      false,
+      undefined,
+      false,
+      false,
+      "disabled",
+      false,
+      PLAIN_SPELLING,
+      false,
+      locked,
+    ).action;
+  check(english(true) === HardwareKeyAction.PUNCTUATION, "the lock keeps the comma the keyboard's");
+  check(english(false) === HardwareKeyAction.RELEASE, "without it English punctuation is ASCII");
+});
+
+group("a Backspace held from inside a composition stops at its edge", () => {
+  // Windows `_ApplyBackspaceHoldGuard` / `ShouldSuppressBackspaceRepeat`, issue #347.
+  const guard: HardwareBackspaceGuard = new HardwareBackspaceGuard();
+  check(!guard.down(true), "the first press is the composition's own backspace");
+  check(!guard.down(true), "repeats that still find letters delete them");
+  check(guard.down(false), "a repeat after the last letter is claimed, not handed to the editor");
+  check(guard.down(false), "and so is every one after it");
+  check(guard.up(false), "the key-up of a claimed hold is claimed too");
+  check(!guard.down(false), "a fresh press with nothing composed is the editor's");
+  check(!guard.down(false), "and so is its hold");
+  check(!guard.up(false), "and its key-up");
+  guard.down(true);
+  guard.reset();
+  check(
+    !guard.down(false),
+    "another key or a lost focus ends the hold, so a missed key-up cannot leave it armed",
   );
 });
 
@@ -3106,10 +3221,15 @@ group("traditional output never loses text when conversion fails", () => {
     "a converter that throws must not lose the text",
   );
   // The host hands the policy the native OpenCC s2t converter, which works on phrases: 发 is 髮 in 头发 and 發 in 发展. The policy passes the whole string through rather than splitting it, which is what lets the phrase tables see the word.
-  const phrase = (text: string): string =>
-    text.replace("头发", "頭髮").replace("发展", "發展");
-  check(ChineseOutputPolicy.output("头发", true, true, phrase) === "頭髮", "头发 converts as a phrase");
-  check(ChineseOutputPolicy.output("发展", true, true, phrase) === "發展", "发展 converts as a phrase");
+  const phrase = (text: string): string => text.replace("头发", "頭髮").replace("发展", "發展");
+  check(
+    ChineseOutputPolicy.output("头发", true, true, phrase) === "頭髮",
+    "头发 converts as a phrase",
+  );
+  check(
+    ChineseOutputPolicy.output("发展", true, true, phrase) === "發展",
+    "发展 converts as a phrase",
+  );
   check(ChineseOutputPolicy.applies(false, 0, "none") === true, "quanpin converts");
   check(ChineseOutputPolicy.applies(true, 0, "none") === false, "dedicated English does not");
   check(ChineseOutputPolicy.applies(false, 3, "none") === false, "Japanese has nothing to convert");
@@ -4537,6 +4657,7 @@ function recordingTarget(log: string[]): HardwareKeyTarget {
       log.push(`widen ${character}`);
       return false;
     },
+    commitThenType: (character: number) => log.push(`commitThenType ${character}`),
   };
 }
 
@@ -4621,6 +4742,10 @@ group("every routed hardware key reaches the method that means it", () => {
   check(
     dispatched(HardwareKeyAction.JAPANESE_COMMIT)[0] === "commitJapanese",
     "Japanese Return reaches conversion-aware commit",
+  );
+  check(
+    dispatched(HardwareKeyAction.COMMIT_THEN_TYPE, 0x30)[0] === "commitThenType 48",
+    "a key the composition cannot use finishes it and carries its character",
   );
 });
 
@@ -7556,8 +7681,8 @@ group("fullwidth mode widens what a hardware keyboard would hand the application
   );
   check(
     route(key({ keyCode: 2062, unicodeChar: 0x3b }), true, false, true).action ===
-      HardwareKeyAction.RELEASE,
-    "nothing is widened over a candidate list",
+      HardwareKeyAction.COMMIT_THEN_TYPE,
+    "nothing is widened over a candidate list: the composition is finished and the key typed as it is",
   );
   const log: string[] = [];
   const widening: HardwareKeyTarget = {

@@ -2731,6 +2731,26 @@ fn chinese_punctuation_lock_overrides_a_switched_off_punctuation_mode() {
     read(msime_client_destroy(follow));
 }
 
+/// Windows keeps punctuation Chinese in English mode while it is locked to Chinese (`ResolvePunctuationOpen`), so a host that hands English-mode punctuation over under the lock must get the Chinese mark back.
+#[test]
+fn chinese_punctuation_lock_holds_in_english_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            punctuation_lock: msime_client_core::preferences::PunctuationLock::Chinese,
+            ..chinese_preferences()
+        },
+    );
+    read(msime_client_focus(handle, true));
+    read(msime_client_set_english_mode(handle, true));
+    assert_eq!(
+        read(msime_client_punctuation_with_context(handle, b',', 0))["value"]["commit"],
+        "，"
+    );
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn explicit_punctuation_finishes_unicode_and_rejects_invalid_bytes() {
     for enabled in [true, false] {

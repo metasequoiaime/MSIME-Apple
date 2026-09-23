@@ -43,6 +43,8 @@ export interface HardwareKeyTarget {
   previousCandidate(): void;
   convertJapanese(): boolean;
   commitJapanese(): boolean;
+  /** Finish the composition and type `character` after it. */
+  commitThenType(character: number): void;
 }
 
 export class HardwareKeyDispatch {
@@ -140,6 +142,9 @@ export class HardwareKeyDispatch {
         break;
       case HardwareKeyAction.JAPANESE_COMMIT:
         target.commitJapanese();
+        break;
+      case HardwareKeyAction.COMMIT_THEN_TYPE:
+        target.commitThenType(decision.character);
         break;
       default:
         break;

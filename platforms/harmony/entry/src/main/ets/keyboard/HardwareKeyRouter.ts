@@ -72,6 +72,8 @@ export enum HardwareKeyAction {
   JAPANESE_COMMIT,
   /** Type the printable ASCII `character` as its fullwidth form, the Windows double-byte mode. */
   WIDEN,
+  /** Finish the composition, then type `character` after it: a key that carries text but means nothing to the composition. */
+  COMMIT_THEN_TYPE,
 }
 
 export interface HardwareKeyDecision {
@@ -153,6 +155,8 @@ const KEYCODE_C: number = 2019;
 // one place (`normalize_numpad_digit_key`) so every digit path gets it at once; this is that place.
 const KEYCODE_NUMPAD_0: number = 2103;
 const KEYCODE_NUMPAD_9: number = 2112;
+const KEYCODE_NUMPAD_DOT: number = 2114;
+const FULL_STOP: number = 0x2e;
 const KEYCODE_0: number = 2000;
 const DIGIT_ZERO: number = 0x30;
 const KEYCODE_SEMICOLON: number = 2062;
@@ -233,6 +237,7 @@ export class HardwareKeyRouter {
   /**
    * @param composing whether the Engine is holding a composition right now
    * @param chinese whether the Engine would spell with a letter rather than pass it through
+   * @param chinesePunctuationInEnglish whether punctuation is still the keyboard's in English mode, which the Windows host does when `punctuation_lock` is Chinese (`ResolvePunctuationOpen`)
    */
   static route(
     key: HardwareKey,
@@ -254,6 +259,7 @@ export class HardwareKeyRouter {
     hasHighlightedCandidate: boolean = false,
     spelling: HardwareSpelling = PLAIN_SPELLING,
     fullWidth: boolean = false,
+    chinesePunctuationInEnglish: boolean = false,
   ): HardwareKeyDecision {
     // Applied once, before anything reads the key, so no digit path can be left out of it. The
     // resolved character is filled in as well as the code: with Ctrl+Shift+Alt held the system
@@ -323,6 +329,10 @@ export class HardwareKeyRouter {
     }
     if (key.ctrlKey || key.altKey || key.logoKey) {
       return RELEASE;
+    }
+    // The keypad's decimal point is always an ASCII '.', which is what the Windows host does with `VK_DECIMAL` (`KeyHandler.cpp`, "Numpad decimal should always commit ASCII '.'"): someone typing a number on the keypad wants 3.14, not 3。14. Mid-composition it finishes the composition first, as that host does.
+    if (key.keyCode === KEYCODE_NUMPAD_DOT) {
+      return composing ? decision(HardwareKeyAction.COMMIT_THEN_TYPE, FULL_STOP) : RELEASE;
     }
     if (composing) {
       if (japanese && key.keyCode === KEYCODE_SPACE) {
@@ -396,7 +406,7 @@ export class HardwareKeyRouter {
       // the number row is for on every desktop input method.
       if (key.unicodeChar >= 0x31 && key.unicodeChar <= 0x39) {
         if (releaseNumberRow) {
-          return RELEASE;
+          return decision(HardwareKeyAction.COMMIT_THEN_TYPE, key.unicodeChar);
         }
         return decision(HardwareKeyAction.SELECT, 0, key.unicodeChar - 0x31);
       }
@@ -415,8 +425,21 @@ export class HardwareKeyRouter {
       // spelled. Navigation punctuation has already been consumed above while composing, so the
       // keys a preference turned into paging keys still page; modifiers and Japanese punctuation
       // remain application-owned.
-      if (chinese && !japanese && isAsciiPunctuation(key.unicodeChar)) {
+      if (
+        (chinese || chinesePunctuationInEnglish) &&
+        !japanese &&
+        isAsciiPunctuation(key.unicodeChar)
+      ) {
         return decision(HardwareKeyAction.PUNCTUATION, key.unicodeChar);
+      }
+      // Any other character the composition has no use for — a 0, a digit when the number row does not pick — still ends it first. Released as it was, the application inserted the digit while the letters were still open and the commit that followed landed after it: nihao then 0 gave 0你好. The Windows host finalizes the composition before the key goes on (`FUNCTION_FINALIZE_TEXTSTORE` in `IsVirtualKeyNeed`). Japanese punctuation stays the application's, as above.
+      if (
+        composing &&
+        key.unicodeChar >= 0x20 &&
+        key.unicodeChar <= 0x7e &&
+        !(japanese && isAsciiPunctuation(key.unicodeChar))
+      ) {
+        return decision(HardwareKeyAction.COMMIT_THEN_TYPE, key.unicodeChar);
       }
       return HardwareKeyRouter.passThrough(key, composing, fullWidth);
     }

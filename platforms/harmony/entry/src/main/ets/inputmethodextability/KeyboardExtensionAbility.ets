@@ -28,6 +28,7 @@ import { ToolbarButton } from '../keyboard/FloatingToolbarLayout';
 import { AttachedInputDevice, DeviceChange, HardwareKeyboardPolicy, KeyRoutingTransition }
   from '../keyboard/input/HardwareKeyboardPolicy';
 import { HarmonyHardwareKeyboards } from '../keyboard/input/HarmonyHardwareKeyboards';
+import { HardwareBackspaceGuard } from '../keyboard/input/BackspaceHoldPolicy';
 
 // The badge's own geometry, from platforms/macos/src/InputModeHUDPanel.mm: a capsule that carries
 // the logo and one character side by side, shown long enough to read and gone before the next word.
@@ -37,6 +38,8 @@ const HUD_SCREEN_MARGIN_VP: number = 8;
 const HUD_CARET_GAP_VP: number = 10;
 const HUD_VISIBLE_MS: number = 780;
 const BUNDLE_NAME: string = 'app.msime.client';
+// KEYCODE_DEL, the Backspace key.
+const KEYCODE_DEL: number = 2055;
 const TOOLBAR_MARGIN_VP: number = 20;
 // Wide enough for the key rows to keep the proportions they have on a phone, rather than stretching
 // a ten-key row across a desktop.
@@ -71,6 +74,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private hud: inputMethodEngine.Panel | undefined = undefined;
   private hudTimer: number = -1;
   private readonly modeKeys: InputModeRouting = new InputModeRouting();
+  private readonly backspaceHold: HardwareBackspaceGuard = new HardwareBackspaceGuard();
   // The bar that says what mode the keyboard is in. Another window of its own, because it outlives
   // every composition and every editor: it is on screen whenever the keyboard is running at all.
   private toolbar: inputMethodEngine.Panel | undefined = undefined;
@@ -507,6 +511,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   }
 
   private readonly stopped: () => void = (): void => {
+    this.backspaceHold.reset();
     KeyboardSession.shared.detach();
     if (this.panel !== undefined) {
       this.panel.hide();
@@ -610,6 +615,16 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (event.action !== KeyAction.DOWN && this.releasedKeys.delete(event.key.code)) {
       return false;
     }
+    // A Backspace held from inside a composition stops where the composition did; see HardwareBackspaceGuard.
+    if (event.key.code === KEYCODE_DEL) {
+      const held: boolean = event.action === KeyAction.DOWN
+        ? this.backspaceHold.down(session.composing()) : this.backspaceHold.up(session.composing());
+      if (held) {
+        return true;
+      }
+    } else if (event.action === KeyAction.DOWN) {
+      this.backspaceHold.reset();
+    }
     if (!session.composes()) {
       return false;
     }
@@ -619,7 +634,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardSession.shared.preferences().navigation,
         session.hasHighlightedTranslation(), session.isJapanese(),
         session.wordCharacterBinding(), session.hasHighlightedCandidate(), session.hardwareSpelling(),
-        session.isFullWidth());
+        session.isFullWidth(), session.punctuationLockedChinese());
     if (decision.action === HardwareKeyAction.RELEASE) {
       // What the application types is still the user's typing, and Windows counts it (`stats_passthrough.h`).
       if (event.action === KeyAction.DOWN) {

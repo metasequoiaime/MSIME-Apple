@@ -1632,6 +1632,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.englishMode && this.englishCandidates;
   }
 
+  /** Whether punctuation is locked to Chinese, which the Windows host keeps even in English mode (`ResolvePunctuationOpen`). */
+  punctuationLockedChinese(): boolean {
+    return this.punctuationLock === 'chinese';
+  }
+
   /**
    * Ctrl+Shift+E, as `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState` on Windows.
    *
@@ -2683,6 +2688,19 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Commit the highlighted candidate, or the reading when the scheme has no converted candidate. */
   finishComposition(): boolean {
     return this.command(InputCommand.FINISH_COMPOSITION);
+  }
+
+  /**
+   * A hardware key the composition has no use for: finish the composition, then type the key after it.
+   *
+   * The Windows host finalizes and then lets the application insert the key, so the character is typed as the key made it, halfwidth and unconverted. Here the keyboard inserts it itself, after the commit, because releasing the key would leave its order against the commit to the editor.
+   */
+  commitThenType(ascii: number): void {
+    this.finishComposition();
+    if (this.inputClient === undefined) return;
+    const literal: string = String.fromCharCode(ascii);
+    this.insertEditorText(literal);
+    this.recordTypingStatistics(literal, this.typingSource());
   }
 
   /** Commit Japanese kana as entered, without forcing the first converted candidate. */

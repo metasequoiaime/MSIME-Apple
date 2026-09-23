@@ -1957,3 +1957,12 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 鸿蒙切换中英文时发的是 `MSIME_COMMIT_RAW`（2）。这条命令会走 `commit_raw_with_policy`，按 Enter 的规则学习；在 Ctrl+Shift+E 英文候选模式下，引擎自己的原始上屏也会学习。于是在中文模式下打了 `hello` 再切到英文，`hello` 会被记进英文词库。
 - 共享层新增 `MSIME_COMMIT_RAW_WITHOUT_LEARNING`（15）：同样把字母原样上屏，但不学习。在英文候选模式下，它读取预编辑后取消组字，绕开引擎自带的学习；临时模式的引导字母照 `InputSession` 的做法去掉。鸿蒙切换中英文的边界改用这条命令；Enter 和触屏上的原样上屏仍用 2，继续学习。手机和 2in1 走的是同一条路径。
 - Linux 的 Ctrl+Space 等切换组合键（`FcitxEngine.cpp`）同样发 2，存在同样的差异。那是 Linux 宿主的事，这里没有改动。
+
+### HarmonyOS 2in1 硬件键盘：长按退格、组字中的数字、小键盘小数点、英文模式下锁定的中文标点
+
+四处差异都只在硬件键盘路径上，手机的软键盘不受影响。
+
+- **长按退格。** 来源在每次新按下退格时记下当时是否在组字（`_ApplyBackspaceHoldGuard`），长按从组字开始时，组字清空之后的自动重复也照样吃掉（`ShouldSuppressBackspaceRepeat`，#347），长按清完拼写就停，不会接着删文档里已经上屏的字。鸿蒙以前只在组字期间认领退格，拼写一清空，后面的重复就交给了应用。现在由 `HardwareBackspaceGuard` 按同样的规则处理。鸿蒙的按键事件没有重复位，所以「重复」指上次抬起之后又来的按下；按下其他键或编辑框失焦时解除，漏掉的抬起不会让它一直生效。触屏键盘原有的 `BackspaceHoldPolicy.firstRepeat` 不变。
+- **组字中的数字。** 来源遇到组字用不上、但带字符的键（`0`，或关掉数字选词后的 1–9），会先定稿再把键交给应用（`IsVirtualKeyNeed` 的 `FUNCTION_FINALIZE_TEXTSTORE`，`_HandleCompositionFinalize`）。鸿蒙以前直接放行，应用先插入数字，随后的 textChange 才把拼写提交到数字后面：打 nihao 再按 0 得到「0你好」。现在路由返回 `COMMIT_THEN_TYPE`：先 `FINISH_COMPOSITION`，再由键盘自己插入这个字符，保证顺序。插入的是按键原样的半角字符，与来源放行给应用的结果一致。日文标点仍按既有取舍交给应用。
+- **小键盘小数点。** 来源 `VK_DECIMAL` 永远输出 ASCII `.`（`KeyHandler.cpp`「Numpad decimal should always commit ASCII '.'」），组字中先上屏高亮候选再接 `.`。鸿蒙以前只把小键盘数字当数字，小数点走中文标点，变成「。」。现在不在组字时放行给应用，组字中走 `COMMIT_THEN_TYPE`。主键盘的句号不变。
+- **英文模式下锁定的中文标点。** 来源的标点开关不看中英文模式，`punctuation_lock` 为中文时英文模式下也保持打开（`ResolvePunctuationOpen`），`_IsKeyEaten` 的标点分支在 `isOpen` 之外。鸿蒙以前在英文模式下放行所有标点，这个锁在硬件键盘上没有作用。现在锁为中文时，英文模式的标点也交给共享层，`chinese_punctuation_lock_holds_in_english_mode` 钉住共享层此时给出中文标点。英文模式下按 Ctrl+. 临时打开中文标点仍未对齐：来源翻转的是按应用存在的 compartment，这边的 Ctrl+. 写的是持久偏好，要对齐需要引入按应用的运行时标点状态（macOS 的做法），另行处理。
