@@ -742,3 +742,98 @@ fn external_ids_are_the_folder_names_the_scan_lists() {
         assert!(!is_external_id(id), "{id}");
     }
 }
+
+/// The full-TOML manifest the native hosts must accept exactly as the settings page does (Windows parses skin.toml with toml++): literal strings, a multi-line array, an inline table, a digit separator, a unicode escape and a `#` inside a literal string.
+const FULL_TOML_MANIFEST: &str = r#"schema_version = 1
+id = 'full-toml'
+name = "\u6768\u67f3 Full"
+version = '1.0'
+base = 'wechat'
+description = 'hash # inside a literal'
+toolbar_stylesheet = 'toolbar.css'
+
+[supports]
+layouts = [
+  'horizontal', # trailing comment
+  'vertical',
+]
+themes = ['dark', 'light']
+
+[candidate_window]
+min_width_dip = 1_0
+decoration = { top_inset_dip = 0, width_dip = 0 }
+
+[candidate.light]
+accent = '#c45c7a'
+show_selected_bar = false
+"#;
+
+#[test]
+fn load_package_accepts_full_toml_manifests() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("full-toml");
+    fs::create_dir_all(&skin).unwrap();
+    fs::write(skin.join("skin.toml"), FULL_TOML_MANIFEST).unwrap();
+    fs::write(skin.join("toolbar.css"), ".toolbar {}").unwrap();
+    let package = load_package(root.path(), "full-toml").unwrap();
+    assert_eq!(package.name, "杨柳 Full");
+    assert_eq!(
+        package.description.as_deref(),
+        Some("hash # inside a literal")
+    );
+    assert_eq!(package.layouts, ["horizontal", "vertical"]);
+    assert_eq!(package.min_width_dip, 10.0);
+    assert_eq!(
+        (package.decoration_top_dip, package.decoration_width_dip),
+        (0.0, 0.0)
+    );
+    assert_eq!(package.toolbar_stylesheet.as_deref(), Some("toolbar.css"));
+    assert_eq!(package.candidate.light.accent.as_deref(), Some("#c45c7a"));
+    assert_eq!(package.candidate.light.show_selected_bar, Some(false));
+    // One package resolves to what the full scan reports for it.
+    assert_eq!(scan(root.path()).packages, vec![package]);
+}
+
+#[test]
+fn load_package_rejects_builtin_mismatched_missing_and_aliased_packages() {
+    let root = tempdir().unwrap();
+    fs::create_dir_all(root.path().join("fluent")).unwrap();
+    fs::write(root.path().join("fluent/skin.toml"), manifest("fluent")).unwrap();
+    assert_eq!(
+        load_package(root.path(), "fluent"),
+        Err("invalid skin id".into())
+    );
+    fs::create_dir_all(root.path().join("renamed")).unwrap();
+    fs::write(root.path().join("renamed/skin.toml"), manifest("original")).unwrap();
+    assert_eq!(
+        load_package(root.path(), "renamed"),
+        Err("manifest id does not match folder".into())
+    );
+    assert!(load_package(root.path(), "absent").is_err());
+    assert!(load_package(root.path(), "../escape").is_err());
+    resource_package(root.path());
+    #[cfg(unix)]
+    {
+        // scan() skips a symlinked package directory, so resolving one by id must not draw it either.
+        std::os::unix::fs::symlink(root.path().join("sample"), root.path().join("alias")).unwrap();
+        assert!(load_package(root.path(), "alias").is_err());
+    }
+    assert!(load_package(root.path(), "sample").is_ok());
+}
+
+#[test]
+#[cfg(unix)]
+fn a_fifo_manifest_is_rejected_without_blocking() {
+    let root = tempdir().unwrap();
+    fs::create_dir_all(root.path().join("pipe")).unwrap();
+    let status = std::process::Command::new("mkfifo")
+        .arg(root.path().join("pipe/skin.toml"))
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(
+        load_package(root.path(), "pipe"),
+        Err("skin.toml is not a regular file".into())
+    );
+    assert_eq!(scan(root.path()).issues[0].folder, "pipe");
+}

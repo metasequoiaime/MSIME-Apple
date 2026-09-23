@@ -2238,10 +2238,10 @@ public:
           voice_level_seen_ = voice_level_seen_ || levelSeen;
           partial = msime_voice_bound_result(std::move(partial));
           if (!partial.empty()) {
+            // Fcitx5 commit is the only voice commit path on Linux and the settings page offers no strategy, so a stored commit_mode must not turn the inline preedit off.
             const bool inlinePreedit = msime_voice_stream_inline_enabled(
                 voice_options_.value("stream_inline_preedit", false),
-                voice_options_.value("asr_provider", std::string{"doubao"}),
-                voice_options_.value("commit_mode", std::string("tsf")));
+                voice_options_.value("asr_provider", std::string{"doubao"}), "tsf");
             if (inlinePreedit) {
               voice_preedit_ = partial;
               voice_transcript_.clear();
@@ -2296,8 +2296,7 @@ public:
           latestPartial = msime_voice_bound_result(std::move(latestPartial));
           const bool inlinePreedit = msime_voice_stream_inline_enabled(
               voice_options_.value("stream_inline_preedit", false),
-              voice_options_.value("asr_provider", std::string{"doubao"}),
-              voice_options_.value("commit_mode", std::string("tsf")));
+              voice_options_.value("asr_provider", std::string{"doubao"}), "tsf");
           (inlinePreedit ? voice_preedit_ : voice_transcript_) = std::move(latestPartial);
         }
         text = msime_voice_result_or_transcript(

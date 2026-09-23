@@ -80,7 +80,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 | | |
 | --- | --- |
 | 目的地 | `https://api.msime.app/v1/telemetry/events` |
-| `kind: "download"` | 启动计数。字段：随机 id、平台名、版本号。**只有 Apple 与 Android 做了本地去重**，各自只在首次启动发一次；Linux、Windows、HarmonyOS 的宿主进程每次拉起都发一次，且 id 每次随机，服务端无法合并，所以这三个平台上它实际是启动计数而不是装机计数 |
+| `kind: "download"` | 启动计数。字段：随机 id、平台名、版本号。**只有 Apple 与 Android 做了本地去重**，各自只在首次启动发一次；Linux（IBus 宿主）、Windows、HarmonyOS 的宿主进程每次拉起都发一次（Linux 上 launcher 在崩溃后重启的宿主除外），且 id 每次随机，服务端无法合并，所以这三个平台上它实际是启动计数而不是装机计数 |
 | `kind: "crash"` | 进程崩溃。异常信息截断到 2048 字节。**调用栈只有 Apple 与 Android 有**（截断到 12000 字节）；Linux 与 Windows 的崩溃事件没有 stack 字段，message 是固定字面量 `"std::terminate"`，不携带真实异常信息；HarmonyOS 没有崩溃上报 |
 | 需要凭据 | 否 |
 | 偏好开关 | **没有**。这条路径不读任何偏好字段 |
@@ -88,7 +88,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 实现分三份，能力逐份不同：
 
 - Apple（macOS 输入法进程、iOS 主 App）：`shared/backend/account/BackendTelemetryClient.swift`。macOS 由 `platforms/macos/src/input/input_method_main.mm` 在启动时 `dlsym` 调起，iOS 由 `platforms/ios/App/Sources/MetasequoiaImeApp.swift` 的 `init` 调起；两者同时注册 `NSSetUncaughtExceptionHandler`。首次启动以 `UserDefaults` 的 `msime.telemetry.firstLaunchRecorded` 去重。
-- Linux 与 Windows（C++ 宿主进程）：`platforms/common/Telemetry.cpp`，分别由 `platforms/linux/src/entrypoints/ibus_main.cpp` 和 `platforms/windows/src/entrypoints/server_main.cpp` 在 `main`/`wmain` 开头无条件调用，没有首次启动去重，IBus engine 或 Server 每被拉起一次就 POST 一次 download 事件。崩溃走 `std::set_terminate`，回调传的 message 是写死的 `"std::terminate"`，既没有异常内容也没有调用栈——`crash()` 组装的 JSON 只有 id、kind、platform、version、message 五个字段。
+- Linux 与 Windows（C++ 宿主进程）：`platforms/common/Telemetry.cpp`，没有首次启动去重。download 事件的 JSON 只有 id（随机十六进制串）、kind、platform（`"linux"` 或 `"windows"`）、version 四个字段，version 是构建时写入的发布版本：Linux 为 CMake 的 `MSIME_LINUX_VERSION`，与 `.deb`/`.tar.gz` 的包版本相同（发布工作流取 `platforms/linux/version.txt`），Windows 为 `MSIME_WINDOWS_VERSION`。Windows 由 `platforms/windows/src/entrypoints/server_main.cpp` 在 `wmain` 开头调用，Server 每被拉起一次就同步 POST 一次。Linux 只有 IBus 宿主 `msime-client-ibus` 上报：`platforms/linux/src/entrypoints/ibus_main.cpp` 在向 ibus-daemon 注册 component 成功之后，另起一个不等待的后台线程发送，所以端点慢或不可达都不会拖住输入法注册；每次由 ibus-daemon 或用户拉起的宿主发一次，`msime-client-ibus-launcher` 的崩溃守护重启的宿主（带 `--recovered`）不发。Fcitx5 插件（`msime-fcitx5`）不链接 `Telemetry.cpp`，既不发启动事件也不发崩溃事件。崩溃走 `std::set_terminate`，回调传的 message 是写死的 `"std::terminate"`，既没有异常内容也没有调用栈——`crash()` 组装的 JSON 只有 id、kind、platform、version、message 五个字段；Linux 上崩溃守护重启的宿主同样注册这个回调。
 - Android 与 HarmonyOS：`platforms/android/java/app/msime/client/core/Telemetry.java`（由 `HomeActivity` 调起，`SharedPreferences` 的 `first-launch` 去重，`Thread.setDefaultUncaughtExceptionHandler` 捕获崩溃）和 `platforms/harmony/entry/src/main/ets/telemetry/Telemetry.ets`（由 `EntryAbility.onCreate` 调起，只有装机事件，没有崩溃捕获，也没有本地去重）。
 
 事件都是先落盘再发送、发送成功才从队列移除，但**补发只有 Apple 与 Android 做了**：这两份实现在每次启动时遍历整个队列重试，所以离线期间攒下的事件联网后会补发。Linux 与 Windows 只落盘、只尝试发当前这一条，从不回头读队列里的历史事件——离线时写进 `telemetry.json` 的事件会一直留在那里，直到被 64 条上限挤掉，永远不会补发。HarmonyOS 连落盘都没有，`Telemetry.ets` 直接发一次 HTTP 请求，失败即丢弃。队列上限 64 条，文件位置：Apple 为应用支持目录下的 `MSIME/telemetry-events.json`（iOS 放在 App Group 容器里，文件权限 0600）、Windows 为 `%LOCALAPPDATA%\MSIME\telemetry.json`、Linux 为 `$XDG_STATE_HOME/msime/telemetry.json`（未设时为 `~/.local/state/msime/telemetry.json`）、Android 在 `msime-telemetry` 这个 SharedPreferences 里。想让它彻底不发，目前只能在构建时去掉调用点，或者在网络层阻断该端点。
@@ -101,7 +101,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 ## 没有的东西
 
-没有第三方统计、用户行为分析或崩溃上报 SDK：Sentry、Mixpanel、Amplitude、Crashlytics、Google Analytics 及其等价物既不在依赖里，也不在代码里。全仓库唯一的上报路径是上面那条自己实现的[安装与崩溃上报](#安装与崩溃上报默认开启)，命中的文件应当只有它的那几份实现与调用点：
+没有第三方统计、用户行为分析或崩溃上报 SDK：Sentry、Mixpanel、Amplitude、Crashlytics、Google Analytics 及其等价物既不在依赖里，也不在代码里。全仓库唯一的上报路径是上面那条自己实现的[安装与崩溃上报](#安装与崩溃上报默认开启)，命中的文件应当只有它的那几份实现、调用点与构建配置（`platforms/linux/CMakeLists.txt`、`platforms/windows/CMakeLists.txt`），外加描述它的 `platforms/linux/README.md` 和钉住它的测试（`shared/backend/Tests/BackendTelemetryClientTests.swift`、`platforms/linux/tests/core/ibus_startup_telemetry.py`）：
 
 ```sh
 git grep -ilwE '(telemetry|analytics|sentry|mixpanel|crashlytics)' -- crates apps packages platforms shared

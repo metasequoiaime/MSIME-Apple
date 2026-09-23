@@ -138,11 +138,13 @@ final class HandwritingTests: XCTestCase {
     let toggle = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "layoutToggleButton" } as? UIButton)
     let panel = try XCTUnwrap(nodes(controller.view).first { $0 is HandwritingInputView } as? HandwritingInputView)
     let enter = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "returnKey" })
-    for (verticalSize, width, writingHeight, typingHeight) in [
-      (UIUserInterfaceSizeClass.regular, 414.0, 260.0 + KeyboardViewController.stripExtraHeight, 260.0 + KeyboardViewController.stripExtraHeight),
+    // Annotated rather than inferred: three tuples of four components, where one is an enum written with a leading dot and two are overloaded `+` on CGFloat, give the solver enough freedom that it gives up with "unable to type-check this expression in reasonable time". Naming the type leaves it nothing to solve.
+    let layouts: [(UIUserInterfaceSizeClass, CGFloat, CGFloat, CGFloat)] = [
+      (.regular, 414.0, 260.0 + KeyboardViewController.stripExtraHeight, 260.0 + KeyboardViewController.stripExtraHeight),
       (.compact, 812.0, 240.0 + KeyboardViewController.stripExtraHeight, 216.0 + KeyboardViewController.stripExtraHeight),
       (.regular, 320.0, 260.0 + KeyboardViewController.stripExtraHeight, 260.0 + KeyboardViewController.stripExtraHeight),
-    ] {
+    ]
+    for (verticalSize, width, writingHeight, typingHeight) in layouts {
       parent.setOverrideTraitCollection(UITraitCollection(verticalSizeClass: verticalSize), forChild: controller)
       controller.viewDidLayoutSubviews()
       XCTAssertEqual(height.constant, writingHeight)

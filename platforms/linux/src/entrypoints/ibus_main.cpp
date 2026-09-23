@@ -2,11 +2,13 @@
 #include "../core/RuntimeOptionsRefresh.h"
 #include "../system/SystemTheme.h"
 #include <array>
+#include <curl/curl.h>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <exception>
 #include <cstdlib>
+#include <thread>
 #include "Telemetry.h"
 
 namespace {
@@ -70,8 +72,9 @@ void restore_global_engine(IBusBus *bus) {
 } // namespace
 
 int main(int argc, char **argv) {
-  msime::telemetry::start("linux", "0.1.0-dev");
-  std::set_terminate([] { msime::telemetry::crash("linux", "0.1.0-dev", "std::terminate"); std::abort(); });
+  // Before any thread exists: libcurl's global init is not thread-safe, and both the startup event's thread and a crash report on any thread use it.
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  std::set_terminate([] { msime::telemetry::crash("linux", MSIME_LINUX_VERSION, "std::terminate"); std::abort(); });
   // --recovered is passed only by the launcher's crash supervisor when it restarts this process.
   const bool recovered = argc == 3 && g_strcmp0(argv[1], "--recovered") == 0;
   if ((argc != 2 && !recovered) || argv[argc - 1][0] != '/') {
@@ -136,12 +139,12 @@ int main(int argc, char **argv) {
       }), nullptr);
 #endif
   auto component = ibus_component_new(
-      "app.msime.client", "MSIME Client", "0.1.0",
+      "app.msime.client", "Metasequoia 水杉输入法", "0.1.0",
       "GPL-3.0-only", "MSIME contributors",
       "https://github.com/metasequoiaime/msime", "", "");
   ibus_component_add_engine(
       component,
-      ibus_engine_desc_new("msime-client", "MSIME Client",
+      ibus_engine_desc_new("msime-client", "Metasequoia 水杉输入法",
                            "Shared MSIME Linux input runtime", "zh",
                            "GPL-3.0-only", "MSIME contributors", "", "us"));
   if (!ibus_bus_register_component(bus, component)) {
@@ -155,6 +158,9 @@ int main(int argc, char **argv) {
                    nullptr);
   if (recovered)
     restore_global_engine(bus);
+  else
+    // One event per start the user or ibus-daemon asked for, never per supervisor restart. It runs after registration and off the main thread so an unreachable endpoint (up to the 8 s request timeout) cannot delay the engine; the thread is never joined, so exiting mid-request only drops this event.
+    std::thread([] { msime::telemetry::start("linux", MSIME_LINUX_VERSION); }).detach();
   auto config_file = g_file_new_for_path(options_path);
   OptionsWatch options_watch{options_path, config_file, 0, {}};
   auto config_directory = g_file_get_parent(config_file);

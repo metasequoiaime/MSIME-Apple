@@ -62,15 +62,16 @@ def lock_marker(lock: dict) -> str:
     return f"{lock['commit']}\n{overlays}"
 
 
-def prepared_at_lock(lock: dict) -> bool:
-    """Whether DEST contains every source tree named by the lock and no Git metadata."""
-    if not MARKER.is_file() or MARKER.read_text(encoding="utf-8") != lock_marker(lock):
+def prepared_at_lock(lock: dict, dest: Path = DEST) -> bool:
+    """Whether dest contains every source tree named by the lock and no Git metadata."""
+    marker = dest / MARKER.name
+    if not marker.is_file() or marker.read_text(encoding="utf-8") != lock_marker(lock):
         return False
-    if any(path.name in {".git", ".gitmodules"} for path in DEST.rglob("*") if path.is_dir()):
+    if any(path.name in {".git", ".gitmodules"} for path in dest.rglob("*") if path.is_dir()):
         return False
-    if any(path.name == ".gitmodules" for path in DEST.rglob("*")):
+    if any(path.name == ".gitmodules" for path in dest.rglob("*")):
         return False
-    return all((DEST / dependency["path"]).is_dir() for dependency in lock["dependencies"])
+    return all((dest / dependency["path"]).is_dir() for dependency in lock["dependencies"])
 
 
 def download_and_extract(artifact: dict, directory: Path) -> Path:
@@ -124,6 +125,9 @@ def apply_patches(directory: Path, lock: dict) -> None:
 
 def main() -> int:
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    if len(sys.argv) == 3 and sys.argv[1] == "--matches":
+        # The container gates borrow another checkout's vendor/ so a worktree need not fetch its own. That tree can be at the same Engine commit and still be stale, because the marker also covers the overlay scripts: on 2026-09-23 the main checkout's tree predated an overlay, and every worktree gate failed in bridge.cpp on a missing Engine symbol. Only a tree prepared for this checkout's exact lock may be mounted.
+        return 0 if prepared_at_lock(lock, Path(sys.argv[2]) / DEST.name) else 1
     if prepared_at_lock(lock):
         print(f"Engine already prepared at {lock['commit']}")
         return 0
