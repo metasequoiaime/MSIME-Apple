@@ -1453,6 +1453,53 @@ int main(int argc, char **argv) {
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
+    // A panel that reports the wheel as CandidateClicked button 4/5 pages the translated senses only with 鼠标滚轮 on; with it off the wheel does nothing, as on Windows and on the ordinary candidate page. One sense per page so a page change is visible.
+    {
+      const auto socket = (root / "translation-wheel.sock").string();
+      TranslationProviderFixture provider(socket);
+      provider.multi_sense = true;
+      for (const bool wheel : {false, true}) {
+        auto translated = options;
+        translated.erase("preferences_directory");
+        translated["translation_provider_socket"] = socket;
+        translated["preferences"]["candidate_translations"] = true;
+        translated["preferences"]["candidate_page_size"] = 1;
+        translated["preferences"]["translation_target_language"] = "ja";
+        translated["preferences"]["navigation"]["mouse_wheel"] = wheel;
+        msime_ibus_configure(translated.dump());
+        engine = create_engine();
+        seen = Observation{};
+        invoke("FocusIn");
+        phrase();
+        const auto deadline = g_get_monotonic_time() + 3000000;
+        while ((seen.candidates.empty() ||
+                seen.candidates.front().find("first sense") == std::string::npos) &&
+               g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {}
+          g_usleep(1000);
+        }
+        require(!seen.candidates.empty() &&
+                    seen.candidates.front().find("first sense") != std::string::npos,
+                "Multi-sense translation did not render for the wheel check");
+        seen.committed.clear();
+        auto opened = call(client, destination, "ProcessKeyEvent",
+                           g_variant_new("(uuu)", IBUS_Return, 0, IBUS_CONTROL_MASK));
+        g_variant_unref(opened);
+        require(seen.candidates == std::vector<std::string>{"first sense"},
+                "Ctrl+Enter did not open the one-per-page translation list");
+        invoke("CandidateClicked", g_variant_new("(uuu)", 0, 5, 0));
+        const auto expected = wheel ? "second sense" : "first sense";
+        require(seen.candidates == std::vector<std::string>{expected} &&
+                    seen.committed.empty() && seen.lookup_visible,
+                (std::string(wheel ? "Wheel with 鼠标滚轮 on did not page"
+                                   : "Wheel with 鼠标滚轮 off paged") +
+                 " the translation list: shown=[" +
+                 (seen.candidates.empty() ? std::string{} : seen.candidates.front()) + "]")
+                    .c_str());
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+      }
+    }
     {
       const auto history_path = root / "clipboard-generation-history.json";
       std::ofstream(history_path)
@@ -3093,6 +3140,31 @@ int main(int argc, char **argv) {
                   .c_str());
     }
     invoke("Reset");
+    // Right-click is the Windows context menu, which changes nothing until an action is picked. IBus has no per-candidate menu, so the click leaves the user dictionary alone and points at the 候选操作 menu instead of pinning. The old pin raised the row's weight, so a dictionary row paged past the top would have come first on the retyped page.
+    {
+      phrase();
+      const auto baseline = seen.candidates;
+      const int target = dictionary_two_segment_index();
+      require(target >= 0, "Fixture exposed no dictionary candidate past the top to right-click");
+      const auto page_before = seen.candidates;
+      const auto aux_before = seen.auxiliary;
+      const auto committed_before = seen.committed;
+      invoke("CandidateClicked", g_variant_new("(uuu)", static_cast<guint>(target), 3, 0));
+      require(seen.candidates == page_before && seen.committed == committed_before &&
+                  seen.preedit == "nihao" && seen.lookup_visible &&
+                  seen.auxiliary.find("候选操作") != std::string::npos,
+              ("Right-click changed the composition or showed no menu hint: aux=[" +
+               seen.auxiliary + "]")
+                  .c_str());
+      require(wait_until([&] { return seen.auxiliary == aux_before; }),
+              ("Right-click hint did not give the page number back: aux=[" + seen.auxiliary +
+               "] expected=[" + aux_before + "]")
+                  .c_str());
+      invoke("Reset");
+      phrase();
+      require(seen.candidates == baseline, "Right-click changed the user dictionary order");
+      invoke("Reset");
+    }
     struct Binding {
       const char *name;
       guint next;
@@ -3132,6 +3204,41 @@ int main(int argc, char **argv) {
               seen.committed == before_commit,
           "Navigation changed input or failed to return to first candidate");
       invoke("Reset");
+    }
+    // The panel wheel arrives as cursor_up/down. As on Windows it pages only with 鼠标滚轮 on and otherwise does nothing; keyboard arrows stay on the key path above.
+    for (const bool wheel : {false, true}) {
+      options["preferences"]["navigation"]["mouse_wheel"] = wheel;
+      save(revision++, 4);
+      settle();
+      phrase();
+      const auto wheel_first_page = seen.candidates;
+      const auto wheel_committed = seen.committed;
+      invoke("CursorDown");
+      if (wheel)
+        require(wait_until([&] { return seen.candidates != wheel_first_page; }) &&
+                    seen.cursor == 0 && seen.committed == wheel_committed,
+                "Wheel with 鼠标滚轮 on did not page the candidates");
+      else
+        require(seen.candidates == wheel_first_page && seen.cursor == 0 &&
+                    seen.committed == wheel_committed && seen.preedit == "nihao",
+                "Wheel with 鼠标滚轮 off moved the page or the highlight");
+      invoke("CursorUp");
+      require(seen.candidates == wheel_first_page && seen.cursor == 0 &&
+                  seen.committed == wheel_committed,
+              "Wheel up did not return to the first page");
+      invoke("Reset");
+    }
+    options["preferences"]["navigation"]["mouse_wheel"] = false;
+    // NumLock (Mod2) or a button mask in the panel's state argument must not block a click, as the Windows candidate window commits regardless of modifiers.
+    for (const guint click_state : {guint(IBUS_MOD2_MASK), guint(IBUS_BUTTON1_MASK)}) {
+      phrase();
+      const auto expected = seen.committed + seen.candidates.front();
+      invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, click_state));
+      settle_lookup();
+      require(seen.committed == expected && !seen.preedit_visible && !seen.lookup_visible,
+              ("Candidate click with state " + std::to_string(click_state) +
+               " did not select: committed=[" + seen.committed + "] expected=[" + expected + "]")
+                  .c_str());
     }
     for (const auto &binding : bindings)
       options["preferences"]["navigation"][binding.name] = false;

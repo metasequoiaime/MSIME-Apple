@@ -82,7 +82,7 @@ msime-client-setup --update --download   # 升级之后只取回过期的那几�
 
 本目录只处理 IBus 系统入口，使用同一个 `msime-host-api` 动态库；不直接创建 C++ Engine、不复制候选分页、数字选词或配置持久化逻辑，不依赖 Tauri 常驻。按键与焦点在 GLib 主线程调用线程绑定会话，系统候选点击取当前共享视图中的代次和全局索引。预编辑采用 Engine 的 ASCII editing_text，避免把字节光标用于中文显示串。失焦、禁用和 reset 清除组合；修饰键与 key-up 透传，快捷键取消组合后透传。密码、PIN、数字与电话字段不处理输入，private/no-spellcheck 文本会话关闭学习。
 
-共享运行时只返回当前候选页；IBus lookup table 显示该页，auxiliary text 标示共享页码。宿主读取共享 navigation 设置，支持减号/等号、逗号/句号、方括号、Tab/Shift+Tab、PageUp/Down 翻页及上下候选移动，也支持小键盘导航键。启用“鼠标滚轮”后，候选面板转发的 X11 按钮 4/5 会分别映射为上一页/下一页；标准 IBus GTK 面板常把滚轮映射为候选移动，因此不把该设置宣称为所有桌面都支持。Fcitx5 classic UI 自己把滚轮换成翻页请求，与翻页按钮走同一个接口，宿主无法区分，所以这个开关写进 classicui 自己的 `WheelForPaging` 配置；它属于整个桌面，与候选字体同一条规则：设置仍是默认值时不写，之后每次修改写一次。设置通过验证后立即更新按键分派，不等待 Engine 组合结束；按键路径不读文件。按当前键盘布局的字符映射，Shift 符号不当作未按 Shift 的物理键，保留 Unicode `U+`。关闭的标点绑定交回 Engine，关闭的 Tab/Page/上下键先完成组合再交还编辑器；空闲时透传。IBus“候选操作”菜单在候选页存在时提供上一页/下一页，动作仍调用共享分页命令并受已渲染 session/generation 栅栏保护；不把当前页伪装成完整候选集自行分页。
+共享运行时只返回当前候选页；IBus lookup table 显示该页，auxiliary text 标示共享页码。宿主读取共享 navigation 设置，支持减号/等号、逗号/句号、方括号、Tab/Shift+Tab、PageUp/Down 翻页及上下候选移动，也支持小键盘导航键。启用“鼠标滚轮”后，IBus 面板上的滚轮（面板发出的 `cursor_up/down` 信号和候选点击的按钮 4/5）分别翻到上一页/下一页；关闭时滚轮不做任何事，与 Windows 一致。键盘上下键走按键路径，不经过这两个信号。Fcitx5 classic UI 自己把滚轮换成翻页请求，与翻页按钮走同一个接口，宿主无法区分，所以这个开关写进 classicui 自己的 `WheelForPaging` 配置；它属于整个桌面，与候选字体同一条规则：设置仍是默认值时不写，之后每次修改写一次。设置通过验证后立即更新按键分派，不等待 Engine 组合结束；按键路径不读文件。按当前键盘布局的字符映射，Shift 符号不当作未按 Shift 的物理键，保留 Unicode `U+`。关闭的标点绑定交回 Engine，关闭的 Tab/Page/上下键先完成组合再交还编辑器；空闲时透传。IBus“候选操作”菜单在候选页存在时提供上一页/下一页，动作仍调用共享分页命令并受已渲染 session/generation 栅栏保护；不把当前页伪装成完整候选集自行分页。
 
 智能标点使用 IBus 提供的 surrounding text：逗号、句号和冒号前若是 ASCII 字母或数字，则保留 ASCII；否则交由 Engine 的中文标点表转换。正在组合时优先使用当前高亮候选的末字符，候选提交和标点在同一运行时转换中完成。重复输入的 ASCII 标点在短时间内可按设置替换为中文标点；失焦、删除或其他编辑动作会使该状态失效。无法取得有效 surrounding text 时按中文标点处理，不读取或记录完整编辑器内容。
 
@@ -340,7 +340,7 @@ IBus 注册入口通过 launcher 启动，配置优先级为 `MSIME_IBUS_OPTIONS
 
 **启动上报只来自 IBus 宿主，且不拖住注册。** `msime-client-ibus` 向 ibus-daemon 注册 component 成功之后，在一个不等待的后台线程里向 `https://api.msime.app/v1/telemetry/events` POST 一条 download 事件，字段只有随机 id、`"kind": "download"`、`"platform": "linux"` 和构建版本；端点慢或不可达（连接超时 3 秒、整体 8 秒）都不影响注册和输入，宿主退出时也不等它。每次由 ibus-daemon 或用户拉起的宿主发一次，崩溃守护带 `--recovered` 重启的宿主不发，因此反复崩溃不会刷出一串启动事件；`std::terminate` 的崩溃上报在两种启动下都保留。Fcitx5 插件不上报任何东西。字段、落盘位置和与其他平台的差异见 [PRIVACY.md](../../PRIVACY.md#安装与崩溃上报默认开启)。`tests/core/ibus_startup_telemetry.py` 用普通 dbus-daemon 加只应答 `RegisterComponent` 的桩代替 ibus-daemon，把 libcurl 经 `HTTPS_PROXY` 指到一个只 accept 不回应的本地端点，钉住四点：注册先于上报且不等端点、端点挂起期间宿主主循环仍能应答 IBusFactory 的 `CreateEngine`（上报一旦回到主线程同步执行就会超时）、`--recovered` 启动既不连端点也不落盘事件、事件里的版本等于 CMake 的包版本。
 
-数字选词：IBus 属性菜单中的“数字选词”控制主键盘和小键盘 `1–0` 对当前候选页的选择，默认开启；状态按输入上下文保留，候选分页仍使用 Engine 提供的全局候选身份。候选表支持左键或中键选词、右键固定候选，操作会校验会话、代次和全局索引。
+数字选词：IBus 属性菜单中的“数字选词”控制主键盘和小键盘 `1–0` 对当前候选页的选择，默认开启；状态按输入上下文保留，候选分页仍使用 Engine 提供的全局候选身份。候选表支持左键或中键选词，面板附带的修饰键状态（如 NumLock）不影响选词；右键不改动词典，只在辅助区域提示通过 IBus「候选操作」菜单固定、固定排位或删除。操作会校验会话、代次和全局索引。
 
 两个宿主都按物理数字行选词（Windows 用虚拟键码，与布局无关），AZERTY 等未按 Shift 时打出 `&é"…` 的布局同样能选词；Unicode 模式下裸数字是十六进制输入，选词改用 Shift 加数字行，与 Windows 一致。Fcitx5 以前只认按键符号，这两种情况都选不了词，`0` 也不选第十项。AltGr 打出的布局字符（德语的 `@`、`[` 等）在两个宿主上都先完成组合再交给编辑器，不再被 Fcitx5 当作中文标点或翻页键。
 
