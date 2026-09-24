@@ -327,6 +327,27 @@ if (-not $Light) {
         Write-Host "未找到落定重排模型（$settledSource），桌面落定重排保持关闭"
     }
 }
+# Non-English candidate glosses (scripts/build_offline_glosses.py), one zh-<lang>.db per target language, installed beside resources for the same reason as the settled model: the verified directory must equal the dictionary lock exactly, and the Engine looks for them in this sibling. Optional; without them the candidate glosses stay English only.
+$glossesSource = Join-Path $RepoRoot 'target/offline-glosses'
+$glossesTarget = Join-Path $targetServer 'offline-glosses'
+if (Test-Path -LiteralPath $glossesTarget) {
+    Remove-Item -LiteralPath $glossesTarget -Recurse -Force
+}
+if (-not $Light) {
+    $glossFiles = @()
+    $glossNotice = Join-Path $glossesSource 'offline-glosses-NOTICE.txt'
+    if (Test-Path -LiteralPath $glossNotice -PathType Leaf) {
+        $glossFiles = @(Get-ChildItem -LiteralPath $glossesSource -Filter 'zh-*.db' -File)
+    }
+    if ($glossFiles.Count -gt 0) {
+        New-Item -ItemType Directory -Path $glossesTarget -Force | Out-Null
+        foreach ($file in $glossFiles) { Copy-Item -LiteralPath $file.FullName -Destination $glossesTarget -Force }
+        Copy-Item -LiteralPath $glossNotice -Destination $glossesTarget -Force
+        Write-Host "Offline glosses staged: $($glossFiles.Count) languages in $glossesTarget"
+    } else {
+        Write-Host "No offline glosses with their notice in $glossesSource; candidate glosses stay English only"
+    }
+}
 # Both package modes replace Server output. Copy model resources afterwards,
 # otherwise Reset-Directory silently removes them from an otherwise valid package.
 if ($hasHandwritingModel) {
