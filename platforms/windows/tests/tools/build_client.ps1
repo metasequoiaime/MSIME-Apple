@@ -20,8 +20,13 @@ try {
         'MetasequoiaImeDictionaryReplay.exe', 'msime-client-settings.exe')) {
         Write-PEFixture (Join-Path $fixture "target/windows-full/x64/bin/$exe") x64 exe
     }
+    $voiceRuntimeLibraries = @('sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
+    foreach ($dll in $voiceRuntimeLibraries) {
+        Write-PEFixture (Join-Path $fixture "target/windows-full/x64/bin/$dll") x64 dll
+    }
     foreach ($relative in @('Cargo.toml', 'vendor/MSIME-Engine/CMakeLists.txt',
-        'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt', 'apps/desktop/package.json')) {
+        'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt', 'apps/desktop/package.json',
+        'scripts/fetch_voice_runtime.py')) {
         $path = Join-Path $fixture $relative
         New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
         [IO.File]::WriteAllText($path, 'synthetic')
@@ -39,6 +44,7 @@ try {
     function global:cargo { Invoke-ClientCommandProbe cargo $args }
     function global:cmake { Invoke-ClientCommandProbe cmake $args }
     function global:pnpm { Invoke-ClientCommandProbe pnpm $args }
+    function global:python { Invoke-ClientCommandProbe python $args }
     $entry = Join-Path $PSScriptRoot '../../Build-Client.ps1'
     $global:ClientBuildCalls = [Collections.Generic.List[object]]::new()
     $global:ClientBuildFailAt = 0
@@ -53,11 +59,27 @@ try {
         & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
-    if ($count -ne 16) { throw "Unexpected build stage count: $count" }
+    if ($count -ne 18) { throw "Unexpected build stage count: $count" }
     if ($global:ClientBuildCalls[15].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/msime-client-settings.pdb')) {
         throw 'Desktop PDB did not follow staged executable name'
     }
-    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15)) {
+    # The on-device speech runtime is fetched for x64 only and staged beside the Server.
+    $voiceRuntime = Join-Path $fixture 'target/voice-runtime/windows-x64'
+    $fetch = $global:ClientBuildCalls[16]
+    if ($fetch.Name -ne 'python' -or $fetch.Values[0] -ne (Join-Path $fixture 'scripts/fetch_voice_runtime.py') -or
+        [Array]::IndexOf($fetch.Values, 'windows-x64') -ne ([Array]::IndexOf($fetch.Values, '--platform') + 1) -or
+        [Array]::IndexOf($fetch.Values, $voiceRuntime) -ne ([Array]::IndexOf($fetch.Values, '--out') + 1)) {
+        throw 'Voice runtime fetch mismatch'
+    }
+    $stage = $global:ClientBuildCalls[17].Values
+    if ($global:ClientBuildCalls[17].Name -ne 'cmake' -or $stage[0] -ne '-E' -or $stage[1] -ne 'copy_if_different' -or
+        $stage[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin') -or $stage.Count -ne 6) {
+        throw 'Voice runtime staging mismatch'
+    }
+    foreach ($dll in $voiceRuntimeLibraries) {
+        if ($stage -notcontains (Join-Path $voiceRuntime $dll)) { throw "Voice runtime library not staged: $dll" }
+    }
+    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x64) { throw 'Incorrect x64 dependency scope' }
     }
     foreach ($index in @(7, 8, 9, 10)) {
@@ -105,6 +127,12 @@ try {
     catch { $rejected = $_.Exception.Message -eq 'Expected one Tauri desktop PDB output' }
     if (-not $rejected) { throw 'Ambiguous desktop symbols accepted' }
     Remove-Item -LiteralPath $alternateSymbols
+    Write-PEFixture (Join-Path $fixture 'target/windows-full/x64/bin/onnxruntime.dll') x86 dll
+    $rejected = $false
+    try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
+    catch { $rejected = $_.Exception.Message -eq 'PE architecture mismatch' }
+    if (-not $rejected) { throw 'Build accepted a 32-bit voice runtime beside the 64-bit Server' }
+    Write-PEFixture (Join-Path $fixture 'target/windows-full/x64/bin/onnxruntime.dll') x64 dll
     Write-PEFixture (Join-Path $fixture 'target/windows-full/x86/bin/msime_host_api.dll') x64 dll
     $rejected = $false
     try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
@@ -116,7 +144,7 @@ try {
     }
     Write-Output 'Client build orchestration: targets, dependency scopes, failure stages and PE gate passed'
 } finally {
-    Remove-Item Function:/cargo, Function:/cmake, Function:/pnpm, Function:/Invoke-ClientCommandProbe -ErrorAction SilentlyContinue
+    Remove-Item Function:/cargo, Function:/cmake, Function:/pnpm, Function:/python, Function:/Invoke-ClientCommandProbe -ErrorAction SilentlyContinue
     Remove-Variable ClientBuildCalls, ClientBuildFailAt -Scope Global -ErrorAction SilentlyContinue
     if (Test-Path $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
 }

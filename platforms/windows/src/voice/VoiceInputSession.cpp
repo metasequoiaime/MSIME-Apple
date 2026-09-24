@@ -1,10 +1,12 @@
 #include "VoiceInputSession.h"
 #include "PolishPrompt.h"
 
+#include "LocalAsr.h"
 #include "ReplyCodec.h"
 #include "SystemAudioMuter.h"
 #include "VoiceProviders.h"
 #include "VoiceSessionPolicy.h"
+#include "msime_client.h"
 #include <msime/voice/audio_capture.h>
 #include <msime/voice/cloud_stt_worker.h>
 #include <msime/voice/provider_protocol.h>
@@ -13,6 +15,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <type_traits>
 
 namespace msime::windows {
@@ -21,6 +26,84 @@ constexpr std::size_t kSampleRate = 16000;
 // MSIME-Windows keeps its message boxes until they are dismissed. The overlay cannot take focus, so it holds a failure long enough to read a provider's sentence and then steps aside.
 constexpr DWORD kFailureDisplayMs = 4000;
 constexpr DWORD kFailurePollMs = 100;
+// How long a loaded local model is kept without a dictation: the same two minutes the macOS and Linux recognizer process waits (shared/voice/LocalAsrHelper.cpp).
+constexpr auto kLocalModelIdle = std::chrono::seconds(120);
+
+bool is_local_asr_provider(std::string_view provider) {
+  return normalize_voice_provider(provider) == "local";
+}
+
+// The value of a host-api response, or nothing when the call failed. Frees the returned string.
+std::optional<nlohmann::json> host_value(char *raw) {
+  const std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+      raw, msime_client_string_free);
+  if (!owned)
+    return std::nullopt;
+  auto document = nlohmann::json::parse(owned.get(), nullptr, false);
+  if (!document.is_object() || !document.value("ok", false) ||
+      !document.contains("value"))
+    return std::nullopt;
+  return std::move(document.at("value"));
+}
+
+// The user's own pinyin dictionary words, heaviest first, as [{text,pinyin}]. Recognition without them is still recognition, so a dictionary that cannot be read right now (maintenance holds it, the store is missing) gives none.
+nlohmann::json local_hotwords(const VoiceInputConfig &config) {
+  auto none = nlohmann::json::array();
+  if (!config.host_options || config.host_options->empty())
+    return none;
+  // host_options is already a serialized JSON object, so it is spliced in rather than parsed and dumped again for every dictation.
+  const auto request = "{\"options\":" + *config.host_options + "}";
+  const auto value = host_value(msime_client_voice_hotwords(
+      reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+  if (!value || !value->is_object())
+    return none;
+  const auto hotwords = value->find("hotwords");
+  if (hotwords == value->end() || !hotwords->is_array())
+    return none;
+  return *hotwords;
+}
+
+std::vector<std::string> hotword_texts(const nlohmann::json &hotwords) {
+  std::vector<std::string> texts;
+  for (const auto &hotword : hotwords) {
+    const auto text = hotword.find("text");
+    if (hotword.is_object() && text != hotword.end() && text->is_string())
+      texts.push_back(text->get<std::string>());
+  }
+  return texts;
+}
+
+// Whether the installed model's manifest asks the host to correct the final text against the hotwords by pinyin, because the model cannot take them itself.
+bool local_model_corrects_by_pinyin(const std::string &model_path) {
+  std::ifstream input(std::filesystem::u8path(model_path) /
+                          std::string(msime::voice::local_model_manifest),
+                      std::ios::binary);
+  if (!input)
+    return false;
+  const auto manifest = nlohmann::json::parse(input, nullptr, false);
+  if (!manifest.is_object())
+    return false;
+  const auto hotwords = manifest.find("hotwords");
+  return hotwords != manifest.end() && hotwords->is_string() &&
+         hotwords->get<std::string>() == "pinyin";
+}
+
+// The text with near-miss spellings of the user's words replaced. Best-effort: any failure keeps what the recognizer produced.
+std::string correct_with_hotwords(const std::string &text,
+                                  const nlohmann::json &hotwords) {
+  const auto request =
+      nlohmann::json{{"text", text}, {"hotwords", hotwords}}.dump(
+          -1, ' ', false, nlohmann::json::error_handler_t::replace);
+  const auto value = host_value(msime_client_voice_hotword_correct(
+      reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+  if (!value || !value->is_object())
+    return text;
+  const auto corrected = value->find("text");
+  if (corrected == value->end() || !corrected->is_string() ||
+      corrected->get_ref<const std::string &>().empty())
+    return text;
+  return corrected->get<std::string>();
+}
 
 std::wstring wide(std::string_view text) {
   if (text.empty())
@@ -183,6 +266,8 @@ VoiceInputSession::~VoiceInputSession() {
       if (task.valid())
         task.wait();
   }
+  if (idle_release_.valid())
+    idle_release_.wait();
   // After the recognizers: a finishing one may still report a failure. cancel() moved the epoch on, so each display ends within one poll.
   std::lock_guard lock(notices_mutex_);
   for (auto &notice : notices_)
@@ -278,8 +363,10 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
       report_failure(message, session_.load());
     return false;
   };
+  const bool local = is_local_asr_provider(config.asr_provider);
   const auto verdict = voice_start_verdict(
-      {config.enabled, doubao, config.token, endpoint, model, config.resource_id});
+      {config.enabled, doubao, config.token, endpoint, model, config.resource_id,
+       local, config.asr_model_path});
   if (verdict.check == VoiceStartCheck::Disabled)
     return false;
   if (verdict.check == VoiceStartCheck::Rejected)
@@ -561,8 +648,11 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     return;
   }
   std::string text;
+  const bool local = !doubao && is_local_asr_provider(config.asr_provider);
   try {
-    if (doubao) {
+    if (local) {
+      text = recognize_local(samples, config, cancelled);
+    } else if (doubao) {
       text = doubao->Finish();
       const auto error = doubao->LastError();
       if (text.empty() && !error.empty()) {
@@ -586,7 +676,12 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
     clear_current_overlay();
     release_doubao();
     if (!review && !cancel_requested_.load())
-      report_failure(voice_recognition_failure(error), session);
+      report_failure(
+          local ? std::string(voice_local_failure(
+                      local_asr_available(),
+                      msime::voice::is_local_model_dir(config.asr_model_path)))
+                : voice_recognition_failure(error),
+          session);
     return;
   }
   if (session_.load() != session || cancel_requested_.load() || text.empty()) {
@@ -678,6 +773,53 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
   }
 }
 
+std::string VoiceInputSession::recognize_local(
+    const std::vector<float> &samples, const VoiceInputConfig &config,
+    const std::shared_ptr<std::atomic_bool> &cancelled) {
+  // Read here, on the recognition worker, rather than when the recording starts: listing the dictionary reads the store, which the control thread must not wait on.
+  const auto hotwords = local_hotwords(config);
+  // Stamped whether or not recognition succeeds: a model can load and then fail to decode, and it still has to be unloaded later. The time is written before the flag; release_idle_local_model() relies on that order.
+  struct UseStamp {
+    VoiceInputSession &session;
+    ~UseStamp() {
+      session.local_model_used_.store(
+          std::chrono::steady_clock::now().time_since_epoch().count());
+      session.local_model_loaded_.store(true);
+    }
+  } stamp{*this};
+  auto text = recognize_local_asr(samples, config.asr_model_path,
+                                  config.language, cancelled,
+                                  hotword_texts(hotwords));
+  if (!text.empty() && !hotwords.empty() &&
+      local_model_corrects_by_pinyin(config.asr_model_path))
+    text = correct_with_hotwords(text, hotwords);
+  return text;
+}
+
+void VoiceInputSession::release_idle_local_model() {
+  if (!local_model_loaded_.load())
+    return;
+  const auto idle_for = [this] {
+    return std::chrono::steady_clock::now().time_since_epoch() -
+           std::chrono::steady_clock::duration(local_model_used_.load());
+  };
+  if (idle_for() < kLocalModelIdle)
+    return;
+  if (idle_release_.valid() &&
+      idle_release_.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+    return;
+  local_model_loaded_.store(false);
+  // A dictation that finished between the check above and the store has already written a fresh time, so read it again rather than lose its flag.
+  if (idle_for() < kLocalModelIdle) {
+    local_model_loaded_.store(true);
+    return;
+  }
+  // The recognizer keeps a model a live dictation is using, whatever its age.
+  idle_release_ = std::async(std::launch::async, [] {
+    (void)msime::voice::release_idle_local_models(kLocalModelIdle);
+  });
+}
+
 void VoiceInputSession::cancel() { cancel_session(false); }
 
 void VoiceInputSession::cancel_session(bool failed) {
@@ -743,6 +885,7 @@ void VoiceInputSession::lock() {
 }
 
 void VoiceInputSession::maintain() {
+  release_idle_local_model();
   if (!recording_.load())
     return;
   if (capture_ && capture_->callback_failed()) {
