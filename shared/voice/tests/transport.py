@@ -7,6 +7,7 @@ import socketserver
 import subprocess
 import sys
 import threading
+from urllib.parse import quote
 
 
 # HTTPServer.server_bind resolves the bound address with socket.getfqdn, which waits on reverse DNS before this loopback server exists - 35 s on the macOS CI runners. Nothing reads server_name, so bind without it.
@@ -43,7 +44,9 @@ class SharedVoiceHandler(http.server.BaseHTTPRequestHandler):
             body = b" " * (1024 * 1024 + 1) + body
         self.send_response(status)
         if status == 307:
-            self.send_header("Location", "/" + mode + "/success")
+            # Quote the route components even though the fixture values are fixed;
+            # this keeps the test server from ever emitting a header from input data.
+            self.send_header("Location", "/" + quote(mode, safe="") + "/success")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         try:
