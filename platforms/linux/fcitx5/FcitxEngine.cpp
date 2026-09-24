@@ -350,10 +350,7 @@ bool launchDesktopPanel(const char *panel) {
                       environmentPointers.data()) == 0;
 }
 
-// Fcitx5 owns the addon process, so service maintenance is routed through its
-// user-session helper rather than trying to stop this addon from inside an
-// input callback.  The fixed argv also keeps the configurable settings
-// launcher out of this service-control path.
+// Asks the user's Fcitx5 to reload its global configuration through its user-session helper, with a fixed argv that keeps the configurable settings launcher out of this service-control path. Fcitx5 does not pass that reload on to addons, so it never reset MSIME; the chord and the status-menu action now reset in process through FcitxEngine::resetSessions instead.
 bool reloadFcitxService() {
   char command[] = "fcitx5-remote";
   char reload[] = "-r";
@@ -1245,10 +1242,7 @@ public:
     return false;
   }
   void maintenance(int operation);
-  bool reloadService() {
-    if (!ic_.hasFocus() || restricted() || privateInput()) return false;
-    return reloadFcitxService();
-  }
+  bool reloadService();
   void rememberInputMode() {
     if (preferences_.value("ime_mode_scope", std::string("app")) == "global")
       fcitx_global_input_mode = input_enabled_;
@@ -4172,7 +4166,7 @@ public:
   explicit FcitxReloadServiceAction(fcitx::FactoryFor<FcitxState> *factory)
       : factory_(factory) {
     setShortText("重载输入法服务");
-    setLongText("重新加载当前 Fcitx5 输入法服务");
+    setLongText("重置水杉输入法：关闭所有输入会话并重新读取运行配置");
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
@@ -4735,6 +4729,34 @@ public:
       // No options yet (first run) or a document being replaced; the preference ticks refresh the switch once a context has a session.
     }
   }
+  // Windows answers "restart the input method" by exiting its Server for the watchdog to start a fresh one. This addon shares the Fcitx5 process with every other input method, so the equivalent stays in process: end every MSIME composition and session the way focus-out does (close() also cancels a voice recording and fences in-flight online, AI and translation replies), bring the options up to date as startup does before the first session, and give the focused context a new session at once. Other contexts open theirs on their next key or activation. The input mode each context was in is kept.
+  void resetSessions() {
+    msime_linux_diagnostic_write("sessions_reset");
+    std::vector<fcitx::InputContext *> focused;
+    instance_->inputContextManager().foreach([this, &focused](fcitx::InputContext *ic) {
+      auto *state = ic->propertyFor(&factory_);
+      // A context another input method owns is left alone, panel included.
+      if (!state->session_ && instance_->inputMethodEngine(ic) != this) return true;
+      if (ic->hasFocus()) focused.push_back(ic);
+      state->close();
+      state->clearPanel();
+      return true;
+    });
+    refreshOptions();
+    refreshTypingStatistics();
+    for (auto *ic : focused) {
+      auto *state = ic->propertyFor(&factory_);
+      try {
+        if (state->ensure()) {
+          state->syncVoiceAction();
+          state->render();
+        }
+      } catch (const OptionsNotConfigured &) { notConfigured(*state, false); }
+      catch (...) { unavailable(*state); }
+    }
+  }
+  // Reached through the Fcitx5 controller's ReloadAddonConfig for this addon, which is what the settings page's restart button sends. Fcitx5's own ReloadConfig (fcitx5-remote -r) reloads only the global configuration and never calls addons.
+  void reloadConfig() override { resetSessions(); }
   void applyCandidateWheelPaging(const Json &preferences) {
     const auto enabled =
         candidate_wheel_paging_sync_.next(msime::linux_host::read_candidate_wheel_paging(preferences));
@@ -5352,6 +5374,13 @@ void FcitxState::syncVoiceAction() {
   else
     ic_.statusArea().removeAction(&engine_->voice_action_);
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+}
+
+// The chord and the status-menu action reset in process; see FcitxEngine::resetSessions. Only a focused, unrestricted, non-private context may ask, as before.
+bool FcitxState::reloadService() {
+  if (!engine_ || !ic_.hasFocus() || restricted() || privateInput()) return false;
+  engine_->resetSessions();
+  return true;
 }
 
 void FcitxState::syncCandidatePanelFont() {

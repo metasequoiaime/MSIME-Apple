@@ -918,6 +918,7 @@ impl<E: InputEngine> Runtime<E> {
             || snapshot.candidate_annotations.len() != count
             || snapshot.candidate_positions.len() != count
             || snapshot.candidate_corrected.len() != count
+            || snapshot.candidate_answers_key.len() != count
         {
             return;
         }
@@ -1014,6 +1015,7 @@ impl<E: InputEngine> Runtime<E> {
         apply_order(&mut snapshot.candidate_sources, &order);
         apply_order(&mut snapshot.candidate_positions, &order);
         apply_order(&mut snapshot.candidate_corrected, &order);
+        apply_order(&mut snapshot.candidate_answers_key, &order);
         if self.engine_order.len() == count {
             apply_order(&mut self.engine_order, &order);
         }
@@ -1031,12 +1033,28 @@ impl<E: InputEngine> Runtime<E> {
             || snapshot.candidate_annotations.len() != count
             || snapshot.candidate_positions.len() != count
             || snapshot.candidate_corrected.len() != count
+            || snapshot.candidate_answers_key.len() != count
         {
             return;
         }
         let texts: Vec<&str> = snapshot.candidates.iter().map(String::as_str).collect();
-        let Some(promote) = reranker.best(&self.ai_context, &texts, &snapshot.candidate_sources)
-        else {
+        // A dictionary hit earns the model's deference because it carries corpus frequency for the
+        // key the user typed. That premise fails the moment the engine offers a correction of that
+        // key: the frequency then belongs to the letters that arrived rather than to the word they
+        // were aiming at, and the list holds both readings. So the whole list loses the exemption,
+        // not the corrected rows — the row that would wrongly win is the uncorrected one.
+        //
+        // With correction off, or with nothing corrected, this is exactly the previous behaviour,
+        // which is what the 2052-case dictionary measurement was taken on.
+        let corrected_key = snapshot
+            .candidate_corrected
+            .iter()
+            .any(|&corrected| corrected);
+        let Some(promote) = reranker.best_where(&self.ai_context, &texts, |index| CandidateFacts {
+            answers_key: snapshot.candidate_answers_key[index],
+            trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&snapshot.candidate_sources[index])
+                && !corrected_key,
+        }) else {
             return;
         };
         let snapshot = &mut self.cached;
@@ -1046,6 +1064,7 @@ impl<E: InputEngine> Runtime<E> {
         rotate_to_front(&mut snapshot.candidate_sources, promote);
         rotate_to_front(&mut snapshot.candidate_positions, promote);
         rotate_to_front(&mut snapshot.candidate_corrected, promote);
+        rotate_to_front(&mut snapshot.candidate_answers_key, promote);
         if self.engine_order.len() == count {
             rotate_to_front(&mut self.engine_order, promote);
         }
@@ -1108,6 +1127,7 @@ impl<E: InputEngine> Runtime<E> {
         move_to_back(&mut snapshot.candidate_sources, &demote);
         move_to_back(&mut snapshot.candidate_positions, &demote);
         move_to_back(&mut snapshot.candidate_corrected, &demote);
+        move_to_back(&mut snapshot.candidate_answers_key, &demote);
         if self.engine_order.len() == count {
             move_to_back(&mut self.engine_order, &demote);
         }
@@ -1128,6 +1148,7 @@ impl<E: InputEngine> Runtime<E> {
                 candidate_sources: Vec::new(),
                 candidate_positions: Vec::new(),
                 candidate_corrected: Vec::new(),
+                candidate_answers_key: Vec::new(),
                 microsoft_shuangpin: false,
                 shuangpin_profile: String::new(),
                 answered_by_pinyin_fallback: true,
@@ -1162,6 +1183,7 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.candidate_sources == previous.candidate_sources
             && self.cached.candidate_positions == previous.candidate_positions
             && self.cached.candidate_corrected == previous.candidate_corrected
+            && self.cached.candidate_answers_key == previous.candidate_answers_key
         {
             self.highlighted =
                 previous_highlight.min(self.cached.candidates.len().saturating_sub(1));

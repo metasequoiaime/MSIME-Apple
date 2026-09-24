@@ -46,6 +46,44 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertEqual(packets.map(\.2), [false, true])
   }
 
+  func testDoubaoStreamsWhileRecordingAndReportsEachPartial() async throws {
+    let transport = DoubaoLiveFixtureTransport()
+    var packets: [(Int32, Int, Bool)] = []
+    let codec = DoubaoVoiceCoordinator.FrameCodec(
+      startFrame: { Data([0x01]) },
+      audioFrame: { sequence, pcm, final in
+        packets.append((sequence, pcm.count, final))
+        return Data([UInt8(truncatingIfNeeded: sequence)])
+      },
+      decodeFrame: { frame in
+        switch frame {
+        case Data([0xA1]): (false, "你好")
+        case Data([0xFF]): (true, "你好世界")
+        default: nil
+        }
+      }
+    )
+    var configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    configuration.voiceAppKey = "fixture-app"
+    configuration.voiceResourceID = "fixture-resource"
+    let (pcm, continuation) = AsyncStream<Data>.makeStream()
+    continuation.yield(Data(repeating: 0x2A, count: 4_000))
+    continuation.yield(Data(repeating: 0x2A, count: 2_401))
+    continuation.finish()
+    var partials: [String] = []
+    let result = try await CustomServiceClient.streamDoubao(
+      configuration: configuration, token: "fixture-access", generation: 7,
+      client: DoubaoVoiceClient(transport: transport, codec: codec), pcm: pcm) { partials.append($0) }
+
+    XCTAssertEqual(result, "你好世界")
+    XCTAssertEqual(partials, ["你好", "你好世界"])
+    XCTAssertEqual(transport.handshake?.accessKey, "fixture-access")
+    XCTAssertEqual(transport.sentFrames, [Data([0x01]), Data([2]), Data([0xFD])])
+    XCTAssertEqual(packets.map(\.0), [2, -3])
+    XCTAssertEqual(packets.map(\.1), [6_400, 1])
+    XCTAssertEqual(packets.map(\.2), [false, true])
+  }
+
   func testDoubaoRequestDoesNotFallBackToMultipartWithoutHostCodec() async throws {
     let configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
     do {
@@ -236,6 +274,30 @@ private final class DoubaoRequestFixtureTransport: DoubaoVoiceTransport {
   func start(endpoint: URL, handshake: DoubaoHandshake) async throws { self.handshake = handshake }
   func send(binary frame: Data) async throws { sent.append(frame) }
   func receive() async throws -> Data { Data([0xFF]) }
+  func finish() {}
+}
+
+/// Answers with a partial result at once and holds the final one until the last packet has gone out, the order a live session sees.
+private final class DoubaoLiveFixtureTransport: DoubaoVoiceTransport, @unchecked Sendable {
+  private let lock = NSLock()
+  private var sent: [Data] = []
+  private var received = 0
+  var handshake: DoubaoHandshake?
+
+  var sentFrames: [Data] { lock.withLock { sent } }
+
+  func start(endpoint: URL) async throws {}
+  func start(endpoint: URL, handshake: DoubaoHandshake) async throws { self.handshake = handshake }
+  func send(binary frame: Data) async throws { lock.withLock { sent.append(frame) } }
+  func receive() async throws -> Data {
+    let first = lock.withLock { () -> Bool in
+      received += 1
+      return received == 1
+    }
+    if first { return Data([0xA1]) }
+    while !lock.withLock({ sent.contains(Data([0xFD])) }) { try await Task.sleep(nanoseconds: 1_000_000) }
+    return Data([0xFF])
+  }
   func finish() {}
 }
 

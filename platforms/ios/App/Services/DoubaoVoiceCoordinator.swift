@@ -76,6 +76,35 @@ final class DoubaoVoiceCoordinator {
     try await receiveUntilFinal(generation: generation, decode: codec.decodeFrame)
   }
 
+  /// Streams a recording while it is still being made, as the Windows host does with `stream_inline_preedit`: each 200 ms of PCM goes out as it is captured, and every partial result reaches `applyText` while the user is still speaking. The stream ending sends the last packet, and this returns once the final result is in.
+  func runLive(endpoint: URL, handshake: DoubaoHandshake, generation: UInt64,
+               pcm: AsyncStream<Data>, codec: FrameCodec) async throws {
+    try await transport.start(endpoint: endpoint, handshake: handshake)
+    defer { transport.finish() }
+    try await transport.send(binary: codec.startFrame())
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      group.addTask { try await self.sendLive(pcm, buildAudioFrame: codec.audioFrame) }
+      group.addTask { try await self.receiveUntilFinal(generation: generation, decode: codec.decodeFrame) }
+      try await group.waitForAll()
+    }
+  }
+
+  private func sendLive(_ pcm: AsyncStream<Data>, buildAudioFrame: (_ sequence: Int32, _ pcm: Data, _ final: Bool) throws -> Data) async throws {
+    var pending = Data()
+    var sequence: Int32 = 2
+    for await chunk in pcm {
+      pending.append(chunk)
+      while pending.count > Self.pcmChunkBytes {
+        try await transport.send(binary: try buildAudioFrame(sequence, Data(pending.prefix(Self.pcmChunkBytes)), false))
+        pending = Data(pending.dropFirst(Self.pcmChunkBytes))
+        sequence += 1
+      }
+    }
+    // A cancelled stream also ends the loop; only a finished recording gets the last packet.
+    try Task.checkCancellation()
+    try await transport.send(binary: try buildAudioFrame(-sequence, pending, true))
+  }
+
   private func receiveAndApply(generation: UInt64, audioFrames: [Data]) async throws {
     defer { transport.finish() }
     for frame in audioFrames { try await transport.send(binary: frame) }
@@ -132,6 +161,25 @@ final class DoubaoVoiceClient: @unchecked Sendable {
     )
     try await coordinator.run(endpoint: endpoint, handshake: handshake,
                               generation: generation, pcm: pcm, codec: codec)
+    guard !result.isEmpty else { throw Failure.emptyTranscript }
+    return result
+  }
+
+  /// `transcribe` for a recording still in progress; `partial` sees each result as it arrives, on the socket's thread.
+  func transcribeLive(endpoint: URL, handshake: DoubaoHandshake, generation: UInt64,
+                      pcm: AsyncStream<Data>, partial: @escaping (String) -> Void) async throws -> String {
+    var result = ""
+    let coordinator = DoubaoVoiceCoordinator(
+      transport: transport,
+      applyText: { text, appliedGeneration in
+        guard appliedGeneration == generation else { return }
+        result = text
+        partial(text)
+      },
+      decodeFrame: codec.decodeFrame
+    )
+    try await coordinator.runLive(endpoint: endpoint, handshake: handshake,
+                                  generation: generation, pcm: pcm, codec: codec)
     guard !result.isEmpty else { throw Failure.emptyTranscript }
     return result
   }

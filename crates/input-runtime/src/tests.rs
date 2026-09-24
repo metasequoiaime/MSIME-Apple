@@ -533,6 +533,7 @@ impl InputEngine for Fixture {
                 vec![0; self.words.len()]
             },
             candidate_corrected: vec![false; self.words.len()],
+            candidate_answers_key: vec![true; self.words.len()],
             microsoft_shuangpin: false,
             shuangpin_profile: "xiaohe".into(),
             answered_by_pinyin_fallback: false,
@@ -1283,6 +1284,7 @@ impl InputEngine for PhraseEngine {
             candidate_sources: vec![0; self.words.len()],
             candidate_positions: vec![0; self.words.len()],
             candidate_corrected: vec![false; self.words.len()],
+            candidate_answers_key: vec![true; self.words.len()],
             microsoft_shuangpin: false,
             shuangpin_profile: "xiaohe".into(),
             answered_by_pinyin_fallback: false,
