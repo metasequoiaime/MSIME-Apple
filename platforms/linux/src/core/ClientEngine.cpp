@@ -6769,8 +6769,11 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       return;
     }
     const auto &candidates = s.rendered_candidates;
-    if (!s.session || s.rendered_session != s.session ||
-        !candidates.is_array() || index >= candidates.size()) return;
+    // rendered_candidates and rendered_view are separate members: a non-empty candidate array does
+    // not mean the view survived the last session rebuild, and value() on a null view throws.
+    if (!s.session || s.rendered_session != s.session || !s.rendered_view.is_object() ||
+        !candidates.is_array() || index >= candidates.size())
+      return;
     const auto &entry = candidates.at(index);
     if (!entry.is_object() || !entry.contains("id")) return;
     const auto &id = entry.at("id");
@@ -6780,7 +6783,12 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     const auto source = entry.value("source", 0);
     const auto scheme = s.rendered_scheme;
     if (button == 3) {
-      if (scheme != 3 && (source == 0 || source == 1 || source == 4))
+      // The fences above establish the candidate, not the view it was rendered from, and
+      // rendered_view is null until the first render and again after every session rebuild.
+      // value() throws on null, guarded swallows the throw, and the whole click disappears into a
+      // warning line. The hint has nothing to restore without a view either: its timeout only
+      // re-renders while this generation is still the one on screen.
+      if (scheme != 3 && (source == 0 || source == 1 || source == 4) && s.rendered_view.is_object())
         show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
     } else
       apply(engine, msime_client_select(s.session, generation, global_index));
