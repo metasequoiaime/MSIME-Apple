@@ -4920,13 +4920,19 @@ static void TestOfflineTargetGlosses() {
         NSUInteger applyCount = session.applyCount;
         [controller synchronizeCandidateGloss];
         [controller synchronizeTargetGloss];
-        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
-        [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
+        NSOperationQueue *glossQueue = [controller valueForKey:@"glossQueue"];
+        NSOperationQueue *targetGlossQueue = [controller valueForKey:@"targetGlossQueue"];
+        // Only wait when this call actually enqueued work. Some generations intentionally
+        // reuse an already completed request (or have no offline target), so waiting for a
+        // new apply in those cases would turn a valid no-op into a sanitizer timeout.
+        BOOL scheduled = glossQueue.operationCount != 0 || targetGlossQueue.operationCount != 0;
+        [glossQueue waitUntilAllOperationsAreFinished];
+        [targetGlossQueue waitUntilAllOperationsAreFinished];
         // The worker queues only enqueue their apply blocks on the main queue. On a loaded
         // runner, a fixed 200 ms drain can return before both applies have run, leaving the
         // test to assert against a stale (or nil) delivery. Wait for the applies that this
         // request actually scheduled, while retaining a bounded timeout for a real failure.
-        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3.0];
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:(scheduled ? 3.0 : 0.2)];
         while (deadline.timeIntervalSinceNow > 0 && session.applyCount == applyCount)
             [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
     };
