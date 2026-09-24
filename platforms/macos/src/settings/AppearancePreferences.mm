@@ -182,6 +182,70 @@ static BOOL ValidToolbarFontSize(id value) {
            !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value integerValue] >= 16 && [value integerValue] <= 28;
 }
 
+/// Each stored preference key, against the in-memory override that an account push leaves beside it.
+///
+/// A value pushed down from the cloud is held in a `_shared*` ivar and every accessor consults it
+/// ahead of the stored one, so deleting the NSUserDefaults entry alone leaves the pushed value in
+/// force: "恢复默认值" was a button that did nothing at all for anyone who had ever signed in.
+/// Clearing the ivar is what makes the accessor fall back to the stored value, which by then is the
+/// default because the entry has just been removed.
+///
+/// The values are the ivar names without their leading underscore, reached through key-value coding.
+/// That is the price of having one table instead of two: a second hand-kept list of assignments
+/// beside this one is the shape the restore lists were already in, and drifting apart is what they
+/// already did. A name here that no ivar answers to raises NSUndefinedKeyException the first time
+/// its key is restored, which is loud and immediate rather than silent.
+static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
+    return @{
+        LayoutKey : @"sharedVertical",
+        CandidateFollowCursorKey : @"sharedCandidateFollowCursor",
+        SchemeKey : @"sharedInputScheme",
+        ShuangpinProfileKey : @"sharedShuangpinProfile",
+        ShuangpinPreeditKey : @"sharedShuangpinPreeditUsesRaw",
+        LocalModesKey : @"sharedLocalModes",
+        FontKey : @"sharedFontSize",
+        FontFamilyKey : @"sharedFontFamily",
+        CandidateEnglishFontKey : @"sharedCandidateEnglishFont",
+        TextColorKey : @"sharedTextColor",
+        FallbackFontsKey : @"sharedFallbackFonts",
+        PreeditFontKey : @"sharedPreeditFontSize",
+        CandidatePreeditKey : @"sharedCandidatePreedit",
+        NavigationKey : @"sharedNavigation",
+        WordCharacterKey : @"sharedWordCharacter",
+        PageSizeKey : @"sharedPageSize",
+        DefaultImeModeKey : @"sharedDefaultImeMode",
+        ImeModeScopeKey : @"sharedImeModeScope",
+        FullWidthKey : @"sharedFullWidthInput",
+        ChinesePunctuationKey : @"sharedChinesePunctuation",
+        SmartPunctuationKey : @"sharedSmartPunctuation",
+        SmartPunctuationRepeatToChineseKey : @"sharedSmartPunctuationRepeatToChinese",
+        PairedPunctuationKey : @"sharedPairedPunctuation",
+        PunctuationLockKey : @"sharedPunctuationLock",
+        MixedInputKey : @"sharedMixedInput",
+        CandidateLearningKey : @"sharedCandidateLearning",
+        FrequencyModeKey : @"sharedFrequencyMode",
+        FrequencyTriggerCountKey : @"sharedFrequencyTriggerCount",
+        FrequencyLinearStepKey : @"sharedFrequencyLinearStep",
+        FuzzyPinyinKey : @"sharedFuzzyPinyinEnabled",
+        FuzzyPinyinRulesKey : @"sharedFuzzyPinyinRules",
+        CloudCandidatesKey : @"sharedCloudCandidates",
+        CandidateTranslationsKey : @"sharedCandidateTranslations",
+        CandidateEnglishGlossKey : @"sharedCandidateEnglishGloss",
+        TranspositionKey : @"sharedTransposition",
+        NeighborKey : @"sharedNeighbor",
+        HelpcodeOptionsKey : @"sharedHelpcodeOptions",
+        QuanpinHelpcodeKey : @"sharedQuanpinHelpcode",
+        ShuangpinHelpcodeKey : @"sharedShuangpinHelpcode",
+        InputModeShortcutKey : @"sharedInputModeShortcut",
+        ShiftTapShortcutKey : @"sharedShiftTapShortcut",
+        ControlTapShortcutKey : @"sharedControlTapShortcut",
+        ControlOptionSpaceShortcutKey : @"sharedControlOptionSpaceShortcut",
+        CharacterSetShortcutKey : @"sharedCharacterSetShortcut",
+        FloatingToolbarKey : @"sharedToolbarEnabled",
+        FloatingToolbarOptionsKey : @"sharedToolbarOptions",
+    };
+}
+
 // Layout primitives migrated from the upstream preferences window: MSIME-Apple develop
 // cd36eba4d2572f747785450959332c7f68f4715c, platforms/macos/PreferencesWindowController.mm.
 // A sidebar of grouped navigation buttons drives a page container; each page is a scroll view
@@ -209,6 +273,10 @@ constexpr NSInteger kAccountPageIndex = 8;
 constexpr NSInteger kSkinPageIndex = 2;
 /// The voice form is also reachable from the input method's toolbar, so the page reloads on entry.
 constexpr NSInteger kVoicePageIndex = 11;
+/// The 关于 page reads the update controller, whose answers — the version, whether automatic checks
+/// are on, whether this build can check at all — are about the machine rather than about a stored
+/// preference, so the page asks them again every time it is entered.
+constexpr NSInteger kAboutPageIndex = 4;
 /// The page the window was last left on, remembered by name rather than by index: the order of the sidebar changes from version to version, so a stored index points at a different page in the next one, whereas a stored name is either a page this version has or it is not — and if it is not, the window opens on the first page.
 NSString *const LastSettingsPageKey = @"MSIMEClientSettingsLastPage";
 }  // namespace
@@ -231,6 +299,22 @@ NSString *const LastSettingsPageKey = @"MSIMEClientSettingsLastPage";
 @property(nonatomic, copy) NSArray<MSIMESettingsSidebarItem *> *children;
 @end
 @implementation MSIMESettingsSidebarItem
+@end
+
+/// One section of one page: the heading the user sees, the preference keys the controls under that
+/// heading write, and the link that puts those keys back to their defaults.
+///
+/// It is the window's single answer to which settings belong together, and that is what keeps the
+/// two halves of "restore defaults" from drifting apart the way they had: -restorableKeys is the
+/// union of these lists rather than a second list kept by hand beside them, so a key can no longer
+/// be restorable from nowhere, and a section can no longer name a key whose control is on another
+/// page — or, as the per-page list did for two of them, a key with no control anywhere.
+@interface MSIMESettingsSection : NSObject
+@property(nonatomic, copy) NSString *title;
+@property(nonatomic, copy) NSArray<NSString *> *keys;
+@property(nonatomic, strong) NSButton *restoreLink;
+@end
+@implementation MSIMESettingsSection
 @end
 
 /// The toolbar items this window owns. The toggle, the flexible space and the tracking separator
@@ -297,8 +381,14 @@ static NSView *SchemeChoiceRow(NSButton *choice, NSView *accessory) {
     return row;
 }
 
-/// The summary is not drawn: upstream carries it as accessibility help so the page opens on its
-/// first card rather than a paragraph.
+/// A page is its summary and then its cards. The summary used to be assigned to accessibility help
+/// and never drawn, which made thirteen written sentences — including the only one that says how
+/// the extended input modes are triggered — visible to VoiceOver and to nobody else. It stays on
+/// accessibilityHelp as well, because the page is one accessibility element and its help is where a
+/// screen reader looks for what the page is for.
+///
+/// The page's name is not drawn here any more: the unified toolbar's title says which page is in
+/// front of the user, and a 20pt heading under it repeated it word for word.
 static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *content) {
     NSScrollView *page = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     page.translatesAutoresizingMaskIntoConstraints = NO;
@@ -307,9 +397,11 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     page.drawsBackground = NO;
     page.accessibilityLabel = title;
     page.accessibilityHelp = summary;
-    NSTextField *titleLabel = [NSTextField labelWithString:title];
-    titleLabel.font = [NSFont systemFontOfSize:20.0 weight:NSFontWeightSemibold];
-    NSStackView *stack = [NSStackView stackViewWithViews:@[titleLabel]];
+    NSTextField *summaryLabel = MSIMEDetailLabel(summary);
+    // A page summary is a paragraph the user reads once on arriving, not the aside a row's detail
+    // line is, so it is set at the body size rather than the detail one.
+    summaryLabel.font = [NSFont systemFontOfSize:kBodyFontSize];
+    NSStackView *stack = [NSStackView stackViewWithViews:@[summaryLabel]];
     stack.orientation = NSUserInterfaceLayoutOrientationVertical;
     stack.alignment = NSLayoutAttributeLeading;
     stack.distribution = NSStackViewDistributionFill;
@@ -318,14 +410,14 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     for (NSView *view in content) {
         [stack addArrangedSubview:view];
         [view.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
-        // A section label introduces the card beneath it, so it sits close to that card and away
+        // A section heading introduces the card beneath it, so it sits close to that card and away
         // from whatever came before. One even spacing throughout makes the page a single
         // undifferentiated column, which is how upstream's 18pt everywhere reads.
-        if (previous != nil && [view isKindOfClass:NSTextField.class])
+        if (previous != nil && [view.identifier isEqual:MSIMESettingsSectionIdentifier])
             [stack setCustomSpacing:20.0 afterView:previous];
         previous = view;
     }
-    [stack setCustomSpacing:20.0 afterView:titleLabel];
+    [stack setCustomSpacing:20.0 afterView:summaryLabel];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     NSView *document = [[MSIMEPreferencesDocumentView alloc] initWithFrame:NSZeroRect];
     document.translatesAutoresizingMaskIntoConstraints = NO;
@@ -390,6 +482,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSScrollView *_searchResultsScroll;
     NSStackView *_searchResultsStack;
     NSArray<MSIMESettingsSearchEntry *> *_searchIndex;
+    /// Filled as the pages are built, in the order the headings are created; a section's restore
+    /// link carries its index here in its tag.
+    NSMutableArray<MSIMESettingsSection *> *_restorableSections;
     NSBox *_shuangpinCard;
     NSBox *_wubiCard;
     NSInteger _selectedPageIndex;
@@ -547,6 +642,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSMutableDictionary<NSString *, NSButton *> *_fuzzyPinyinRuleButtons;
     NSSwitch *_quanpinHelpcodeToggle;
     NSSwitch *_shuangpinHelpcodeToggle;
+    /// The two sentences that name the binding already holding a key group. They are written as the
+    /// window runs rather than as it is built, because which group is contested is a stored value.
+    NSTextField *_wordCharacterConflictLabel;
+    NSTextField *_navigationConflictLabel;
 }
 + (instancetype)sharedPreferences {
     static MSIMEAppearancePreferences *preferences;
@@ -1571,7 +1670,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)setWordCharacterEnabled:(BOOL)enabled keys:(NSString *)keys {
     if (![@[@"brackets", @"minus_equal"] containsObject:keys]) return;
-    if (enabled && [self navigationEnabled:keys]) { NSBeep(); [self refreshControls]; return; }
+    // 以词定字 and 翻页 cannot share a key group, and the window no longer offers the move that would
+    // make them: -refreshKeyBindingConflicts disables whichever side does not hold the group. This
+    // is the invariant itself, for the callers that are not the window — the setter is public
+    // (AppearancePreferences.h) — and it refuses without a sound, where it used to beep at a user
+    // who had pressed a control the window had offered them.
+    if (enabled && [self navigationEnabled:keys]) { [self refreshControls]; return; }
     _sharedWordCharacter = @{@"enabled": @(enabled), @"keys": keys};
     [_defaults setObject:_sharedWordCharacter forKey:WordCharacterKey];
     [self preferencesChanged];
@@ -1580,8 +1684,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     BOOL known = NO;
     for (NSArray *entry in NavigationControls()) if ([entry[0] isEqual:key]) known = YES;
     if (!known) return;
+    // The other direction of the same exclusion; see -setWordCharacterEnabled:keys:.
     if (enabled && [[self wordCharacterOptions][@"enabled"] boolValue] && [[self wordCharacterOptions][@"keys"] isEqual:key]) {
-        NSBeep(); [self refreshControls]; return;
+        [self refreshControls]; return;
     }
     NSMutableDictionary *values = [[_defaults dictionaryForKey:NavigationKey] mutableCopy] ?: [NSMutableDictionary dictionary];
     values[key] = @(enabled);
@@ -1685,7 +1790,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)setPageShortcut:(NSInteger)value {
     value = value == 1 || value == 2 ? value : 0;
     NSString *enabledKey = value == 0 ? @"minus_equal" : value == 1 ? @"brackets" : @"page_up_down";
-    if ([[self wordCharacterOptions][@"enabled"] boolValue] && [[self wordCharacterOptions][@"keys"] isEqual:enabledKey]) { NSBeep(); [self refreshControls]; return; }
+    // The preset turns paging on for one key group, so it collides the same way a single paging
+    // checkbox does; the menu item for a contested group is disabled in -refreshControls.
+    if ([[self wordCharacterOptions][@"enabled"] boolValue] && [[self wordCharacterOptions][@"keys"] isEqual:enabledKey]) { [self refreshControls]; return; }
     [self applyNavigationPreset:value];
     [_defaults setInteger:value forKey:PageShortcutKey];
     [self preferencesChanged];
@@ -1722,7 +1829,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSDictionary *punctuationLockIndexes = @{@"follow": @0, @"chinese": @1, @"english": @2};
     [_punctuationLockButton selectItemAtIndex:[punctuationLockIndexes[self.punctuationLock] integerValue]];
     _mixedEnglishToggle.state = self.mixedEnglishInput ? NSControlStateValueOn : NSControlStateValueOff;
-    _mixedEnglishPrefixButton.enabled = self.mixedEnglishInput;
     [_mixedEnglishPrefixButton selectItemAtIndex:self.mixedEnglishMinimumPrefix - 1];
     _mixedEmojiToggle.state = self.mixedEmojiInput ? NSControlStateValueOn : NSControlStateValueOff;
     _mixedKaomojiToggle.state = self.mixedKaomojiInput ? NSControlStateValueOn : NSControlStateValueOff;
@@ -1743,11 +1849,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [_frequencyTriggerButton selectItemAtIndex:self.frequencyTriggerCount - 1];
     [_frequencyStepButton selectItemAtIndex:self.frequencyLinearStep - 1];
     _fuzzyPinyinToggle.state = self.fuzzyPinyinEnabled ? NSControlStateValueOn : NSControlStateValueOff;
-    for (NSString *rule in _fuzzyPinyinRuleButtons) {
-        NSButton *button = _fuzzyPinyinRuleButtons[rule];
-        button.state = [self fuzzyPinyinRuleEnabled:rule] ? NSControlStateValueOn : NSControlStateValueOff;
-        button.enabled = self.fuzzyPinyinEnabled;
-    }
+    for (NSString *rule in _fuzzyPinyinRuleButtons)
+        _fuzzyPinyinRuleButtons[rule].state =
+            [self fuzzyPinyinRuleEnabled:rule] ? NSControlStateValueOn : NSControlStateValueOff;
     _cloudCandidatesToggle.state = self.cloudCandidates ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateTranslationsToggle.state = self.candidateTranslations ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateEnglishGlossToggle.state = self.candidateEnglishGloss ? NSControlStateValueOn : NSControlStateValueOff;
@@ -1763,12 +1867,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2, @"japanese": @3};
     const NSInteger storedScheme = [schemeIndexes[self.inputScheme] integerValue];
-    // The radios and the scheme popups mirror the same stored value: only the selected scheme's
-    // popup is usable, so a disabled row cannot look like it is configuring the active scheme.
+    // The radios and the scheme popups mirror the same stored value; which of the popups is usable
+    // is in the dependency table with every other such rule.
     for (NSInteger index = 0; index < (NSInteger)_schemeButtons.count; ++index)
         _schemeButtons[index].state = index == storedScheme ? NSControlStateValueOn : NSControlStateValueOff;
-    _shuangpinSchemeButton.enabled = storedScheme == 1;
-    _wubiSchemeButton.enabled = storedScheme == 2;
     // Options that only apply to one scheme are shown only while it is selected. Leaving them
     // editable under another scheme means the change saves, the page says nothing, and the setting
     // does nothing until the user happens to switch back.
@@ -1792,6 +1894,110 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
     [_pageSizeButton selectItemAtIndex:msime::mac::CandidatePageSizeOptionIndex(self.pageSize)];
     [_preview updatePanelStyle:self.vertical ? 1 : 0 pageSize:self.pageSize fontSize:self.fontSize];
+    // Everything above this line puts a value into a control. What follows decides which controls
+    // the user may reach at all, and it runs after them because two of the three read values that
+    // were just written back.
+    for (NSArray *dependency in [self controlDependencies])
+        for (NSControl *control in dependency[1]) control.enabled = [dependency[0] boolValue];
+    [self refreshKeyBindingConflicts];
+    [self refreshSectionRestoreLinks];
+}
+/// What the window lets the user reach, as one table rather than as whichever of a hundred
+/// assignments happened to remember: a condition, and the controls that condition governs.
+///
+/// Four of these rules were in the file before and eight were not, so the window offered a
+/// word-frequency mode with learning switched off, toolbar buttons for a toolbar that is not shown,
+/// a helpcode scheme for helpcodes that are off, a preedit font size for a preedit that is hidden —
+/// a user configuring something the window itself had just turned off, and told nothing. A control
+/// belongs to exactly one entry: the loop that applies this assigns .enabled once per control, so a
+/// second entry naming the same control would be a rule that only sometimes wins.
+- (NSArray<NSArray *> *)controlDependencies {
+    // Every control below is nil until the pages are built, and -refreshControls runs long before
+    // that: every setter calls it, including the ones the input method uses with no window open.
+    if (_preferencePages == nil) return @[];
+    NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2, @"japanese": @3};
+    const NSInteger scheme = [schemeIndexes[self.inputScheme] integerValue];
+    const BOOL learning = self.candidateLearningEnabled;
+    const BOOL toolbar = self.floatingToolbarEnabled;
+    NSDictionary *wordCharacter = [self wordCharacterOptions];
+    return @[
+        // Only the selected scheme's own popup is usable, so a live row cannot look like it is
+        // configuring the scheme that is actually in use.
+        @[ @(scheme == 1), @[_shuangpinSchemeButton] ],
+        @[ @(scheme == 2), @[_wubiSchemeButton] ],
+        @[ @(self.fuzzyPinyinEnabled), _fuzzyPinyinRuleButtons.allValues ],
+        @[ @(self.mixedEnglishInput), @[_mixedEnglishPrefixButton] ],
+        @[ @(learning), @[_frequencyModeButton, _frequencyTriggerButton] ],
+        // The step is read only by the linear mode — EngineFrequencyOptions in
+        // src/core/FrequencyAdjustmentPreference.h takes it whatever the mode is and the engine
+        // then ignores it — so it is live only where it does something.
+        @[ @(learning && [self.frequencyAdjustmentMode isEqual:@"linear"]), @[_frequencyStepButton] ],
+        @[ @(toolbar), @[_toolbarPunctuationButton, _toolbarFullWidthButton, _toolbarCharacterSetButton,
+                         _toolbarEmojiButton, _toolbarScreenKeyboardButton, _toolbarSettingsButton,
+                         _toolbarScaleButton, _toolbarFontSizeButton] ],
+        @[ @(self.quanpinHelpcodeEnabled),
+           @[_helpcodeSchemaButtons[@"quanpin"], _helpcodeDisplayToggles[@"quanpin"]] ],
+        @[ @(self.shuangpinHelpcodeEnabled),
+           @[_helpcodeSchemaButtons[@"shuangpin"], _helpcodeDisplayToggles[@"shuangpin"]] ],
+        @[ @(self.showsCandidatePreedit), @[_preeditFontButton] ],
+        // 以词定字 cannot be turned on for a key group that paging holds. The popup beneath it stays
+        // live even so — it is the way off the contested group, and greying it out would leave the
+        // pair with no way out at all.
+        @[ @(![self navigationEnabled:wordCharacter[@"keys"]]), @[_wordCharacterToggle] ],
+        // Nothing to delete the data of in a build that cannot uninstall.
+        @[ @(msime_macos_uninstall_input_source != nullptr), @[_removeUserDataButton] ],
+    ];
+}
+/// 以词定字 and 翻页 cannot be bound to the same key group, and the window used to answer the attempt
+/// with a beep and a control that snapped back — a rejection that names neither what was refused nor
+/// why. Whichever of the two holds a group now disables the other's way of taking it and says which
+/// binding owns it, which is what the shared settings page does with the same pair
+/// (packages/ui/src/index.tsx, where the word-to-character key radio is disabled by the paging
+/// switch) and what the sentence below is taken word for word from.
+- (void)refreshKeyBindingConflicts {
+    NSDictionary *wordCharacter = [self wordCharacterOptions];
+    NSString *heldByWordCharacter = [wordCharacter[@"enabled"] boolValue] ? wordCharacter[@"keys"] : nil;
+    NSString *heldByPaging = [self navigationEnabled:wordCharacter[@"keys"]] ? wordCharacter[@"keys"] : nil;
+    // The two groups both features can be bound to, named as both menus name them.
+    NSDictionary<NSString *, NSString *> *groupTitles = @{@"brackets": @"[ / ]", @"minus_equal": @"- / ="};
+    // The order the two menus were built in; each entry is the key group its item at that index binds.
+    NSArray<NSString *> *wordCharacterItems = @[@"brackets", @"minus_equal"];
+    NSArray<NSString *> *pagingPresetItems = @[@"minus_equal", @"brackets", @"page_up_down"];
+    // A popup menu enables its own items by asking the target whether it can act, which would undo
+    // every line below on the next redraw.
+    _wordCharacterKeys.menu.autoenablesItems = NO;
+    _pageShortcutButton.menu.autoenablesItems = NO;
+    for (NSUInteger index = 0; index < wordCharacterItems.count && index < (NSUInteger)_wordCharacterKeys.numberOfItems; ++index)
+        [_wordCharacterKeys itemAtIndex:(NSInteger)index].enabled = ![self navigationEnabled:wordCharacterItems[index]];
+    for (NSUInteger index = 0; index < pagingPresetItems.count && index < (NSUInteger)_pageShortcutButton.numberOfItems; ++index)
+        [_pageShortcutButton itemAtIndex:(NSInteger)index].enabled = ![pagingPresetItems[index] isEqual:heldByWordCharacter];
+    for (NSButton *button in _navigationButtons) button.enabled = ![button.identifier isEqual:heldByWordCharacter];
+    _navigationConflictLabel.stringValue = heldByWordCharacter == nil ? @"" :
+        [NSString stringWithFormat:@"「%@」已用于以词定字，以词定字和翻页不能使用同一组快捷键。",
+                                   groupTitles[heldByWordCharacter]];
+    _navigationConflictLabel.hidden = heldByWordCharacter == nil;
+    _wordCharacterConflictLabel.stringValue = heldByPaging == nil ? @"" :
+        [NSString stringWithFormat:@"「%@」已用于翻页，以词定字和翻页不能使用同一组快捷键。",
+                                   groupTitles[heldByPaging]];
+    _wordCharacterConflictLabel.hidden = heldByPaging == nil;
+}
+/// A section offers to put itself back only when it has something to put back — a key it owns that
+/// is stored on this machine, or one an account has pushed a value down for. A key that is neither
+/// is already at its default, so fifteen links that are always there would be fifteen standing
+/// offers to undo nothing.
+- (void)refreshSectionRestoreLinks {
+    NSDictionary<NSString *, NSString *> *overrides = SharedOverrideProperties();
+    for (MSIMESettingsSection *section in _restorableSections) {
+        BOOL restorable = NO;
+        for (NSString *key in section.keys) {
+            NSString *override = overrides[key];
+            if ([_defaults objectForKey:key] == nil && (override == nil || [self valueForKey:override] == nil))
+                continue;
+            restorable = YES;
+            break;
+        }
+        section.restoreLink.hidden = !restorable;
+    }
 }
 - (NSWindow *)window {
     NSWindow *window = [super window];
@@ -1824,6 +2030,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // it and the two page margins has to stay above kContentColumnMin.
     window.contentMinSize = NSMakeSize(800, 520);
     window.releasedWhenClosed = NO;
+    // Filled by -sectionHeader:keys: as the pages below are built, and read by everything that asks
+    // what this window can put back: the union that is -restorableKeys, the links that offer a
+    // section, and -restoreDefaults: when one of them is pressed.
+    _restorableSections = [NSMutableArray array];
     _layoutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_layoutButton addItemsWithTitles:@[@"横向排列", @"纵向列表"]];
     _layoutButton.accessibilityLabel = @"候选排列";
@@ -1849,14 +2059,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [_englishFontFamilyControl addItemsWithObjectValues:[NSFontManager.sharedFontManager.availableFontFamilies sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]];
     _englishFontFamilyControl.completes = YES;
     _englishFontFamilyControl.accessibilityLabel = @"候选窗英文字体";
-    _englishFontFamilyControl.toolTip = @"优先用于拉丁字符；未安装时回退到候选主字体和补充字体；留空表示不设置独立英文字体";
     _englishFontFamilyControl.target = self;
     _englishFontFamilyControl.action = @selector(englishFontFamilyChanged:);
     _fontFamilyControl = [[NSComboBox alloc] initWithFrame:NSZeroRect];
     [_fontFamilyControl addItemsWithObjectValues:[NSFontManager.sharedFontManager.availableFontFamilies sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]];
     _fontFamilyControl.completes = YES;
     _fontFamilyControl.accessibilityLabel = @"候选字体";
-    _fontFamilyControl.toolTip = @"可选择本机字体或输入字体家族名称；未安装时按补充字体顺序回退，最后使用系统字体，并保留原设置";
     _fontFamilyControl.target = self;
     _fontFamilyControl.action = @selector(fontFamilyChanged:);
     _textColorField = [[NSTextField alloc] initWithFrame:NSZeroRect];
@@ -1917,8 +2125,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(navigationChanged:)];
         button.identifier = entry[0];
         button.accessibilityLabel = entry[1];
-        if ([entry[0] isEqual:@"minus_equal"] || [entry[0] isEqual:@"brackets"])
-            button.toolTip = @"此键组用于以词定字时，不能同时启用翻页";
         [_navigationButtons addObject:button];
     }
     _pageSizeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -1935,7 +2141,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _imeModeScopeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_imeModeScopeButton addItemsWithTitles:@[@"按应用", @"全局"]];
     _imeModeScopeButton.target = self; _imeModeScopeButton.action = @selector(imeModeScopeChanged:);
-    _imeModeScopeButton.toolTip = @"下一次激活时生效；中英文状态仅在当前输入法进程内记忆";
     _shiftTapShortcutToggle = MSIMESettingSwitch(self, @selector(shiftTapShortcutChanged:), @"单按 Shift 切换中英文");
     _controlTapShortcutToggle = MSIMESettingSwitch(self, @selector(controlTapShortcutChanged:), @"单按 Control 切换中英文");
     _controlOptionSpaceShortcutToggle = MSIMESettingSwitch(self, @selector(controlOptionSpaceShortcutChanged:), @"Control + Option + 空格切换中英文");
@@ -1999,6 +2204,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _frequencyStepButton.target = self;
     _frequencyStepButton.action = @selector(frequencyStepChanged:);
     _fuzzyPinyinToggle = MSIMESettingSwitch(self, @selector(fuzzyPinyinChanged:), @"启用模糊音");
+    // The accessibility label keeps the whole sentence the visible label used to carry: it is the
+    // name this switch answers to, and the tests find it by that name.
     _cloudCandidatesToggle = MSIMESettingSwitch(self, @selector(cloudCandidatesChanged:), @"启用云候选（将查询发送至 Google 输入工具）");
     _candidateTranslationsToggle = MSIMESettingSwitch(self, @selector(candidateTranslationsChanged:), @"显示候选释义");
     _candidateEnglishGlossToggle = MSIMESettingSwitch(self, @selector(candidateEnglishGlossChanged:), @"显示离线英文释义");
@@ -2012,7 +2219,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // ---- 输入 -------------------------------------------------------------------------------
     NSBox *inputModeCard = MSIMECardWithViews(@[
         MSIMEPreferenceRow(@"输入模式", _defaultImeModeButton),
-        MSIMEPreferenceRow(@"模式作用范围", _imeModeScopeButton),
+        MSIMEPreferenceRowWithDetail(@"模式作用范围", @"下一次激活时生效；中英文状态仅在当前输入法进程内记忆。",
+                                     _imeModeScopeButton),
     ], 0.0);
     inputModeCard.accessibilityLabel = @"输入模式卡片";
 
@@ -2060,23 +2268,25 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _wubiCard.accessibilityLabel = @"五笔选项卡片";
 
     NSBox *punctuationCard = MSIMECardWithViews(@[
-        MSIMESwitchRow(@"中文标点", _punctuationToggle, @"Control+. 切换中英文标点"),
-        MSIMESwitchRow(@"智能标点", _smartPunctuationToggle, @"前一个字符为字母或数字时保留逗号、句号和冒号为 ASCII 形式"),
-        MSIMESwitchRow(@"重复标点转中文", _smartPunctuationRepeatToggle, @"短时间重复输入 ASCII 标点时替换为中文标点"),
-        MSIMESwitchRow(@"成对标点", _pairedPunctuationToggle, @"自动插入并配对引号、括号等标点"),
+        MSIMESwitchRow(@"中文标点", _punctuationToggle, @"Control + . 切换中英文标点。"),
+        MSIMESwitchRow(@"智能标点", _smartPunctuationToggle, @"前一个字符为字母或数字时保留逗号、句号和冒号为 ASCII 形式。"),
+        MSIMESwitchRow(@"重复标点转中文", _smartPunctuationRepeatToggle, @"短时间重复输入 ASCII 标点时替换为中文标点。"),
+        MSIMESwitchRow(@"成对标点", _pairedPunctuationToggle, @"自动插入并配对引号、括号等标点。"),
         MSIMEPreferenceRow(@"固定标点", _punctuationLockButton),
     ], 0.0);
     punctuationCard.accessibilityLabel = @"标点输入卡片";
     NSBox *mixedCard = MSIMECardWithViews(@[
-        MSIMESwitchRow(@"中英混输", _mixedEnglishToggle, @"在中文组词中允许英文候选"),
+        MSIMESwitchRow(@"中英混输", _mixedEnglishToggle, @"在中文组词中允许英文候选。"),
         MSIMEPreferenceRow(@"中英混输触发长度", _mixedEnglishPrefixButton),
-        MSIMESwitchRow(@"Emoji 混输", _mixedEmojiToggle, @"在中文组词中提供 Emoji 候选"),
-        MSIMESwitchRow(@"颜文字混输", _mixedKaomojiToggle, @"在中文组词中提供颜文字候选"),
+        MSIMESwitchRow(@"Emoji 混输", _mixedEmojiToggle, @"在中文组词中提供 Emoji 候选。"),
+        MSIMESwitchRow(@"颜文字混输", _mixedKaomojiToggle, @"在中文组词中提供颜文字候选。"),
     ], 0.0);
     mixedCard.accessibilityLabel = @"中英混输卡片";
+    // The example moves out of the name and under it: a label is what the setting is called, and
+    // 「（sahng → shang）」 is not part of what this one is called, it is what it does.
     NSBox *correctionCard = MSIMECardWithViews(@[
-        MSIMESwitchRow(@"全拼乱序纠错（sahng → shang）", _transpositionToggle, nil),
-        MSIMESwitchRow(@"全拼邻键纠错（shabg → shang）", _neighborToggle, nil),
+        MSIMESwitchRow(@"全拼乱序纠错", _transpositionToggle, @"例如把 shang 输入为 sahng。"),
+        MSIMESwitchRow(@"全拼邻键纠错", _neighborToggle, @"例如把 shang 输入为 shabg。"),
     ], 0.0);
     correctionCard.accessibilityLabel = @"拼音纠错卡片";
     NSMutableArray<NSButton *> *fuzzyRuleBoxes = [NSMutableArray array];
@@ -2094,9 +2304,19 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     fuzzyCard.accessibilityLabel = @"模糊音卡片";
 
     NSScrollView *generalPage = PreferencesPage(@"键盘输入", @"选择中文或日语输入模式，并调整日常输入行为。", @[
-        inputModeCard, MSIMESectionLabel(@"中文输入方案"), schemeCard, _shuangpinCard, _wubiCard,
-        MSIMESectionLabel(@"标点输入"), punctuationCard, MSIMESectionLabel(@"中英混输"), mixedCard,
-        MSIMESectionLabel(@"拼音纠错"), correctionCard, MSIMESectionLabel(@"模糊音"), fuzzyCard,
+        // The first card is the only one on the page that had no heading, which also left the two
+        // settings on it in no section and so out of reach of a section-level restore.
+        [self sectionHeader:@"输入模式" keys:@[DefaultImeModeKey, ImeModeScopeKey]], inputModeCard,
+        [self sectionHeader:@"中文输入方案"
+                       keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey]],
+        schemeCard, _shuangpinCard, _wubiCard,
+        [self sectionHeader:@"标点输入"
+                       keys:@[ChinesePunctuationKey, SmartPunctuationKey, SmartPunctuationRepeatToChineseKey,
+                              PairedPunctuationKey, PunctuationLockKey]],
+        punctuationCard,
+        [self sectionHeader:@"中英混输" keys:@[MixedInputKey]], mixedCard,
+        [self sectionHeader:@"拼音纠错" keys:@[TranspositionKey, NeighborKey]], correctionCard,
+        [self sectionHeader:@"模糊音" keys:@[FuzzyPinyinKey, FuzzyPinyinRulesKey]], fuzzyCard,
     ]);
 
     // ---- 外观 -------------------------------------------------------------------------------
@@ -2123,17 +2343,28 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // placed against the trailing edge rather than pinned to a width, so the card keeps one control
     // edge without the second fixed width these rows used to ask for.
     NSBox *fontCard = MSIMECardWithViews(@[
-        MSIMEPreferenceRow(@"候选字体", _fontFamilyControl),
-        MSIMEPreferenceRow(@"候选窗英文字体", _englishFontFamilyControl),
+        MSIMEPreferenceRowWithDetail(@"候选字体",
+                                     @"可选择本机字体或输入字体家族名称；未安装时按补充字体顺序回退，最后使用系统字体，并保留原设置。",
+                                     _fontFamilyControl),
+        MSIMEPreferenceRowWithDetail(@"候选窗英文字体",
+                                     @"优先用于拉丁字符；未安装时回退到候选主字体和补充字体，留空表示不设置独立英文字体。",
+                                     _englishFontFamilyControl),
         MSIMEPreferenceRow(@"候选文字颜色", textColorControls),
         MSIMEPreferenceRow(@"补充字体（最多 32 项）", fallbackAdd),
         MSIMEPreferenceRow(@"补充字体优先顺序", fallbackOrder),
     ], 0.0);
     fontCard.accessibilityLabel = @"候选字体卡片";
     NSScrollView *appearancePage = PreferencesPage(@"外观", @"调整候选窗口与输入状态栏的显示方式。", @[
-        MSIMESectionLabel(@"效果预览"), _preview, previewControls,
-        MSIMESectionLabel(@"候选窗口"), candidateWindowCard,
-        MSIMESectionLabel(@"候选字体"), fontCard,
+        // The preview writes nothing: 预览深色 and the showcase checkbox are ways of looking at the
+        // settings below, not settings, so this section has nothing to restore.
+        [self sectionHeader:@"效果预览" keys:@[]], _preview, previewControls,
+        [self sectionHeader:@"候选窗口"
+                       keys:@[LayoutKey, PageSizeKey, FontKey, PreeditFontKey, CandidatePreeditKey,
+                              CandidateFollowCursorKey]],
+        candidateWindowCard,
+        [self sectionHeader:@"候选字体"
+                       keys:@[FontFamilyKey, CandidateEnglishFontKey, TextColorKey, FallbackFontsKey]],
+        fontCard,
     ]);
 
     // ---- 皮肤 -------------------------------------------------------------------------------
@@ -2174,9 +2405,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSButton *dictionaryButton = [NSButton buttonWithTitle:@"打开词库管理…" target:self action:@selector(showDictionary:)];
     dictionaryButton.accessibilityLabel = @"打开本机词库管理";
     NSBox *cloudCard = MSIMECardWithViews(@[
-        // Where the query goes stays on the label rather than moving into a tooltip: it is the one
-        // switch here that sends what is being typed off the machine.
-        MSIMESwitchRow(@"启用云候选（将查询发送至 Google 输入工具）", _cloudCandidatesToggle, nil),
+        // Where the query goes is drawn under the switch rather than folded into its name or hidden
+        // in a tooltip: it is the one switch here that sends what is being typed off the machine.
+        MSIMESwitchRow(@"启用云候选", _cloudCandidatesToggle, @"将当前输入的拼音发送至 Google 输入工具。"),
         MSIMESwitchRow(@"显示候选释义", _candidateTranslationsToggle, nil),
         MSIMESwitchRow(@"显示离线英文释义", _candidateEnglishGlossToggle, nil),
         MSIMEPreferenceRow(@"AI 联想", aiButton),
@@ -2188,8 +2419,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     ], 0.0);
     dictionaryCard.accessibilityLabel = @"本机用户词库卡片";
     NSScrollView *dataPage = PreferencesPage(@"词库与数据", @"管理本机词库、用户词条与学习数据。", @[
-        MSIMESectionLabel(@"候选与学习"), learningCard, MSIMESectionLabel(@"本机词库"), dictionaryCard,
-        MSIMESectionLabel(@"云端与智能候选"), cloudCard,
+        [self sectionHeader:@"候选与学习"
+                       keys:@[CandidateLearningKey, FrequencyModeKey, FrequencyTriggerCountKey,
+                              FrequencyLinearStepKey]],
+        learningCard,
+        // The dictionary card opens the dictionary window; the words in it are not a preference and
+        // are not what a restore here would touch.
+        [self sectionHeader:@"本机词库" keys:@[]], dictionaryCard,
+        [self sectionHeader:@"云端与智能候选"
+                       keys:@[CloudCandidatesKey, CandidateTranslationsKey, CandidateEnglishGlossKey]],
+        cloudCard,
     ]);
 
     // ---- 关于 -------------------------------------------------------------------------------
@@ -2223,8 +2462,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _uninstallButton.contentTintColor = NSColor.systemRedColor;
     _uninstallButton.accessibilityLabel = @"卸载水杉输入法";
     _uninstallButton.enabled = msime_macos_uninstall_input_source != nullptr;
+    // The checkbox goes above the button, because it changes what the button does: below it, it
+    // read as a consequence of a press that had already happened.
     NSBox *uninstallCard = MSIMECardWithViews(@[
-        MSIMEPreferenceRow(@"输入源", _uninstallButton), _removeUserDataButton,
+        _removeUserDataButton, MSIMEPreferenceRow(@"输入源", _uninstallButton),
     ], 6.0);
     uninstallCard.accessibilityLabel = @"卸载输入源卡片";
     NSBox *aboutCard = MSIMECardWithViews(@[MSIMEPreferenceRow(@"产品主页", websiteButton)], 0.0);
@@ -2255,9 +2496,13 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     brandRow.alignment = NSLayoutAttributeCenterY;
     brandRow.spacing = 14.0;
     brandRow.translatesAutoresizingMaskIntoConstraints = NO;
+    // Nothing on this page is a stored preference — the version and the update state are read from
+    // the bundle and from Sparkle, and uninstalling is not a setting — so none of its sections
+    // offers a restore.
     NSScrollView *aboutPage = PreferencesPage(@"关于", @"版本与更新，以及水杉输入法的产品主页。", @[
-        brandRow, MSIMESectionLabel(@"软件更新"), updateCard, MSIMESectionLabel(@"产品信息"), aboutCard,
-        MSIMESectionLabel(@"卸载"), uninstallCard,
+        brandRow, [self sectionHeader:@"软件更新" keys:@[]], updateCard,
+        [self sectionHeader:@"产品信息" keys:@[]], aboutCard,
+        [self sectionHeader:@"卸载" keys:@[]], uninstallCard,
     ]);
 
     // ---- 辅助码 -----------------------------------------------------------------------------
@@ -2285,10 +2530,21 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSBox *helpcodeCard = MSIMECardWithViews(helpcodeRows, 0.0);
     helpcodeCard.accessibilityLabel = @"辅助码卡片";
     NSScrollView *helpcodePage = PreferencesPage(@"辅助码", @"为全拼与双拼分别选择辅助码方案。", @[
-        MSIMESectionLabel(@"辅助码方案"), helpcodeCard,
+        [self sectionHeader:@"辅助码方案"
+                       keys:@[HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey, ShuangpinHelpcodeKey]],
+        helpcodeCard,
     ]);
 
     // ---- 快捷键 -----------------------------------------------------------------------------
+    // 以词定字 and 翻页 cannot be bound to the same key group, and until now the window let the user
+    // ask for it and answered with a beep and a control that snapped back. Both sentences are
+    // written in -refreshKeyBindingConflicts, which also disables whichever side does not currently
+    // hold the group; the one under the checkboxes names the group 以词定字 is holding, the one
+    // under the key-group popup names the group paging is holding.
+    _navigationConflictLabel = MSIMEDetailLabel(@"");
+    _navigationConflictLabel.hidden = YES;
+    _wordCharacterConflictLabel = MSIMEDetailLabel(@"");
+    _wordCharacterConflictLabel.hidden = YES;
     NSBox *pagingCard = MSIMECardWithViews(@[
         MSIMEPreferenceRow(@"上翻 / 下翻", _pageShortcutButton),
         MSIMECardSeparator(),
@@ -2296,9 +2552,11 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         // Six peer key-pairs in the control column of one row is a tall stack pushed against the
         // right edge. They are a group, so they get the card's width and a heading of their own.
         MSIMECheckboxGrid(_navigationButtons, 2),
+        _navigationConflictLabel,
         MSIMECardSeparator(),
-        MSIMESwitchRow(@"以词定字（首字／尾字）", _wordCharacterToggle, @"须先关闭所选键组的翻页功能"),
-        MSIMEPreferenceRow(@"首字／尾字键组", _wordCharacterKeys),
+        MSIMESwitchRow(@"以词定字（首字／尾字）", _wordCharacterToggle,
+                       @"按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字。"),
+        MSIMEPreferenceRowWithDetailLabel(@"首字／尾字键组", _wordCharacterConflictLabel, _wordCharacterKeys),
     ], 6.0);
     pagingCard.accessibilityLabel = @"候选翻页卡片";
     NSBox *switchingCard = MSIMECardWithViews(@[
@@ -2307,12 +2565,17 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMESwitchRow(@"单按 Control 切换中英文", _controlTapShortcutToggle, nil),
         MSIMESwitchRow(@"Control + Option + 空格切换中英文", _controlOptionSpaceShortcutToggle, nil),
         MSIMESwitchRow(@"Control + Shift + F 切换简繁", _characterSetShortcutToggle, nil),
-        MSIMESwitchRow(@"全角输入（Option + Shift + H）", _fullWidthToggle,
-                  @"Control+Shift+Space 或 Option+Shift+H 切换全半角"),
+        MSIMESwitchRow(@"全角输入", _fullWidthToggle,
+                       @"Control + Shift + 空格 或 Option + Shift + H 临时切换全半角。"),
     ], 0.0);
     switchingCard.accessibilityLabel = @"输入状态切换卡片";
     NSScrollView *shortcutsPage = PreferencesPage(@"快捷键", @"设置候选翻页与输入状态切换快捷键。", @[
-        MSIMESectionLabel(@"候选翻页与选字"), pagingCard, MSIMESectionLabel(@"输入状态切换"), switchingCard,
+        [self sectionHeader:@"候选翻页与选字" keys:@[PageShortcutKey, NavigationKey, WordCharacterKey]],
+        pagingCard,
+        [self sectionHeader:@"输入状态切换"
+                       keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey,
+                              ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthKey]],
+        switchingCard,
     ]);
 
     // ---- 悬浮工具栏 --------------------------------------------------------------------------
@@ -2331,8 +2594,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMEPreferenceRow(@"工具栏字号", _toolbarFontSizeButton),
     ], 0.0);
     toolbarSizeCard.accessibilityLabel = @"悬浮工具栏尺寸卡片";
+    // The scale and the font size live in the same stored dictionary as the component choices, so
+    // the finest restore this window can honestly offer for either is both: the link sits on the
+    // section that owns the key, and 尺寸 does not offer one it could not keep.
     NSScrollView *floatingPage = PreferencesPage(@"悬浮工具栏", @"随时查看输入状态，通过工具栏切换常用输入选项。", @[
-        MSIMESectionLabel(@"显示与组件"), toolbarCard, MSIMESectionLabel(@"尺寸"), toolbarSizeCard,
+        [self sectionHeader:@"显示与组件" keys:@[FloatingToolbarKey, FloatingToolbarOptionsKey]], toolbarCard,
+        [self sectionHeader:@"尺寸" keys:@[]], toolbarSizeCard,
     ]);
 
     // ---- 账号 -------------------------------------------------------------------------------
@@ -2358,13 +2625,13 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSBox *helpCard = MSIMECardWithViews(@[MSIMEPreferenceRow(@"常用按键与常见问题", helpButton)], 0.0);
     helpCard.accessibilityLabel = @"帮助卡片";
     NSScrollView *helpPage = PreferencesPage(@"帮助", @"常用按键、候选词释义的工作方式，以及常见问题。", @[
-        MSIMESectionLabel(@"使用帮助"), helpCard,
+        [self sectionHeader:@"使用帮助" keys:@[]], helpCard,
     ]);
     NSButton *feedbackButton = [NSButton buttonWithTitle:@"提交反馈…" target:self action:@selector(showSupport:)];
     NSBox *feedbackCard = MSIMECardWithViews(@[MSIMEPreferenceRow(@"问题反馈与功能建议", feedbackButton)], 0.0);
     feedbackCard.accessibilityLabel = @"反馈卡片";
     NSScrollView *feedbackPage = PreferencesPage(@"反馈", @"在这里写清问题，提交时会带上版本与系统信息。", @[
-        MSIMESectionLabel(@"问题反馈"), feedbackCard,
+        [self sectionHeader:@"问题反馈" keys:@[]], feedbackCard,
     ]);
 
     // ---- 语音输入 ---------------------------------------------------------------------------
@@ -2387,7 +2654,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSBox *localModesCard = MSIMECardWithViews(@[MSIMECheckboxGrid(_localModeButtons, 2)], 0.0);
     localModesCard.accessibilityLabel = @"扩展输入卡片";
     NSScrollView *utilitiesPage = PreferencesPage(@"实用功能", @"未组词时用 Shift 加一个字母，临时切到另一种输入方式。", @[
-        MSIMESectionLabel(@"扩展输入模式"), localModesCard,
+        [self sectionHeader:@"扩展输入模式" keys:@[LocalModesKey]], localModesCard,
     ]);
 
     // The index is both the page index and the sidebar item's page index. Every page has a sidebar
@@ -2592,7 +2859,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     const NSInteger rememberedPage = [self pageIndexForIdentifier:[_defaults stringForKey:LastSettingsPageKey]];
     const NSInteger initialPage = rememberedPage < 0 ? 0 : rememberedPage;
     [self showPreferencesPageAtIndex:initialPage navigationIndex:initialPage];
-    [self refreshUpdateControls];
     [self refreshControls];
     // Restore first, centre only as the fallback: the two have to be asked in this order, because
     // attaching the autosave name saves the frame the window currently has, after which every
@@ -2632,15 +2898,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     for (NSView *child in view.subviews) {
         NSString *title = nil;
         NSView *target = nil;
+        // Sentences and section links carry text without naming a setting, and MSIMESettingsUnindexedIdentifier is how they say so.
+        const BOOL indexable = ![child.identifier isEqual:MSIMESettingsUnindexedIdentifier];
         if ([child isKindOfClass:NSTextField.class]) {
             NSTextField *label = (NSTextField *)child;
-            // An editable field holds a value rather than the name of one, and the page title just
-            // repeats the sidebar item that is already one click away.
-            if (!label.editable && !label.selectable && label.font.pointSize < 20.0) {
+            // An editable field holds a value rather than the name of one.
+            if (indexable && !label.editable && !label.selectable) {
                 title = label.stringValue;
                 target = label.superview ?: label;
             }
-        } else if ([child isKindOfClass:NSButton.class] && ((NSButton *)child).title.length > 0) {
+        } else if (indexable && [child isKindOfClass:NSButton.class] && ((NSButton *)child).title.length > 0) {
             title = ((NSButton *)child).title;
             target = child;
         }
@@ -2879,10 +3146,15 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         [super window].title = _pageTitles[navigationIndex];
     [self performPageEntrySideEffects];
 }
-/// The three pages that do something when they are entered: the skin browser builds itself and
+/// The four pages that do something when they are entered: the skin browser builds itself and
 /// renders a live candidate preview per built-in skin, the voice form re-reads its provider
-/// settings, and the account page attaches a view owned by the Swift backend that every other page
-/// has to detach again.
+/// settings, the 关于 page asks the update controller where the build stands, and the account page
+/// attaches a view owned by the Swift backend that every other page has to detach again.
+///
+/// The update state is asked for here rather than once while the window is built because none of it
+/// is a preference: the answers change while the window is open — a check finishes, Sparkle's
+/// automatic checking is turned on elsewhere — and a window left open on another page used to go on
+/// reporting what was true when it was first opened.
 ///
 /// None of it is owed to a page that is merely selected. The window opens on the page it was left
 /// on, and doing this work while the window is still being built means a launch that lands on 皮肤
@@ -2892,6 +3164,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     if (!_windowHasAppeared) return;
     if (_selectedPageIndex == kSkinPageIndex) [self ensureSkinSettingsView];
     if (_selectedPageIndex == kVoicePageIndex) [_voiceSettingsView reloadSettings];
+    if (_selectedPageIndex == kAboutPageIndex) [self refreshUpdateControls];
     if (_selectedPageIndex == kAccountPageIndex && MSIMEAccountPaneAttach != nullptr)
         MSIMEAccountPaneAttach(self.window);
     else if (MSIMEAccountPaneClose != nullptr)
@@ -3097,9 +3370,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     confirmation.informativeText = _removeUserDataButton.state == NSControlStateValueOn
         ? @"输入法会移到废纸篓，并删除本机词库、学习记录、偏好与语音密钥。"
         : @"输入法会移到废纸篓；本机词库、学习记录和偏好会保留。";
-    [confirmation addButtonWithTitle:@"确认卸载"];
+    // Cancel first, so it is the button Return presses — the same rule the restore alerts follow,
+    // and this is the one alert in the window where the other button moves an application to the
+    // trash and can take the user's dictionary with it.
     [confirmation addButtonWithTitle:@"取消"];
-    if ([confirmation runModal] != NSAlertFirstButtonReturn) return;
+    [confirmation addButtonWithTitle:@"确认卸载"];
+    if ([confirmation runModal] == NSAlertFirstButtonReturn) return;
 
     NSFileManager *fileManager = NSFileManager.defaultManager;
     NSURL *library = [fileManager URLForDirectory:NSLibraryDirectory
@@ -3150,41 +3426,58 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _automaticUpdateLabel.stringValue = automatic ? @"已开启自动检查" : @"自动检查已关闭";
     _updatePageButton.enabled = [_updateController canCheckForUpdates];
 }
-// Clears only this host's own preference domain, by an explicit key list, the way the upstream
-// window does. It never touches the Apple product's domain or the user dictionary.
-- (NSArray<NSString *> *)restorableKeys {
-    return @[
-        LayoutKey, CandidateFollowCursorKey, InputModeHUDKey, SchemeKey, ShuangpinProfileKey,
-        ShuangpinPreeditKey, LocalModesKey, HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
-        ShuangpinHelpcodeKey, KeymapKey, WubiKey, InputModeShortcutKey, ShiftTapShortcutKey,
-        ControlTapShortcutKey, ControlOptionSpaceShortcutKey, CharacterSetShortcutKey,
-        FullWidthShortcutKey, FloatingToolbarKey, FloatingToolbarOptionsKey,
-    ];
-}
-/// Which of those keys the page in front of the user owns. Upstream offers one button that clears
-/// every one of them at once and asks nothing first, so tidying up one page costs the other twelve.
-- (NSArray<NSString *> *)restorableKeysForPageAtIndex:(NSInteger)pageIndex {
-    switch (pageIndex) {
-        case 0: return @[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey];
-        case 1: return @[LayoutKey, CandidateFollowCursorKey, InputModeHUDKey];
-        case 5: return @[HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey, ShuangpinHelpcodeKey];
-        case 6: return @[
-            InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey,
-            ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthShortcutKey,
-        ];
-        case 7: return @[FloatingToolbarKey, FloatingToolbarOptionsKey];
-        case 12: return @[LocalModesKey];
-        default: return @[];
+/// The heading above a card, and the registration of the settings under it as one thing the window
+/// can put back. A section with no stored settings of its own passes an empty list and gets a
+/// heading with no link, which is how the 效果预览, 本机词库 and 关于 headings stay quiet.
+- (NSView *)sectionHeader:(NSString *)title keys:(NSArray<NSString *> *)keys {
+    NSButton *link = nil;
+    if (keys.count > 0) {
+        link = [NSButton buttonWithTitle:@"恢复默认值" target:self action:@selector(restoreDefaults:)];
+        MSIMELinkifyButton(link, [NSString stringWithFormat:@"恢复「%@」的默认设置", title]);
+        link.identifier = MSIMESettingsUnindexedIdentifier;
+        // Which section was pressed, rather than which page happens to be in front: a page has
+        // several of these and they restore different things.
+        link.tag = (NSInteger)_restorableSections.count;
+        // Shown by -refreshSectionRestoreLinks, and only where there is something to restore.
+        link.hidden = YES;
+        MSIMESettingsSection *section = [MSIMESettingsSection new];
+        section.title = title;
+        section.keys = keys;
+        section.restoreLink = link;
+        [_restorableSections addObject:section];
     }
+    return MSIMESectionHeaderRow(title, link);
+}
+// Clears only this host's own preference domain, by an explicit key list. It never touches the
+// Apple product's domain or the user dictionary.
+//
+// The list is the union of what the sections declare rather than a list of its own. The two used to
+// be written out separately and had drifted: the whole-window list named twenty-one of the fifty
+// keys this file declares, and the per-page list covered six of the thirteen pages and named two
+// keys — MSIMEClientInputModeHUD and MSIMEClientFullWidthShortcut — whose controls are not in this
+// window at all. A key reaches this list now by being under a heading, which is also the only way
+// it can be reached by the restore the user actually presses.
+- (NSArray<NSString *> *)restorableKeys {
+    NSMutableArray<NSString *> *keys = [NSMutableArray array];
+    for (MSIMESettingsSection *section in _restorableSections)
+        for (NSString *key in section.keys)
+            if (![keys containsObject:key]) [keys addObject:key];
+    return keys;
 }
 - (void)removeStoredKeys:(NSArray<NSString *> *)keys {
-    for (NSString *key in keys) [_defaults removeObjectForKey:key];
+    NSDictionary<NSString *, NSString *> *overrides = SharedOverrideProperties();
+    for (NSString *key in keys) {
+        [_defaults removeObjectForKey:key];
+        // And the account's pushed value, which the accessors read first; see
+        // SharedOverrideProperties() for why deleting the stored entry alone was not a restore.
+        NSString *override = overrides[key];
+        if (override != nil) [self setValue:nil forKey:override];
+    }
     [self refreshControls];
     [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
 }
-/// Every page at once, from the toolbar's ⋯ menu. It is the only restore the window offers, which
-/// is why the alert spells out how much it takes: nothing here puts one page or one card back
-/// without taking the rest with it.
+/// Every page at once, from the toolbar's ⋯ menu — the whole-window restore, beside the per-section
+/// ones the headings carry.
 - (void)restoreAllDefaults:(id)sender {
     (void)sender;
     NSAlert *alert = [NSAlert new];
@@ -3198,26 +3491,23 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     if ([alert runModal] == NSAlertFirstButtonReturn) return;
     [self removeStoredKeys:[self restorableKeys]];
 }
+/// One section, from the link on its heading. The link is only there when that section has
+/// something to restore, so this no longer has to offer the whole window as a consolation for a page
+/// with nothing saved on it — an offer that stood one line above the red 卸载… button.
 - (void)restoreDefaults:(id)sender {
-    (void)sender;
-    NSArray<NSString *> *pageKeys = [self restorableKeysForPageAtIndex:_selectedPageIndex];
-    NSString *pageTitle = _selectedPageIndex >= 0 && _selectedPageIndex < (NSInteger)_pageTitles.count
-        ? _pageTitles[_selectedPageIndex] : @"";
+    NSButton *link = [sender isKindOfClass:NSButton.class] ? (NSButton *)sender : nil;
+    if (link == nil || link.tag < 0 || (NSUInteger)link.tag >= _restorableSections.count) return;
+    MSIMESettingsSection *section = _restorableSections[(NSUInteger)link.tag];
     NSAlert *alert = [NSAlert new];
     alert.alertStyle = NSAlertStyleWarning;
-    alert.messageText = @"恢复默认设置？";
-    alert.informativeText = pageKeys.count > 0
-        ? [NSString stringWithFormat:@"「%@」页的设置会恢复为默认值。词库、学习记录、账号与语音密钥不受影响。", pageTitle]
-        : @"这一页没有保存在本机的设置。恢复全部会重置其它页的选项；词库、学习记录、账号与语音密钥不受影响。";
-    // Cancel is added first so it is the default button: the other two throw away settings, and a
+    alert.messageText = [NSString stringWithFormat:@"恢复「%@」的默认设置？", section.title];
+    alert.informativeText = @"这一组设置会恢复为默认值，其它设置不受影响。";
+    // Cancel is added first so it is the default button: the other one throws away settings, and a
     // destructive action should not be what Return picks.
     [alert addButtonWithTitle:@"取消"];
-    if (pageKeys.count > 0) [alert addButtonWithTitle:[NSString stringWithFormat:@"恢复「%@」", pageTitle]];
-    [alert addButtonWithTitle:@"恢复全部设置"];
-    const NSModalResponse response = [alert runModal];
-    if (response == NSAlertFirstButtonReturn) return;
-    const BOOL restoreEverything = pageKeys.count == 0 || response == NSAlertThirdButtonReturn;
-    [self removeStoredKeys:restoreEverything ? [self restorableKeys] : pageKeys];
+    [alert addButtonWithTitle:@"恢复默认值"];
+    if ([alert runModal] == NSAlertFirstButtonReturn) return;
+    [self removeStoredKeys:section.keys];
 }
 - (void)showWindow:(id)sender { [self reloadSkins]; [super showWindow:sender]; }
 - (void)pageShortcutChanged:(NSPopUpButton *)sender { self.pageShortcut = sender.indexOfSelectedItem; }

@@ -120,8 +120,9 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     _skinNames = [NSMutableArray array];
     _skinCompatibility = [NSMutableArray array];
 
-    // Matches the page titles of the settings window this view is a page of.
-    NSTextField *title = Label(@"皮肤", 20.0, NSFontWeightSemibold, [NSColor labelColor]);
+    // The page opens on its summary, the way every other page of the settings window does. The 20pt
+    // 皮肤 heading that used to sit above it said what the toolbar title and the selected sidebar
+    // row both already say.
     NSTextField *summary =
         Label(@"选择内置皮肤，或从本机目录加载自定义皮肤。", 13.0, NSFontWeightRegular, [NSColor secondaryLabelColor]);
     summary.maximumNumberOfLines = 2;
@@ -158,18 +159,14 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
         [_document.bottomAnchor constraintEqualToAnchor:documentContainer.bottomAnchor],
     ]];
 
-    [self addSubview:title];
     [self addSubview:summary];
     [self addSubview:scroll];
     [NSLayoutConstraint activateConstraints:@[
         // The page margins are the ones every other page of the settings window uses, so that
-        // landing on this one does not shift the title and the cards under the pointer.
-        [title.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:msime::mac::layout::kPageMargin],
-        [title.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-msime::mac::layout::kPageMargin],
-        [title.topAnchor constraintEqualToAnchor:self.topAnchor constant:msime::mac::layout::kPageMargin],
-        [summary.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [summary.trailingAnchor constraintEqualToAnchor:title.trailingAnchor],
-        [summary.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:7.0],
+        // landing on this one does not shift the summary and the cards under the pointer.
+        [summary.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:msime::mac::layout::kPageMargin],
+        [summary.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-msime::mac::layout::kPageMargin],
+        [summary.topAnchor constraintEqualToAnchor:self.topAnchor constant:msime::mac::layout::kPageMargin],
         [scroll.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
         [scroll.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
         [scroll.topAnchor constraintEqualToAnchor:summary.bottomAnchor constant:16.0],

@@ -117,6 +117,20 @@ static inline NSTextField *MSIMESectionLabel(NSString *title) {
     return label;
 }
 
+/// Marks a view whose text is not the name of a setting: a page summary, a row's line of explanation, an inline error, the link that restores a section. The settings search indexes the text of every label and button it finds so that a setting can be found by name, and none of these is a name — without this it answers 「翻页」 with the sentence that mentions paging instead of with the setting that sentence is about, and 「恢复」 with one link per section.
+static NSString *const MSIMESettingsUnindexedIdentifier = @"MSIMESettingsUnindexed";
+
+/// A line of explanation in the window's quieter voice: the second line of a row, the sentence under a page title, the note under a group of checkboxes. Wrapping rather than truncating, because these are sentences and the window is resizable.
+static inline NSTextField *MSIMEDetailLabel(NSString *text) {
+    NSTextField *label = [NSTextField wrappingLabelWithString:text ?: @""];
+    label.font = [NSFont systemFontOfSize:msime::mac::layout::kDetailFontSize weight:NSFontWeightRegular];
+    label.textColor = NSColor.secondaryLabelColor;
+    label.selectable = NO;
+    label.identifier = MSIMESettingsUnindexedIdentifier;
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    return label;
+}
+
 /// The row every card is built from: the name of the setting on the leading edge, the control that
 /// changes it on the trailing one, and — when the setting needs a sentence rather than a name — a
 /// second, quieter line under the label.
@@ -127,18 +141,13 @@ static inline NSTextField *MSIMESectionLabel(NSString *title) {
 /// intrinsic size and a width constraint would stretch its track, so no row pins a control to a
 /// width any more: what a row applies is a floor plus a preference for sitting on it, and the
 /// switch is exempt from both.
-static inline NSView *MSIMEPreferenceRowWithDetailOfWidth(NSString *title, NSString *detail, NSView *control,
-                                                          CGFloat minimumControlWidth) {
+static inline NSView *MSIMEPreferenceRowWithDetailLabelOfWidth(NSString *title, NSTextField *detailLabel,
+                                                               NSView *control, CGFloat minimumControlWidth) {
     NSTextField *label = [NSTextField labelWithString:title];
     label.font = [NSFont systemFontOfSize:msime::mac::layout::kBodyFontSize weight:NSFontWeightRegular];
     label.translatesAutoresizingMaskIntoConstraints = NO;
     NSView *labelColumn = label;
-    if (detail.length > 0) {
-        NSTextField *detailLabel = [NSTextField wrappingLabelWithString:detail];
-        detailLabel.font = [NSFont systemFontOfSize:msime::mac::layout::kDetailFontSize weight:NSFontWeightRegular];
-        detailLabel.textColor = NSColor.secondaryLabelColor;
-        detailLabel.selectable = NO;
-        detailLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    if (detailLabel != nil) {
         // The sentence is what gives way when the row runs out of width: left at the default it
         // insists on the width of one line and pushes the control past the edge of the card.
         [detailLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
@@ -172,7 +181,10 @@ static inline NSView *MSIMEPreferenceRowWithDetailOfWidth(NSString *title, NSStr
         [labelColumn.trailingAnchor constraintEqualToAnchor:control.leadingAnchor constant:-12.0];
     slack.priority = NSLayoutPriorityDefaultHigh;
     NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
-        [row.heightAnchor constraintGreaterThanOrEqualToConstant:detail.length > 0
+        // The height a row with a sentence under its label needs, whether or not that sentence is
+        // showing right now: a row whose detail comes and goes — a conflict that is there and then
+        // is not — would otherwise resize the card under the pointer every time it changed.
+        [row.heightAnchor constraintGreaterThanOrEqualToConstant:detailLabel != nil
                                                                      ? msime::mac::layout::kDetailRowHeight
                                                                      : msime::mac::layout::kRowHeight],
         clearance,
@@ -192,18 +204,27 @@ static inline NSView *MSIMEPreferenceRowWithDetailOfWidth(NSString *title, NSStr
 }
 
 static inline NSView *MSIMEPreferenceRowOfWidth(NSString *title, NSView *control, CGFloat minimumControlWidth) {
-    return MSIMEPreferenceRowWithDetailOfWidth(title, nil, control, minimumControlWidth);
+    return MSIMEPreferenceRowWithDetailLabelOfWidth(title, nil, control, minimumControlWidth);
 }
 
 static inline NSView *MSIMEPreferenceRow(NSString *title, NSView *control) {
-    return MSIMEPreferenceRowWithDetailOfWidth(title, nil, control, msime::mac::layout::kControlMinWidth);
+    return MSIMEPreferenceRowWithDetailLabelOfWidth(title, nil, control, msime::mac::layout::kControlMinWidth);
 }
 
 /// A setting whose name does not say everything the user has to know about it — when it takes
-/// effect, what it sends where, what it is not to be confused with. The window carries thirteen
-/// such sentences today, in tooltips and accessibility help, where a trackpad user never meets them.
+/// effect, what it sends where, what it is not to be confused with. The sentence is drawn under the
+/// name; it used to be folded into the name itself (启用云候选（将查询发送至 Google 输入工具）) or hung
+/// off the row as a tooltip, which a trackpad user never meets.
 static inline NSView *MSIMEPreferenceRowWithDetail(NSString *title, NSString *detail, NSView *control) {
-    return MSIMEPreferenceRowWithDetailOfWidth(title, detail, control, msime::mac::layout::kControlMinWidth);
+    return MSIMEPreferenceRowWithDetailLabelOfWidth(title, detail.length > 0 ? MSIMEDetailLabel(detail) : nil, control,
+                                                    msime::mac::layout::kControlMinWidth);
+}
+
+/// The same row, for a sentence that is written as the window runs rather than as it is built: a
+/// conflict naming the binding that already owns a key group is one, and the caller keeps the label
+/// so it can say which one.
+static inline NSView *MSIMEPreferenceRowWithDetailLabel(NSString *title, NSTextField *detail, NSView *control) {
+    return MSIMEPreferenceRowWithDetailLabelOfWidth(title, detail, control, msime::mac::layout::kControlMinWidth);
 }
 
 /// A rejected value reported under the row that holds it, instead of a beep and a silent revert
@@ -214,6 +235,7 @@ static inline NSTextField *MSIMEInlineNotice(NSString *message) {
     notice.font = [NSFont systemFontOfSize:msime::mac::layout::kDetailFontSize weight:NSFontWeightRegular];
     notice.textColor = NSColor.systemRedColor;
     notice.selectable = NO;
+    notice.identifier = MSIMESettingsUnindexedIdentifier;
     notice.translatesAutoresizingMaskIntoConstraints = NO;
     notice.hidden = message.length == 0;
     return notice;
@@ -230,10 +252,12 @@ static inline NSSwitch *MSIMESettingSwitch(id target, SEL action, NSString *acce
     return toggle;
 }
 
-static inline NSView *MSIMESwitchRow(NSString *title, NSSwitch *toggle, NSString *tooltip) {
-    NSView *row = MSIMEPreferenceRow(title, toggle);
-    row.toolTip = tooltip;
-    return row;
+/// The detail is drawn under the label rather than hung off the row as a tooltip. A tooltip needs a
+/// pointer held still over the row to appear at all, which is a gesture a trackpad user does not
+/// make and a keyboard user cannot; the sentence explaining what a switch does is not optional
+/// enough for that.
+static inline NSView *MSIMESwitchRow(NSString *title, NSSwitch *toggle, NSString *detail) {
+    return MSIMEPreferenceRowWithDetail(title, detail, toggle);
 }
 
 /// Peer checkboxes in columns. Eleven fuzzy-pinyin rules stacked vertically is most of a page of
@@ -315,4 +339,39 @@ static inline void MSIMELinkifyButton(NSButton *button, NSString *accessibilityL
                 NSFontAttributeName : [NSFont systemFontOfSize:msime::mac::layout::kBodyFontSize weight:NSFontWeightMedium],
                 NSForegroundColorAttributeName : [NSColor linkColor],
             }];
+}
+
+/// Marks the heading above a card, so that a page can space its sections apart without asking what
+/// class the heading happens to be. It stopped being a bare label when the headings grew a trailing
+/// link, and the spacing rule was written against the label.
+static NSString *const MSIMESettingsSectionIdentifier = @"MSIMESettingsSection";
+
+/// A section heading, with the link that puts that section's settings back to their defaults on the
+/// trailing edge. The link is the caller's — it is hidden until the section has something to
+/// restore — and a section with no restorable settings passes nil and gets a heading alone.
+static inline NSView *MSIMESectionHeaderRow(NSString *title, NSButton *link) {
+    NSView *row = [[NSView alloc] initWithFrame:NSZeroRect];
+    row.identifier = MSIMESettingsSectionIdentifier;
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    NSTextField *label = MSIMESectionLabel(title);
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [row addSubview:label];
+    NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
+        [label.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
+        [label.topAnchor constraintEqualToAnchor:row.topAnchor],
+        [label.bottomAnchor constraintEqualToAnchor:row.bottomAnchor],
+    ]];
+    if (link == nil) {
+        [constraints addObject:[label.trailingAnchor constraintLessThanOrEqualToAnchor:row.trailingAnchor]];
+    } else {
+        link.translatesAutoresizingMaskIntoConstraints = NO;
+        [row addSubview:link];
+        [constraints addObjectsFromArray:@[
+            [label.trailingAnchor constraintLessThanOrEqualToAnchor:link.leadingAnchor constant:-12.0],
+            [link.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
+            [link.firstBaselineAnchor constraintEqualToAnchor:label.firstBaselineAnchor],
+        ]];
+    }
+    [NSLayoutConstraint activateConstraints:constraints];
+    return row;
 }
