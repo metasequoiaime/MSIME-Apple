@@ -2688,6 +2688,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)refreshSectionRestoreLinks {
     // Nothing is registered until the pages are built, and -refreshControls runs long before that — every setter calls it, including the ones the input method uses with no window open. Leaving early also keeps DefaultSettingValues() from being built by a process that has no settings window to show.
     if (_restorableSections.count == 0) return;
+    // A restore link is something to look at, so it is worth nothing while there is nothing to look at — and it is not free: this sweeps every registered key of every section through its accessor and compares the answer with the untouched default. -refreshControls runs on every preferencesChanged, which is every setter in the host, so paying for it there tripled the settings-heavy test binary's running time (13.3s to 41.1s on the same CI machine) and under a sanitizer pushed it past its budget. The window picks the links up when it appears and on every page change, which is every moment one can be seen.
+    if (!_windowHasAppeared) return;
     NSDictionary<NSString *, MSIMESettingProbe> *probes = SettingProbes();
     NSDictionary<NSString *, id> *defaults = DefaultSettingValues();
     for (MSIMESettingsSection *section in _restorableSections) {
@@ -3830,17 +3832,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     pageContainer.searchTarget = self;
     pageContainer.searchAction = @selector(beginSettingsSearch:);
     detailController.view = pageContainer;
-    for (NSView *page in _preferencePages) {
-        [pageContainer addSubview:page];
-        [NSLayoutConstraint activateConstraints:@[
-            [page.leadingAnchor constraintEqualToAnchor:pageContainer.leadingAnchor],
-            [page.trailingAnchor constraintEqualToAnchor:pageContainer.trailingAnchor],
-            // The safe area is where the toolbar ends. Pinning to the container's own top instead is
-            // what put the 20pt page title at y = -59, behind the titlebar and clipped.
-            [page.topAnchor constraintEqualToAnchor:pageContainer.safeAreaLayoutGuide.topAnchor],
-            [page.bottomAnchor constraintEqualToAnchor:pageContainer.bottomAnchor],
-        ]];
-    }
 
     _splitViewController = [[NSSplitViewController alloc] init];
     // Held on to rather than left to the split view controller's array: a search performed while
@@ -3865,6 +3856,24 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // decision of this window's, so it is restated after the assignment rather than left to the
     // solver.
     [window setContentSize:NSMakeSize(860, 640)];
+
+    // The pages go in after the window has its controller, not before. Handing a window a content
+    // view controller makes AppKit ask the split view for its fitting size, and that walks every
+    // constraint under it — with eleven pages of cards already installed, that one call was most of
+    // the cost of opening this window: 93ms to build it on develop against 576ms here, measured.
+    // Installed into a container that is still empty, the same call is cheap, and subviews added
+    // afterwards do not ask for it again. Pinning to the safe area rather than the container's own
+    // top is what keeps the page title out from behind the titlebar, and the safe area is only
+    // meaningful once the container is in a window, which by this line it is.
+    for (NSView *page in _preferencePages) {
+        [pageContainer addSubview:page];
+        [NSLayoutConstraint activateConstraints:@[
+            [page.leadingAnchor constraintEqualToAnchor:pageContainer.leadingAnchor],
+            [page.trailingAnchor constraintEqualToAnchor:pageContainer.trailingAnchor],
+            [page.topAnchor constraintEqualToAnchor:pageContainer.safeAreaLayoutGuide.topAnchor],
+            [page.bottomAnchor constraintEqualToAnchor:pageContainer.bottomAnchor],
+        ]];
+    }
 
     _searchField = [[NSSearchField alloc] initWithFrame:NSZeroRect];
     _searchField.placeholderString = @"搜索设置";
@@ -3932,6 +3941,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (_windowHasAppeared) return;
     _windowHasAppeared = YES;
     [self performPageEntrySideEffects];
+    // The links were skipped for as long as there was nothing on screen to carry them; this is the first moment there is.
+    [self refreshSectionRestoreLinks];
 }
 
 #pragma mark - Settings search registry

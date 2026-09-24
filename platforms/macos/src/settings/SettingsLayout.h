@@ -150,17 +150,17 @@ static inline NSView *MSIMEPreferenceRowWithDetailLabelOfWidth(NSString *title, 
         labelColumn = column;
     }
     control.translatesAutoresizingMaskIntoConstraints = NO;
-    NSGridView *row = [NSGridView gridViewWithViews:@[ @[ labelColumn, control ] ]];
+    // A plain view rather than a one-row NSGridView. The grid was only ever placing two views that
+    // the clearance and slack constraints below already position, and it brings an internal
+    // constraint system of its own for each one it does it in. Several hundred rows of that is what
+    // a settings window is, and it tripled the running time of the test binary that builds this
+    // window over and over (13.3s to 41.1s on the same CI machine, measured), which under a
+    // sanitizer is the difference between finishing and being killed. The anchors below say the
+    // same thing the grid said.
+    NSView *row = [[NSView alloc] initWithFrame:NSZeroRect];
     row.translatesAutoresizingMaskIntoConstraints = NO;
-    row.columnSpacing = 12.0;
-    row.rowAlignment = NSGridRowAlignmentNone;
-    row.yPlacement = NSGridCellPlacementCenter;
-    [row columnAtIndex:0].xPlacement = NSGridCellPlacementLeading;
-    [row columnAtIndex:1].xPlacement = NSGridCellPlacementTrailing;
-    // The breathing room a control taller than the row's own height needs — a push button is taller
-    // than a popup — expressed once, on the row, rather than as a pair of inequalities per control.
-    [row rowAtIndex:0].topPadding = 4.0;
-    [row rowAtIndex:0].bottomPadding = 4.0;
+    [row addSubview:labelColumn];
+    [row addSubview:control];
     NSLayoutConstraint *clearance =
         [labelColumn.trailingAnchor constraintLessThanOrEqualToAnchor:control.leadingAnchor constant:-12.0];
     // The grid hands the width a row does not need to whichever column the solver reaches first,
@@ -177,6 +177,16 @@ static inline NSView *MSIMEPreferenceRowWithDetailLabelOfWidth(NSString *title, 
         [row.heightAnchor constraintGreaterThanOrEqualToConstant:detailLabel != nil
                                                                      ? msime::mac::layout::kDetailRowHeight
                                                                      : msime::mac::layout::kRowHeight],
+        [labelColumn.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
+        [labelColumn.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
+        [control.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
+        [control.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
+        // The breathing room a control taller than the row needs — a push button is taller than a
+        // popup — so the row grows around it rather than clipping it.
+        [control.topAnchor constraintGreaterThanOrEqualToAnchor:row.topAnchor constant:4.0],
+        [control.bottomAnchor constraintLessThanOrEqualToAnchor:row.bottomAnchor constant:-4.0],
+        [labelColumn.topAnchor constraintGreaterThanOrEqualToAnchor:row.topAnchor constant:4.0],
+        [labelColumn.bottomAnchor constraintLessThanOrEqualToAnchor:row.bottomAnchor constant:-4.0],
         clearance,
         slack,
     ]];
