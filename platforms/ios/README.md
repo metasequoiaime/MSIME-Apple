@@ -141,6 +141,8 @@ resource_dir="$(cargo run --quiet -p msime-client-core --example install_resourc
 platforms/ios/stage-resources.sh "$resource_dir"
 ```
 
+第二个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/build_offline_glosses.py` 生成，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/ios/offline-glosses`，键盘扩展把它作为 EngineResources 的同级目录打包；候选释义语言选了已安装的语言时，该行不需要完全访问或网络即可显示。目录总会创建，没有词典时为空，只有英语走离线释义。
+
 只构建 Rust/C++ 宿主库时运行：
 
 ```sh

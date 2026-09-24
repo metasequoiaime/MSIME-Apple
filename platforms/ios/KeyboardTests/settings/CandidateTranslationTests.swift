@@ -198,6 +198,21 @@ final class CandidateTranslationTests: XCTestCase {
     CandidateTranslationPreference.onlineEnabled = false
     XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: true), 1,
                    "the user turned the network off, which is the same answer as not having one")
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: false, offline: ["JA"]), 2,
+                   "an installed Japanese dictionary fills that row without any network")
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: false, offline: ["FR"]), 1,
+                   "a dictionary for a language nobody picked reserves nothing")
+  }
+
+  func testTheUsersOwnServiceOutranksTheOfflineDictionaryWhichOutranksTheAccount() {
+    let custom = TranslationRoute.custom(endpoint: "https://example.invalid", apiKey: "k")
+    XCTAssertEqual(KeyboardViewController.preferredGloss(offline: "essai", online: "test", route: custom), "test")
+    XCTAssertEqual(KeyboardViewController.preferredGloss(offline: "essai", online: nil, route: custom), "essai",
+                   "the dictionary answers while the service is still on its way")
+    XCTAssertEqual(KeyboardViewController.preferredGloss(offline: "essai", online: "test", route: .account), "essai")
+    XCTAssertEqual(KeyboardViewController.preferredGloss(offline: nil, online: "test", route: .account), "test")
+    XCTAssertEqual(KeyboardViewController.preferredGloss(offline: "essai", online: nil, route: .none), "essai")
+    XCTAssertNil(KeyboardViewController.preferredGloss(offline: nil, online: nil, route: .none))
   }
 
   /// The reserved rows come out of the keyboard's own height, not out of the keys.
