@@ -242,8 +242,8 @@ show_qp_helpcode_in_candidate_window = false
 #
 [quanpin]
 # 全拼自动纠错按类型独立启用；旧的单键 autocorrect 已废弃。
-autocorrect_transposition = false
-autocorrect_neighbor = false
+autocorrect_transposition = true
+autocorrect_neighbor = true
 
 #
 # Keybindings

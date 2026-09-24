@@ -1033,8 +1033,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (BOOL)candidateEnglishGloss { if (_sharedCandidateEnglishGloss) return _sharedCandidateEnglishGloss.boolValue; return [_defaults boolForKey:CandidateEnglishGlossKey]; }
 - (void)setCandidateEnglishGloss:(BOOL)value { _sharedCandidateEnglishGloss = nil; [_defaults setBool:value forKey:CandidateEnglishGlossKey]; [self preferencesChanged]; }
 - (void)setAutocorrect:(BOOL)value { _sharedAutocorrect = nil; [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
-- (BOOL)autocorrectTransposition { id value = _sharedTransposition ?: [_defaults objectForKey:TranspositionKey]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
-- (BOOL)autocorrectNeighbor { id value = _sharedNeighbor ?: [_defaults objectForKey:NeighborKey]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
+- (BOOL)autocorrectTransposition { id value = _sharedTransposition ?: [_defaults objectForKey:TranspositionKey]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
+- (BOOL)autocorrectNeighbor { id value = _sharedNeighbor ?: [_defaults objectForKey:NeighborKey]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
 - (void)setAutocorrectTransposition:(BOOL)value { _sharedTransposition = nil; [_defaults setBool:value forKey:TranspositionKey]; [self preferencesChanged]; }
 - (void)setAutocorrectNeighbor:(BOOL)value { _sharedNeighbor = nil; [_defaults setBool:value forKey:NeighborKey]; [self preferencesChanged]; }
 - (BOOL)helpcodeEnabled { return [_defaults objectForKey:HelpcodeKey] == nil ? YES : [_defaults boolForKey:HelpcodeKey]; }
@@ -2126,6 +2126,11 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMESwitchRow(@"全拼邻键纠错（shabg → shang）", _neighborToggle, nil),
     ], 0.0);
     correctionCard.accessibilityLabel = @"拼音纠错卡片";
+    // Quanpin correction is enabled by default and is no longer exposed as a native setting.
+    // Keep the controls attached for older automation and explicit shared-preference compatibility,
+    // but keep the card out of the visible and accessible settings page.
+    correctionCard.hidden = YES;
+    correctionCard.accessibilityHidden = YES;
     NSMutableArray<NSButton *> *fuzzyRuleBoxes = [NSMutableArray array];
     for (NSArray *entry in FuzzyPinyinRuleControls()) {
         NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(fuzzyPinyinRuleChanged:)];
@@ -2143,7 +2148,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSScrollView *generalPage = PreferencesPage(@"键盘输入", @"选择中文或日语输入模式，并调整日常输入行为。", @[
         inputModeCard, MSIMESectionLabel(@"中文输入方案"), schemeCard, _shuangpinCard, _wubiCard,
         MSIMESectionLabel(@"标点输入"), punctuationCard, MSIMESectionLabel(@"中英混输"), mixedCard,
-        MSIMESectionLabel(@"拼音纠错"), correctionCard, MSIMESectionLabel(@"模糊音"), fuzzyCard,
+        correctionCard, MSIMESectionLabel(@"模糊音"), fuzzyCard,
     ]);
 
     // ---- 外观 -------------------------------------------------------------------------------
