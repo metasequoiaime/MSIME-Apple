@@ -64,7 +64,7 @@ inline std::string shell_surface_route(const ShellSurfaceRequest &request) {
 // first so a packaged shell wins over a developer build left in the same
 // directory.
 inline std::vector<std::wstring> shell_executable_names() {
-  return {L"msime-client-settings.exe", L"MSIME Client Preview.exe"};
+  return {L"msime-client-settings.exe", L"MSIME.exe"};
 }
 // Locate the shell: an explicit override first, then the package layout. Only
 // an existing file is accepted, so a stale setting cannot launch something

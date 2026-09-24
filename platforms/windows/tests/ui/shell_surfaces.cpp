@@ -112,8 +112,8 @@ int main() {
     std::filesystem::create_directories(root);
     require(!shell_executable(root, {}));
     require(!shell_executable("relative", {}));
-    std::ofstream(root / "MSIME Client Preview.exe") << "fixture";
-    require(shell_executable(root, {}) == root / "MSIME Client Preview.exe");
+    std::ofstream(root / "MSIME.exe") << "fixture";
+    require(shell_executable(root, {}) == root / "MSIME.exe");
     std::ofstream(root / "msime-client-settings.exe") << "fixture";
     require(shell_executable(root, {}) == root / "msime-client-settings.exe");
     const auto configured = root / "elsewhere.exe";
