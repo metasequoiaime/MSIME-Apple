@@ -131,6 +131,10 @@ assert 'voice_action_);' in source
 assert 'reloadFcitxService' in source
 assert 'reload_service_action_' in source
 assert 'maintenance_reload_held_' in source
+# Fcitx5's ReloadConfig never reaches addons, so the reset runs in process: the controller's ReloadAddonConfig, the chord and the status-menu action all end in resetSessions.
+assert 'void reloadConfig() override { resetSessions(); }' in source
+assert 'engine_->resetSessions();' in source
+assert 'return reloadFcitxService();' not in source
 assert 'fcitx5-remote' in source
 assert 'ClientInputModeMemory.h' in source
 assert 'fcitx_app_input_modes' in source
@@ -273,7 +277,11 @@ assert "toolbar_entries_" in source
 
 # 还没做首次配置时，激活和按键两条路径都要给出具体提示，而不是笼统的「请检查运行配置」；但只有激活会打开设置窗口，打字途中弹出的窗口可能抢走键盘焦点。引导走与 IBus 启动器同一个脚本，每个登录会话只弹一次的限制因此两边共用。
 assert source.count("catch (const OptionsNotConfigured &) { notConfigured(*state, true); }") == 1
-assert source.count("catch (const OptionsNotConfigured &) { notConfigured(*state, false); }") == 1
+# Key events and the in-process reset show the hint without the guide.
+assert source.count("catch (const OptionsNotConfigured &) { notConfigured(*state, false); }") == 2
+resetSessions = source[source.index("void resetSessions() {"):]
+resetSessions = resetSessions[:resetSessions.index("\n  }\n")]
+assert "notConfigured(*state, false)" in resetSessions and "notConfigured(*state, true)" not in resetSessions
 keyEvent = source[source.index("void keyEvent(const fcitx::InputMethodEntry &"):]
 keyEvent = keyEvent[:keyEvent.index("\n  }\n")]
 assert "notConfigured(*state, false)" in keyEvent and "notConfigured(*state, true)" not in keyEvent

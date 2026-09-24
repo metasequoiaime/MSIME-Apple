@@ -12,7 +12,7 @@ enum CustomServiceKind: String {
 // Official endpoint/model documentation, checked 2026-09-07. These presets use the
 // providers' Chat Completions compatibility APIs; request codecs remain in Engine.
 enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
-  case everyAPI, openAI, anthropic, gemini, deepSeek, qwen, kimi, zhipu, siliconFlow, openRouter, custom
+  case everyAPI, openAI, anthropic, gemini, deepSeek, qwen, kimi, zhipu, siliconFlow, groq, openRouter, custom
 
   var title: String {
     switch self {
@@ -25,6 +25,7 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
     case .kimi: "Kimi · 月之暗面"
     case .zhipu: "智谱 · GLM"
     case .siliconFlow: "硅基流动"
+    case .groq: "Groq"
     case .openRouter: "OpenRouter"
     case .custom: "自定义"
     }
@@ -40,6 +41,7 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
     case .kimi: "https://api.moonshot.cn/v1/chat/completions"
     case .zhipu: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
     case .siliconFlow: "https://api.siliconflow.cn/v1/chat/completions"
+    case .groq: "https://api.groq.com/openai/v1/chat/completions"
     case .openRouter: "https://openrouter.ai/api/v1/chat/completions"
     case .custom: ""
     }
@@ -55,6 +57,7 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
     case .kimi: ["kimi-k2.6", "kimi-k2.5"]
     case .zhipu: ["glm-4.7", "glm-4.7-flashx"]
     case .siliconFlow: ["Qwen/Qwen3.6-27B"]
+    case .groq: ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]
     case .openRouter: ["openrouter/auto"]
     case .custom: []
     }
@@ -71,6 +74,7 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
     case .kimi: address = "https://platform.kimi.com/docs/api/chat"
     case .zhipu: address = "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.7"
     case .siliconFlow: address = "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation"
+    case .groq: address = "https://console.groq.com/docs/openai"
     case .openRouter: address = "https://openrouter.ai/docs/quickstart"
     case .custom: return nil
     }
@@ -266,13 +270,20 @@ extension CustomServiceConfiguration {
 }
 
 enum ServiceTokenStore {
-  private static func query(_ kind: CustomServiceKind, _ url: URL) -> [String: Any] {
+  /// The voice polish pass's own key, when it does not follow 「AI 设置」; kept apart from the AI key even on the same host.
+  static let polishScope = "polish"
+
+  private static func query(_ scope: String, _ url: URL) -> [String: Any] {
     [kSecClass as String: kSecClassGenericPassword,
      kSecAttrService as String: "app.msime.ios.custom-services",
-     kSecAttrAccount as String: "\(kind.rawValue)|\(url.scheme ?? "")://\(url.host?.lowercased() ?? ""):\(url.port ?? 443)"]
+     kSecAttrAccount as String: "\(scope)|\(url.scheme ?? "")://\(url.host?.lowercased() ?? ""):\(url.port ?? 443)"]
   }
-  static func read(_ kind: CustomServiceKind, url: URL) throws -> String {
-    var query = query(kind, url)
+  static func read(_ kind: CustomServiceKind, url: URL) throws -> String { try read(scope: kind.rawValue, url: url) }
+  static func write(_ token: String, kind: CustomServiceKind, url: URL) throws {
+    try write(token, scope: kind.rawValue, url: url)
+  }
+  static func read(scope: String, url: URL) throws -> String {
+    var query = query(scope, url)
     query[kSecReturnData as String] = true
     var result: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -282,8 +293,8 @@ enum ServiceTokenStore {
     else { throw ServiceFailure(message: "无法读取钥匙串，请解锁设备后重试。") }
     return text
   }
-  static func write(_ token: String, kind: CustomServiceKind, url: URL) throws {
-    let query = query(kind, url)
+  static func write(_ token: String, scope: String, url: URL) throws {
+    let query = query(scope, url)
     var status: OSStatus
     if token.isEmpty {
       status = SecItemDelete(query as CFDictionary)
@@ -339,6 +350,20 @@ enum CustomServiceClient {
     }
     try Task.checkCancellation()
     return try AppServicesBridge.parseResponse(data, voice: kind == .voice)
+  }
+
+  /// Doubao recognition while the recording is still running (see `DoubaoVoiceClient.transcribeLive`).
+  static func streamDoubao(configuration: CustomServiceConfiguration, token: String, generation: UInt64,
+                           client: DoubaoVoiceClient, pcm: AsyncStream<Data>,
+                           partial: @escaping (String) -> Void) async throws -> String {
+    let url = try configuration.validatedURL(requiresModel: false, allowWebSocket: true)
+    let handshake = try configuration.doubaoHandshake(accessKey: token)
+    do {
+      return try await client.transcribeLive(endpoint: url, handshake: handshake, generation: generation,
+                                             pcm: pcm, partial: partial)
+    } catch DoubaoVoiceClient.Failure.emptyTranscript {
+      throw ServiceFailure(message: "豆包未返回可用的语音文本。")
+    }
   }
 
   /// 「测试连接」, the desktop's credential test: a one-word chat for AI and one second of silence for voice. Any 2xx proves the endpoint, model and key, whatever the reply says; for Doubao, an empty transcript means the handshake was accepted.

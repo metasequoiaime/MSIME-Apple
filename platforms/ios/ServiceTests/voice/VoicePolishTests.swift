@@ -31,6 +31,7 @@ final class VoicePolishTests: XCTestCase {
     var document: [String: Any] = ["voice_input": [
       "polish_enabled": true, "polish_prompt_id": "zh2en", "polish_prompt_custom_3": "三",
       "language": "en-US", "sound_enabled": false, "end_sound": false, "asr_provider": "doubao",
+      "stream_inline_preedit": false, "mute_system_audio": true,
     ]]
     var settings = VoicePolishSettings(document)
     XCTAssertTrue(settings.polishEnabled)
@@ -40,10 +41,16 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertFalse(settings.soundEnabled)
     XCTAssertTrue(settings.startSound)
     XCTAssertFalse(settings.endSound)
+    XCTAssertFalse(settings.streamLive)
+    XCTAssertTrue(settings.muteOthers)
 
     settings.promptID = "custom_1"
     settings.customPrompts[0] = "  \n"
     settings.polishEnabled = false
+    settings.startSound = false
+    settings.endSound = true
+    settings.streamLive = true
+    settings.muteOthers = false
     settings.write(into: &document)
     let voice = document["voice_input"] as? [String: Any]
     XCTAssertEqual(voice?["polish_text"] as? Bool, false)
@@ -52,7 +59,39 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(voice?["polish_prompt_custom_1"] as? String, "")
     XCTAssertEqual(voice?["polish_prompt_custom_3"] as? String, "三")
     XCTAssertEqual(voice?["asr_provider"] as? String, "doubao")
-    XCTAssertEqual(voice?["end_sound"] as? Bool, false)
+    XCTAssertEqual(voice?["start_sound"] as? Bool, false)
+    XCTAssertEqual(voice?["end_sound"] as? Bool, true)
+    XCTAssertEqual(voice?["sound_enabled"] as? Bool, false)
+    XCTAssertEqual(voice?["stream_inline_preedit"] as? Bool, true)
+    XCTAssertEqual(voice?["mute_system_audio"] as? Bool, false)
+  }
+
+  func testAnEditedPresetOverridesItsTextUntilResetOrAnotherPreset() {
+    var settings = VoicePolishSettings(["voice_input": ["polish_prompt_id": "faithful"]])
+    let builtIn = settings.builtInPrompt
+    XCTAssertFalse(builtIn.isEmpty)
+    XCTAssertEqual(settings.presetPromptText, builtIn)
+
+    settings.presetPromptText = "只改错别字。"
+    XCTAssertEqual(settings.systemPrompt, "只改错别字。")
+    var document: [String: Any] = [:]
+    settings.write(into: &document)
+    XCTAssertEqual((document["voice_input"] as? [String: Any])?["polish_prompt"] as? String, "只改错别字。")
+
+    // Writing the built-in text back, or clearing the box, is not an edit.
+    settings.presetPromptText = builtIn
+    XCTAssertEqual(settings.legacyPrompt, "")
+    settings.presetPromptText = "只改错别字。"
+    settings.presetPromptText = "  "
+    XCTAssertEqual(settings.systemPrompt, builtIn)
+
+    // Picking a custom slot keeps the edit, which the empty first slot falls back to; another preset drops it.
+    settings.presetPromptText = "只改错别字。"
+    settings.select("custom_2")
+    XCTAssertEqual(settings.legacyPrompt, "只改错别字。")
+    settings.select("zh2en")
+    XCTAssertEqual(settings.legacyPrompt, "")
+    XCTAssertEqual(settings.systemPrompt, settings.builtInPrompt)
   }
 
   func testUnknownValuesFallBackToTheDefaults() {
@@ -60,6 +99,8 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(settings.promptID, "cleanup")
     XCTAssertEqual(settings.language, "zh-cn")
     XCTAssertFalse(settings.polishEnabled)
+    XCTAssertTrue(settings.streamLive)
+    XCTAssertFalse(settings.muteOthers)
   }
 
   func testTranscriptionLanguageFollowsTheSharedNormalization() {
@@ -84,5 +125,58 @@ final class VoicePolishTests: XCTestCase {
 
   func testTheTranscriptIsFramedAsData() {
     XCTAssertEqual(VoicePolishSettings.userMessage("你好"), "<asr_text>\n你好\n</asr_text>")
+  }
+
+  func testThePolishServiceFollowsAISettingsUntilOneIsSavedForIt() throws {
+    let suite = "msime-polish-service-tests-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    var keys: [String: String] = [:]
+    let read: (String, URL) throws -> String = { keys["\($0)|\($1.host ?? "")"] ?? "" }
+
+    XCTAssertFalse(VoicePolishService.load(defaults: defaults).separate)
+    XCTAssertThrowsError(try VoicePolishService.resolved(defaults: defaults, readToken: read)) {
+      XCTAssertTrue($0.localizedDescription.contains("AI 设置"))
+    }
+    var ai = CustomServiceConfiguration.loadPreset(.openAI, defaults: defaults)
+    try ai.save(.ai, token: "", defaults: defaults)
+    keys["ai|api.openai.com"] = "ai-key"
+    var resolved = try VoicePolishService.resolved(defaults: defaults, readToken: read)
+    XCTAssertEqual(resolved.configuration.endpoint, AIProviderPreset.openAI.endpoint)
+    XCTAssertEqual(resolved.token, "ai-key")
+
+    var service = VoicePolishService.load(defaults: defaults)
+    service.separate = true
+    service.select(.groq)
+    XCTAssertEqual(service.endpoint, "https://api.groq.com/openai/v1/chat/completions")
+    XCTAssertEqual(service.model, "llama-3.3-70b-versatile")
+    service.endpoint = "http://api.groq.com/openai/v1/chat/completions"
+    XCTAssertThrowsError(try service.save(token: "x", defaults: defaults) { _, _ in XCTFail("wrote a key for a bad endpoint") })
+    XCTAssertFalse(VoicePolishService.load(defaults: defaults).separate)
+
+    service.select(.groq)
+    service.model = "  openai/gpt-oss-120b "
+    var written: [String] = []
+    try service.save(token: "groq-key", defaults: defaults) { token, url in
+      written.append("\(token)|\(url.host ?? "")")
+      keys["\(ServiceTokenStore.polishScope)|\(url.host ?? "")"] = token
+    }
+    XCTAssertEqual(written, ["groq-key|api.groq.com"])
+    let loaded = VoicePolishService.load(defaults: defaults)
+    XCTAssertTrue(loaded.separate)
+    XCTAssertEqual(loaded.provider, .groq)
+    XCTAssertEqual(loaded.model, "openai/gpt-oss-120b")
+    resolved = try VoicePolishService.resolved(defaults: defaults, readToken: read)
+    XCTAssertEqual(resolved.configuration.endpoint, AIProviderPreset.groq.endpoint)
+    XCTAssertEqual(resolved.configuration.model, "openai/gpt-oss-120b")
+    XCTAssertEqual(resolved.token, "groq-key")
+
+    // An empty key keeps the saved one; turning the switch off goes back to AI 设置 but keeps the separate service for later.
+    try loaded.save(token: "", defaults: defaults) { _, _ in XCTFail("an empty key overwrote the saved one") }
+    var off = loaded
+    off.separate = false
+    try off.save(token: "", defaults: defaults)
+    XCTAssertEqual(try VoicePolishService.resolved(defaults: defaults, readToken: read).token, "ai-key")
+    XCTAssertEqual(VoicePolishService.load(defaults: defaults).provider, .groq)
   }
 }

@@ -51,6 +51,23 @@ enum CandidateFontPreference {
     return named.compactMap { $0 }.filter { !$0.isEmpty && installed($0) && seen.insert($0).inserted }
   }
 
+  /// client-core's default supplementary chain, for a document that has never stored one.
+  static let defaultFallbackFamilies = ["Noto Sans SC", "Microsoft YaHei"]
+  /// The shared validator refuses more, matching the 32 ordered families of the Windows appearance page.
+  static let maximumFallbackFamilies = 32
+
+  /// The supplementary families as stored, in order, including ones this device lacks, so the settings page edits what the document says.
+  static func fallbackFamilies(in preferences: [String: Any]?) -> [String] {
+    guard let stored = preferences?[fallbackFamiliesKey] as? [Any] else { return defaultFallbackFamilies }
+    return stored.compactMap { $0 as? String }
+  }
+
+  /// Adds a family at the end of the chain, once, within the shared limit.
+  static func appending(_ family: String, to families: [String]) -> [String] {
+    guard !family.isEmpty, !families.contains(family), families.count < maximumFallbackFamilies else { return families }
+    return families + [family]
+  }
+
   static func isInstalled(_ family: String) -> Bool { !UIFont.fontNames(forFamilyName: family).isEmpty }
 
   /// `font(_:scale:)` drawn in `families`: the first face leads and the rest cascade, so a Latin face takes the letters and a CJK face the Han characters, and whatever none of them has comes from the system font.

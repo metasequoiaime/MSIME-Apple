@@ -18,13 +18,33 @@ final class InlineCompositionTests: XCTestCase {
     XCTAssertNil(InlineCompositionPolicy.contextBefore(nil, marked: "ni"))
   }
 
-  func testTheSwitchIsOffUntilTheUserTurnsItOn() {
+  func testTheStyleIsOffUntilChosenAndTheOldSwitchReadsAsPinyin() {
     let defaults = InlinePreeditPreference.defaults
-    let previous = defaults.object(forKey: InlinePreeditPreference.key)
-    defer { defaults.set(previous, forKey: InlinePreeditPreference.key) }
-    defaults.removeObject(forKey: InlinePreeditPreference.key)
+    let keys = [InlinePreeditPreference.key, InlinePreeditPreference.styleKey]
+    let previous = keys.map { defaults.object(forKey: $0) }
+    defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
+    keys.forEach(defaults.removeObject(forKey:))
+    XCTAssertEqual(InlinePreeditPreference.style, .off)
     XCTAssertFalse(InlinePreeditPreference.isEnabled)
-    InlinePreeditPreference.isEnabled = true
-    XCTAssertTrue(defaults.bool(forKey: InlinePreeditPreference.key))
+    defaults.set(true, forKey: InlinePreeditPreference.key)
+    XCTAssertEqual(InlinePreeditPreference.style, .pinyin)
+    InlinePreeditPreference.style = .raw
+    XCTAssertEqual(defaults.string(forKey: InlinePreeditPreference.styleKey), "raw")
+    XCTAssertEqual(InlinePreeditPreference.style, .raw)
+    InlinePreeditPreference.style = .off
+    XCTAssertFalse(InlinePreeditPreference.isEnabled)
+  }
+
+  func testEachStyleWritesItsOwnFormOfTheComposition() {
+    typealias Style = InlinePreeditPreference.Style
+    XCTAssertEqual(Style.off.text(phrasePrefix: "你", preedit: "hao", editingText: "hao", japaneseReading: nil), "")
+    XCTAssertEqual(Style.pinyin.text(phrasePrefix: "", preedit: "ni'hao", editingText: "nihao", japaneseReading: nil), "ni'hao")
+    XCTAssertEqual(Style.raw.text(phrasePrefix: "", preedit: "ni'hao", editingText: "nihao", japaneseReading: nil), "nihao")
+    // Shuangpin keys stay keys in raw and expand in pinyin, as Windows draws them.
+    XCTAssertEqual(Style.raw.text(phrasePrefix: "", preedit: "shi", editingText: "ui", japaneseReading: nil), "ui")
+    XCTAssertEqual(Style.raw.text(phrasePrefix: "你好", preedit: "shi'jie", editingText: "shijie", japaneseReading: nil), "你好shijie")
+    // No ASCII keys (a local mode) falls back to what the Engine shows.
+    XCTAssertEqual(Style.raw.text(phrasePrefix: "", preedit: "〔笔画〕", editingText: "", japaneseReading: nil), "〔笔画〕")
+    XCTAssertEqual(Style.raw.text(phrasePrefix: "", preedit: "かな", editingText: "kana", japaneseReading: "かな"), "かな")
   }
 }
