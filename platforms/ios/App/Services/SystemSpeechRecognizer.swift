@@ -158,19 +158,19 @@ private struct SpeechAnalyzerDictation {
     let analyzer = SpeechAnalyzer(modules: [transcriber])
     let (inputs, feed) = AsyncStream<AnalyzerInput>.makeStream()
     let transcriber = self.transcriber
-    // Finalized results accumulate; the volatile one is replaced by each newer guess until it is finalized.
+    // Finalized results accumulate; the volatile one is replaced by each newer guess until it is finalized. SpeechTranscriber can leave a space before Chinese punctuation ("调整 ，"), so every text handed on goes through the local recognizer's transcript rules.
     let collector = Task { () throws -> String in
       var finalized = ""
       for try await result in transcriber.results {
         let text = String(result.text.characters)
         if result.isFinal {
           finalized += text
-          partial(finalized)
+          partial(LocalSpeechText.tidy(finalized))
         } else {
-          partial(finalized + text)
+          partial(LocalSpeechText.tidy(finalized + text))
         }
       }
-      return finalized
+      return LocalSpeechText.tidy(finalized)
     }
     do {
       try await analyzer.prepareToAnalyze(in: format)

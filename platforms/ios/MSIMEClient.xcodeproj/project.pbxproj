@@ -532,7 +532,9 @@
 		D748C77599E799BD90E71831 /* DictionaryLearningPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFA351B25B4B763FC91766B /* DictionaryLearningPreference.swift */; };
 		D8008EB56D1EA34CAF6C5468 /* InputHabitPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FEF544BDE4D4F10A81E15E4 /* InputHabitPreference.swift */; };
 		D8079A2D119238E63B7B4C27 /* OnlineTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720F2C5C7D633B6ECA1913B2 /* OnlineTransport.swift */; };
+		D8AD3CD0BCBBD5862EE79B3A /* VoiceRuntime-NOTICES.txt in Resources */ = {isa = PBXBuildFile; fileRef = 233B73127608B29C985A362E /* VoiceRuntime-NOTICES.txt */; };
 		D9C0B36E47E71F72A916C640 /* LocalSpeechModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCF806900D0D3E85D72402A /* LocalSpeechModelTests.swift */; };
+		DA879DA72CB6C59566EACBB0 /* onnxruntime-ThirdPartyNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 542D625F9AC28F9D0FFEE604 /* onnxruntime-ThirdPartyNotices.txt */; };
 		DB5F9EF1D17D0A91E776B3C7 /* StatisticsCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0509A4A134319D17F7D6670 /* StatisticsCharts.swift */; };
 		DB773D748955C1676A179B77 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 095C484ED3DA6A52CA13FE71 /* Security.framework */; };
 		DBAABFBF136083F33F79A141 /* ChineseOutputPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB4152BF2948CC00B7A2B2F9 /* ChineseOutputPreference.swift */; };
@@ -738,6 +740,7 @@
 		1EDF7AF8FF5043DBBD330758 /* ExternalCandidateSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalCandidateSkin.swift; sourceTree = "<group>"; };
 		22B00BF172EF20CF2DA5EC53 /* DiagnosticLogSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogSettingsView.swift; sourceTree = "<group>"; };
 		22B07522F2ED6088AD7E8B8E /* WubiCodeHintPreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WubiCodeHintPreferenceTests.swift; sourceTree = "<group>"; };
+		233B73127608B29C985A362E /* VoiceRuntime-NOTICES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "VoiceRuntime-NOTICES.txt"; sourceTree = "<group>"; };
 		23AD43DB12DB02EE4097FCA9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		242213314EAC3989141C1BF8 /* AISkinGenerationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISkinGenerationView.swift; sourceTree = "<group>"; };
 		25D1CD9785DF997C99638C35 /* KeyboardHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardHomeView.swift; sourceTree = "<group>"; };
@@ -790,6 +793,7 @@
 		53134B894F392E7788B54878 /* CandidateGlossModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateGlossModel.swift; sourceTree = "<group>"; };
 		5335E1ECEFA9A9E42CBE272B /* CandidatePageSizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidatePageSizeTests.swift; sourceTree = "<group>"; };
 		53CF49EF428CBDDE70EB9A2F /* DiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLog.swift; sourceTree = "<group>"; };
+		542D625F9AC28F9D0FFEE604 /* onnxruntime-ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "onnxruntime-ThirdPartyNotices.txt"; sourceTree = "<group>"; };
 		554DF108CE1D88971DE22972 /* CommunitySkinTrialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunitySkinTrialView.swift; sourceTree = "<group>"; };
 		565EC1253FB1509446408155 /* SkinCommunityAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinCommunityAPI.swift; sourceTree = "<group>"; };
 		574E6D9379A517BF9C5CEB82 /* SpaceCursorMovement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceCursorMovement.swift; sourceTree = "<group>"; };
@@ -1262,6 +1266,15 @@
 			path = settings;
 			sourceTree = "<group>";
 		};
+		4F0AF611BB68015729427D50 /* licenses */ = {
+			isa = PBXGroup;
+			children = (
+				542D625F9AC28F9D0FFEE604 /* onnxruntime-ThirdPartyNotices.txt */,
+			);
+			name = licenses;
+			path = ../linux/data/licenses;
+			sourceTree = "<group>";
+		};
 		502F279D9A1FEAB420D6BAF1 /* voice */ = {
 			isa = PBXGroup;
 			children = (
@@ -1540,6 +1553,7 @@
 				208C6AE8B03301167575E550 /* EngineResources */,
 				F19345D3A38528A43B829790 /* KeyboardTestHost */,
 				F9EA923EEA8552CA5B40C156 /* KeyboardTests */,
+				4F0AF611BB68015729427D50 /* licenses */,
 				03F8B35C0D4227CC69308EFB /* Resources */,
 				2D0850B6CE243D7108C48DFC /* Services */,
 				9C7D7C31663A12BCDFE90671 /* ServiceTests */,
@@ -1721,6 +1735,7 @@
 				0CEF8AF829C71A478389FF85 /* MLKit-Dependencies.txt */,
 				189E59DDD068F5FEFC679880 /* MLKit-NOTICES.txt */,
 				8EB6D10E4CB15433D5C28E93 /* PrivacyInfo.xcprivacy */,
+				233B73127608B29C985A362E /* VoiceRuntime-NOTICES.txt */,
 			);
 			path = SharedResources;
 			sourceTree = "<group>";
@@ -2102,7 +2117,9 @@
 				7EB33C5330748EE93BA3A1DB /* MLKit-Dependencies.txt in Resources */,
 				84B7B0B173F1C93261D00BFC /* MLKit-NOTICES.txt in Resources */,
 				48F6B510E00DE89F55C998B4 /* PrivacyInfo.xcprivacy in Resources */,
+				D8AD3CD0BCBBD5862EE79B3A /* VoiceRuntime-NOTICES.txt in Resources */,
 				1A95935E9AEDF63E93196350 /* dictionary-manifest.json in Resources */,
+				DA879DA72CB6C59566EACBB0 /* onnxruntime-ThirdPartyNotices.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2883,7 +2900,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "水杉输入法";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅在你选择“系统语音识别”并开始录音时，用 iOS 的语音识别把录音转成文字。";
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -3055,7 +3072,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "水杉输入法";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅在你选择“系统语音识别”并开始录音时，用 iOS 的语音识别把录音转成文字。";
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

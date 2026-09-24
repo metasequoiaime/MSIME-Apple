@@ -3,6 +3,7 @@
 #import "VoiceCaptureDevice.h"
 #import "../backend/voice/BackendSpeechAnalyzer.h"
 #include "../../../../shared/voice/CaptureDuration.h"
+#include "../../../../shared/voice/LocalAsr.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudio/CoreAudio.h>
 #include <memory>
@@ -145,11 +146,11 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
     [self stopTranscription];
     __weak MSIMEVoiceInputService *weakSelf = self;
     const uint64_t generation = _transcriptionGeneration;
-    // macOS 26 and later: SpeechAnalyzer, fully on device, once the locale's model is installed. Its handler already runs on main.
+    // macOS 26 and later: SpeechAnalyzer, fully on device, once the locale's model is installed. Its handler already runs on main. SpeechTranscriber can leave a space before Chinese punctuation ("调整 ，"), so its text goes through the same transcript rules as the local models'.
     _analyzer = MSIMEStartBackendSpeechAnalyzer(language ?: @"zh-CN", ^(NSString *text, BOOL final) {
         MSIMEVoiceInputService *service = weakSelf;
         if (!service || service->_transcriptionGeneration != generation) return;
-        handler(text, final);
+        handler(@(msime::voice::tidy_local_transcript(text.UTF8String ?: "").c_str()), final);
         if (final && service->_transcriptionGeneration == generation) [service stopTranscription];
     });
     if (_analyzer) return YES;

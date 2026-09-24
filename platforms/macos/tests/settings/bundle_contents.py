@@ -154,7 +154,7 @@ def main() -> int:
     if executable.is_file() and arguments.whisper:
         symbols = subprocess.run(["nm", "-a", str(executable)], capture_output=True, text=True).stdout
         if "whisper" not in symbols:
-            failures.append("the executable carries no local Whisper recogniser; the 本地 Whisper provider would fall back silently")
+            failures.append("the executable carries no local Whisper recogniser; the 本地模型 provider would fall back silently")
 
     # Installed on-device models run in the msime-voice-local helper, which loads the sherpa-onnx runtime from ../Frameworks. The input method spawns it from beside its own executable, so a bundle missing either one accepts a model directory in settings and then fails every recognition.
     helper = contents / "MacOS" / "msime-voice-local"
@@ -163,13 +163,17 @@ def main() -> int:
     runtime = contents / "Frameworks" / "libsherpa-onnx-c-api.dylib"
     if not runtime.is_file() or runtime.stat().st_size == 0:
         failures.append("Contents/Frameworks/libsherpa-onnx-c-api.dylib was not staged; the voice helper has no runtime to load")
+    # The runtime is redistributed third-party code, so its licences travel with it.
+    for notice in ("sherpa-onnx-Apache-2.0.txt", "onnxruntime-MIT.txt", "onnxruntime-ThirdPartyNotices.txt"):
+        if not (contents / "Resources" / "Licenses" / notice).is_file():
+            failures.append(f"Contents/Resources/Licenses/{notice} is missing; the bundled speech runtime ships without its licence")
 
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
     print(f"{bundle.name}: icons staged, {len(usage)} usage descriptions and {len(identifiers)} input source names "
-          f"localised in {len(lprojs)} languages, voice cues staged, local voice helper and runtime staged"
+          f"localised in {len(lprojs)} languages, voice cues staged, local voice helper, runtime and its licences staged"
           f"{', Whisper recogniser linked' if arguments.whisper else ''}.")
     return 0
 

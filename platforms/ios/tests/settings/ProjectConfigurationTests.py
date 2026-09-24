@@ -49,7 +49,7 @@ def source_path_blocks(body, wanted):
 
 class ProjectConfigurationTests(unittest.TestCase):
     def test_app_explains_microphone_access_for_voice_input(self):
-        explanation = "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。"
+        explanation = "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。"
         project = (IOS_ROOT / "project.yml").read_text()
         generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
         self.assertIn(f'INFOPLIST_KEY_NSMicrophoneUsageDescription: "{explanation}"', project)
@@ -80,6 +80,17 @@ class ProjectConfigurationTests(unittest.TestCase):
         generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
         self.assertIn("path = PrivacyInfo.xcprivacy", generated)
         self.assertEqual(generated.count("PrivacyInfo.xcprivacy in Resources"), 4)
+
+    def test_app_ships_the_licences_of_the_embedded_speech_runtime(self):
+        project = (IOS_ROOT / "project.yml").read_text()
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("SherpaOnnxC.xcframework", project)
+        notices = (IOS_ROOT / "SharedResources/VoiceRuntime-NOTICES.txt").read_text()
+        self.assertIn("Apache License", notices)
+        self.assertIn("MIT License", notices)
+        for resource in ("VoiceRuntime-NOTICES.txt", "onnxruntime-ThirdPartyNotices.txt"):
+            self.assertTrue(any((IOS_ROOT / path).is_file() for path in (f"SharedResources/{resource}", f"../linux/data/licenses/{resource}")))
+            self.assertEqual(generated.count(f"{resource} in Resources"), 2)
 
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"
