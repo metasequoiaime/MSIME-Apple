@@ -215,6 +215,28 @@ static inline NSView *MSIMEPreferenceRowWithDetailLabel(NSString *title, NSTextF
     return MSIMEPreferenceRowWithDetailLabelOfWidth(title, detail, control, msime::mac::layout::kControlMinWidth);
 }
 
+/// A setting whose control is too big to sit in the trailing column: a table of rules, a list with buttons under it. The label and its sentence go on their own line and the control takes the whole card width beneath them. Putting one of these through the two-column row instead strands it in the right half with the label floating vertically centred in the empty left half.
+static inline NSView *MSIMEStackedPreferenceRow(NSString *title, NSTextField *detailLabel, NSView *control) {
+    NSTextField *label = [NSTextField labelWithString:title];
+    label.font = [NSFont systemFontOfSize:msime::mac::layout::kBodyFontSize weight:NSFontWeightRegular];
+    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:label];
+    if (detailLabel != nil) [views addObject:detailLabel];
+    [views addObject:control];
+    NSStackView *stack = [NSStackView stackViewWithViews:views];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.distribution = NSStackViewDistributionFill;
+    stack.spacing = 4.0;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    if (detailLabel != nil) [stack setCustomSpacing:8.0 afterView:detailLabel];
+    else [stack setCustomSpacing:8.0 afterView:label];
+    // The control spans the card; the label and the sentence keep their intrinsic width so a short title does not stretch into a full-width hit target.
+    [control.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+    [detailLabel ?: label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                                     forOrientation:NSLayoutConstraintOrientationHorizontal];
+    return stack;
+}
+
 /// A setting that takes effect the moment it is flipped, which is what AppKit puts a switch on.
 /// Checkboxes stay where they belong — the multiple-choice groups (fuzzy rules, toolbar
 /// components, extended input modes), where the boxes are peers of one another.

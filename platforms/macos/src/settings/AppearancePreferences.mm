@@ -3031,7 +3031,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     inputModeCard.accessibilityLabel = @"输入模式卡片";
     NSBox *appRuleCard = MSIMECardWithViews(@[
         MSIMEDetailLabel(@"这里的规则优先于「模式作用范围」和记忆：规则保存在本机，切换输入源或重新登录后仍然有效。没有规则的应用按记忆走，而记忆只存在于当前这次输入法进程里，切换到别的输入源就清空了。"),
-        [self settingRow:@"按应用指定输入模式" detailLabel:_appRuleStatusLabel control:appRuleControls aka:@[@"应用例外", @"白名单"]],
+        [self registerSearchRow:MSIMEStackedPreferenceRow(@"按应用指定输入模式", _appRuleStatusLabel, appRuleControls)
+                          named:@"按应用指定输入模式"
+                            aka:@[@"应用例外", @"白名单"]],
     ], 6.0);
     appRuleCard.accessibilityLabel = @"应用例外卡片";
 
@@ -3672,8 +3674,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         @"输入方案", @"输入习惯", @"按键", @"语音输入", @"候选窗口", @"皮肤", @"状态栏", @"词库", @"账号",
         @"帮助与反馈", @"关于",
     ];
+    // Nothing here may be one of the symbols SF Symbols localises into a word. 输入习惯 was textformat, which draws the letters "Aa" in English and the two characters 格式 in Chinese, so the row read 「格式 输入习惯」 — an icon column with prose in it.
     NSArray<NSString *> *navigationSymbols = @[
-        @"keyboard", @"textformat", @"command", @"mic", @"rectangle.on.rectangle", @"paintpalette",
+        @"keyboard", @"slider.horizontal.3", @"command", @"mic", @"rectangle.on.rectangle", @"paintpalette",
         @"ellipsis.rectangle", @"book", @"person.crop.circle", @"questionmark.circle", @"info.circle",
     ];
     _pageTitles = navigationLabels;
