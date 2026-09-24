@@ -1524,6 +1524,7 @@ int main(int argc, char **argv) {
     for (const auto &[providerError, notice] : std::vector<std::pair<std::string, std::string>>{
              {"voice_dependency_missing:websockets", "豆包语音需要 websockets 15 或更高版本，请安装 python3-websockets"},
              {"voice_dependency_missing:recorder", "未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils"},
+             {"voice_dependency_missing:local_asr", "本地语音识别组件无法加载，请重新安装输入法"},
              {"", "语音输入失败，请检查语音服务、麦克风及提供商配置后重试"}}) {
       const auto committedBeforeFailure = ic.committed;
       const auto error = providerError;

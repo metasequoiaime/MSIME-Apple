@@ -12,6 +12,7 @@ int main() {
             @"enabled": @NO, @"hotkey_rctrl_ralt": @YES,
             @"language": @"en-US", @"asr_provider": @"openai",
             @"asr_endpoint": @"https://example.invalid/asr", @"asr_model": @"fixture-model",
+            @"asr_model_path": @"/Users/fixture/Library/Application Support/app.msime/voice-models/x-asr-zh-en-streaming",
             @"asr_token": @"fixture-only", @"capture_backend": @"macos",
             @"capture_device": @"fixture-device",
             @"asr_app_key": @"fixture-app", @"asr_resource_id": @"fixture-resource",
@@ -32,6 +33,8 @@ int main() {
         assert([[defaults stringForKey:@"MSIMEClientVoiceCaptureDevice"] isEqual:@"fixture-device"]);
         assert([[defaults stringForKey:@"MSIMEClientVoiceASRProvider"] isEqual:@"openai"]);
         assert([[defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] isEqual:voice[@"asr_endpoint"]]);
+        // The model the settings page picks is what the IMK's local recognizer loads.
+        assert([[defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] isEqual:voice[@"asr_model_path"]]);
         assert([[defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] isEqual:@"three"]);
         assert([defaults boolForKey:@"MSIMEClientVoicePolish"]);
         assert([defaults boolForKey:@"MSIMEClientVoicePolishText"]);
@@ -40,6 +43,7 @@ int main() {
         NSDictionary *captured = MSIMEVoicePreferencesFromDefaults(defaults);
         assert([captured[@"asr_provider"] isEqual:@"openai"]);
         assert([captured[@"capture_backend"] isEqual:@"macos"]);
+        assert([captured[@"asr_model_path"] isEqual:voice[@"asr_model_path"]]);
         assert([captured[@"capture_device"] isEqual:@"fixture-device"]);
         assert([captured[@"hotkey_ctrl_win"] isEqual:@YES]);
         assert([captured[@"polish_prompt_custom_3"] isEqual:@"three"]);

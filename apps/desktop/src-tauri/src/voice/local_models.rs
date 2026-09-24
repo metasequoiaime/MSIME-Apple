@@ -190,6 +190,12 @@ pub(crate) async fn voice_local_model_install<R: tauri::Runtime>(
         .map_err(|error| HostActionError {
             code: local_model_error_code(&error),
         })?;
+    // On Linux the recording runs in the user's voice service, which on-device recognition needs even when no cloud credential was ever saved, the one other step that enables its socket. `msime-client-setup` enables it too; this covers a socket an earlier version disabled. Without a user service manager the model is installed all the same.
+    #[cfg(target_os = "linux")]
+    let _ = tauri::async_runtime::spawn_blocking(
+        crate::platform::linux::linux_provider_credentials::enable_voice_service,
+    )
+    .await;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -312,30 +318,34 @@ pub(crate) fn session_hotwords(dictionary: &DictionaryHostOptions) -> Vec<Hotwor
     }
 }
 
-/// Add `hotwords` to the provider options while the serialised options stay within `budget` bytes, heaviest first.
+/// Add `hotwords` to the provider options as the `voice_hotwords` option while the serialised options stay within `budget` bytes, heaviest first.
 ///
-/// The provider socket refuses a whole request over 16 KiB, and the options already carry up to 8 KiB of polishing prompt, so the list is cut to what fits rather than risking the recording. The provider can still ask `msime_client_voice_hotwords` for the full list itself.
+/// The provider takes only boolean and string options, so the words go the way the Linux IBus and Fcitx5 hosts send them: one `text<TAB>pinyin` line per word in a single string. The provider socket refuses a whole request over 16 KiB, and the options already carry up to 8 KiB of polishing prompt, so the list is cut to what fits rather than risking the recording. Words carrying a tab or a line break would break the packing and are skipped.
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 pub(crate) fn add_hotwords_within(options: &mut Value, hotwords: &[Hotword], budget: usize) {
     let Some(object) = options.as_object_mut() else {
         return;
     };
-    // `"hotwords":[]` plus the comma that joins it to the previous key.
+    // `"voice_hotwords":""` plus the comma that joins it to the previous key.
     let mut size = serde_json::to_string(&*object).map_or(usize::MAX, |text| text.len())
-        + r#","hotwords":[]"#.len();
-    let mut kept = Vec::new();
+        + r#","voice_hotwords":"""#.len();
+    let mut packed = String::new();
     for hotword in hotwords {
-        let Ok(value) = serde_json::to_value(hotword) else {
+        let breaks = |value: &str| value.contains(['\t', '\r', '\n']);
+        if hotword.text.is_empty() || breaks(&hotword.text) || breaks(&hotword.pinyin) {
             continue;
-        };
-        let added = value.to_string().len() + usize::from(!kept.is_empty());
+        }
+        let separator = if packed.is_empty() { "" } else { "\n" };
+        let line = format!("{separator}{}\t{}", hotword.text, hotword.pinyin);
+        // The line's encoded size inside a JSON string, without the quotes.
+        let added = serde_json::to_string(&line).map_or(usize::MAX, |text| text.len() - 2);
         if size.saturating_add(added) > budget {
             break;
         }
         size += added;
-        kept.push(value);
+        packed.push_str(&line);
     }
-    if !kept.is_empty() {
-        object.insert("hotwords".to_owned(), Value::Array(kept));
+    if !packed.is_empty() {
+        object.insert("voice_hotwords".to_owned(), Value::String(packed));
     }
 }

@@ -206,14 +206,48 @@ fn desktop_local_sessions_forward_the_model_path_and_hotwords_that_fit() {
         &hotwords,
         crate::voice::PROVIDER_OPTIONS_BUDGET,
     );
-    let kept = options["hotwords"].as_array().unwrap();
-    assert!(!kept.is_empty() && kept.len() < hotwords.len());
-    assert_eq!(kept[0], json!({"text": "词0", "pinyin": "ci"}));
+    // The provider accepts only boolean and string options, so the words travel as the `text<TAB>pinyin` lines the Linux hosts send.
+    assert!(options.get("hotwords").is_none());
+    assert!(options
+        .as_object()
+        .unwrap()
+        .values()
+        .all(|value| value.is_string() || value.is_boolean()));
+    let packed = options["voice_hotwords"].as_str().unwrap();
+    let lines: Vec<&str> = packed.split('\n').collect();
+    assert!(!lines.is_empty() && lines.len() < hotwords.len());
+    assert_eq!(lines[0], "词0\tci");
+    assert_eq!(lines[1], "词1\tci");
     assert!(options.to_string().len() <= crate::voice::PROVIDER_OPTIONS_BUDGET);
+    // One more word would not have fitted.
+    let next = format!("\\n词{}\\tci", lines.len());
+    assert!(options.to_string().len() + next.len() > crate::voice::PROVIDER_OPTIONS_BUDGET);
 
     let mut full = json!({"asr_provider": "local"});
     local_models::add_hotwords_within(&mut full, &[], 100);
-    assert!(full.get("hotwords").is_none());
+    assert!(full.get("voice_hotwords").is_none());
+
+    // A word that would break the line packing is skipped, not sent torn.
+    let mut skipped = json!({"asr_provider": "local"});
+    local_models::add_hotwords_within(
+        &mut skipped,
+        &[
+            msime_client_core::voice::hotwords::Hotword {
+                text: "水\n杉".into(),
+                pinyin: "shui shan".into(),
+            },
+            msime_client_core::voice::hotwords::Hotword {
+                text: "水杉".into(),
+                pinyin: "shui\tshan".into(),
+            },
+            msime_client_core::voice::hotwords::Hotword {
+                text: "输入法".into(),
+                pinyin: "shu ru fa".into(),
+            },
+        ],
+        crate::voice::PROVIDER_OPTIONS_BUDGET,
+    );
+    assert_eq!(skipped["voice_hotwords"], "输入法\tshu ru fa");
 
     for path in ["", "/models/\nx"] {
         let document = json!({"preferences": {"voice_input": {"asr_model_path": path}}});

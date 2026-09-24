@@ -122,7 +122,7 @@ Fcitx5 对同一组流式语音设置采用同样语义：豆包流式识别且 
 
 Fcitx5 宿主复用同一套 X11/Wayland 原生浮层和取消、结束按钮；没有可用的显示后端、浮层无法显示（例如 GNOME Wayland 没有 `wlr-layer-shell`）或 `MSIME_WAVE_OVERLAY_BACKEND=ibus`（也接受 `auxiliary`）时，实时状态回退到 Fcitx5 输入面板上方的辅助文字。浮层显示失败后本次录音都走辅助文字，下次录音再尝试浮层，与 IBus 的回退一致。Fcitx5 的浮层同样不请求键盘焦点，完成、取消、异常和焦点关闭都会清理浮层。
 
-语音失败时两个宿主都会告诉用户，对应 Windows 语音服务弹出的提示框：浮层（没有浮层时是辅助栏）显示固定的一句话约 1.2 秒，分别说明未识别到文字、语音服务或提供商出错、结束录音被拒（本次语音随之取消）以及没有配置语音服务；语音服务报告缺少 websockets 或录音工具时改为说明该装什么，因为重新录音无法解决。语音服务没有给出结果（包括无法连接或返回失败）算作服务出错，不会提示未识别到文字。文字是固定的，不透传 provider 的错误信息，以免其中带出凭据等私人内容；流式 C ABI 只在 `detail` 是 `websockets` 或 `recorder` 时以 `voice_dependency_missing:<detail>` 错误返回，其他失败仍返回空值。Fcitx5 此前在这些情况下只是收起浮层，看上去像按键没有反应。Fcitx5 浮层也和 IBus 一样区分「识别中」与「整理中」两种收尾状态，并在按住空格锁定录音时显示锁定标记。
+语音失败时两个宿主都会告诉用户，对应 Windows 语音服务弹出的提示框：浮层（没有浮层时是辅助栏）显示固定的一句话约 1.2 秒，分别说明未识别到文字、语音服务或提供商出错、结束录音被拒（本次语音随之取消）以及没有配置语音服务；语音服务报告缺少 websockets 或录音工具时改为说明该装什么，报告本地识别组件（`msime-voice-local` 或 sherpa-onnx 运行时）缺失时提示“本地语音识别组件无法加载，请重新安装输入法”，因为重新录音无法解决。语音服务没有给出结果（包括无法连接或返回失败）算作服务出错，不会提示未识别到文字。文字是固定的，不透传 provider 的错误信息，以免其中带出凭据等私人内容；流式 C ABI 只在 `detail` 是 `websockets`、`recorder` 或 `local_asr` 时以 `voice_dependency_missing:<detail>` 错误返回，其他失败仍返回空值。Fcitx5 此前在这些情况下只是收起浮层，看上去像按键没有反应。Fcitx5 浮层也和 IBus 一样区分「识别中」与「整理中」两种收尾状态，并在按住空格锁定录音时显示锁定标记。
 
 两个宿主向 provider 转发的语音选项由共享的 `src/voice/VoiceProviderOptions.h` 生成，不再各维护一份：Fcitx5 以前那份漏掉了提示词，选了自定义润色方案的用户在这里得到的其实是默认的整理提示词。设置页提示词框里的文字（内置方案被就地修改后的全文，或所选自定义槽位的内容）以 `polish_prompt` 转发，provider 只要它非空就用它润色，与 Windows 的 `ResolvePolishSystemPrompt` 一致；此前在 Linux 上改内置方案的提示词不起作用。超过 8 KiB 的提示词直接拒绝，不截断，以免被截断的指令改变润色的意思。
 
@@ -435,7 +435,7 @@ Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windo
 
 `asr_provider` 为 `local` 时不读取任何凭据，也不联网：服务为录音启动随包安装的 `msime-voice-local`（与 `libmsime_host_api.so` 同在 `msime-client` 库目录），按行交换 JSON，把录音按 100ms 一段交给它，并把它返回的中间转写作为 partial 事件转发。`asr_model_path` 选项给出设置页下载的模型目录，目录中必须有普通文件 `msime-model.json`（不跟随符号链接，最大 1 MiB）；路径必须是不超过 4096 字节的绝对目录，否则该次请求返回 `ok:false`，服务不启动 helper。识别器由 `libsherpa-onnx-c-api.so` 与 `libonnxruntime.so` 提供，二者装在 helper 旁边，helper 先从自己所在目录加载它们；缺少 helper 或运行时时请求在录音前返回 `{"ok":false,"error":"voice_dependency_missing","detail":"local_asr"}`，服务照常为其他请求运行，设置页的「测试」同样检查模型与组件。服务在两次录音之间保留一个空闲 helper，使模型不必每次重新加载；helper 空闲 600 秒自行退出，服务在 540 秒后不再复用它，异常退出或未确认取消的 helper 不会复用。离线模型在录音结束后才完成解码，首次录音还需加载模型，因此最终结果最多等待 120 秒。开发时可用 `MSIME_VOICE_LOCAL_HELPER=/absolute/msime-voice-local` 指向构建目录中的 helper。
 
-用户词库中的词作为热词：IBus 与 Fcitx5 宿主在语音工作线程上调用 `msime_client_voice_hotwords`（语音 provider 拿不到词库路径和偏好，无法自己构造 HostOptions），把结果按每行 `词\t拼音` 放进 `voice_hotwords` 选项并限制整条查询不超过 15872 字节。服务把词交给 helper；模型清单声明 `"hotwords":"pinyin"`（模型不支持热词偏置）时，改为在最终转写上通过已安装的 `libmsime_host_api.so` 调用 `msime_client_voice_hotword_correct` 做拼音纠正，中间转写不纠正。本地识别仍可按 `polish` 配置润色。
+用户词库中的词作为热词：IBus 与 Fcitx5 宿主在语音工作线程上调用 `msime_client_voice_hotwords`（语音 provider 拿不到词库路径和偏好，无法自己构造 HostOptions），把结果按每行 `词\t拼音` 放进 `voice_hotwords` 选项并限制整条查询不超过 15872 字节；设置页（Tauri 面板）发起的本地录音用同一个选项，读取设置页编辑的词库，选项总长不超过 15872 字节，`asr_model_path` 不像其他名称类选项那样截断到 512 字节。服务把词交给 helper；模型清单声明 `"hotwords":"pinyin"`（模型不支持热词偏置）时，改为在最终转写上通过已安装的 `libmsime_host_api.so` 调用 `msime_client_voice_hotword_correct` 做拼音纠正，中间转写不纠正。本地识别仍可按 `polish` 配置润色。
 
 打包时 `package-container.sh` 用 `scripts/fetch_voice_runtime.py` 下载并校验对应架构的 sherpa-onnx 与 ONNX Runtime 共享库，以 `-DMSIME_VOICE_RUNTIME_DIR` 传给 CMake；生成安装包而不提供该目录时配置失败。
 
@@ -469,7 +469,7 @@ IBus 在可输入的焦点会话中监听历史文件所在目录，外部工具
 
 `ai-provider.json` 和 `tencent-provider.json` 不必手写：设置页「AI 辅助」和「输入 → 在线翻译服务」里的凭据输入框会由 Tauri 宿主直接写入这两个文件（目录 0700、文件 0600、先写临时文件再 rename），AI 凭据按服务商存到 `profiles` 下并绑定当时的接口地址和模型。凭据只从设置页流向宿主进程，设置页只能读到哪些服务商已有凭据及其绑定的接口和模型。已存在但不合规的文件（权限过宽、符号链接、JSON 无效）不会被覆盖，设置页会提示修复或删除。
 
-`voice-provider.json` 同样可以在设置页「语音输入」里写入：识别和润色各有一组凭据输入框，按上方选中的服务商、模型、接口地址（豆包还有资源 ID、鉴权方式和旧式鉴权的 App Key）写进 provider 要求的 `asr`/`polish` 与 `asr_profiles`/`polish_profiles` 布局。语音 provider 没有 ASR 配置就拒绝启动，所以只有润色凭据的文件不会被写出；首次保存识别凭据后宿主执行 `systemctl --user enable --now msime-client-voice.socket`（并先 `reset-failed` 之前因缺配置而失败的服务），清除最后一个识别凭据时删除文件并停用 socket。用户服务管理器不可达时文件照常保存，设置页给出需要手动执行的命令。豆包识别凭据上方与 Windows 一样提供「流式接口」选择：整句流式（`bigmodel_nostream`）或双向流式（`bigmodel_async`），选中后写入凭据的接口地址；地址留空时 provider 默认使用双向流式。
+`voice-provider.json` 同样可以在设置页「语音输入」里写入：识别和润色各有一组凭据输入框，按上方选中的服务商、模型、接口地址（豆包还有资源 ID、鉴权方式和旧式鉴权的 App Key）写进 provider 要求的 `asr`/`polish` 与 `asr_profiles`/`polish_profiles` 布局。语音 provider 没有该文件也能启动，本地识别（`local`）不读取任何凭据，所以识别与润色凭据都可以单独保存：只用本地模型并开启润色时文件里只有 `polish`，手写的 `{"provider": "local"}` 识别条目也会原样保留。每次保存凭据后宿主执行 `systemctl --user enable --now msime-client-voice.socket`（并先 `reset-failed` 之前失败的服务），在设置页下载本地模型后同样执行一次，因此选择「本地模型（离线）」并选用已下载的模型即可使用，不需要任何云端凭据。清除凭据只改文件，清除最后一个凭据时删除文件，但不停用 socket，本地识别仍然可用。用户服务管理器不可达时文件照常保存，设置页给出需要手动执行的命令。豆包识别凭据上方与 Windows 一样提供「流式接口」选择：整句流式（`bigmodel_nostream`）或双向流式（`bigmodel_async`），选中后写入凭据的接口地址；地址留空时 provider 默认使用双向流式。
 
 随包在线服务启动器通过 `--config-directory` 固定配置目录，即使启动时尚无 `ai-provider.json` 或 `tencent-provider.json`，后续创建或修复文件也会在下次请求生效，无需重启服务。目录模式下缺失、损坏或权限不合规的配置只会停用相应功能；每次请求仍执行 owner-only 文件校验。手动传入 `--ai-config` 或 `--tencent-config` 时保留原有启动校验，并优先于配置目录中的默认文件。
 
