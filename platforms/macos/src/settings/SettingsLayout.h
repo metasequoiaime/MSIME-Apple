@@ -58,10 +58,29 @@ static inline BOOL MSIMESettingsWindowHasSavedFrame(void) {
     return [NSUserDefaults.standardUserDefaults objectForKey:key] != nil;
 }
 
-/// A card is a group of rows lifted off the page. In dark mode controlBackgroundColor is darker
-/// than the window behind it, so a card painted with it reads as a groove cut into the page —
-/// exactly the opposite of what the grouping means. Aqua already has the two colours the right way
-/// round, so only the dark side needs the lift mixed in.
+/// The page the cards sit on. It is the page that has to move, not only the card: measured on
+/// macOS 27.0, controlBackgroundColor and windowBackgroundColor resolve to the same grey in both
+/// appearances — 1.000 in Aqua, 0.118 in Dark Aqua — so a card painted with either is invisible
+/// against the window it is on. underPageBackgroundColor is the one system grey that sits
+/// apart from the window, but it sits on opposite sides of it in the two appearances (0.965 under a
+/// white Aqua window, 0.157 over a 0.118 Dark Aqua one), so only Aqua can take it: there the page
+/// drops away from the card, which is the direction it has to go, since nothing can be lighter than
+/// an Aqua window that is already pure white. Dark Aqua keeps the window colour here and lets the
+/// card carry the lift instead.
+static inline NSColor *MSIMESettingsSurfaceColor(void) {
+    return [NSColor colorWithName:@"MSIMESettingsSurface" dynamicProvider:^NSColor *(NSAppearance *appearance) {
+        NSAppearanceName match =
+            [appearance bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+        return [match isEqualToString:NSAppearanceNameDarkAqua] ? NSColor.windowBackgroundColor
+                                                                : NSColor.underPageBackgroundColor;
+    }];
+}
+
+/// A card is a group of rows lifted off the page it is drawn on — see MSIMESettingsSurfaceColor()
+/// for which grey that page is in each appearance. In Aqua the card takes controlBackgroundColor,
+/// pure white above the 0.965 page. In Dark Aqua the page is the window colour and the card is that
+/// colour mixed a tenth of the way towards white, because controlBackgroundColor there is the same
+/// grey as the window and would leave the card with no edge at all.
 static inline NSColor *MSIMECardFillColor(void) {
     return [NSColor colorWithName:@"MSIMESettingsCardFill" dynamicProvider:^NSColor *(NSAppearance *appearance) {
         NSAppearanceName match =
@@ -81,11 +100,12 @@ static inline NSColor *MSIMECardFillColor(void) {
 static inline void MSIMEConfigureCard(NSBox *card) {
     card.boxType = NSBoxCustom;
     card.titlePosition = NSNoTitle;
-    // The fill carries the grouping; a stroke around it as well is the hairline box AppKit stopped
-    // drawing around grouped rows years ago.
+    // The difference between the card's fill and the page's carries the grouping, so there is no
+    // border: a stroke around it as well is the hairline box AppKit stopped drawing around grouped
+    // rows years ago. borderColor goes with borderWidth — a colour for a stroke that is never drawn
+    // is the next reader's five minutes.
     card.borderWidth = 0.0;
     card.cornerRadius = msime::mac::layout::kCardRadius;
-    card.borderColor = [NSColor separatorColor];
     card.fillColor = MSIMECardFillColor();
     card.translatesAutoresizingMaskIntoConstraints = NO;
 }

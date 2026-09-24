@@ -209,8 +209,7 @@ constexpr NSInteger kAccountPageIndex = 8;
 constexpr NSInteger kSkinPageIndex = 2;
 /// The voice form is also reachable from the input method's toolbar, so the page reloads on entry.
 constexpr NSInteger kVoicePageIndex = 11;
-/// 记住上次停留的页用的是页的名字而不是下标：侧栏顺序会随版本改，一个存下来的下标在下个版本里指向的
-/// 是另一页，而名字要么认得要么认不得，认不得就回到第一页。
+/// The page the window was last left on, remembered by name rather than by index: the order of the sidebar changes from version to version, so a stored index points at a different page in the next one, whereas a stored name is either a page this version has or it is not — and if it is not, the window opens on the first page.
 NSString *const LastSettingsPageKey = @"MSIMEClientSettingsLastPage";
 }  // namespace
 
@@ -240,38 +239,36 @@ static NSToolbarItemIdentifier const MSIMESettingsSearchItemIdentifier = @"MSIME
 static NSToolbarItemIdentifier const MSIMESettingsSeparatorItemIdentifier = @"MSIMESettingsSidebarSeparator";
 static NSToolbarItemIdentifier const MSIMESettingsMoreItemIdentifier = @"MSIMESettingsMoreItem";
 
-/// ⌘F reaches the search field from anywhere in the window, the way it does in Finder and in System
-/// Settings. It used to be a `performKeyEquivalent:` override on the window's own content view,
-/// which is a key equivalent no menu knows about: nothing discoverable said the window could be
-/// searched, and the shortcut was invisible to anyone who had not read the source. The search field
-/// lives in the toolbar now, so the shortcut belongs where every other Mac puts it.
-static void MSIMEInstallFindSettingsMenuItem(id target, SEL action) {
-    NSMenu *mainMenu = NSApp.mainMenu;
-    if (mainMenu == nil) {
-        mainMenu = [[NSMenu alloc] initWithTitle:@""];
-        // AppKit draws the first submenu of the main menu as the application menu whatever its
-        // title is, so 编辑 cannot be the first one: its items would come out under the app's name.
-        NSMenuItem *application = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
-        application.submenu = [[NSMenu alloc] initWithTitle:NSProcessInfo.processInfo.processName];
-        [mainMenu addItem:application];
-        NSApp.mainMenu = mainMenu;
-    }
-    NSMenu *edit = nil;
-    for (NSMenuItem *item in mainMenu.itemArray)
-        if ([item.submenu.title isEqualToString:@"编辑"]) { edit = item.submenu; break; }
-    if (edit == nil) {
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"编辑" action:nil keyEquivalent:@""];
-        item.submenu = [[NSMenu alloc] initWithTitle:@"编辑"];
-        [mainMenu addItem:item];
-        edit = item.submenu;
-    }
-    for (NSMenuItem *item in edit.itemArray)
-        if (item.action == action) { item.target = target; return; }
-    NSMenuItem *find = [[NSMenuItem alloc] initWithTitle:@"查找设置" action:action keyEquivalent:@"f"];
-    find.keyEquivalentModifierMask = NSEventModifierFlagCommand;
-    find.target = target;
-    [edit addItem:find];
+/// The detail half of the split view: the page surface the cards are drawn on, and the one place in
+/// the window that answers ⌘F.
+///
+/// The surface is drawn rather than left to the window because the cards need a page to be lifted
+/// off and AppKit gives the two halves of the window the same grey — MSIMESettingsSurfaceColor() has
+/// the measurements. Drawing it here rather than under the whole window also keeps the sidebar on
+/// the system sidebar material the split view item gives it.
+///
+/// ⌘F is the window's, not the process's. It used to be registered as 编辑 ▸ 查找设置 in
+/// `NSApp.mainMenu`, which is a menu bar this process does not draw — Info.plist.in sets
+/// LSBackgroundOnly — and a key equivalent that fires wherever the app happens to be, including
+/// while the dictionary window is key. A key equivalent handled inside the window fires only for
+/// the window it belongs to.
+@interface MSIMESettingsDetailView : NSView
+@property(nonatomic, weak) id searchTarget;
+@property(nonatomic) SEL searchAction;
+@end
+@implementation MSIMESettingsDetailView
+- (void)drawRect:(NSRect)rect {
+    [MSIMESettingsSurfaceColor() setFill];
+    NSRectFill(rect);
 }
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    const NSEventModifierFlags flags = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+    if (flags == NSEventModifierFlagCommand && [event.charactersIgnoringModifiers isEqualToString:@"f"] &&
+        self.searchTarget != nil && self.searchAction != nullptr)
+        return [NSApp sendAction:self.searchAction to:self.searchTarget from:self];
+    return [super performKeyEquivalent:event];
+}
+@end
 
 /// A scheme choice: the radio on the left, its scheme-specific popup trailing and disabled until
 /// that scheme is the selected one.
@@ -375,12 +372,19 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSArray<NSString *> *_pageTitles;
     NSArray<NSString *> *_pageIdentifiers;
     NSSplitViewController *_splitViewController;
+    NSSplitViewItem *_sidebarSplitItem;
     NSOutlineView *_sidebarOutline;
     NSScrollView *_sidebarScroll;
     NSArray<MSIMESettingsSidebarItem *> *_sidebarGroups;
     /// Selecting a row shows a page, and showing a page selects its row; without this the second
     /// half of that pair would answer the first.
     BOOL _updatingSidebarSelection;
+    /// Whether a search is what opened the sidebar, so that clearing the field gives the user back
+    /// the collapsed sidebar they had rather than keeping one they never asked for.
+    BOOL _sidebarOpenedForSearch;
+    /// Whether the window has been on screen. A page's entry work is owed to a user looking at it,
+    /// and the page restored inside -loadWindow is not one yet.
+    BOOL _windowHasAppeared;
     NSSearchToolbarItem *_searchToolbarItem;
     NSSearchField *_searchField;
     NSScrollView *_searchResultsScroll;
@@ -2514,7 +2518,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // out of the view hierarchy, and the tests walk hidden pages to find the control they are about
     // (platforms/macos/tests/settings/PreferenceViewLookup.h).
     NSViewController *detailController = [[NSViewController alloc] init];
-    NSView *pageContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 600, 520)];
+    MSIMESettingsDetailView *pageContainer =
+        [[MSIMESettingsDetailView alloc] initWithFrame:NSMakeRect(0, 0, 600, 520)];
+    pageContainer.searchTarget = self;
+    pageContainer.searchAction = @selector(beginSettingsSearch:);
     detailController.view = pageContainer;
     for (NSView *page in _preferencePages) {
         [pageContainer addSubview:page];
@@ -2529,16 +2536,19 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     }
 
     _splitViewController = [[NSSplitViewController alloc] init];
-    NSSplitViewItem *sidebarItem = [NSSplitViewItem sidebarWithViewController:sidebarController];
-    sidebarItem.allowsFullHeightLayout = YES;
-    sidebarItem.canCollapse = YES;
-    sidebarItem.minimumThickness = kSidebarWidth;
-    sidebarItem.maximumThickness = kSidebarMaxWidth;
+    // Held on to rather than left to the split view controller's array: a search performed while
+    // the sidebar is collapsed has to open it, and asking the controller for "the sidebar one"
+    // every time is a lookup by position of something this window already knows by name.
+    _sidebarSplitItem = [NSSplitViewItem sidebarWithViewController:sidebarController];
+    _sidebarSplitItem.allowsFullHeightLayout = YES;
+    _sidebarSplitItem.canCollapse = YES;
+    _sidebarSplitItem.minimumThickness = kSidebarWidth;
+    _sidebarSplitItem.maximumThickness = kSidebarMaxWidth;
     NSSplitViewItem *detailItem = [NSSplitViewItem splitViewItemWithViewController:detailController];
     // The page scrolls under the toolbar, so the line under the titlebar is the system's to draw
     // and to take away again — the cards used to run off the top of the window with nothing there.
     detailItem.titlebarSeparatorStyle = NSTitlebarSeparatorStyleAutomatic;
-    [_splitViewController addSplitViewItem:sidebarItem];
+    [_splitViewController addSplitViewItem:_sidebarSplitItem];
     [_splitViewController addSplitViewItem:detailItem];
     _splitViewController.splitView.autosaveName = @"MSIMESettingsSplit";
     window.contentViewController = _splitViewController;
@@ -2563,7 +2573,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     toolbar.displayMode = NSToolbarDisplayModeIconOnly;
     window.toolbar = toolbar;
     window.toolbarStyle = NSWindowToolbarStyleUnified;
-    MSIMEInstallFindSettingsMenuItem(self, @selector(beginSettingsSearch:));
     self.window = window;
     // The account pane is a foreign view attached to this window; closing the window from its own
     // close button has to detach it the way the removed Close button used to.
@@ -2571,8 +2580,15 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
                                            selector:@selector(preferencesWindowWillClose:)
                                                name:NSWindowWillCloseNotification
                                              object:window];
+    // What a page does on entry is owed to the user walking into it, not to the window being built;
+    // see -performPageEntrySideEffects. The window is not on screen yet, so the first notification
+    // that it is releases the work the restored page below has deferred.
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(preferencesWindowDidBecomeKey:)
+                                               name:NSWindowDidBecomeKeyNotification
+                                             object:window];
     [self buildSearchIndex];
-    // 设置窗口不是每次都从头看一遍的向导，上次停在哪一页，下次就该从哪一页接着看。
+    // A settings window is not a wizard to be read front to back, so it opens on the page it was left on rather than on the first one.
     const NSInteger rememberedPage = [self pageIndexForIdentifier:[_defaults stringForKey:LastSettingsPageKey]];
     const NSInteger initialPage = rememberedPage < 0 ? 0 : rememberedPage;
     [self showPreferencesPageAtIndex:initialPage navigationIndex:initialPage];
@@ -2586,7 +2602,17 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)preferencesWindowWillClose:(NSNotification *)notification {
     (void)notification;
+    _windowHasAppeared = NO;
     if (MSIMEAccountPaneClose != nullptr) MSIMEAccountPaneClose();
+}
+/// The window is on screen, so the page in front of the user is one they are actually looking at
+/// and the work it owes them is due. Every later page change runs it directly; this is only how the
+/// page restored while the window was being built gets its turn.
+- (void)preferencesWindowDidBecomeKey:(NSNotification *)notification {
+    (void)notification;
+    if (_windowHasAppeared) return;
+    _windowHasAppeared = YES;
+    [self performPageEntrySideEffects];
 }
 
 /// Walks the built pages once and records every label and checkbox title as something the search
@@ -2634,6 +2660,14 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 /// A query replaces the navigation with its matches rather than dropping a menu over the sidebar:
 /// a menu takes key focus, so the next keystroke would go to the menu instead of the field.
+///
+/// The results live in the sidebar, and the sidebar collapses — the toolbar has a button for it and
+/// the split view remembers the choice — so a query typed with the sidebar shut would build its
+/// results somewhere the user cannot see or reach. The search opens the sidebar for as long as
+/// there is something in the field. Opening it is the smaller change of the two on offer: the
+/// results are navigation and the sidebar is where this window's navigation is, whereas a results
+/// list somewhere else would be a second place to look for the same thing depending on a state the
+/// user cannot see from the field they are typing in.
 - (void)searchChanged:(NSSearchField *)sender {
     for (NSView *result in [_searchResultsStack.arrangedSubviews copy]) [result removeFromSuperview];
     NSString *query = [sender.stringValue
@@ -2641,7 +2675,15 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     if (query.length == 0) {
         _searchResultsScroll.hidden = YES;
         _sidebarScroll.hidden = NO;
+        if (_sidebarOpenedForSearch) {
+            _sidebarOpenedForSearch = NO;
+            _sidebarSplitItem.collapsed = YES;
+        }
         return;
+    }
+    if (_sidebarSplitItem.collapsed) {
+        _sidebarOpenedForSearch = YES;
+        _sidebarSplitItem.collapsed = NO;
     }
     _sidebarScroll.hidden = YES;
     _searchResultsScroll.hidden = NO;
@@ -2828,8 +2870,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _selectedPageIndex = pageIndex;
     if (pageIndex >= 0 && pageIndex < (NSInteger)_pageIdentifiers.count)
         [_defaults setObject:_pageIdentifiers[pageIndex] forKey:LastSettingsPageKey];
-    if (pageIndex == kSkinPageIndex) [self ensureSkinSettingsView];
-    if (pageIndex == kVoicePageIndex) [_voiceSettingsView reloadSettings];
     for (NSInteger index = 0; index < (NSInteger)_preferencePages.count; ++index)
         _preferencePages[index].hidden = index != pageIndex;
     [self selectSidebarRowForPageAtIndex:navigationIndex];
@@ -2837,7 +2877,22 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // this window has never used it for.
     if (navigationIndex >= 0 && navigationIndex < (NSInteger)_pageTitles.count)
         [super window].title = _pageTitles[navigationIndex];
-    if (pageIndex == kAccountPageIndex && MSIMEAccountPaneAttach != nullptr)
+    [self performPageEntrySideEffects];
+}
+/// The three pages that do something when they are entered: the skin browser builds itself and
+/// renders a live candidate preview per built-in skin, the voice form re-reads its provider
+/// settings, and the account page attaches a view owned by the Swift backend that every other page
+/// has to detach again.
+///
+/// None of it is owed to a page that is merely selected. The window opens on the page it was left
+/// on, and doing this work while the window is still being built means a launch that lands on 皮肤
+/// pays for thirteen rendered previews before anything is on screen. So it waits for the window to
+/// appear, and -preferencesWindowDidBecomeKey: is what lets it through.
+- (void)performPageEntrySideEffects {
+    if (!_windowHasAppeared) return;
+    if (_selectedPageIndex == kSkinPageIndex) [self ensureSkinSettingsView];
+    if (_selectedPageIndex == kVoicePageIndex) [_voiceSettingsView reloadSettings];
+    if (_selectedPageIndex == kAccountPageIndex && MSIMEAccountPaneAttach != nullptr)
         MSIMEAccountPaneAttach(self.window);
     else if (MSIMEAccountPaneClose != nullptr)
         MSIMEAccountPaneClose();
@@ -2882,8 +2937,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     (void)outlineView;
     return [(MSIMESettingsSidebarItem *)item children].count == 0;
 }
-/// The four groups are the window's structure, not something to fold away: collapsing 显示 would
-/// hide three of the eleven pages behind a triangle nothing else in the window mentions.
+/// The four groups — 输入, 外观, 数据, 支持 — are the window's structure, not something to fold away:
+/// collapsing 输入 would hide five of the thirteen pages behind a triangle nothing else in the
+/// window mentions.
 - (BOOL)outlineView:(NSOutlineView *)outlineView shouldCollapseItem:(id)item {
     (void)outlineView;
     (void)item;
@@ -2937,6 +2993,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         }
     }
     cell.textField.stringValue = entry.title;
+    // Named explicitly rather than left to be inferred from the text field: the cell is a container
+    // with an image in it as well, and the row is what VoiceOver and the tests address.
+    cell.accessibilityLabel = entry.title;
     cell.imageView.image = entry.symbolName.length > 0
         ? [NSImage imageWithSystemSymbolName:entry.symbolName accessibilityDescription:nil]
         : nil;
@@ -2999,8 +3058,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     }
     return nil;
 }
-/// ⌘F and the toolbar's own field are the same interaction, so the menu item asks the item to begin
-/// it rather than reaching for the field and making it first responder behind the item's back.
+/// ⌘F and clicking the toolbar's own field are the same interaction, so the key equivalent asks the
+/// toolbar item to begin it rather than reaching for the field and making it first responder behind
+/// the item's back. MSIMESettingsDetailView is where the key equivalent is caught.
 - (void)beginSettingsSearch:(id)sender {
     (void)sender;
     [_searchToolbarItem beginSearchInteraction];
@@ -3122,9 +3182,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [self refreshControls];
     [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
 }
-/// The whole window at once, from the toolbar's ⋯ menu. Per-section restore — the one a user
-/// actually reaches for — is the section label's own affair and is not built yet, so this is
-/// deliberately the blunt instrument and says so.
+/// Every page at once, from the toolbar's ⋯ menu. It is the only restore the window offers, which
+/// is why the alert spells out how much it takes: nothing here puts one page or one card back
+/// without taking the rest with it.
 - (void)restoreAllDefaults:(id)sender {
     (void)sender;
     NSAlert *alert = [NSAlert new];
