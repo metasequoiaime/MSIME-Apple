@@ -1,14 +1,19 @@
 package app.msime.client;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /** Validates and presents the one-or-two language candidate gloss configuration. */
 public final class CandidateTranslationPolicy {
     private static final Set<String> SUPPORTED = Set.of("en", "fr", "ja", "es", "ru", "de", "ko");
+    /** Targets with an offline dictionary format; mirrors OFFLINE_GLOSS_LANGUAGES in crates/host-api. */
+    public static final Set<String> OFFLINE_GLOSS_LANGUAGES = Set.of("fr", "ja", "es", "ru", "de", "ko");
 
     private CandidateTranslationPolicy() {}
 
@@ -53,14 +58,44 @@ public final class CandidateTranslationPolicy {
         return candidateTranslations && translationAccount && !niutransEnabled && !customEnabled;
     }
 
-    /** Count rows that can actually be filled by the enabled offline/online paths. */
-    public static int glossLines(List<String> targets, boolean offlineEnglish, boolean online) {
+    /** Count rows that can actually be filled by the enabled offline/online paths. The offline switch covers English and every target in {@code offlineTargets}. */
+    public static int glossLines(List<String> targets, boolean offline, boolean online,
+            Collection<String> offlineTargets) {
         if (targets == null || targets.isEmpty()) return 0;
         int lines = 0;
         for (String target : targets) {
-            if (online || (offlineEnglish && "en".equals(normalize(target)))) lines++;
+            String code = normalize(target);
+            if (online || (offline && ("en".equals(code)
+                    || (offlineTargets != null && offlineTargets.contains(code))))) lines++;
         }
         return lines;
+    }
+
+    /** The non-English targets whose dictionary is installed in the {@code offline-glosses} directory beside {@code resources}, in target order. */
+    public static List<String> offlineTargets(List<String> targets, String resources) {
+        if (targets == null || resources == null || resources.isEmpty()) return List.of();
+        File parent = new File(resources).getParentFile();
+        if (parent == null) return List.of();
+        ArrayList<String> result = new ArrayList<>(2);
+        for (String target : targets) {
+            String code = normalize(target);
+            if (OFFLINE_GLOSS_LANGUAGES.contains(code)
+                    && new File(parent, "offline-glosses/zh-" + code + ".db").isFile()) result.add(code);
+        }
+        return List.copyOf(result);
+    }
+
+    /** One candidate's rows in target order: the offline gloss for a target first, the account translation where there is none. */
+    public static String mergeGlosses(List<String> targets, Map<String, String> offline,
+            Map<String, String> online) {
+        if (targets == null) return "";
+        ArrayList<String> glosses = new ArrayList<>(2);
+        for (String target : targets) {
+            String gloss = offline == null ? null : offline.get(target);
+            if (gloss == null || gloss.isEmpty()) gloss = online == null ? null : online.get(target);
+            if (gloss != null && !gloss.isEmpty()) glosses.add(gloss);
+        }
+        return joinGlosses(glosses);
     }
 
     /** Number of rows needed by one rendered candidate label, based on actual annotation text. */

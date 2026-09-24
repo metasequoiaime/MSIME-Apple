@@ -14,7 +14,7 @@ import java.nio.file.StandardOpenOption;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** First-install preparation only. Existing configurations are never upgraded in place. */
+/** First-install preparation only. Existing configurations are never upgraded in place; only the optional offline glosses follow the installed package. */
 public final class Bootstrap {
     private Bootstrap() {}
     public static boolean prepare(Context context) throws Exception {
@@ -22,6 +22,7 @@ public final class Bootstrap {
         try (FileChannel channel = FileChannel.open(new File(root, "bootstrap.lock").toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
              FileLock lock = channel.lock()) {
             if (!lock.isValid()) throw new IllegalStateException("Bootstrap lock unavailable");
+            installOfflineGlosses(context, new File(root, "bootstrap/offline-glosses"));
             File configuration = new File(root, "runtime-options.json");
             if (configuration.exists()) return false;
             File resources = new File(root, "bootstrap/resources");
@@ -62,5 +63,41 @@ public final class Bootstrap {
             }
             return true;
         }
+    }
+
+    /**
+     * Non-English candidate glosses (scripts/build_offline_glosses.py), extracted beside the resources where the Engine looks for one zh-&lt;lang&gt;.db per target language.
+     *
+     * <p>Unlike the dictionary they are not part of the verified configuration, so they follow the installed package: an update replaces them, and a package built without them removes any an earlier one left. A failure leaves the keyboard glossing in English only, never without an Engine.
+     */
+    private static void installOfflineGlosses(Context context, File destination) {
+        try {
+            String stamp = Long.toString(context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
+            File marker = new File(destination, ".package");
+            if (marker.isFile() && stamp.equals(new String(Files.readAllBytes(marker.toPath()), StandardCharsets.UTF_8))) return;
+            File staging = new File(destination.getParentFile(), "offline-glosses.staging");
+            deleteTree(staging);
+            Files.createDirectories(staging.toPath());
+            String[] names = context.getAssets().list("offline-glosses");
+            for (String name : names == null ? new String[0] : names) {
+                if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+                try (InputStream input = context.getAssets().open("offline-glosses/" + name)) {
+                    Files.copy(input, new File(staging, name).toPath());
+                }
+            }
+            Files.write(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            deleteTree(destination);
+            Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE);
+        } catch (Exception error) {
+            // Bootstrap has no editor or session input; never use this logging for keystrokes.
+            android.util.Log.w("MSIMEBootstrap", "Offline gloss extraction failed", error);
+        }
+    }
+
+    private static void deleteTree(File file) throws java.io.IOException {
+        File[] children = file.listFiles();
+        if (children != null) for (File child : children) deleteTree(child);
+        Files.deleteIfExists(file.toPath());
     }
 }

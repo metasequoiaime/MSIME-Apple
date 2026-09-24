@@ -171,6 +171,12 @@ public final class MSIMEInputService extends InputMethodService {
     private long candidateGlossEpoch;
     private long candidateGlossRequestedSession;
     private long candidateGlossRequestedGeneration = -1;
+    private String candidateOfflineTargetsKey;
+    private java.util.List<String> candidateOfflineTargets = java.util.List.of();
+    // Offline glosses by target language, English included, for one candidate generation. Kept only while a non-English dictionary is installed for the targets, so the account path can merge with them: applying a translation payload replaces the previous one.
+    private java.util.Map<String, java.util.Map<String, String>> candidateOfflineGlosses;
+    private long candidateOfflineGlossSession;
+    private long candidateOfflineGlossGeneration = -1;
     private java.util.List<String> englishSuggestions = java.util.List.of();
     private String englishSuggestionPrefix = "";
     private long englishSuggestionEpoch;
@@ -1169,6 +1175,19 @@ public final class MSIMEInputService extends InputMethodService {
         candidateGlossEpoch = candidateGlossEpoch == Long.MAX_VALUE ? 0 : candidateGlossEpoch + 1;
         candidateGlossRequestedSession = 0;
         candidateGlossRequestedGeneration = -1;
+        candidateOfflineTargetsKey = null;
+        candidateOfflineGlosses = null;
+    }
+
+    /** The non-English targets with an installed offline dictionary, rechecked whenever the targets, resources or gloss preferences change. */
+    private java.util.List<String> candidateOfflineTargets() {
+        String key = candidateGlossResources + "\n" + candidateTranslationTargets;
+        if (!key.equals(candidateOfflineTargetsKey)) {
+            candidateOfflineTargetsKey = key;
+            candidateOfflineTargets = CandidateTranslationPolicy.offlineTargets(
+                candidateTranslationTargets, candidateGlossResources);
+        }
+        return candidateOfflineTargets;
     }
 
     private void ensureCandidateTranslationStore() {
@@ -1571,12 +1590,20 @@ public final class MSIMEInputService extends InputMethodService {
         final long targetEpoch = candidateGlossEpoch;
         final String targetResources = candidateGlossResources;
         final String request;
+        final java.util.Map<String, String> targetRequests = new java.util.LinkedHashMap<>();
         try {
             JSONObject snapshot = value(NativeClient.allCandidates(targetSession));
             if (snapshot.optLong("session") != targetSession
                     || snapshot.optLong("generation") != generation) return;
             request = CandidateGlossModel.request(generation,
                 snapshot.getJSONArray("candidates"));
+            // The account path's scheme gate: a Japanese composition is not glossed into other languages.
+            if ("none".equals(view.optString("local_mode", "none")) && view.optInt("scheme", -1) != 3) {
+                for (String language : candidateOfflineTargets()) {
+                    targetRequests.put(language, CandidateGlossModel.request(generation,
+                        snapshot.getJSONArray("candidates"), language));
+                }
+            }
         } catch (JSONException | RuntimeException | LinkageError error) {
             candidateGlossRequestedSession = targetSession;
             candidateGlossRequestedGeneration = generation;
@@ -1591,7 +1618,23 @@ public final class MSIMEInputService extends InputMethodService {
                 try {
                     CandidateGlossModel.Result result = CandidateGlossModel.decode(
                         NativeClient.candidateGlosses(request, targetResources));
-                    main.post(() -> applyCandidateGlosses(token, result));
+                    java.util.Map<String, java.util.Map<String, String>> offline = null;
+                    if (!targetRequests.isEmpty()) {
+                        offline = new java.util.HashMap<>();
+                        offline.put("en", glossMap(result));
+                        for (java.util.Map.Entry<String, String> target : targetRequests.entrySet()) {
+                            try {
+                                CandidateGlossModel.Result glosses = CandidateGlossModel.decode(
+                                    NativeClient.candidateGlosses(target.getValue(), targetResources));
+                                if (glosses.generation() == generation)
+                                    offline.put(target.getKey(), glossMap(glosses));
+                            } catch (JSONException | RuntimeException | LinkageError error) {
+                                // One missing or unreadable dictionary leaves the other rows intact.
+                            }
+                        }
+                    }
+                    final java.util.Map<String, java.util.Map<String, String>> targetGlosses = offline;
+                    main.post(() -> applyCandidateGlosses(token, result, targetGlosses));
                 } catch (JSONException | RuntimeException | LinkageError error) {
                     // Display-only lookup failures remain silent and never include candidate text.
                 }
@@ -1601,14 +1644,22 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private void applyCandidateGlosses(
-            CandidateGlossPolicy.Token token, CandidateGlossModel.Result result) {
+    private void applyCandidateGlosses(CandidateGlossPolicy.Token token,
+            CandidateGlossModel.Result result,
+            java.util.Map<String, java.util.Map<String, String>> offline) {
         long currentGeneration = view == null ? -1 : view.optLong("generation", -1);
         if (!candidateEnglishGloss || result.generation() != token.generation()
                 || !token.isCurrent(session, currentGeneration, candidateGlossEpoch)) return;
+        String translations = result.translations();
+        if (offline != null) {
+            candidateOfflineGlosses = offline;
+            candidateOfflineGlossSession = token.session();
+            candidateOfflineGlossGeneration = token.generation();
+            translations = mergedCandidateGlosses(token.generation()).toString();
+        }
         try {
             JSONObject applied = value(NativeClient.applyTranslations(
-                token.session(), token.generation(), result.translations()));
+                token.session(), token.generation(), translations));
             if (!applied.optBoolean("applied", false)) return;
             JSONObject next = applied.getJSONObject("view");
             if (next.optLong("session") != token.session()
@@ -1648,22 +1699,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || view.optLong("generation", -1) != generation) return;
         JSONArray entries = view.optJSONArray("candidates");
         if (entries == null || entries.length() == 0) return;
-        JSONArray translations = new JSONArray();
-        for (int index = 0; index < Math.min(entries.length(), 32); index++) {
-            JSONObject candidate = entries.optJSONObject(index);
-            if (candidate == null) continue;
-            String text = candidate.optString("text", "");
-            java.util.ArrayList<String> glosses = new java.util.ArrayList<>();
-            for (String target : candidateTranslationTargets) {
-                String translation = candidateTranslationStore.gloss(text, target);
-                if (translation != null && !translation.isEmpty()) glosses.add(translation);
-            }
-            String translation = CandidateTranslationPolicy.joinGlosses(glosses);
-            if (!translation.isEmpty()) {
-                try { translations.put(new JSONObject().put("text", text).put("translation", translation)); }
-                catch (JSONException ignored) { return; }
-            }
-        }
+        JSONArray translations = mergedCandidateGlosses(generation);
         if (translations.length() == 0) return;
         try {
             JSONObject applied = value(NativeClient.applyTranslations(session, generation,
@@ -1676,6 +1712,55 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | RuntimeException | LinkageError ignored) {
             // Online translations are optional display state.
         }
+    }
+
+    /**
+     * The apply_translations payload for one generation: per candidate, each target's offline gloss, else its account translation, in target order.
+     *
+     * <p>Without an installed non-English dictionary this is the account translations of the first 32 candidates, as before; with one it also covers every candidate the offline dictionaries answered, since the payload replaces the one applied before it.
+     */
+    private JSONArray mergedCandidateGlosses(long generation) {
+        java.util.Map<String, java.util.Map<String, String>> offline =
+            candidateOfflineGlosses != null && candidateOfflineGlossSession == session
+                && candidateOfflineGlossGeneration == generation ? candidateOfflineGlosses : java.util.Map.of();
+        java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>();
+        JSONArray entries = view == null ? null : view.optJSONArray("candidates");
+        for (int index = 0; entries != null && index < Math.min(entries.length(), 32); index++) {
+            JSONObject candidate = entries.optJSONObject(index);
+            if (candidate != null) texts.add(candidate.optString("text", ""));
+        }
+        for (java.util.Map<String, String> glosses : offline.values()) texts.addAll(glosses.keySet());
+        boolean account = candidateTranslationAccount && candidateTranslationStore != null;
+        JSONArray translations = new JSONArray();
+        for (String text : texts) {
+            java.util.HashMap<String, String> offlineRows = new java.util.HashMap<>();
+            java.util.HashMap<String, String> accountRows = new java.util.HashMap<>();
+            for (String target : candidateTranslationTargets) {
+                java.util.Map<String, String> glosses = offline.get(target);
+                if (glosses != null && glosses.containsKey(text)) offlineRows.put(target, glosses.get(text));
+                if (account) {
+                    String translation = candidateTranslationStore.gloss(text, target);
+                    if (translation != null) accountRows.put(target, translation);
+                }
+            }
+            String translation = CandidateTranslationPolicy.mergeGlosses(
+                candidateTranslationTargets, offlineRows, accountRows);
+            if (text.isEmpty() || translation.isEmpty()) continue;
+            try { translations.put(new JSONObject().put("text", text).put("translation", translation)); }
+            catch (JSONException ignored) { return new JSONArray(); }
+        }
+        return translations;
+    }
+
+    private static java.util.Map<String, String> glossMap(CandidateGlossModel.Result result)
+            throws JSONException {
+        JSONArray entries = new JSONArray(result.translations());
+        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>();
+        for (int index = 0; index < entries.length(); index++) {
+            JSONObject entry = entries.getJSONObject(index);
+            glosses.put(entry.getString("text"), entry.getString("translation"));
+        }
+        return glosses;
     }
 
     /**
@@ -1876,7 +1961,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private int candidateGlossLineCount() {
         return CandidateTranslationPolicy.glossLines(
-            candidateTranslationTargets, candidateEnglishGloss, candidateTranslationAccount);
+            candidateTranslationTargets, candidateEnglishGloss, candidateTranslationAccount,
+            candidateOfflineTargets());
     }
 
     private void updateCandidateViewportHeight() {
