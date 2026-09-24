@@ -52,7 +52,8 @@ if ($script.Contains('/MOVE') -or
     -not $script.Contains('procedure FinishDataDirMove')) {
     throw 'Installer migration must retain the previous data directory for recovery'
 }
-if (-not $script.Contains('用户数据复制失败，安装已停止')) {
+if (-not $script.Contains('RobocopySucceeded') -or
+    -not $script.Contains('原目录中的数据保持不变')) {
     throw 'Installer migration must fail closed when user data copy fails'
 }
 Write-Output 'Installer carries native/Tauri outputs without loose legacy HTML'
