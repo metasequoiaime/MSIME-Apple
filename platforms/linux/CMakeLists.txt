@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 project(MSIMEClientLinux LANGUAGES CXX)
 find_package(CURL REQUIRED)
 include(GNUInstallDirs)
-# The user units msime-client-setup can enable. The CMake uninstall and the Debian maintainer scripts all stop them, so the list is defined once here; each socket precedes its service so stopping in this order does not activate the service again. The maintainer scripts restart only the services: sockets run no program.
+# The user units msime-linux-setup can enable. The CMake uninstall and the Debian maintainer scripts all stop them, so the list is defined once here; each socket precedes its service so stopping in this order does not activate the service again. The maintainer scripts restart only the services: sockets run no program.
 set(MSIME_USER_UNITS msime-client-online.socket msime-client-online.service msime-client-voice.socket
     msime-client-voice.service msime-client-clipboard.service)
 set(MSIME_USER_SERVICES ${MSIME_USER_UNITS})
@@ -334,7 +334,7 @@ add_test(NAME linux-settings-launcher-contract
 add_test(NAME linux-deb-maintainer-scripts
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/deb_maintainer_scripts.py"
                  "${CMAKE_CURRENT_BINARY_DIR}/debian" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" "${MSIME_USER_UNIT_LIST}"
-                 "${CMAKE_INSTALL_FULL_BINDIR}/msime-client-setup")
+                 "${CMAKE_INSTALL_FULL_BINDIR}/msime-linux-setup")
 add_test(NAME linux-uninstall-unregister
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/uninstall_unregister.py"
                  "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake")
@@ -401,7 +401,7 @@ install(PROGRAMS scripts/msime-client-clipboard-monitor DESTINATION "${CMAKE_INS
 # 装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而
 # 没有词库一个候选都出不来。两份锁无条件随装，它们是这个入口据以校验和取回的依据——词库
 # 锁此前只在 MSIME_ENGINE_RESOURCES 存在时才安装，也就是最需要它的那种安装里反而没有。
-install(PROGRAMS scripts/msime-client-setup DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(PROGRAMS scripts/msime-linux-setup DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(NOT MSIME_ENGINE_RESOURCES)
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/desktop-dictionary.lock.json"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")

@@ -46,7 +46,7 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 
 `candidate_translations` 默认 `true`，支持腾讯机器翻译（`https://tmt.tencentcloudapi.com`）、小牛翻译（`https://api.niutrans.com/v2/text/translate`）和自定义端点。三者都要求你在设置里填入自己的 API 凭据，默认全为空字符串——**没有凭据就不会发出请求**，开关为真也一样。发送内容是待翻译的候选词。代码在 `crates/client-core/src/credential/translation.rs`。
 
-macOS、iOS、Android 另提供「水杉账号」（`translation_account`，默认 `false`）：只有你在翻译服务里显式选择它，才会把当前页的中文候选词（包括本地已有释义的）连同目标语言代码 POST 到 `https://api.msime.app/v1/translate`。请求带账号令牌：macOS 与 Android 在你已登录时用登录的账号，否则（以及 iOS 上始终）用一个匿名账号，它在首次翻译时才在 `api.msime.app` 创建。你自己的服务优先：候选翻译关闭、小牛或自定义服务已启用、或腾讯已启用且两项凭据都可用时，都不走水杉账号。共享层把这个判定算成翻译查询里的 `translation_account` 字段（`crates/host-api/src/ffi/providers.rs`），macOS 输入法只在它为真时发请求（`platforms/macos/src/input/InputController.mm` 的 `currentAccountGlossRequest`）；iOS 在 `platforms/ios/SharedUI/candidate/TranslationProviderPreference.swift`、Android 在 `platforms/android/java/app/msime/client/candidate/CandidateTranslationPolicy.java` 的 `accountSelected` 按同一规则判定（Android 没有腾讯客户端，设置页也不能启用腾讯）。Windows、Linux、HarmonyOS 没有这条路径。没有选择任何服务时不发出请求。
+macOS、iOS、Android 和 Linux 另提供「水杉账号」（`translation_account`，默认 `false`）：只有你在翻译服务里显式选择它，才会把当前页的中文候选词（包括本地已有释义的）连同目标语言代码 POST 到 `https://api.msime.app/v1/translate`。请求带账号令牌：macOS 与 Android 在你已登录时用登录的账号，否则（以及 iOS 上始终）用一个匿名账号；Linux 在安装后的用户初始化流程中自动创建并保存本机匿名身份，候选翻译仍只有在显式选择该服务后才发送。你自己的服务优先：候选翻译关闭、小牛或自定义服务已启用、或腾讯已启用且两项凭据都可用时，都不走水杉账号。共享层把这个判定算成翻译查询里的 `translation_account` 字段（`crates/host-api/src/ffi/providers.rs`），各宿主只在它为真时发请求。Windows、HarmonyOS 没有这条路径。没有选择任何服务时不发出候选翻译请求。
 
 macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛、自定义、腾讯都未启用，也没有选择水杉账号），会用 Apple 系统自带的离线翻译模型为随包词典答不上的中文候选补一行释义。翻译在本机完成，候选词不离开这台 Mac；只用你已经在「系统设置 → 通用 → 语言与地区 → 翻译语言」里下载好的语言对，输入法不会触发下载，没下载就不补。代码在 `platforms/macos/src/backend/translation/BackendOnDeviceGloss.swift`，判定在 `InputController.mm` 的 `currentOnDeviceGlossRequest`。
 
@@ -83,7 +83,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 ### 账号与同步（需要登录）
 
-`https://api.msime.app`，定义在 `crates/client-core/src/account.rs` 的 `ACCOUNT_ORIGIN`。不登录不发生。例外有两处会在不登录时创建匿名账号：候选翻译选择了「水杉账号」时，在首次翻译时创建，见[候选翻译](#候选翻译默认不联网需要你选择服务)；Android 浏览社区皮肤与词库目录时，也会先取匿名账号的令牌（`platforms/android/java/app/msime/client/community/CommunityCatalog.java`），取不到照常列出目录。macOS 输入法激活时不创建账号，匿名账号只在上面那种情况下由 `platforms/macos/src/backend/account/BackendCandidateGloss.swift` 的 `token()` 按需创建。凭据存放在系统密钥库：macOS/iOS 用 Keychain（`crates/host-macos/native/account.mm`、`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘。
+`https://api.msime.app`，定义在 `crates/client-core/src/account.rs` 的 `ACCOUNT_ORIGIN`。普通账号不登录不发生。Linux 安装包会在 Debian `postinst` 为可联系的登录用户注册匿名账号；手工安装或当时网络不可用时，`msime-linux-setup` 会在首次配置时重试。候选翻译只有在选择了「水杉账号」后才发送，见[候选翻译](#候选翻译默认不联网需要你选择服务)；Android 浏览社区皮肤与词库目录时，也会先取匿名账号的令牌（`platforms/android/java/app/msime/client/community/CommunityCatalog.java`），取不到照常列出目录。macOS 输入法激活时不创建账号。Linux 的匿名身份和令牌由 `msime-client-online-provider` 保存在用户配置目录的 `anonymous-account.json` 与 `anonymous-session.json`，两个文件均为当前用户专用权限，不进入设置页或输入法进程。凭据存放在系统密钥库：macOS/iOS 用 Keychain（`crates/host-macos/native/account.mm`、`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘。
 
 ### 资源与更新下载
 

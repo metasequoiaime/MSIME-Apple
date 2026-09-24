@@ -24,25 +24,17 @@ pub(crate) const SETTLED_MODEL_FILE: &str = "sentence-model-desktop.safetensors"
 
 /// The candidate reranking model, loaded once per path and shared by every session using it.
 ///
-/// The path is separate from the dictionaries because the two artifacts change on entirely
-/// different schedules. A resource set is identified by a hash over all of its artifacts, so adding
-/// a seven megabyte model to the dictionary lock would make every model revision re-download the
-/// hundred and eighty five megabytes of dictionaries alongside it. Hosts that have not adopted a
-/// separate model artifact still find one placed next to the dictionaries.
-///
-/// Absence is the normal case for an installation that ships no model, so it is not an error and
-/// leaves behaviour exactly as it was.
-/// The settled model for a resource directory, or `None` when the set does not ship one.
-///
+/// The small model is part of the verified resource set. Prepared dictionaries contain only the
+/// Engine's writable dictionary files, so the default must resolve from `resources` instead.
 /// Shares `sentence_model`'s cache by going through it, so two sessions on the same resources load
 /// the twenty five megabytes once between them rather than once each.
 pub(crate) fn sentence_model_settled(
-    dictionaries: &str,
+    resources: &str,
     configured: Option<&str>,
 ) -> Option<Arc<SentenceModel>> {
     let path = match configured {
         Some(path) => PathBuf::from(path),
-        None => Path::new(dictionaries).join(SETTLED_MODEL_FILE),
+        None => Path::new(resources).join(SETTLED_MODEL_FILE),
     };
     // Absence is the normal case — most installations ship one model — so it is checked rather
     // than reported. A host that named a path and got nothing gets the same silence: a second
@@ -50,18 +42,15 @@ pub(crate) fn sentence_model_settled(
     if !path.is_file() {
         return None;
     }
-    sentence_model(dictionaries, path.to_str())
+    sentence_model(resources, path.to_str())
 }
 
 pub(crate) fn sentence_model(
-    dictionaries: &str,
+    resources: &str,
     configured: Option<&str>,
 ) -> Option<Arc<SentenceModel>> {
     static MODELS: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<SentenceModel>>>>> = OnceLock::new();
-    let path = match configured {
-        Some(path) => PathBuf::from(path),
-        None => Path::new(dictionaries).join(SENTENCE_MODEL_FILE),
-    };
+    let path = sentence_model_path(resources, configured);
     let cache = MODELS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut cache = cache.lock().ok()?;
     // Keyed by path: two sessions may legitimately be pointed at different models, and a cache that
@@ -82,6 +71,12 @@ pub(crate) fn sentence_model(
         });
     cache.insert(path, loaded.clone());
     loaded
+}
+
+pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> PathBuf {
+    configured
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(resources).join(SENTENCE_MODEL_FILE))
 }
 
 pub mod candidates;

@@ -241,6 +241,16 @@ COMPOSED_AT_RUNTIME: dict[str, str] = {
 }
 
 PLATFORM_LOCAL: dict[str, str] = {
+    "quanpin.autocorrect_neighbor": (
+        "Quanpin typo correction is enabled by the shared Engine default on every host; the "
+        "shared settings page intentionally has no toggle, while an explicit false remains "
+        "supported for compatibility."
+    ),
+    "quanpin.autocorrect_transposition": (
+        "Quanpin typo correction is enabled by the shared Engine default on every host; the "
+        "shared settings page intentionally has no toggle, while an explicit false remains "
+        "supported for compatibility."
+    ),
     "ui_backend": (
         "Chooses between the reference's Direct2D surfaces and its WebView2 ones. The candidate "
         "window, floating toolbar and input-method menu are drawn natively by each platform here, "

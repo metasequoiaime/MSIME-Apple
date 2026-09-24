@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""msime-client-setup --unregister puts back the desktop candidate panel settings the hosts took over, the Linux side of the Windows uninstaller removing everything MSIME left: Fcitx5 classicui's Theme, DarkTheme, Font and WheelForPaging, and the IBus panel's custom-font and use-custom-font. A setting is restored only while it still holds what MSIME wrote; one the user changed since is kept. The theme MSIME generated for Fcitx5 is removed.
+"""msime-linux-setup --unregister puts back the desktop candidate panel settings the hosts took over, the Linux side of the Windows uninstaller removing everything MSIME left: Fcitx5 classicui's Theme, DarkTheme, Font and WheelForPaging, and the IBus panel's custom-font and use-custom-font. A setting is restored only while it still holds what MSIME wrote; one the user changed since is kept. The theme MSIME generated for Fcitx5 is removed.
 
 A stub stands in for gdbus and gsettings: it logs each call and keeps Fcitx5's bus state and the IBus panel keys in a JSON file. Each case runs against a scratch HOME holding a classicui.conf and a restore record, with the record written in the shape the hosts write it (src/candidates/PanelRestoreRecord.h).
 """
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts/msime-client-setup"
+SCRIPT = ROOT / "scripts/msime-linux-setup"
 PANEL = "org.freedesktop.ibus.panel"
 SET_CONFIG = "org.fcitx.Fcitx.Controller1.SetConfig"
 
@@ -106,7 +106,7 @@ class Harness:
     def __init__(self, scratch: Path):
         self.scratch = scratch
         self.home = scratch / "home"
-        self.setup = scratch / "prefix/bin/msime-client-setup"
+        self.setup = scratch / "prefix/bin/msime-linux-setup"
         self.setup.parent.mkdir(parents=True)
         self.setup.write_text(SCRIPT.read_text())
         self.setup.chmod(0o755)

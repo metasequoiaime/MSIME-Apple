@@ -40,7 +40,7 @@ CHUNK = 1024 * 1024
 COMMAND_TIMEOUT = 10
 FCITX5_INPUT_METHOD = "msime"
 FCITX5_NAME = "水杉输入法"
-IBUS_ENGINE = "msime-client"
+IBUS_ENGINE = "msime-linux"
 # The IBus <longname>, the same name the Windows TSF profile registers.
 IBUS_NAME = "Metasequoia 水杉输入法"
 FCITX5_CONTROLLER = [
@@ -57,6 +57,7 @@ FCITX5_THEME = "msime"
 # Fcitx5's stock themes, the only ones the hosts take over (src/candidates/CandidateFcitxTheme.h), for the options that name a theme.
 FCITX5_STOCK_THEMES = {"Theme": "default", "DarkTheme": "default-dark"}
 IBUS_PANEL = "org.freedesktop.ibus.panel"
+ANONYMOUS_ACCOUNT_FILES = {"anonymous-account.json", "anonymous-session.json"}
 
 
 def data_home() -> Path:
@@ -230,6 +231,20 @@ def prepare_state(prefix: Path, resources: Path, state: Path, cloud_candidates: 
     result = subprocess.run(prepare_command(command, resources, state, cloud_candidates), check=False)
     if result.returncode != 0:
         raise SystemExit("准备状态目录失败，见上面的输出")
+
+
+def anonymous_account_state(state: Path) -> bool:
+    """Allow the installer-created account files to coexist with first-run state."""
+    if not state.is_dir() or state.is_symlink():
+        return False
+    try:
+        entries = list(state.iterdir())
+    except OSError:
+        return False
+    return bool(entries) and all(
+        entry.name in ANONYMOUS_ACCOUNT_FILES and entry.is_file() and not entry.is_symlink()
+        for entry in entries
+    )
 
 
 def load_engine_lock(prefix: Path, lock_file: Path) -> dict | None:
@@ -503,6 +518,35 @@ def enable_services(units: list[str]) -> None:
         print("启用用户服务失败，可稍后手动执行：systemctl --user enable --now " + " ".join(units), file=sys.stderr)
         if result.stderr.strip():
             print("  " + result.stderr.strip().splitlines()[-1], file=sys.stderr)
+
+
+def ensure_anonymous_account(prefix: Path) -> None:
+    """Create the per-user translation account as part of installation setup.
+
+    Registration is best effort: a missing network must not leave dictionaries or the
+    input method unprepared. The online provider retries lazily before the first account
+    translation if this installation-time request could not reach the service.
+    """
+    provider = prefix / "bin/msime-client-online-provider"
+    if not provider.is_file():
+        return
+    try:
+        result = subprocess.run(
+            [str(provider), "--ensure-anonymous-account"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"匿名水杉账号注册暂时未完成：{error}；下次需要候选翻译时会重试。", file=sys.stderr)
+        return
+    if result.returncode != 0:
+        detail = result.stderr.strip().splitlines()
+        suffix = f"：{detail[-1]}" if detail else ""
+        print(f"匿名水杉账号注册暂时未完成{suffix}；下次需要候选翻译时会重试。", file=sys.stderr)
+    else:
+        print("已自动注册本机匿名水杉账号。")
 
 
 class RegistrationFailed(Exception):
@@ -878,9 +922,9 @@ def restore_panel_settings() -> None:
         except OSError as error:
             print(f"未能删除候选面板设置的恢复记录 {record_file}：{error.strerror}", file=sys.stderr)
             return
-        print(f"恢复期间宿主又记下了候选面板设置的改动，恢复记录保留在 {record_file}，可稍后再次运行 msime-client-setup --unregister。", file=sys.stderr)
+        print(f"恢复期间宿主又记下了候选面板设置的改动，恢复记录保留在 {record_file}，可稍后再次运行 msime-linux-setup --unregister。", file=sys.stderr)
     elif record is not None:
-        print(f"恢复记录保留在 {record_file}，可稍后再次运行 msime-client-setup --unregister。", file=sys.stderr)
+        print(f"恢复记录保留在 {record_file}，可稍后再次运行 msime-linux-setup --unregister。", file=sys.stderr)
 
 
 def unregister_input_method() -> None:
@@ -990,11 +1034,11 @@ def main() -> int:
         raise SystemExit("--update 使用状态目录记录的词库目录，不能再用 --resources 另指一份。")
     if update and not options_file.is_file():
         raise SystemExit(f"{state} 里没有 runtime-options.json，还没有完成首次配置：去掉 --update 先做一次首次配置。")
-    if state.exists() and not update:
+    if state.exists() and not update and not anonymous_account_state(state):
         raise SystemExit(
             f"状态目录已存在：{state}\n"
             "msime-client-prepare 不覆盖已有目录。要重新准备请另选目录，或先自行移走这一份。\n"
-            "升级之后要把这份状态换到新版本的词库，运行 msime-client-setup --update --download。"
+            "升级之后要把这份状态换到新版本的词库，运行 msime-linux-setup --update --download。"
         )
 
     lock_file = next((path for path in lock_candidates(prefix) if path.is_file()), None)
@@ -1034,6 +1078,7 @@ def main() -> int:
 
     print(f"词库已校验：{resources}")
     prepare_state(prefix, resources, state, not arguments.no_cloud_candidates)
+    ensure_anonymous_account(prefix)
     enable_services(service_units(state, config_home() / "msime-client"))
     host = active_host()
     next_steps(state, host, None if arguments.no_register else register_input_method(host))

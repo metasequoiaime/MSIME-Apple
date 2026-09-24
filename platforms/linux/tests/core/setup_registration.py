@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""msime-client-setup 在状态目录就绪后把输入法加入正在运行的宿主的输入法列表，--unregister 在卸载时把它从这些列表里移除。
+"""msime-linux-setup 在状态目录就绪后把输入法加入正在运行的宿主的输入法列表，--unregister 在卸载时把它从这些列表里移除。
 
 用桩代替 pgrep、gdbus、gsettings、ibus、systemctl 和 msime-client-prepare：桩把收到的调用记进日志，把 Fcitx5 输入法组、dconf 设置和 IBus 已知的引擎存在一份 JSON 里。不需要词库、不联网，也不碰真实的 D-Bus 会话或 dconf。
 """
@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts/msime-client-setup"
+SCRIPT = ROOT / "scripts/msime-linux-setup"
 
 # One stub serves every tool; it dispatches on the name it was invoked as. Arguments the setup script writes are Python literals once GVariant's text form is read back, so the stub parses them with ast rather than reusing the code under test.
 STUB = r'''#!/usr/bin/env python3
@@ -106,7 +106,7 @@ if name == "ibus":
         print("  xkb:us::eng - English (US)")
         if ibus["known"]:
             print("language: Chinese")
-            print("  msime-client - Metasequoia 水杉输入法")
+            print("  msime-linux - Metasequoia 水杉输入法")
     elif arguments == ["restart"]:
         # The new daemon reads the component files, including the one installed after the old daemon started.
         ibus["known"] = ibus["installed"]
@@ -157,7 +157,7 @@ class Harness:
         self.scratch = scratch
         prefix = scratch / "prefix"
         (prefix / "bin").mkdir(parents=True)
-        self.setup = prefix / "bin/msime-client-setup"
+        self.setup = prefix / "bin/msime-linux-setup"
         self.setup.write_text(SCRIPT.read_text())
         self.setup.chmod(0o755)
         tools = scratch / "tools"
@@ -227,7 +227,7 @@ class Harness:
         return result
 
     def run(self, *extra: str) -> subprocess.CompletedProcess:
-        # msime-client-setup refuses to prepare a directory that exists, so every run gets a fresh one.
+        # msime-linux-setup refuses to prepare a directory that exists, so every run gets a fresh one.
         self.runs += 1
         state = self.scratch / f"state-{self.runs}"
         result = subprocess.run(
@@ -256,8 +256,8 @@ def unregistering() -> None:
         harness = Harness(Path(name))
         set_group = "org.fcitx.Fcitx.Controller1.SetInputMethodGroupInfo"
         everywhere = {
-            GNOME: {"sources": [["xkb", "us"], ["ibus", "msime-client"], ["ibus", "mozc-jp"]]},
-            IBUS: {"preload-engines": ["xkb:us::eng", "msime-client", "libpinyin"]},
+            GNOME: {"sources": [["xkb", "us"], ["ibus", "msime-linux"], ["ibus", "mozc-jp"]]},
+            IBUS: {"preload-engines": ["xkb:us::eng", "msime-linux", "libpinyin"]},
         }
         fcitx5 = fcitx5_world(groups={
             "Default": ["us", [["keyboard-us", ""], ["msime", ""], ["pinyin", ""]]], "Other": ["de", [["msime", ""]]],
@@ -295,7 +295,7 @@ def unregistering() -> None:
         assert harness.state() == state
 
         # 列表里只有水杉：移除后会变空，空列表会让桌面退回一个未必是用户原来的默认值，Fcitx5 空组则没有可切回的键盘布局，所以保持原样。
-        alone = {GNOME: {"sources": [["ibus", "msime-client"]]}, IBUS: {"preload-engines": ["msime-client"]}}
+        alone = {GNOME: {"sources": [["ibus", "msime-linux"]]}, IBUS: {"preload-engines": ["msime-linux"]}}
         harness.world(fcitx5=fcitx5_world(current="Other", groups=fcitx5["groups"]), gsettings=alone)
         before = harness.state()
         result = harness.unregister()
@@ -431,7 +431,7 @@ def main() -> int:
         assert "已把「Metasequoia 水杉输入法」加入输入源列表" in result.stdout, result
         assert harness.calls("ibus").count(["restart"]) == 1, harness.calls("ibus")
         settings = harness.state()["gsettings"]
-        assert settings[GNOME]["sources"] == [["xkb", "us"], ["ibus", "mozc-jp"], ["ibus", "msime-client"]], settings
+        assert settings[GNOME]["sources"] == [["xkb", "us"], ["ibus", "mozc-jp"], ["ibus", "msime-linux"]], settings
         assert settings[IBUS]["preload-engines"] == ["xkb:us::eng"], settings
         assert harness.calls("gdbus") == [], harness.log.read_text()
 
@@ -452,7 +452,7 @@ def main() -> int:
         assert "已把「Metasequoia 水杉输入法」加入输入源列表" in result.stdout, result
         assert ["restart"] not in harness.calls("ibus"), harness.calls("ibus")
         settings = harness.state()["gsettings"]
-        assert settings[IBUS]["preload-engines"] == ["xkb:us::eng", "libpinyin", "msime-client"], settings
+        assert settings[IBUS]["preload-engines"] == ["xkb:us::eng", "libpinyin", "msime-linux"], settings
         assert settings[GNOME]["sources"] == [["xkb", "us"]], settings
 
         # 列表为空说明桌面在用没有写进这一项的默认输入源，只写入本引擎会把它顶掉：不写，退回手动步骤。

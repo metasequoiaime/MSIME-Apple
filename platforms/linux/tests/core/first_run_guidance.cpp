@@ -62,10 +62,10 @@ int main() {
          RuntimeOptionsState::Invalid);
   assert(locate_runtime_options(nullptr, nullptr, nullptr, system_file).state == RuntimeOptionsState::Invalid);
 
-  // The hint names the entry users find in their application list and the terminal command, matching the .desktop name and msime-client-setup.
+  // The hint names the entry users find in their application list and the terminal command, matching the .desktop name and msime-linux-setup.
   const std::string hint(msime::linux_host::kFirstRunHint);
   assert(hint.find("「水杉输入法」") != std::string::npos);
-  assert(hint.find("msime-client-setup") != std::string::npos);
+  assert(hint.find("msime-linux-setup") != std::string::npos);
   assert(msime::linux_host::kFirstRunGuideProgram == "msime-client-first-run-guide");
 
   std::error_code error;

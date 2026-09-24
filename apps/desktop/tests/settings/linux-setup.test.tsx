@@ -96,6 +96,6 @@ test("Linux first-run page explains why it cannot start instead of offering a fa
       onComplete={vi.fn()}
     />,
   );
-  expect(screen.getByRole("alert").textContent).toContain("msime-client-setup");
+  expect(screen.getByRole("alert").textContent).toContain("msime-linux-setup");
   expect(run).not.toHaveBeenCalled();
 });

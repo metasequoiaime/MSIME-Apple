@@ -114,7 +114,7 @@ void publish_candidate_panel_status() {
                                                           : msime::linux_host::CandidatePanelLimit::None));
 }
 
-// The panel keys are the desktop's, so before one changes, what it held is recorded for msime-client-setup --unregister (see PanelRestoreRecord.h): the user's own value, or null for a key left at the schema default, which uninstall resets. A failed record does not hold the change back.
+// The panel keys are the desktop's, so before one changes, what it held is recorded for msime-linux-setup --unregister (see PanelRestoreRecord.h): the user's own value, or null for a key left at the schema default, which uninstall resets. A failed record does not hold the change back.
 void record_ibus_panel_takeover(GSettings *settings, const char *key, const Json &written) {
   const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
   if (!file) return;
@@ -309,6 +309,10 @@ struct State {
   // retain the last lookup table for one short grace window while invalidating
   // its action snapshot immediately.
   guint candidate_hide_source = 0;
+  // GNOME Shell rebuilds the whole nested property menu on every update.
+  // Candidate identity changes on each letter, so publish the menu only after
+  // the user pauses instead of making the desktop rebuild it per keystroke.
+  guint candidate_properties_source = 0;
   uint64_t candidate_hide_serial = 0;
   uint64_t seen_menu_status_generation = 0;
   uint64_t seen_menu_configuration = 0;
@@ -579,6 +583,11 @@ struct State {
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
+      g_source_remove(source);
+    }
+    if (candidate_properties_source) {
+      const auto source = candidate_properties_source;
+      candidate_properties_source = 0;
       g_source_remove(source);
     }
     ++candidate_hide_serial;
@@ -2401,8 +2410,86 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
       s.session && s.focused && !s.blocked && s.input_enabled && editable_candidates,
       TRUE, PROP_STATE_UNCHECKED, items);
 }
+void cancel_candidate_properties(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.candidate_properties_source) return;
+  const auto source = s.candidate_properties_source;
+  s.candidate_properties_source = 0;
+  g_source_remove(source);
+}
+void publish_candidate_properties(IBusEngine *engine) {
+  cancel_candidate_properties(engine);
+  if (candidate_panel_is_gnome_shell()) return;
+  ibus_engine_update_property(engine, candidate_actions(engine));
+  ibus_engine_update_property(engine, nine_key_spellings(engine));
+}
+void schedule_candidate_properties(IBusEngine *engine) {
+  cancel_candidate_properties(engine);
+  if (candidate_panel_is_gnome_shell()) return;
+  state(engine).candidate_properties_source = g_timeout_add_full(
+      G_PRIORITY_DEFAULT, 400,
+      [](gpointer data) -> gboolean {
+        auto *engine = IBUS_ENGINE(data);
+        state(engine).candidate_properties_source = 0;
+        ibus_engine_update_property(engine, candidate_actions(engine));
+        ibus_engine_update_property(engine, nine_key_spellings(engine));
+        return G_SOURCE_REMOVE;
+      },
+      g_object_ref(engine), [](gpointer data) { g_object_unref(data); });
+}
+IBusProperty *input_mode_property(IBusEngine *engine) {
+  const auto &s = state(engine);
+  const bool japanese_scheme = s.scheme_override
+                                   ? *s.scheme_override == "japanese"
+                                   : configured.at("preferences").value("scheme", "") == "japanese";
+  auto *property = ibus_property_new(
+      "InputMode", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("输入法模式"), "",
+      ibus_text_new_from_static_string(s.input_enabled ? "使用当前输入方案"
+                                                       : "直接输入（不转换）"),
+      s.focused && !s.blocked, TRUE,
+      s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  const char *symbol = "文";
+  switch (msime::linux_host::input_mode_indicator(s.input_enabled, japanese_scheme, s.caps_lock)) {
+  case msime::linux_host::InputModeIndicator::Chinese: symbol = "文"; break;
+  case msime::linux_host::InputModeIndicator::Japanese: symbol = "日"; break;
+  case msime::linux_host::InputModeIndicator::English: symbol = "A"; break;
+  case msime::linux_host::InputModeIndicator::CapsLock: symbol = "⇪"; break;
+  }
+  ibus_property_set_symbol(property, ibus_text_new_from_static_string(symbol));
+  return property;
+}
+IBusProperty *gnome_settings_property(IBusEngine *engine) {
+  const auto &s = state(engine);
+  // Keep one direct action in GNOME Shell's input-source menu without
+  // reintroducing the nested DesktopTools property tree that caused Shell
+  // actor and GC churn. The existing activation path launches the native
+  // Linux settings launcher, which hosts the shared settings surface.
+  return ibus_property_new(
+      "DesktopTools/Settings", PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string("设置"), "",
+      ibus_text_new_from_static_string("打开水杉输入法设置"),
+      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+}
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
+  // GNOME Shell renders IBus properties inside its own input-source menu.
+  // Repeatedly replacing this host's large nested property tree made Shell
+  // rebuild actors and collect them until the whole desktop froze.
+  if (candidate_panel_is_gnome_shell()) {
+    auto *mode = input_mode_property(engine);
+    auto *settings = gnome_settings_property(engine);
+    if (registration) {
+      auto *properties = ibus_prop_list_new();
+      ibus_prop_list_append(properties, mode);
+      ibus_prop_list_append(properties, settings);
+      ibus_engine_register_properties(engine, properties);
+    } else {
+      ibus_engine_update_property(engine, mode);
+      ibus_engine_update_property(engine, settings);
+    }
+    return;
+  }
   if (s.skin_override) {
     const auto selected = *s.skin_override;
     bool available = listed_skin(selected);
@@ -2438,12 +2525,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
       mixed_input_value("emoji", false));
   const bool kaomoji_candidates = s.kaomoji_override.value_or(
       mixed_input_value("kaomoji", false));
-  const auto quanpin_preferences = configured.at("preferences").value(
-      "quanpin", Json::object());
-  const bool autocorrect_transposition = s.autocorrect_transposition_override.value_or(
-      quanpin_preferences.value("autocorrect_transposition", false));
-  const bool autocorrect_neighbor = s.autocorrect_neighbor_override.value_or(
-      quanpin_preferences.value("autocorrect_neighbor", false));
   const auto active_scheme = s.scheme_override.value_or(
       configured.at("preferences").value("scheme", "quanpin"));
   const bool nine_key = active_scheme == "quanpin" && s.view.is_object() &&
@@ -2459,21 +2540,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value("candidate_theme", "follow"));
   const auto skin = s.skin_override.value_or(
       configured.at("preferences").value("candidate_skin", default_candidate_skin()));
-  auto property = ibus_property_new(
-      "InputMode", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("输入法模式"), "",
-      ibus_text_new_from_static_string(s.input_enabled ? "使用当前输入方案"
-                                                       : "直接输入（不转换）"),
-      s.focused && !s.blocked, TRUE,
-      s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  const char *mode_symbol = "文";
-  switch (msime::linux_host::input_mode_indicator(s.input_enabled, japanese_scheme, s.caps_lock)) {
-  case msime::linux_host::InputModeIndicator::Chinese: mode_symbol = "文"; break;
-  case msime::linux_host::InputModeIndicator::Japanese: mode_symbol = "日"; break;
-  case msime::linux_host::InputModeIndicator::English: mode_symbol = "A"; break;
-  case msime::linux_host::InputModeIndicator::CapsLock: mode_symbol = "⇪"; break;
-  }
-  ibus_property_set_symbol(property, ibus_text_new_from_static_string(mode_symbol));
+  auto property = input_mode_property(engine);
   const auto voice_label = s.voice_active
       ? (s.voice_space_locked && !s.voice_stopping
              ? std::string("录音已锁定") : s.voice_phase)
@@ -2606,18 +2673,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("切换 Engine 的独立英文输入模式（Ctrl+Shift+E）"),
       s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
       s.english_mode ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  auto autocorrect_transposition_property = ibus_property_new(
-      "AutocorrectTransposition", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("拼音错位纠错"), "",
-      ibus_text_new_from_static_string("纠正拼音字母顺序错位"),
-      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
-      autocorrect_transposition ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  auto autocorrect_neighbor_property = ibus_property_new(
-      "AutocorrectNeighbor", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("拼音邻键纠错"), "",
-      ibus_text_new_from_static_string("纠正相邻键误触"),
-      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
-      autocorrect_neighbor ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto helpcode_property = ibus_property_new(
       "Helpcode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("辅助码"), "",
@@ -3042,8 +3097,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, traditional);
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, english_mode);
-    ibus_prop_list_append(properties, autocorrect_transposition_property);
-    ibus_prop_list_append(properties, autocorrect_neighbor_property);
     ibus_prop_list_append(properties, helpcode_property);
     ibus_prop_list_append(properties, helpcode_schema);
     ibus_prop_list_append(properties, emoji);
@@ -3087,8 +3140,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, traditional);
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, english_mode);
-    ibus_engine_update_property(engine, autocorrect_transposition_property);
-    ibus_engine_update_property(engine, autocorrect_neighbor_property);
     ibus_engine_update_property(engine, helpcode_property);
     ibus_engine_update_property(engine, helpcode_schema);
     ibus_engine_update_property(engine, emoji);
@@ -3134,8 +3185,7 @@ gboolean apply_candidate_hide(gpointer data) {
   s.rendered_candidates = Json::array();
   s.rendered_scheme = 255;
   s.rendered_session = 0;
-  ibus_engine_update_property(request->engine, candidate_actions(request->engine));
-  ibus_engine_update_property(request->engine, nine_key_spellings(request->engine));
+  publish_candidate_properties(request->engine);
   return G_SOURCE_REMOVE;
 }
 
@@ -3185,8 +3235,7 @@ void clear(IBusEngine *engine) {
   s.rendered_candidates = Json::array();
   s.rendered_scheme = 255;
   s.rendered_session = 0;
-  ibus_engine_update_property(engine, candidate_actions(engine));
-  ibus_engine_update_property(engine, nine_key_spellings(engine));
+  publish_candidate_properties(engine);
 }
 // Windows re-resolves the punctuation state on every Chinese/English switch: under the "follow" lock it tracks the mode (Chinese punctuation in Chinese mode, ASCII in English), and a pinned lock keeps its value. The switch supersedes a Ctrl+. choice, so the session override is dropped and the saved preference is the authority again on the next focus or refresh; the preference file itself is not written. Call after open(), because opening a session re-derives chinese_punctuation from the preferences.
 void resync_punctuation_for_mode(IBusEngine *engine) {
@@ -3296,8 +3345,7 @@ void render(IBusEngine *engine, const Json &view) {
     s.rendered_scheme = 255;
     s.rendered_session = 0;
     s.rendered_view = nullptr;
-    ibus_engine_update_property(engine, candidate_actions(engine));
-    ibus_engine_update_property(engine, nine_key_spellings(engine));
+    publish_candidate_properties(engine);
     s.wave_overlay.status = s.voice_phase;
     s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
     s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
@@ -3359,8 +3407,7 @@ void render(IBusEngine *engine, const Json &view) {
     s.rendered_scheme = 255;
     s.rendered_session = 0;
     s.rendered_view = nullptr;
-    ibus_engine_update_property(engine, candidate_actions(engine));
-    ibus_engine_update_property(engine, nine_key_spellings(engine));
+    publish_candidate_properties(engine);
     if (had_candidates)
       schedule_candidate_hide(engine);
     else
@@ -3474,8 +3521,7 @@ void render(IBusEngine *engine, const Json &view) {
   s.rendered_candidates = candidates;
   s.rendered_scheme = view.value("scheme", 255);
   s.rendered_session = s.session;
-  ibus_engine_update_property(engine, candidate_actions(engine));
-  ibus_engine_update_property(engine, nine_key_spellings(engine));
+  schedule_candidate_properties(engine);
 }
 void render_translation_candidates(IBusEngine *engine) {
   auto &s = state(engine);
@@ -4476,8 +4522,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "TraditionalOutput" &&
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EnglishMode" &&
-       std::string(name) != "AutocorrectTransposition" &&
-       std::string(name) != "AutocorrectNeighbor" &&
        std::string(name) != "Helpcode" &&
        property_name.rfind("HelpcodeSchema/", 0) != 0 &&
        std::string(name) != "EmojiCandidates" &&
@@ -5167,33 +5211,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.english_mode = enabled;
       s.dedicated_english_override = enabled;
       render(engine, s.view);
-      publish_mode(engine);
-      return;
-    }
-    if (std::string(name) == "AutocorrectTransposition" ||
-        std::string(name) == "AutocorrectNeighbor") {
-      const bool enabled = value == PROP_STATE_CHECKED;
-      const bool transposition = std::string(name) == "AutocorrectTransposition";
-      const auto key = transposition ? "autocorrect_transposition" : "autocorrect_neighbor";
-      const auto current = configured.at("preferences").value("quanpin", Json::object())
-          .value(key, false);
-      auto &setting_override = transposition ? s.autocorrect_transposition_override
-                                             : s.autocorrect_neighbor_override;
-      if (menu_save_pending || setting_override.value_or(current) == enabled)
-        return;
-      const auto directory = configured.value("preferences_directory", std::string{});
-      if (!directory.empty() && directory.front() == '/') {
-        save_menu_preference(engine, transposition ? MenuPreference::AutocorrectTransposition
-                                                  : MenuPreference::AutocorrectNeighbor, enabled);
-        return;
-      }
-      if (s.session)
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
-      s.close();
-      setting_override = enabled;
-      s.open();
-      if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
       publish_mode(engine);
       return;
     }

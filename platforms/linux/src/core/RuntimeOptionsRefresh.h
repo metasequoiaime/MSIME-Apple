@@ -10,7 +10,7 @@
 
 namespace msime::linux_host {
 
-// The recorded resource directory does not hold the dictionaries this version pins: the user downloaded them with msime-client-setup and a package upgrade raised the dictionary version without replacing them. Unlike every other refresh failure this one has a fix the user can run, so the hosts point at it.
+// The recorded resource directory does not hold the dictionaries this version pins: the user downloaded them with msime-linux-setup and a package upgrade raised the dictionary version without replacing them. Unlike every other refresh failure this one has a fix the user can run, so the hosts point at it.
 struct DictionaryOutdated : std::runtime_error {
   DictionaryOutdated() : std::runtime_error("recorded dictionaries are older than this version") {}
 };

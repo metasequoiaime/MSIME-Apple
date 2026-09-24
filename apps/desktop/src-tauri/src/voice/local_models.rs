@@ -190,7 +190,7 @@ pub(crate) async fn voice_local_model_install<R: tauri::Runtime>(
         .map_err(|error| HostActionError {
             code: local_model_error_code(&error),
         })?;
-    // On Linux the recording runs in the user's voice service, which on-device recognition needs even when no cloud credential was ever saved, the one other step that enables its socket. `msime-client-setup` enables it too; this covers a socket an earlier version disabled. Without a user service manager the model is installed all the same.
+    // On Linux the recording runs in the user's voice service, which on-device recognition needs even when no cloud credential was ever saved, the one other step that enables its socket. `msime-linux-setup` enables it too; this covers a socket an earlier version disabled. Without a user service manager the model is installed all the same.
     #[cfg(target_os = "linux")]
     let _ = tauri::async_runtime::spawn_blocking(
         crate::platform::linux::linux_provider_credentials::enable_voice_service,

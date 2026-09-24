@@ -52,13 +52,13 @@ void restore_global_engine(IBusBus *bus) {
         // An error here is the daemon reporting that no global engine is set.
         auto current = ibus_bus_get_global_engine_async_finish(bus, result, nullptr);
         const gchar *name = current ? ibus_engine_desc_get_name(current) : nullptr;
-        const bool restore = name == nullptr || *name == '\0' || g_strcmp0(name, "msime-client") == 0;
+        const bool restore = name == nullptr || *name == '\0' || g_strcmp0(name, "msime-linux") == 0;
         if (current)
           g_object_unref(current);
         if (!restore)
           return;
         ibus_bus_set_global_engine_async(
-            bus, "msime-client", -1, nullptr,
+            bus, "msime-linux", -1, nullptr,
             +[](GObject *source, GAsyncResult *result, gpointer) {
               GError *error = nullptr;
               if (!ibus_bus_set_global_engine_async_finish(IBUS_BUS(source), result, &error))
@@ -108,7 +108,7 @@ int main(int argc, char **argv) {
     if (msime::linux_host::refresh_runtime_options(options_path))
       std::cerr << "Dictionary updated to the installed generation\n";
   } catch (const msime::linux_host::DictionaryOutdated &) {
-    std::cerr << "Installed dictionaries are older than this version; keeping the current ones. Run msime-client-setup --update --download\n";
+    std::cerr << "Installed dictionaries are older than this version; keeping the current ones. Run msime-linux-setup --update --download\n";
     notify_dictionary_outdated();
   } catch (...) {
     std::cerr << "Cannot update the dictionary to the installed generation; keeping the current one\n";
@@ -136,12 +136,12 @@ int main(int argc, char **argv) {
     return recovered ? 0 : 1;
   }
   auto factory = ibus_factory_new(ibus_bus_get_connection(bus));
-  ibus_factory_add_engine(factory, "msime-client",
+  ibus_factory_add_engine(factory, "msime-linux",
                           msime_ibus_engine_get_type());
 #if IBUS_CHECK_VERSION(1, 5, 27)
   g_signal_connect(factory, "create-engine",
       G_CALLBACK(+[](IBusFactory *factory, const gchar *name, gpointer) -> IBusEngine * {
-        if (g_strcmp0(name, "msime-client") != 0)
+        if (g_strcmp0(name, "msime-linux") != 0)
           return nullptr;
         static guint64 sequence = 0;
         auto path = g_strdup_printf("/org/freedesktop/IBus/Engine/MSIME/%" G_GUINT64_FORMAT,
@@ -161,7 +161,7 @@ int main(int argc, char **argv) {
       "https://github.com/metasequoiaime/msime", "", "");
   ibus_component_add_engine(
       component,
-      ibus_engine_desc_new("msime-client", "Metasequoia 水杉输入法",
+      ibus_engine_desc_new("msime-linux", "Metasequoia 水杉输入法",
                            "Shared MSIME Linux input runtime", "zh",
                            "GPL-3.0-only", "MSIME contributors", "", "us"));
   if (!ibus_bus_register_component(bus, component)) {
