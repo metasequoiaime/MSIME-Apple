@@ -6381,6 +6381,7 @@ int main(int argc, char **argv) {
                     @"candidates": @[@{@"text": @"合成", @"highlighted": @YES, @"id": @{@"session": @71, @"generation": @72, @"index": @8}}]};
                 [controller setValue:edgeView forKey:@"view"];
                 layoutPanel.requestedVisible = YES;
+                [controller renderCandidates];
                 NSString *character = [keys isEqual:@"brackets"] ? (edge ? @"]" : @"[") : (edge ? @"=" : @"-");
                 unsigned short physicalKey = [keys isEqual:@"brackets"] ? (edge ? 30 : 33) : (edge ? 24 : 27);
                 NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:character charactersIgnoringModifiers:character isARepeat:NO keyCode:physicalKey];
