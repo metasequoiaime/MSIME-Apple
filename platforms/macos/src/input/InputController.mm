@@ -690,6 +690,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 @end
 
+// Button target for the non-modal cloud consent prompt; NSAlert's own buttons only end a modal session.
+@interface MSIMECloudConsentTarget : NSObject
+@property(nonatomic, copy) void (^handler)(BOOL enabled);
+@end
+@implementation MSIMECloudConsentTarget
+- (void)enable:(id)sender { (void)sender; if (self.handler) self.handler(YES); }
+- (void)disable:(id)sender { (void)sender; if (self.handler) self.handler(NO); }
+@end
+
 @interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
@@ -1216,6 +1225,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (event.keyCode == 49) { // Space
         if (!candidates.count) return NO;
+        // Let Space reach the Engine's commit when the only row is the raw-text Fallback.
+        NSDictionary *first = [candidates.firstObject isKindOfClass:NSDictionary.class] ? candidates.firstObject : nil;
+        const int firstSource = [first[@"source"] isKindOfClass:NSNumber.class] ? [first[@"source"] intValue] : -1;
+        if (msime::mac::JapaneseSpaceCommitsFallback(candidates.count, firstSource)) return NO;
         if (!_japaneseConversionIndex) {
             // The first press is the conversion itself. The panel already highlights the first
             // candidate, so nothing has to move - what changes is that Enter now means "take it".
@@ -2122,7 +2135,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 
 - (void)synchronizeCloudCandidates {
     NSDictionary *query = _activeClient && _session && !_focusPending && !_appearance.englishMode &&
-        (!_appearance || _appearance.cloudCandidates) ? [_session onlineQueryWithError:nil] : nil;
+        (!_appearance || _appearance.cloudCandidatesEnabled) ? [_session onlineQueryWithError:nil] : nil;
     NSString *url = query ? [MSIMEClientSession cloudRequestURLForQuery:query error:nil] : nil;
     if (!url) { [self cancelCloudCandidates]; return; }
     if ([_cloudQuery isEqual:query]) return;
@@ -2137,14 +2150,14 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
             controller->_activeClient != client || controller->_focusPending || controller->_appearance.englishMode ||
-            (controller->_appearance && !controller->_appearance.cloudCandidates) ||
+            (controller->_appearance && !controller->_appearance.cloudCandidatesEnabled) ||
             ![[session onlineQueryWithError:nil] isEqual:query]) return;
         controller->_cloudTimer = nil;
         controller->_cloudRequest = [controller cloudRequestForURL:[NSURL URLWithString:url] completion:^(NSData *body) {
             MSIMEInputController *current = weakSelf;
             if (!current || current->_cloudEpoch != epoch || current->_session != session ||
                 current->_activeClient != client || current->_focusPending || current->_appearance.englishMode ||
-                (current->_appearance && !current->_appearance.cloudCandidates) ||
+                (current->_appearance && !current->_appearance.cloudCandidatesEnabled) ||
                 ![[session onlineQueryWithError:nil] isEqual:query]) return;
             current->_cloudRequest = nil;
             if (!body) {
@@ -2243,7 +2256,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
     _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
-    if (!_appearance.cloudCandidates) [self cancelCloudCandidates];
+    if (!_appearance.cloudCandidatesEnabled) [self cancelCloudCandidates];
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
     if (_appearance && !_appearance.candidateTranslations) {
         [self cancelCustomTranslations];
@@ -3427,7 +3440,78 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
     else [self startPreferencesMonitoring];
+    [self requestCloudCandidatesConsentIfNeeded];
     [self commitPendingEmojiForClient:sender];
+}
+
+- (void)resolveCloudCandidatesConsentWithOptions:(NSDictionary *)options {
+    if (![options isKindOfClass:NSDictionary.class]) return;
+    id directory = options[@"preferences_directory"];
+    id userData = options[@"user_data"];
+    if (![directory isKindOfClass:NSString.class] || ![directory isAbsolutePath]) return;
+    [_appearance resolveCloudCandidatesConsentWithPreferencesDirectory:directory
+        userDataDirectory:[userData isKindOfClass:NSString.class] && [userData isAbsolutePath] ? userData : nil];
+}
+
+// One consent prompt per process at a time, however many controllers IMK creates.
+static BOOL MSIMECloudConsentPrompting = NO;
+
+/// Ask once, on a fresh profile, before the first cloud candidate query is sent.
+///
+/// The Windows installer asks this on its 联网功能 page. macOS has no installer step that every user passes through, and the IME types without the settings app ever being opened, so the IME process asks itself. Until an answer arrives nothing is sent; a prompt closed without an answer is asked again on the next activation.
+- (void)requestCloudCandidatesConsentIfNeeded {
+    if (!_appearance || _appearance.cloudCandidatesAnswered || MSIMECloudConsentPrompting) return;
+    MSIMECloudConsentPrompting = YES;
+    MSIMEAppearancePreferences *appearance = _appearance;
+    __weak MSIMEInputController *weakSelf = self;
+    // Off the activation path, so the client's first keystrokes are not held behind the prompt.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || appearance.cloudCandidatesAnswered) { MSIMECloudConsentPrompting = NO; return; }
+        [controller presentCloudConsent:^(NSNumber *enabled) {
+            MSIMECloudConsentPrompting = NO;
+            if (enabled) [appearance answerCloudCandidates:enabled.boolValue];
+        }];
+    });
+}
+
+static NSString *const MSIMECloudConsentTitle = @"联网功能";
+static NSString *const MSIMECloudConsentMessage =
+    @"拼音切分、候选排序和词频学习全部在本机完成，不联网。\n\n"
+    @"启用云候选：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。\n\n"
+    @"这是唯一一项装完就会联网的功能。AI 联想、候选翻译、语音输入都需要你自己填入 API token 之后才会发出任何请求。之后可在「设置 → 输入」的「云候选」里更改。";
+
+/// Show the consent prompt and report the choice: @YES, @NO, or nil when it closed without one. Overridden by tests.
+///
+/// Non-modal on purpose: a modal loop would stop this process from serving IMK while the prompt is up, which would freeze typing in every other app until it is answered. The bundle is LSBackgroundOnly, so it has to activate itself for the window to take focus.
+- (void)presentCloudConsent:(void (^)(NSNumber *enabled))completion {
+    static NSAlert *alert;
+    static void (^pending)(NSNumber *);
+    pending = [completion copy];
+    alert = [NSAlert new];
+    alert.messageText = MSIMECloudConsentTitle;
+    alert.informativeText = MSIMECloudConsentMessage;
+    NSButton *enable = [alert addButtonWithTitle:@"启用云候选"];
+    NSButton *disable = [alert addButtonWithTitle:@"不启用"];
+    static MSIMECloudConsentTarget *target;
+    target = [MSIMECloudConsentTarget new];
+    target.handler = ^(BOOL enabled) {
+        [alert.window orderOut:nil];
+        void (^finish)(NSNumber *) = pending;
+        pending = nil;
+        if (finish) finish(@(enabled));
+        // Released after the button action returns; the target and the window are still on the stack here.
+        dispatch_async(dispatch_get_main_queue(), ^{ alert = nil; target = nil; });
+    };
+    enable.target = target;
+    enable.action = @selector(enable:);
+    disable.target = target;
+    disable.action = @selector(disable:);
+    [alert layout];
+    alert.window.level = NSFloatingWindowLevel;
+    [NSApp activateIgnoringOtherApps:YES];
+    [alert.window center];
+    [alert.window makeKeyAndOrderFront:nil];
 }
 
 - (void)commitPendingEmojiForClient:(id)client {
@@ -3521,6 +3605,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
             if (!_preferencesTimer) [self startPreferencesMonitoring];
             return;
         }
+        // Before the session exists, so nothing this process writes can be mistaken for an earlier install.
+        [self resolveCloudCandidatesConsentWithOptions:options];
         if (options) {
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
@@ -3549,8 +3635,11 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 
 - (void)startPreferencesMonitoring {
     if (!_preferencesDirectory) {
-        id directory = [self runtimeOptions][@"preferences_directory"];
+        NSDictionary *options = [self runtimeOptions];
+        id directory = options[@"preferences_directory"];
         if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
+        // English-mode activation reaches here without prepareSession; a directory set earlier was already resolved where it was set.
+        [self resolveCloudCandidatesConsentWithOptions:options];
     }
     if (_activeClient && _preferencesDirectory) {
         // Activation may happen after the setting changed while the IMK process was not running.

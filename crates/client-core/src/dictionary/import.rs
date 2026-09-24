@@ -57,9 +57,7 @@ impl ImportKind {
                     || (format == ImportFormat::Rime && byte == b' ')
             }),
             ImportKind::Wubi => key.bytes().all(|byte| byte.is_ascii_lowercase()),
-            ImportKind::QuickPhrase => key
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+            ImportKind::QuickPhrase => super::quick_phrase_code_is_well_formed(key),
             ImportKind::English => super::english_code_is_well_formed(key),
         }
     }
@@ -517,12 +515,19 @@ mod tests {
             .collect::<Vec<_>>(),
             vec![("dont", "don't"), ("e-mail", "e-mail")]
         );
-        // Quick phrase keys allow digits.
+        // Quick phrase keys are letters only, as in the reference.
         assert_eq!(
-            parse_ok(ImportKind::QuickPhrase, "standard", "你好\tnh1\n")
+            parse(ImportKind::QuickPhrase, "standard", "你好\tnh1\n", LIMIT),
+            Err(ImportError::NoUsableRows)
+        );
+        // An uppercase quick phrase key is folded, not refused.
+        assert_eq!(
+            parse_ok(ImportKind::QuickPhrase, "standard", "你好\tNH\n")
                 .entries
-                .len(),
-            1
+                .iter()
+                .map(|entry| entry.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["nh"]
         );
         // Negative weights are refused.
         assert_eq!(

@@ -66,6 +66,7 @@ import {
   LetterCaseMode,
 } from "../entry/src/main/ets/keyboard/input/EnglishLetterCaseState";
 import { JapaneseVariantPolicy } from "../entry/src/main/ets/keyboard/input/JapaneseVariantPolicy";
+import { JapaneseSpacePolicy } from "../entry/src/main/ets/keyboard/input/JapaneseSpacePolicy";
 import { ClipboardHistoryPolicy } from "../entry/src/main/ets/keyboard/clipboard/ClipboardHistoryPolicy";
 import { ClipboardHistoryPreferencePolicy } from "../entry/src/main/ets/keyboard/clipboard/ClipboardHistoryPreferencePolicy";
 import { FullWidthInputPolicy } from "../entry/src/main/ets/keyboard/input/FullWidthInputPolicy";
@@ -7766,6 +7767,40 @@ group(
     );
   },
 );
+
+group("Japanese Space commits a lone Fallback row instead of converting it", () => {
+  check(
+    !JapaneseSpacePolicy.converts(1, JapaneseSpacePolicy.CANDIDATE_SOURCE_FALLBACK),
+    "the raw composition alone is not something to convert",
+  );
+  check(JapaneseSpacePolicy.converts(1, 0), "a lone real candidate still converts");
+  check(
+    JapaneseSpacePolicy.converts(2, JapaneseSpacePolicy.CANDIDATE_SOURCE_FALLBACK),
+    "several rows still convert even when the first is Fallback",
+  );
+  check(!JapaneseSpacePolicy.converts(0, -1), "no candidates leaves Space to its normal meaning");
+  const log: string[] = [];
+  const declining: HardwareKeyTarget = {
+    ...recordingTarget(log),
+    convertJapanese: () => {
+      log.push("convertJapanese");
+      return false;
+    },
+  };
+  HardwareKeyDispatch.apply(
+    { action: HardwareKeyAction.JAPANESE_CONVERT, character: 0, index: 0 },
+    false,
+    declining,
+  );
+  check(
+    log.join(",") === "convertJapanese,commitHighlighted",
+    "hardware Space the conversion declines commits the highlighted row",
+  );
+  check(
+    dispatched(HardwareKeyAction.JAPANESE_CONVERT).join(",") === "convertJapanese",
+    "and Space the conversion claims commits nothing",
+  );
+});
 
 group("a letter the Engine declines is handed back rather than swallowed", () => {
   const declining: HardwareKeyTarget = { ...recordingTarget([]), press: () => false };

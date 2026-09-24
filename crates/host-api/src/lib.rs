@@ -59,6 +59,8 @@ pub(crate) const PREFERENCES_DOCUMENT_LIMIT: usize = 1 << 20;
 mod ffi;
 pub use ffi::*;
 mod doubao_auth;
+#[cfg(not(any(target_os = "android", target_env = "ohos")))]
+mod handwriting_cells;
 pub use doubao_auth::msime_client_doubao_auth_headers;
 mod learned_translation;
 mod niutrans_translation;
@@ -130,8 +132,28 @@ fn engine_handwriting_candidates(
         .iter()
         .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
         .collect::<Vec<Vec<(f32, f32)>>>();
-    msime_engine_bridge::handwriting_recognize(model_path, &strokes, width, height)
-        .map_err(|_| "local handwriting recognizer unavailable")
+    let recognize = |strokes: &[Vec<(f32, f32)>]| {
+        msime_engine_bridge::handwriting_recognize(model_path, strokes, width, height)
+            .map_err(|_| "local handwriting recognizer unavailable")
+    };
+    // The Engine classifies one character per call and normalises each call's own bounding box, so a written line is split into character cells and each cell is classified on its own, as the Windows Ink recognizer segments a line into a multi-character candidate.
+    let cells = handwriting_cells::segment_handwriting_cells(&strokes);
+    if cells.len() < 2 {
+        return recognize(&strokes);
+    }
+    let mut per_cell = Vec::with_capacity(cells.len());
+    for cell in &cells {
+        let cell_strokes = cell
+            .iter()
+            .map(|&index| strokes[index].clone())
+            .collect::<Vec<_>>();
+        per_cell.push(recognize(&cell_strokes)?);
+    }
+    let combined = handwriting_cells::combine_cell_candidates(per_cell);
+    if combined.is_empty() {
+        return recognize(&strokes);
+    }
+    Ok(combined)
 }
 
 #[cfg(any(target_os = "android", target_env = "ohos"))]

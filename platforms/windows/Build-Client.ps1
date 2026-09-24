@@ -33,6 +33,7 @@ foreach ($prefix in @($X64Dependencies, $X86Dependencies)) {
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 foreach ($relative in @('Cargo.toml', 'vendor/MSIME-Engine/CMakeLists.txt',
                          'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt',
+                         'platforms/windows/settings/MSIME.Settings.vcxproj',
                          'apps/desktop/package.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $relative) -PathType Leaf)) {
         throw "Missing Client build source: $relative"
@@ -75,6 +76,22 @@ try {
                 (Join-Path $release 'MetasequoiaImeDictionaryReplay.exe'), $bin)
             Invoke-ClientBuild cmake @('-E', 'copy_if_different',
                 (Join-Path $release 'MetasequoiaImeDictionaryReplay.pdb'), $bin)
+
+            # Windows settings are a native WinUI 3 app. Keep the shared Tauri
+            # shell below for the emoji/handwriting/keyboard panels, but do not
+            # use it as the settings product anymore.
+            $settingsProject = Join-Path $RepoRoot 'platforms/windows/settings/MSIME.Settings.vcxproj'
+            $settingsIntermediate = Join-Path $output 'settings-obj'
+            Invoke-ClientBuild msbuild @($settingsProject, '/t:Restore,Build',
+                '/p:Configuration=RelWithDebInfo', '/p:Platform=x64',
+                "/p:HostApiLibrary=$(Join-Path $release 'msime_host_api.dll.lib')",
+                "/p:OutDir=$bin\", "/p:IntDir=$settingsIntermediate\")
+            $settingsPdb = Join-Path $bin 'MSIME.Settings.pdb'
+            if (-not (Test-Path -LiteralPath $settingsPdb -PathType Leaf)) {
+                throw "Expected one WinUI settings PDB output: $settingsPdb"
+            }
+            Invoke-ClientBuild cmake @('-E', 'copy_if_different', $settingsPdb,
+                (Join-Path $bin 'msime-client-settings.pdb'))
         }
     }
     $env:CMAKE_PREFIX_PATH = $X64Dependencies
@@ -91,7 +108,7 @@ try {
     Invoke-ClientBuild pnpm $desktopBuild
     Invoke-ClientBuild cmake @('-E', 'copy_if_different',
         (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc/release/msime-desktop.exe'),
-        (Join-Path $RepoRoot 'target/windows-full/x64/bin/msime-client-settings.exe'))
+        (Join-Path $RepoRoot 'target/windows-full/x64/bin/MSIME Client Preview.exe'))
     # Rust/toolchain output can use the normalized crate name for the PDB.
     # Require one unambiguous symbol file rather than accepting stale symbols.
     $desktopPdbs = @('msime_desktop.pdb', 'msime-desktop.pdb') |
@@ -99,7 +116,7 @@ try {
         Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
     if (@($desktopPdbs).Count -ne 1) { throw 'Expected one Tauri desktop PDB output' }
     Invoke-ClientBuild cmake @('-E', 'copy_if_different', @($desktopPdbs)[0],
-        (Join-Path $RepoRoot 'target/windows-full/x64/bin/msime-client-settings.pdb'))
+        (Join-Path $RepoRoot 'target/windows-full/x64/bin/MSIME Client Preview.pdb'))
     foreach ($arch in @('x64', 'x86')) {
         $bin = Join-Path $RepoRoot "target/windows-full/$arch/bin"
         $prefix = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }
@@ -110,7 +127,8 @@ try {
         }
         if ($arch -eq 'x64') {
             foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe',
-                'msime-client-prepare.exe', 'MetasequoiaImeDictionaryReplay.exe', 'msime-client-settings.exe')) {
+                'msime-client-prepare.exe', 'MetasequoiaImeDictionaryReplay.exe',
+                'msime-client-settings.exe', 'MSIME Client Preview.exe')) {
                 & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $exe) -Architecture x64 -Kind exe
             }
         }

@@ -8,7 +8,7 @@
 
 ## 一句话结论
 
-默认配置下，**只有一个功能会把你输入的内容发出设备：云联想**。它默认开启，把当前正在组的拼音串发给 Google 输入工具。其余所有联网功能——语音识别、语音润色、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。候选翻译默认不联网，需要你在设置里选择一个翻译服务（自己的凭据，或显式选择「水杉账号」）。
+默认配置下，**只有一个功能会把你输入的内容发出设备：云联想**。它默认开启，把当前正在组的拼音串发给 Google 输入工具；Windows、Linux 与 macOS 在第一次使用时先问（见[云联想](#云联想默认开启)），macOS 在回答之前不发请求。其余所有联网功能——语音识别、语音润色、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。候选翻译默认不联网，需要你在设置里选择一个翻译服务（自己的凭据，或显式选择「水杉账号」）。
 
 另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：macOS、iOS、Android、Linux、HarmonyOS 会在启动时发一次安装计数，其中除 HarmonyOS 外还会在进程崩溃时发送异常信息，这五个平台默认开启且没有开关；Windows 的同一条路径**默认关闭**，只有在设置页「关于」里打开「匿名使用统计」（`telemetry_enabled`）之后才发送启动与崩溃事件。去重、调用栈和离线重试这三件事逐平台不同，不要按「六个平台一样」理解，差异逐条列在[安装与崩溃上报](#安装与崩溃上报)。仓库不接入任何第三方统计或崩溃上报 SDK。
 
@@ -35,6 +35,8 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 发出前有几道硬性限制，定义在共享层（`candidates.rs` 顶部的常量）：输入为空、超过 256 字节、或含控制字符时不发；响应超过 256 KiB 或单条候选超过 512 字节即丢弃。请求按代次绑定，失焦和换代次会使迟到的结果作废，不会写进新会话。共享层的云候选代码路径不含任何日志调用，查询和响应不经由它落盘。
 
 防抖间隔**由各宿主自己决定**，不是共享常量：共享层的 `spawn_with_debounce` 接受调用方给的时长，`spawn` 默认为零。已在代码中固定取值的是 Android（`OnlineCandidatePolicy.QUIET_INTERVAL_MILLIS = 350`）和 HarmonyOS（`OnlineCandidatePolicy.QUIET_INTERVAL_MS = 350`），两者都是组字停顿 350 ms 后才发一次，并用请求身份保证同一组合只问一次。其余宿主的取值请以各自代码为准。
+
+**首次使用会先问**：默认值是开启，但三个桌面平台在第一次使用时先说明这项功能再让你选。Windows 安装器在全新安装时显示「联网功能」页（`platforms/windows/installer/msime_setup.iss`），取消勾选就写入 `cloud_candidates = false`；Linux 的首次配置页（`packages/ui/src/account/linux-setup-page.tsx`）在同一处说明并提供选择；macOS 在全新配置下由输入法第一次激活时弹出「联网功能」对话框（`platforms/macos/src/settings/AppearancePreferences.mm` 的 `MSIMEClientCloudCandidatesConsent`），回答之前不发任何云候选请求。升级都不问，沿用已存的值。
 
 **关掉它**：设置页「云联想」开关，或把配置里的 `cloud_candidates` 设为 `false`。关闭后宿主不再发起云候选请求，并拒绝任何返回的云来源候选。
 

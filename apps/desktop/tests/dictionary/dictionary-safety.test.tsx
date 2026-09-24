@@ -151,7 +151,7 @@ test("Android personal dictionary JSON import previews and queues only after con
         version: 1,
         entries: [
           { kind: "pinyin", key: "ni hao", value: "你好", weight: 100000 },
-          { kind: "quickPhrase", key: "hello1", value: "你好！", weight: 3 },
+          { kind: "quickPhrase", key: "hello", value: "你好！", weight: 3 },
         ],
       }),
     ],

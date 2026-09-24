@@ -528,7 +528,7 @@ impl BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         if let Some((replacement_code, replacement_word, replacement_weight)) = replacement {
-            validate_dictionary_value(
+            validate_new_dictionary_value(
                 kind,
                 replacement_code,
                 replacement_word,
@@ -751,7 +751,7 @@ impl BackendAccountClient {
         weight: i64,
         access_token: &str,
     ) -> Result<AccountDictionaryChange, AccountError> {
-        validate_dictionary_value(kind, code, word, weight)?;
+        validate_new_dictionary_value(kind, code, word, weight)?;
         #[derive(Serialize)]
         struct Body<'a> {
             code: &'a str,
@@ -781,7 +781,7 @@ impl BackendAccountClient {
         access_token: &str,
     ) -> Result<AccountDictionaryChange, AccountError> {
         validate_dictionary_id(id)?;
-        validate_dictionary_value(kind, code, word, weight)?;
+        validate_new_dictionary_value(kind, code, word, weight)?;
         if revision <= 0 {
             return Err(AccountError::Invalid);
         }
