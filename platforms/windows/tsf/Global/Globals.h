@@ -101,7 +101,6 @@ extern HINSTANCE dllInstanceHandle;
 extern LONG dllRefCount;
 
 extern CRITICAL_SECTION CS;
-extern HFONT defaultlFontHandle; // Global font object we use everywhere
 
 extern const CLSID MetasequoiaIMECLSID;
 extern const GUID MetasequoiaIMEGuidProfile;

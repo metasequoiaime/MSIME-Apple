@@ -70,6 +70,22 @@ inline std::optional<int32_t> aux_field(std::wstring_view field) {
   }
   return static_cast<int32_t>(negative ? -value : value);
 }
+// Parse one unsigned 64-bit decimal field: 1 to 20 digits, no sign, checked
+// against overflow before every step.
+inline std::optional<uint64_t> aux_u64_field(std::wstring_view field) {
+  if (field.empty() || field.size() > 20)
+    return std::nullopt;
+  uint64_t value = 0;
+  for (const wchar_t unit : field) {
+    if (unit < L'0' || unit > L'9')
+      return std::nullopt;
+    const auto digit = static_cast<uint64_t>(unit - L'0');
+    if (value > (UINT64_MAX - digit) / 10)
+      return std::nullopt;
+    value = value * 10 + digit;
+  }
+  return value;
+}
 } // namespace detail
 
 // Largest rectangle accepted for a language-bar button. Anything wider is not a
@@ -152,10 +168,11 @@ parse_aux_dictionary_maintenance(const std::wstring &text) {
 //
 // The DLL falls back to this when its Main-pipe deactivate write fails, and
 // then polls the Aux pipe for a literal "OK" for up to 150 ms. Leaving it
-// unanswered blocks the sending TSF thread for that whole window.
+// unanswered blocks the sending TSF thread for that whole window. The client
+// id is (pid << 32) | tid and the token a request id, so both are 64-bit.
 struct AuxTerminalDeactivation {
-  int32_t client_id = 0;
-  int32_t focus_token = 0;
+  uint64_t client_id = 0;
+  uint64_t focus_token = 0;
 };
 inline std::optional<AuxTerminalDeactivation>
 parse_aux_terminal_deactivation(const std::wstring &text) {
@@ -168,13 +185,14 @@ parse_aux_terminal_deactivation(const std::wstring &text) {
   const auto separator = rest.find(L'|');
   if (separator == std::wstring_view::npos)
     return std::nullopt;
-  const auto client = detail::aux_field(rest.substr(0, separator));
-  const auto token = detail::aux_field(rest.substr(separator + 1));
+  // A third '|' leaves a non-digit in the token field, which rejects it.
+  const auto client = detail::aux_u64_field(rest.substr(0, separator));
+  const auto token = detail::aux_u64_field(rest.substr(separator + 1));
   if (!client || !token)
     return std::nullopt;
-  // Both identifiers are positive on the wire; zero or negative means the DLL
-  // never had a real client, so there is nothing to deactivate.
-  if (*client <= 0 || *token <= 0)
+  // Zero means the DLL never had a real client, so there is nothing to
+  // deactivate.
+  if (*client == 0 || *token == 0)
     return std::nullopt;
   return AuxTerminalDeactivation{*client, *token};
 }

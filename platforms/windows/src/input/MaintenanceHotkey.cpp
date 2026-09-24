@@ -35,6 +35,12 @@ LRESULT CALLBACK MaintenanceHotkeyController::keyboard_proc(int code,
   auto *self = instance_;
   if (code != HC_ACTION || !self || !self->handler_)
     return CallNextHookEx(nullptr, code, wparam, lparam);
+  if (wparam == WM_KEYUP || wparam == WM_SYSKEYUP) {
+    const auto *up = reinterpret_cast<const KBDLLHOOKSTRUCT *>(lparam);
+    if (up && up->vkCode == VK_CAPITAL)
+      self->caps_down_ = false;
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
   if (wparam != WM_KEYDOWN && wparam != WM_SYSKEYDOWN)
     return CallNextHookEx(nullptr, code, wparam, lparam);
   const auto *event = reinterpret_cast<const KBDLLHOOKSTRUCT *>(lparam);
@@ -48,7 +54,10 @@ LRESULT CALLBACK MaintenanceHotkeyController::keyboard_proc(int code,
   // indicator, and the TIP only sampled GetKeyState at activation, so pressing
   // Caps mid-session left the language-bar icon stale. The stroke is always
   // passed on - Caps Lock still has to work.
-  if (event->vkCode == VK_CAPITAL && !(event->flags & LLKHF_UP)) {
+  // Holding Caps auto-repeats key-downs that do not toggle it again.
+  if (event->vkCode == VK_CAPITAL && !(event->flags & LLKHF_UP) &&
+      !self->caps_down_) {
+    self->caps_down_ = true;
     self->caps_ = !self->caps_;
     if (self->caps_sink_) {
       try {

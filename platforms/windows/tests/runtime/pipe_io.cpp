@@ -426,6 +426,78 @@ void registries(int malformed = 0) {
   require(transport.current_tickets().empty());
   require(!registry.send(registered.ticket, 1, frame, 2000).complete());
 }
+// A TSF thread or process that goes away closes its pipes but never calls
+// remove(). Its slot must come back without anyone doing so, while a live
+// thread that only lost Main keeps its reverse pipes for the reconnect.
+void dead_clients() {
+  PipeRegistry registry(1);
+  RegistryShutdown guard{registry};
+  const auto id = (static_cast<uint64_t>(GetCurrentProcessId()) << 32) | 66u;
+  const auto reverse = [&](Pair &pipe, uint32_t role, uint64_t client) {
+    auto task = std::async(std::launch::async, [&] {
+      return registry.register_reverse(std::move(pipe.server.owner), role,
+                                       2000);
+    });
+    FanyImePipeHello hello{};
+    hello.client_id = client;
+    hello.pipe_role = role;
+    require(
+        write_frame(pipe.client.value, fixture_bytes(hello), 2000).complete());
+    (void)read_frame(pipe.client.value,
+                     role == 1
+                         ? sizeof(FanyImeNamedpipeDataToTsf)
+                         : sizeof(FanyImeNamedpipeDataToTsfWorkerThread),
+                     2000);
+    return task.get().status;
+  };
+  const auto establish = [&](Pair &pipe, Pair &reply, uint32_t request) {
+    auto handshake = std::async(std::launch::async, [&] {
+      const auto input =
+          read_frame(pipe.server.value, sizeof(FanyImeNamedpipeData), 2000);
+      require(input.complete());
+      FanyImeNamedpipeData hello{};
+      std::memcpy(&hello, input.frame.data(), sizeof(hello));
+      return registry.register_main(std::move(pipe.server.owner), hello,
+                                    FanyImeProtocol::RequiredCapabilities,
+                                    2000);
+    });
+    require(write_frame(pipe.client.value,
+                        fixture_bytes(FanyImeProtocol::Hello(id, request)),
+                        2000)
+                .complete());
+    require(read_frame(reply.client.value, sizeof(FanyImeNamedpipeDataToTsf),
+                       2000)
+                .complete());
+    return handshake.get();
+  };
+  Pair reply, worker, first;
+  require(reverse(reply, 1, id) == RegistryStatus::Ready);
+  require(reverse(worker, 2, id) == RegistryStatus::Ready);
+  const auto registered = establish(first, reply, 93);
+  require(registered.status == RegistryStatus::Ready);
+  // Only Main closes: the thread is alive, so the client keeps its slot and
+  // Main comes back over the existing reverse pipes.
+  first.client.close();
+  require(registry.read_main(registered.ticket).status ==
+          IoStatus::Disconnected);
+  Pair excess;
+  require(reverse(excess, 1, id + 1) == RegistryStatus::Capacity);
+  Pair second;
+  const auto again = establish(second, reply, 94);
+  require(again.status == RegistryStatus::Ready);
+  // Now the whole chain closes, as when the host process exits.
+  second.client.close();
+  reply.client.close();
+  worker.client.close();
+  require(registry.read_main(again.ticket).status == IoStatus::Disconnected);
+  Pair reclaimed;
+  require(reverse(reclaimed, 1, id + 1) == RegistryStatus::Ready);
+  // A client that registered its reverse pipes and died before Main is
+  // reclaimed by the capacity sweep alone.
+  reclaimed.client.close();
+  Pair late;
+  require(reverse(late, 1, id + 2) == RegistryStatus::Ready);
+}
 template <typename Predicate> void eventually(Predicate predicate) {
   const auto until = GetTickCount64() + 2000;
   while (!predicate()) {
@@ -636,6 +708,7 @@ int main() {
     registries();
     for (int malformed = 1; malformed <= 3; ++malformed)
       registries(malformed);
+    dead_clients();
     listeners();
     handshakes();
     {

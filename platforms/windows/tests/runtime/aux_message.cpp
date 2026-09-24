@@ -120,6 +120,21 @@ int main() {
   // TerminalDeactivation carries a client id and a focus token, both positive.
   const auto terminal = parse_aux_terminal_deactivation(L"TerminalDeactivation|7|42");
   require(terminal && terminal->client_id == 7 && terminal->focus_token == 42);
+  // The DLL's real client id is (pid << 32) | tid and the token a 64-bit
+  // request id, so both routinely exceed int32.
+  const auto real = parse_aux_terminal_deactivation(
+      L"TerminalDeactivation|5299989648942|18446744073709551615");
+  require(real && real->client_id == ((1234ull << 32) | 5678) &&
+          real->focus_token == 18446744073709551615ull);
+  require(!parse_aux_terminal_deactivation(
+      L"TerminalDeactivation|5299989648942|18446744073709551616"));
+  require(!parse_aux_terminal_deactivation(
+      L"TerminalDeactivation|99999999999999999999|42"));
+  require(!parse_aux_terminal_deactivation(
+      L"TerminalDeactivation|100000000000000000000|42"));
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|+1|42"));
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation||42"));
+  require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|7|"));
   require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|7"));
   require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|7|42|9"));
   require(!parse_aux_terminal_deactivation(L"TerminalDeactivation|0|42"));

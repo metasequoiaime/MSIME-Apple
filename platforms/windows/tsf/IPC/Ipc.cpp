@@ -64,18 +64,37 @@ std::atomic<uint64_t> issue47Sequence{0};
 
 void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE, PVOID);
 
+// The pipe names are machine-global, so another logged-on user can create them
+// first. Only talk to a server in this session; this queries the handle alone,
+// so it also works in app container and low integrity hosts. It does not tell
+// apart two accounts sharing one session.
+bool IsPipeServerInOwnSession(HANDLE pipe)
+{
+    ULONG serverSession = 0;
+    DWORD ownSession = 0;
+    return GetNamedPipeServerSessionId(pipe, &serverSession) &&
+           ProcessIdToSessionId(GetCurrentProcessId(), &ownSession) && serverSession == ownSession;
+}
+
 void ScheduleDiagnosticFlushLocked()
 {
     if (diagnosticFlushScheduled)
     {
         return;
     }
+    // Each submission takes its own loader reference; the callback hands it to
+    // FreeLibraryWhenCallbackReturns. The COM lock count cannot pin the DLL.
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&FlushTsfDiagnosticLogs),
+                            &module))
+    {
+        return;
+    }
     diagnosticFlushScheduled = true;
-    DllAddRef();
-    if (!TrySubmitThreadpoolCallback(FlushTsfDiagnosticLogs, nullptr, nullptr))
+    if (!TrySubmitThreadpoolCallback(FlushTsfDiagnosticLogs, module, nullptr))
     {
         diagnosticFlushScheduled = false;
-        DllRelease();
+        FreeLibrary(module);
     }
 }
 
@@ -99,6 +118,11 @@ bool SendDiagnosticBatch(const FanyImeTsfDiagnosticBatchHeader &header, const st
     {
         return false;
     }
+    if (!IsPipeServerInOwnSession(pipe))
+    {
+        CloseHandle(pipe);
+        return false;
+    }
 
     const size_t payloadBytes = payload.size() * sizeof(wchar_t);
     std::vector<unsigned char> frame(sizeof(header) + payloadBytes);
@@ -113,8 +137,9 @@ bool SendDiagnosticBatch(const FanyImeTsfDiagnosticBatchHeader &header, const st
     return writeResult && bytesWritten == frame.size();
 }
 
-void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE, PVOID)
+void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE instance, PVOID context)
 {
+    FreeLibraryWhenCallbackReturns(instance, static_cast<HMODULE>(context));
     Sleep(DiagnosticFlushDelayMs);
 
     FanyImeTsfDiagnosticBatchHeader header;
@@ -161,7 +186,6 @@ void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE, PVOID)
     }
     if (loggingDisabled)
     {
-        DllRelease();
         return;
     }
 
@@ -185,7 +209,6 @@ void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE, PVOID)
             ScheduleDiagnosticFlushLocked();
         }
     }
-    DllRelease();
 }
 // These tokens fence messages that can outlive a CMetasequoiaIME instance.
 // Per-instance counters can collide after HWND/HANDLE reuse during a rapid
@@ -558,6 +581,12 @@ bool TryOpenClientPipe(HANDLE &hPipeHandle, const wchar_t *pipeName, UINT pipeRo
 
     if (openedPipe == INVALID_HANDLE_VALUE)
     {
+        return false;
+    }
+    if (!IsPipeServerInOwnSession(openedPipe))
+    {
+        // Nothing, not even the hello, goes to a server in another session.
+        CloseHandle(openedPipe);
         return false;
     }
 
@@ -1450,6 +1479,11 @@ bool SendToAuxNamedpipe(const std::wstring &pipeData, bool waitForAcknowledgemen
     }
     if (!hAuxPipe || hAuxPipe == INVALID_HANDLE_VALUE)
     {
+        return false;
+    }
+    if (!IsPipeServerInOwnSession(hAuxPipe))
+    {
+        CloseHandle(hAuxPipe);
         return false;
     }
     DWORD bytesWritten = 0;

@@ -17,7 +17,6 @@ HINSTANCE dllInstanceHandle;
 LONG dllRefCount = -1;
 
 CRITICAL_SECTION CS;
-HFONT defaultlFontHandle; // Global font object we use everywhere
 
 //---------------------------------------------------------------------
 // MetasequoiaIME CLSID

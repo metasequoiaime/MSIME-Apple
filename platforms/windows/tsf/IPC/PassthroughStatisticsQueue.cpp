@@ -33,8 +33,10 @@ bool SendBatch(bool english, const std::wstring &characters)
     return true;
 }
 
-void CALLBACK FlushPassthroughStatistics(PTP_CALLBACK_INSTANCE, void *)
+void CALLBACK FlushPassthroughStatistics(PTP_CALLBACK_INSTANCE instance, void *context)
 {
+    // Drops the submit-time loader reference only after this callback has returned.
+    FreeLibraryWhenCallbackReturns(instance, static_cast<HMODULE>(context));
     for (;;)
     {
         std::wstring english;
@@ -55,7 +57,6 @@ void CALLBACK FlushPassthroughStatistics(PTP_CALLBACK_INSTANCE, void *)
             g_suppressedUntil.store(GetTickCount64() + SuppressionMilliseconds, std::memory_order_relaxed);
         }
     }
-    DllRelease();
 }
 } // namespace
 
@@ -72,13 +73,17 @@ void QueuePassthroughStatistics(wchar_t wch, bool english)
     }
     if (!g_flushInFlight)
     {
-        // In-memory enqueue plus one thread-pool submission; a running flush keeps the flag set until it has drained the queue. The module reference keeps the DLL mapped while the callback runs.
-        g_flushInFlight = true;
-        DllAddRef();
-        if (!TrySubmitThreadpoolCallback(FlushPassthroughStatistics, nullptr, nullptr))
+        // In-memory enqueue plus one thread-pool submission; a running flush keeps the flag set until it has drained the queue. A loader reference (not the COM lock count, which DllCanUnloadNow reads) keeps the DLL mapped while the callback runs.
+        HMODULE module = nullptr;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                               reinterpret_cast<LPCWSTR>(&FlushPassthroughStatistics), &module))
         {
-            g_flushInFlight = false;
-            DllRelease();
+            g_flushInFlight = true;
+            if (!TrySubmitThreadpoolCallback(FlushPassthroughStatistics, module, nullptr))
+            {
+                g_flushInFlight = false;
+                FreeLibrary(module);
+            }
         }
     }
     ReleaseSRWLockExclusive(&g_queueLock);

@@ -22,6 +22,19 @@ struct PipeRegistry::Endpoint {
       CloseHandle(cancel);
   }
   void stop() { SetEvent(cancel); }
+  // False once the client process has exited or closed its end. Any other
+  // probe failure is not proof of death, so the endpoint is kept.
+  bool alive(uint64_t id) const {
+    DWORD error = ERROR_SUCCESS;
+    if (!peer->matches(connection->handle(), id, error))
+      return false;
+    if (PeekNamedPipe(connection->handle(), nullptr, 0, nullptr, nullptr,
+                      nullptr))
+      return true;
+    error = GetLastError();
+    return error != ERROR_BROKEN_PIPE && error != ERROR_PIPE_NOT_CONNECTED &&
+           error != ERROR_NO_DATA;
+  }
 };
 struct PipeRegistry::Client {
   std::mutex mutex;
@@ -31,6 +44,13 @@ struct PipeRegistry::Client {
     if (endpoints[role])
       endpoints[role]->stop();
     endpoints[role].reset();
+  }
+  // Only endpoints that are really gone. A live TSF thread that lost Main
+  // keeps its reverse pipes on purpose and re-establishes Main over them.
+  void clear_dead(uint64_t id) {
+    for (uint32_t role = 0; role < 3; ++role)
+      if (endpoints[role] && !endpoints[role]->alive(id))
+        clear(role);
   }
 };
 uint64_t PipeRegistry::next_generation() {
@@ -103,6 +123,8 @@ PipeRegistry::register_reverse(std::unique_ptr<PipeConnection> connection,
   endpoint->connection = std::move(connection);
   endpoint->peer = std::move(handshake.peer);
   auto client = lookup(handshake.client_id, true);
+  if (!client && reclaim_dead())
+    client = lookup(handshake.client_id, true);
   if (!client) {
     result.status = RegistryStatus::Capacity;
     return result;
@@ -273,6 +295,8 @@ IoResult PipeRegistry::read_main(const PipeTicket &value, DWORD timeout) {
     if (!endpoint->peer->matches(endpoint->connection->handle(), value.client,
                                  error)) {
       client->clear(0);
+      client->clear_dead(value.client);
+      retire(value.client, client);
       return {IoStatus::Disconnected, error, 0, false, {}};
     }
   }
@@ -283,8 +307,19 @@ IoResult PipeRegistry::read_main(const PipeTicket &value, DWORD timeout) {
       result = {IoStatus::MalformedFrame, ERROR_INVALID_DATA,
                 result.transferred, false, {}};
   }
-  if (!result.complete())
+  if (!result.complete()) {
     remove(value, 0);
+    // A closed Main may mean the whole TSF thread or process is gone; if so
+    // its reverse endpoints are dead too and must not hold a slot for good.
+    // Cancelled comes from close or replacement, which is not that.
+    if (result.status == IoStatus::Disconnected) {
+      std::lock_guard lock(client->mutex);
+      if (!client->retired) {
+        client->clear_dead(value.client);
+        retire(value.client, client);
+      }
+    }
+  }
   return result;
 }
 IoResult PipeRegistry::send(const PipeTicket &value, uint32_t role,
@@ -306,6 +341,8 @@ IoResult PipeRegistry::send(const PipeTicket &value, uint32_t role,
                                error)) {
     client->clear(0);
     client->clear(role);
+    client->clear_dead(value.client);
+    retire(value.client, client);
     return {IoStatus::Disconnected, error, 0, false, {}};
   }
   auto result = write_frame(endpoint->connection->handle(), frame, timeout,
@@ -313,6 +350,8 @@ IoResult PipeRegistry::send(const PipeTicket &value, uint32_t role,
   if (!result.complete()) {
     client->clear(0);
     client->clear(role);
+    client->clear_dead(value.client);
+    retire(value.client, client);
   }
   return result;
 }
@@ -330,6 +369,32 @@ bool PipeRegistry::remove(const PipeTicket &value, uint32_t role) {
   client->clear(role);
   retire(value.client, client);
   return true;
+}
+// Only when the map is full, so the hot path never probes. Never takes a
+// client mutex under the map mutex, and skips a client busy in handshake I/O
+// rather than waiting on it.
+bool PipeRegistry::reclaim_dead() {
+  std::vector<std::pair<uint64_t, std::shared_ptr<Client>>> clients;
+  {
+    std::lock_guard lock(mutex_);
+    if (stopped_)
+      return false;
+    if (clients_.size() < max_clients_)
+      return true;
+    clients.reserve(clients_.size());
+    for (const auto &[id, client] : clients_)
+      clients.emplace_back(id, client);
+  }
+  bool reclaimed = false;
+  for (const auto &[id, client] : clients) {
+    std::unique_lock lock(client->mutex, std::try_to_lock);
+    if (!lock || client->retired)
+      continue;
+    client->clear_dead(id);
+    retire(id, client);
+    reclaimed = reclaimed || client->retired;
+  }
+  return reclaimed;
 }
 void PipeRegistry::shutdown() {
   std::unordered_map<uint64_t, std::shared_ptr<Client>> clients;

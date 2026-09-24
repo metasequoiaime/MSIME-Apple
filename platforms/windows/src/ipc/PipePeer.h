@@ -31,4 +31,12 @@ private:
   uint64_t client_id_;
   DWORD session_;
 };
+// Session-less endpoints (the Aux pipe) have no client id to bind, so these
+// read the connected client straight off the server end of the pipe.
+// The client's process id, provided it runs in this Server's session.
+bool pipe_client_in_session(HANDLE pipe, ULONG &pid, DWORD &error);
+// True only for a full desktop process of this user: same session and user
+// SID, not in an AppContainer, and at least medium integrity. Any failure to
+// tell is a rejection.
+bool pipe_client_is_desktop_user(HANDLE pipe, DWORD &error);
 } // namespace msime::windows
