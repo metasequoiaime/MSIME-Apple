@@ -56,6 +56,14 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
 }
 } // namespace
 
+/// Scroll views lay an unflipped document view out from the bottom, which parks the list of skins
+/// against the bottom edge with its first card out of sight above.
+@interface MetasequoiaSkinDocumentView : NSView
+@end
+@implementation MetasequoiaSkinDocumentView
+- (BOOL)isFlipped { return YES; }
+@end
+
 @interface MetasequoiaSkinSwitch : NSSwitch
 @end
 @implementation MetasequoiaSkinSwitch
@@ -94,6 +102,7 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     NSMutableArray<NSString *> *_skinIds;
     NSMutableArray<NSString *> *_skinNames;
     NSMutableArray<NSNumber *> *_skinCompatibility;
+    BOOL _didScrollToTop;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect
@@ -121,7 +130,8 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     _skinNames = [NSMutableArray array];
     _skinCompatibility = [NSMutableArray array];
 
-    NSTextField *title = Label(@"皮肤", 24.0, NSFontWeightSemibold, [NSColor labelColor]);
+    // Matches the page titles of the settings window this view is a page of.
+    NSTextField *title = Label(@"皮肤", 20.0, NSFontWeightSemibold, [NSColor labelColor]);
     NSTextField *summary =
         Label(@"选择内置皮肤，或从本机目录加载自定义皮肤。", 13.0, NSFontWeightRegular, [NSColor secondaryLabelColor]);
     summary.maximumNumberOfLines = 2;
@@ -140,11 +150,21 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     _document.spacing = 16.0;
     _document.edgeInsets = NSEdgeInsetsMake(0.0, 30.0, 20.0, 30.0);
     _document.translatesAutoresizingMaskIntoConstraints = NO;
-    scroll.documentView = _document;
+    // The stack goes inside a flipped container rather than being the document view itself: an
+    // unflipped document view is laid out from the bottom, so the page opens showing the last skin
+    // in the list with the first one above the visible area.
+    NSView *documentContainer = [[MetasequoiaSkinDocumentView alloc] initWithFrame:NSZeroRect];
+    documentContainer.translatesAutoresizingMaskIntoConstraints = NO;
+    scroll.documentView = documentContainer;
+    [documentContainer addSubview:_document];
     [NSLayoutConstraint activateConstraints:@[
-        [_document.topAnchor constraintEqualToAnchor:scroll.contentView.topAnchor],
-        [_document.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],
-        [_document.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
+        [documentContainer.topAnchor constraintEqualToAnchor:scroll.contentView.topAnchor],
+        [documentContainer.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],
+        [documentContainer.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
+        [_document.topAnchor constraintEqualToAnchor:documentContainer.topAnchor],
+        [_document.leadingAnchor constraintEqualToAnchor:documentContainer.leadingAnchor],
+        [_document.trailingAnchor constraintEqualToAnchor:documentContainer.trailingAnchor],
+        [_document.bottomAnchor constraintEqualToAnchor:documentContainer.bottomAnchor],
     ]];
 
     [self addSubview:title];
@@ -485,6 +505,32 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     }
     [self refreshCardChrome];
     [_document layoutSubtreeIfNeeded];
+    [self scrollCardsToTop];
+}
+
+/// A stack view is not flipped, so a scroll view holding one opens showing its bottom — the last
+/// skin in the list — and the first card is above the visible area. Harmless in the fixed 720pt
+/// window this used to live in, visible as soon as it became a page that gets resized.
+- (void)scrollCardsToTop
+{
+    NSScrollView *scroll = _document.enclosingScrollView;
+    NSView *document = scroll.documentView;
+    if (document == nil) return;
+    const CGFloat top = document.isFlipped ? 0.0 : NSMaxY(document.frame) - NSHeight(scroll.contentView.bounds);
+    [document scrollPoint:NSMakePoint(0.0, MAX(0.0, top))];
+}
+
+// Cards are built before the view has a superview, so nothing has a size yet and the scroll during
+// reload has nothing to work with. The first move into a window is the first moment it does.
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if (self.window == nil || _didScrollToTop) return;
+    _didScrollToTop = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [self.window.contentView layoutSubtreeIfNeeded];
+      [self scrollCardsToTop];
+    });
 }
 
 @end

@@ -3298,10 +3298,12 @@ show_selected_bar = true
     assert(image);
     assert([[image representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@((root / "synthetic" / "decoration.png").c_str()) atomically:YES]);
     MSIMEAppearancePreferences *external = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
-    NSPopUpButton *control = (id)PreferenceControl(external, @selector(skinChanged:));
-    assert(control.numberOfItems == 5 && [control.lastItem.title isEqual:@"Synthetic Skin"]);
-    [control selectItemAtIndex:4];
-    [NSApp sendAction:control.action to:control.target from:control];
+    // Skins are picked from the cards on the 皮肤 page, which is the browser itself now; the popup
+    // of skin names it replaced could not show what any of them looked like.
+    MetasequoiaSkinSettingsView *picker = (id)[external skinSettingsView];
+    NSArray<NSSwitch *> *pickerSwitches = [picker valueForKey:@"switches"];
+    assert(pickerSwitches.count == 5 && [pickerSwitches.lastObject.identifier isEqual:@"synthetic"]);
+    [NSApp sendAction:pickerSwitches.lastObject.action to:pickerSwitches.lastObject.target from:pickerSwitches.lastObject];
     assert([external.skinID isEqual:@"synthetic"] && external.decorationImage);
     MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:external.skinsRoot];
     assert([loaded.skinID isEqual:@"synthetic"] && [loaded resolvedSkinForDark:NO].id == "synthetic");
@@ -3310,7 +3312,7 @@ show_selected_bar = true
     MSIMEFloatingToolbarPanel *toolbar = [MSIMEFloatingToolbarPanel new];
     [toolbar setFrameAutosaveName:@""];
     [controller setValue:toolbar forKey:@"toolbar"];
-    MetasequoiaSkinSettingsView *cards = (id)[external skinCatalogController].window.contentView.subviews.firstObject;
+    MetasequoiaSkinSettingsView *cards = (id)[external skinSettingsView];
     NSArray<NSSwitch *> *skinSwitches = [cards valueForKey:@"switches"];
     assert([skinSwitches.lastObject.identifier isEqual:@"synthetic"]);
     [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(appearanceChanged:)
@@ -3319,7 +3321,7 @@ show_selected_bar = true
     assert([external.skinID isEqual:@"fluent"] && !external.decorationImage);
     [NSApp sendAction:skinSwitches.lastObject.action to:skinSwitches.lastObject.target from:skinSwitches.lastObject];
     assert([external.skinID isEqual:@"synthetic"] && external.decorationImage);
-    assert([control.selectedItem.representedObject isEqual:@"synthetic"]);
+    assert(skinSwitches.lastObject.state == NSControlStateValueOn);
     assert([panel.contentView.subviews.lastObject isKindOfClass:NSImageView.class]);
     assert([[controller valueForKey:@"view"] isEqual:before]);
     [NSNotificationCenter.defaultCenter removeObserver:controller name:MSIMEAppearanceDidChangeNotification object:external];
@@ -3356,11 +3358,13 @@ show_selected_bar = true
     std::filesystem::remove_all(root / "synthetic");
     [controller renderCandidates];
     assert([external resolvedSkinForDark:NO].id == "synthetic" && external.decorationImage);
-    NSButton *reload = (id)PreferenceControl(external, @selector(reloadSkinsFromButton:));
-    [NSApp sendAction:reload.action to:reload.target from:reload];
+    // Rescanning is 刷新皮肤 on the skin page, which rebuilds the cards from the directory; the
+    // accessor performs the same reload the button does.
+    MetasequoiaSkinSettingsView *rescanned = (id)[external skinSettingsView];
     assert([external.skinID isEqual:@"synthetic"]);
     assert([external resolvedSkinForDark:NO].id == "fluent" && !external.decorationImage);
-    assert(control.numberOfItems == 4 && [control.selectedItem.representedObject isEqual:@"fluent"]);
+    NSArray<NSSwitch *> *rescannedSwitches = [rescanned valueForKey:@"switches"];
+    assert(rescannedSwitches.count == 4 && [rescannedSwitches.firstObject.identifier isEqual:@"fluent"]);
     [controller appearanceChanged:nil];
     for (NSView *view in panel.contentView.subviews) assert(![view isKindOfClass:NSImageView.class]);
     panel.appearance = nil;
@@ -3640,9 +3644,12 @@ static void TestCloudCandidatePreference() {
     NSString *suite = [@"msime.cloud.preference." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-    NSButton *toggle = (id)PreferenceControl(prefs, @selector(cloudCandidatesChanged:));
+    NSSwitch *toggle = (id)PreferenceControl(prefs, @selector(cloudCandidatesChanged:));
     assert(prefs.cloudCandidates && toggle.state == NSControlStateValueOn);
-    assert([toggle.title containsString:@"Google"]);
+    // The switch has no title of its own — the wording naming where the query goes is on the row
+    // label, which is also what the switch reports to VoiceOver. Still asserted: this is the one
+    // control here that sends what is being typed off the machine, and it has to say so.
+    assert([toggle.accessibilityLabel containsString:@"Google"]);
     assert(![prefs sharedPreferencesByMerging:@{}][@"cloud_candidates"]);
     assert([[prefs sharedPreferencesByMerging:@{@"cloud_candidates":@NO}][@"cloud_candidates"] isEqual:@NO]);
     __block NSUInteger saves = 0;
@@ -4693,7 +4700,9 @@ static void TestCandidateTranslationPreference() {
     [NSApp sendAction:skinEntry.action to:skinEntry.target from:skinEntry];
     assert([prefs.testWorkspace.configuration.arguments isEqual:@[@"--route=settings:skin"]]);
     prefs.testWorkspace.completion(NSRunningApplication.currentApplication, nil);
-    assert(![prefs valueForKey:@"skinWindow"]);
+    // The native fallback is the 皮肤 page rather than a window of its own, so a launch that
+    // succeeded must leave the window on the page it was already showing.
+    assert([[prefs valueForKey:@"selectedPageIndex"] integerValue] == 0);
     // A failed asynchronous launch still reaches the existing native editor.
     [NSApp sendAction:aiEntry.action to:aiEntry.target from:aiEntry];
     prefs.testWorkspace.completion(nil, [NSError errorWithDomain:@"SyntheticLaunchFailure" code:1 userInfo:nil]);
@@ -4838,7 +4847,6 @@ int main(int argc, char **argv) {
         NSPopUpButton *fontControl = (id)PreferenceControl(appearance, @selector(fontChanged:));
         NSPopUpButton *shortcutControl = (id)PreferenceControl(appearance, @selector(pageShortcutChanged:));
         NSPopUpButton *sizeControl = (id)PreferenceControl(appearance, @selector(pageSizeChanged:));
-        NSPopUpButton *skinControl = (id)PreferenceControl(appearance, @selector(skinChanged:));
         NSButton *followCursorControl = (id)PreferenceControl(appearance, @selector(candidateFollowCursorChanged:));
         assert(followCursorControl.state == NSControlStateValueOn);
         [followCursorControl setState:NSControlStateValueOff];
@@ -4849,11 +4857,12 @@ int main(int argc, char **argv) {
         assert([[[appearance sharedPreferencesByMerging:@{}] objectForKey:@"candidate_follow_cursor"] isEqual:@NO]);
         [appearance applySharedCandidatePreferences:@{@"candidate_follow_cursor": @YES}];
         assert(appearance.candidateFollowCursor);
-        assert(([skinControl.itemTitles isEqual:@[@"Fluent", @"微信绿", @"石墨 Graphite", @"杨柳青"]]));
         NSArray<NSString *> *skinIDs = @[@"fluent", @"wechat", @"graphite", @"willow_green"];
-        for (NSInteger option = 0; option < 4; ++option) {
-            [skinControl selectItemAtIndex:option];
-            [NSApp sendAction:skinControl.action to:skinControl.target from:skinControl];
+        NSArray<NSSwitch *> *skinCards = [(id)[appearance skinSettingsView] valueForKey:@"switches"];
+        assert(skinCards.count == skinIDs.count);
+        for (NSUInteger option = 0; option < skinIDs.count; ++option) {
+            assert([skinCards[option].identifier isEqual:skinIDs[option]]);
+            [NSApp sendAction:skinCards[option].action to:skinCards[option].target from:skinCards[option]];
             MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
             assert([loaded.skinID isEqual:skinIDs[option]]);
         }

@@ -128,16 +128,17 @@ int main(int argc, const char **argv) {
         }
         NSButton *browse = (id)MSIMEFindPreferenceControl(preferences.window.contentView,
                                                           NSSelectorFromString(@"showSkinCatalog:"));
-        assert(browse && [browse.title isEqual:@"浏览所有皮肤…"] && [preferences respondsToSelector:browse.action]);
-        NSWindowController *catalogWindow = [preferences skinCatalogController];
-        MetasequoiaSkinSettingsView *catalogView = (id)catalogWindow.window.contentView.subviews.firstObject;
+        // The remaining entry is a trip to the shared settings application, not the control that
+        // picks a skin: the browser is the 皮肤 page itself.
+        assert(browse && [browse.title isEqual:@"在设置应用中打开…"] && [preferences respondsToSelector:browse.action]);
+        MetasequoiaSkinSettingsView *catalogView = (id)[preferences skinSettingsView];
         assert([catalogView isKindOfClass:MetasequoiaSkinSettingsView.class]);
         assert([catalogView valueForKey:@"preferences"] == preferences);
-        assert([preferences skinCatalogController] == catalogWindow && !catalogWindow.window.isVisible);
-        [catalogWindow.window.contentView layoutSubtreeIfNeeded];
-        assert(catalogView.frame.size.width == 700 && catalogView.frame.size.height == 720);
+        assert([preferences skinSettingsView] == catalogView && catalogView.window == preferences.window);
+        [preferences.window.contentView layoutSubtreeIfNeeded];
+        assert(catalogView.frame.size.width > 0 && catalogView.frame.size.height > 0);
         for (NSString *theme in @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]) {
-            catalogWindow.window.appearance = [NSAppearance appearanceNamed:theme];
+            preferences.window.appearance = [NSAppearance appearanceNamed:theme];
             [catalogView viewDidChangeEffectiveAppearance];
             NSArray<NSTextField *> *titles = [catalogView valueForKey:@"titles"];
             assert([titles.firstObject.stringValue containsString:[theme isEqual:NSAppearanceNameDarkAqua] ? @"Dark" : @"Light"]);
