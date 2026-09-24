@@ -18,10 +18,11 @@ inline bool msime_voice_overlay_light_theme(std::string_view surface_theme,
   return false;
 }
 
+// The streaming providers, whose partial transcripts can stand in the composition while the user speaks: Doubao in the cloud and on-device recognition, whose helper reports the transcript so far as it decodes.
 inline bool msime_voice_stream_inline_enabled(bool configured,
                                               std::string_view provider,
                                               std::string_view commit_mode = "tsf") {
-  return configured && provider == "doubao" &&
+  return configured && (provider == "doubao" || provider == "local") &&
          (commit_mode.empty() || commit_mode == "tsf");
 }
 
