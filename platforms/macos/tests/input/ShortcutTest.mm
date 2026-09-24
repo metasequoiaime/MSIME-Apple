@@ -4906,6 +4906,7 @@ static void TestOfflineTargetGlosses() {
     // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
     settle();
     assert(([[controller currentTargetGlossRequest][@"offline_languages"] isEqual:@[@"fr"]]));
+    NSLog(@"DIAG offline-glosses delivered=%@ onDeviceFetches=%@ glossReq=%@ targetReq=%@", session.delivered, controller.onDeviceFetches, [controller currentGlossRequest], [controller currentTargetGlossRequest]);
     assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\nessai"}]]));
     session.generation++; session.targetLanguage = @"ja"; session.targetLanguages = @[@"ja", @"en"];
     settle();
