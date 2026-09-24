@@ -19,7 +19,8 @@ enum PersonalDictionaryBridge {
   static func validateEntry(_ entry: [String: Any]) throws -> [String: Any] {
     // The native side answers with one internal reason for every rejection, so the guidance has to
     // come from here -- this is the layer that still knows which kind of code the user was typing.
-    let kind = (entry["kind"] as? String).flatMap(PersonalWordKind.init(rawValue:))
+    // Callers pass `PersonalWord.bridgeValue`, which spells the quick phrase kind the shared layer's way (`quick_phrase`), not as the Swift raw value.
+    let kind = (entry["kind"] as? String).flatMap(PersonalWordKind.init(bridgeName:))
     var request = entry
     if request["kind"] as? String == "quickPhrase" { request["kind"] = "quick_phrase" }
     guard JSONSerialization.isValidJSONObject(request),
@@ -143,7 +144,7 @@ private enum PersonalDictionaryBridgeFailure: LocalizedError {
     switch self {
     case .invalid(.pinyin): "请填写完整拼音，用空格或英文单引号分隔音节，例如 ni hao。"
     case .invalid(.wubi): "五笔编码使用 1–4 个字母。"
-    case .invalid(.quickPhrase): "快捷短语编码只能使用字母或数字。"
+    case .invalid(.quickPhrase): "快捷短语编码只能包含英文字母，长度 1 到 32。"
     case .invalid(.english): "英文编码只能包含字母、连字符和撇号。"
     case .invalid(nil): "个人词条格式无效。"
     }

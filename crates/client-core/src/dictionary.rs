@@ -7,6 +7,7 @@
 pub mod access;
 pub mod import;
 pub mod personal;
+pub mod quiesce;
 
 /// Whether `code` is a usable English input code.
 ///
@@ -22,4 +23,9 @@ pub mod personal;
 pub fn english_code_is_well_formed(code: &str) -> bool {
     code.bytes()
         .all(|byte| byte.is_ascii_alphabetic() || byte == b'-' || byte == b'\'')
+}
+
+/// Whether `code` is a quick phrase code a new entry or an import may use: lowercase letters only, as the reference's `valid_code` in its `dictionary_manager` accepts. Checks on stored rows stay lenient so an entry saved with a digit still loads, lists, syncs and can be deleted.
+pub fn quick_phrase_code_is_well_formed(code: &str) -> bool {
+    !code.is_empty() && code.bytes().all(|byte| byte.is_ascii_lowercase())
 }

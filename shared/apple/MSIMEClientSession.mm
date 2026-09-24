@@ -456,6 +456,11 @@ static NSDictionary *decode(char *response, NSError **error) {
     NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
     return decode(msime_client_load_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length), error);
 }
++ (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
+    if (![directory isAbsolutePath] || directory.length == 0) { setError(error, @"偏好目录必须是绝对路径"); return nil; }
+    NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
+    return decode(msime_client_recover_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length), error);
+}
 - (nullable instancetype)initWithOptions:(NSDictionary<NSString *, id> *)options error:(NSError **)error {
     if (![NSThread isMainThread]) { setError(error, @"输入会话必须在主线程创建"); return nil; }
     self = [super init];

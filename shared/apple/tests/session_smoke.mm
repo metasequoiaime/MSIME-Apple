@@ -118,6 +118,41 @@ int main() {
         assert(![session viewWithError:&error]);
         assert(error);
         [[NSFileManager defaultManager] removeItemAtPath:root error:nil];
+
+        // An incomplete or unmatched special-mode input shows its raw text as the one Fallback candidate (source 9), and Space commits it, bare Y/R included, as in the reference's PrepareCandidateList. See scripts/apply_engine_local_mode_fallback.py. Temporary English and Japanese stay off unless their resource files exist, so this session gets placeholders.
+        NSString *localRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSMutableDictionary *localOptions = [options mutableCopy];
+        for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+            NSString *path = [localRoot stringByAppendingPathComponent:name];
+            BOOL created = [[NSFileManager defaultManager] createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
+            assert(created);
+            localOptions[name] = path;
+        }
+        for (NSString *name in @[@"english.db", @"dict_japanese.dat"]) {
+            BOOL written = [[@"fixture" dataUsingEncoding:NSUTF8StringEncoding] writeToFile:[localOptions[@"resources"] stringByAppendingPathComponent:name] atomically:YES];
+            assert(written);
+        }
+        error = nil;
+        MSIMEClientSession *local = [[MSIMEClientSession alloc] initWithOptions:localOptions error:&error];
+        assert(local && !error);
+        assert([local setFocused:YES error:&error]);
+        const auto showsOnlyFallback = [](NSDictionary *transition, NSString *text) {
+            NSArray *candidates = transition[@"view"][@"candidates"];
+            return [candidates isKindOfClass:NSArray.class] && candidates.count == 1 &&
+                   [candidates[0][@"text"] isEqual:text] && [candidates[0][@"source"] isEqual:@9];
+        };
+        assert(showsOnlyFallback([local typeASCII:'Y' shift:YES error:&error], @"Y"));
+        NSDictionary *bareEnglish = [local command:MSIME_COMMIT_CANDIDATE error:&error];
+        assert([bareEnglish[@"commit"] isEqual:@"Y"] && [bareEnglish[@"view"][@"candidates"] count] == 0);
+        NSDictionary *unmatched = nil;
+        assert([local typeASCII:'T' shift:YES error:&error]);
+        for (uint8_t key : {'x', 'i', 'n'}) unmatched = [local typeASCII:key shift:NO error:&error];
+        assert(showsOnlyFallback(unmatched, @"Txin"));
+        assert([[local command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"Txin"]);
+        assert(showsOnlyFallback([local typeASCII:'R' shift:YES error:&error], @"R"));
+        assert([[local command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"R"]);
+        assert([local closeWithError:&error]);
+        [[NSFileManager defaultManager] removeItemAtPath:localRoot error:nil];
         puts("Apple Foundation consumer: input, commit, thread and lifetime checks passed");
     }
     return 0;

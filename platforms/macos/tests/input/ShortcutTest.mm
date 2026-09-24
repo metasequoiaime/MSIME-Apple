@@ -79,6 +79,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger englishCandidateCalls;
 @property(nonatomic) BOOL dedicatedEnglish;
 @property(nonatomic, copy) NSDictionary *nextTransition;
+// Holds the engine call for this long, so a test can make one key slow enough to be logged.
+@property(nonatomic) useconds_t stall;
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
 @property(nonatomic) BOOL lastShift;
@@ -208,6 +210,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
     ++self.asciiCalls;
     self.lastASCII = ascii;
     self.lastShift = shift;
+    if (self.stall) usleep(self.stall);
     return self.nextTransition;
 }
 - (NSDictionary *)punctuationASCII:(uint8_t)ascii error:(NSError **)error {
@@ -306,6 +309,133 @@ static void TestBackspaceHoldDoesNotEscapeComposition() {
     assert(![[controller valueForKey:@"backspaceHoldArmed"] boolValue]);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
+static NSDictionary *PassthroughStatisticsCall(NSString *root, NSDictionary *action) {
+    NSData *request = [NSJSONSerialization dataWithJSONObject:@{@"directory": root, @"action": action} options:0 error:nil];
+    char *raw = msime_client_typing_statistics(static_cast<const uint8_t *>(request.bytes), request.length);
+    assert(raw);
+    NSDictionary *response = [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:raw length:strlen(raw)] options:0 error:nil];
+    msime_client_string_free(raw);
+    assert([response[@"ok"] boolValue]);
+    return response[@"value"];
+}
+
+static NSDictionary *PassthroughStatisticsDetail(NSString *root) {
+    // Records are written on the statistics worker; an empty block behind them drains it.
+    dispatch_sync(MSIMETypingStatisticsQueue(), ^{});
+    return PassthroughStatisticsCall(root, @{@"operation": @"load"})[@"detail"];
+}
+
+// Keys the input method hands back to the application are typed by the application, so they are counted at the exit of handleEvent:client: like MSIME-Windows counts uneaten OnTestKeyDown keys. Counting must never change the routing decision.
+static void TestPassthroughKeysAreCounted() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *suite = [@"msime.passthrough-statistics." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.fullWidthInput = NO;
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"scheme": @0 };
+    [controller setValue:idle forKey:@"view"];
+    session.nextTransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    NSEvent *(^key)(NSString *, unsigned short, NSEventModifierFlags) = ^NSEvent *(NSString *characters, unsigned short code, NSEventModifierFlags flags) {
+        return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0
+                                 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+    };
+    NSString *upArrow = [NSString stringWithFormat:@"%C", (unichar)NSUpArrowFunctionKey];
+
+    // With statistics off nothing is recorded, and the opt-in gate is the controller's, not only the store's.
+    PassthroughStatisticsCall(root, @{@"operation": @"set_enabled", @"enabled": @YES});
+    MSIMETypingStatisticsEnabled.store(false, std::memory_order_relaxed);
+    appearance.englishMode = YES;
+    assert(![controller handleEvent:key(@"a", 0, 0) client:client]);
+    assert([PassthroughStatisticsDetail(root)[@"characters"][@"latin"] integerValue] == 0);
+
+    MSIMEReloadTypingStatisticsEnabled(root);
+    assert(MSIMETypingStatisticsEnabled.load(std::memory_order_relaxed));
+    assert(![controller handleEvent:key(@"a", 0, 0) client:client]);
+    NSDictionary *detail = PassthroughStatisticsDetail(root);
+    assert([detail[@"characters"][@"latin"] integerValue] == 1);
+    assert([detail[@"sources"][@"english"] integerValue] == 1);
+
+    // Shortcut chords and AppKit function keys reach the application but type nothing.
+    assert(![controller handleEvent:key(@"c", 8, NSEventModifierFlagCommand) client:client]);
+    assert(![controller handleEvent:key(upArrow, 126, NSEventModifierFlagFunction | NSEventModifierFlagNumericPad) client:client]);
+    detail = PassthroughStatisticsDetail(root);
+    assert([detail[@"characters"][@"latin"] integerValue] == 1);
+    assert([detail[@"characters"][@"symbol"] integerValue] == 0 && [detail[@"characters"][@"other"] integerValue] == 0);
+
+    // A Chinese-mode digit the Engine declines is typed by the application and takes the current scheme's source.
+    appearance.englishMode = NO;
+    const NSUInteger asciiCalls = session.asciiCalls;
+    assert(![controller handleEvent:key(@"1", 18, 0) client:client]);
+    assert(session.asciiCalls == asciiCalls + 1 && session.lastASCII == '1');
+    assert(client.insertions.count == 0);
+    detail = PassthroughStatisticsDetail(root);
+    assert([detail[@"characters"][@"number"] integerValue] == 1);
+    assert([detail[@"sources"][@"quanpin"] integerValue] == 1);
+    // A key the Engine consumes is not a passthrough.
+    session.nextTransition = @{ @"handled": @YES, @"commit": NSNull.null, @"view": idle };
+    assert([controller handleEvent:key(@"2", 19, 0) client:client]);
+    assert([PassthroughStatisticsDetail(root)[@"characters"][@"number"] integerValue] == 1);
+
+    MSIMETypingStatisticsEnabled.store(false, std::memory_order_relaxed);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
+// The diagnostic log times every key through handleEvent:client: and, like MSIME-Windows' [key-latency] stage=handle lines, writes only a key that took at least 8 ms, recording the event type and outcome but never the key itself.
+static void TestKeyLatencyIsLoggedWithoutTheKey() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *suite = [@"msime.key-latency-log." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.fullWidthInput = NO;
+    appearance.englishMode = YES;
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"scheme": @0 };
+    [controller setValue:idle forKey:@"view"];
+    session.nextTransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0
+                                     context:nil characters:@"q" charactersIgnoringModifiers:@"q" isARepeat:NO keyCode:12];
+    NSString *logPath = [root stringByAppendingPathComponent:@"diagnostic.log"];
+
+    // Off: no timing line and no file.
+    msime_macos_diagnostic_configure(root.fileSystemRepresentation, false);
+    assert(![controller handleEvent:key client:client]);
+    assert(![NSFileManager.defaultManager fileExistsAtPath:logPath]);
+
+    msime_macos_diagnostic_configure(root.fileSystemRepresentation, true);
+    assert(![controller handleEvent:key client:client]);
+    NSString *fast = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
+    assert(![fast containsString:@"[key-latency]"]); // A key handled well under 8 ms is not written.
+    appearance.englishMode = NO;
+    session.stall = 12000;
+    assert(![controller handleEvent:key client:client]);
+    assert(session.asciiCalls > 0);
+    session.stall = 0;
+    msime_macos_diagnostic_configure(root.fileSystemRepresentation, false);
+    NSString *contents = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
+    assert([contents containsString:@"[key-latency] stage=handle type=down handled=0 elapsed_ms="]);
+    // Timestamps, pids and labels never contain a q, so any q would be the typed key leaking.
+    assert(![contents containsString:@"q"] && ![contents containsString:@"keycode"]);
+
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
 @implementation ShortcutClient
 - (NSRange)selectedRange { return self.selection; }
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
@@ -1447,7 +1577,8 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
     assert(!appearance.runtimeFullWidthInput && appearance.englishMode);
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
-    assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    client.committed = nil;
+    assert([controller handleEvent:ModeKey(0, 0, NO) client:client] && [client.committed isEqual:@"ａ"]); // English mode applies full-width too.
     assert(appearance.runtimeFullWidthInput && appearance.fullWidthInput);
     appearance.englishMode = NO;
     NSDictionary *idle = @{@"handled": @NO, @"view": @{@"editing_text": @"", @"candidates": @[]}};
@@ -1727,6 +1858,18 @@ static void TestJapaneseConversionKeys(MSIMEAppearancePreferences *appearance) {
     NSMutableDictionary *bare = [composing(3) mutableCopy];
     bare[@"candidates"] = @[];
     [controller setValue:bare forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    assert(session.lastCommand == MSIME_COMMIT_CANDIDATE);
+
+    // A bare Shift+R shows its raw prefix as the one Fallback candidate (source 9). Like Windows, the first Space commits it; there is nothing to convert.
+    NSMutableDictionary *fallback = [composing(3) mutableCopy];
+    fallback[@"editing_text"] = @"R";
+    fallback[@"reading"] = @"";
+    fallback[@"local_mode"] = @"temporary_japanese";
+    fallback[@"candidates"] = @[@{ @"text": @"R", @"source": @9, @"highlighted": @YES,
+                                   @"id": @{ @"session": @4, @"generation": @7, @"index": @0 } }];
+    [controller setValue:fallback forKey:@"view"];
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
     assert(session.lastCommand == MSIME_COMMIT_CANDIDATE);
@@ -2427,6 +2570,88 @@ static void TestPreferenceRevisionSkipsUnchangedDocuments() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// A preferences document that is not JSON is repaired by the host and the repaired snapshot applied, once per directory: a failure that repair cannot fix must not turn the one-second poll into a repair attempt every second.
+@interface RecoveringPreferencesController : ModeController
+@property(nonatomic, copy) NSDictionary *readSnapshot;
+@property(nonatomic, copy) NSDictionary *recovery;
+@property(nonatomic) NSUInteger readCalls;
+@property(nonatomic) NSUInteger recoverCalls;
+@property(nonatomic) NSUInteger completions;
+@property(nonatomic, strong) NSMutableArray<NSDictionary *> *appliedPreferences;
+@end
+@implementation RecoveringPreferencesController
+- (NSDictionary *)readPreferencesSnapshotInDirectory:(NSString *)directory error:(NSError **)error {
+    (void)directory;
+    assert(!NSThread.isMainThread);
+    @synchronized(self) { ++self.readCalls; }
+    if (self.readSnapshot) return self.readSnapshot;
+    if (error) *error = [NSError errorWithDomain:@"test" code:1 userInfo:@{NSLocalizedDescriptionKey: @"invalid preferences document: EOF"}];
+    return nil;
+}
+- (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
+    (void)directory; (void)error;
+    assert(!NSThread.isMainThread);
+    @synchronized(self) { ++self.recoverCalls; }
+    return self.recovery;
+}
+- (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
+                       session:(MSIMEClientSession *)session client:(id)client {
+    [super completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+    ++self.completions;
+}
+- (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    [self.appliedPreferences addObject:preferences];
+    [super applySharedToolbarPreferences:preferences];
+}
+@end
+
+static void WaitForRecoveringCompletions(RecoveringPreferencesController *controller, NSUInteger count) {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (controller.completions < count && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(controller.completions == count);
+}
+
+static void TestUnreadablePreferencesAreRecoveredOnce() {
+    NSString *suite = [@"msime.preference-recovery." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    enum Case { Repaired, Refused, Readable };
+    for (int kase : {Repaired, Refused, Readable}) {
+        RecoveringPreferencesController *controller = [RecoveringPreferencesController alloc];
+        controller.appliedPreferences = [NSMutableArray array];
+        NSDictionary *repaired = @{@"format_version":@1, @"revision":@1758620000, @"preferences":@{@"chinese_punctuation":@NO}};
+        if (kase == Readable) controller.readSnapshot = @{@"revision":@3, @"preferences":@{@"chinese_punctuation":@YES}};
+        controller.recovery = kase == Repaired
+            ? @{@"recovered":@YES, @"snapshot":repaired, @"backup_name":@"preferences.json.corrupt-20260923-101500", @"salvaged":@NO}
+            : nil;
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+        [controller setValue:[@"/synthetic-recovery-" stringByAppendingString:NSUUID.UUID.UUIDString] forKey:@"preferencesDirectory"];
+
+        [controller reloadPreferences];
+        WaitForRecoveringCompletions(controller, 1);
+        assert(controller.readCalls == 1);
+        assert(controller.recoverCalls == (kase == Readable ? 0u : 1u));
+        if (kase == Repaired) {
+            assert(controller.appliedPreferences.count == 1);
+            assert([controller.appliedPreferences[0][@"chinese_punctuation"] isEqual:@NO]);
+        } else if (kase == Refused) {
+            assert(controller.appliedPreferences.count == 0);
+        } else {
+            assert(controller.appliedPreferences.count == 1);
+        }
+
+        // The poll comes round with the document failing: a directory gets one repair attempt in all, whether or not the first one found anything to repair.
+        controller.readSnapshot = nil;
+        [controller reloadPreferences];
+        WaitForRecoveringCompletions(controller, 2);
+        assert(controller.readCalls == 2);
+        assert(controller.recoverCalls == 1);
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 @interface VoiceSettingsPersistenceController : AsyncPreferencesController
 @property(nonatomic) NSUInteger persistenceRequests;
 @end
@@ -2962,6 +3187,98 @@ static void TestPerApplicationPunctuationAndWidth() {
     prefs.fullWidthInput = NO; // The settings checkbox is a new starting value too.
     assert(!prefs.runtimeFullWidthInput);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static NSEvent *EnglishKey(NSString *characters, unsigned short code, NSEventModifierFlags flags) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+}
+
+// English mode is the reference's closed IME, whose punctuation and double/single-byte compartments still shape what is typed (KeyEventSink.cpp, ResolvePunctuationOpen).
+static void TestEnglishModePunctuationAndWidthOutput() {
+    NSString *suite = [@"msime.english-output." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ApplicationShortcutClient *client = [ApplicationShortcutClient new];
+    client.bundleIdentifier = @"org.example.english-output";
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+    [prefs activateInputModeForApplication:client.bundleIdentifier];
+    NSString *(^type)(NSEvent *) = ^NSString *(NSEvent *event) {
+        client.committed = nil;
+        return [controller handleEvent:event client:client] ? (client.committed ?: @"") : nil;
+    };
+    NSEvent *comma = EnglishKey(@",", 43, 0), *letter = EnglishKey(@"a", 0, 0), *space = EnglishKey(@" ", 49, 0);
+    NSEvent *quote = EnglishKey(@"\"", 39, NSEventModifierFlagShift);
+    NSEvent *less = EnglishKey(@"<", 43, NSEventModifierFlagShift), *greater = EnglishKey(@">", 47, NSEventModifierFlagShift);
+    NSEvent *keypadPeriod = EnglishKey(@".", 65, NSEventModifierFlagNumericPad);
+    NSEvent *toggle = EnglishKey(@".", 47, NSEventModifierFlagControl);
+    NSEvent *widthToggle = EnglishKey(@" ", 49, NSEventModifierFlagControl | NSEventModifierFlagShift);
+
+    // A Chinese lock converts English-mode punctuation with the Engine's forward table.
+    prefs.punctuationLock = @"chinese";
+    [controller setEnglishInputMode:YES];
+    assert(prefs.englishMode && prefs.runtimeChinesePunctuation);
+    assert([type(comma) isEqual:@"，"]);
+    assert([type(quote) isEqual:@"“"] && [type(quote) isEqual:@"”"]);
+    assert([type(less) isEqual:@"《"] && [type(less) isEqual:@"〈"] && [type(greater) isEqual:@"〉"] && [type(greater) isEqual:@"》"]);
+    assert(type(letter) == nil && type(space) == nil);
+    assert(type(keypadPeriod) == nil); // The keypad never turns Chinese.
+    assert(type(EnglishKey(@",", 43, NSEventModifierFlagCommand)) == nil);
+    assert(type(EnglishKey(@"a", 0, NSEventModifierFlagControl)) == nil);
+    // A mode switch starts the quote pair over.
+    assert([type(quote) isEqual:@"“"]);
+    [controller setEnglishInputMode:NO];
+    [controller setEnglishInputMode:YES];
+    assert([type(quote) isEqual:@"“"]);
+    [controller setEnglishInputMode:NO];
+
+    // Follow: English mode starts with English punctuation, and Ctrl+. turns Chinese on for this app without saving it.
+    prefs.punctuationLock = @"follow";
+    [controller setEnglishInputMode:YES];
+    assert(!prefs.runtimeChinesePunctuation && type(comma) == nil);
+    assert([controller handleEvent:toggle client:client]);
+    assert(prefs.runtimeChinesePunctuation && [defaults objectForKey:@"MSIMEClientChinesePunctuation"] == nil);
+    assert([type(comma) isEqual:@"，"]);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(!prefs.runtimeChinesePunctuation && type(comma) == nil);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert([type(comma) isEqual:@"，"]);
+    [controller setEnglishInputMode:NO];
+    [controller setEnglishInputMode:YES]; // The round trip drops the English-mode choice.
+    assert(!prefs.runtimeChinesePunctuation && type(comma) == nil);
+    [controller setEnglishInputMode:NO];
+
+    // A pinned lock holds against Ctrl+. and the toolbar, as ResolvePunctuationOpen does.
+    prefs.punctuationLock = @"english";
+    [controller setEnglishInputMode:YES];
+    assert([controller handleEvent:toggle client:client] && !prefs.runtimeChinesePunctuation);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(!prefs.runtimeChinesePunctuation && type(comma) == nil);
+    prefs.punctuationLock = @"chinese";
+    assert([controller handleEvent:toggle client:client] && prefs.runtimeChinesePunctuation);
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(prefs.runtimeChinesePunctuation && [type(comma) isEqual:@"，"]);
+    [controller setEnglishInputMode:NO];
+
+    // Full width in English mode: printable ASCII widens, Space becomes U+3000, Chinese punctuation wins where both apply.
+    prefs.punctuationLock = @"follow";
+    [controller setEnglishInputMode:YES];
+    assert([controller handleEvent:widthToggle client:client] && prefs.runtimeFullWidthInput && prefs.englishMode);
+    assert([type(letter) isEqual:@"ａ"] && [type(space) isEqual:@"\u3000"] && [type(comma) isEqual:@"，"]);
+    assert([type(keypadPeriod) isEqual:@"．"]);
+    assert([controller handleEvent:toggle client:client] && prefs.runtimeChinesePunctuation);
+    assert([type(comma) isEqual:@"，"] && [type(keypadPeriod) isEqual:@"．"]);
+    assert(type(EnglishKey(@",", 43, NSEventModifierFlagCommand)) == nil);
+    assert(type(EnglishKey(@"a", 0, NSEventModifierFlagControl)) == nil);
+    assert(type(EnglishKey(@"\t", 48, 0)) == nil && type(EnglishKey(@"é", 14, 0)) == nil);
+    assert([defaults objectForKey:@"MSIMEClientFullWidthInput"] == nil);
+    assert([controller handleEvent:widthToggle client:client] && !prefs.runtimeFullWidthInput);
+    [controller setEnglishInputMode:NO];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -3707,6 +4024,187 @@ static void TestCloudCandidatePreference() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
+@interface ConsentCloudController : CloudShortcutController
+@property(nonatomic) NSUInteger prompts;
+@property(nonatomic, copy) void (^answer)(NSNumber *);
+@end
+@implementation ConsentCloudController
+- (void)presentCloudConsent:(void (^)(NSNumber *))completion { ++self.prompts; self.answer = completion; }
+@end
+
+// Runs the main queue until everything already enqueued on it has run: the main queue is FIFO, so a sentinel enqueued now runs after them. A fixed run-loop slice was not enough on slow CI runners.
+static void DrainMainQueue() {
+    __block BOOL drained = NO;
+    dispatch_async(dispatch_get_main_queue(), ^{ drained = YES; });
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+    while (!drained && deadline.timeIntervalSinceNow > 0) CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, true);
+    assert(drained);
+}
+
+static void TestCloudCandidateConsent() {
+    NSDictionary *query = @{@"scheme":@0, @"generation":@1, @"identity":@"synthetic", @"query_text":@"nihao", @"cache_key":@"nihao", @"pinyin_segments":@[@"ni", @"hao"], @"cloud_eligible":@YES, @"ai_eligible":@NO, @"cloud_candidates":@YES, @"session_id":@1};
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *preferencesFile = [root stringByAppendingPathComponent:@"preferences.json"];
+
+    // A profile that was never resolved (no preferences directory known) keeps sending as before.
+    NSString *suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:nil userDataDirectory:nil];
+    assert(prefs.cloudCandidatesAnswered && prefs.cloudCandidatesEnabled);
+
+    // Fresh profile: nothing is sent and the prompt is requested exactly once.
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:root userDataDirectory:nil];
+    assert(!prefs.cloudCandidatesAnswered && prefs.cloudCandidates && !prefs.cloudCandidatesEnabled);
+    ConsentCloudController *controller = [ConsentCloudController alloc];
+    controller.requests = [NSMutableArray array];
+    CloudShortcutSession *session = [CloudShortcutSession new];
+    session.query = query;
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    [controller synchronizeCloudCandidates];
+    assert([controller valueForKey:@"cloudTimer"] == nil && controller.requests.count == 0);
+    [controller requestCloudCandidatesConsentIfNeeded];
+    [controller requestCloudCandidatesConsentIfNeeded];
+    assert(controller.prompts == 0); // Deferred off the activation path.
+    DrainMainQueue();
+    assert(controller.prompts == 1 && controller.answer);
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 1); // Still showing.
+
+    // A preferences.json that appears later (this host writes one after any appearance change) does not turn pending into answered.
+    assert([@"{}" writeToFile:preferencesFile atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:root userDataDirectory:nil];
+    assert(!prefs.cloudCandidatesAnswered);
+    assert([NSFileManager.defaultManager removeItemAtPath:preferencesFile error:nil]);
+
+    // Closed without an answer: still pending, asked again on the next activation.
+    void (^dismiss)(NSNumber *) = controller.answer;
+    dismiss(nil);
+    assert(!prefs.cloudCandidatesAnswered);
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 2);
+
+    // Declining stores cloud_candidates = false in the shared preferences and sends nothing.
+    __block NSUInteger changes = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++changes; }];
+    void (^decline)(NSNumber *) = controller.answer;
+    decline(@NO);
+    assert(prefs.cloudCandidatesAnswered && !prefs.cloudCandidates && !prefs.cloudCandidatesEnabled && changes == 1);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"cloud_candidates"] isEqual:@NO]);
+    [controller synchronizeCloudCandidates];
+    assert([controller valueForKey:@"cloudTimer"] == nil && controller.requests.count == 0);
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 2);
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(snapshot && !error);
+    NSDictionary *merged = [prefs sharedPreferencesByMerging:snapshot[@"preferences"]];
+    assert(([MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+        snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":merged} error:&error] && !error));
+    NSDictionary *loaded = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(loaded && !error && [loaded[@"preferences"][@"cloud_candidates"] isEqual:@NO]);
+
+    // Enabling afterwards resumes queries.
+    [prefs answerCloudCandidates:YES];
+    assert(prefs.cloudCandidatesEnabled);
+    [controller synchronizeCloudCandidates];
+    NSTimer *timer = [controller valueForKey:@"cloudTimer"];
+    assert(timer);
+    [timer fire]; [timer invalidate];
+    assert(controller.requests.count == 1 && controller.requests.lastObject.started);
+    [controller cancelCloudCandidates];
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    // Accepting from the prompt enables queries straight away.
+    suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    NSString *empty = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:empty withIntermediateDirectories:YES attributes:nil error:nil]);
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:empty userDataDirectory:nil];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 3);
+    void (^accept)(NSNumber *) = controller.answer;
+    accept(@YES);
+    assert(prefs.cloudCandidatesEnabled && [[prefs sharedPreferencesByMerging:@{}][@"cloud_candidates"] isEqual:@YES]);
+    // The native settings checkbox counts as an answer too.
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:empty userDataDirectory:nil];
+    assert(!prefs.cloudCandidatesAnswered);
+    NSButton *toggle = (id)PreferenceControl(prefs, @selector(cloudCandidatesChanged:));
+    toggle.state = NSControlStateValueOff;
+    [NSApp sendAction:toggle.action to:toggle.target from:toggle];
+    assert(prefs.cloudCandidatesAnswered && !prefs.cloudCandidatesEnabled);
+    [prefs.window close];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    // Upgrade with an existing preferences.json: answered, never asked, stored value kept (including false).
+    assert([@"{}" writeToFile:[empty stringByAppendingPathComponent:@"preferences.json"] atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    for (NSNumber *stored in @[@NO, @YES]) {
+        suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+        defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        [prefs applySharedInputPreferences:@{@"cloud_candidates":stored}];
+        [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:empty userDataDirectory:nil];
+        assert(prefs.cloudCandidatesAnswered && prefs.cloudCandidates == stored.boolValue);
+        assert(prefs.cloudCandidatesEnabled == stored.boolValue);
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller requestCloudCandidatesConsentIfNeeded];
+        DrainMainQueue();
+        assert(controller.prompts == 3);
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+
+    // Upgrade with an existing NSUserDefaults choice and no shared file: answered, value kept.
+    NSString *bare = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:bare withIntermediateDirectories:YES attributes:nil error:nil]);
+    suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    [defaults setBool:NO forKey:@"MSIMEClientCloudCandidates"];
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:bare userDataDirectory:nil];
+    assert(prefs.cloudCandidatesAnswered && !prefs.cloudCandidates);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    // An empty Engine user-data directory is still a fresh profile.
+    NSString *userData = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:userData withIntermediateDirectories:YES attributes:nil error:nil]);
+    suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:bare userDataDirectory:userData];
+    assert(!prefs.cloudCandidatesAnswered && !prefs.cloudCandidatesEnabled);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    // Upgrade from a profile that typed but never changed a setting: no preferences.json and no stored choice, only Engine user data. Answered, never asked, default kept.
+    assert([NSData.data writeToFile:[userData stringByAppendingPathComponent:@"msime_user.db"] atomically:YES]);
+    suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:bare userDataDirectory:userData];
+    assert(prefs.cloudCandidatesAnswered && prefs.cloudCandidates && prefs.cloudCandidatesEnabled);
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 3);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    [controller setValue:nil forKey:@"appearance"];
+    for (NSString *path in @[root, empty, bare, userData]) assert([NSFileManager.defaultManager removeItemAtPath:path error:nil]);
+}
+
 @interface GlossSession : ShortcutSession
 @property(nonatomic) NSUInteger applications;
 @property(nonatomic) NSUInteger clears;
@@ -3741,10 +4239,13 @@ static void TestCloudCandidatePreference() {
 @end
 @interface CustomTranslationSession : GlossSession
 @property(nonatomic, copy) NSDictionary *custom;
+@property(nonatomic, copy) NSArray *queryCandidates;
+@property(nonatomic) BOOL account;
 @property(nonatomic, copy) NSDictionary *tencent;
 @property(nonatomic, copy) NSDictionary *niuTrans;
 @property(nonatomic, copy) NSArray *page;
 @property(nonatomic, copy) NSArray *targetLanguages;
+@property(nonatomic, copy) NSArray *offlineGlossLanguages;
 @property(nonatomic, copy) NSArray *delivered;
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) BOOL offline;
@@ -3753,8 +4254,9 @@ static void TestCloudCandidatePreference() {
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
     return self.enabled ? @{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
-        @"target_languages":self.targetLanguages ?: @[],
-        @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}, @"niutrans":self.niuTrans ?: @{}} : nil;
+        @"target_languages":self.targetLanguages ?: @[], @"offline_gloss_languages":self.offlineGlossLanguages ?: @[],
+        @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}, @"niutrans":self.niuTrans ?: @{},
+        @"candidates":self.queryCandidates ?: @[], @"translation_account":@(self.account)} : nil;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
@@ -3981,9 +4483,14 @@ static void TestAiCandidateDescriptorFailureIsRetryable() {
 }
 @interface CustomTranslationController : CloudShortcutController
 @property(nonatomic, strong) NSMutableArray<ControlledTranslationBatch *> *batches;
+@property(nonatomic, strong) NSMutableArray<NSArray *> *onDeviceFetches;
 @property(nonatomic) BOOL useRealDelay;
 @end
 @implementation CustomTranslationController
+- (void)fetchOnDeviceGlosses:(NSArray<NSString *> *)words targets:(NSArray<NSString *> *)targets {
+    assert(NSThread.isMainThread);
+    [self.onDeviceFetches addObject:@[words, targets]];
+}
 - (MSIMECustomTranslationBatch *)niuTransBatchForItems:(NSArray<NSDictionary *> *)items config:(NSDictionary *)config
                                            completion:(void (^)(NSArray<NSDictionary *> *))completion {
     ControlledTranslationBatch *batch = (ControlledTranslationBatch *)[self customBatchForItems:items completion:completion];
@@ -4003,6 +4510,15 @@ static void TestAiCandidateDescriptorFailureIsRetryable() {
 - (NSDictionary *)readCandidateGloss:(NSDictionary *)request resources:(NSString *)resources {
     assert(!NSThread.isMainThread && [resources isEqual:@"/synthetic"]);
     return @{@"generation":request[@"generation"], @"translations":@[@{@"text":@"Hello", @"translation":@"本地释义"}]};
+}
+- (NSDictionary *)readTargetGloss:(NSDictionary *)request language:(NSString *)language resources:(NSString *)resources {
+    assert(!NSThread.isMainThread && [resources isEqual:@"/synthetic"]);
+    NSDictionary *glosses = @{@"fr":@{@"测试":@"essai"}, @"ja":@{@"测试":@"テスト", @"你好":@"こんにちは"}};
+    NSMutableArray *translations = [NSMutableArray array];
+    for (NSDictionary *candidate in request[@"candidates"])
+        if (glosses[language][candidate[@"text"]])
+            [translations addObject:@{@"text":candidate[@"text"], @"translation":glosses[language][candidate[@"text"]]}];
+    return @{@"generation":request[@"generation"], @"translations":translations};
 }
 - (MSIMECustomTranslationBatch *)tencentBatchForItems:(NSArray<NSDictionary *> *)items config:(NSDictionary *)config
                                          completion:(void (^)(NSArray<NSDictionary *> *))completion {
@@ -4235,13 +4751,16 @@ static void TestTencentCandidateScheduling() {
 @interface AccountGlossSession : ShortcutSession
 @property(nonatomic, copy) NSArray *candidates;
 @property(nonatomic, copy) NSArray *applied;
+// Replaces the service choice the shared query reports; nil means the user explicitly chose the account.
+@property(nonatomic, copy) NSDictionary *choice;
 @end
 @implementation AccountGlossSession
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
-    // No custom_translation / tencent_tmt / niutrans: a user-owned translator takes precedence over the
-    // account endpoint, so the account gloss path is only reachable when none is configured.
-    return @{@"generation":@1, @"target_languages":@[@"en"], @"candidates":self.candidates ?: @[]};
+    // The account endpoint needs an explicit choice: the shared query reports translation_account only when the user selected it and no service of their own takes precedence.
+    NSMutableDictionary *query = [@{@"generation":@1, @"target_languages":@[@"en"], @"candidates":self.candidates ?: @[]} mutableCopy];
+    [query addEntriesFromDictionary:self.choice ?: @{@"translation_account":@YES, @"provider":@"none"}];
+    return query;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error; return @{@"generation":@1, @"scheme":@0, @"local_mode":@"none", @"candidates":@[]};
@@ -4341,6 +4860,151 @@ static void TestAccountGlossSkipsNonChineseCandidates() {
     assert(![controller currentAccountGlossRequest]);
 }
 
+// Nothing reaches api.msime.app unless the user chose the MSIME account. A query without the flag, one that says no, and one whose service is the user's own (even with no usable credentials in it) all leave the account path idle: no request is formed and none is remembered.
+static void TestAccountGlossRequiresExplicitChoice() {
+    NSString *suite = [@"msime.account-gloss-choice." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    AccountGlossSession *session = [AccountGlossSession new];
+    session.candidates = @[@{@"text":@"\u6d4b\u8bd5", @"online_gloss":@YES}];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    for (NSDictionary *choice in @[@{},
+                                   @{@"translation_account":@NO, @"provider":@"none"},
+                                   @{@"provider":@"tencent", @"tencent_tmt":NSNull.null},
+                                   @{@"provider":@"niutrans", @"niutrans":NSNull.null}]) {
+        session.choice = choice;
+        assert(![controller currentAccountGlossRequest]);
+        [controller synchronizeAccountGloss:[controller currentAccountGlossRequest]];
+        assert([controller valueForKey:@"accountGlossRequest"] == nil);
+    }
+    // The same page with the explicit choice does form a request, so the cases above fail for the reason they name.
+    session.choice = nil;
+    assert([controller currentAccountGlossRequest]);
+}
+
+static void TestOfflineTargetGlosses() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.offline = YES;
+    session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"fr"]; session.offlineGlossLanguages = @[@"fr", @"ja"];
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}, @{@"text":@"你好", @"source":@0}];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    void (^settle)(void) = ^{
+        [controller synchronizeCandidateGloss];
+        [controller synchronizeTargetGloss];
+        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+        [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    };
+    // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
+    settle();
+    assert(([[controller currentTargetGlossRequest][@"offline_languages"] isEqual:@[@"fr"]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\nessai"}]]));
+    session.generation++; session.targetLanguage = @"ja"; session.targetLanguages = @[@"ja", @"en"];
+    settle();
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"\n本地释义"}, @{@"text":@"测试", @"translation":@"テスト"},
+        @{@"text":@"你好", @"translation":@"こんにちは"}]]));
+    // Without English among the targets the offline dictionary is the only local source.
+    session.generation++; session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"];
+    settle();
+    assert(![controller currentGlossRequest] && ([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}]]));
+    // Nothing installed for the chosen targets leaves the English path exactly as it was.
+    session.generation++; session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"de"];
+    settle();
+    assert(![controller currentTargetGlossRequest] && ([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}]]));
+    // The user's own translator still takes precedence over the offline dictionary.
+    session.generation++; session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"];
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://offline-gloss.invalid/api", @"api_key":@""};
+    settle();
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 1);
+    controller.batches[0].reply(@[@{@"text":@"测试", @"translation":@"test en ligne"}]);
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"test en ligne"}]]));
+    [controller cancelCandidateTranslations];
+    assert(![controller valueForKey:@"targetGlossRequest"] && ![controller valueForKey:@"targetGlossResults"]);
+    [[MSIMETranslationCache sharedCache] clear];
+}
+// Apple's on-device translation fills only what the offline dictionaries leave empty, and only for a user without a service of their own. Replies are delivered straight to the controller, as in the account tests, because these controllers are built without the activation that registers the observer.
+static void TestOnDeviceGlosses() {
+    [[MSIMETranslationCache sharedCache] clear];
+    NSString *suite = [@"msime.on-device-gloss." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    controller.onDeviceFetches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.offline = YES;
+    session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"]; session.offlineGlossLanguages = @[@"fr"];
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}, @{@"text":@"你好", @"source":@0}];
+    session.queryCandidates = @[@{@"text":@"Hello", @"online_gloss":@NO}, @{@"text":@"测试", @"online_gloss":@YES},
+                                @{@"text":@"你好", @"online_gloss":@YES}];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:prefs forKey:@"appearance"];
+    void (^settle)(void) = ^{
+        [controller synchronizeCandidateGloss];
+        [controller synchronizeTargetGloss];
+        [controller synchronizeOnDeviceGloss];
+        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+        [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    };
+    void (^reply)(NSString *, NSDictionary *) = ^(NSString *target, NSDictionary *translations) {
+        [controller onDeviceCandidateTranslationsDidArrive:[NSNotification notificationWithName:@"MSIMEBackendOnDeviceTranslationsDidArrive"
+            object:nil userInfo:@{@"target":target, @"translations":translations}]];
+    };
+    // Only Chinese candidates are asked about, and the dictionary keeps the rows it answered.
+    settle();
+    assert(controller.onDeviceFetches.count == 1 && ([controller.onDeviceFetches[0] isEqual:@[@[@"测试", @"你好"], @[@"fr"]]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}]]));
+    reply(@"fr", @{@"测试":@"tester", @"你好":@"bonjour"});
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}, @{@"text":@"你好", @"translation":@"bonjour"}]]));
+    // A word already answered, even with nothing useful, is not asked about again.
+    session.generation++; session.page = @[@{@"text":@"你好", @"source":@0}, @{@"text":@"世界", @"source":@0}];
+    session.queryCandidates = @[@{@"text":@"你好", @"online_gloss":@YES}, @{@"text":@"世界", @"online_gloss":@YES}];
+    settle();
+    assert(controller.onDeviceFetches.count == 2 && ([controller.onDeviceFetches[1] isEqual:@[@[@"世界"], @[@"fr"]]]));
+    reply(@"fr", @{@"世界":@""});
+    session.generation++;
+    settle();
+    assert(controller.onDeviceFetches.count == 2 && ([session.delivered isEqual:@[@{@"text":@"你好", @"translation":@"bonjour"}]]));
+    // Without a dictionary for the target it is the only offline source, and rows follow the target order beside the English dictionary.
+    session.generation++; session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"de"]; session.offlineGlossLanguages = @[];
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}];
+    session.queryCandidates = @[@{@"text":@"Hello", @"online_gloss":@NO}, @{@"text":@"测试", @"online_gloss":@YES}];
+    settle();
+    assert(controller.onDeviceFetches.count == 3 && ([controller.onDeviceFetches[2] isEqual:@[@[@"测试"], @[@"en", @"de"]]]));
+    reply(@"de", @{@"测试":@"Test"});
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\nTest"}]]));
+    // A service of the user's own, or the MSIME account, answers every candidate; this path stays idle for both.
+    session.generation++; session.custom = @{@"enabled":@YES, @"endpoint":@"https://on-device.invalid/api", @"api_key":@""};
+    assert(![controller currentOnDeviceGlossRequest]);
+    session.custom = nil; session.account = YES;
+    assert(![controller currentOnDeviceGlossRequest]);
+    session.account = NO;
+    assert([controller currentOnDeviceGlossRequest]);
+    // Switching candidate translation off stops it too.
+    [prefs setValue:@NO forKey:@"candidateTranslations"];
+    assert(![controller currentOnDeviceGlossRequest]);
+    [prefs setValue:@YES forKey:@"candidateTranslations"];
+    // A controller that stopped composing ignores the broadcast.
+    settle();
+    [controller cancelCandidateTranslations];
+    assert(![controller valueForKey:@"onDeviceGlossRequest"]);
+    session.delivered = nil;
+    reply(@"de", @{@"测试":@"ignoriert"});
+    assert(session.delivered == nil);
+    [[NSUserDefaults new] removePersistentDomainForName:suite];
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationController() {
     CustomTranslationController *controller = [CustomTranslationController alloc];
     controller.batches = [NSMutableArray array];
@@ -4779,7 +5443,10 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--translations") {
             TestGlossScheduling();
             TestAccountGlossSkipsNonChineseCandidates();
+            TestAccountGlossRequiresExplicitChoice();
             TestAccountGlossCacheIsSharedAcrossControllers();
+            TestOfflineTargetGlosses();
+            TestOnDeviceGlosses();
             TestCustomTranslationController();
             TestSecondaryTranslationScheduling();
             TestCustomTranslationCacheDelivery();
@@ -4805,9 +5472,13 @@ int main(int argc, char **argv) {
         TestAiCandidateDescriptorFailureIsRetryable();
         TestAiCandidateEngineDelivery();
         TestCloudCandidatePreference();
+        TestCloudCandidateConsent();
         TestGlossScheduling();
         TestAccountGlossSkipsNonChineseCandidates();
+        TestAccountGlossRequiresExplicitChoice();
         TestAccountGlossCacheIsSharedAcrossControllers();
+        TestOfflineTargetGlosses();
+        TestOnDeviceGlosses();
         TestCustomTranslationController();
         TestSecondaryTranslationScheduling();
         TestCustomTranslationCacheDelivery();
@@ -5734,14 +6405,13 @@ int main(int argc, char **argv) {
         // Paging is routed by physical key code, not by the glyph the layout produces, so comma and period
         // need theirs - 43 and 47. With 0 they could only ever fall through to ASCII, which is what the
         // disabled half of this loop asserts, so both halves were passing for the same wrong reason.
-        // The last element is what the key does once its shortcut is off, which is not the same for all of
-        // them: comma and period are ordinary characters and go to the Engine, while Tab is never consumed
-        // and never forwarded - it belongs to the application - and Page Down and the arrows carry no
-        // character to forward at all.
+        // The last element is what the key does once its shortcut is off, which is not the same for all of them: comma and period are ordinary characters and go to the Engine, while Tab, Page Up/Page Down and Up/Down are navigation keys that Windows routes to the server whenever candidates are showing (CompositionProcessorEngine.cpp), where a disabled one gets NavigationIgnored - so with the panel up they are consumed with no command at all, neither a page move nor FINISH_COMPOSITION, and the composition stays.
         for (NSArray *entry in @[@[@"comma_period", @",", @43, @(MSIME_PREVIOUS_PAGE), @1],
                                  @[@"comma_period", @".", @47, @(MSIME_NEXT_PAGE), @1],
                                  @[@"tab", @"\t", @48, @(MSIME_NEXT_PAGE), @0],
+                                 @[@"page_up_down", @"", @116, @(MSIME_PREVIOUS_PAGE), @0],
                                  @[@"page_up_down", @"", @121, @(MSIME_NEXT_PAGE), @0],
+                                 @[@"arrows", @"", @126, @(MSIME_PREVIOUS_CANDIDATE), @0],
                                  @[@"arrows", @"", @125, @(MSIME_NEXT_CANDIDATE), @0]]) {
             for (NSNumber *enabled in @[@NO, @YES]) {
                 [appearance applySharedCandidatePreferences:@{@"navigation": @{entry[0]:enabled}}];
@@ -5756,13 +6426,21 @@ int main(int argc, char **argv) {
                     // Turned off means no paging command, whatever else happens to the key.
                     assert(session.lastCommand == UINT32_MAX);
                     assert(session.asciiCalls == [entry[4] unsignedIntegerValue]);
-                    if (![entry[4] unsignedIntegerValue]) assert(!handled);
+                    if (![entry[4] unsignedIntegerValue]) assert(handled);
                 }
             }
         }
         layoutPanel.requestedVisible = YES;
         NSEvent *reverseTab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0 context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
         assert([controller handleEvent:reverseTab client:client] && session.lastCommand == MSIME_PREVIOUS_PAGE);
+        // Shift+Tab with tab paging off is eaten while the panel is up, like plain Tab above.
+        [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @NO}}];
+        layoutPanel.requestedVisible = YES;
+        session.lastCommand = UINT32_MAX;
+        session.asciiCalls = 0;
+        assert([controller handleEvent:reverseTab client:client] && session.lastCommand == UINT32_MAX && session.asciiCalls == 0);
+        [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @YES}}];
+        // With no candidates showing, Tab goes back to the application.
         layoutPanel.requestedVisible = NO;
         session.lastCommand = UINT32_MAX;
         assert(![controller handleEvent:reverseTab client:client] && session.lastCommand == UINT32_MAX);
@@ -5920,6 +6598,7 @@ int main(int argc, char **argv) {
         TestControlOptionSpace();
         TestInputModePolicy();
         TestPerApplicationPunctuationAndWidth();
+        TestEnglishModePunctuationAndWidthOutput();
         TestInputSourceModeReset();
         TestRealSessionComposition();
         TestModifierTaps();
@@ -5927,6 +6606,7 @@ int main(int argc, char **argv) {
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestPreferenceRevisionSkipsUnchangedDocuments();
+        TestUnreadablePreferencesAreRecoveredOnce();
         TestProviderSettingsPersistTheSharedSnapshot();
         TestFullWidth(defaults, appearance);
         TestSessionOptions();
@@ -5937,6 +6617,8 @@ int main(int argc, char **argv) {
         TestGlossSenseTraditionalOutput(appearance);
         TestSegmentEditingChords(appearance);
         TestBackspaceHoldDoesNotEscapeComposition();
+        TestPassthroughKeysAreCounted();
+        TestKeyLatencyIsLoggedWithoutTheKey();
         TestKeypadOperators(appearance);
         TestSmartPunctuationPreferences();
         TestSharedCharacterWidth();

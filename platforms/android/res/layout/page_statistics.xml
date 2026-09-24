@@ -235,7 +235,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
             android:layout_marginStart="4dp"
-            android:text="仅统计水杉键盘提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存分类计数，不保存输入内容。每日明细保留最近 366 个有记录的日期，累计分类持续保留。"
+            android:text="仅统计水杉键盘提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存分类计数，不保存输入内容。每日明细默认永久保留。"
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />
     </LinearLayout>

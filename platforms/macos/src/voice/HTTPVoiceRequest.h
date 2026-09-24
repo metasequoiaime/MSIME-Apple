@@ -1,6 +1,15 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
+// Whether this build carries the in-process Whisper recognizer a `local` Whisper model file needs (MSIME_SHARED_VOICE_LOCAL_WHISPER). Decided at compile time: asking msime::voice::local_asr_available() instead would load the sherpa-onnx runtime into the input method, which only the msime-voice-local helper may do.
+static inline BOOL MSIMEVoiceLocalWhisperBuilt(void) {
+#ifdef MSIME_VOICE_LOCAL_WHISPER
+    return YES;
+#else
+    return NO;
+#endif
+}
+
 // One batch recognition request: a frozen configuration and a cancellation token, taking the whole recording at once and delivering on the main queue; cancellation suppresses delivery. No audio capture. Most providers are reached over HTTP, which is where the name comes from - the on-device Whisper provider shares everything here except the transport, so it shares the class rather than duplicating it.
 @interface MSIMEHTTPVoiceRequest : NSObject
 // Optional main-queue phase notification, snapshotted at request start.

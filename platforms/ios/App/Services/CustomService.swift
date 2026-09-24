@@ -84,11 +84,17 @@ enum AIProviderPreset: String, CaseIterable, Codable, Sendable {
 
 // File transcription presets use Engine's multipart file/model codec.
 // Official provider documentation checked 2026-09-07.
+// `local` and `system` recognize on the phone and carry no endpoint, model or key; their raw values are the shared `voice_input.provider` names.
 enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
-  case everyAPI, doubao, openAI, siliconFlow, groq, mistral, custom
+  case local, system, everyAPI, doubao, openAI, siliconFlow, groq, mistral, custom
+
+  /// Recognized on the phone: no endpoint, model or key, and audio never leaves the device (for `system`, whenever the device can recognize the language by itself).
+  var isOnDevice: Bool { self == .local || self == .system }
 
   var title: String {
     switch self {
+    case .local: "本地模型 · 离线识别"
+    case .system: "系统语音识别"
     case .everyAPI: "EveryAPI"
     case .doubao: "豆包 · WebSocket"
     case .openAI: "OpenAI"
@@ -100,6 +106,7 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   }
   var endpoint: String {
     switch self {
+    case .local, .system: ""
     case .everyAPI: "https://api.everyapi.ai/v1/audio/transcriptions"
     case .doubao: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
     case .openAI: "https://api.openai.com/v1/audio/transcriptions"
@@ -116,6 +123,7 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   ]
   var models: [String] {
     switch self {
+    case .local, .system: []
     case .everyAPI: ["openai/whisper-large-v3-turbo", "volc.seedasr.sauc.duration"]
     case .doubao: ["volc.seedasr.sauc.duration"]
     case .openAI: ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"]
@@ -128,6 +136,7 @@ enum VoiceProviderPreset: String, CaseIterable, Codable, Sendable {
   var documentation: URL? {
     let address: String
     switch self {
+    case .local, .system: return nil
     case .everyAPI: address = "https://everyapi.ai/models"
     case .doubao: return nil
     case .openAI: address = "https://developers.openai.com/api/docs/guides/speech-to-text"
@@ -228,6 +237,13 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
   }
 
   func save(_ kind: CustomServiceKind, token: String, defaults: UserDefaults = .standard) throws {
+    if kind == .voice && voiceProvider.isOnDevice {
+      // Only the choice is saved; the cloud endpoint, model and key stay as they were for switching back. The cloud service in use is kept as its preset first, because a legacy custom service without one is only found through the current provider.
+      let previous = Self.load(.voice, defaults: defaults)
+      if !previous.endpoint.isEmpty && !previous.voiceProvider.isOnDevice { previous.storeVoicePreset(in: defaults) }
+      defaults.set(voiceProvider.rawValue, forKey: "service.voice.provider")
+      return
+    }
     let url = try validatedURL(allowWebSocket: kind == .voice && voiceProvider == .doubao)
     if !token.isEmpty { try ServiceTokenStore.write(token, kind: kind, url: url) }
     if kind == .ai {
@@ -239,7 +255,7 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
     }
     if kind == .voice {
       let previous = Self.load(.voice, defaults: defaults)
-      if !previous.endpoint.isEmpty { previous.storeVoicePreset(in: defaults) }
+      if !previous.endpoint.isEmpty && !previous.voiceProvider.isOnDevice { previous.storeVoicePreset(in: defaults) }
       storeVoicePreset(in: defaults)
       defaults.set(voiceProvider.rawValue, forKey: "service.voice.provider")
       defaults.set(voiceAppKey, forKey: "service.voice.app_key")

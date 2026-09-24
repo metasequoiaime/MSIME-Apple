@@ -4,6 +4,7 @@
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod credential_command_tests;
+mod local_model_tests;
 
 #[cfg(not(target_os = "android"))]
 #[test]
@@ -483,6 +484,33 @@ fn second_launch_routes_are_taken_from_explicit_arguments() {
     assert_eq!(super::launch_route_from_args(&["--other".into()]), None);
 }
 
+/// On macOS only settings launches share the running instance; every panel keeps its own per-session process.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_single_instance_admits_only_settings_launches() {
+    use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
+
+    for route in [
+        None,
+        Some(SurfaceRoute::Settings(None)),
+        Some(SurfaceRoute::Settings(Some(SettingsCategory::About))),
+        Some(SurfaceRoute::Settings(Some(SettingsCategory::Skin))),
+    ] {
+        assert!(super::macos_settings_launch(route), "{route:?}");
+    }
+    for route in [
+        SurfaceRoute::Keyboard,
+        SurfaceRoute::Emoji,
+        SurfaceRoute::Handwriting,
+        SurfaceRoute::Voice,
+        SurfaceRoute::Clipboard,
+        SurfaceRoute::CloudClipboard,
+        SurfaceRoute::CloudDictionary,
+    ] {
+        assert!(!super::macos_settings_launch(Some(route)), "{route:?}");
+    }
+}
+
 /// A second launch that names nothing still has to raise the window.
 ///
 /// Every route this product asks for itself is explicit, so no route means a person started the
@@ -958,6 +986,36 @@ fn scanning_missing_skin_directory_does_not_create_it() {
     assert!(result.catalog.packages.is_empty());
     assert!(result.catalog.issues.is_empty());
     assert!(!root.exists());
+}
+
+// The diagnostic-log action takes no path from the webview: it resolves from the host's preferences directory alone, selects the file in Finder once the input method has written it, and falls back to the directory before that.
+#[test]
+fn diagnostic_log_target_resolves_from_the_host_directory() {
+    let state = tempfile::tempdir().unwrap();
+    let directory = state.path().join("MSIME");
+    std::fs::create_dir_all(&directory).unwrap();
+    assert_eq!(
+        super::diagnostic_log_target(&directory),
+        super::DiagnosticLogTarget::Directory(directory.clone())
+    );
+    std::fs::write(directory.join("diagnostic.log"), "focus_in\n").unwrap();
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        super::diagnostic_log_target(&directory),
+        super::DiagnosticLogTarget::File(directory.join("diagnostic.log"))
+    );
+    #[cfg(not(target_os = "macos"))]
+    assert_eq!(
+        super::diagnostic_log_target(&directory),
+        super::DiagnosticLogTarget::Directory(directory.clone())
+    );
+    // A directory named like the log is not mistaken for it.
+    let other = state.path().join("other");
+    std::fs::create_dir_all(other.join("diagnostic.log")).unwrap();
+    assert_eq!(
+        super::diagnostic_log_target(&other),
+        super::DiagnosticLogTarget::Directory(other.clone())
+    );
 }
 
 #[cfg(target_os = "linux")]

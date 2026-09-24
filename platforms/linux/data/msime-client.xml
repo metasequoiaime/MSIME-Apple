@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component>
   <name>app.msime.client</name>
-  <description>MSIME Client Linux input method</description>
+  <description>MSIME Linux input method</description>
   <exec>msime-client-ibus-launcher</exec>
   <version>0.1.0</version>
   <author>MSIME contributors</author>

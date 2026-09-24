@@ -63,8 +63,13 @@ jobs:
             case "$path" in
               platforms/ios/*)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "iOS 改动: $path"; exit 0 ;;
-              shared/*|vendor/*|engine-lock.json|scripts/*|cmake/*|CMakeLists.txt|.github/workflows/*|product-lock.json)
+              shared/*|vendor/*|engine-lock.json|cmake/*|CMakeLists.txt|product-lock.json|.github/workflows/ci-ios.yml)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
+              # 同 ci-macos.yml:scripts/ 下只有真正进得了这条构建的才触发。iOS 的工作流引用 fetch_engine.py
+              # 与 run_ui_tests.sh,apply_engine_* 是 fetch_engine.py 执行的 Engine overlay。
+              # fetch_voice_runtime.py 与它读的 lock 决定 MSIMEApp 嵌入的 sherpa-onnx 运行时。
+              scripts/apply_engine_*|scripts/fetch_engine.py|scripts/run_ui_tests.sh|scripts/fetch_voice_runtime.py|resources/voice-runtime.lock.json)
+                echo "build=true" >> "$GITHUB_OUTPUT"; echo "构建脚本改动: $path"; exit 0 ;;
             esac
           done <<< "$changed"
           echo "build=false" >> "$GITHUB_OUTPUT"
@@ -123,6 +128,8 @@ jobs:
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
+          # MSIMEApp embeds the sherpa-onnx runtime for on-device dictation; it is fetched and verified against resources/voice-runtime.lock.json, never committed.
+          python3 scripts/fetch_voice_runtime.py --platform ios
           xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root platforms/ios
           if [ "${MSIME_IOS_SKIP_HANDWRITING}" != "1" ]; then
             pod install --deployment --project-directory=platforms/ios
@@ -219,6 +226,8 @@ jobs:
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
+          # MSIMEApp embeds the sherpa-onnx runtime for on-device dictation; it is fetched and verified against resources/voice-runtime.lock.json, never committed.
+          python3 scripts/fetch_voice_runtime.py --platform ios
           xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root platforms/ios
           if [ "${MSIME_IOS_SKIP_HANDWRITING}" != "1" ]; then
             pod install --deployment --project-directory=platforms/ios
@@ -293,6 +302,8 @@ jobs:
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios
+          # MSIMEApp embeds the sherpa-onnx runtime for on-device dictation; it is fetched and verified against resources/voice-runtime.lock.json, never committed.
+          python3 scripts/fetch_voice_runtime.py --platform ios
           xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root platforms/ios
           pod install --deployment --project-directory=platforms/ios
       - name: Test handwriting recognition

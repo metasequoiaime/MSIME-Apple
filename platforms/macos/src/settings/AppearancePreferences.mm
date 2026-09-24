@@ -145,6 +145,10 @@ static BOOL ValidFuzzyPinyinRules(id value) {
     return YES;
 }
 static NSString *const CloudCandidatesKey = @"MSIMEClientCloudCandidates";
+// First-use consent for cloud candidates: absent = never evaluated (treated as answered), 1 = waiting for the prompt, 2 = answered or inherited from an existing install.
+static NSString *const CloudCandidatesConsentKey = @"MSIMEClientCloudCandidatesConsent";
+static const NSInteger CloudCandidatesConsentPending = 1;
+static const NSInteger CloudCandidatesConsentAnswered = 2;
 static NSString *const CandidateTranslationsKey = @"MSIMEClientCandidateTranslations";
 static NSString *const CandidateEnglishGlossKey = @"MSIMEClientCandidateEnglishGloss";
 static NSString *const TranspositionKey = @"MSIMEClientAutocorrectTransposition";
@@ -1006,6 +1010,24 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (BOOL)cloudCandidates { if (_sharedCloudCandidates) return _sharedCloudCandidates.boolValue; return [_defaults objectForKey:CloudCandidatesKey] == nil ? YES : [_defaults boolForKey:CloudCandidatesKey]; }
 - (void)setCloudCandidates:(BOOL)value { _sharedCloudCandidates = nil; [_defaults setBool:value forKey:CloudCandidatesKey]; [self preferencesChanged]; }
+- (void)resolveCloudCandidatesConsentWithPreferencesDirectory:(NSString *)directory userDataDirectory:(NSString *)userDataDirectory {
+    if ([_defaults objectForKey:CloudCandidatesConsentKey] != nil) return;
+    if (![directory isKindOfClass:NSString.class] || !directory.length) return;
+    // Mirrors the Windows installer skipping its network page on every upgrade (it checks for config.toml, which any install that has run leaves behind): an existing choice, an existing shared preferences file, or Engine user data from an earlier run belongs to the user already, so it is kept and not asked about again. The user-data check covers a profile that typed but never changed a setting, which has neither of the other two. The decision is stored because this host rewrites preferences.json after any appearance change and the Engine fills user data as soon as a session starts, so their existence is only meaningful the first time it is looked at.
+    NSFileManager *files = NSFileManager.defaultManager;
+    const BOOL typedBefore = [userDataDirectory isKindOfClass:NSString.class] && userDataDirectory.length &&
+        [files contentsOfDirectoryAtPath:userDataDirectory error:nil].count > 0;
+    const BOOL existing = [_defaults objectForKey:CloudCandidatesKey] != nil || typedBefore ||
+        [files fileExistsAtPath:[directory stringByAppendingPathComponent:@"preferences.json"]];
+    [_defaults setInteger:existing ? CloudCandidatesConsentAnswered : CloudCandidatesConsentPending forKey:CloudCandidatesConsentKey];
+}
+- (BOOL)cloudCandidatesAnswered { return [_defaults integerForKey:CloudCandidatesConsentKey] != CloudCandidatesConsentPending; }
+- (BOOL)cloudCandidatesEnabled { return self.cloudCandidatesAnswered && self.cloudCandidates; }
+- (void)answerCloudCandidates:(BOOL)enabled {
+    // Recorded before the value so observers of the change notification already see the answered state.
+    [_defaults setInteger:CloudCandidatesConsentAnswered forKey:CloudCandidatesConsentKey];
+    self.cloudCandidates = enabled;
+}
 - (BOOL)candidateTranslations { if (_sharedCandidateTranslations) return _sharedCandidateTranslations.boolValue; return [_defaults objectForKey:CandidateTranslationsKey] == nil ? YES : [_defaults boolForKey:CandidateTranslationsKey]; }
 - (void)setCandidateTranslations:(BOOL)value { _sharedCandidateTranslations = nil; [_defaults setBool:value forKey:CandidateTranslationsKey]; [self preferencesChanged]; }
 - (BOOL)candidateEnglishGloss { if (_sharedCandidateEnglishGloss) return _sharedCandidateEnglishGloss.boolValue; return [_defaults boolForKey:CandidateEnglishGlossKey]; }
@@ -2370,7 +2392,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         accountCard.accessibilityLabel = @"水杉账号卡片";
         accountPaneView = MSIMECardWithViews(@[MSIMESectionLabel(@"水杉账号"), accountCard], 0.0);
     }
-    NSScrollView *accountPage = PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[
+    NSScrollView *accountPage = PreferencesPage(@"账号", @"登录水杉账号后，云同步等需要账号的功能才会生效；候选词翻译要在「翻译服务」里选择「水杉账号」才会使用账号。", @[
         accountPaneView,
     ]);
 
@@ -2699,7 +2721,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)frequencyModeChanged:(NSPopUpButton *)sender { self.frequencyAdjustmentMode = FrequencyModes()[sender.indexOfSelectedItem]; }
 - (void)frequencyTriggerChanged:(NSPopUpButton *)sender { self.frequencyTriggerCount = sender.indexOfSelectedItem + 1; }
 - (void)frequencyStepChanged:(NSPopUpButton *)sender { self.frequencyLinearStep = sender.indexOfSelectedItem + 1; }
-- (void)cloudCandidatesChanged:(NSSwitch *)sender { self.cloudCandidates = sender.state == NSControlStateValueOn; }
+// The control is an NSSwitch on develop; the cloud-candidate toggle routes through
+// answerCloudCandidates: on this branch. Both apply.
+- (void)cloudCandidatesChanged:(NSSwitch *)sender { [self answerCloudCandidates:sender.state == NSControlStateValueOn]; }
 - (void)candidateTranslationsChanged:(NSSwitch *)sender { self.candidateTranslations = sender.state == NSControlStateValueOn; }
 - (void)candidateEnglishGlossChanged:(NSSwitch *)sender { self.candidateEnglishGloss = sender.state == NSControlStateValueOn; }
 - (void)quanpinHelpcodeChanged:(NSSwitch *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }

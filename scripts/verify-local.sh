@@ -208,14 +208,20 @@ python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 # APK build does, and that runs in neither place. These assertions are what stands in for a
 # compiler on its wiring. The file existed for that reason and was not being run at all, so when
 # the voice commands moved out of lib.rs it went red and stayed red unnoticed.
-# The size and character rules for a clipboard entry live in one place. Two of the three mobile
-# hosts had grown a second copy, and Android's disagreed with the store it writes into in three
-# different ways at once while its own smoke asserted the numbers matched.
-note "clipboard capture bounds"
-python3 scripts/test-clipboard-capture-bounds.py || fail "clipboard capture bounds"
+# One group number and one link, written out on four surfaces because nothing shares them. A typo in
+# any one of them sends that platform's users to a group that does not exist, and every copy is
+# correct on its own terms, so only comparing them catches it.
+note "support channels"
+python3 scripts/test-support-channels.py || fail "support channels"
 
 note "android voice project config"
 python3 scripts/test-android-voice-project-config.py || fail "android voice project config"
+
+# A switch that writes a retired preference key compiles, renders and saves; only reading the shared
+# crate tells you it does nothing. 自动纠错 was in that state on this host for as long as the key has
+# been retired, showing checked for a correction that was off and unreachable.
+note "android preference keys"
+python3 scripts/test-android-preference-keys.py || fail "android preference keys"
 
 # Its iOS counterpart went the same way, and further: it was never wired here at all. Seven assertions rotted silently while the code they pin moved on - the voice types were generalised from Ios* to Mobile* for Android, the voice commands left lib.rs for voice.rs, the onboarding skip button became a CSS-module class, and the keyboard bridging header and two frontend modules moved into their <feature> directories. Nothing built the XcodeGen project on this machine or on a runner either, so the same reasoning that wired the Android one applies here.
 note "ios project config"
@@ -275,6 +281,10 @@ python3 scripts/test-preference-suite-cleanup.py || fail "preference suite clean
 # cleanly, and starts offering 删除 for cloud suggestions.
 note "candidate sources"
 python3 scripts/test-candidate-sources.py || fail "candidate sources"
+
+# The offline glosses for the non-English targets are built from Wiktionary rows whose shape is easy to misread: the Mandarin rows are "Chinese Mandarin", the plain "Chinese" ones are topolects, and senses[] repeats the top-level tables. The fixture holds real rows, so a rule that drifts from them fails here instead of in a release.
+note "offline glosses"
+python3 scripts/test-offline-glosses.py || fail "offline glosses"
 
 # The palette is most of what makes one window look like another, and this one
 # is built with Tailwind rather than by importing the source's sheet, so the two
@@ -802,7 +812,7 @@ note "rust tests"
 # all collects no failing names and is reported as being at baseline. msime-desktop did not link on macOS
 # for that reason, and its 86 tests had never run.
 for package in msime-client-core msime-host-api msime-input-runtime msime-host-windows \
-  msime-host-macos msime-desktop; do
+  msime-host-macos msime-mcp-server msime-desktop; do
   # A package that does not build produces no failing test names, which reads as "at baseline" - which is
   # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
   cargo test -p "$package" --no-fail-fast > "$collected.$package" 2>&1 || true
@@ -837,17 +847,14 @@ else
 fi
 
 note "clippy: first-party crates"
-# The header promised clippy for a long time without running it anywhere; the
-# disabled CI workflow was the only place it had ever run. All seven crates
-# under crates/ are clean at -D warnings today, so this is a hard gate with no
-# baseline - if it starts failing, the change under test caused it.
+# The header promised clippy for a long time without running it anywhere; the disabled CI workflow was the only place it had ever run. All eight crates below are clean at -D warnings today, so this is a hard gate with no baseline - if it starts failing, the change under test caused it.
 #
 # The workspace as a whole is not gated: apps/desktop needs a built frontend
 # before its Tauri build script will run, which makes "clippy failed" and
 # "frontend not built" indistinguishable on a developer machine.
 clippy_failed=""
 for crate in msime-client-core msime-engine-bridge msime-host-api msime-host-macos \
-             msime-host-windows msime-input-runtime msime-tauri-mobile-platform; do
+             msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform; do
   cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
     clippy_failed="$clippy_failed  $crate"$'\n'
 done

@@ -45,8 +45,8 @@ rustix = { version = "1.1", features = ["fs", "process"] }
 msime-host-macos = { path = "../../../crates/host-macos" }
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "c9ec2130422200f0863b23dfdad02b133a529b07" }
 
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
-# Desktop shells reuse one process and hand off surface routes to it.
+[target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dependencies]
+# Desktop shells reuse one settings process and hand off surface routes to it. On macOS only settings launches join it; panel launches stay one process per input session.
 tauri-plugin-single-instance = "2.4"
 
 [target.'cfg(windows)'.dependencies]

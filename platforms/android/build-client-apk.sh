@@ -36,7 +36,9 @@ bash platforms/android/build-native.sh "$abi"
 tauri_jni="$repo_root/target/android/tauri-jniLibs/$abi"
 mkdir -p "$tauri_jni"
 cp "$repo_root/target/android/jniLibs/$abi/libmsime_android.so" \
-  "$repo_root/target/android/jniLibs/$abi/libmsime_host_api.so" "$tauri_jni/"
+  "$repo_root/target/android/jniLibs/$abi/libmsime_host_api.so" \
+  "$repo_root/target/android/jniLibs/$abi/libsherpa-onnx-c-api.so" \
+  "$repo_root/target/android/jniLibs/$abi/libonnxruntime.so" "$tauri_jni/"
 assets="$repo_root/target/android/tauri-assets"
 mkdir -p "$assets/dictionary"
 cp resources/desktop-dictionary.lock.json "$assets/"
@@ -45,6 +47,16 @@ cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$
 mkdir -p "$assets/native-notices"
 cp -R target/android/notices/. "$assets/native-notices/"
 cp LICENSE "$assets/client-LICENSE.txt"
+# Optional non-English candidate glosses (scripts/build_offline_glosses.py). Bootstrap extracts them beside the resources, where the Engine looks for one zh-<lang>.db per target language; without them only English is glossed offline.
+glosses_source=${MSIME_OFFLINE_GLOSSES:-$repo_root/target/offline-glosses}
+rm -rf "$assets/offline-glosses"
+if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
+  mkdir -p "$assets/offline-glosses"
+  cp "$glosses_source"/zh-*.db "$glosses_source/offline-glosses-NOTICE.txt" "$assets/offline-glosses/"
+  echo "offline glosses packaged from $glosses_source"
+else
+  echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
+fi
 ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" MSIME_ANDROID_NDK="$android_ndk" \
   MSIME_ANDROID_DEPS="$android_dependencies" TAURI_ANDROID_DIR="$tauri_android_dir" \
   pnpm --filter @msime/desktop tauri android build --apk --target "$tauri_target" --ci

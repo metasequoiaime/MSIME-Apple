@@ -4,7 +4,7 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "../../../common/DictionaryQuiesceLease.h"
 
-// The same budget the settings window gives the input hosts (apps/desktop/src-tauri/src/dictionary_quiesce.rs).
+// The same budget the settings window gives the input hosts (crates/client-core/src/dictionary/quiesce.rs).
 static const NSTimeInterval MSIMEDictionaryQuiesceBudget = 2.5;
 static const useconds_t MSIMEDictionaryQuiesceRetryMicroseconds = 50000;
 

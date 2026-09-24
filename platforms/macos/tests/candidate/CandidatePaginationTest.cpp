@@ -84,4 +84,10 @@ int main() {
             "classic wheel pages once per notch regardless of line acceleration");
     require(ConsumeCandidateWheelDelta(wheel, 0.0, false, false, false, 40.0) == 0, "zero classic delta does not page");
     static_assert(msime::mac::CandidateWheelPreciseNotch > 0.0);
+    require(msime::mac::JapaneseSpaceCommitsFallback(1, msime::mac::CandidateSourceFallback),
+            "a lone Fallback row (bare Shift+R) is committed by Japanese Space instead of arming a conversion");
+    require(!msime::mac::JapaneseSpaceCommitsFallback(1, 0) &&
+                !msime::mac::JapaneseSpaceCommitsFallback(2, msime::mac::CandidateSourceFallback) &&
+                !msime::mac::JapaneseSpaceCommitsFallback(0, msime::mac::CandidateSourceFallback),
+            "Japanese Space still arms a conversion for real candidates");
 }

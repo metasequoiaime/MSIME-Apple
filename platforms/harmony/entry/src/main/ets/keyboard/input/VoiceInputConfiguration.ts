@@ -42,6 +42,10 @@ export interface VoiceInputConfiguration {
   doubao_auth_mode: string;
   asr_resource_id: string;
   asr_model: string;
+  /** Directory of the installed on-device model the `local` provider loads; absent or empty means none has been picked. */
+  asr_model_path?: string;
+  /** Download mirror the settings page uses for model installs; the keyboard only carries it through. */
+  asr_model_mirror?: string;
   polish_enabled: boolean;
   polish_text: boolean;
   polish_provider: string;
@@ -83,6 +87,8 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   doubao_auth_mode: "api_key",
   asr_resource_id: "volc.seedasr.sauc.duration",
   asr_model: "",
+  asr_model_path: "",
+  asr_model_mirror: "",
   polish_enabled: false,
   polish_text: false,
   polish_provider: "siliconflow",

@@ -153,4 +153,13 @@ constexpr bool IsPhysicalWordCharacterKey(unsigned short keyCode, bool brackets,
         return (keyCode == 33 && character == '[') || (keyCode == 30 && character == ']');
     return (keyCode == 27 && character == '-') || (keyCode == 24 && character == '=');
 }
+
+// The Engine's `CandidateSource::Fallback`, as it appears in a view candidate's `source`.
+constexpr int CandidateSourceFallback = 9;
+
+// A lone Fallback row is the raw composition the Engine shows when there is nothing to convert (a bare Shift+R prefix, or romaji it cannot read). Windows commits it on the first Space, so Japanese Space must not arm a conversion on it.
+constexpr bool JapaneseSpaceCommitsFallback(unsigned long candidateCount, int firstCandidateSource)
+{
+    return candidateCount == 1 && firstCandidateSource == CandidateSourceFallback;
+}
 } // namespace msime::mac

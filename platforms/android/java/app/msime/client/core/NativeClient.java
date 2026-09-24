@@ -226,6 +226,66 @@ public final class NativeClient {
         return text(mobileVoiceConfigurationRaw(utf8(directory)));
     }
 
+    /**
+     * The user's own pinyin dictionary words as recognition hotwords: `{"options": HostOptions, "limit": n}` in, `{"hotwords":[{"text","pinyin"}]}` out. Reads the dictionary store, so call on a worker.
+     */
+    public static String voiceHotwords(String request) {
+        return text(voiceHotwordsRaw(utf8(request)));
+    }
+
+    /** Pinyin-similarity hotword replacement over a final transcript: `{"text","hotwords"}` in, `{"text"}` out. Pure. */
+    public static String voiceHotwordCorrect(String request) {
+        return text(voiceHotwordCorrectRaw(utf8(request)));
+    }
+
+    /** Whether the packaged sherpa-onnx runtime loads. Loads it on the first call, so call on a worker. */
+    public static boolean localSpeechAvailable() {
+        return localSpeechAvailableRaw();
+    }
+
+    /** A new on-device dictation handle; pair every one with {@link #localSpeechDestroy}. */
+    public static long localSpeechCreate() {
+        return localSpeechCreateRaw();
+    }
+
+    /**
+     * Load the model and open the session. Blocks while a model loads, so call on the worker that feeds the session. Returns null on success, else the recognizer's reason.
+     */
+    public static String localSpeechStart(long handle, String modelDirectory, String language,
+                                          String hotwords, int threads) {
+        if (handle == 0) throw new IllegalArgumentException("Invalid local speech handle");
+        byte[] error = localSpeechStartRaw(handle, utf8(modelDirectory), utf8(language),
+            utf8(hotwords), threads);
+        return error == null ? null : text(error);
+    }
+
+    /** Feed 16 kHz mono PCM16. Returns the transcript so far when it changed, else null. Throws IllegalStateException once cancelled or on a recognizer failure. */
+    public static String localSpeechAccept(long handle, short[] pcm, int count) {
+        if (handle == 0) throw new IllegalArgumentException("Invalid local speech handle");
+        byte[] partial = localSpeechAcceptRaw(handle, pcm, count);
+        return partial == null ? null : text(partial);
+    }
+
+    /** Flush and return the whole transcript. Throws IllegalStateException once cancelled or on failure. */
+    public static String localSpeechFinish(long handle) {
+        if (handle == 0) throw new IllegalArgumentException("Invalid local speech handle");
+        return text(localSpeechFinishRaw(handle));
+    }
+
+    /** Any thread, while the handle is alive: stops a decode in progress. */
+    public static void localSpeechCancel(long handle) {
+        if (handle != 0) localSpeechCancelRaw(handle);
+    }
+
+    public static void localSpeechDestroy(long handle) {
+        if (handle != 0) localSpeechDestroyRaw(handle);
+    }
+
+    /** Drop loaded models idle for `idleMillis`, or every model not in use for 0. */
+    public static int localSpeechRelease(long idleMillis) {
+        return localSpeechReleaseRaw(Math.max(0, idleMillis));
+    }
+
     public static String simplifiedToTraditional(String text) {
         if (text == null || text.isEmpty()) return text;
         byte[] converted = simplifiedToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8));
@@ -408,6 +468,17 @@ public final class NativeClient {
         byte[] candidates, int source);
     private static native byte[] viewRaw(long session);
     private static native byte[] updatePreferencesRaw(long session, byte[] snapshot);
+    private static native byte[] voiceHotwordsRaw(byte[] request);
+    private static native byte[] voiceHotwordCorrectRaw(byte[] request);
+    private static native boolean localSpeechAvailableRaw();
+    private static native long localSpeechCreateRaw();
+    private static native byte[] localSpeechStartRaw(long handle, byte[] model, byte[] language,
+                                                     byte[] hotwords, int threads);
+    private static native byte[] localSpeechAcceptRaw(long handle, short[] pcm, int count);
+    private static native byte[] localSpeechFinishRaw(long handle);
+    private static native void localSpeechCancelRaw(long handle);
+    private static native void localSpeechDestroyRaw(long handle);
+    private static native int localSpeechReleaseRaw(long idleMillis);
     private static native byte[] destroyRaw(long session);
 
     private static final Pattern TYPE = Pattern.compile("\\\"type\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");

@@ -22,6 +22,41 @@ mod tests {
     use super::*;
     use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 
+    /// The Engine's ordered-stroke 中 fixture, mapped through `place`.
+    fn zhong_strokes(place: impl Fn((f32, f32)) -> (f32, f32)) -> Vec<Vec<(f32, f32)>> {
+        vec![
+            vec![(35., 40.), (35., 105.)],
+            vec![(35., 40.), (125., 40.), (125., 105.)],
+            vec![(35., 105.), (125., 105.)],
+            vec![(80., 15.), (80., 140.)],
+        ]
+        .into_iter()
+        .map(|stroke| stroke.into_iter().map(&place).collect())
+        .collect()
+    }
+
+    fn query(strokes: Vec<Vec<(f32, f32)>>) -> HandwritingQuery {
+        HandwritingQuery {
+            language: "zh-CN".into(),
+            strokes: strokes
+                .into_iter()
+                .map(|stroke| {
+                    stroke
+                        .into_iter()
+                        .map(|(x, y)| HandwritingPoint { x, y })
+                        .collect()
+                })
+                .collect(),
+        }
+    }
+
+    fn engine_model() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../vendor/MSIME-Engine/handwriting/models/handwriting-zh_CN.model")
+            .canonicalize()
+            .unwrap()
+    }
+
     #[test]
     fn relocated_bundle_uses_the_fixed_engine_model_for_real_single_character_recognition() {
         let root = tempfile::tempdir().unwrap();
@@ -32,35 +67,34 @@ mod tests {
             .join("Synthetic.app/Contents/Resources/handwriting");
         std::fs::create_dir_all(&resource).unwrap();
         let model = resource.join("handwriting-zh_CN.model");
-        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../vendor/MSIME-Engine/handwriting/models/handwriting-zh_CN.model");
-        std::fs::copy(source, &model).unwrap();
+        std::fs::copy(engine_model(), &model).unwrap();
         let resolved = bundled_model(&executable).expect("packaged model");
         assert_eq!(resolved, model);
         assert!(bundled_model(Path::new("Synthetic.app/Contents/MacOS/synthetic")).is_none());
         assert!(bundled_model(&root.path().join("synthetic")).is_none());
-        let query = HandwritingQuery {
-            language: "zh-CN".into(),
-            // Synthetic 中, the same ordered-stroke fixture used by the Engine.
-            strokes: vec![
-                vec![(35., 40.), (35., 105.)],
-                vec![(35., 40.), (125., 40.), (125., 105.)],
-                vec![(35., 105.), (125., 105.)],
-                vec![(80., 15.), (80., 140.)],
-            ]
-            .into_iter()
-            .map(|stroke| {
-                stroke
-                    .into_iter()
-                    .map(|(x, y)| HandwritingPoint { x, y })
-                    .collect()
-            })
-            .collect(),
-        };
+        // Synthetic 中, the same ordered-stroke fixture used by the Engine.
+        let query = query(zhong_strokes(|(x, y)| (x, y)));
         let candidates =
             msime_host_api::handwriting_local_candidates(resolved.to_str().unwrap(), &query)
                 .unwrap();
         assert!(candidates.iter().any(|candidate| candidate == "中"));
+        assert!(candidates.len() <= 12);
+    }
+
+    #[test]
+    fn a_line_of_two_characters_is_recognized_as_one_multi_character_candidate() {
+        // 中 written twice side by side, each about 150 px tall in the 420 px panel canvas.
+        let scale = 1.2;
+        let mut strokes =
+            zhong_strokes(|(x, y)| (20. + (x - 35.) * scale, 130. + (y - 15.) * scale));
+        strokes.extend(zhong_strokes(|(x, y)| {
+            (220. + (x - 35.) * scale, 130. + (y - 15.) * scale)
+        }));
+        let model = engine_model();
+        let candidates =
+            msime_host_api::handwriting_local_candidates(model.to_str().unwrap(), &query(strokes))
+                .unwrap();
+        assert_eq!(candidates.first().map(String::as_str), Some("中中"));
         assert!(candidates.len() <= 12);
     }
 

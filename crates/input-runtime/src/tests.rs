@@ -371,6 +371,10 @@ fn voice_provider_names_only_known_missing_dependencies() {
             Err(Some("recorder")),
         ),
         (
+            r#"{"generation":7,"type":"final","text":"","ok":false,"error":"voice_dependency_missing","detail":"local_asr"}"#,
+            Err(Some("local_asr")),
+        ),
+        (
             r#"{"generation":7,"type":"final","text":"","ok":false,"error":"voice_dependency_missing","detail":"token=secret"}"#,
             Err(None),
         ),

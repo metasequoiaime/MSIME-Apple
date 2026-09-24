@@ -22,8 +22,11 @@ jobs:
       # resources/ directory -- that one holds the lock files install_resources reads.
       # install_resources reads vendor/MSIME-Engine for the Engine-sourced artifacts, so the archive
       # has to be unpacked before it runs. ci-ios.yml orders these the same way.
-      - name: Prepare the locked Engine archive
-        run: python3 scripts/fetch_engine.py
+      # build-apk.sh packs target/offline-glosses when it is there.
+      - name: Prepare the locked Engine archive and offline candidate glosses
+        run: |
+          python3 scripts/fetch_engine.py
+          python3 scripts/fetch_offline_glosses.py
       - name: Build native Android host
         run: |
           set -euo pipefail

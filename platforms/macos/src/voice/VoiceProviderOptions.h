@@ -6,6 +6,7 @@
 // every HTTPS multipart preset belongs to the batch request path, while Doubao
 // and system Speech have dedicated transports. An external provider socket owns
 // all provider routing when present.
+// `localASRAvailable` means this process can recognise a `local` model in-process: a Whisper model file with the Whisper recognizer built in. An installed on-device model directory never takes this path; see MSIMEVoiceUsesLocalModelHelper.
 static inline BOOL MSIMEVoiceUsesNativeHTTPProvider(NSString *provider,
                                                      BOOL providerSocketAvailable,
                                                      BOOL localASRAvailable) {
@@ -14,6 +15,11 @@ static inline BOOL MSIMEVoiceUsesNativeHTTPProvider(NSString *provider,
     if ([identifier isEqual:@"local"]) return localASRAvailable;
     return [@[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"cloud"]
         containsObject:identifier];
+}
+
+// `local` with an installed model directory streams through the msime-voice-local helper process, never through a recognizer loaded into the input method, on the same controller path as Doubao so its partial text shows the same way. An external provider socket still owns all routing when present.
+static inline BOOL MSIMEVoiceUsesLocalModelHelper(NSString *provider, BOOL providerSocketAvailable, BOOL modelDirectory) {
+    return !providerSocketAvailable && modelDirectory && [provider.lowercaseString isEqual:@"local"];
 }
 
 // MSIME-Windows StartRecording refuses to record when the current ASR provider has no API token, and tells the user where to fill it in. Here that covers the providers this host calls itself with a token - the HTTPS presets and Doubao, which an unset provider preference means - and not the on-device, system Speech or external-socket paths, which take none from this preference.
