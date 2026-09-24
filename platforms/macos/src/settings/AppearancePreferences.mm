@@ -209,6 +209,9 @@ constexpr CGFloat kControlWidth = 190.0;
 /// Rows whose control column is a cluster — a field beside a colour well, a popup beside three
 /// buttons — rather than one popup.
 constexpr CGFloat kWideControlWidth = 300.0;
+/// The account page hosts a view owned by the Swift backend, so showing and leaving it has to
+/// attach and detach that view. Its position in the page list was written out at both call sites.
+constexpr NSInteger kAccountPageIndex = 8;
 }  // namespace
 
 /// Scroll views lay an unflipped document view out from the bottom, which would park a short
@@ -223,11 +226,23 @@ constexpr CGFloat kWideControlWidth = 300.0;
 /// cards is the system's own raised pairing, and it inverts correctly on its own: light cards on a
 /// darker window in Aqua, darker cards on a lighter window in Dark Aqua.
 @interface MSIMESettingsSurface : NSView
+/// Cmd+F reaches the search field from anywhere in the window, the way it does in Finder and in
+/// System Settings. Without it the field is mouse-only, or a tab through every control on the page.
+@property(nonatomic, weak) NSSearchField *searchField;
 @end
 @implementation MSIMESettingsSurface
 - (void)drawRect:(NSRect)rect {
     [[NSColor windowBackgroundColor] setFill];
     NSRectFill(rect);
+}
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    const NSEventModifierFlags flags = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+    if (flags == NSEventModifierFlagCommand && [event.charactersIgnoringModifiers isEqualToString:@"f"] &&
+        self.searchField != nil) {
+        [self.window makeFirstResponder:self.searchField];
+        return YES;
+    }
+    return [super performKeyEquivalent:event];
 }
 @end
 
@@ -272,6 +287,29 @@ static NSVisualEffectView *SettingsSidebarView(void) {
         [NSColor.keyboardFocusIndicatorColor setStroke];
         [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1.0, 1.0) xRadius:5.0 yRadius:5.0] stroke];
     }
+}
+/// Arrow keys walk the sidebar and switch pages as they go, which is what a source list does. These
+/// are plain buttons, so without this the arrows do nothing and the sidebar is mouse-only.
+- (void)keyDown:(NSEvent *)event {
+    const unichar key =
+        event.charactersIgnoringModifiers.length ? [event.charactersIgnoringModifiers characterAtIndex:0] : 0;
+    if (key != NSUpArrowFunctionKey && key != NSDownArrowFunctionKey) {
+        [super keyDown:event];
+        return;
+    }
+    NSMutableArray<MSIMESettingsNavigationButton *> *peers = [NSMutableArray array];
+    for (NSView *view in self.superview.subviews)
+        if ([view isKindOfClass:MSIMESettingsNavigationButton.class])
+            [peers addObject:(MSIMESettingsNavigationButton *)view];
+    const NSUInteger here = [peers indexOfObjectIdenticalTo:self];
+    if (here == NSNotFound) {
+        [super keyDown:event];
+        return;
+    }
+    const NSInteger next = (NSInteger)here + (key == NSDownArrowFunctionKey ? 1 : -1);
+    if (next < 0 || next >= (NSInteger)peers.count) return;
+    [self.window makeFirstResponder:peers[next]];
+    [peers[next] performClick:nil];
 }
 @end
 
@@ -536,6 +574,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSStackView *_navigationStack;
     NSStackView *_searchResultsStack;
     NSArray<MSIMESettingsSearchEntry *> *_searchIndex;
+    NSBox *_shuangpinCard;
+    NSBox *_wubiCard;
+    NSInteger _selectedPageIndex;
     NSArray<NSButton *> *_schemeButtons;
     NSPopUpButton *_shuangpinSchemeButton;
     NSPopUpButton *_wubiSchemeButton;
@@ -1910,6 +1951,11 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         _schemeButtons[index].state = index == storedScheme ? NSControlStateValueOn : NSControlStateValueOff;
     _shuangpinSchemeButton.enabled = storedScheme == 1;
     _wubiSchemeButton.enabled = storedScheme == 2;
+    // Options that only apply to one scheme are shown only while it is selected. Leaving them
+    // editable under another scheme means the change saves, the page says nothing, and the setting
+    // does nothing until the user happens to switch back.
+    _shuangpinCard.hidden = storedScheme != 1;
+    _wubiCard.hidden = storedScheme != 2;
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
@@ -2154,12 +2200,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _localModeButtons = [NSMutableArray array];
 
     // ---- 输入 -------------------------------------------------------------------------------
-    NSButton *wubiSettingsButton = [NSButton buttonWithTitle:@"五笔功能设置" target:self action:@selector(showWubiSettings:)];
-    LinkifyButton(wubiSettingsButton, @"五笔功能设置");
-    wubiSettingsButton.image = [NSImage imageWithSystemSymbolName:@"chevron.right" accessibilityDescription:nil];
-    wubiSettingsButton.imagePosition = NSImageRight;
-    wubiSettingsButton.alignment = NSTextAlignmentRight;
-
     NSBox *inputModeCard = CardWithViews(@[
         PreferenceRow(@"输入模式", _defaultImeModeButton),
         PreferenceRow(@"模式作用范围", _imeModeScopeButton),
@@ -2189,15 +2229,25 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSBox *schemeCard = CardWithViews(schemeRows, 0.0);
     schemeCard.accessibilityLabel = @"输入方式卡片";
 
-    NSBox *shuangpinCard = CardWithViews(@[
+    // The options belonging to one scheme follow the scheme card and appear only while that scheme
+    // is the selected one. Upstream shows the 双拼 options whatever is selected — editable, saved,
+    // and with no effect until you come back and pick 双拼 — and puts the 五笔 options on a page of
+    // their own reached by a link, with a 返回键盘输入 button to get out. That is a web flow inside
+    // a sidebar window: the sidebar stays on 输入 while the content is somewhere else.
+    _shuangpinCard = CardWithViews(@[
         PreferenceRow(@"双拼预编辑", _preeditButton),
         // Upstream labels this row 双拼初学者 and puts the wording on the checkbox beside it, so the
         // row says the same thing twice. The switch carries no text, so the label carries it.
         SwitchRow(@"输入时显示双拼键位提示", _keymapToggle, nil),
     ], 0.0);
-    shuangpinCard.accessibilityLabel = @"双拼选项卡片";
-    NSBox *wubiEntryCard = CardWithViews(@[PreferenceRow(@"五笔功能", wubiSettingsButton)], 0.0);
-    wubiEntryCard.accessibilityLabel = @"五笔入口卡片";
+    _shuangpinCard.accessibilityLabel = @"双拼选项卡片";
+    NSTextField *wubiSchemeLabel = [NSTextField labelWithString:@"86 五笔"];
+    wubiSchemeLabel.textColor = [NSColor secondaryLabelColor];
+    _wubiCard = CardWithViews(@[
+        PreferenceRow(@"编码方案", wubiSchemeLabel),
+        SwitchRow(@"四码唯一候选自动上屏", _wubiToggle, nil),
+    ], 0.0);
+    _wubiCard.accessibilityLabel = @"五笔选项卡片";
 
     NSBox *punctuationCard = CardWithViews(@[
         SwitchRow(@"中文标点", _punctuationToggle, @"Control+. 切换中英文标点"),
@@ -2234,7 +2284,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     fuzzyCard.accessibilityLabel = @"模糊音卡片";
 
     NSScrollView *generalPage = PreferencesPage(@"键盘输入", @"选择中文或日语输入模式，并调整日常输入行为。", @[
-        inputModeCard, SectionLabel(@"中文输入方案"), schemeCard, shuangpinCard, wubiEntryCard,
+        inputModeCard, SectionLabel(@"中文输入方案"), schemeCard, _shuangpinCard, _wubiCard,
         SectionLabel(@"标点输入"), punctuationCard, SectionLabel(@"中英混输"), mixedCard,
         SectionLabel(@"拼音纠错"), correctionCard, SectionLabel(@"模糊音"), fuzzyCard,
     ]);
@@ -2384,23 +2434,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         SectionLabel(@"卸载"), uninstallCard,
     ]);
 
-    // ---- 五笔设置（输入页的子页，不在侧边栏里） ------------------------------------------------
-    NSButton *backToKeyboardButton = [NSButton buttonWithTitle:@"返回键盘输入" target:self action:@selector(backToKeyboardInput:)];
-    backToKeyboardButton.bezelStyle = NSBezelStyleInline;
-    backToKeyboardButton.image = [NSImage imageWithSystemSymbolName:@"chevron.left" accessibilityDescription:nil];
-    backToKeyboardButton.imagePosition = NSImageLeft;
-    backToKeyboardButton.alignment = NSTextAlignmentLeft;
-    NSTextField *wubiSchemeLabel = [NSTextField labelWithString:@"86 五笔"];
-    wubiSchemeLabel.textColor = [NSColor secondaryLabelColor];
-    NSBox *wubiCard = CardWithViews(@[
-        PreferenceRow(@"编码方案", wubiSchemeLabel),
-        SwitchRow(@"四码唯一候选自动上屏", _wubiToggle, nil),
-    ], 0.0);
-    wubiCard.accessibilityLabel = @"五笔选项卡片";
-    NSScrollView *wubiPage = PreferencesPage(@"五笔设置", @"调整 86 五笔的输入与上屏行为。", @[
-        backToKeyboardButton, SectionLabel(@"输入行为"), wubiCard,
-    ]);
-
     // ---- 辅助码 -----------------------------------------------------------------------------
     NSMutableArray<NSView *> *helpcodeRows = [NSMutableArray arrayWithObjects:
         SwitchRow(@"启用全拼辅助码", _quanpinHelpcodeToggle, nil),
@@ -2528,14 +2561,14 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         SectionLabel(@"扩展输入模式"), localModesCard,
     ]);
 
-    // The index is both the page index and the navigation button tag. 五笔设置 trails the list:
-    // it is a sub-page of 输入, entered from that page's row, so no sidebar item points at it.
+    // The index is both the page index and the navigation button tag. Every page has a sidebar item
+    // now that 五笔 folds into 输入, so the two lists line up one to one.
     _preferencePages = @[
-        generalPage, appearancePage, skinPage, dataPage, aboutPage, wubiPage, helpcodePage, shortcutsPage,
+        generalPage, appearancePage, skinPage, dataPage, aboutPage, helpcodePage, shortcutsPage,
         floatingPage, accountPage, helpPage, feedbackPage, voicePage, utilitiesPage,
     ];
 
-    NSView *contentView = [[MSIMESettingsSurface alloc] initWithFrame:window.contentView.frame];
+    MSIMESettingsSurface *contentView = [[MSIMESettingsSurface alloc] initWithFrame:window.contentView.frame];
     window.contentView = contentView;
     NSVisualEffectView *sidebar = SettingsSidebarView();
     sidebar.accessibilityLabel = @"水杉输入法导航";
@@ -2549,17 +2582,18 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _searchField.target = self;
     _searchField.action = @selector(searchChanged:);
     _searchField.translatesAutoresizingMaskIntoConstraints = NO;
+    contentView.searchField = _searchField;
     NSStackView *navigation = [NSStackView stackViewWithViews:@[]];
     navigation.orientation = NSUserInterfaceLayoutOrientationVertical;
     navigation.alignment = NSLayoutAttributeLeading;
     navigation.spacing = 1.0;
     navigation.translatesAutoresizingMaskIntoConstraints = NO;
     NSArray<NSString *> *navigationLabels = @[
-        @"输入", @"外观", @"皮肤", @"词库", @"关于", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号", @"帮助",
+        @"输入", @"外观", @"皮肤", @"词库", @"关于", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号", @"帮助",
         @"反馈", @"语音输入", @"实用功能",
     ];
     NSArray<NSString *> *navigationSymbols = @[
-        @"keyboard", @"paintpalette", @"photo.on.rectangle", @"book", @"info.circle", @"keyboard", @"a.circle",
+        @"keyboard", @"paintpalette", @"photo.on.rectangle", @"book", @"info.circle", @"a.circle",
         @"command", @"ellipsis.rectangle", @"person.crop.circle", @"questionmark.square", @"ladybug", @"mic",
         @"wand.and.stars",
     ];
@@ -2568,10 +2602,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // groups by, so each run gets the heading AppKit puts above a source-list section.
     NSArray<NSString *> *groupTitles = @[@"输入", @"外观", @"数据", @"支持"];
     NSArray<NSArray<NSNumber *> *> *navigationGroups = @[
-        @[@0, @6, @7, @13, @12],  // 输入 · 辅助码 · 快捷键 · 实用功能 · 语音输入
-        @[@1, @2, @8],            // 外观 · 皮肤 · 悬浮工具栏
-        @[@3, @9],                // 词库 · 账号
-        @[@10, @11, @4],          // 帮助 · 反馈 · 关于
+        @[@0, @5, @6, @12, @11],  // 输入 · 辅助码 · 快捷键 · 实用功能 · 语音输入
+        @[@1, @2, @7],            // 外观 · 皮肤 · 悬浮工具栏
+        @[@3, @8],                // 词库 · 账号
+        @[@9, @10, @4],           // 帮助 · 反馈 · 关于
     ];
     NSMutableArray<NSButton *> *navigationButtons = [NSMutableArray array];
     for (NSUInteger groupIndex = 0; groupIndex < navigationGroups.count; ++groupIndex) {
@@ -2646,7 +2680,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // No Close button: a Mac settings window is dismissed by its own close button, and one that
     // offers a second one in the content area is a Windows dialog wearing a Mac titlebar. Restore
     // stays, because nothing else in the window undoes a preference.
-    NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置" target:self action:@selector(restoreDefaults:)];
+    NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置…" target:self action:@selector(restoreDefaults:)];
     restoreButton.bezelStyle = NSBezelStyleRounded;
     restoreButton.controlSize = NSControlSizeSmall;
     restoreButton.font = [NSFont systemFontOfSize:kBodyFontSize - 1.0];
@@ -2779,9 +2813,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)openSearchResult:(NSButton *)sender {
     if (sender.tag < 0 || (NSUInteger)sender.tag >= _searchIndex.count) return;
     MSIMESettingsSearchEntry *entry = _searchIndex[sender.tag];
-    // 五笔设置 has no sidebar item of its own — it is entered from a row on 输入 — so a hit inside
-    // it leaves the sidebar on 输入 rather than on nothing.
-    [self showPreferencesPageAtIndex:entry.pageIndex navigationIndex:entry.pageIndex == 5 ? 0 : entry.pageIndex];
+    [self showPreferencesPageAtIndex:entry.pageIndex navigationIndex:entry.pageIndex];
     NSView *row = entry.row;
     if (row == nil) return;
     // The page was hidden until a moment ago, so its frames mean nothing until layout settles.
@@ -2905,24 +2937,15 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [self showPreferencesPageAtIndex:index navigationIndex:index];
 }
 - (void)showPreferencesPageAtIndex:(NSInteger)pageIndex navigationIndex:(NSInteger)navigationIndex {
+    _selectedPageIndex = pageIndex;
     for (NSInteger index = 0; index < (NSInteger)_preferencePages.count; ++index)
         _preferencePages[index].hidden = index != pageIndex;
     for (NSButton *button in _sidebarButtons)
         button.state = button.tag == navigationIndex ? NSControlStateValueOn : NSControlStateValueOff;
-    if (pageIndex == 9 && MSIMEAccountPaneAttach != nullptr)
+    if (pageIndex == kAccountPageIndex && MSIMEAccountPaneAttach != nullptr)
         MSIMEAccountPaneAttach(self.window);
     else if (MSIMEAccountPaneClose != nullptr)
         MSIMEAccountPaneClose();
-}
-// 五笔设置是「输入」页的子页,靠页内按钮进出,所以侧边栏保持停在「输入」上。
-- (void)showWubiSettings:(id)sender {
-    (void)sender;
-    [self refreshControls];
-    [self showPreferencesPageAtIndex:5 navigationIndex:0];
-}
-- (void)backToKeyboardInput:(id)sender {
-    (void)sender;
-    [self showPreferencesPageAtIndex:0 navigationIndex:0];
 }
 - (void)schemeRadioChanged:(NSButton *)sender {
     self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi", @"japanese"][sender.tag];
@@ -2930,7 +2953,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)showBackendAccount:(id)sender {
     (void)sender;
     if (MSIMEAccountPaneAttach != nullptr) {
-        [self showPreferencesPageAtIndex:9 navigationIndex:9];
+        [self showPreferencesPageAtIndex:kAccountPageIndex navigationIndex:kAccountPageIndex];
         MSIMEAccountPaneAttach(self.window);
     } else {
         MSIMEOpenBackendAccount(NSClassFromString(@"MSIMEBackendAccountWindow"));
@@ -3015,19 +3038,56 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 // Clears only this host's own preference domain, by an explicit key list, the way the upstream
 // window does. It never touches the Apple product's domain or the user dictionary.
-- (void)restoreDefaults:(id)sender {
-    (void)sender;
-    for (NSString *key in @[
-             LayoutKey, CandidateFollowCursorKey, InputModeHUDKey, SchemeKey, ShuangpinProfileKey,
-             ShuangpinPreeditKey, LocalModesKey, HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
-             ShuangpinHelpcodeKey, KeymapKey, WubiKey, InputModeShortcutKey, ShiftTapShortcutKey,
-             ControlTapShortcutKey, ControlOptionSpaceShortcutKey, CharacterSetShortcutKey,
-             FullWidthShortcutKey,
-             FloatingToolbarKey, FloatingToolbarOptionsKey,
-         ])
-        [_defaults removeObjectForKey:key];
+- (NSArray<NSString *> *)restorableKeys {
+    return @[
+        LayoutKey, CandidateFollowCursorKey, InputModeHUDKey, SchemeKey, ShuangpinProfileKey,
+        ShuangpinPreeditKey, LocalModesKey, HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
+        ShuangpinHelpcodeKey, KeymapKey, WubiKey, InputModeShortcutKey, ShiftTapShortcutKey,
+        ControlTapShortcutKey, ControlOptionSpaceShortcutKey, CharacterSetShortcutKey,
+        FullWidthShortcutKey, FloatingToolbarKey, FloatingToolbarOptionsKey,
+    ];
+}
+/// Which of those keys the page in front of the user owns. Upstream offers one button that clears
+/// every one of them at once and asks nothing first, so tidying up one page costs the other twelve.
+- (NSArray<NSString *> *)restorableKeysForPageAtIndex:(NSInteger)pageIndex {
+    switch (pageIndex) {
+        case 0: return @[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey];
+        case 1: return @[LayoutKey, CandidateFollowCursorKey, InputModeHUDKey];
+        case 5: return @[HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey, ShuangpinHelpcodeKey];
+        case 6: return @[
+            InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey,
+            ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthShortcutKey,
+        ];
+        case 7: return @[FloatingToolbarKey, FloatingToolbarOptionsKey];
+        case 12: return @[LocalModesKey];
+        default: return @[];
+    }
+}
+- (void)removeStoredKeys:(NSArray<NSString *> *)keys {
+    for (NSString *key in keys) [_defaults removeObjectForKey:key];
     [self refreshControls];
     [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
+}
+- (void)restoreDefaults:(id)sender {
+    (void)sender;
+    NSArray<NSString *> *pageKeys = [self restorableKeysForPageAtIndex:_selectedPageIndex];
+    NSString *pageTitle = _selectedPageIndex >= 0 && _selectedPageIndex < (NSInteger)_pageTitles.count
+        ? _pageTitles[_selectedPageIndex] : @"";
+    NSAlert *alert = [NSAlert new];
+    alert.alertStyle = NSAlertStyleWarning;
+    alert.messageText = @"恢复默认设置？";
+    alert.informativeText = pageKeys.count > 0
+        ? [NSString stringWithFormat:@"「%@」页的设置会恢复为默认值。词库、学习记录、账号与语音密钥不受影响。", pageTitle]
+        : @"这一页没有保存在本机的设置。恢复全部会重置其它页的选项；词库、学习记录、账号与语音密钥不受影响。";
+    // Cancel is added first so it is the default button: the other two throw away settings, and a
+    // destructive action should not be what Return picks.
+    [alert addButtonWithTitle:@"取消"];
+    if (pageKeys.count > 0) [alert addButtonWithTitle:[NSString stringWithFormat:@"恢复「%@」", pageTitle]];
+    [alert addButtonWithTitle:@"恢复全部设置"];
+    const NSModalResponse response = [alert runModal];
+    if (response == NSAlertFirstButtonReturn) return;
+    const BOOL restoreEverything = pageKeys.count == 0 || response == NSAlertThirdButtonReturn;
+    [self removeStoredKeys:restoreEverything ? [self restorableKeys] : pageKeys];
 }
 - (void)skinChanged:(NSPopUpButton *)sender {
     self.skinID = sender.selectedItem.representedObject ?: @"fluent";
