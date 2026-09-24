@@ -56,6 +56,17 @@ class VoiceProviderArgs {
 
     /** The installed model directory for on-device recognition (provider `local`); empty otherwise. */
     var modelPath: String = ""
+
+    /** Provider `local` only: the user's dictionary words the shared layer resolved for this session. */
+    var hotwords: List<VoiceHotwordArgs> = emptyList()
+}
+
+@InvokeArg
+class VoiceHotwordArgs {
+    var text: String = ""
+
+    /** Toneless, lowercase syllables separated by single spaces. */
+    var pinyin: String = ""
 }
 
 @InvokeArg
@@ -116,6 +127,10 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
         val configured = args.provider
         // On-device recognition runs in the activity with the installed model and never falls back to the platform recognizer: the user chose to keep the audio on the device.
         val local = configured?.takeIf { LocalAsrPolicy.usable(it.provider, it.modelPath) }
+        // Bounded here because the words cross into the activity as intent extras; the recognizer reads the dictionary itself when none survive.
+        val localHotwords = local?.hotwords
+            ?.filter { LocalAsrPolicy.suppliedHotword(it.text, it.pinyin) }
+            ?.take(LocalAsrPolicy.HOTWORD_LIMIT)
         val streaming = configured?.takeIf {
             local == null &&
             DoubaoAsrPolicy.usable(it.provider, it.endpoint, it.headers.map(VoiceHeaderArgs::name))
@@ -154,6 +169,8 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
                     )
                 },
                 local?.modelPath,
+                localHotwords?.map(VoiceHotwordArgs::text)?.toTypedArray(),
+                localHotwords?.map(VoiceHotwordArgs::pinyin)?.toTypedArray(),
             )
         } catch (_: RuntimeException) {
             VoiceRecognitionActivity.clearRequest(args.requestId)

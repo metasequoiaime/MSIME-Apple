@@ -47,6 +47,8 @@ public final class VoiceRecognitionActivity extends Activity {
     private static final String EXTRA_STREAM_DDC = "app.msime.client.voice.STREAM_DDC";
     private static final String EXTRA_STREAM_BOOSTING = "app.msime.client.voice.STREAM_BOOSTING";
     private static final String EXTRA_LOCAL_MODEL = "app.msime.client.voice.LOCAL_MODEL";
+    private static final String EXTRA_LOCAL_HOTWORD_TEXTS = "app.msime.client.voice.LOCAL_HOTWORD_TEXTS";
+    private static final String EXTRA_LOCAL_HOTWORD_PINYIN = "app.msime.client.voice.LOCAL_HOTWORD_PINYIN";
     private static volatile WeakReference<VoiceRecognitionActivity> active =
         new WeakReference<>(null);
     private static volatile String activeRequestId;
@@ -105,6 +107,17 @@ public final class VoiceRecognitionActivity extends Activity {
     public static void launch(Context context, String requestId, String language,
                               String provider, String endpoint, String model, String token,
                               Streaming streaming, Polish polish, String localModel) {
+        launch(context, requestId, language, provider, endpoint, model, token, streaming, polish,
+            localModel, null, null);
+    }
+
+    /**
+     * {@link #launch(Context, String, String, String, String, String, String, Streaming, Polish, String)} with the hotwords the shared layer already resolved for `localModel`: the Tauri request carries them as parallel `text` / `pinyin` arrays. Null reads them from the user's dictionary when the dictation starts.
+     */
+    public static void launch(Context context, String requestId, String language,
+                              String provider, String endpoint, String model, String token,
+                              Streaming streaming, Polish polish, String localModel,
+                              String[] localHotwordTexts, String[] localHotwordPinyin) {
         markLaunched(requestId);
         Intent intent = new Intent(context, VoiceRecognitionActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -115,6 +128,11 @@ public final class VoiceRecognitionActivity extends Activity {
         if (model != null) intent.putExtra(EXTRA_MODEL, model);
         if (token != null) intent.putExtra(EXTRA_TOKEN, token);
         if (localModel != null) intent.putExtra(EXTRA_LOCAL_MODEL, localModel);
+        if (localModel != null && localHotwordTexts != null && localHotwordPinyin != null
+            && localHotwordTexts.length == localHotwordPinyin.length) {
+            intent.putExtra(EXTRA_LOCAL_HOTWORD_TEXTS, localHotwordTexts);
+            intent.putExtra(EXTRA_LOCAL_HOTWORD_PINYIN, localHotwordPinyin);
+        }
         if (streaming != null) {
             intent.putExtra(EXTRA_STREAM_ENDPOINT, streaming.endpoint());
             intent.putExtra(EXTRA_STREAM_HEADERS, streaming.headers());
@@ -387,7 +405,7 @@ public final class VoiceRecognitionActivity extends Activity {
     /**
      * Dictate with the installed on-device model, showing the text as it is recognised.
      *
-     * <p>Everything runs on the worker: the first dictation after the model was dropped loads hundreds of megabytes from storage, and every one decodes while the user speaks. Hotwords are read from the user's dictionary through the same runtime options the keyboard uses.
+     * <p>Everything runs on the worker: the first dictation after the model was dropped loads hundreds of megabytes from storage, and every one decodes while the user speaks. Hotwords are the ones the launcher resolved (the Tauri voice panel passes them in), otherwise read from the user's dictionary through the same runtime options the keyboard uses.
      */
     private void startLocalRecognition() {
         if (local != null) return;
@@ -397,6 +415,8 @@ public final class VoiceRecognitionActivity extends Activity {
         Intent intent = getIntent();
         String modelDirectory = intent.getStringExtra(EXTRA_LOCAL_MODEL);
         String language = intent.getStringExtra(EXTRA_LANGUAGE);
+        String[] hotwordTexts = intent.getStringArrayExtra(EXTRA_LOCAL_HOTWORD_TEXTS);
+        String[] hotwordPinyin = intent.getStringArrayExtra(EXTRA_LOCAL_HOTWORD_PINYIN);
         File files = getFilesDir();
         local = new LocalAsrRecognizer();
         if (providerWorker == null) providerWorker = Executors.newSingleThreadExecutor();
@@ -406,6 +426,7 @@ public final class VoiceRecognitionActivity extends Activity {
             String message = null;
             try {
                 text = running.recognize(modelDirectory, language, runtimeOptions(files),
+                    hotwordTexts, hotwordPinyin,
                     partial -> runOnUiThread(() -> {
                         if (!finished && recordingHint != null) recordingHint.setText(partial);
                     }));

@@ -49,6 +49,14 @@ public final class LocalAsrPolicySmoke {
         List<String> many = new ArrayList<>();
         for (int i = 0; i < LocalAsrPolicy.HOTWORD_LIMIT + 50; i++) many.add("w" + i);
         check(LocalAsrPolicy.hotwordLines(many).split("\n").length == LocalAsrPolicy.HOTWORD_LIMIT, "the list is capped at the shared limit");
+
+        check(LocalAsrPolicy.suppliedHotword("水杉", "shui shan"), "a resolved dictionary word is carried");
+        check(LocalAsrPolicy.suppliedHotword("Metasequoia", ""), "a word without pinyin still biases the decoder");
+        check(!LocalAsrPolicy.suppliedHotword(null, "a") && !LocalAsrPolicy.suppliedHotword("a", null), "a missing field is dropped");
+        check(!LocalAsrPolicy.suppliedHotword("  ", "kong"), "a blank word is dropped");
+        check(!LocalAsrPolicy.suppliedHotword("水\n杉", "shui shan") && !LocalAsrPolicy.suppliedHotword("水杉", "shui\nshan"), "a control character is dropped");
+        check(!LocalAsrPolicy.suppliedHotword("字".repeat(LocalAsrPolicy.MAX_HOTWORD_TEXT_LENGTH + 1), "zi"), "an overlong word is dropped");
+        check(!LocalAsrPolicy.suppliedHotword("水杉", "a".repeat(LocalAsrPolicy.MAX_HOTWORD_PINYIN_LENGTH + 1)), "an overlong pinyin is dropped");
         System.out.println("LocalAsrPolicySmoke passed");
     }
 }

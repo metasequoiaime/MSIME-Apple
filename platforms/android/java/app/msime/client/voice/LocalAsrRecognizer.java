@@ -104,14 +104,17 @@ public final class LocalAsrRecognizer {
      *
      * <p>Blocking, and never called on the main thread: it loads a model of hundreds of megabytes the first time, holds the microphone while the user speaks and decodes as the audio arrives.
      *
-     * @param hostOptions the runtime options document (HostOptions) the hotwords are read with; empty skips hotwords
+     * @param hostOptions the runtime options document (HostOptions) the hotwords are read with when none are supplied; empty skips hotwords
+     * @param hotwordTexts the words the shared layer already resolved (the Tauri request's `hotwords`), parallel to `hotwordPinyin`; null or empty reads them through `hostOptions` instead
      */
     public String recognize(String modelDirectory, String language, String hostOptions,
+                            String[] hotwordTexts, String[] hotwordPinyin,
                             Listener listener) throws Refused {
         if (!LocalAsrPolicy.installed(modelDirectory)) throw new Refused(Failure.MODEL);
         String hotwordMode = hotwordMode(modelDirectory);
         if (hotwordMode == null) throw new Refused(Failure.MODEL);
-        JSONArray hotwords = hotwords(hostOptions);
+        JSONArray hotwords = supplied(hotwordTexts, hotwordPinyin);
+        if (hotwords.length() == 0) hotwords = hotwords(hostOptions);
         if (!NativeClient.localSpeechAvailable()) throw new Refused(Failure.RUNTIME);
         BlockingQueue<short[]> audio = new LinkedBlockingQueue<>();
         AtomicBoolean captureFailed = new AtomicBoolean();
@@ -273,6 +276,21 @@ public final class LocalAsrRecognizer {
         } catch (JSONException | RuntimeException | LinkageError error) {
             return new JSONArray();
         }
+    }
+
+    /** The caller's resolved hotwords as the `[{text, pinyin}]` the shared correction takes; mismatched or invalid entries are dropped. */
+    private static JSONArray supplied(String[] texts, String[] pinyin) {
+        JSONArray out = new JSONArray();
+        if (texts == null || pinyin == null || texts.length != pinyin.length) return out;
+        try {
+            for (int index = 0; index < texts.length && out.length() < LocalAsrPolicy.HOTWORD_LIMIT; index++) {
+                if (!LocalAsrPolicy.suppliedHotword(texts[index], pinyin[index])) continue;
+                out.put(new JSONObject().put("text", texts[index].trim()).put("pinyin", pinyin[index]));
+            }
+        } catch (JSONException error) {
+            return new JSONArray();
+        }
+        return out;
     }
 
     private static List<String> texts(JSONArray hotwords) {

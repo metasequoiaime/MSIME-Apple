@@ -22,6 +22,9 @@ public final class LocalAsrPolicy {
     public static final int MAX_MILLIS = 60_000;
     /** The manifest is the catalog entry, a few kilobytes; anything far larger is not one. */
     public static final long MAX_MANIFEST_BYTES = 256 * 1024;
+    /** Per-word ceilings of a hotword handed in by the shared layer, in UTF-16 units; the shared request validation allows no more than this in bytes. */
+    public static final int MAX_HOTWORD_TEXT_LENGTH = 256;
+    public static final int MAX_HOTWORD_PINYIN_LENGTH = 1024;
 
     private LocalAsrPolicy() {}
 
@@ -48,6 +51,20 @@ public final class LocalAsrPolicy {
     /** Whether the model's manifest asks for post-correction rather than native biasing. */
     public static boolean correctsByPinyin(String hotwordMode) {
         return "pinyin".equals(hotwordMode);
+    }
+
+    /**
+     * Whether one `{text, pinyin}` hotword the shared layer resolved (the Tauri request's `hotwords`) may be carried to the recognizer.
+     *
+     * <p>The shared layer already built the list from the user's dictionary; this only keeps what crosses the activity boundary bounded and free of anything that could break the one-per-line framing. An empty pinyin is allowed: the native bias needs only the text, and the pinyin correction skips a word it cannot match.
+     */
+    public static boolean suppliedHotword(String text, String pinyin) {
+        if (text == null || pinyin == null) return false;
+        String trimmed = text.trim();
+        if (trimmed.isEmpty() || text.length() > MAX_HOTWORD_TEXT_LENGTH) return false;
+        if (pinyin.length() > MAX_HOTWORD_PINYIN_LENGTH) return false;
+        return text.chars().noneMatch(Character::isISOControl)
+            && pinyin.chars().noneMatch(Character::isISOControl);
     }
 
     /**
