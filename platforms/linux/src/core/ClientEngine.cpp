@@ -2419,11 +2419,13 @@ void cancel_candidate_properties(IBusEngine *engine) {
 }
 void publish_candidate_properties(IBusEngine *engine) {
   cancel_candidate_properties(engine);
+  if (candidate_panel_is_gnome_shell()) return;
   ibus_engine_update_property(engine, candidate_actions(engine));
   ibus_engine_update_property(engine, nine_key_spellings(engine));
 }
 void schedule_candidate_properties(IBusEngine *engine) {
   cancel_candidate_properties(engine);
+  if (candidate_panel_is_gnome_shell()) return;
   state(engine).candidate_properties_source = g_timeout_add_full(
       G_PRIORITY_DEFAULT, 400,
       [](gpointer data) -> gboolean {
@@ -2435,8 +2437,44 @@ void schedule_candidate_properties(IBusEngine *engine) {
       },
       g_object_ref(engine), [](gpointer data) { g_object_unref(data); });
 }
+IBusProperty *input_mode_property(IBusEngine *engine) {
+  const auto &s = state(engine);
+  const bool japanese_scheme = s.scheme_override
+                                   ? *s.scheme_override == "japanese"
+                                   : configured.at("preferences").value("scheme", "") == "japanese";
+  auto *property = ibus_property_new(
+      "InputMode", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("输入法模式"), "",
+      ibus_text_new_from_static_string(s.input_enabled ? "使用当前输入方案"
+                                                       : "直接输入（不转换）"),
+      s.focused && !s.blocked, TRUE,
+      s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  const char *symbol = "文";
+  switch (msime::linux_host::input_mode_indicator(s.input_enabled, japanese_scheme, s.caps_lock)) {
+  case msime::linux_host::InputModeIndicator::Chinese: symbol = "文"; break;
+  case msime::linux_host::InputModeIndicator::Japanese: symbol = "日"; break;
+  case msime::linux_host::InputModeIndicator::English: symbol = "A"; break;
+  case msime::linux_host::InputModeIndicator::CapsLock: symbol = "⇪"; break;
+  }
+  ibus_property_set_symbol(property, ibus_text_new_from_static_string(symbol));
+  return property;
+}
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
+  // GNOME Shell renders IBus properties inside its own input-source menu.
+  // Repeatedly replacing this host's large nested property tree made Shell
+  // rebuild actors and collect them until the whole desktop froze.
+  if (candidate_panel_is_gnome_shell()) {
+    auto *mode = input_mode_property(engine);
+    if (registration) {
+      auto *properties = ibus_prop_list_new();
+      ibus_prop_list_append(properties, mode);
+      ibus_engine_register_properties(engine, properties);
+    } else {
+      ibus_engine_update_property(engine, mode);
+    }
+    return;
+  }
   if (s.skin_override) {
     const auto selected = *s.skin_override;
     bool available = listed_skin(selected);
@@ -2493,21 +2531,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value("candidate_theme", "follow"));
   const auto skin = s.skin_override.value_or(
       configured.at("preferences").value("candidate_skin", default_candidate_skin()));
-  auto property = ibus_property_new(
-      "InputMode", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("输入法模式"), "",
-      ibus_text_new_from_static_string(s.input_enabled ? "使用当前输入方案"
-                                                       : "直接输入（不转换）"),
-      s.focused && !s.blocked, TRUE,
-      s.input_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  const char *mode_symbol = "文";
-  switch (msime::linux_host::input_mode_indicator(s.input_enabled, japanese_scheme, s.caps_lock)) {
-  case msime::linux_host::InputModeIndicator::Chinese: mode_symbol = "文"; break;
-  case msime::linux_host::InputModeIndicator::Japanese: mode_symbol = "日"; break;
-  case msime::linux_host::InputModeIndicator::English: mode_symbol = "A"; break;
-  case msime::linux_host::InputModeIndicator::CapsLock: mode_symbol = "⇪"; break;
-  }
-  ibus_property_set_symbol(property, ibus_text_new_from_static_string(mode_symbol));
+  auto property = input_mode_property(engine);
   const auto voice_label = s.voice_active
       ? (s.voice_space_locked && !s.voice_stopping
              ? std::string("录音已锁定") : s.voice_phase)
