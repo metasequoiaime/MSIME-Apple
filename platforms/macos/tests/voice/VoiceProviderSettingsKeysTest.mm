@@ -121,12 +121,14 @@ static void TestProviderWindowRestoresTheMatchingDraft()
 {
     [NSApplication sharedApplication];
     MetasequoiaVoiceProviderSettingsWindow *window = [MetasequoiaVoiceProviderSettingsWindow new];
-    NSPopUpButton *provider = [window valueForKey:@"provider"];
-    NSTextField *endpoint = [window valueForKey:@"endpoint"];
-    NSTextField *model = [window valueForKey:@"model"];
-    NSSecureTextField *token = [window valueForKey:@"token"];
-    [window setValue:@"openai" forKey:@"loadedProvider"];
-    [window setValue:[@{@"groq":@"", @"mistral":@""} mutableCopy] forKey:@"tokenDrafts"];
+    // The controls belong to the form, which is also the 语音输入 page of the settings window.
+    id form = [window valueForKey:@"form"];
+    NSPopUpButton *provider = [form valueForKey:@"provider"];
+    NSTextField *endpoint = [form valueForKey:@"endpoint"];
+    NSTextField *model = [form valueForKey:@"model"];
+    NSSecureTextField *token = [form valueForKey:@"token"];
+    [form setValue:@"openai" forKey:@"loadedProvider"];
+    [form setValue:[@{@"groq":@"", @"mistral":@""} mutableCopy] forKey:@"tokenDrafts"];
     endpoint.stringValue = MSIMEVoiceASRProviderDefaultEndpoint(@"openai");
     model.stringValue = MSIMEVoiceASRProviderDefaultModel(@"openai");
     token.stringValue = @"openai-secret";
@@ -144,7 +146,7 @@ static void TestProviderWindowRestoresTheMatchingDraft()
     [provider selectItemAtIndex:[MSIMEVoiceASRProviderIDs() indexOfObject:@"mistral"]];
     [NSApp sendAction:provider.action to:provider.target from:provider];
     assert([endpoint.stringValue isEqual:@"https://private.example/asr"]);
-    NSDictionary *drafts = [window valueForKey:@"tokenDrafts"];
+    NSDictionary *drafts = [form valueForKey:@"tokenDrafts"];
     assert([drafts[@"openai"] isEqual:@"openai-secret"]);
     assert([drafts[@"groq"] isEqual:@"groq-secret"]);
     [window close];
