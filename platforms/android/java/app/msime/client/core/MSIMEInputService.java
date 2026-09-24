@@ -5066,7 +5066,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void insertClipboardText(String text) {
-        if (connection == null || !ClipboardHistoryPolicy.acceptable(text)) return;
+        // Only that there is text. Re-checking the shared store's own bounds here is what made
+        // an entry another mobile host saved listable but not insertable on this one.
+        if (connection == null || !ClipboardHistoryPolicy.hasText(text)) return;
         command(2);
         commitText(text);
         closeClipboardHistory();
@@ -5086,18 +5088,17 @@ public final class MSIMEInputService extends InputMethodService {
                 return;
             }
             CharSequence value = manager.getPrimaryClip().getItemAt(0).getText();
-            ClipboardHistoryPolicy.Rejection rejection = ClipboardHistoryPolicy.rejection(
-                value == null ? null : value.toString());
-            if (rejection != null) {
-                Toast.makeText(this, ClipboardHistoryPolicy.message(rejection),
-                    Toast.LENGTH_SHORT).show();
+            if (!ClipboardHistoryPolicy.hasText(value == null ? null : value.toString())) {
+                Toast.makeText(this, ClipboardHistoryPolicy.message(
+                    ClipboardHistoryPolicy.Rejection.EMPTY), Toast.LENGTH_SHORT).show();
                 return;
             }
-            // The shared store refuses rather than throws when every entry is pinned, which is
-            // the one refusal the user can act on: it names unpinning rather than a save failure.
-            if (!clipboardHistory.add(value.toString())) {
+            // The shared store refuses rather than throws, and says which refusal it is. Deciding
+            // that here as well is what made this host disagree with the store it writes into.
+            String reason = clipboardHistory.add(value.toString());
+            if (reason != null) {
                 Toast.makeText(this, ClipboardHistoryPolicy.message(
-                    ClipboardHistoryPolicy.Rejection.FULL), Toast.LENGTH_SHORT).show();
+                    ClipboardHistoryPolicy.rejectionFor(reason)), Toast.LENGTH_SHORT).show();
                 return;
             }
             renderClipboardHistory();
