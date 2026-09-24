@@ -87,6 +87,9 @@ jobs:
           rm -f "$certificate"
           security find-identity -v -p codesigning "$keychain" | grep -F "$MACOS_SIGNING_IDENTITY"
           echo "MSIME_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      # stage-resources.sh stages target/offline-glosses when it is there and package-release.sh embeds it.
+      - name: Fetch the locked offline candidate glosses
+        run: python3 scripts/fetch_offline_glosses.py
       # Fetches the locked Engine and the pinned dictionaries, builds the Release host library, the input method bundle and the Tauri settings app that embeds both, signs them (Developer ID when the secrets are present, ad-hoc otherwise), checks the embedded resources and signatures inside the mounted DMG, notarizes when the Apple ID secrets are present, and writes SHA256SUMS.
       - name: Build macOS package
         env:

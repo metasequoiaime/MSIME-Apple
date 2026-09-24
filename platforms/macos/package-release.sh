@@ -127,6 +127,11 @@ ditto "$staged_bundle" "$app/Contents/Resources/$bundle_name"
 # A helper executable beside the app's own is signed on its own first, and the outer signature below seals it.
 ditto "$CARGO_TARGET_DIR/release/msime-mcp" "$app/Contents/MacOS/msime-mcp"
 sign "$app/Contents/MacOS/msime-mcp"
+# Non-English candidate glosses (scripts/fetch_offline_glosses.py), copied here rather than listed in tauri.macos.conf.json because Tauri fails on a resource path that does not exist and the package must still build without them. The input method reads them beside EngineResources.
+glosses="$repo_root/target/macos/offline-glosses"
+if [ -d "$glosses" ]; then
+  ditto "$glosses" "$app/Contents/Resources/offline-glosses"
+fi
 # Without --deep, so the input method keeps the signature and entitlements it was given above; the outer signature seals it as a nested resource.
 sign "$app"
 codesign --verify --deep --strict "$app"
@@ -141,6 +146,9 @@ check_app() {
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"
   test -x "$root/Contents/MacOS/msime-mcp"
   codesign --verify --strict "$root/Contents/MacOS/msime-mcp"
+  if [ -d "$glosses" ]; then
+    test -f "$resources_dir/offline-glosses/offline-glosses-NOTICE.txt"
+  fi
   local nested
   nested="$(only "$resources_dir"/*.app)"
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$nested/Contents/Info.plist")" = "$bundle_id"
