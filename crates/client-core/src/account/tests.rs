@@ -159,6 +159,7 @@ fn validates_dictionary_boundaries() {
     assert!(validate_dictionary_value(DictionaryKind::English, "hello1", "word", 1).is_err());
     assert!(validate_dictionary_import(DictionaryKind::Pinyin, "hans", "你好").is_ok());
     assert!(validate_dictionary_import(DictionaryKind::Wubi, "hans", "你好").is_err());
+    assert!(validate_dictionary_import(DictionaryKind::Pinyin, "standard", "bad\u{0001}").is_err());
 
     let entry = || AccountDictionaryEntry {
         id: valid_id.clone(),

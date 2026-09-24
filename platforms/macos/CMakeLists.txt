@@ -552,6 +552,10 @@ add_executable(local-mode-preferences-test tests/settings/LocalModePreferencesTe
 target_compile_options(local-mode-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(local-mode-preferences-test PRIVATE apple-client "-framework AppKit")
 add_test(NAME local-mode-preferences COMMAND local-mode-preferences-test)
+add_executable(preferences-lifecycle-test tests/settings/PreferencesLifecycleTest.mm src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/settings/PreferencesWindowController.mm src/candidate/CandidateSkinAppearance.mm src/core/AISettingsWindow.mm)
+target_compile_options(preferences-lifecycle-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(preferences-lifecycle-test PRIVATE "-framework AppKit")
+add_test(NAME preferences-lifecycle COMMAND preferences-lifecycle-test)
 add_executable(cloud-appearance-settings-test tests/settings/CloudAppearanceSettingsTest.mm src/candidate/CandidateSkin.cpp)
 target_compile_options(cloud-appearance-settings-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(cloud-appearance-settings-test PRIVATE "-framework Foundation")
@@ -709,7 +713,12 @@ add_test(NAME shortcut COMMAND shortcut-test)
 # The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
 set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")
 file(MAKE_DIRECTORY "${MSIME_SHORTCUT_TEST_HOME}")
-set_tests_properties(shortcut PROPERTIES TIMEOUT 90 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
+# The ceiling is for the sanitizer leg, where the same binary takes several times as long: measured
+# at about 16 s unsanitized and about 120 s under AddressSanitizer on one machine. A ceiling that
+# only fits the unsanitized run turns the slow leg into a timeout that says nothing about the code,
+# which is the opposite of what this number is here to do. It is still an order below the leg's own
+# 300 s ctest ceiling, so a genuinely stuck run is still this test's failure rather than the job's.
+set_tests_properties(shortcut PROPERTIES TIMEOUT 240 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_test(NAME shortcut-translations COMMAND shortcut-test --translations)
 set_tests_properties(shortcut-translations PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_executable(voice-hold-shortcut-test tests/voice/VoiceHoldShortcutTest.mm)
@@ -860,10 +869,10 @@ target_compile_options(skin-preview-test PRIVATE -fobjc-arc -Wall -Wextra -Werro
 target_link_libraries(skin-preview-test PRIVATE "-framework AppKit" "-framework CoreText")
 add_test(NAME skin-preview COMMAND skin-preview-test)
 add_executable(skin-settings-test tests/candidate/SkinSettingsTest.mm src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm src/core/ChineseTextConversion.mm)
-foreach(translation_settings_consumer MSIMEClientInputMethod toolbar-visibility-preferences-test scheme-round-trip-preferences-test local-mode-preferences-test shortcut-test skin-preview-test skin-settings-test)
+foreach(translation_settings_consumer MSIMEClientInputMethod toolbar-visibility-preferences-test scheme-round-trip-preferences-test local-mode-preferences-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
   target_sources(${translation_settings_consumer} PRIVATE src/cloud/TranslationSettingsWindow.mm)
 endforeach()
-foreach(ai_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test local-mode-preferences-test shortcut-test skin-preview-test skin-settings-test)
+foreach(ai_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test local-mode-preferences-test preferences-lifecycle-test shortcut-test skin-preview-test skin-settings-test)
   target_sources(${ai_settings_consumer} PRIVATE src/core/AISettingsWindow.mm)
 endforeach()
 foreach(translation_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test skin-preview-test skin-settings-test)

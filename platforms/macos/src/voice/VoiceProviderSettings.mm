@@ -1,6 +1,7 @@
 #import "VoiceProviderSettings.h"
 #import "VoiceProviderSettingsKeys.h"
 #import "VoiceCaptureDevice.h"
+#import "VoiceSettings.h"
 #import "../settings/SettingsLayout.h"
 NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSIMEClientVoiceProviderSettingsDidChange";
 #import <Security/Security.h>
@@ -70,12 +71,19 @@ BOOL MSIMEVoiceASRProviderUsesService(NSString *provider)
            ![@[ @"system", @"local" ] containsObject:identifier];
 }
 
+/// Which of the form's two cards a message is about. A message is only useful next to the field it is about, and this form has two groups of fields with two independent sets of failures — an unreachable recognition endpoint and an unconfigured polish service are separate problems and used to be reported by the same red line under both cards, so neither said which one it meant.
+static NSErrorUserInfoKey const MSIMEVoiceProviderErrorScopeKey = @"MSIMEVoiceProviderErrorScope";
+static NSString *const MSIMEVoiceProviderRecognitionScope = @"recognition";
+static NSString *const MSIMEVoiceProviderPolishScope = @"polish";
+
 namespace
 {
 NSString *const service = @"app.msime.client.voice.providers";
-NSError *Error(NSString *message)
+NSError *Error(NSString *message, NSString *scope)
 {
-    return [NSError errorWithDomain:service code:1 userInfo:@{NSLocalizedDescriptionKey : message}];
+    return [NSError errorWithDomain:service
+                               code:1
+                           userInfo:@{NSLocalizedDescriptionKey : message, MSIMEVoiceProviderErrorScopeKey : scope}];
 }
 NSDictionary *Key(NSString *kind, NSString *provider, NSString *endpoint)
 {
@@ -140,7 +148,10 @@ BOOL WriteToken(NSString *kind, NSString *provider, NSString *endpoint, NSString
             return YES;
     }
     if (error)
-        *error = Error(@"无法保存到系统钥匙串，请解锁钥匙串后重试。");
+        // The kind is the card: an ASR key belongs to the recognition card, a polish key to the text card.
+        *error = Error(@"无法保存到系统钥匙串，请解锁钥匙串后重试。",
+                       [kind isEqualToString:@"polish"] ? MSIMEVoiceProviderPolishScope
+                                                        : MSIMEVoiceProviderRecognitionScope);
     return NO;
 }
 void DeleteToken(NSString *kind, NSString *provider, NSString *endpoint)
@@ -209,6 +220,11 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
             : NO;
     value.polishEndpoint = SharedSetting(saved, @"polishEndpoint", MSIMEVoicePolishDefaultEndpoint);
     value.polishModel = SharedSetting(saved, @"polishModel", MSIMEVoicePolishDefaultModel);
+    value.polishPromptID = MSIMEPolishPromptIdentifierOrDefault(SharedSetting(saved, @"polishPromptID", @""));
+    value.polishPrompt = SharedSetting(saved, @"polishPrompt", @"");
+    value.polishPromptCustom1 = SharedSetting(saved, @"polishPromptCustom1", @"");
+    value.polishPromptCustom2 = SharedSetting(saved, @"polishPromptCustom2", @"");
+    value.polishPromptCustom3 = SharedSetting(saved, @"polishPromptCustom3", @"");
     id sharedCaptureDevice = [defaults objectForKey:@"MSIMEClientVoiceCaptureDevice"];
     value.captureDevice = [sharedCaptureDevice isKindOfClass:NSString.class]
         ? sharedCaptureDevice : StringSetting(saved, @"captureDevice", @"");
@@ -235,7 +251,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 }
 - (BOOL)validate:(NSError **)error
 {
-    NSString *message = nil;
+    NSString *message = nil, *scope = MSIMEVoiceProviderRecognitionScope;
     if ([self.provider isEqualToString:@"local"])
     {
         // Either an installed model directory, which the model installer marks complete by writing msime-model.json last and which runs in the msime-voice-local helper, or a Whisper model file.
@@ -253,13 +269,17 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     else if (![self.provider isEqualToString:@"doubao"] && MSIMEVoiceASRProviderUsesService(self.provider) &&
              (!IsEndpoint(self.endpoint) || self.model.length == 0 || self.token.length == 0))
         message = @"请填写 HTTPS 识别地址、模型名称和 API 密钥。";
+    // The polish check comes last and wins, as it always has; what is new is that the message carries the card it belongs on, so a polish failure no longer prints under the recognition fields as well.
     if (self.polishEnabled &&
         (!IsEndpoint(self.polishEndpoint) || self.polishModel.length == 0 || self.polishToken.length == 0))
+    {
         message = @"启用文本整理需要 HTTPS 服务地址、模型名称和 API 密钥。";
+        scope = MSIMEVoiceProviderPolishScope;
+    }
     if (message)
     {
         if (error)
-            *error = Error(message);
+            *error = Error(message, scope);
         return NO;
     }
     return YES;
@@ -318,6 +338,11 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         @"polishEndpoint" : self.polishEndpoint,
         @"polishModel" : self.polishModel,
         @"polishToken" : self.polishToken,
+        @"polishPromptID" : self.polishPromptID ?: MSIMEPolishPromptIdentifiers().firstObject,
+        @"polishPrompt" : self.polishPrompt ?: @"",
+        @"polishPromptCustom1" : self.polishPromptCustom1 ?: @"",
+        @"polishPromptCustom2" : self.polishPromptCustom2 ?: @"",
+        @"polishPromptCustom3" : self.polishPromptCustom3 ?: @"",
         @"captureDevice" : self.captureDevice ?: @""
     };
     NSDictionary<NSString *, NSString *> *sharedKeys = MSIMEVoiceProviderSharedKeys();
@@ -347,14 +372,31 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 {
     NSPopUpButton *_provider;
     NSPopUpButton *_captureDevice;
-    NSTextField *_endpoint, *_model, *_modelPath, *_polishEndpoint, *_polishModel;
+    NSTextField *_endpoint, *_model, *_modelPath, *_polishEndpoint, *_polishModel, *_polishPrompt;
     NSSecureTextField *_token, *_polishToken;
+    NSPopUpButton *_polishPromptID;
     NSSwitch *_polish;
-    NSTextField *_status;
+    /// The rows the recognition card shows only for the providers they belong to. A local model has no endpoint, no model name and no key, and a row that is present but grey still takes its height: 本地 Whisper left three dead fields occupying half the card above the one field it does use.
+    NSView *_endpointRow, *_modelRow, *_tokenRow, *_modelPathRow;
+    /// One message per card, on the card that owns the field it is about.
+    NSTextField *_recognitionNotice, *_polishNotice;
     NSString *_loadedProvider;
+    /// The endpoint each key on screen was entered for. A key is stored against the origin it was issued by, so moving the field to another origin leaves it behind, and that is when it has to go.
+    NSString *_tokenEndpoint, *_polishTokenEndpoint;
     NSMutableDictionary<NSString *, NSString *> *_tokenDrafts;
+    /// The three custom presets' wording, the preset the prompt field's text belongs to, and the override stored against a built-in preset. The field shows one preset at a time and the other two must survive being switched away from, exactly as the per-provider keys do in _tokenDrafts.
+    NSMutableDictionary<NSString *, NSString *> *_polishPromptDrafts;
+    NSString *_polishPromptSelection, *_polishPromptOverride;
     /// Set while the controls are being filled from storage, so populating them saves nothing.
     BOOL _loading;
+}
+
+/// A message on the card it belongs to, or nothing at all. The window has no separate error style — MSIMEDetailLabel is the one quieter line under a row, and what distinguishes a failure from an aside is its colour.
+static void ShowNotice(NSTextField *label, NSString *message, NSColor *color)
+{
+    label.stringValue = message ?: @"";
+    label.textColor = color;
+    label.hidden = message.length == 0;
 }
 
 - (NSTextField *)fieldLabelled:(NSString *)label secure:(BOOL)secure
@@ -397,14 +439,32 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     _polishEndpoint = [self fieldLabelled:@"整理服务地址" secure:NO];
     _polishModel = [self fieldLabelled:@"整理模型" secure:NO];
     _polishToken = (NSSecureTextField *)[self fieldLabelled:@"整理 API 密钥" secure:YES];
+    _polishPromptID = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _polishPromptID.accessibilityLabel = @"整理方案";
+    [_polishPromptID addItemsWithTitles:MSIMEPolishPromptTitles()];
+    _polishPromptID.target = self;
+    _polishPromptID.action = @selector(polishPromptIDChanged:);
+    _polishPrompt = [self fieldLabelled:@"整理提示词" secure:NO];
 
+    _recognitionNotice = MSIMEDetailLabel(@"");
+    _recognitionNotice.accessibilityLabel = @"语音设置状态";
+    _recognitionNotice.hidden = YES;
+    _polishNotice = MSIMEDetailLabel(@"");
+    _polishNotice.accessibilityLabel = @"文本整理状态";
+    _polishNotice.hidden = YES;
+
+    _endpointRow = MSIMEPreferenceRow(@"服务地址", _endpoint);
+    _modelRow = MSIMEPreferenceRow(@"识别模型", _model);
+    _tokenRow = MSIMEPreferenceRow(@"API 密钥", _token);
+    _modelPathRow = MSIMEPreferenceRow(@"本地模型", modelPathRow);
     NSBox *recognitionCard = MSIMECardWithViews(@[
         MSIMEPreferenceRow(@"识别方式", _provider),
-        MSIMEPreferenceRow(@"服务地址", _endpoint),
-        MSIMEPreferenceRow(@"识别模型", _model),
-        MSIMEPreferenceRow(@"API 密钥", _token),
-        MSIMEPreferenceRowOfWidth(@"本地模型", modelPathRow, msime::mac::layout::kWideControlWidth),
+        _endpointRow,
+        _modelRow,
+        _tokenRow,
+        _modelPathRow,
         MSIMEPreferenceRow(@"录音设备", _captureDevice),
+        _recognitionNotice,
     ], 0.0);
     recognitionCard.accessibilityLabel = @"语音识别卡片";
     NSBox *polishCard = MSIMECardWithViews(@[
@@ -412,6 +472,10 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         MSIMEPreferenceRow(@"服务地址", _polishEndpoint),
         MSIMEPreferenceRow(@"整理模型", _polishModel),
         MSIMEPreferenceRow(@"API 密钥", _polishToken),
+        MSIMEPreferenceRow(@"整理方案", _polishPromptID),
+        MSIMEPreferenceRowWithDetail(@"整理提示词", @"留空使用所选方案自带的提示词；选中自定义方案时，这里写的内容保存在该方案里。",
+                                     _polishPrompt),
+        _polishNotice,
     ], 0.0);
     polishCard.accessibilityLabel = @"文本整理卡片";
 
@@ -420,16 +484,11 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
                                 @"取消。云端识别会发送本次录音；本地识别使用所选模型。密钥保存在系统钥匙串中。"];
     hint.font = [NSFont systemFontOfSize:11.0];
     hint.textColor = NSColor.secondaryLabelColor;
-    _status = [NSTextField wrappingLabelWithString:@""];
-    _status.font = [NSFont systemFontOfSize:msime::mac::layout::kBodyFontSize];
-    _status.textColor = NSColor.systemRedColor;
-    _status.accessibilityLabel = @"语音设置状态";
-    _status.hidden = YES;
 
     NSStackView *stack = [NSStackView stackViewWithViews:@[
         MSIMESectionLabel(@"语音识别"), recognitionCard,
         MSIMESectionLabel(@"文本整理"), polishCard,
-        hint, _status,
+        hint,
     ]];
     stack.orientation = NSUserInterfaceLayoutOrientationVertical;
     stack.alignment = NSLayoutAttributeLeading;
@@ -462,6 +521,8 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     _model.stringValue = value.model;
     _token.stringValue = value.token;
     _loadedProvider = value.provider;
+    _tokenEndpoint = [value.endpoint copy];
+    _polishTokenEndpoint = [value.polishEndpoint copy];
     _tokenDrafts = [value.tokenSlots mutableCopy] ?: [NSMutableDictionary dictionary];
     if (MSIMEVoiceASRProviderUsesService(_loadedProvider))
     {
@@ -503,10 +564,48 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     _polishEndpoint.stringValue = value.polishEndpoint;
     _polishModel.stringValue = value.polishModel;
     _polishToken.stringValue = value.polishToken;
+    [_polishPromptID selectItemAtIndex:(NSInteger)[MSIMEPolishPromptIdentifiers() indexOfObject:value.polishPromptID]];
+    _polishPromptDrafts = [@{
+        @"custom_1" : value.polishPromptCustom1 ?: @"",
+        @"custom_2" : value.polishPromptCustom2 ?: @"",
+        @"custom_3" : value.polishPromptCustom3 ?: @""
+    } mutableCopy];
+    _polishPromptOverride = [value.polishPrompt ?: @"" copy];
+    _polishPromptSelection = [value.polishPromptID copy];
+    _polishPrompt.stringValue = [self polishPromptForPreset:value.polishPromptID];
     [self updateEnabled:nil];
-    _status.stringValue = @"";
-    _status.hidden = YES;
+    ShowNotice(_recognitionNotice, nil, NSColor.systemRedColor);
+    ShowNotice(_polishNotice, nil, NSColor.systemRedColor);
     _loading = NO;
+}
+
+/// What the prompt field shows for a preset: a custom preset's own slot, or — for a built-in one — the override stored on top of the recogniser's own wording. An empty field is what tells the recogniser to use that wording.
+- (NSString *)polishPromptForPreset:(NSString *)identifier
+{
+    NSString *slot = _polishPromptDrafts[identifier ?: @""];
+    if (slot != nil) return slot;
+    return [identifier isEqual:_polishPromptSelection] ? (_polishPromptOverride ?: @"") : @"";
+}
+
+/// Selecting another preset puts that preset's wording in the field rather than leaving the previous one there under a new name, and keeps what was in the field for the preset being left.
+- (void)polishPromptIDChanged:(id)sender
+{
+    (void)sender;
+    [self retainEditedPolishPrompt];
+    NSString *identifier = MSIMEPolishPromptIdentifierForIndex(_polishPromptID.indexOfSelectedItem);
+    _polishPrompt.stringValue = [self polishPromptForPreset:identifier];
+    _polishPromptSelection = [identifier copy];
+    [self commit:nil];
+}
+
+/// Keeps what is in the prompt field against the preset that is currently selected, so that a preset returned to still reads what was written into it.
+- (void)retainEditedPolishPrompt
+{
+    NSString *text = _polishPrompt.stringValue ?: @"";
+    if (_polishPromptDrafts[_polishPromptSelection ?: @""] != nil)
+        _polishPromptDrafts[_polishPromptSelection] = text;
+    else if (_polishPromptSelection.length)
+        _polishPromptOverride = [text copy];
 }
 
 - (void)providerChanged:(id)sender
@@ -528,6 +627,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         ? ([draft isKindOfClass:NSString.class] ? draft : ReadToken(@"asr", provider, _endpoint.stringValue, NO))
         : @"";
     _loadedProvider = provider;
+    _tokenEndpoint = [_endpoint.stringValue copy];
     [self updateEnabled:nil];
     [self commit:nil];
 }
@@ -538,32 +638,37 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     [self commit:sender];
 }
 
+/// The recognition card takes the shape of the provider that is selected: a local model has no service address, no model name and no key, and a cloud provider has no model file. Rows that do not apply are taken out of the card rather than greyed out inside it — 本地 Whisper used to leave three dead fields occupying more of the card than the one field it uses. The same thing is done a page away, where 全拼 / 双拼 / 五笔 each build a card and only the selected scheme's is shown.
+///
+/// The polish fields are still greyed rather than hidden: they say what the text would be sent to, and that is worth reading with the switch off.
 - (void)updateEnabled:(id)sender
 {
     (void)sender;
     NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
     NSString *provider = providerIDs[MIN((NSUInteger)_provider.indexOfSelectedItem, providerIDs.count - 1)];
     BOOL service = MSIMEVoiceASRProviderUsesService(provider);
-    _endpoint.enabled = service;
-    _model.enabled = service && ![provider isEqualToString:@"doubao"];
-    _token.enabled = service;
-    _modelPath.enabled = [provider isEqualToString:@"local"];
+    _endpointRow.hidden = !service;
+    // Doubao's model is fixed by the endpoint it is reached through, so there is nothing to name.
+    _modelRow.hidden = !service || [provider isEqualToString:@"doubao"];
+    _tokenRow.hidden = !service;
+    _modelPathRow.hidden = ![provider isEqualToString:@"local"];
     BOOL polish = _polish.state == NSControlStateValueOn;
     _polishEndpoint.enabled = polish;
     _polishModel.enabled = polish;
     _polishToken.enabled = polish;
+    _polishPromptID.enabled = polish;
+    _polishPrompt.enabled = polish;
 }
 
+/// The warning that has to come before the key is cleared, not after it: a key belongs to the service that issued it, so an address that moves to another host leaves it behind. This used to happen from -controlTextDidChange:, which cleared the key on the first keystroke of an edit that had not been made yet and never said that it had.
 - (void)controlTextDidChange:(NSNotification *)notification
 {
-    if (notification.object == _endpoint)
-    {
-        _token.stringValue = @"";
-    }
-    if (notification.object == _polishEndpoint)
-    {
-        _polishToken.stringValue = @"";
-    }
+    if (notification.object == _endpoint && _token.stringValue.length > 0)
+        ShowNotice(_recognitionNotice, @"改完服务地址后，为原地址保存的 API 密钥会被清除，需要重新填写。",
+                   NSColor.secondaryLabelColor);
+    if (notification.object == _polishEndpoint && _polishToken.stringValue.length > 0)
+        ShowNotice(_polishNotice, @"改完服务地址后，为原地址保存的 API 密钥会被清除，需要重新填写。",
+                   NSColor.secondaryLabelColor);
 }
 
 // Everything is stored as soon as it is set: a popup or a switch the moment it changes, a field
@@ -572,8 +677,43 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 // confirmed was discarded without a word when the window went away.
 - (void)controlTextDidEndEditing:(NSNotification *)notification
 {
-    (void)notification;
+    if (notification.object == _polishPrompt) [self retainEditedPolishPrompt];
+    NSString *cleared = nil;
+    if (notification.object == _endpoint && [self clearTokenForMovedEndpoint]) cleared = @"recognition";
+    if (notification.object == _polishEndpoint && [self clearPolishTokenForMovedEndpoint]) cleared = @"polish";
     [self commit:nil];
+    // After the save, because -commit: is what puts a validation failure on these labels and a cleared key is the more useful of the two things to read.
+    if ([cleared isEqual:@"recognition"])
+        ShowNotice(_recognitionNotice, @"服务地址已更改，原 API 密钥已清除，请重新填写。", NSColor.secondaryLabelColor);
+    else if ([cleared isEqual:@"polish"])
+        ShowNotice(_polishNotice, @"服务地址已更改，原 API 密钥已清除，请重新填写。", NSColor.secondaryLabelColor);
+}
+
+/// Clears the recognition key when the address it was entered for no longer names the same service, and says whether it did. A path is not part of a credential's origin — see MSIMEVoiceProviderCredentialAccount — so moving between two paths of one host keeps the key.
+- (BOOL)clearTokenForMovedEndpoint
+{
+    NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
+    NSString *provider = providerIDs[MIN((NSUInteger)_provider.indexOfSelectedItem, providerIDs.count - 1)];
+    const BOOL moved = ![MSIMEVoiceProviderCredentialAccount(@"asr", provider, _tokenEndpoint ?: @"")
+        isEqual:MSIMEVoiceProviderCredentialAccount(@"asr", provider, _endpoint.stringValue)];
+    _tokenEndpoint = [_endpoint.stringValue copy];
+    if (!moved || _token.stringValue.length == 0) return NO;
+    _token.stringValue = @"";
+    _tokenDrafts[provider] = @"";
+    return YES;
+}
+
+/// The same for the polish key, which is stored against the polish provider and its own address.
+- (BOOL)clearPolishTokenForMovedEndpoint
+{
+    NSString *provider =
+        [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider;
+    const BOOL moved = ![MSIMEVoiceProviderCredentialAccount(@"polish", provider, _polishTokenEndpoint ?: @"")
+        isEqual:MSIMEVoiceProviderCredentialAccount(@"polish", provider, _polishEndpoint.stringValue)];
+    _polishTokenEndpoint = [_polishEndpoint.stringValue copy];
+    if (!moved || _polishToken.stringValue.length == 0) return NO;
+    _polishToken.stringValue = @"";
+    return YES;
 }
 
 - (void)commit:(id)sender
@@ -603,12 +743,22 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     value.polishEndpoint = _polishEndpoint.stringValue;
     value.polishModel = _polishModel.stringValue;
     value.polishToken = _polishToken.stringValue;
+    [self retainEditedPolishPrompt];
+    value.polishPromptID = MSIMEPolishPromptIdentifierForIndex(_polishPromptID.indexOfSelectedItem);
+    value.polishPromptCustom1 = _polishPromptDrafts[@"custom_1"] ?: @"";
+    value.polishPromptCustom2 = _polishPromptDrafts[@"custom_2"] ?: @"";
+    value.polishPromptCustom3 = _polishPromptDrafts[@"custom_3"] ?: @"";
+    // What the recogniser reads is this one field; the slot it came from is what brings it back when the preset is returned to.
+    value.polishPrompt = _polishPrompt.stringValue ?: @"";
     id captureDevice = _captureDevice.selectedItem.representedObject;
     value.captureDevice = [captureDevice isKindOfClass:NSString.class] ? captureDevice : @"";
     NSError *error = nil;
     const BOOL saved = [value save:&error];
-    _status.stringValue = saved ? @"" : (error.localizedDescription ?: @"设置未能保存。");
-    _status.hidden = saved;
+    NSString *message = saved ? nil : (error.localizedDescription ?: @"设置未能保存。");
+    NSString *scope = error.userInfo[MSIMEVoiceProviderErrorScopeKey] ?: MSIMEVoiceProviderRecognitionScope;
+    ShowNotice(_recognitionNotice, [scope isEqual:MSIMEVoiceProviderRecognitionScope] ? message : nil,
+               NSColor.systemRedColor);
+    ShowNotice(_polishNotice, [scope isEqual:MSIMEVoiceProviderPolishScope] ? message : nil, NSColor.systemRedColor);
 }
 
 - (void)browse:(id)sender

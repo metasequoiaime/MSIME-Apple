@@ -546,9 +546,16 @@ const pages = [
  * like, what it stores, then where to get help. Pages the reference has no counterpart for keep
  * their place in a group of their own rather than disappearing -- they are features this client
  * has and that window does not.
+ *
+ * The native window this mirrors now names those four groups 打字 / 显示 / 数据与账号 / 支持, and it
+ * carries eleven pages rather than thirteen: 辅助码 folds into the scheme card of 输入方案, 实用功能
+ * becomes one card of 输入习惯, and 帮助 and 反馈 are one page. This page keeps all three as pages of
+ * their own -- Windows, Linux and HarmonyOS have this page as their only settings UI, so nothing
+ * here may be dropped -- and orders them where the native window puts their contents: helpcode
+ * beside 输入, tools before 快捷键 rather than after it, feedback beside help.
  */
 const macosSidebarGroups = [
-  ["input", "helpcode", "shortcuts", "tools", "voice"],
+  ["input", "helpcode", "tools", "shortcuts", "voice"],
   ["appearance", "skin", "floating-toolbar"],
   ["dictionary", "account"],
   ["help", "feedback", "about"],
@@ -4650,6 +4657,7 @@ export function SettingsPage({
               <button
                 type="button"
                 aria-label="最小化"
+                disabled={!client.windowControl}
                 onClick={() => void client.windowControl!("minimize")}
               >
                 <img
@@ -4662,6 +4670,7 @@ export function SettingsPage({
               <button
                 type="button"
                 aria-label={windowMaximized ? "还原" : "最大化"}
+                disabled={!client.windowControl}
                 onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}
               >
                 <img
@@ -4675,6 +4684,7 @@ export function SettingsPage({
                 type="button"
                 className={settings.windowClose}
                 aria-label="关闭"
+                disabled={!client.windowControl}
                 onClick={() => void client.windowControl!("close")}
               >
                 <img

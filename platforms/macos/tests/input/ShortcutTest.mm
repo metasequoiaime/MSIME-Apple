@@ -2908,6 +2908,7 @@ static TISInputSourceRef CopyMonitoredSource() {
 static void *MonitoredSourceProperty(TISInputSourceRef source, CFStringRef key) {
     return (__bridge void *)((__bridge NSDictionary *)source)[(__bridge NSString *)key];
 }
+static void DrainMainQueue();
 
 // What an editor receives, driven through the real engine.
 //
@@ -3106,9 +3107,10 @@ static void TestInputSourceModeReset() {
     // Both waits end as soon as the event happens; the bound is only there for a stuck run, and a loaded CI runner can take more than a second to give the main queue a turn.
     assert(dispatch_semaphore_wait(posted, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
     monitoredSource = @{bundleKey:own};
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
-    while (monitoredSourceReads == reads && deadline.timeIntervalSinceNow > 0)
-        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    // sourceChanged: marshals background notifications onto the main dispatch queue. Use the
+    // same CoreFoundation run-loop pump as the other async tests; NSRunLoop's short slices can
+    // leave the main dispatch queue unserviced under the sanitizer runtime.
+    DrainMainQueue();
     assert(monitoredSourceReads > reads && resets == before);
     monitoredSource = @{sourceKey:@"com.apple.keylayout.US"};
     [monitor stop];
@@ -4917,9 +4919,24 @@ static void TestOfflineTargetGlosses() {
     void (^settle)(void) = ^{
         [controller synchronizeCandidateGloss];
         [controller synchronizeTargetGloss];
-        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
-        [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
-        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+        NSOperationQueue *glossQueue = [controller valueForKey:@"glossQueue"];
+        NSOperationQueue *targetGlossQueue = [controller valueForKey:@"targetGlossQueue"];
+        [glossQueue waitUntilAllOperationsAreFinished];
+        [targetGlossQueue waitUntilAllOperationsAreFinished];
+        // Each worker ends by dispatching its apply to the main queue, so once both queues are
+        // finished both of those blocks are already sitting in it, and a block enqueued now is
+        // behind them: when this one runs, theirs have run. That is the whole condition, and it
+        // needs no guess about how many applies a generation produces — waiting for a single
+        // apply passed unloaded and failed under the sanitizer, where the English gloss landed
+        // while the offline target one was still pending and the first assertion compared
+        // against half a delivery. The deadline is only here so a genuine hang fails as a test
+        // rather than as a timeout.
+        __block BOOL drained = NO;
+        dispatch_async(dispatch_get_main_queue(), ^{ drained = YES; });
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5.0];
+        while (!drained && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+        assert(drained);
     };
     // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
     settle();

@@ -68,7 +68,9 @@ void OpenPreferences(void) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
     id controller = [type performSelector:@selector(sharedController)];
-    if ([controller respondsToSelector:@selector(showAndActivate)]) [controller performSelector:@selector(showAndActivate)];
+    // This button sits under the help page's line about candidate settings, input schemes and shortcuts being adjustable in the settings window, so the page it has to open is 输入. It used to call the argument-less -showAndActivate, which landed on whatever page the window happened to be showing.
+    if ([controller respondsToSelector:@selector(showAndActivateWithPageIdentifier:)])
+        [controller performSelector:@selector(showAndActivateWithPageIdentifier:) withObject:@"input"];
 #pragma clang diagnostic pop
 }
 
