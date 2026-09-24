@@ -3878,17 +3878,14 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     MSIMEClientSession *session = _session;
     id client = _activeClient;
     NSString *directory = [_preferencesDirectory copy];
-    // The recovery flag is only read and written on main; the worker gets a copy.
-    const BOOL mayRecover = !_preferenceRecoveryAttempted;
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         MSIMEInputController *current = weakSelf;
         if (!current) return;
         NSError *error = nil;
-        BOOL recovered = NO;
         NSDictionary *snapshot = [current readPreferencesSnapshotInDirectory:directory error:&error];
-        if (!snapshot && error && mayRecover) {
-            recovered = YES;
+        if (!snapshot && error && !current->_preferenceRecoveryAttempted) {
+            current->_preferenceRecoveryAttempted = YES;
             NSError *recoveryError = nil;
             NSDictionary *recovery = [current recoverPreferencesInDirectory:directory error:&recoveryError];
             NSDictionary *recoveredSnapshot = [recovery[@"snapshot"] isKindOfClass:NSDictionary.class] ? recovery[@"snapshot"] : nil;
@@ -3899,14 +3896,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
                 error = recoveryError;
             }
         }
-        // Hand the strong reference to main so the last release - and -dealloc with
-        // its AppKit teardown - can never run on this utility queue.
-        CFTypeRef owner = CFBridgingRetain(current);
-        current = nil;
         dispatch_async(dispatch_get_main_queue(), ^{
-            MSIMEInputController *controller = CFBridgingRelease(owner);
-            if (recovered) controller->_preferenceRecoveryAttempted = YES;
-            [controller completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+            [weakSelf completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
         });
     });
 }
