@@ -1,4 +1,4 @@
-import { utf8Length } from '../Utf8';
+import { utf8Length } from "../Utf8";
 
 export interface TranslationCandidate {
   text: string;
@@ -34,6 +34,8 @@ export interface TranslationQuery {
   english_gloss: boolean;
   resources?: string;
   user_data?: string;
+  /** Non-English targets with an offline dictionary installed beside the resources; omitted when there are none. */
+  offline_gloss_languages?: string[];
 }
 
 export interface TranslationPlanItem {
@@ -63,17 +65,34 @@ export class TranslationPolicy {
       for (const value of query.target_languages) values.push(value);
     }
     for (const value of values) {
-      if (typeof value !== 'string' || value.length === 0 || result.includes(value)) continue;
+      if (typeof value !== "string" || value.length === 0 || result.includes(value)) continue;
       result.push(value);
     }
     return result;
   }
 
+  /** The targets answered from an installed offline dictionary, in target order. English keeps its own gloss path. */
+  static offlineTargets(query: TranslationQuery): string[] {
+    const installed: string[] = query.offline_gloss_languages ?? [];
+    return TranslationPolicy.targets(query).filter(
+      (target: string): boolean => target !== "en" && installed.includes(target),
+    );
+  }
+
+  /** Adds one target's offline glosses for the candidates its online provider left unanswered: the user's own translator outranks the dictionary, which fills the rest. */
+  static fill(answered: TranslationEntry[], offline: TranslationEntry[]): void {
+    for (const entry of offline) {
+      if (answered.some((existing: TranslationEntry): boolean => existing.text === entry.text))
+        continue;
+      TranslationPolicy.append(answered, entry.text, entry.translation);
+    }
+  }
+
   static provider(query: TranslationQuery): string {
-    if (query.niutrans?.enabled === true) return 'niutrans';
-    if (query.custom_translation?.enabled === true) return 'custom';
-    if (query.tencent_tmt?.enabled === true) return 'tencent';
-    return '';
+    if (query.niutrans?.enabled === true) return "niutrans";
+    if (query.custom_translation?.enabled === true) return "custom";
+    if (query.tencent_tmt?.enabled === true) return "tencent";
+    return "";
   }
 
   /** Signature excludes credentials while still invalidating work on account/provider changes. */
@@ -87,16 +106,16 @@ export class TranslationPolicy {
       candidates: query.candidates.map((candidate: TranslationCandidate): string => candidate.text),
       english_gloss: query.english_gloss,
       provider: TranslationPolicy.provider(query),
-      endpoint: custom?.endpoint ?? '',
-      app_id: niutrans?.app_id ?? '',
-      region: tencent?.region ?? ''
+      endpoint: custom?.endpoint ?? "",
+      app_id: niutrans?.app_id ?? "",
+      region: tencent?.region ?? "",
     });
   }
 
   static providerScope(query: TranslationQuery): string {
     const provider: string = TranslationPolicy.provider(query);
-    if (provider === 'custom') return `custom:${query.custom_translation?.endpoint ?? ''}`;
-    if (provider === 'niutrans') return `niutrans:${query.niutrans?.app_id ?? ''}`;
+    if (provider === "custom") return `custom:${query.custom_translation?.endpoint ?? ""}`;
+    if (provider === "niutrans") return `niutrans:${query.niutrans?.app_id ?? ""}`;
     return provider;
   }
 
@@ -107,7 +126,7 @@ export class TranslationPolicy {
       key: item.key,
       direction: `${item.source_language}>${item.target_language}`,
       source: item.source_language,
-      itemTarget: item.target_language
+      itemTarget: item.target_language,
     });
   }
 
@@ -116,8 +135,8 @@ export class TranslationPolicy {
       target_language: target,
       candidates: candidates.map((candidate: TranslationCandidate): Object => ({
         text: candidate.text,
-        source: 0
-      }))
+        source: 0,
+      })),
     });
   }
 
@@ -125,7 +144,8 @@ export class TranslationPolicy {
     const value: string = TranslationPolicy.normalise(translation);
     if (value.length === 0) return;
     const existing: TranslationEntry | undefined = entries.find(
-      (entry: TranslationEntry): boolean => entry.text === text);
+      (entry: TranslationEntry): boolean => entry.text === text,
+    );
     if (existing === undefined) {
       entries.push({ text: text, translation: value });
       return;
@@ -138,10 +158,14 @@ export class TranslationPolicy {
   }
 
   static normalise(value: string): string {
-    if (typeof value !== 'string') return '';
+    if (typeof value !== "string") return "";
     const trimmed: string = value.trim();
-    if (trimmed.length === 0 || utf8Length(trimmed) > TranslationPolicy.MAX_TRANSLATION_BYTES
-      || TranslationPolicy.hasControl(trimmed)) return '';
+    if (
+      trimmed.length === 0 ||
+      utf8Length(trimmed) > TranslationPolicy.MAX_TRANSLATION_BYTES ||
+      TranslationPolicy.hasControl(trimmed)
+    )
+      return "";
     return trimmed;
   }
 

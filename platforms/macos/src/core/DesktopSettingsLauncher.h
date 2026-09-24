@@ -22,6 +22,7 @@ static inline void MSIMEOpenDesktopRouteWithContext(NSString *route, NSString *o
     NSMutableDictionary *launchEnvironment = [NSMutableDictionary dictionaryWithDictionary:environment ?: @{}];
     if (optionsPath) launchEnvironment[@"MSIME_CLIENT_HOST_OPTIONS"] = optionsPath;
     if (launchEnvironment.count) configuration.environment = launchEnvironment;
+    // Always a new process, settings included. Without it LaunchServices would activate whichever app.msime.client instance is running, possibly a hidden per-session panel process, and drop the arguments. A settings launch that finds a settings window already open hands its --route= to that window through the shell's single-instance socket and exits, so the existing window comes back on the requested page.
     configuration.createsNewApplicationInstance = YES;
     [workspace openApplicationAtURL:url configuration:configuration
                  completionHandler:^(NSRunningApplication *application, NSError *error) {

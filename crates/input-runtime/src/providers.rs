@@ -676,7 +676,7 @@ impl UnixSocketProvider {
         .ok()
     }
 
-    /// Same stream as `voice_stream_with_options_feedback`, but a provider that refuses the recording with `voice_dependency_missing` and a known `detail` (`"websockets"` or `"recorder"`) comes back as `Err(Some(detail))`, so hosts can tell the user what to install. Every other failure, including an unknown detail, is `Err(None)`; provider-supplied text never crosses this boundary.
+    /// Same stream as `voice_stream_with_options_feedback`, but a provider that refuses the recording with `voice_dependency_missing` and a known `detail` (`"websockets"`, `"recorder"` or `"local_asr"`) comes back as `Err(Some(detail))`, so hosts can tell the user what to install. Every other failure, including an unknown detail, is `Err(None)`; provider-supplied text never crosses this boundary.
     #[cfg(unix)]
     #[allow(clippy::too_many_arguments)]
     pub fn voice_stream_with_options_diagnosed(
@@ -779,6 +779,7 @@ impl UnixSocketProvider {
                     *missing_dependency = match value.get("detail").and_then(Value::as_str) {
                         Some("websockets") => Some("websockets"),
                         Some("recorder") => Some("recorder"),
+                        Some("local_asr") => Some("local_asr"),
                         _ => None,
                     };
                 }

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 「翻译服务」: which service fills candidate glosses that the offline dictionary cannot. Saved into the shared preference document, which the keyboard reloads the next time it appears.
 struct TranslationProviderSettingsView: View {
-  @State private var provider = TranslationProvider.account
+  @State private var provider = TranslationProvider.off
   @State private var niutransAppID = ""
   @State private var niutransKey = ""
   @State private var tencentID = ""
@@ -24,9 +24,13 @@ struct TranslationProviderSettingsView: View {
         Text("选择自己的翻译服务后，键盘把这一页的中文候选直接发给该服务，不经过水杉账号；凭据只保存在本设备的共享设置里。所选服务的凭据不完整时，键盘不会联网翻译，也不会改用其他服务。")
       }
       switch provider {
+      case .off:
+        Section {
+          Text("键盘不会把候选词发给任何在线服务；英文释义仍来自离线词库。").foregroundStyle(.secondary)
+        }
       case .account:
         Section {
-          Text("使用水杉账号的翻译接口，无需额外配置。").foregroundStyle(.secondary)
+          Text("候选词会发送到水杉服务器（api.msime.app）翻译，首次使用会自动创建匿名账号。").foregroundStyle(.secondary)
         }
       case .niutrans:
         Section("小牛翻译") {
@@ -57,7 +61,7 @@ struct TranslationProviderSettingsView: View {
       Section {
         Button("保存") { save() }
           .accessibilityIdentifier("translationProviderSave")
-        if provider != .account {
+        if provider != .account && provider != .off {
           Button(testing ? "正在测试…" : "测试翻译「你好」") { test() }
             .disabled(testing)
             .accessibilityIdentifier("translationProviderTest")
@@ -105,8 +109,12 @@ struct TranslationProviderSettingsView: View {
     guard saved else { status = "保存失败，请稍后再试。"; return }
     var document: [String: Any] = [:]
     write(into: &document)
-    status = TranslationProviderPreference.route(in: document) == .none
-      ? "已保存，但凭据不完整，键盘暂不联网翻译。" : "已保存，键盘下次弹出时生效。"
+    if provider == .off {
+      status = "已保存，键盘不再联网翻译。"
+    } else {
+      status = TranslationProviderPreference.route(in: document) == .none
+        ? "已保存，但凭据不完整，键盘暂不联网翻译。" : "已保存，键盘下次弹出时生效。"
+    }
   }
 
   private func test() {

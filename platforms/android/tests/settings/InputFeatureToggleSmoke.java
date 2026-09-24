@@ -46,10 +46,14 @@ public final class InputFeatureToggleSmoke {
         check(!enabledByDefault("traditional_chinese_output"), "simplified output is the default");
         check(!enabledByDefault("clipboard_history"), "clipboard history is off by default");
         check(!enabledByDefault("candidate_english_gloss"), "the gloss is off by default");
+        check(!enabledByDefault("translation_account"), "the account translation endpoint is opt-in");
 
         check(InputFeatureToggle.of(Group.PRIVACY).stream()
                 .anyMatch(toggle -> "clipboard_history".equals(toggle.key())),
             "clipboard history is grouped where its consequence is stated");
+        check(InputFeatureToggle.of(Group.PRIVACY).stream()
+                .anyMatch(toggle -> "translation_account".equals(toggle.key())),
+            "the account translation switch is grouped where its consequence is stated");
         System.out.println("Android input feature toggles: keys, grouping and shared defaults passed");
     }
 

@@ -102,7 +102,7 @@ struct StatisticsHeatmap: View {
   private static let cell: CGFloat = 15
   private static let spacing: CGFloat = 3
   private static let labelWidth: CGFloat = 12
-  /// 最多画一年:引擎的每日明细就保留 366 天。
+  /// 最多画一年；这是图表的宽度上限，不是保留期限。
   private static let maximumWeeks = 53
   private var calendar: Calendar { Calendar.current }
 

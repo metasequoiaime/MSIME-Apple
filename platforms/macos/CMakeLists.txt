@@ -27,8 +27,8 @@ set(MSIME_PANEL_SESSION_PROBE "" CACHE FILEPATH "Optional Cargo panel_session_pr
 if(MSIME_PANEL_SESSION_PROBE)
   add_test(NAME desktop-input-interop COMMAND desktop-input-interop-test "${MSIME_PANEL_SESSION_PROBE}")
 endif()
-# The voice settings window offers 本地 Whisper and validates a model file, so this host has to carry the recognizer behind that option. Without it the choice is accepted, stored, and then silently served by the platform recognizer instead.
-set(MSIME_SHARED_VOICE_LOCAL_WHISPER ON CACHE BOOL "" FORCE)
+# The voice settings window still accepts a Whisper model file for the `local` provider, so this host carries that recognizer by default. A default, not a forced value: CI configures with -DMSIME_SHARED_VOICE_LOCAL_WHISPER=OFF to keep whisper.cpp out of its builds, and a build without it serves a Whisper file through the platform recognizer. Installed on-device model directories do not need it at all; they run in the msime-voice-local helper bundled below.
+set(MSIME_SHARED_VOICE_LOCAL_WHISPER ON CACHE BOOL "Build the on-device Whisper provider into the input method")
 add_subdirectory(../../shared/voice shared-voice)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_OBJCXX_STANDARD 17)
@@ -92,7 +92,7 @@ if(TARGET shared-doubao-auth)
 endif()
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE src/cloud/CloudFileTransfer.mm src/input/input_method_main.mm src/cloud/CloudClipboardWindowController.mm src/cloud/CloudClipboardClient.mm src/core/AccountSessionManager.mm src/core/AccountAuthClient.mm src/core/AccountWindowController.mm src/core/AccountKeychain.mm src/cloud/CloudDictionaryClient.mm src/settings/PreferencesWindowController.mm src/core/SupportWindowController.mm src/voice/VoiceInputService.mm src/voice/VoiceWaveOverlay.mm src/voice/VoiceCuePlayer.mm src/voice/VoiceAudioMuter.mm src/voice/VoiceSettings.mm src/voice/VoiceProviderSettings.mm src/input/InputController.mm src/input/InputModeHUDPanel.mm src/candidate/CandidatePanel.mm src/candidate/CandidateSkinAppearance.mm src/settings/AppearancePreferences.mm src/core/DiagnosticLog.cpp src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/core/ChineseTextConversion.mm src/core/StringConversion.mm src/settings/ShuangpinKeymapPanel.mm src/input/InputSourceRegistration.mm src/core/FloatingToolbarPanel.mm src/core/UpdateController.mm src/dictionary/DictionaryWindowController.mm src/core/ClientDictionaryRuntime.mm src/dictionary/DictionaryInstaller.mm ../../crates/host-macos/native/uninstaller.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/AISettingsWindow.mm src/core/ScreenKeyboardPanel.mm src/cloud/CloudCandidateRequest.mm src/core/CustomTranslationBatch.mm src/voice/VoicePCMBuffer.mm src/voice/HTTPVoiceRequest.mm)
-target_sources(MSIMEClientInputMethod PRIVATE src/voice/DoubaoVoiceRequest.mm)
+target_sources(MSIMEClientInputMethod PRIVATE src/voice/DoubaoVoiceRequest.mm src/voice/LocalVoiceRequest.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopInputSession.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopCloudClipboard.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics" "-framework CoreText" "-framework UniformTypeIdentifiers")
@@ -149,6 +149,10 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine/voice/thir
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine/voice/third_party/whisper.cpp/LICENSE" "${MSIME_LEGAL_DIRECTORY}/MIT-whisper.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine/handwriting/models/HandwritingModel-LICENSE.txt" "${MSIME_LEGAL_DIRECTORY}/HandwritingModel-LICENSE.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine/handwriting/third_party/zinnia/Zinnia-LICENSE.txt" "${MSIME_LEGAL_DIRECTORY}/Zinnia-LICENSE.txt" COPYONLY)
+# The on-device speech runtime staged into Contents/Frameworks below. The upstream archive carries no license file, so the texts come from the copies the other desktops ship: sherpa-onnx's beside its vendored C header, ONNX Runtime's pinned under platforms/linux.
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/sherpa-onnx/LICENSE" "${MSIME_LEGAL_DIRECTORY}/sherpa-onnx-Apache-2.0.txt" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-MIT.txt" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-ThirdPartyNotices.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-ThirdPartyNotices.txt" COPYONLY)
 file(GLOB MSIME_LEGAL_RESOURCES CONFIGURE_DEPENDS "${MSIME_LEGAL_DIRECTORY}/*")
 target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_LEGAL_RESOURCES})
 set_source_files_properties(${MSIME_LEGAL_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/Licenses")
@@ -186,17 +190,27 @@ foreach(MSIME_BUNDLE_LOCALE zh-Hans en)
   set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings"
     PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/${MSIME_BUNDLE_LOCALE}.lproj")
 endforeach()
+# On-device recognition runs in its own process: the input method spawns Contents/MacOS/msime-voice-local (see src/voice/LocalVoiceRequest.h) and the helper loads the pinned sherpa-onnx runtime from Contents/Frameworks, where shared/voice/LocalAsr.cpp looks beside an executable in Contents/MacOS. The runtime is the prebuilt upstream library pinned in resources/voice-runtime.lock.json; scripts/fetch_voice_runtime.py downloads and verifies it once into MSIME_VOICE_RUNTIME_DIR and reuses its cached archive afterwards, and the stamp reruns it whenever the lock or the script changes.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(MSIME_VOICE_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../target/voice-runtime/macos" CACHE PATH "Where scripts/fetch_voice_runtime.py puts the macOS sherpa-onnx runtime")
+set(MSIME_VOICE_RUNTIME_LIBRARY "${MSIME_VOICE_RUNTIME_DIR}/libsherpa-onnx-c-api.dylib")
+set(MSIME_VOICE_RUNTIME_STAMP "${CMAKE_CURRENT_BINARY_DIR}/voice-runtime.stamp")
+add_custom_command(OUTPUT "${MSIME_VOICE_RUNTIME_STAMP}"
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/fetch_voice_runtime.py" --platform macos --out "${MSIME_VOICE_RUNTIME_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E touch "${MSIME_VOICE_RUNTIME_STAMP}"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/voice-runtime.lock.json" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/fetch_voice_runtime.py"
+  COMMENT "Fetching the pinned sherpa-onnx runtime for on-device speech recognition"
+  VERBATIM)
+add_custom_target(macos-voice-runtime DEPENDS "${MSIME_VOICE_RUNTIME_STAMP}")
+add_dependencies(MSIMEClientInputMethod macos-voice-runtime msime-voice-local)
 add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"
-  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_SWIFT_BACKEND_OUTPUT}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib")
-# The recognizer this host carries is linked in, not staged beside it.
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_SWIFT_BACKEND_OUTPUT}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_VOICE_RUNTIME_LIBRARY}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:msime-voice-local>" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/MacOS/msime-voice-local")
+# The Whisper recognizer, when this host carries it, is linked in, not staged beside it.
 #
-# `MSIME_SHARED_VOICE_LOCAL_WHISPER` is set ON and FORCE above, so the input method always carries
-# whisper and the four ggml libraries. They used to arrive as dylibs and be copied here, because a
-# first configure of a fresh build directory produced shared libraries - see the cache entry in
-# shared/voice/CMakeLists.txt for why that happened and why it no longer does. Without the copies an
-# installed bundle aborted at launch with `Library not loaded: @rpath/libwhisper.1.dylib`, which the
-# build and the signature both let through.
+# `MSIME_SHARED_VOICE_LOCAL_WHISPER` defaults ON above, so the input method normally carries whisper and the four ggml libraries. They used to arrive as dylibs and be copied here, because a first configure of a fresh build directory produced shared libraries - see the cache entry in shared/voice/CMakeLists.txt for why that happened and why it no longer does. Without the copies an installed bundle aborted at launch with `Library not loaded: @rpath/libwhisper.1.dylib`, which the build and the signature both let through.
 #
 # Static archives cannot fail that way: there is nothing to find at runtime. The guard stays, and
 # fails the configure rather than silently shipping a bundle that will not start, if the Engine's
@@ -491,6 +505,21 @@ target_link_libraries(doubao-voice-request-test PRIVATE apple-client Metasequoia
 add_test(NAME doubao-voice-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/doubao_voice_fixture.py" "$<TARGET_FILE:doubao-voice-request-test>")
 # Above the fixture's own 60 s client limit plus the 3 s stack sample it takes of a hung client, so a hang reports where it is stuck instead of being killed silently.
 set_tests_properties(doubao-voice-request PROPERTIES TIMEOUT 80)
+add_executable(local-voice-request-test tests/voice/LocalVoiceRequestTest.mm src/voice/LocalVoiceRequest.mm)
+target_compile_options(local-voice-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(local-voice-request-test PRIVATE apple-client "-framework Foundation")
+# The protocol against a scripted stand-in for msime-voice-local, so it needs neither the runtime nor a model.
+add_test(NAME local-voice-request COMMAND local-voice-request-test)
+set_tests_properties(local-voice-request PROPERTIES TIMEOUT 60 ENVIRONMENT
+  "MSIME_VOICE_LOCAL_HELPER=${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/local_voice_helper_fixture.py;MSIME_LOCAL_VOICE_FIXTURE_LOG=${CMAKE_CURRENT_BINARY_DIR}/local-voice-request.log")
+# With an installed model (resources/local-asr-models.json) and a 16 kHz mono 16-bit recording, also stream that recording through the real helper and the fetched runtime, the way the input method does. Both are downloads, so this is opt-in.
+set(MSIME_LOCAL_ASR_TEST_WAV "" CACHE FILEPATH "Optional 16 kHz mono 16-bit WAV for the local-voice-model test")
+if(MSIME_LOCAL_ASR_TEST_MODEL AND MSIME_LOCAL_ASR_TEST_WAV)
+  add_test(NAME local-voice-model COMMAND local-voice-request-test --model "${MSIME_LOCAL_ASR_TEST_MODEL}" --wav "${MSIME_LOCAL_ASR_TEST_WAV}")
+  add_dependencies(local-voice-request-test msime-voice-local macos-voice-runtime)
+  set_tests_properties(local-voice-model PROPERTIES TIMEOUT 180 ENVIRONMENT
+    "MSIME_VOICE_LOCAL_HELPER=$<TARGET_FILE:msime-voice-local>;MSIME_SHERPA_ONNX_LIBRARY=${MSIME_VOICE_RUNTIME_LIBRARY}")
+endif()
 add_executable(preference-save-state-test tests/settings/PreferenceSaveStateTest.cpp)
 target_compile_options(preference-save-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME preference-save-state COMMAND preference-save-state-test)
@@ -501,6 +530,10 @@ add_executable(typing-statistics-test tests/core/TypingStatisticsTest.cpp)
 target_compile_options(typing-statistics-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(typing-statistics-test PRIVATE apple-client)
 add_test(NAME typing-statistics COMMAND typing-statistics-test)
+add_executable(runtime-options-refresh-test tests/core/RuntimeOptionsRefreshTests.mm)
+target_compile_options(runtime-options-refresh-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(runtime-options-refresh-test PRIVATE apple-client "-framework Foundation")
+add_test(NAME runtime-options-refresh COMMAND runtime-options-refresh-test)
 add_executable(typing-statistics-notification-test
     tests/core/TypingStatisticsNotificationTest.mm
     ../../crates/host-macos/native/dictionary.mm)
@@ -665,7 +698,7 @@ target_link_libraries(shortcut-test PRIVATE apple-client "-framework AppKit" "-f
 target_compile_options(shortcut-test PRIVATE "-F${MSIME_SPARKLE_ROOT}")
 target_link_libraries(shortcut-test PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
 target_sources(shortcut-test PRIVATE src/settings/PreferencesWindowController.mm src/core/SupportWindowController.mm src/candidate/CandidateSkinAppearance.mm src/core/ScreenKeyboardPanel.mm src/voice/VoiceInputService.mm src/voice/VoicePCMBuffer.mm src/voice/VoiceWaveOverlay.mm src/voice/VoiceCuePlayer.mm src/voice/VoiceAudioMuter.mm src/voice/VoiceSettings.mm src/voice/VoiceProviderSettings.mm src/cloud/CloudCandidateRequest.mm src/core/CustomTranslationBatch.mm)
-target_sources(shortcut-test PRIVATE src/voice/HTTPVoiceRequest.mm src/voice/DoubaoVoiceRequest.mm src/core/DesktopInputSession.mm)
+target_sources(shortcut-test PRIVATE src/voice/HTTPVoiceRequest.mm src/voice/DoubaoVoiceRequest.mm src/voice/LocalVoiceRequest.mm src/core/DesktopInputSession.mm)
 target_sources(shortcut-test PRIVATE src/core/DesktopCloudClipboard.mm)
 target_link_libraries(shortcut-test PRIVATE msime-voice-providers)
 target_link_libraries(shortcut-test PRIVATE "-framework AudioToolbox")
@@ -773,7 +806,7 @@ target_include_directories(shuangpin-keymap-input-test PRIVATE src ../../vendor/
 target_compile_options(shuangpin-keymap-input-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shuangpin-keymap-input-test PRIVATE apple-client "-framework AppKit")
 add_test(NAME shuangpin-keymap-input COMMAND shuangpin-keymap-input-test)
-add_executable(candidate-panel-test tests/candidate/CandidatePanelTests.mm src/candidate/CandidatePanel.mm src/candidate/CandidateSkinAppearance.mm src/candidate/CandidateSkin.cpp)
+add_executable(candidate-panel-test tests/candidate/CandidatePanelTests.mm src/candidate/CandidatePanel.mm src/core/DiagnosticLog.cpp src/candidate/CandidateSkinAppearance.mm src/candidate/CandidateSkin.cpp)
 target_compile_options(candidate-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(candidate-panel-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit")
 add_test(NAME candidate-panel COMMAND candidate-panel-test)
@@ -884,12 +917,18 @@ add_test(
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/preference_coverage.py"
           "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+# Only a build with the Whisper option on is required to carry the recogniser; CI builds with it off.
+set(MSIME_BUNDLE_WHISPER_FLAG "")
+if(MSIME_SHARED_VOICE_LOCAL_WHISPER)
+  set(MSIME_BUNDLE_WHISPER_FLAG --whisper)
+endif()
 add_test(
   NAME bundle-contents
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/bundle_contents.py"
           "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>"
-          --languages zh-Hans,en)
+          --languages zh-Hans,en
+          ${MSIME_BUNDLE_WHISPER_FLAG})
 add_test(
   NAME info-plist-icons
   COMMAND "${Python3_EXECUTABLE}"
@@ -1021,4 +1060,13 @@ foreach(msime_target IN LISTS MSIME_SKIN_TARGETS)
     target_sources(${msime_target} PRIVATE src/candidate/SkinManifestBridge.mm)
   endif()
   target_link_libraries(${msime_target} PRIVATE apple-client)
+endforeach()
+
+# VoiceInputService.mm passes the system recogniser's text through shared/voice's tidy_local_transcript, so every target compiling it links the library that defines it. Found by source rather than listed, for the same reason as the loops above.
+get_property(MSIME_VOICE_SERVICE_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(msime_target IN LISTS MSIME_VOICE_SERVICE_TARGETS)
+  get_target_property(msime_target_sources ${msime_target} SOURCES)
+  if(msime_target_sources AND "src/voice/VoiceInputService.mm" IN_LIST msime_target_sources)
+    target_link_libraries(${msime_target} PRIVATE msime-voice-local-asr)
+  endif()
 endforeach()

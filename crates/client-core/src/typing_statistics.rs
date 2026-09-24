@@ -11,7 +11,9 @@ use unicode_general_category::{get_general_category, GeneralCategory};
 use unicode_segmentation::UnicodeSegmentation;
 
 const MAX_RETAINED_DAYS: usize = 366;
-const MAX_DOCUMENT_BYTES: u64 = 1_048_576;
+
+/// Only a guard against loading a hostile or garbage file, not a retention limit. It must stay far above anything `Forever` can produce, because a document over it cannot be read at all and the whole history is lost with it; a day costs a few hundred bytes, so 64 MiB covers centuries.
+const MAX_DOCUMENT_BYTES: u64 = 64 * 1_048_576;
 const MAX_COMMIT_BYTES: usize = 40_000;
 const MAX_COMMIT_SCALARS: usize = 10_000;
 const MAX_COUNT: u64 = 9_000_000_000_000_000;
@@ -331,13 +333,11 @@ impl TypingStatistics {
     }
 
     fn validate(&self) -> Result<(), TypingStatisticsError> {
-        if self.total > MAX_COUNT || self.days.len() > MAX_RETAINED_DAYS {
+        // No cap on the number of days: `Forever` keeps every day, as the baseline's stats_daily does, and the document size limit in `read_locked` is what bounds a file.
+        if self.total > MAX_COUNT {
             return Err(TypingStatisticsError::InvalidDocument);
         }
         validate_counts(&self.detail, self.total)?;
-        if self.daily_details.len() > MAX_RETAINED_DAYS {
-            return Err(TypingStatisticsError::InvalidDocument);
-        }
         for (day, count) in &self.days {
             validate_day(day)?;
             if *count > self.total {
@@ -351,11 +351,6 @@ impl TypingStatistics {
             .daily_details
             .keys()
             .any(|day| !self.days.contains_key(day))
-        {
-            return Err(TypingStatisticsError::InvalidDocument);
-        }
-        if self.daily_active_ms.len() > MAX_RETAINED_DAYS
-            || self.daily_hours.len() > MAX_RETAINED_DAYS
         {
             return Err(TypingStatisticsError::InvalidDocument);
         }
@@ -398,12 +393,44 @@ impl TypingStatistics {
         let Some(boundary) = day_before(today, days) else {
             return;
         };
+        // Like the baseline's ClearThrough, which deletes the stats_daily rows its overview sums, a cleanup takes the pruned days out of the running totals too, so "累计", the category split and the daily average cover the retained window. A legacy day without a breakdown only lowers `total`; `breakdown(None)` reports the rest as unclassified.
+        for (_, count) in self.days.range(..boundary.clone()) {
+            self.total = self.total.saturating_sub(*count);
+        }
+        for (_, detail) in self.daily_details.range(..boundary.clone()) {
+            for (key, count) in &detail.characters {
+                if let Some(value) = self.detail.characters.get_mut(key) {
+                    *value = value.saturating_sub(*count);
+                }
+            }
+            for (key, count) in &detail.sources {
+                if let Some(value) = self.detail.sources.get_mut(key) {
+                    *value = value.saturating_sub(*count);
+                }
+            }
+        }
         self.days.retain(|day, _| *day >= boundary);
         self.daily_details.retain(|day, _| *day >= boundary);
         self.daily_active_ms.retain(|day, _| *day >= boundary);
         self.daily_hours.retain(|day, _| *day >= boundary);
-        // `total` and `detail` are lifetime counters the page shows as "累计"; the baseline keeps
-        // its own running totals across a cleanup too. Only the per-day axes are windowed.
+        // Subtraction keeps whatever `total` and `detail` hold beyond the per-day records, which a document written by an older build can have. Where that leaves the counters out of step with each other - `total` below the retained days, or a category sum above `total` - validate() would reject the document this write produces, so fall back to what the retained days themselves say.
+        let retained = self
+            .days
+            .values()
+            .fold(0_u64, |sum, count| sum.saturating_add(*count));
+        self.total = self.total.max(retained);
+        let sum = |values: &BTreeMap<String, u64>| {
+            values
+                .values()
+                .fold(0_u64, |sum, count| sum.saturating_add(*count))
+        };
+        if sum(&self.detail.characters) > self.total || sum(&self.detail.sources) > self.total {
+            let mut rebuilt = TypingBreakdown::default();
+            for detail in self.daily_details.values() {
+                let _ = rebuilt.merge(detail);
+            }
+            self.detail = rebuilt;
+        }
     }
 
     /// Active milliseconds recorded for `day`, or `None` when that day predates the measurement.
@@ -629,6 +656,9 @@ impl TypingStatisticsStore {
                 .ok_or(TypingStatisticsError::CountExhausted)?;
         }
 
+        // Keep the hard safety cap independent of the optional retention preference. A document
+        // can be written by an older host (or with `forever`) and must still never grow without
+        // bound. Prune before applying the calendar window so all four per-day maps stay aligned.
         while value.days.len() > MAX_RETAINED_DAYS {
             let oldest = value.days.keys().next().cloned().expect("nonempty days");
             value.days.remove(&oldest);
@@ -636,8 +666,9 @@ impl TypingStatisticsStore {
             value.daily_active_ms.remove(&oldest);
             value.daily_hours.remove(&oldest);
         }
-        // On the first write of each day, as the baseline does. Doing it on every write would
-        // read the whole history on every commit for a boundary that moves once a day.
+        // The retention setting is the only thing that deletes days beyond this safety cap,
+        // matching the baseline's RetentionCutoff/ClearThrough. It runs on the first write of
+        // each day; doing it on every write would read the whole history on every commit.
         if value.last_pruned_day != day {
             value.apply_retention(day);
             value.last_pruned_day = day.to_owned();
@@ -997,7 +1028,7 @@ mod tests {
     }
 
     #[test]
-    fn serializes_writers_and_bounds_daily_history() {
+    fn serializes_writers_and_keeps_every_day_under_forever() {
         let directory = tempfile::tempdir().unwrap();
         let store = Arc::new(TypingStatisticsStore::new(directory.path()));
         store.set_enabled(true).unwrap();
@@ -1029,8 +1060,10 @@ mod tests {
                 .unwrap();
         }
         let value = store.load().unwrap();
-        assert_eq!(value.days.len(), MAX_RETAINED_DAYS);
-        assert_eq!(value.daily_details.len(), MAX_RETAINED_DAYS);
+        // Forever is the default and deletes nothing: the 2026-01-01 the writers shared plus the 370 later days.
+        assert_eq!(value.retention, StatisticsRetention::Forever);
+        assert_eq!(value.days.len(), 371);
+        assert_eq!(value.daily_details.len(), 371);
         assert_eq!(value.total, 420);
         assert_eq!(value.detail.characters["han"], 420);
     }
@@ -1153,39 +1186,55 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = TypingStatisticsStore::new(directory.path());
         store.set_enabled(true).unwrap();
-        // 28-day months and 12-month years, so the synthetic calendar stays valid past the
-        // retention limit without pulling in a date library.
-        for offset in 0..=MAX_RETAINED_DAYS {
-            let day = format!(
-                "{:04}-{:02}-{:02}",
-                2026 + offset / 336,
-                (offset % 336) / 28 + 1,
-                offset % 28 + 1
-            );
+        // 28-day months and 12-month years, so the synthetic calendar stays valid past a year of recorded days without pulling in a date library.
+        let recorded = 367;
+        let mut last_day = String::new();
+        for offset in 0..recorded {
+            last_day = synthetic_day(offset);
             store
                 .record_at(
                     "字",
                     TypingSource::Quanpin,
-                    &day,
+                    &last_day,
                     Some(9),
                     1_000 + offset as u64 * 500,
                 )
                 .unwrap();
         }
         let value = store.load().unwrap();
-        assert_eq!(value.days.len(), MAX_RETAINED_DAYS);
-        // Pruning a day has to drop every axis keyed by it, or validate() rejects the document
-        // it just wrote and the user loses the whole history to a stale entry.
-        assert!(value.daily_active_ms.len() <= MAX_RETAINED_DAYS);
-        assert!(value.daily_hours.len() <= MAX_RETAINED_DAYS);
-        assert!(value
+        // Forever keeps every day on every axis.
+        assert_eq!(value.days.len(), recorded);
+        assert_eq!(value.daily_details.len(), recorded);
+        assert_eq!(value.daily_hours.len(), recorded);
+        // The first commit has no gap to measure, so it is the one day without active time.
+        assert_eq!(value.daily_active_ms.len(), recorded - 1);
+
+        let boundary = day_before(&last_day, 365).unwrap();
+        let narrowed = store
+            .set_retention(StatisticsRetention::Days365, &last_day)
+            .unwrap();
+        assert!(narrowed.days.len() < recorded);
+        assert!(!narrowed.days.is_empty());
+        // Pruning a day has to drop every axis keyed by it, or validate() rejects the document it just wrote and the user loses the whole history to a stale entry.
+        assert!(narrowed.days.keys().all(|day| *day >= boundary));
+        assert!(narrowed.daily_details.keys().all(|day| *day >= boundary));
+        assert!(narrowed.daily_active_ms.keys().all(|day| *day >= boundary));
+        assert!(narrowed.daily_hours.keys().all(|day| *day >= boundary));
+        assert!(narrowed
+            .daily_details
+            .keys()
+            .all(|day| narrowed.days.contains_key(day)));
+        assert!(narrowed
             .daily_active_ms
             .keys()
-            .all(|day| value.days.contains_key(day)));
-        assert!(value
+            .all(|day| narrowed.days.contains_key(day)));
+        assert!(narrowed
             .daily_hours
             .keys()
-            .all(|day| value.days.contains_key(day)));
+            .all(|day| narrowed.days.contains_key(day)));
+        // One character a day, so the running total is the number of retained days.
+        assert_eq!(narrowed.total, narrowed.days.len() as u64);
+        assert_eq!(narrowed.detail.characters["han"], narrowed.total);
         assert!(store.load().is_ok());
 
         let reset = store.reset().unwrap();
@@ -1194,6 +1243,60 @@ mod tests {
         // Reset means reset: when typing last happened is the one field that would otherwise
         // survive and still say something about the user.
         assert_eq!(reset.last_commit_ms, 0);
+    }
+
+    /// A valid `YYYY-MM-DD` for `offset` on a calendar of 28-day months and 12-month years.
+    fn synthetic_day(offset: usize) -> String {
+        format!(
+            "{:04}-{:02}-{:02}",
+            2026 + offset / 336,
+            (offset % 336) / 28 + 1,
+            offset % 28 + 1
+        )
+    }
+
+    #[test]
+    fn forever_never_prunes_even_across_many_first_writes_of_a_day() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        store.set_enabled(true).unwrap();
+        // Every day is a new day, so every write runs the first-write-of-a-day retention pass.
+        let recorded = 800;
+        for offset in 0..recorded {
+            store
+                .record_at(
+                    "字",
+                    TypingSource::Quanpin,
+                    &synthetic_day(offset),
+                    Some(9),
+                    1_000 + offset as u64 * 500,
+                )
+                .unwrap();
+        }
+        let value = store.load().unwrap();
+        assert_eq!(value.retention, StatisticsRetention::Forever);
+        assert_eq!(value.days.len(), recorded);
+        assert_eq!(value.daily_details.len(), recorded);
+        assert_eq!(value.daily_hours.len(), recorded);
+        assert_eq!(value.last_pruned_day, synthetic_day(recorded - 1));
+    }
+
+    #[test]
+    fn a_document_with_more_than_a_year_of_days_loads() {
+        let directory = tempfile::tempdir().unwrap();
+        let days = (0..500)
+            .map(|offset| format!("\"{}\":1", synthetic_day(offset)))
+            .collect::<Vec<_>>()
+            .join(",");
+        fs::write(
+            directory.path().join("typing-statistics.json"),
+            format!(r#"{{"enabled":true,"total":500,"days":{{{days}}}}}"#),
+        )
+        .unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        let value = store.load().unwrap();
+        assert_eq!(value.days.len(), 500);
+        assert_eq!(value.total, 500);
     }
 
     #[test]
@@ -1268,9 +1371,15 @@ mod tests {
         );
         assert!(!narrowed.daily_details.contains_key("2026-06-01"));
         assert!(!narrowed.daily_hours.contains_key("2026-06-01"));
-        // Lifetime totals survive a cleanup, as they do in the baseline; only the per-day axes
-        // are windowed.
-        assert_eq!(narrowed.total, 3);
+        // As with the baseline's ClearThrough, the pruned day leaves the running totals as well, so "累计" and its categories cover the retained window.
+        assert_eq!(narrowed.total, 2);
+        let mut retained = TypingBreakdown::default();
+        for detail in narrowed.daily_details.values() {
+            retained.merge(detail).unwrap();
+        }
+        assert_eq!(narrowed.detail, retained);
+        assert_eq!(narrowed.detail.characters["han"], 2);
+        assert_eq!(narrowed.detail.sources["quanpin"], 2);
 
         // A later day carries the window with it: 2026-08-25 falls out once "today" moves past
         // thirty days from it.
@@ -1280,6 +1389,8 @@ mod tests {
         let moved = store.load().unwrap();
         assert!(!moved.days.contains_key("2026-08-25"));
         assert!(moved.days.contains_key("2026-09-20"));
+        assert_eq!(moved.total, 2);
+        assert_eq!(moved.detail.characters["han"], 2);
 
         // The mark that says the window has been applied for this day.
         //
@@ -1295,6 +1406,44 @@ mod tests {
             .set_retention(StatisticsRetention::Forever, "2027-12-31")
             .unwrap();
         assert_eq!(kept.days.len(), 2);
+    }
+
+    #[test]
+    fn pruning_a_day_without_a_breakdown_only_lowers_the_total() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("typing-statistics.json"),
+            r#"{"enabled":true,"total":5,"days":{"2026-06-01":3,"2026-09-20":2},"detail":{"characters":{"han":2},"sources":{"quanpin":2}},"dailyDetails":{"2026-09-20":{"characters":{"han":2},"sources":{"quanpin":2}}}}"#,
+        )
+        .unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        let narrowed = store
+            .set_retention(StatisticsRetention::Days30, "2026-09-21")
+            .unwrap();
+        assert_eq!(narrowed.days.keys().collect::<Vec<_>>(), ["2026-09-20"]);
+        assert_eq!(narrowed.total, 2);
+        assert_eq!(narrowed.detail.characters["han"], 2);
+        assert_eq!(narrowed.detail.sources["quanpin"], 2);
+        assert!(store.load().is_ok());
+    }
+
+    #[test]
+    fn pruning_rebuilds_categories_that_would_exceed_the_new_total() {
+        // An older build could keep categories for days it had already dropped. Subtracting only the pruned day's own records would then leave a category sum above the lowered total, which validate() rejects.
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("typing-statistics.json"),
+            r#"{"enabled":true,"total":10,"days":{"2026-06-01":3,"2026-09-20":2},"detail":{"characters":{"han":9},"sources":{"quanpin":9}},"dailyDetails":{"2026-09-20":{"characters":{"han":2},"sources":{"quanpin":2}}}}"#,
+        )
+        .unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        let narrowed = store
+            .set_retention(StatisticsRetention::Days30, "2026-09-21")
+            .unwrap();
+        assert_eq!(narrowed.total, 7);
+        assert_eq!(narrowed.detail.characters["han"], 2);
+        assert_eq!(narrowed.detail.sources["quanpin"], 2);
+        assert!(store.load().is_ok());
     }
 
     #[test]

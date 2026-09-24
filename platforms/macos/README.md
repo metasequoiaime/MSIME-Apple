@@ -26,7 +26,7 @@ bundle 使用系统已登记的 `app.msime.inputmethod.MetasequoiaIME`，已在�
 MSIME_SPARKLE_ROOT=/absolute/path/to/Sparkle-2.9.6 platforms/macos/package-release.sh [版本] [输出目录]
 ```
 
-DMG 里是设置应用（`MSIME Client Preview.app`）和指向 `/Applications` 的链接。设置应用的 `Contents/Resources` 内嵌锁定词库 `EngineResources`（经 `verify_resources` 校验）、手写模型、许可证文件，以及输入法本体 `水杉输入法.app`（Release 构建，链接 Release 版 Rust 静态库）。安装方式与 Windows 的「下载、双击、能打字」对应：把应用拖进「应用程序」并打开，设置应用在启动时把内嵌的输入法复制到 `~/Library/Input Methods`，以 `--register-input-source` 登记并启用中英两个模式（见「词库准备与 Tauri 设置应用」一节的启动时安装与刷新），不需要再到系统设置里手动添加；只有之后输入源从列表里消失（例如用户在系统设置里移除了它）时，设置页才提示去添加。首次安装有一个例外：这个 bundle identifier 在本次登录会话开始时还不在输入源列表里（全新的机器就是这样）时，按「安装与输入源注册」一节的限制，注册在下次登录前不会生效。此时 bundle 保留在原处，设置页提示注销并重新登录，重新登录后在系统设置里添加即可，与 `scripts/install.sh` 的处理相同；「安装 / 更新」在这种情况下同样保留 bundle，但报告失败。首次启动时从内嵌词库准备用户数据。输入法 bundle 里的 Sparkle.framework 以符号链接组成、签名把链接本身封在里面，所以打包时用 `ditto` 放回签过名的副本（Tauri 的资源复制会把链接展开成文件），设置页的安装也原样重建包内的相对链接，指向 bundle 之外的链接一律拒绝。桌面的整句重排模型（`target/macos/settled-model`）目前不随包，Windows 安装包带它。
+DMG 里是设置应用（`MSIME.app`）和指向 `/Applications` 的链接。设置应用的 `Contents/Resources` 内嵌锁定词库 `EngineResources`（经 `verify_resources` 校验）、手写模型、许可证文件，以及输入法本体 `水杉输入法.app`（Release 构建，链接 Release 版 Rust 静态库）。安装方式与 Windows 的「下载、双击、能打字」对应：把应用拖进「应用程序」并打开，设置应用在启动时把内嵌的输入法复制到 `~/Library/Input Methods`，以 `--register-input-source` 登记并启用中英两个模式（见「词库准备与 Tauri 设置应用」一节的启动时安装与刷新），不需要再到系统设置里手动添加；只有之后输入源从列表里消失（例如用户在系统设置里移除了它）时，设置页才提示去添加。首次安装有一个例外：这个 bundle identifier 在本次登录会话开始时还不在输入源列表里（全新的机器就是这样）时，按「安装与输入源注册」一节的限制，注册在下次登录前不会生效。此时 bundle 保留在原处，设置页提示注销并重新登录，重新登录后在系统设置里添加即可，与 `scripts/install.sh` 的处理相同；「安装 / 更新」在这种情况下同样保留 bundle，但报告失败。首次启动时从内嵌词库准备用户数据。输入法 bundle 里的 Sparkle.framework 以符号链接组成、签名把链接本身封在里面，所以打包时用 `ditto` 放回签过名的副本（Tauri 的资源复制会把链接展开成文件），设置页的安装也原样重建包内的相对链接，指向 bundle 之外的链接一律拒绝。桌面的整句重排模型（`target/macos/settled-model`）目前不随包，Windows 安装包带它。
 
 包里只能证明本机能构建出的东西：脚本在构建后和挂载 DMG 后各检查一遍内嵌资源、输入法的 bundle identifier 与麦克风 entitlement、两层签名的 `codesign --verify --deep --strict`，任何一项不符就失败。
 
@@ -39,7 +39,7 @@ DMG 里是设置应用（`MSIME Client Preview.app`）和指向 `/Applications` 
 
 有证书时，输入法按 `scripts/install.sh` 的方式签名（`--deep --options runtime --timestamp`，带 `resources/VoiceInput.entitlements`），设置应用与 DMG 再各签一层（外层不加 `--deep`，以免覆盖输入法的 entitlements）；三项公证凭据也齐全时 DMG 经公证并 staple。只有签名且公证过的包才能走完上面的安装流程。本机设置 `MACOS_SIGNING_IDENTITY`（钥匙串里已有的 Developer ID 身份）与三项公证凭据即可走同一条签名与公证路径，CI 另从 `MACOS_CERTIFICATE_P12_BASE64` 导入证书；目前只验证过 ad-hoc 路径。
 
-没有这些 secrets 时所有签名都是 ad-hoc、也不公证。下载的应用被 Gatekeeper 隔离，第一次要右键「打开」，或执行 `xattr -dr com.apple.quarantine "/Applications/MSIME Client Preview.app"`；之后设置应用可以运行、词库可以准备，但内嵌的输入法是 ad-hoc 签名，macOS 不会把它登记为输入源（见上一节与 `scripts/install.sh` 开头的说明），启动时的自动安装与「安装 / 更新」都会在注册这一步失败：已有安装时回滚到原有安装，设置页提示安装失败；没有安装时 bundle 按上面的首次安装规则留在原处、提示重新登录，但 ad-hoc 签名的输入源重新登录后也不会出现。这种包只对有自己 Developer ID 的开发者可用：用 `scripts/install.sh` 重签并安装其中的 `水杉输入法.app`。
+没有这些 secrets 时所有签名都是 ad-hoc、也不公证。下载的应用被 Gatekeeper 隔离，第一次要右键「打开」，或执行 `xattr -dr com.apple.quarantine "/Applications/MSIME.app"`；之后设置应用可以运行、词库可以准备，但内嵌的输入法是 ad-hoc 签名，macOS 不会把它登记为输入源（见上一节与 `scripts/install.sh` 开头的说明），启动时的自动安装与「安装 / 更新」都会在注册这一步失败：已有安装时回滚到原有安装，设置页提示安装失败；没有安装时 bundle 按上面的首次安装规则留在原处、提示重新登录，但 ad-hoc 签名的输入源重新登录后也不会出现。这种包只对有自己 Developer ID 的开发者可用：用 `scripts/install.sh` 重签并安装其中的 `水杉输入法.app`。
 
 DMG 不提供 Sparkle appcast，输入法与设置应用的「检查更新…」打开官方发布页。
 
@@ -60,6 +60,8 @@ SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、�
 输入源菜单按 `InputController.mm` 的 `- (NSMenu *)menu` 收敛为输入模式加即时工具：中文输入 / 英文输入 / 英文候选模式（⌃⇧E）/ 简体输出 / 繁体输出 / 悬浮工具栏（带勾选态）/ 水杉表情面板… / 水杉屏幕键盘… / 手写输入… / 开始/结束语音输入 / 水杉输入法设置… / 关于水杉输入法…。账户、词库、更新、帮助这些管理页统一进设置窗口——把它们逐条列进来会让菜单高过屏幕，而收进二级子菜单又会让常用的工具太难够到。默认中文；英文模式不准备 Engine 会话，按键直接放行。Shift 轻点先上屏原始字母再切换；英文模式切换与英文候选模式开关（⌃⇧E、菜单、悬浮工具栏）取消当前组合并隐藏候选，什么都不上屏，与来源的 `FUNCTION_CANCEL` 一致；Engine 失败时保留原模式。经任何途径切到英文（Shift 轻点、Shift+空格、菜单「英文输入」、Ctrl+空格）都会一并退出英文候选模式，所以再切回中文总是拼音，与来源 `event_listener.cpp` 的 `SetEnglishInputMode(false)` 一致；悬浮工具栏的 En 按钮与「中文输入」在英文候选模式下直接回到中文。Shift+空格默认切换中英文，设置中可关闭；竞争 Command/Control/Option 修饰键不触发切换，重复事件消费但不反复更改偏好。英文模式激活后切回中文会恢复保留会话焦点与设置轮询。英文模式与快捷键偏好保存在宿主自身偏好域，不复用混合输入选项或算法状态。中英文状态按 `ime_mode_scope` 按应用或全局记忆；切到其他输入源（如 ABC）再切回时，两种作用域都从 `default_ime_mode` 重新开始，与 Windows 重新激活 TIP 时一致；在本输入法自身的模式之间切换不会清空记忆。macOS 还提供可由 Tauri 设置页开关的非激活 HUD：切换成功后在当前光标附近短暂显示“中”或“英”，自动避让屏幕边缘，不抢焦点、不吞鼠标事件，失活输入源时隐藏。
 
 菜单栏的输入源图标常驻显示当前模式，对应来源托盘语言栏的中 / 英图标：bundle 声明中文模式 `app.msime.inputmethod.MetasequoiaIME.Hans`（图标「中」）与英文模式 `app.msime.inputmethod.MetasequoiaIME.Roman`（图标「英」，名称「水杉输入法 · 英」/「Metasequoia · EN」），两者在系统设置的输入源列表里是两条，Ctrl+空格与地球键轮换也会停在英文条目上。Shift / 快捷键、输入法菜单与悬浮工具栏切换中英文时，控制器用 `selectInputMode:` 选中对应模式；从系统输入法菜单选中某一条或轮换到它时，系统经 `setValue:forTag:client:` 报告模式，控制器随之切换中英文状态。两边共享一份「当前显示的模式」记录（`src/input/InputModeIdentifiers.h`），只重复当前模式的报告和控制器自己请求引起的回报都不算用户选择，因此不会来回回声；中英文状态按 `ime_mode_scope` 按应用或全局记忆，客户端获得焦点时把菜单栏模式对齐到当前作用域的状态；输入法进程重启后各应用从 `default_ime_mode` 开始，菜单栏同样在获得焦点时对齐。英文模式在系统设置里被移除，或旧安装尚未重新登记（`install.sh`、设置应用启动时的安装与刷新以及设置页的「安装 / 更新」以 `--register-input-source` 登记并启用两个模式，设置页的「重启输入法」以 `--reregister-input-source` 重新登记；带 `SUFeedURL` 的构建经 Sparkle 应用内更新时只替换 bundle，不重新登记；设置应用的启动检查从不降级，不会用自带的旧版本覆盖更新的安装）时，控制器不请求这个不可选的模式，菜单栏保持「中」图标，行为与只有一个模式时相同。大写锁定用系统自带的指示；日语、全半角与标点显示在悬浮工具栏上。macOS 14 起 `selectInputMode:` 可能弹出系统自己的输入源光标提示，与上面的 HUD 重复时可在设置页关掉 HUD。
+
+手写识别板（菜单「手写输入…」或悬浮工具栏）用随包的 zinnia 模型识别：一行横写或竖写的笔迹先按书写方向切成字格，每格各自识别，候选里就有整个词或短语，首位是各格首选拼成的整串，共 12 个、中文在前，与 Windows 来源的多字候选一致；单字或近似方形的笔迹仍按单字识别。切分与组合在共享的 `crates/host-api/src/handwriting_cells.rs`。
 
 打开字符面板同样先完成组合，再请求系统 Character Viewer；测试以替身记录系统入口，不实际打开面板。原生测试覆盖菜单勾选、偏好保存、组合完成/失败、英文按键旁路、七种竞争修饰组合、重复/禁用快捷键、无会话懒加载与焦点恢复。输入法菜单和悬浮工具栏的“检查更新…”优先打开 Tauri 共享 About 页；Tauri 不可用时，有 `SUFeedURL` 的发布包回退 Sparkle 原生更新控制器，未配置 feed 的构建会明确说明不能应用内检查，并在用户确认后打开固定的官方发布页，打开失败也会显示错误，而不是静默无动作。共享 `theme` 与 `candidate_theme` 作用于实际 IMK 候选窗：`dark`/`light` 表面覆盖全局主题，`follow` 继承全局，`system` 通过 `NSPanel.appearance = nil` 交给 AppKit 跟随系统；偏好热更新会保留当前 Engine 组合并重绘候选皮肤。
 
@@ -97,7 +99,7 @@ SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、�
 
 皮肤浏览入口优先打开共享 Tauri `settings:skin` 页面，Tauri 不可用时回退到按固定 Apple `SkinSettingsView` 迁移的原生卡片式页面：四套内置皮肤、外部包描述、每卡独立明暗预览与单选启用开关，已启用项再次点击不会关闭。外部包通过“打开目录 → 复制皮肤文件夹 → 刷新皮肤”加载，提供空状态和无效包扫描诊断。固定 macOS 源码没有内置导入/删除按钮，本页保持该目录管理流程，不另外创建导入器。目录打开仅由用户点击触发；宿主目录创建/打开失败会显示错误，不触碰 MSIME-Apple 目录。共享页面与原生回退共用同一受控皮肤目录和设置快照。
 
-macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直接开关不联网的英文释义，并写入同一 `candidate_english_gloss` 偏好。在线候选翻译关闭但离线释义开启时，主、次目标语言仍可编辑；两种释义都关闭时才禁用语言选择。保存仍使用共享快照的 CAS 版本检查，不放宽凭据验证或并发写入保护。
+macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直接开关不联网的英文释义，并写入同一 `candidate_english_gloss` 偏好。在线候选翻译关闭但离线释义开启时，主、次目标语言仍可编辑；两种释义都关闭时才禁用语言选择。保存仍使用共享快照的 CAS 版本检查，不放宽凭据验证或并发写入保护。翻译服务可选腾讯云、小牛翻译、自定义 DeepLX 或「水杉账号」；没有选择「水杉账号」、也没有填好自己服务的凭据时不联网；只有显式选择「水杉账号」（`translation_account`）才会把当前页的中文候选词发送到 `api.msime.app`，输入法激活时不再预先创建匿名账号。
 
 腾讯、自定义与小牛翻译取回的英文释义与来源的 `PersistGloss` 一致，每次取回成功即写入偏好目录下的用户释义库 `translation-glosses.db`，不必等候选上屏；只存目标语言为英文、格式化后不超过 32 个字符且与原文按 ASCII 忽略大小写不相等的释义，其他目标语言只留在内存缓存。之后的离线释义查询先读这个库，其记录覆盖随包词典中的同词释义；过期的在线回调不写入。托管账号释义不属于来源的服务，仍只在对应候选上屏时写入。
 
@@ -120,6 +122,10 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 ## 候选学习与跟随光标
 
 候选设置还提供候选窗口跟随光标开关，以及候选学习与拼音调频：关闭跟随后，在一次组合期间锁定首次有效光标位置；切换输入会话、结束组合或重新开启跟随时重新定位。学习开关以及关闭、置顶、折半、线性、置前五种调频模式，触发次数和线性步长均为 1–10。值保存在宿主偏好域，并按共享 `candidate_follow_cursor`、`learning` / `frequency` 快照合并；输入会话仍由共享 host-api 在组合结束后延迟应用，Engine 继续负责学习数据和调频算法。旧快照缺少这些字段时保持默认值，不改写原文件。Emoji SwiftUI 面板消费共享 `emoji_theme`：显式深色/浅色覆盖全局，`follow` 继承全局，系统主题保持 `nil` 让 SwiftUI/AppKit 自然跟随；旧快照未提供该字段时沿用全局主题。
+
+## 云候选的首次同意
+
+云候选是唯一一项装完就会把输入内容发出设备的功能：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选；已上屏的文本、词库内容和学习到的词频都不会发送。全新配置下，输入法第一次激活时弹出「联网功能」对话框说明这一点，按钮为「启用云候选」（默认）与「不启用」，回答之前不发任何云候选请求。对话框不阻塞当前应用的输入，没有回答就在下次激活时再问。升级不问：宿主偏好里已有云候选选择，或输入法第一次判断时共享 `preferences.json` 已存在、Engine 用户数据目录已有内容（用过输入法但从没改过设置的配置也算），就沿用原值。判断结果只做一次，记在宿主偏好 `MSIMEClientCloudCandidatesConsent`；答案写入共享偏好 `cloud_candidates`，之后可在原生设置的「云端与智能候选」或 Tauri 设置输入页的「云候选」里更改，原生设置里改动开关本身也算作回答。实现在 `src/settings/AppearancePreferences.mm`（`resolveCloudCandidatesConsentWithPreferencesDirectory:userDataDirectory:`、`cloudCandidatesEnabled`、`answerCloudCandidates:`）与 `src/input/InputController.mm`（`requestCloudCandidatesConsentIfNeeded`、`presentCloudConsent:`）。
 
 ## 语音输入
 
@@ -265,7 +271,7 @@ Home/End 在候选可见时通过共享运行时移到当前页首/末候选，�
 
 真实 IMKServer / IMKInputController 入口，静态链接共享 Rust/C++ 运行时。平台代码负责系统按键、文本插入、预编辑和不激活候选面板。分页、高亮、会话代次、候选选择与组词仍由共享层负责。
 
-按键处理覆盖 ASCII 输入、退格、移动编辑光标、空格选择、回车原文、Esc 取消、候选上下移动和翻页、鼠标选词，以及由共享运行时处理的当前页数字选词与标点结束组词。候选面板显示对应数字；Engine 优先接收字符，保留 Unicode 等输入模式与拼音分隔符。未被 Engine 接收的 ASCII 标点先按当前高亮完成组词，再复用 Engine 中文标点转换；关闭中文标点时保留 ASCII。设置后台重读、输入法菜单和 Tauri 安装入口均已接入。原始 ASCII 编辑串用于内联预编辑，光标单位与 Engine 一致；日语等美化预编辑另行处理。
+按键处理覆盖 ASCII 输入、退格、移动编辑光标、空格选择、回车原文、Esc 取消、候选上下移动和翻页、鼠标选词，以及由共享运行时处理的当前页数字选词与标点结束组词。候选面板显示对应数字；Engine 优先接收字符，保留 Unicode 等输入模式与拼音分隔符。未被 Engine 接收的 ASCII 标点先按当前高亮完成组词，再复用 Engine 中文标点转换；关闭中文标点时保留 ASCII。设置后台重读、输入法菜单和 Tauri 安装入口均已接入。原始 ASCII 编辑串用于内联预编辑，光标单位与 Engine 一致；日语等美化预编辑另行处理。日语方案下空格通常开始转换，但当唯一候选是快捷模式的原文 Fallback（候选 `source` 为 9，即 `CandidateSource::Fallback`）时，空格直接交给 Engine 上屏这条原文，与 Windows 一致。
 
 ## 词库准备与 Tauri 设置应用
 
@@ -285,7 +291,9 @@ ctest --test-dir target/macos --output-on-failure
 platforms/macos/stage-resources.sh <已校验资源目录>
 ```
 
-打包时如果 `cargo` 报某个过程宏 crate「can't find crate for `xxx_macros`」，看它前面一行的 dlopen 错误：`mis-aligned LINKEDIT string pool` 表示过程宏的 dylib 被产出成 dyld 拒绝加载的形状。成因是 `MACOSX_DEPLOYMENT_TARGET`：`tauri build` 会按 `bundle.macOS.minimumSystemVersion` 导出它，rustc 把它也用在宿主过程宏上，同一个 crate 不设该变量时产出的 dylib 能正常加载。cargo 不把这个变量算进指纹，坏掉的 dylib 会留在产物目录里被后续构建继续复用，所以换一个干净的 `CARGO_TARGET_DIR` 看起来也能「修好」。`package-release.sh` 因此先用不带该变量的 `cargo build --features tauri/custom-protocol` 编译设置应用，再用 `tauri bundle` 只做打包；已经坏掉的过程宏要删掉 `target/<profile>/deps` 里对应的 `.dylib` 让它重编。
+第三个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/fetch_offline_glosses.py` 按锁下载，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/macos/offline-glosses`，即资源目录的同级目录，宿主在翻译目标包含该语言时读取；没有时只有英语走离线释义。`release-macos.yml` 打包前先运行这个脚本，`package-release.sh` 在有暂存的释义时把它们复制进设置应用的 `Contents/Resources/offline-glosses`，签名一并封入，并在 DMG 内的副本上检查 NOTICE 在场；没有时照常打包。
+
+打包时如果 `cargo` 报某个过程宏 crate「can't find crate for `xxx_macros`」，看它前面一行的 dlopen 错误：`mis-aligned LINKEDIT string pool` 表示过程宏的 dylib 被产出成 dyld 拒绝加载的形状。成因是 `MACOSX_DEPLOYMENT_TARGET`：`tauri build` 会按 `bundle.macOS.minimumSystemVersion` 导出它，rustc 把它也用在宿主过程宏上，同一个 crate 不设该变量时产出的 dylib 能正常加载。cargo 不把这个变量算进指纹，坏掉的 dylib 会留在产物目录里被后续构建继续复用，所以换一个干净的 `CARGO_TARGET_DIR` 看起来也能「修好」——但那只是另起一整棵要从头编译、占几个 GB 的产物树，坏掉的 dylib 还留在原处，不要这么做。`package-release.sh` 因此先用不带该变量的 `cargo build --features tauri/custom-protocol` 编译设置应用，再用 `tauri bundle` 只做打包；已经坏掉的过程宏要删掉 `target/<profile>/deps` 里对应的 `.dylib` 让它重编。
 
 `tauri.macos.conf.json` 会把 `target/macos/EngineResources` 嵌入为 `EngineResources`；不要直接把未校验的词库目录配置到 bundle。资源目录缺少 `others.db` 或 `dict_japanese.dat` 时，宿主会安全关闭对应的 Emoji、颜文字或临时日语触发键，而不会吞掉普通大写字母。
 
@@ -296,6 +304,8 @@ Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `run
 `prepare_host` 生成的配置包含 `preferences_directory`。宿主激活时立即后台读取此目录，之后每秒检查一次，前一次未完成时不重叠读取；失活后停止定时器。文件锁和读取不占用会话主线程，应用仍在主线程且有组合时延迟；读取错误保留原配置。旧配置没有此字段时不自动重读，需要重新准备开发配置（先停止该开发宿主）。
 
 从仓库根目录让设置页写入同一份隔离配置：`MSIME_CLIENT_STATE_DIR="$PWD/target/macos-state" pnpm --filter @msime/desktop tauri dev`。保存后活跃宿主通常在下一次轮询收到快照，当前组词结束后生效；无需 Tauri 常驻。
+
+设置页的词库管理与来源一致：快捷短语编码只能包含英文字母（1 到 32 个，导入时先转小写），新增、编辑和导入里带数字的编码会被拒绝，文本导入不收这一行，计入失败数并列在错误明细里。已经存有数字编码的条目仍出现在列表里、照常导出和同步，但 K 模式打不出来（引擎在 K 模式只接受字母）；可以删除它，或改成纯字母编码后保存，重新导入导出文件时这些行计入失败数。
 
 ## 词库维护
 

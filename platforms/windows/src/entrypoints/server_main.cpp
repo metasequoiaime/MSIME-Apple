@@ -581,7 +581,7 @@ int wmain(int argc, wchar_t **argv) {
   const auto launch = parse_server_arguments(argc, argv);
   attach_launching_console(launch);
   if (launch.kind == ServerLaunchKind::Help) {
-    std::cout << "MSIME Client Server: --config <absolute-json-path>\n"
+    std::cout << "MSIME Server: --config <absolute-json-path>\n"
                  "Managed launches use the installed TSF pipe names; preview "
                  "launches use names from the config. Ctrl+C stops.\n"
                  "Unsupported routes (including unobserved Enter) disconnect.\n";
@@ -726,6 +726,10 @@ int wmain(int argc, wchar_t **argv) {
         prepared.at("value").at("preferences").value("clipboard_history", false));
     auto voice_config = std::make_shared<VoiceInputConfig>();
     auto voice_config_mutex = std::make_shared<std::mutex>();
+    // Local recognition reads the user's dictionary words through these options. Listing the dictionary needs only the paths, which do not change while the Server runs, so the startup document serves every later preference snapshot.
+    const auto voice_host_options =
+        std::make_shared<const std::string>(prepared.at("value").dump());
+    voice_config->host_options = voice_host_options;
     WindowsServerOptions options;
     options.pipes.names = production ? production_pipe_names()
                                      : config.pipe_names();
@@ -735,7 +739,7 @@ int wmain(int argc, wchar_t **argv) {
                    : FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
-        [&, voice_config, voice_config_mutex, traditional_output,
+        [&, voice_config, voice_config_mutex, voice_host_options, traditional_output,
          toolbar_enabled, follow_cursor, voice_theme, candidate_fonts,
          toolbar_theme, menu_theme, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex,
@@ -823,6 +827,8 @@ int wmain(int argc, wchar_t **argv) {
           next.model = input.value("asr_model", std::string{});
           // Read before the tokens: the slot lookup is keyed on them.
           next.asr_provider = input.value("asr_provider", std::string{"doubao"});
+          next.asr_model_path = input.value("asr_model_path", std::string{});
+          next.host_options = voice_host_options;
           next.polish_provider = input.value("polish_provider", std::string{});
           next.token = provider_token(input, "asr_tokens", "asr_token",
                                       next.asr_provider);
@@ -1100,17 +1106,27 @@ int wmain(int argc, wchar_t **argv) {
     // the shared desktop shell, which is a separate process: with no shell
     // installed beside this Server those rows stay visible and disabled rather
     // than accepting a click that does nothing.
-    const auto shell = shell_executable(executable_directory(),
-                                        configured_shell_command());
+    const auto shell_directory = executable_directory();
+    const auto configured_shell = configured_shell_command();
+    const auto settings_request = shell_surface_request(TrayMenuCommand::OpenSettings);
+    const auto preview_request = shell_surface_request(TrayMenuCommand::OpenEmojiPanel);
+    const auto settings_shell = settings_request
+                                    ? shell_executable(shell_directory, configured_shell,
+                                                       *settings_request)
+                                    : std::nullopt;
+    const auto preview_shell = preview_request
+                                   ? shell_executable(shell_directory, {}, *preview_request)
+                                   : std::nullopt;
     const ShellLaunchContext shell_context{
         config.state_root, config.state_root / L"runtime-options.json"};
     const auto launch_shell = [&](const ShellSurfaceRequest &request) {
-      return shell && launch_shell_surface(*shell, request, shell_context);
+      const auto executable = shell_executable(shell_directory, configured_shell, request);
+      return executable && launch_shell_surface(*executable, request, shell_context);
     };
     toolbar.set_character_set_action([&] {
       (void)character_set_clicks.submit(CharacterSetClick{});
     });
-    toolbar.set_shell_available(shell.has_value());
+    toolbar.set_shell_available(settings_shell.has_value() || preview_shell.has_value());
     toolbar.set_settings_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenSettings);
       if (request) (void)launch_shell(*request);
@@ -1128,11 +1144,11 @@ int wmain(int argc, wchar_t **argv) {
       toolbar.hide();
     });
     TrayMenuCapabilities menu_capabilities;
-    menu_capabilities.emoji_panel = shell.has_value();
-    menu_capabilities.handwriting_panel = shell.has_value();
-    menu_capabilities.keyboard_panel = shell.has_value();
+    menu_capabilities.emoji_panel = preview_shell.has_value();
+    menu_capabilities.handwriting_panel = preview_shell.has_value();
+    menu_capabilities.keyboard_panel = preview_shell.has_value();
     menu_capabilities.voice_input = true;
-    menu_capabilities.settings = shell.has_value();
+    menu_capabilities.settings = settings_shell.has_value();
     TrayMenuWindow tray(
         menu_capabilities,
         [&](TrayMenuCommand command) {

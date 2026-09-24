@@ -1,6 +1,12 @@
 import { useConfirm } from "./core/confirm";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
+  LocalModelManager,
+  localModelInUse,
+  validModelMirror,
+  type LocalVoiceModelClient,
+} from "./voice/local-models";
+import {
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -70,6 +76,12 @@ export type {
 import { ExternalSkins, type SkinCatalog } from "./skin/external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
 import { VocabularyReviewPage, type VocabularyReviewClient } from "./settings/vocabulary-review";
+import {
+  McpConnectSection,
+  type McpClientId,
+  type McpInstallOutcome,
+  type McpServerStatus,
+} from "./settings/mcp-connect";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -101,9 +113,11 @@ export {
   activityMetrics,
   addDays,
   currentStreak,
+  dailyDetailRows,
   formatActiveTime,
   longestStreak,
   type ActivityMetrics,
+  type DailyDetailRow,
   type TypingBreakdown,
   type TypingStatistics,
   type TypingStatisticsClient,
@@ -118,6 +132,13 @@ export {
   type VocabularyReviewStatus,
   type VocabularyWordbook,
 } from "./settings/vocabulary-review";
+export {
+  McpConnectSection,
+  type McpClientId,
+  type McpClientStatus,
+  type McpInstallOutcome,
+  type McpServerStatus,
+} from "./settings/mcp-connect";
 export {
   AccountPage,
   type AccountChallenge,
@@ -264,6 +285,19 @@ export {
   type CustomTranslationReport,
 } from "./dictionary/custom-translations";
 export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
+export {
+  LocalModelManager,
+  formatModelBytes,
+  localModelErrorMessage,
+  localModelInUse,
+  localModelProgressPercent,
+  validModelMirror,
+  visibleLocalModels,
+  type LocalVoiceModel,
+  type LocalVoiceModelClient,
+  type LocalVoiceModelList,
+  type LocalVoiceModelProgress,
+} from "./voice/local-models";
 
 export type HelpcodeSchema =
   | "lantian"
@@ -545,11 +579,11 @@ const macosHelpCards = [
     rows: [
       {
         term: "离线优先",
-        text: "常见词直接用本机词典，不联网、没有延迟。词典没收录的才会去问在线服务，所以生僻字和多字词可能要等半秒左右才出现。",
+        text: "常见词直接用本机词典，不联网、没有延迟。选了在线服务后，生僻字和多字词的释义可能要等半秒左右才出现。",
       },
       {
-        term: "需要账号",
-        text: "在线那部分走水杉账号。安装时会自动创建一个本机账号，通常不需要你做任何事。",
+        term: "在线释义",
+        text: "默认不联网。只有在「翻译服务」里选了腾讯云、小牛翻译、自定义服务或「水杉账号」后，才会把当前页的中文候选词发给所选服务；选「水杉账号」会发到 api.msime.app，首次使用时创建一个匿名账号。",
       },
       { term: "两种语言", text: "可以同时显示两种语言的释义，在输入页的候选词翻译里设置。" },
       {
@@ -709,6 +743,8 @@ export type Preferences = {
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   /** Optional second candidate-translation language; null/absent keeps one gloss row. */
   translation_secondary_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko" | null;
+  /** The user explicitly chose the MSIME account (api.msime.app) for candidate translations; absent means not chosen. */
+  translation_account?: boolean;
   /** Anonymous start and crash events; off by default and honoured only by the Windows Server. */
   telemetry_enabled?: boolean;
   floating_toolbar?: FloatingToolbarPreferences;
@@ -868,8 +904,6 @@ export function providerCredentialErrorMessage(error: unknown): string {
       return "请填写凭据。";
     case "provider_credentials_invalid_region":
       return "地域只能包含小写字母、数字和连字符，例如 ap-guangzhou。";
-    case "provider_credentials_voice_asr_required":
-      return "语音 provider 需要至少一个识别凭据：请先保存识别凭据，或先清除润色凭据。";
     case "provider_credentials_too_many_profiles":
       return "已保存的 AI 服务商过多，请先清除不再使用的凭据。";
     case "provider_credentials_existing_invalid":
@@ -929,8 +963,10 @@ export type VoiceInputPreferences = {
   polish_enabled?: boolean;
   polish_text?: boolean;
   asr_model?: string;
-  /** Absolute path to a local Whisper model file; only the `local` provider reads it. */
+  /** Absolute path the `local` provider loads: an installed model directory (one holding msime-model.json) or a Whisper model file. */
   asr_model_path?: string;
+  /** Optional `https://` prefix put in front of every model download URL (a ghproxy-style mirror); empty downloads from the catalog URLs as-is. */
+  asr_model_mirror?: string;
   asr_resource_id?: string;
   commit_mode?: "tsf" | "sendinput" | "ctrl_v";
   polish_provider?: string;
@@ -1237,7 +1273,7 @@ export function dictionaryKindKeyHint(kind: LocalDictionaryKind): string {
     case "wubi":
       return "1–4 个字母";
     case "quick_phrase":
-      return "1–32 个字母或数字";
+      return "1–32 个字母";
     case "english":
       return "1–64 个字母";
     case "pinyin":
@@ -1425,7 +1461,7 @@ function invalidDictionaryEntryMessage(kind: LocalDictionaryKind | undefined): s
     case "wubi":
       return "五笔编码须为 1 到 4 个字母。";
     case "quick_phrase":
-      return "快捷短语编码须为 1 到 32 个字母或数字。";
+      return "快捷短语编码只能包含英文字母，长度 1 到 32。";
     case "english":
       return "英文编码只能包含字母、连字符和撇号。";
     default:
@@ -1752,6 +1788,10 @@ export interface SettingsClient {
   readSkinToolbarCss?: (id: string, relative?: string) => Promise<string | null>;
   openSkinDirectory?: () => Promise<void>;
   /**
+   * Shows the input method's diagnostic log in the file manager so it can be sent after a reproduction. The host resolves the location itself; absent on hosts without a reachable file manager, which then show no button.
+   */
+  openDiagnosticLogDirectory?: () => Promise<void>;
+  /**
    * Write an exported document into the user's Downloads folder and resolve to the absolute path written, which may carry a " (2)" suffix when the name was taken. A host whose webview drops download links (the macOS WKWebView cancels them) offers this; without it the page falls back to a download link.
    */
   saveExport?: (name: string, contents: string) => Promise<string | null>;
@@ -1767,6 +1807,12 @@ export interface SettingsClient {
    * belongs with the document, not with this page.
    */
   loadDefaultPreferences?: () => Promise<Preferences>;
+  /**
+   * Repair a preferences document the host cannot read, as the Windows source repairs a config.toml that does not parse. The host backs the damaged file up beside it first, then keeps every setting and service key it still recognises. `backupPath` is absent when the document already loaded and nothing was written.
+   */
+  recoverPreferences?: () => Promise<PreferencesRecovery>;
+  /** Open the folder holding the preferences document, where a repair leaves its backup. */
+  openPreferencesDirectory?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** macOS opens the versioned third-party notices shipped with the app bundle. */
@@ -1778,6 +1824,10 @@ export interface SettingsClient {
   loadMacosWubiAutoCommitUnique?: () => Promise<boolean>;
   saveMacosWubiAutoCommitUnique?: (enabled: boolean) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
+  /** The desktop hosts ship `msime-mcp` beside the settings app and report where it is and the entry an AI assistant runs it with. */
+  mcpServerStatus?: () => Promise<McpServerStatus>;
+  /** Write that entry into an assistant's configuration file. A different `msime` entry there rejects with code `mcp_entry_exists` unless `replace` is set. */
+  installMcpClient?: (client: McpClientId, replace: boolean) => Promise<McpInstallOutcome>;
   /** Mobile hosts can open the platform keyboard/input-method settings. */
   openSystemKeyboardSettings?: () => Promise<void>;
   /** Mobile hosts persist keyboard sound and haptic feedback in native preferences. */
@@ -1819,6 +1869,8 @@ export interface SettingsClient {
    * by path and a file input hands back contents instead, so only the host can answer this.
    */
   pickVoiceModelPath?: () => Promise<string | null>;
+  /** The host's on-device speech model store; hosts that provide it offer the `local` provider with a model manager. */
+  localVoiceModels?: LocalVoiceModelClient;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
@@ -1860,6 +1912,15 @@ export interface SettingsClient {
   dictionaryManifest?: () => Promise<DictionaryManifest>;
 }
 
+export interface PreferencesRecovery {
+  snapshot: Snapshot;
+  backupPath?: string | null;
+  salvaged: boolean;
+}
+
+/** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
+const unreadablePreferencesMessage = "配置文件无法读取或版本较新，原文件已保留。";
+
 function message(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "object" && error !== null && "code" in error) {
@@ -1875,7 +1936,7 @@ function message(error: unknown): string {
       case "key_conflict":
         return "以词定字和翻页不能使用同一组快捷键。";
       case "format":
-        return "配置文件无法读取或版本较新，原文件已保留。";
+        return unreadablePreferencesMessage;
     }
   }
   return "无法访问设置，请重试。原有设置不会被自动重置。";
@@ -2428,6 +2489,8 @@ export function SettingsPage({
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  /** The backup the last repair wrote, while its notice is showing. */
+  const [recoveredBackup, setRecoveredBackup] = useState("");
   const [removeUserDataOnUninstall, setRemoveUserDataOnUninstall] = useState(false);
   const [uninstallConfirmation, setUninstallConfirmation] = useState(false);
   const [uninstallBusy, setUninstallBusy] = useState(false);
@@ -2879,6 +2942,7 @@ export function SettingsPage({
     setBusy(true);
     setError("");
     setNotice("");
+    setRecoveredBackup("");
     try {
       const value = await client.load();
       setSnapshot(value);
@@ -2919,6 +2983,7 @@ export function SettingsPage({
     setBusy(true);
     setError("");
     setNotice("");
+    setRecoveredBackup("");
     try {
       const value = await client.save(snapshot.revision, draft);
       if (macosPlatform && client.saveMacosShuangpinKeymap && macosShuangpinKeymap !== undefined) {
@@ -3487,6 +3552,50 @@ export function SettingsPage({
     }
   }
 
+  /**
+   * The Windows source repairs an unparseable config.toml by itself when the IME starts. The input method here does the same for a document that is not JSON at all, and this is the explicit path for everything else it refuses -- a newer build's fields or format, which an automatic rewrite could have destroyed. An unsaved edit survives the repair: it stays in the draft on top of the repaired revision, so saving it still works.
+   */
+  async function recoverPreferences() {
+    if (!client.recoverPreferences || busy) return;
+    const confirmed = await confirm({
+      title: "修复配置文件",
+      message:
+        "损坏的配置文件会先备份到同一目录，然后尽量保留能识别的设置和服务密钥，其余恢复默认。",
+      confirmLabel: "修复",
+    });
+    if (!confirmed || !client.recoverPreferences) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    setRecoveredBackup("");
+    try {
+      const result = await client.recoverPreferences();
+      const currentSnapshot = snapshotRef.current;
+      const currentDraft = draftRef.current;
+      const dirty =
+        !!currentSnapshot &&
+        !!currentDraft &&
+        JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
+      setSnapshot(result.snapshot);
+      if (!dirty) setDraft(result.snapshot.preferences);
+      if (!result.backupPath) {
+        setNotice("配置文件已可以正常读取，无需修复。");
+        return;
+      }
+      const backupName = result.backupPath.split(/[\\/]/).pop() ?? result.backupPath;
+      setRecoveredBackup(result.backupPath);
+      setNotice(
+        `配置文件已修复，原文件已备份为 ${backupName}。${
+          result.salvaged ? "" : "原有设置无法识别，已恢复默认。"
+        }${dirty ? "未保存的修改仍保留，请点击保存设置。" : ""}`,
+      );
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function resetLearnedData() {
     if (!client.resetLearnedData || phraseBusy) return;
     const confirmed = await confirm({
@@ -3715,7 +3824,43 @@ export function SettingsPage({
   // and the card then announced itself as macOS on an Android phone.
   const systemVoiceHostName = harmonyPlatform ? "HarmonyOS" : androidPlatform ? "Android" : "macOS";
   // On-device Whisper. Like the system recognizer it has no service behind it, so it hides the same endpoint, token and model rows - but unlike it, the user has to say which model file to load.
-  const localVoice = macosPlatform && voiceInput.asr_provider === "local";
+  // macOS has always run a hand-picked Whisper file; a host with a model store can run the downloadable models too.
+  const localVoiceAvailable = macosPlatform || client.localVoiceModels !== undefined;
+  const localVoice = localVoiceAvailable && voiceInput.asr_provider === "local";
+  // A Whisper file picked by hand: the whole setting on a host without a model store, and an advanced option under the model manager otherwise.
+  const manualVoiceModelPath = () => (
+    <div className="section">
+      <label className="section-header">
+        <span className="section-title">
+          Whisper 模型文件
+          <small>ggml 模型的绝对路径，例如 /Users/you/models/ggml-large-v3-turbo.bin</small>
+        </span>
+        <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
+          <input
+            aria-label="Whisper 模型文件"
+            value={voiceInput.asr_model_path ?? ""}
+            placeholder="/path/to/ggml-model.bin"
+            onChange={(event) => updateVoice({ asr_model_path: event.target.value })}
+          />
+          {client.pickVoiceModelPath && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                void (async () => {
+                  // Cancelling resolves to null and must leave the field as it was, rather than clearing a path that already worked.
+                  const chosen = await client.pickVoiceModelPath?.();
+                  if (chosen) updateVoice({ asr_model_path: chosen });
+                })();
+              }}
+            >
+              选择…
+            </button>
+          )}
+        </span>
+      </label>
+    </div>
+  );
   const serviceVoice = !systemVoice && !localVoice;
   const harmonyUnsupportedAsr =
     harmonyPlatform &&
@@ -3737,14 +3882,20 @@ export function SettingsPage({
       ? "custom"
       : tencentTranslation.enabled
         ? "tencent"
-        : "none";
-  const setTranslationProvider = (provider: "none" | "custom" | "tencent" | "niutrans") => {
+        : macosPlatform && draft?.translation_account
+          ? "account"
+          : "none";
+  // One service at a time: the MSIME account is only ever used when chosen here, and any other choice clears it. A cleared choice is left undefined rather than false, because the saved document omits the key while it is false and an undone edit must compare equal to it again.
+  const setTranslationProvider = (
+    provider: "none" | "custom" | "tencent" | "niutrans" | "account",
+  ) => {
     if (!draft) return;
     setDraft({
       ...draft,
       custom_translation: { ...customTranslation, enabled: provider === "custom" },
       tencent_tmt: { ...tencentTranslation, enabled: provider === "tencent" },
       niutrans: { ...niutrans, enabled: provider === "niutrans" },
+      translation_account: provider === "account" ? true : undefined,
     });
   };
   const runCredentialTest = async (
@@ -4568,11 +4719,40 @@ export function SettingsPage({
             {error && (
               <p role="alert" className="error">
                 {error}
+                {error === unreadablePreferencesMessage && client.recoverPreferences && (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => void recoverPreferences()}
+                    >
+                      修复配置文件…
+                    </button>
+                  </>
+                )}
               </p>
             )}
             {notice && (
               <p role="status" className="notice">
                 {notice}
+                {recoveredBackup && client.openPreferencesDirectory && (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() =>
+                        void client.openPreferencesDirectory?.().catch(() =>
+                          setError("无法打开配置文件所在的文件夹。"),
+                        )
+                      }
+                    >
+                      {macosPlatform ? "在 Finder 中显示" : "打开所在文件夹"}
+                    </button>
+                  </>
+                )}
               </p>
             )}
             {inputSourceStartup &&
@@ -6512,10 +6692,30 @@ export function SettingsPage({
                         </>
                       )}
                       {androidPlatform && (
-                        <p className="input-setting-description">
-                          Android 使用已登录的 MSIME
-                          在线服务处理候选词翻译；凭据保存在系统安全存储中，不会进入此设置页。
-                        </p>
+                        <>
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">
+                              使用水杉账号翻译候选词
+                              <small>
+                                当前页的中文候选词会发送到
+                                api.msime.app，首次使用会创建匿名账号；不开启则不联网翻译
+                              </small>
+                            </span>
+                            <input
+                              aria-label="使用水杉账号翻译候选词"
+                              className="toggle"
+                              type="checkbox"
+                              disabled={!candidateTranslations}
+                              checked={draft.translation_account ?? false}
+                              onChange={(event) =>
+                                event.target.checked
+                                  ? setTranslationProvider("account")
+                                  : setDraft({ ...draft, translation_account: undefined })
+                              }
+                            />
+                          </label>
+                        </>
                       )}
                     </div>
                     {!androidPlatform && (
@@ -6529,7 +6729,12 @@ export function SettingsPage({
                               value={translationProvider}
                               onChange={(event) =>
                                 setTranslationProvider(
-                                  event.target.value as "none" | "custom" | "tencent" | "niutrans",
+                                  event.target.value as
+                                    | "none"
+                                    | "custom"
+                                    | "tencent"
+                                    | "niutrans"
+                                    | "account",
                                 )
                               }
                             >
@@ -6537,6 +6742,11 @@ export function SettingsPage({
                               <option value="tencent">腾讯云机器翻译</option>
                               <option value="niutrans">小牛翻译（NiuTrans）</option>
                               <option value="custom">自定义 DeepLX 兼容服务</option>
+                              {macosPlatform && (
+                                <option value="account">
+                                  水杉账号（候选词发送到 api.msime.app）
+                                </option>
+                              )}
                             </select>
                           </label>
                         </div>
@@ -6747,6 +6957,10 @@ export function SettingsPage({
                                         ...tencentTranslation,
                                         enabled: event.target.checked,
                                       },
+                                      // Turning on a service of the user's own ends the account choice, so the account never keeps receiving candidates behind a visible selection.
+                                      ...(event.target.checked
+                                        ? { translation_account: undefined }
+                                        : {}),
                                     })
                                   }
                                 />
@@ -6920,6 +7134,10 @@ export function SettingsPage({
                                     ...customTranslation,
                                     enabled: event.target.checked,
                                   },
+                                  // Same rule as the Tencent switch: a service of the user's own ends the account choice.
+                                  ...(event.target.checked
+                                    ? { translation_account: undefined }
+                                    : {}),
                                 })
                               }
                             />
@@ -8669,7 +8887,7 @@ export function SettingsPage({
                               {linuxPlatform
                                 ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库维护时释放会话的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
                                 : macosPlatform
-                                  ? "排查焦点切换和设置加载失败时开启。记录焦点进出与偏好加载、应用、保存的结果，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后可直接发送。"
+                                  ? "排查按键延迟、候选窗位置、焦点切换和设置加载失败时开启。记录焦点进出，偏好加载、应用、保存的结果，超过 8 毫秒的按键处理耗时，候选窗的显示位置与隐藏原因，以及输入统计写入失败的类别，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后用「在 Finder 中显示」找到它并发送。"
                                   : "排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。"}
                             </small>
                           </span>
@@ -8692,6 +8910,39 @@ export function SettingsPage({
                             }
                           />
                         </label>
+                        {client.openDiagnosticLogDirectory && (
+                          <>
+                            <div className="input-option-divider" />
+                            <div className="section-header">
+                              <span className="section-title">
+                                日志文件
+                                <small>
+                                  {macosPlatform
+                                    ? "在 Finder 中选中 diagnostic.log；还没有写入时打开它所在的目录。"
+                                    : "打开日志文件所在的目录。"}
+                                </small>
+                              </span>
+                              <button
+                                type="button"
+                                className="secondary"
+                                onClick={() => {
+                                  const reveal = client.openDiagnosticLogDirectory;
+                                  if (!reveal) return;
+                                  setError("");
+                                  void reveal().catch(() =>
+                                    setError(
+                                      macosPlatform
+                                        ? "无法在 Finder 中显示诊断日志，请稍后重试。"
+                                        : "无法打开日志目录，可能是文件管理器不可用。",
+                                    ),
+                                  );
+                                }}
+                              >
+                                {macosPlatform ? "在 Finder 中显示" : "打开日志目录"}
+                              </button>
+                            </div>
+                          </>
+                        )}
                         {(!client.host || windowsPlatform) && (
                           <>
                             <div className="input-option-divider" />
@@ -9199,11 +9450,11 @@ export function SettingsPage({
                   <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
                     {localVoice ? (
                       <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">本地 Whisper</div>
+                        <div className="section-title">本地识别</div>
                         <p className={settings.panelPreviewLabel}>
-                          录音和识别都在这台机器上完成，音频不会离开本机，也不需要任何 API
-                          Key。需要自备 whisper.cpp 的 ggml
-                          模型文件（.bin），在下方填写它的绝对路径；模型越大越准也越慢，首次识别要等模型载入。可选的文本润色仍会调用你配置的云服务。
+                          {client.localVoiceModels
+                            ? "录音和识别都在这台设备上完成，音频不会离开本机，也不需要任何 API Key。在下方下载一个模型并点击“使用”，保存设置后生效；下载只会连接 GitHub 或你配置的镜像。你的用户词库会作为热词提高专有名词的识别率。可选的文本润色仍会调用你配置的云服务。"
+                            : "录音和识别都在这台机器上完成，音频不会离开本机，也不需要任何 API Key。需要自备 whisper.cpp 的 ggml 模型文件（.bin），在下方填写它的绝对路径；模型越大越准也越慢，首次识别要等模型载入。可选的文本润色仍会调用你配置的云服务。"}
                         </p>
                       </div>
                     ) : systemVoice ? (
@@ -9331,10 +9582,10 @@ export function SettingsPage({
                             <option value="everyapi">EveryAPI</option>
                             <option value="mistral">Mistral · Voxtral</option>
                             {macosPlatform && <option value="system">macOS 系统识别</option>}
-                            {macosPlatform && <option value="local">本地 Whisper（离线）</option>}
-                            {!macosPlatform && voiceInput.asr_provider === "local" && (
+                            {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
+                            {!localVoiceAvailable && voiceInput.asr_provider === "local" && (
                               <option value="local" disabled>
-                                本地 Whisper（当前平台不可用）
+                                本地模型（当前平台不可用）
                               </option>
                             )}
                             {harmonyPlatform && <option value="system">HarmonyOS 系统识别</option>}
@@ -9376,44 +9627,55 @@ export function SettingsPage({
                         </datalist>
                       </label>
                     </div>
-                    {localVoice && (
+                    {localVoice && client.localVoiceModels && (
+                      <LocalModelManager
+                        client={client.localVoiceModels}
+                        mobile={mobilePlatform}
+                        modelPath={voiceInput.asr_model_path ?? ""}
+                        onUse={(asr_model_path) => updateVoice({ asr_model_path })}
+                        onRemoved={(model) => {
+                          if (localModelInUse(model, voiceInput.asr_model_path ?? ""))
+                            updateVoice({ asr_model_path: "" });
+                        }}
+                        confirm={confirm}
+                        openExternalUrl={client.openExternalUrl ? openExternalUrl : undefined}
+                      />
+                    )}
+                    {localVoice && client.localVoiceModels && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
-                            Whisper 模型文件
+                            模型下载镜像
                             <small>
-                              ggml 模型的绝对路径，例如 /Users/you/models/ggml-large-v3-turbo.bin
+                              可选。以 https://
+                              开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub
+                              下载。保存设置后生效
                             </small>
                           </span>
-                          <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
-                            <input
-                              aria-label="Whisper 模型文件"
-                              value={voiceInput.asr_model_path ?? ""}
-                              placeholder="/path/to/ggml-model.bin"
-                              onChange={(event) =>
-                                updateVoice({ asr_model_path: event.target.value })
-                              }
-                            />
-                            {client.pickVoiceModelPath && (
-                              <button
-                                type="button"
-                                className="secondary"
-                                onClick={() => {
-                                  void (async () => {
-                                    // Cancelling resolves to null and must leave the field as it was,
-                                    // rather than clearing a path that already worked.
-                                    const chosen = await client.pickVoiceModelPath?.();
-                                    if (chosen) updateVoice({ asr_model_path: chosen });
-                                  })();
-                                }}
-                              >
-                                选择…
-                              </button>
-                            )}
-                          </span>
+                          <input
+                            aria-label="模型下载镜像"
+                            maxLength={2048}
+                            value={voiceInput.asr_model_mirror ?? ""}
+                            placeholder="https://mirror.example.com"
+                            aria-invalid={
+                              !validModelMirror((voiceInput.asr_model_mirror ?? "").trim())
+                            }
+                            onChange={(event) =>
+                              updateVoice({ asr_model_mirror: event.target.value })
+                            }
+                          />
                         </label>
                       </div>
                     )}
+                    {localVoice &&
+                      (client.localVoiceModels ? (
+                        <details className="section">
+                          <summary>高级：手动指定 Whisper 模型文件</summary>
+                          {manualVoiceModelPath()}
+                        </details>
+                      ) : (
+                        manualVoiceModelPath()
+                      ))}
                     {showVoiceProviderSettings &&
                       serviceVoice &&
                       providerPresetControls(
@@ -10419,6 +10681,13 @@ export function SettingsPage({
                           </div>
                         )}
                       </div>
+                    )}
+                    {client.mcpServerStatus && (
+                      <McpConnectSection
+                        status={client.mcpServerStatus}
+                        install={client.installMcpClient}
+                        copyText={client.copyText}
+                      />
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">

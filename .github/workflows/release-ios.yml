@@ -26,8 +26,11 @@ jobs:
       # resolves it the same way before every Xcode build.
       # install_resources reads vendor/MSIME-Engine for the Engine-sourced artifacts, so the archive
       # has to be unpacked before it runs. ci-ios.yml orders these the same way.
-      - name: Prepare the locked Engine archive
-        run: python3 scripts/fetch_engine.py
+      # stage-resources.sh stages target/offline-glosses when it is there.
+      - name: Prepare the locked Engine archive and offline candidate glosses
+        run: |
+          python3 scripts/fetch_engine.py
+          python3 scripts/fetch_offline_glosses.py
       - name: Build native iOS host
         run: |
           set -euo pipefail

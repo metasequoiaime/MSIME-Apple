@@ -1,4 +1,5 @@
 #include "VoiceProviders.h"
+#include "LocalAsr.h"
 // Shared implementation; the historical namespace is retained for ABI compatibility.
 
 #include <msime/voice/provider_protocol.h>
@@ -451,19 +452,34 @@ std::string polish_cloud_text(
   throw metasequoia::voice::VoiceError("Missing polished text");
 }
 
+bool local_asr_available() {
 #ifdef MSIME_VOICE_LOCAL_WHISPER
-bool local_asr_available() { return true; }
+  return true;
+#else
+  return msime::voice::sherpa_runtime_available();
+#endif
+}
 
 std::string recognize_local_asr(
     const std::vector<float> &samples, std::string_view model_path,
     std::string_view language,
-    const std::shared_ptr<std::atomic_bool> &cancelled) {
+    const std::shared_ptr<std::atomic_bool> &cancelled,
+    const std::vector<std::string> &hotwords) {
   if (samples.empty())
     return {};
   if (model_path.empty())
-    throw metasequoia::voice::VoiceError("Whisper model path is required");
+    throw metasequoia::voice::VoiceError("Local speech model path is required");
   if (cancelled && cancelled->load())
     throw metasequoia::voice::VoiceError("Voice request cancelled");
+  // A model directory from the catalog goes to sherpa-onnx; anything else is taken for a Whisper ggml file, which is what the setting held before the catalog existed.
+  if (msime::voice::is_local_model_dir(model_path)) {
+    msime::voice::LocalAsrOptions options;
+    options.model_dir = std::string(model_path);
+    options.language = std::string(language);
+    options.hotwords = hotwords;
+    return msime::voice::recognize_local_model(samples, options, cancelled);
+  }
+#ifdef MSIME_VOICE_LOCAL_WHISPER
   const auto model = std::string(model_path);
   const auto tag = whisper_language(language);
   // Keep the loaded model between utterances. A Whisper model is hundreds of megabytes and takes seconds to read; paying that on every dictation would make the offline provider slower than the cloud one it exists to replace. The worker is dropped as soon as the user points at a different model or language, so switching costs one load and no more.
@@ -481,19 +497,8 @@ std::string recognize_local_asr(
   if (cancelled && cancelled->load())
     throw metasequoia::voice::VoiceError("Voice request cancelled");
   return worker->recognize(samples);
-}
 #else
-bool local_asr_available() { return false; }
-
-std::string recognize_local_asr(
-    const std::vector<float> &samples, std::string_view model_path,
-    std::string_view language,
-    const std::shared_ptr<std::atomic_bool> &cancelled) {
-  (void)samples;
-  (void)model_path;
-  (void)language;
-  (void)cancelled;
-  throw metasequoia::voice::VoiceError("This build has no local speech recognizer");
-}
+  throw metasequoia::voice::VoiceError("This build has no Whisper recognizer; choose a model from the local model list");
 #endif
+}
 } // namespace msime::windows

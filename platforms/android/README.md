@@ -72,6 +72,8 @@ Java/Kotlin 宿主按 `java/app/msime/client/<feature>/` 分为 `account`、`can
 
 语音结果按 Android 平台能力适配：独立 Activity 调起用户设备上的系统语音识别服务，录音由该服务持有，MSIME 只接收有界文本。主应用进程与独立 `:ime` 进程通过应用私有目录中的非阻塞文件锁交接最新一条结果；结果最多 10,000 个 Unicode 码点、10 分钟有效，并在插入前一次性 claim，避免两个键盘实例重复插入。键盘“更多”工具页提供与 Apple 同级的语音结果入口，结果面板内提供 Android 平台的系统语音识别入口；共享 `touch_voice_shortcut` 开启后，候选栏显示直达语音结果按钮。存在 Engine 组合或本地模式时拒绝打开结果，确认插入前还会比对 InputConnection 身份、选择位置 generation 及光标前后/选中文本快照；真实上下文仅短暂保存在内存，不写日志或交接文件。
 
+本地语音识别（共享设置里 provider 为 `local`、`asr_model_path` 指向共享安装器写好的模型目录）在同一个语音 Activity 里用 sherpa-onnx 在本机识别，音频不离开设备：共享层只在路径为绝对路径时下发 `modelPath`，宿主再确认目录里有 `msime-model.json` 才开始。识别复用 `shared/voice/LocalAsr` 与桌面同一套清单、热词和 VAD 逻辑，经 JNI 编进 `libmsime_android.so`；运行时 `libsherpa-onnx-c-api.so` 与 `libonnxruntime.so` 由 `build-native.sh` 通过 `scripts/fetch_voice_runtime.py` 按 `resources/voice-runtime.lock.json` 下载校验后只从 .aar 中取出，不进版本库，并与其它原生库同样检查 16KB 对齐和依赖白名单。录音、模型加载与解码都在后台线程，边说边把部分结果显示在录音窗口；热词来自用户词库，经共享 `msime_client_voice_hotwords` 读取，清单声明 `pinyin` 模式的模型在识别后再经 `msime_client_voice_hotword_correct` 按拼音纠正。模型闲置 2 分钟后释放，系统回收内存时立即释放。模型缺失或损坏、运行时无法加载时直接提示错误，不会退回系统语音识别服务。
+
 AI 润色对齐固定 Apple 来源的确认式流程：仅在 Engine 空闲且编辑器存在非空选区时显示入口，输入和输出各限制 10,000 个 Unicode 码点。全屏面板明确展示 HTTPS 目标 origin、模型和待发送文字，用户再次点按后才发起 Chat Completions 请求；单线程请求队列容量为 1，关闭面板或点击取消会中断任务并断开连接，响应限制为 1 MiB。请求前、响应后及最终替换前均校验 InputConnection、选区 generation、光标前后文本和完整 AI 配置；过期结果不会展示，结果也绝不自动插入。操作按钮固定在面板底部，长文本不遮挡取消或替换。共享设置按规范化的 endpoint origin（HTTPS 主机和端口）保存 Token，同主机不同路径可复用，主机或端口变化时不会沿用；日志、测试和诊断不包含选区、结果、Token 或原始响应。Android Tauri 设置页额外提供由原生 HTTPS transport 执行的模型目录读取、可用模型选择和确认式润色测试；模型分页、服务能力筛选、凭据和 1 MiB 响应均有边界保护。
 
 “试用键盘”页也提供 Apple 同级的 AI 对话入口：用户登录后显式加载 `/v1/models`，从有界模型菜单选择模型，消息按最多 14 条、每条 10,000 字符和总上下文 48,000 UTF-8 字节裁剪；发送前不会读取或上传输入框之外的内容。请求在后台执行，支持停止、失败提示和过期结果丢弃，响应只保留在当前 Activity 内存中；未登录时不伪造可用的模型下拉。
@@ -80,7 +82,7 @@ AI 润色对齐固定 Apple 来源的确认式流程：仅在 Engine 空闲且�
 
 云联想与 AI 联想按 Windows/macOS/Linux/HarmonyOS 已有的共享 provider 边界接入 Android：组字停下 350 ms 后，宿主向共享 host 索取 `online_query`，再由单线程 worker 分别执行云候选 HTTPS GET 和 AI Chat Completions POST；URL 与请求描述符都由共享 host 构建，凭据留在 session 内，宿主只搬运字节。两者都是可选偏好：`cloud_candidates` 关闭即不发起云请求，AI 联想还要求 AI 辅助已启用且配置完整。**开启云联想意味着把当前正在组的拼音发送给云输入服务**，与其他桌面/移动宿主的既有行为一致，可在共享设置中关闭。请求身份由 session、cache key、identity、云开关和启用状态下的 AI 配置组成，同一组合只问一次；epoch 保证上一段组合的迟到结果不会写入新会话。云结果会推进 Engine 代次，所以 AI 请求在云结果落地后重新读取 query 再发出。云响应上限 256 KiB、AI 响应上限 1 MiB、AI JSON 内容上限 64 KiB，单条候选上限 4096 字节，空白、含控制字符、重复和超限候选被跳过而不影响同批其他候选；候选数量上限取共享配置。这些边界由无 Android 依赖的 `OnlineCandidatePolicy` 提供并在 JVM 回归中验证。
 
-打字统计按固定 Apple 来源只记录成功上屏的 Unicode 扩展字符簇，空格、换行和未上屏按键不计，组合表情计为一个字符。提交内容只在 Rust 内存中分类，持久化文件只含日期、字符类别、提交来源和数量，不保存输入原文。分类覆盖汉字、拉丁字母、其他文字、数字、标点、表情、其他符号与旧版未分类；来源覆盖全拼 26/9 键、四种双拼、五笔、日语、手写、英文、本地输入、AI 润色、高情商回复和语音。累计数据持续保留，每日计数与分类只保留最近 366 个有记录日期；启停与清空使用同一跨进程文件锁，清空不会重新启用统计。写入通过容量 32 的单线程队列离开输入主线程，队列满或存储失败不保留待写文字，且每个输入会话只显示一次脱敏错误提示。
+打字统计按固定 Apple 来源只记录成功上屏的 Unicode 扩展字符簇，空格、换行和未上屏按键不计，组合表情计为一个字符。提交内容只在 Rust 内存中分类，持久化文件只含日期、字符类别、提交来源和数量，不保存输入原文。分类覆盖汉字、拉丁字母、其他文字、数字、标点、表情、其他符号与旧版未分类；来源覆盖全拼 26/9 键、四种双拼、五笔、日语、手写、英文、本地输入、AI 润色、高情商回复和语音。每日计数与分类默认永久保留，按保留策略清理的日期同时从累计总数与分类中扣除；启停与清空使用同一跨进程文件锁，清空不会重新启用统计。写入通过容量 32 的单线程队列离开输入主线程，队列满或存储失败不保留待写文字，且每个输入会话只显示一次脱敏错误提示。
 
 Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不显示入口。页面提供 7 天、30 天和累计范围、最近 7/30 日趋势与单日下钻、字符类型/语言模式/输入方案占比、刷新、即时启停和确认清空；统计页独立于 Preferences 草稿和“保存设置”。主应用与独立 `:ime` 进程共享 `files/bootstrap/state/typing-statistics.json`，由锁文件串行读写；页面会区分从未写入和已清空状态，并明确说明本机只保存聚合计数。完整 arm64 Tauri 合包已在专用 API 35 arm64 AVD 验证实际上屏聚合、文件不含合成输入文本、页面跨进程读取、禁用后不增长、取消/确认清空、清空保留禁用状态和重新启用后累计。
 
@@ -91,6 +93,8 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 候选区独立显示当前组合文本、当前页和候选按钮；Engine 候选超过当前页容量时显示展开入口。用户打开面板后，宿主通过按需 host API 一次复制当前 generation 的完整 Engine 候选，在顶部显示 preedit、候选总数和收起入口，候选 chip 按实际测量宽度自动换行且不绘制序号；全局序号只保留在无障碍描述中。展开面板没有分页按钮，点按页外候选通过独立的全代次选择 API 交回 Engine。普通候选栏继续使用分页 `View` 和当前页选择边界，每次按键不会携带完整列表；两条选择路径都校验 session、generation 和全局索引，宿主不复制候选算法或组合状态。
 
 候选英文释义按固定 Apple 来源 `MSIME-Apple@d117009573a1a619cfb1702645f38c3b4c378a78` 实现，并通过共享 `candidate_english_gloss` 偏好选择性开启，默认关闭。开启后，Android 只在 IME 主线程复制当前 generation 的完整候选；无 session 的有界 worker 请求由 C++ Engine bridge 只读访问随包 `english.db`，Java 不实现输入算法也不读取 SQLite。完成结果返回主线程后必须同时匹配 session、generation 和生命周期 epoch，才会调用共享 `apply_translations`；停止输入、替换会话、偏好变化与服务销毁都会使旧结果失效。Engine 的五笔等候选提示优先占用次要文本位置，离线释义仅在没有 Engine 提示时显示；候选条与展开面板以较小的皮肤兼容文字和不同无障碍说明展示，候选身份、点击选择和上屏原文不变。查询失败静默保留普通候选，不记录候选文字；关闭偏好会立即隐藏已返回释义，缺失资源不会创建数据库或用户数据。
+
+非英文目标语言（fr、ja、es、ru、de、ko）的离线释义来自 `scripts/build_offline_glosses.py` 生成的 `zh-<lang>.db`。`build-apk.sh` 与 `build-client-apk.sh` 在 `target/offline-glosses`（或 `MSIME_OFFLINE_GLOSSES` 指定的目录）同时有数据库和 `offline-glosses-NOTICE.txt` 时把它们打进 `assets/offline-glosses/`，没有则照常构建。每次打开 MSIME 应用时 `Bootstrap.prepare` 都会检查（已有运行配置也一样）：安装包的 `lastUpdateTime` 变化时把它们解压到资源目录旁的 `files/bootstrap/offline-glosses/`，不含它们的新包会清掉旧文件；这一步不属于已校验的运行配置，失败只影响非英文释义。同一个 `candidate_english_gloss` 开关控制它们；已安装词典的目标语言按用户的目标顺序与英文释义、账户翻译逐候选合并，离线释义优先，账户翻译只补离线没有的行。日文方案与临时日文模式不请求其他语言释义，与账户路径一致。
 
 触屏键盘皮肤以固定 Apple 来源 `MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453` 为基线，按相同顺序提供水杉绿、海盐蓝、浅蔷薇、素白瓷、纸上时光、奶油桃桃、霓虹夜航和工程蓝图。共享 `touch_keyboard_skin` 与桌面候选窗的 `candidate_skin` 完全独立；React 屏幕键盘页、普通输入方案和高情商回复键盘消费同一个选择。Android 适配保留 Apple 的明暗调色、圆角、边框、阴影、等宽字体以及网点、网格和波纹背景，`screen_keyboard_theme` 优先于全局 `theme`，两者都跟随系统时读取 Android 夜间模式。键盘内选择通过共享 revision CAS 保存，失败恢复最近一次已接受皮肤；设置热更新只重新应用视觉样式，不重建 Engine 会话。未知 ID 安全回退到水杉绿，不把用户设置值当作颜色或资源名直接使用。
 

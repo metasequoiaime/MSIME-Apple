@@ -40,7 +40,9 @@ public enum InputFeatureToggle {
     CLIPBOARD_HISTORY(Group.PRIVACY, "clipboard_history", false, "剪贴板历史",
         "在键盘里保留最近复制的内容，仅存本机；关闭会立即清空"),
     CANDIDATE_TRANSLATIONS(Group.PRIVACY, "candidate_translations", true, "候选翻译",
-        "为候选词附上译文，需要联网"),
+        "为候选词附上译文；联网翻译需同时开启下方的水杉账号翻译"),
+    CANDIDATE_TRANSLATION_ACCOUNT(Group.PRIVACY, "translation_account", false, "用水杉账号翻译候选",
+        "把当前页的中文候选词发送到 api.msime.app 翻译，首次使用会创建匿名账号；不开启则不联网翻译"),
     CANDIDATE_ENGLISH_GLOSS(Group.PRIVACY, "candidate_english_gloss", false, "候选英文释义",
         "用打包的离线词典给候选词标注释义");
 

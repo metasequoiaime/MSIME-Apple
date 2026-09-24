@@ -122,7 +122,7 @@ Fcitx5 对同一组流式语音设置采用同样语义：豆包流式识别且 
 
 Fcitx5 宿主复用同一套 X11/Wayland 原生浮层和取消、结束按钮；没有可用的显示后端、浮层无法显示（例如 GNOME Wayland 没有 `wlr-layer-shell`）或 `MSIME_WAVE_OVERLAY_BACKEND=ibus`（也接受 `auxiliary`）时，实时状态回退到 Fcitx5 输入面板上方的辅助文字。浮层显示失败后本次录音都走辅助文字，下次录音再尝试浮层，与 IBus 的回退一致。Fcitx5 的浮层同样不请求键盘焦点，完成、取消、异常和焦点关闭都会清理浮层。
 
-语音失败时两个宿主都会告诉用户，对应 Windows 语音服务弹出的提示框：浮层（没有浮层时是辅助栏）显示固定的一句话约 1.2 秒，分别说明未识别到文字、语音服务或提供商出错、结束录音被拒（本次语音随之取消）以及没有配置语音服务；语音服务报告缺少 websockets 或录音工具时改为说明该装什么，因为重新录音无法解决。语音服务没有给出结果（包括无法连接或返回失败）算作服务出错，不会提示未识别到文字。文字是固定的，不透传 provider 的错误信息，以免其中带出凭据等私人内容；流式 C ABI 只在 `detail` 是 `websockets` 或 `recorder` 时以 `voice_dependency_missing:<detail>` 错误返回，其他失败仍返回空值。Fcitx5 此前在这些情况下只是收起浮层，看上去像按键没有反应。Fcitx5 浮层也和 IBus 一样区分「识别中」与「整理中」两种收尾状态，并在按住空格锁定录音时显示锁定标记。
+语音失败时两个宿主都会告诉用户，对应 Windows 语音服务弹出的提示框：浮层（没有浮层时是辅助栏）显示固定的一句话约 1.2 秒，分别说明未识别到文字、语音服务或提供商出错、结束录音被拒（本次语音随之取消）以及没有配置语音服务；语音服务报告缺少 websockets 或录音工具时改为说明该装什么，报告本地识别组件（`msime-voice-local` 或 sherpa-onnx 运行时）缺失时提示“本地语音识别组件无法加载，请重新安装输入法”，因为重新录音无法解决。语音服务没有给出结果（包括无法连接或返回失败）算作服务出错，不会提示未识别到文字。文字是固定的，不透传 provider 的错误信息，以免其中带出凭据等私人内容；流式 C ABI 只在 `detail` 是 `websockets`、`recorder` 或 `local_asr` 时以 `voice_dependency_missing:<detail>` 错误返回，其他失败仍返回空值。Fcitx5 此前在这些情况下只是收起浮层，看上去像按键没有反应。Fcitx5 浮层也和 IBus 一样区分「识别中」与「整理中」两种收尾状态，并在按住空格锁定录音时显示锁定标记。
 
 两个宿主向 provider 转发的语音选项由共享的 `src/voice/VoiceProviderOptions.h` 生成，不再各维护一份：Fcitx5 以前那份漏掉了提示词，选了自定义润色方案的用户在这里得到的其实是默认的整理提示词。设置页提示词框里的文字（内置方案被就地修改后的全文，或所选自定义槽位的内容）以 `polish_prompt` 转发，provider 只要它非空就用它润色，与 Windows 的 `ResolvePolishSystemPrompt` 一致；此前在 Linux 上改内置方案的提示词不起作用。超过 8 KiB 的提示词直接拒绝，不截断，以免被截断的指令改变润色的意思。
 
@@ -280,6 +280,8 @@ msime-client-ibus-launcher
 msime-client-prepare --installed /absolute/new-state
 ```
 
+非英文翻译目标（法、日、西、俄、德、韩）的离线释义词典是可选的：用 `scripts/build_offline_glosses.py` 生成到 `target/offline-glosses` 后，配置时传 `-DMSIME_OFFLINE_GLOSSES=/absolute/target/offline-glosses`，CMake 把其中的 `zh-*.db` 连同必需的 `offline-glosses-NOTICE.txt` 装到资源目录的同级 `${CMAKE_INSTALL_DATADIR}/msime-client/offline-glosses`。使用显式资源目录时，把它们放在该目录同级的 `offline-glosses/` 下即可。IBus 与 Fcitx5 在主翻译目标装有词典时先显示词典释义，开启候选翻译且配置了自己的翻译服务时再逐个询问所有候选，服务的回答替换词典的，没回答的保留词典释义。没有这些文件时候选释义仍只有英文。
+
 `--installed` 通过 `/proc/self/exe` 的实际路径和配置时的数据目录相对位置定位同一安装前缀下的资源目录，状态目录仍必须是绝对路径且不存在。它不会修改输入法选择、启动服务或创建用户状态，只有显式执行命令才会准备新状态；未配置资源包时请继续使用显式资源目录形式。
 
 Linux 桌面设置保存时会先按 `PreferencesStore` 的 revision 规则写入 `preferences.json`，随后以原子替换同步同一 HostOptions 的 `preferences` 到 `MSIME_IBUS_OPTIONS`，或 `MSIME_CLIENT_HOST_OPTIONS` 指向的 `runtime-options.json`；未设置前者时，桌面应用也可直接用 `MSIME_IBUS_OPTIONS` 作为 HostOptions 来源。这样正在运行的 IBus 宿主可以通过已有文件监听接收新设置；同步失败会把保存命令报告为存储错误，避免界面误报已同步。发布给宿主的是一份去掉屏幕键盘自定义皮肤照片（`custom_touch_keyboard_skin.photo`）的副本：IBus 和 Fcitx5 宿主不画屏幕键盘，设置应用自己的屏幕键盘读的是 `preferences.json`，照片仍在那里；整份文件不超过两个宿主读取的 16 KiB 上限，超出时（例如提示词过长）不写入，原文件保持可读，这次保存也整体撤回并报错（`runtime_options_too_large`），而不是写出一份让两个宿主都无法启动的配置。
@@ -413,7 +415,7 @@ msime-client-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
   --config /absolute/private-voice.json --capture pulse
 ```
 
-先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，含必需的 `asr` 对象和可选 `polish` 对象；批量识别及润色对象包含 `provider`、`token` 两个非空字符串，以及可选的 `endpoint` 和 `model`。批量 ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；私有配置在每次录音开始时重新加载，更换凭据或端点无需重启服务。
+先按在线服务章节创建当前用户专用的运行目录，再把 socket 绝对路径填入 `voice_provider_socket`。配置文件必须是当前用户所有、其他用户无权限的普通 JSON 文件，至少含 `asr` 与 `polish` 对象之一；文件不存在时服务照常启动，只有本地识别可用，云端识别请求在文件写好后的下一次录音生效。批量识别及润色对象包含 `provider`、`token` 两个非空字符串，以及可选的 `endpoint` 和 `model`。批量 ASR provider 支持 `openai`、`groq`、`siliconflow`；润色还支持 `deepseek`。这些批量接口须为 HTTPS 且不允许重定向，凭据不通过 socket 查询或命令行参数传递。设置中的 provider/model 须与服务配置一致；私有配置在每次录音开始时重新加载，更换凭据或端点无需重启服务。
 
 服务通过 `parec`、`pw-cat` 或 `arecord` 捕获 16kHz 单声道 PCM（.deb 以 Recommends 声明 `pulseaudio-utils | pipewire-bin | alsa-utils`），在内存中封装 WAV 并发送到配置的 `/audio/transcriptions` 兼容接口。所选后端的录音工具不存在时服务照常启动并在日志中写明，录音请求返回 `detail` 为 `recorder` 的 `voice_dependency_missing`，IBus 与 Fcitx5 宿主都提示“未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils”，装上工具后下一次录音即可使用。配置文件、socket 目录、录音设备名或录音上限无效，命令行参数有误，或服务已在运行、socket 无法恢复时，服务以状态 2 退出，systemd 不再重启。默认录音上限 300 秒，可用 `--max-recording-seconds` 设置为 1–600 秒；到时自动停止并识别。松开录音快捷键也走同一完成路径，取消则丢弃结果。小于 250ms 的录音不上传，上传音频不超过 20 MiB；SiliconFlow 按 Windows 行为补静音、省略 language 字段，并在网络或服务端错误后最多重试一次。每次 ASR 网络操作超时 60 秒，可选润色超时 3 秒，润色失败保留原转写。正在发送的 HTTP 请求不能撤回，但取消后其结果不会交给输入目标。
 
@@ -430,6 +432,14 @@ Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windo
 实现沿用 Windows 固定提交 `b21a1671` 的二进制协议：16kHz、16-bit、单声道 PCM，每 200ms 一帧，gzip 压缩，递增序列号，结束帧使用负序列号。`doubao_enable_itn`、`doubao_enable_punc`、`doubao_enable_ddc` 和 `doubao_boosting_table_id` 进入首帧选项。录音中的变更转写以 partial 事件返回；宿主继续根据 `stream_inline_preedit` 决定是否更新预编辑。松开或达到录音上限后发送结束帧，最多等待 30 秒获取最终结果，再进行可选润色。服务错误、超时和取消不会把中间结果冒充最终结果上屏。
 
 音频发送队列最多容纳 10 秒音频，满时终止该请求；单个 WebSocket 响应和解压后的正文分别限制为 1 MiB。识别连接启用 TLS 证书检查、禁用 WebSocket 扩展压缩、拒绝重定向，并关闭该连接日志；Doubao 协议自身仍使用 gzip。取消会停止录音、丢弃结果并中断已建立的连接；建立连接阶段最多等待 10 秒。流式上传在录音时即发送音频，取消不能撤回已经发送的数据，短录音虽不会上屏也可能已有音频发出。
+
+### 本地识别
+
+`asr_provider` 为 `local` 时不读取任何凭据，也不联网：服务为录音启动随包安装的 `msime-voice-local`（与 `libmsime_host_api.so` 同在 `msime-client` 库目录），按行交换 JSON，把录音按 100ms 一段交给它，并把它返回的中间转写作为 partial 事件转发。`asr_model_path` 选项给出设置页下载的模型目录，目录中必须有普通文件 `msime-model.json`（不跟随符号链接，最大 1 MiB）；路径必须是不超过 4096 字节的绝对目录，否则该次请求返回 `ok:false`，服务不启动 helper。识别器由 `libsherpa-onnx-c-api.so` 与 `libonnxruntime.so` 提供，二者装在 helper 旁边，helper 先从自己所在目录加载它们；缺少 helper 或运行时时请求在录音前返回 `{"ok":false,"error":"voice_dependency_missing","detail":"local_asr"}`，服务照常为其他请求运行，设置页的「测试」同样检查模型与组件。服务在两次录音之间保留一个空闲 helper，使模型不必每次重新加载；helper 空闲 600 秒自行退出，服务在 540 秒后不再复用它，异常退出或未确认取消的 helper 不会复用。离线模型在录音结束后才完成解码，首次录音还需加载模型，因此最终结果最多等待 120 秒。开发时可用 `MSIME_VOICE_LOCAL_HELPER=/absolute/msime-voice-local` 指向构建目录中的 helper。
+
+用户词库中的词作为热词：IBus 与 Fcitx5 宿主在语音工作线程上调用 `msime_client_voice_hotwords`（语音 provider 拿不到词库路径和偏好，无法自己构造 HostOptions），把结果按每行 `词\t拼音` 放进 `voice_hotwords` 选项并限制整条查询不超过 15872 字节；设置页（Tauri 面板）发起的本地录音用同一个选项，读取设置页编辑的词库，选项总长不超过 15872 字节，`asr_model_path` 不像其他名称类选项那样截断到 512 字节。服务把词交给 helper；模型清单声明 `"hotwords":"pinyin"`（模型不支持热词偏置）时，改为在最终转写上通过已安装的 `libmsime_host_api.so` 调用 `msime_client_voice_hotword_correct` 做拼音纠正，中间转写不纠正。本地识别仍可按 `polish` 配置润色。
+
+打包时 `package-container.sh` 用 `scripts/fetch_voice_runtime.py` 下载并校验对应架构的 sherpa-onnx 与 ONNX Runtime 共享库，以 `-DMSIME_VOICE_RUNTIME_DIR` 传给 CMake；生成安装包而不提供该目录时配置失败。
 
 Linux provider 请求工具可省略 socket 参数，依次使用对应的 `MSIME_*_PROVIDER_SOCKET` 环境变量和 `$XDG_RUNTIME_DIR/msime-client/` 下的默认 socket：`online.sock`、`translation.sock`、`voice.sock`、`cloud-dictionary.sock`、`cloud-clipboard.sock`、`handwriting.sock`、`emoji.sock`。语音的 `--stream` 同样支持省略 socket；手写和 Emoji 的 `--local` 仍使用本地资源发现。IBus 在配置热重载时重新发现在线和语音 socket，候选翻译继续按独立配置、环境变量、在线 socket 的顺序选择服务。
 
@@ -457,22 +467,21 @@ IBus 在可输入的焦点会话中监听历史文件所在目录，外部工具
 
 安装包提供 `msime-client-online.service` 和 `msime-client-voice.service`，不自动启用。服务通过 `msime-client-provider-session` 使用 `$XDG_RUNTIME_DIR/msime-client/online.sock` 和 `voice.sock`，与 IBus 自动发现路径一致。运行目录首次启动时创建为仅当前用户可访问；已有目录权限不合要求时直接报错。
 
-配置放在 `$XDG_CONFIG_HOME/msime-client/`（默认 `~/.config/msime-client/`）：在线服务可选 `ai-provider.json`、`tencent-provider.json`，语音服务需要 `voice-provider.json`。格式和 owner-only 权限要求与对应 provider 参数一致。仅云候选可不提供私有配置。
+配置放在 `$XDG_CONFIG_HOME/msime-client/`（默认 `~/.config/msime-client/`）：在线服务可选 `ai-provider.json`、`tencent-provider.json`，语音服务的云端识别与润色需要 `voice-provider.json`，本地识别不需要。格式和 owner-only 权限要求与对应 provider 参数一致。仅云候选可不提供私有配置。
 
 `ai-provider.json` 和 `tencent-provider.json` 不必手写：设置页「AI 辅助」和「输入 → 在线翻译服务」里的凭据输入框会由 Tauri 宿主直接写入这两个文件（目录 0700、文件 0600、先写临时文件再 rename），AI 凭据按服务商存到 `profiles` 下并绑定当时的接口地址和模型。凭据只从设置页流向宿主进程，设置页只能读到哪些服务商已有凭据及其绑定的接口和模型。已存在但不合规的文件（权限过宽、符号链接、JSON 无效）不会被覆盖，设置页会提示修复或删除。
 
-`voice-provider.json` 同样可以在设置页「语音输入」里写入：识别和润色各有一组凭据输入框，按上方选中的服务商、模型、接口地址（豆包还有资源 ID、鉴权方式和旧式鉴权的 App Key）写进 provider 要求的 `asr`/`polish` 与 `asr_profiles`/`polish_profiles` 布局。语音 provider 没有 ASR 配置就拒绝启动，所以只有润色凭据的文件不会被写出；首次保存识别凭据后宿主执行 `systemctl --user enable --now msime-client-voice.socket`（并先 `reset-failed` 之前因缺配置而失败的服务），清除最后一个识别凭据时删除文件并停用 socket。用户服务管理器不可达时文件照常保存，设置页给出需要手动执行的命令。豆包识别凭据上方与 Windows 一样提供「流式接口」选择：整句流式（`bigmodel_nostream`）或双向流式（`bigmodel_async`），选中后写入凭据的接口地址；地址留空时 provider 默认使用双向流式。
+`voice-provider.json` 同样可以在设置页「语音输入」里写入：识别和润色各有一组凭据输入框，按上方选中的服务商、模型、接口地址（豆包还有资源 ID、鉴权方式和旧式鉴权的 App Key）写进 provider 要求的 `asr`/`polish` 与 `asr_profiles`/`polish_profiles` 布局。语音 provider 没有该文件也能启动，本地识别（`local`）不读取任何凭据，所以识别与润色凭据都可以单独保存：只用本地模型并开启润色时文件里只有 `polish`，手写的 `{"provider": "local"}` 识别条目也会原样保留。每次保存凭据后宿主执行 `systemctl --user enable --now msime-client-voice.socket`（并先 `reset-failed` 之前失败的服务），在设置页下载本地模型后同样执行一次，因此选择「本地模型（离线）」并选用已下载的模型即可使用，不需要任何云端凭据。清除凭据只改文件，清除最后一个凭据时删除文件，但不停用 socket，本地识别仍然可用。用户服务管理器不可达时文件照常保存，设置页给出需要手动执行的命令。豆包识别凭据上方与 Windows 一样提供「流式接口」选择：整句流式（`bigmodel_nostream`）或双向流式（`bigmodel_async`），选中后写入凭据的接口地址；地址留空时 provider 默认使用双向流式。
 
 随包在线服务启动器通过 `--config-directory` 固定配置目录，即使启动时尚无 `ai-provider.json` 或 `tencent-provider.json`，后续创建或修复文件也会在下次请求生效，无需重启服务。目录模式下缺失、损坏或权限不合规的配置只会停用相应功能；每次请求仍执行 owner-only 文件校验。手动传入 `--ai-config` 或 `--tencent-config` 时保留原有启动校验，并优先于配置目录中的默认文件。
 
-Windows 上在线、语音和剪贴板功能随常驻的服务进程一直可用；Linux 对应的做法是 systemd 用户 socket 激活。安装提供 `msime-client-online.socket` 和 `msime-client-voice.socket`，登录后 `$XDG_RUNTIME_DIR/msime-client/online.sock` 与 `voice.sock` 即存在（目录 0700、socket 0600），输入法和面板按原有路径发现服务，首个请求到达时 systemd 才启动 provider 进程。`msime-client-setup` 准备好状态目录后会执行 `systemctl --user enable --now`：在线 socket 总是启用（没有私有配置也能提供云候选）；语音 socket 只在 `voice-provider.json` 已存在时启用，因为语音 provider 缺少配置时无法启动；状态目录位于默认的 `$XDG_CONFIG_HOME/msime-client` 时同时启用剪贴板监视器。没有 systemctl 或启用失败时，脚本打印可手动执行的命令，不影响首次配置本身。
+Windows 上在线、语音和剪贴板功能随常驻的服务进程一直可用；Linux 对应的做法是 systemd 用户 socket 激活。安装提供 `msime-client-online.socket` 和 `msime-client-voice.socket`，登录后 `$XDG_RUNTIME_DIR/msime-client/online.sock` 与 `voice.sock` 即存在（目录 0700、socket 0600），输入法和面板按原有路径发现服务，首个请求到达时 systemd 才启动 provider 进程。`msime-client-setup` 准备好状态目录后会执行 `systemctl --user enable --now`：在线 socket 总是启用（没有私有配置也能提供云候选）；语音 socket 也总是启用，语音 provider 没有 `voice-provider.json` 也能启动并提供本地识别；状态目录位于默认的 `$XDG_CONFIG_HOME/msime-client` 时同时启用剪贴板监视器。没有 systemctl 或启用失败时，脚本打印可手动执行的命令，不影响首次配置本身。
 
 手动启用或补启用语音：
 
 ```sh
 systemctl --user daemon-reload
 systemctl --user enable --now msime-client-online.socket
-# 准备语音配置后再启用：
 systemctl --user enable --now msime-client-voice.socket
 ```
 

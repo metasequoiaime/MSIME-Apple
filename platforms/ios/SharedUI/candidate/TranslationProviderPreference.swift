@@ -1,11 +1,12 @@
 import Foundation
 
-/// Where candidate glosses come from: the 水杉 account's translation API, or a service the user signed up for with their own credentials. The three provider objects live in the shared preference document (`niutrans`, `custom_translation`, `tencent_tmt`) so the choice follows the same precedence as the other hosts: NiuTrans first, then the custom endpoint, then Tencent TMT when both of its secrets are usable, and the account otherwise. A chosen provider that is not usable yields no online glosses at all rather than sending the words somewhere the user did not pick.
+/// Where candidate glosses come from: nowhere online (the default), a service the user signed up for with their own credentials, or the 水杉 account's translation API. The three provider objects live in the shared preference document (`niutrans`, `custom_translation`, `tencent_tmt`) so the choice follows the same precedence as the other hosts: NiuTrans first, then the custom endpoint, then Tencent TMT when both of its secrets are usable. The account is used only when the user explicitly chose it (`translation_account`) and none of their own services applies; it is never a fallback. A chosen provider that is not usable yields no online glosses at all rather than sending the words somewhere the user did not pick.
 enum TranslationProvider: String, CaseIterable, Sendable {
-  case account, niutrans, tencent, custom
+  case off, account, niutrans, tencent, custom
   var title: String {
     switch self {
-    case .account: "水杉账号"
+    case .off: "不使用在线翻译"
+    case .account: "水杉账号（发送到 api.msime.app）"
     case .niutrans: "小牛翻译"
     case .tencent: "腾讯云机器翻译"
     case .custom: "自定义接口（DeepLX 兼容）"
@@ -19,7 +20,7 @@ enum TranslationRoute: Equatable, Sendable {
   case niutrans(appID: String, apiKey: String)
   case tencent(secretID: String, secretKey: String, region: String)
   case custom(endpoint: String, apiKey: String)
-  /// A provider was chosen but is not usable: no online glosses.
+  /// Nothing was chosen, or the chosen provider is not usable: no online glosses.
   case none
 
   var provider: TranslationProvider? {
@@ -48,6 +49,8 @@ enum TranslationProviderPreference {
   static let niutransKey = "niutrans"
   static let customKey = "custom_translation"
   static let tencentKey = "tencent_tmt"
+  /// True only when the user explicitly picked the 水杉 account in 「翻译服务」; absent means no.
+  static let accountKey = "translation_account"
   static let defaultTencentRegion = "ap-guangzhou"
 
   /// The same check as client-core's `usable_tencent_secret` / `usable_niutrans_credential`: empty strings, `<placeholders>` and `FAKESECRET_` samples are not credentials.
@@ -76,7 +79,7 @@ enum TranslationProviderPreference {
       let region = trimmed(tencent["region"] as? String ?? "")
       return .tencent(secretID: secretID, secretKey: secretKey, region: region.isEmpty ? defaultTencentRegion : region)
     }
-    return .account
+    return preferences?[accountKey] as? Bool == true ? .account : .none
   }
 
   /// The provider the settings page shows as selected, which may be one whose credentials are still incomplete.
@@ -84,7 +87,7 @@ enum TranslationProviderPreference {
     if (preferences?[niutransKey] as? [String: Any])?["enabled"] as? Bool == true { return .niutrans }
     if (preferences?[customKey] as? [String: Any])?["enabled"] as? Bool == true { return .custom }
     if case .tencent = route(in: preferences) { return .tencent }
-    return .account
+    return preferences?[accountKey] as? Bool == true ? .account : .off
   }
 
   /// Write one provider as the only enabled one. Credentials of the others are kept so switching back does not lose them; Tencent is written disabled explicitly because its default is enabled.
@@ -97,6 +100,8 @@ enum TranslationProviderPreference {
     document[tencentKey] = ["enabled": provider == .tencent,
                             "secret_id": trimmed(tencent.secretID), "secret_key": trimmed(tencent.secretKey),
                             "region": region.isEmpty ? defaultTencentRegion : region]
+    // Present only when chosen, as the shared core writes it, so saving an unchanged choice leaves the document equal.
+    if provider == .account { document[accountKey] = true } else { document.removeValue(forKey: accountKey) }
   }
 
   private static func trimmed(_ value: String) -> String { value.trimmingCharacters(in: .whitespacesAndNewlines) }

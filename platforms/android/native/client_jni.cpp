@@ -3,8 +3,15 @@
 // The polish presets carry their own prompt-injection wording, and there are already four copies
 // of that text in this repository. This host reads the shared one rather than adding a fifth.
 #include "voice/PolishPrompt.h"
+// On-device recognition is the shared sherpa-onnx recognizer every desktop host uses, compiled into this library; the runtime itself (libsherpa-onnx-c-api.so and libonnxruntime.so from the pinned .aar) is packaged beside it and loaded by name on first use.
+#include "voice/LocalAsr.h"
+#include <atomic>
+#include <chrono>
 #include <cstring>
+#include <exception>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <vector>
 #include <fstream>
 #include <limits>
@@ -597,5 +604,136 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_applyOnlineCandi
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_destroyRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_destroy(static_cast<uint64_t>(handle)));
+}
+}
+
+// ---- on-device speech recognition ----
+
+namespace {
+// One dictation. The cancel flag is shared with the recognizer so a cancel from the window's thread stops a decode running on the worker; everything else is touched only by the worker that created the session.
+struct LocalSpeech {
+    std::shared_ptr<std::atomic_bool> cancelled = std::make_shared<std::atomic_bool>(false);
+    std::unique_ptr<msime::voice::LocalAsrSession> session;
+    std::mutex partial_mutex;
+    std::string partial;
+    bool partial_changed = false;
+};
+
+jbyteArray bytes_of(JNIEnv *env, const std::string &text) {
+    if (text.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) return nullptr;
+    jbyteArray out = env->NewByteArray(static_cast<jsize>(text.size()));
+    if (out) env->SetByteArrayRegion(out, 0, static_cast<jsize>(text.size()), reinterpret_cast<const jbyte *>(text.data()));
+    return out;
+}
+
+void throw_state(JNIEnv *env, const char *message) {
+    jclass type = env->FindClass("java/lang/IllegalStateException");
+    if (type) env->ThrowNew(type, message);
+}
+
+LocalSpeech *speech(jlong handle) { return reinterpret_cast<LocalSpeech *>(static_cast<intptr_t>(handle)); }
+
+// Bytes of one request/response host call; null input goes to the host so its own validation answers.
+template <typename Call> jbyteArray host_request(JNIEnv *env, jbyteArray request, Call call) {
+    if (!request) return response(env, call(nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = call(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
+} // namespace
+
+extern "C" {
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_voiceHotwordsRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return host_request(env, request, msime_client_voice_hotwords);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_voiceHotwordCorrectRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return host_request(env, request, msime_client_voice_hotword_correct);
+}
+JNIEXPORT jboolean JNICALL Java_app_msime_client_NativeClient_localSpeechAvailableRaw(JNIEnv *, jclass) {
+    return msime::voice::sherpa_runtime_available() ? JNI_TRUE : JNI_FALSE;
+}
+JNIEXPORT jlong JNICALL Java_app_msime_client_NativeClient_localSpeechCreateRaw(JNIEnv *, jclass) {
+    return static_cast<jlong>(reinterpret_cast<intptr_t>(new LocalSpeech()));
+}
+// Loads the model (seconds on a phone the first time; cached afterwards) and opens the session. Hotwords arrive newline-separated. Returns null on success, else a message for logs.
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_localSpeechStartRaw(JNIEnv *env, jclass, jlong handle, jbyteArray model, jbyteArray language, jbyteArray hotwords, jint threads) {
+    LocalSpeech *state = speech(handle);
+    if (!state || state->session) return bytes_of(env, "invalid local speech session");
+    msime::voice::LocalAsrOptions options;
+    options.model_dir = utf8(env, model);
+    options.language = utf8(env, language);
+    options.threads = threads < 0 ? 0 : threads;
+    const std::string words = utf8(env, hotwords);
+    for (size_t start = 0; start < words.size();) {
+        size_t end = words.find('\n', start);
+        if (end == std::string::npos) end = words.size();
+        if (end > start) options.hotwords.emplace_back(words.substr(start, end - start));
+        start = end + 1;
+    }
+    try {
+        state->session = std::make_unique<msime::voice::LocalAsrSession>(
+            options,
+            [state](const std::string &text) {
+                std::lock_guard<std::mutex> lock(state->partial_mutex);
+                state->partial = text;
+                state->partial_changed = true;
+            },
+            state->cancelled);
+        return nullptr;
+    } catch (const std::exception &error) {
+        return bytes_of(env, error.what());
+    }
+}
+// Feeds 16 kHz mono PCM16. Returns the whole transcript so far when it changed, else null. Throws IllegalStateException when the session was cancelled or the recognizer failed.
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_localSpeechAcceptRaw(JNIEnv *env, jclass, jlong handle, jshortArray pcm, jint count) {
+    LocalSpeech *state = speech(handle);
+    if (!state || !state->session || !pcm || count < 0 || count > env->GetArrayLength(pcm)) {
+        throw_state(env, "invalid local speech input");
+        return nullptr;
+    }
+    std::vector<jshort> samples(static_cast<size_t>(count));
+    env->GetShortArrayRegion(pcm, 0, count, samples.data());
+    std::vector<float> floats(samples.size());
+    for (size_t index = 0; index < samples.size(); index++) floats[index] = static_cast<float>(samples[index]) / 32768.0f;
+    try {
+        state->session->accept(floats.data(), floats.size());
+    } catch (const std::exception &error) {
+        throw_state(env, error.what());
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> lock(state->partial_mutex);
+    if (!state->partial_changed) return nullptr;
+    state->partial_changed = false;
+    return bytes_of(env, state->partial);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_localSpeechFinishRaw(JNIEnv *env, jclass, jlong handle) {
+    LocalSpeech *state = speech(handle);
+    if (!state || !state->session) {
+        throw_state(env, "invalid local speech session");
+        return nullptr;
+    }
+    try {
+        return bytes_of(env, state->session->finish());
+    } catch (const std::exception &error) {
+        throw_state(env, error.what());
+        return nullptr;
+    }
+}
+// Any thread: a decode in progress on the worker stops at its next check.
+JNIEXPORT void JNICALL Java_app_msime_client_NativeClient_localSpeechCancelRaw(JNIEnv *, jclass, jlong handle) {
+    if (LocalSpeech *state = speech(handle)) state->cancelled->store(true);
+}
+JNIEXPORT void JNICALL Java_app_msime_client_NativeClient_localSpeechDestroyRaw(JNIEnv *, jclass, jlong handle) {
+    delete speech(handle);
+}
+// Drops models no session has used for `idleMillis`; 0 drops every model not in use. Returns how many were dropped.
+JNIEXPORT jint JNICALL Java_app_msime_client_NativeClient_localSpeechReleaseRaw(JNIEnv *, jclass, jlong idleMillis) {
+    const size_t released = idleMillis <= 0
+        ? msime::voice::release_local_models()
+        : msime::voice::release_idle_local_models(std::chrono::milliseconds(idleMillis));
+    return static_cast<jint>(released);
 }
 }

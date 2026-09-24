@@ -20,7 +20,7 @@ NSArray<NSDictionary<NSString *, NSString *> *> *ProviderSpecs()
             @{@"id" : @"everyapi", @"title" : @"EveryAPI", @"endpoint" : @"https://api.everyapi.ai/v1/audio/transcriptions", @"model" : @"openai/whisper-large-v3-turbo"},
             @{@"id" : @"mistral", @"title" : @"Mistral · Voxtral", @"endpoint" : @"https://api.mistral.ai/v1/audio/transcriptions", @"model" : @"voxtral-mini-latest"},
             @{@"id" : @"system", @"title" : @"macOS 系统识别", @"endpoint" : @"", @"model" : @""},
-            @{@"id" : @"local", @"title" : @"本地 Whisper", @"endpoint" : @"", @"model" : @""}
+            @{@"id" : @"local", @"title" : @"本地模型", @"endpoint" : @"", @"model" : @""}
         ];
     });
     return specs;
@@ -238,9 +238,12 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     NSString *message = nil;
     if ([self.provider isEqualToString:@"local"])
     {
+        // Either an installed model directory, which the model installer marks complete by writing msime-model.json last and which runs in the msime-voice-local helper, or a Whisper model file.
         BOOL directory = NO;
-        if (![[NSFileManager defaultManager] fileExistsAtPath:self.modelPath isDirectory:&directory] || directory)
-            message = @"请选择已下载的 Whisper 模型文件。";
+        NSFileManager *files = NSFileManager.defaultManager;
+        if (![files fileExistsAtPath:self.modelPath isDirectory:&directory] ||
+            (directory && ![files fileExistsAtPath:[self.modelPath stringByAppendingPathComponent:@"msime-model.json"]]))
+            message = @"请选择已下载的本地语音模型目录或 Whisper 模型文件。";
     }
     else if (![MSIMEVoiceASRProviderIDs() containsObject:self.provider])
         message = @"请选择识别方式。";
@@ -381,7 +384,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     _endpoint = [self fieldLabelled:@"识别服务地址" secure:NO];
     _model = [self fieldLabelled:@"识别模型" secure:NO];
     _token = (NSSecureTextField *)[self fieldLabelled:@"API 密钥" secure:YES];
-    _modelPath = [self fieldLabelled:@"Whisper 模型" secure:NO];
+    _modelPath = [self fieldLabelled:@"本地模型" secure:NO];
     NSButton *browse = [NSButton buttonWithTitle:@"选择…" target:self action:@selector(browse:)];
     NSStackView *modelPathRow = [NSStackView stackViewWithViews:@[ _modelPath, browse ]];
     modelPathRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
@@ -400,7 +403,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         MSIMEPreferenceRow(@"服务地址", _endpoint),
         MSIMEPreferenceRow(@"识别模型", _model),
         MSIMEPreferenceRow(@"API 密钥", _token),
-        MSIMEPreferenceRowOfWidth(@"Whisper 模型", modelPathRow, msime::mac::layout::kWideControlWidth),
+        MSIMEPreferenceRowOfWidth(@"本地模型", modelPathRow, msime::mac::layout::kWideControlWidth),
         MSIMEPreferenceRow(@"录音设备", _captureDevice),
     ], 0.0);
     recognitionCard.accessibilityLabel = @"语音识别卡片";
@@ -612,7 +615,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 {
     (void)sender;
     NSOpenPanel *panel = [NSOpenPanel openPanel];
-    panel.canChooseDirectories = NO;
+    panel.canChooseDirectories = YES;
     panel.allowsMultipleSelection = NO;
     __weak MetasequoiaVoiceProviderSettingsView *weakSelf = self;
     [panel beginSheetModalForWindow:self.window

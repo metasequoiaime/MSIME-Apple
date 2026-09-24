@@ -3,11 +3,13 @@ import SwiftUI
 struct ProviderIcon: View {
   let id: String
   var size: CGFloat = 40
+  /// Choices drawn with a system symbol rather than a provider logo: the custom endpoint and the two on-device recognizers.
+  private static let symbols = ["custom": "slider.horizontal.3", "local": "cpu", "system": "waveform"]
 
   var body: some View {
     Group {
-      if id == "custom" {
-        Image(systemName: "slider.horizontal.3")
+      if let symbol = Self.symbols[id] {
+        Image(systemName: symbol)
           .font(.system(size: size * 0.45, weight: .medium))
           .foregroundStyle(Color(uiColor: MetasequoiaTheme.forestUIColor))
       } else {
@@ -26,7 +28,9 @@ struct ProviderOption: Identifiable {
   let id: String
   let title: String
   let endpoint: String
-  var subtitle: String { URL(string: endpoint)?.host ?? "连接自己的服务或代理" }
+  /// Shown instead of the endpoint's host, for a choice that has no endpoint.
+  var note: String?
+  var subtitle: String { note ?? URL(string: endpoint)?.host ?? "连接自己的服务或代理" }
 }
 
 struct ProviderPickerView: View {

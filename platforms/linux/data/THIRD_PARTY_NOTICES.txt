@@ -1,4 +1,4 @@
-MSIME Client for Linux — bundled third-party notices
+MSIME for Linux — bundled third-party notices
 ====================================================
 
 This package embeds msime-engine at the locked revision recorded by engine-lock.json, which is installed in share/msime-client. The complete project license is the file named copyright in this directory. The Engine notice, the dictionary and helpcode notices, and the component license texts are installed beside this file.
@@ -8,12 +8,21 @@ Components compiled into the shared host library (libmsime_host_api.so, in the m
 * msime-engine — GPL-3.0 and the notices supplied by the Engine distribution (msime-engine-GPL-3.0.txt, msime-engine-NOTICE.md, msime-engine-dictionary-NOTICE.md, msime-engine-dictionary-makecikudb-LICENSE.txt, msime-engine-helpcode-NOTICE.md).
 * googlepinyinime-rev — Apache License 2.0 (Apache-2.0-googlepinyinime.txt).
 * utfcpp — Boost Software License 1.0 (Boost-1.0-utfcpp.txt).
-* The Engine voice capture module and miniaudio — the Engine voice license and miniaudio's MIT or public domain dual license (msime-engine-voice-LICENSE.txt, miniaudio-LICENSE.txt). whisper.cpp is not linked on Linux; speech recognition runs through the separately configured online provider.
+* The Engine voice capture module and miniaudio — the Engine voice license and miniaudio's MIT or public domain dual license (msime-engine-voice-LICENSE.txt, miniaudio-LICENSE.txt). whisper.cpp is not linked on Linux.
 * zinnia and the bundled handwriting model — the notices supplied with the Engine resources (Zinnia-LICENSE.txt, HandwritingModel-LICENSE.txt).
 * OpenCC dictionaries used for Simplified/Traditional conversion — Apache License 2.0 (OpenCC-Apache-2.0.txt).
 * The Rust crates the library is built from (serde, toml, sha2 and the rest of its dependency graph) — each crate's own license files, collected at package time (rust-crates-NOTICES.txt).
 
 The desktop settings binary (msime-client-desktop, started by msime-client-settings) statically links its own Rust crate graph, including reqwest with rustls and the webpki-roots certificate data (CDLA-Permissive-2.0); those crates are in rust-crates-NOTICES.txt as well. Its embedded web frontend is bundled from npm packages (React, @tauri-apps/api and their dependencies), whose license files are in frontend-npm-NOTICES.txt.
+
+The MCP server (msime-mcp) statically links its own Rust crate graph, including rmcp (the Model Context Protocol Rust SDK) and schemars; those crates are in rust-crates-NOTICES.txt as well.
+
+On-device speech recognition runs in the msime-voice-local helper, installed beside the host library, which loads two prebuilt shared libraries installed in the same directory:
+
+* sherpa-onnx (libsherpa-onnx-c-api.so) — Apache License 2.0 (sherpa-onnx-Apache-2.0.txt).
+* ONNX Runtime (libonnxruntime.so) — MIT (onnxruntime-MIT.txt), with the notices of the components ONNX Runtime itself bundles in onnxruntime-ThirdPartyNotices.txt.
+
+The speech recognition models are not part of this package; the settings page downloads them on request, and each model directory carries its own license.
 
 Compiled into the native IBus engine, the provider programs and the Fcitx5 addon without a runtime package of their own:
 
