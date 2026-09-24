@@ -22,6 +22,11 @@ static inline NSDictionary<NSString *, NSString *> *MSIMEVoiceProviderSharedKeys
         @"polishEndpoint" : @"MSIMEClientVoicePolishEndpoint",
         @"polishModel" : @"MSIMEClientVoicePolishModel",
         @"polishToken" : @"MSIMEClientVoicePolishToken",
+        @"polishPromptID" : @"MSIMEClientVoicePolishPromptID",
+        @"polishPrompt" : @"MSIMEClientVoicePolishPrompt",
+        @"polishPromptCustom1" : @"MSIMEClientVoicePolishPromptCustom1",
+        @"polishPromptCustom2" : @"MSIMEClientVoicePolishPromptCustom2",
+        @"polishPromptCustom3" : @"MSIMEClientVoicePolishPromptCustom3",
         @"captureDevice" : @"MSIMEClientVoiceCaptureDevice",
     };
 }

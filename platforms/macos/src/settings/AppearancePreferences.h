@@ -125,6 +125,19 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 - (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme;
 @property(nonatomic) BOOL shuangpinKeymap;
 @property(nonatomic) BOOL wubiAutoCommitUnique;
+/// Dictation, which is read straight out of NSUserDefaults by the input method and by the voice module rather than through the shared document. The recogniser and the text it produces are the voice form's; these are the preferences around it — whether dictation runs at all, which language it transcribes, whether it plays a cue, whether it mutes what else is playing, and whether the partial transcript appears inline while it listens.
+@property(nonatomic) BOOL voiceInputEnabled;
+/// The BCP 47 tag the recogniser is asked for, as one of the two the client offers: zh-CN or en-US.
+@property(nonatomic, copy) NSString *voiceLanguage;
+@property(nonatomic) BOOL voiceSoundEnabled;
+@property(nonatomic) BOOL voiceMuteSystemAudio;
+@property(nonatomic) BOOL voiceStreamInlinePreedit;
+/// The four ways of starting dictation and the one that locks a held shortcut down. Control + F9 is a press, the other three are holds; 按住时按空格锁定录音 applies to whichever hold is in use.
+@property(nonatomic) BOOL voiceHotkeyCtrlF9;
+@property(nonatomic) BOOL voiceHotkeyRightAlt;
+@property(nonatomic) BOOL voiceHotkeyCtrlCommand;
+@property(nonatomic) BOOL voiceHotkeyCtrlOption;
+@property(nonatomic) BOOL voiceHotkeyHoldSpace;
 @property(nonatomic) BOOL floatingToolbarEnabled;
 /// The 中/英 button. It is a component like the eight below it; it had no accessor at all, so the
 /// only value the merge could publish for it was a constant.

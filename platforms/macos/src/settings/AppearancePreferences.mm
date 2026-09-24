@@ -205,6 +205,17 @@ static NSString *const ControlTapShortcutKey = @"MSIMEClientControlTapShortcut";
 static NSString *const ControlOptionSpaceShortcutKey = @"MSIMEClientControlOptionSpaceShortcut";
 static NSString *const CharacterSetShortcutKey = @"MSIMEClientCharacterSetShortcut";
 static NSString *const FullWidthShortcutKey = @"MSIMEClientFullWidthShortcut";
+/// The dictation preferences this window now owns. They are read on every recording — by InputController's event tap for the hotkeys, by the recogniser request for the language and the streaming preedit, by the cue player and the audio muter for the other two — and the only place they could be set was MSIMEVoiceSettings, a window nothing in the repository opened.
+static NSString *const VoiceEnabledKey = @"MSIMEClientVoiceEnabled";
+static NSString *const VoiceLanguageKey = @"MSIMEClientVoiceLanguage";
+static NSString *const VoiceSoundKey = @"MSIMEClientVoiceSoundEnabled";
+static NSString *const VoiceMuteSystemAudioKey = @"MSIMEClientVoiceMuteSystemAudio";
+static NSString *const VoiceStreamInlinePreeditKey = @"MSIMEClientVoiceStreamInlinePreedit";
+static NSString *const VoiceHotkeyCtrlF9Key = @"MSIMEClientVoiceHotkeyCtrlF9";
+static NSString *const VoiceHotkeyHoldSpaceKey = @"MSIMEClientVoiceHotkeyHoldSpace";
+static NSString *const VoiceHotkeyRightAltKey = @"MSIMEClientVoiceHotkeyRightAlt";
+static NSString *const VoiceHotkeyCtrlCommandKey = @"MSIMEClientVoiceHotkeyCtrlCommand";
+static NSString *const VoiceHotkeyCtrlOptionKey = @"MSIMEClientVoiceHotkeyCtrlOption";
 static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
 static NSString *const FloatingToolbarOptionsKey = @"MSIMEClientFloatingToolbarOptions";
 static NSArray<NSString *> *FloatingToolbarComponentKeys() {
@@ -378,6 +389,16 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             ControlOptionSpaceShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.controlOptionSpaceShortcut); },
             CharacterSetShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.characterSetShortcut); },
             FullWidthShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.fullWidthShortcut); },
+            VoiceEnabledKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceInputEnabled); },
+            VoiceLanguageKey : ^id(MSIMEAppearancePreferences *p) { return p.voiceLanguage ?: NSNull.null; },
+            VoiceSoundKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceSoundEnabled); },
+            VoiceMuteSystemAudioKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceMuteSystemAudio); },
+            VoiceStreamInlinePreeditKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceStreamInlinePreedit); },
+            VoiceHotkeyCtrlF9Key : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyCtrlF9); },
+            VoiceHotkeyHoldSpaceKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyHoldSpace); },
+            VoiceHotkeyRightAltKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyRightAlt); },
+            VoiceHotkeyCtrlCommandKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyCtrlCommand); },
+            VoiceHotkeyCtrlOptionKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyCtrlOption); },
             PageShortcutKey : ^id(MSIMEAppearancePreferences *p) { return @(p.pageShortcut); },
             NavigationKey : ^id(MSIMEAppearancePreferences *p) {
                 NSMutableDictionary<NSString *, NSNumber *> *bindings = [NSMutableDictionary dictionary];
@@ -865,6 +886,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSSwitch *_smartPunctuationSpaceToggle;
     NSSwitch *_traditionalOutputToggle;
     NSSwitch *_fullWidthShortcutToggle;
+    NSSwitch *_voiceEnabledToggle;
+    NSPopUpButton *_voiceLanguageButton;
+    NSSwitch *_voiceSoundToggle;
+    NSSwitch *_voiceMuteSystemAudioToggle;
+    NSSwitch *_voiceStreamInlinePreeditToggle;
+    NSSwitch *_voiceHotkeyCtrlF9Toggle;
+    NSSwitch *_voiceHotkeyRightAltToggle;
+    NSSwitch *_voiceHotkeyCtrlCommandToggle;
+    NSSwitch *_voiceHotkeyCtrlOptionToggle;
+    NSSwitch *_voiceHotkeyHoldSpaceToggle;
     NSSwitch *_wubiMixedPinyinToggle;
     NSSwitch *_toolbarToggle;
     NSSwitch *_transpositionToggle;
@@ -1795,6 +1826,69 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [_defaults setBool:value forKey:FullWidthShortcutKey];
     [self preferencesChanged];
 }
+// The dictation preferences. There is no `_shared*` override on any of them: an account pushes voice settings down through MSIMEApplySharedVoicePreferences, which writes these same defaults, so the stored entry is already the one both sides read. The two that have a helper in SharedVoicePreferences.h are read through it rather than repeated here, because the window and the input method disagreeing about whether an unset key means on or off is exactly the class of defect that header exists to prevent.
+- (BOOL)voiceInputEnabled { return MSIMEVoiceInputEnabled(_defaults); }
+- (void)setVoiceInputEnabled:(BOOL)value {
+    [_defaults setBool:value forKey:VoiceEnabledKey];
+    [self preferencesChanged];
+}
+- (NSString *)voiceLanguage {
+    return [[_defaults stringForKey:VoiceLanguageKey] isEqualToString:@"en-US"] ? @"en-US" : @"zh-CN";
+}
+- (void)setVoiceLanguage:(NSString *)value {
+    [_defaults setObject:[value isEqualToString:@"en-US"] ? @"en-US" : @"zh-CN" forKey:VoiceLanguageKey];
+    [self preferencesChanged];
+}
+- (BOOL)voiceSoundEnabled {
+    return [_defaults objectForKey:VoiceSoundKey] == nil || [_defaults boolForKey:VoiceSoundKey];
+}
+- (void)setVoiceSoundEnabled:(BOOL)value {
+    [_defaults setBool:value forKey:VoiceSoundKey];
+    [self preferencesChanged];
+}
+- (BOOL)voiceMuteSystemAudio { return MSIMEVoiceMuteSystemAudioEnabled(_defaults); }
+- (void)setVoiceMuteSystemAudio:(BOOL)value {
+    [_defaults setBool:value forKey:VoiceMuteSystemAudioKey];
+    [self preferencesChanged];
+}
+- (BOOL)voiceStreamInlinePreedit {
+    return [_defaults objectForKey:VoiceStreamInlinePreeditKey] == nil ||
+           [_defaults boolForKey:VoiceStreamInlinePreeditKey];
+}
+- (void)setVoiceStreamInlinePreedit:(BOOL)value {
+    [_defaults setBool:value forKey:VoiceStreamInlinePreeditKey];
+    [self preferencesChanged];
+}
+- (BOOL)voiceHotkeyCtrlF9 {
+    return [_defaults objectForKey:VoiceHotkeyCtrlF9Key] == nil || [_defaults boolForKey:VoiceHotkeyCtrlF9Key];
+}
+- (void)setVoiceHotkeyCtrlF9:(BOOL)value {
+    [_defaults setBool:value forKey:VoiceHotkeyCtrlF9Key];
+    [self preferencesChanged];
+}
+- (BOOL)voiceHotkeyHoldSpace {
+    return [_defaults objectForKey:VoiceHotkeyHoldSpaceKey] == nil || [_defaults boolForKey:VoiceHotkeyHoldSpaceKey];
+}
+- (void)setVoiceHotkeyHoldSpace:(BOOL)value {
+    [_defaults setBool:value forKey:VoiceHotkeyHoldSpaceKey];
+    [self preferencesChanged];
+}
+// The three modifier holds are off unless they were asked for, which is what MSIMEVoiceHoldShortcut is handed in InputController: a modifier combination that starts recording on its own is not something to turn on for a user who never asked for it.
+- (BOOL)voiceHotkeyRightAlt { return [_defaults boolForKey:VoiceHotkeyRightAltKey]; }
+- (void)setVoiceHotkeyRightAlt:(BOOL)value {
+    [_defaults setBool:value forKey:VoiceHotkeyRightAltKey];
+    [self preferencesChanged];
+}
+- (BOOL)voiceHotkeyCtrlCommand { return [_defaults boolForKey:VoiceHotkeyCtrlCommandKey]; }
+- (void)setVoiceHotkeyCtrlCommand:(BOOL)value {
+    [_defaults setBool:value forKey:VoiceHotkeyCtrlCommandKey];
+    [self preferencesChanged];
+}
+- (BOOL)voiceHotkeyCtrlOption { return [_defaults boolForKey:VoiceHotkeyCtrlOptionKey]; }
+- (void)setVoiceHotkeyCtrlOption:(BOOL)value {
+    [_defaults setBool:value forKey:VoiceHotkeyCtrlOptionKey];
+    [self preferencesChanged];
+}
 - (void)setInputModeShortcut:(BOOL)value {
     _sharedInputModeShortcut = nil;
     _sharedShiftTapShortcut = nil;
@@ -2199,6 +2293,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     }
     _fullWidthToggle.state = self.fullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;
     _fullWidthShortcutToggle.state = self.fullWidthShortcut ? NSControlStateValueOn : NSControlStateValueOff;
+    _voiceEnabledToggle.state = self.voiceInputEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    [_voiceLanguageButton selectItemAtIndex:[self.voiceLanguage isEqualToString:@"en-US"] ? 1 : 0];
+    _voiceSoundToggle.state = self.voiceSoundEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _voiceMuteSystemAudioToggle.state = self.voiceMuteSystemAudio ? NSControlStateValueOn : NSControlStateValueOff;
+    _voiceStreamInlinePreeditToggle.state = self.voiceStreamInlinePreedit ? NSControlStateValueOn : NSControlStateValueOff;
+    _voiceHotkeyCtrlF9Toggle.state = self.voiceHotkeyCtrlF9 ? NSControlStateValueOn : NSControlStateValueOff;
+    _voiceHotkeyRightAltToggle.state = self.voiceHotkeyRightAlt ? NSControlStateValueOn : NSControlStateValueOff;
+    _voiceHotkeyCtrlCommandToggle.state = self.voiceHotkeyCtrlCommand ? NSControlStateValueOn : NSControlStateValueOff;
+    _voiceHotkeyCtrlOptionToggle.state = self.voiceHotkeyCtrlOption ? NSControlStateValueOn : NSControlStateValueOff;
+    _voiceHotkeyHoldSpaceToggle.state = self.voiceHotkeyHoldSpace ? NSControlStateValueOn : NSControlStateValueOff;
     _traditionalOutputToggle.state = self.traditionalOutput ? NSControlStateValueOn : NSControlStateValueOff;
     _keymapToggle.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiToggle.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
@@ -2323,6 +2427,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     const NSInteger scheme = [schemeIndexes[self.inputScheme] integerValue];
     const BOOL learning = self.candidateLearningEnabled;
     const BOOL toolbar = self.floatingToolbarEnabled;
+    const BOOL voice = self.voiceInputEnabled;
     NSDictionary *wordCharacter = [self wordCharacterOptions];
     NSMutableArray<NSArray *> *dependencies = [NSMutableArray arrayWithArray:@[
         // Only the selected scheme's own popup is usable, so a live row cannot look like it is
@@ -2350,6 +2455,13 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         @[ @(self.shuangpinHelpcodeEnabled),
            @[_helpcodeSchemaButtons[@"shuangpin"], _helpcodeDisplayToggles[@"shuangpin"]] ],
         @[ @(self.showsCandidatePreedit), @[_preeditFontButton] ],
+        // Everything about dictation follows the master switch: InputController returns from -toggleVoiceInput: before it opens a microphone when it is off, and resets the hold shortcut on every event, so none of the rows under it reaches a recording.
+        @[ @(voice), @[_voiceLanguageButton, _voiceSoundToggle, _voiceMuteSystemAudioToggle,
+                       _voiceStreamInlinePreeditToggle, _voiceHotkeyCtrlF9Toggle, _voiceHotkeyRightAltToggle,
+                       _voiceHotkeyCtrlCommandToggle, _voiceHotkeyCtrlOptionToggle] ],
+        // The space lock is read by MSIMEVoiceHoldShortcut only while one of the three modifier holds is down; Control + F9 is a press handled by its own monitor and never reaches it.
+        @[ @(voice && (self.voiceHotkeyRightAlt || self.voiceHotkeyCtrlCommand || self.voiceHotkeyCtrlOption)),
+           @[_voiceHotkeyHoldSpaceToggle] ],
         // 以词定字 cannot be turned on for a key group that paging holds. The popup beneath it stays
         // live even so — it is the way off the contested group, and greying it out would leave the
         // pair with no way out at all.
@@ -2611,6 +2723,24 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _characterSetShortcutToggle = MSIMESettingSwitch(self, @selector(characterSetShortcutChanged:), @"Control + Shift + F 切换简繁");
     _fullWidthToggle = MSIMESettingSwitch(self, @selector(fullWidthChanged:), @"全角输入（Option + Shift + H）");
     _fullWidthShortcutToggle = MSIMESettingSwitch(self, @selector(fullWidthShortcutChanged:), @"Option + Shift + H 切换全半角");
+    _voiceEnabledToggle = MSIMESettingSwitch(self, @selector(voiceEnabledChanged:), @"启用语音输入");
+    _voiceLanguageButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_voiceLanguageButton addItemsWithTitles:@[@"中文（简体）", @"English"]];
+    _voiceLanguageButton.accessibilityLabel = @"识别语言";
+    _voiceLanguageButton.target = self;
+    _voiceLanguageButton.action = @selector(voiceLanguageChanged:);
+    _voiceSoundToggle = MSIMESettingSwitch(self, @selector(voiceSoundChanged:), @"播放提示音");
+    _voiceMuteSystemAudioToggle = MSIMESettingSwitch(self, @selector(voiceMuteSystemAudioChanged:), @"录音时静音系统音频");
+    _voiceStreamInlinePreeditToggle =
+        MSIMESettingSwitch(self, @selector(voiceStreamInlinePreeditChanged:), @"实时显示识别结果");
+    _voiceHotkeyCtrlF9Toggle = MSIMESettingSwitch(self, @selector(voiceHotkeyCtrlF9Changed:), @"Control + F9 开始语音输入");
+    _voiceHotkeyRightAltToggle = MSIMESettingSwitch(self, @selector(voiceHotkeyRightAltChanged:), @"按住右 Option 说话");
+    _voiceHotkeyCtrlCommandToggle =
+        MSIMESettingSwitch(self, @selector(voiceHotkeyCtrlCommandChanged:), @"按住 Control + Command 说话");
+    _voiceHotkeyCtrlOptionToggle =
+        MSIMESettingSwitch(self, @selector(voiceHotkeyCtrlOptionChanged:), @"按住右 Control + Option 说话");
+    _voiceHotkeyHoldSpaceToggle =
+        MSIMESettingSwitch(self, @selector(voiceHotkeyHoldSpaceChanged:), @"按住说话时按空格锁定录音");
     _traditionalOutputToggle = MSIMESettingSwitch(self, @selector(traditionalOutputChanged:), @"简繁输入");
     _keymapToggle = MSIMESettingSwitch(self, @selector(keymapChanged:), @"输入时显示双拼键位提示");
     _wubiToggle = MSIMESettingSwitch(self, @selector(wubiChanged:), @"五笔四码唯一候选自动上屏");
@@ -3111,15 +3241,27 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMESwitchRow(@"Control + Shift + F 切换简繁", _characterSetShortcutToggle, nil),
         MSIMESwitchRow(@"Option + Shift + H 切换全半角", _fullWidthShortcutToggle,
                        @"关掉后这个组合键交给应用处理；Control + Shift + 空格 与工具栏的全半角按钮不受影响。"),
+        MSIMECardSeparator(),
+        MSIMECardHeader(@"语音听写"),
+        MSIMESwitchRow(@"Control + F9 开始语音输入", _voiceHotkeyCtrlF9Toggle, @"按一次开始，再按一次结束。"),
+        MSIMESwitchRow(@"按住右 Option 说话", _voiceHotkeyRightAltToggle, nil),
+        MSIMESwitchRow(@"按住 Control + Command 说话", _voiceHotkeyCtrlCommandToggle, nil),
+        MSIMESwitchRow(@"按住右 Control + Option 说话", _voiceHotkeyCtrlOptionToggle, nil),
+        MSIMESwitchRow(@"按住说话时按空格锁定录音", _voiceHotkeyHoldSpaceToggle,
+                       @"锁定后松开按键录音继续，再按一次结束键才停止。"),
     ], 0.0);
     switchingCard.accessibilityLabel = @"输入状态切换卡片";
     // Switching between Chinese and English is what this page is opened for; the paging matrix is
     // what it was opened on. At the default height the six switching rows began below the fold, under
     // seven checkboxes for key groups most users never rebind, so the two cards trade places.
-    NSScrollView *keysPage = PreferencesPage(@"按键", @"切换中英文与翻页选字使用的按键。", @[
+    //
+    // The five dictation shortcuts are in the same card, under a heading of their own: every other key binding in the window is on this page, and they were the one group that was not — they were in MSIMEVoiceSettings, a window nothing opened.
+    NSScrollView *keysPage = PreferencesPage(@"按键", @"切换中英文、翻页选字与开始语音输入使用的按键。", @[
         [self sectionHeader:@"输入状态切换"
                        keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey,
-                              ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthShortcutKey]],
+                              ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthShortcutKey,
+                              VoiceHotkeyCtrlF9Key, VoiceHotkeyRightAltKey, VoiceHotkeyCtrlCommandKey,
+                              VoiceHotkeyCtrlOptionKey, VoiceHotkeyHoldSpaceKey]],
         switchingCard,
         [self sectionHeader:@"候选翻页与选字" keys:@[PageShortcutKey, NavigationKey, WordCharacterKey]],
         pagingCard,
@@ -3201,13 +3343,27 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     ]);
 
     // ---- 语音输入 ---------------------------------------------------------------------------
+    // The card this window owns. Everything on it is a plain NSUserDefaults key written through the injected _defaults, so it is built here rather than in the voice form: that form is looked up at runtime to keep the keychain and CoreAudio out of the test executables, and these five settings are still settings in a build that has no voice module.
+    NSBox *voiceCard = MSIMECardWithViews(@[
+        MSIMESwitchRow(@"启用语音输入", _voiceEnabledToggle, @"关掉后语音快捷键与工具栏的语音按钮都不再开始录音。"),
+        MSIMEPreferenceRow(@"识别语言", _voiceLanguageButton),
+        MSIMESwitchRow(@"播放提示音", _voiceSoundToggle, @"开始与结束录音时各响一声。"),
+        MSIMESwitchRow(@"录音时静音系统音频", _voiceMuteSystemAudioToggle, @"录完自动恢复原来的音量。"),
+        MSIMESwitchRow(@"实时显示识别结果", _voiceStreamInlinePreeditToggle,
+                       @"边说边把还没定稿的文字显示在输入位置；关掉则只在识别结束后一次上屏。"),
+    ], 0.0);
+    voiceCard.accessibilityLabel = @"语音卡片";
     // The form itself, not a 配置语音输入… button opening a second window with its own 保存 button.
     Class voiceFormClass = NSClassFromString(@"MetasequoiaVoiceProviderSettingsView");
     _voiceSettingsView = [[voiceFormClass alloc] initWithFrame:NSZeroRect];
     NSView *voiceContent = _voiceSettingsView
         ?: (NSView *)MSIMECardWithViews(@[MSIMEPreferenceRow(@"语音输入",
                [NSTextField labelWithString:@"此构建不包含语音模块。"])], 0.0);
-    NSScrollView *voicePage = PreferencesPage(@"语音输入", @"配置听写使用的识别服务，以及识别后的文本整理。", @[
+    NSScrollView *voicePage = PreferencesPage(@"语音输入", @"开始录音的方式在「按键」页；这里是识别服务、识别语言，以及识别后的文本整理。", @[
+        [self sectionHeader:@"语音"
+                       keys:@[VoiceEnabledKey, VoiceLanguageKey, VoiceSoundKey, VoiceMuteSystemAudioKey,
+                              VoiceStreamInlinePreeditKey]],
+        voiceCard,
         voiceContent,
     ]);
 
@@ -3614,6 +3770,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)characterSetShortcutChanged:(NSSwitch *)sender { self.characterSetShortcut = sender.state == NSControlStateValueOn; }
 - (void)fullWidthChanged:(NSSwitch *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }
 - (void)fullWidthShortcutChanged:(NSSwitch *)sender { self.fullWidthShortcut = sender.state == NSControlStateValueOn; }
+- (void)voiceEnabledChanged:(NSSwitch *)sender { self.voiceInputEnabled = sender.state == NSControlStateValueOn; }
+- (void)voiceLanguageChanged:(NSPopUpButton *)sender { self.voiceLanguage = sender.indexOfSelectedItem == 1 ? @"en-US" : @"zh-CN"; }
+- (void)voiceSoundChanged:(NSSwitch *)sender { self.voiceSoundEnabled = sender.state == NSControlStateValueOn; }
+- (void)voiceMuteSystemAudioChanged:(NSSwitch *)sender { self.voiceMuteSystemAudio = sender.state == NSControlStateValueOn; }
+- (void)voiceStreamInlinePreeditChanged:(NSSwitch *)sender { self.voiceStreamInlinePreedit = sender.state == NSControlStateValueOn; }
+- (void)voiceHotkeyCtrlF9Changed:(NSSwitch *)sender { self.voiceHotkeyCtrlF9 = sender.state == NSControlStateValueOn; }
+- (void)voiceHotkeyRightAltChanged:(NSSwitch *)sender { self.voiceHotkeyRightAlt = sender.state == NSControlStateValueOn; }
+- (void)voiceHotkeyCtrlCommandChanged:(NSSwitch *)sender { self.voiceHotkeyCtrlCommand = sender.state == NSControlStateValueOn; }
+- (void)voiceHotkeyCtrlOptionChanged:(NSSwitch *)sender { self.voiceHotkeyCtrlOption = sender.state == NSControlStateValueOn; }
+- (void)voiceHotkeyHoldSpaceChanged:(NSSwitch *)sender { self.voiceHotkeyHoldSpace = sender.state == NSControlStateValueOn; }
 - (void)traditionalOutputChanged:(NSSwitch *)sender { self.traditionalOutput = sender.state == NSControlStateValueOn; }
 - (void)keymapChanged:(NSSwitch *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (void)wubiChanged:(NSSwitch *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
