@@ -180,21 +180,23 @@ final class CandidateTranslationTests: XCTestCase {
     CandidateTranslationPreference.onlineEnabled = true
     CandidateGlossPreference.enabled = false
     CandidateTranslationPreference.secondaryIndex = -1
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 0,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: true), 0,
                    "the switch is off, so nothing is reserved")
 
     CandidateGlossPreference.enabled = true
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: true), 1,
                    "English comes from the dictionary in the bundle, with or without a network")
 
     // 日语 - the second entry of the table, and one that has to be fetched.
     CandidateTranslationPreference.secondaryIndex = 1
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: true), 1,
                    "no full access means no network, so that row could never be filled")
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 2,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: true), 2,
                    "the row appears once the gloss can be reached")
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: false), 1,
+                   "no translation service is chosen, so the Japanese row could never be filled")
     CandidateTranslationPreference.onlineEnabled = false
-    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 1,
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true, onlineRoute: true), 1,
                    "the user turned the network off, which is the same answer as not having one")
   }
 

@@ -2562,6 +2562,8 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
 
     let query = read(msime_client_translation_query(handle))["value"].clone();
     assert_eq!(query["provider"], "tencent");
+    // The MSIME account endpoint is never chosen implicitly.
+    assert_eq!(query["translation_account"], false);
     assert_eq!(forward(&query).unwrap()["query"]["provider"], "tencent");
 
     preferences.tencent_tmt.enabled = false;
@@ -2589,6 +2591,48 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
     assert_eq!(query["provider"], "custom");
     assert!(query["custom_translation"].is_null());
     assert_eq!(forward(&query).unwrap()["query"]["provider"], "custom");
+    assert_eq!(query["translation_account"], false);
+
+    // Choosing the account switches every other service off, so the provider socket is never asked.
+    preferences.custom_translation.enabled = false;
+    preferences.translation_account = true;
+    update(handle, 4, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], true);
+    assert_eq!(query["provider"], "none");
+    assert!(
+        forward(&query).is_none(),
+        "an account query reached the provider"
+    );
+
+    // Tencent's default `enabled: true` without usable secrets is not a user choice and does not displace the account; usable secrets do.
+    preferences.tencent_tmt.enabled = true;
+    update(handle, 5, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], true);
+    preferences.tencent_tmt.secret_id = "id".into();
+    preferences.tencent_tmt.secret_key = "key".into();
+    update(handle, 6, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], false);
+    preferences.tencent_tmt.enabled = false;
+
+    // The user's own service wins over the account.
+    preferences.niutrans.enabled = true;
+    update(handle, 7, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], false);
+
+    // The offline English gloss keeps the query alive with candidate translations off, and must not carry the account.
+    preferences.niutrans.enabled = false;
+    preferences.candidate_translations = false;
+    preferences.candidate_english_gloss = true;
+    preferences.translation_target_language =
+        msime_client_core::preferences::TranslationTargetLanguage::En;
+    update(handle, 8, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["english_gloss"], true);
+    assert_eq!(query["translation_account"], false);
     read(msime_client_destroy(handle));
 }
 

@@ -32,6 +32,19 @@ public final class CandidateTranslationPolicySmoke {
             "actual two-row gloss gets two rows");
         check(CandidateTranslationPolicy.renderedGlossLines(null) == 1,
             "missing rendered gloss stays one row");
+        // The account endpoint receives candidate words, so only an explicit choice may reach it.
+        check(!CandidateTranslationPolicy.accountSelected(true, false, false, false),
+            "candidate translations alone never select the account");
+        check(!CandidateTranslationPolicy.accountSelected(false, false, false, false),
+            "nothing chosen sends nothing");
+        check(CandidateTranslationPolicy.accountSelected(true, true, false, false),
+            "an explicit account choice selects the account");
+        check(!CandidateTranslationPolicy.accountSelected(false, true, false, false),
+            "turning candidate translations off overrides the account choice");
+        check(!CandidateTranslationPolicy.accountSelected(true, true, true, false),
+            "the user's own NiuTrans service wins over the account");
+        check(!CandidateTranslationPolicy.accountSelected(true, true, false, true),
+            "the user's own custom service wins over the account");
         System.out.println("Android candidate translation language policy passed");
     }
 

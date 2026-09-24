@@ -8,7 +8,7 @@
 
 ## 一句话结论
 
-默认配置下，**只有一个功能会把你输入的内容发出设备：云联想**。它默认开启，把当前正在组的拼音串发给 Google 输入工具。其余所有联网功能——语音识别、语音润色、候选翻译、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。
+默认配置下，**只有一个功能会把你输入的内容发出设备：云联想**。它默认开启，把当前正在组的拼音串发给 Google 输入工具。其余所有联网功能——语音识别、语音润色、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。候选翻译默认不联网，需要你在设置里选择一个翻译服务（自己的凭据，或显式选择「水杉账号」）。
 
 另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：macOS、iOS、Android、Linux、HarmonyOS 会在启动时发一次安装计数，其中除 HarmonyOS 外还会在进程崩溃时发送异常信息，这五个平台默认开启且没有开关；Windows 的同一条路径**默认关闭**，只有在设置页「关于」里打开「匿名使用统计」（`telemetry_enabled`）之后才发送启动与崩溃事件。去重、调用栈和离线重试这三件事逐平台不同，不要按「六个平台一样」理解，差异逐条列在[安装与崩溃上报](#安装与崩溃上报)。仓库不接入任何第三方统计或崩溃上报 SDK。
 
@@ -40,9 +40,11 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 
 保持默认开启是为了与已发布的平台输入法行为一致。这与常见中文输入法的云输入功能是同一类能力，但既然仓库公开，端点和发送内容就应当白纸黑字写在这里，而不是让人去读源码才能知道。
 
-### 候选翻译（默认开启，但需要你自己的凭据）
+### 候选翻译（默认不联网，需要你选择服务）
 
 `candidate_translations` 默认 `true`，支持腾讯机器翻译（`https://tmt.tencentcloudapi.com`）、小牛翻译（`https://api.niutrans.com/v2/text/translate`）和自定义端点。三者都要求你在设置里填入自己的 API 凭据，默认全为空字符串——**没有凭据就不会发出请求**，开关为真也一样。发送内容是待翻译的候选词。代码在 `crates/client-core/src/credential/translation.rs`。
+
+macOS、iOS、Android 另提供「水杉账号」（`translation_account`，默认 `false`）：只有你在翻译服务里显式选择它，才会把当前页的中文候选词（包括本地已有释义的）连同目标语言代码 POST 到 `https://api.msime.app/v1/translate`。请求带账号令牌：macOS 与 Android 在你已登录时用登录的账号，否则（以及 iOS 上始终）用一个匿名账号，它在首次翻译时才在 `api.msime.app` 创建。你自己的服务优先：候选翻译关闭、小牛或自定义服务已启用、或腾讯已启用且两项凭据都可用时，都不走水杉账号。共享层把这个判定算成翻译查询里的 `translation_account` 字段（`crates/host-api/src/ffi/providers.rs`），macOS 输入法只在它为真时发请求（`platforms/macos/src/input/InputController.mm` 的 `currentAccountGlossRequest`）；iOS 在 `platforms/ios/SharedUI/candidate/TranslationProviderPreference.swift`、Android 在 `platforms/android/java/app/msime/client/candidate/CandidateTranslationPolicy.java` 的 `accountSelected` 按同一规则判定（Android 没有腾讯客户端，设置页也不能启用腾讯）。Windows、Linux、HarmonyOS 没有这条路径。没有选择任何服务时不发出请求。
 
 ### 语音输入（默认凭据为空）
 
@@ -63,7 +65,7 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 
 ### 账号与同步（需要登录）
 
-`https://api.msime.app`，定义在 `crates/client-core/src/account.rs` 的 `ACCOUNT_ORIGIN`。不登录不发生。凭据存放在系统密钥库：macOS/iOS 用 Keychain（`crates/host-macos/native/account.mm`、`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘。
+`https://api.msime.app`，定义在 `crates/client-core/src/account.rs` 的 `ACCOUNT_ORIGIN`。不登录不发生。例外有两处会在不登录时创建匿名账号：候选翻译选择了「水杉账号」时，在首次翻译时创建，见[候选翻译](#候选翻译默认不联网需要你选择服务)；Android 浏览社区皮肤与词库目录时，也会先取匿名账号的令牌（`platforms/android/java/app/msime/client/community/CommunityCatalog.java`），取不到照常列出目录。macOS 输入法激活时不创建账号，匿名账号只在上面那种情况下由 `platforms/macos/src/backend/account/BackendCandidateGloss.swift` 的 `token()` 按需创建。凭据存放在系统密钥库：macOS/iOS 用 Keychain（`crates/host-macos/native/account.mm`、`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘。
 
 ### 资源与更新下载
 

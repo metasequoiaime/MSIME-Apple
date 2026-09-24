@@ -1572,11 +1572,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *query = [_session translationQueryWithError:nil];
     if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] ||
         ![query[@"target_languages"] isKindOfClass:NSArray.class]) return nil;
-    // Explicit user-owned providers take precedence. The account endpoint is the native fallback
-    // for the shared candidate-translation toggle when no local credentials are configured.
-    if ([query[@"custom_translation"] isKindOfClass:NSDictionary.class] ||
-        [query[@"tencent_tmt"] isKindOfClass:NSDictionary.class] || [query[@"niutrans"] isKindOfClass:NSDictionary.class])
-        return nil;
+    // The account endpoint (api.msime.app) is used only when the user explicitly chose it in settings. The shared core already folds in candidate_translations and the precedence of the user's own services, so this flag is the whole decision.
+    if (![query[@"translation_account"] isEqual:@YES]) return nil;
     NSArray *candidates = MSIMEOnlineGlossCandidates(query);
     return candidates.count
         ? @{ @"generation": query[@"generation"], @"target_languages": query[@"target_languages"],
@@ -3408,7 +3405,6 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 }
 
 - (void)prepareSession {
-    if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
     BOOL reopened = NO;
     if (!_session) {
         NSDictionary *options = MSIMESessionOptions([self runtimeOptions]);

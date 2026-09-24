@@ -156,6 +156,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean clipboardHistoryEnabled;
     private boolean candidateEnglishGloss;
     private boolean candidateTranslationsEnabled;
+    // Gates only the account network path (fetch, apply, reserved rows); candidateTranslationsEnabled stays the display gate for translations a candidate already carries.
+    private boolean candidateTranslationAccount;
     private boolean englishSuggestionsEnabled = true;
     private java.util.List<String> candidateTranslationTargets = java.util.List.of("en");
     private CandidateTranslationStore candidateTranslationStore;
@@ -874,6 +876,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateGlossResources = "";
         candidateEnglishGloss = false;
         candidateTranslationsEnabled = false;
+        candidateTranslationAccount = false;
         candidateTranslationTargets = java.util.List.of("en");
         clearEnglishSuggestions();
         if (candidateTranslationStore != null) candidateTranslationStore.clear();
@@ -1118,14 +1121,32 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyCandidateTranslationPreference(JSONObject preferences) {
         boolean nextEnabled = preferences == null
             || preferences.optBoolean("candidate_translations", true);
+        boolean nextAccount = candidateTranslationAccountFrom(preferences);
         java.util.List<String> nextTargets = translationTargetsFrom(preferences);
         if (candidateTranslationsEnabled != nextEnabled
+                || candidateTranslationAccount != nextAccount
                 || !candidateTranslationTargets.equals(nextTargets)) {
             if (candidateTranslationStore != null) candidateTranslationStore.clear();
             invalidateCandidateGlosses();
         }
         candidateTranslationsEnabled = nextEnabled;
+        candidateTranslationAccount = nextAccount;
         candidateTranslationTargets = nextTargets;
+    }
+
+    /** Whether the user explicitly chose the MSIME account for candidate translations; absent preferences never choose it. */
+    private static boolean candidateTranslationAccountFrom(JSONObject preferences) {
+        if (preferences == null) return false;
+        return CandidateTranslationPolicy.accountSelected(
+            preferences.optBoolean("candidate_translations", true),
+            preferences.optBoolean("translation_account", false),
+            translationProviderEnabled(preferences, "niutrans"),
+            translationProviderEnabled(preferences, "custom_translation"));
+    }
+
+    private static boolean translationProviderEnabled(JSONObject preferences, String key) {
+        JSONObject provider = preferences.optJSONObject(key);
+        return provider != null && provider.optBoolean("enabled", false);
     }
 
     private java.util.List<String> translationTargetsFrom(JSONObject preferences) {
@@ -1194,6 +1215,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
+        boolean previousCandidateTranslationAccount = candidateTranslationAccount;
         boolean previousEnglishSuggestions = englishSuggestionsEnabled;
         java.util.List<String> previousTranslationTargets = candidateTranslationTargets;
         boolean previousWubiCodeHint = wubiCodeHint;
@@ -1217,6 +1239,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousCandidateTranslations != candidateTranslationsEnabled
+                || previousCandidateTranslationAccount != candidateTranslationAccount
                 || previousEnglishSuggestions != englishSuggestionsEnabled
                 || !previousTranslationTargets.equals(candidateTranslationTargets)
                 || previousWubiCodeHint != wubiCodeHint
@@ -1254,6 +1277,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
         boolean nextCandidateTranslations = preferences.optBoolean("candidate_translations", true);
+        boolean nextCandidateTranslationAccount = candidateTranslationAccountFrom(preferences);
         boolean nextEnglishSuggestions = preferences.optBoolean("english_suggestions", true);
         java.util.List<String> nextTranslationTargets = translationTargetsFrom(preferences);
         boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
@@ -1314,11 +1338,13 @@ public final class MSIMEInputService extends InputMethodService {
         if (englishSuggestionsEnabled != nextEnglishSuggestions) clearEnglishSuggestions();
         englishSuggestionsEnabled = nextEnglishSuggestions;
         if (candidateTranslationsEnabled != nextCandidateTranslations
+                || candidateTranslationAccount != nextCandidateTranslationAccount
                 || !candidateTranslationTargets.equals(nextTranslationTargets)) {
             if (candidateTranslationStore != null) candidateTranslationStore.clear();
             invalidateCandidateGlosses();
         }
         candidateTranslationsEnabled = nextCandidateTranslations;
+        candidateTranslationAccount = nextCandidateTranslationAccount;
         candidateTranslationTargets = nextTranslationTargets;
         wubiCodeHint = nextWubiCodeHint;
         wubiMixedPinyin = nextWubiMixedPinyin;
@@ -1602,7 +1628,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void scheduleCandidateTranslations() {
-        if (!candidateTranslationsEnabled || session == 0 || view == null
+        if (!candidateTranslationAccount || session == 0 || view == null
                 || candidateTranslationStore == null
                 || !"none".equals(view.optString("local_mode", "none"))) return;
         if (view.optInt("scheme", -1) == 3) return;
@@ -1618,7 +1644,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void applyCandidateTranslations(long generation) {
-        if (!candidateTranslationsEnabled || session == 0 || view == null
+        if (!candidateTranslationAccount || session == 0 || view == null
                 || view.optLong("generation", -1) != generation) return;
         JSONArray entries = view.optJSONArray("candidates");
         if (entries == null || entries.length() == 0) return;
@@ -1850,7 +1876,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private int candidateGlossLineCount() {
         return CandidateTranslationPolicy.glossLines(
-            candidateTranslationTargets, candidateEnglishGloss, candidateTranslationsEnabled);
+            candidateTranslationTargets, candidateEnglishGloss, candidateTranslationAccount);
     }
 
     private void updateCandidateViewportHeight() {

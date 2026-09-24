@@ -192,6 +192,14 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             } else {
                 TranslationService::Off
             };
+            // The MSIME account gloss endpoint (api.msime.app) is used only when the user explicitly chose it and no service of their own takes precedence. Tencent counts only with usable secrets, because its default `enabled: true` is not a user choice.
+            let translation_account = preferences.candidate_translations
+                && preferences.translation_account
+                && !preferences.niutrans.enabled
+                && !custom_translation.enabled
+                && !(tencent.enabled
+                    && msime_client_core::translation::usable_tencent_secret(&tencent.secret_id)
+                    && msime_client_core::translation::usable_tencent_secret(&tencent.secret_key));
             // Selecting custom translation must never silently fall back to TMT.
             let tencent_tmt = (!custom_translation.enabled
                 && !preferences.niutrans.enabled
@@ -231,6 +239,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                     .collect::<Result<Vec<_>, _>>()?,
                 "candidates": candidates,
                 "provider": provider,
+                "translation_account": translation_account,
                 "custom_translation": custom_translation,
                 "tencent_tmt": tencent_tmt,
                 "niutrans": niutrans,

@@ -496,8 +496,8 @@ char *msime_client_ai_request_for_query(uint64_t session,
  * A zero length clears it. */
 char *msime_client_set_ai_credential(uint64_t session, const uint8_t *token,
                                      size_t token_length);
-/* Return null or {generation,target_language,candidates:[{text}], provider:"none"|"tencent"|"niutrans"|"custom", custom_translation:{enabled,endpoint,api_key}|null, tencent_tmt:{enabled,secret_id,secret_key,region}|null, niutrans:{enabled,app_id,apikey}|null} for visible candidates.
- * provider names the service selected in preferences even when its configuration is incomplete; a transport must ask that service or none, never fall back to another. Credentials are returned only for the selected usable provider. These fields are for host-owned transport; never log the query. The existing target_language applies to both providers.
+/* Return null or {generation,target_language,candidates:[{text}], provider:"none"|"tencent"|"niutrans"|"custom", translation_account:bool, custom_translation:{enabled,endpoint,api_key}|null, tencent_tmt:{enabled,secret_id,secret_key,region}|null, niutrans:{enabled,app_id,apikey}|null} for visible candidates.
+ * provider names the service selected in preferences even when its configuration is incomplete; a transport must ask that service or none, never fall back to another. Credentials are returned only for the selected usable provider. These fields are for host-owned transport; never log the query. The existing target_language applies to both providers. translation_account is true only when the user explicitly chose the MSIME account, candidate_translations is on and no service of the user's own applies; it is the whole decision for a host's account gloss path, which must send nothing when it is false.
  */
 char *msime_client_translation_query(uint64_t session);
 /* How long a cloud candidate is worth waiting for: connecting, and in total.

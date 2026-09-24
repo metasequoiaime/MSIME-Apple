@@ -43,6 +43,16 @@ public final class CandidateTranslationPolicy {
         return List.copyOf(result);
     }
 
+    /**
+     * Whether candidate words may be sent to the MSIME account endpoint (api.msime.app).
+     *
+     * <p>Only an explicit `translation_account` choice selects it, and a user's own NiuTrans or custom service always wins over it, so nothing is sent when the user never chose. This mirrors the `translation_account` rule in the shared core (`msime_client_translation_query` in `crates/host-api/src/ffi/providers.rs`) except for the Tencent clause: this host has no Tencent client and neither Android settings surface can enter Tencent credentials. The shared settings page also writes Tencent's `enabled` to false when the account is chosen; the native feature switch writes only `translation_account`. Plain booleans because the JVM smokes cannot load org.json.
+     */
+    public static boolean accountSelected(boolean candidateTranslations,
+            boolean translationAccount, boolean niutransEnabled, boolean customEnabled) {
+        return candidateTranslations && translationAccount && !niutransEnabled && !customEnabled;
+    }
+
     /** Count rows that can actually be filled by the enabled offline/online paths. */
     public static int glossLines(List<String> targets, boolean offlineEnglish, boolean online) {
         if (targets == null || targets.isEmpty()) return 0;

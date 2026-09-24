@@ -186,7 +186,7 @@ struct DictionarySettingsView: View {
           NavigationLink(destination: TranslationProviderSettingsView()) {
             Label("翻译服务", systemImage: "globe")
           }.accessibilityIdentifier("translationProviderLink")
-          Text("离线词库只有英汉两个方向，其余语言以及词库答不上来的词要联网才有。开启后键盘会把这一页的中文候选发给所选翻译服务（默认是水杉账号的翻译接口），需要允许键盘完全访问。")
+          Text("离线词库只有英汉两个方向，其余语言以及词库答不上来的词要联网才有。只有在「翻译服务」里选了服务，键盘才会把当前页的中文候选词发给它，需要允许键盘完全访问。")
             .font(.footnote).foregroundStyle(.secondary)
         }
         if saveFailed {

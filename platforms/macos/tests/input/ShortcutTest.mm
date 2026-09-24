@@ -4235,13 +4235,16 @@ static void TestTencentCandidateScheduling() {
 @interface AccountGlossSession : ShortcutSession
 @property(nonatomic, copy) NSArray *candidates;
 @property(nonatomic, copy) NSArray *applied;
+// Replaces the service choice the shared query reports; nil means the user explicitly chose the account.
+@property(nonatomic, copy) NSDictionary *choice;
 @end
 @implementation AccountGlossSession
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
-    // No custom_translation / tencent_tmt / niutrans: a user-owned translator takes precedence over the
-    // account endpoint, so the account gloss path is only reachable when none is configured.
-    return @{@"generation":@1, @"target_languages":@[@"en"], @"candidates":self.candidates ?: @[]};
+    // The account endpoint needs an explicit choice: the shared query reports translation_account only when the user selected it and no service of their own takes precedence.
+    NSMutableDictionary *query = [@{@"generation":@1, @"target_languages":@[@"en"], @"candidates":self.candidates ?: @[]} mutableCopy];
+    [query addEntriesFromDictionary:self.choice ?: @{@"translation_account":@YES, @"provider":@"none"}];
+    return query;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error; return @{@"generation":@1, @"scheme":@0, @"local_mode":@"none", @"candidates":@[]};
@@ -4339,6 +4342,32 @@ static void TestAccountGlossSkipsNonChineseCandidates() {
     // A candidate the shared layer never answered for is not sent either: absent is not permission.
     session.candidates = @[@{@"text":@"\u6d4b\u8bd5"}];
     assert(![controller currentAccountGlossRequest]);
+}
+
+// Nothing reaches api.msime.app unless the user chose the MSIME account. A query without the flag, one that says no, and one whose service is the user's own (even with no usable credentials in it) all leave the account path idle: no request is formed and none is remembered.
+static void TestAccountGlossRequiresExplicitChoice() {
+    NSString *suite = [@"msime.account-gloss-choice." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    AccountGlossSession *session = [AccountGlossSession new];
+    session.candidates = @[@{@"text":@"\u6d4b\u8bd5", @"online_gloss":@YES}];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    for (NSDictionary *choice in @[@{},
+                                   @{@"translation_account":@NO, @"provider":@"none"},
+                                   @{@"provider":@"tencent", @"tencent_tmt":NSNull.null},
+                                   @{@"provider":@"niutrans", @"niutrans":NSNull.null}]) {
+        session.choice = choice;
+        assert(![controller currentAccountGlossRequest]);
+        [controller synchronizeAccountGloss:[controller currentAccountGlossRequest]];
+        assert([controller valueForKey:@"accountGlossRequest"] == nil);
+    }
+    // The same page with the explicit choice does form a request, so the cases above fail for the reason they name.
+    session.choice = nil;
+    assert([controller currentAccountGlossRequest]);
 }
 
 static void TestCustomTranslationController() {
@@ -4779,6 +4808,7 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--translations") {
             TestGlossScheduling();
             TestAccountGlossSkipsNonChineseCandidates();
+            TestAccountGlossRequiresExplicitChoice();
             TestAccountGlossCacheIsSharedAcrossControllers();
             TestCustomTranslationController();
             TestSecondaryTranslationScheduling();
@@ -4807,6 +4837,7 @@ int main(int argc, char **argv) {
         TestCloudCandidatePreference();
         TestGlossScheduling();
         TestAccountGlossSkipsNonChineseCandidates();
+        TestAccountGlossRequiresExplicitChoice();
         TestAccountGlossCacheIsSharedAcrossControllers();
         TestCustomTranslationController();
         TestSecondaryTranslationScheduling();

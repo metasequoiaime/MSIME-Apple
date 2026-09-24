@@ -61,8 +61,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateGlossEpoch: UInt64 = 0
   private var candidateGlossRequestedGeneration: UInt64?
   private let translations = CandidateTranslationStore()
-  /// The translation service the shared document picks; `.none` means a chosen provider is incomplete and no words leave the device.
-  private var translationRoute: TranslationRoute = .account
+  /// The translation service the shared document picks; `.none` means nothing was chosen or the chosen provider is incomplete, and no words leave the device.
+  private var translationRoute: TranslationRoute = .none
   private lazy var onlineCandidates: OnlineCandidateProvider = {
     let provider = OnlineCandidateProvider(session: session)
     provider.onApplied = { [weak self] in self?.render($0) }
@@ -281,19 +281,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Height reserved below the candidate row for composition and configured gloss lines.
   /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
   static var stripExtraHeight: CGFloat {
-    stripExtraHeight(glossLines: configuredGlossLines(fullAccess: false))
+    stripExtraHeight(glossLines: configuredGlossLines(fullAccess: false, onlineRoute: false))
   }
 
-  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool) -> Bool {
+  /// `onlineRoute` is whether the shared document picks a translation service at all; without one a language that needs the network can never be filled.
+  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool, onlineRoute: Bool) -> Bool {
     !CandidateTranslationPreference.needsNetwork(language)
-      || (CandidateTranslationPreference.onlineEnabled && fullAccess)
+      || (CandidateTranslationPreference.onlineEnabled && fullAccess && onlineRoute)
   }
 
-  static func configuredGlossLines(fullAccess: Bool) -> Int {
+  static func configuredGlossLines(fullAccess: Bool, onlineRoute: Bool) -> Int {
     guard CandidateGlossPreference.enabled else { return 0 }
-    var lines = canFillGloss(CandidateTranslationPreference.primary, fullAccess: fullAccess) ? 1 : 0
+    var lines = canFillGloss(CandidateTranslationPreference.primary, fullAccess: fullAccess, onlineRoute: onlineRoute) ? 1 : 0
     if let secondary = CandidateTranslationPreference.secondary,
-       canFillGloss(secondary, fullAccess: fullAccess) {
+       canFillGloss(secondary, fullAccess: fullAccess, onlineRoute: onlineRoute) {
       lines += 1
     }
     return lines
@@ -2076,7 +2077,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func currentGlossLines() -> Int {
-    Self.configuredGlossLines(fullAccess: hasFullAccess)
+    Self.configuredGlossLines(fullAccess: hasFullAccess, onlineRoute: translationRoute != .none)
   }
 
   private var currentStripHeight: CGFloat {
@@ -3392,7 +3393,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     var languages = [CandidateTranslationPreference.primary]
     if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
     return languages
-      .filter { Self.canFillGloss($0, fullAccess: hasFullAccess) }
+      .filter { Self.canFillGloss($0, fullAccess: hasFullAccess, onlineRoute: translationRoute != .none) }
       .map {
         gloss(word: word, language: $0,
               offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
@@ -3440,6 +3441,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
                      scope: route.cacheScope)
     DiagnosticLog.shared.write("translation_route provider=\(route.provider?.rawValue ?? "none")")
+    // Rows reserved for network-only languages follow whether any service is chosen.
+    applyCandidateGlossLayout()
   }
 
   private func requestCandidateTranslations() {

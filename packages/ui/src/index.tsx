@@ -545,11 +545,11 @@ const macosHelpCards = [
     rows: [
       {
         term: "离线优先",
-        text: "常见词直接用本机词典，不联网、没有延迟。词典没收录的才会去问在线服务，所以生僻字和多字词可能要等半秒左右才出现。",
+        text: "常见词直接用本机词典，不联网、没有延迟。选了在线服务后，生僻字和多字词的释义可能要等半秒左右才出现。",
       },
       {
-        term: "需要账号",
-        text: "在线那部分走水杉账号。安装时会自动创建一个本机账号，通常不需要你做任何事。",
+        term: "在线释义",
+        text: "默认不联网。只有在「翻译服务」里选了腾讯云、小牛翻译、自定义服务或「水杉账号」后，才会把当前页的中文候选词发给所选服务；选「水杉账号」会发到 api.msime.app，首次使用时创建一个匿名账号。",
       },
       { term: "两种语言", text: "可以同时显示两种语言的释义，在输入页的候选词翻译里设置。" },
       {
@@ -709,6 +709,8 @@ export type Preferences = {
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   /** Optional second candidate-translation language; null/absent keeps one gloss row. */
   translation_secondary_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko" | null;
+  /** The user explicitly chose the MSIME account (api.msime.app) for candidate translations; absent means not chosen. */
+  translation_account?: boolean;
   /** Anonymous start and crash events; off by default and honoured only by the Windows Server. */
   telemetry_enabled?: boolean;
   floating_toolbar?: FloatingToolbarPreferences;
@@ -3737,14 +3739,20 @@ export function SettingsPage({
       ? "custom"
       : tencentTranslation.enabled
         ? "tencent"
-        : "none";
-  const setTranslationProvider = (provider: "none" | "custom" | "tencent" | "niutrans") => {
+        : macosPlatform && draft?.translation_account
+          ? "account"
+          : "none";
+  // One service at a time: the MSIME account is only ever used when chosen here, and any other choice clears it. A cleared choice is left undefined rather than false, because the saved document omits the key while it is false and an undone edit must compare equal to it again.
+  const setTranslationProvider = (
+    provider: "none" | "custom" | "tencent" | "niutrans" | "account",
+  ) => {
     if (!draft) return;
     setDraft({
       ...draft,
       custom_translation: { ...customTranslation, enabled: provider === "custom" },
       tencent_tmt: { ...tencentTranslation, enabled: provider === "tencent" },
       niutrans: { ...niutrans, enabled: provider === "niutrans" },
+      translation_account: provider === "account" ? true : undefined,
     });
   };
   const runCredentialTest = async (
@@ -6512,10 +6520,30 @@ export function SettingsPage({
                         </>
                       )}
                       {androidPlatform && (
-                        <p className="input-setting-description">
-                          Android 使用已登录的 MSIME
-                          在线服务处理候选词翻译；凭据保存在系统安全存储中，不会进入此设置页。
-                        </p>
+                        <>
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">
+                              使用水杉账号翻译候选词
+                              <small>
+                                当前页的中文候选词会发送到
+                                api.msime.app，首次使用会创建匿名账号；不开启则不联网翻译
+                              </small>
+                            </span>
+                            <input
+                              aria-label="使用水杉账号翻译候选词"
+                              className="toggle"
+                              type="checkbox"
+                              disabled={!candidateTranslations}
+                              checked={draft.translation_account ?? false}
+                              onChange={(event) =>
+                                event.target.checked
+                                  ? setTranslationProvider("account")
+                                  : setDraft({ ...draft, translation_account: undefined })
+                              }
+                            />
+                          </label>
+                        </>
                       )}
                     </div>
                     {!androidPlatform && (
@@ -6529,7 +6557,12 @@ export function SettingsPage({
                               value={translationProvider}
                               onChange={(event) =>
                                 setTranslationProvider(
-                                  event.target.value as "none" | "custom" | "tencent" | "niutrans",
+                                  event.target.value as
+                                    | "none"
+                                    | "custom"
+                                    | "tencent"
+                                    | "niutrans"
+                                    | "account",
                                 )
                               }
                             >
@@ -6537,6 +6570,11 @@ export function SettingsPage({
                               <option value="tencent">腾讯云机器翻译</option>
                               <option value="niutrans">小牛翻译（NiuTrans）</option>
                               <option value="custom">自定义 DeepLX 兼容服务</option>
+                              {macosPlatform && (
+                                <option value="account">
+                                  水杉账号（候选词发送到 api.msime.app）
+                                </option>
+                              )}
                             </select>
                           </label>
                         </div>
@@ -6747,6 +6785,10 @@ export function SettingsPage({
                                         ...tencentTranslation,
                                         enabled: event.target.checked,
                                       },
+                                      // Turning on a service of the user's own ends the account choice, so the account never keeps receiving candidates behind a visible selection.
+                                      ...(event.target.checked
+                                        ? { translation_account: undefined }
+                                        : {}),
                                     })
                                   }
                                 />
@@ -6920,6 +6962,10 @@ export function SettingsPage({
                                     ...customTranslation,
                                     enabled: event.target.checked,
                                   },
+                                  // Same rule as the Tencent switch: a service of the user's own ends the account choice.
+                                  ...(event.target.checked
+                                    ? { translation_account: undefined }
+                                    : {}),
                                 })
                               }
                             />

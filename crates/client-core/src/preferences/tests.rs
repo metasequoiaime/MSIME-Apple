@@ -274,6 +274,40 @@ fn telemetry_is_opt_in_and_survives_a_save() {
 }
 
 #[test]
+fn translation_account_is_opt_in_and_omitted_until_chosen() {
+    let defaults = Preferences::default();
+    assert!(!defaults.translation_account);
+    // An older strict parser must still read a document that never chose the account.
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert!(serialized.get("translation_account").is_none());
+    assert!(
+        !serde_json::from_value::<Preferences>(serialized.clone())
+            .unwrap()
+            .translation_account
+    );
+    let mut malformed = serialized;
+    malformed["translation_account"] = "yes".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let chosen = Preferences {
+        translation_account: true,
+        ..defaults
+    };
+    assert!(chosen.validate().is_ok());
+    assert_eq!(
+        serde_json::to_value(&chosen).unwrap()["translation_account"],
+        serde_json::Value::Bool(true)
+    );
+    let saved = store.save(0, chosen).unwrap();
+    assert!(saved.preferences.translation_account);
+    let loaded = store.load().unwrap().preferences;
+    assert!(loaded.translation_account);
+    assert!(!loaded.restored_to_defaults().translation_account);
+}
+
+#[test]
 fn secondary_candidate_translation_language_is_optional_and_round_trips() {
     let defaults = Preferences::default();
     let serialized = serde_json::to_value(&defaults).unwrap();
