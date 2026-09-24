@@ -274,8 +274,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  // Destroy on main, as MSIMEClientSession.mm does; the last reference can drop elsewhere.
   deinit {
-    if handle != 0 { _ = try? Self.decode(msimeClientDestroy(handle)) }
+    let handle = self.handle
+    guard handle != 0 else { return }
+    if Thread.isMainThread {
+      _ = try? Self.decode(msimeClientDestroy(handle))
+    } else {
+      DispatchQueue.main.async { _ = try? MetasequoiaInputSessionBridge.decode(msimeClientDestroy(handle)) }
+    }
   }
 
   /// The directory this session reads its preference document from; nil when preparing the runtime failed.
@@ -295,8 +302,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func reloadSharedPreferences(completion: @escaping (Bool) -> Void) {
     guard handle != 0, let stateRoot else { completion(false); return }
     let path = Data(stateRoot.utf8)
+    // No strong self here: the main closure checks it, and a strong ref could make deinit run off main.
     DispatchQueue.global(qos: .utility).async { [weak self, path] in
-      guard self != nil else { return }
       let snapshot: [String: Any]?
       do {
         snapshot = try path.withUnsafeBytes { bytes in
@@ -1143,6 +1150,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       try createFocusedSession()
       throw error
     }
+  }
+
+  /// The core's transient lease conflict; the text is fixed by crates/host-api/src/dictionary_snapshot.rs.
+  static func isSnapshotBusy(_ error: Error) -> Bool {
+    if case .response("snapshot access busy") = error as? InputBridgeFailure { return true }
+    return false
   }
 
   func applyPersonalPrevious(_ previous: [String: Any]?, replacement: [String: Any]?, requestID: String) throws {

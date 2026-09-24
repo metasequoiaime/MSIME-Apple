@@ -16,16 +16,18 @@ static void VoicePhase(uint8_t phase, void *opaque) { auto *c=(VoiceStreamContex
 
 struct SnapshotReaderContext { MSIMESnapshotNextRecord block; };
 static intptr_t SnapshotNext(void *opaque, uint8_t *buffer, size_t capacity) {
-    auto *context = static_cast<SnapshotReaderContext *>(opaque);
-    NSError *failure = nil;
-    NSDictionary *record = context->block(&failure);
-    if (failure) return -1;
-    if (!record) return 0;
-    NSError *serializationError = nil;
-    NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:&serializationError];
-    if (serializationError || !data || data.length == 0 || data.length > capacity) return -1;
-    memcpy(buffer, data.bytes, data.length);
-    return static_cast<intptr_t>(data.length);
+    @autoreleasepool {
+        auto *context = static_cast<SnapshotReaderContext *>(opaque);
+        NSError *failure = nil;
+        NSDictionary *record = context->block(&failure);
+        if (failure) return -1;
+        if (!record) return 0;
+        NSError *serializationError = nil;
+        NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:&serializationError];
+        if (serializationError || !data || data.length == 0 || data.length > capacity) return -1;
+        memcpy(buffer, data.bytes, data.length);
+        return static_cast<intptr_t>(data.length);
+    }
 }
 
 static id decodeValue(char *response, NSError **error) {

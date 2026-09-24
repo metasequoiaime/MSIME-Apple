@@ -104,13 +104,8 @@ final class DictionarySnapshotWorker {
         self?.task = nil
       }
     } catch {
-      let native = error as NSError
-      if native.domain == "app.msime.snapshot", native.code == 423 { return }
-      if native.domain == "app.msime.snapshot", native.code == 409 {
-        // A different session changed the journal before exclusive publication.
-        // Keep the prepared job; the next tick records the fresh version conflict.
-        return
-      }
+      // Another holder has the snapshot lease: keep the prepared job and retry next tick.
+      if MetasequoiaInputSessionBridge.isSnapshotBusy(error) { return }
       if case DictionarySnapshotQueue.Failure.busy = error { return }
       if let prepared, let version = try? session.localDictionaryStateVersion() {
         if version.hasPrefix("local-v1:" + prepared.request.id.uuidString + ":") {

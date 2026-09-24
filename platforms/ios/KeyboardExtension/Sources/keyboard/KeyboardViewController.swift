@@ -58,6 +58,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }()
   private let candidateGlossQueue = DispatchQueue(
     label: "app.msime.ios.candidate-gloss", qos: .utility)
+  private let statisticsQueue = DispatchQueue(
+    label: "app.msime.ios.typing-statistics", qos: .utility)
   private var candidateGlossEpoch: UInt64 = 0
   private var candidateGlossRequestedGeneration: UInt64?
   private let translations = CandidateTranslationStore()
@@ -3231,14 +3233,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // Swallowing this left the settings screen showing zeros with nothing to explain them, which is
   // how it reached a bug report rather than the person typing. The reason does not change between
   // keystrokes and a banner on each one would bury the composition, so it is said once per session.
+  // The store locks, rewrites and fsyncs per commit, so it runs off main on a serial queue.
   private func recordTypingStatistics(_ text: String, source: TypingSource) {
     guard hasFullAccess else { return }
-    do {
-      try TypingStatisticsStore().record(text, source: source)
-    } catch {
-      guard !reportedStatisticsFailure else { return }
-      reportedStatisticsFailure = true
-      showDiagnostic("统计未能写入：\(error.localizedDescription)")
+    let date = Date()
+    statisticsQueue.async { [weak self] in
+      do {
+        try TypingStatisticsStore().record(text, source: source, at: date)
+      } catch {
+        let message = error.localizedDescription
+        DispatchQueue.main.async { [weak self] in
+          guard let self, !self.reportedStatisticsFailure else { return }
+          self.reportedStatisticsFailure = true
+          self.showDiagnostic("统计未能写入：\(message)")
+        }
+      }
     }
   }
 

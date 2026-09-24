@@ -133,15 +133,18 @@ private final class SnapshotRecordBox {
   init(_ nextRecord: @escaping DictionarySnapshotBridge.NextRecord) { self.nextRecord = nextRecord }
 }
 
+// One pool per record; otherwise every record's temporaries live until the import ends.
 private let snapshotNext: SnapshotNext = { context, buffer, capacity in
-  guard let context, let buffer, capacity > 0 else { return -1 }
-  let box = Unmanaged<SnapshotRecordBox>.fromOpaque(context).takeUnretainedValue()
-  var error: NSError?
-  let record = withUnsafeMutablePointer(to: &error) { box.nextRecord($0) }
-  if error != nil { return -1 }
-  guard let record, let data = try? JSONSerialization.data(withJSONObject: record), data.count <= capacity else {
-    return record == nil ? 0 : -1
+  autoreleasepool { () -> Int in
+    guard let context, let buffer, capacity > 0 else { return -1 }
+    let box = Unmanaged<SnapshotRecordBox>.fromOpaque(context).takeUnretainedValue()
+    var error: NSError?
+    let record = withUnsafeMutablePointer(to: &error) { box.nextRecord($0) }
+    if error != nil { return -1 }
+    guard let record, let data = try? JSONSerialization.data(withJSONObject: record), data.count <= capacity else {
+      return record == nil ? 0 : -1
+    }
+    data.copyBytes(to: buffer, count: data.count)
+    return data.count
   }
-  data.copyBytes(to: buffer, count: data.count)
-  return data.count
 }
