@@ -4917,24 +4917,26 @@ static void TestOfflineTargetGlosses() {
     [controller setValue:session forKey:@"session"];
     [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
     void (^settle)(void) = ^{
-        NSUInteger applyCount = session.applyCount;
         [controller synchronizeCandidateGloss];
         [controller synchronizeTargetGloss];
         NSOperationQueue *glossQueue = [controller valueForKey:@"glossQueue"];
         NSOperationQueue *targetGlossQueue = [controller valueForKey:@"targetGlossQueue"];
-        // Only wait when this call actually enqueued work. Some generations intentionally
-        // reuse an already completed request (or have no offline target), so waiting for a
-        // new apply in those cases would turn a valid no-op into a sanitizer timeout.
-        BOOL scheduled = glossQueue.operationCount != 0 || targetGlossQueue.operationCount != 0;
         [glossQueue waitUntilAllOperationsAreFinished];
         [targetGlossQueue waitUntilAllOperationsAreFinished];
-        // The worker queues only enqueue their apply blocks on the main queue. On a loaded
-        // runner, a fixed 200 ms drain can return before both applies have run, leaving the
-        // test to assert against a stale (or nil) delivery. Wait for the applies that this
-        // request actually scheduled, while retaining a bounded timeout for a real failure.
-        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:(scheduled ? 3.0 : 0.2)];
-        while (deadline.timeIntervalSinceNow > 0 && session.applyCount == applyCount)
+        // Each worker ends by dispatching its apply to the main queue, so once both queues are
+        // finished both of those blocks are already sitting in it, and a block enqueued now is
+        // behind them: when this one runs, theirs have run. That is the whole condition, and it
+        // needs no guess about how many applies a generation produces — waiting for a single
+        // apply passed unloaded and failed under the sanitizer, where the English gloss landed
+        // while the offline target one was still pending and the first assertion compared
+        // against half a delivery. The deadline is only here so a genuine hang fails as a test
+        // rather than as a timeout.
+        __block BOOL drained = NO;
+        dispatch_async(dispatch_get_main_queue(), ^{ drained = YES; });
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5.0];
+        while (!drained && deadline.timeIntervalSinceNow > 0)
             [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+        assert(drained);
     };
     // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
     settle();
