@@ -713,7 +713,12 @@ add_test(NAME shortcut COMMAND shortcut-test)
 # The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
 set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")
 file(MAKE_DIRECTORY "${MSIME_SHORTCUT_TEST_HOME}")
-set_tests_properties(shortcut PROPERTIES TIMEOUT 90 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
+# The ceiling is for the sanitizer leg, where the same binary takes several times as long: measured
+# at about 16 s unsanitized and about 120 s under AddressSanitizer on one machine. A ceiling that
+# only fits the unsanitized run turns the slow leg into a timeout that says nothing about the code,
+# which is the opposite of what this number is here to do. It is still an order below the leg's own
+# 300 s ctest ceiling, so a genuinely stuck run is still this test's failure rather than the job's.
+set_tests_properties(shortcut PROPERTIES TIMEOUT 240 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_test(NAME shortcut-translations COMMAND shortcut-test --translations)
 set_tests_properties(shortcut-translations PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_executable(voice-hold-shortcut-test tests/voice/VoiceHoldShortcutTest.mm)
