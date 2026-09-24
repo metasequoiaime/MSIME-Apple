@@ -36,7 +36,7 @@ Check (Test-Path -LiteralPath $app.ServerPath -PathType Leaf) "ServerPath points
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir 'config.toml') -PathType Leaf) 'user config.toml created in DataDir'
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir '.metasequoiaime-data') -PathType Leaf) 'DataDir ownership marker written'
 # The three voice runtime libraries are what the Server loads for on-device speech recognition; Build-Client.ps1 stages them for every release package.
-foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe',
+foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME Client Preview.exe',
     'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll') {
     Check (Test-Path -LiteralPath (Join-Path $pf64 "server\$name") -PathType Leaf) "server\$name installed"
 }

@@ -14,8 +14,10 @@ param(
     # Deprecated: both resource layouts now use DesktopResourcesDirectory.
     [string]$DictionaryDirectory = 'MetasequoiaImeDict',
     [string]$ServerReleaseDirectory = '',
-    # Tauri release binary; relative overrides are resolved against RepoRoot.
-    [string]$DesktopExecutable = 'target/release/msime-desktop.exe',
+    # Native WinUI 3 settings binary; relative overrides are resolved against RepoRoot.
+    [string]$DesktopExecutable = 'target/windows-full/x64/bin/msime-client-settings.exe',
+    # Optional shared Tauri panel shell. The normal consolidated build stages it beside the Server.
+    [string]$DesktopPreviewExecutable = '',
     # Exact files from resources/desktop-dictionary.lock.json; full packages only.
     [string]$DesktopResourcesDirectory = 'target/desktop-resources',
     [string]$Tsf32ReleaseDirectory = '',
@@ -80,6 +82,17 @@ $desktopSource = if (-not $PSBoundParameters.ContainsKey('DesktopExecutable') -a
 } else {
     Join-Path $RepoRoot $DesktopExecutable
 }
+$previewSource = $null
+if ($DesktopPreviewExecutable) {
+    $previewSource = if ([IO.Path]::IsPathRooted($DesktopPreviewExecutable)) {
+        $DesktopPreviewExecutable
+    } else {
+        Join-Path $RepoRoot $DesktopPreviewExecutable
+    }
+} else {
+    $stagedPreview = Join-Path $serverRelease 'MSIME Client Preview.exe'
+    if (Test-Path -LiteralPath $stagedPreview -PathType Leaf) { $previewSource = $stagedPreview }
+}
 $dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
 if (-not $Tsf32ReleaseDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot 'target/windows-full/x86/bin') -PathType Container)) {
     $Tsf32ReleaseDirectory = 'target/windows-full/x86/bin'
@@ -135,7 +148,10 @@ $handwritingProvenance = Join-Path $RepoRoot 'vendor\MSIME-Engine\handwriting\pr
 
 Assert-PathExists -LiteralPath $RepoRoot -Description '源码仓库根目录'
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) {
-    throw "缺少 Tauri 外壳，请先构建或通过 -DesktopExecutable 指定：$desktopSource"
+    throw "缺少 WinUI 3 设置窗口，请先构建或通过 -DesktopExecutable 指定：$desktopSource"
+}
+if ($DesktopPreviewExecutable -and -not (Test-Path -LiteralPath $previewSource -PathType Leaf)) {
+    throw "缺少 Tauri 面板外壳，请先构建或通过 -DesktopPreviewExecutable 指定：$previewSource"
 }
 Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输出目录'
 Assert-PathExists -LiteralPath (Join-Path $serverRelease 'MetasequoiaImeWatchdog.exe') -Description 'Watchdog Release EXE'
@@ -299,6 +315,13 @@ if (Test-Path -LiteralPath $targetDesktopPdb) { Remove-Item -LiteralPath $target
 $desktopPdbSource = [IO.Path]::ChangeExtension($desktopSource, '.pdb')
 if (Test-Path -LiteralPath $desktopPdbSource -PathType Leaf) {
     Copy-Item -LiteralPath $desktopPdbSource -Destination $targetDesktopPdb
+}
+if ($previewSource) {
+    Copy-Item -LiteralPath $previewSource -Destination (Join-Path $targetServer 'MSIME Client Preview.exe') -Force
+    $previewPdbSource = [IO.Path]::ChangeExtension($previewSource, '.pdb')
+    if (Test-Path -LiteralPath $previewPdbSource -PathType Leaf) {
+        Copy-Item -LiteralPath $previewPdbSource -Destination (Join-Path $targetServer 'MSIME Client Preview.pdb') -Force
+    }
 }
 # Inno recursively installs server_exe under Program Files. Keep these verified
 # read-only sources separate from legacy app_data and per-user writable state.
