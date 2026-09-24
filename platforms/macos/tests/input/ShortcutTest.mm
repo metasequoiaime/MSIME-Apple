@@ -6388,7 +6388,6 @@ int main(int argc, char **argv) {
                 NSUInteger punctuationCalls = session.enginePunctuationCalls;
                 NSUInteger asciiPunctuationCalls = session.punctuationASCIICalls;
                 NSString *fallbackCommit = [@"GitHub" stringByAppendingString:[character isEqual:@"-"] ? @"-" : [character isEqual:@"["] ? @"【" : [character isEqual:@"]"] ? @"】" : @"＝"];
-                session.enginePunctuationTransition = @{@"handled": @YES, @"commit": fallbackCommit, @"view": edgeView};
                 session.punctuationASCIITransition = @{@"handled": @YES, @"commit": fallbackCommit, @"view": edgeView};
                 client.committed = nil;
                 session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": edgeView};
