@@ -796,7 +796,7 @@ note "rust tests"
 # all collects no failing names and is reported as being at baseline. msime-desktop did not link on macOS
 # for that reason, and its 86 tests had never run.
 for package in msime-client-core msime-host-api msime-input-runtime msime-host-windows \
-  msime-host-macos msime-desktop; do
+  msime-host-macos msime-mcp-server msime-desktop; do
   # A package that does not build produces no failing test names, which reads as "at baseline" - which is
   # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
   cargo test -p "$package" --no-fail-fast > "$collected.$package" 2>&1 || true
@@ -831,17 +831,14 @@ else
 fi
 
 note "clippy: first-party crates"
-# The header promised clippy for a long time without running it anywhere; the
-# disabled CI workflow was the only place it had ever run. All seven crates
-# under crates/ are clean at -D warnings today, so this is a hard gate with no
-# baseline - if it starts failing, the change under test caused it.
+# The header promised clippy for a long time without running it anywhere; the disabled CI workflow was the only place it had ever run. All eight crates below are clean at -D warnings today, so this is a hard gate with no baseline - if it starts failing, the change under test caused it.
 #
 # The workspace as a whole is not gated: apps/desktop needs a built frontend
 # before its Tauri build script will run, which makes "clippy failed" and
 # "frontend not built" indistinguishable on a developer machine.
 clippy_failed=""
 for crate in msime-client-core msime-engine-bridge msime-host-api msime-host-macos \
-             msime-host-windows msime-input-runtime msime-tauri-mobile-platform; do
+             msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform; do
   cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
     clippy_failed="$clippy_failed  $crate"$'\n'
 done

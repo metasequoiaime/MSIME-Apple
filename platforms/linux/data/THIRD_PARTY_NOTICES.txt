@@ -15,6 +15,8 @@ Components compiled into the shared host library (libmsime_host_api.so, in the m
 
 The desktop settings binary (msime-client-desktop, started by msime-client-settings) statically links its own Rust crate graph, including reqwest with rustls and the webpki-roots certificate data (CDLA-Permissive-2.0); those crates are in rust-crates-NOTICES.txt as well. Its embedded web frontend is bundled from npm packages (React, @tauri-apps/api and their dependencies), whose license files are in frontend-npm-NOTICES.txt.
 
+The MCP server (msime-mcp) statically links its own Rust crate graph, including rmcp (the Model Context Protocol Rust SDK) and schemars; those crates are in rust-crates-NOTICES.txt as well.
+
 Compiled into the native IBus engine, the provider programs and the Fcitx5 addon without a runtime package of their own:
 
 * nlohmann/json, header-only — MIT (nlohmann_json-MIT.txt).
