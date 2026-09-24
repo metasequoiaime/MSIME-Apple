@@ -219,104 +219,55 @@ constexpr NSInteger kVoicePageIndex = 11;
 - (BOOL)isFlipped { return YES; }
 @end
 
-/// The window surface behind the cards. `windowBackgroundColor` against `controlBackgroundColor`
-/// cards is the system's own raised pairing, and it inverts correctly on its own: light cards on a
-/// darker window in Aqua, darker cards on a lighter window in Dark Aqua.
-@interface MSIMESettingsSurface : NSView
-/// Cmd+F reaches the search field from anywhere in the window, the way it does in Finder and in
-/// System Settings. Without it the field is mouse-only, or a tab through every control on the page.
-@property(nonatomic, weak) NSSearchField *searchField;
+/// One row of the sidebar source list: a group heading when it has children, one page when it does
+/// not. The outline view holds these rather than the pages themselves, so that the order the sidebar
+/// reads in and the order `_preferencePages` is built in stay independent of one another.
+@interface MSIMESettingsSidebarItem : NSObject
+@property(nonatomic, copy) NSString *title;
+@property(nonatomic, copy) NSString *symbolName;
+@property(nonatomic) NSInteger pageIndex;
+@property(nonatomic, copy) NSArray<MSIMESettingsSidebarItem *> *children;
 @end
-@implementation MSIMESettingsSurface
-- (void)drawRect:(NSRect)rect {
-    [[NSColor windowBackgroundColor] setFill];
-    NSRectFill(rect);
-}
-- (BOOL)performKeyEquivalent:(NSEvent *)event {
-    const NSEventModifierFlags flags = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
-    if (flags == NSEventModifierFlagCommand && [event.charactersIgnoringModifiers isEqualToString:@"f"] &&
-        self.searchField != nil) {
-        [self.window makeFirstResponder:self.searchField];
-        return YES;
-    }
-    return [super performKeyEquivalent:event];
-}
+@implementation MSIMESettingsSidebarItem
 @end
 
-/// The sidebar is the system sidebar material rather than a painted panel, so it picks up the
-/// translucency, the separator and the behind-window blur that every other Mac sidebar has.
-static NSVisualEffectView *SettingsSidebarView(void) {
-    NSVisualEffectView *sidebar = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
-    sidebar.material = NSVisualEffectMaterialSidebar;
-    sidebar.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    sidebar.state = NSVisualEffectStateActive;
-    sidebar.translatesAutoresizingMaskIntoConstraints = NO;
-    return sidebar;
-}
+/// The toolbar items this window owns. The toggle, the flexible space and the tracking separator
+/// are the system's, so only the search field and the overflow menu need names of their own.
+static NSToolbarItemIdentifier const MSIMESettingsSearchItemIdentifier = @"MSIMESettingsSearchItem";
+static NSToolbarItemIdentifier const MSIMESettingsSeparatorItemIdentifier = @"MSIMESettingsSidebarSeparator";
+static NSToolbarItemIdentifier const MSIMESettingsMoreItemIdentifier = @"MSIMESettingsMoreItem";
 
-/// Sidebar row: the accent-filled rounded rect AppKit selects source-list rows with, drawn rather
-/// than assembled from subviews so the icon and label keep fixed offsets.
-@interface MSIMESettingsNavigationButton : NSButton
-@end
-@implementation MSIMESettingsNavigationButton
-- (void)drawRect:(NSRect)rect {
-    (void)rect;
-    const BOOL selected = self.state == NSControlStateValueOn;
-    NSColor *foreground = selected ? NSColor.alternateSelectedControlTextColor : NSColor.labelColor;
-    if (selected) {
-        [[NSColor controlAccentColor] setFill];
-        [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:5.0 yRadius:5.0] fill];
+/// ⌘F reaches the search field from anywhere in the window, the way it does in Finder and in System
+/// Settings. It used to be a `performKeyEquivalent:` override on the window's own content view,
+/// which is a key equivalent no menu knows about: nothing discoverable said the window could be
+/// searched, and the shortcut was invisible to anyone who had not read the source. The search field
+/// lives in the toolbar now, so the shortcut belongs where every other Mac puts it.
+static void MSIMEInstallFindSettingsMenuItem(id target, SEL action) {
+    NSMenu *mainMenu = NSApp.mainMenu;
+    if (mainMenu == nil) {
+        mainMenu = [[NSMenu alloc] initWithTitle:@""];
+        // AppKit draws the first submenu of the main menu as the application menu whatever its
+        // title is, so 编辑 cannot be the first one: its items would come out under the app's name.
+        NSMenuItem *application = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
+        application.submenu = [[NSMenu alloc] initWithTitle:NSProcessInfo.processInfo.processName];
+        [mainMenu addItem:application];
+        NSApp.mainMenu = mainMenu;
     }
-    NSImageSymbolConfiguration *configuration = [[NSImageSymbolConfiguration
-        configurationWithPointSize:kBodyFontSize weight:NSFontWeightRegular]
-        configurationByApplyingConfiguration:[NSImageSymbolConfiguration
-                                                 configurationWithPaletteColors:@[foreground]]];
-    const CGFloat glyph = 16.0;
-    [[self.image imageWithSymbolConfiguration:configuration]
-        drawInRect:NSMakeRect(8.0, (NSHeight(self.bounds) - glyph) / 2.0, glyph, glyph)];
-    NSDictionary *attributes = @{
-        NSFontAttributeName : [NSFont systemFontOfSize:kBodyFontSize],
-        NSForegroundColorAttributeName : foreground,
-    };
-    NSSize size = [self.title sizeWithAttributes:attributes];
-    [self.title drawAtPoint:NSMakePoint(32.0, (NSHeight(self.bounds) - size.height) / 2.0) withAttributes:attributes];
-    if (self.window.firstResponder == self) {
-        [NSColor.keyboardFocusIndicatorColor setStroke];
-        [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1.0, 1.0) xRadius:5.0 yRadius:5.0] stroke];
+    NSMenu *edit = nil;
+    for (NSMenuItem *item in mainMenu.itemArray)
+        if ([item.submenu.title isEqualToString:@"编辑"]) { edit = item.submenu; break; }
+    if (edit == nil) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"编辑" action:nil keyEquivalent:@""];
+        item.submenu = [[NSMenu alloc] initWithTitle:@"编辑"];
+        [mainMenu addItem:item];
+        edit = item.submenu;
     }
-}
-/// Arrow keys walk the sidebar and switch pages as they go, which is what a source list does. These
-/// are plain buttons, so without this the arrows do nothing and the sidebar is mouse-only.
-- (void)keyDown:(NSEvent *)event {
-    const unichar key =
-        event.charactersIgnoringModifiers.length ? [event.charactersIgnoringModifiers characterAtIndex:0] : 0;
-    if (key != NSUpArrowFunctionKey && key != NSDownArrowFunctionKey) {
-        [super keyDown:event];
-        return;
-    }
-    NSMutableArray<MSIMESettingsNavigationButton *> *peers = [NSMutableArray array];
-    for (NSView *view in self.superview.subviews)
-        if ([view isKindOfClass:MSIMESettingsNavigationButton.class])
-            [peers addObject:(MSIMESettingsNavigationButton *)view];
-    const NSUInteger here = [peers indexOfObjectIdenticalTo:self];
-    if (here == NSNotFound) {
-        [super keyDown:event];
-        return;
-    }
-    const NSInteger next = (NSInteger)here + (key == NSDownArrowFunctionKey ? 1 : -1);
-    if (next < 0 || next >= (NSInteger)peers.count) return;
-    [self.window makeFirstResponder:peers[next]];
-    [peers[next] performClick:nil];
-}
-@end
-
-/// The heading above a run of sidebar items. Four groups with no headings is four gaps, which says
-/// there is a grouping without saying what it groups by.
-static NSTextField *SidebarGroupLabel(NSString *title) {
-    NSTextField *label = [NSTextField labelWithString:title];
-    label.font = [NSFont systemFontOfSize:11.0 weight:NSFontWeightSemibold];
-    label.textColor = [NSColor secondaryLabelColor];
-    return label;
+    for (NSMenuItem *item in edit.itemArray)
+        if (item.action == action) { item.target = target; return; }
+    NSMenuItem *find = [[NSMenuItem alloc] initWithTitle:@"查找设置" action:action keyEquivalent:@"f"];
+    find.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+    find.target = target;
+    [edit addItem:find];
 }
 
 /// A scheme choice: the radio on the left, its scheme-specific popup trailing and disabled until
@@ -389,8 +340,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         [document.topAnchor constraintEqualToAnchor:page.contentView.topAnchor],
         [stack.leadingAnchor constraintEqualToAnchor:document.leadingAnchor constant:kPageMargin],
         [stack.trailingAnchor constraintEqualToAnchor:document.trailingAnchor constant:-kPageMargin],
-        // Clears the traffic lights: the page scrolls under a transparent titlebar.
-        [stack.topAnchor constraintEqualToAnchor:document.topAnchor constant:kSidebarTopInset],
+        // The page itself is pinned under the titlebar's safe area, so what is left here is the page
+        // margin. The 46pt that used to sit here was the height of the traffic lights, measured by
+        // hand; it survived the window growing a toolbar as a title laid out at y = -59.
+        [stack.topAnchor constraintEqualToAnchor:document.topAnchor constant:kPageMargin],
         [stack.bottomAnchor constraintLessThanOrEqualToAnchor:document.bottomAnchor constant:-kPageMargin],
     ]];
     NSLayoutConstraint *height = [document.heightAnchor constraintEqualToAnchor:page.contentView.heightAnchor];
@@ -410,16 +363,23 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 @implementation MSIMESettingsSearchEntry
 @end
 
-@interface MSIMEAppearancePreferences ()
+@interface MSIMEAppearancePreferences () <NSToolbarDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate>
 @end
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSArray<NSView *> *_preferencePages;
-    NSArray<NSButton *> *_sidebarButtons;
     NSArray<NSString *> *_pageTitles;
+    NSSplitViewController *_splitViewController;
+    NSOutlineView *_sidebarOutline;
+    NSScrollView *_sidebarScroll;
+    NSArray<MSIMESettingsSidebarItem *> *_sidebarGroups;
+    /// Selecting a row shows a page, and showing a page selects its row; without this the second
+    /// half of that pair would answer the first.
+    BOOL _updatingSidebarSelection;
+    NSSearchToolbarItem *_searchToolbarItem;
     NSSearchField *_searchField;
-    NSStackView *_navigationStack;
+    NSScrollView *_searchResultsScroll;
     NSStackView *_searchResultsStack;
     NSArray<MSIMESettingsSearchEntry *> *_searchIndex;
     NSBox *_shuangpinCard;
@@ -1842,12 +1802,14 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
                                                        defer:NO];
     window.title = @"水杉输入法设置";
     window.restorable = NO;
-    // The sidebar runs the full height of the window behind a transparent titlebar, the way every
-    // other Mac sidebar window does. Keeping the title bar opaque cuts the window in two at the
-    // top and leaves the sidebar material starting halfway down.
-    window.titlebarAppearsTransparent = YES;
-    window.titleVisibility = NSWindowTitleHidden;
-    window.contentMinSize = NSMakeSize(760, 520);
+    // The unified toolbar is where the title goes now, and it says which page is in front of the
+    // user — the first thing in this window's chrome that ever did. A transparent titlebar was what
+    // the hand-pinned sidebar needed to run full height behind it; the split view's sidebar item
+    // does that itself, and asking for both leaves the toolbar drawing on nothing.
+    window.titleVisibility = NSWindowTitleVisible;
+    // 800 rather than 760: the sidebar can be dragged to kSidebarMaxWidth, and what is left after
+    // it and the two page margins has to stay above kContentColumnMin.
+    window.contentMinSize = NSMakeSize(800, 520);
     window.releasedWhenClosed = NO;
     _layoutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_layoutButton addItemsWithTitles:@[@"横向排列", @"纵向列表"]];
@@ -2415,33 +2377,13 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMESectionLabel(@"扩展输入模式"), localModesCard,
     ]);
 
-    // The index is both the page index and the navigation button tag. Every page has a sidebar item
-    // now that 五笔 folds into 输入, so the two lists line up one to one.
+    // The index is both the page index and the sidebar item's page index. Every page has a sidebar
+    // item now that 五笔 folds into 输入, so the two lists line up one to one.
     _preferencePages = @[
         generalPage, appearancePage, skinPage, dataPage, aboutPage, helpcodePage, shortcutsPage,
         floatingPage, accountPage, helpPage, feedbackPage, voicePage, utilitiesPage,
     ];
 
-    MSIMESettingsSurface *contentView = [[MSIMESettingsSurface alloc] initWithFrame:window.contentView.frame];
-    window.contentView = contentView;
-    NSVisualEffectView *sidebar = SettingsSidebarView();
-    sidebar.accessibilityLabel = @"水杉输入法导航";
-    _searchField = [[NSSearchField alloc] initWithFrame:NSZeroRect];
-    _searchField.placeholderString = @"搜索设置";
-    _searchField.accessibilityLabel = @"搜索设置";
-    _searchField.controlSize = NSControlSizeSmall;
-    _searchField.font = [NSFont systemFontOfSize:kBodyFontSize];
-    _searchField.sendsWholeSearchString = NO;
-    _searchField.sendsSearchStringImmediately = YES;
-    _searchField.target = self;
-    _searchField.action = @selector(searchChanged:);
-    _searchField.translatesAutoresizingMaskIntoConstraints = NO;
-    contentView.searchField = _searchField;
-    NSStackView *navigation = [NSStackView stackViewWithViews:@[]];
-    navigation.orientation = NSUserInterfaceLayoutOrientationVertical;
-    navigation.alignment = NSLayoutAttributeLeading;
-    navigation.spacing = 1.0;
-    navigation.translatesAutoresizingMaskIntoConstraints = NO;
     NSArray<NSString *> *navigationLabels = @[
         @"输入", @"外观", @"皮肤", @"词库", @"关于", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号", @"帮助",
         @"反馈", @"语音输入", @"实用功能",
@@ -2461,100 +2403,148 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         @[@3, @8],                // 词库 · 账号
         @[@9, @10, @4],           // 帮助 · 反馈 · 关于
     ];
-    NSMutableArray<NSButton *> *navigationButtons = [NSMutableArray array];
+    NSMutableArray<MSIMESettingsSidebarItem *> *sidebarGroups = [NSMutableArray array];
     for (NSUInteger groupIndex = 0; groupIndex < navigationGroups.count; ++groupIndex) {
-        NSTextField *heading = SidebarGroupLabel(groupTitles[groupIndex]);
-        heading.translatesAutoresizingMaskIntoConstraints = NO;
-        [navigation addArrangedSubview:heading];
-        [navigation setCustomSpacing:4.0 afterView:heading];
-        NSButton *lastInGroup = nil;
+        NSMutableArray<MSIMESettingsSidebarItem *> *members = [NSMutableArray array];
         for (NSNumber *pageIndex in navigationGroups[groupIndex]) {
-            NSInteger index = pageIndex.integerValue;
-            NSButton *button = [[MSIMESettingsNavigationButton alloc] initWithFrame:NSZeroRect];
-            button.title = navigationLabels[index];
-            button.target = self;
-            button.action = @selector(selectPreferencesPage:);
-            button.tag = index;
-            [button setButtonType:NSButtonTypePushOnPushOff];
-            button.bordered = NO;
-            button.alignment = NSTextAlignmentLeft;
-            button.imagePosition = NSImageLeft;
-            button.image = [NSImage imageWithSystemSymbolName:navigationSymbols[index] accessibilityDescription:nil];
-            button.accessibilityLabel = navigationLabels[index];
-            [navigation addArrangedSubview:button];
-            [button.widthAnchor constraintEqualToAnchor:navigation.widthAnchor].active = YES;
-            [button.heightAnchor constraintEqualToConstant:kSidebarRowHeight].active = YES;
-            [navigationButtons addObject:button];
-            lastInGroup = button;
+            const NSInteger index = pageIndex.integerValue;
+            MSIMESettingsSidebarItem *member = [MSIMESettingsSidebarItem new];
+            member.title = navigationLabels[index];
+            member.symbolName = navigationSymbols[index];
+            member.pageIndex = index;
+            [members addObject:member];
         }
-        if (lastInGroup != nil && groupIndex + 1 < navigationGroups.count)
-            [navigation setCustomSpacing:14.0 afterView:lastInGroup];
+        MSIMESettingsSidebarItem *group = [MSIMESettingsSidebarItem new];
+        group.title = groupTitles[groupIndex];
+        group.pageIndex = -1;
+        group.children = members;
+        [sidebarGroups addObject:group];
     }
-    _sidebarButtons = navigationButtons;
-    _navigationStack = navigation;
+    _sidebarGroups = sidebarGroups;
+
+    // The sidebar is a source list, not thirteen push-on buttons in a stack view. What the system
+    // brings with it is everything the drawn version had to imitate and mostly did not: desaturating
+    // when the window loses focus, hover, the vibrant selection, truncation with an ellipsis, the
+    // focus ring, arrow keys that hand the selection back at either end, and type-select. It is in a
+    // scroll view because a stack view with no bottom anchor drew its last rows past the bottom of
+    // the sidebar at the minimum window height, where they could not be clicked.
+    _sidebarOutline = [[NSOutlineView alloc] initWithFrame:NSZeroRect];
+    _sidebarOutline.style = NSTableViewStyleSourceList;
+    _sidebarOutline.headerView = nil;
+    _sidebarOutline.floatsGroupRows = NO;
+    _sidebarOutline.allowsEmptySelection = NO;
+    _sidebarOutline.rowSizeStyle = NSTableViewRowSizeStyleCustom;
+    _sidebarOutline.accessibilityLabel = @"水杉输入法导航";
+    NSTableColumn *sidebarColumn = [[NSTableColumn alloc] initWithIdentifier:@"MSIMESettingsSidebarColumn"];
+    sidebarColumn.resizingMask = NSTableColumnAutoresizingMask;
+    [_sidebarOutline addTableColumn:sidebarColumn];
+    _sidebarOutline.outlineTableColumn = sidebarColumn;
+    _sidebarOutline.dataSource = self;
+    _sidebarOutline.delegate = self;
+    [_sidebarOutline reloadData];
+    // The groups are headings, not folders: every row is on screen from the start and stays there.
+    [_sidebarOutline expandItem:nil expandChildren:YES];
+    _sidebarScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    _sidebarScroll.documentView = _sidebarOutline;
+    _sidebarScroll.hasVerticalScroller = YES;
+    _sidebarScroll.autohidesScrollers = YES;
+    _sidebarScroll.drawsBackground = NO;
+    _sidebarScroll.translatesAutoresizingMaskIntoConstraints = NO;
+
     _searchResultsStack = [NSStackView stackViewWithViews:@[]];
     _searchResultsStack.orientation = NSUserInterfaceLayoutOrientationVertical;
     _searchResultsStack.alignment = NSLayoutAttributeLeading;
     _searchResultsStack.spacing = 1.0;
     _searchResultsStack.translatesAutoresizingMaskIntoConstraints = NO;
-    _searchResultsStack.hidden = YES;
-    [sidebar addSubview:_searchField];
-    [sidebar addSubview:navigation];
-    [sidebar addSubview:_searchResultsStack];
-    [contentView addSubview:sidebar];
+    // Fourteen results at 36pt do not fit a 520pt-tall sidebar, and pinned to its bottom edge they
+    // broke a required constraint instead of scrolling.
+    NSView *searchResultsDocument = [[MSIMEPreferencesDocumentView alloc] initWithFrame:NSZeroRect];
+    searchResultsDocument.translatesAutoresizingMaskIntoConstraints = NO;
+    [searchResultsDocument addSubview:_searchResultsStack];
+    _searchResultsScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    _searchResultsScroll.documentView = searchResultsDocument;
+    _searchResultsScroll.hasVerticalScroller = YES;
+    _searchResultsScroll.autohidesScrollers = YES;
+    _searchResultsScroll.drawsBackground = NO;
+    _searchResultsScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    _searchResultsScroll.hidden = YES;
     [NSLayoutConstraint activateConstraints:@[
-        [sidebar.leadingAnchor constraintEqualToAnchor:contentView.leadingAnchor],
-        [sidebar.topAnchor constraintEqualToAnchor:contentView.topAnchor],
-        [sidebar.bottomAnchor constraintEqualToAnchor:contentView.bottomAnchor],
-        [sidebar.widthAnchor constraintEqualToConstant:kSidebarWidth],
-        [_searchField.leadingAnchor constraintEqualToAnchor:sidebar.leadingAnchor constant:10.0],
-        [_searchField.trailingAnchor constraintEqualToAnchor:sidebar.trailingAnchor constant:-10.0],
-        [_searchField.topAnchor constraintEqualToAnchor:sidebar.topAnchor constant:kSidebarTopInset],
-        [navigation.leadingAnchor constraintEqualToAnchor:sidebar.leadingAnchor constant:10.0],
-        [navigation.trailingAnchor constraintEqualToAnchor:sidebar.trailingAnchor constant:-10.0],
-        [navigation.topAnchor constraintEqualToAnchor:_searchField.bottomAnchor constant:14.0],
-        [_searchResultsStack.leadingAnchor constraintEqualToAnchor:navigation.leadingAnchor],
-        [_searchResultsStack.trailingAnchor constraintEqualToAnchor:navigation.trailingAnchor],
-        [_searchResultsStack.topAnchor constraintEqualToAnchor:navigation.topAnchor],
-        [_searchResultsStack.bottomAnchor constraintLessThanOrEqualToAnchor:sidebar.bottomAnchor constant:-10.0],
+        [searchResultsDocument.widthAnchor constraintEqualToAnchor:_searchResultsScroll.contentView.widthAnchor],
+        [searchResultsDocument.leadingAnchor constraintEqualToAnchor:_searchResultsScroll.contentView.leadingAnchor],
+        [searchResultsDocument.topAnchor constraintEqualToAnchor:_searchResultsScroll.contentView.topAnchor],
+        [_searchResultsStack.leadingAnchor constraintEqualToAnchor:searchResultsDocument.leadingAnchor constant:10.0],
+        [_searchResultsStack.trailingAnchor constraintEqualToAnchor:searchResultsDocument.trailingAnchor constant:-10.0],
+        [_searchResultsStack.topAnchor constraintEqualToAnchor:searchResultsDocument.topAnchor constant:6.0],
+        [_searchResultsStack.bottomAnchor constraintEqualToAnchor:searchResultsDocument.bottomAnchor constant:-6.0],
     ]];
 
-    NSView *pageContainer = [[NSView alloc] initWithFrame:NSZeroRect];
-    pageContainer.translatesAutoresizingMaskIntoConstraints = NO;
-    [contentView addSubview:pageContainer];
+    NSViewController *sidebarController = [[NSViewController alloc] init];
+    sidebarController.view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, kSidebarWidth, 520)];
+    [sidebarController.view addSubview:_sidebarScroll];
+    [sidebarController.view addSubview:_searchResultsScroll];
+    for (NSScrollView *list in @[_sidebarScroll, _searchResultsScroll])
+        [NSLayoutConstraint activateConstraints:@[
+            [list.leadingAnchor constraintEqualToAnchor:sidebarController.view.leadingAnchor],
+            [list.trailingAnchor constraintEqualToAnchor:sidebarController.view.trailingAnchor],
+            [list.topAnchor constraintEqualToAnchor:sidebarController.view.topAnchor],
+            [list.bottomAnchor constraintEqualToAnchor:sidebarController.view.bottomAnchor],
+        ]];
+
+    // The detail side stays what it was: every page pinned edge to edge in one container, shown and
+    // hidden rather than added and removed. An NSTabViewController would take the unselected pages
+    // out of the view hierarchy, and the tests walk hidden pages to find the control they are about
+    // (platforms/macos/tests/settings/PreferenceViewLookup.h).
+    NSViewController *detailController = [[NSViewController alloc] init];
+    NSView *pageContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 600, 520)];
+    detailController.view = pageContainer;
     for (NSView *page in _preferencePages) {
         [pageContainer addSubview:page];
         [NSLayoutConstraint activateConstraints:@[
             [page.leadingAnchor constraintEqualToAnchor:pageContainer.leadingAnchor],
             [page.trailingAnchor constraintEqualToAnchor:pageContainer.trailingAnchor],
-            [page.topAnchor constraintEqualToAnchor:pageContainer.topAnchor],
+            // The safe area is where the toolbar ends. Pinning to the container's own top instead is
+            // what put the 20pt page title at y = -59, behind the titlebar and clipped.
+            [page.topAnchor constraintEqualToAnchor:pageContainer.safeAreaLayoutGuide.topAnchor],
             [page.bottomAnchor constraintEqualToAnchor:pageContainer.bottomAnchor],
         ]];
     }
-    // No Close button: a Mac settings window is dismissed by its own close button, and one that
-    // offers a second one in the content area is a Windows dialog wearing a Mac titlebar. Restore
-    // stays, because nothing else in the window undoes a preference.
-    NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置…" target:self action:@selector(restoreDefaults:)];
-    restoreButton.bezelStyle = NSBezelStyleRounded;
-    restoreButton.controlSize = NSControlSizeSmall;
-    restoreButton.font = [NSFont systemFontOfSize:kBodyFontSize - 1.0];
-    restoreButton.translatesAutoresizingMaskIntoConstraints = NO;
-    NSBox *footerSeparator = [[NSBox alloc] initWithFrame:NSZeroRect];
-    footerSeparator.boxType = NSBoxSeparator;
-    footerSeparator.translatesAutoresizingMaskIntoConstraints = NO;
-    [contentView addSubview:footerSeparator];
-    [contentView addSubview:restoreButton];
-    [NSLayoutConstraint activateConstraints:@[
-        [pageContainer.leadingAnchor constraintEqualToAnchor:sidebar.trailingAnchor],
-        [pageContainer.trailingAnchor constraintEqualToAnchor:contentView.trailingAnchor],
-        [pageContainer.topAnchor constraintEqualToAnchor:contentView.topAnchor],
-        [pageContainer.bottomAnchor constraintEqualToAnchor:footerSeparator.topAnchor],
-        [footerSeparator.leadingAnchor constraintEqualToAnchor:pageContainer.leadingAnchor],
-        [footerSeparator.trailingAnchor constraintEqualToAnchor:contentView.trailingAnchor],
-        [footerSeparator.bottomAnchor constraintEqualToAnchor:restoreButton.topAnchor constant:-10.0],
-        [restoreButton.leadingAnchor constraintEqualToAnchor:pageContainer.leadingAnchor constant:kPageMargin],
-        [restoreButton.bottomAnchor constraintEqualToAnchor:contentView.bottomAnchor constant:-12.0],
-    ]];
+
+    _splitViewController = [[NSSplitViewController alloc] init];
+    NSSplitViewItem *sidebarItem = [NSSplitViewItem sidebarWithViewController:sidebarController];
+    sidebarItem.allowsFullHeightLayout = YES;
+    sidebarItem.canCollapse = YES;
+    sidebarItem.minimumThickness = kSidebarWidth;
+    sidebarItem.maximumThickness = kSidebarMaxWidth;
+    NSSplitViewItem *detailItem = [NSSplitViewItem splitViewItemWithViewController:detailController];
+    // The page scrolls under the toolbar, so the line under the titlebar is the system's to draw
+    // and to take away again — the cards used to run off the top of the window with nothing there.
+    detailItem.titlebarSeparatorStyle = NSTitlebarSeparatorStyleAutomatic;
+    [_splitViewController addSplitViewItem:sidebarItem];
+    [_splitViewController addSplitViewItem:detailItem];
+    _splitViewController.splitView.autosaveName = @"MSIMESettingsSplit";
+    window.contentViewController = _splitViewController;
+    // Handing a window a content view controller sizes it to that controller's fitting size, which
+    // for a split view is its two minimum thicknesses — the window came up at its own minimum, one
+    // card narrower and two cards shorter than it used to. The size the window opens at is a
+    // decision of this window's, so it is restated after the assignment rather than left to the
+    // solver.
+    [window setContentSize:NSMakeSize(860, 640)];
+
+    _searchField = [[NSSearchField alloc] initWithFrame:NSZeroRect];
+    _searchField.placeholderString = @"搜索设置";
+    _searchField.accessibilityLabel = @"搜索设置";
+    _searchField.font = [NSFont systemFontOfSize:kBodyFontSize];
+    _searchField.sendsWholeSearchString = NO;
+    _searchField.sendsSearchStringImmediately = YES;
+    _searchField.target = self;
+    _searchField.action = @selector(searchChanged:);
+    NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:@"MSIMESettingsToolbar"];
+    toolbar.delegate = self;
+    toolbar.allowsUserCustomization = NO;
+    toolbar.displayMode = NSToolbarDisplayModeIconOnly;
+    window.toolbar = toolbar;
+    window.toolbarStyle = NSWindowToolbarStyleUnified;
+    MSIMEInstallFindSettingsMenuItem(self, @selector(beginSettingsSearch:));
     self.window = window;
     // The account pane is a foreign view attached to this window; closing the window from its own
     // close button has to detach it the way the removed Close button used to.
@@ -2623,12 +2613,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSString *query = [sender.stringValue
         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (query.length == 0) {
-        _searchResultsStack.hidden = YES;
-        _navigationStack.hidden = NO;
+        _searchResultsScroll.hidden = YES;
+        _sidebarScroll.hidden = NO;
         return;
     }
-    _navigationStack.hidden = YES;
-    _searchResultsStack.hidden = NO;
+    _sidebarScroll.hidden = YES;
+    _searchResultsScroll.hidden = NO;
     const NSUInteger limit = 14;
     for (NSUInteger index = 0; index < _searchIndex.count && _searchResultsStack.arrangedSubviews.count < limit; ++index) {
         MSIMESettingsSearchEntry *entry = _searchIndex[index];
@@ -2800,12 +2790,178 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     if (pageIndex == kVoicePageIndex) [_voiceSettingsView reloadSettings];
     for (NSInteger index = 0; index < (NSInteger)_preferencePages.count; ++index)
         _preferencePages[index].hidden = index != pageIndex;
-    for (NSButton *button in _sidebarButtons)
-        button.state = button.tag == navigationIndex ? NSControlStateValueOn : NSControlStateValueOff;
+    [self selectSidebarRowForPageAtIndex:navigationIndex];
+    // The window's chrome says which page you are on, which is what the title bar is for and what
+    // this window has never used it for.
+    if (navigationIndex >= 0 && navigationIndex < (NSInteger)_pageTitles.count)
+        [super window].title = _pageTitles[navigationIndex];
     if (pageIndex == kAccountPageIndex && MSIMEAccountPaneAttach != nullptr)
         MSIMEAccountPaneAttach(self.window);
     else if (MSIMEAccountPaneClose != nullptr)
         MSIMEAccountPaneClose();
+}
+- (void)selectSidebarRowForPageAtIndex:(NSInteger)navigationIndex {
+    if (_sidebarOutline == nil) return;
+    for (MSIMESettingsSidebarItem *group in _sidebarGroups)
+        for (MSIMESettingsSidebarItem *member in group.children) {
+            if (member.pageIndex != navigationIndex) continue;
+            const NSInteger row = [_sidebarOutline rowForItem:member];
+            if (row < 0 || row == _sidebarOutline.selectedRow) return;
+            _updatingSidebarSelection = YES;
+            [_sidebarOutline selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row]
+                         byExtendingSelection:NO];
+            [_sidebarOutline scrollRowToVisible:row];
+            _updatingSidebarSelection = NO;
+            return;
+        }
+}
+
+#pragma mark - 侧栏源列表
+
+- (NSInteger)outlineView:(NSOutlineView *)outlineView numberOfChildrenOfItem:(id)item {
+    (void)outlineView;
+    if (item == nil) return (NSInteger)_sidebarGroups.count;
+    return (NSInteger)[(MSIMESettingsSidebarItem *)item children].count;
+}
+- (id)outlineView:(NSOutlineView *)outlineView child:(NSInteger)index ofItem:(id)item {
+    (void)outlineView;
+    if (item == nil) return _sidebarGroups[(NSUInteger)index];
+    return [(MSIMESettingsSidebarItem *)item children][(NSUInteger)index];
+}
+- (BOOL)outlineView:(NSOutlineView *)outlineView isItemExpandable:(id)item {
+    (void)outlineView;
+    return [(MSIMESettingsSidebarItem *)item children].count > 0;
+}
+- (BOOL)outlineView:(NSOutlineView *)outlineView isGroupItem:(id)item {
+    (void)outlineView;
+    return [(MSIMESettingsSidebarItem *)item children].count > 0;
+}
+- (BOOL)outlineView:(NSOutlineView *)outlineView shouldSelectItem:(id)item {
+    (void)outlineView;
+    return [(MSIMESettingsSidebarItem *)item children].count == 0;
+}
+/// The four groups are the window's structure, not something to fold away: collapsing 显示 would
+/// hide three of the eleven pages behind a triangle nothing else in the window mentions.
+- (BOOL)outlineView:(NSOutlineView *)outlineView shouldCollapseItem:(id)item {
+    (void)outlineView;
+    (void)item;
+    return NO;
+}
+- (BOOL)outlineView:(NSOutlineView *)outlineView shouldShowOutlineCellForItem:(id)item {
+    (void)outlineView;
+    (void)item;
+    return NO;
+}
+- (CGFloat)outlineView:(NSOutlineView *)outlineView heightOfRowByItem:(id)item {
+    (void)outlineView;
+    (void)item;
+    return kSidebarRowHeight;
+}
+- (NSView *)outlineView:(NSOutlineView *)outlineView
+     viewForTableColumn:(NSTableColumn *)tableColumn
+                   item:(id)item {
+    (void)tableColumn;
+    MSIMESettingsSidebarItem *entry = item;
+    const BOOL group = entry.children.count > 0;
+    NSUserInterfaceItemIdentifier identifier = group ? @"MSIMESettingsSidebarGroupCell" : @"MSIMESettingsSidebarCell";
+    NSTableCellView *cell = [outlineView makeViewWithIdentifier:identifier owner:self];
+    if (cell == nil) {
+        cell = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
+        cell.identifier = identifier;
+        NSTextField *label = [NSTextField labelWithString:@""];
+        label.font = [NSFont systemFontOfSize:kBodyFontSize];
+        // A sidebar narrow enough to be dragged to 204pt truncates 悬浮工具栏 rather than drawing it
+        // past its own edge.
+        label.lineBreakMode = NSLineBreakByTruncatingTail;
+        label.translatesAutoresizingMaskIntoConstraints = NO;
+        [cell addSubview:label];
+        cell.textField = label;
+        [label.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor].active = YES;
+        [label.trailingAnchor constraintLessThanOrEqualToAnchor:cell.trailingAnchor].active = YES;
+        if (group) {
+            [label.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor].active = YES;
+        } else {
+            NSImageView *icon = [[NSImageView alloc] initWithFrame:NSZeroRect];
+            icon.imageScaling = NSImageScaleProportionallyDown;
+            icon.translatesAutoresizingMaskIntoConstraints = NO;
+            [cell addSubview:icon];
+            cell.imageView = icon;
+            [NSLayoutConstraint activateConstraints:@[
+                [icon.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor],
+                [icon.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
+                [icon.widthAnchor constraintEqualToConstant:18.0],
+                [label.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:6.0],
+            ]];
+        }
+    }
+    cell.textField.stringValue = entry.title;
+    cell.imageView.image = entry.symbolName.length > 0
+        ? [NSImage imageWithSystemSymbolName:entry.symbolName accessibilityDescription:nil]
+        : nil;
+    return cell;
+}
+- (void)outlineViewSelectionDidChange:(NSNotification *)notification {
+    (void)notification;
+    if (_updatingSidebarSelection) return;
+    MSIMESettingsSidebarItem *item = [_sidebarOutline itemAtRow:_sidebarOutline.selectedRow];
+    if (item == nil || item.children.count > 0) return;
+    [self showPreferencesPageAtIndex:item.pageIndex navigationIndex:item.pageIndex];
+}
+
+#pragma mark - 工具栏
+
+- (NSArray<NSToolbarItemIdentifier> *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar {
+    (void)toolbar;
+    return @[
+        NSToolbarToggleSidebarItemIdentifier, MSIMESettingsSearchItemIdentifier,
+        MSIMESettingsSeparatorItemIdentifier, NSToolbarFlexibleSpaceItemIdentifier,
+        MSIMESettingsMoreItemIdentifier,
+    ];
+}
+- (NSArray<NSToolbarItemIdentifier> *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar {
+    return [self toolbarDefaultItemIdentifiers:toolbar];
+}
+- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar
+        itemForItemIdentifier:(NSToolbarItemIdentifier)identifier
+    willBeInsertedIntoToolbar:(BOOL)inserted {
+    (void)toolbar;
+    (void)inserted;
+    if ([identifier isEqualToString:MSIMESettingsSearchItemIdentifier]) {
+        _searchToolbarItem = [[NSSearchToolbarItem alloc] initWithItemIdentifier:identifier];
+        _searchToolbarItem.searchField = _searchField;
+        _searchToolbarItem.resignsFirstResponderWithCancel = YES;
+        // Wide enough that the sidebar's own width is what the field spans, which is where a Mac
+        // settings window puts its search field.
+        _searchToolbarItem.preferredWidthForSearchField = kSidebarWidth - 24.0;
+        return _searchToolbarItem;
+    }
+    if ([identifier isEqualToString:MSIMESettingsSeparatorItemIdentifier])
+        return [NSTrackingSeparatorToolbarItem trackingSeparatorToolbarItemWithIdentifier:identifier
+                                                                                splitView:_splitViewController.splitView
+                                                                             dividerIndex:0];
+    if ([identifier isEqualToString:MSIMESettingsMoreItemIdentifier]) {
+        NSMenuToolbarItem *more = [[NSMenuToolbarItem alloc] initWithItemIdentifier:identifier];
+        more.image = [NSImage imageWithSystemSymbolName:@"ellipsis.circle" accessibilityDescription:@"更多设置操作"];
+        more.label = @"更多";
+        more.toolTip = @"更多设置操作";
+        NSMenu *menu = [[NSMenu alloc] initWithTitle:@"更多"];
+        // The global reset used to sit in a footer strip that cost all thirteen pages 42pt, one row
+        // above the red 卸载… button on 关于. It is an action taken once, so it belongs in a menu.
+        NSMenuItem *restore = [[NSMenuItem alloc] initWithTitle:@"恢复全部设置…"
+                                                         action:@selector(restoreAllDefaults:)
+                                                  keyEquivalent:@""];
+        restore.target = self;
+        [menu addItem:restore];
+        more.menu = menu;
+        return more;
+    }
+    return nil;
+}
+/// ⌘F and the toolbar's own field are the same interaction, so the menu item asks the item to begin
+/// it rather than reaching for the field and making it first responder behind the item's back.
+- (void)beginSettingsSearch:(id)sender {
+    (void)sender;
+    [_searchToolbarItem beginSearchInteraction];
 }
 - (void)schemeRadioChanged:(NSButton *)sender {
     self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi", @"japanese"][sender.tag];
@@ -2923,6 +3079,22 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     for (NSString *key in keys) [_defaults removeObjectForKey:key];
     [self refreshControls];
     [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
+}
+/// The whole window at once, from the toolbar's ⋯ menu. Per-section restore — the one a user
+/// actually reaches for — is the section label's own affair and is not built yet, so this is
+/// deliberately the blunt instrument and says so.
+- (void)restoreAllDefaults:(id)sender {
+    (void)sender;
+    NSAlert *alert = [NSAlert new];
+    alert.alertStyle = NSAlertStyleWarning;
+    alert.messageText = @"恢复全部设置？";
+    alert.informativeText = @"所有页的设置都会恢复为默认值。词库、学习记录、账号与语音密钥不受影响。";
+    // Cancel is added first so it is the default button: the other one throws settings away, and a
+    // destructive action should not be what Return picks.
+    [alert addButtonWithTitle:@"取消"];
+    [alert addButtonWithTitle:@"恢复全部设置"];
+    if ([alert runModal] == NSAlertFirstButtonReturn) return;
+    [self removeStoredKeys:[self restorableKeys]];
 }
 - (void)restoreDefaults:(id)sender {
     (void)sender;

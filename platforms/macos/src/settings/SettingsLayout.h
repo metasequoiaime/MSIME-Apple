@@ -11,11 +11,13 @@
 // repeats that list, so a new .mm would have to be added to a dozen of them.
 
 namespace msime::mac::layout {
+/// The sidebar is draggable between these two, which is why it is a range rather than a width: the
+/// system sidebar the window now uses is resizable and the widest item — 悬浮工具栏 — has to fit
+/// without an ellipsis. The upper bound is also what the window's minimum width is derived from,
+/// so that the body column never falls under kContentColumnMin.
 inline constexpr CGFloat kSidebarWidth = 204.0;
+inline constexpr CGFloat kSidebarMaxWidth = 240.0;
 inline constexpr CGFloat kSidebarRowHeight = 28.0;
-/// The titlebar is transparent and the sidebar runs the full height behind it, so its own content
-/// starts below the traffic lights.
-inline constexpr CGFloat kSidebarTopInset = 46.0;
 inline constexpr CGFloat kRowHeight = 30.0;
 /// A row carrying a line of explanation under its label needs the height of two lines plus the
 /// space that keeps them from reading as one paragraph.

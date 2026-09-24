@@ -166,7 +166,7 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
         // landing on this one does not shift the title and the cards under the pointer.
         [title.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:msime::mac::layout::kPageMargin],
         [title.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-msime::mac::layout::kPageMargin],
-        [title.topAnchor constraintEqualToAnchor:self.topAnchor constant:msime::mac::layout::kSidebarTopInset],
+        [title.topAnchor constraintEqualToAnchor:self.topAnchor constant:msime::mac::layout::kPageMargin],
         [summary.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
         [summary.trailingAnchor constraintEqualToAnchor:title.trailingAnchor],
         [summary.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:7.0],
