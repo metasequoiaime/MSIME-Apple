@@ -6,6 +6,8 @@
 //! because the bound it implements is the one an updater will need.
 
 pub(crate) mod export_file;
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
+pub(crate) mod mcp_clients;
 pub(crate) mod mobile_ai;
 pub(crate) mod skin_directory;
 pub(crate) mod voice;

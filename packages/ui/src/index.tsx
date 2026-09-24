@@ -70,6 +70,12 @@ export type {
 import { ExternalSkins, type SkinCatalog } from "./skin/external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
 import { VocabularyReviewPage, type VocabularyReviewClient } from "./settings/vocabulary-review";
+import {
+  McpConnectSection,
+  type McpClientId,
+  type McpInstallOutcome,
+  type McpServerStatus,
+} from "./settings/mcp-connect";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -118,6 +124,13 @@ export {
   type VocabularyReviewStatus,
   type VocabularyWordbook,
 } from "./settings/vocabulary-review";
+export {
+  McpConnectSection,
+  type McpClientId,
+  type McpClientStatus,
+  type McpInstallOutcome,
+  type McpServerStatus,
+} from "./settings/mcp-connect";
 export {
   AccountPage,
   type AccountChallenge,
@@ -1778,6 +1791,10 @@ export interface SettingsClient {
   loadMacosWubiAutoCommitUnique?: () => Promise<boolean>;
   saveMacosWubiAutoCommitUnique?: (enabled: boolean) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
+  /** The desktop hosts ship `msime-mcp` beside the settings app and report where it is and the entry an AI assistant runs it with. */
+  mcpServerStatus?: () => Promise<McpServerStatus>;
+  /** Write that entry into an assistant's configuration file. A different `msime` entry there rejects with code `mcp_entry_exists` unless `replace` is set. */
+  installMcpClient?: (client: McpClientId, replace: boolean) => Promise<McpInstallOutcome>;
   /** Mobile hosts can open the platform keyboard/input-method settings. */
   openSystemKeyboardSettings?: () => Promise<void>;
   /** Mobile hosts persist keyboard sound and haptic feedback in native preferences. */
@@ -10419,6 +10436,13 @@ export function SettingsPage({
                           </div>
                         )}
                       </div>
+                    )}
+                    {client.mcpServerStatus && (
+                      <McpConnectSection
+                        status={client.mcpServerStatus}
+                        install={client.installMcpClient}
+                        copyText={client.copyText}
+                      />
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">

@@ -105,6 +105,8 @@ use tauri::Manager;
 
 use msime_host_api::system_fonts;
 use shared::export_file;
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+use shared::mcp_clients;
 use shared::skin_directory;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use shared::voice::voice_output;
@@ -550,6 +552,80 @@ async fn save_export(
         .map_err(|_| CommandError { code: "storage" })?
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|code| CommandError { code })
+}
+
+/// `msime-mcp` beside this executable, the runtime options it would be pointed at, the entry to paste into an assistant, and whether each assistant offered here already has it.
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn mcp_server_status(
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+) -> Result<mcp_clients::McpServerStatus, CommandError> {
+    let options = runtime.path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let command = std::env::current_exe()
+            .ok()
+            .and_then(|executable| mcp_clients::server_command(&executable))
+            .ok_or(CommandError { code: "storage" })?;
+        let entry = options
+            .as_deref()
+            .map(|options| mcp_clients::server_entry(&command, options));
+        let clients = mcp_clients::client_paths(|name| std::env::var_os(name))
+            .into_iter()
+            .map(|(id, path)| mcp_clients::McpClientStatus {
+                id,
+                configured: entry
+                    .as_ref()
+                    .is_some_and(|entry| mcp_clients::is_configured(&path, entry)),
+                path: path.to_string_lossy().into_owned(),
+            })
+            .collect();
+        Ok(mcp_clients::McpServerStatus {
+            installed: command.is_file(),
+            command: command.to_string_lossy().into_owned(),
+            options: options.map(|path| path.to_string_lossy().into_owned()),
+            config: entry.as_ref().map(mcp_clients::config_snippet),
+            clients,
+        })
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+/// Write the entry into `client`'s configuration file. A different `msime` entry there fails with `mcp_entry_exists` unless `replace` is set, so the page asks before overwriting it.
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn install_mcp_client(
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+    client: mcp_clients::McpClient,
+    replace: bool,
+) -> Result<mcp_clients::InstallOutcome, CommandError> {
+    let options = runtime.path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let options = options.ok_or(CommandError {
+            code: "mcp_options_missing",
+        })?;
+        let command = std::env::current_exe()
+            .ok()
+            .and_then(|executable| mcp_clients::server_command(&executable))
+            .filter(|command| command.is_file())
+            .ok_or(CommandError {
+                code: "mcp_server_missing",
+            })?;
+        let (_, path) = mcp_clients::client_paths(|name| std::env::var_os(name))
+            .into_iter()
+            .find(|(id, _)| *id == client)
+            .ok_or(CommandError {
+                code: "mcp_client_missing",
+            })?;
+        mcp_clients::install(
+            &path,
+            &mcp_clients::server_entry(&command, &options),
+            replace,
+        )
+        .map_err(|code| CommandError { code })
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
 }
 
 fn read_skin_toolbar_stylesheet_at(
@@ -4317,6 +4393,10 @@ pub fn run() {
             vocabulary::remove_vocabulary_wordbook,
             vocabulary::reset_vocabulary_review,
             save_export,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            mcp_server_status,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            install_mcp_client,
             scan_skin_catalog,
             read_skin_image,
             read_skin_font,
