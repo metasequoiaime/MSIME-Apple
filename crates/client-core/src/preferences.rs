@@ -602,10 +602,12 @@ pub struct VoiceInputPreferences {
     pub asr_endpoint: String,
     #[serde(default)]
     pub asr_model: String,
-    /// Absolute path to a local Whisper model file. Only the `local` provider
-    /// reads it; nothing is uploaded and no endpoint or token applies.
+    /// Absolute path to the on-device model the `local` provider runs: either an installed model directory (one containing `msime-model.json`, see `voice::local_models`) or a Whisper model file. Nothing is uploaded and no endpoint or token applies. Any absolute form the host OS uses is accepted, since the same document is read on Windows.
     #[serde(default)]
     pub asr_model_path: String,
+    /// Optional `https://` prefix placed in front of every local model download URL (ghproxy-style), for networks where GitHub release downloads are slow or blocked. Empty downloads from the catalog URLs as they are.
+    #[serde(default)]
+    pub asr_model_mirror: String,
     #[serde(default)]
     pub asr_resource_id: String,
     #[serde(default)]
@@ -677,6 +679,7 @@ impl Default for VoiceInputPreferences {
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
             asr_model_path: String::new(),
+            asr_model_mirror: String::new(),
             asr_resource_id: "volc.seedasr.sauc.duration".into(),
             polish_enabled: false,
             polish_text: source_voice_default(),
@@ -1460,6 +1463,34 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
     }
 }
 
+/// Whether `path` is absolute on any OS a preferences document may be read on: a Unix path, a Windows drive path (`C:\...` or `C:/...`), a verbatim or device path (`\\?\...`, `\\.\...`) or a UNC share (`\\server\share`). Checked textually rather than with `Path::is_absolute`, which answers only for the OS doing the checking, so a Windows path saved by the Windows host would be refused when the same document is validated elsewhere.
+pub fn is_absolute_model_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    if bytes.first() == Some(&b'/') {
+        return true;
+    }
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/')
+    {
+        return true;
+    }
+    // `\\server\share`, `\\?\C:\...` and `\\.\device`: two leading separators and something after them.
+    bytes.len() > 2 && bytes[0] == b'\\' && bytes[1] == b'\\' && bytes[2] != b'\\'
+}
+
+/// Whether `mirror` is an acceptable `asr_model_mirror`: empty, or an `https://` URL of at most 2048 bytes with no control characters or whitespace.
+pub fn valid_model_mirror(mirror: &str) -> bool {
+    mirror.is_empty()
+        || (mirror.len() <= 2048
+            && mirror.len() > "https://".len()
+            && mirror.starts_with("https://")
+            && !mirror
+                .chars()
+                .any(|ch| ch.is_control() || ch.is_whitespace()))
+}
+
 fn default_shuangpin_helpcode() -> HelpcodePreferences {
     HelpcodePreferences {
         enabled: true,
@@ -1468,10 +1499,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
     }
 }
 
-/// Persisted recognition provider identifiers. Hosts expose only the providers
-/// they implement: `system` is the macOS Speech adapter, not a cloud profile,
-/// and `local` is on-device Whisper, which needs `asr_model_path` and a host
-/// built with the recognizer behind it.
+/// Persisted recognition provider identifiers. Hosts expose only the providers they implement: `system` is the platform speech adapter, not a cloud profile, and `local` is an on-device model (an installed sherpa-onnx model directory or a Whisper model file) named by `asr_model_path`, which needs a host built with the recognizer behind it.
 pub const ASR_PROVIDERS: [&str; 8] = [
     "doubao",
     "siliconflow",
@@ -1564,6 +1592,7 @@ impl Preferences {
         next.voice_input.asr_endpoint = self.voice_input.asr_endpoint.clone();
         next.voice_input.asr_model = self.voice_input.asr_model.clone();
         next.voice_input.asr_model_path = self.voice_input.asr_model_path.clone();
+        next.voice_input.asr_model_mirror = self.voice_input.asr_model_mirror.clone();
         next.voice_input.asr_resource_id = self.voice_input.asr_resource_id.clone();
         next.voice_input.doubao_auth_mode = self.voice_input.doubao_auth_mode.clone();
         next.voice_input.polish_provider = self.voice_input.polish_provider.clone();
@@ -1642,7 +1671,8 @@ impl Preferences {
             || !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str())
             || model_path.len() > 4096
             || model_path.chars().any(char::is_control)
-            || (!model_path.is_empty() && !model_path.starts_with('/'))
+            || (!model_path.is_empty() && !is_absolute_model_path(model_path))
+            || !valid_model_mirror(&self.voice_input.asr_model_mirror)
         {
             return Err(PreferencesError::InvalidVoiceInput);
         }

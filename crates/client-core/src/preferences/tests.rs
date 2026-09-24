@@ -148,7 +148,16 @@ fn local_recognition_stores_an_absolute_model_path_and_refuses_anything_else() {
         },
         ..Preferences::default()
     };
-    for accepted in ["", "/Users/someone/models/ggml-large-v3-turbo.bin"] {
+    // A Windows path is absolute too: the Windows host saves one, and the same document is validated wherever it is read.
+    for accepted in [
+        "",
+        "/Users/someone/models/ggml-large-v3-turbo.bin",
+        "/Users/someone/Library/Application Support/msime/voice-models/x-asr-zh-en-streaming",
+        r"C:\Users\someone\AppData\Roaming\msime\voice-models\sense-voice-small",
+        "D:/models/ggml.bin",
+        r"\\?\C:\models\x-asr-zh-en-streaming",
+        r"\\fileserver\share\models\ggml.bin",
+    ] {
         assert!(
             with_path(accepted).validate().is_ok(),
             "{accepted:?} should be accepted"
@@ -156,7 +165,14 @@ fn local_recognition_stores_an_absolute_model_path_and_refuses_anything_else() {
     }
     // A relative path resolves against whichever process happens to read it, and a control character
     // reaches the recognizer as a filename it cannot open. Both fail while the user holds the shortcut.
-    for rejected in ["models/ggml.bin", "~/models/ggml.bin", "/models/gg\nml.bin"] {
+    for rejected in [
+        "models/ggml.bin",
+        "~/models/ggml.bin",
+        "/models/gg\nml.bin",
+        r"C:models\ggml.bin",
+        r"\models\ggml.bin",
+        "C:\\models\\gg\tml.bin",
+    ] {
         assert!(
             matches!(
                 with_path(rejected).validate(),
@@ -166,6 +182,57 @@ fn local_recognition_stores_an_absolute_model_path_and_refuses_anything_else() {
         );
     }
     assert!(with_path(&"/".repeat(4097)).validate().is_err());
+}
+
+#[test]
+fn local_model_mirror_is_empty_or_an_https_prefix() {
+    let with_mirror = |mirror: &str| Preferences {
+        voice_input: VoiceInputPreferences {
+            asr_model_mirror: mirror.into(),
+            ..Preferences::default().voice_input
+        },
+        ..Preferences::default()
+    };
+    assert!(Preferences::default()
+        .voice_input
+        .asr_model_mirror
+        .is_empty());
+    for accepted in [
+        "",
+        "https://ghproxy.example.test",
+        "https://mirror.example.test/gh/",
+    ] {
+        assert!(
+            with_mirror(accepted).validate().is_ok(),
+            "{accepted:?} should be accepted"
+        );
+    }
+    // A plain-HTTP mirror would let anyone on the path swap the model; the checksum still catches it, but the download should not be attempted at all.
+    for rejected in [
+        "http://ghproxy.example.test",
+        "https://",
+        "ghproxy.example.test",
+        "https://mirror.example.test/\n",
+        "https://mirror example.test",
+    ] {
+        assert!(
+            matches!(
+                with_mirror(rejected).validate(),
+                Err(PreferencesError::InvalidVoiceInput)
+            ),
+            "{rejected:?} should be rejected"
+        );
+    }
+    let long = format!("https://{}", "a".repeat(2048));
+    assert!(with_mirror(&long).validate().is_err());
+    // Older documents without the field still load, with no mirror.
+    let mut legacy = serde_json::to_value(Preferences::default()).unwrap();
+    legacy["voice_input"]
+        .as_object_mut()
+        .unwrap()
+        .remove("asr_model_mirror");
+    let loaded: Preferences = serde_json::from_value(legacy).unwrap();
+    assert!(loaded.voice_input.asr_model_mirror.is_empty());
 }
 
 #[test]
@@ -2162,6 +2229,7 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     edited.voice_input.asr_token = "fixture-asr-token".into();
     edited.voice_input.asr_endpoint = "https://asr.example.test/v1".into();
     edited.voice_input.asr_model_path = "/Users/fixture/models/ggml.bin".into();
+    edited.voice_input.asr_model_mirror = "https://mirror.example.test/".into();
     edited.voice_input.polish_token = "fixture-polish-token".into();
     edited.voice_input.polish_enabled = true;
     edited.ai_assistant.token = "fixture-ai-token".into();
@@ -2215,6 +2283,10 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     assert_eq!(
         restored.voice_input.asr_model_path,
         "/Users/fixture/models/ggml.bin"
+    );
+    assert_eq!(
+        restored.voice_input.asr_model_mirror,
+        "https://mirror.example.test/"
     );
     // The seeding marker is not a setting: clearing it would re-seed rules the user turned off.
     assert!(restored.fuzzy_pinyin.seeded);
