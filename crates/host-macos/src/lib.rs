@@ -390,10 +390,21 @@ mod clipboard_type_tests {
         let expected = "\u{4E2D}".repeat(4000);
         assert_eq!(normalized(&wide).as_deref(), Some(expected.as_str()));
         assert_eq!(normalized("copied\r\0\r").as_deref(), Some("copied"));
-        assert_eq!(normalized("line\r\nnext\n").as_deref(), Some("line\r\nnext\n"));
+        assert_eq!(
+            normalized("line\r\nnext\n").as_deref(),
+            Some("line\r\nnext\n")
+        );
         assert_eq!(normalized("").as_deref(), Some(""));
-        for sample in [long.as_str(), straddle.as_str(), wide.as_str(), "copied\r\0\r"] {
-            assert_eq!(normalized(sample).unwrap(), msime_client_core::clipboard::normalize_text(sample));
+        for sample in [
+            long.as_str(),
+            straddle.as_str(),
+            wide.as_str(),
+            "copied\r\0\r",
+        ] {
+            assert_eq!(
+                normalized(sample).unwrap(),
+                msime_client_core::clipboard::normalize_text(sample)
+            );
         }
     }
 
