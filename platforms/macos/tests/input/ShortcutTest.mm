@@ -79,6 +79,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger englishCandidateCalls;
 @property(nonatomic) BOOL dedicatedEnglish;
 @property(nonatomic, copy) NSDictionary *nextTransition;
+// Holds the engine call for this long, so a test can make one key slow enough to be logged.
+@property(nonatomic) useconds_t stall;
 @property(nonatomic) NSUInteger asciiCalls;
 @property(nonatomic) uint8_t lastASCII;
 @property(nonatomic) BOOL lastShift;
@@ -208,6 +210,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
     ++self.asciiCalls;
     self.lastASCII = ascii;
     self.lastShift = shift;
+    if (self.stall) usleep(self.stall);
     return self.nextTransition;
 }
 - (NSDictionary *)punctuationASCII:(uint8_t)ascii error:(NSError **)error {
@@ -306,6 +309,133 @@ static void TestBackspaceHoldDoesNotEscapeComposition() {
     assert(![[controller valueForKey:@"backspaceHoldArmed"] boolValue]);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
+static NSDictionary *PassthroughStatisticsCall(NSString *root, NSDictionary *action) {
+    NSData *request = [NSJSONSerialization dataWithJSONObject:@{@"directory": root, @"action": action} options:0 error:nil];
+    char *raw = msime_client_typing_statistics(static_cast<const uint8_t *>(request.bytes), request.length);
+    assert(raw);
+    NSDictionary *response = [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:raw length:strlen(raw)] options:0 error:nil];
+    msime_client_string_free(raw);
+    assert([response[@"ok"] boolValue]);
+    return response[@"value"];
+}
+
+static NSDictionary *PassthroughStatisticsDetail(NSString *root) {
+    // Records are written on the statistics worker; an empty block behind them drains it.
+    dispatch_sync(MSIMETypingStatisticsQueue(), ^{});
+    return PassthroughStatisticsCall(root, @{@"operation": @"load"})[@"detail"];
+}
+
+// Keys the input method hands back to the application are typed by the application, so they are counted at the exit of handleEvent:client: like MSIME-Windows counts uneaten OnTestKeyDown keys. Counting must never change the routing decision.
+static void TestPassthroughKeysAreCounted() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *suite = [@"msime.passthrough-statistics." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.fullWidthInput = NO;
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"scheme": @0 };
+    [controller setValue:idle forKey:@"view"];
+    session.nextTransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    NSEvent *(^key)(NSString *, unsigned short, NSEventModifierFlags) = ^NSEvent *(NSString *characters, unsigned short code, NSEventModifierFlags flags) {
+        return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0
+                                 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+    };
+    NSString *upArrow = [NSString stringWithFormat:@"%C", (unichar)NSUpArrowFunctionKey];
+
+    // With statistics off nothing is recorded, and the opt-in gate is the controller's, not only the store's.
+    PassthroughStatisticsCall(root, @{@"operation": @"set_enabled", @"enabled": @YES});
+    MSIMETypingStatisticsEnabled.store(false, std::memory_order_relaxed);
+    appearance.englishMode = YES;
+    assert(![controller handleEvent:key(@"a", 0, 0) client:client]);
+    assert([PassthroughStatisticsDetail(root)[@"characters"][@"latin"] integerValue] == 0);
+
+    MSIMEReloadTypingStatisticsEnabled(root);
+    assert(MSIMETypingStatisticsEnabled.load(std::memory_order_relaxed));
+    assert(![controller handleEvent:key(@"a", 0, 0) client:client]);
+    NSDictionary *detail = PassthroughStatisticsDetail(root);
+    assert([detail[@"characters"][@"latin"] integerValue] == 1);
+    assert([detail[@"sources"][@"english"] integerValue] == 1);
+
+    // Shortcut chords and AppKit function keys reach the application but type nothing.
+    assert(![controller handleEvent:key(@"c", 8, NSEventModifierFlagCommand) client:client]);
+    assert(![controller handleEvent:key(upArrow, 126, NSEventModifierFlagFunction | NSEventModifierFlagNumericPad) client:client]);
+    detail = PassthroughStatisticsDetail(root);
+    assert([detail[@"characters"][@"latin"] integerValue] == 1);
+    assert([detail[@"characters"][@"symbol"] integerValue] == 0 && [detail[@"characters"][@"other"] integerValue] == 0);
+
+    // A Chinese-mode digit the Engine declines is typed by the application and takes the current scheme's source.
+    appearance.englishMode = NO;
+    const NSUInteger asciiCalls = session.asciiCalls;
+    assert(![controller handleEvent:key(@"1", 18, 0) client:client]);
+    assert(session.asciiCalls == asciiCalls + 1 && session.lastASCII == '1');
+    assert(client.insertions.count == 0);
+    detail = PassthroughStatisticsDetail(root);
+    assert([detail[@"characters"][@"number"] integerValue] == 1);
+    assert([detail[@"sources"][@"quanpin"] integerValue] == 1);
+    // A key the Engine consumes is not a passthrough.
+    session.nextTransition = @{ @"handled": @YES, @"commit": NSNull.null, @"view": idle };
+    assert([controller handleEvent:key(@"2", 19, 0) client:client]);
+    assert([PassthroughStatisticsDetail(root)[@"characters"][@"number"] integerValue] == 1);
+
+    MSIMETypingStatisticsEnabled.store(false, std::memory_order_relaxed);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
+// The diagnostic log times every key through handleEvent:client: and, like MSIME-Windows' [key-latency] stage=handle lines, writes only a key that took at least 8 ms, recording the event type and outcome but never the key itself.
+static void TestKeyLatencyIsLoggedWithoutTheKey() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *suite = [@"msime.key-latency-log." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.fullWidthInput = NO;
+    appearance.englishMode = YES;
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[], @"scheme": @0 };
+    [controller setValue:idle forKey:@"view"];
+    session.nextTransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0
+                                     context:nil characters:@"q" charactersIgnoringModifiers:@"q" isARepeat:NO keyCode:12];
+    NSString *logPath = [root stringByAppendingPathComponent:@"diagnostic.log"];
+
+    // Off: no timing line and no file.
+    msime_macos_diagnostic_configure(root.fileSystemRepresentation, false);
+    assert(![controller handleEvent:key client:client]);
+    assert(![NSFileManager.defaultManager fileExistsAtPath:logPath]);
+
+    msime_macos_diagnostic_configure(root.fileSystemRepresentation, true);
+    assert(![controller handleEvent:key client:client]);
+    NSString *fast = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
+    assert(![fast containsString:@"[key-latency]"]); // A key handled well under 8 ms is not written.
+    appearance.englishMode = NO;
+    session.stall = 12000;
+    assert(![controller handleEvent:key client:client]);
+    assert(session.asciiCalls > 0);
+    session.stall = 0;
+    msime_macos_diagnostic_configure(root.fileSystemRepresentation, false);
+    NSString *contents = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
+    assert([contents containsString:@"[key-latency] stage=handle type=down handled=0 elapsed_ms="]);
+    // Timestamps, pids and labels never contain a q, so any q would be the typed key leaking.
+    assert(![contents containsString:@"q"] && ![contents containsString:@"keycode"]);
+
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
 @implementation ShortcutClient
 - (NSRange)selectedRange { return self.selection; }
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
@@ -6219,6 +6349,8 @@ int main(int argc, char **argv) {
         TestGlossSenseTraditionalOutput(appearance);
         TestSegmentEditingChords(appearance);
         TestBackspaceHoldDoesNotEscapeComposition();
+        TestPassthroughKeysAreCounted();
+        TestKeyLatencyIsLoggedWithoutTheKey();
         TestKeypadOperators(appearance);
         TestSmartPunctuationPreferences();
         TestSharedCharacterWidth();
