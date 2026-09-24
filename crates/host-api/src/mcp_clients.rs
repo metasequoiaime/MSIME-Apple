@@ -1,6 +1,6 @@
 //! Registering `msime-mcp` with the AI assistants that read a local MCP configuration file.
 //!
-//! The settings page shows the server entry so it can be copied into any assistant, and for Claude Desktop and Cursor writes it into their configuration file. Only `mcpServers.msime` is touched: every other key the user has is kept, a file that is not a JSON object is refused rather than replaced, and the write is atomic so a crash leaves the old file or the new one, never half of either.
+//! Both settings hosts use this: the shared settings page in the desktop shell, and on Windows the WinUI settings window through `msime_client_mcp_status` and `msime_client_mcp_install`. The page shows the server entry so it can be copied into any assistant, and for Claude Desktop and Cursor writes it into their configuration file. Only `mcpServers.msime` is touched: every other key the user has is kept, a file that is not a JSON object is refused rather than replaced, and the write is atomic so a crash leaves the old file or the new one, never half of either.
 //!
 //! The entry is read-only: it names the runtime options and no flags. Letting an assistant change quick phrases, preferences or words (`--allow-write`), or read the user's words (`--allow-dictionary-read`), is a decision the user makes by adding the flag to the args themselves.
 
@@ -10,19 +10,19 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The key the entry is stored under in `mcpServers`.
-pub(crate) const SERVER_NAME: &str = "msime";
+pub const SERVER_NAME: &str = "msime";
 /// A configuration file larger than this is not one an assistant wrote; refuse it rather than read it whole.
 const CONFIG_READ_LIMIT: u64 = 4 << 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum McpClient {
+pub enum McpClient {
     ClaudeDesktop,
     Cursor,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct McpClientStatus {
+pub struct McpClientStatus {
     pub id: McpClient,
     /// Where the configuration file is, for the page to show.
     pub path: String,
@@ -31,7 +31,7 @@ pub(crate) struct McpClientStatus {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct McpServerStatus {
+pub struct McpServerStatus {
     /// The absolute path of `msime-mcp` beside this executable.
     pub command: String,
     /// Whether that file exists; a development build may not have built it.
@@ -45,7 +45,7 @@ pub(crate) struct McpServerStatus {
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum InstallOutcome {
+pub enum InstallOutcome {
     /// The file had no `msime` entry, or had no file at all.
     Added,
     /// An `msime` entry that differed was replaced, as the caller allowed.
@@ -55,14 +55,14 @@ pub(crate) enum InstallOutcome {
 }
 
 /// `msime-mcp` as it is packaged: beside the settings executable in `Contents/MacOS` on macOS, in the same `bin` directory on Linux, and in the `server` directory on Windows.
-pub(crate) fn server_command(executable: &Path) -> Option<PathBuf> {
+pub fn server_command(executable: &Path) -> Option<PathBuf> {
     executable
         .parent()
         .map(|directory| directory.join(format!("msime-mcp{}", std::env::consts::EXE_SUFFIX)))
 }
 
 /// The entry an assistant runs: the server and the runtime options, and no flags.
-pub(crate) fn server_entry(command: &Path, options: &Path) -> Value {
+pub fn server_entry(command: &Path, options: &Path) -> Value {
     json!({
         "command": command.to_string_lossy(),
         "args": ["--options", options.to_string_lossy()],
@@ -70,7 +70,7 @@ pub(crate) fn server_entry(command: &Path, options: &Path) -> Value {
 }
 
 /// The entry wrapped the way both assistants, and most others, expect it.
-pub(crate) fn config_snippet(entry: &Value) -> String {
+pub fn config_snippet(entry: &Value) -> String {
     let document = json!({ "mcpServers": { SERVER_NAME: entry } });
     serde_json::to_string_pretty(&document).unwrap_or_default()
 }
@@ -80,9 +80,7 @@ pub(crate) fn config_snippet(entry: &Value) -> String {
 /// Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS and `%APPDATA%\Claude\claude_desktop_config.json` on Windows, as the Model Context Protocol's "Connect to local MCP servers" guide (modelcontextprotocol.io/quickstart/user) gives them. Claude Desktop has no Linux release, so it is not offered there.
 ///
 /// Cursor: the global `~/.cursor/mcp.json`, `%USERPROFILE%\.cursor\mcp.json` on Windows, per Cursor's Model Context Protocol documentation (docs.cursor.com/context/model-context-protocol).
-pub(crate) fn client_paths(
-    env: impl Fn(&str) -> Option<std::ffi::OsString>,
-) -> Vec<(McpClient, PathBuf)> {
+pub fn client_paths(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<(McpClient, PathBuf)> {
     let absolute = |name: &str| {
         env(name)
             .map(PathBuf::from)
@@ -115,6 +113,52 @@ pub(crate) fn client_paths(
     clients
 }
 
+/// `msime-mcp` beside `executable`, the entry pointing it at `options`, and whether each assistant offered here already has it. Without `options` the input method is not set up yet, so there is no entry to show or compare.
+pub fn status(
+    executable: &Path,
+    options: Option<&Path>,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<McpServerStatus, &'static str> {
+    let command = server_command(executable).ok_or("storage")?;
+    let entry = options.map(|options| server_entry(&command, options));
+    let clients = client_paths(env)
+        .into_iter()
+        .map(|(id, path)| McpClientStatus {
+            id,
+            configured: entry
+                .as_ref()
+                .is_some_and(|entry| is_configured(&path, entry)),
+            path: path.to_string_lossy().into_owned(),
+        })
+        .collect();
+    Ok(McpServerStatus {
+        installed: command.is_file(),
+        command: command.to_string_lossy().into_owned(),
+        options: options.map(|path| path.to_string_lossy().into_owned()),
+        config: entry.as_ref().map(config_snippet),
+        clients,
+    })
+}
+
+/// Write the entry for `msime-mcp` beside `executable` into `client`'s configuration file; see `install` for what is kept and when a different entry is replaced.
+pub fn install_client(
+    executable: &Path,
+    options: Option<&Path>,
+    client: McpClient,
+    replace: bool,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<InstallOutcome, &'static str> {
+    let options = options.ok_or("mcp_options_missing")?;
+    let command = server_command(executable)
+        .filter(|command| command.is_file())
+        .ok_or("mcp_server_missing")?;
+    let (_, path) = client_paths(env)
+        .into_iter()
+        .find(|(id, _)| *id == client)
+        .ok_or("mcp_client_missing")?;
+    install(&path, &server_entry(&command, options), replace)
+}
+
 /// The configuration as it is, or an empty object when there is no file yet.
 fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
     use std::io::Read;
@@ -141,7 +185,7 @@ fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
 }
 
 /// Whether the file at `path` already holds exactly `entry`. A file that cannot be read reads as not configured.
-pub(crate) fn is_configured(path: &Path, entry: &Value) -> bool {
+pub fn is_configured(path: &Path, entry: &Value) -> bool {
     read_config(path).is_ok_and(|document| {
         document
             .get("mcpServers")
@@ -153,11 +197,7 @@ pub(crate) fn is_configured(path: &Path, entry: &Value) -> bool {
 /// Put `entry` under `mcpServers.msime` in the file at `path`, keeping everything else.
 ///
 /// The directory must already exist: it is created by the assistant itself, so a missing one means the assistant is not installed, and creating it would leave a directory for an application the user does not have. A different `msime` entry is replaced only when `replace` is set; otherwise the call fails with `mcp_entry_exists` so the page can ask first. A symbolic link, such as a configuration kept in a dotfiles repository, is written through rather than replaced.
-pub(crate) fn install(
-    path: &Path,
-    entry: &Value,
-    replace: bool,
-) -> Result<InstallOutcome, &'static str> {
+pub fn install(path: &Path, entry: &Value, replace: bool) -> Result<InstallOutcome, &'static str> {
     let target = match std::fs::canonicalize(path) {
         Ok(resolved) => resolved,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => path.to_owned(),

@@ -15,6 +15,7 @@
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Windows.ApplicationModel.Activation.h>
+#include <winrt/Windows.ApplicationModel.DataTransfer.h>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.UI.Text.h>
@@ -97,6 +98,74 @@ std::string route_page() {
     LocalFree(argv);
   }
   return page;
+}
+
+// The runtime options msime-mcp is pointed at: the file the Server hands this window, or the one in the state directory when started from the Start menu. None before the input method is set up.
+std::optional<std::string> runtime_options_path() {
+  std::error_code error;
+  if (const auto *raw = _wgetenv(L"MSIME_CLIENT_HOST_OPTIONS"); raw && *raw) {
+    std::filesystem::path path(raw);
+    if (path.is_absolute() && std::filesystem::is_regular_file(path, error)) {
+      if (auto value = path_utf8(path); !value.empty())
+        return value;
+    }
+  }
+  const auto directory = state_directory();
+  if (directory.empty())
+    return std::nullopt;
+  const auto path = directory / L"runtime-options.json";
+  if (!std::filesystem::is_regular_file(path, error))
+    return std::nullopt;
+  if (auto value = path_utf8(path); !value.empty())
+    return value;
+  return std::nullopt;
+}
+
+JsonObject mcp_request(std::optional<std::string> const &options) {
+  JsonObject request;
+  request.SetNamedValue(L"options",
+                        options ? JsonValue::CreateStringValue(text(*options))
+                                : JsonValue::CreateNullValue());
+  return request;
+}
+
+Response call_mcp(char *(*entry)(const uint8_t *, size_t),
+                  JsonObject const &request) {
+  const auto body = utf8(request.Stringify());
+  return take_response(
+      entry(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+}
+
+std::wstring response_error(Response const &response) {
+  try {
+    return std::wstring(JsonObject::Parse(text(response.text))
+                            .GetNamedString(L"error", L"")
+                            .c_str());
+  } catch (...) {
+    return {};
+  }
+}
+
+std::wstring mcp_client_name(std::wstring_view id) {
+  if (id == L"claude_desktop")
+    return L"Claude Desktop";
+  if (id == L"cursor")
+    return L"Cursor";
+  return std::wstring(id);
+}
+
+// Same wording as the shared settings page (packages/ui/src/settings/mcp-connect.tsx).
+std::wstring mcp_failure(std::wstring const &code, std::wstring const &name) {
+  if (code == L"mcp_client_missing")
+    return L"没有找到 " + name + L" 的配置目录。请先安装并打开一次 " + name +
+           L"。";
+  if (code == L"mcp_config_invalid")
+    return name + L" 的配置文件不是有效的 JSON，已保持原样。请先修正该文件。";
+  if (code == L"mcp_server_missing")
+    return L"没有找到 msime-mcp，请重新安装输入法。";
+  if (code == L"mcp_options_missing")
+    return L"输入法尚未完成初始化，请先完成设置向导。";
+  return L"无法写入 " + name + L" 的配置文件。";
 }
 
 class PreferencesDocument {
@@ -263,6 +332,7 @@ private:
     append_navigation_item(navigation, L"候选窗口", L"candidate");
     append_navigation_item(navigation, L"外观", L"appearance");
     append_navigation_item(navigation, L"词库", L"dictionary");
+    append_navigation_item(navigation, L"AI 助手", L"ai");
     append_navigation_item(navigation, L"关于", L"about");
     Grid::SetColumn(navigation, 0);
     root.Children().Append(navigation);
@@ -359,12 +429,19 @@ private:
                     L"clipboard_history");
       append_switch(panel, L"显示候选翻译", L"在候选下方显示可用的翻译提示。",
                     L"candidate_translations");
+    } else if (page == "ai") {
+      append_mcp_section(panel);
     } else {
       append_section(panel, L"水杉输入法", L"Windows 原生 WinUI 3 设置窗口");
       append_section(panel, L"数据与隐私",
                      L"设置保存到当前输入法数据目录，详细说明见隐私政策。");
     }
 
+    // The assistant page writes the assistants' files itself; it has no preferences to save.
+    if (page == "ai") {
+      content_.Content(panel);
+      return;
+    }
     auto actions = StackPanel();
     actions.Orientation(Orientation::Horizontal);
     actions.Spacing(10);
@@ -392,6 +469,8 @@ private:
       return L"词库";
     if (page == "about")
       return L"关于";
+    if (page == "ai")
+      return L"连接 AI 助手";
     return L"常用";
   }
 
@@ -431,6 +510,146 @@ private:
     panel.Children().Append(row);
   }
 
+  void append_text(StackPanel const &panel, std::wstring const &value,
+                   double opacity = 0.72) {
+    auto block = TextBlock();
+    block.Text(value);
+    block.TextWrapping(TextWrapping::Wrap);
+    block.IsTextSelectionEnabled(true);
+    block.Opacity(opacity);
+    panel.Children().Append(block);
+  }
+
+  // 「连接 AI 助手」: the msime-mcp entry an assistant runs, to copy or to write into Claude Desktop's or Cursor's configuration. The same section as the shared settings page, through msime_client_mcp_status and msime_client_mcp_install.
+  void append_mcp_section(StackPanel const &panel) {
+    append_text(panel, L"通过 MCP（Model Context Protocol）让本机的 AI "
+                       L"助手读取快捷短语、设置和打字统计。服务器只在本机运行，"
+                       L"不联网；默认只读。");
+    const auto response =
+        call_mcp(msime_client_mcp_status, mcp_request(runtime_options_path()));
+    JsonObject status{nullptr};
+    if (response.ok) {
+      try {
+        status =
+            JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+      } catch (...) {
+      }
+    }
+    if (!status) {
+      append_text(panel, L"无法读取 MCP 服务器的状态。", 1);
+      return;
+    }
+    const bool installed = status.GetNamedBoolean(L"installed", false);
+    append_section(
+        panel, L"服务器程序",
+        hstring(std::wstring(status.GetNamedString(L"command", L"").c_str()) +
+                (installed ? L"" : L"（未找到，请重新安装输入法）")));
+    const auto config =
+        status.GetNamedValue(L"config", JsonValue::CreateNullValue());
+    if (config.ValueType() != JsonValueType::String) {
+      append_text(panel, L"输入法尚未完成初始化，完成设置向导后即可连接。", 1);
+      append_mcp_result(panel);
+      return;
+    }
+    const auto snippet = config.GetString();
+    auto code = TextBox();
+    code.Text(snippet);
+    code.IsReadOnly(true);
+    code.AcceptsReturn(true);
+    code.TextWrapping(TextWrapping::NoWrap);
+    code.FontFamily(Media::FontFamily(L"Consolas"));
+    code.Header(box_value(L"MCP 配置"));
+    panel.Children().Append(code);
+    append_text(panel,
+                L"要让助手修改快捷短语和设置，在 args 中加入 "
+                L"--allow-write；要让它读取你的用户词库、查看编码的候选，加入 "
+                L"--allow-dictionary-"
+                L"read；两项都加才能增删、调整和导入词。这两项只应在你信任该助"
+                L"手时开启。");
+    auto copy = Button();
+    copy.Content(box_value(L"复制配置"));
+    copy.Click([snippet](IInspectable const &sender, RoutedEventArgs const &) {
+      Windows::ApplicationModel::DataTransfer::DataPackage package;
+      package.SetText(snippet);
+      Windows::ApplicationModel::DataTransfer::Clipboard::SetContent(package);
+      sender.as<Button>().Content(box_value(L"已复制"));
+    });
+    panel.Children().Append(copy);
+    if (installed) {
+      for (auto const &value : status.GetNamedArray(L"clients", JsonArray())) {
+        const auto client = value.GetObject();
+        const std::wstring id(client.GetNamedString(L"id", L"").c_str());
+        const auto name = mcp_client_name(id);
+        const bool configured = client.GetNamedBoolean(L"configured", false);
+        append_section(
+            panel, hstring(name),
+            hstring(std::wstring(client.GetNamedString(L"path", L"").c_str()) +
+                    (configured ? L"（已连接）" : L"")));
+        auto write = Button();
+        write.Content(box_value(hstring(L"写入 " + name)));
+        write.IsEnabled(!configured && !mcp_busy_);
+        write.Click([this, id](IInspectable const &, RoutedEventArgs const &) {
+          write_mcp_client(id);
+        });
+        panel.Children().Append(write);
+      }
+    }
+    append_mcp_result(panel);
+  }
+
+  void append_mcp_result(StackPanel const &panel) {
+    if (!mcp_result_.empty())
+      append_text(panel, mcp_result_, 1);
+  }
+
+  fire_and_forget write_mcp_client(std::wstring id) {
+    if (mcp_busy_)
+      co_return;
+    auto strong = get_strong();
+    const auto name = mcp_client_name(id);
+    mcp_busy_ = true;
+    mcp_result_.clear();
+    auto request = mcp_request(runtime_options_path());
+    request.SetNamedValue(L"client", JsonValue::CreateStringValue(id));
+    request.SetNamedValue(L"replace", JsonValue::CreateBooleanValue(false));
+    auto response = call_mcp(msime_client_mcp_install, request);
+    if (!response.ok && response_error(response) == L"mcp_entry_exists") {
+      ContentDialog dialog;
+      dialog.Title(box_value(hstring(L"替换 " + name + L" 中的 msime？")));
+      dialog.Content(box_value(
+          hstring(name + L" 的配置里已有另一个名为 msime "
+                         L"的服务器。替换后，它原来的命令和参数（包括手动加上的"
+                         L" --allow-write）会被这里的设置覆盖。")));
+      dialog.PrimaryButtonText(L"替换");
+      dialog.CloseButtonText(L"取消");
+      dialog.DefaultButton(ContentDialogButton::Close);
+      dialog.XamlRoot(content_.XamlRoot());
+      if (co_await dialog.ShowAsync() != ContentDialogResult::Primary) {
+        mcp_busy_ = false;
+        co_return;
+      }
+      request.SetNamedValue(L"replace", JsonValue::CreateBooleanValue(true));
+      response = call_mcp(msime_client_mcp_install, request);
+    }
+    if (response.ok) {
+      std::wstring outcome;
+      try {
+        outcome = JsonObject::Parse(text(response.text))
+                      .GetNamedString(L"value", L"")
+                      .c_str();
+      } catch (...) {
+      }
+      mcp_result_ =
+          outcome == L"unchanged"
+              ? name + L" 已经连接，无需改动。"
+              : L"已写入 " + name + L" 的配置。重新启动 " + name + L" 后生效。";
+    } else {
+      mcp_result_ = mcp_failure(response_error(response), name);
+    }
+    mcp_busy_ = false;
+    show_page("ai");
+  }
+
   void save(IInspectable const &, RoutedEventArgs const &) {
     std::wstring error;
     if (!document_.Save(error)) {
@@ -459,6 +678,8 @@ private:
   PreferencesDocument &document_;
   std::string requested_page_;
   std::string current_page_ = "home";
+  std::wstring mcp_result_;
+  bool mcp_busy_ = false;
   ScrollViewer content_{nullptr};
 };
 

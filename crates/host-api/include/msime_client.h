@@ -688,6 +688,10 @@ char *msime_client_resolve_font_families(const uint8_t *value, size_t length);
 /* Describe what the named host ("windows"/"macos"/"linux"/"android"/"ios") can
  * do, so the shared UI renders from capabilities rather than the user agent. */
 char *msime_client_host_capabilities(const uint8_t *platform, size_t length);
+/* msime-mcp beside the calling executable, for a settings host other than the desktop shell. JSON request (<=65536 bytes) {options:absolute runtime options path|null}. Returns {command,installed,options,config,clients:[{id,path,configured}]}. Reads the assistants' configuration files: use a worker thread. */
+char *msime_client_mcp_status(const uint8_t *request, size_t length);
+/* Write the msime entry into one assistant's configuration, keeping every other key. JSON request {options,client:"claude_desktop"|"cursor",replace:bool}. Returns "added"|"replaced"|"unchanged"; a different msime entry fails with mcp_entry_exists unless replace is set. Writes a file: use a worker thread. */
+char *msime_client_mcp_install(const uint8_t *request, size_t length);
 char *msime_client_destroy(uint64_t session);
 /* value must be NULL or a still-owned pointer returned by this library. */
 void msime_client_string_free(char *value);

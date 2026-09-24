@@ -103,10 +103,10 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use tauri::Manager;
 
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+use msime_host_api::mcp_clients;
 use msime_host_api::system_fonts;
 use shared::export_file;
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-use shared::mcp_clients;
 use shared::skin_directory;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use shared::voice::voice_output;
@@ -616,30 +616,11 @@ async fn mcp_server_status(
 ) -> Result<mcp_clients::McpServerStatus, CommandError> {
     let options = runtime.path.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let command = std::env::current_exe()
-            .ok()
-            .and_then(|executable| mcp_clients::server_command(&executable))
-            .ok_or(CommandError { code: "storage" })?;
-        let entry = options
-            .as_deref()
-            .map(|options| mcp_clients::server_entry(&command, options));
-        let clients = mcp_clients::client_paths(|name| std::env::var_os(name))
-            .into_iter()
-            .map(|(id, path)| mcp_clients::McpClientStatus {
-                id,
-                configured: entry
-                    .as_ref()
-                    .is_some_and(|entry| mcp_clients::is_configured(&path, entry)),
-                path: path.to_string_lossy().into_owned(),
-            })
-            .collect();
-        Ok(mcp_clients::McpServerStatus {
-            installed: command.is_file(),
-            command: command.to_string_lossy().into_owned(),
-            options: options.map(|path| path.to_string_lossy().into_owned()),
-            config: entry.as_ref().map(mcp_clients::config_snippet),
-            clients,
+        let executable = std::env::current_exe().map_err(|_| CommandError { code: "storage" })?;
+        mcp_clients::status(&executable, options.as_deref(), |name| {
+            std::env::var_os(name)
         })
+        .map_err(|code| CommandError { code })
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
@@ -655,27 +636,12 @@ async fn install_mcp_client(
 ) -> Result<mcp_clients::InstallOutcome, CommandError> {
     let options = runtime.path.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let options = options.ok_or(CommandError {
-            code: "mcp_options_missing",
+        let executable = std::env::current_exe().map_err(|_| CommandError {
+            code: "mcp_server_missing",
         })?;
-        let command = std::env::current_exe()
-            .ok()
-            .and_then(|executable| mcp_clients::server_command(&executable))
-            .filter(|command| command.is_file())
-            .ok_or(CommandError {
-                code: "mcp_server_missing",
-            })?;
-        let (_, path) = mcp_clients::client_paths(|name| std::env::var_os(name))
-            .into_iter()
-            .find(|(id, _)| *id == client)
-            .ok_or(CommandError {
-                code: "mcp_client_missing",
-            })?;
-        mcp_clients::install(
-            &path,
-            &mcp_clients::server_entry(&command, &options),
-            replace,
-        )
+        mcp_clients::install_client(&executable, options.as_deref(), client, replace, |name| {
+            std::env::var_os(name)
+        })
         .map_err(|code| CommandError { code })
     })
     .await
