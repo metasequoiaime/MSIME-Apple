@@ -212,6 +212,8 @@ constexpr CGFloat kWideControlWidth = 300.0;
 /// The account page hosts a view owned by the Swift backend, so showing and leaving it has to
 /// attach and detach that view. Its position in the page list was written out at both call sites.
 constexpr NSInteger kAccountPageIndex = 8;
+/// The 皮肤 page is the skin browser, so the native fallback for the shared skin route shows it.
+constexpr NSInteger kSkinPageIndex = 2;
 }  // namespace
 
 /// Scroll views lay an unflipped document view out from the bottom, which would park a short
@@ -691,7 +693,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSPopUpButton *_candidatePreeditButton;
     NSPopUpButton *_pageShortcutButton;
     NSPopUpButton *_pageSizeButton;
-    NSPopUpButton *_skinButton;
     NSURL *_skinsRoot;
     NSImage *_decorationImage;
     msime::mac::ResolvedSkin _lightSkin;
@@ -699,7 +700,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     std::vector<msime::mac::SkinListEntry> _skins;
     MSIMECandidatePreviewView *_preview;
     NSButton *_themeButton;
-    NSWindowController *_skinWindow;
+    MetasequoiaSkinSettingsView *_skinSettingsView;
+    NSView *_skinPageContainer;
+    NSButton *_skinPageSharedEntry;
     NSString *_translationPreferencesDirectory;
     MSIMETranslationSettingsWindow *_translationWindow;
     MSIMEAISettingsWindow *_aiWindow;
@@ -1973,15 +1976,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [_candidatePreeditButton selectItemAtIndex:self.showsCandidatePreedit ? 0 : 1];
     [_pageShortcutButton selectItemAtIndex:self.pageShortcut];
     [_pageSizeButton selectItemAtIndex:msime::mac::CandidatePageSizeOptionIndex(self.pageSize)];
-    [_skinButton removeAllItems];
-    for (const auto &entry : _skins) {
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@(entry.name.c_str()) action:nil keyEquivalent:@""];
-        item.representedObject = @(entry.id.c_str());
-        [_skinButton.menu addItem:item];
-    }
-    for (NSMenuItem *item in _skinButton.itemArray) {
-        if ([item.representedObject isEqual:@(_lightSkin.id.c_str())]) { [_skinButton selectItem:item]; break; }
-    }
     [_preview updatePanelStyle:self.vertical ? 1 : 0 pageSize:self.pageSize fontSize:self.fontSize];
 }
 - (NSWindow *)window {
@@ -2112,12 +2106,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _pageSizeButton.accessibilityLabel = @"每页候选";
     _pageSizeButton.target = self;
     _pageSizeButton.action = @selector(pageSizeChanged:);
-    _skinButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    _skinButton.accessibilityLabel = @"候选皮肤";
-    _skinButton.target = self;
-    _skinButton.action = @selector(skinChanged:);
-    NSButton *reload = [NSButton buttonWithTitle:@"重新读取皮肤" target:self action:@selector(reloadSkinsFromButton:)];
-    NSButton *browse = [NSButton buttonWithTitle:@"浏览所有皮肤…" target:self action:@selector(showSkinCatalog:)];
     _inputModeShortcutToggle = SettingSwitch(self, @selector(inputModeShortcutChanged:), @"Shift + 空格切换中英文");
     _defaultImeModeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_defaultImeModeButton addItemsWithTitles:@[@"中文", @"英文"]];
@@ -2325,15 +2313,29 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     ]);
 
     // ---- 皮肤 -------------------------------------------------------------------------------
-    NSBox *skinCard = CardWithViews(@[
-        PreferenceRow(@"候选皮肤", _skinButton),
-        PreferenceRow(@"外部皮肤", reload),
-        PreferenceRow(@"皮肤卡片", browse),
-    ], 0.0);
-    skinCard.accessibilityLabel = @"候选皮肤卡片";
-    NSScrollView *skinPage = PreferencesPage(@"皮肤", @"选择内置皮肤，或加载放入皮肤目录的外部皮肤包。", @[
-        SectionLabel(@"候选皮肤"), skinCard,
-    ]);
+    // The page is the skin browser itself. It already existed — cards with a live candidate preview
+    // of each skin, in both appearances — but it lived in a window of its own behind a
+    // 浏览所有皮肤… button, and the page you actually landed on offered a popup of skin names.
+    // Picking a skin by reading its name out of a menu is choosing a look you cannot see.
+    // The shared settings application has a skin page too. It stays reachable, but as a named trip
+    // to another application rather than as the button you press to pick a skin.
+    NSButton *sharedSkinPage = [NSButton buttonWithTitle:@"在设置应用中打开…" target:self action:@selector(showSkinCatalog:)];
+    LinkifyButton(sharedSkinPage, @"在设置应用中打开皮肤页");
+    sharedSkinPage.translatesAutoresizingMaskIntoConstraints = NO;
+    // The cards are filled in the first time the page is shown. Building them renders a live
+    // candidate preview per skin and rescans the skin directory, and rescanning announces an
+    // appearance change — doing that while merely opening the window rebuilds the candidate panel
+    // for a page the user has not asked for.
+    _skinPageContainer = [[NSView alloc] initWithFrame:NSZeroRect];
+    _skinPageContainer.translatesAutoresizingMaskIntoConstraints = NO;
+    _skinPageContainer.accessibilityLabel = @"皮肤";
+    [_skinPageContainer addSubview:sharedSkinPage];
+    [NSLayoutConstraint activateConstraints:@[
+        [sharedSkinPage.trailingAnchor constraintEqualToAnchor:_skinPageContainer.trailingAnchor constant:-kPageMargin],
+        [sharedSkinPage.bottomAnchor constraintEqualToAnchor:_skinPageContainer.bottomAnchor constant:-6.0],
+    ]];
+    _skinPageSharedEntry = sharedSkinPage;
+    NSView *skinPage = _skinPageContainer;
 
     // ---- 词库与数据 --------------------------------------------------------------------------
     NSBox *learningCard = CardWithViews(@[
@@ -2882,31 +2884,35 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)toolbarSettingsChanged:(NSButton *)sender { self.floatingToolbarSettings = sender.state == NSControlStateValueOn; }
 - (void)toolbarScaleChanged:(NSPopUpButton *)sender { self.floatingToolbarScalePercent = [@[@75, @100, @125, @150][sender.indexOfSelectedItem] integerValue]; }
 - (void)toolbarFontSizeChanged:(NSPopUpButton *)sender { self.floatingToolbarFontSize = 16 + sender.indexOfSelectedItem * 2; }
-- (NSWindowController *)skinCatalogController {
-    if (!_skinWindow) {
-        NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 700, 720) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
-        window.title = @"皮肤";
-        window.releasedWhenClosed = NO;
-        MetasequoiaSkinSettingsView *cards = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSZeroRect preferences:self];
-        [window.contentView addSubview:cards];
-        [NSLayoutConstraint activateConstraints:@[
-            [cards.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor],
-            [cards.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor],
-            [cards.topAnchor constraintEqualToAnchor:window.contentView.topAnchor],
-            [cards.bottomAnchor constraintEqualToAnchor:window.contentView.bottomAnchor]
-        ]];
-        _skinWindow = [[NSWindowController alloc] initWithWindow:window];
-        [window center];
-    } else {
-        [(MetasequoiaSkinSettingsView *)_skinWindow.window.contentView.subviews.firstObject reload];
-    }
-    return _skinWindow;
+- (MetasequoiaSkinSettingsView *)ensureSkinSettingsView {
+    (void)self.window;  // The page container is built with the rest of the pages.
+    if (_skinSettingsView != nil) return _skinSettingsView;
+    _skinSettingsView = [[MetasequoiaSkinSettingsView alloc] initWithFrame:NSZeroRect preferences:self];
+    [_skinPageContainer addSubview:_skinSettingsView];
+    [NSLayoutConstraint activateConstraints:@[
+        [_skinSettingsView.leadingAnchor constraintEqualToAnchor:_skinPageContainer.leadingAnchor],
+        [_skinSettingsView.trailingAnchor constraintEqualToAnchor:_skinPageContainer.trailingAnchor],
+        [_skinSettingsView.topAnchor constraintEqualToAnchor:_skinPageContainer.topAnchor],
+        [_skinSettingsView.bottomAnchor constraintEqualToAnchor:_skinPageSharedEntry.topAnchor constant:-6.0],
+    ]];
+    return _skinSettingsView;
+}
+- (NSView *)skinSettingsView {
+    MetasequoiaSkinSettingsView *view = [self ensureSkinSettingsView];
+    [view reload];
+    return view;
 }
 - (void)showSkinCatalog:(id)sender {
+    (void)sender;
     __weak MSIMEAppearancePreferences *weakSelf = self;
+    // The native fallback used to open a second window holding the same browser the 皮肤 page now
+    // is, so falling back means showing that page rather than a duplicate of it.
     MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Skin, [self desktopSettingsWorkspace], ^{
         MSIMEAppearancePreferences *strongSelf = weakSelf;
-        if (strongSelf) [[strongSelf skinCatalogController] showWindow:sender];
+        if (strongSelf == nil) return;
+        [[strongSelf ensureSkinSettingsView] reload];
+        [strongSelf showPreferencesPageAtIndex:kSkinPageIndex navigationIndex:kSkinPageIndex];
+        [strongSelf showWindow:nil];
     });
 }
 - (void)showDictionary:(id)sender {
@@ -2938,6 +2944,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)showPreferencesPageAtIndex:(NSInteger)pageIndex navigationIndex:(NSInteger)navigationIndex {
     _selectedPageIndex = pageIndex;
+    if (pageIndex == kSkinPageIndex) [self ensureSkinSettingsView];
     for (NSInteger index = 0; index < (NSInteger)_preferencePages.count; ++index)
         _preferencePages[index].hidden = index != pageIndex;
     for (NSButton *button in _sidebarButtons)
@@ -3089,10 +3096,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     const BOOL restoreEverything = pageKeys.count == 0 || response == NSAlertThirdButtonReturn;
     [self removeStoredKeys:restoreEverything ? [self restorableKeys] : pageKeys];
 }
-- (void)skinChanged:(NSPopUpButton *)sender {
-    self.skinID = sender.selectedItem.representedObject ?: @"fluent";
-}
-- (void)reloadSkinsFromButton:(id)sender { (void)sender; [self reloadSkins]; }
 - (void)showWindow:(id)sender { [self reloadSkins]; [super showWindow:sender]; }
 - (void)pageShortcutChanged:(NSPopUpButton *)sender { self.pageShortcut = sender.indexOfSelectedItem; }
 - (void)navigationChanged:(NSButton *)sender { [self setNavigation:sender.identifier enabled:sender.state == NSControlStateValueOn]; }
