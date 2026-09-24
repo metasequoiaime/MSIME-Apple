@@ -214,7 +214,7 @@ private final class IOSVoiceTranscriptionService {
           components.user == nil, components.password == nil, components.fragment == nil else {
       return false
     }
-    if ["openai", "siliconflow", "groq"].contains(args.provider) {
+    if ["openai", "siliconflow", "groq", "everyapi", "mistral"].contains(args.provider) {
       return components.scheme?.lowercased() == "https" && !model.isEmpty &&
         args.headers.isEmpty && args.boostingTableId.isEmpty
     }
