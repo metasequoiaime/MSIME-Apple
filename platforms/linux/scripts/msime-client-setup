@@ -38,6 +38,7 @@ from pathlib import Path
 CHUNK = 1024 * 1024
 # Each registration step is a local D-Bus or dconf round trip; a wedged daemon must not hold up the end of setup.
 COMMAND_TIMEOUT = 10
+DOWNLOAD_TIMEOUT = 60
 FCITX5_INPUT_METHOD = "msime"
 FCITX5_NAME = "水杉输入法"
 IBUS_ENGINE = "msime-client"
@@ -151,7 +152,7 @@ def dependency_for(engine_path: str, engine_lock: dict) -> dict | None:
 
 
 def fetch(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url) as response, destination.open("wb") as handle:
+    with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, destination.open("wb") as handle:
         shutil.copyfileobj(response, handle)
 
 
