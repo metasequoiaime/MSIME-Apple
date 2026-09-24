@@ -1711,7 +1711,27 @@ struct TranslationTask {
   std::string gloss_query;
   bool offline = false;
   Json local_translations = Json::array();
+  // The offline glosses come from a non-English dictionary, which the user's own translator outranks: it is asked about every candidate and its answers replace the dictionary's (prefer_online_glosses).
+  bool prefer_online = false;
 };
+// prefer_online_glosses over the JSON translation lists the host API exchanges.
+Json prefer_online_translations(const Json &glosses, const Json &online) {
+  std::vector<std::pair<std::string, std::string>> merged, answers;
+  const auto read = [](const Json &values, auto &into) {
+    if (!values.is_array()) return;
+    for (const auto &item : values)
+      if (item.is_object())
+        into.emplace_back(item.value("text", std::string{}),
+                          item.value("translation", std::string{}));
+  };
+  read(glosses, merged);
+  read(online, answers);
+  msime::linux_host::prefer_online_glosses(merged, answers);
+  auto result = Json::array();
+  for (const auto &[text, translation] : merged)
+    result.push_back({{"text", text}, {"translation", translation}});
+  return result;
+}
 bool apply(IBusEngine *engine, char *raw,
            PunctuationPairMode pair_mode = PunctuationPairMode::Unpaired,
            std::optional<std::string> space_convert_preceding = std::nullopt);
@@ -1790,12 +1810,10 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
 }
 void translation_dispatch(IBusEngine *engine) {
   auto &s = state(engine);
-  const bool offline_gloss =
-      s.translation_target_language == "en" &&
-      (s.candidate_english_gloss || s.candidate_translations);
   const bool online_translation =
       s.candidate_translations && !s.translation_provider_socket.empty();
-  if ((!offline_gloss && !online_translation) ||
+  // Either switch can reach an offline gloss: English, or an installed non-English dictionary, which only the query below can name.
+  if (!(s.candidate_english_gloss || s.candidate_translations) ||
       s.translation_loading || !s.session ||
       !s.focused || s.blocked || !s.input_enabled || s.private_input ||
       !s.view.value("candidates", Json::array()).size())
@@ -1803,7 +1821,13 @@ void translation_dispatch(IBusEngine *engine) {
   try {
     auto query = response(msime_client_translation_query(s.session));
     if (query.is_null() || !query.is_object()) return;
-    query["target_language"] = s.translation_target_language;
+    const auto &target = s.translation_target_language;
+    const auto installed = query.value("offline_gloss_languages", Json::array());
+    const bool dictionary = target != "en" && installed.is_array() &&
+        std::find(installed.begin(), installed.end(), target) != installed.end();
+    const bool offline_gloss = target == "en" || dictionary;
+    if (!offline_gloss && !online_translation) return;
+    query["target_language"] = target;
     // The shared query carries candidate objects; the socket protocol takes
     // the candidate texts, matching TranslationQuery in the host API.
     auto texts = Json::array();
@@ -1818,16 +1842,17 @@ void translation_dispatch(IBusEngine *engine) {
     auto candidates = Json::array();
     for (const auto &candidate : s.view.at("candidates"))
       candidates.push_back({{"text", candidate.at("text")}, {"source", candidate.at("source")}});
-    const auto gloss_query = Json{{"generation", query.at("generation")},
-                                  {"user_data", configured.value("user_data", std::string{})},
-                                  {"candidates", candidates}}.dump();
+    auto gloss_query = Json{{"generation", query.at("generation")},
+                            {"user_data", configured.value("user_data", std::string{})},
+                            {"candidates", candidates}};
+    if (dictionary) gloss_query["target_language"] = target;
     const auto provider_socket =
         s.candidate_translations ? s.translation_provider_socket : std::string{};
     start_translation_task(engine, TranslationTask{
         s.session, s.provider_epoch, encoded, provider_socket,
-        configured.value("resources", std::string{}), gloss_query,
+        configured.value("resources", std::string{}), gloss_query.dump(),
         offline_gloss,
-        Json::array()});
+        Json::array(), dictionary});
   } catch (...) { s.translation_loading = false; }
 }
 // Match the Windows translation worker's 500ms idle window. Only copy
@@ -1885,12 +1910,8 @@ void translation_schedule(IBusEngine *engine) {
     s.translation_delay_source = 0;
     g_source_remove(source);
   }
-  const bool offline_gloss =
-      s.translation_target_language == "en" &&
-      (s.candidate_english_gloss || s.candidate_translations);
-  const bool online_translation =
-      s.candidate_translations && !s.translation_provider_socket.empty();
-  if ((!offline_gloss && !online_translation) ||
+  // The same switches reach every gloss, offline or online; translation_dispatch decides which applies once it has the query.
+  if (!(s.candidate_english_gloss || s.candidate_translations) ||
       !s.session || !s.focused || s.blocked || !s.input_enabled || s.private_input ||
       s.view.value("candidates", Json::array()).empty())
     return;
@@ -2063,7 +2084,9 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
       const auto document = Json::parse(raw.get());
       if (document.value("ok", false)) {
         const auto &value = document.at("value");
-        if (value.is_object())
+        if (value.is_object() && request->prefer_online && !request->offline)
+          translations = prefer_online_translations(translations, value.at("translations"));
+        else if (value.is_object())
           for (const auto &item : value.at("translations"))
             translations.push_back(item);
       }
@@ -2077,12 +2100,13 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
         s.session, generation, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     s.view = applied.at("view");
     render(engine, s.view);
-    // Publish local hits before starting network work, and only send misses.
+    // Publish local hits before starting network work, and only send misses; a non-English dictionary's hits are asked about again, since the provider outranks it.
     if (request->offline && !request->socket.empty()) {
       auto missing = Json::array();
       for (const auto &text : query.at("candidates")) {
-        const bool found = std::any_of(translations.begin(), translations.end(),
-            [&](const Json &item) { return item.at("text") == text; });
+        const bool found = !request->prefer_online &&
+            std::any_of(translations.begin(), translations.end(),
+                        [&](const Json &item) { return item.at("text") == text; });
         if (!found) missing.push_back(text);
       }
       if (!missing.empty()) {

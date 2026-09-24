@@ -1750,6 +1750,30 @@ public:
       online_query_.clear();
     }
   }
+  // A non-English target whose offline dictionary is installed. The user's own translator outranks that dictionary, so after it answers the provider is asked about every candidate and its answers replace the dictionary's (prefer_online_glosses).
+  static bool offlineDictionary(const Json &query) {
+    const auto target = query.value("target_language", std::string{});
+    const auto installed = query.value("offline_gloss_languages", Json::array());
+    return target != "en" && installed.is_array() &&
+           std::find(installed.begin(), installed.end(), target) != installed.end();
+  }
+  static Json preferOnline(const Json &glosses, const Json &online) {
+    std::vector<std::pair<std::string, std::string>> merged, answers;
+    const auto read = [](const Json &values, auto &into) {
+      if (!values.is_array()) return;
+      for (const auto &item : values)
+        if (item.is_object())
+          into.emplace_back(item.value("text", std::string{}),
+                            item.value("translation", std::string{}));
+    };
+    read(glosses, merged);
+    read(online, answers);
+    msime::linux_host::prefer_online_glosses(merged, answers);
+    auto result = Json::array();
+    for (const auto &[text, translation] : merged)
+      result.push_back({{"text", text}, {"translation", translation}});
+    return result;
+  }
   void startTranslation(const Json &query, bool offline, Json local = Json::array()) {
     const auto encoded = query.dump();
     translation_query_ = encoded;
@@ -1757,13 +1781,16 @@ public:
     auto candidates = Json::array();
     for (const auto &candidate : view_.at("candidates"))
       candidates.push_back({{"text", candidate.at("text")}, {"source", candidate.at("source")}});
-    const auto gloss = Json{{"generation", query.at("generation")},
-                            {"user_data", query.value("user_data", Json())},
-                            {"candidates", candidates}}.dump();
+    const bool dictionary = offlineDictionary(query);
+    auto glossRequest = Json{{"generation", query.at("generation")},
+                             {"user_data", query.value("user_data", Json())},
+                             {"candidates", candidates}};
+    if (dictionary) glossRequest["target_language"] = query.at("target_language");
+    const auto gloss = glossRequest.dump();
     const auto socket = preferences_.value("candidate_translations", false)
                             ? translation_socket_ : std::string{};
     translation_job_ = std::async(std::launch::async,
-        [query, encoded, gloss, offline, local, socket, resources = resources_] () mutable {
+        [query, encoded, gloss, offline, local, socket, dictionary, resources = resources_] () mutable {
           if (offline) {
             try {
               local = response(msime_client_candidate_gloss_request(
@@ -1776,7 +1803,7 @@ public:
             auto missing = Json::array();
             for (const auto &candidate : query.at("candidates")) {
               const auto &text = candidate.at("text");
-              if (std::none_of(local.begin(), local.end(), [&](const Json &item) {
+              if (dictionary || std::none_of(local.begin(), local.end(), [&](const Json &item) {
                     return item.at("text") == text;
                   })) missing.push_back(text);
             }
@@ -1787,7 +1814,9 @@ public:
                 auto result = response(msime_client_translation_provider_request(
                     reinterpret_cast<const uint8_t *>(request.data()), request.size(),
                     reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
-                if (result.is_object()) {
+                if (result.is_object() && dictionary) {
+                  local = preferOnline(local, result.value("translations", Json::array()));
+                } else if (result.is_object()) {
                   for (const auto &item : result.value("translations", Json::array()))
                     local.push_back(item);
                   const auto userData = query.value("user_data", std::string{});
@@ -1842,7 +1871,7 @@ public:
         return;
       }
       if (std::chrono::steady_clock::now() < translation_due_) return;
-      startTranslation(query, query.value("english_gloss", false));
+      startTranslation(query, query.value("english_gloss", false) || offlineDictionary(query));
     } catch (...) { /* Never expose candidate text or provider credentials in errors. */ }
   }
   void refreshClipboard() {
