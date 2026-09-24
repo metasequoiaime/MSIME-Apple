@@ -20,6 +20,8 @@ bool rejected(CandidateCardInput input) {
   return false;
 }
 int main() {
+  // The shipped presenter's row: itemHeight = fontSize * 1.35 + 2 DIP, with itemGap = 2 DIP between two rows (CandidateList::Measure).
+  const double row16 = 16.0 * 1.35 + 2.0, gap = 2.0;
   // Vertical list: the card follows the widest row and one row per candidate.
   CandidateCardInput vertical;
   vertical.preedit_width = 40.0;
@@ -27,7 +29,7 @@ int main() {
   const auto stacked = candidate_card_size(vertical);
   require(near(stacked.width, 120.0 + 16.0 + 8.0 + 12.0 + 14.0));
   require(near(stacked.height, 8.0 + 10.0 + (16.0 * 1.4 + 6.0) +
-                                   (16.0 * 1.45 + 6.0) * 3.0));
+                                   row16 * 3.0 + gap * 2.0));
 
   // The same candidates on one line widen the card and keep a single row.
   CandidateCardInput horizontal = vertical;
@@ -36,7 +38,7 @@ int main() {
   require(near(inline_card.width, (60.0 + 120.0 + 80.0) + (16.0 + 8.0) * 3.0 +
                                       8.0 * 3.0 + 12.0 + 14.0));
   require(near(inline_card.height,
-               8.0 + 10.0 + (16.0 * 1.4 + 6.0) + (16.0 * 1.45 + 6.0)));
+               8.0 + 10.0 + (16.0 * 1.4 + 6.0) + row16));
   require(inline_card.width > stacked.width &&
           inline_card.height < stacked.height);
 
@@ -58,14 +60,20 @@ int main() {
   CandidateCardInput sparse = vertical;
   sparse.items = {{60.0}, {}, {}};
   require(near(candidate_card_size(sparse).height,
-               stacked.height - (16.0 * 1.45 + 6.0) * 2.0));
+               stacked.height - (row16 + gap) * 2.0));
 
-  // An empty list still reserves one candidate row, and the floor applies.
+  // An empty list still reserves one candidate row, and the floor applies: the shipped presenter's kCandidateMinWidthDip, the same at every font size.
   CandidateCardInput empty;
   empty.preedit_visible = false;
   const auto collapsed = candidate_card_size(empty);
-  require(near(collapsed.width, 16.0 * 7.0));
-  require(near(collapsed.height, 8.0 + 10.0 + (16.0 * 1.45 + 6.0)));
+  require(near(collapsed.width, 160.0));
+  require(near(collapsed.height, 8.0 + 10.0 + row16));
+  for (double font : {12.0, 24.0, 32.0}) {
+    CandidateCardInput sized = empty;
+    sized.font_size = font;
+    require(near(candidate_card_size(sized).width, 160.0) &&
+            near(candidate_card_metrics(font, 16.0, false).min_width, 160.0));
+  }
 
   // Work area caps clamp both axes; a cap of at most one pixel is no cap.
   CandidateCardInput capped = vertical;
@@ -89,7 +97,7 @@ int main() {
   // Rows come from the same metrics the sizing used, so drawing and hit
   // testing cannot drift apart.
   const auto metrics = candidate_card_metrics(16.0, 16.0, true);
-  require(near(metrics.candidate_row, 16.0 * 1.45 + 6.0) &&
+  require(near(metrics.candidate_row, row16) && near(metrics.item_gap, gap) &&
           near(metrics.preedit_row, 16.0 * 1.4 + 6.0) &&
           near(metrics.number_and_bar, 16.0 + 8.0));
   require(near(candidate_card_metrics(16.0, 16.0, false).preedit_row, 0.0));
@@ -108,7 +116,7 @@ int main() {
   const auto second = candidate_row_bounds(1, 3, card_width, metrics, false);
   require(near(first.top, metrics.pad_y + metrics.preedit_row));
   require(near(first.bottom, first.top + metrics.candidate_row));
-  require(near(second.top, first.bottom) && near(second.left, first.left));
+  require(near(second.top, first.bottom + gap) && near(second.left, first.left));
   require(near(first.right, card_width - metrics.pad_x / 2.0));
   const auto column = candidate_row_bounds(1, 3, card_width, metrics, true);
   require(near(column.top, first.top) && near(column.bottom, first.bottom));
@@ -193,15 +201,19 @@ int main() {
     const auto broken = candidate_card_size(uneven);
     require(near(broken.width, 300.0));
     require(near(broken.height, 8.0 + 10.0 + (16.0 * 1.4 + 6.0) +
-                                    2.0 * (16.0 * 1.45 + 6.0)));
+                                    2.0 * row16 + gap));
     const auto lines =
         candidate_page_layout(uneven.items, broken.width, metrics, true);
     require(near(lines[1].bounds.top, first.top) &&
             near(lines[1].item.text_width, 200.0));
     require(near(lines[2].bounds.left, metrics.pad_x / 2.0) &&
-            near(lines[2].bounds.top, first.bottom) &&
-            near(lines[2].bounds.bottom, first.bottom + metrics.candidate_row));
-    require(candidate_card_hit(10.0, first.bottom + 1.0, broken.width,
+            near(lines[2].bounds.top, first.bottom + gap) &&
+            near(lines[2].bounds.bottom,
+                 first.bottom + gap + metrics.candidate_row));
+    // The gap between the two lines belongs to neither.
+    require(!candidate_card_hit(10.0, first.bottom + gap / 2.0, broken.width,
+                                broken.height, lines));
+    require(candidate_card_hit(10.0, first.bottom + gap + 1.0, broken.width,
                                broken.height, lines) ==
             std::optional<size_t>(2));
     require(candidate_card_hit(10.0, first.top + 1.0, broken.width,
@@ -332,6 +344,31 @@ int main() {
   place.anchor_y = 700;
   require(candidate_card_placement(place).y == 703);
 
+  // The vertical flip decision starts from the shipped presenter's 232 DIP seed (DEFAULT_WINDOW_HEIGHT_DIP), so the first short page of a composition already flips when a full one would not fit below; a taller list raises it, and the work area caps it.
+  require(near(candidate_vertical_decision_seed_dip, 232.0));
+  require(candidate_vertical_decision_height(0, 1.0, 1040) == 232);
+  require(candidate_vertical_decision_height(80, 1.0, 1040) == 232);
+  require(candidate_vertical_decision_height(300, 1.0, 1040) == 300);
+  require(candidate_vertical_decision_height(0, 1.5, 1040) == 348);
+  require(candidate_vertical_decision_height(0, 1.25, 1040) == 290);
+  require(candidate_vertical_decision_height(0, 0.0, 1040) == 232);
+  require(candidate_vertical_decision_height(0, 2.0, 400) == 400);
+  {
+    CandidatePlacementInput seeded;
+    seeded.work_right = 1920;
+    seeded.work_bottom = 1040;
+    seeded.anchor_x = 400;
+    seeded.anchor_y = 900;
+    seeded.width = 200;
+    seeded.height = 80;
+    seeded.decision_height =
+        static_cast<int>(candidate_vertical_decision_height(80, 1.0, 1040));
+    // 900 + 3 + 80 fits below, but 900 + 3 + 232 does not.
+    require(candidate_card_placement(seeded).above);
+    seeded.anchor_y = 700;
+    require(!candidate_card_placement(seeded).above);
+  }
+
   // An external skin package may ask for a wider card than the font implies:
   // the artwork is drawn against that width, and a narrower card makes the
   // decoration overhang it.
@@ -367,7 +404,7 @@ int main() {
 
   // Annotation and translation runs, spaced as the shipped presenter spaces them: the annotation 4 DIP after the text, the translation at 0.78 of the size and 0.65 of it away.
   {
-    const double row = 16.0 * 1.45 + 6.0;
+    const double row = row16;
     const double base = 8.0 + 10.0 + (16.0 * 1.4 + 6.0);
     const double translation_line = 16.0 * 0.78 * 1.25;
     require(near(metrics.translation_font, 16.0 * 0.78) &&
@@ -395,7 +432,8 @@ int main() {
     // Horizontal: the translation always goes under the text, and the column is as wide as the wider of the two lines.
     runs.horizontal = true;
     const auto stacked_runs = candidate_card_size(runs);
-    require(near(stacked_runs.width, (84.0 + 24.0 + 8.0) + 12.0 + 14.0));
+    // The column asks for 84 + 24 + 8 + 12 + 14 = 142 DIP, under the 160 DIP floor.
+    require(near(stacked_runs.width, 160.0));
     require(near(stacked_runs.height, base + row + translation_line));
     const auto under = candidate_page_layout(runs.items, stacked_runs.width,
                                              metrics, true)[0].item;
@@ -453,13 +491,13 @@ int main() {
     // Rows of a vertical page stack at their own heights, and hit testing follows them: a click in the wrapped part of the first row is the first row, not the second.
     capped_runs.items = {{60.0, 200.0, 10.0}, {60.0}};
     const auto tall = candidate_card_size(capped_runs);
-    require(near(tall.height, base + moved_item + row));
+    require(near(tall.height, base + moved_item + gap + row));
     const auto grown =
         candidate_page_layout(capped_runs.items, 150.0, metrics, false);
     const auto first_line = candidate_row_bounds(0, 2, 150.0, metrics, false);
     require(near(grown[0].bounds.top, first_line.top) &&
             near(grown[0].bounds.bottom, first_line.top + moved_item) &&
-            near(grown[1].bounds.top, grown[0].bounds.bottom) &&
+            near(grown[1].bounds.top, grown[0].bounds.bottom + gap) &&
             near(grown[1].bounds.bottom, grown[1].bounds.top + row));
     require(candidate_card_hit(20.0, first_line.bottom + 1.0, 150.0,
                                tall.height, grown) == std::optional<size_t>(0));
@@ -484,13 +522,14 @@ int main() {
                  150.0 - metrics.pad_x));
     require(stacked_lines[0].item.annotation.below &&
             stacked_lines[0].item.translation.below);
-    require(near(stacked_lines[1].bounds.top, stacked_lines[0].bounds.bottom) &&
+    require(near(stacked_lines[1].bounds.top,
+                 stacked_lines[0].bounds.bottom + gap) &&
             near(stacked_lines[1].bounds.left, metrics.pad_x / 2.0) &&
             near(stacked_lines[1].bounds.bottom - stacked_lines[1].bounds.top,
                  row));
     capped_runs.horizontal = true;
     require(near(candidate_card_size(capped_runs).height,
-                 base + stacked_lines[0].item.height + row));
+                 base + stacked_lines[0].item.height + gap + row));
 
     // Candidate text wider than the column wraps inside it instead of being clipped, as the shipped presenter's CandidateList::MeasureItem draws it: the row takes the wrapped height, sizing grows the card by it, and the row painted is the row hit testing reads.
     {
@@ -560,14 +599,15 @@ int main() {
       // A vertical page stacks the grown row, and a click anywhere in the wrapped text is that candidate; the next row starts under it.
       long_text.items = {{400.0}, {60.0}};
       const auto two = candidate_card_size(long_text);
-      require(near(two.height, base + 4.0 * text_line + row));
+      require(near(two.height, base + 4.0 * text_line + gap + row));
       const auto stacked_text =
           candidate_page_layout(long_text.items, two.width, metrics, false);
       const auto one_line_row = candidate_row_bounds(0, 2, two.width, metrics, false);
       require(near(stacked_text[0].bounds.top, one_line_row.top) &&
               near(stacked_text[0].bounds.bottom,
                    one_line_row.top + 4.0 * text_line) &&
-              near(stacked_text[1].bounds.top, stacked_text[0].bounds.bottom));
+              near(stacked_text[1].bounds.top,
+                   stacked_text[0].bounds.bottom + gap));
       // The paint rectangle of every row (its bounds, with the text box inside it) is exactly what hit testing resolves: its corners and centre select that row and nothing else, and the text box never leaves it.
       for (size_t index = 0; index < stacked_text.size(); ++index) {
         const auto &bounds = stacked_text[index].bounds;
@@ -591,7 +631,7 @@ int main() {
       long_text.horizontal = true;
       const auto across = candidate_card_size(long_text);
       require(near(across.width, 150.0));
-      require(near(across.height, base + 4.0 * text_line + row));
+      require(near(across.height, base + 4.0 * text_line + gap + row));
       const auto columns_text =
           candidate_page_layout(long_text.items, across.width, metrics, true);
       require(columns_text[0].item.text_wrapped &&
@@ -600,7 +640,8 @@ int main() {
               near(columns_text[0].bounds.bottom - columns_text[0].bounds.top,
                    4.0 * text_line));
       require(!columns_text[1].item.text_wrapped &&
-              near(columns_text[1].bounds.top, columns_text[0].bounds.bottom) &&
+              near(columns_text[1].bounds.top,
+                   columns_text[0].bounds.bottom + gap) &&
               near(columns_text[1].bounds.left, metrics.pad_x / 2.0));
       for (size_t index = 0; index < columns_text.size(); ++index) {
         const auto &bounds = columns_text[index].bounds;
@@ -622,25 +663,28 @@ int main() {
     require(caught);
   }
 
-  // The selection bar keeps the shipped presenter's fixed height and stays centred when the row grows, instead of stretching with it.
+  // The selection bar keeps the shipped presenter's fixed height and stays centred when the row grows, instead of stretching with it. Horizontally it is 3 DIP wide and centred on the row's left edge (itemRect.x - barWidth / 2).
   {
     const auto metrics = candidate_card_metrics(16.0, 16.0, true);
-    const double row_top = 30.0;
-    const auto single =
-        candidate_selection_bar(row_top, row_top + metrics.candidate_row, 16.0);
+    const double row_top = 30.0, row_left = 6.0;
+    const auto single = candidate_selection_bar(
+        row_left, row_top, row_top + metrics.candidate_row, 16.0);
+    require(near(candidate_selection_bar_width, 3.0) &&
+            near(single.left, row_left - 1.5) &&
+            near(single.right, row_left + 1.5));
     require(near(single.bottom - single.top, 16.0 * 0.85));
     require(near((single.top + single.bottom) / 2.0,
                  row_top + metrics.candidate_row / 2.0));
     const double wrapped_bottom = row_top + metrics.candidate_row * 3.0;
-    const auto tall = candidate_selection_bar(row_top, wrapped_bottom, 16.0);
+    const auto tall = candidate_selection_bar(row_left, row_top, wrapped_bottom, 16.0);
     require(near(tall.bottom - tall.top, single.bottom - single.top));
     require(near((tall.top + tall.bottom) / 2.0,
                  (row_top + wrapped_bottom) / 2.0));
     // The height follows the font size, not the row.
-    const auto large = candidate_selection_bar(0.0, 200.0, 32.0);
+    const auto large = candidate_selection_bar(0.0, 0.0, 200.0, 32.0);
     require(near(large.bottom - large.top, 32.0 * 0.85));
     // A row shorter than the bar starts it at the row top, as the presenter clamps it.
-    const auto squeezed = candidate_selection_bar(10.0, 15.0, 16.0);
+    const auto squeezed = candidate_selection_bar(0.0, 10.0, 15.0, 16.0);
     require(near(squeezed.top, 10.0) &&
             near(squeezed.bottom - squeezed.top, 16.0 * 0.85));
   }

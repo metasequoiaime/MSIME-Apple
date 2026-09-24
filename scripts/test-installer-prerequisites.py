@@ -11,6 +11,8 @@ The check lives in Inno Setup's Pascal Script, which nothing on a non-Windows
 host can compile. So this pins the parts that are easy to get wrong and that a
 later edit could quietly drop, while a Windows run is still what proves it
 compiles and behaves.
+
+The call checks read only the prerequisite code - from `function ReadWebView2Version` to the end of `InitializeSetup` - with Pascal comments removed, and each routine by its own body. Searching the whole script let the uninstaller's `RegDeleteKeyIncludingSubkeys(HKLM64, ...)` and a comment that names both views satisfy the registry-view requirement with the real calls deleted.
 """
 
 from __future__ import annotations
@@ -23,6 +25,52 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SETUP = ROOT / "platforms/windows/installer/msime_setup.iss"
 
 
+def strip_pascal_comments(code: str) -> str:
+    """Drop `{ }`, `(* *)` and `//` comments, leaving `'...'` string literals (which may contain `//` in a URL) intact."""
+    out: list[str] = []
+    index = 0
+    while index < len(code):
+        char = code[index]
+        if char == "'":
+            end = code.find("'", index + 1)
+            end = len(code) if end < 0 else end + 1
+            out.append(code[index:end])
+            index = end
+        elif char == "{":
+            end = code.find("}", index + 1)
+            index = len(code) if end < 0 else end + 1
+            out.append(" ")
+        elif code.startswith("(*", index):
+            end = code.find("*)", index + 2)
+            index = len(code) if end < 0 else end + 2
+            out.append(" ")
+        elif code.startswith("//", index):
+            end = code.find("\n", index)
+            index = len(code) if end < 0 else end
+        else:
+            out.append(char)
+            index += 1
+    return "".join(out)
+
+
+def prerequisite_code(script: str) -> str:
+    """From `function ReadWebView2Version` to the `end;` closing `InitializeSetup`, comments removed; empty if either end is missing."""
+    start = script.find("function ReadWebView2Version")
+    setup = script.find("function InitializeSetup: Boolean;", max(start, 0))
+    if start < 0 or setup < 0:
+        return ""
+    end = re.compile(r"^end;", re.M).search(script, setup)
+    if end is None:
+        return ""
+    return strip_pascal_comments(script[start : end.end()])
+
+
+def routine(code: str, name: str) -> str:
+    """The text of one top-level function in `code`, from its header to its closing `end;`."""
+    match = re.search(rf"^function {name}\b.*?^end;", code, re.M | re.S)
+    return match.group(0) if match else ""
+
+
 def main() -> int:
     script = SETUP.read_text(encoding="utf-8")
     failures: list[str] = []
@@ -33,6 +81,12 @@ def main() -> int:
 
     require("function InitializeSetup: Boolean;" in script,
             "no InitializeSetup: nothing runs before the first wizard page")
+    code = prerequisite_code(script)
+    require(code != "", "no ReadWebView2Version ... InitializeSetup block to check")
+    webview = routine(code, "ReadWebView2Version")
+    view = routine(code, "VCRuntimeInstalledInView")
+    installed = routine(code, "VCRuntimeIsInstalled")
+    setup = routine(code, "InitializeSetup")
 
     # Registry, not the filesystem. Setup.exe is a 32-bit process and Pascal
     # Script's FileExists is redirected to SysWOW64, so probing for
@@ -44,26 +98,34 @@ def main() -> int:
             "WebView2 is not read from the EdgeUpdate client key")
     require(re.search(r"FileExists\([^)]*vcruntime", script, re.I) is None,
             "VC runtime probed through the filesystem, which WOW64 redirects")
-    for view in ("HKLM32", "HKLM64"):
-        require(view in script, f"{view} registry view is never consulted")
+    for root in ("HKLM32", "HKLM64"):
+        require(re.search(rf"RegQueryStringValue\(\s*{root}\s*,\s*WebView2ClientKey\s*,\s*'pv'", webview) is not None,
+                f"ReadWebView2Version does not read WebView2's pv from the {root} view")
+        require(re.search(rf"VCRuntimeInstalledInView\(\s*{root}\s*\)", installed) is not None,
+                f"VCRuntimeIsInstalled does not consult the {root} view")
+    require(re.search(r"\bReadWebView2Version\b", setup) is not None,
+            "InitializeSetup does not read the WebView2 version")
+    require(re.search(r"\bVCRuntimeIsInstalled\b", setup) is not None,
+            "InitializeSetup does not check the VC runtime")
 
     # Installed=1 is true on a machine with only the 2015/2017 redistributable,
     # which lacks vcruntime140_1.dll and still cannot start the Server.
-    require(re.search(r"Minor\s*>=\s*20", script) is not None,
+    require(re.search(r"Minor\s*>=\s*20", view) is not None,
             "VC runtime accepted without requiring 14.20 or newer")
-    require("'Installed'" in script, "VC runtime Installed value is not read")
+    require(re.search(r"RegQueryDWordValue\(\s*RootKey\s*,\s*VCRuntimeKey\s*,\s*'Installed'", view) is not None,
+            "VC runtime Installed value is not read")
 
     # A silent install is CI or a fleet deployment; a modal dialog there is a
     # hang. Default to continuing, with the missing component in the log.
-    require("SuppressibleMsgBox" in script,
+    require("SuppressibleMsgBox" in setup,
             "prerequisite prompt would block a silent install")
-    require(re.search(r"SuppressibleMsgBox\([^;]*IDNO\)", script, re.S) is not None,
+    require(re.search(r"SuppressibleMsgBox\([^;]*IDNO\)", setup, re.S) is not None,
             "silent install does not default to continuing")
-    require(script.count("Log('Prerequisite missing:") == 2,
+    require(setup.count("Log('Prerequisite missing:") == 2,
             "both missing prerequisites must be recorded in the install log")
 
     # The install is not blocked: a user may be about to fetch the component.
-    require("MB_YESNO" in script, "prerequisite prompt is not a yes/no choice")
+    require("MB_YESNO" in setup, "prerequisite prompt is not a yes/no choice")
 
     for url in ("https://developer.microsoft.com/zh-cn/microsoft-edge/webview2",
                 "https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist"):

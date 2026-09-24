@@ -373,3 +373,31 @@ for spelling in retentions - {"forever"}:
     )
 
 print(f"Windows statistics ship off with retention {statistics['retention']!r}")
+
+# The source starts a fresh install in English: its factory template says so, and ours ships the same line. The running Windows host reads the shared document instead, so its default has to be English on Windows too, while every other host keeps Chinese.
+windows_ime_mode = windows_defaults["input"]["default_ime_mode"]
+assert windows_ime_mode == "english", (
+    f"the Windows template must start in English, as the source does: {windows_ime_mode!r}"
+)
+if reference is not None:
+    reference_ime_mode = tomllib.loads(reference[0])["input"]["default_ime_mode"]
+    assert windows_ime_mode == reference_ime_mode, (
+        "Windows default_ime_mode must match the fixed Windows source "
+        f"({reference_ime_mode!r}): {windows_ime_mode!r}"
+    )
+ime_mode_default = re.search(
+    r"impl Default for DefaultImeMode \{\s*fn default\(\) -> Self \{\s*(.+?)\s*\}\s*\}",
+    core_source,
+    re.DOTALL,
+)
+assert ime_mode_default, (
+    "DefaultImeMode must have an explicit Default impl; a derived #[default] cannot differ by platform"
+)
+assert re.fullmatch(
+    r"if cfg!\(windows\) \{\s*Self::English\s*\} else \{\s*Self::Chinese",
+    ime_mode_default.group(1),
+), f"DefaultImeMode::default() must be English on Windows and Chinese elsewhere, not: {ime_mode_default.group(1)}"
+assert "default_ime_mode: DefaultImeMode::default()," in core_source, (
+    "Preferences::default() must take default_ime_mode from DefaultImeMode::default()"
+)
+print("Windows starts a fresh install in English, as the source does; other hosts start in Chinese")

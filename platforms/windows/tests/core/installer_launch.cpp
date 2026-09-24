@@ -154,6 +154,58 @@ int main(int argc, char **argv) {
       throw std::runtime_error(
           "Uninstall re-reads DataDir after the registry value is removed");
 
+    // DataDir is the Server state root, not only the source layout's msime_user.db / config.toml / skins. An upgrade must clear package items only, and a data-directory change must move every user item, as the source installer does, while deleting the old directory only after nothing can fail any more.
+    const auto package = between(script, "function IsPackageAppDataItem",
+                                 "function IsPreservedAppDataItem");
+    for (const char *state :
+         {"'preferences.json'", "'user'", "'cache'", "'logs'",
+          "'msime_user.db'", "'config.toml'", "'skins'",
+          "'runtime-options.json'"})
+      if (package.find(state) != std::string::npos)
+        throw std::runtime_error(std::string("Upgrade cleanup deletes user state ") + state);
+    const auto preserved = between(script, "function IsPreservedAppDataItem",
+                                   "function InitializeUninstall");
+    contains(preserved, "(not IsPackageAppDataItem(FileName))",
+             "Upgrade cleanup deletes Server state outside the source layout");
+    const auto migrated = between(script, "function IsMigratedDataItem",
+                                  "function RobocopySucceeded");
+    contains(migrated, "(not IsPackageAppDataItem(FileName))",
+             "Migration copies package files instead of user state");
+    contains(migrated, "(CompareText(FileName, 'runtime-options.json') <> 0)",
+             "Migration carries absolute paths of the previous directory");
+    const auto migrate = between(script, "function MigrateUserDataDir",
+                                 "procedure FinishDataDirMove");
+    contains(migrate, "IsMigratedDataItem(FindRec.Name)",
+             "Migration does not walk every user item");
+    contains(migrate, "(not IsPathInside(NewDir, Source))",
+             "Migration copies the new directory into itself");
+    contains(migrate, "if IsPathInside(OldDir, Destination) then",
+             "Migration can write into its own source");
+    contains(migrate, "DataDirMigrated := True",
+             "A completed migration never removes the previous directory");
+    for (const char *removal : {"TryDeleteTree", "DelTree", "DeleteFile", "/MOVE"})
+      if (migrate.find(removal) != std::string::npos)
+        throw std::runtime_error("Migration deletes the source before installation succeeds");
+    const auto finish = between(script, "procedure FinishDataDirMove",
+                                "function PrepareToInstall");
+    contains(finish, "if not DataDirMigrated then",
+             "Previous directory is removed without a completed copy");
+    contains(finish, "(not OwnsDataDir(OldDir))",
+             "Previous directory is removed without our ownership marker");
+    contains(finish, "if not IsPathInside(NewDir, OldDir) then",
+             "Removing the previous directory can delete a new one inside it");
+    contains(finish, "if not IsPathInside(NewDir, ItemPath) then",
+             "Removing the previous directory can delete a new one inside it");
+    const auto post_install = between(script, "if CurStep = ssPostInstall then",
+                                      "procedure CurUninstallStepChanged");
+    const auto finish_call = post_install.find("FinishDataDirMove;");
+    for (const char *step : {"ReplayUserDictionary;", "CreateWatchdogLogonTask;",
+                             "EnsureImeUserDataDir;"})
+      if (finish_call == std::string::npos ||
+          post_install.find(step) == std::string::npos ||
+          post_install.find(step) > finish_call)
+        throw std::runtime_error(std::string("Previous directory is removed before ") + step);
+
     // The installer starts the Server with --production, which is not a Watchdog launch; the Server therefore brings its Watchdog back when TSF, not the Watchdog, revives it.
     const wchar_t *production[] = {L"MetasequoiaImeServer.exe",
                                    L"--production"};

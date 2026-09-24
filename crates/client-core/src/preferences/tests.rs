@@ -611,11 +611,15 @@ fn default_ime_mode_legacy_defaults_and_roundtrips() {
         .remove("default_ime_mode");
     let bytes = serde_json::to_vec(&legacy).unwrap();
     fs::write(store.path(), bytes).unwrap();
-    // A document written before the field existed takes the default, which is Chinese.
-    assert_eq!(
-        store.load().unwrap().preferences.default_ime_mode,
+    // A document written before the field existed takes the platform default: English on Windows, as the source product's factory template, and Chinese everywhere else.
+    let expected = if cfg!(windows) {
+        DefaultImeMode::English
+    } else {
         DefaultImeMode::Chinese
-    );
+    };
+    assert_eq!(DefaultImeMode::default(), expected);
+    assert_eq!(Preferences::default().default_ime_mode, expected);
+    assert_eq!(store.load().unwrap().preferences.default_ime_mode, expected);
     // An explicit English is still English; only the absent case moved.
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["default_ime_mode"] = "english".into();
