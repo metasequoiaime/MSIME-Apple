@@ -406,6 +406,54 @@ pub(crate) fn open_cloud_clipboard_panel(
     }
 }
 
+/// 背单词, summoned from wherever the user is typing.
+///
+/// A panel rather than a page in the settings window: a review session is ten minutes a day, and
+/// settings is a drawer people open to flip one switch and leave. It is not the candidate window
+/// either — recalling a word before its meaning appears cannot share attention with composing a
+/// sentence, and both Linux hosts have already spoken for their auxiliary row.
+#[tauri::command]
+pub(crate) fn open_vocabulary_panel(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PanelInputState>,
+) -> Result<(), HostActionError> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = remember_panel_input_target(&state);
+        let position = windows_panel_position(560.0, 680.0);
+        open_panel_window(
+            &app,
+            "vocabulary-panel",
+            "vocabulary",
+            "水杉背单词",
+            560.0,
+            680.0,
+            position,
+        )
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        #[cfg(not(target_os = "linux"))]
+        let _ = &state;
+        #[cfg(target_os = "linux")]
+        let position = {
+            let _ = remember_panel_input_target(&state, "vocabulary-panel", true);
+            panel_position(&state, "vocabulary-panel", 560.0, 680.0)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let position = None;
+        open_panel_window(
+            &app,
+            "vocabulary-panel",
+            "vocabulary",
+            "水杉背单词",
+            560.0,
+            680.0,
+            position,
+        )
+    }
+}
+
 #[tauri::command]
 pub(crate) fn open_cloud_dictionary_panel(
     app: tauri::AppHandle,
