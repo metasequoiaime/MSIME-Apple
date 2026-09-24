@@ -4915,16 +4915,26 @@ static void TestOfflineTargetGlosses() {
     [controller setValue:session forKey:@"session"];
     [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
     void (^settle)(void) = ^{
+        session.delivered = nil;
         [controller synchronizeCandidateGloss];
         [controller synchronizeTargetGloss];
         [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
         [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
-        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+        // The worker queues only enqueue their apply blocks on the main queue. On a loaded
+        // runner, a fixed 200 ms drain can return before both applies have run, leaving the
+        // test to assert against a stale (or nil) delivery. Wait for the applies that this
+        // request actually scheduled, while retaining a bounded timeout for a real failure.
+        BOOL needsGloss = [controller currentGlossRequest] != nil;
+        BOOL needsTargetGloss = [controller currentTargetGlossRequest] != nil;
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3.0];
+        while (deadline.timeIntervalSinceNow > 0 &&
+               (!session.delivered || (needsGloss && ![controller valueForKey:@"glossResults"]) ||
+                (needsTargetGloss && ![controller valueForKey:@"targetGlossResults"])))
+            [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
     };
     // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
     settle();
     assert(([[controller currentTargetGlossRequest][@"offline_languages"] isEqual:@[@"fr"]]));
-    NSLog(@"DIAG offline-glosses delivered=%@ offline=%d hostOptions=%@ glossResults=%@ targetGlossResults=%@ glossReqIvar=%@ targetReqIvar=%@", session.delivered, (int)session.offline, session.hostOptions, [controller valueForKey:@"glossResults"], [controller valueForKey:@"targetGlossResults"], [controller valueForKey:@"glossRequest"], [controller valueForKey:@"targetGlossRequest"]);
     assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\nessai"}]]));
     session.generation++; session.targetLanguage = @"ja"; session.targetLanguages = @[@"ja", @"en"];
     settle();
