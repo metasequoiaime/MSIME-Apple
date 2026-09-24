@@ -28,6 +28,7 @@ export class KeyboardMetrics {
   /** One caption-sized line reserved before an asynchronous candidate gloss arrives. */
   static readonly CANDIDATE_GLOSS_LINE_HEIGHT_VP: number = 14;
   static readonly CANDIDATE_FONT_SIZE: number = 20;
+  static readonly CANDIDATE_PREEDIT_FONT_SIZE: number = 15;
   static readonly CANDIDATE_PADDING_VP: number = 12;
   static readonly STRIP_CORNER_VP: number = 12;
 
@@ -43,10 +44,12 @@ export class KeyboardMetrics {
     heightAdjustmentVp: number = 0,
     glossRows: number = 0,
     candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE,
+    preeditFontSize: number = KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE,
+    compact: boolean = false,
   ): number {
     const strip: number =
-      KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP +
-      KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP +
+      KeyboardMetrics.compositionRowHeightVp(preeditFontSize) +
+      KeyboardMetrics.candidateRowHeightVp(candidateFontSize, compact) +
       KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize);
     const keys: number =
       KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS + heightAdjustmentVp;
@@ -78,17 +81,37 @@ export class KeyboardMetrics {
     decorationTopVp: number = 0,
     glossRows: number = 0,
     candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE,
+    preeditFontSize: number = KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE,
   ): number {
     const rows: number = layout === "vertical" ? Math.max(1, Math.min(9, candidateCount)) : 1;
     const decoration: number =
       Number.isFinite(decorationTopVp) && decorationTopVp > 0 ? Math.min(512, decorationTopVp) : 0;
     return (
       decoration +
-      (showPreedit ? KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP : 0) +
-      KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * rows +
+      (showPreedit ? KeyboardMetrics.compositionRowHeightVp(preeditFontSize) : 0) +
+      KeyboardMetrics.candidateRowHeightVp(candidateFontSize, true) * rows +
       (layout === "vertical" ? 0 : KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize)) +
       KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2
     );
+  }
+
+  /**
+   * One candidate row at the configured font size. The Windows candidate window sizes its rows from the font (`itemHeight = fontSize * 1.35 + 2` plus a 2 DIP gap, `candidate_presenter.cpp`), so a small font gives a compact window and a large one never clips. A compact row is that and nothing more, which is what a candidate window on a machine with its own keys wants; a touch strip keeps CANDIDATE_ROW_HEIGHT_VP as a floor, because it is also a row of buttons for a finger.
+   */
+  static candidateRowHeightVp(fontSize: number, compact: boolean): number {
+    const font: number = Number.isFinite(fontSize)
+      ? Math.max(1, fontSize)
+      : KeyboardMetrics.CANDIDATE_FONT_SIZE;
+    const fitted: number = Math.ceil(font * 1.35 + 2) + 2;
+    return compact ? fitted : Math.max(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP, fitted);
+  }
+
+  /** The composition line, tall enough for its own font: the source measures the preedit at `candidate_preedit_font_size`, and a fixed line let a large preedit spill over the candidates. */
+  static compositionRowHeightVp(preeditFontSize: number): number {
+    const font: number = Number.isFinite(preeditFontSize)
+      ? Math.max(1, preeditFontSize)
+      : KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE;
+    return Math.max(KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP, Math.ceil(font * 1.35));
   }
 
   static glossHeightVp(
