@@ -8060,8 +8060,8 @@ export function SettingsPage({
                               </div>
                               <div className={settings.shortcutRow}>
                                 <span>
-                                  重启或重载输入法（IBus 执行 ibus restart，Fcitx5 执行
-                                  fcitx5-remote -r 重新加载配置）
+                                  重启或重载输入法（IBus 执行 ibus restart，Fcitx5
+                                  重置水杉插件，不影响其他输入法）
                                 </span>
                                 <kbd>Ctrl+Shift+Alt+R</kbd>
                               </div>
@@ -8111,7 +8111,7 @@ export function SettingsPage({
                           {macosPlatform
                             ? "重新注册并启用已安装的水杉输入源；当前输入法进程继续按系统生命周期运行。"
                             : linuxPlatform
-                              ? "IBus 与 Fcitx5 宿主都会热重载配置；需要重新启动输入法服务时可使用此按钮，IBus 下执行 ibus restart 重启服务，Fcitx5 下执行 fcitx5-remote -r 重新加载配置。"
+                              ? "重启 IBus 输入法服务；使用 Fcitx5 时重载水杉插件，关闭并重建所有输入会话，不影响其他输入法。"
                               : "请求受监督的输入法服务重新启动。"}
                         </small>
                         <div className={settings.serviceRow}>
@@ -8119,7 +8119,13 @@ export function SettingsPage({
                           <HostActionButton
                             action={client.restartInputMethod}
                             label={macosPlatform ? "重新注册" : "重启"}
-                            success={macosPlatform ? "已重新注册输入源。" : "已发送重启请求。"}
+                            success={
+                              macosPlatform
+                                ? "已重新注册输入源。"
+                                : linuxPlatform
+                                  ? "已请求重启输入法服务。"
+                                  : "已发送重启请求。"
+                            }
                             error={
                               macosPlatform
                                 ? "重新注册输入源失败，请确认输入法已经安装。"

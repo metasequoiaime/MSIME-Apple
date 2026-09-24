@@ -996,6 +996,68 @@ int main(int argc, char **argv) {
       require(key(FcitxKey_Escape) && ic.inputPanel().clientPreedit().toString().empty(),
               "Escape clears the Ctrl+Shift+F test composition");
     }
+    // Resetting MSIME is what Windows gets by restarting its Server: the controller's ReloadAddonConfig (the settings page's restart button), Ctrl+Shift+Alt+R and the status-menu action all end the composition, destroy the Engine session and give the focused context a new one at once. None of them may depend on a helper program, so a fcitx5-remote that fails and records being run stands first on PATH.
+    {
+      const auto *pathVariable = std::getenv("PATH");
+      const std::string savedPath = pathVariable ? pathVariable : "";
+      const auto stubDirectory = std::string(directory) + "/reset-bin";
+      const auto stubLog = std::string(directory) + "/fcitx5-remote.log";
+      std::filesystem::create_directory(stubDirectory);
+      const auto stub = stubDirectory + "/fcitx5-remote";
+      std::ofstream(stub) << "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" << stubLog << "'\nexit 1\n";
+      require(chmod(stub.c_str(), 0755) == 0, "fcitx5-remote stub permissions");
+      setenv("PATH", (stubDirectory + ":" + savedPath).c_str(), 1);
+      const auto sessionGone = [](uint64_t handle) {
+        try {
+          response(msime_client_view(handle));
+          return false;
+        } catch (...) {
+          return true;
+        }
+      };
+      const auto compose = [&](const char *message) {
+        require(key(FcitxKey_n) && key(FcitxKey_i) && !state->view_.at("candidates").empty() &&
+                    !ic.inputPanel().clientPreedit().toString().empty(),
+                message);
+      };
+      const auto requireReset = [&](uint64_t before, const std::string &committed, const char *message) {
+        require(before != 0 && sessionGone(before), message);
+        require(state->session_ != 0 && state->session_ != before, "the focused context has a new session at once");
+        require(state->view_.value("editing_text", std::string()).empty() && state->view_.at("candidates").empty() &&
+                    ic.inputPanel().clientPreedit().toString().empty() && !ic.inputPanel().candidateList(),
+                "the reset ends the composition and clears the panel");
+        require(ic.committed == committed, "the reset drops the composition as focus-out does, committing nothing");
+      };
+      compose("composition before ReloadAddonConfig");
+      auto before = state->session_;
+      auto committedBefore = ic.committed;
+      engine.reloadConfig();
+      requireReset(before, committedBefore, "ReloadAddonConfig destroys the old Engine session");
+      compose("the new session composes after ReloadAddonConfig");
+      require(key(FcitxKey_Escape), "cancel the composition after ReloadAddonConfig");
+      compose("composition before Ctrl+Shift+Alt+R");
+      before = state->session_;
+      committedBefore = ic.committed;
+      const fcitx::KeyStates chord{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift, fcitx::KeyState::Alt};
+      fcitx::KeyEvent press(&ic, fcitx::Key(FcitxKey_R, chord));
+      engine.keyEvent(entry, press);
+      require(press.accepted(), "Ctrl+Shift+Alt+R is consumed even though fcitx5-remote fails");
+      requireReset(before, committedBefore, "Ctrl+Shift+Alt+R destroys the old Engine session");
+      const auto reopened = state->session_;
+      fcitx::KeyEvent repeat(&ic, fcitx::Key(FcitxKey_R, chord));
+      engine.keyEvent(entry, repeat);
+      require(repeat.accepted() && state->session_ == reopened, "auto-repeat of the held chord is swallowed without another reset");
+      fcitx::KeyEvent release(&ic, fcitx::Key(FcitxKey_r, fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}), true);
+      engine.keyEvent(entry, release);
+      require(release.accepted() && !state->maintenance_reload_held_, "the chord's release is consumed and ends the hold");
+      compose("the new session composes after Ctrl+Shift+Alt+R");
+      before = state->session_;
+      committedBefore = ic.committed;
+      engine.reload_service_action_.activate(&ic);
+      requireReset(before, committedBefore, "the status-menu action destroys the old Engine session");
+      require(!std::filesystem::exists(stubLog), "no reset path runs fcitx5-remote");
+      setenv("PATH", savedPath.c_str(), 1);
+    }
     // English mode keeps the "always Chinese punctuation" lock and fullwidth output, as Windows does with the IME closed; without either, keys pass through. The lock is set on the host field directly so no preference save races the checks.
     {
       require(ctrlSpace() && !state->input_enabled_, "English output test starts in English");
