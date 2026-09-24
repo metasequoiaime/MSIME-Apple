@@ -5,7 +5,7 @@ The installer consumes a staging directory, not source-tree paths. `Prepare-Pack
 | Staging path | Contents |
 | --- | --- |
 | `tsf_dll/32` and `tsf_dll/64` | `MetasequoiaImeTsf.dll` and matching symbols |
-| `server_exe` | Windows Server, native WinUI 3 `msime-client-settings.exe`, the shared `MSIME Client Preview.exe` panel shell, and native resources |
+| `server_exe` | Windows Server, native WinUI 3 `msime-client-settings.exe`, the shared `MSIME.exe` panel shell, the `msime-mcp.exe` MCP server for AI assistants, and native resources |
 | `app_data` | default configuration and runtime resources |
 | `app_data/html` | WebView2 UI assets |
 

@@ -581,7 +581,7 @@ int wmain(int argc, wchar_t **argv) {
   const auto launch = parse_server_arguments(argc, argv);
   attach_launching_console(launch);
   if (launch.kind == ServerLaunchKind::Help) {
-    std::cout << "MSIME Client Server: --config <absolute-json-path>\n"
+    std::cout << "MSIME Server: --config <absolute-json-path>\n"
                  "Managed launches use the installed TSF pipe names; preview "
                  "launches use names from the config. Ctrl+C stops.\n"
                  "Unsupported routes (including unobserved Enter) disconnect.\n";

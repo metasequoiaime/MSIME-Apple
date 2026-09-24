@@ -112,8 +112,8 @@ int main() {
     std::filesystem::create_directories(root);
     require(!shell_executable(root, {}));
     require(!shell_executable("relative", {}));
-    std::ofstream(root / "MSIME Client Preview.exe") << "fixture";
-    require(shell_executable(root, {}) == root / "MSIME Client Preview.exe");
+    std::ofstream(root / "MSIME.exe") << "fixture";
+    require(shell_executable(root, {}) == root / "MSIME.exe");
     std::ofstream(root / "msime-client-settings.exe") << "fixture";
     require(shell_executable(root, {}) == root / "msime-client-settings.exe");
     require(shell_executable(
@@ -121,14 +121,14 @@ int main() {
             root / "msime-client-settings.exe");
     require(shell_executable(
                 root, {}, *shell_surface_request(TrayMenuCommand::OpenEmojiPanel)) ==
-            root / "MSIME Client Preview.exe");
+            root / "MSIME.exe");
     const auto configured_shell = root / "configured-settings.exe";
     std::ofstream(configured_shell) << "fixture";
     require(shell_executable(root, configured_shell.wstring(), *settings) ==
             configured_shell);
     require(shell_executable(root, configured_shell.wstring(),
                              *shell_surface_request(TrayMenuCommand::OpenEmojiPanel)) ==
-            root / "MSIME Client Preview.exe");
+            root / "MSIME.exe");
     const auto configured = root / "elsewhere.exe";
     require(!shell_executable(root, configured.wstring()));
     std::ofstream(configured) << "fixture";

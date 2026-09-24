@@ -78,6 +78,15 @@ try {
                 (Join-Path $release 'MetasequoiaImeDictionaryReplay.exe'), $bin)
             Invoke-ClientBuild cmake @('-E', 'copy_if_different',
                 (Join-Path $release 'MetasequoiaImeDictionaryReplay.pdb'), $bin)
+            Invoke-ClientBuild cargo @('build', '--locked', '--release', '--target', $triple,
+                '-p', 'msime-mcp-server', '--bin', 'msime-mcp')
+            Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime-mcp.exe'), $bin)
+            # As for the desktop below, the PDB can carry the normalized crate name; the package wants it beside the executable under the same name.
+            $mcpPdbs = @('msime_mcp.pdb', 'msime-mcp.pdb') |
+                ForEach-Object { Join-Path $release $_ } |
+                Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+            if (@($mcpPdbs).Count -ne 1) { throw 'Expected one MCP server PDB output' }
+            Invoke-ClientBuild cmake @('-E', 'copy_if_different', @($mcpPdbs)[0], (Join-Path $bin 'msime-mcp.pdb'))
 
             # Windows settings are a native WinUI 3 app. Keep the shared Tauri
             # shell below for the emoji/handwriting/keyboard panels, but do not
@@ -110,7 +119,7 @@ try {
     Invoke-ClientBuild pnpm $desktopBuild
     Invoke-ClientBuild cmake @('-E', 'copy_if_different',
         (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc/release/msime-desktop.exe'),
-        (Join-Path $RepoRoot 'target/windows-full/x64/bin/MSIME Client Preview.exe'))
+        (Join-Path $RepoRoot 'target/windows-full/x64/bin/MSIME.exe'))
     # Rust/toolchain output can use the normalized crate name for the PDB.
     # Require one unambiguous symbol file rather than accepting stale symbols.
     $desktopPdbs = @('msime_desktop.pdb', 'msime-desktop.pdb') |
@@ -118,7 +127,7 @@ try {
         Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
     if (@($desktopPdbs).Count -ne 1) { throw 'Expected one Tauri desktop PDB output' }
     Invoke-ClientBuild cmake @('-E', 'copy_if_different', @($desktopPdbs)[0],
-        (Join-Path $RepoRoot 'target/windows-full/x64/bin/MSIME Client Preview.pdb'))
+        (Join-Path $RepoRoot 'target/windows-full/x64/bin/MSIME.pdb'))
     # The Server recognizes speech on-device through the pinned sherpa-onnx runtime (resources/voice-runtime.lock.json), which it loads with LoadLibrary from its own directory; onnxruntime.dll resolves beside sherpa-onnx-c-api.dll. The fetch verifies the archive's SHA-256 before extracting and reuses a verified copy on later runs. These are upstream MSVC /MD builds, so they need the same VC runtime the installer already requires.
     $voiceRuntime = Join-Path $RepoRoot 'target/voice-runtime/windows-x64'
     Invoke-ClientBuild python @((Join-Path $RepoRoot 'scripts/fetch_voice_runtime.py'),
@@ -139,8 +148,8 @@ try {
                 & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $dll) -Architecture x64 -Kind dll
             }
             foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe',
-                'msime-client-prepare.exe', 'MetasequoiaImeDictionaryReplay.exe',
-                'msime-client-settings.exe', 'MSIME Client Preview.exe')) {
+                'msime-client-prepare.exe', 'MetasequoiaImeDictionaryReplay.exe', 'msime-mcp.exe',
+                'msime-client-settings.exe', 'MSIME.exe')) {
                 & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $exe) -Architecture x64 -Kind exe
             }
         }

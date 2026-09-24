@@ -317,7 +317,7 @@ key_bindings 可选对象示例：
 
 托盘菜单七项与成品一致：悬浮工具栏开关由 Server 自己处理；设置和关于在独立的 WinUI 3 `msime-client-settings.exe` 中打开，表情/符号面板、手写识别板和屏幕键盘仍在共享桌面面板宿主（Tauri）中打开。两类窗口与 Linux 的 IBus 属性菜单共用同一套路由契约——用 `MSIME_CLIENT_PANEL` 指定面板，`MSIME_CLIENT_SETTINGS_PAGE` 指定设置分类（关于用 `about`），二者都只接受小写 ASCII 标识符，进程自身继承到的同名变量会被丢弃，不会盖过实际点击的那一行。Windows 语音输入由 Server 内置的 VoiceInputSession 和波形浮层负责录音、识别及 TSF 提交；共享外壳的语音入口通过固定 Aux 管道发送 `ToggleVoiceInput`，由 Server 主线程消费，避免让 Tauri 伪造一个无法录音的面板。
 
-设置外壳按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe` 查找；面板外壳使用同目录的 `MSIME Client Preview.exe`。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。两个外壳都用 `CreateProcessW` 启动并继承本进程令牌，因此打包时它们与 Server 的完整性级别一致。
+设置外壳按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe` 查找；面板外壳使用同目录的 `MSIME.exe`。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。两个外壳都用 `CreateProcessW` 启动并继承本进程令牌，因此打包时它们与 Server 的完整性级别一致。
 
 隔离预览实例不注册 TSF，也不接管系统输入源：它挂上候选窗口、后台点击选词和悬浮工具条，走 configured_key 的同一套路径；未支持的路由会断开当前连接。生产模式复用同一份 Server 会话/窗口实现，只是换成安装器注册的生产管道名，TSF 注册和 DLL/Server 部署由安装器完成。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。预览实例不连接旧产品管道，也不替代生产 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻 Server 进程；CMake 另登记无副作用的 `windows-preview-help` --help 测试。
 

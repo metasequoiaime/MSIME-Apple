@@ -1,4 +1,4 @@
-MSIME Client for Linux — bundled third-party notices
+MSIME for Linux — bundled third-party notices
 ====================================================
 
 This package embeds msime-engine at the locked revision recorded by engine-lock.json, which is installed in share/msime-client. The complete project license is the file named copyright in this directory. The Engine notice, the dictionary and helpcode notices, and the component license texts are installed beside this file.
@@ -14,6 +14,8 @@ Components compiled into the shared host library (libmsime_host_api.so, in the m
 * The Rust crates the library is built from (serde, toml, sha2 and the rest of its dependency graph) — each crate's own license files, collected at package time (rust-crates-NOTICES.txt).
 
 The desktop settings binary (msime-client-desktop, started by msime-client-settings) statically links its own Rust crate graph, including reqwest with rustls and the webpki-roots certificate data (CDLA-Permissive-2.0); those crates are in rust-crates-NOTICES.txt as well. Its embedded web frontend is bundled from npm packages (React, @tauri-apps/api and their dependencies), whose license files are in frontend-npm-NOTICES.txt.
+
+The MCP server (msime-mcp) statically links its own Rust crate graph, including rmcp (the Model Context Protocol Rust SDK) and schemars; those crates are in rust-crates-NOTICES.txt as well.
 
 On-device speech recognition runs in the msime-voice-local helper, installed beside the host library, which loads two prebuilt shared libraries installed in the same directory:
 

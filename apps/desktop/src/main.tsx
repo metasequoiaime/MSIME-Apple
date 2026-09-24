@@ -52,6 +52,9 @@ import {
   type LinuxSetupClient,
   type LinuxSetupLine,
   type LinuxSetupStatus,
+  type McpClientId,
+  type McpInstallOutcome,
+  type McpServerStatus,
   type LocalVoiceModelList,
   type LocalVoiceModelProgress,
   UNBATCHED_DICTIONARY_FILE_BYTES,
@@ -619,6 +622,16 @@ function DesktopSettings() {
               ? {
                   saveExport: (name: string, contents: string) =>
                     invoke<string>("save_export", { name, contents }),
+                }
+              : {}),
+            // msime-mcp is packaged beside the settings app on the three desktop hosts only.
+            ...(host.platform === "macos" ||
+            host.platform === "linux" ||
+            host.platform === "windows"
+              ? {
+                  mcpServerStatus: () => invoke<McpServerStatus>("mcp_server_status"),
+                  installMcpClient: (client: McpClientId, replace: boolean) =>
+                    invoke<McpInstallOutcome>("install_mcp_client", { client, replace }),
                 }
               : {}),
             ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
