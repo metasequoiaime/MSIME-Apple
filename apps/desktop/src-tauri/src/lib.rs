@@ -7,7 +7,6 @@ mod ai;
 mod clipboard_history;
 #[cfg(not(target_os = "android"))]
 mod dictionary_import;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 // Only the two hosts that have to replay input into another window build this.
 // macOS delivers through the input method itself and needs none of it.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
