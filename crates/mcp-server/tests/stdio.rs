@@ -9,12 +9,14 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::{Child, Command};
 
-/// A data root the Engine opens: the smallest dictionary it accepts, as the host-api tests build it, and a runtime-options document pointing at it.
+/// A data root the Engine opens: the smallest dictionary it accepts, as the host-api tests build it, with one bundled wubi word, and a runtime-options document pointing at it.
 fn fixture(root: &Path) -> std::path::PathBuf {
     let tables = "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                  CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
                   CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
                   CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
-                  CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+                  CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);
+                  INSERT INTO wubi86 VALUES('aaaa','合成工',500);";
     for name in ["resources", "dictionaries"] {
         let path = root.join(name);
         std::fs::create_dir(&path).unwrap();
@@ -39,12 +41,9 @@ fn fixture(root: &Path) -> std::path::PathBuf {
     options
 }
 
-async fn start(options: &Path, allow_write: bool) -> (RunningService<RoleClient, ()>, Child) {
+async fn start(options: &Path, flags: &[&str]) -> (RunningService<RoleClient, ()>, Child) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_msime-mcp"));
-    command.arg("--options").arg(options);
-    if allow_write {
-        command.arg("--allow-write");
-    }
+    command.arg("--options").arg(options).args(flags);
     // The test machine's own input method must not leak in.
     for name in [
         "MSIME_CLIENT_HOST_OPTIONS",
@@ -126,7 +125,7 @@ async fn tool_names(client: &RunningService<RoleClient, ()>) -> Vec<String> {
 async fn read_only_by_default() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
-    let (client, _child) = start(&options, false).await;
+    let (client, _child) = start(&options, &[]).await;
 
     let info = client.peer_info().unwrap();
     assert_eq!(info.server_info.as_ref().unwrap().name, "msime");
@@ -155,7 +154,7 @@ async fn read_only_by_default() {
 async fn an_agent_manages_quick_phrases_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
-    let (client, _child) = start(&options, true).await;
+    let (client, _child) = start(&options, &["--allow-write"]).await;
     assert_eq!(tool_names(&client).await.len(), 5);
 
     // Quick phrases: add, list, replace, remove, with a failure in the middle of a batch.
@@ -243,6 +242,126 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     assert_eq!(statistics["days"], json!([]));
     assert!(
         !refused(&client, "get_typing_statistics", json!({ "days": 0 }))
+            .await
+            .is_empty()
+    );
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let (client, _child) = start(&options, &["--allow-dictionary-read"]).await;
+    // Reading alone offers no way to change a word.
+    assert!(!tool_names(&client)
+        .await
+        .iter()
+        .any(|name| name.starts_with("edit_") || name.starts_with("import_")));
+    client.cancel().await.unwrap();
+
+    let (client, _child) = start(&options, &["--allow-write", "--allow-dictionary-read"]).await;
+    assert_eq!(tool_names(&client).await.len(), 9);
+
+    let outcome = ok(
+        &client,
+        "import_dictionary_words",
+        json!({ "dictionary": "pinyin", "words": [
+            { "code": "hecheng", "word": "合成" },
+            { "code": "has space!", "word": "合成" },
+        ]}),
+    )
+    .await;
+    assert_eq!(outcome["added"], 1);
+    assert_eq!(outcome["existing"], 0);
+    assert_eq!(outcome["rejected"].as_array().unwrap().len(), 1);
+    assert_eq!(outcome["rejected"][0]["index"], 1);
+    let page = ok(
+        &client,
+        "list_dictionary_words",
+        json!({ "dictionary": "pinyin" }),
+    )
+    .await;
+    let words = page["words"].as_array().unwrap();
+    assert_eq!(words.len(), 1);
+    assert_eq!(words[0]["word"], "合成");
+    assert_eq!(words[0]["bundled"], false);
+    let stored_code = words[0]["code"].clone();
+    // The bundled words need a code to look under.
+    assert!(refused(
+        &client,
+        "list_dictionary_words",
+        json!({ "dictionary": "wubi", "include_bundled": true })
+    )
+    .await
+    .contains("needs a code_prefix"));
+
+    // Sending the same words again adds nothing.
+    after_write_interval().await;
+    let replay = ok(
+        &client,
+        "import_dictionary_words",
+        json!({ "dictionary": "pinyin", "words": [{ "code": "hecheng", "word": "合成" }] }),
+    )
+    .await;
+    assert_eq!(
+        (replay["added"].clone(), replay["existing"].clone()),
+        (json!(0), json!(1))
+    );
+
+    after_write_interval().await;
+    let outcome = ok(
+        &client,
+        "edit_dictionary_words",
+        json!({ "edits": [
+            { "op": "set_weight", "dictionary": "wubi", "code": "aaaa", "word": "合成工", "weight": 900 },
+            { "op": "add", "dictionary": "wubi", "code": "aaaa", "word": "合成字", "weight": 100 },
+            { "op": "remove", "dictionary": "pinyin", "code": stored_code, "word": "合成" },
+            { "op": "remove", "dictionary": "wubi", "code": "aaaa", "word": "不存在" },
+        ]}),
+    )
+    .await;
+    assert_eq!(outcome["applied"], 3);
+    assert_eq!(outcome["failed_index"], 3);
+    assert!(outcome["error"].as_str().unwrap().contains("not found"));
+    let page = ok(
+        &client,
+        "list_dictionary_words",
+        json!({ "dictionary": "wubi", "code_prefix": "aaaa", "include_bundled": true }),
+    )
+    .await;
+    assert_eq!(
+        page["words"],
+        json!([
+            { "code": "aaaa", "word": "合成字", "weight": 100, "bundled": false },
+            { "code": "aaaa", "word": "合成工", "weight": 900, "bundled": true },
+        ])
+    );
+    let pinyin = ok(
+        &client,
+        "list_dictionary_words",
+        json!({ "dictionary": "pinyin" }),
+    )
+    .await;
+    assert_eq!(pinyin["words"], json!([]));
+
+    // The ranking explained: the reweighted bundled word leads the user's own.
+    let lookup = ok(
+        &client,
+        "lookup_candidates",
+        json!({ "code": "aaaa", "scheme": "wubi", "limit": 2 }),
+    )
+    .await;
+    assert_eq!(
+        lookup["candidates"],
+        json!([
+            { "text": "合成工", "code": "aaaa", "origin": "dictionary", "weight": 900 },
+            { "text": "合成字", "code": "aaaa", "origin": "user_word", "weight": 100 },
+        ])
+    );
+    assert!(
+        !refused(&client, "lookup_candidates", json!({ "code": "AAAA" }))
             .await
             .is_empty()
     );

@@ -6,6 +6,7 @@ mod config;
 mod preferences;
 mod server;
 mod statistics;
+mod words;
 
 use rmcp::transport::io::stdio;
 use rmcp::ServiceExt;

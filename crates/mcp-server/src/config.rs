@@ -9,13 +9,15 @@ use std::path::{Path, PathBuf};
 /// The largest runtime-options document read. A macOS document carries the preferences, and with them a custom screen-keyboard photo of up to 1 MiB of base64.
 const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
-pub const USAGE: &str = "usage: msime-mcp [--options <runtime-options.json>] [--state-dir <directory>] [--allow-write]
+pub const USAGE: &str = "usage: msime-mcp [--options <runtime-options.json>] [--state-dir <directory>] [--allow-write] [--allow-dictionary-read]
 
 Serves the Model Context Protocol over stdio for 水杉输入法 (MSIME).
 
   --options <path>     The runtime-options document the input method hosts read. Defaults to MSIME_CLIENT_HOST_OPTIONS, then MSIME_IBUS_OPTIONS, then the platform's usual location.
   --state-dir <path>   The directory holding preferences.json and typing-statistics.json. Defaults to MSIME_CLIENT_STATE_DIR, then the document's preferences_directory.
   --allow-write        Offer the tools that change quick phrases and preferences. Without it the server is read-only.
+  --allow-dictionary-read
+                       Offer the tools that read the user's own dictionary words and look up the candidates a code offers. With --allow-write as well, also the tools that add, reweight, remove and import words.
   --help, --version";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -31,6 +33,8 @@ pub struct Config {
     /// The explicit state directory, from `--state-dir` or `MSIME_CLIENT_STATE_DIR`. Absent means the document's `preferences_directory`, read on every call so a moved data directory is followed.
     pub state_dir: Option<PathBuf>,
     pub allow_write: bool,
+    /// The user's own words are what they type, so reading them is a separate choice from writing quick phrases and preferences.
+    pub allow_dictionary_read: bool,
 }
 
 /// Parse the command line. `env` is the process environment, passed in so the lookup order can be tested.
@@ -41,12 +45,14 @@ pub fn parse(
     let mut options = None;
     let mut state_dir = None;
     let mut allow_write = false;
+    let mut allow_dictionary_read = false;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.to_str() {
             Some("--help" | "-h") => return Ok(Command::Help),
             Some("--version" | "-V") => return Ok(Command::Version),
             Some("--allow-write") => allow_write = true,
+            Some("--allow-dictionary-read") => allow_dictionary_read = true,
             Some(flag @ ("--options" | "--state-dir")) => {
                 let value = args
                     .next()
@@ -79,6 +85,7 @@ pub fn parse(
         options,
         state_dir,
         allow_write,
+        allow_dictionary_read,
     }))
 }
 
@@ -193,6 +200,7 @@ mod tests {
         assert_eq!(config.options, PathBuf::from("/flag/options.json"));
         assert_eq!(config.state_dir, Some(PathBuf::from("/env/state")));
         assert!(!config.allow_write);
+        assert!(!config.allow_dictionary_read);
 
         let config = serve(parse(args(&[]), env).unwrap());
         assert_eq!(config.options, PathBuf::from("/env/host.json"));
@@ -220,15 +228,12 @@ mod tests {
     }
 
     #[test]
-    fn allow_write_is_an_explicit_flag() {
-        let config = serve(
-            parse(
-                args(&["--options", "/a.json", "--allow-write"]),
-                |_: &str| None,
-            )
-            .unwrap(),
-        );
-        assert!(config.allow_write);
+    fn writing_and_reading_the_dictionary_are_explicit_flags() {
+        let config = |list: &[&str]| serve(parse(args(list), |_: &str| None).unwrap());
+        let write = config(&["--options", "/a.json", "--allow-write"]);
+        assert!(write.allow_write && !write.allow_dictionary_read);
+        let read = config(&["--options", "/a.json", "--allow-dictionary-read"]);
+        assert!(!read.allow_write && read.allow_dictionary_read);
     }
 
     #[test]
