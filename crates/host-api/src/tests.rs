@@ -5840,3 +5840,55 @@ fn voice_local_models_list_install_cancel_and_remove_validate_their_requests() {
         true
     );
 }
+
+#[test]
+fn mcp_status_and_install_check_their_requests_before_touching_a_file() {
+    let status =
+        |request: &[u8]| read(unsafe { msime_client_mcp_status(request.as_ptr(), request.len()) });
+    let install =
+        |request: &[u8]| read(unsafe { msime_client_mcp_install(request.as_ptr(), request.len()) });
+
+    // Before the input method is set up there is no entry to show, but the server path still is.
+    let value = &status(br#"{"options":null}"#)["value"];
+    assert!(value["command"]
+        .as_str()
+        .unwrap()
+        .ends_with(&format!("msime-mcp{}", std::env::consts::EXE_SUFFIX)));
+    assert!(value["config"].is_null());
+    assert!(value["clients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|client| client["configured"] == false));
+
+    let options = if cfg!(windows) {
+        r"C:\\state\\runtime-options.json"
+    } else {
+        "/state/runtime-options.json"
+    };
+    let value = &status(format!(r#"{{"options":"{options}"}}"#).as_bytes())["value"];
+    let snippet: Value = serde_json::from_str(value["config"].as_str().unwrap()).unwrap();
+    assert_eq!(snippet["mcpServers"]["msime"]["command"], value["command"]);
+    assert_eq!(
+        snippet["mcpServers"]["msime"]["args"],
+        json!(["--options", options.replace(r"\\", r"\")])
+    );
+
+    assert_eq!(
+        status(br#"{"options":"relative.json"}"#)["error"],
+        "mcp options must be absolute"
+    );
+    assert_eq!(status(br#"{"unknown":1}"#)["error"], "invalid mcp request");
+    assert_eq!(
+        read(unsafe { msime_client_mcp_status(std::ptr::null(), 4) })["error"],
+        "invalid mcp request buffer"
+    );
+    assert_eq!(
+        install(br#"{"options":null,"client":"cursor"}"#)["error"],
+        "mcp_options_missing"
+    );
+    assert_eq!(
+        install(br#"{"options":null,"client":"other"}"#)["error"],
+        "invalid mcp request"
+    );
+}

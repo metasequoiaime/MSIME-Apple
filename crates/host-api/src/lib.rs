@@ -13,6 +13,7 @@ use msime_client_core::dictionary::access::DictionaryAccess;
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};
 pub mod cloud_clipboard;
 pub mod cloud_dictionary;
+pub mod mcp_clients;
 pub mod system_fonts;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
