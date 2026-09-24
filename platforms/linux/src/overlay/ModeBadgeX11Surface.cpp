@@ -10,11 +10,13 @@
 #include <cstring>
 
 #include "ModeBadgePainter.h"
+#include "WaveOverlayX11Placement.h"
 
 namespace msime::linux_host {
 
 namespace {
 
+// Logical geometry at a scale of 1, the same as the Wayland badge's; show() multiplies it by the desktop scale.
 constexpr int kWidth = 132;
 constexpr int kHeight = 64;
 constexpr int kEdgeMargin = 24;
@@ -39,10 +41,7 @@ bool ModeBadgeX11Surface::ensure_window() {
   if (!display_) return false;
   const auto screen = DefaultScreen(display_);
   const auto root = RootWindow(display_, screen);
-  // 右下角，与 Wayland 后端同一个位置和边距。X11 这边能直接算屏幕坐标，但仍然不跟随
-  // 光标：跟随那一半由各自面板的文字提示承担，两个会话类型下的行为因此是一致的。
-  const int x = DisplayWidth(display_, screen) - kWidth - kEdgeMargin;
-  const int y = DisplayHeight(display_, screen) - kHeight - kEdgeMargin;
+  randr_monitors_ = x11_overlay_randr_monitors(display_);
   // 找一个 32 位 ARGB visual，否则圆角之外那几个像素只能是纯色，在任何背景上都是一块
   // 黑角。拿不到就退回默认 visual：形状难看，但提示仍然可用。
   XVisualInfo visual_template{};
@@ -68,7 +67,8 @@ bool ModeBadgeX11Surface::ensure_window() {
     mask |= CWColormap;
   }
   visual_ = visual;
-  window_ = XCreateWindow(display_, root, x, y, kWidth, kHeight, 0, depth, InputOutput, visual,
+  // Position and size are set by show(), which knows the target monitor and scale.
+  window_ = XCreateWindow(display_, root, 0, 0, kWidth, kHeight, 0, depth, InputOutput, visual,
                           mask, &attributes);
   if (visuals) XFree(visuals);
   if (!window_) {
@@ -91,9 +91,21 @@ bool ModeBadgeX11Surface::ensure_window() {
 bool ModeBadgeX11Surface::show(const std::string &text, const std::string &icon_path,
                                bool light_theme) {
   if (!ensure_window()) return false;
+  // Bottom-right with the Wayland badge's margin, but inside the work area of the monitor holding the focused window (else the pointer) and scaled by GDK_SCALE / Xft.dpi, as the voice bar is; GNOME under Xwayland comes through here too. It still does not follow the caret: the panel's text hint covers that half, which keeps both session types alike. Monitors, panels and the scale can all change between two switches, and a switch is rare enough that re-reading them on every show costs nothing.
+  const auto scale = x11_overlay_scale(display_);
+  const auto width = wave_overlay_scaled(kWidth, scale);
+  const auto height = wave_overlay_scaled(kHeight, scale);
+  const auto monitor = x11_overlay_monitor(display_, randr_monitors_);
+  const auto position =
+      wave_overlay_bottom_right(monitor.work, width, height, wave_overlay_scaled(kEdgeMargin, scale));
+  // Moved and resized before mapping, so the badge never flashes at its previous monitor or size.
+  XMoveResizeWindow(display_, window_, position.x, position.y, static_cast<unsigned>(width),
+                    static_cast<unsigned>(height));
   XMapRaised(display_, window_);
-  auto *surface = cairo_xlib_surface_create(display_, window_, visual_, kWidth, kHeight);
+  auto *surface = cairo_xlib_surface_create(display_, window_, visual_, width, height);
   auto *cairo = cairo_create(surface);
+  // The painter works in logical pixels; scaling the context scales the plate, the logo (kIconSize, kIconLeft), the text and the outline together.
+  cairo_scale(cairo, static_cast<double>(width) / kWidth, static_cast<double>(height) / kHeight);
   paint_mode_badge(cairo, kWidth, kHeight, text, icon_path, light_theme, kIconSize, kIconLeft);
   cairo_destroy(cairo);
   cairo_surface_destroy(surface);

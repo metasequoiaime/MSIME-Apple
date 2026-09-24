@@ -103,6 +103,8 @@ public:
                                    TsfPreeditStyle style);
   bool synchronize_input_mode(const FocusLease &lease,
                               const FanyImeNamedpipeData &packet);
+  bool balance_paired_punctuation(const FocusLease &lease,
+                                  const FanyImeNamedpipeData &packet);
   bool queue_preferences(const FocusLease &lease, const std::string &snapshot);
   // Retain latest validated global settings for current and future focus.
   // Snapshot loading happens outside the input queue. Older/conflicting values

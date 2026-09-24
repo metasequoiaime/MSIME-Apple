@@ -66,6 +66,8 @@ struct Observation {
   bool emoji_candidates = false;
   std::string candidate_skin;
   bool traditional_output = false;
+  // The CharacterMode menu item, which shows the host's width flag.
+  bool character_width = false;
   bool mode_sensitive = false;
   bool smart_punctuation_sensitive = false;
   bool clipboard_toggle_sensitive = false;
@@ -182,6 +184,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.candidate_skin = key.substr(std::string("CandidateSkin/").size());
     if (key == "TraditionalOutput")
       seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (key == "CharacterMode")
+      seen.character_width = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "Punctuation")
       seen.punctuation_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
@@ -621,6 +625,22 @@ int main(int argc, char **argv) {
                   !seen.input_enabled && voice_provider.cancelled.load() == voice_cancels,
               "English-mode recording did not commit the provider text once and stay in English mode");
       seen.committed.clear();
+      // A pending dead key does not swallow Right Alt in English mode either; real clients send it with state 0.
+      voice_starts = voice_provider.started.load();
+      voice_stops = voice_provider.stop_requests.load();
+      require(key(IBUS_dead_acute), "Dead key was not held by the system Compose table in English mode");
+      key(IBUS_dead_acute, IBUS_RELEASE_MASK);
+      require(key(IBUS_Alt_R), "Right Alt was swallowed by a pending dead key in English mode");
+      require(wait_until([&] { return voice_provider.started.load() == voice_starts + 1; }),
+              "Right Alt did not start recording with a dead key pending in English mode");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
+              "Right Alt release leaked after a dead-key voice hold in English mode");
+      require(wait_until([&] { return voice_provider.stop_requests.load() == voice_stops + 1; }),
+              "Right Alt release did not stop the English-mode recording");
+      voice_provider.release_final = true;
+      require(wait_until([&] { return seen.committed == "synthetic voice"; }),
+              "English-mode dead-key voice hold did not commit");
+      seen.committed.clear();
       // Ctrl+F9 starts a recording in English mode; a Shift switch to Chinese leaves it running, and the provider text is committed without an Engine session to confirm it.
       voice_starts = voice_provider.started.load();
       voice_cancels = voice_provider.cancelled.load();
@@ -761,6 +781,91 @@ int main(int argc, char **argv) {
               "English-mode Ctrl+. was not consumed under the English punctuation lock");
       require(!key(IBUS_comma) && seen.committed.empty(),
               "English punctuation lock converted a comma after Ctrl+. in English mode");
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // The same lock holds in Chinese mode, as Windows resolves Ctrl+. and the toolbar switch through ResolvePunctuationOpen: the chord is eaten and Chinese punctuation stays off.
+      auto chinese_english_lock = english_lock;
+      chinese_english_lock["preferences"]["default_ime_mode"] = "chinese";
+      msime_ibus_configure(chinese_english_lock.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      if (!seen.input_enabled) {
+        key(IBUS_space, IBUS_CONTROL_MASK);
+        key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      }
+      require(seen.input_enabled && !seen.punctuation_enabled,
+              "Chinese-mode English lock fixture did not start in Chinese mode with ASCII punctuation");
+      require(key(IBUS_period, IBUS_CONTROL_MASK) && seen.committed.empty() &&
+                  !seen.punctuation_enabled,
+              "Chinese-mode Ctrl+. was not consumed or overrode the English punctuation lock");
+      key(IBUS_period, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      invoke("PropertyActivate", g_variant_new("(su)", "Punctuation", PROP_STATE_CHECKED));
+      require(!seen.punctuation_enabled,
+              "The Chinese punctuation menu overrode the English punctuation lock");
+      key(IBUS_comma);
+      require(seen.committed.find("，") == std::string::npos,
+              "Chinese mode converted a comma under the English punctuation lock");
+      seen.committed.clear();
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // With smart punctuation off, Chinese punctuation mode types the Chinese mark for every key, as Windows _ResolveSmartPunctuation returns ResolvePunctuation unchanged.
+      auto smart_off = follow;
+      smart_off["preferences"]["smart_punctuation"] = false;
+      msime_ibus_configure(smart_off.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      if (!seen.input_enabled) {
+        key(IBUS_space, IBUS_CONTROL_MASK);
+        key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      }
+      require(seen.input_enabled && seen.punctuation_enabled,
+              "Smart-off fixture did not start in Chinese mode with Chinese punctuation");
+      require(key(IBUS_comma) && seen.committed == "，",
+              "Chinese punctuation with smart punctuation off did not convert a comma");
+      seen.committed.clear();
+      require(key(IBUS_period) && seen.committed == "。",
+              "Chinese punctuation with smart punctuation off did not convert a period");
+      seen.committed.clear();
+      invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // 重复标点转中文 depends only on smart punctuation and its repeat switch, as Windows _CanInterceptSmartPunctuationRevert does; paired completion is a separate feature. The mock editor publishes what it holds before each key.
+      auto repeat_unpaired = follow;
+      repeat_unpaired["preferences"]["paired_punctuation"] = false;
+      repeat_unpaired["preferences"]["smart_punctuation"] = true;
+      repeat_unpaired["preferences"]["smart_punctuation_repeat"] = true;
+      msime_ibus_configure(repeat_unpaired.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      if (!seen.input_enabled) {
+        key(IBUS_space, IBUS_CONTROL_MASK);
+        key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      }
+      require(seen.input_enabled && seen.punctuation_enabled,
+              "Unpaired repeat fixture did not start in Chinese mode with Chinese punctuation");
+      auto editor_holds = [&](const char *value, guint cursor) {
+        auto text = ibus_text_new_from_string(value);
+        g_object_ref_sink(text);
+        invoke("SetSurroundingText",
+               g_variant_new("(vuu)", ibus_serializable_serialize(IBUS_SERIALIZABLE(text)),
+                             cursor, cursor));
+        g_object_unref(text);
+      };
+      editor_holds("a", 1);
+      require(key(IBUS_comma) && seen.committed == ",",
+              "Smart punctuation did not keep a comma after a letter ASCII");
+      editor_holds("a,", 2);
+      const auto deletes_before_repeat = seen.delete_surrounding_calls;
+      require(key(IBUS_comma) && seen.committed == ",，" &&
+                  seen.delete_surrounding_calls == deletes_before_repeat + 1 &&
+                  seen.delete_surrounding_offset == -1 && seen.delete_surrounding_count == 1,
+              "A repeated comma did not turn Chinese with paired completion off");
+      seen.committed.clear();
       invoke("FocusOut");
     }
     for (const auto *scope : {"app", "global"}) {
@@ -1348,6 +1453,53 @@ int main(int argc, char **argv) {
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
+    // A panel that reports the wheel as CandidateClicked button 4/5 pages the translated senses only with 鼠标滚轮 on; with it off the wheel does nothing, as on Windows and on the ordinary candidate page. One sense per page so a page change is visible.
+    {
+      const auto socket = (root / "translation-wheel.sock").string();
+      TranslationProviderFixture provider(socket);
+      provider.multi_sense = true;
+      for (const bool wheel : {false, true}) {
+        auto translated = options;
+        translated.erase("preferences_directory");
+        translated["translation_provider_socket"] = socket;
+        translated["preferences"]["candidate_translations"] = true;
+        translated["preferences"]["candidate_page_size"] = 1;
+        translated["preferences"]["translation_target_language"] = "ja";
+        translated["preferences"]["navigation"]["mouse_wheel"] = wheel;
+        msime_ibus_configure(translated.dump());
+        engine = create_engine();
+        seen = Observation{};
+        invoke("FocusIn");
+        phrase();
+        const auto deadline = g_get_monotonic_time() + 3000000;
+        while ((seen.candidates.empty() ||
+                seen.candidates.front().find("first sense") == std::string::npos) &&
+               g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {}
+          g_usleep(1000);
+        }
+        require(!seen.candidates.empty() &&
+                    seen.candidates.front().find("first sense") != std::string::npos,
+                "Multi-sense translation did not render for the wheel check");
+        seen.committed.clear();
+        auto opened = call(client, destination, "ProcessKeyEvent",
+                           g_variant_new("(uuu)", IBUS_Return, 0, IBUS_CONTROL_MASK));
+        g_variant_unref(opened);
+        require(seen.candidates == std::vector<std::string>{"first sense"},
+                "Ctrl+Enter did not open the one-per-page translation list");
+        invoke("CandidateClicked", g_variant_new("(uuu)", 0, 5, 0));
+        const auto expected = wheel ? "second sense" : "first sense";
+        require(seen.candidates == std::vector<std::string>{expected} &&
+                    seen.committed.empty() && seen.lookup_visible,
+                (std::string(wheel ? "Wheel with 鼠标滚轮 on did not page"
+                                   : "Wheel with 鼠标滚轮 off paged") +
+                 " the translation list: shown=[" +
+                 (seen.candidates.empty() ? std::string{} : seen.candidates.front()) + "]")
+                    .c_str());
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+      }
+    }
     {
       const auto history_path = root / "clipboard-generation-history.json";
       std::ofstream(history_path)
@@ -1471,6 +1623,17 @@ int main(int argc, char **argv) {
       const auto routes = panel_routes();
       require(routes[1] == "settings:help" && routes[2] == "settings:feedback",
               "Desktop help and feedback actions used incorrect settings routes");
+      // Ctrl+Shift+Super+K opens the screen keyboard whether the client reports Super as MOD4, as the virtual SUPER bit, or as both (GTK3).
+      for (guint super_bits : {guint(IBUS_MOD4_MASK), guint(IBUS_MOD4_MASK | IBUS_SUPER_MASK),
+                               guint(IBUS_SUPER_MASK)}) {
+        const auto launches = panel_routes().size();
+        const guint chord = IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | super_bits;
+        require(key(IBUS_K, chord) && key(IBUS_K, chord | IBUS_RELEASE_MASK),
+                "Ctrl+Shift+Super+K was not consumed for every Super encoding");
+        require(wait_panel([&] { return panel_routes().size() == launches + 1; }) &&
+                    panel_routes().back() == "keyboard",
+                "Ctrl+Shift+Super+K did not launch the screen keyboard");
+      }
       g_unsetenv("MSIME_CLIENT_SETTINGS_COMMAND");
     }
     auto relative_preferences = options;
@@ -1651,6 +1814,22 @@ int main(int argc, char **argv) {
                      "fullwidth";
             }),
             "Fullwidth character mode was not persisted");
+    // The saved width has to reach the session as well as the host flag: the raw spelling Enter commits is widened by the session, the idle digit after it by the host.
+    const auto width_committed = seen.committed;
+    const auto width_probe = [&] {
+      seen.committed.clear();
+      phrase();
+      require(key(IBUS_Return), "Width probe spelling was not committed");
+      settle_lookup();
+      key('1');
+      const auto committed = seen.committed;
+      seen.committed.clear();
+      return committed;
+    };
+    require(wait_until([&] { return seen.character_width; }),
+            "Fullwidth menu save did not reach the host flag");
+    require(width_probe() == "ｎｉｈａｏ１",
+            "Fullwidth menu save did not reach the session");
     invoke("PropertyActivate",
            g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
@@ -1658,6 +1837,27 @@ int main(int argc, char **argv) {
                      "halfwidth";
             }),
             "Halfwidth character mode was not restored");
+    require(wait_until([&] { return !seen.character_width; }) && width_probe() == "nihao",
+            "Halfwidth menu save did not reach the session");
+    // The settings page writes the store; the open session follows it on the next poll, with no focus change.
+    const auto store_width = [&](const char *width) {
+      nlohmann::json snapshot;
+      {
+        std::ifstream input(root / "preferences.json");
+        input >> snapshot;
+      }
+      snapshot["revision"] = snapshot.at("revision").get<uint64_t>() + 1;
+      snapshot["preferences"]["character_width"] = width;
+      std::ofstream(root / "width-next.json") << snapshot.dump();
+      std::filesystem::rename(root / "width-next.json", root / "preferences.json");
+    };
+    store_width("fullwidth");
+    require(wait_until([&] { return seen.character_width; }) && width_probe() == "ｎｉｈａｏ１",
+            "A fullwidth store did not reach the open session");
+    store_width("halfwidth");
+    require(wait_until([&] { return !seen.character_width; }) && width_probe() == "nihao",
+            "A halfwidth store did not reach the open session");
+    seen.committed = width_committed;
     require(seen.punctuation_enabled, "Chinese punctuation was not enabled");
     invoke("PropertyActivate",
            g_variant_new("(su)", "PunctuationLock/english", PROP_STATE_CHECKED));
@@ -2023,6 +2223,64 @@ int main(int argc, char **argv) {
       require(voice_provider.stop_requests.load() == locked_stops + 1,
               "Locked recording sent duplicate stop requests");
       seen.committed.clear();
+    }
+    // Real IBus clients (X11, GDK, mutter) report the modifier state from before the key, so a hold key's own bit is missing on its press, and GTK3 adds the virtual SUPER bit next to MOD4. The shortcuts follow the physical key, as on Windows.
+    auto physical_hold = [&](guint control, guint hold, guint state, const char *what) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      if (control) require(!key(control, IBUS_CONTROL_MASK), what);
+      require(key(hold, state), what);
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }), what);
+      require(key(hold, state | IBUS_RELEASE_MASK), what);
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }), what);
+      if (control) require(!key(control, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK), what);
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }), what);
+      seen.committed.clear();
+    };
+    physical_hold(0, IBUS_Alt_R, 0, "Right Alt without its own MOD1 bit did not hold-record");
+    // A pending dead key must not swallow the hold key: xkb_compose ignores modifier keysyms, so a state-0 Alt_R fed to it would stay "composing".
+    require(key(IBUS_dead_acute), "Dead key was not held by the system Compose table");
+    key(IBUS_dead_acute, IBUS_RELEASE_MASK);
+    physical_hold(0, IBUS_Alt_R, 0, "Right Alt did not hold-record with a dead key pending");
+    physical_hold(IBUS_Control_R, IBUS_Alt_R, IBUS_CONTROL_MASK,
+                  "RCtrl+RAlt without the MOD1 bit did not hold-record");
+    for (guint super_key : {IBUS_Super_L, IBUS_Super_R})
+      for (guint state : {guint(IBUS_CONTROL_MASK),
+                          guint(IBUS_CONTROL_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK),
+                          guint(IBUS_CONTROL_MASK | IBUS_SUPER_MASK)})
+        physical_hold(IBUS_Control_L, super_key, state,
+                      "Ctrl+Win did not hold-record for every Super encoding");
+    {
+      const auto starts = voice_provider.started.load();
+      const bool mode_before = seen.input_enabled;
+      require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) && !key(IBUS_Alt_R, IBUS_CONTROL_MASK),
+              "Left Ctrl with Right Alt matched the right-Ctrl voice shortcut");
+      key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK | IBUS_MOD1_MASK);
+      key(IBUS_Control_L, IBUS_RELEASE_MASK | IBUS_CONTROL_MASK);
+      require(!key(IBUS_Alt_R, IBUS_SHIFT_MASK), "Shift+Right Alt matched a voice shortcut");
+      key(IBUS_Alt_R, IBUS_RELEASE_MASK | IBUS_SHIFT_MASK | IBUS_MOD1_MASK);
+      g_usleep(50000);
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      require(voice_provider.started.load() == starts && seen.input_enabled == mode_before,
+              "Unmatched Right Alt chords changed capture or input mode");
+    }
+    {
+      auto ralt_off = options;
+      // Keep the store out of it, as with the mode chord fixture: the reload tick would otherwise restore the stored preference.
+      ralt_off.erase("preferences_directory");
+      ralt_off["preferences"]["voice_input"]["hotkey_ralt"] = false;
+      msime_ibus_configure(ralt_off.dump());
+      invoke("FocusIn");
+      const auto starts = voice_provider.started.load();
+      require(!key(IBUS_Alt_R) && !key(IBUS_Alt_R, IBUS_MOD1_MASK | IBUS_RELEASE_MASK),
+              "Right Alt was consumed with its voice shortcut disabled");
+      g_usleep(50000);
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      require(voice_provider.started.load() == starts,
+              "Right Alt started voice with its shortcut disabled");
+      msime_ibus_configure(options.dump());
+      invoke("FocusIn");
     }
 
 
@@ -2882,6 +3140,31 @@ int main(int argc, char **argv) {
                   .c_str());
     }
     invoke("Reset");
+    // Right-click is the Windows context menu, which changes nothing until an action is picked. IBus has no per-candidate menu, so the click leaves the user dictionary alone and points at the 候选操作 menu instead of pinning. The old pin raised the row's weight, so a dictionary row paged past the top would have come first on the retyped page.
+    {
+      phrase();
+      const auto baseline = seen.candidates;
+      const int target = dictionary_two_segment_index();
+      require(target >= 0, "Fixture exposed no dictionary candidate past the top to right-click");
+      const auto page_before = seen.candidates;
+      const auto aux_before = seen.auxiliary;
+      const auto committed_before = seen.committed;
+      invoke("CandidateClicked", g_variant_new("(uuu)", static_cast<guint>(target), 3, 0));
+      require(seen.candidates == page_before && seen.committed == committed_before &&
+                  seen.preedit == "nihao" && seen.lookup_visible &&
+                  seen.auxiliary.find("候选操作") != std::string::npos,
+              ("Right-click changed the composition or showed no menu hint: aux=[" +
+               seen.auxiliary + "]")
+                  .c_str());
+      require(wait_until([&] { return seen.auxiliary == aux_before; }),
+              ("Right-click hint did not give the page number back: aux=[" + seen.auxiliary +
+               "] expected=[" + aux_before + "]")
+                  .c_str());
+      invoke("Reset");
+      phrase();
+      require(seen.candidates == baseline, "Right-click changed the user dictionary order");
+      invoke("Reset");
+    }
     struct Binding {
       const char *name;
       guint next;
@@ -2921,6 +3204,41 @@ int main(int argc, char **argv) {
               seen.committed == before_commit,
           "Navigation changed input or failed to return to first candidate");
       invoke("Reset");
+    }
+    // The panel wheel arrives as cursor_up/down. As on Windows it pages only with 鼠标滚轮 on and otherwise does nothing; keyboard arrows stay on the key path above.
+    for (const bool wheel : {false, true}) {
+      options["preferences"]["navigation"]["mouse_wheel"] = wheel;
+      save(revision++, 4);
+      settle();
+      phrase();
+      const auto wheel_first_page = seen.candidates;
+      const auto wheel_committed = seen.committed;
+      invoke("CursorDown");
+      if (wheel)
+        require(wait_until([&] { return seen.candidates != wheel_first_page; }) &&
+                    seen.cursor == 0 && seen.committed == wheel_committed,
+                "Wheel with 鼠标滚轮 on did not page the candidates");
+      else
+        require(seen.candidates == wheel_first_page && seen.cursor == 0 &&
+                    seen.committed == wheel_committed && seen.preedit == "nihao",
+                "Wheel with 鼠标滚轮 off moved the page or the highlight");
+      invoke("CursorUp");
+      require(seen.candidates == wheel_first_page && seen.cursor == 0 &&
+                  seen.committed == wheel_committed,
+              "Wheel up did not return to the first page");
+      invoke("Reset");
+    }
+    options["preferences"]["navigation"]["mouse_wheel"] = false;
+    // NumLock (Mod2) or a button mask in the panel's state argument must not block a click, as the Windows candidate window commits regardless of modifiers.
+    for (const guint click_state : {guint(IBUS_MOD2_MASK), guint(IBUS_BUTTON1_MASK)}) {
+      phrase();
+      const auto expected = seen.committed + seen.candidates.front();
+      invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, click_state));
+      settle_lookup();
+      require(seen.committed == expected && !seen.preedit_visible && !seen.lookup_visible,
+              ("Candidate click with state " + std::to_string(click_state) +
+               " did not select: committed=[" + seen.committed + "] expected=[" + expected + "]")
+                  .c_str());
     }
     for (const auto &binding : bindings)
       options["preferences"]["navigation"][binding.name] = false;

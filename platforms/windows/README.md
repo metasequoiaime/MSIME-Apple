@@ -371,6 +371,10 @@ PuncSwitch 的 keycode 与 StatusSnapshot/FocusRestored 的 pinyin_length 同步
 
 msime_client_set_chinese_punctuation 是 ABI 1 的附加符号，适配器和宿主库须成套更新。其返回值为未变化的 View；关闭时空组合 ASCII 标点由宿主透传，组合中标点仍按共享运行时的完成策略处理。这个接口只管每会话的标点开关，全局作用域由 `ModeAuthority` 和共享的 `ime_mode_scope` 决定。
 
+### 书名号自动补全后的嵌套回退
+
+候选打开时 `<` 由 Server 的 Engine 转换，Engine 的书名号嵌套计数随之加一；开启配对补全后右半边由 TSF 自己插入，之后的 `>` 只跨过它，Server 收不到能回退计数的按键，于是后面每个书名号都变成〈〉。所以 TSF 自动补全 `<` 后发 Main 事件 PairedPunctuationAutoClosed（16），keycode 为开口键，只能是 `<`，其他值在 `valid_main_frame` 被拒。它是没有回复的通知，和 PuncSwitch 一样经 FocusRouter 限定当前焦点，在输入队列里调用 `msime_client_balance_paired_punctuation_after_auto_close`；管道按序投递，所以回退先于下一个按键生效。开口由 TSF 本地解析时也照发：两边计数都在零处截止，多回退一次无害。事件编号由 `scripts/apply_engine_paired_punctuation_ipc.py` 叠加进 Engine 契约头。
+
 ### 发往 TSF 的模式请求
 
 WindowsServer/SessionController::request_mode(lease, mode) 提供中英文、中文/ASCII 标点、全/半角六种命令，线格式使用固定 Engine worker opcode 与清零的 404 字节帧，不支持任意 opcode 或文本。调用方从已确认焦点事件获取 lease，并在外部线程调用；输入/事件/控制回调内调用会拒绝，避免递归焦点锁。有限时写入可能阻塞，不宜直接占用 UI 线程。

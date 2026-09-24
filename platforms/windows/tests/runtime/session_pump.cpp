@@ -765,6 +765,43 @@ void session_pump_tests(const std::string &options) {
     require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 2);
     queue.stop();
   }
+  {
+    // The TSF auto-closed the 《 the Server's Engine resolved, so the notification pays the nesting back before the next '<' reaches the Engine; without it the second opening would be 〈.
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    transport.packets.resize(1);
+    auto notice = transport.packets.front();
+    notice.event_type = FanyImePipeEventType::PuncSwitch;
+    notice.keycode = 1;
+    transport.packets.push_back(notice);
+    auto opening = transport.packets.front();
+    opening.event_type = FanyImePipeEventType::KeyEvent;
+    opening.request_id = 2;
+    opening.keycode = 0xBC;
+    opening.wch = '<';
+    opening.modifiers_down = 1;
+    transport.packets.push_back(opening);
+    notice.event_type = FanyImePipeEventType::PairedPunctuationAutoClosed;
+    notice.keycode = '<';
+    transport.packets.push_back(notice);
+    ++opening.request_id;
+    transport.packets.push_back(opening);
+    size_t keys = 0;
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &focus,
+            const FanyImeNamedpipeData &packet) {
+          auto reply = state.key(focus, packet, ReplyPath::Punctuation);
+          require(reply.has_value());
+          ++keys;
+          require(reply->source.transition.at("commit") == "《");
+          return reply;
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 2);
+    queue.stop();
+  }
   for (auto event : {FanyImePipeEventType::StatusSnapshot,
                      FanyImePipeEventType::IMESwitch,
                      FanyImePipeEventType::FocusRestored}) {

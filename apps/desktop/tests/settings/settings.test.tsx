@@ -71,6 +71,57 @@ test("macOS voice shortcuts use native key names and space-lock semantics", asyn
   expect(screen.getByText(/首次授权后请重新按键/)).toBeTruthy();
 });
 
+// The Windows host records while a modifier shortcut is held, the two-key chord takes the right Ctrl specifically, and Space locks a held recording. The labels used to read as toggles on a plain Ctrl.
+test("Windows voice shortcuts describe hold-to-record, the right Ctrl chord and space lock", async () => {
+  render(
+    <SettingsPage
+      initialPage="voice"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await screen.findByRole("checkbox", { name: "长按右 Alt 录音" });
+  expect(screen.getByRole("checkbox", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "长按录音时按空格锁定" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Ctrl+F9 切换语音" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "Ctrl+右 Alt 切换语音" })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "右 Alt 切换语音" })).toBeNull();
+  expect(screen.getByText(/按住期间按空格锁定录音/)).toBeTruthy();
+});
+
+// Both Linux hosts (IBus ClientEngine voice_hotkey, Fcitx5 FcitxEngine) record while a modifier shortcut is held and lock on Space, as Windows does. Only IBus requires the right Ctrl in the two-key chord; Fcitx5 also accepts left Ctrl+Right Alt and stops only when Right Alt or Right Ctrl is released, but the right-Ctrl label is true on both. The labels used to read 切换语音, a toggle, which only Ctrl+F9 is.
+test("Linux voice shortcuts describe hold-to-record like Windows and keep Ctrl+F9 a toggle", async () => {
+  render(
+    <SettingsPage
+      initialPage="voice"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: { platform: "linux", panel_windows: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await screen.findByRole("checkbox", { name: "长按右 Alt 录音" });
+  expect(screen.getByRole("checkbox", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "长按录音时按空格锁定" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Ctrl+F9 切换语音" })).toBeTruthy();
+  for (const toggle of [
+    "右 Alt 切换语音",
+    "Ctrl+右 Alt 切换语音",
+    "Ctrl+Win 切换语音",
+    "空格锁定语音",
+  ])
+    expect(screen.queryByRole("checkbox", { name: toggle })).toBeNull();
+  expect(screen.getByText(/长按快捷键录音，松开结束/)).toBeTruthy();
+  expect(screen.getByText(/没有 provider 时快捷键不会拦截编辑器输入/)).toBeTruthy();
+  expect(screen.queryByText(/切换语音录音/)).toBeNull();
+});
+
 test("macOS exposes the non-activating input-mode HUD preference", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
@@ -1513,6 +1564,34 @@ test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {
   );
 });
 
+// On Linux the switch reaches the IBus panel's wheel directly but Fcitx5 classic UI only through its own desktop-wide WheelForPaging option (platforms/linux/README.md), so Linux explains both; other hosts do not get the note.
+test("Linux explains what the mouse-wheel paging switch does on IBus and Fcitx5", async () => {
+  for (const [platform, shown] of [
+    ["linux", true],
+    ["windows", false],
+  ] as const) {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: { platform } as HostCapabilities,
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    await screen.findByRole("checkbox", { name: "鼠标滚轮（候选面板支持时翻页）" });
+    const note = screen.queryByText(/在 IBus 候选窗口上滚动即翻页/);
+    if (shown) {
+      expect(note?.textContent).toContain("关闭时滚轮不做任何事");
+      expect(note?.textContent).toContain("对 Fcitx5 中的所有输入法生效");
+    } else {
+      expect(note).toBeNull();
+    }
+    cleanup();
+  }
+});
 test("helpcode schemes save independently and retain disabled selections", async () => {
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
@@ -1558,8 +1637,60 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Home / End")).toBeDefined();
+  // Home/End move across the whole candidate list, as on Windows, not within the current page.
+  expect(screen.getByText("移动到候选列表首项 / 末项（页码随之切换）")).toBeDefined();
   expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
 });
+
+function candidateThemeNote() {
+  const select = screen.getByRole("combobox", { name: "候选窗口主题" });
+  return select.closest("label")?.querySelector("small")?.textContent;
+}
+
+test("Linux appearance and maintenance copy names both hosts and the Fcitx5 reload", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        restartInputMethod: vi.fn().mockResolvedValue(undefined),
+        host: { platform: "linux", panel_windows: true, restart_input_method: true } as never,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  expect(candidateThemeNote()).toBe("预览跟随主题模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色");
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(
+    await screen.findByText("在当前 IBus 或 Fcitx5 输入上下文中维护候选与重启服务"),
+  ).toBeDefined();
+  // fcitx5-remote -r is Fcitx5's ReloadConfig request, so the Fcitx5 half must read as a reload, not a restart.
+  const restartRow = screen.getByText("Ctrl+Shift+Alt+R").parentElement?.textContent ?? "";
+  expect(restartRow).toContain("IBus 执行 ibus restart");
+  expect(restartRow).toContain("Fcitx5 执行 fcitx5-remote -r 重新加载配置");
+  const service = screen.getByText("输入法服务").closest(".section")?.textContent ?? "";
+  expect(service).toContain("IBus 下执行 ibus restart 重启服务");
+  expect(service).toContain("Fcitx5 下执行 fcitx5-remote -r 重新加载配置");
+});
+
+test.each(["windows", "macos"] as const)(
+  "%s candidate theme note does not mention the Linux hosts",
+  async (platform) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: { platform, panel_windows: true } as never,
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: "外观" }));
+    expect(candidateThemeNote()).toBe("预览跟随主题模式");
+  },
+);
 
 test("macOS maintenance shortcuts use the current input context and Option", async () => {
   const restartInputMethod = vi.fn().mockResolvedValue(undefined);
@@ -1612,6 +1743,128 @@ test("macOS service page exposes installation separately from re-registration", 
   fireEvent.click(screen.getByRole("button", { name: "安装 / 更新" }));
   await waitFor(() => expect(installInputSource).toHaveBeenCalledOnce());
   expect(await screen.findByText("输入源已安装并注册。")).toBeDefined();
+});
+
+test("macOS reports the start-time input method refresh and a source that still needs enabling", async () => {
+  const openSettings = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: {
+          status: vi.fn().mockResolvedValue({
+            action: "updated",
+            enabled: false,
+            bundled_version: "0.51.0 (7300)",
+            installed_version: "0.51.0 (7300)",
+          }),
+          openSettings,
+        },
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  const banner = await screen.findByRole("status", { name: "水杉输入法安装状态" });
+  expect(within(banner).getByText("水杉输入法已更新到 0.51.0 (7300)。")).toBeDefined();
+  expect(
+    within(banner).getByText(/请在 系统设置 > 键盘 > 输入法 中添加并启用水杉输入法/),
+  ).toBeDefined();
+  fireEvent.click(within(banner).getByRole("button", { name: "打开键盘设置" }));
+  await waitFor(() => expect(openSettings).toHaveBeenCalledOnce());
+  fireEvent.click(within(banner).getByRole("button", { name: "知道了" }));
+  expect(screen.queryByRole("status", { name: "水杉输入法安装状态" })).toBeNull();
+});
+
+test("macOS stays quiet when the input method is current and enabled, and points to the manual button on failure", async () => {
+  const quiet = vi.fn().mockResolvedValue({
+    action: "up_to_date",
+    enabled: true,
+    bundled_version: "0.50.0 (1)",
+    installed_version: "0.50.0 (2)",
+  });
+  const { unmount } = render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: { status: quiet, openSettings: vi.fn() },
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  await waitFor(() => expect(quiet).toHaveBeenCalledOnce());
+  expect(screen.queryByLabelText("水杉输入法安装状态")).toBeNull();
+  unmount();
+
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: {
+          status: vi.fn().mockResolvedValue({
+            action: "failed",
+            enabled: null,
+            bundled_version: "0.50.0 (1)",
+            installed_version: null,
+          }),
+          openSettings: vi.fn(),
+        },
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  const banner = await screen.findByRole("alert", { name: "水杉输入法安装状态" });
+  expect(within(banner).getByText(/点「安装 \/ 更新」重试/)).toBeDefined();
+  expect(within(banner).queryByRole("button", { name: "打开键盘设置" })).toBeNull();
+});
+
+test("macOS asks for a new login when a first install waits for the input source list", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: {
+          status: vi.fn().mockResolvedValue({
+            action: "login_required",
+            enabled: false,
+            bundled_version: "0.50.0 (1)",
+            installed_version: "0.50.0 (1)",
+          }),
+          openSettings: vi.fn(),
+        },
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  const banner = await screen.findByRole("status", { name: "水杉输入法安装状态" });
+  expect(within(banner).getByText(/请注销并重新登录/)).toBeDefined();
+  expect(within(banner).queryByRole("button", { name: "打开键盘设置" })).toBeNull();
+});
+
+test("the start-time input method report is macOS only", async () => {
+  const status = vi.fn().mockResolvedValue({
+    action: "installed",
+    enabled: false,
+    bundled_version: "0.50.0 (1)",
+    installed_version: "0.50.0 (1)",
+  });
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: { status, openSettings: vi.fn() },
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(status).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText("水杉输入法安装状态")).toBeNull();
 });
 
 test("macOS about page exposes reversible uninstall with explicit data removal", async () => {
@@ -2179,6 +2432,27 @@ test("a refused host-saved dictionary export shows an error and never claims suc
   expect(screen.queryByText("正在读取全部用户词库…")).toBeNull();
 });
 
+test("a host save picker the user closes cancels the export without an error or a success", async () => {
+  const saveExport = vi.fn().mockResolvedValue(null);
+  render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  expect(await screen.findByText("已取消导出。")).toBeDefined();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText(/已导出/)).toBeNull();
+});
+
+test("a host that names its own export failure has that message shown", async () => {
+  const saveExport = vi.fn().mockRejectedValue(new Error("无法保存导出文件，词库未导出。"));
+  render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("无法保存导出文件，词库未导出。");
+  expect(screen.queryByText(/已导出/)).toBeNull();
+});
+
 test("a host without saveExport keeps the download link", async () => {
   const createObjectURL = vi.fn(() => "blob:fixture");
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
@@ -2391,6 +2665,9 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
   expect(description).toContain("diagnostic.log");
   // The Linux hosts log focus, preference, menu-save and failure stages only; they time nothing and have no server link to trace, so the copy must not promise either.
   expect(description).toContain("操作失败的阶段");
+  // IBus refreshes the dictionary generation before the log is configured, so only the maintenance release is promised for both hosts.
+  expect(description).toContain("词库维护时释放会话");
+  expect(description).not.toContain("词库刷新");
   expect(description).not.toContain("延迟");
   expect(description).not.toContain("通信");
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
@@ -2414,6 +2691,54 @@ test("macOS exposes its native server logger without a Windows TSF switch", asyn
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
   expect(screen.queryByLabelText("输入法宿主日志")).toBeNull();
 });
+
+test("the telemetry switch is offered on Windows only, starts off and says what it sends", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+    host: { platform: "windows" } as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  const toggle = (await screen.findByLabelText("匿名使用统计")) as HTMLInputElement;
+  // A configuration that never mentioned telemetry must not start reporting.
+  expect(toggle.checked).toBe(false);
+  const description = toggle.closest("label")?.textContent ?? "";
+  expect(description).toContain("默认关闭");
+  expect(description).toContain("https://api.msime.app/v1/telemetry/events");
+  expect(description).toContain("std::terminate");
+  expect(description).toContain("不含输入内容");
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    telemetry_enabled: true,
+  });
+});
+
+test.each(["linux", "macos", "android", "ios", "harmony", undefined])(
+  "the telemetry switch is not offered where the host does not read it (%s)",
+  async (platform) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: platform ? ({ platform } as HostCapabilities) : undefined,
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
+    expect(screen.queryByLabelText("匿名使用统计")).toBeNull();
+  },
+);
 
 const initial: Snapshot = {
   format_version: 1,
@@ -4251,23 +4576,35 @@ test("Android help and about pages use mobile instructions and project links", a
   );
 });
 
-test("Linux about page exposes the shared privacy policy", async () => {
-  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        openExternalUrl,
-        host: { platform: "linux" } as HostCapabilities,
-      }}
-    />,
-  );
-
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  await screen.findByText("Metasequoia IME");
-  fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
+// The Linux section of msime.app/privacy/ does not match this host (it has an update check and keeps provider credentials in 0600 files), so Linux opens the PRIVACY.md that ships with this code, as the Windows reference opens its own. Every other host keeps msime.app/privacy/, which a looser Linux check would break.
+test("the privacy link opens PRIVACY.md on Linux and msime.app/privacy/ elsewhere", async () => {
+  const expected: Record<string, string> = {
+    linux: "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md",
+    windows: "https://msime.app/privacy/",
+    macos: "https://msime.app/privacy/",
+    android: "https://msime.app/privacy/",
+    harmony: "https://msime.app/privacy/",
+    ios: "https://msime.app/privacy/",
+  };
+  for (const [platform, url] of Object.entries(expected)) {
+    const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          openExternalUrl,
+          host: { platform } as HostCapabilities,
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    fireEvent.click(await screen.findByRole("button", { name: "隐私政策" }));
+    await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(url));
+    expect(openExternalUrl).toHaveBeenCalledTimes(1);
+    cleanup();
+  }
 });
 
 test("iOS help opens keyboard settings and feedback builds a visible report", async () => {
@@ -4897,6 +5234,7 @@ const macosHostCapabilities = {
   candidate_font_controls: true,
   candidate_row_colors: true,
   candidate_selection_appearance: true,
+  candidate_border_color: true,
   candidate_follow_cursor: true,
   input_mode_hud: true,
   voice_commit_mode: true,
@@ -4998,6 +5336,12 @@ test.each([
  * 拼音分词/不显示.
  */
 const referenceOptions: { page: string; button: string; control: string; options: string[] }[] = [
+  {
+    page: "appearance",
+    button: "外观",
+    control: "每页候选项数量",
+    options: ["3", "4", "5", "6", "7", "8", "9"],
+  },
   {
     page: "appearance",
     button: "外观",
@@ -5400,7 +5744,7 @@ test("Linux checks the client release feed and treats no release as a normal res
     expect.stringMatching(
       /^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?per_page=100&t=\d+$/,
     ),
-    { cache: "no-store" },
+    expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
   );
   vi.unstubAllGlobals();
 });
@@ -5562,7 +5906,7 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
   for (const assets of [undefined, null, "x", [null, 3, { digest: `sha256:${digest}` }]]) {
     expect(pick(assets)).toEqual({ name: null, sha256: null, signed: false });
   }
-  // Other platforms keep ignoring assets.
+  // Windows never takes a Linux package for its installer.
   expect(
     selectPlatformRelease(
       [
@@ -5575,7 +5919,66 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
       "windows",
       page,
     ),
+  ).toMatchObject({ installerName: null, installerSha256: null, signed: false });
+  // Other platforms keep ignoring assets.
+  expect(
+    selectPlatformRelease(
+      [
+        {
+          tag_name: "macos-v1.2.0",
+          html_url: `${page}/tag/macos-v1.2.0`,
+          assets: [{ name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` }],
+        },
+      ],
+      "macos",
+      page,
+    ),
   ).toMatchObject({ installerName: null, installerSha256: null, signed: null });
+});
+
+test("Windows release assets yield the installer digest and mark the build unsigned", () => {
+  const page = "https://github.com/metasequoiaime/msime/releases";
+  const digest = "d".repeat(64);
+  const pick = (assets: unknown) => {
+    const update = selectPlatformRelease(
+      [{ tag_name: "windows-v1.2.0", html_url: `${page}/tag/windows-v1.2.0`, assets }],
+      "windows",
+      page,
+    );
+    return (
+      update && {
+        name: update.installerName,
+        sha256: update.installerSha256,
+        signed: update.signed,
+      }
+    );
+  };
+  // What release-windows.yml uploads: the installer and its .sha256 file.
+  expect(
+    pick([
+      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME_Setup_v1.2.0.exe.sha256", digest: `sha256:${"e".repeat(64)}` },
+    ]),
+  ).toEqual({ name: "MetasequoiaIME_Setup_v1.2.0.exe", sha256: digest, signed: false });
+  // An older API response without digests keeps the name, so the notice can point at the .sha256 file.
+  expect(pick([{ name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: null }])).toEqual({
+    name: "MetasequoiaIME_Setup_v1.2.0.exe",
+    sha256: null,
+    signed: false,
+  });
+  // Two installers are ambiguous; a name needing quoting never reaches the command.
+  expect(
+    pick([
+      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME_Setup_v1.2.0-x86.exe", digest: `sha256:${digest}` },
+    ]),
+  ).toEqual({ name: null, sha256: null, signed: false });
+  expect(pick([{ name: "Setup v1.2.0;calc.exe", digest: `sha256:${digest}` }])).toEqual({
+    name: null,
+    sha256: null,
+    signed: false,
+  });
+  expect(pick(undefined)).toEqual({ name: null, sha256: null, signed: false });
 });
 
 test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows", () => {
@@ -5611,7 +6014,8 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
     signed: false,
   };
   const expected = {
-    warning: "该版本未经代码签名，请务必核对下面的校验值。",
+    warning:
+      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗无法浮在以管理员身份运行的程序之上）。请务必核对下面的校验值。",
     verify: {
       command: "Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256",
       sha256: digest,
@@ -5619,6 +6023,12 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
   };
   expect(describeInstallerTrust(windows, "windows")).toEqual(expected);
   expect(describeInstallerTrust(windows, null)).toEqual(expected);
+  // Without a digest the unsigned warning points at the .sha256 file the release carries.
+  expect(describeInstallerTrust({ ...windows, installerSha256: null }, "windows")).toEqual({
+    warning:
+      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗无法浮在以管理员身份运行的程序之上）。请从发行页一并下载 MetasequoiaIME_Setup_v1.2.0.exe.sha256，用 Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256 核对。",
+    verify: null,
+  });
 });
 
 test("Windows checks this repository's Windows releases rather than the reference manifest", async () => {
@@ -5633,6 +6043,10 @@ test("Windows checks this repository's Windows releases rather than the referenc
       {
         tag_name: "windows-v1.2.0",
         html_url: "https://github.com/metasequoiaime/msime/releases/tag/windows-v1.2.0",
+        assets: [
+          { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${"b".repeat(64)}` },
+          { name: "MetasequoiaIME_Setup_v1.2.0.exe.sha256", digest: `sha256:${"c".repeat(64)}` },
+        ],
       },
     ],
   });
@@ -5651,9 +6065,15 @@ test("Windows checks this repository's Windows releases rather than the referenc
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+  // The installer's digest and the unsigned warning reach the notice, as on the shipped settings page.
+  expect(screen.getByText(/SmartScreen 会拦截，且 uiAccess 失效/)).toBeDefined();
+  expect(screen.getByText("b".repeat(64))).toBeDefined();
+  expect(
+    screen.getByText("Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256"),
+  ).toBeDefined();
   expect(fetch).toHaveBeenCalledWith(
     expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?/),
-    { cache: "no-store" },
+    expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
   );
   fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
   await waitFor(() =>
@@ -5662,6 +6082,46 @@ test("Windows checks this repository's Windows releases rather than the referenc
     ),
   );
   vi.unstubAllGlobals();
+});
+
+test("an update check that never answers gives up after ten seconds", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let signal: AbortSignal | undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((_url: string, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise((_resolve, reject) =>
+        signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
+      );
+    }),
+  );
+  try {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: { platform: "windows" } as HostCapabilities,
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
+    await waitFor(() => expect(signal).toBeDefined());
+    await act(async () => {
+      vi.advanceTimersByTime(9_000);
+    });
+    expect(signal?.aborted).toBe(false);
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(await screen.findByText("检查失败，请稍后重试")).toBeDefined();
+  } finally {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
 });
 
 test("about page uses the packaged app version for display and update comparison", async () => {
@@ -6479,8 +6939,6 @@ test("macOS offers the same candidate page sizes as every other host and keeps t
     name: "每页候选项数量",
   })) as HTMLSelectElement;
   expect(Array.from(size.options).map((option) => option.value)).toEqual([
-    "1",
-    "2",
     "3",
     "4",
     "5",
@@ -6494,6 +6952,32 @@ test("macOS offers the same candidate page sizes as every other host and keeps t
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, { ...preferences, candidate_page_size: 4 });
+});
+
+test("a saved page size below the reference's three stays listed and selected", async () => {
+  // The shared preference accepts one and two; the page offers the reference's three through nine. A
+  // document carrying two must not display as three, or saving any other change would rewrite it.
+  const preferences = { ...initial.preferences, candidate_page_size: 2 };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue({ ...initial, preferences }),
+    save: vi.fn(),
+    host: { platform: "windows" } as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+  const size = (await screen.findByRole("combobox", {
+    name: "每页候选项数量",
+  })) as HTMLSelectElement;
+  expect(Array.from(size.options).map((option) => option.value)).toEqual([
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+  ]);
+  expect(size.value).toBe("2");
 });
 
 test("macOS shuangpin keymap setting loads, toggles, and saves through the native preference bridge", async () => {

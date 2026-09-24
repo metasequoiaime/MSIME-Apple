@@ -39,7 +39,8 @@ pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_package(nlohmann_json 3.11 REQUIRED)
 # Optional on Wayland-only systems; the monitor retains bounded polling.
 pkg_check_modules(X11_CLIPBOARD QUIET IMPORTED_TARGET x11 xfixes)
-pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes)
+# The voice overlay enumerates monitors with RandR 1.5 to follow the focused window; libXrandr ships with every X desktop that has libXfixes.
+pkg_check_modules(X11_SURFACE QUIET IMPORTED_TARGET x11 xfixes xrandr)
 pkg_check_modules(WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
 pkg_check_modules(WAYLAND_TEXT QUIET IMPORTED_TARGET pangocairo)
 find_program(WAYLAND_SCANNER_EXECUTABLE wayland-scanner)
@@ -223,10 +224,23 @@ target_compile_options(linux-candidate-wheel-paging-test PRIVATE -Wall -Wextra -
 target_include_directories(linux-candidate-wheel-paging-test PRIVATE src)
 target_link_libraries(linux-candidate-wheel-paging-test PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME linux-candidate-wheel-paging COMMAND linux-candidate-wheel-paging-test)
+add_executable(linux-panel-restore-record-test tests/candidate/panel_restore_record.cpp)
+target_compile_options(linux-panel-restore-record-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-panel-restore-record-test PRIVATE src)
+target_link_libraries(linux-panel-restore-record-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME linux-panel-restore-record COMMAND linux-panel-restore-record-test)
 add_executable(linux-candidate-action-policy-test tests/candidate/candidate_action_policy.cpp)
 target_compile_options(linux-candidate-action-policy-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-action-policy-test PRIVATE src)
 add_test(NAME linux-candidate-action-policy COMMAND linux-candidate-action-policy-test)
+add_executable(linux-candidate-local-mode-labels-test tests/candidate/candidate_local_mode_labels.cpp)
+target_compile_options(linux-candidate-local-mode-labels-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(linux-candidate-local-mode-labels-test PRIVATE src)
+add_test(NAME linux-candidate-local-mode-labels COMMAND linux-candidate-local-mode-labels-test)
+add_executable(linux-candidate-panel-status-test tests/candidate/candidate_panel_status.cpp)
+target_compile_options(linux-candidate-panel-status-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(linux-candidate-panel-status-test PRIVATE src)
+add_test(NAME linux-candidate-panel-status COMMAND linux-candidate-panel-status-test)
 add_executable(linux-candidate-translation-policy-test tests/candidate/candidate_translation_policy.cpp)
 target_compile_options(linux-candidate-translation-policy-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-translation-policy-test PRIVATE src)
@@ -297,13 +311,24 @@ target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
 add_test(NAME linux-smart-punctuation-space COMMAND linux-smart-punctuation-space-test)
 add_test(NAME linux-setup-resolution
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_resolution.py")
+add_test(NAME linux-setup-update
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_update.py"
+                 $<TARGET_FILE:msime-client-prepare>)
 add_test(NAME linux-setup-registration
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_registration.py")
+add_test(NAME linux-setup-panel-restore
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_panel_restore.py")
 add_test(NAME linux-first-run-guide
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/first_run_guide.py")
+add_test(NAME linux-settings-launcher-contract
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/settings_launcher_contract.py")
 add_test(NAME linux-deb-maintainer-scripts
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/deb_maintainer_scripts.py"
-                 "${CMAKE_CURRENT_BINARY_DIR}/debian" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" "${MSIME_USER_UNIT_LIST}")
+                 "${CMAKE_CURRENT_BINARY_DIR}/debian" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" "${MSIME_USER_UNIT_LIST}"
+                 "${CMAKE_INSTALL_FULL_BINDIR}/msime-client-setup")
+add_test(NAME linux-uninstall-unregister
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/uninstall_unregister.py"
+                 "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake")
 add_test(NAME linux-clipboard-autostart
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/clipboard_autostart.py"
                  "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}" "${MSIME_XDG_AUTOSTART_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake")

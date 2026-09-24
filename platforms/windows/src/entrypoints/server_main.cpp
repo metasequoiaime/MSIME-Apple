@@ -34,6 +34,7 @@
 #include "VoiceInputSession.h"
 #include "WatchdogPolicy.h"
 #include "Telemetry.h"
+#include "TelemetryConsent.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
 #include <fstream>
@@ -42,6 +43,8 @@
 #include <mutex>
 #include <cstdlib>
 #include <exception>
+#include <thread>
+#include <curl/curl.h>
 #ifdef _WIN32
 #include <shlobj.h>
 #endif
@@ -137,6 +140,8 @@ std::atomic<bool> stopping{false};
 std::atomic<bool> restart_requested{false};
 // Set by the maintenance stop shortcut. The Watchdog reads any other exit as a crash and starts the Server again, so a user's stop has to leave with stop_exit_code, as the reference's window hook does.
 std::atomic<bool> stop_requested{false};
+// The user's `telemetry_enabled` preference, read by the terminate hook on whatever thread fails. Off until the stored preferences say otherwise, so a Server that dies before reading them reports nothing.
+std::atomic<bool> telemetry_allowed{false};
 static_assert(std::atomic<bool>::is_always_lock_free);
 BOOL WINAPI console_control(DWORD event) {
   if (event != CTRL_C_EVENT && event != CTRL_BREAK_EVENT)
@@ -548,10 +553,30 @@ private:
   HANDLE handle_ = nullptr;
   bool already_running_ = false;
 };
+// A Server that TSF revived after a crash (--production) has no Watchdog above it, so it starts the one packaged beside it, as the reference Server does. The Watchdog adopts this running Server instead of launching a second one, holds its own single-instance mutex, and exits on its own when the TIP profile is not enabled.
+void start_watchdog(const std::filesystem::path &directory) {
+  const auto watchdog = directory / L"MetasequoiaImeWatchdog.exe";
+  if (directory.empty() || GetFileAttributesW(watchdog.c_str()) == INVALID_FILE_ATTRIBUTES)
+    return;
+  std::wstring command = L"\"" + watchdog.wstring() + L"\"";
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  PROCESS_INFORMATION process{};
+  if (CreateProcessW(watchdog.c_str(), command.data(), nullptr, nullptr, FALSE, 0,
+                     nullptr, directory.c_str(), &startup, &process)) {
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+  }
+}
 } // namespace
 int wmain(int argc, wchar_t **argv) {
-  msime::telemetry::start("windows", MSIME_WINDOWS_VERSION);
-  std::set_terminate([] { msime::telemetry::crash("windows", MSIME_WINDOWS_VERSION, "std::terminate"); std::abort(); });
+  // Before any thread exists: libcurl's global init is not thread-safe, and the startup event's thread, a crash report on any thread and the online workers all use it.
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  std::set_terminate([] {
+    if (telemetry_allowed.load(std::memory_order_acquire))
+      msime::telemetry::crash("windows", MSIME_WINDOWS_VERSION, "std::terminate");
+    std::abort();
+  });
   using namespace msime::windows;
   const auto launch = parse_server_arguments(argc, argv);
   attach_launching_console(launch);
@@ -572,6 +597,8 @@ int wmain(int argc, wchar_t **argv) {
       instance = std::make_unique<ProductionInstance>();
       if (instance->already_running())
         return 0;
+      if (!launch.supervised)
+        start_watchdog(executable_directory());
       prepare_first_run(executable_directory(), default_state,
                        [](const std::string &request) {
         std::unique_ptr<char, decltype(&msime_client_string_free)> response(
@@ -622,6 +649,11 @@ int wmain(int argc, wchar_t **argv) {
     if (stopping.load())
       return 0;
     apply_diagnostic_log(diagnostic_log, prepared.at("value").at("preferences"));
+    // Opt-in: nothing is sent and telemetry.json is not written unless the stored preferences turn it on. The startup event runs off the main thread so an unreachable endpoint (up to the 8 s request timeout) cannot delay the Server; the thread is never joined, so exiting mid-request only drops this event.
+    if (msime::windows::telemetry_consented(prepared.at("value").at("preferences"))) {
+      telemetry_allowed.store(true, std::memory_order_release);
+      std::thread([] { msime::telemetry::start("windows", MSIME_WINDOWS_VERSION); }).detach();
+    }
     diagnostic_log.server(std::string(production ? "Production" : "Preview") +
                           " Server starting");
     auto traditional_output = std::make_shared<std::atomic<bool>>(
@@ -712,6 +744,9 @@ int wmain(int argc, wchar_t **argv) {
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           candidate_theme->publish(preferences);
           apply_diagnostic_log(diagnostic_log, preferences);
+          // A change applies to crash reports straight away; the startup event is sent at the next Server start.
+          telemetry_allowed.store(msime::windows::telemetry_consented(preferences),
+                                  std::memory_order_release);
           if (auto settings = floating_toolbar_settings(preferences))
             toolbar_settings->publish(snapshot.revision(), *settings);
           if (auto fonts = candidate_font_settings(preferences))
@@ -968,7 +1003,15 @@ int wmain(int argc, wchar_t **argv) {
                                  static_cast<BYTE>(color.b * 255.0f));
     }
     CandidateWindow candidates(
-        [&] { return server.candidate_view(); },
+        [&] {
+          auto view = server.candidate_view();
+          if (view)
+            *view = with_wubi_code_hints(
+                std::move(*view),
+                CandidateLayoutSettings::decode(candidate_layout->load(std::memory_order_acquire))
+                    .wubi_code_hint);
+          return view;
+        },
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
         static_cast<unsigned>(config.candidate_font_size),
         static_cast<unsigned>(config.candidate_preedit_font_size), candidate_text_color,
@@ -1024,12 +1067,11 @@ int wmain(int argc, wchar_t **argv) {
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    // The toolbar draws from the skin's own accent, not the card's overrides.
+    // The toolbar draws the shipped native presenter's fixed neutral colours; only its own light/dark preference changes them.
     bool toolbar_dark_applied = !surface_theme_is_light(
         toolbar_theme->load(std::memory_order_acquire), system_dark);
     std::string toolbar_skin_applied = config.skin_id;
-    toolbar.set_palette(
-        toolbar_palette(config.skin_id, toolbar_dark_applied));
+    toolbar.set_palette(toolbar_palette(toolbar_dark_applied));
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
@@ -1121,11 +1163,11 @@ int wmain(int argc, wchar_t **argv) {
           return request && launch_shell(*request);
         },
         [&] { return toolbar_visible; });
-    // The menu follows its own theme and the active skin, like the toolbar.
+    // The menu follows its own theme with the shipped native presenter's fixed neutral colours, like the toolbar; the candidate skin does not reach it.
     bool menu_dark_applied = !surface_theme_is_light(
         menu_theme->load(std::memory_order_acquire), system_dark);
     std::string menu_skin_applied = config.skin_id;
-    tray.set_palette(candidate_builtin_palette(config.skin_id, menu_dark_applied));
+    tray.set_palette(tray_menu_palette(menu_dark_applied));
     // The Server is the Caps Lock authority: the TIP only sampled GetKeyState
     // at activation, so pressing Caps mid-session left its indicator stale.
     ModeAuthorityState mode_authority;
@@ -1305,6 +1347,7 @@ int wmain(int argc, wchar_t **argv) {
       if (stopping.load())
         break;
       voice_hotkeys.refresh();
+      voice->maintain();
       voice_controller_dispatch.maintain();
       if (auto request = voice_controller_mailbox.take())
         request->complete(voice_controller_dispatch.dispatch(request->channel,
@@ -1369,14 +1412,14 @@ int wmain(int argc, wchar_t **argv) {
           dark != menu_dark_applied || menu_skin_applied != candidate_skin_applied) {
         menu_dark_applied = dark;
         menu_skin_applied = candidate_skin_applied;
-        tray.set_palette(candidate_builtin_palette(menu_skin_applied, dark));
+        tray.set_palette(tray_menu_palette(dark));
       }
       if (const bool dark = !surface_theme_is_light(
               toolbar_theme->load(std::memory_order_acquire), system_dark);
           dark != toolbar_dark_applied || toolbar_skin_applied != candidate_skin_applied) {
         toolbar_dark_applied = dark;
         toolbar_skin_applied = candidate_skin_applied;
-        toolbar.set_palette(toolbar_palette(toolbar_skin_applied, dark));
+        toolbar.set_palette(toolbar_palette(dark));
       }
       // The toolbar is topmost, so without this it floats over full-screen
       // video and presentations. ShouldShowFloatingToolbar was ported long ago
@@ -1463,8 +1506,7 @@ int wmain(int argc, wchar_t **argv) {
               menu_skin_applied != candidate_skin_applied) {
             menu_dark_applied = dark;
             menu_skin_applied = candidate_skin_applied;
-            tray.set_palette(
-                candidate_builtin_palette(menu_skin_applied, dark));
+            tray.set_palette(tray_menu_palette(dark));
           }
           if (tray.open(anchor->center_x, anchor->top)) {
             tray_shown_at = now;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""msime-client-setup 在状态目录就绪后把输入法加入正在运行的宿主的输入法列表。
+"""msime-client-setup 在状态目录就绪后把输入法加入正在运行的宿主的输入法列表，--unregister 在卸载时把它从这些列表里移除。
 
 用桩代替 pgrep、gdbus、gsettings、ibus、systemctl 和 msime-client-prepare：桩把收到的调用记进日志，把 Fcitx5 输入法组、dconf 设置和 IBus 已知的引擎存在一份 JSON 里。不需要词库、不联网，也不碰真实的 D-Bus 会话或 dconf。
 """
@@ -27,6 +27,8 @@ state_file = Path(os.environ["STUB_STATE"])
 state = json.loads(state_file.read_text())
 with open(os.environ["STUB_LOG"], "a") as log:
     log.write(json.dumps([name, *arguments], ensure_ascii=False) + "\n")
+    # Which session bus the call would have reached, so the tests can see the address --unregister derives when the environment has none.
+    log.write(json.dumps(["bus", name, os.environ.get("DBUS_SESSION_BUS_ADDRESS")]) + "\n")
 
 
 def text(value):
@@ -59,7 +61,10 @@ if name == "gdbus":
         sys.exit(1)
     method = arguments[arguments.index("--method") + 1].rsplit(".", 1)[1]
     values = [ast.literal_eval(argument) for argument in arguments[arguments.index("--method") + 2:]]
-    if method == "AvailableInputMethods":
+    if method == "NameHasOwner":
+        # A world without a current group is one where Fcitx5 is not running on this bus.
+        print("(true,)" if values == ["org.fcitx.Fcitx5"] and "current" in fcitx5 else "(false,)")
+    elif method == "AvailableInputMethods":
         # a(ssssssb): unique name, name, native name, icon, label, language, configurable; gdbus spells the boolean in lower case.
         entries = ", ".join(f"({text(im)}, {text(im)}, '', '', '', '', true)" for im in fcitx5["loaded"])
         print(f"([{entries}],)" if entries else "(@a(ssssssb) [],)")
@@ -206,6 +211,21 @@ class Harness:
     def calls(self, name: str) -> list:
         return [call[1:] for call in map(json.loads, self.log.read_text().splitlines()) if call[0] == name]
 
+    def unregister(self, **overrides: str) -> subprocess.CompletedProcess:
+        # The session bus address is set per case: the derivation from XDG_RUNTIME_DIR must not depend on the environment the test runs in.
+        environment = {key: value for key, value in self.environment.items() if key != "DBUS_SESSION_BUS_ADDRESS"}
+        environment.update(overrides)
+        result = subprocess.run(
+            [str(self.setup), "--unregister"], env=environment, capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0, result
+        assert "Traceback" not in result.stderr, result.stderr
+        # Only the lists: no dictionary check, no state preparation, no services.
+        assert self.calls("msime-client-prepare") == [] and self.calls("systemctl") == [], self.log.read_text()
+        assert not (self.scratch / "config/msime-client").exists()
+        assert "词库" not in result.stdout, result.stdout
+        return result
+
     def run(self, *extra: str) -> subprocess.CompletedProcess:
         # msime-client-setup refuses to prepare a directory that exists, so every run gets a fresh one.
         self.runs += 1
@@ -229,6 +249,100 @@ def fcitx5_world(**overrides) -> dict:
     }
     world.update(overrides)
     return world
+
+
+def unregistering() -> None:
+    with tempfile.TemporaryDirectory() as name:
+        harness = Harness(Path(name))
+        set_group = "org.fcitx.Fcitx.Controller1.SetInputMethodGroupInfo"
+        everywhere = {
+            GNOME: {"sources": [["xkb", "us"], ["ibus", "msime-client"], ["ibus", "mozc-jp"]]},
+            IBUS: {"preload-engines": ["xkb:us::eng", "msime-client", "libpinyin"]},
+        }
+        fcitx5 = fcitx5_world(groups={
+            "Default": ["us", [["keyboard-us", ""], ["msime", ""], ["pinyin", ""]]], "Other": ["de", [["msime", ""]]],
+        })
+
+        # 卸载：从 Fcitx5 当前组、GNOME 输入源和 IBus 预载引擎三处移除，其余项保持原来的顺序，别的组不动。卸载从用户的 systemd 实例里运行，那里往往没有 XDG_CURRENT_DESKTOP，所以两份 IBus 列表都清理，与当前跑的是哪个宿主无关。
+        harness.world(fcitx5=fcitx5, gsettings=everywhere)
+        result = harness.unregister()
+        assert "已从 Fcitx5 当前输入法组「Default」移除「水杉输入法」" in result.stdout, result
+        assert "已从 org.gnome.desktop.input-sources sources 移除「Metasequoia 水杉输入法」" in result.stdout, result
+        assert "已从 org.freedesktop.ibus.general preload-engines 移除「Metasequoia 水杉输入法」" in result.stdout, result
+        assert result.stderr == "", result.stderr
+        state = harness.state()
+        assert state["fcitx5"]["groups"] == {
+            "Default": ["us", [["keyboard-us", ""], ["pinyin", ""]]], "Other": ["de", [["msime", ""]]],
+        }, state["fcitx5"]
+        assert state["gsettings"][GNOME]["sources"] == [["xkb", "us"], ["ibus", "mozc-jp"]], state["gsettings"]
+        assert state["gsettings"][IBUS]["preload-engines"] == ["xkb:us::eng", "libpinyin"], state["gsettings"]
+        writes = [call for call in harness.calls("gdbus") if set_group in call]
+        assert writes == [[
+            "call", "--session", "--dest", "org.fcitx.Fcitx5", "--object-path", "/controller", "--method",
+            set_group, "'Default'", "'us'", "[('keyboard-us', ''), ('pinyin', '')]",
+        ]], writes
+        # 注销不需要 Fcitx5 或 IBus 重新加载任何东西。
+        assert not any("org.fcitx.Fcitx.Controller1.Restart" in call for call in harness.calls("gdbus"))
+        assert harness.calls("ibus") == [] and harness.calls("pgrep") == [], harness.log.read_text()
+
+        # 再跑一次：都已不在列表里，只读不写。
+        harness.log.write_text("")
+        result = harness.unregister()
+        assert "「水杉输入法」不在 Fcitx5 当前输入法组「Default」中" in result.stdout, result
+        assert result.stdout.count("「Metasequoia 水杉输入法」不在") == 2, result.stdout
+        assert not any(set_group in call for call in harness.calls("gdbus")), harness.log.read_text()
+        assert not any(call[0] == "set" for call in harness.calls("gsettings")), harness.calls("gsettings")
+        assert harness.state() == state
+
+        # 列表里只有水杉：移除后会变空，空列表会让桌面退回一个未必是用户原来的默认值，Fcitx5 空组则没有可切回的键盘布局，所以保持原样。
+        alone = {GNOME: {"sources": [["ibus", "msime-client"]]}, IBUS: {"preload-engines": ["msime-client"]}}
+        harness.world(fcitx5=fcitx5_world(current="Other", groups=fcitx5["groups"]), gsettings=alone)
+        before = harness.state()
+        result = harness.unregister()
+        assert "Fcitx5 当前输入法组「Other」只有「水杉输入法」，移除后会变空，保持不变" in result.stdout, result
+        assert "org.gnome.desktop.input-sources sources 只有「Metasequoia 水杉输入法」，移除后会变空，保持不变" in result.stdout, result
+        assert "org.freedesktop.ibus.general preload-engines 只有「Metasequoia 水杉输入法」，移除后会变空，保持不变" in result.stdout, result
+        assert harness.state() == before
+        assert not any(set_group in call for call in harness.calls("gdbus"))
+        assert not any(call[0] == "set" for call in harness.calls("gsettings"))
+
+        # Fcitx5 没在这个会话总线上：不去调用它（免得被 D-Bus 激活），IBus 列表照常清理。
+        harness.world(gsettings=everywhere)
+        result = harness.unregister()
+        assert "Fcitx5 没有在运行，其输入法组未改动" in result.stdout, result
+        assert [call[-1] for call in harness.calls("gdbus")] == ["'org.fcitx.Fcitx5'"], harness.calls("gdbus")
+        assert harness.state()["gsettings"][IBUS]["preload-engines"] == ["xkb:us::eng", "libpinyin"]
+
+        # 会话总线连不上：说明原因，其余列表照常处理，退出码仍为 0。
+        harness.world(fcitx5=fcitx5_world(error=True), gsettings=everywhere)
+        result = harness.unregister()
+        assert "未能从输入法列表移除：gdbus call 失败：" in result.stderr, result
+        assert harness.state()["gsettings"][GNOME]["sources"] == [["xkb", "us"], ["ibus", "mozc-jp"]]
+
+        # 没有 gdbus 也没有 gsettings（最小化系统、容器）：逐项说明，不失败。
+        python_only = Path(name) / "python-only"
+        python_only.mkdir()
+        (python_only / "python3").symlink_to(sys.executable)
+        harness.world(fcitx5=fcitx5, gsettings=everywhere)
+        result = harness.unregister(PATH=str(python_only))
+        assert "无法执行 gdbus" in result.stderr and "无法执行 gsettings" in result.stderr, result.stderr
+        assert harness.log.read_text() == "", harness.log.read_text()
+
+        # 从用户的 systemd 实例运行时环境里常常没有会话总线地址：按 XDG_RUNTIME_DIR/bus 补上，否则 gsettings 会写进一个用完即弃的后端。没装 GNOME 的 schema 时只处理 IBus 的列表。
+        runtime = Path(name) / "runtime"
+        runtime.mkdir()
+        (runtime / "bus").touch()
+        harness.world(fcitx5=fcitx5, gsettings={IBUS: everywhere[IBUS]})
+        result = harness.unregister(XDG_RUNTIME_DIR=str(runtime))
+        buses = {call[1] for call in harness.calls("bus")}
+        assert buses == {f"unix:path={runtime}/bus"}, buses
+        assert "org.gnome.desktop.input-sources" not in result.stdout, result.stdout
+        assert harness.state()["gsettings"] == {IBUS: {"preload-engines": ["xkb:us::eng", "libpinyin"]}}
+
+        # 已有的地址不被覆盖。
+        harness.world(fcitx5=fcitx5, gsettings=everywhere)
+        harness.unregister(XDG_RUNTIME_DIR=str(runtime), DBUS_SESSION_BUS_ADDRESS="unix:path=/session/bus")
+        assert {call[1] for call in harness.calls("bus")} == {"unix:path=/session/bus"}
 
 
 def main() -> int:
@@ -358,6 +472,7 @@ def main() -> int:
         assert "下一步：启动 fcitx5 或 ibus，再在各自的设置里加入水杉输入法。" in result.stdout, result
         assert harness.calls("gdbus") == [] and harness.calls("gsettings") == [] and harness.calls("ibus") == []
 
+    unregistering()
     print("setup registration tests passed")
     return 0
 
