@@ -675,7 +675,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 @implementation MSIMESettingsSearchEntry
 @end
 
-@interface MSIMEAppearancePreferences () <NSToolbarDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate>
+@interface MSIMEAppearancePreferences () <NSToolbarDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate>
 @end
 
 @implementation MSIMEAppearancePreferences {
@@ -844,6 +844,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     msime::mac::ResolvedSkin _darkSkin;
     std::vector<msime::mac::SkinListEntry> _skins;
     MSIMECandidatePreviewView *_preview;
+    NSTextField *_previewSampleField;
+    MSIMEToolbarPreviewView *_toolbarPreview;
     NSButton *_themeButton;
     MetasequoiaSkinSettingsView *_skinSettingsView;
     NSView *_skinPageContainer;
@@ -2301,6 +2303,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _pagingPresetLabel.hidden = pagingPreset >= 0;
     [_pageSizeButton selectItemAtIndex:msime::mac::CandidatePageSizeOptionIndex(self.pageSize)];
     [_preview updatePanelStyle:self.vertical ? 1 : 0 pageSize:self.pageSize fontSize:self.fontSize];
+    // It reads the toolbar settings itself; what it needs from here is being told that one of them has moved, including when the mover was an account push rather than a control on the page.
+    [_toolbarPreview reloadPreview];
     // Everything above this line puts a value into a control. The three below are about the controls rather than their values — which of them the user may reach, which menu items another binding has taken, and which sections have anything to put back — and they are kept together here rather than interleaved with the assignments, so that each of those questions is answered in one place.
     for (NSArray *dependency in [self controlDependencies])
         for (NSControl *control in dependency[1]) control.enabled = [dependency[0] boolValue];
@@ -2869,7 +2873,14 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _themeButton = [NSButton buttonWithTitle:[_preview forcedThemeButtonTitle] target:self action:@selector(togglePreviewTheme:)];
     _preview.themeButton = _themeButton;
     NSButton *showcase = [NSButton checkboxWithTitle:@"同时预览横排、竖排与状态栏" target:self action:@selector(togglePreviewShowcase:)];
-    NSStackView *previewControls = [NSStackView stackViewWithViews:@[showcase, _themeButton]];
+    // The preview answers "what will the candidate window look like" with a fixed list of nine words, which answers it for those nine words. The font a user is choosing between is usually being chosen for their own text — a name, a technical term, the characters they type all day — and this is where they put it.
+    _previewSampleField = [NSTextField textFieldWithString:@""];
+    _previewSampleField.placeholderString = @"预览示例文字，以空格分隔";
+    _previewSampleField.accessibilityLabel = @"预览示例文字";
+    _previewSampleField.delegate = self;
+    _previewSampleField.target = self;
+    _previewSampleField.action = @selector(previewSampleChanged:);
+    NSStackView *previewControls = [NSStackView stackViewWithViews:@[showcase, _themeButton, _previewSampleField]];
     previewControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     previewControls.spacing = 12.0;
     NSBox *candidateWindowCard = MSIMECardWithViews(@[
@@ -2913,8 +2924,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSBox *colorCard = MSIMECardWithViews(colorRows, 0.0);
     colorCard.accessibilityLabel = @"候选配色卡片";
     NSScrollView *candidateWindowPage = PreferencesPage(@"候选窗口", @"候选窗口的排列、字体与配色。", @[
-        // The preview writes nothing: 预览深色 and the showcase checkbox are ways of looking at the
-        // settings below, not settings, so this section has nothing to restore.
+        // The preview writes nothing: 预览深色, the showcase checkbox and the sample text are ways of looking at the settings below, not settings, so this section has nothing to restore and nothing here outlives the window.
         [self sectionHeader:@"效果预览" keys:@[]], _preview, previewControls,
         [self sectionHeader:@"候选窗口"
                        keys:@[LayoutKey, PageSizeKey, FontKey, PreeditFontKey, CandidatePreeditKey,
@@ -3136,8 +3146,13 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMEPreferenceRow(@"工具栏字号", _toolbarFontSizeButton),
     ], 0.0);
     toolbarSizeCard.accessibilityLabel = @"悬浮工具栏尺寸卡片";
+    // 工具栏缩放 and 工具栏字号 are four steps and seven sizes of a panel that is not on this page, and their two popups sat over nothing that showed what any pair of them produces. This draws the toolbar those settings build, at the size they build it, and prints that size beside it.
+    _toolbarPreview = [[MSIMEToolbarPreviewView alloc] initWithFrame:NSMakeRect(0, 0, 580, 100)];
+    _toolbarPreview.preferences = self;
     // The scale and the font size live in the same stored dictionary as the nine component choices, so each of the two sections names the entries of that dictionary it owns rather than the whole key. The alert on either link promises that the other settings are untouched, and the section boundary the page draws between the two cards is one the user can see; a restore that reached across it would be the link disagreeing with both.
     NSScrollView *statusBarPage = PreferencesPage(@"状态栏", @"随时查看输入状态，通过悬浮工具栏切换常用输入选项。", @[
+        // Like 候选窗口's preview, this one is a way of looking at the settings below it rather than a setting, so its heading carries no restore link.
+        [self sectionHeader:@"效果预览" keys:@[]], _toolbarPreview,
         [self sectionHeader:@"显示与组件"
                        keys:@[FloatingToolbarKey, FloatingToolbarOptionsKey, ToolbarThemeKey]
                      fields:@{FloatingToolbarOptionsKey : FloatingToolbarComponentKeys()}],
@@ -3679,6 +3694,11 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)togglePreviewTheme:(id)sender { (void)sender; [_preview toggleForcedTheme]; }
 - (void)togglePreviewShowcase:(NSButton *)sender { [_preview setShowsLayoutShowcase:sender.state == NSControlStateValueOn]; }
+- (void)previewSampleChanged:(NSTextField *)sender { [_preview setSampleText:sender.stringValue]; }
+/// The sample text as it is typed, rather than on Return or on leaving the field: the preview is being watched while the words go in. -setSampleText: is what keeps that from redrawing once per keystroke.
+- (void)controlTextDidChange:(NSNotification *)notification {
+    if (notification.object == _previewSampleField) [_preview setSampleText:_previewSampleField.stringValue];
+}
 /// The page a stable identifier names, or -1 when nothing is named — an identifier written by a
 /// version that had a page this one does not is not an error, it is a page that went away.
 - (NSInteger)pageIndexForIdentifier:(NSString *)identifier {
@@ -3989,7 +4009,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _automaticUpdateLabel.stringValue = automatic ? @"已开启自动检查" : @"自动检查已关闭";
     _updatePageButton.enabled = [_updateController canCheckForUpdates];
 }
-/// The heading above a card, and the registration of the settings under it as one thing the window can put back. A section with no stored settings of its own passes an empty list and gets a heading with no link, which is how 效果预览, 本机词库, 使用帮助, 问题反馈 and the three headings of 关于 stay quiet.
+/// The heading above a card, and the registration of the settings under it as one thing the window can put back. A section with no stored settings of its own passes an empty list and gets a heading with no link, which is how both 效果预览 sections, 本机词库, 使用帮助, 问题反馈 and the three headings of 关于 stay quiet.
 - (NSView *)sectionHeader:(NSString *)title keys:(NSArray<NSString *> *)keys {
     return [self sectionHeader:title keys:keys fields:nil];
 }
