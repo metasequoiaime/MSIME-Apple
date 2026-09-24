@@ -318,17 +318,39 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
 
 namespace {
 using namespace msime::mac::layout;
+/// The pages of this window, in the one order that is both the sidebar's and `_preferencePages`'s.
+///
+/// Four pages are named from outside the method that builds them — the skin browser builds itself on
+/// entry, the voice form reloads, the 关于 page asks the update controller, the account page attaches
+/// a view owned by the Swift backend — and those names used to be integer literals written beside
+/// the array. Reordering the array moved the pages and left the literals pointing at whatever had
+/// taken their place, which is a class of mistake a name cannot make. -loadWindow asserts that this
+/// enum and the array it numbers are still the same length.
+typedef NS_ENUM(NSInteger, MSIMESettingsPage) {
+    MSIMESettingsPageInputScheme = 0,
+    MSIMESettingsPageInputHabits,
+    MSIMESettingsPageKeys,
+    MSIMESettingsPageVoice,
+    MSIMESettingsPageCandidateWindow,
+    MSIMESettingsPageSkin,
+    MSIMESettingsPageStatusBar,
+    MSIMESettingsPageDictionary,
+    MSIMESettingsPageAccount,
+    MSIMESettingsPageSupport,
+    MSIMESettingsPageAbout,
+    MSIMESettingsPageCount,
+};
 /// The account page hosts a view owned by the Swift backend, so showing and leaving it has to
-/// attach and detach that view. Its position in the page list was written out at both call sites.
-constexpr NSInteger kAccountPageIndex = 8;
+/// attach and detach that view.
+constexpr NSInteger kAccountPageIndex = MSIMESettingsPageAccount;
 /// The 皮肤 page is the skin browser, so the native fallback for the shared skin route shows it.
-constexpr NSInteger kSkinPageIndex = 2;
+constexpr NSInteger kSkinPageIndex = MSIMESettingsPageSkin;
 /// The voice form is also reachable from the input method's toolbar, so the page reloads on entry.
-constexpr NSInteger kVoicePageIndex = 11;
+constexpr NSInteger kVoicePageIndex = MSIMESettingsPageVoice;
 /// The 关于 page reads the update controller, whose answers — the version, whether automatic checks
 /// are on, whether this build can check at all — are about the machine rather than about a stored
 /// preference, so the page asks them again every time it is entered.
-constexpr NSInteger kAboutPageIndex = 4;
+constexpr NSInteger kAboutPageIndex = MSIMESettingsPageAbout;
 /// The page the window was last left on, remembered by name rather than by index: the order of the sidebar changes from version to version, so a stored index points at a different page in the next one, whereas a stored name is either a page this version has or it is not — and if it is not, the window opens on the first page.
 NSString *const LastSettingsPageKey = @"MSIMEClientSettingsLastPage";
 }  // namespace
@@ -537,6 +559,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     /// Filled as the pages are built, in the order the headings are created; a section's restore
     /// link carries its index here in its tag.
     NSMutableArray<MSIMESettingsSection *> *_restorableSections;
+    NSBox *_quanpinCard;
     NSBox *_shuangpinCard;
     NSBox *_wubiCard;
     NSInteger _selectedPageIndex;
@@ -1807,15 +1830,32 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [_defaults setObject:value ? @"pinyin" : @"empty" forKey:CandidatePreeditKey];
     [self preferencesChanged];
 }
+/// Which key group the paging preset names, read back out of the navigation dictionary rather than
+/// out of a second stored number of its own.
+///
+/// The preset and the seven paging checkboxes are one setting written two ways, and they used to be
+/// two settings: the preset wrote MSIMEClientCandidatePageShortcut and the checkboxes wrote
+/// MSIMEClientNavigation, the input method routed keys by the dictionary alone, and the menu went on
+/// showing a group the user had since unchecked. The dictionary is what the input method reads, so
+/// the dictionary is what the menu now reports.
 - (NSInteger)pageShortcut {
+    if ([self navigationEnabled:@"brackets"]) return 1;
+    if ([self navigationEnabled:@"minus_equal"]) return 0;
+    return 2;
+}
+/// The preset's own stored value, which is no longer what the window reads: it is the seed the
+/// navigation dictionary falls back to for a profile that has never written one, and it is what the
+/// cloud snapshot carries (platform.macos.candidate_page_shortcut, written into this key by
+/// MSIMEApplyCloudAppearance) for a machine that has no dictionary yet either.
+- (NSInteger)storedPageShortcut {
     NSInteger value = [_defaults integerForKey:PageShortcutKey];
     return value == 1 || value == 2 ? value : 0;
 }
 - (BOOL)navigationEnabled:(NSString *)key {
     id value = _sharedNavigation[key] ?: [_defaults dictionaryForKey:NavigationKey][key];
     if (LocalModeBoolean(value)) return [value boolValue];
-    if ([key isEqual:@"minus_equal"]) return self.pageShortcut == 0;
-    if ([key isEqual:@"brackets"]) return self.pageShortcut == 1;
+    if ([key isEqual:@"minus_equal"]) return [self storedPageShortcut] == 0;
+    if ([key isEqual:@"brackets"]) return [self storedPageShortcut] == 1;
     return [@[@"comma_period", @"tab", @"page_up_down", @"arrows"] containsObject:key];
 }
 - (NSDictionary *)wordCharacterOptions {
@@ -1956,14 +1996,22 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [_defaults setInteger:value forKey:PageShortcutKey];
     [self preferencesChanged];
 }
+/// The preset writes the same dictionary the checkboxes write, because there is nothing else to
+/// write it to: choosing 「[ / ]」 is choosing the bracket checkbox and unchoosing the minus/equal one.
+///
+/// It used to set page_up_down to YES as well, whichever group had been picked — so picking 「- / =」
+/// turned Page Up and Page Down back on under a user who had just unchecked them, and the checkbox
+/// and the menu disagreed about a key that had only one setting. The third preset is the only one
+/// that says anything about that group, and all it can say is to turn it on.
 - (void)applyNavigationPreset:(NSInteger)value {
     NSMutableDictionary *navigation = [[_defaults dictionaryForKey:NavigationKey] mutableCopy] ?: [NSMutableDictionary dictionary];
     navigation[@"minus_equal"] = @(value == 0);
     navigation[@"brackets"] = @(value == 1);
-    navigation[@"page_up_down"] = @YES;
+    if (value == 2) navigation[@"page_up_down"] = @YES;
     [_defaults setObject:navigation forKey:NavigationKey];
     if (!_sharedNavigation) _sharedNavigation = [NSMutableDictionary dictionary];
-    for (NSString *key in @[@"minus_equal", @"brackets", @"page_up_down"]) _sharedNavigation[key] = navigation[key];
+    for (NSString *key in @[@"minus_equal", @"brackets", @"page_up_down"])
+        if (navigation[key] != nil) _sharedNavigation[key] = navigation[key];
 }
 - (void)refreshControls {
     [_defaultImeModeButton selectItemAtIndex:[self.defaultImeMode isEqual:@"english"] ? 1 : 0];
@@ -2041,6 +2089,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // Options that only apply to one scheme are shown only while it is selected. Leaving them
     // editable under another scheme means the change saves, the page says nothing, and the setting
     // does nothing until the user happens to switch back.
+    _quanpinCard.hidden = storedScheme != 0;
     _shuangpinCard.hidden = storedScheme != 1;
     _wubiCard.hidden = storedScheme != 2;
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
@@ -2456,7 +2505,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _fuzzyPinyinRuleButtons = [NSMutableDictionary dictionary];
     _localModeButtons = [NSMutableArray array];
 
-    // ---- 输入 -------------------------------------------------------------------------------
+    // ---- 输入方案 ---------------------------------------------------------------------------
     NSBox *inputModeCard = MSIMECardWithViews(@[
         MSIMEPreferenceRow(@"输入模式", _defaultImeModeButton),
         MSIMEPreferenceRowWithDetail(@"模式作用范围", @"下一次激活时生效；中英文状态仅在当前输入法进程内记忆。",
@@ -2487,17 +2536,51 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSBox *schemeCard = MSIMECardWithViews(schemeRows, 0.0);
     schemeCard.accessibilityLabel = @"输入方式卡片";
 
+    // The helpcode rows, which belong to the scheme they qualify and now sit under it. They were a
+    // page of their own, reachable under every scheme — so 五笔 and 日语 users met six controls that
+    // could be moved and saved and that nothing would ever read, and 全拼 and 双拼 users met the
+    // other scheme's three beside their own. Both sets are built whichever scheme is selected and the
+    // one that does not apply is hidden rather than skipped: the tests walk hidden pages, and they
+    // pin two of each.
+    NSMutableArray<NSView *> *quanpinHelpcodeRows = [NSMutableArray array];
+    NSMutableArray<NSView *> *shuangpinHelpcodeRows = [NSMutableArray array];
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSString *name = [scheme isEqual:@"quanpin"] ? @"全拼" : @"双拼";
+        NSPopUpButton *schemas = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        [schemas addItemsWithTitles:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加"]];
+        for (NSUInteger index = 0; index < HelpcodeSchemas().count; ++index)
+            [schemas itemAtIndex:index].representedObject = HelpcodeSchemas()[index];
+        schemas.identifier = scheme;
+        schemas.target = self;
+        schemas.action = @selector(helpcodeSchemaChanged:);
+        schemas.accessibilityLabel = [name stringByAppendingString:@"辅助码方案"];
+        NSString *displayTitle = [NSString stringWithFormat:@"在候选窗口中显示%@辅助码", name];
+        NSSwitch *display = MSIMESettingSwitch(self, @selector(helpcodeDisplayChanged:), displayTitle);
+        display.identifier = scheme;
+        _helpcodeSchemaButtons[scheme] = schemas;
+        _helpcodeDisplayToggles[scheme] = display;
+        NSMutableArray<NSView *> *rows = [scheme isEqual:@"quanpin"] ? quanpinHelpcodeRows : shuangpinHelpcodeRows;
+        NSSwitch *master = [scheme isEqual:@"quanpin"] ? _quanpinHelpcodeToggle : _shuangpinHelpcodeToggle;
+        [rows addObject:MSIMESwitchRow([NSString stringWithFormat:@"启用%@辅助码", name], master,
+                                       @"在拼音后再打一个形码，缩小候选范围。")];
+        [rows addObject:MSIMEPreferenceRow(schemas.accessibilityLabel, schemas)];
+        [rows addObject:MSIMESwitchRow(displayTitle, display, nil)];
+    }
+
     // The options belonging to one scheme follow the scheme card and appear only while that scheme
     // is the selected one. Upstream shows the 双拼 options whatever is selected — editable, saved,
     // and with no effect until you come back and pick 双拼 — and puts the 五笔 options on a page of
     // their own reached by a link, with a 返回键盘输入 button to get out. That is a web flow inside
-    // a sidebar window: the sidebar stays on 输入 while the content is somewhere else.
-    _shuangpinCard = MSIMECardWithViews(@[
+    // a sidebar window: the sidebar stays on the scheme page while the content is somewhere else.
+    _quanpinCard = MSIMECardWithViews(quanpinHelpcodeRows, 0.0);
+    _quanpinCard.accessibilityLabel = @"全拼选项卡片";
+    NSMutableArray<NSView *> *shuangpinRows = [NSMutableArray arrayWithObjects:
         MSIMEPreferenceRow(@"双拼预编辑", _preeditButton),
         // Upstream labels this row 双拼初学者 and puts the wording on the checkbox beside it, so the
         // row says the same thing twice. The switch carries no text, so the label carries it.
-        MSIMESwitchRow(@"输入时显示双拼键位提示", _keymapToggle, nil),
-    ], 0.0);
+        MSIMESwitchRow(@"输入时显示双拼键位提示", _keymapToggle, nil), nil];
+    [shuangpinRows addObjectsFromArray:shuangpinHelpcodeRows];
+    _shuangpinCard = MSIMECardWithViews(shuangpinRows, 0.0);
     _shuangpinCard.accessibilityLabel = @"双拼选项卡片";
     NSTextField *wubiSchemeLabel = [NSTextField labelWithString:@"86 五笔"];
     wubiSchemeLabel.textColor = [NSColor secondaryLabelColor];
@@ -2509,6 +2592,18 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     ], 0.0);
     _wubiCard.accessibilityLabel = @"五笔选项卡片";
 
+    NSScrollView *schemePage = PreferencesPage(@"输入方案", @"选择打什么、怎么打。下面的选项随所选方案变化。", @[
+        // The first card is the only one on the page that had no heading, which also left the two
+        // settings on it in no section and so out of reach of a section-level restore.
+        [self sectionHeader:@"输入模式" keys:@[DefaultImeModeKey, ImeModeScopeKey]], inputModeCard,
+        [self sectionHeader:@"中文输入方案"
+                       keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey,
+                              WubiMixedPinyinKey, HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
+                              ShuangpinHelpcodeKey]],
+        schemeCard, _quanpinCard, _shuangpinCard, _wubiCard,
+    ]);
+
+    // ---- 输入习惯 ---------------------------------------------------------------------------
     NSBox *punctuationCard = MSIMECardWithViews(@[
         MSIMESwitchRow(@"中文标点", _punctuationToggle, @"Control + . 切换中英文标点。"),
         MSIMESwitchRow(@"智能标点", _smartPunctuationToggle, @"前一个字符为字母或数字时保留逗号、句号和冒号为 ASCII 形式。"),
@@ -2517,8 +2612,14 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
                        @"刚输入中文标点后按空格，转换为对应英文标点。"),
         MSIMESwitchRow(@"成对标点", _pairedPunctuationToggle, @"自动插入并配对引号、括号等标点。"),
         MSIMEPreferenceRow(@"固定标点", _punctuationLockButton),
+        // Both of these are states of what is being typed rather than keys, so they sit beside the
+        // punctuation they change and not on 按键 beside the chords that toggle them. The chords keep
+        // their own switches there; these two are the state those chords flip.
+        MSIMESwitchRow(@"全角输入", _fullWidthToggle,
+                       @"Control + Shift + 空格 或 Option + Shift + H 临时切换全半角。"),
+        MSIMESwitchRow(@"简繁输入", _traditionalOutputToggle, @"将提交的简体中文转换为繁体中文。"),
     ], 0.0);
-    punctuationCard.accessibilityLabel = @"标点输入卡片";
+    punctuationCard.accessibilityLabel = @"标点与字符卡片";
     NSBox *mixedCard = MSIMECardWithViews(@[
         MSIMESwitchRow(@"中英混输", _mixedEnglishToggle, @"在中文组词中允许英文候选。"),
         MSIMEPreferenceRow(@"中英混输触发长度", _mixedEnglishPrefixButton),
@@ -2547,24 +2648,37 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     ], 8.0);
     fuzzyCard.accessibilityLabel = @"模糊音卡片";
 
-    NSScrollView *generalPage = PreferencesPage(@"键盘输入", @"选择中文或日语输入模式，并调整日常输入行为。", @[
-        // The first card is the only one on the page that had no heading, which also left the two
-        // settings on it in no section and so out of reach of a section-level restore.
-        [self sectionHeader:@"输入模式" keys:@[DefaultImeModeKey, ImeModeScopeKey]], inputModeCard,
-        [self sectionHeader:@"中文输入方案"
-                       keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey,
-                              WubiMixedPinyinKey]],
-        schemeCard, _shuangpinCard, _wubiCard,
-        [self sectionHeader:@"标点输入"
+    // 实用功能 was a page holding this one card, and its summary was the only place in the window
+    // that said how the eight modes are entered. The page is gone and the sentence is not: it is the
+    // first thing in the card, where the grid it describes is.
+    for (NSArray<NSString *> *entry in LocalModeControls()) {
+        NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(localModeChanged:)];
+        button.identifier = entry[0];
+        [_localModeButtons addObject:button];
+    }
+    NSBox *localModesCard = MSIMECardWithViews(@[
+        MSIMEDetailLabel(@"未组词时按 Shift 加一个字母，临时切到另一种输入方式。"),
+        MSIMECheckboxGrid(_localModeButtons, 2),
+    ], 8.0);
+    localModesCard.accessibilityLabel = @"扩展输入卡片";
+
+    NSScrollView *habitsPage = PreferencesPage(@"输入习惯", @"标点、混输、拼音匹配，以及 Shift 加一个字母的扩展输入。", @[
+        [self sectionHeader:@"标点与字符"
                        keys:@[ChinesePunctuationKey, SmartPunctuationKey, SmartPunctuationRepeatToChineseKey,
-                              SmartPunctuationSpaceConvertKey, PairedPunctuationKey, PunctuationLockKey]],
+                              SmartPunctuationSpaceConvertKey, PairedPunctuationKey, PunctuationLockKey,
+                              FullWidthKey, TraditionalKey]],
         punctuationCard,
-        [self sectionHeader:@"中英混输" keys:@[MixedInputKey]], mixedCard,
-        [self sectionHeader:@"拼音纠错" keys:@[TranspositionKey, NeighborKey]], correctionCard,
-        [self sectionHeader:@"模糊音" keys:@[FuzzyPinyinKey, FuzzyPinyinRulesKey]], fuzzyCard,
+        [self sectionHeader:@"中英与符号混输" keys:@[MixedInputKey]], mixedCard,
+        // 拼音纠错 and 模糊音 were two headings over two cards, and they answer one question between
+        // them: what a mistyped syllable is still allowed to match. One heading, and the restore link
+        // on it puts the whole answer back rather than half of it.
+        [self sectionHeader:@"拼音匹配"
+                       keys:@[TranspositionKey, NeighborKey, FuzzyPinyinKey, FuzzyPinyinRulesKey]],
+        correctionCard, fuzzyCard,
+        [self sectionHeader:@"扩展输入模式" keys:@[LocalModesKey]], localModesCard,
     ]);
 
-    // ---- 外观 -------------------------------------------------------------------------------
+    // ---- 候选窗口 ---------------------------------------------------------------------------
     _preview = [[MSIMECandidatePreviewView alloc] initWithFrame:NSMakeRect(0, 0, 580, 190)];
     _preview.preferences = self;
     _preview.translatesAutoresizingMaskIntoConstraints = NO;
@@ -2614,7 +2728,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [colorRows addObjectsFromArray:candidateColorRows];
     NSBox *colorCard = MSIMECardWithViews(colorRows, 0.0);
     colorCard.accessibilityLabel = @"候选配色卡片";
-    NSScrollView *appearancePage = PreferencesPage(@"外观", @"调整候选窗口与输入状态栏的显示方式。", @[
+    NSScrollView *candidateWindowPage = PreferencesPage(@"候选窗口", @"候选窗口的排列、字体与配色。", @[
         // The preview writes nothing: 预览深色 and the showcase checkbox are ways of looking at the
         // settings below, not settings, so this section has nothing to restore.
         [self sectionHeader:@"效果预览" keys:@[]], _preview, previewControls,
@@ -2768,37 +2882,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         [self sectionHeader:@"卸载" keys:@[]], uninstallCard,
     ]);
 
-    // ---- 辅助码 -----------------------------------------------------------------------------
-    NSMutableArray<NSView *> *helpcodeRows = [NSMutableArray arrayWithObjects:
-        MSIMESwitchRow(@"启用全拼辅助码", _quanpinHelpcodeToggle, nil),
-        MSIMESwitchRow(@"启用双拼辅助码", _shuangpinHelpcodeToggle, nil), nil];
-    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
-        NSString *name = [scheme isEqual:@"quanpin"] ? @"全拼" : @"双拼";
-        NSPopUpButton *schemas = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-        [schemas addItemsWithTitles:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加"]];
-        for (NSUInteger index = 0; index < HelpcodeSchemas().count; ++index)
-            [schemas itemAtIndex:index].representedObject = HelpcodeSchemas()[index];
-        schemas.identifier = scheme;
-        schemas.target = self;
-        schemas.action = @selector(helpcodeSchemaChanged:);
-        schemas.accessibilityLabel = [name stringByAppendingString:@"辅助码方案"];
-        NSString *displayTitle = [NSString stringWithFormat:@"在候选窗口中显示%@辅助码", name];
-        NSSwitch *display = MSIMESettingSwitch(self, @selector(helpcodeDisplayChanged:), displayTitle);
-        display.identifier = scheme;
-        _helpcodeSchemaButtons[scheme] = schemas;
-        _helpcodeDisplayToggles[scheme] = display;
-        [helpcodeRows addObject:MSIMEPreferenceRow(schemas.accessibilityLabel, schemas)];
-        [helpcodeRows addObject:MSIMESwitchRow(displayTitle, display, nil)];
-    }
-    NSBox *helpcodeCard = MSIMECardWithViews(helpcodeRows, 0.0);
-    helpcodeCard.accessibilityLabel = @"辅助码卡片";
-    NSScrollView *helpcodePage = PreferencesPage(@"辅助码", @"为全拼与双拼分别选择辅助码方案。", @[
-        [self sectionHeader:@"辅助码方案"
-                       keys:@[HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey, ShuangpinHelpcodeKey]],
-        helpcodeCard,
-    ]);
-
-    // ---- 快捷键 -----------------------------------------------------------------------------
+    // ---- 按键 -------------------------------------------------------------------------------
     // 以词定字 and 翻页 cannot be bound to the same key group, and until now the window let the user
     // ask for it and answered with a beep and a control that snapped back. Both sentences are
     // written in -refreshKeyBindingConflicts, which also disables whichever side does not currently
@@ -2809,6 +2893,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _wordCharacterConflictLabel = MSIMEDetailLabel(@"");
     _wordCharacterConflictLabel.hidden = YES;
     NSBox *pagingCard = MSIMECardWithViews(@[
+        // The preset and the checkboxes below it are one setting seen twice: the menu names whichever
+        // key group is ticked, and picking one from the menu ticks it. They used to be two, and the
+        // menu went on naming a group the checkboxes had since given up.
         MSIMEPreferenceRow(@"上翻 / 下翻", _pageShortcutButton),
         MSIMECardSeparator(),
         MSIMECardHeader(@"独立候选导航"),
@@ -2828,26 +2915,23 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMESwitchRow(@"单按 Control 切换中英文", _controlTapShortcutToggle, nil),
         MSIMESwitchRow(@"Control + Option + 空格切换中英文", _controlOptionSpaceShortcutToggle, nil),
         MSIMESwitchRow(@"Control + Shift + F 切换简繁", _characterSetShortcutToggle, nil),
-        // The state that chord toggles, which the toolbar and the input method's menu also toggle and
-        // which nothing in this window could set.
-        MSIMESwitchRow(@"简繁输入", _traditionalOutputToggle, @"将提交的简体中文转换为繁体中文。"),
         MSIMESwitchRow(@"Option + Shift + H 切换全半角", _fullWidthShortcutToggle,
                        @"关掉后这个组合键交给应用处理；Control + Shift + 空格 与工具栏的全半角按钮不受影响。"),
-        MSIMESwitchRow(@"全角输入", _fullWidthToggle,
-                       @"Control + Shift + 空格 或 Option + Shift + H 临时切换全半角。"),
     ], 0.0);
     switchingCard.accessibilityLabel = @"输入状态切换卡片";
-    NSScrollView *shortcutsPage = PreferencesPage(@"快捷键", @"设置候选翻页与输入状态切换快捷键。", @[
-        [self sectionHeader:@"候选翻页与选字" keys:@[PageShortcutKey, NavigationKey, WordCharacterKey]],
-        pagingCard,
+    // Switching between Chinese and English is what this page is opened for; the paging matrix is
+    // what it was opened on. At the default height the six switching rows began below the fold, under
+    // seven checkboxes for key groups most users never rebind, so the two cards trade places.
+    NSScrollView *keysPage = PreferencesPage(@"按键", @"切换中英文与翻页选字使用的按键。", @[
         [self sectionHeader:@"输入状态切换"
                        keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey,
-                              ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, TraditionalKey,
-                              FullWidthShortcutKey, FullWidthKey]],
+                              ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthShortcutKey]],
         switchingCard,
+        [self sectionHeader:@"候选翻页与选字" keys:@[PageShortcutKey, NavigationKey, WordCharacterKey]],
+        pagingCard,
     ]);
 
-    // ---- 悬浮工具栏 --------------------------------------------------------------------------
+    // ---- 状态栏 -----------------------------------------------------------------------------
     NSBox *toolbarCard = MSIMECardWithViews(@[
         MSIMESwitchRow(@"显示浮动工具栏", _toolbarToggle, nil),
         MSIMEPreferenceRowWithDetail(@"悬浮工具栏主题", @"覆盖主题模式，只影响悬浮工具栏。", _toolbarThemeButton),
@@ -2871,7 +2955,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // The scale and the font size live in the same stored dictionary as the component choices, so
     // the finest restore this window can honestly offer for either is both: the link sits on the
     // section that owns the key, and 尺寸 does not offer one it could not keep.
-    NSScrollView *floatingPage = PreferencesPage(@"悬浮工具栏", @"随时查看输入状态，通过工具栏切换常用输入选项。", @[
+    NSScrollView *statusBarPage = PreferencesPage(@"状态栏", @"随时查看输入状态，通过悬浮工具栏切换常用输入选项。", @[
         [self sectionHeader:@"显示与组件" keys:@[FloatingToolbarKey, FloatingToolbarOptionsKey, ToolbarThemeKey]],
         toolbarCard,
         [self sectionHeader:@"尺寸" keys:@[]], toolbarSizeCard,
@@ -2893,19 +2977,24 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         accountPaneView,
     ]);
 
-    // ---- 帮助 / 反馈 -------------------------------------------------------------------------
-    // Upstream builds both pages out of its own help copy and a local issue form. This host has
+    // ---- 帮助与反馈 --------------------------------------------------------------------------
+    // Upstream builds both of these out of its own help copy and a local issue form. This host has
     // neither; it routes to the existing support window instead of inventing the content here.
-    NSButton *helpButton = [NSButton buttonWithTitle:@"打开使用帮助…" target:self action:@selector(showSupport:)];
+    //
+    // Two buttons, two pages of that window, and now two selectors: they both used to be the
+    // no-argument -showSupport:, which only shows the window. MSIMESupportWindowController builds its
+    // contentView inside -showPage:, so the window a cold launch put on screen had no content and no
+    // title, and a warm one showed whichever page the input method's menu had last opened.
+    NSButton *helpButton = [NSButton buttonWithTitle:@"打开使用帮助…" target:self action:@selector(showHelp:)];
     NSBox *helpCard = MSIMECardWithViews(@[MSIMEPreferenceRow(@"常用按键与常见问题", helpButton)], 0.0);
     helpCard.accessibilityLabel = @"帮助卡片";
-    NSScrollView *helpPage = PreferencesPage(@"帮助", @"常用按键、候选词释义的工作方式，以及常见问题。", @[
-        [self sectionHeader:@"使用帮助" keys:@[]], helpCard,
-    ]);
-    NSButton *feedbackButton = [NSButton buttonWithTitle:@"提交反馈…" target:self action:@selector(showSupport:)];
+    NSButton *feedbackButton = [NSButton buttonWithTitle:@"提交反馈…" target:self action:@selector(showFeedback:)];
     NSBox *feedbackCard = MSIMECardWithViews(@[MSIMEPreferenceRow(@"问题反馈与功能建议", feedbackButton)], 0.0);
     feedbackCard.accessibilityLabel = @"反馈卡片";
-    NSScrollView *feedbackPage = PreferencesPage(@"反馈", @"在这里写清问题，提交时会带上版本与系统信息。", @[
+    // One page rather than two, because each of them was a heading over a card over a single button,
+    // and the two buttons went to two pages of the same window.
+    NSScrollView *supportPage = PreferencesPage(@"帮助与反馈", @"常用按键与常见问题，以及提交问题和功能建议的渠道。", @[
+        [self sectionHeader:@"使用帮助" keys:@[]], helpCard,
         [self sectionHeader:@"问题反馈" keys:@[]], feedbackCard,
     ]);
 
@@ -2920,33 +3009,22 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         voiceContent,
     ]);
 
-    // ---- 实用功能 ---------------------------------------------------------------------------
-    for (NSArray<NSString *> *entry in LocalModeControls()) {
-        NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(localModeChanged:)];
-        button.identifier = entry[0];
-        [_localModeButtons addObject:button];
-    }
-    NSBox *localModesCard = MSIMECardWithViews(@[MSIMECheckboxGrid(_localModeButtons, 2)], 0.0);
-    localModesCard.accessibilityLabel = @"扩展输入卡片";
-    NSScrollView *utilitiesPage = PreferencesPage(@"实用功能", @"未组词时用 Shift 加一个字母，临时切到另一种输入方式。", @[
-        [self sectionHeader:@"扩展输入模式" keys:@[LocalModesKey]], localModesCard,
-    ]);
-
-    // The index is both the page index and the sidebar item's page index. Every page has a sidebar
-    // item now that 五笔 folds into 输入, so the two lists line up one to one.
+    // The index is both the page index and the sidebar item's page index, and it is also
+    // MSIMESettingsPage: the enum is declared in the order this array is written, so the four pages
+    // named from elsewhere in the file are named rather than numbered, and the assertion at the end
+    // of this method fails the moment the two lists stop being the same length.
     _preferencePages = @[
-        generalPage, appearancePage, skinPage, dataPage, aboutPage, helpcodePage, shortcutsPage,
-        floatingPage, accountPage, helpPage, feedbackPage, voicePage, utilitiesPage,
+        schemePage, habitsPage, keysPage, voicePage, candidateWindowPage, skinPage, statusBarPage,
+        dataPage, accountPage, supportPage, aboutPage,
     ];
 
     NSArray<NSString *> *navigationLabels = @[
-        @"输入", @"外观", @"皮肤", @"词库", @"关于", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号", @"帮助",
-        @"反馈", @"语音输入", @"实用功能",
+        @"输入方案", @"输入习惯", @"按键", @"语音输入", @"候选窗口", @"皮肤", @"状态栏", @"词库", @"账号",
+        @"帮助与反馈", @"关于",
     ];
     NSArray<NSString *> *navigationSymbols = @[
-        @"keyboard", @"paintpalette", @"photo.on.rectangle", @"book", @"info.circle", @"a.circle",
-        @"command", @"ellipsis.rectangle", @"person.crop.circle", @"questionmark.square", @"ladybug", @"mic",
-        @"wand.and.stars",
+        @"keyboard", @"textformat", @"command", @"mic", @"rectangle.on.rectangle", @"paintpalette",
+        @"ellipsis.rectangle", @"book", @"person.crop.circle", @"questionmark.circle", @"info.circle",
     ];
     _pageTitles = navigationLabels;
     // The stable name of each page, parallel to _preferencePages. Both things that have to point at
@@ -2954,19 +3032,25 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // name it instead of numbering it, because the numbering is the one part of this list that is
     // expected to change. The names are the tails of the shared settings: routes
     // (src/core/DesktopSettingsLauncher.h), so a deep link reads the same whichever settings
-    // surface answers it.
+    // surface answers it. 输入习惯 is the one page with no such route, because it is the one page
+    // the shared surface does not have; it is named for what it holds rather than after 实用功能,
+    // which is one of its four cards. Retired names — helpcode, feedback, utilities — resolve to
+    // nothing and open the first page, which is where the helpcode controls now are.
     _pageIdentifiers = @[
-        @"input", @"appearance", @"skin", @"dictionary", @"about", @"helpcode", @"shortcuts",
-        @"floating", @"account", @"help", @"feedback", @"voice", @"utilities",
+        @"input", @"habits", @"shortcuts", @"voice", @"appearance", @"skin", @"floating",
+        @"dictionary", @"account", @"help", @"about",
     ];
     // Four runs with nothing but a gap between them announce a grouping without saying what it
-    // groups by, so each run gets the heading AppKit puts above a source-list section.
-    NSArray<NSString *> *groupTitles = @[@"输入", @"外观", @"数据", @"支持"];
+    // groups by, so each run gets the heading AppKit puts above a source-list section. No heading is
+    // the name of a page under it any more: 输入 used to be both the first group and its first
+    // member, which reads as a page nested inside itself.
+    NSArray<NSString *> *groupTitles = @[@"打字", @"显示", @"数据与账号", @"支持"];
     NSArray<NSArray<NSNumber *> *> *navigationGroups = @[
-        @[@0, @5, @6, @12, @11],  // 输入 · 辅助码 · 快捷键 · 实用功能 · 语音输入
-        @[@1, @2, @7],            // 外观 · 皮肤 · 悬浮工具栏
-        @[@3, @8],                // 词库 · 账号
-        @[@9, @10, @4],           // 帮助 · 反馈 · 关于
+        @[@(MSIMESettingsPageInputScheme), @(MSIMESettingsPageInputHabits), @(MSIMESettingsPageKeys),
+          @(MSIMESettingsPageVoice)],
+        @[@(MSIMESettingsPageCandidateWindow), @(MSIMESettingsPageSkin), @(MSIMESettingsPageStatusBar)],
+        @[@(MSIMESettingsPageDictionary), @(MSIMESettingsPageAccount)],
+        @[@(MSIMESettingsPageSupport), @(MSIMESettingsPageAbout)],
     ];
     NSMutableArray<MSIMESettingsSidebarItem *> *sidebarGroups = [NSMutableArray array];
     for (NSUInteger groupIndex = 0; groupIndex < navigationGroups.count; ++groupIndex) {
@@ -3140,6 +3224,17 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // launch would "restore" whatever centring had just produced.
     if (![window setFrameUsingName:MSIMESettingsWindowFrameAutosaveName()]) [window center];
     [window setFrameAutosaveName:MSIMESettingsWindowFrameAutosaveName()];
+    // MSIMESettingsPage is what kSkinPageIndex, kVoicePageIndex, kAboutPageIndex and
+    // kAccountPageIndex are derived from, and it is only true of the array above by being written
+    // alongside it. A page added to one list and not the other is caught here rather than as a page
+    // that never reloads, or as an account pane attached to the wrong page. The test binaries build
+    // with -UNDEBUG, so this runs in all of them.
+    NSAssert(_preferencePages.count == (NSUInteger)MSIMESettingsPageCount &&
+                 _pageTitles.count == (NSUInteger)MSIMESettingsPageCount &&
+                 _pageIdentifiers.count == (NSUInteger)MSIMESettingsPageCount,
+             @"MSIMESettingsPage has %ld pages, the window built %lu with %lu titles and %lu identifiers",
+             (long)MSIMESettingsPageCount, (unsigned long)_preferencePages.count,
+             (unsigned long)_pageTitles.count, (unsigned long)_pageIdentifiers.count);
 }
 - (void)preferencesWindowWillClose:(NSNotification *)notification {
     (void)notification;
@@ -3633,12 +3728,21 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMEOpenBackendAccount(NSClassFromString(@"MSIMEBackendAccountWindow"));
     }
 }
-- (void)showSupport:(id)sender {
-    (void)sender;
+- (void)showHelp:(id)sender { (void)sender; [self showSupportPage:MSIMESupportPageHelp]; }
+- (void)showFeedback:(id)sender { (void)sender; [self showSupportPage:MSIMESupportPageFeedback]; }
+/// The support window, on the page that was asked for.
+///
+/// Both buttons used to send one no-argument selector that called -showWindow:, and that window
+/// builds its contentView in -showPage: — so the first press of either opened a blank, untitled
+/// window, and a later press showed whichever page something else had opened last. The class is
+/// still resolved at runtime: it is linked into the input method and into two test binaries, and
+/// naming it here would pull it into the other five that build this window.
+- (void)showSupportPage:(MSIMESupportPage)page {
     Class supportClass = NSClassFromString(@"MSIMESupportWindowController");
     if (![supportClass respondsToSelector:@selector(sharedController)]) return;
-    [[supportClass sharedController] showWindow:self];
-    [NSApp activateIgnoringOtherApps:YES];
+    MSIMESupportWindowController *controller = [supportClass sharedController];
+    // -showPage: presents the window and activates the application itself.
+    [controller showPage:page];
 }
 - (void)openProductWebsite:(id)sender {
     (void)sender;
