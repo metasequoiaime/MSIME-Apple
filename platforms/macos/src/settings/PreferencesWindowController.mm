@@ -1,5 +1,6 @@
 #import "PreferencesWindowController.h"
 #import "AppearancePreferences.h"
+#import "SettingsLayout.h"
 #import "../candidate/CandidateSkinAppearance.h"
 #import "../cloud/CloudAppearanceSettings.h"
 
@@ -27,14 +28,26 @@ NSNotificationName const MSIMEStandalonePreferencesDidCloseNotification =
 - (void)presentAndActivate {
     [[MSIMEAppearancePreferences sharedPreferences] showWindow:nil];
     NSWindow *window = [MSIMEAppearancePreferences sharedPreferences].window;
+    // This controller is the one that presents the settings window and the one that decides what
+    // closing it means, so it is the one that has to hold it: -window answered nil until now, and
+    // every caller reaching through it — starting with the standalone launch that has to know which
+    // window closing terminates the process — was reaching through nothing.
+    self.window = window;
     window.delegate = self;
-    [window center];
+    // Only when the user has never placed this window. Centring unconditionally is what made the
+    // saved frame pointless: the window came back the size it was left at, in the middle of the
+    // screen, on every single presentation.
+    if (!MSIMESettingsWindowHasSavedFrame()) [window center];
     [window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
 }
 - (void)showAndActivate {
     _standaloneLaunch = NO;
     [self presentAndActivate];
+}
+- (void)showAndActivateWithPageIdentifier:(NSString *)identifier {
+    [self showAndActivate];
+    [[MSIMEAppearancePreferences sharedPreferences] showSettingsPageWithIdentifier:identifier];
 }
 - (void)showAndActivateForStandaloneLaunch {
     _standaloneLaunch = YES;

@@ -209,6 +209,9 @@ constexpr NSInteger kAccountPageIndex = 8;
 constexpr NSInteger kSkinPageIndex = 2;
 /// The voice form is also reachable from the input method's toolbar, so the page reloads on entry.
 constexpr NSInteger kVoicePageIndex = 11;
+/// 记住上次停留的页用的是页的名字而不是下标：侧栏顺序会随版本改，一个存下来的下标在下个版本里指向的
+/// 是另一页，而名字要么认得要么认不得，认不得就回到第一页。
+NSString *const LastSettingsPageKey = @"MSIMEClientSettingsLastPage";
 }  // namespace
 
 /// Scroll views lay an unflipped document view out from the bottom, which would park a short
@@ -370,6 +373,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSUserDefaults *_defaults;
     NSArray<NSView *> *_preferencePages;
     NSArray<NSString *> *_pageTitles;
+    NSArray<NSString *> *_pageIdentifiers;
     NSSplitViewController *_splitViewController;
     NSOutlineView *_sidebarOutline;
     NSScrollView *_sidebarScroll;
@@ -1801,7 +1805,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
     window.title = @"水杉输入法设置";
-    window.restorable = NO;
+    // A window the user is expected to come back to, at the size and place they left it. The
+    // identifier is what makes restorable more than a flag: AppKit keys a window's saved state by
+    // it, and a window without one is encoded into the saved-state bundle and then cannot be found
+    // again.
+    window.restorable = YES;
+    window.identifier = MSIMESettingsWindowFrameAutosaveName();
     // The unified toolbar is where the title goes now, and it says which page is in front of the
     // user — the first thing in this window's chrome that ever did. A transparent titlebar was what
     // the hand-pinned sidebar needed to run full height behind it; the split view's sidebar item
@@ -2394,6 +2403,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         @"wand.and.stars",
     ];
     _pageTitles = navigationLabels;
+    // The stable name of each page, parallel to _preferencePages. Both things that have to point at
+    // a page from outside this method — the remembered page and -showSettingsPageWithIdentifier: —
+    // name it instead of numbering it, because the numbering is the one part of this list that is
+    // expected to change. The names are the tails of the shared settings: routes
+    // (src/core/DesktopSettingsLauncher.h), so a deep link reads the same whichever settings
+    // surface answers it.
+    _pageIdentifiers = @[
+        @"input", @"appearance", @"skin", @"dictionary", @"about", @"helpcode", @"shortcuts",
+        @"floating", @"account", @"help", @"feedback", @"voice", @"utilities",
+    ];
     // Four runs with nothing but a gap between them announce a grouping without saying what it
     // groups by, so each run gets the heading AppKit puts above a source-list section.
     NSArray<NSString *> *groupTitles = @[@"输入", @"外观", @"数据", @"支持"];
@@ -2553,10 +2572,17 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
                                                name:NSWindowWillCloseNotification
                                              object:window];
     [self buildSearchIndex];
-    [self showPreferencesPageAtIndex:0 navigationIndex:0];
+    // 设置窗口不是每次都从头看一遍的向导，上次停在哪一页，下次就该从哪一页接着看。
+    const NSInteger rememberedPage = [self pageIndexForIdentifier:[_defaults stringForKey:LastSettingsPageKey]];
+    const NSInteger initialPage = rememberedPage < 0 ? 0 : rememberedPage;
+    [self showPreferencesPageAtIndex:initialPage navigationIndex:initialPage];
     [self refreshUpdateControls];
     [self refreshControls];
-    [window center];
+    // Restore first, centre only as the fallback: the two have to be asked in this order, because
+    // attaching the autosave name saves the frame the window currently has, after which every
+    // launch would "restore" whatever centring had just produced.
+    if (![window setFrameUsingName:MSIMESettingsWindowFrameAutosaveName()]) [window center];
+    [window setFrameAutosaveName:MSIMESettingsWindowFrameAutosaveName()];
 }
 - (void)preferencesWindowWillClose:(NSNotification *)notification {
     (void)notification;
@@ -2784,8 +2810,24 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     const NSInteger index = button == nil ? 0 : button.tag;
     [self showPreferencesPageAtIndex:index navigationIndex:index];
 }
+/// The page a stable identifier names, or -1 when nothing is named — an identifier written by a
+/// version that had a page this one does not is not an error, it is a page that went away.
+- (NSInteger)pageIndexForIdentifier:(NSString *)identifier {
+    if (identifier.length == 0) return -1;
+    const NSUInteger index = [_pageIdentifiers indexOfObject:identifier];
+    return index == NSNotFound ? -1 : (NSInteger)index;
+}
+- (BOOL)showSettingsPageWithIdentifier:(NSString *)identifier {
+    (void)self.window;  // The page list is built with the window; a deep link can arrive before it.
+    const NSInteger pageIndex = [self pageIndexForIdentifier:identifier];
+    if (pageIndex < 0) return NO;
+    [self showPreferencesPageAtIndex:pageIndex navigationIndex:pageIndex];
+    return YES;
+}
 - (void)showPreferencesPageAtIndex:(NSInteger)pageIndex navigationIndex:(NSInteger)navigationIndex {
     _selectedPageIndex = pageIndex;
+    if (pageIndex >= 0 && pageIndex < (NSInteger)_pageIdentifiers.count)
+        [_defaults setObject:_pageIdentifiers[pageIndex] forKey:LastSettingsPageKey];
     if (pageIndex == kSkinPageIndex) [self ensureSkinSettingsView];
     if (pageIndex == kVoicePageIndex) [_voiceSettingsView reloadSettings];
     for (NSInteger index = 0; index < (NSInteger)_preferencePages.count; ++index)

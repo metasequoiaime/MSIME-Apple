@@ -16,6 +16,13 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 - (NSDictionary *)cloudSettingsSnapshot;
 /// The skin browser, which is the 皮肤 page itself rather than a window of its own.
 - (NSView *)skinSettingsView;
+/// Opens the window on a named page. The identifiers are the tails of the shared settings: routes —
+/// input, appearance, skin, dictionary, about, helpcode, shortcuts, floating, account, help,
+/// feedback, voice, utilities — so an entry point that deep-links into the desktop application can
+/// hand its native fallback the same name. Returns NO, and leaves the page alone, for a name this
+/// version does not have; callers that do not care which page they land on should not call this at
+/// all, so that the window opens on the page the user left it on.
+- (BOOL)showSettingsPageWithIdentifier:(NSString *)identifier;
 - (void)setTranslationPreferencesDirectory:(NSString *)directory;
 /// Applies only settings owned by this window to an existing shared Preferences object.
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot;

@@ -43,6 +43,21 @@ inline constexpr CGFloat kContentColumnMin = 516.0;
 inline constexpr CGFloat kControlMinWidth = 190.0;
 }  // namespace msime::mac::layout
 
+/// The name the settings window saves its position and size under. It lives here because the two
+/// halves of "remember where this window was" are in different files: the window is created and
+/// given the autosave name in AppearancePreferences.mm, and every presentation after that decides
+/// in PreferencesWindowController.mm whether it still has to be centred.
+static inline NSString *MSIMESettingsWindowFrameAutosaveName(void) { return @"MSIMESettingsWindow"; }
+
+/// Whether the user has a saved frame for the settings window. AppKit keys autosaved frames as
+/// "NSWindow Frame <name>" in the standard defaults, which is also the only way to ask the question
+/// before the window exists. Centring a window that has one is how a restored frame gets thrown
+/// away — the window comes back the right size in the wrong place, every single launch.
+static inline BOOL MSIMESettingsWindowHasSavedFrame(void) {
+    NSString *key = [@"NSWindow Frame " stringByAppendingString:MSIMESettingsWindowFrameAutosaveName()];
+    return [NSUserDefaults.standardUserDefaults objectForKey:key] != nil;
+}
+
 /// A card is a group of rows lifted off the page. In dark mode controlBackgroundColor is darker
 /// than the window behind it, so a card painted with it reads as a groove cut into the page —
 /// exactly the opposite of what the grouping means. Aqua already has the two colours the right way
