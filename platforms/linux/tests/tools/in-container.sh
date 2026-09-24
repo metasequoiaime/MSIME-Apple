@@ -150,9 +150,10 @@ runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayl
 
 runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/runtime/portal_smoke.py
 
-# The staged uninstall cannot reach any user's systemd manager, so it names the units to disable instead of touching them, and still removes the program files.
+# The staged uninstall cannot reach any user's systemd manager or session, so it names the units to disable and the input method lists to clean up instead of touching them, and still removes the program files.
 uninstall_log=$(DESTDIR=/build/stage cmake -P /build/ibus/uninstall.cmake)
 grep -F "systemctl --user disable --now msime-client-online.socket msime-client-online.service msime-client-voice.socket msime-client-voice.service msime-client-clipboard.service" <<<"$uninstall_log" >/dev/null
+grep -F "MSIME from the current group in fcitx5-configtool" <<<"$uninstall_log" >/dev/null
 test ! -e /build/stage/usr/local/bin/msime-client-ibus
 test ! -e /build/stage/usr/local/etc/xdg/autostart/msime-client-clipboard.desktop
-echo "Staged uninstall names the user units and removes the programs"
+echo "Staged uninstall names the user units and input method lists, and removes the programs"

@@ -32,6 +32,18 @@ pub(crate) enum InstallError {
     HomeUnavailable,
     Io,
     Registration,
+    /// A first install whose registration the system did not accept: the bundle is left in place, because there is nothing to roll back to and the login session's input source list only picks up an identifier that is new to it at the next login.
+    RegistrationPending,
+}
+
+// Staging and backup directories are named by process id, so two installs in one process - the start-time refresh and the settings page's button, or an uninstall - would work on the same paths; every install and removal holds this for its whole run.
+static INSTALL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Hold off every other install, refresh or removal of the input method in this process until the guard is dropped.
+pub(crate) fn install_lock() -> std::sync::MutexGuard<'static, ()> {
+    INSTALL_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
 }
 
 fn is_symlink(path: &Path) -> io::Result<bool> {
@@ -59,16 +71,47 @@ fn validate_bundle(source: &Path) -> Result<(), InstallError> {
     Ok(())
 }
 
+/// Whether a symlink at `link`, somewhere below `root`, resolves lexically to a path that is still below `root`.
+///
+/// A framework is mostly symlinks (`Sparkle.framework/Sparkle -> Versions/Current/Sparkle`, `Versions/Current -> B`), and the bundle's code signature seals them as links: copying their targets instead leaves a framework codesign calls ambiguous, so the input method cannot be launched. They are therefore recreated as links, but only relative ones that stay inside the bundle, so an installed bundle can never point at anything outside itself.
+fn link_stays_inside(root: &Path, link: &Path, target: &Path) -> bool {
+    use std::path::Component;
+    let Some(parent) = link.parent() else {
+        return false;
+    };
+    let Ok(parent) = parent.strip_prefix(root) else {
+        return false;
+    };
+    let mut depth = parent.components().count();
+    for component in target.components() {
+        match component {
+            Component::Normal(_) => depth += 1,
+            Component::CurDir => {}
+            Component::ParentDir if depth > 0 => depth -= 1,
+            _ => return false,
+        }
+    }
+    true
+}
+
 fn copy_tree(source: &Path, destination: &Path) -> Result<(), InstallError> {
+    copy_tree_within(source, source, destination)
+}
+
+fn copy_tree_within(root: &Path, source: &Path, destination: &Path) -> Result<(), InstallError> {
     let metadata = fs::symlink_metadata(source).map_err(|_| InstallError::Io)?;
     if metadata.file_type().is_symlink() {
-        return Err(InstallError::InvalidBundle);
+        let target = fs::read_link(source).map_err(|_| InstallError::Io)?;
+        if !link_stays_inside(root, source, &target) {
+            return Err(InstallError::InvalidBundle);
+        }
+        return std::os::unix::fs::symlink(&target, destination).map_err(|_| InstallError::Io);
     }
     if metadata.is_dir() {
         fs::create_dir(destination).map_err(|_| InstallError::Io)?;
         for entry in fs::read_dir(source).map_err(|_| InstallError::Io)? {
             let entry = entry.map_err(|_| InstallError::Io)?;
-            copy_tree(&entry.path(), &destination.join(entry.file_name()))?;
+            copy_tree_within(root, &entry.path(), &destination.join(entry.file_name()))?;
         }
         fs::set_permissions(destination, metadata.permissions()).map_err(|_| InstallError::Io)?;
         return Ok(());
@@ -90,10 +133,7 @@ fn remove_staging(path: &Path) -> Result<(), InstallError> {
     fs::remove_dir_all(path).map_err(|_| InstallError::Io)
 }
 
-/// Install a validated bundle below `input_methods`, replacing an existing
-/// directory only after the complete copy has succeeded and registration has
-/// accepted the staged replacement. A failed registration restores the old
-/// bundle before returning the error.
+/// Install a validated bundle below `input_methods`, replacing an existing directory only after the complete copy has succeeded and registration has accepted the staged replacement. A failed registration restores the old bundle before returning the error; with no old bundle it keeps the new one and returns `RegistrationPending`, as `scripts/install.sh` does.
 fn install_bundle_at_with_registration<F>(
     source: &Path,
     input_methods: &Path,
@@ -132,6 +172,10 @@ where
         return Err(InstallError::Io);
     }
     if let Err(error) = register(&target) {
+        // An identifier that was not in the input source list when the login session began cannot join it before the next login, however the bundle is signed (see platforms/macos/README.md). Deleting the only copy would leave nothing for that login to find.
+        if !had_previous {
+            return Err(InstallError::RegistrationPending);
+        }
         if fs::remove_dir_all(&target).is_err() {
             return Err(InstallError::Io);
         }
@@ -314,6 +358,11 @@ fn register_installed_bundle(bundle: &Path) -> Result<(), InstallError> {
 }
 
 pub(crate) fn install(resource_directory: Option<&Path>) -> Result<(), InstallError> {
+    let _guard = install_lock();
+    install_unlocked(resource_directory)
+}
+
+fn install_unlocked(resource_directory: Option<&Path>) -> Result<(), InstallError> {
     let source = find_source(
         resource_directory,
         &std::env::current_dir().map_err(|_| InstallError::SourceUnavailable)?,
@@ -321,6 +370,215 @@ pub(crate) fn install(resource_directory: Option<&Path>) -> Result<(), InstallEr
     let input_methods = home_input_methods()?;
     install_bundle_at_with_registration(&source, &input_methods, register_installed_bundle)
         .map(|_| ())
+}
+
+/// The version an input method bundle declares: `CFBundleShortVersionString` first, then `CFBundleVersion`.
+///
+/// The short version is the release and is compared numerically, component by component, with trailing zeros ignored (0.50 equals 0.50.0). The build number is the commit count CMake stamps into the bundle, which only orders builds of the same release.
+#[derive(Debug, Clone)]
+pub(crate) struct BundleVersion {
+    short: Vec<u64>,
+    build: u64,
+    text: String,
+}
+
+impl BundleVersion {
+    fn parse(short: &str, build: &str) -> Option<Self> {
+        let short = short.trim();
+        let build = build.trim();
+        let mut components = short
+            .split('.')
+            .map(|component| component.parse::<u64>().ok())
+            .collect::<Option<Vec<_>>>()?;
+        while components.last() == Some(&0) {
+            components.pop();
+        }
+        Some(Self {
+            short: components,
+            build: build.parse().ok()?,
+            text: format!("{short} ({build})"),
+        })
+    }
+
+    /// The version as the user reads it, e.g. `0.50.0 (7289)`.
+    pub(crate) fn label(&self) -> &str {
+        &self.text
+    }
+}
+
+impl PartialEq for BundleVersion {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for BundleVersion {}
+
+impl PartialOrd for BundleVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BundleVersion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.short
+            .cmp(&other.short)
+            .then(self.build.cmp(&other.build))
+    }
+}
+
+fn plist_string(info: &Path, key: &str) -> Option<String> {
+    let output = std::process::Command::new("/usr/bin/plutil")
+        .args(["-extract", key, "raw", "-o", "-"])
+        .arg(info)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
+}
+
+/// Read a bundle's version through `plutil`, which accepts both XML and binary property lists. Missing or non-numeric values give `None`.
+pub(crate) fn bundle_version(bundle: &Path) -> Option<BundleVersion> {
+    let info = bundle.join("Contents/Info.plist");
+    if !info.is_file() {
+        return None;
+    }
+    let short = plist_string(&info, "CFBundleShortVersionString")?;
+    let build = plist_string(&info, "CFBundleVersion")?;
+    BundleVersion::parse(&short, &build)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Refresh {
+    Install,
+    Update,
+    UpToDate,
+}
+
+/// What the start-time check does with the bundle the settings app carries.
+///
+/// Never a downgrade: the installed copy can legitimately be newer than the one inside the settings app being opened - an older DMG's app opened after a newer one, a newer build installed with `scripts/install.sh`, or, for builds that carry `SUFeedURL`, a Sparkle update - and replacing it would roll the user back. An installed bundle whose version cannot be read is replaced by a readable one, since nothing says it is newer; a bundled copy whose version cannot be read never replaces anything that is already installed.
+pub(crate) fn refresh_decision(
+    bundled: Option<&BundleVersion>,
+    installed: Option<&BundleVersion>,
+    installed_exists: bool,
+) -> Refresh {
+    if !installed_exists {
+        return Refresh::Install;
+    }
+    match (bundled, installed) {
+        (None, _) => Refresh::UpToDate,
+        (Some(_), None) => Refresh::Update,
+        (Some(bundled), Some(installed)) if bundled > installed => Refresh::Update,
+        _ => Refresh::UpToDate,
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct RefreshOutcome {
+    pub(crate) refresh: Refresh,
+    pub(crate) bundled: Option<BundleVersion>,
+    pub(crate) installed: Option<BundleVersion>,
+}
+
+/// The start-time check against explicit paths, with the installation step injected so tests never register anything.
+fn ensure_current_with<F>(
+    source: &Path,
+    target: &Path,
+    install_source: F,
+) -> Result<RefreshOutcome, InstallError>
+where
+    F: FnOnce() -> Result<(), InstallError>,
+{
+    validate_bundle(source)?;
+    let bundled = bundle_version(source);
+    let installed = bundle_version(target);
+    let refresh = refresh_decision(bundled.as_ref(), installed.as_ref(), target.exists());
+    if refresh == Refresh::UpToDate {
+        return Ok(RefreshOutcome {
+            refresh,
+            bundled,
+            installed,
+        });
+    }
+    install_source()?;
+    Ok(RefreshOutcome {
+        refresh,
+        installed: bundle_version(target),
+        bundled,
+    })
+}
+
+/// Install the packaged input method when it is missing and refresh it when the packaged copy is newer, the way the Windows installer registers its TSF DLLs on every install and upgrade.
+///
+/// Only the bundle inside a packaged app's own `Contents/Resources` is considered - never a `target/macos` build, nor the copy tauri-build places next to a `cargo run` binary - so running a development build does not replace the input method a developer has installed. `SourceUnavailable` means the resource directory is not a packaged app's, or that build carries no input method at all.
+pub(crate) fn ensure_current(resource_directory: &Path) -> Result<RefreshOutcome, InstallError> {
+    if !is_packaged_resource_directory(resource_directory) {
+        return Err(InstallError::SourceUnavailable);
+    }
+    let _guard = install_lock();
+    let source = resource_directory.join(INPUT_SOURCE_BUNDLE_NAME);
+    let target = installed_bundle_path()?;
+    ensure_current_with(&source, &target, || {
+        install_unlocked(Some(resource_directory))
+    })
+}
+
+/// Whether `resource_directory` is the `Contents/Resources` of an `.app` bundle. A development run's resource directory is the cargo output directory, where tauri-build has copied the development input method with its framework symlinks flattened.
+pub(crate) fn is_packaged_resource_directory(resource_directory: &Path) -> bool {
+    resource_directory.file_name() == Some("Resources".as_ref())
+        && resource_directory
+            .parent()
+            .filter(|contents| contents.file_name() == Some("Contents".as_ref()))
+            .and_then(Path::parent)
+            .and_then(Path::extension)
+            == Some("app".as_ref())
+}
+
+/// Whether the `AppleEnabledInputSources` list, as JSON, has any entry for this input method.
+fn enabled_in_input_source_list(json: &[u8]) -> Option<bool> {
+    let list: serde_json::Value = serde_json::from_slice(json).ok()?;
+    Some(list.as_array()?.iter().any(|entry| {
+        entry.get("Bundle ID").and_then(serde_json::Value::as_str) == Some(INPUT_SOURCE_BUNDLE_ID)
+    }))
+}
+
+/// Whether the user has this input method in the System Settings input source list. `None` when the list cannot be read.
+///
+/// Read through `defaults export`, which asks cfprefsd, rather than the plist file itself: the file lags behind a registration that has only just enabled the source.
+pub(crate) fn input_source_enabled() -> Option<bool> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let exported = Command::new("/usr/bin/defaults")
+        .args(["export", "com.apple.HIToolbox", "-"])
+        .output()
+        .ok()?;
+    if !exported.status.success() {
+        return None;
+    }
+    let mut plutil = Command::new("/usr/bin/plutil")
+        .args([
+            "-extract",
+            "AppleEnabledInputSources",
+            "json",
+            "-o",
+            "-",
+            "-",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    plutil.stdin.take()?.write_all(&exported.stdout).ok()?;
+    let output = plutil.wait_with_output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    enabled_in_input_source_list(&output.stdout)
 }
 
 #[cfg(test)]
@@ -341,6 +599,156 @@ mod tests {
         fs::write(&executable, executable_contents).unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
         bundle
+    }
+
+    fn versioned_fixture(root: &Path, short: &str, build: &str, contents: &[u8]) -> PathBuf {
+        let bundle = fixture(root, INPUT_SOURCE_BUNDLE_ID, contents);
+        fs::write(
+            bundle.join("Contents/Info.plist"),
+            format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{INPUT_SOURCE_BUNDLE_ID}</string><key>CFBundleVersion</key><string>{build}</string><key>CFBundleShortVersionString</key><string>{short}</string></dict></plist>\n"
+            ),
+        )
+        .unwrap();
+        bundle
+    }
+
+    fn version(short: &str, build: &str) -> BundleVersion {
+        BundleVersion::parse(short, build).unwrap()
+    }
+
+    #[test]
+    fn refresh_installs_when_missing_and_never_downgrades() {
+        let current = version("0.50.0", "100");
+        assert_eq!(
+            refresh_decision(Some(&current), None, false),
+            Refresh::Install
+        );
+        assert_eq!(refresh_decision(None, None, false), Refresh::Install);
+        assert_eq!(
+            refresh_decision(Some(&version("0.50.0", "101")), Some(&current), true),
+            Refresh::Update
+        );
+        assert_eq!(
+            refresh_decision(Some(&version("0.51", "1")), Some(&current), true),
+            Refresh::Update
+        );
+        assert_eq!(
+            refresh_decision(Some(&version("0.50", "100")), Some(&current), true),
+            Refresh::UpToDate
+        );
+        // A Sparkle update leaves the installed copy newer than the bundled one.
+        assert_eq!(
+            refresh_decision(
+                Some(&version("0.50.0", "200")),
+                Some(&version("0.50.1", "150")),
+                true
+            ),
+            Refresh::UpToDate
+        );
+        assert_eq!(
+            refresh_decision(Some(&current), Some(&version("0.50.0", "101")), true),
+            Refresh::UpToDate
+        );
+        assert_eq!(
+            refresh_decision(None, Some(&current), true),
+            Refresh::UpToDate
+        );
+        assert_eq!(
+            refresh_decision(Some(&current), None, true),
+            Refresh::Update
+        );
+    }
+
+    #[test]
+    fn version_components_compare_numerically() {
+        assert!(version("0.10.0", "1") > version("0.9.9", "999"));
+        assert_eq!(version("1.0", "7").label(), "1.0 (7)");
+        assert!(BundleVersion::parse("0.50.x", "1").is_none());
+        assert!(BundleVersion::parse("0.50.0", "").is_none());
+    }
+
+    #[test]
+    fn reads_bundle_version_from_info_plist() {
+        let root = tempdir().unwrap();
+        let bundle = versioned_fixture(root.path(), "0.50.0", "7289", b"x");
+        assert_eq!(bundle_version(&bundle), Some(version("0.50.0", "7289")));
+
+        let unversioned = tempdir().unwrap();
+        let bundle = fixture(unversioned.path(), INPUT_SOURCE_BUNDLE_ID, b"x");
+        fs::write(
+            bundle.join("Contents/Info.plist"),
+            "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>CFBundleShortVersionString</key><string>0.50.0</string></dict></plist>",
+        )
+        .unwrap();
+        assert_eq!(bundle_version(&bundle), None);
+        assert_eq!(bundle_version(&root.path().join("missing.app")), None);
+    }
+
+    #[test]
+    fn ensure_current_replaces_only_an_older_install() {
+        let root = tempdir().unwrap();
+        let destination = root.path().join("Library/Input Methods");
+        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+        let executable = target.join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"));
+
+        let first_root = tempdir().unwrap();
+        let first = versioned_fixture(first_root.path(), "0.50.0", "10", b"first");
+        let outcome = ensure_current_with(&first, &target, || {
+            install_bundle_at(&first, &destination).map(|_| ())
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::Install);
+        assert_eq!(outcome.installed, Some(version("0.50.0", "10")));
+
+        let same_root = tempdir().unwrap();
+        let same = versioned_fixture(same_root.path(), "0.50.0", "10", b"same");
+        let outcome = ensure_current_with(&same, &target, || {
+            panic!("an equal version must not install")
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::UpToDate);
+        assert_eq!(fs::read(&executable).unwrap(), b"first");
+
+        let older_root = tempdir().unwrap();
+        let older = versioned_fixture(older_root.path(), "0.50.0", "9", b"older");
+        let outcome = ensure_current_with(&older, &target, || {
+            panic!("an older version must not install")
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::UpToDate);
+        assert_eq!(fs::read(&executable).unwrap(), b"first");
+
+        let newer_root = tempdir().unwrap();
+        let newer = versioned_fixture(newer_root.path(), "0.50.0", "11", b"newer");
+        let outcome = ensure_current_with(&newer, &target, || {
+            install_bundle_at(&newer, &destination).map(|_| ())
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::Update);
+        assert_eq!(outcome.bundled, Some(version("0.50.0", "11")));
+        assert_eq!(outcome.installed, Some(version("0.50.0", "11")));
+        assert_eq!(fs::read(&executable).unwrap(), b"newer");
+    }
+
+    #[test]
+    fn ensure_current_reports_a_missing_bundled_copy() {
+        let root = tempdir().unwrap();
+        let result = ensure_current_with(
+            &root.path().join(INPUT_SOURCE_BUNDLE_NAME),
+            &root.path().join("installed.app"),
+            || panic!("nothing to install"),
+        );
+        assert!(matches!(result, Err(InstallError::SourceUnavailable)));
+    }
+
+    #[test]
+    fn enabled_list_matches_this_bundle_only() {
+        let enabled = br#"[{"InputSourceKind":"Keyboard Layout","KeyboardLayout Name":"ABC"},{"Bundle ID":"app.msime.inputmethod.MetasequoiaIME","Input Mode":"app.msime.inputmethod.MetasequoiaIME.Hans","InputSourceKind":"Input Mode"}]"#;
+        assert_eq!(enabled_in_input_source_list(enabled), Some(true));
+        let absent = br#"[{"Bundle ID":"com.apple.inputmethod.Kotoeri.RomajiTyping"}]"#;
+        assert_eq!(enabled_in_input_source_list(absent), Some(false));
+        assert_eq!(enabled_in_input_source_list(b"not json"), None);
     }
 
     #[test]
@@ -458,6 +866,105 @@ mod tests {
             validate_bundle(&source),
             Err(InstallError::InvalidBundle)
         ));
+    }
+
+    // The packaged input method carries Sparkle.framework, whose signature seals its symlinks as links; flattening them breaks the signature and the input method no longer launches.
+    #[test]
+    fn keeps_framework_symlinks_as_links() {
+        let root = tempdir().unwrap();
+        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let framework = source.join("Contents/Frameworks/Sparkle.framework");
+        fs::create_dir_all(framework.join("Versions/B")).unwrap();
+        fs::write(framework.join("Versions/B/Sparkle"), b"binary").unwrap();
+        std::os::unix::fs::symlink("B", framework.join("Versions/Current")).unwrap();
+        std::os::unix::fs::symlink("Versions/Current/Sparkle", framework.join("Sparkle")).unwrap();
+        let destination = root.path().join("Library/Input Methods");
+        let installed = install_bundle_at(&source, &destination).unwrap();
+        let framework = installed.join("Contents/Frameworks/Sparkle.framework");
+        assert_eq!(
+            fs::read_link(framework.join("Versions/Current")).unwrap(),
+            PathBuf::from("B")
+        );
+        assert_eq!(
+            fs::read_link(framework.join("Sparkle")).unwrap(),
+            PathBuf::from("Versions/Current/Sparkle")
+        );
+        assert_eq!(fs::read(framework.join("Sparkle")).unwrap(), b"binary");
+    }
+
+    #[test]
+    fn rejects_symlinks_that_leave_the_bundle_without_touching_existing_install() {
+        let root = tempdir().unwrap();
+        let destination = root.path().join("Library/Input Methods");
+        let existing = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"existing");
+        install_bundle_at(&existing, &destination).unwrap();
+        for target in ["../../../outside", "/etc/hosts"] {
+            let source_root = tempdir().unwrap();
+            let source = fixture(source_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+            std::os::unix::fs::symlink(target, source.join("Contents/escape")).unwrap();
+            assert!(
+                matches!(
+                    install_bundle_at(&source, &destination),
+                    Err(InstallError::InvalidBundle)
+                ),
+                "{target}"
+            );
+        }
+        assert_eq!(
+            fs::read(
+                destination
+                    .join(INPUT_SOURCE_BUNDLE_NAME)
+                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
+            )
+            .unwrap(),
+            b"existing"
+        );
+    }
+
+    #[test]
+    fn only_a_packaged_app_resource_directory_counts() {
+        assert!(is_packaged_resource_directory(Path::new(
+            "/Applications/MSIME Client Preview.app/Contents/Resources"
+        )));
+        assert!(!is_packaged_resource_directory(Path::new(
+            "/Users/dev/msime/target/debug"
+        )));
+        assert!(!is_packaged_resource_directory(Path::new(
+            "/Users/dev/msime/target/debug/Resources"
+        )));
+        assert!(!is_packaged_resource_directory(Path::new(
+            "/Users/dev/Other.app/Resources"
+        )));
+        let result = ensure_current(Path::new("/Users/dev/msime/target/debug"));
+        assert!(matches!(result, Err(InstallError::SourceUnavailable)));
+    }
+
+    #[test]
+    fn first_install_keeps_the_bundle_when_registration_is_pending() {
+        let new_root = tempdir().unwrap();
+        let destination_root = tempdir().unwrap();
+        let new_source = fixture(new_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let destination = destination_root.path().join("Library/Input Methods");
+
+        let result = install_bundle_at_with_registration(&new_source, &destination, |_| {
+            Err(InstallError::Registration)
+        });
+        assert!(matches!(result, Err(InstallError::RegistrationPending)));
+        assert_eq!(
+            fs::read(
+                destination
+                    .join(INPUT_SOURCE_BUNDLE_NAME)
+                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
+            )
+            .unwrap(),
+            b"new"
+        );
+        assert!(!destination
+            .join(format!(
+                ".{INPUT_SOURCE_BUNDLE_NAME}.installing-{}",
+                std::process::id()
+            ))
+            .exists());
     }
 
     #[test]

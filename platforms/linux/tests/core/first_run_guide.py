@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""选中输入法却还没做首次配置时的引导：IBus 启动器与共享的引导脚本。
+"""选中输入法却还没做首次配置时的引导：IBus 启动器与共享的引导脚本；以及升级后下载的词库落后于当前版本时的通知。
 
 用桩代替 msime-client-settings、notify-send 和 msime-client-ibus，只看谁被调用了几次，不联网、不需要词库，也不起任何桌面进程。
 """
@@ -197,10 +197,76 @@ def main() -> int:
         settle()
         assert len(calls(log, "settings")) == 6, log.read_text()
 
-    # 引导脚本本身不发起任何下载。
+        # 升级后下载的词库落后于当前版本：宿主以 --reason dictionary-outdated 调用，只发通知、不开设置窗口，通知里给出取回新词库的命令。
+        outdated = [str(bin_dir / "msime-client-first-run-guide"), "--reason", "dictionary-outdated"]
+        outdated_stamp = runtime / "msime-client/dictionary-outdated.stamp"
+        first_run_stamp = runtime / "msime-client/first-run-guide.stamp"
+        notified = len(calls(log, "notify"))
+
+        # 没有图形会话：不通知，也不写标记。
+        assert subprocess.run(outdated, env=base, timeout=10).returncode == 0
+        settle()
+        assert len(calls(log, "notify")) == notified and not outdated_stamp.exists(), log.read_text()
+
+        # 首次配置的标记已在：词库过期的通知用自己的标记，照样发出。
+        first_run_stamp.write_text(f"{int(time.time())} 1\n")
+        assert subprocess.run(outdated, env=graphical, timeout=10).returncode == 0
+        wait_for(lambda: len(calls(log, "notify")) == notified + 1, "outdated dictionary notification missing")
+        message = calls(log, "notify")[-1]
+        assert "词库需要更新" in message and "msime-client-setup --update --download" in message, message
+        assert "尚未完成首次配置" not in message, message
+        assert outdated_stamp.exists()
+        settle()
+        assert len(calls(log, "settings")) == 6, log.read_text()
+
+        # 宿主参数放在原因之前或之后都一样被接受。每种顺序都先清掉词库过期的标记、留着首次配置的标记：原因若被丢掉，脚本会走首次配置那一支并因标记已在而静默退出，所以必须各自发出一条词库过期的通知。
+        orders = ([*outdated, "--host", "ibus"], [outdated[0], "--host", "fcitx5", *outdated[1:]])
+        for arguments in orders:
+            outdated_stamp.unlink()
+            assert first_run_stamp.exists()
+            count = len(calls(log, "notify"))
+            assert subprocess.run(arguments, env=graphical, timeout=10).returncode == 0, arguments
+            wait_for(lambda: len(calls(log, "notify")) == count + 1, f"outdated dictionary notification missing for {arguments}")
+            message = calls(log, "notify")[-1]
+            assert "msime-client-setup --update --download" in message and "尚未完成首次配置" not in message, message
+        notified += len(orders)
+        settle()
+        assert len(calls(log, "settings")) == 6, log.read_text()
+
+        # 同一登录会话内不再通知，无论参数顺序。
+        for arguments in (outdated, *orders):
+            assert subprocess.run(arguments, env=graphical, timeout=10).returncode == 0
+        settle()
+        assert len(calls(log, "notify")) == notified + 1, log.read_text()
+
+        # 反过来，词库过期的标记也不占用首次配置的引导。
+        first_run_stamp.unlink()
+        assert subprocess.run(guide, env=graphical, timeout=10).returncode == 0
+        wait_for(lambda: len(calls(log, "settings")) == 7 and len(calls(log, "notify")) == notified + 2,
+                 "first-run guidance was suppressed by the outdated dictionary stamp")
+        assert "尚未完成首次配置" in calls(log, "notify")[-1], calls(log, "notify")
+
+        # 不认识的原因是调用方的错误：不通知、不写标记。
+        outdated_stamp.unlink()
+        first_run_stamp.unlink()
+        result = subprocess.run([outdated[0], "--reason", "unknown"], env=graphical, timeout=10)
+        assert result.returncode == 2, result
+        settle()
+        assert len(calls(log, "notify")) == notified + 2 and not outdated_stamp.exists() and not first_run_stamp.exists()
+
+    # 引导脚本本身不发起任何下载：msime-client-setup 和 --download 只出现在注释和这几条通知文案里，从不作为命令执行。文案按原样去掉，剩下的非注释行里一处都不许有。
     guide = (SCRIPTS / "msime-client-first-run-guide").read_text()
-    for forbidden in ("--download", "curl", "wget", "msime-client-setup --"):
+    for forbidden in ("curl", "wget"):
         assert forbidden not in guide, forbidden
+    for body in (
+        '"已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-client-setup --update --download 取回新词库并切换，用户词库会一并迁移。"',
+        'body="请在终端运行 msime-client-setup 完成首次配置。$resume"',
+    ):
+        assert guide.count(body) == 1, body
+        guide = guide.replace(body, "")
+    for line in guide.splitlines():
+        if not line.strip().startswith("#"):
+            assert "msime-client-setup" not in line and "--download" not in line, line
 
     print("first-run guide tests passed")
     return 0

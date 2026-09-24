@@ -109,4 +109,17 @@ final class CandidateFontSizeTests: XCTestCase {
     }
     return nil
   }
+
+  func testFallbackFamiliesKeepTheStoredOrderAndAppendOnceWithinTheLimit() {
+    XCTAssertEqual(CandidateFontPreference.fallbackFamilies(in: nil), ["Noto Sans SC", "Microsoft YaHei"])
+    XCTAssertEqual(CandidateFontPreference.fallbackFamilies(in: [CandidateFontPreference.fallbackFamiliesKey: []]), [])
+    let stored: [String: Any] = [CandidateFontPreference.fallbackFamiliesKey: ["Segoe UI", 3, "PingFang SC"]]
+    XCTAssertEqual(CandidateFontPreference.fallbackFamilies(in: stored), ["Segoe UI", "PingFang SC"])
+
+    XCTAssertEqual(CandidateFontPreference.appending("Kailasa", to: ["PingFang SC"]), ["PingFang SC", "Kailasa"])
+    XCTAssertEqual(CandidateFontPreference.appending("PingFang SC", to: ["PingFang SC"]), ["PingFang SC"])
+    XCTAssertEqual(CandidateFontPreference.appending("", to: []), [])
+    let full = (0..<CandidateFontPreference.maximumFallbackFamilies).map { "Family \($0)" }
+    XCTAssertEqual(CandidateFontPreference.appending("One More", to: full), full)
+  }
 }

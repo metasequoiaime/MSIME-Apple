@@ -171,6 +171,27 @@ export class CandidateManagementAction {
     return action === null ? [] : [action];
   }
 
+  /**
+   * The full menu the source opens with a right click: the gloss first when the candidate carries a real translation, then 优先显示, the five fixed slots, 取消固定 and 删除词条. A 2in1 opens it with a right click; a phone has no right click, so its long press opens this rather than the gloss alone, as Android's long press does. An Engine annotation such as a Wubi code shares the gloss slot and is not a word, so it is never offered as text.
+   */
+  static managementActions(
+    gloss: string,
+    isTranslation: boolean,
+    fixedPosition: number,
+    available: boolean,
+    includeRemove: boolean,
+  ): ManagementAction[] {
+    const actions: ManagementAction[] = CandidateManagementAction.actionsForFixedPosition(
+      fixedPosition,
+      available,
+      includeRemove,
+    );
+    const glossAction: ManagementAction | null = isTranslation
+      ? CandidateManagementAction.glossAction(gloss)
+      : null;
+    return glossAction === null ? actions : [glossAction].concat(actions);
+  }
+
   static validatePosition(position: number): number {
     if (position < 1 || position > 5) {
       throw new Error("Candidate position must be between 1 and 5");

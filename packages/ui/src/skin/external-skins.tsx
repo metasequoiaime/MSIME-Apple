@@ -88,6 +88,7 @@ function ExternalSkinCard({
   readToolbarCss,
   revision,
   activeTheme,
+  toolbarPreview,
 }: {
   skin: ExternalSkin;
   selected: string;
@@ -98,6 +99,7 @@ function ExternalSkinCard({
   readToolbarCss?: ToolbarCssReader;
   revision: number;
   activeTheme: "dark" | "light";
+  toolbarPreview: boolean;
 }) {
   const [override, setOverride] = useState<"dark" | "light" | null>(null);
   useEffect(() => setOverride(null), [activeTheme]);
@@ -110,7 +112,7 @@ function ExternalSkinCard({
         : "dark");
   const scope = `external-preview-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const toolbarState = useToolbarCss(
-    readToolbarCss,
+    toolbarPreview ? readToolbarCss : undefined,
     skin.id,
     skin.toolbarStylesheet,
     revision,
@@ -205,9 +207,11 @@ function ExternalSkinCard({
             onImageError={() => setDecodeFailed(true)}
           />
         </div>
-        <div className={settings.skinPreviewStage} data-skin-stage="">
-          <SkinToolbarPreview />
-        </div>
+        {toolbarPreview && (
+          <div className={settings.skinPreviewStage} data-skin-stage="">
+            <SkinToolbarPreview />
+          </div>
+        )}
       </div>
       {paletteFailed && (
         <p role="status" className="skin-card-description external-skin-resource-note">
@@ -224,7 +228,7 @@ function ExternalSkinCard({
           当前宿主不支持皮肤图片预览。
         </p>
       )}
-      {skin.toolbarStylesheet && !readToolbarCss && (
+      {toolbarPreview && skin.toolbarStylesheet && !readToolbarCss && (
         <p className="skin-card-description external-skin-resource-note">
           当前宿主不支持外部工具栏样式。
         </p>
@@ -250,6 +254,7 @@ export function ExternalSkins({
   layout,
   onSelect,
   activeTheme = "dark",
+  toolbarPreview = true,
 }: {
   scan?: () => Promise<SkinCatalog>;
   openDirectory?: () => Promise<void>;
@@ -266,6 +271,8 @@ export function ExternalSkins({
   layout: string;
   onSelect: (id: string) => void;
   activeTheme?: "dark" | "light";
+  /** The host draws a floating toolbar the skin styles. The Linux hosts present the toolbar as an input method menu, so their cards preview only the candidate window. */
+  toolbarPreview?: boolean;
 }) {
   const [catalog, setCatalog] = useState<SkinCatalog | null>(null);
   const [revision, setRevision] = useState(0);
@@ -405,6 +412,7 @@ export function ExternalSkins({
             readToolbarCss={readToolbarCss}
             revision={revision}
             activeTheme={activeTheme}
+            toolbarPreview={toolbarPreview}
           />
         ))}
       </div>

@@ -270,6 +270,17 @@ bool InputState::synchronize_input_mode(const FocusLease &lease,
     return owner->set_chinese_punctuation(lease, packet.pinyin_length != 0);
   return true;
 }
+bool InputState::balance_paired_punctuation(
+    const FocusLease &lease, const FanyImeNamedpipeData &packet) {
+  check_thread();
+  if (!valid_main_frame(packet, lease.transport.client) ||
+      packet.event_type !=
+          FanyImePipeEventType::PairedPunctuationAutoClosed)
+    throw std::invalid_argument("Invalid paired punctuation notification");
+  auto *owner = session(lease.transport);
+  return owner && owner->balance_paired_punctuation(
+                      lease, static_cast<uint8_t>(packet.keycode));
+}
 bool InputState::delivered(const FocusLease &lease, uint64_t request) {
   check_thread();
   auto *owner = session(lease.transport);

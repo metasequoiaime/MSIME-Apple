@@ -18,6 +18,11 @@ import android.view.KeyEvent;
  * however the preference is set. That is the rule the Windows host already follows, and it is not
  * a preference the user can override: the mark has nowhere else to come from.
  *
+ * <p>`Home`/`End` are here rather than with the editor's caret keys because while a list is on
+ * screen they belong to it: they move the highlight to the first and last candidate of the whole
+ * list. Nothing binds them, and no host offers to rebind them. Leaving them out is what made this
+ * host the only one where a composition plus `End` moved the caret instead.
+ *
  * <p>A pair the user turned off is not swallowed. The key goes on to whatever it would have done
  * without this feature — for the punctuation pairs that means the Engine ends the composition with
  * the highlighted candidate and inserts the mark, which is what the source does. Consuming it
@@ -30,6 +35,8 @@ public final class CandidateNavigationPolicy {
     private static final int PREVIOUS_PAGE = 101;
     private static final int NEXT_CANDIDATE = 102;
     private static final int PREVIOUS_CANDIDATE = 103;
+    private static final int FIRST_CANDIDATE = 104;
+    private static final int LAST_CANDIDATE = 105;
 
     /** The five switches this host can act on, read from the shared `navigation` object. */
     public record Bindings(boolean minusEqual, boolean commaPeriod, boolean brackets,
@@ -62,6 +69,13 @@ public final class CandidateNavigationPolicy {
             return NONE;
         }
         return switch (keyCode) {
+            // Home and End jump to the ends of the whole list, not of the page, and releasing the
+            // withheld candidates is part of what the End command does. They are not one of the
+            // five pairs the user can rebind - the source reserves them - so no binding gates them.
+            // With nothing composed the caller never reaches this and they stay the editor's caret
+            // keys, which is the same split macOS makes on its own panel visibility.
+            case KeyEvent.KEYCODE_MOVE_HOME -> FIRST_CANDIDATE;
+            case KeyEvent.KEYCODE_MOVE_END -> LAST_CANDIDATE;
             case KeyEvent.KEYCODE_DPAD_UP ->
                 bindings.arrows() ? PREVIOUS_CANDIDATE : NONE;
             case KeyEvent.KEYCODE_DPAD_DOWN ->

@@ -916,6 +916,7 @@ impl<E: InputEngine> Runtime<E> {
             || snapshot.candidate_annotations.len() != count
             || snapshot.candidate_positions.len() != count
             || snapshot.candidate_corrected.len() != count
+            || snapshot.candidate_answers_key.len() != count
         {
             return;
         }
@@ -983,6 +984,7 @@ impl<E: InputEngine> Runtime<E> {
         apply_order(&mut snapshot.candidate_sources, &order);
         apply_order(&mut snapshot.candidate_positions, &order);
         apply_order(&mut snapshot.candidate_corrected, &order);
+        apply_order(&mut snapshot.candidate_answers_key, &order);
         if self.engine_order.len() == count {
             apply_order(&mut self.engine_order, &order);
         }
@@ -1000,12 +1002,28 @@ impl<E: InputEngine> Runtime<E> {
             || snapshot.candidate_annotations.len() != count
             || snapshot.candidate_positions.len() != count
             || snapshot.candidate_corrected.len() != count
+            || snapshot.candidate_answers_key.len() != count
         {
             return;
         }
         let texts: Vec<&str> = snapshot.candidates.iter().map(String::as_str).collect();
-        let Some(promote) = reranker.best(&self.ai_context, &texts, &snapshot.candidate_sources)
-        else {
+        // A dictionary hit earns the model's deference because it carries corpus frequency for the
+        // key the user typed. That premise fails the moment the engine offers a correction of that
+        // key: the frequency then belongs to the letters that arrived rather than to the word they
+        // were aiming at, and the list holds both readings. So the whole list loses the exemption,
+        // not the corrected rows — the row that would wrongly win is the uncorrected one.
+        //
+        // With correction off, or with nothing corrected, this is exactly the previous behaviour,
+        // which is what the 2052-case dictionary measurement was taken on.
+        let corrected_key = snapshot
+            .candidate_corrected
+            .iter()
+            .any(|&corrected| corrected);
+        let Some(promote) = reranker.best_where(&self.ai_context, &texts, |index| CandidateFacts {
+            answers_key: snapshot.candidate_answers_key[index],
+            trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&snapshot.candidate_sources[index])
+                && !corrected_key,
+        }) else {
             return;
         };
         let snapshot = &mut self.cached;
@@ -1015,6 +1033,7 @@ impl<E: InputEngine> Runtime<E> {
         rotate_to_front(&mut snapshot.candidate_sources, promote);
         rotate_to_front(&mut snapshot.candidate_positions, promote);
         rotate_to_front(&mut snapshot.candidate_corrected, promote);
+        rotate_to_front(&mut snapshot.candidate_answers_key, promote);
         if self.engine_order.len() == count {
             rotate_to_front(&mut self.engine_order, promote);
         }
@@ -1077,6 +1096,7 @@ impl<E: InputEngine> Runtime<E> {
         move_to_back(&mut snapshot.candidate_sources, &demote);
         move_to_back(&mut snapshot.candidate_positions, &demote);
         move_to_back(&mut snapshot.candidate_corrected, &demote);
+        move_to_back(&mut snapshot.candidate_answers_key, &demote);
         if self.engine_order.len() == count {
             move_to_back(&mut self.engine_order, &demote);
         }
@@ -1097,6 +1117,7 @@ impl<E: InputEngine> Runtime<E> {
                 candidate_sources: Vec::new(),
                 candidate_positions: Vec::new(),
                 candidate_corrected: Vec::new(),
+                candidate_answers_key: Vec::new(),
                 microsoft_shuangpin: false,
                 shuangpin_profile: String::new(),
                 answered_by_pinyin_fallback: true,
@@ -1131,6 +1152,7 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.candidate_sources == previous.candidate_sources
             && self.cached.candidate_positions == previous.candidate_positions
             && self.cached.candidate_corrected == previous.candidate_corrected
+            && self.cached.candidate_answers_key == previous.candidate_answers_key
         {
             self.highlighted =
                 previous_highlight.min(self.cached.candidates.len().saturating_sub(1));
@@ -1303,6 +1325,17 @@ impl<E: InputEngine> Runtime<E> {
         // for Select, so it can begin a phrase the same way.
         let mut selected_by_digit = false;
         let character_action = matches!(action, Action::Character { .. });
+        // Wubi top-commit (顶字): a letter typed after a complete four-letter code the Wubi table
+        // answered, unique or not, commits the first candidate and starts the next composition
+        // with that letter. The Engine caps a native Wubi code at four letters and would drop the
+        // fifth, so without this the user loses the key they typed. It is judged on the reading
+        // before the key, with the caret at its end: a caret moved back into the code is an edit
+        // of the code, not the start of the next character. A held phrase stays open, matching
+        // the reference's creating-word guard.
+        let wubi_top_commit = matches!(action, Action::Character { value, .. } if value.is_ascii_alphabetic())
+            && self.snapshot_valid
+            && self.phrase_prefix.is_empty()
+            && wubi_four_code_is_complete(&self.cached);
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -1316,6 +1349,13 @@ impl<E: InputEngine> Runtime<E> {
             Action::Punctuation(value) => self.punctuation(value),
             Action::PunctuationAscii(value) => self.punctuation_ascii(value),
             Action::Finish => self.engine.finish(self.engine_index(self.highlighted)),
+            Action::Character { value, shift } if wubi_top_commit => self
+                .engine
+                .select(self.engine_index(0))
+                .and_then(|committed| {
+                    self.engine.character(value, shift)?;
+                    Ok(committed)
+                }),
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
                     // The nine-key separator is a layout action, not Chinese quote punctuation.
@@ -1427,4 +1467,26 @@ pub(crate) fn empty_result(handled: bool) -> EngineResult {
         commit: String::new(),
         diagnostic: String::new(),
     }
+}
+
+/// The reference Engine's `wubi_four_code_is_complete`, read off the snapshot this Engine already
+/// publishes: the guards of `wubi_unique_four_code` without the candidate count. The code is a
+/// native Wubi one (not dedicated English, no local mode, not answered by the pinyin fallback), it
+/// is exactly the four letters the Wubi scheme caps a table-answered code at, the caret is at its
+/// end, and there is a candidate to commit: a four-letter spelling no row matched was not answered
+/// by the table, and committing nothing would still drop the key.
+pub(crate) fn wubi_four_code_is_complete(snapshot: &EngineSnapshot) -> bool {
+    const WUBI_COMPLETE_CODE_LENGTH: usize = 4;
+    snapshot.scheme == 2
+        && !snapshot.dedicated_english
+        && snapshot.local_mode == "none"
+        && !snapshot.nine_key
+        && !snapshot.answered_by_pinyin_fallback
+        && snapshot.editing_text.len() == WUBI_COMPLETE_CODE_LENGTH
+        && snapshot
+            .editing_text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphabetic())
+        && snapshot.caret_position == WUBI_COMPLETE_CODE_LENGTH
+        && !snapshot.candidates.is_empty()
 }

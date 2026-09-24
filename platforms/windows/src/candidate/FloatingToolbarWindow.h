@@ -46,10 +46,11 @@ public:
     if (!settings.valid()) return;
     const double scale = static_cast<double>(settings.scale_percent) / 100.0;
     if (scale_ == scale && font_size_ == static_cast<int>(settings.font_size) &&
-        items_ == settings.items) return;
+        items_ == settings.items && language_button_ == settings.language) return;
     scale_ = scale;
     font_size_ = static_cast<int>(settings.font_size);
     items_ = settings.items;
+    language_button_ = settings.language;
     hovered_.reset();
     pressed_.reset();
     shown_.reset();
@@ -141,5 +142,7 @@ private:
   double scale_ = 1.0;
   int font_size_ = 24;
   std::array<bool, 6> items_{true, true, true, true, false, true};
+  // Whether the 中/英 button is drawn; the shared `english_mode` toolbar item.
+  bool language_button_ = true;
 };
 } // namespace msime::windows

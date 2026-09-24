@@ -10,6 +10,11 @@ class KeyRouterAdapter {
   static uint32_t virtual_key(uint32_t key_symbol) {
     return key_symbol <= 0xff ? key_symbol : 0;
   }
+  // msime_client_key_event_valid accepts only the low four modifier bits, so host masks such as IBus SUPER (1 << 26) must be folded into them or every Super chord is rejected before the engine sees it.
+  static uint32_t modifiers(bool shift, bool control, bool alt, bool super) {
+    return (shift ? 0x1u : 0u) | (control ? 0x2u : 0u) | (alt ? 0x4u : 0u) |
+           (super ? 0x8u : 0u);
+  }
   void set_lease(msime_client_focus_lease lease) { lease_ = lease; }
   void clear_lease() { lease_ = {}; }
   msime_client_key_dispatch_result check(const msime_client_key_event &event) const {

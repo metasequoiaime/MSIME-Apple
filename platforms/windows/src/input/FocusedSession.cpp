@@ -112,7 +112,7 @@ bool FocusedSession::prepare(const FocusLease &lease) {
       if (composer_)
         composer_->cancel();
       preferences_retry_.reset();
-      auto_commit_hide_pending_ = false;
+      continuation_hide_.clear();
       session_.activate(lease.epoch);
       composer_.emplace(client_, lease.epoch);
       lease_ = lease;
@@ -210,7 +210,7 @@ bool FocusedSession::confirm(const FocusLease &lease, uint64_t request) {
   });
   if (confirmed) {
     if (auto_commit)
-      auto_commit_hide_pending_ = true;
+      continuation_hide_.arm(ContinuationHide::Clock::now());
     record_commit(delivered);
   }
   return confirmed;
@@ -330,6 +330,15 @@ bool FocusedSession::set_chinese_punctuation(const FocusLease &lease, bool enabl
     session_.set_chinese_punctuation(lease.epoch, enabled);
   });
 }
+bool FocusedSession::balance_paired_punctuation(const FocusLease &lease,
+                                                uint8_t opening) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    session_.balance_paired_punctuation(lease.epoch, opening);
+  });
+}
 bool FocusedSession::cancel_composition(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))
@@ -339,7 +348,7 @@ bool FocusedSession::cancel_composition(const FocusLease &lease) {
       throw std::logic_error("Composition cancelled before reply delivery");
     session_.cancel_composition(lease.epoch);
     composer_->cancel();
-    auto_commit_hide_pending_ = false;
+    continuation_hide_.clear();
   });
 }
 HideCandidateDisposition
@@ -351,12 +360,10 @@ FocusedSession::hide_candidate(const FocusLease &lease) {
   gate_.with_active(lease, [&] {
     if (composer_->has_pending())
       throw std::logic_error("Composition hidden before reply delivery");
-    if (auto_commit_hide_pending_) {
-      auto_commit_hide_pending_ = false;
-      if (!session_.view().at("editing_text").get<std::string>().empty()) {
-        disposition = HideCandidateDisposition::Suppressed;
-        return;
-      }
+    if (continuation_hide_.consume(ContinuationHide::Clock::now()) &&
+        !session_.view().at("editing_text").get<std::string>().empty()) {
+      disposition = HideCandidateDisposition::Suppressed;
+      return;
     }
     session_.cancel_composition(lease.epoch);
     composer_->cancel();
@@ -381,7 +388,7 @@ bool FocusedSession::cancel(const FocusLease &lease) {
   gate_.deactivate(lease);
   composer_->cancel();
   preferences_retry_.reset();
-  auto_commit_hide_pending_ = false;
+  continuation_hide_.clear();
   session_.deactivate(lease.epoch);
   composer_.reset();
   lease_.reset();

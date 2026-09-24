@@ -55,6 +55,15 @@ int main() {
       REQUIRE(!candidate_punctuation(key(code, '!'), no_paging));
     }
 
+    // The Japanese scheme never pages on minus/equals, so their shifted and unshifted punctuation commits the highlighted candidate there. A bare '-' is the long-vowel mark and the numpad keys are unchanged.
+    REQUIRE(candidate_punctuation(key(0xBB, '='), no_paging, true));
+    REQUIRE(candidate_punctuation(key(0xBB, '+'), no_paging, true));
+    REQUIRE(candidate_punctuation(key(0xBD, '_'), no_paging, true));
+    REQUIRE(!candidate_punctuation(key(0xBD, '-'), no_paging, true));
+    REQUIRE(!candidate_punctuation(key(0xBB, '!'), no_paging, true));
+    REQUIRE(!candidate_punctuation(key(0x6B, '+'), no_paging, true));
+    REQUIRE(!candidate_punctuation(key(0xBB, '='), no_paging));
+
     // Comma and period are on the list, until they are bound as paging keys.
     NavigationBindings comma_period = no_paging;
     comma_period.comma_period = true;

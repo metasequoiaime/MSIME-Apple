@@ -1156,7 +1156,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       let leading = try button("candidate-1", in: controller)
       XCTAssertGreaterThanOrEqual(leading.convert(leading.bounds, to: scroll).minX, 0)
 
-      // The strip shows nine; everything past them is reached by expanding rather than by paging
+      // The strip shows a page (nine by default); everything past them is reached by expanding rather than by paging
       // nine at a time, which for a query answering with hundreds left the tail unreachable.
       let expand = try button("expandCandidates", in: controller)
       XCTAssertFalse(expand.isHidden)
@@ -1166,7 +1166,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" })
       let chips = descendants(panel).compactMap { $0.accessibilityIdentifier }
         .filter { $0.hasPrefix("panelCandidate-") }
-      XCTAssertGreaterThan(chips.count, KeyboardViewController.candidatePageSize)
+      XCTAssertGreaterThan(chips.count, CandidatePageSizePreference.defaultSize)
       let close = try XCTUnwrap(
         descendants(panel).first { $0.accessibilityIdentifier == "closeCandidatePanel" } as? UIButton)
       close.sendActions(for: .primaryActionTriggered)

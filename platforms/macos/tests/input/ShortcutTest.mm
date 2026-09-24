@@ -277,8 +277,15 @@ static void TestBackspaceHoldDoesNotEscapeComposition() {
                                isARepeat:repeat keyCode:51];
     };
 
+    // Backspace disarms the same-key revert that follows a space conversion, so only the character just converted can be taken back.
+    [controller setValue:@((unichar)',') forKey:@"spaceRevertKey"];
+    [controller setValue:@((unichar)0xFF0C) forKey:@"spaceRevertChinese"];
+    [controller setValue:@(NSProcessInfo.processInfo.systemUptime) forKey:@"spaceRevertTime"];
+    [controller setValue:client forKey:@"spaceRevertClient"];
     assert([controller handleEvent:backspace(NO) client:client]);
     assert(session.commandCalls == 1 && session.lastCommand == MSIME_BACKSPACE);
+    assert([[controller valueForKey:@"spaceRevertKey"] integerValue] == 0);
+    assert(![controller valueForKey:@"spaceRevertClient"]);
     assert([controller handleEvent:backspace(YES) client:client]);
     assert(session.commandCalls == 1); // Repeat is swallowed without touching Engine or document text.
 
@@ -1064,6 +1071,35 @@ static void TestPairedPunctuationClosesThePair() {
     assert([client.committed isEqual:@"‘"] && [client.marked isEqual:@"’"]);
     [controller flushPendingPairedClosing];
 
+    // A punctuation key typed during a composition finishes it, and the Engine commits the candidate and the mark as one string. The pair is read from the last character of that commit, the way the reference reads `punctuationStr.back()`.
+    [controller setValue:@('(') forKey:@"punctuationKeyInFlight"];
+    [controller apply:@{@"commit": @"你好（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"你好（"]);
+    assert([client.marked isEqual:@"）"]);
+    [controller apply:@{@"commit": @"吗", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"吗）"]);
+    // The quote toggle is reopened on the last character only, and only for a quote key.
+    [controller setValue:@('"') forKey:@"punctuationKeyInFlight"];
+    [controller apply:@{@"commit": @"你好”", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"你好“"] && [client.marked isEqual:@"”"]);
+    [controller flushPendingPairedClosing];
+    const NSUInteger balancedBeforeTail = session.balanceCalls;
+    [controller setValue:@('<') forKey:@"punctuationKeyInFlight"];
+    [controller apply:@{@"commit": @"你好《", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"你好《"] && [client.marked isEqual:@"》"]);
+    assert(session.balanceCalls == balancedBeforeTail + 1 && session.lastBalanceOpening == '<');
+    [controller flushPendingPairedClosing];
+    // A candidate or phrase that merely ends in a mark is not a punctuation key: it is committed as it is and nothing is owed.
+    [controller apply:@{@"commit": @"“好”", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"“好”"] && client.marked.length == 0);
+    [controller apply:@{@"commit": @"你好（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"你好（"] && client.marked.length == 0);
+    // The key is consumed by the apply it belonged to, so it never reaches a later candidate commit.
+    [controller setValue:@('(') forKey:@"punctuationKeyInFlight"];
+    [controller apply:@{@"commit": NSNull.null, @"view": @{@"editing_text": @"ni", @"caret_position": @2}}];
+    [controller apply:@{@"commit": @"你好（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"你好（"] && client.marked.length == 0);
+
     // With the preference off nothing is owed, the commit is what the Engine said, and the Engine
     // is told nothing - its own alternation and nesting are what a host without pairing wants.
     appearance.pairedPunctuation = NO;
@@ -1074,7 +1110,87 @@ static void TestPairedPunctuationClosesThePair() {
     assert([client.committed isEqual:@"《"] && client.marked.length == 0);
     [controller apply:@{@"commit": @"”", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
     assert([client.committed isEqual:@"”"]);
+    [controller setValue:@('(') forKey:@"punctuationKeyInFlight"];
+    [controller apply:@{@"commit": @"你好（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"你好（"] && client.marked.length == 0);
     assert(session.balanceCalls == balancedSoFar);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestPairedPunctuationClosesBrace() {
+    // The reference routes `{` through its punctuation path and appends `}` (`_GetPairedPunctuationClosingFor`), with or without a live composition. The Engine answers `{` as ASCII, so the host opens the pair itself and the closing mark rides after the caret like the other pairs.
+    NSString *suite = [@"app.msime.test.paired-brace." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(appearance.pairedPunctuation && appearance.runtimeChinesePunctuation && !appearance.runtimeFullWidthInput);
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"";
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] };
+    NSEvent *brace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                                      timestamp:0 windowNumber:0 context:nil characters:@"{" charactersIgnoringModifiers:@"["
+                                      isARepeat:NO keyCode:33];
+    NSEvent *closeBrace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                                           timestamp:0 windowNumber:0 context:nil characters:@"}" charactersIgnoringModifiers:@"]"
+                                           isARepeat:NO keyCode:30];
+
+    // Idle: the Engine leaves `{` alone, so the host commits it and owes `}`.
+    [controller setValue:idle forKey:@"view"];
+    session.punctuationASCIITransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    assert([controller handleEvent:brace client:client]);
+    assert(session.punctuationASCIICalls == 1 && session.lastPunctuationASCII == '{' && session.asciiCalls == 0);
+    assert([client.committed isEqual:@"{"] && [client.marked isEqual:@"}"]);
+
+    // The next commit takes the closing mark with it, and a `}` typed before it is stepped over.
+    [controller apply:@{ @"commit": @"a", @"view": idle }];
+    assert([client.committed isEqual:@"a}"] && [client.document isEqual:@"{a}"]);
+    client.selection = NSMakeRange(2, 0);
+    const NSUInteger asciiBeforeStep = session.asciiCalls;
+    assert([controller handleEvent:closeBrace client:client]);
+    assert(session.asciiCalls == asciiBeforeStep && [client.document isEqual:@"{a}"] && client.selection.location == 3);
+
+    // Composing: the Engine commits the highlighted candidate followed by `{`, and the pair is still opened.
+    client.document = @"";
+    client.selection = NSMakeRange(0, 0);
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"ni", @"candidates": @[] } forKey:@"view"];
+    session.punctuationASCIITransition = @{ @"handled": @YES, @"commit": @"你{", @"view": idle };
+    assert([controller handleEvent:brace client:client]);
+    assert([client.committed isEqual:@"你{"] && [client.marked isEqual:@"}"] && session.asciiCalls == asciiBeforeStep);
+    [controller flushPendingPairedClosing];
+    assert([client.committed isEqual:@"}"]);
+
+    // Full-width input pairs the full-width marks, idle and composing alike.
+    appearance.runtimeFullWidthInput = YES;
+    session.punctuationASCIITransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    [controller setValue:idle forKey:@"view"];
+    assert([controller handleEvent:brace client:client]);
+    assert([client.committed isEqual:@"｛"] && [client.marked isEqual:@"｝"]);
+    [controller flushPendingPairedClosing];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"ni", @"candidates": @[] } forKey:@"view"];
+    session.punctuationASCIITransition = @{ @"handled": @YES, @"commit": @"你{", @"view": idle };
+    assert([controller handleEvent:brace client:client]);
+    assert([client.committed isEqual:@"你｛"] && [client.marked isEqual:@"｝"]);
+    [controller flushPendingPairedClosing];
+    appearance.runtimeFullWidthInput = NO;
+
+    // With pairing or Chinese punctuation off, `{` is an ordinary key for the Engine and nothing is owed.
+    session.punctuationASCIITransition = nil;
+    session.nextTransition = @{ @"handled": @YES, @"commit": @"{", @"view": idle };
+    for (NSUInteger variant = 0; variant < 2; ++variant) {
+        appearance.pairedPunctuation = variant != 0;
+        appearance.runtimeChinesePunctuation = variant == 0;
+        [controller setValue:idle forKey:@"view"];
+        client.marked = nil;
+        session.asciiCalls = 0;
+        const NSUInteger punctuationCalls = session.punctuationASCIICalls;
+        assert([controller handleEvent:brace client:client]);
+        assert(session.asciiCalls == 1 && session.lastASCII == '{' && session.punctuationASCIICalls == punctuationCalls);
+        assert([client.committed isEqual:@"{"] && client.marked.length == 0);
+    }
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -1210,13 +1326,17 @@ static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
     [controller setValue:session forKey:@"session"];
     [controller setValue:@{@"editing_text":@"test", @"candidates":@[]} forKey:@"view"];
     NSEventModifierFlags flags = NSEventModifierFlagControl | NSEventModifierFlagShift;
-    session.failFinish = YES;
+    // Ctrl+Shift+E cancels the composition as the reference's FUNCTION_CANCEL does. The stub's default reply commits text, so a view-only cancel reply is what makes a stray commit visible.
+    NSDictionary *previousCancel = session.cancelTransition;
+    session.cancelTransition = @{ @"handled": @YES, @"commit": NSNull.null,
+                                  @"view": @{ @"editing_text": @"", @"caret_position": @0, @"candidates": @[] } };
+    session.failCancel = YES;
     assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
-    assert(session.englishCandidateCalls == 0);
-    session.failFinish = NO;
+    assert(session.englishCandidateCalls == 0 && !session.dedicatedEnglish);
+    session.failCancel = NO;
     assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
     assert(session.dedicatedEnglish && session.englishCandidateCalls == 1 && !appearance.englishMode);
-    assert([client.committed isEqual:@"测试"]);
+    assert(session.lastCommand == MSIME_CANCEL && client.committed == nil && client.marked.length == 0);
     assert([[[controller menu] itemAtIndex:2] state] == NSControlStateValueOn);
     assert([[[controller menu] itemAtIndex:0] state] == NSControlStateValueOff);
     assert([controller handleEvent:ModeKey(14, flags, YES) client:client]);
@@ -1228,6 +1348,35 @@ static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
     assert(session.dedicatedEnglish && !appearance.englishMode);
     assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
     assert(!session.dedicatedEnglish && !appearance.englishMode);
+    // Leaving the mode with an English word being spelled drops the word too.
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(session.dedicatedEnglish);
+    [controller setValue:@{@"editing_text":@"hello", @"candidates":@[], @"dedicated_english":@YES} forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(session.lastCommand == MSIME_CANCEL && client.committed == nil && client.marked.length == 0);
+    assert(!session.dedicatedEnglish && !appearance.englishMode);
+    // Switching to English by any route leaves the candidate mode, as the reference's status task calls SetEnglishInputMode(false) whenever the mode turns English, so switching back gives pinyin.
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(session.dedicatedEnglish && !appearance.englishMode);
+    NSUInteger englishCalls = session.englishCandidateCalls;
+    [controller selectEnglishMode:nil];
+    assert(!session.dedicatedEnglish && appearance.englishMode && session.englishCandidateCalls == englishCalls + 1);
+    [controller setEnglishInputMode:NO];
+    assert(!session.dedicatedEnglish && !appearance.englishMode && session.englishCandidateCalls == englishCalls + 1);
+    assert([[[controller menu] itemAtIndex:0] state] == NSControlStateValueOn);
+    assert([[[controller menu] itemAtIndex:2] state] == NSControlStateValueOff);
+    const BOOL previousInputModeShortcut = appearance.inputModeShortcut;
+    appearance.inputModeShortcut = YES;
+    assert([controller handleEvent:ModeKey(14, flags, NO) client:client]);
+    assert(session.dedicatedEnglish && !appearance.englishMode);
+    englishCalls = session.englishCandidateCalls;
+    assert([controller handleEvent:ModeKey(49, NSEventModifierFlagShift, NO) client:client]);
+    assert(!session.dedicatedEnglish && appearance.englishMode && session.englishCandidateCalls == englishCalls + 1);
+    assert([controller handleEvent:ModeKey(49, NSEventModifierFlagShift, NO) client:client]);
+    assert(!session.dedicatedEnglish && !appearance.englishMode && session.englishCandidateCalls == englishCalls + 1);
+    appearance.inputModeShortcut = previousInputModeShortcut;
+    session.cancelTransition = previousCancel;
     NSUInteger calls = session.englishCandidateCalls;
     for (NSNumber *extra in @[@(NSEventModifierFlagCommand), @(NSEventModifierFlagOption)]) {
         [controller handleEvent:ModeKey(14, flags | extra.unsignedIntegerValue, NO) client:client];
@@ -1309,6 +1458,11 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
         assert([controller handleEvent:key client:client]);
         assert(client.committed.length == 1);
         assert([client.committed characterAtIndex:0] == (character == 32 ? 0x3000 : character + 0xFEE0));
+        // With pairing on, `{` opens a full-width pair; close it so the next keys are checked on their own.
+        if (character == '{') {
+            assert([client.marked isEqual:@"｝"]);
+            [controller flushPendingPairedClosing];
+        }
     }
     client.committed = nil;
     session.nextTransition = @{@"handled": @YES, @"view": @{@"editing_text": @"a", @"candidates": @[]}};
@@ -1679,6 +1833,73 @@ static void TestGlossSensePage(MSIMEAppearancePreferences *appearance) {
     assert(![controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
     assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
     appearance.candidateTranslations = YES;
+}
+
+// Ctrl+Enter translations, the senses page and the Option/Ctrl+digit gloss columns insert text through the same Traditional conversion as every other commit (the reference's CandidateTextForOutput), and the page that is drawn converted inserts what it shows.
+static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    TestCandidatePanel *panel = [TestCandidatePanel new];
+    panel.visible = YES;
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    const BOOL savedTraditional = appearance.traditionalOutput;
+    appearance.englishMode = NO;
+    appearance.candidateTranslations = YES;
+    appearance.traditionalOutput = YES;
+    session.cancelTransition = @{ @"handled": @YES,
+                                  @"view": @{ @"editing_text": @"", @"caret_position": @0, @"candidates": @[] } };
+    void (^compose)(NSString *, NSString *) = ^(NSString *gloss, NSString *localMode) {
+        NSMutableDictionary *view = [@{ @"focused": @YES, @"scheme": @0, @"editing_text": @"apple", @"caret_position": @5,
+                                        @"candidates": @[@{@"text": @"apple", @"highlighted": @YES, @"translation": gloss},
+                                                         @{@"text": @"apply"}] } mutableCopy];
+        if (localMode) view[@"local_mode"] = localMode;
+        [controller setValue:view forKey:@"view"];
+        panel.visible = YES;
+    };
+
+    // A single-sense Ctrl+Enter commits the Traditional form and still clears the composition.
+    compose(@"苹果", nil);
+    client.committed = nil;
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    assert([client.committed isEqual:@"蘋果"]);
+    assert(session.lastCommand == MSIME_CANCEL);
+
+    // The senses page picks the sense through the same conversion it is drawn with.
+    compose(@"头发; 苹果", nil);
+    client.committed = nil;
+    assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    assert(!client.committed);
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(19, 0, NO) client:client]); // 2
+    assert([client.committed isEqual:@"蘋果"]);
+    assert(session.lastCommand == MSIME_CANCEL);
+
+    // Option+digit takes the first gloss column of that candidate.
+    compose(@"苹果", nil);
+    client.committed = nil;
+    assert([controller handleEvent:ModeKey(18, NSEventModifierFlagOption, NO) client:client]); // Option+1
+    assert([client.committed isEqual:@"蘋果"]);
+
+    // Temporary Japanese is exempt, as it is for Engine commits.
+    compose(@"苹果", @"temporary_japanese");
+    client.committed = nil;
+    assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    assert([client.committed isEqual:@"苹果"]);
+
+    // With the switch off the gloss is inserted as the dictionary has it.
+    appearance.traditionalOutput = NO;
+    compose(@"头发; 苹果", nil);
+    client.committed = nil;
+    assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    assert([controller handleEvent:ModeKey(19, 0, NO) client:client]);
+    assert([client.committed isEqual:@"苹果"]);
+
+    appearance.traditionalOutput = savedTraditional;
 }
 
 static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
@@ -4791,7 +5012,8 @@ int main(int argc, char **argv) {
         assert(rendered.font.pointSize == 18);
         assert(fabs(((MSIMECandidateButton *)rendered).numberFont.pointSize - 14.4) < 0.01);
         assert([rendered.toolTip isEqualToString:@"合成候选布局测试文本"]);
-        assert(rendered.lineBreakMode == NSLineBreakByTruncatingTail);
+        // Candidates wrap inside their column instead of being cut off with an ellipsis.
+        assert(rendered.lineBreakMode == NSLineBreakByWordWrapping);
         client.caret = NSZeroRect;
         [controller renderCandidates];
         assert(!layoutPanel.requestedVisible);
@@ -5301,6 +5523,9 @@ int main(int argc, char **argv) {
             assert(session.lastCommand == expected);
         }
         CheckMenu([controller menu], controller);
+        // Pairing sends a shifted `{` down the paired-punctuation route; this loop is about page keys versus typed keys only.
+        const BOOL pairedBeforePaging = appearance.pairedPunctuation;
+        appearance.pairedPunctuation = NO;
         for (NSInteger option = 0; option < 3; ++option) {
             appearance.pageShortcut = option;
             NSArray *plain = @[@"-", @"=", @"[", @"]"];
@@ -5333,6 +5558,7 @@ int main(int argc, char **argv) {
                 assert(session.lastCommand == (key.unsignedShortValue == 116 ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE));
             }
         }
+        appearance.pairedPunctuation = pairedBeforePaging;
         // Japanese owns the physical ANSI minus/equal keys even when the
         // active layout reports different characters. They must reach Engine
         // instead of becoming candidate-page shortcuts.
@@ -5570,7 +5796,8 @@ int main(int argc, char **argv) {
         [controller setValue:annotated forKey:@"view"];
         [controller renderCandidates];
         scriptButton = PageButton(layoutPanel.contentView, 0);
-        assert([scriptButton.title containsString:@"漢語(aB)"]);
+        // The annotation is drawn as its own run after the candidate text; the tooltip keeps the combined form.
+        assert([scriptButton.title containsString:@"漢語"] && ![scriptButton.title containsString:@"(aB)"] && [scriptButton.annotation isEqual:@"(aB)"]);
         assert([scriptButton.toolTip isEqual:@"漢語(aB)"]);
         assert([scriptButton.candidateID isEqual:word[@"id"]]);
         assert([word[@"text"] isEqual:@"汉语"]);
@@ -5620,7 +5847,7 @@ int main(int argc, char **argv) {
                 [controller renderCandidates];
                 scriptButton = PageButton(layoutPanel.contentView, 0);
                 assert(scriptButton.candidateFixed == valid);
-                assert([scriptButton.title containsString:@"漢語*(aB)"] && [scriptButton.candidateID isEqual:word[@"id"]]);
+                assert([scriptButton.title containsString:@"漢語*"] && [scriptButton.annotation isEqual:@"(aB)"] && [scriptButton.candidateID isEqual:word[@"id"]]);
                 if (valid) {
                     NSColor *color = [scriptButton.titleColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
                     assert(fabs(color.redComponent - 55.0/255) < 0.001 && fabs(color.greenComponent - 154.0/255) < 0.001 && fabs(color.blueComponent - 211.0/255) < 0.001);
@@ -5642,7 +5869,9 @@ int main(int argc, char **argv) {
                 [controller renderCandidates];
                 scriptButton = PageButton(layoutPanel.contentView, 0);
                 NSString *expected = source.integerValue == 2 ? @"漢語(aB) ☁️" : @"漢語(aB) 🤖";
-                assert([scriptButton.title containsString:expected] && [scriptButton.toolTip isEqual:expected]);
+                // The badge belongs to the text run, as in the Windows presenter; the annotation follows it.
+                NSString *textRun = source.integerValue == 2 ? @"漢語 ☁️" : @"漢語 🤖";
+                assert([scriptButton.title containsString:textRun] && [scriptButton.annotation isEqual:@"(aB)"] && [scriptButton.toolTip isEqual:expected]);
                 assert([scriptButton.candidateID isEqual:word[@"id"]] && [word isEqual:unchanged]);
                 assert(scriptButton.frame.size.width > 0 && scriptButton.frame.size.height > 0);
             }
@@ -5696,6 +5925,7 @@ int main(int argc, char **argv) {
         TestFloatingToolbarMenuToggle(appearance);
         TestJapaneseConversionKeys(appearance);
         TestGlossSensePage(appearance);
+        TestGlossSenseTraditionalOutput(appearance);
         TestSegmentEditingChords(appearance);
         TestBackspaceHoldDoesNotEscapeComposition();
         TestKeypadOperators(appearance);
@@ -5707,6 +5937,7 @@ int main(int argc, char **argv) {
         TestPairedPunctuationPreferences();
         TestPairedPunctuationHostExclusion();
         TestPairedPunctuationClosesThePair();
+        TestPairedPunctuationClosesBrace();
         TestEmojiBridgeFallback();
         TestMixedInputPreferences();
         TestCharacterSetShortcut();
