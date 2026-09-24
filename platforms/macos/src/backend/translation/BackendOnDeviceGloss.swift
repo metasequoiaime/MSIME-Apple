@@ -1,0 +1,78 @@
+// The macOS 26 SDK is the first with TranslationSession(installedSource:target:), the only way to get a session outside a SwiftUI view, and Swift 6.2 is the first compiler that ships with it. An older toolchain builds MSIMEBackend without this file, and InputController.mm finds the weak-imported entry point null.
+#if compiler(>=6.2) && canImport(Translation)
+import Foundation
+import Translation
+
+// Candidate glosses from Apple's on-device translation models, for the Chinese candidates the packaged offline dictionaries leave empty. Only a language pair the user already downloaded in System Settings is used: nothing here starts a download, and a pair that is merely supported is skipped until it is installed. Translation runs on this Mac, so the candidates never leave it.
+@available(macOS 26, *)
+@MainActor
+private enum BackendOnDeviceGloss {
+  static let notification = Notification.Name("MSIMEBackendOnDeviceTranslationsDidArrive")
+  private static let source = Locale.Language(identifier: "zh-Hans")
+  // Asking whether a pair is installed is a round trip to the translation service, so a pair found missing is not asked about again for this long. Downloading one in System Settings takes effect within it.
+  private static let recheck: Duration = .seconds(30)
+  private static var sessions: [String: TranslationSession] = [:]
+  private static var missing: [String: ContinuousClock.Instant] = [:]
+  // One batch in flight per language. Typing replaces the page faster than a batch completes, so only the newest page waits behind it; the pages in between were never going to be shown.
+  private static var busy: Set<String> = []
+  private static var queued: [String: [String]] = [:]
+
+  static func fetch(words: [String], targets: [String]) {
+    for code in targets {
+      queued[code] = words
+      pump(code)
+    }
+  }
+
+  private static func pump(_ code: String) {
+    guard !busy.contains(code), let words = queued.removeValue(forKey: code) else { return }
+    busy.insert(code)
+    Task { @MainActor in
+      defer {
+        busy.remove(code)
+        pump(code)
+      }
+      guard let session = await session(for: code) else { return }
+      let responses: [TranslationSession.Response]
+      do {
+        responses = try await session.translations(from: words.map { TranslationSession.Request(sourceText: $0) })
+      } catch {
+        // The model was removed or the service restarted. The next page asks whether the pair is still installed.
+        sessions[code] = nil
+        return
+      }
+      // A gloss equal to the word itself (a place name the model keeps in kanji, say) tells the reader nothing. It still goes back, empty, so the controller remembers the word as answered instead of asking on every keystroke.
+      var table: [String: String] = [:]
+      for response in responses where table[response.sourceText]?.isEmpty ?? true {
+        table[response.sourceText] = response.targetText == response.sourceText ? "" : response.targetText
+      }
+      guard !table.isEmpty else { return }
+      NotificationCenter.default.post(name: notification, object: nil, userInfo: ["target": code, "translations": table])
+    }
+  }
+
+  private static func session(for code: String) async -> TranslationSession? {
+    if let session = sessions[code] { return session }
+    if let checked = missing[code], ContinuousClock.now - checked < recheck { return nil }
+    let target = Locale.Language(identifier: code)
+    guard await LanguageAvailability().status(from: source, to: target) == .installed else {
+      missing[code] = .now
+      return nil
+    }
+    missing[code] = nil
+    let session = TranslationSession(installedSource: source, target: target)
+    sessions[code] = session
+    return session
+  }
+}
+
+// Called on the main thread by InputController.mm with at most one page of Chinese candidates and the user's target languages. Results arrive as MSIMEBackendOnDeviceTranslationsDidArrive on the main thread, one notification per language.
+@_cdecl("MSIMEFetchOnDeviceCandidateGlosses")
+public func msimeFetchOnDeviceCandidateGlosses(_ wordsJSON: UnsafePointer<CChar>, _ targetsJSON: UnsafePointer<CChar>) {
+  guard #available(macOS 26, *) else { return }
+  guard let words = try? JSONDecoder().decode([String].self, from: Data(String(cString: wordsJSON).utf8)),
+        let targets = try? JSONDecoder().decode([String].self, from: Data(String(cString: targetsJSON).utf8)),
+        !words.isEmpty, words.count <= 32, !targets.isEmpty, targets.count <= 2 else { return }
+  MainActor.assumeIsolated { BackendOnDeviceGloss.fetch(words: words, targets: targets) }
+}
+#endif

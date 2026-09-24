@@ -4239,6 +4239,8 @@ static void TestCloudCandidateConsent() {
 @end
 @interface CustomTranslationSession : GlossSession
 @property(nonatomic, copy) NSDictionary *custom;
+@property(nonatomic, copy) NSArray *queryCandidates;
+@property(nonatomic) BOOL account;
 @property(nonatomic, copy) NSDictionary *tencent;
 @property(nonatomic, copy) NSDictionary *niuTrans;
 @property(nonatomic, copy) NSArray *page;
@@ -4253,7 +4255,8 @@ static void TestCloudCandidateConsent() {
     (void)error;
     return self.enabled ? @{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
         @"target_languages":self.targetLanguages ?: @[], @"offline_gloss_languages":self.offlineGlossLanguages ?: @[],
-        @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}, @"niutrans":self.niuTrans ?: @{}} : nil;
+        @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}, @"niutrans":self.niuTrans ?: @{},
+        @"candidates":self.queryCandidates ?: @[], @"translation_account":@(self.account)} : nil;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error;
@@ -4480,9 +4483,14 @@ static void TestAiCandidateDescriptorFailureIsRetryable() {
 }
 @interface CustomTranslationController : CloudShortcutController
 @property(nonatomic, strong) NSMutableArray<ControlledTranslationBatch *> *batches;
+@property(nonatomic, strong) NSMutableArray<NSArray *> *onDeviceFetches;
 @property(nonatomic) BOOL useRealDelay;
 @end
 @implementation CustomTranslationController
+- (void)fetchOnDeviceGlosses:(NSArray<NSString *> *)words targets:(NSArray<NSString *> *)targets {
+    assert(NSThread.isMainThread);
+    [self.onDeviceFetches addObject:@[words, targets]];
+}
 - (MSIMECustomTranslationBatch *)niuTransBatchForItems:(NSArray<NSDictionary *> *)items config:(NSDictionary *)config
                                            completion:(void (^)(NSArray<NSDictionary *> *))completion {
     ControlledTranslationBatch *batch = (ControlledTranslationBatch *)[self customBatchForItems:items completion:completion];
@@ -4921,6 +4929,80 @@ static void TestOfflineTargetGlosses() {
     assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"test en ligne"}]]));
     [controller cancelCandidateTranslations];
     assert(![controller valueForKey:@"targetGlossRequest"] && ![controller valueForKey:@"targetGlossResults"]);
+    [[MSIMETranslationCache sharedCache] clear];
+}
+// Apple's on-device translation fills only what the offline dictionaries leave empty, and only for a user without a service of their own. Replies are delivered straight to the controller, as in the account tests, because these controllers are built without the activation that registers the observer.
+static void TestOnDeviceGlosses() {
+    [[MSIMETranslationCache sharedCache] clear];
+    NSString *suite = [@"msime.on-device-gloss." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    controller.onDeviceFetches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.offline = YES;
+    session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"]; session.offlineGlossLanguages = @[@"fr"];
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}, @{@"text":@"你好", @"source":@0}];
+    session.queryCandidates = @[@{@"text":@"Hello", @"online_gloss":@NO}, @{@"text":@"测试", @"online_gloss":@YES},
+                                @{@"text":@"你好", @"online_gloss":@YES}];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:prefs forKey:@"appearance"];
+    void (^settle)(void) = ^{
+        [controller synchronizeCandidateGloss];
+        [controller synchronizeTargetGloss];
+        [controller synchronizeOnDeviceGloss];
+        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+        [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    };
+    void (^reply)(NSString *, NSDictionary *) = ^(NSString *target, NSDictionary *translations) {
+        [controller onDeviceCandidateTranslationsDidArrive:[NSNotification notificationWithName:@"MSIMEBackendOnDeviceTranslationsDidArrive"
+            object:nil userInfo:@{@"target":target, @"translations":translations}]];
+    };
+    // Only Chinese candidates are asked about, and the dictionary keeps the rows it answered.
+    settle();
+    assert(controller.onDeviceFetches.count == 1 && ([controller.onDeviceFetches[0] isEqual:@[@[@"测试", @"你好"], @[@"fr"]]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}]]));
+    reply(@"fr", @{@"测试":@"tester", @"你好":@"bonjour"});
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}, @{@"text":@"你好", @"translation":@"bonjour"}]]));
+    // A word already answered, even with nothing useful, is not asked about again.
+    session.generation++; session.page = @[@{@"text":@"你好", @"source":@0}, @{@"text":@"世界", @"source":@0}];
+    session.queryCandidates = @[@{@"text":@"你好", @"online_gloss":@YES}, @{@"text":@"世界", @"online_gloss":@YES}];
+    settle();
+    assert(controller.onDeviceFetches.count == 2 && ([controller.onDeviceFetches[1] isEqual:@[@[@"世界"], @[@"fr"]]]));
+    reply(@"fr", @{@"世界":@""});
+    session.generation++;
+    settle();
+    assert(controller.onDeviceFetches.count == 2 && ([session.delivered isEqual:@[@{@"text":@"你好", @"translation":@"bonjour"}]]));
+    // Without a dictionary for the target it is the only offline source, and rows follow the target order beside the English dictionary.
+    session.generation++; session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"de"]; session.offlineGlossLanguages = @[];
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}];
+    session.queryCandidates = @[@{@"text":@"Hello", @"online_gloss":@NO}, @{@"text":@"测试", @"online_gloss":@YES}];
+    settle();
+    assert(controller.onDeviceFetches.count == 3 && ([controller.onDeviceFetches[2] isEqual:@[@[@"测试"], @[@"en", @"de"]]]));
+    reply(@"de", @{@"测试":@"Test"});
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\nTest"}]]));
+    // A service of the user's own, or the MSIME account, answers every candidate; this path stays idle for both.
+    session.generation++; session.custom = @{@"enabled":@YES, @"endpoint":@"https://on-device.invalid/api", @"api_key":@""};
+    assert(![controller currentOnDeviceGlossRequest]);
+    session.custom = nil; session.account = YES;
+    assert(![controller currentOnDeviceGlossRequest]);
+    session.account = NO;
+    assert([controller currentOnDeviceGlossRequest]);
+    // Switching candidate translation off stops it too.
+    [prefs setValue:@NO forKey:@"candidateTranslations"];
+    assert(![controller currentOnDeviceGlossRequest]);
+    [prefs setValue:@YES forKey:@"candidateTranslations"];
+    // A controller that stopped composing ignores the broadcast.
+    settle();
+    [controller cancelCandidateTranslations];
+    assert(![controller valueForKey:@"onDeviceGlossRequest"]);
+    session.delivered = nil;
+    reply(@"de", @{@"测试":@"ignoriert"});
+    assert(session.delivered == nil);
+    [[NSUserDefaults new] removePersistentDomainForName:suite];
     [[MSIMETranslationCache sharedCache] clear];
 }
 static void TestCustomTranslationController() {
@@ -5364,6 +5446,7 @@ int main(int argc, char **argv) {
             TestAccountGlossRequiresExplicitChoice();
             TestAccountGlossCacheIsSharedAcrossControllers();
             TestOfflineTargetGlosses();
+            TestOnDeviceGlosses();
             TestCustomTranslationController();
             TestSecondaryTranslationScheduling();
             TestCustomTranslationCacheDelivery();
@@ -5395,6 +5478,7 @@ int main(int argc, char **argv) {
         TestAccountGlossRequiresExplicitChoice();
         TestAccountGlossCacheIsSharedAcrossControllers();
         TestOfflineTargetGlosses();
+        TestOnDeviceGlosses();
         TestCustomTranslationController();
         TestSecondaryTranslationScheduling();
         TestCustomTranslationCacheDelivery();

@@ -1024,7 +1024,10 @@ add_test(NAME paired-punctuation COMMAND paired-punctuation-test)
 set(MSIME_OPTIONAL_BACKEND_SYMBOLS
   _MSIMEAccountPaneView _MSIMEAccountPaneAttach _MSIMEAccountPaneClose
   _MSIMEEnsureAnonymousAccount _MSIMEFetchAccountCandidateGlosses
+  _MSIMEFetchOnDeviceCandidateGlosses
   _msime_macos_uninstall_input_source)
+# The input method links MSIMEBackend.dylib itself, but a toolchain older than Swift 6.2 builds that without the on-device translation entry point (BackendOnDeviceGloss.swift), which the controller then finds null.
+target_link_options(MSIMEClientInputMethod PRIVATE "LINKER:-U,_MSIMEFetchOnDeviceCandidateGlosses")
 get_property(MSIME_DIRECTORY_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(msime_target IN LISTS MSIME_DIRECTORY_TARGETS)
   if(msime_target STREQUAL "MSIMEClientInputMethod")

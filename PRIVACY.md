@@ -48,6 +48,8 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 
 macOS、iOS、Android 另提供「水杉账号」（`translation_account`，默认 `false`）：只有你在翻译服务里显式选择它，才会把当前页的中文候选词（包括本地已有释义的）连同目标语言代码 POST 到 `https://api.msime.app/v1/translate`。请求带账号令牌：macOS 与 Android 在你已登录时用登录的账号，否则（以及 iOS 上始终）用一个匿名账号，它在首次翻译时才在 `api.msime.app` 创建。你自己的服务优先：候选翻译关闭、小牛或自定义服务已启用、或腾讯已启用且两项凭据都可用时，都不走水杉账号。共享层把这个判定算成翻译查询里的 `translation_account` 字段（`crates/host-api/src/ffi/providers.rs`），macOS 输入法只在它为真时发请求（`platforms/macos/src/input/InputController.mm` 的 `currentAccountGlossRequest`）；iOS 在 `platforms/ios/SharedUI/candidate/TranslationProviderPreference.swift`、Android 在 `platforms/android/java/app/msime/client/candidate/CandidateTranslationPolicy.java` 的 `accountSelected` 按同一规则判定（Android 没有腾讯客户端，设置页也不能启用腾讯）。Windows、Linux、HarmonyOS 没有这条路径。没有选择任何服务时不发出请求。
 
+macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛、自定义、腾讯都未启用，也没有选择水杉账号），会用 Apple 系统自带的离线翻译模型为随包词典答不上的中文候选补一行释义。翻译在本机完成，候选词不离开这台 Mac；只用你已经在「系统设置 → 通用 → 语言与地区 → 翻译语言」里下载好的语言对，输入法不会触发下载，没下载就不补。代码在 `platforms/macos/src/backend/translation/BackendOnDeviceGloss.swift`，判定在 `InputController.mm` 的 `currentOnDeviceGlossRequest`。
+
 ### 语音输入（默认凭据为空）
 
 `voice_input.enabled` 默认 `true`，但这只表示功能可用，录音要你主动触发。默认识别服务是豆包（`wss://openspeech.bytedance.com/...`），**`asr_token` 默认为空字符串**，不填就无法使用。可选的识别服务还有 SiliconFlow、OpenAI、Groq、EveryAPI、Mistral Voxtral，以及两种不出设备的选项：
