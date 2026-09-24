@@ -2450,8 +2450,13 @@ public final class MSIMEInputService extends InputMethodService {
             toggleChinesePunctuation();
             return true;
         }
-        int candidateSlot = NumberRowSelectionPolicy.slotForKeyCode(keyCode, numberRowSelection);
-        if (candidateSlot >= 0 && !dedicatedEnglish && !event.isShiftPressed()
+        // Shift belongs to the policy rather than to this condition: which face of the number row
+        // picks a candidate depends on the local mode, because in U mode the plain digits are the
+        // code point and the pick moves to the shifted face.
+        int candidateSlot = NumberRowSelectionPolicy.slotForKeyCode(keyCode,
+            event.isShiftPressed(), numberRowSelection,
+            view == null ? "none" : view.optString("local_mode", "none"));
+        if (candidateSlot >= 0 && !dedicatedEnglish
                 && !event.isCtrlPressed() && !event.isAltPressed() && !event.isMetaPressed()
                 && view != null
                 && view.optJSONArray("candidates") != null

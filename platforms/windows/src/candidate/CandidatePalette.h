@@ -273,15 +273,57 @@ inline CandidatePalette candidate_builtin_palette(const std::string &id,
 }
 // The floating toolbar's own palette.
 //
-// It follows the same skin as the candidate card but resolves its light/dark
-// choice from its own preference, and the shipped toolbar uses a lighter
-// accent than the card for the default skin. Every other skin shares the card's
-// accent, which is what the drag handle and hover tint are drawn from.
-inline CandidatePalette toolbar_palette(const std::string &skin, bool dark) {
-  auto palette = candidate_builtin_palette(skin, dark);
-  if (!candidate_builtin_skin(skin) || skin == "fluent" || skin.empty())
-    palette.accent = candidate_rgb(0x8E8CD8);
+// The shipped toolbar is native by default (UiBackendPolicy resolves to Native unless a WebView2 toolbar is configured), and its native presenter draws fixed neutral colours from FloatingToolbarPresenter::ApplyTheme rather than anything from the candidate skin: only the light/dark choice, resolved from the toolbar's own preference, changes it. Taking the card's skin here tinted the default willow_green toolbar green. The drag handle is always 0x8E8CD8, the divider shares the border colour, and a pressed button keeps the hover fill, as ToolbarIconButton::Render draws both states the same way.
+inline CandidatePalette toolbar_palette(bool dark) {
+  CandidatePalette palette = dark ? CandidatePalette{}
+                                  : candidate_light_palette();
+  palette.accent = candidate_rgb(0x8E8CD8);
+  palette.radius = 8.0f;
+  palette.border_width = 1.4f;
+  palette.item_radius = 6.5f;
+  if (dark) {
+    palette.surface = candidate_rgb(0x1A1A1A);
+    palette.border = {1.0f, 1.0f, 1.0f, 0.15f};
+    palette.text = candidate_rgb(0xFFFFFF);
+    palette.number = {1.0f, 1.0f, 1.0f, 0.45f};
+    palette.hover = {1.0f, 1.0f, 1.0f, 0.10f};
+  } else {
+    palette.surface = candidate_rgb(0xFFFFFF);
+    palette.border = {0.0f, 0.0f, 0.0f, 0.12f};
+    palette.text = candidate_rgb(0x1A1A1A);
+    palette.number = candidate_rgb(0x1A1A1A, 0.45f);
+    palette.hover = {0.0f, 0.0f, 0.0f, 0.08f};
+  }
+  palette.selected = palette.hover;
   return palette;
+}
+// The tray menu's own palette.
+//
+// Like the toolbar, the shipped tray menu is native and takes fixed neutral colours from TrayMenuPresenter::ApplyTheme, switched only by the menu's light/dark preference; the candidate skin never reaches it. Its switches are MenuFlyoutItem's: 0x8E8CD8 when on, and when off 0x555555 over a light-text (dark) menu or 0xC8C8C8 otherwise, with a white thumb in both states. The number token is the dimmed text of a row whose capability is missing, which the shipped menu never has, so it is the text colour at reduced opacity.
+inline CandidatePalette tray_menu_palette(bool dark) {
+  CandidatePalette palette = dark ? CandidatePalette{}
+                                  : candidate_light_palette();
+  palette.accent = candidate_rgb(0x8E8CD8);
+  palette.border_width = 1.0f;
+  if (dark) {
+    palette.surface = candidate_rgb(0x2B2B2B);
+    palette.border = candidate_rgb(0x3A3A3A);
+    palette.text = candidate_rgb(0xE0E0E0);
+    palette.number = candidate_rgb(0xE0E0E0, 0.45f);
+    palette.hover = candidate_rgb(0x3B3B3B);
+  } else {
+    palette.surface = candidate_rgb(0xFFFFFF);
+    palette.border = {0.0f, 0.0f, 0.0f, 0.10f};
+    palette.text = candidate_rgb(0x1A1A1A);
+    palette.number = candidate_rgb(0x1A1A1A, 0.45f);
+    palette.hover = candidate_rgb(0xF0F0F0);
+  }
+  return palette;
+}
+// The off-state track of a tray switch, chosen from the text colour exactly as MenuFlyoutItem does: a light text colour means a dark menu.
+inline CandidateColor tray_toggle_off_color(const CandidatePalette &palette) {
+  return palette.text.r > 0.5f ? candidate_rgb(0x555555)
+                               : candidate_rgb(0xC8C8C8);
 }
 inline CandidatePalette
 candidate_palette(const CandidatePaletteOverrides &overrides,

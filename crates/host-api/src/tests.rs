@@ -410,6 +410,9 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(linux["value"]["platform"], "linux");
     assert_eq!(linux["value"]["restart_input_method"], true);
     assert_eq!(linux["value"]["ime_mode_scope"], true);
+    // Every host reads capabilities through this boundary, so the border colour reaches the Linux page here.
+    assert_eq!(linux["value"]["candidate_border_color"], true);
+    assert_eq!(linux["value"]["candidate_selection_appearance"], false);
 
     let windows = capabilities("windows");
     assert_eq!(windows["value"]["restart_input_method"], true);
@@ -2804,6 +2807,26 @@ fn chinese_punctuation_lock_overrides_a_switched_off_punctuation_mode() {
     read(msime_client_set_chinese_punctuation(follow, false));
     assert_ne!(comma(follow)["commit"], "，");
     read(msime_client_destroy(follow));
+}
+
+/// Windows keeps punctuation Chinese in English mode while it is locked to Chinese (`ResolvePunctuationOpen`), so a host that hands English-mode punctuation over under the lock must get the Chinese mark back.
+#[test]
+fn chinese_punctuation_lock_holds_in_english_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            punctuation_lock: msime_client_core::preferences::PunctuationLock::Chinese,
+            ..chinese_preferences()
+        },
+    );
+    read(msime_client_focus(handle, true));
+    read(msime_client_set_english_mode(handle, true));
+    assert_eq!(
+        read(msime_client_punctuation_with_context(handle, b',', 0))["value"]["commit"],
+        "，"
+    );
+    read(msime_client_destroy(handle));
 }
 
 #[test]
@@ -5286,6 +5309,83 @@ fn refresh_leaves_a_symlinked_options_file_alone() {
     let current = directory.path().join("current.json");
     std::fs::write(&current, b"{\"resources\":\"/r\"}").unwrap();
     assert!(!super::refresh_host_options(&current).unwrap());
+}
+
+/// Downloaded dictionaries that an upgrade left behind the compiled lock are reported as `dictionary_outdated`, the one refresh failure hosts turn into a pointer at `msime-client-setup --update --download`, and the options file keeps pointing at the working previous generation.
+#[test]
+fn refresh_reports_outdated_resources_and_leaves_the_options_alone() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    std::fs::create_dir(&resources).unwrap();
+    // A file the previous lock pinned; the compiled lock names none of it.
+    std::fs::write(resources.join("msime.db"), b"previous generation").unwrap();
+    let state = directory.path().join("state");
+    std::fs::create_dir(&state).unwrap();
+    let options = state.join("runtime-options.json");
+    let document = serde_json::to_vec_pretty(&json!({
+        "api_version": 1,
+        "resources": resources,
+        "user_data": state.join("user"),
+        "cache": state.join("cache"),
+        "dictionaries": state.join("user/dictionaries/previous"),
+        "preferences_directory": state,
+        "preferences": {},
+    }))
+    .unwrap();
+    std::fs::write(&options, &document).unwrap();
+
+    let error = super::refresh_host_options(&options).unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>(), "{error}");
+    assert!(
+        error
+            .to_string()
+            .starts_with(super::DICTIONARY_OUTDATED_PREFIX),
+        "{error}"
+    );
+    assert_eq!(std::fs::read(&options).unwrap(), document);
+    let mut entries: Vec<_> = std::fs::read_dir(&state)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    entries.sort();
+    assert_eq!(entries, ["runtime-options.json"]);
+
+    // The same prefix reaches a host through the C ABI.
+    let path = options.to_str().unwrap();
+    let raw = unsafe { super::msime_client_refresh_host(path.as_ptr(), path.len()) };
+    let response: Value =
+        serde_json::from_str(unsafe { std::ffi::CStr::from_ptr(raw) }.to_str().unwrap()).unwrap();
+    unsafe { super::msime_client_string_free(raw) };
+    assert_eq!(response["ok"], json!(false));
+    assert!(response["error"]
+        .as_str()
+        .unwrap()
+        .starts_with(super::DICTIONARY_OUTDATED_PREFIX));
+    assert_eq!(std::fs::read(&options).unwrap(), document);
+}
+
+/// Anything other than a mismatch keeps its own error, so a host does not send the user to download dictionaries that are not the problem.
+#[test]
+fn only_a_resource_mismatch_counts_as_outdated() {
+    use msime_client_core::resources::ResourceError;
+    let mismatch = super::outdated_resources(Box::new(ResourceError::Integrity));
+    assert!(mismatch.is::<super::DictionaryOutdated>());
+    let unexpected =
+        super::outdated_resources(Box::new(ResourceError::ExistingGeneration("stale".into())));
+    assert!(unexpected.is::<super::DictionaryOutdated>());
+    for other in [
+        Box::new(ResourceError::InvalidManifest) as Box<dyn std::error::Error>,
+        Box::new(ResourceError::Io(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        ))),
+        Box::new(std::io::Error::from(std::io::ErrorKind::NotFound)),
+        "busy".into(),
+    ] {
+        let text = other.to_string();
+        let mapped = super::outdated_resources(other);
+        assert!(!mapped.is::<super::DictionaryOutdated>(), "{text}");
+        assert_eq!(mapped.to_string(), text);
+    }
 }
 #[test]
 fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {

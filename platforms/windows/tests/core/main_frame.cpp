@@ -21,7 +21,7 @@ int main() {
     require(!valid_main_frame(packet, 43));
     require(!valid_main_frame(packet, 0));
   }
-  for (auto event : {LangbarRightClick, 5u, 6u, 16u, UINT32_MAX}) {
+  for (auto event : {LangbarRightClick, 5u, 6u, 17u, UINT32_MAX}) {
     packet.event_type = event;
     require(!valid_main_frame(packet, 42));
   }
@@ -64,6 +64,19 @@ int main() {
     require(!valid_main_frame(packet, 42));
     packet.modifiers_down = 1;
     packet.pinyin_length = 2;
+    require(!valid_main_frame(packet, 42));
+  }
+  packet = {};
+  packet.client_id = 42;
+  packet.request_id = 1;
+  packet.event_type = PairedPunctuationAutoClosed;
+  packet.keycode = '<';
+  require(valid_main_frame(packet, 42));
+  require(!valid_main_frame(packet, 43));
+  require(!valid_main_frame(packet, 0));
+  // Only the book title nests, so any other opening is a malformed notification.
+  for (uint32_t keycode : {0u, uint32_t('('), uint32_t('>'), uint32_t(u'《')}) {
+    packet.keycode = keycode;
     require(!valid_main_frame(packet, 42));
   }
 }

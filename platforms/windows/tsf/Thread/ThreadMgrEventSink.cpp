@@ -121,6 +121,8 @@ STDAPI CMetasequoiaIME::OnSetFocus(_In_ ITfDocumentMgr *pDocMgrFocus, _In_ ITfDo
     // physically reopens a channel as well when its health check fails.
     if (pDocMgrFocus && (!Global::g_connected || windowsTextInputHostTransition))
     {
+        // A genuine focus-session handover starts here, so the smart-punctuation action armed under the old activation must not survive into the new one. The frequent Chromium document swap handled above keeps the session and leaves the action alone.
+        _ClearSmartPunctuationAction();
         Global::g_connected = true;
         _workerCommitReady.store(false, std::memory_order_release);
         RequireNamedpipeFocusActivation();
@@ -292,6 +294,8 @@ void CMetasequoiaIME::_HandleFocusedContextStackChange(_In_opt_ ITfContext *chan
     }
 
     _ClearDeferredKeyDowns();
+    // The smart-punctuation action was armed for the old top context, and the edit session that would consume it is about to be invalidated too.
+    _ClearSmartPunctuationAction();
     MarkNamedpipeSessionDirtyForOwner(this);
     const UINT resetToken = _localSessionResetToken.load(std::memory_order_acquire);
     _RequestLocalSessionReset(resetContext, resetToken);

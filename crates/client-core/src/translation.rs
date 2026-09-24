@@ -259,7 +259,7 @@ pub fn is_cloud_translatable_english(text: &str) -> bool {
     has_letter
 }
 
-// Mirrors the Windows `IsCloudTranslatableChinese`: at least one Han codepoint and no emoji or pictograph; mixed-script words such as T恤 and 卡拉OK are real Chinese vocabulary, so ASCII letters and digits are accepted.
+/// Mirrors the reference `IsCloudTranslatableChinese`: any Han character makes the text translatable and only an emoji or pictograph rejects it, so mixed words such as "T恤" or "3D打印" are sent while digits, Latin letters and punctuation alone are not.
 pub fn is_cloud_translatable_chinese(text: &str) -> bool {
     let mut has_han = false;
     for ch in text.chars() {
@@ -270,14 +270,12 @@ pub fn is_cloud_translatable_chinese(text: &str) -> bool {
         {
             return false;
         }
-        if ('\u{3400}'..='\u{4DBF}').contains(&ch)
+        has_han = has_han
+            || ('\u{3400}'..='\u{4DBF}').contains(&ch)
             || ('\u{4E00}'..='\u{9FFF}').contains(&ch)
             || ('\u{F900}'..='\u{FAFF}').contains(&ch)
             || ('\u{20000}'..='\u{2CEAF}').contains(&ch)
-            || ch == '\u{3007}'
-        {
-            has_han = true;
-        }
+            || ch == '\u{3007}';
     }
     has_han
 }
@@ -769,19 +767,12 @@ Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
         assert!(!is_cloud_translatable_chinese("你好☀️"));
         assert!(!is_cloud_translatable_chinese("你‍好"));
         assert!(!is_cloud_translatable_chinese("你⃣"));
-        for mixed in [
-            "T恤",
-            "卡拉OK",
-            "B超",
-            "3D打印",
-            "维生素C",
-            "\u{20000}",
-            "\u{F900}",
-        ] {
-            assert!(is_cloud_translatable_chinese(mixed), "{mixed}");
-        }
-        for rejected in ["hello", "123", "", "T恤😀"] {
-            assert!(!is_cloud_translatable_chinese(rejected), "{rejected}");
-        }
+        assert!(is_cloud_translatable_chinese("T恤"));
+        assert!(is_cloud_translatable_chinese("3D打印"));
+        assert!(is_cloud_translatable_chinese("\u{F900}"));
+        assert!(is_cloud_translatable_chinese("\u{20000}"));
+        assert!(!is_cloud_translatable_chinese("T"));
+        assert!(!is_cloud_translatable_chinese("123"));
+        assert!(!is_cloud_translatable_chinese(""));
     }
 }

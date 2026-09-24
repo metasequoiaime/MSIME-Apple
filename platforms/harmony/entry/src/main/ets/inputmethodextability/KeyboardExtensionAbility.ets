@@ -28,6 +28,7 @@ import { ToolbarButton } from '../keyboard/FloatingToolbarLayout';
 import { AttachedInputDevice, DeviceChange, HardwareKeyboardPolicy, KeyRoutingTransition }
   from '../keyboard/input/HardwareKeyboardPolicy';
 import { HarmonyHardwareKeyboards } from '../keyboard/input/HarmonyHardwareKeyboards';
+import { HardwareBackspaceGuard } from '../keyboard/input/BackspaceHoldPolicy';
 
 // The badge's own geometry, from platforms/macos/src/InputModeHUDPanel.mm: a capsule that carries
 // the logo and one character side by side, shown long enough to read and gone before the next word.
@@ -37,6 +38,8 @@ const HUD_SCREEN_MARGIN_VP: number = 8;
 const HUD_CARET_GAP_VP: number = 10;
 const HUD_VISIBLE_MS: number = 780;
 const BUNDLE_NAME: string = 'app.msime.client';
+// KEYCODE_DEL, the Backspace key.
+const KEYCODE_DEL: number = 2055;
 const TOOLBAR_MARGIN_VP: number = 20;
 // Wide enough for the key rows to keep the proportions they have on a phone, rather than stretching
 // a ten-key row across a desktop.
@@ -71,6 +74,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private hud: inputMethodEngine.Panel | undefined = undefined;
   private hudTimer: number = -1;
   private readonly modeKeys: InputModeRouting = new InputModeRouting();
+  private readonly backspaceHold: HardwareBackspaceGuard = new HardwareBackspaceGuard();
   // The bar that says what mode the keyboard is in. Another window of its own, because it outlives
   // every composition and every editor: it is on screen whenever the keyboard is running at all.
   private toolbar: inputMethodEngine.Panel | undefined = undefined;
@@ -166,9 +170,6 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         type: inputMethodEngine.PanelType.STATUS_BAR
       });
       await this.toolbar.setUiContent('keyboard/FloatingToolbar');
-      KeyboardSession.shared.onToolbarSettings = (): void => {
-        this.openSettings();
-      };
       KeyboardSession.shared.onToolbarDragStart = (): void => {
         this.beginToolbarDrag();
       };
@@ -311,10 +312,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const tall: boolean = surface !== DesktopSurface.NONE;
     const heightVp: number = tall
       ? KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
-        KeyboardSession.shared.glossRows(), settings.candidateFontSize)
+        KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+        settings.candidatePreeditFontSize, true)
       : KeyboardMetrics.candidateHeightVp(settings.candidateLayout, this.candidateCount,
         settings.candidateShowPreedit, settings.candidateDecorationTopVp,
-        KeyboardSession.shared.glossRows(), settings.candidateFontSize);
+        KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+        settings.candidatePreeditFontSize);
     const widthVp: number = tall ? DESKTOP_SURFACE_WIDTH_VP : this.candidateWidthVp;
     await this.panel.resize(Math.round(widthVp * this.density),
       Math.round(heightVp * this.density));
@@ -334,7 +337,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
     const height: number = KeyboardMetrics.totalHeightVp(
       settings.rowSpacingTenths, settings.heightAdjustment,
-      KeyboardSession.shared.glossRows(), settings.candidateFontSize) * this.density;
+      KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+      settings.candidatePreeditFontSize, true) * this.density;
     const width: number = DESKTOP_SURFACE_WIDTH_VP * this.density;
     this.panel.moveTo(Math.round((this.screenWidth - width) / 2),
       Math.round(this.screenHeight - height - TOOLBAR_MARGIN_VP * this.density))
@@ -431,7 +435,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const height: number = KeyboardMetrics.candidateHeightVp(settings.candidateLayout,
       this.candidateCount, settings.candidateShowPreedit,
       settings.candidateDecorationTopVp, KeyboardSession.shared.glossRows(),
-      settings.candidateFontSize) * this.density;
+      settings.candidateFontSize, settings.candidatePreeditFontSize) * this.density;
     const gap: number = KeyboardMetrics.CANDIDATE_WINDOW_GAP_VP * this.density;
     const anchor: CandidateAnchor = CandidateAnchorPolicy.position(settings.candidateFollowCursor,
       this.candidateAnchor, this.caret);
@@ -507,6 +511,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   }
 
   private readonly stopped: () => void = (): void => {
+    this.backspaceHold.reset();
     KeyboardSession.shared.detach();
     if (this.panel !== undefined) {
       this.panel.hide();
@@ -522,6 +527,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
    */
   /** Key codes whose key-down went back to the application, so their key-up must follow it. */
   private readonly releasedKeys: Set<number> = new Set<number>();
+  /** Key codes whose key-down the emoji panel took, so their key-up is taken too. */
+  private readonly panelKeys: Set<number> = new Set<number>();
 
   private readonly typed: (event: InputKeyEvent) => boolean = (event: InputKeyEvent): boolean => {
     const key: HardwareKey = HardwareKeyRouter.normalizeLetterCase({
@@ -600,6 +607,17 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardSession.shared.refreshToolbar();
       return true;
     }
+    // The 2in1 emoji panel takes navigation, activation and search keys the way the focused Windows panel does (`EmojiPanel::OnKeyDown`); its key-up follows, so the editor never sees half of one.
+    if (event.action !== KeyAction.DOWN && this.panelKeys.delete(event.key.code)) {
+      return true;
+    }
+    if (event.action === KeyAction.DOWN && session.routePanelKey({
+      keyCode: event.key.code, unicodeChar: event.unicodeChar, ctrlKey: event.ctrlKey,
+      altKey: event.altKey, logoKey: event.logoKey
+    })) {
+      this.panelKeys.add(event.key.code);
+      return true;
+    }
     // A space with nothing being composed is the editor's, with one exception: it is also the key
     // that rewrites a just-committed Chinese mark as ASCII, and that arming only exists after a
     // commit — which is to say, only when nothing is being composed.
@@ -610,6 +628,16 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (event.action !== KeyAction.DOWN && this.releasedKeys.delete(event.key.code)) {
       return false;
     }
+    // A Backspace held from inside a composition stops where the composition did; see HardwareBackspaceGuard.
+    if (event.key.code === KEYCODE_DEL) {
+      const held: boolean = event.action === KeyAction.DOWN
+        ? this.backspaceHold.down(session.composing()) : this.backspaceHold.up(session.composing());
+      if (held) {
+        return true;
+      }
+    } else if (event.action === KeyAction.DOWN) {
+      this.backspaceHold.reset();
+    }
     if (!session.composes()) {
       return false;
     }
@@ -619,7 +647,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardSession.shared.preferences().navigation,
         session.hasHighlightedTranslation(), session.isJapanese(),
         session.wordCharacterBinding(), session.hasHighlightedCandidate(), session.hardwareSpelling(),
-        session.isFullWidth());
+        session.isFullWidth(), session.punctuationLockedChinese());
     if (decision.action === HardwareKeyAction.RELEASE) {
       // What the application types is still the user's typing, and Windows counts it (`stats_passthrough.h`).
       if (event.action === KeyAction.DOWN) {
@@ -734,6 +762,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     // cannot disagree about what a key does. Bound before any key can arrive, on every device: a
     // keyboard may be plugged into this one later.
     this.modeKeys.use(KeyboardSession.shared.modeBindings());
+    // Every device, not only the one with a toolbar: a phone reaches the settings application from its tools panel.
+    KeyboardSession.shared.onOpenSettings = (): void => {
+      this.openSettings();
+    };
     KeyboardSession.shared.onPreferencesReloaded = (): void => {
       this.preferencesReloaded();
     };
@@ -776,9 +808,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       const heightVp: number = desktop
         ? KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
           settings.candidateShowPreedit, settings.candidateDecorationTopVp,
-          KeyboardSession.shared.glossRows(), settings.candidateFontSize)
+          KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+          settings.candidatePreeditFontSize)
         : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
-          KeyboardSession.shared.glossRows(), settings.candidateFontSize);
+          KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+          settings.candidatePreeditFontSize);
       // A soft keyboard is as wide as the screen because it has to be; a candidate window is as wide
       // as its content, and covering the width of a desktop with one would hide the very text the
       // candidates are for.
