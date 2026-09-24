@@ -212,6 +212,28 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn('-scheme MSIMEApp', shipping)
         self.assertNotIn('MSIME_IOS_LEGACY_APP', script)
 
+    def test_on_device_speech_runtime_is_fetched_and_embedded_only_in_the_app(self):
+        project = (IOS_ROOT / "project.yml").read_text()
+        blocks = dict(target_blocks(project))
+        framework = "- framework: ../../target/voice-runtime/ios/SherpaOnnxC.xcframework"
+        # The keyboard extension's memory limit cannot hold a model, so only the app links the runtime.
+        self.assertEqual([name for name, body in blocks.items() if "SherpaOnnxC" in body], ["MSIMEApp"])
+        app = blocks["MSIMEApp"]
+        self.assertIn(framework, app)
+        self.assertRegex(app.split(framework, 1)[1], r"^\n\s+embed: true\n\s+codeSign: true\n")
+        self.assertIn("INFOPLIST_KEY_NSSpeechRecognitionUsageDescription:", app)
+        # Only the Swift file that runs the recognizer imports the runtime; everything the unit tests compile stays free of it.
+        importers = sorted(path.name for path in (IOS_ROOT / "App").rglob("*.swift") if "import SherpaOnnxC" in path.read_text())
+        self.assertEqual(importers, ["LocalSpeechRecognizer.swift"])
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("SherpaOnnxC.xcframework in Embed Frameworks", generated)
+        self.assertEqual(generated.count("INFOPLIST_KEY_NSSpeechRecognitionUsageDescription"), 2)
+        # Fetched and verified at build time, never committed.
+        script = (IOS_ROOT / "build-app.sh").read_text()
+        fetch = 'python3 "$repo_root/scripts/fetch_voice_runtime.py" --platform ios'
+        self.assertIn(fetch, script)
+        self.assertLess(script.index(fetch), script.rindex("xcodegen generate"))
+
 
 if __name__ == "__main__":
     unittest.main()
