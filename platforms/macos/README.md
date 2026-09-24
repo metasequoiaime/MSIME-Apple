@@ -291,7 +291,7 @@ ctest --test-dir target/macos --output-on-failure
 platforms/macos/stage-resources.sh <已校验资源目录>
 ```
 
-第三个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/fetch_offline_glosses.py` 按锁下载，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/macos/offline-glosses`，即资源目录的同级目录，宿主在翻译目标包含该语言时读取；没有时只有英语走离线释义。它和整句重排模型一样目前不随包。
+第三个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/fetch_offline_glosses.py` 按锁下载，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/macos/offline-glosses`，即资源目录的同级目录，宿主在翻译目标包含该语言时读取；没有时只有英语走离线释义。`release-macos.yml` 打包前先运行这个脚本，`package-release.sh` 在有暂存的释义时把它们复制进设置应用的 `Contents/Resources/offline-glosses`，签名一并封入，并在 DMG 内的副本上检查 NOTICE 在场；没有时照常打包。
 
 打包时如果 `cargo` 报某个过程宏 crate「can't find crate for `xxx_macros`」，看它前面一行的 dlopen 错误：`mis-aligned LINKEDIT string pool` 表示过程宏的 dylib 被产出成 dyld 拒绝加载的形状。成因是 `MACOSX_DEPLOYMENT_TARGET`：`tauri build` 会按 `bundle.macOS.minimumSystemVersion` 导出它，rustc 把它也用在宿主过程宏上，同一个 crate 不设该变量时产出的 dylib 能正常加载。cargo 不把这个变量算进指纹，坏掉的 dylib 会留在产物目录里被后续构建继续复用，所以换一个干净的 `CARGO_TARGET_DIR` 看起来也能「修好」——但那只是另起一整棵要从头编译、占几个 GB 的产物树，坏掉的 dylib 还留在原处，不要这么做。`package-release.sh` 因此先用不带该变量的 `cargo build --features tauri/custom-protocol` 编译设置应用，再用 `tauri bundle` 只做打包；已经坏掉的过程宏要删掉 `target/<profile>/deps` 里对应的 `.dylib` 让它重编。
 
