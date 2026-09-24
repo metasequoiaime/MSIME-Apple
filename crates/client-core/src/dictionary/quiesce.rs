@@ -1,56 +1,79 @@
 //! Dictionary maintenance with the input hosts' sessions released, on Linux and macOS.
 //!
-//! Importing, editing or clearing learned data needs the Engine's exclusive dictionary lock, and every open input session holds it shared. Windows asks its server to drop the sessions over a window message. The Linux hosts (IBus, Fcitx5) and the macOS input method are other processes, so this writes a lease beside the lock instead. The hosts check it on their preference timers (Fcitx5 every 250 ms, IBus and macOS every second), finish the composition, close their sessions and open no new ones while it is live; macOS is also told at once over a distributed notification, so it lets go without waiting for its timer. The lease holds its own expiry, so a settings window that dies mid-import cannot leave input off for longer than that. The file name and the 30 second bound are shared with `platforms/common/DictionaryQuiesceLease.h`. Moving the data directory on Linux holds the same lease for the whole copy (`platform::linux::linux_dictionary_quiesce`).
+//! Importing, editing or clearing learned data needs the Engine's exclusive dictionary lock, and every open input session holds it shared. Windows asks its server to drop the sessions over a window message. The Linux hosts (IBus, Fcitx5) and the macOS input method are other processes, so this writes a lease beside the lock instead. The hosts check it on their preference timers (Fcitx5 every 250 ms, IBus and macOS every second), finish the composition, close their sessions and open no new ones while it is live; the settings window also tells the macOS input method at once over a distributed notification (the `announce` of [`QuiescedHosts`]), so it lets go without waiting for its timer. The lease holds its own expiry, so a writer that dies mid-import cannot leave input off for longer than that. The file name, the expiry on the first line and the 30 second bound are shared with `platforms/common/DictionaryQuiesceLease.h`. Moving the data directory on Linux holds the same lease for the whole copy (the desktop app's `platform::linux::linux_dictionary_quiesce`).
+//!
+//! More than one process writes the lease: the settings window and the `msime-mcp` server. Each writes a second line naming itself and removes the lease only while that line is still its own, so one writer finishing does not take down a lease another one is still working under. The hosts read only the first line.
 
-#[cfg(target_os = "linux")]
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-pub(crate) const LEASE_NAME: &str = ".msime-dictionary-quiesce";
+pub const LEASE_NAME: &str = ".msime-dictionary-quiesce";
 const LEASE_DURATION: Duration = Duration::from_secs(30);
 /// Long enough for the IBus host's one-second timer to come round twice.
-pub(crate) const RETRY_BUDGET: Duration = Duration::from_millis(2500);
-pub(crate) const RETRY_INTERVAL: Duration = Duration::from_millis(50);
-const BUSY: &str = "dictionary maintenance busy";
+pub const RETRY_BUDGET: Duration = Duration::from_millis(2500);
+pub const RETRY_INTERVAL: Duration = Duration::from_millis(50);
+/// The host API's reason when an input session holds the dictionaries.
+pub const BUSY: &str = "dictionary maintenance busy";
 
-pub(crate) struct Lease(PathBuf);
+/// The lease as one writer holds it: where it is and what this writer last put there.
+pub struct Lease {
+    path: PathBuf,
+    /// The process and a number no other lease in it has, so two leases in one process are told apart too.
+    owner: String,
+    written: String,
+}
 
 impl Lease {
-    pub(crate) fn acquire(user_data: &Path) -> std::io::Result<Self> {
-        let lease = Self(user_data.join(LEASE_NAME));
+    pub fn acquire(user_data: &Path) -> std::io::Result<Self> {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let mut lease = Self {
+            path: user_data.join(LEASE_NAME),
+            owner: format!(
+                "{} {}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ),
+            written: String::new(),
+        };
         lease.publish()?;
         Ok(lease)
     }
 
     /// Write the lease with an expiry `LEASE_DURATION` from now, replacing any earlier one in a single rename so a host never reads a partial file.
-    fn publish(&self) -> std::io::Result<()> {
+    pub fn publish(&mut self) -> std::io::Result<()> {
         let expiry = SystemTime::now()
             .checked_add(LEASE_DURATION)
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .ok_or_else(|| std::io::Error::other("clock before the epoch"))?
             .as_millis();
         let staged = self
-            .0
+            .path
             .with_file_name(format!("{LEASE_NAME}.{}", std::process::id()));
-        std::fs::write(&staged, format!("{expiry}\n"))?;
-        if let Err(error) = std::fs::rename(&staged, &self.0) {
+        // The owner line tells this lease from one another writer put up; the expiry alone could coincide.
+        let contents = format!("{expiry}\n{}\n", self.owner);
+        std::fs::write(&staged, &contents)?;
+        if let Err(error) = std::fs::rename(&staged, &self.path) {
             let _ = std::fs::remove_file(&staged);
             return Err(error);
         }
+        self.written = contents;
         Ok(())
     }
 }
 
 impl Drop for Lease {
+    /// Remove the lease only while it is still the one this writer last wrote. When another writer has replaced it since, that writer's work is still running under it, and removing it would let the hosts reopen their sessions in the middle of it. The read and the removal are not one step, so a replacement landing between them is still removed; the other writer puts it back on its next request.
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        if std::fs::read_to_string(&self.path).is_ok_and(|current| current == self.written) {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
 /// The lease itself, or one still being staged under `<lease>.<pid>`. Copying either along with the user directory would keep input off in the copy until it expired. Only the Linux data-directory move copies the user directory.
-#[cfg(target_os = "linux")]
-pub(crate) fn is_lease_file(name: &OsStr) -> bool {
+pub fn is_lease_file(name: &OsStr) -> bool {
     name.to_str().is_some_and(|name| {
         name.strip_prefix(LEASE_NAME)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
@@ -58,14 +81,14 @@ pub(crate) fn is_lease_file(name: &OsStr) -> bool {
 }
 
 /// The hosts asked to let go of `user_data` for one settings-page action, which may be several requests: an import larger than one host request is sent in batches. The lease goes up the first time a request finds the dictionaries busy and stays up for every request after it, so the hosts close their sessions once rather than once per batch, and it is renewed before each later request so a long import does not outlive its expiry. `announce` runs once, right after the lease first goes up, so a host that can be told directly (the macOS input method) lets go at once instead of on its timer. Dropping this removes the lease, which is the resume.
-pub(crate) struct QuiescedHosts<'a, Announce: FnMut()> {
+pub struct QuiescedHosts<'a, Announce: FnMut()> {
     user_data: Option<&'a Path>,
     announce: Announce,
     lease: Option<Lease>,
 }
 
 impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
-    pub(crate) fn new(user_data: Option<&'a str>, announce: Announce) -> Self {
+    pub fn new(user_data: Option<&'a str>, announce: Announce) -> Self {
         Self {
             user_data: user_data.map(Path::new).filter(|path| path.is_absolute()),
             announce,
@@ -74,10 +97,7 @@ impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
     }
 
     /// Run `attempt`; when it fails only because an input session holds the dictionaries, ask the hosts to let go and retry until it gets through or the budget runs out. Any other failure is about the request itself and is returned as it is. A completed write is never replayed, because only the lock failure is retried.
-    pub(crate) fn run<T>(
-        &mut self,
-        attempt: impl FnMut() -> Result<T, String>,
-    ) -> Result<T, String> {
+    pub fn run<T>(&mut self, attempt: impl FnMut() -> Result<T, String>) -> Result<T, String> {
         self.run_within(RETRY_BUDGET, attempt)
     }
 
@@ -86,7 +106,7 @@ impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
         budget: Duration,
         mut attempt: impl FnMut() -> Result<T, String>,
     ) -> Result<T, String> {
-        if let Some(lease) = &self.lease {
+        if let Some(lease) = &mut self.lease {
             // A lease that cannot be renewed still holds until its expiry, and a host that reopens a session after that makes the attempt below busy, which is retried like any other.
             let _ = lease.publish();
         }
@@ -131,7 +151,33 @@ mod tests {
     fn lease_expiry(directory: &Path) -> Option<u128> {
         std::fs::read_to_string(directory.join(LEASE_NAME))
             .ok()
-            .and_then(|text| text.trim_end().parse().ok())
+            .and_then(|text| text.lines().next()?.parse().ok())
+    }
+
+    #[test]
+    fn a_lease_another_writer_replaced_is_left_in_place() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = Lease::acquire(directory.path()).unwrap();
+        // Another writer takes the lease over while the first is still held.
+        let second = Lease::acquire(directory.path()).unwrap();
+        drop(first);
+        assert!(lease_expiry(directory.path()).is_some());
+        drop(second);
+        assert!(!directory.path().join(LEASE_NAME).exists());
+    }
+
+    #[test]
+    fn a_lease_a_host_raised_is_left_in_place() {
+        let directory = tempfile::tempdir().unwrap();
+        let lease = Lease::acquire(directory.path()).unwrap();
+        // The macOS input method raises the lease for its own dictionary window with the expiry alone (`raise_dictionary_quiesce_lease`).
+        let raised = format!("{}\n", lease_expiry(directory.path()).unwrap());
+        std::fs::write(directory.path().join(LEASE_NAME), &raised).unwrap();
+        drop(lease);
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join(LEASE_NAME)).unwrap(),
+            raised
+        );
     }
 
     #[test]
@@ -291,7 +337,6 @@ mod tests {
         assert_eq!(silent.get(), 0);
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn lease_files_include_a_lease_being_staged() {
         assert!(is_lease_file(OsStr::new(LEASE_NAME)));

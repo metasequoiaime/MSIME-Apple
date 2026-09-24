@@ -8,7 +8,6 @@ mod clipboard_history;
 #[cfg(not(target_os = "android"))]
 mod dictionary_import;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-mod dictionary_quiesce;
 // Only the two hosts that have to replay input into another window build this.
 // macOS delivers through the input method itself and needs none of it.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -1784,10 +1783,13 @@ async fn dictionary_request(
             let host = |bytes: &[u8]| msime_host_api::dictionary_request_json(bytes);
             // The input hosts release their sessions when they see the lease, so the lock failure is retried under it. The IBus and Fcitx5 hosts find it on their timers; the macOS input method is also told at once over a distributed notification when the lease first goes up, and its one-second timer catches one that was missed. The lease is removed when `hosts` goes, after the last request.
             #[cfg(any(target_os = "linux", target_os = "macos"))]
-            let mut hosts = dictionary_quiesce::QuiescedHosts::new(user_data.as_deref(), || {
-                #[cfg(target_os = "macos")]
-                msime_host_macos::quiesce_input_sessions();
-            });
+            let mut hosts = msime_client_core::dictionary::quiesce::QuiescedHosts::new(
+                user_data.as_deref(),
+                || {
+                    #[cfg(target_os = "macos")]
+                    msime_host_macos::quiesce_input_sessions();
+                },
+            );
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             let send = |bytes: &[u8]| {
                 if requires_quiesce {

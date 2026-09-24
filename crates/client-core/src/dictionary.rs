@@ -7,6 +7,7 @@
 pub mod access;
 pub mod import;
 pub mod personal;
+pub mod quiesce;
 
 /// Whether `code` is a usable English input code.
 ///
