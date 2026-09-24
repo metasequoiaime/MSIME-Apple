@@ -75,7 +75,7 @@ CandidatePresentation.h 将回复投影为带焦点 lease、会话/代次、坐�
 
 `VoiceInputSession::start_review` 为面板提供独立结果对象与录音电平、识别/润色阶段；该模式不显示原生浮层、不发送行内组合、不执行 TSF/SendInput/剪贴板自动上屏或失败回退。结果限制为 v2 允许的 UTF-8 大小，取消后晚到结果不能恢复，`stop_review` / `cancel_review` 只作用于匹配对象，不能取消后续录音。`windows-voice-review-result` 覆盖结果状态、竞态与提交隔离。
 
-识别服务选 `local` 时，Server 不联网：录音按批量方式缓存，结束后在识别工作线程上调用共享的 `recognize_local_asr`（`shared/voice/LocalAsr.h`），模型为 `voice_input.asr_model_path` 指向的已安装目录。热词取自 `msime_client_voice_hotwords`（用户自己的拼音词条）；模型清单 `msime-model.json` 写明 `"hotwords": "pinyin"` 时，最终文本再经 `msime_client_voice_hotword_correct` 校正。未选模型时开始录音即提示去设置下载；运行时或模型不可用时给出对应提示。已加载的模型空闲 120 秒后由 `maintain()` 交给工作线程卸载。运行时 `sherpa-onnx-c-api.dll`、`onnxruntime.dll`、`onnxruntime_providers_shared.dll` 由 `Build-Client.ps1` 取来并放在 Server 同目录，安装包随 `server_exe` 一起安装。
+识别服务选 `local` 时，Server 不联网，模型为 `voice_input.asr_model_path` 指向的已安装目录。录音开始时即在识别任务上加载模型，采集线程只把音频放进队列，由该任务边录边用共享的 `msime::voice::LocalAsrSession`（`shared/voice/LocalAsr.h`）解码；识别中的文字与豆包流式识别走同一条路径显示（允许内嵌预编辑时写入组合串，否则显示在语音浮窗上），录音结束后取最终文本。`asr_model_path` 若是旧的 Whisper 模型文件而非已安装目录，仍按批量方式在录音结束后调用 `recognize_local_asr`。热词取自 `msime_client_voice_hotwords`（用户自己的拼音词条）；模型清单 `msime-model.json` 写明 `"hotwords": "pinyin"` 时，最终文本再经 `msime_client_voice_hotword_correct` 校正。未选模型时开始录音即提示去设置下载；运行时或模型不可用时给出对应提示。已加载的模型空闲 120 秒后由 `maintain()` 交给工作线程卸载。运行时 `sherpa-onnx-c-api.dll`、`onnxruntime.dll`、`onnxruntime_providers_shared.dll` 由 `Build-Client.ps1` 取来并放在 Server 同目录，安装包随 `server_exe` 一起安装。
 
 `VoiceControllerProtocol.h` 直接消费固定 Engine 的 `voice_controller.h` v2 布局，处理有界消息、UTF-8 和语言标识，不复制 opcode。`VoiceControllerConnection.h` 在专用连接上执行 Hello、OS 对端认证、请求顺序和有界读写，拒绝重放；它不接受客户端提供的 TSF 目标身份。`windows-voice-controller-protocol` 可在非 Windows 运行，`windows-voice-controller-connection` 使用真实 Windows Named Pipe。
 

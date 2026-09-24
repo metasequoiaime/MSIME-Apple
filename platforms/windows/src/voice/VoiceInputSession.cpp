@@ -14,7 +14,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -246,6 +248,108 @@ static_assert(
                    VoiceSessionEpoch &>);
 } // namespace
 
+// One on-device dictation fed while it is recorded, so its text appears as the person speaks, the way Doubao's does. The capture thread only appends to a queue: loading a model takes seconds and decoding a finished speech segment can take longer than a capture buffer, neither of which the audio callback may wait on. run() does both on a recognition task and finish() collects the transcript from it.
+class LocalAsrStream {
+public:
+  using Partial = msime::voice::LocalAsrSession::PartialCallback;
+
+  // Capture thread. Audio arriving after the end, a cancellation or a failed load is dropped rather than queued for a worker that will never read it.
+  void push(const float *samples, std::size_t count) {
+    if (!samples || count == 0)
+      return;
+    {
+      std::lock_guard lock(mutex_);
+      if (ended_ || done_)
+        return;
+      pending_.insert(pending_.end(), samples, samples + count);
+    }
+    wake_.notify_one();
+  }
+
+  // Recognition task of the finished recording: no more audio is coming. Waits for run() to decode what is left and returns the transcript, hotword-corrected; rethrows what the recognizer threw.
+  std::string finish() {
+    std::unique_lock lock(mutex_);
+    ended_ = true;
+    wake_.notify_all();
+    done_wake_.wait(lock, [this] { return done_; });
+    if (error_)
+      std::rethrow_exception(error_);
+    return result_;
+  }
+
+  // Any thread, any number of times, also after finish(). The recognizer stops at its next check and run() returns without a transcript.
+  void cancel() {
+    cancelled_->store(true);
+    {
+      std::lock_guard lock(mutex_);
+      ended_ = true;
+    }
+    wake_.notify_all();
+  }
+
+  // The recognition task started with the recording. Reads the hotwords itself, because listing the dictionary reads the store, which the control thread must not wait on.
+  void run(const VoiceInputConfig &config, const Partial &on_partial) {
+    std::string text;
+    std::exception_ptr error;
+    try {
+      const auto hotwords = local_hotwords(config);
+      msime::voice::LocalAsrOptions options;
+      options.model_dir = config.asr_model_path;
+      options.language = config.language;
+      options.hotwords = hotword_texts(hotwords);
+      msime::voice::LocalAsrSession session(options, on_partial, cancelled_);
+      std::vector<float> batch;
+      for (;;) {
+        bool last = false;
+        {
+          std::unique_lock lock(mutex_);
+          wake_.wait(lock, [this] { return !pending_.empty() || ended_; });
+          batch.swap(pending_);
+          last = ended_;
+        }
+        if (cancelled_->load())
+          break;
+        // Everything queued while the model loaded arrives here in one call; the recognizer slices it.
+        if (!batch.empty())
+          session.accept(batch.data(), batch.size());
+        batch.clear();
+        if (last) {
+          // ended_ was read under the lock that push() takes, so nothing can have been queued after this batch.
+          text = session.finish();
+          break;
+        }
+      }
+      if (!cancelled_->load() && !text.empty() && !hotwords.empty() &&
+          local_model_corrects_by_pinyin(config.asr_model_path))
+        text = correct_with_hotwords(text, hotwords);
+    } catch (...) {
+      error = std::current_exception();
+    }
+    {
+      std::lock_guard lock(mutex_);
+      result_ = std::move(text);
+      error_ = error;
+      done_ = true;
+      pending_.clear();
+      pending_.shrink_to_fit();
+    }
+    done_wake_.notify_all();
+  }
+
+private:
+  std::shared_ptr<std::atomic_bool> cancelled_ =
+      std::make_shared<std::atomic_bool>(false);
+  std::mutex mutex_;
+  std::condition_variable wake_;
+  std::condition_variable done_wake_;
+  // Unbounded, like the Doubao queue: a hands-free dictation may run for minutes, and the recognizer drains it as fast as the machine allows.
+  std::vector<float> pending_;
+  bool ended_ = false;
+  bool done_ = false;
+  std::string result_;
+  std::exception_ptr error_;
+};
+
 VoiceInputSession::VoiceInputSession(WaveOverlay &overlay,
                                      LeaseProvider lease_provider,
                                      Sender sender,
@@ -351,8 +455,13 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   const auto model = config.model.empty()
                          ? default_asr_model(config.asr_provider)
                          : config.model;
+  const bool local = is_local_asr_provider(config.asr_provider);
+  // An installed catalog model decodes as the audio arrives and reports partial text like Doubao. A Whisper model file, what the setting held before the catalog, still recognizes the finished recording in one pass.
+  const bool local_stream =
+      local && msime::voice::is_local_model_dir(config.asr_model_path);
   const bool stream_inline = voice_inline_allowed(
-      review, config.stream_inline_preedit, doubao, config.commit_mode);
+      review, config.stream_inline_preedit, doubao || local_stream,
+      config.commit_mode);
   // Without a focused input context there is nothing to dictate into, and MSIME-Windows says nothing either.
   const auto lease = lease_provider_();
   if (!lease || !lease->epoch || !lease->token)
@@ -363,7 +472,6 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
       report_failure(message, session_.load());
     return false;
   };
-  const bool local = is_local_asr_provider(config.asr_provider);
   const auto verdict = voice_start_verdict(
       {config.enabled, doubao, config.token, endpoint, model, config.resource_id,
        local, config.asr_model_path});
@@ -393,27 +501,44 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   }
   lease_ = *lease;
   const auto generation = static_cast<wchar_t>((session % 0xfffeu) + 1u);
+  // Streaming recognizers report the whole transcript so far, from their own thread: inline as the composition when that is allowed, else on the overlay.
+  const auto show_partial = [this, lease = *lease, generation, session,
+                             stream_inline, review](const std::string &text) {
+    if (review)
+      return; // panel receives the final bounded result only
+    if (session_.load() != session || cancel_requested_.load())
+      return;
+    session_.with_current(session, [&] {
+      const auto converted = wide(text);
+      if (stream_inline) {
+        (void)sender_(lease, FanyImeWorkerReplyType::UpdateVoiceComposition,
+                      converted, generation);
+      } else {
+        overlay_.set_transcript(converted);
+      }
+    });
+  };
+  // Replaced even when this recording does not stream: a stream still finishing an earlier recording belongs to that recording's task alone, and stop() must not hand it to this one.
+  const auto stream =
+      local_stream ? std::make_shared<LocalAsrStream>() : nullptr;
+  {
+    std::lock_guard lock(local_stream_mutex_);
+    local_stream_ = stream;
+  }
+  // Before the recognition task starts, the stream holds only the queue, so a failed start just retires it.
+  const auto drop_stream = [&] {
+    if (!stream)
+      return;
+    stream->cancel();
+    std::lock_guard lock(local_stream_mutex_);
+    if (local_stream_ == stream)
+      local_stream_.reset();
+  };
   if (doubao) {
     auto client = std::make_shared<DoubaoAsrClient>(
         endpoint, config.doubao_auth_mode, config.app_key, config.token,
         config.resource_id, config.enable_itn, config.enable_punc,
-        config.enable_ddc, config.boosting_table_id,
-        [this, lease = *lease, generation, session, stream_inline,
-         review](const std::string &text) {
-          if (review)
-            return; // panel receives the final bounded result only
-          if (session_.load() != session || cancel_requested_.load())
-            return;
-          session_.with_current(session, [&] {
-            const auto converted = wide(text);
-            if (stream_inline) {
-              (void)sender_(lease, FanyImeWorkerReplyType::UpdateVoiceComposition,
-                            converted, generation);
-            } else {
-              overlay_.set_transcript(converted);
-            }
-          });
-        });
+        config.enable_ddc, config.boosting_table_id, show_partial);
     {
       std::lock_guard lock(doubao_mutex_);
       doubao_ = client;
@@ -446,11 +571,18 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
       std::lock_guard doubao_lock(doubao_mutex_);
       client = doubao_;
     }
+    std::shared_ptr<LocalAsrStream> local_feed;
+    if (!client) {
+      std::lock_guard stream_lock(local_stream_mutex_);
+      local_feed = local_stream_;
+    }
     // Streaming is not bounded by the batch buffer. Upstream never buffers at all on this path, so stopping the feed at a ceiling threw away the second half of exactly the hands-free dictation the space lock exists for. Only the count is kept, for stop() to recognise a tap too short to transcribe.
     if (client)
       client->PushFloatSamples(samples, frames);
+    else if (local_feed)
+      local_feed->push(samples, frames);
     std::lock_guard lock(samples_mutex_);
-    if (client) {
+    if (client || local_feed) {
       captured_frames_ += frames;
       return;
     }
@@ -470,6 +602,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
     }
     if (client)
       client->Cancel();
+    drop_stream();
     lease_.reset();
     starting_.store(false);
     return refuse(voice_microphone_start_message);
@@ -483,6 +616,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
     }
     if (client)
       client->Cancel();
+    drop_stream();
     lease_.reset();
     starting_.store(false);
     return false;
@@ -504,6 +638,21 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   }
   if (config.sound_enabled && config.start_sound)
     cue_player_.play_start();
+  if (stream) {
+    // The model loads while the person starts speaking; what the capture queues meanwhile is decoded once it is ready. finish() or cancel_session() ends the task, and the destructor waits for it with the others.
+    std::lock_guard lock(tasks_mutex_);
+    tasks_.erase(std::remove_if(tasks_.begin(), tasks_.end(),
+                                [](auto &task) {
+                                  return task.wait_for(std::chrono::seconds(0)) ==
+                                         std::future_status::ready;
+                                }),
+                  tasks_.end());
+    tasks_.emplace_back(std::async(
+        std::launch::async, [this, stream, config, show_partial] {
+          stream->run(config, show_partial);
+          note_local_model_use();
+        }));
+  }
   (void)session;
   return true;
 }
@@ -544,8 +693,22 @@ void VoiceInputSession::stop() {
     std::lock_guard lock(doubao_mutex_);
     doubao = doubao_;
   }
+  std::shared_ptr<LocalAsrStream> local_stream;
+  {
+    std::lock_guard lock(local_stream_mutex_);
+    local_stream = local_stream_;
+  }
+  const auto drop_local_stream = [&] {
+    if (!local_stream)
+      return;
+    local_stream->cancel();
+    std::lock_guard lock(local_stream_mutex_);
+    if (local_stream_ == local_stream)
+      local_stream_.reset();
+  };
+  const bool streaming = doubao || local_stream;
   const auto cancel_inline = [&] {
-    if (!voice_inline_allowed(review, config.stream_inline_preedit, !!doubao,
+    if (!voice_inline_allowed(review, config.stream_inline_preedit, streaming,
                               config.commit_mode) ||
         !lease)
       return;
@@ -561,6 +724,7 @@ void VoiceInputSession::stop() {
       review->fail();
     if (doubao)
       doubao->Cancel();
+    drop_local_stream();
     cancel_inline();
     clear_overlay();
     return;
@@ -577,13 +741,14 @@ void VoiceInputSession::stop() {
       review->fail();
     if (doubao)
       doubao->Cancel();
+    drop_local_stream();
     cancel_inline();
     clear_overlay();
     return;
   }
   const uint64_t session = session_.load();
   const bool stream_inline = voice_inline_allowed(
-      review, config.stream_inline_preedit, !!doubao, config.commit_mode);
+      review, config.stream_inline_preedit, streaming, config.commit_mode);
   if (!review) {
     overlay_.set_compact_status(WaveOverlay::CompactStatus::Recognizing);
     overlay_.set_actions_visible(true);
@@ -605,17 +770,32 @@ void VoiceInputSession::stop() {
   tasks_.emplace_back(std::async(
       std::launch::async,
       [this, samples = std::move(samples), lease = *lease, config, session,
-       doubao, review, cancelled = std::move(cancelled)]() mutable {
+       doubao, local_stream, review,
+       cancelled = std::move(cancelled)]() mutable {
         finish(std::move(samples), lease, config, session, std::move(doubao),
-               std::move(cancelled), review);
+               std::move(local_stream), std::move(cancelled), review);
       }));
 }
 
 void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
                                VoiceInputConfig config, uint64_t session,
                                std::shared_ptr<DoubaoAsrClient> doubao,
+                               std::shared_ptr<LocalAsrStream> local_stream,
                                std::shared_ptr<std::atomic_bool> cancelled,
                                std::shared_ptr<VoiceReviewResult> review) {
+  // However this ends, the stream's recognition task must too: a return before local_stream->finish() (a newer recording took over, the text came back empty) would otherwise leave it waiting for audio that never comes, and the destructor waiting for it.
+  struct StreamRelease {
+    VoiceInputSession &owner;
+    const std::shared_ptr<LocalAsrStream> &stream;
+    ~StreamRelease() {
+      if (!stream)
+        return;
+      stream->cancel();
+      std::lock_guard lock(owner.local_stream_mutex_);
+      if (owner.local_stream_ == stream)
+        owner.local_stream_.reset();
+    }
+  } stream_release{*this, local_stream};
   const auto clear_current_overlay = [&] {
     if (review)
       review->fail(); // no-op after completion/cancellation
@@ -629,7 +809,8 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
       doubao_.reset();
   };
   const bool stream_inline = voice_inline_allowed(
-      review, config.stream_inline_preedit, !!doubao, config.commit_mode);
+      review, config.stream_inline_preedit, doubao || local_stream,
+      config.commit_mode);
   const auto cancel_inline = [&] {
     if (!stream_inline)
       return;
@@ -650,7 +831,9 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
   std::string text;
   const bool local = !doubao && is_local_asr_provider(config.asr_provider);
   try {
-    if (local) {
+    if (local_stream) {
+      text = local_stream->finish();
+    } else if (local) {
       text = recognize_local(samples, config, cancelled);
     } else if (doubao) {
       text = doubao->Finish();
@@ -778,14 +961,10 @@ std::string VoiceInputSession::recognize_local(
     const std::shared_ptr<std::atomic_bool> &cancelled) {
   // Read here, on the recognition worker, rather than when the recording starts: listing the dictionary reads the store, which the control thread must not wait on.
   const auto hotwords = local_hotwords(config);
-  // Stamped whether or not recognition succeeds: a model can load and then fail to decode, and it still has to be unloaded later. The time is written before the flag; release_idle_local_model() relies on that order.
+  // Stamped whether or not recognition succeeds: a model can load and then fail to decode, and it still has to be unloaded later.
   struct UseStamp {
     VoiceInputSession &session;
-    ~UseStamp() {
-      session.local_model_used_.store(
-          std::chrono::steady_clock::now().time_since_epoch().count());
-      session.local_model_loaded_.store(true);
-    }
+    ~UseStamp() { session.note_local_model_use(); }
   } stamp{*this};
   auto text = recognize_local_asr(samples, config.asr_model_path,
                                   config.language, cancelled,
@@ -794,6 +973,13 @@ std::string VoiceInputSession::recognize_local(
       local_model_corrects_by_pinyin(config.asr_model_path))
     text = correct_with_hotwords(text, hotwords);
   return text;
+}
+
+void VoiceInputSession::note_local_model_use() {
+  // The time is written before the flag; release_idle_local_model() relies on that order.
+  local_model_used_.store(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  local_model_loaded_.store(true);
 }
 
 void VoiceInputSession::release_idle_local_model() {
@@ -855,6 +1041,13 @@ void VoiceInputSession::cancel_session(bool failed) {
   }
   if (doubao)
     doubao->Cancel();
+  std::shared_ptr<LocalAsrStream> local_stream;
+  {
+    std::lock_guard lock(local_stream_mutex_);
+    local_stream = std::move(local_stream_);
+  }
+  if (local_stream)
+    local_stream->cancel();
   if (muted_system_audio_.exchange(false))
     restore_other_system_audio();
   if (was_recording && config.sound_enabled && config.end_sound)

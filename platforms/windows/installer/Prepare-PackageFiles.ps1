@@ -233,6 +233,14 @@ foreach ($candidate in @($serverRelease, $voiceRuntimeSource)) {
     $voiceRuntimeFrom = $candidate
     break
 }
+# The runtime ships under Apache-2.0 (sherpa-onnx) and MIT (ONNX Runtime), both of which require their license to travel with the binaries. Collect-Notices.ps1 writes those sections; a notice file without them (an older collection, a hand-supplied one) would ship the DLLs unlicensed, so it is refused here, before any previous staging is replaced.
+if ($null -ne $voiceRuntimeFrom) {
+    $noticeText = [IO.File]::ReadAllText($thirdPartyNotices)
+    $missingVoiceNotices = @(@('sherpa-onnx', 'ONNX Runtime') | Where-Object { -not $noticeText.Contains($_) })
+    if ($missingVoiceNotices.Count -gt 0) {
+        throw "第三方声明缺少本地语音识别运行时的许可证（$($missingVoiceNotices -join ', ')），请用 Collect-Notices.ps1 重新生成：$thirdPartyNotices"
+    }
+}
 
 $targetAppData = Join-Path $PSScriptRoot 'app_data'
 $targetServer = Join-Path $PSScriptRoot 'server_exe'

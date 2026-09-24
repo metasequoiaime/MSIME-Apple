@@ -24,6 +24,8 @@ class AudioCapture;
 }
 
 namespace msime::windows {
+class LocalAsrStream;
+
 struct VoiceInputConfig {
   VoiceCaptureSelection capture;
   bool enabled = true;
@@ -105,11 +107,14 @@ private:
   void finish(std::vector<float> samples, FocusLease lease,
               VoiceInputConfig config, uint64_t session,
               std::shared_ptr<DoubaoAsrClient> doubao,
+              std::shared_ptr<LocalAsrStream> local_stream,
               std::shared_ptr<std::atomic_bool> cancelled,
               std::shared_ptr<VoiceReviewResult> review);
   void clear_overlay();
   void cancel_session(bool failed);
-  // On-device recognition of a finished batch recording, with the user's dictionary words as hotwords. Runs on the recognition worker.
+  // Stamps the time a local model was last used, for release_idle_local_model(). Any thread.
+  void note_local_model_use();
+  // On-device recognition of a finished batch recording (a Whisper model file; installed model directories stream through LocalAsrStream instead), with the user's dictionary words as hotwords. Runs on the recognition worker.
   std::string recognize_local(const std::vector<float> &samples,
                               const VoiceInputConfig &config,
                               const std::shared_ptr<std::atomic_bool> &cancelled);
@@ -140,6 +145,9 @@ private:
   std::optional<VoiceInputConfig> active_config_;
   std::mutex doubao_mutex_;
   std::shared_ptr<DoubaoAsrClient> doubao_;
+  // The on-device counterpart of doubao_: the capture callback feeds it, and its recognition task runs from the start of the recording.
+  std::mutex local_stream_mutex_;
+  std::shared_ptr<LocalAsrStream> local_stream_;
   std::atomic<bool> muted_system_audio_{false};
   std::mutex request_mutex_;
   std::vector<std::shared_ptr<std::atomic_bool>> request_cancellations_;

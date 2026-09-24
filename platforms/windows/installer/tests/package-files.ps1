@@ -283,7 +283,26 @@ try {
         Write-Fixture "target/voice-runtime/windows-x64/$library" "fetched $library"
     }
     Write-Fixture 'target/voice-runtime/windows-x64/.archive/runtime.tar.bz2' 'synthetic cached archive'
+    # The runtime's licenses must be in the notices it ships with: the collection above predates them and is refused, leaving the previous staging alone.
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -ServerReleaseDirectory $serverOutput }
+    catch { $rejected = $_.Exception.Message -match 'sherpa-onnx, ONNX Runtime' }
+    if (-not $rejected) { throw 'Voice runtime packaged without its license notices' }
+    if (Test-Path (Join-Path $installer 'server_exe/sherpa-onnx-c-api.dll')) { throw 'Refused notices still staged the voice runtime' }
+    if ([IO.File]::ReadAllText((Join-Path $installer 'THIRD_PARTY_NOTICES.txt')) -ne 'synthetic collected notices') {
+        throw 'Refused notices replaced the staged notices'
+    }
+    Write-Fixture 'target/windows-notices/THIRD_PARTY_NOTICES.txt' 'synthetic ONNX Runtime notice only'
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -ServerReleaseDirectory $serverOutput }
+    catch { $rejected = $_.Exception.Message -match 'sherpa-onnx' -and $_.Exception.Message -notmatch 'ONNX Runtime）' }
+    if (-not $rejected) { throw 'Voice runtime packaged without the sherpa-onnx license' }
+    $voiceNotices = "synthetic collected notices`n===== sherpa-onnx 1.13.8 (sherpa-onnx-c-api.dll), Apache License 2.0 =====`n===== ONNX Runtime (onnxruntime.dll, onnxruntime_providers_shared.dll), MIT License ====="
+    Write-Fixture 'target/windows-notices/THIRD_PARTY_NOTICES.txt' $voiceNotices
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -ServerReleaseDirectory $serverOutput
+    if ([IO.File]::ReadAllText((Join-Path $installer 'THIRD_PARTY_NOTICES.txt')) -ne $voiceNotices) {
+        throw 'Voice runtime notices not staged'
+    }
     foreach ($library in $voiceRuntimeLibraries) {
         if ([IO.File]::ReadAllText((Join-Path $installer "server_exe/$library")) -ne "fetched $library") {
             throw "Fetched voice runtime not packaged beside the Server: $library"
