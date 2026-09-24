@@ -1,4 +1,4 @@
-MSIME Client for Linux — bundled third-party notices
+MSIME for Linux — bundled third-party notices
 ====================================================
 
 This package embeds msime-engine at the locked revision recorded by engine-lock.json, which is installed in share/msime-client. The complete project license is the file named copyright in this directory. The Engine notice, the dictionary and helpcode notices, and the component license texts are installed beside this file.
