@@ -654,7 +654,19 @@ impl TypingStatisticsStore {
                 .ok_or(TypingStatisticsError::CountExhausted)?;
         }
 
-        // The retention setting is the only thing that deletes days, and `Forever` keeps every one, matching the baseline's RetentionCutoff/ClearThrough. It runs on the first write of each day, as the baseline does; doing it on every write would read the whole history on every commit for a boundary that moves once a day.
+        // Keep the hard safety cap independent of the optional retention preference. A document
+        // can be written by an older host (or with `forever`) and must still never grow without
+        // bound. Prune before applying the calendar window so all four per-day maps stay aligned.
+        while value.days.len() > MAX_RETAINED_DAYS {
+            let oldest = value.days.keys().next().cloned().expect("nonempty days");
+            value.days.remove(&oldest);
+            value.daily_details.remove(&oldest);
+            value.daily_active_ms.remove(&oldest);
+            value.daily_hours.remove(&oldest);
+        }
+        // The retention setting is the only thing that deletes days beyond this safety cap,
+        // matching the baseline's RetentionCutoff/ClearThrough. It runs on the first write of
+        // each day; doing it on every write would read the whole history on every commit.
         if value.last_pruned_day != day {
             value.apply_retention(day);
             value.last_pruned_day = day.to_owned();
