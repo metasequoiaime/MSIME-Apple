@@ -3940,6 +3940,62 @@ fn invalid_buffers_and_commands_return_owned_errors() {
 }
 
 #[test]
+fn incomplete_local_mode_input_shows_the_raw_text_as_a_fallback_space_commits() {
+    // Windows' PrepareCandidateList shows the raw composition as a Fallback row whenever a special mode has nothing else, and Space commits it; a bare Y or R prefix included.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("resources")).unwrap();
+    std::fs::write(dir.path().join("resources/english.db"), b"fixture").unwrap();
+    std::fs::write(dir.path().join("resources/dict_japanese.dat"), b"synthetic").unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    let only_fallback = |transition: &Value, text: &str| {
+        let view = &transition["value"]["view"];
+        let candidates = view["candidates"].as_array().unwrap();
+        assert_eq!(candidates.len(), 1, "{view}");
+        assert_eq!(candidates[0]["text"], text, "{view}");
+        assert_eq!(candidates[0]["source"], 9, "{view}");
+    };
+    let typed = |text: &[u8]| {
+        let mut last = Value::Null;
+        for byte in text {
+            last = read(msime_client_character(
+                handle,
+                *byte,
+                byte.is_ascii_uppercase(),
+            ));
+        }
+        last
+    };
+
+    only_fallback(&typed(b"Y"), "Y");
+    let committed = read(msime_client_command(handle, 1));
+    assert_eq!(committed["value"]["commit"], "Y");
+    assert!(committed["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+
+    only_fallback(&typed(b"Kzzz"), "Kzzz");
+    read(msime_client_command(handle, 3));
+
+    only_fallback(&typed(b"U+"), "U+");
+    read(msime_client_command(handle, 3));
+
+    only_fallback(&typed(b"Txin"), "Txin");
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "Txin"
+    );
+
+    only_fallback(&typed(b"R"), "R");
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "R"
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
 fn candidate_page_edge_commands_reach_runtime() {
     let dir = tempfile::tempdir().unwrap();
     let handle = test_host(dir.path());
@@ -5032,7 +5088,11 @@ fn a_queued_dictionary_file_imports_what_it_can_and_reports_the_rest() {
 
     // The queue holds 128 words; a longer file queues the first 128 and says the rest were not read.
     let long: String = (0..200)
-        .map(|index| format!("短语{index}\tq{index}\t100\n"))
+        .map(|index: u8| {
+            // Quick phrase codes are letters only, so the index is spelled in letters.
+            let code = [b'a' + index / 26, b'a' + index % 26].map(char::from);
+            format!("短语{index}\tq{}{}\t100\n", code[0], code[1])
+        })
         .collect();
     let fresh = tempfile::tempdir().unwrap();
     let mut long_options = options.clone();

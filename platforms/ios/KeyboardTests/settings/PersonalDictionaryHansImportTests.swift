@@ -1,5 +1,11 @@
 import XCTest
 
+/// A distinct letters-only code for fixture row `index` (0..<676): quick phrase codes take letters only, as the Windows source's `valid_code` does, so a numbered fixture spells its number in letters.
+private func letterCode(_ prefix: String, _ index: Int) -> String {
+  let letters = Array("abcdefghijklmnopqrstuvwxyz")
+  return prefix + String(letters[index / 26]) + String(letters[index % 26])
+}
+
 /// Plain Chinese word lists are annotated by the shared Engine from the packaged dictionary, then previewed and queued like a JSON import.
 final class PersonalDictionaryHansImportTests: XCTestCase {
   func testPackagedDictionaryAnnotatesWordsAndSkipsCommentsAndRepeats() throws {
@@ -52,7 +58,7 @@ final class PersonalDictionaryHansImportTests: XCTestCase {
     XCTAssertEqual(windows.entries, [PersonalWord(kind: .quickPhrase, key: "zjd", value: "在家等", weight: 100)])
 
     // The queue holds 128 words, so a longer file is queued in part and says so instead of being refused.
-    let long = (0..<200).map { "短语\($0)\tq\($0)\t100\n" }.joined()
+    let long = (0..<200).map { "短语\($0)\t\(letterCode("q", $0))\t100\n" }.joined()
     let capped = try PersonalDictionaryBridge.importEntries(kind: "quick_phrase", format: "standard", text: long)
     XCTAssertEqual(capped.entries.count, 128)
     XCTAssertEqual(capped.report["truncated"] as? Bool, true)
@@ -94,7 +100,7 @@ final class PersonalDictionaryHansImportTests: XCTestCase {
     XCTAssertEqual(swapped.file.entries, [PersonalWord(kind: .quickPhrase, key: "zjd", value: "在家等", weight: 100)])
     XCTAssertTrue(swapped.notice.contains("两列与所选格式相反"), swapped.notice)
 
-    let long = (0..<200).map { "短语\($0)\tq\($0)\t100\n" }.joined()
+    let long = (0..<200).map { "短语\($0)\t\(letterCode("q", $0))\t100\n" }.joined()
     let capped = try PersonalDictionaryImport.file(long, kind: .quickPhrase, format: "standard")
     XCTAssertEqual(capped.file.entries.count, 128)
     XCTAssertTrue(capped.notice.contains("仅导入前 128 条"), capped.notice)
