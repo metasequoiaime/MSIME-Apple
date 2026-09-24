@@ -106,7 +106,7 @@ if name == "ibus":
         print("  xkb:us::eng - English (US)")
         if ibus["known"]:
             print("language: Chinese")
-            print("  msime-client - Metasequoia 水杉输入法")
+            print("  msime-linux - Metasequoia 水杉输入法")
     elif arguments == ["restart"]:
         # The new daemon reads the component files, including the one installed after the old daemon started.
         ibus["known"] = ibus["installed"]
@@ -256,8 +256,8 @@ def unregistering() -> None:
         harness = Harness(Path(name))
         set_group = "org.fcitx.Fcitx.Controller1.SetInputMethodGroupInfo"
         everywhere = {
-            GNOME: {"sources": [["xkb", "us"], ["ibus", "msime-client"], ["ibus", "mozc-jp"]]},
-            IBUS: {"preload-engines": ["xkb:us::eng", "msime-client", "libpinyin"]},
+            GNOME: {"sources": [["xkb", "us"], ["ibus", "msime-linux"], ["ibus", "mozc-jp"]]},
+            IBUS: {"preload-engines": ["xkb:us::eng", "msime-linux", "libpinyin"]},
         }
         fcitx5 = fcitx5_world(groups={
             "Default": ["us", [["keyboard-us", ""], ["msime", ""], ["pinyin", ""]]], "Other": ["de", [["msime", ""]]],
@@ -295,7 +295,7 @@ def unregistering() -> None:
         assert harness.state() == state
 
         # 列表里只有水杉：移除后会变空，空列表会让桌面退回一个未必是用户原来的默认值，Fcitx5 空组则没有可切回的键盘布局，所以保持原样。
-        alone = {GNOME: {"sources": [["ibus", "msime-client"]]}, IBUS: {"preload-engines": ["msime-client"]}}
+        alone = {GNOME: {"sources": [["ibus", "msime-linux"]]}, IBUS: {"preload-engines": ["msime-linux"]}}
         harness.world(fcitx5=fcitx5_world(current="Other", groups=fcitx5["groups"]), gsettings=alone)
         before = harness.state()
         result = harness.unregister()
@@ -431,7 +431,7 @@ def main() -> int:
         assert "已把「Metasequoia 水杉输入法」加入输入源列表" in result.stdout, result
         assert harness.calls("ibus").count(["restart"]) == 1, harness.calls("ibus")
         settings = harness.state()["gsettings"]
-        assert settings[GNOME]["sources"] == [["xkb", "us"], ["ibus", "mozc-jp"], ["ibus", "msime-client"]], settings
+        assert settings[GNOME]["sources"] == [["xkb", "us"], ["ibus", "mozc-jp"], ["ibus", "msime-linux"]], settings
         assert settings[IBUS]["preload-engines"] == ["xkb:us::eng"], settings
         assert harness.calls("gdbus") == [], harness.log.read_text()
 
@@ -452,7 +452,7 @@ def main() -> int:
         assert "已把「Metasequoia 水杉输入法」加入输入源列表" in result.stdout, result
         assert ["restart"] not in harness.calls("ibus"), harness.calls("ibus")
         settings = harness.state()["gsettings"]
-        assert settings[IBUS]["preload-engines"] == ["xkb:us::eng", "libpinyin", "msime-client"], settings
+        assert settings[IBUS]["preload-engines"] == ["xkb:us::eng", "libpinyin", "msime-linux"], settings
         assert settings[GNOME]["sources"] == [["xkb", "us"]], settings
 
         # 列表为空说明桌面在用没有写进这一项的默认输入源，只写入本引擎会把它顶掉：不写，退回手动步骤。

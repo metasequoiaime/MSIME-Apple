@@ -23,8 +23,8 @@ def wait(predicate):
     raise AssertionError("Expected portal input state was not observed")
 
 
-wait(lambda: any(e.get_name() == "msime-client" for e in admin.list_active_engines()))
-assert admin.set_global_engine("msime-client")
+wait(lambda: any(e.get_name() == "msime-linux" for e in admin.list_active_engines()))
+assert admin.set_global_engine("msime-linux")
 connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 service = "org.freedesktop.portal.IBus"
 

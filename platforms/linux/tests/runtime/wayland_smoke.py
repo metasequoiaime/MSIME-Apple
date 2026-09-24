@@ -43,7 +43,7 @@ keys = keyboard.keys
 
 
 wait(lambda: bus.is_connected(), "GTK fixture could not connect to IBus")
-wait(lambda: any(engine.get_name() == "msime-client" for engine in bus.list_active_engines()),
+wait(lambda: any(engine.get_name() == "msime-linux" for engine in bus.list_active_engines()),
      "Native IBus engine was not registered")
 window = Gtk.Window(title="MSIME synthetic GTK acceptance")
 layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -62,9 +62,9 @@ pump()
 wait(window.is_active, "Wayland compositor did not focus GTK window")
 first.grab_focus()
 pump()
-assert bus.set_global_engine("msime-client")
+assert bus.set_global_engine("msime-linux")
 wait(lambda: bus.get_global_engine() is not None and
-     bus.get_global_engine().get_name() == "msime-client", "GTK engine activation failed")
+     bus.get_global_engine().get_name() == "msime-linux", "GTK engine activation failed")
 # Let the GTK IM module finish its asynchronous input-context setup.
 end = time.monotonic() + 0.3
 while time.monotonic() < end:

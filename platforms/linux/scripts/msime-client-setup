@@ -40,7 +40,7 @@ CHUNK = 1024 * 1024
 COMMAND_TIMEOUT = 10
 FCITX5_INPUT_METHOD = "msime"
 FCITX5_NAME = "水杉输入法"
-IBUS_ENGINE = "msime-client"
+IBUS_ENGINE = "msime-linux"
 # The IBus <longname>, the same name the Windows TSF profile registers.
 IBUS_NAME = "Metasequoia 水杉输入法"
 FCITX5_CONTROLLER = [
