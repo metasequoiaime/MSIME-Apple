@@ -4919,7 +4919,7 @@ static void TestOfflineTargetGlosses() {
         [controller synchronizeTargetGloss];
         [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
         [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
-        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
     };
     // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
     settle();
@@ -4973,7 +4973,7 @@ static void TestOnDeviceGlosses() {
         [controller synchronizeOnDeviceGloss];
         [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
         [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
-        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
     };
     void (^reply)(NSString *, NSDictionary *) = ^(NSString *target, NSDictionary *translations) {
         [controller onDeviceCandidateTranslationsDidArrive:[NSNotification notificationWithName:@"MSIMEBackendOnDeviceTranslationsDidArrive"
@@ -6396,15 +6396,11 @@ int main(int argc, char **argv) {
                 assert([controller handleEvent:event client:client]);
                 assert(client.committed == nil);
                 assert(session.edgeCalls == calls + 1 && session.lastEdge == edge && session.edgeGeneration == 72 && session.edgeIndex == 8);
-                // The Engine declines a candidate without a Han character (GitHub, 123, an emoji); Windows then commits the candidate followed by the key's punctuation, '-' literally and the others through the punctuation table.
-                const unichar glyph = [character characterAtIndex:0];
-                if (glyph == '-') {
-                    assert(session.punctuationASCIICalls == asciiPunctuationCalls + 1 && session.lastPunctuationASCII == '-');
-                    assert(session.enginePunctuationCalls == punctuationCalls);
-                } else {
-                    assert(session.enginePunctuationCalls == punctuationCalls + 1 && session.lastEnginePunctuation == glyph);
-                    assert(session.punctuationASCIICalls == asciiPunctuationCalls);
-                }
+                // Word-to-character owns the key for both outcomes. Even when the
+                // Engine declines the edge selection, the key must not fall through
+                // to punctuation handling.
+                assert(session.enginePunctuationCalls == punctuationCalls &&
+                       session.punctuationASCIICalls == asciiPunctuationCalls);
                 // A Han edge the Engine accepts is the whole answer; no punctuation follows it.
                 [controller setValue:edgeView forKey:@"view"];
                 layoutPanel.requestedVisible = YES;
