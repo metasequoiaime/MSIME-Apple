@@ -4414,6 +4414,16 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         more.label = @"更多";
         more.toolTip = @"更多设置操作";
         NSMenu *menu = [[NSMenu alloc] initWithTitle:@"更多"];
+        // Above the separator, and so above 恢复全部设置…, because they are what makes that one recoverable: moving settings between machines used to mean signing in and waiting on a server, and the one item in this menu that throws every setting away stood here with no way to keep a copy first.
+        for (NSArray *entry in @[ @[@"导出设置…", NSStringFromSelector(@selector(exportSettings:))],
+                                  @[@"导入设置…", NSStringFromSelector(@selector(importSettings:))] ]) {
+            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0]
+                                                          action:NSSelectorFromString(entry[1])
+                                                   keyEquivalent:@""];
+            item.target = self;
+            [menu addItem:item];
+        }
+        [menu addItem:[NSMenuItem separatorItem]];
         // The global reset used to sit in a footer strip that cost all thirteen pages 42pt, one row
         // above the red 卸载… button on 关于. It is an action taken once, so it belongs in a menu.
         NSMenuItem *restore = [[NSMenuItem alloc] initWithTitle:@"恢复全部设置…"
@@ -4600,6 +4610,89 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [self refreshControls];
     [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
 }
+#pragma mark - Settings document
+
+/// What a settings document says it is, so that the file this window is handed can be turned down for a reason rather than by silently failing to be a snapshot.
+static NSString *const MSIMESettingsDocumentFormat = @"app.msime.client.settings";
+static NSString *const MSIMESettingsDocumentFormatField = @"format";
+static NSString *const MSIMESettingsDocumentVersionField = @"version";
+static NSString *const MSIMESettingsDocumentSettingsField = @"settings";
+/// The scope of the document, said in the two panels rather than left to be discovered. The payload is -cloudSettingsSnapshot, which is the set of settings that already travels between machines through the account; it is not everything this window holds, and a user about to reinstall should know that before they rely on the file.
+static NSString *const MSIMESettingsDocumentScope =
+    @"包含可跨机器同步的那部分设置：皮肤、候选排列与字号、每页候选、输入方案与辅助码方案、翻页键组，以及标点、简繁、云候选等开关。字体、配色、主题、快捷键、语音与应用例外不在其中。";
+
+/// Writes the snapshot the account sync already speaks to a file the user keeps.
+- (void)exportSettings:(id)sender {
+    (void)sender;
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    panel.nameFieldStringValue = @"水杉输入法设置.json";
+    panel.prompt = @"导出";
+    panel.message = MSIMESettingsDocumentScope;
+    if ([panel runModal] != NSModalResponseOK || panel.URL == nil) return;
+    NSDictionary *document = @{
+        MSIMESettingsDocumentFormatField : MSIMESettingsDocumentFormat,
+        MSIMESettingsDocumentVersionField : @1,
+        MSIMESettingsDocumentSettingsField : [self cloudSettingsSnapshot],
+    };
+    NSError *error = nil;
+    // Sorted and indented: the file is something a user may well open, diff against another machine's or keep in a repository of their own, and none of that works on one line in dictionary order.
+    NSData *data = [NSJSONSerialization dataWithJSONObject:document
+                                                   options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys
+                                                     error:&error];
+    if (data == nil || ![data writeToURL:panel.URL options:NSDataWritingAtomic error:&error]) {
+        [self reportSettingsDocumentFailure:@"导出设置未能完成"
+                                     reason:error.localizedDescription ?: @"无法写入所选位置。"];
+        return;
+    }
+}
+/// Reads one back, and turns down anything it cannot make sense of with the reason it could not.
+- (void)importSettings:(id)sender {
+    (void)sender;
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    panel.prompt = @"导入";
+    panel.message = MSIMESettingsDocumentScope;
+    if ([panel runModal] != NSModalResponseOK || panel.URL == nil) return;
+    NSData *data = [NSData dataWithContentsOfURL:panel.URL];
+    id document = data == nil ? nil : [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![document isKindOfClass:NSDictionary.class] ||
+        ![document[MSIMESettingsDocumentFormatField] isEqual:MSIMESettingsDocumentFormat]) {
+        [self reportSettingsDocumentFailure:@"无法导入这个文件"
+                                     reason:@"它不是水杉输入法导出的设置文件。"];
+        return;
+    }
+    id values = document[MSIMESettingsDocumentSettingsField];
+    // The same check the account sync puts a downloaded snapshot through — +[MSIMEPreferencesWindowController validateCloudSettingsSnapshot:] is one line around this function — asked here first so that a document this host cannot read is told apart from one it can read and still has to refuse.
+    if (![values isKindOfClass:NSDictionary.class] || !MSIMEValidateCloudAppearance(values)) {
+        [self reportSettingsDocumentFailure:@"无法导入这个文件"
+                                     reason:@"文件里的设置无法识别，可能来自更新版本的水杉输入法，或者已经被改动过。"];
+        return;
+    }
+    if (![self applyCloudSettingsSnapshot:values]) {
+        // Validation passed, so the only thing left that -applyCloudSettingsSnapshot: refuses is the one conflict it is written to refuse: the document's paging keys are the key group 以词定字 is currently holding on this machine.
+        [self reportSettingsDocumentFailure:@"设置没有导入"
+                                     reason:@"文件里的翻页键组正被本机的「以词定字」占用。请先在「按键」页改掉其中一个，再导入。"];
+        return;
+    }
+    [self refreshControls];
+    NSAlert *done = [NSAlert new];
+    done.alertStyle = NSAlertStyleInformational;
+    done.messageText = @"设置已导入";
+    done.informativeText = MSIMESettingsDocumentScope;
+    [done addButtonWithTitle:@"好"];
+    [done runModal];
+}
+- (void)reportSettingsDocumentFailure:(NSString *)message reason:(NSString *)reason {
+    NSAlert *alert = [NSAlert new];
+    alert.alertStyle = NSAlertStyleWarning;
+    alert.messageText = message;
+    alert.informativeText = reason;
+    [alert addButtonWithTitle:@"好"];
+    [alert runModal];
+}
+
 /// Every page at once, from the toolbar's ⋯ menu — the whole-window restore, beside the per-section
 /// ones the headings carry.
 - (void)restoreAllDefaults:(id)sender {
