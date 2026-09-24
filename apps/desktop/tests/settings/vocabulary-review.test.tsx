@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { answerConfirm } from "../support/confirm";
 import {
   VocabularyReviewPage,
+  VocabularyReviewPanel,
   type VocabularyReviewClient,
   type VocabularyReviewStatus,
 } from "@msime/ui";
@@ -207,4 +208,36 @@ test("a failed read keeps the existing progress and says so", async () => {
   expect(
     await screen.findByText("无法读取或保存背单词进度，请稍后重试。已有的进度不会被自动清空。"),
   ).toBeTruthy();
+});
+
+test("a host with a panel keeps the settings page for managing, not for studying", async () => {
+  const openPanel = vi.fn(async () => {});
+  render(<VocabularyReviewPage client={client()} openPanel={openPanel} />);
+
+  // 设置页是抽屉，不是目的地：它管词书，不发卡片。
+  expect(await screen.findByLabelText("词书")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "认识" })).toBeNull();
+  expect(screen.queryByText("ubiquitous")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "打开背单词面板" }));
+  await waitFor(() => expect(openPanel).toHaveBeenCalled());
+});
+
+test("the panel deals cards and offers nothing to manage", async () => {
+  render(<VocabularyReviewPanel client={client()} />);
+
+  expect(await screen.findByText("ubiquitous")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "认识" })).toBeTruthy();
+  // 词书管理和清空进度留在设置页，面板只做复习这一件事。
+  expect(screen.queryByLabelText("词书")).toBeNull();
+  expect(screen.queryByRole("button", { name: "清空复习进度" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "导入词表文件" })).toBeNull();
+});
+
+test("a host without panels keeps the review on the page rather than losing it", async () => {
+  // 没有面板可去时，设置页必须继续发卡，否则用户有词书却无处可背。
+  render(<VocabularyReviewPage client={client()} />);
+  expect(await screen.findByText("ubiquitous")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "认识" })).toBeTruthy();
+  expect(screen.getByLabelText("词书")).toBeTruthy();
 });

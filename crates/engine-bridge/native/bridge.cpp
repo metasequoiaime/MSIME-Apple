@@ -926,6 +926,11 @@ EngineSnapshot EngineSession::snapshot() const {
         output.candidate_sources.push_back(static_cast<std::uint8_t>(candidate.source));
         output.candidate_positions.push_back(static_cast<std::uint8_t>(candidate.fixed_position));
         output.candidate_corrected.push_back(!candidate.corrected_from.empty());
+        // A short vector would be an engine bug. False is the safe reading of one: a consumer that
+        // sees nothing answering the key declines to reorder, rather than comparing candidates that
+        // answered different keys.
+        output.candidate_answers_key.push_back(index < value.candidate_answers_key.size() &&
+                                               value.candidate_answers_key[index]);
     }
     return output;
 }

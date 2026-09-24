@@ -259,25 +259,23 @@ pub fn is_cloud_translatable_english(text: &str) -> bool {
     has_letter
 }
 
+/// Mirrors the reference `IsCloudTranslatableChinese`: any Han character makes the text translatable and only an emoji or pictograph rejects it, so mixed words such as "T恤" or "3D打印" are sent while digits, Latin letters and punctuation alone are not.
 pub fn is_cloud_translatable_chinese(text: &str) -> bool {
     let mut has_han = false;
     for ch in text.chars() {
-        if ('\u{3400}'..='\u{4DBF}').contains(&ch)
-            || ('\u{4E00}'..='\u{9FFF}').contains(&ch)
-            || ch == '\u{3007}'
-        {
-            has_han = true;
-        } else if matches!(ch, '\u{200D}' | '\u{FE0E}' | '\u{FE0F}' | '\u{20E3}')
+        if matches!(ch, '\u{200D}' | '\u{FE0E}' | '\u{FE0F}' | '\u{20E3}')
             || ('\u{2600}'..='\u{27BF}').contains(&ch)
             || ('\u{1F000}'..='\u{1FAFF}').contains(&ch)
             || ('\u{1F1E6}'..='\u{1F1FF}').contains(&ch)
         {
             return false;
-        } else if ch.is_ascii_punctuation() || ch.is_ascii_whitespace() {
-            continue;
-        } else if ch.is_ascii() || ('\u{1F000}'..='\u{1FAFF}').contains(&ch) {
-            return false;
         }
+        has_han = has_han
+            || ('\u{3400}'..='\u{4DBF}').contains(&ch)
+            || ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+            || ('\u{F900}'..='\u{FAFF}').contains(&ch)
+            || ('\u{20000}'..='\u{2CEAF}').contains(&ch)
+            || ch == '\u{3007}';
     }
     has_han
 }
@@ -769,5 +767,12 @@ Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
         assert!(!is_cloud_translatable_chinese("你好☀️"));
         assert!(!is_cloud_translatable_chinese("你‍好"));
         assert!(!is_cloud_translatable_chinese("你⃣"));
+        assert!(is_cloud_translatable_chinese("T恤"));
+        assert!(is_cloud_translatable_chinese("3D打印"));
+        assert!(is_cloud_translatable_chinese("\u{F900}"));
+        assert!(is_cloud_translatable_chinese("\u{20000}"));
+        assert!(!is_cloud_translatable_chinese("T"));
+        assert!(!is_cloud_translatable_chinese("123"));
+        assert!(!is_cloud_translatable_chinese(""));
     }
 }

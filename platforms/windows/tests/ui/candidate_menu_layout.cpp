@@ -228,9 +228,64 @@ void invalid_placement_is_refused() {
   assert(threw);
   assert(!candidate_menu_hit(0.0, 0.0, {}, metrics));
 }
+
+// Each chosen row maps to the Engine action it asks for; 固定排位 itself only opens the submenu.
+void chosen_rows_map_to_engine_actions() {
+  assert(candidate_menu_action(CandidateMenuCommand::PinToTop, 0)->action ==
+         CandidateAction::Pin);
+  assert(candidate_menu_action(CandidateMenuCommand::Remove, 0)->action ==
+         CandidateAction::Remove);
+  const auto fix = candidate_menu_action(CandidateMenuCommand::FixAtPosition, 4);
+  assert(fix && fix->action == CandidateAction::FixPosition && fix->position == 4);
+  assert(!candidate_menu_action(CandidateMenuCommand::FixAtPosition, 0));
+  assert(!candidate_menu_action(CandidateMenuCommand::FixAtPosition, 6));
+  assert(candidate_menu_action(CandidateMenuCommand::ClearFixedPosition, 0)
+             ->action == CandidateAction::ClearPosition);
+  assert(!candidate_menu_action(CandidateMenuCommand::FixPosition, 0));
+}
+
+// The flyout is reused across right clicks, so a choice must reach the candidate of the opening in progress, never the one that first created the menu.
+struct TestClick {
+  uint64_t session, generation;
+  size_t index;
+  CandidateAction action = CandidateAction::Select;
+  uint8_t position = 0;
+};
+void every_opening_acts_on_its_own_candidate() {
+  CandidateMenuTarget<TestClick> target;
+  assert(!target.choose(CandidateMenuCommand::PinToTop, 0));
+
+  target.open({1, 1, 0});
+  const auto first = target.choose(CandidateMenuCommand::PinToTop, 0);
+  assert(first && first->session == 1 && first->index == 0 &&
+         first->action == CandidateAction::Pin);
+
+  // A later right click, in a newer generation and on another row.
+  target.open({1, 2, 3});
+  const auto second = target.choose(CandidateMenuCommand::Remove, 0);
+  assert(second && second->generation == 2 && second->index == 3 &&
+         second->action == CandidateAction::Remove);
+
+  // An opening that was never chosen from is replaced by the next one.
+  target.open({2, 5, 1});
+  target.open({2, 6, 4});
+  const auto fixed = target.choose(CandidateMenuCommand::FixAtPosition, 2);
+  assert(fixed && fixed->session == 2 && fixed->generation == 6 &&
+         fixed->index == 4 && fixed->position == 2);
+
+  // One choice per opening: the menu closes after it.
+  assert(!target.choose(CandidateMenuCommand::PinToTop, 0));
+
+  // The submenu row carries no action and leaves the opening in place.
+  target.open({3, 1, 2});
+  assert(!target.choose(CandidateMenuCommand::FixPosition, 0));
+  assert(target.choose(CandidateMenuCommand::ClearFixedPosition, 0)->index == 2);
+}
 } // namespace
 
 int main() {
+  chosen_rows_map_to_engine_actions();
+  every_opening_acts_on_its_own_candidate();
   delete_is_offered_only_for_words();
   only_the_fix_row_carries_a_submenu();
   display_only_candidates_are_inert();

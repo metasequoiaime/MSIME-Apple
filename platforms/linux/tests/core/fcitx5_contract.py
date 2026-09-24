@@ -2,6 +2,7 @@
 """Check the Fcitx5 addon metadata without requiring a running desktop."""
 from pathlib import Path
 import configparser
+import re
 import sys
 
 root = Path(__file__).resolve().parents[2]
@@ -72,6 +73,28 @@ assert 'saveBooleanPreference("traditional_chinese_output"' in source
 assert 'preferences_["traditional_chinese_output"]' in source
 assert 'waitForPreferenceSave' in source
 assert 'if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));' in source
+# Both hosts label the Engine's local mode through the shared table; comparing against hand-written names is how the Fcitx5 footer once missed every mode ("phrase", "abbreviation", "english", "japanese" are not names the Engine emits).
+for host_source in (source, ibus_source):
+    assert 'candidate_local_mode_label(mode)' in host_source
+    for stale in ('"phrase"', '"abbreviation"', '"english"', '"japanese"'):
+        assert f'mode == {stale}' not in host_source
+# Every name the Engine bridge emits in local_mode, except "none", has a label in the shared table.
+bridge = (root.parents[1] / "crates/engine-bridge/native/bridge.cpp").read_text()
+mode_names = bridge[bridge.index("const char* local_mode_name("):]
+mode_names = mode_names[:mode_names.index("throw std::logic_error")]
+emitted = re.findall(r'return "([a-z_]+)";', mode_names)
+assert "none" in emitted and len(emitted) > 1
+labels = (root / "src/candidates/CandidateLocalModeLabels.h").read_text()
+for name in emitted:
+    if name != "none":
+        assert f'{{"{name}", "' in labels, name
+# The IBus candidate property menu uses the shared Windows wording (置顶, 固定到第 N 位, 取消固定) and takes the slot from the CandidateFixN action name.
+assert 'msime::linux_host::candidate_pin_label' in ibus_source
+assert 'candidate_fix_label(fix[12] - \'0\')' in ibus_source
+assert 'ibus_text_new_from_static_string("取消固定")' in ibus_source
+assert '"固定候选"' not in ibus_source
+assert '"固定到 1"' not in ibus_source
+assert 'std::string("取消固定 ")' not in ibus_source
 assert 'item->source() == 0 || item->source() == 1 || item->source() == 4' in source
 assert 'source_(candidate.value("source", 0u))' in source
 assert 'text_(candidate.at("text").get<std::string>())' in source
@@ -108,6 +131,10 @@ assert 'voice_action_);' in source
 assert 'reloadFcitxService' in source
 assert 'reload_service_action_' in source
 assert 'maintenance_reload_held_' in source
+# Fcitx5's ReloadConfig never reaches addons, so the reset runs in process: the controller's ReloadAddonConfig, the chord and the status-menu action all end in resetSessions.
+assert 'void reloadConfig() override { resetSessions(); }' in source
+assert 'engine_->resetSessions();' in source
+assert 'return reloadFcitxService();' not in source
 assert 'fcitx5-remote' in source
 assert 'ClientInputModeMemory.h' in source
 assert 'fcitx_app_input_modes' in source
@@ -250,7 +277,11 @@ assert "toolbar_entries_" in source
 
 # 还没做首次配置时，激活和按键两条路径都要给出具体提示，而不是笼统的「请检查运行配置」；但只有激活会打开设置窗口，打字途中弹出的窗口可能抢走键盘焦点。引导走与 IBus 启动器同一个脚本，每个登录会话只弹一次的限制因此两边共用。
 assert source.count("catch (const OptionsNotConfigured &) { notConfigured(*state, true); }") == 1
-assert source.count("catch (const OptionsNotConfigured &) { notConfigured(*state, false); }") == 1
+# Key events and the in-process reset show the hint without the guide.
+assert source.count("catch (const OptionsNotConfigured &) { notConfigured(*state, false); }") == 2
+resetSessions = source[source.index("void resetSessions() {"):]
+resetSessions = resetSessions[:resetSessions.index("\n  }\n")]
+assert "notConfigured(*state, false)" in resetSessions and "notConfigured(*state, true)" not in resetSessions
 keyEvent = source[source.index("void keyEvent(const fcitx::InputMethodEntry &"):]
 keyEvent = keyEvent[:keyEvent.index("\n  }\n")]
 assert "notConfigured(*state, false)" in keyEvent and "notConfigured(*state, true)" not in keyEvent

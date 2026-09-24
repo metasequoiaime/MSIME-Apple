@@ -22,6 +22,9 @@ inline bool valid_main_frame(const FanyImeNamedpipeData &packet,
   case FocusRestored:
     return packet.keycode <= 1 && packet.modifiers_down <= 1 &&
            packet.pinyin_length <= 1;
+  case PairedPunctuationAutoClosed:
+    // '<' is the only paired punctuation with nesting state to pay back.
+    return packet.keycode == '<';
   case HideCandidateWnd:
   case ShowCandidateWnd:
   case MoveCandidateWnd:

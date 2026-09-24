@@ -1,4 +1,5 @@
 #include "DoubaoAsrClient.h"
+#include "DoubaoTranscript.h"
 #include "../../../../shared/voice/DoubaoAuth.h"
 
 #include <nlohmann/json.hpp>
@@ -181,14 +182,7 @@ ParsedResponse ParseResponse(const std::vector<std::uint8_t> &message)
     try
     {
         const auto json = nlohmann::json::parse(payload.begin(), payload.end());
-        if (json.contains("result") && json["result"].is_object())
-            response.text = json["result"].value("text", std::string());
-        else if (json.contains("payload_msg") && json["payload_msg"].is_object())
-        {
-            const auto &body = json["payload_msg"];
-            if (body.contains("result") && body["result"].is_object())
-                response.text = body["result"].value("text", std::string());
-        }
+        response.text = msime::windows::doubao_transcript(json);
     }
     catch (...)
     {

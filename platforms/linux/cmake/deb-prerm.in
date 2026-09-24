@@ -3,7 +3,9 @@
 #
 # The Windows uninstaller stops the IME processes before it removes their files (StopImeProcesses in msime_setup.iss). The Linux counterpart is the user units msime-client-setup enabled: left alone they keep listening and restart services against deleted programs. On removal this stops and disables them in the systemd user manager of every user logind knows about, one unit at a time so an absent unit does not stop the rest, sockets before their services so a stopped service is not activated again. An upgrade leaves them running and postinst restarts the services onto the new programs. A deconfigure leaves them alone too: it is temporary, the programs stay installed, and dpkg later configures the package again or aborts the deconfigure, and neither path enables anything that was disabled here.
 #
-# Nothing here may fail the package transaction. Without systemctl or loginctl (containers, non-systemd systems) it does nothing; a user manager that cannot be reached gets the same per-user command the CMake uninstall prints.
+# The Windows uninstaller also unregisters the TSF profile, which takes the input method out of every user's list. The counterpart here is msime-client-setup --unregister, run for each reachable user after the units are disabled, as a transient unit in that user's manager so it reaches the user's session bus and dconf. It has to run in prerm: after removal the program is gone. The package transaction waits for it; each of its bus calls has its own timeout.
+#
+# Nothing here may fail the package transaction. Without systemctl or loginctl (containers, non-systemd systems) it does nothing; a user manager that cannot be reached gets the same per-user command the CMake uninstall prints, and the same instruction to remove the input method from its lists by hand, since the program that would do it is about to be deleted.
 
 case "$1" in
   remove) ;;
@@ -13,6 +15,10 @@ esac
 command -v systemctl >/dev/null 2>&1 || exit 0
 command -v loginctl >/dev/null 2>&1 || exit 0
 users=$(loginctl list-users --no-legend 2>/dev/null) || exit 0
+unregister=
+if command -v systemd-run >/dev/null 2>&1; then
+  unregister=1
+fi
 
 while read -r uid name _; do
   case "$uid" in
@@ -22,8 +28,11 @@ while read -r uid name _; do
     for unit in @MSIME_USER_UNIT_LIST@; do
       systemctl --user -M "$uid@" disable --now "$unit" </dev/null >/dev/null 2>&1 || true
     done
+    if [ -n "$unregister" ]; then
+      systemd-run --user -M "$uid@" --wait --collect --quiet @CMAKE_INSTALL_FULL_BINDIR@/msime-client-setup --unregister </dev/null >/dev/null 2>&1 || true
+    fi
   else
-    echo "msime-client: could not reach the systemd user manager of ${name:-uid $uid}; that user should stop its services: systemctl --user disable --now @MSIME_USER_UNIT_LIST@" >&2
+    echo "msime-client: could not reach the systemd user manager of ${name:-uid $uid}; that user should stop its services: systemctl --user disable --now @MSIME_USER_UNIT_LIST@; and remove the input method from its lists: Metasequoia 水杉输入法 from the desktop input sources (IBus), MSIME from the current group in fcitx5-configtool (Fcitx5)" >&2
   fi
 done <<EOF
 $users

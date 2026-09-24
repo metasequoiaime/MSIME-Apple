@@ -88,6 +88,12 @@ void ServerSession::set_chinese_punctuation(uint64_t epoch, bool enabled) {
   check_active(epoch);
   response(msime_client_set_chinese_punctuation(session_, enabled));
 }
+void ServerSession::balance_paired_punctuation(uint64_t epoch,
+                                               uint8_t opening) {
+  check_active(epoch);
+  response(msime_client_balance_paired_punctuation_after_auto_close(session_,
+                                                                   opening));
+}
 nlohmann::json ServerSession::toggle_traditional_output(uint64_t epoch) {
   check_active(epoch);
   traditional_output_ = !traditional_output_;
@@ -100,6 +106,12 @@ nlohmann::json ServerSession::dedicated_english(uint64_t epoch, bool exit) {
     return current;
   cancel_composition(epoch);
   return response(msime_client_set_english_mode(session_, false));
+}
+nlohmann::json ServerSession::toggle_dedicated_english(uint64_t epoch) {
+  check_active(epoch);
+  const bool enabled = view().at("dedicated_english").get<bool>();
+  cancel_composition(epoch);
+  return response(msime_client_set_english_mode(session_, !enabled));
 }
 KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
                              uint64_t epoch) {
@@ -208,9 +220,10 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
   const auto current = view();
   if (current.at("editing_text").get<std::string>().empty())
     return std::nullopt;
-  const auto local_mode = current.at("local_mode").get<std::string>();
-  action = navigation_action(packet, bindings, local_mode == "unicode",
-                              local_mode == "japanese");
+  // Japanese is a scheme (3), not a local mode; no local mode is ever named "japanese".
+  action = navigation_action(packet, bindings,
+                             current.at("local_mode").get<std::string>() == "unicode",
+                             current.value("scheme", 0u) == 3u);
   if (!action)
     return std::nullopt;
   auto result = action->command
@@ -488,7 +501,8 @@ ServerSession::word_character(const FanyImeNamedpipeData &packet,
     return std::nullopt;
   const auto current = view();
   if (current.at("local_mode") == "unknown" ||
-      current.at("editing_text").get<std::string>().empty())
+      current.at("editing_text").get<std::string>().empty() ||
+      !word_character_edge(packet, binding, current.value("scheme", 0u) == 3u))
     return std::nullopt;
   std::string fallback;
   for (const auto &candidate : current.at("candidates")) {

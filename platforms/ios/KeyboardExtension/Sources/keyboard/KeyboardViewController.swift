@@ -141,6 +141,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var backspaceRepeatTimer: Timer?
   private var didRepeatBackspace = false
   private var hasComposition = false
+  private var pairedPunctuation = PairedPunctuationStack()
   /// Japanese conversion keeps the selected candidate in the strip until Return commits it.
   private var japaneseConversionIndex: Int?
   private var isChineseMode = true
@@ -194,6 +195,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visiblePhrasePrefix = ""
   /// The spelling with the Engine's caret drawn in, while the user has moved that caret off the end.
   private var visibleCaretSpelling: String?
+  /// The spelling the caret can be moved through and where the caret sits in it, while one is being composed; nil for a Japanese reading, whose conversion owns the caret keys.
+  private var editableSpelling: (text: String, caret: Int)?
   /// Whether the current space-bar drag moves the caret inside the composition rather than in the document.
   private var spaceDragEditsComposition = false
   /// The desktop candidate skin the strip draws with, or nil while it follows the keyboard skin (see CandidatePalette).
@@ -243,9 +246,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// What 行内预编辑 last wrote into the host as marked text; empty when nothing is marked.
   private var inlineMarkedText = ""
 
-  // The strip numbers its chips 1-9 to match the digits on the symbol layer, so a page is nine.
-  // Not private: the expansion test asserts the panel reaches past what the strip shows.
-  static let candidatePageSize = 9
+  /// The chips the strip numbers, the page size the session was given (see CandidatePageSizePreference), so a digit picks the chip carrying its number. Everything past it is in the expanded panel.
+  private var candidatePageSize: Int {
+    CandidatePageSizePreference.clamped(session.sharedPreferences?["candidate_page_size"] as? Int)
+  }
   // The composition sits on its own line above the candidates. Both rows are reserved whether or
   // not anything is being composed, so no row appears or disappears mid-typing.
   // Not private: the height assertions derive from it rather than restating the sum.
@@ -1182,7 +1186,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           updateShortcutButtons()
         }),
       ].compactMap { $0 }),
+      // Windows 用 Ctrl+Shift+Alt+C 清除候选缓存。iOS 不把硬件键交给第三方键盘,那组快捷键在这里按不出来,所以放成面板里的一张卡。
+      KeyboardToolSection(title: "维护", kind: .opens, columns: 2, tools: [
+        KeyboardTool(title: "清除候选缓存", symbol: "arrow.counterclockwise") { [weak self] in
+          self?.closeKeyboardPicker(); self?.resetCandidateCache()
+        },
+      ]),
     ]
+  }
+
+  private func resetCandidateCache() {
+    let snapshot = session.resetCache()
+    render(snapshot)
+    guard snapshot.diagnosticText == nil else { return }
+    showDiagnostic("已清除候选缓存")
+    renderCandidateStrip()
   }
 
   /// Vibration controls only where there is a Taptic Engine to drive; an iPad would show switches that do nothing.
@@ -1603,6 +1621,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateCandidateStrip(preedit: "", candidates: [])
   }
 
+  /// A digit past the chips on show while composing. The session answers it with an unhandled diagnostic carrying no preedit, which the path below would take for "no composition" and type the digit into the document mid-word, so it does nothing instead. Not private: the page-size tests pin it.
+  static func digitHasNoChip(_ digit: String, chips: Int, composing: Bool) -> Bool {
+    guard composing, let number = Int(digit) else { return false }
+    return number > chips
+  }
+
   private func handleSymbol(_ symbol: String) {
     playInputClick()
     if !isChineseMode {
@@ -1635,6 +1659,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // absolute index the chip with that number is actually displaying, and a digit with no chip
       // on this page has to do nothing: falling through would hand it to handleCandidateKey and
       // commit a first-page candidate the user cannot see.
+      let composing = !visiblePreedit.isEmpty || !visibleCandidates.isEmpty
+      if Self.digitHasNoChip(symbol, chips: min(candidatePageSize, visibleCandidates.count), composing: composing) { return }
       let snapshot = session.handleCandidateKey(symbol)
       if !snapshot.isHandled && snapshot.preedit.isEmpty {
         insertDirectText(symbol)
@@ -1671,15 +1697,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
+    let paired = session.sharedPreferences?["paired_punctuation"] as? Bool ?? true
+    // The closing half of a pair the keyboard closed is already to the right of the caret, so its key moves past it rather than writing a second one. Only between compositions: a key pressed mid-spelling commits the spelling with its mark.
+    if paired && !hasComposition
+      && pairedPunctuation.stepOver(ascii: punctuation, editor: editor, following: textDocumentProxy.documentContextAfterInput) {
+      clearSmartPunctuationArming()
+      textDocumentProxy.adjustTextPosition(byCharacterOffset: 1)
+      return
+    }
+
     let preceding = KeyboardPunctuationContext.precedingScalar(documentContextBeforeComposition)
     var snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
     if snapshot.isHandled {
-      let paired = session.sharedPreferences?["paired_punctuation"] as? Bool ?? true
       let reopened = PairedPunctuationPolicy.reopenQuote(snapshot.commitText, ascii: punctuation, enabled: paired)
       if reopened != snapshot.commitText { snapshot = snapshot.replacingCommit(reopened) }
       render(snapshot)
       let completion = PairedPunctuationPolicy.completion(snapshot.commitText, enabled: paired)
-      if let completion { closePair(completion) }
+      if let completion { closePair(completion, editor: editor) }
       armSmartPunctuation(punctuation, commit: snapshot.commitText, editor: editor, autoClosedPair: completion != nil)
       return
     }
@@ -1700,10 +1734,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 成对标点自动补全: write the closing mark and put the caret back between the two. The Engine has just committed the opening mark, so nothing is composed and the caret move ends nothing.
-  private func closePair(_ completion: PairedPunctuationCompletion) {
+  private func closePair(_ completion: PairedPunctuationCompletion, editor: UInt64) {
     insertOwnText(completion.closing)
     if completion.opening == "<" { session.balancePairedPunctuationAfterAutoClose(opening: completion.opening) }
     textDocumentProxy.adjustTextPosition(byCharacterOffset: -1)
+    pairedPunctuation.push(closing: completion.closing, editor: editor)
   }
 
   /// Milliseconds on the host's own clock, for the two-second repeat window.
@@ -2585,6 +2620,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     let modes = enabledLocalInputModes
     let offersModes = idle && supportsLocalTools && !modes.isEmpty
+    let spellingMenu = idle ? nil : editableSpelling.map(Self.spellingEditMenu)
     preeditButton.menu =
       offersModes
       ? UIMenu(
@@ -2594,12 +2630,41 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             self?.openLocalInputMode(mode.trigger)
           }
         })
-      : nil
+      : spellingMenu.map { items in
+        UIMenu(title: "编辑拼写", children: items.map { item in
+          UIAction(title: item.title, attributes: item.enabled ? [] : .disabled) { [weak self] _ in
+            self?.editSpelling(item.edit)
+          }
+        })
+      }
     // Withdrawing the menu is what makes the button inert; disabling it would dim the title, and
     // this is the preedit, which has to keep reading as the text the user is composing.
     preeditButton.accessibilityLabel = offersModes ? "本地输入模式" : title
     preeditButton.accessibilityValue = offersModes ? nil : title
-    preeditButton.accessibilityTraits = offersModes ? .button : .staticText
+    preeditButton.accessibilityHint = spellingMenu == nil ? nil : "轻点编辑拼写"
+    preeditButton.accessibilityTraits = offersModes || spellingMenu != nil ? .button : .staticText
+  }
+
+  enum SpellingEdit: Equatable, Sendable { case start, end, deleteForward }
+
+  /// Tapping the spelling offers the Home, End and Delete keys of the Windows composition, which a touch keyboard has no keys for: the space-bar drag walks the caret a letter or a syllable at a time, and these finish the job in one step. An entry that would do nothing where the caret is stays in the menu, dimmed, so the menu keeps its shape.
+  nonisolated static func spellingEditMenu(_ spelling: (text: String, caret: Int)) -> [(title: String, edit: SpellingEdit, enabled: Bool)] {
+    let atEnd = spelling.caret >= spelling.text.count
+    return [
+      ("光标移到开头", .start, spelling.caret > 0),
+      ("光标移到末尾", .end, !atEnd),
+      ("删除光标后的字母", .deleteForward, !atEnd),
+    ]
+  }
+
+  private func editSpelling(_ edit: SpellingEdit) {
+    guard hasComposition else { return }
+    playInputClick()
+    switch edit {
+    case .start: render(session.moveCaretToStart())
+    case .end: render(session.moveCaretToEnd())
+    case .deleteForward: render(session.deleteForward())
+    }
   }
 
   func openLocalInputMode(_ trigger: String) {
@@ -2851,6 +2916,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleBackspace() {
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
     playInputClick()
+    // Deleting document text may take the opening half of a pair with it; a backspace inside a spelling only edits the spelling.
+    if !hasComposition { pairedPunctuation.clear() }
     if !isChineseMode {
       deleteOwnBackward()
       refreshEnglishSuggestions()
@@ -2948,6 +3015,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else { return }
     if hasComposition { render(session.finishComposition()) }
     guard KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
+    pairedPunctuation.clear()
     textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
   }
 
@@ -3037,6 +3105,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     let snapshot = endComposition(at: .returnKey)
     if !snapshot.isHandled {
+      pairedPunctuation.clear()
       insertOwnText("\n")
     }
     render(snapshot)
@@ -3187,12 +3256,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
-    // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。行内预编辑关闭时（默认）编辑框里没有组字，候选条这一行就是用户唯一能看见它的地方；打开后同一段文字也作为标记文本写进编辑框。
+    // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。行内预编辑关闭时（默认）编辑框里没有组字，候选条这一行就是用户唯一能看见它的地方；打开后按所选样式（原始按键或拼音分词）也作为标记文本写进编辑框。
     let composing = snapshot.phrasePrefix
       + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
     visiblePhrasePrefix = snapshot.phrasePrefix
     visibleCaretSpelling = inputScheme.isJapanese ? nil : snapshot.editingTextWithCaret
-    showInlineComposition(hasComposition && InlinePreeditPreference.isEnabled ? composing : "")
+    editableSpelling = hasComposition && !inputScheme.isJapanese && !snapshot.isInLocalMode
+      && !snapshot.editingText.isEmpty && snapshot.editingText.allSatisfy(\.isASCII)
+      ? (snapshot.editingText, snapshot.caretPosition) : nil
+    let japaneseReading = inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : nil
+    showInlineComposition(hasComposition
+      ? InlinePreeditPreference.style.text(phrasePrefix: snapshot.phrasePrefix, preedit: snapshot.preedit,
+                                           editingText: snapshot.editingText, japaneseReading: japaneseReading)
+      : "")
     updateCandidateStrip(
                          preedit: composing,
                          candidates: snapshot.candidates,
@@ -3262,7 +3338,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.isHidden = showsCandidates
     candidateContent?.isHidden = !showsCandidates
     updatePreeditButton()
-    let page = Array(visibleCandidates.prefix(Self.candidatePageSize))
+    let page = Array(visibleCandidates.prefix(candidatePageSize))
     while candidateStack.arrangedSubviews.count < page.count {
       let index = candidateStack.arrangedSubviews.count
       candidateStack.addArrangedSubview(makeCandidateButton(index: index))
@@ -3372,7 +3448,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           !visibleCandidates.isEmpty else { translations.cancel(); return }
     var codes = [CandidateTranslationPreference.primary.code]
     if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
-    translations.refresh(words: Array(visibleCandidates.prefix(Self.candidatePageSize)), codes: codes)
+    translations.refresh(words: Array(visibleCandidates.prefix(candidatePageSize)), codes: codes)
   }
 
   private func wubiCodeHint(code: String, typed: String) -> String {

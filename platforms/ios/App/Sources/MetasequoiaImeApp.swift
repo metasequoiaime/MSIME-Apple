@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct MetasequoiaImeApp: App {
   @StateObject private var onboardingNavigation = AppNavigation()
+  @Environment(\.scenePhase) private var scenePhase
   @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
   init() {
@@ -59,6 +60,15 @@ struct MetasequoiaImeApp: App {
       applicationContent
       #endif
     }
+    .onChange(of: scenePhase) { if $0 == .active { applyAppearance() } }
+  }
+
+  /// 设置界面主题 (see AppAppearancePreference) on every window. A window override rather than `preferredColorScheme`, so going back to 跟随系统 hands the style back to the device reliably and sheets follow too.
+  private func applyAppearance() {
+    let style = AppAppearancePreference.style(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+      for window in scene.windows { window.overrideUserInterfaceStyle = style }
+    }
   }
 
   #if DEBUG && targetEnvironment(simulator)
@@ -75,13 +85,17 @@ struct MetasequoiaImeApp: App {
   }
   #endif
 
-  @ViewBuilder private var applicationContent: some View {
+  private var applicationContent: some View {
+    Group {
       if hasCompletedOnboarding {
         MainTabView()
       } else {
         NavigationView { WelcomeFlowView(onFinish: { hasCompletedOnboarding = true }) }
           .navigationViewStyle(.stack).environmentObject(onboardingNavigation)
       }
+    }
+    .onAppear(perform: applyAppearance)
+    .onReceive(NotificationCenter.default.publisher(for: AppAppearancePreference.didChange)) { _ in applyAppearance() }
   }
 }
 
