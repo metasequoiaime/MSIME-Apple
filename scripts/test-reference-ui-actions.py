@@ -56,7 +56,7 @@ ANSWERED_BY: dict[str, str | tuple[str]] = {
     "restartServer": "restart_input_method",
     "openExternalUrl": "openExternalUrl",
     "apiCredentialTest": "test_credential",
-    "dictionaryRequest": "dictionary",
+    "dictionaryRequest": "dictionary_request",
     "statsRequest": "load_typing_statistics",
     "copyText": (
         "The webview here is a full browser context with the clipboard API, and the shared page "
@@ -81,7 +81,7 @@ ANSWERED_BY: dict[str, str | tuple[str]] = {
     "pin": "CandidateMenuCommand::PinToTop",
     "fixPosition": "CandidateMenuCommand::FixAtPosition",
     "clearPosition": "CandidateMenuCommand::ClearFixedPosition",
-    "candidateWheel": "candidate_wheel",
+    "candidateWheel": "consume_candidate_wheel_delta",
     "contextMenuResize": "candidate_menu_size",
     "contextMenuClosed": "CandidateFlyoutWindow",
     "candidatePointerArmed": (
@@ -120,22 +120,34 @@ ANSWERED_BY: dict[str, str | tuple[str]] = {
     ),
     "openSettings": "TrayMenuCommand::OpenSettings",
     "openEmojiPanel": "TrayMenuCommand::OpenEmojiPanel",
-    "changeIMEMode": "toolbar_icon",
-    "changeCharMode": "floating_toolbar_fullwidth",
-    "changePuncMode": "floating_toolbar_punctuation",
-    "changeCharacterSet": "floating_toolbar_character_set",
-    "exitEnglishInputMode": "english_mode",
+    # The 中/英, 全/半 and punctuation buttons are turned into explicit mode requests by one function, and a click on 中/英 while dedicated English mode is on leaves that mode instead.
+    "changeIMEMode": "toolbar_mode_command",
+    "changeCharMode": "toolbar_mode_command",
+    "changePuncMode": "toolbar_mode_command",
+    "changeCharacterSet": "character_set_action_",
+    "exitEnglishInputMode": "exit_dedicated_english",
 }
 
-# Where a counterpart may be found. Not the whole repository: a token that only appears in a test or
-# in this file's own map is not an implementation.
+# Where a counterpart may be found. Not the whole repository: a token that only appears in a test, in configuration, in documentation or in this file's own map is not an implementation. The native surfaces are Windows ones, so only the Windows platform tree counts; the settings surface is the shared Tauri application and page.
 SEARCH_PATHS = [
     "apps/desktop/src",
     "apps/desktop/src-tauri/src",
     "crates",
     "packages/ui/src",
-    "platforms",
+    "platforms/windows",
 ]
+CODE_SUFFIXES = {".c", ".cc", ".cpp", ".h", ".hpp", ".rs", ".ts", ".tsx"}
+# A match in any of these is a test or another platform's code, not the Windows implementation.
+EXCLUDED_DIRS = {"tests", "test", "__tests__", "android", "ios", "linux", "macos", "harmony"}
+
+
+def counts_as_implementation(path: str) -> bool:
+    pure = pathlib.PurePosixPath(path)
+    return (
+        pure.suffix in CODE_SUFFIXES
+        and pure.stem != "tests"
+        and not EXCLUDED_DIRS & set(pure.parts[:-1])
+    )
 
 
 def contract_actions() -> tuple[dict[str, list[str]], str, str] | None:
@@ -151,13 +163,14 @@ def contract_actions() -> tuple[dict[str, list[str]], str, str] | None:
 
 
 def implemented(token: str) -> bool:
+    # Whole-word match: `dictionary_request` must not be satisfied by `cloud_dictionary_request`, nor `candidate_wheel` by `candidate_wheel_paging`.
     found = subprocess.run(
-        ["git", "grep", "--fixed-strings", "-l", token, "--", *SEARCH_PATHS],
+        ["git", "grep", "--fixed-strings", "--word-regexp", "-l", token, "--", *SEARCH_PATHS],
         cwd=ROOT,
         capture_output=True,
         text=True,
     )
-    return bool(found.stdout.strip())
+    return any(counts_as_implementation(path) for path in found.stdout.splitlines())
 
 
 def main() -> int:

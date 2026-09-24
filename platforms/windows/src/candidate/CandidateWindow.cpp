@@ -498,7 +498,9 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   placement.width = static_cast<int>(content_width);
   placement.height = static_cast<int>(content_height);
   placement.decision_height = static_cast<int>(
-      horizontal_ ? content_height : (std::min)(tallest_, available_height));
+      horizontal_ ? content_height
+                  : candidate_vertical_decision_height(tallest_, scale,
+                                                       available_height));
   placement.work_left = work.left;
   placement.work_top = work.top;
   placement.work_right = work.right;
@@ -723,13 +725,15 @@ void CandidateWindow::paint() {
                                                         ? palette_.selected
                                                         : palette_.hover));
       if (value->candidates[i].highlighted && palette_.show_selected_bar) {
-        const auto extent =
-            candidate_selection_bar(rect.top, rect.bottom, font_size_);
-        const D2D1_ROUNDED_RECT bar{{rect.left + 2.0f,
+        const auto extent = candidate_selection_bar(rect.left, rect.top,
+                                                    rect.bottom, font_size_);
+        const float radius =
+            static_cast<float>(candidate_selection_bar_width * 0.5);
+        const D2D1_ROUNDED_RECT bar{{static_cast<float>(extent.left),
                                      static_cast<float>(extent.top),
-                                     rect.left + 5.0f,
+                                     static_cast<float>(extent.right),
                                      static_cast<float>(extent.bottom)},
-                                    1.5f, 1.5f};
+                                    radius, radius};
         target->FillRoundedRectangle(bar, brush(palette_.accent));
       }
     }

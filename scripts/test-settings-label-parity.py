@@ -39,7 +39,10 @@ REFERENCE = reference_root(ROOT)
 
 
 def reference_labels() -> tuple[dict[str, str], str, str] | None:
-    """The reference's own dropdown, at the fixed migration source."""
+    """The reference's own dropdown, at the fixed migration source.
+
+    None means only that there is no checkout. A checkout whose partial parses to nothing, or to two spellings of one scheme, returns an empty table, which the caller fails on: treating it as "no checkout" is how an unreadable reference once passed as skipped.
+    """
     shown = show_file(ROOT, PARTIAL)
     if shown is None:
         return None
@@ -56,9 +59,15 @@ def reference_labels() -> tuple[dict[str, str], str, str] | None:
                 f"FAIL the reference itself spells {value} both {labels[value]} and {label}",
                 file=sys.stderr,
             )
-            return None
+            return {}, ref, sha
         labels[value] = label
-    return (labels, ref, sha) if labels else None
+    if not labels:
+        print(
+            f"FAIL no helpcode scheme labels could be read from the reference's {PARTIAL}; the "
+            f"parser needs updating",
+            file=sys.stderr,
+        )
+    return labels, ref, sha
 
 
 def shared_ui() -> dict[str, str]:
@@ -184,6 +193,9 @@ def main() -> int:
     if resolved is None:
         print("skipped the reference comparison: no MSIME-Windows checkout beside this repository")
         print(f"  expected a git checkout at {REFERENCE} carrying {PARTIAL}")
+        truth, source = copies[first], first
+    elif not resolved[0]:
+        failures += 1
         truth, source = copies[first], first
     else:
         truth, ref, sha = resolved

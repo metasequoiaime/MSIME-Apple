@@ -45,13 +45,25 @@ public final class ClipboardHistoryStore {
         return entries(request("load", null, false));
     }
 
-    /** Add one entry. Returns false when every entry is pinned and none can be evicted. */
-    public boolean add(String text) {
-        if (!ClipboardHistoryPolicy.acceptable(text)) {
+    /**
+     * Add one entry.
+     *
+     * <p>Returns null when it was stored, and the shared store's own reason when it was not.
+     * Deliberately not annotated: this file is compiled by the JVM smoke stage, which skips any
+     * source that imports androidx, and being excluded from that compile is worse than a
+     * contract stated in prose. The
+     * reason used to be discarded, so a refusal for a control character or an over-long text
+     * reached the user as 「50 条历史均已固定」 - the one refusal it could not have been.
+     */
+    public String add(String text) {
+        if (!ClipboardHistoryPolicy.hasText(text)) {
             throw new IllegalArgumentException("Clipboard has no usable text");
         }
         JSONObject response = request("capture", text, false);
-        return response != null && response.optBoolean("captured", false);
+        if (response != null && response.optBoolean("captured", false)) return null;
+        String reason = response == null || response.isNull("reason")
+            ? "" : response.optString("reason", "");
+        return reason;
     }
 
     /** Entries are identified by their text, which is how the shared store names them. */
@@ -153,8 +165,10 @@ public final class ClipboardHistoryStore {
                 Long.compare(left.optLong("timestamp", 0), right.optLong("timestamp", 0)));
             for (JSONObject value : ordered) {
                 String text = value.optString("text", "");
-                if (!ClipboardHistoryPolicy.acceptable(text)) continue;
-                if (!add(text)) break;
+                if (!ClipboardHistoryPolicy.hasText(text)) continue;
+                // A refusal ends the move: the shared store is either full or has started
+                // declining this document's text, and neither gets better by trying again.
+                if (add(text) != null) break;
                 if (value.optBoolean("pinned", false)) setPinned(text, true);
             }
         } catch (JSONException | IllegalStateException | IllegalArgumentException ignored) {
