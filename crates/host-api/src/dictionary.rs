@@ -1879,6 +1879,151 @@ pub fn import_dictionary_words(
     Ok(outcome)
 }
 
+/// The scheme a candidate lookup types in. Japanese is left out: its candidates come through a kana reading, not a code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LookupScheme {
+    Quanpin,
+    Shuangpin,
+    Wubi,
+}
+
+/// Where a looked-up candidate came from: the Engine's `CandidateSource` (vendor/MSIME-Engine/core/word_item.h), with a dictionary candidate told apart by the row it was found as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CandidateOrigin {
+    /// A row shipped with the dictionary or learned from typing.
+    Dictionary,
+    /// A word the user added.
+    UserWord,
+    /// Put together by the Engine from dictionary rows, such as a sentence, with no single row of its own.
+    Composed,
+    English,
+    QuickPhrase,
+    Emoji,
+    Kaomoji,
+    Generated,
+    Fallback,
+}
+
+/// A candidate typing a code offers, in the order the Engine ranks it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LookupCandidate {
+    pub text: String,
+    /// The part of the typed code this candidate covers.
+    pub code: String,
+    pub origin: CandidateOrigin,
+    /// The weight of the row a dictionary or user word was found as.
+    pub weight: Option<i64>,
+}
+
+/// The most candidates one lookup returns.
+pub const MAX_LOOKUP_CANDIDATES: usize = 50;
+
+/// The candidates typing `code` offers from the local dictionaries, in the scheme given or the user's own. The lookup types into a session of its own with learning and frequency adjustment off, so it changes nothing the user's typing offers next, and no cloud, AI or sentence-model provider is attached, so the ranking is the Engine's alone.
+pub fn lookup_candidates(
+    options: &DictionaryOptions,
+    scheme: Option<LookupScheme>,
+    code: &str,
+    limit: usize,
+) -> Result<Vec<LookupCandidate>, String> {
+    if limit == 0 || limit > MAX_LOOKUP_CANDIDATES {
+        return Err(format!(
+            "limit must be between 1 and {MAX_LOOKUP_CANDIDATES}"
+        ));
+    }
+    let mut options = options.0.clone();
+    if let Some(scheme) = scheme {
+        options.scheme = match scheme {
+            LookupScheme::Quanpin => 0,
+            LookupScheme::Shuangpin => 1,
+            LookupScheme::Wubi => 2,
+        };
+    }
+    if !matches!(options.scheme, 0..=2) {
+        return Err("candidates can only be looked up in pinyin, double pinyin or wubi".into());
+    }
+    // A semicolon is a key only in double pinyin; elsewhere it is punctuation and would end the composition.
+    let allowed = |byte: u8| {
+        byte.is_ascii_lowercase() || byte == b'\'' || (byte == b';' && options.scheme == 1)
+    };
+    if code.is_empty() || code.len() > 64 || !code.bytes().all(allowed) {
+        return Err("the code must be 1 to 64 lowercase letters or apostrophes, and semicolons only in double pinyin".into());
+    }
+    options.learning = false;
+    options.frequency_mode = "disabled".into();
+    options.local_unicode = false;
+    options.local_date_time = false;
+    options.local_quick_phrase = false;
+    options.local_emoji = false;
+    options.local_kaomoji = false;
+    options.local_super_jianpin = false;
+    options.local_temporary_english = false;
+    options.local_temporary_japanese = false;
+    let _access = DictionaryAccess::try_session(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    let session =
+        msime_engine_bridge::Session::new(&options).map_err(|_| "cannot open the dictionaries")?;
+    let mut runtime =
+        msime_input_runtime::Runtime::new(session, 9).map_err(|error| error.to_string())?;
+    // An unfocused runtime drops every keystroke.
+    runtime.focus(true).map_err(|error| error.to_string())?;
+    for value in code.bytes() {
+        runtime
+            .dispatch(msime_input_runtime::Action::Character {
+                value,
+                shift: false,
+            })
+            .map_err(|error| error.to_string())?;
+    }
+    // The Engine reports a user's word as a dictionary one, so each is looked up as the row it came from.
+    let word_kind = if options.scheme == 2 {
+        WordKind::Wubi
+    } else {
+        WordKind::Pinyin
+    };
+    runtime
+        .all_candidates()
+        .candidates
+        .into_iter()
+        .take(limit)
+        .map(|candidate| {
+            let row = |kind: WordKind| -> Result<Option<Entry>, String> {
+                stored_word(&options, kind, &candidate.code, &candidate.text)
+                    .map(|entry| entry.filter(|_| !candidate.code.is_empty()))
+            };
+            let (origin, weight) = match candidate.source {
+                0 | 1 => match row(word_kind)? {
+                    Some(entry) if entry.is_bundled() => {
+                        (CandidateOrigin::Dictionary, Some(entry.weight))
+                    }
+                    Some(entry) => (CandidateOrigin::UserWord, Some(entry.weight)),
+                    None => (CandidateOrigin::Composed, None),
+                },
+                4 => (
+                    CandidateOrigin::English,
+                    row(WordKind::English)?.map(|entry| entry.weight),
+                ),
+                5 => (CandidateOrigin::QuickPhrase, None),
+                6 => (CandidateOrigin::Emoji, None),
+                7 => (CandidateOrigin::Kaomoji, None),
+                8 => (CandidateOrigin::Generated, None),
+                9 => (CandidateOrigin::Fallback, None),
+                // Cloud (2) and AI (3) suggestions come only from providers this session never has; one here means the lookup is no longer local.
+                _ => return Err("the lookup produced a candidate that is not local".to_owned()),
+            };
+            Ok(LookupCandidate {
+                text: candidate.text,
+                code: candidate.code,
+                origin,
+                weight,
+            })
+        })
+        .collect()
+}
+
 fn is_han_character(character: char) -> bool {
     matches!(
         character as u32,
@@ -2262,6 +2407,103 @@ mod tests {
         );
         assert!(import_dictionary_words(&options, WordKind::Pinyin, &[], "import-2").is_err());
         assert!(import_dictionary_words(&options, WordKind::Pinyin, &words, "bad id").is_err());
+    }
+
+    /// Every file under `directory` with what it holds: a database by its rows, since opening a session commits to the file without changing a row, and anything else by its bytes.
+    fn tree(directory: &Path) -> Vec<(std::path::PathBuf, Vec<String>)> {
+        let mut files = Vec::new();
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files.extend(tree(&path));
+            } else if path.extension().is_some_and(|extension| extension == "db") {
+                let connection = rusqlite::Connection::open(&path).unwrap();
+                let mut rows = Vec::new();
+                let tables: Vec<String> = connection
+                    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+                    .unwrap()
+                    .query_map([], |row| row.get(0))
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap();
+                for table in tables {
+                    let mut statement = connection
+                        .prepare(&format!("SELECT * FROM \"{table}\" ORDER BY rowid"))
+                        .unwrap();
+                    let columns = statement.column_count();
+                    let mut query = statement.query([]).unwrap();
+                    while let Some(row) = query.next().unwrap() {
+                        let values: Vec<rusqlite::types::Value> =
+                            (0..columns).map(|index| row.get(index).unwrap()).collect();
+                        rows.push(format!("{table} {values:?}"));
+                    }
+                }
+                files.push((path, rows));
+            } else {
+                let bytes = std::fs::read(&path).unwrap();
+                files.push((path, vec![format!("{bytes:?}")]));
+            }
+        }
+        files.sort();
+        files
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn a_lookup_names_where_each_candidate_came_from_and_leaves_the_user_data_alone() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = word_fixture(
+            directory.path(),
+            "INSERT INTO wubi86 VALUES('aaaa','合成工',500);
+             INSERT INTO tbl_2_c VALUES('ce''shi','cs','测试',100);",
+        );
+        edit_dictionary_word(
+            &options,
+            &WordEdit::Add(
+                WordKind::Wubi,
+                NewWord {
+                    code: Some("aaaa".into()),
+                    word: "合成字".into(),
+                    weight: Some(900),
+                },
+            ),
+            "lookup-1",
+        )
+        .unwrap();
+        let before = tree(&directory.path().join("user"));
+
+        let candidates = lookup_candidates(&options, Some(LookupScheme::Wubi), "aaaa", 10).unwrap();
+        let find = |text: &str| {
+            candidates
+                .iter()
+                .find(|candidate| candidate.text == text)
+                .map(|candidate| (candidate.origin, candidate.weight))
+                .unwrap_or_else(|| panic!("{text} missing from {candidates:?}"))
+        };
+        assert_eq!(find("合成字"), (CandidateOrigin::UserWord, Some(900)));
+        assert_eq!(find("合成工"), (CandidateOrigin::Dictionary, Some(500)));
+        // The user's own scheme, quanpin by default.
+        let candidates = lookup_candidates(&options, None, "ceshi", 1).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].text, "测试");
+        assert_eq!(candidates[0].origin, CandidateOrigin::Dictionary);
+        assert_eq!(candidates[0].weight, Some(100));
+
+        for (scheme, code) in [
+            (None, ""),
+            (None, "Ceshi"),
+            (None, "ce;shi"),
+            (Some(LookupScheme::Wubi), "a;"),
+        ] {
+            assert!(
+                lookup_candidates(&options, scheme, code, 5).is_err(),
+                "{code}"
+            );
+        }
+        assert!(lookup_candidates(&options, None, &"a".repeat(65), 5).is_err());
+        assert!(lookup_candidates(&options, None, "ceshi", 0).is_err());
+        assert!(lookup_candidates(&options, None, "ceshi", MAX_LOOKUP_CANDIDATES + 1).is_err());
+        assert_eq!(tree(&directory.path().join("user")), before);
     }
 
     #[test]
