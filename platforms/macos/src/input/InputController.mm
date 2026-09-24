@@ -5257,7 +5257,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     content.lineWidth = tokens.borderWidth;
     NSArray<MSIMECandidateButton *> *candidateButtons = [content.subviews filteredArrayUsingPredicate:
         [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
-            return [view isKindOfClass:MSIMECandidateButton.class] && view.tag >= 0;
+            return [view isKindOfClass:MSIMECandidateButton.class] &&
+                ![view isKindOfClass:MSIMECandidatePreeditField.class] && view.tag >= 0;
         }]];
     for (MSIMECandidateButton *button in candidateButtons) {
         if ([button.identifier isEqual:@"candidate-preedit"] && [button isKindOfClass:NSTextField.class]) {
