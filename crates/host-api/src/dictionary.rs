@@ -1371,6 +1371,195 @@ fn parse_hans_import(
     Ok(entries)
 }
 
+/// Host options for a caller that manages the dictionary in-process rather than through the C ABI, such as the MCP server. Built from the same runtime-options document a host passes to `msime_client_create`.
+pub struct DictionaryOptions(msime_engine_bridge::EngineOptions);
+
+impl DictionaryOptions {
+    /// Parse a runtime-options document. The Linux desktop publishes the candidate skin catalog into the same file, and the Host API refuses that field, so it is dropped here the way the IBus and Fcitx5 hosts drop it.
+    pub fn from_host_document(mut document: serde_json::Value) -> Result<Self, String> {
+        if let Some(object) = document.as_object_mut() {
+            object.remove("candidate_skin_catalog");
+        }
+        let options: HostOptions =
+            serde_json::from_value(document).map_err(|_| "invalid host options".to_owned())?;
+        if options.api_version != 1 {
+            return Err("unsupported host API version".into());
+        }
+        options
+            .preferences
+            .validate()
+            .map_err(|_| "invalid host options".to_owned())?;
+        Ok(Self(options.into_engine_options()))
+    }
+
+    /// The Engine's user data directory, where the quiesce lease is published.
+    pub fn user_data(&self) -> &str {
+        &self.0.user_data
+    }
+}
+
+/// A quick phrase the user added: typing `code` offers `text`. The weight is deliberately absent; it only orders candidates, and a caller has no use for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuickPhrase {
+    pub code: String,
+    pub text: String,
+}
+
+pub struct QuickPhrasePage {
+    pub phrases: Vec<QuickPhrase>,
+    pub has_more: bool,
+}
+
+/// One change to the user's quick phrases. `Replace` and `Remove` name the stored phrase by code and text, which is how a caller that never sees weights identifies a row.
+pub enum QuickPhraseEdit {
+    Add(QuickPhrase),
+    Replace {
+        previous: QuickPhrase,
+        replacement: QuickPhrase,
+    },
+    Remove(QuickPhrase),
+}
+
+/// The weight a new quick phrase gets, the same one the settings page gives it.
+const NEW_QUICK_PHRASE_WEIGHT: i64 = 10;
+
+/// Upper bound on the user store rows one quick-phrase call reads, as for export.
+const QUICK_PHRASE_SCAN_LIMIT: usize = 1_000_000;
+
+/// Walk the user's own quick phrases in store order, stopping when `visit` returns false. Only rows the user added: the Engine never learns a quick phrase from typing, and the bundled table is not the user's.
+fn scan_user_quick_phrases(
+    options: &msime_engine_bridge::EngineOptions,
+    mut visit: impl FnMut(Entry) -> bool,
+) -> Result<(), String> {
+    const CHUNK: usize = 1000;
+    let mut scanned = 0usize;
+    while scanned < QUICK_PHRASE_SCAN_LIMIT {
+        let page = msime_engine_bridge::dictionary_entries(options, scanned, CHUNK)
+            .map_err(|_| "dictionary read rejected")?;
+        let count = page.entries.len();
+        for raw in page.entries {
+            if raw.kind != DictionaryKind::QuickPhrase {
+                continue;
+            }
+            if !visit(Entry::try_from(raw)?) {
+                return Ok(());
+            }
+        }
+        scanned += count;
+        if count == 0 || !page.has_more {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// One page of the user's quick phrases whose code starts with `code_prefix` (case-insensitive).
+pub fn user_quick_phrases(
+    options: &DictionaryOptions,
+    code_prefix: &str,
+    offset: usize,
+    limit: usize,
+) -> Result<QuickPhrasePage, String> {
+    if limit == 0 || limit > 1000 || code_prefix.len() > 256 {
+        return Err("invalid dictionary page".into());
+    }
+    let options = &options.0;
+    let _access = DictionaryAccess::try_session(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    let prefix = code_prefix.trim();
+    let mut selector = PageSelector::new(offset, limit);
+    let mut phrases = Vec::new();
+    let mut has_more = false;
+    scan_user_quick_phrases(options, |entry| {
+        if !entry.matches(Some(Kind::QuickPhrase), prefix) {
+            return true;
+        }
+        if selector.full() {
+            has_more = true;
+            return false;
+        }
+        if selector.accept() {
+            phrases.push(QuickPhrase {
+                code: entry.key,
+                text: entry.value,
+            });
+        }
+        true
+    })?;
+    Ok(QuickPhrasePage { phrases, has_more })
+}
+
+/// The stored row for `phrase`, looked up by its folded code and exact text. The Engine only edits a row it is handed exactly as stored, weight included.
+fn stored_quick_phrase(
+    options: &msime_engine_bridge::EngineOptions,
+    phrase: &QuickPhrase,
+) -> Result<Option<Entry>, String> {
+    let _access = DictionaryAccess::try_session(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    let code = phrase.code.to_ascii_lowercase();
+    let mut found = None;
+    scan_user_quick_phrases(options, |entry| {
+        if entry.key == code && entry.value == phrase.text {
+            found = Some(entry);
+            return false;
+        }
+        true
+    })?;
+    Ok(found)
+}
+
+fn quick_phrase_entry(phrase: &QuickPhrase, weight: i64) -> Result<Entry, String> {
+    replacement_for_engine(Entry {
+        kind: Kind::QuickPhrase,
+        key: phrase.code.clone(),
+        value: phrase.text.clone(),
+        weight,
+        source: None,
+    })
+}
+
+/// Apply one change to the user's quick phrases. Busy (another host holds the dictionary) comes back as "dictionary maintenance busy", which the caller retries under the quiesce lease.
+pub fn edit_user_quick_phrase(
+    options: &DictionaryOptions,
+    edit: &QuickPhraseEdit,
+    request_id: &str,
+) -> Result<(), String> {
+    let options = &options.0;
+    let (previous, replacement) = match edit {
+        QuickPhraseEdit::Add(phrase) => {
+            let replacement = quick_phrase_entry(phrase, NEW_QUICK_PHRASE_WEIGHT)?;
+            // Adding a phrase that is already there would at best rewrite the weight typing gave it.
+            if stored_quick_phrase(options, phrase)?.is_some() {
+                return Err("quick phrase already exists".into());
+            }
+            (None, Some(replacement))
+        }
+        QuickPhraseEdit::Replace {
+            previous,
+            replacement,
+        } => {
+            let stored = stored_quick_phrase(options, previous)?.ok_or("quick phrase not found")?;
+            let replacement = quick_phrase_entry(replacement, stored.weight)?;
+            (Some(stored), Some(replacement))
+        }
+        QuickPhraseEdit::Remove(phrase) => {
+            let stored = stored_quick_phrase(options, phrase)?.ok_or("quick phrase not found")?;
+            (Some(stored), None)
+        }
+    };
+    let previous = previous.map(DictionaryEntry::from);
+    let replacement = replacement.map(DictionaryEntry::from);
+    edit_personal_dictionary(options, previous.as_ref(), replacement.as_ref(), request_id)
+}
+
 fn is_han_character(character: char) -> bool {
     matches!(
         character as u32,
@@ -1422,6 +1611,146 @@ mod tests {
             local_temporary_japanese: true,
             sentence_alternatives: true,
         }
+    }
+
+    fn quick_phrase(code: &str, text: &str) -> QuickPhrase {
+        QuickPhrase {
+            code: code.into(),
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn typed_quick_phrase_edits_find_rows_by_code_and_text_and_list_only_user_phrases() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_str().unwrap();
+        std::fs::create_dir(directory.path().join("user")).unwrap();
+        // The smallest dictionary the Engine opens, as the host tests build it.
+        let fixture = "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                       CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                       CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                       CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+        for name in ["resources", "dictionaries"] {
+            let path = directory.path().join(name);
+            std::fs::create_dir(&path).unwrap();
+            rusqlite::Connection::open(path.join("msime.db"))
+                .unwrap()
+                .execute_batch(fixture)
+                .unwrap();
+        }
+        let mut document = json!({
+            "api_version": 1,
+            "resources": format!("{root}/resources"),
+            "user_data": format!("{root}/user"),
+            "cache": format!("{root}/cache"),
+            "dictionaries": format!("{root}/dictionaries"),
+            "preferences": msime_client_core::preferences::Preferences::default(),
+            "preferences_directory": root,
+        });
+        // The Linux desktop publishes the skin catalog into the same document.
+        document["candidate_skin_catalog"] = json!([]);
+        let options = DictionaryOptions::from_host_document(document.clone()).unwrap();
+        assert_eq!(options.user_data(), format!("{root}/user"));
+        let mut unknown = document.clone();
+        unknown["surprise"] = json!(true);
+        assert!(DictionaryOptions::from_host_document(unknown).is_err());
+
+        let list = |prefix: &str, offset: usize, limit: usize| {
+            user_quick_phrases(&options, prefix, offset, limit).unwrap()
+        };
+        assert!(list("", 0, 10).phrases.is_empty());
+
+        edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Add(quick_phrase("DZ", "合成地址")),
+            "t-add-1",
+        )
+        .unwrap();
+        edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Add(quick_phrase("sj", "合成手机")),
+            "t-add-2",
+        )
+        .unwrap();
+        // Other dictionaries share the store and must never be listed.
+        let wubi = msime_engine_bridge::DictionaryEntry {
+            kind: DictionaryKind::Wubi,
+            key: "dz".into(),
+            value: "合成".into(),
+            weight: 10,
+        };
+        edit_personal_dictionary(&options.0, None, Some(&wubi), "t-add-3").unwrap();
+
+        assert_eq!(
+            edit_user_quick_phrase(
+                &options,
+                &QuickPhraseEdit::Add(quick_phrase("dz", "合成地址")),
+                "t-add-4",
+            )
+            .unwrap_err(),
+            "quick phrase already exists"
+        );
+
+        let all = list("", 0, 10);
+        assert_eq!(all.phrases.len(), 2, "{:?}", all.phrases);
+        assert!(!all.has_more);
+        // The code is folded the way the Engine stores it.
+        assert!(all.phrases.contains(&quick_phrase("dz", "合成地址")));
+        assert_eq!(
+            list("s", 0, 10).phrases,
+            vec![quick_phrase("sj", "合成手机")]
+        );
+        let first = list("", 0, 1);
+        assert_eq!(first.phrases.len(), 1);
+        assert!(first.has_more);
+        let second = list("", 1, 1);
+        assert_eq!(second.phrases.len(), 1);
+        assert!(!second.has_more);
+        assert_ne!(first.phrases, second.phrases);
+
+        edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Replace {
+                previous: quick_phrase("DZ", "合成地址"),
+                replacement: quick_phrase("dz", "合成新地址"),
+            },
+            "t-replace-1",
+        )
+        .unwrap();
+        assert_eq!(
+            list("dz", 0, 10).phrases,
+            vec![quick_phrase("dz", "合成新地址")]
+        );
+
+        edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Remove(quick_phrase("sj", "合成手机")),
+            "t-remove-1",
+        )
+        .unwrap();
+        assert!(list("sj", 0, 10).phrases.is_empty());
+        for edit in [
+            QuickPhraseEdit::Remove(quick_phrase("sj", "合成手机")),
+            QuickPhraseEdit::Replace {
+                previous: quick_phrase("dz", "合成地址"),
+                replacement: quick_phrase("dz", "合成别的"),
+            },
+        ] {
+            assert_eq!(
+                edit_user_quick_phrase(&options, &edit, "t-missing").unwrap_err(),
+                "quick phrase not found"
+            );
+        }
+        // The host's bounds still apply to a typed caller.
+        assert!(edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Add(quick_phrase("has space", "合成")),
+            "t-invalid",
+        )
+        .unwrap_err()
+        .starts_with(crate::INVALID_DICTIONARY_ENTRY));
+        assert!(user_quick_phrases(&options, "", 0, 0).is_err());
     }
 
     #[test]

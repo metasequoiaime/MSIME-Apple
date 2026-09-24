@@ -64,9 +64,11 @@ mod learned_translation;
 mod niutrans_translation;
 mod tencent_translation;
 pub use dictionary::{
-    dictionary_request_json, msime_client_dictionary, msime_client_dictionary_import_entries,
-    msime_client_dictionary_validate, msime_client_personal_dictionary_request,
-    msime_client_personal_dictionary_sync, personal_dictionary_request_json,
+    dictionary_request_json, edit_user_quick_phrase, msime_client_dictionary,
+    msime_client_dictionary_import_entries, msime_client_dictionary_validate,
+    msime_client_personal_dictionary_request, msime_client_personal_dictionary_sync,
+    personal_dictionary_request_json, user_quick_phrases, DictionaryOptions, QuickPhrase,
+    QuickPhraseEdit, QuickPhrasePage,
 };
 mod dictionary_snapshot;
 pub use dictionary_snapshot::{
