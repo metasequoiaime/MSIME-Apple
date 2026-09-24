@@ -2179,6 +2179,27 @@ test("a refused host-saved dictionary export shows an error and never claims suc
   expect(screen.queryByText("正在读取全部用户词库…")).toBeNull();
 });
 
+test("a host save picker the user closes cancels the export without an error or a success", async () => {
+  const saveExport = vi.fn().mockResolvedValue(null);
+  render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  expect(await screen.findByText("已取消导出。")).toBeDefined();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText(/已导出/)).toBeNull();
+});
+
+test("a host that names its own export failure has that message shown", async () => {
+  const saveExport = vi.fn().mockRejectedValue(new Error("无法保存导出文件，词库未导出。"));
+  render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("无法保存导出文件，词库未导出。");
+  expect(screen.queryByText(/已导出/)).toBeNull();
+});
+
 test("a host without saveExport keeps the download link", async () => {
   const createObjectURL = vi.fn(() => "blob:fixture");
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });

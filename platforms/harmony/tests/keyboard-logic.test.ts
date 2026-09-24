@@ -185,6 +185,7 @@ import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPa
 import {
   BackspaceHoldAction,
   BackspaceHoldPolicy,
+  HardwareBackspaceGuard,
 } from "../entry/src/main/ets/keyboard/input/BackspaceHoldPolicy";
 import {
   CompositionBoundary,
@@ -236,6 +237,7 @@ import {
   HardwareKeyRouter,
   HardwareKeyAction,
   HardwareKey,
+  HardwareKeyDecision,
   HardwareSpelling,
   PLAIN_SPELLING,
 } from "../entry/src/main/ets/keyboard/HardwareKeyRouter";
@@ -246,6 +248,12 @@ import {
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
 import { CandidateNumberFontPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateNumberFontPolicy";
 import { PreeditCaretPolicy } from "../entry/src/main/ets/keyboard/candidate/PreeditCaretPolicy";
+import { CandidatePreeditStylePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePreeditStylePolicy";
+import {
+  EmojiPanelKeyAction,
+  EmojiPanelKeyPolicy,
+} from "../entry/src/main/ets/keyboard/emoji/EmojiPanelKeyPolicy";
+import { EmojiPanelTooltipPolicy } from "../entry/src/main/ets/keyboard/emoji/EmojiPanelTooltipPolicy";
 import {
   CandidateTranslationStyle,
   TRANSLATION_OPACITY,
@@ -541,13 +549,21 @@ group("projects the same form factor into every settings capability", () => {
     "phone settings hide candidate and toolbar controls",
   );
   check(
-    !phone.modeSwitchShortcuts &&
-      !phone.panelShortcuts &&
-      !phone.numberRowSelection &&
-      !phone.candidateFollowCursor &&
-      !phone.inputModeHud,
-    "phone settings hide physical-keyboard controls",
+    !phone.panelShortcuts && !phone.candidateFollowCursor && !phone.inputModeHud,
+    "phone settings hide the controls only a candidate window uses",
   );
+  // An attached keyboard is routed on a phone too: the mode chords are bound on every device, and number-row selection and the voice hotkeys have no desktop check. Their switches have to be reachable wherever they act.
+  check(
+    phone.modeSwitchShortcuts && phone.numberRowSelection && phone.voiceHotkeys,
+    "phone settings offer the hardware-keyboard switches the keyboard still acts on",
+  );
+  check(desktop.voiceHotkeys, "2-in-1 settings offer the voice hotkeys");
+  // The phone strip is always horizontal, so a layout select there is a control that does nothing; the 2in1 candidate window keeps the choice.
+  check(
+    phone.fixedCandidateLayout === "horizontal",
+    "the phone's candidate layout is fixed horizontal",
+  );
+  check(desktop.fixedCandidateLayout === null, "the 2-in-1 candidate layout stays a choice");
 });
 
 group("SymbolPanelPolicy", () => {
@@ -2192,6 +2208,74 @@ group("keeps a dragged Harmony toolbar inside the display", () => {
   );
 });
 
+group("a horizontal candidate window is as wide as its whole page", () => {
+  // The Windows window measures every candidate on the page side by side (candidate_presenter.cpp); the widest single entry left most of a six-candidate row scrolled away.
+  const page = ["你好", "拟好", "泥壕", "你", "尼", "呢"].map((text) => ({
+    text,
+    badge: "",
+    hint: "",
+    annotation: "",
+  }));
+  const row = CandidateWidthPolicy.rowWidthVp(page, "nihao", 18, 15, 12, 14);
+  check(
+    row > CandidateWidthPolicy.widthVp(page, "nihao", 18, 15),
+    "six short candidates need more than the widest of them",
+  );
+  const chips = page.reduce(
+    (sum, entry, index) =>
+      sum + Math.ceil(CandidateWidthPolicy.chipContentVp(entry, index, 18, 14) + 24),
+    0,
+  );
+  check(row >= chips, "every chip the view draws fits in the window");
+  check(
+    CandidateWidthPolicy.chipContentVp(page[0], 0, 18, 14) >
+      CandidateWidthPolicy.chipContentVp(page[0], 0, 18, 0),
+    "a desktop chip counts its ordinal",
+  );
+  check(
+    CandidateWidthPolicy.rowWidthVp([page[3]], "", 18, 15, 12, 14) ===
+      CandidateWidthPolicy.MIN_WIDTH_VP,
+    "one short candidate keeps the minimum width",
+  );
+  check(
+    CandidateWidthPolicy.rowWidthVp(page.concat(page, page), "", 32, 15, 12, 26) ===
+      CandidateWidthPolicy.MAX_WIDTH_VP,
+    "a long page stays inside the desktop bound",
+  );
+});
+
+group("candidate and composition rows follow their font sizes", () => {
+  // Windows: itemHeight = fontSize * 1.35 + 2, plus a 2 DIP gap, and the preedit measured at its own size.
+  check(KeyboardMetrics.candidateRowHeightVp(12, true) === 21, "a 12 vp desktop row is compact");
+  check(KeyboardMetrics.candidateRowHeightVp(32, true) === 48, "a 32 vp desktop row grows to fit");
+  check(
+    KeyboardMetrics.candidateRowHeightVp(12, false) === KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP,
+    "a touch row keeps its finger-sized floor",
+  );
+  check(KeyboardMetrics.candidateRowHeightVp(32, false) === 48, "and still grows for a large font");
+  check(
+    KeyboardMetrics.compositionRowHeightVp(15) === KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP,
+    "the default preedit keeps its line",
+  );
+  check(KeyboardMetrics.compositionRowHeightVp(32) === 44, "a large preedit gets a taller line");
+  check(
+    KeyboardMetrics.candidateHeightVp("vertical", 9, true, 0, 0, 12) <
+      KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * 9,
+    "nine vertical rows at 12 vp are shorter than nine fixed rows",
+  );
+  check(
+    KeyboardMetrics.candidateHeightVp("horizontal", 1, true, 0, 0, 18, 32) -
+      KeyboardMetrics.candidateHeightVp("horizontal", 1, true, 0, 0, 18, 15) ===
+      44 - KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP,
+    "the window grows with the preedit font",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true) <
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15),
+    "a desktop surface strip is compact, a touch strip is not",
+  );
+});
+
 group("sizes desktop candidate windows from bounded display estimates", () => {
   const short = CandidateWidthPolicy.widthVp([], "ni", 18, 15);
   const wide = CandidateWidthPolicy.widthVp(
@@ -2459,6 +2543,31 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
     "a candidate without a gloss has no touch long-press menu",
   );
 
+  // A phone has no right click, so its long press opens the whole menu the source's right click does, as Android's long press does; before this, pinning, fixing and deleting an entry were out of reach on a phone.
+  const full = CandidateManagementAction.managementActions("hello", true, 2, true, true);
+  check(full[0].id === "INSERT_GLOSS", "the gloss leads the full menu");
+  check(
+    full
+      .slice(1)
+      .map((action: ManagementAction) => action.id)
+      .join(",") === "PROMOTE,FIX_1,FIX_2,FIX_3,FIX_4,FIX_5,CLEAR_POSITION,REMOVE",
+    "then 优先显示, the five slots, 取消固定 and 删除词条, in the source's order",
+  );
+  check(
+    full.find((action: ManagementAction) => action.id === "FIX_2")?.checked === true,
+    "the held slot is marked",
+  );
+  const noGloss = CandidateManagementAction.managementActions("", false, 0, true, false);
+  check(noGloss[0].id === "PROMOTE", "a candidate without a translation still gets management");
+  check(
+    !noGloss.some((action: ManagementAction) => action.id === "REMOVE"),
+    "a single character cannot be deleted",
+  );
+  check(
+    CandidateManagementAction.managementActions("wbcd", false, 0, true, true)[0].id === "PROMOTE",
+    "an Engine annotation is not offered as translated text",
+  );
+
   const distinct = CandidateManagementAction.actionsForFixedPosition(0).map(
     (action: ManagementAction) => action.menuItemId,
   );
@@ -2553,8 +2662,121 @@ group("releases the candidate number row when the shared preference asks", () =>
     "the default hardware route selects a candidate",
   );
   check(
-    HardwareKeyRouter.route(key, true, true, true).action === HardwareKeyAction.RELEASE,
-    "the preference releases the digit to the focused editor",
+    HardwareKeyRouter.route(key, true, true, true).action === HardwareKeyAction.COMMIT_THEN_TYPE,
+    "the preference turns the digit into text, after the composition it ends",
+  );
+  check(
+    HardwareKeyRouter.route(key, false, true, true).action === HardwareKeyAction.RELEASE,
+    "with nothing composed the digit is the editor's",
+  );
+});
+
+group("a character the composition cannot use ends it before it is typed", () => {
+  // The Windows host finalizes the composition and then lets the key through (`FUNCTION_FINALIZE_TEXTSTORE` in `IsVirtualKeyNeed`, `_HandleCompositionFinalize`). Releasing the key instead put the digit in the editor while the letters were still open, and the commit that followed landed after it: nihao then 0 gave 0你好.
+  const key = (keyCode: number, character: number): HardwareKey => ({
+    keyCode: keyCode,
+    unicodeChar: character,
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey: false,
+  });
+  const zero: HardwareKeyDecision = HardwareKeyRouter.route(key(2000, 0x30), true, true);
+  check(
+    zero.action === HardwareKeyAction.COMMIT_THEN_TYPE && zero.character === 0x30,
+    "0 finishes the composition and is typed after it",
+  );
+  check(
+    HardwareKeyRouter.route(key(2103, 0), true, true).action === HardwareKeyAction.COMMIT_THEN_TYPE,
+    "so does the keypad 0",
+  );
+  check(
+    HardwareKeyRouter.route(key(2000, 0x30), false, true).action === HardwareKeyAction.RELEASE,
+    "with nothing composed a 0 is the editor's",
+  );
+  check(
+    HardwareKeyRouter.route(key(2000, 0x30), true, true, false, undefined, false, true).action ===
+      HardwareKeyAction.COMMIT_THEN_TYPE,
+    "a Japanese composition ends before a digit too",
+  );
+  check(
+    HardwareKeyRouter.route(key(0, 0x21), true, true, false, undefined, false, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "Japanese punctuation goes through the punctuation route, which also finishes the composition first",
+  );
+});
+
+group("the keypad decimal point is always an ASCII full stop", () => {
+  // Windows: `VK_DECIMAL` "should always commit ASCII '.'" (`KeyHandler.cpp`), finishing a composition first. Here it reached the Chinese punctuation path and came out as 。.
+  const dot: HardwareKey = {
+    keyCode: 2114,
+    unicodeChar: 0x2e,
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey: false,
+  };
+  check(
+    HardwareKeyRouter.route(dot, false, true).action === HardwareKeyAction.RELEASE,
+    "with nothing composed the editor types the '.'",
+  );
+  const composing: HardwareKeyDecision = HardwareKeyRouter.route(dot, true, true);
+  check(
+    composing.action === HardwareKeyAction.COMMIT_THEN_TYPE && composing.character === 0x2e,
+    "mid-composition it finishes the composition and types '.' after it",
+  );
+  check(
+    HardwareKeyRouter.route({ ...dot, keyCode: 2044 }, false, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "the main keyboard's period is still Chinese punctuation",
+  );
+});
+
+group("punctuation locked to Chinese stays Chinese in English mode", () => {
+  // Windows keeps the punctuation compartment on in English mode when `punctuation_lock` is Chinese (`ResolvePunctuationOpen`), and `_IsKeyEaten` claims punctuation outside `isOpen`.
+  const comma: HardwareKey = {
+    keyCode: 2043,
+    unicodeChar: 0x2c,
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey: false,
+  };
+  const english = (locked: boolean): HardwareKeyAction =>
+    HardwareKeyRouter.route(
+      comma,
+      false,
+      false,
+      false,
+      undefined,
+      false,
+      false,
+      "disabled",
+      false,
+      PLAIN_SPELLING,
+      false,
+      locked,
+    ).action;
+  check(english(true) === HardwareKeyAction.PUNCTUATION, "the lock keeps the comma the keyboard's");
+  check(english(false) === HardwareKeyAction.RELEASE, "without it English punctuation is ASCII");
+});
+
+group("a Backspace held from inside a composition stops at its edge", () => {
+  // Windows `_ApplyBackspaceHoldGuard` / `ShouldSuppressBackspaceRepeat`, issue #347.
+  const guard: HardwareBackspaceGuard = new HardwareBackspaceGuard();
+  check(!guard.down(true), "the first press is the composition's own backspace");
+  check(!guard.down(true), "repeats that still find letters delete them");
+  check(guard.down(false), "a repeat after the last letter is claimed, not handed to the editor");
+  check(guard.down(false), "and so is every one after it");
+  check(guard.up(false), "the key-up of a claimed hold is claimed too");
+  check(!guard.down(false), "a fresh press with nothing composed is the editor's");
+  check(!guard.down(false), "and so is its hold");
+  check(!guard.up(false), "and its key-up");
+  guard.down(true);
+  guard.reset();
+  check(
+    !guard.down(false),
+    "another key or a lost focus ends the hold, so a missed key-up cannot leave it armed",
   );
 });
 
@@ -2599,11 +2821,18 @@ group("commits the highlighted candidate when punctuation arrives mid-compositio
     ).action === HardwareKeyAction.PREVIOUS_PAGE,
     "a comma bound to paging still pages",
   );
-  // Japanese punctuation stays with the application, as it already did.
+  // Japanese punctuation ends a composition the same way; with nothing composed it is the application's.
+  for (const character of ["!", "?", "/", ";", "."]) {
+    check(
+      HardwareKeyRouter.route(mark(character), true, true, false, undefined, false, true).action ===
+        HardwareKeyAction.PUNCTUATION,
+      `Japanese ${character} finishes the composition rather than landing ahead of the kana`,
+    );
+  }
   check(
-    HardwareKeyRouter.route(mark("!"), true, true, false, undefined, false, true).action ===
+    HardwareKeyRouter.route(mark("!"), false, true, false, undefined, false, true).action ===
       HardwareKeyAction.RELEASE,
-    "Japanese leaves punctuation to the application",
+    "Japanese leaves punctuation to the application while nothing is composed",
   );
 });
 
@@ -2914,10 +3143,21 @@ group("maps hardware composition editing commands like Windows", () => {
       HardwareKeyAction.COMMIT_TRANSLATION,
     "Ctrl+Enter commits a highlighted candidate translation",
   );
+  // Windows claims Ctrl+Enter whenever candidates are up and answers NavigationIgnored without a translation (`HandleTranslationCommitKey`); a chat application must not send the message with the spelling still open.
   check(
     HardwareKeyRouter.route(key(2054, true), true, true, false, navigation, false).action ===
+      HardwareKeyAction.IGNORED,
+    "Ctrl+Enter without a translation is consumed mid-composition",
+  );
+  check(
+    HardwareKeyRouter.route(key(2119, true), true, true, false, navigation, false).action ===
+      HardwareKeyAction.IGNORED,
+    "and so is the keypad Enter",
+  );
+  check(
+    HardwareKeyRouter.route(key(2054, true), false, true, false, navigation, false).action ===
       HardwareKeyAction.RELEASE,
-    "Ctrl+Enter remains with the editor without a translation",
+    "with nothing composed Ctrl+Enter is the application's",
   );
   const japaneseMinus: HardwareKey = {
     keyCode: 2057,
@@ -2942,15 +3182,31 @@ group("maps hardware composition editing commands like Windows", () => {
       HardwareKeyAction.COMPOSE,
     "Japanese minus remains a long-vowel composition key",
   );
+  // Japanese '=' and '_' never page (`IsJapaneseDisabledPagingKey`), even with minus/equals paging on; mid-composition they commit the highlighted candidate and then the mark, as the source's commit-with-highlighted-candidate list does.
+  const japaneseMark = (keyCode: number, character: string, shiftKey: boolean): HardwareKey => ({
+    keyCode,
+    unicodeChar: character.charCodeAt(0),
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey,
+  });
+  const equals: HardwareKey = japaneseMark(2058, "=", false);
+  const underscore: HardwareKey = japaneseMark(2057, "_", true);
   check(
-    HardwareKeyRouter.route(key(2058), true, true, false, navigation, false, true).action ===
-      HardwareKeyAction.RELEASE,
-    "Japanese equals stays ordinary editor punctuation",
+    HardwareKeyRouter.route(equals, true, true, false, navigation, false, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "Japanese equals mid-composition commits and then types the mark",
   );
   check(
-    HardwareKeyRouter.route(key(2057, false, true), true, true, false, navigation, false, true)
-      .action === HardwareKeyAction.RELEASE,
-    "Shift+minus stays ordinary editor punctuation in Japanese",
+    HardwareKeyRouter.route(underscore, true, true, false, navigation, false, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "so does Shift+minus",
+  );
+  check(
+    HardwareKeyRouter.route(equals, false, true, false, navigation, false, true).action ===
+      HardwareKeyAction.RELEASE,
+    "with nothing composed Japanese equals is the application's",
   );
   check(
     HardwareKeyRouter.route(key(2050), true, true, false, navigation, false, true).action ===
@@ -3106,10 +3362,15 @@ group("traditional output never loses text when conversion fails", () => {
     "a converter that throws must not lose the text",
   );
   // The host hands the policy the native OpenCC s2t converter, which works on phrases: 发 is 髮 in 头发 and 發 in 发展. The policy passes the whole string through rather than splitting it, which is what lets the phrase tables see the word.
-  const phrase = (text: string): string =>
-    text.replace("头发", "頭髮").replace("发展", "發展");
-  check(ChineseOutputPolicy.output("头发", true, true, phrase) === "頭髮", "头发 converts as a phrase");
-  check(ChineseOutputPolicy.output("发展", true, true, phrase) === "發展", "发展 converts as a phrase");
+  const phrase = (text: string): string => text.replace("头发", "頭髮").replace("发展", "發展");
+  check(
+    ChineseOutputPolicy.output("头发", true, true, phrase) === "頭髮",
+    "头发 converts as a phrase",
+  );
+  check(
+    ChineseOutputPolicy.output("发展", true, true, phrase) === "發展",
+    "发展 converts as a phrase",
+  );
   check(ChineseOutputPolicy.applies(false, 0, "none") === true, "quanpin converts");
   check(ChineseOutputPolicy.applies(true, 0, "none") === false, "dedicated English does not");
   check(ChineseOutputPolicy.applies(false, 3, "none") === false, "Japanese has nothing to convert");
@@ -4537,6 +4798,7 @@ function recordingTarget(log: string[]): HardwareKeyTarget {
       log.push(`widen ${character}`);
       return false;
     },
+    commitThenType: (character: number) => log.push(`commitThenType ${character}`),
   };
 }
 
@@ -4621,6 +4883,10 @@ group("every routed hardware key reaches the method that means it", () => {
   check(
     dispatched(HardwareKeyAction.JAPANESE_COMMIT)[0] === "commitJapanese",
     "Japanese Return reaches conversion-aware commit",
+  );
+  check(
+    dispatched(HardwareKeyAction.COMMIT_THEN_TYPE, 0x30)[0] === "commitThenType 48",
+    "a key the composition cannot use finishes it and carries its character",
   );
 });
 
@@ -7556,8 +7822,8 @@ group("fullwidth mode widens what a hardware keyboard would hand the application
   );
   check(
     route(key({ keyCode: 2062, unicodeChar: 0x3b }), true, false, true).action ===
-      HardwareKeyAction.RELEASE,
-    "nothing is widened over a candidate list",
+      HardwareKeyAction.COMMIT_THEN_TYPE,
+    "nothing is widened over a candidate list: the composition is finished and the key typed as it is",
   );
   const log: string[] = [];
   const widening: HardwareKeyTarget = {
@@ -7944,6 +8210,26 @@ group("a malformed candidate size cannot produce an unusable number", () => {
   check(CandidateNumberFontPolicy.size(0) === 1, "zero does not become zero");
   check(CandidateNumberFontPolicy.size(-4) === 1, "nor does a negative size");
   check(CandidateNumberFontPolicy.size(Number.NaN) === 1, "nor does a size that is not a number");
+});
+
+group("「候选栏预编辑：不显示」 hides the spelling on the phone line", () => {
+  // Windows candidate_window_preedit_style = "empty" is preeditVisible=false. The phone showed the spelling whatever the setting said; Android honours it through the same policy.
+  const shown = CandidatePreeditStylePolicy.visible(true, "", "nihao", "none");
+  check(shown.text === "nihao" && shown.caret, "pinyin shows the spelling and its caret");
+  const hidden = CandidatePreeditStylePolicy.visible(false, "", "nihao", "none");
+  check(hidden.text === "" && !hidden.caret, "empty hides the spelling and the caret");
+  const phrase = CandidatePreeditStylePolicy.visible(false, "你好", "你好shijie", "none");
+  check(
+    phrase.text === "你好",
+    "the chosen part of a phrase stays, since it is nowhere else on screen",
+  );
+  const trigger = CandidatePreeditStylePolicy.visible(false, "", "E", "emoji");
+  check(trigger.text === "E", "a local mode's trigger stays, since it names the running mode");
+  const modeSpelling = CandidatePreeditStylePolicy.visible(false, "", "Ksmile", "quick_phrase");
+  check(
+    modeSpelling.text === "",
+    "what a mode spells beyond its trigger is hidden like any spelling",
+  );
 });
 
 group("the composition is split where the caret is", () => {
@@ -8369,3 +8655,162 @@ setTimeout(() => {
   }
   console.log(`all groups passed (${checks} assertions)`);
 }, 0);
+
+group("the 2in1 emoji panel answers keys the way the focused Windows panel does", () => {
+  const key = (keyCode: number, unicodeChar = 0, ctrlKey = false) => ({
+    keyCode,
+    unicodeChar,
+    ctrlKey,
+    altKey: false,
+    logoKey: false,
+  });
+  const LEFT = 2014;
+  const RIGHT = 2015;
+  const UP = 2012;
+  const DOWN = 2013;
+  const HOME = 2081;
+  const END = 2082;
+  const ENTER = 2054;
+  const SPACE = 2050;
+  const ESCAPE = 2070;
+  const DEL = 2055;
+  const TAB = 2049;
+  check(EmojiPanelKeyPolicy.decide(key(RIGHT), 20, 8, 3, "").index === 4, "Right moves one item");
+  check(
+    EmojiPanelKeyPolicy.decide(key(RIGHT), 20, 8, 19, "").index === 19,
+    "Right stops at the last item",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(LEFT), 20, 8, 0, "").index === 0,
+    "Left stops at the first item",
+  );
+  check(EmojiPanelKeyPolicy.decide(key(DOWN), 20, 8, 3, "").index === 11, "Down moves one row");
+  check(
+    EmojiPanelKeyPolicy.decide(key(DOWN), 20, 8, 15, "").index === 19,
+    "Down from the last full row lands on the last item",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(UP), 20, 8, 5, "").index === 0,
+    "Up from the first row goes to the first item",
+  );
+  check(EmojiPanelKeyPolicy.decide(key(UP), 20, 8, 13, "").index === 5, "Up moves one row");
+  check(
+    EmojiPanelKeyPolicy.decide(key(HOME), 20, 8, 13, "").index === 0,
+    "Home selects the first item",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(END), 20, 8, 1, "").index === 19,
+    "End selects the last item",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(DOWN), 20, 1, 2, "").index === 3,
+    "a one-column list moves one entry per row",
+  );
+  const enter = EmojiPanelKeyPolicy.decide(key(ENTER), 20, 8, 7, "");
+  check(
+    enter.action === EmojiPanelKeyAction.ACTIVATE && enter.index === 7,
+    "Enter inserts the selection",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(SPACE), 20, 8, 7, "").action === EmojiPanelKeyAction.ACTIVATE,
+    "Space inserts the selection",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(ENTER), 0, 8, 0, "").action === EmojiPanelKeyAction.NONE,
+    "Enter over an empty panel is the editor's",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(DOWN), 0, 8, 0, "").action === EmojiPanelKeyAction.NONE,
+    "an arrow over an empty panel is the editor's",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(ENTER), 5, 8, 12, "").index === 4,
+    "a selection past the end is clamped before it is used",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(ESCAPE), 20, 8, 3, "").action === EmojiPanelKeyAction.CLOSE,
+    "Esc with no search closes the panel",
+  );
+  const cleared = EmojiPanelKeyPolicy.decide(key(ESCAPE), 20, 8, 3, "cat");
+  check(
+    cleared.action === EmojiPanelKeyAction.SEARCH && cleared.query === "",
+    "Esc first clears a search",
+  );
+  const typed = EmojiPanelKeyPolicy.decide(key(2019, 0x63), 20, 8, 3, "");
+  check(
+    typed.action === EmojiPanelKeyAction.SEARCH && typed.query === "c" && typed.index === 0,
+    "a letter starts a search from the first result",
+  );
+  const erased = EmojiPanelKeyPolicy.decide(key(DEL), 20, 8, 3, "ca");
+  check(
+    erased.action === EmojiPanelKeyAction.SEARCH && erased.query === "c",
+    "Backspace takes one letter off the search",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(DEL), 20, 8, 3, "").action === EmojiPanelKeyAction.NONE,
+    "Backspace with no search deletes in the editor",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(2019, 0x63, true), 20, 8, 3, "").action ===
+      EmojiPanelKeyAction.NONE,
+    "a chord is left alone",
+  );
+  check(
+    EmojiPanelKeyPolicy.decide(key(TAB), 20, 8, 3, "").action === EmojiPanelKeyAction.NONE,
+    "Tab is left alone",
+  );
+  const full = "a".repeat(32);
+  const capped = EmojiPanelKeyPolicy.decide(key(2017, 0x61), 20, 8, 3, full);
+  check(
+    capped.action === EmojiPanelKeyAction.MOVE && capped.query === full,
+    "a full search takes the key without growing",
+  );
+  check(
+    EmojiPanelKeyPolicy.matches("😺", "Grinning Cat", "cat"),
+    "keywords match without regard to case",
+  );
+  check(EmojiPanelKeyPolicy.matches("(^_^)", "", "^_^"), "the item's own text matches");
+  check(
+    !EmojiPanelKeyPolicy.matches("😺", "grinning cat", "dog"),
+    "an unrelated search does not match",
+  );
+});
+
+group("2in1 emoji panel tooltips read the way the Windows tooltips do", () => {
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("a\tb\r\n\n") === "a b ",
+    "tabs and returns become spaces, trailing newlines go",
+  );
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("line\nnext") === "line\nnext",
+    "inner newlines stay",
+  );
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("x".repeat(200)) === "x".repeat(200),
+    "200 characters are shown whole",
+  );
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("x".repeat(201)) === "x".repeat(200) + "...",
+    "a longer entry is cut at 200",
+  );
+  check(
+    EmojiPanelTooltipPolicy.clipboardText("😀".repeat(201)) === "😀".repeat(200) + "...",
+    "an emoji counts as one character and is never split",
+  );
+  check(
+    EmojiPanelTooltipPolicy.displayName("grinning face 笑 高兴", "😀") === "笑",
+    "the first Chinese keyword names the item",
+  );
+  check(
+    EmojiPanelTooltipPolicy.displayName("grinning  face", "😀") === "grinning",
+    "without Chinese the first keyword does",
+  );
+  check(
+    EmojiPanelTooltipPolicy.displayName("  ", "😀") === "😀",
+    "no keywords falls back to the item",
+  );
+  check(
+    EmojiPanelTooltipPolicy.displayName("arrow 「箭头」", "→") === "「箭头」",
+    "CJK punctuation counts as Chinese, as IsCjk does",
+  );
+});
