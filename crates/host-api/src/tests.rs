@@ -5,6 +5,27 @@
 use super::*;
 
 #[test]
+fn default_sentence_model_uses_verified_resources_not_prepared_dictionaries() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let dictionaries = root.path().join("user/dictionaries/generation");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    std::fs::write(resources.join("sentence-model.safetensors"), b"synthetic").unwrap();
+
+    let actual = ffi::sentence_model_path(resources.to_str().unwrap(), None);
+    assert_eq!(actual, resources.join("sentence-model.safetensors"));
+    assert!(actual.is_file());
+    assert!(!dictionaries.join("sentence-model.safetensors").exists());
+
+    let explicit = root.path().join("custom-model.safetensors");
+    assert_eq!(
+        ffi::sentence_model_path(resources.to_str().unwrap(), explicit.to_str()),
+        explicit
+    );
+}
+
+#[test]
 fn windows_legacy_mixed_input_is_imported_without_leaking_other_config() {
     let mut preferences = Preferences::default();
     assert!(apply_windows_legacy_mixed_input(

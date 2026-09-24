@@ -56,15 +56,14 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 .map_err(|e| e.to_string())?;
         runtime.set_phrase_preedit(phrase_preedit);
         runtime.set_reranker(
-            sentence_model(&options.dictionaries, sentence_model_path.as_deref())
-                .map(Reranker::new),
+            sentence_model(&options.resources, sentence_model_path.as_deref()).map(Reranker::new),
         );
 
         // The settled model is optional and independent: a resource set that ships only the small
         // one behaves exactly as before, and one that ships both gets the fast model per keystroke
         // and the large one when typing stops.
         runtime.set_settled_reranker(
-            sentence_model_settled(&options.dictionaries, settled_model_path.as_deref())
+            sentence_model_settled(&options.resources, settled_model_path.as_deref())
                 .map(Reranker::new),
         );
 
