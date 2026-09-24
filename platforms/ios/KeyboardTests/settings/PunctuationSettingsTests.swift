@@ -1,6 +1,7 @@
 import XCTest
 
 /// The settings app's punctuation page writes the shared document; the keyboard has to act on it.
+@MainActor
 final class PunctuationSettingsTests: XCTestCase {
   private var state: URL!
 

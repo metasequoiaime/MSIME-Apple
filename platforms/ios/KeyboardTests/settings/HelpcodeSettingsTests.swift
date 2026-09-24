@@ -1,6 +1,7 @@
 import XCTest
 
 /// The settings app's helpcode page merges single fields into the helpcode objects of the shared document; the keyboard has to act on them, and needs the Engine's tables to act with.
+@MainActor
 final class HelpcodeSettingsTests: XCTestCase {
   private var state: URL!
 

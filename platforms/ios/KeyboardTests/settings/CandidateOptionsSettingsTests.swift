@@ -1,6 +1,7 @@
 import XCTest
 
 /// The settings app's candidate page merges single fields into nested objects of the shared document; the keyboard has to act on them.
+@MainActor
 final class CandidateOptionsSettingsTests: XCTestCase {
   private var state: URL!
 

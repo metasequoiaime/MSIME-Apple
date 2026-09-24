@@ -1,6 +1,7 @@
 import XCTest
 
 /// The settings app's local-mode page merges single fields into `local_modes`; the session the keyboard already has must stop opening a mode turned off there.
+@MainActor
 final class LocalModeSettingsTests: XCTestCase {
   private var state: URL!
 
