@@ -37,7 +37,7 @@ final class HelpcodeSettingsTests: XCTestCase {
     XCTAssertEqual(narrowed.candidates.first, "识")
 
     update { $0["enabled"] = false }
-    reload(bridge)
+    await reload(bridge)
 
     let off = compose(bridge, "shi", helpcode: "Y")
     XCTAssertEqual(off.preedit, "shi")
@@ -45,12 +45,12 @@ final class HelpcodeSettingsTests: XCTestCase {
   }
 
   /// "Show in the candidate bar" puts each candidate's helpcode in the annotations the strip draws.
-  func testShownHelpcodeReachesTheCandidateAnnotations() {
+  func testShownHelpcodeReachesTheCandidateAnnotations() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertEqual(compose(bridge, "shi", helpcode: nil).candidateAnnotations.first, "", "全拼 ships with helpcode hidden")
 
     update { $0["show_in_candidate_window"] = true }
-    reload(bridge)
+    await reload(bridge)
 
     let shown = compose(bridge, "shi", helpcode: nil)
     let first = shown.candidateAnnotations.first ?? ""
@@ -67,7 +67,7 @@ final class HelpcodeSettingsTests: XCTestCase {
     })
   }
 
-  private func reload(_ bridge: MetasequoiaInputSessionBridge) {
+  private func reload(_ bridge: MetasequoiaInputSessionBridge) async {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
