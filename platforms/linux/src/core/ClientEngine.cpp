@@ -24,7 +24,10 @@
 #include "../candidates/CandidateColors.h"
 #include "../candidates/CandidatePalette.h"
 #include "../candidates/CandidateFontPolicy.h"
+#include "../candidates/PanelRestoreRecord.h"
 #include "../candidates/CandidateActionPolicy.h"
+#include "../candidates/CandidateLocalModeLabels.h"
+#include "../candidates/CandidatePanelStatus.h"
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/PairedPunctuation.h"
 #include "../candidates/ShuangpinProfileNames.h"
@@ -72,10 +75,63 @@ Json accepted_preferences_snapshot;
 bool menu_save_pending = false;
 uint64_t menu_status_generation = 0;
 
-// The IBus panel draws the candidate list from one font description the whole desktop shares, the
-// same pair of keys ibus-setup writes. A desktop without the schema (a panel of its own, such as
-// GNOME Shell's popup, which follows the shell theme) has nothing to write and is left alone.
+// GNOME Shell starts ibus-daemon with its panel disabled and draws the candidate popup itself from the shell theme, so neither the panel font nor the colour attributes reach it. The desktop name says which session this is, and the shell's bus name confirms the shell is the one running; the answer holds for the life of the process.
+bool candidate_panel_is_gnome_shell() {
+  static const bool gnome_shell = [] {
+    if (!msime::linux_host::candidate_desktop_is_gnome_shell(g_getenv("XDG_CURRENT_DESKTOP")))
+      return false;
+    GError *error = nullptr;
+    auto *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
+    if (!connection) {
+      g_clear_error(&error);
+      return true;
+    }
+    auto *reply = g_dbus_connection_call_sync(
+        connection, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+        "NameHasOwner", g_variant_new("(s)", "org.gnome.Shell"), G_VARIANT_TYPE("(b)"),
+        G_DBUS_CALL_FLAGS_NONE, 1000, nullptr, &error);
+    g_object_unref(connection);
+    if (!reply) {
+      g_clear_error(&error);
+      return true;
+    }
+    gboolean owned = FALSE;
+    g_variant_get(reply, "(b)", &owned);
+    g_variant_unref(reply);
+    return owned == TRUE;
+  }();
+  return gnome_shell;
+}
+
+// Tell the settings page whether the desktop panel honours the candidate font, colours and skin (see candidates/CandidatePanelStatus.h). The write is skipped when the file already says the same.
+void publish_candidate_panel_status() {
+  const auto file = msime::linux_host::candidate_panel_status_file(g_get_user_runtime_dir());
+  if (!file) return;
+  msime::linux_host::write_candidate_panel_status(
+      *file, msime::linux_host::candidate_panel_status_document(
+                 "ibus", candidate_panel_is_gnome_shell() ? msime::linux_host::CandidatePanelLimit::GnomeShell
+                                                          : msime::linux_host::CandidatePanelLimit::None));
+}
+
+// The panel keys are the desktop's, so before one changes, what it held is recorded for msime-client-setup --unregister (see PanelRestoreRecord.h): the user's own value, or null for a key left at the schema default, which uninstall resets. A failed record does not hold the change back.
+void record_ibus_panel_takeover(GSettings *settings, const char *key, const Json &written) {
+  const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
+  if (!file) return;
+  Json current(nullptr);
+  if (auto *value = g_settings_get_user_value(settings, key)) {
+    if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING))
+      current = g_variant_get_string(value, nullptr);
+    else if (g_variant_is_of_type(value, G_VARIANT_TYPE_BOOLEAN))
+      current = static_cast<bool>(g_variant_get_boolean(value));
+    g_variant_unref(value);
+  }
+  msime::linux_host::record_panel_takeover(*file, "ibus", key, current, written);
+}
+
+// The IBus panel draws the candidate list from one font description the whole desktop shares, the same pair of keys ibus-setup writes. A desktop without the schema has nothing to write and is left alone, and so is GNOME Shell: its popup follows the shell theme, and turning on use-custom-font there would only change ibus-setup's own panel for a panel that never shows.
 void apply_candidate_panel_font(const Json &preferences) {
+  publish_candidate_panel_status();
+  if (candidate_panel_is_gnome_shell()) return;
   static msime::linux_host::CandidateFontSync sync;
   const auto description = sync.next(msime::linux_host::read_candidate_font(preferences));
   if (!description) return;
@@ -88,6 +144,8 @@ void apply_candidate_panel_font(const Json &preferences) {
   g_settings_schema_unref(schema);
   if (!writable) return;
   auto *settings = g_settings_new("org.freedesktop.ibus.panel");
+  record_ibus_panel_takeover(settings, "custom-font", Json(*description));
+  record_ibus_panel_takeover(settings, "use-custom-font", Json(true));
   g_settings_set_string(settings, "custom-font", description->c_str());
   g_settings_set_boolean(settings, "use-custom-font", TRUE);
   g_object_unref(settings);
@@ -270,6 +328,8 @@ struct State {
   // toggle as an override that outranks the preferences it is handed, so a
   // preference change only reaches the session when the host re-states it.
   std::optional<bool> session_chinese_punctuation;
+  // The width the session was last told. update_preferences never touches the runtime's width, so a preference or menu change reaches the session only when the host re-states it.
+  std::optional<bool> session_fullwidth;
   std::optional<bool> autocorrect_transposition_override, autocorrect_neighbor_override;
   bool show_helpcode_in_candidate_window = true;
   std::optional<bool> word_character_override;
@@ -403,6 +463,8 @@ struct State {
   // 中英文切换提示：辅助区域短暂显示「中」或「英」。代次用于丢弃过期的隐藏回调，
   // 与语音失败提示同一套做法。
   uint64_t mode_hint_id = 0;
+  // 右键候选提示：辅助区域短暂指向「候选操作」菜单。代次用于丢弃过期的恢复回调。
+  uint64_t candidate_menu_hint_id = 0;
   std::string voice_preedit;
   std::string voice_transcript;
   std::string voice_phase = "正在录音…";
@@ -512,6 +574,7 @@ struct State {
   }
   void close() {
     session_chinese_punctuation.reset();
+    session_fullwidth.reset();
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
@@ -698,6 +761,7 @@ struct State {
          msime::linux_host::KeyRouterAdapter::lease_token(client_token,
                                                            session)});
     view = response(msime_client_set_character_width(session, fullwidth));
+    session_fullwidth = fullwidth;
     // CN/EN passthrough defaults are independent of the English candidate mode.
     english_mode = dedicated_english_override.value_or(false);
     view = response(msime_client_set_english_mode(session, english_mode));
@@ -802,7 +866,7 @@ struct State {
         chinese_punctuation != previous_chinese_punctuation ||
         fullwidth != previous_fullwidth)
       paired_tracker.clear();
-    if (!smart_punctuation || !smart_punctuation_repeat || !paired_punctuation) {
+    if (!smart_punctuation || !smart_punctuation_repeat) {
       last_smart_punctuation = 0;
       last_smart_punctuation_time = 0;
       smart_punctuation_rejected = 0;
@@ -2248,20 +2312,18 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
         PROP_STATE_UNCHECKED, actions);
     ibus_prop_list_append(items, entry);
     const auto fixed_position = candidate.value("fixed_position", 0);
-    std::vector<std::pair<const char *, const char *>> candidate_commands = {
-        {"CandidatePin", "固定候选"}};
+    // The parent entry already names the slot ("N. preview"), so the items carry only the action, worded like the Windows candidate menu.
+    std::vector<std::pair<const char *, std::string>> candidate_commands = {
+        {"CandidatePin", msime::linux_host::candidate_pin_label}};
     if (msime::linux_host::candidate_dictionary_removal_available(
             scheme, source, candidate_text))
       candidate_commands.emplace_back("CandidateRemove", "删除候选");
-    candidate_commands.insert(candidate_commands.end(), {
-                                       std::pair{"CandidateFix1", "固定到 1"},
-                                       std::pair{"CandidateFix2", "固定到 2"},
-                                       std::pair{"CandidateFix3", "固定到 3"},
-                                       std::pair{"CandidateFix4", "固定到 4"},
-                                       std::pair{"CandidateFix5", "固定到 5"}});
-    for (const auto &[action, label] : candidate_commands) {
+    for (const char *fix : {"CandidateFix1", "CandidateFix2", "CandidateFix3",
+                            "CandidateFix4", "CandidateFix5"})
+      candidate_commands.emplace_back(
+          fix, msime::linux_host::candidate_fix_label(fix[12] - '0'));
+    for (const auto &[action, title] : candidate_commands) {
       const auto name = candidate_action_name(action, candidate.at("id"));
-      const auto title = std::string(label) + " " + std::to_string(slot);
       const auto state = g_str_has_prefix(action, "CandidateFix") &&
                                  fixed_position ==
                                      std::stoi(std::string(action).substr(12))
@@ -2275,7 +2337,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     const auto clear_name = candidate_action_name("CandidateClear", candidate.at("id"));
     ibus_prop_list_append(actions, ibus_property_new(
         clear_name.c_str(), PROP_TYPE_NORMAL,
-        ibus_text_new_from_string((std::string("取消固定 ") + std::to_string(slot)).c_str()), "",
+        ibus_text_new_from_static_string("取消固定"), "",
         ibus_text_new_from_static_string("取消当前候选的位置固定"),
         actions_available && fixed_position > 0, TRUE,
         PROP_STATE_UNCHECKED, nullptr));
@@ -3293,17 +3355,9 @@ void render(IBusEngine *engine, const Json &view) {
     }
   }
   const auto mode = view.at("local_mode").get<std::string>();
-  const std::pair<const char *, const char *> labels[] = {
-      {"unicode", "U+"}, {"date_time", "日期时间"},
-      {"quick_phrase", "短语"}, {"emoji", "Emoji"},
-      {"kaomoji", "颜文字"}, {"super_jianpin", "简拼"},
-      {"temporary_english", "EN"}, {"temporary_japanese", "日文"}};
-  for (const auto &[name, label] : labels) {
-    if (mode == name) {
-      paging += "  · ";
-      paging += label;
-      break;
-    }
+  if (const char *label = msime::linux_host::candidate_local_mode_label(mode)) {
+    paging += "  · ";
+    paging += label;
   }
   ibus_engine_update_auxiliary_text(
       engine, ibus_text_new_from_string(paging.c_str()), TRUE);
@@ -3469,7 +3523,7 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode,
     const auto space_convert_mark =
         space_convert_ascii == 0 ? std::string{} : text;
     const bool inserted_pair = normalize_punctuation_pair(text, pair_mode);
-    if (s.smart_punctuation && s.paired_punctuation && text.size() == 1 &&
+    if (s.smart_punctuation && text.size() == 1 &&
         smart_punctuation_pair(text.front())) {
       s.last_smart_punctuation = text.front();
       s.last_smart_punctuation_time = g_get_monotonic_time();
@@ -3952,16 +4006,32 @@ void voice_start(IBusEngine *engine) {
         engine, "无法启动语音输入，请检查语音设置后重试");
   }
 }
+// Super reaches IBus as MOD4, as the virtual SUPER bit, or as both, depending on the client (GTK3 adds SUPER next to MOD4, some clients send only one). Fold them into MOD4 so every exact modifier match sees one Super.
+guint canonical_modifiers(guint flags) {
+  const guint m = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
+                           IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
+                           IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
+  if (m & (IBUS_MOD4_MASK | IBUS_SUPER_MASK))
+    return (m & ~IBUS_SUPER_MASK) | IBUS_MOD4_MASK;
+  return m;
+}
+// Hold shortcuts match the physical key, as the Windows hook does: X11, GDK and mutter report the modifier state from before the key, so a modifier's own bit may or may not be set on its own press and is ignored here.
 bool voice_hotkey(const State &s, guint key, guint modifiers) {
   if (key == IBUS_F9 && modifiers == IBUS_CONTROL_MASK)
     return s.voice_hotkey_ctrl_f9;
-  if (key == IBUS_Alt_R && modifiers == (IBUS_MOD1_MASK | IBUS_CONTROL_MASK))
-    return s.voice_hotkey_rctrl_ralt && s.right_ctrl_down;
-  if (key == IBUS_Alt_R && modifiers == IBUS_MOD1_MASK)
-    return s.voice_hotkey_ralt;
-  if ((key == IBUS_Super_L || key == IBUS_Super_R) &&
-      modifiers == (IBUS_CONTROL_MASK | IBUS_MOD4_MASK))
-    return s.voice_hotkey_ctrl_win;
+  if (key == IBUS_Alt_R) {
+    const guint m = modifiers & ~IBUS_MOD1_MASK;
+    if (m == IBUS_CONTROL_MASK)
+      return s.voice_hotkey_rctrl_ralt && s.right_ctrl_down;
+    if (m == 0)
+      return s.voice_hotkey_ralt;
+    return false;
+  }
+  if (key == IBUS_Super_L || key == IBUS_Super_R) {
+    const guint m = modifiers & ~(IBUS_MOD4_MASK | IBUS_SUPER_MASK);
+    if (m == IBUS_CONTROL_MASK)
+      return s.voice_hotkey_ctrl_win;
+  }
   return false;
 }
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
@@ -4854,8 +4924,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.paired_punctuation_override = enabled;
       s.paired_punctuation = enabled;
       s.paired_tracker.clear();
-      s.last_smart_punctuation = 0;
-      s.smart_punctuation_rejected = 0;
       publish_mode(engine);
       return;
     }
@@ -4903,6 +4971,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.paired_tracker.clear();
       if (s.session) {
         s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+        s.session_fullwidth = s.fullwidth;
         render(engine, s.view);
       }
       publish_mode(engine);
@@ -5198,6 +5267,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (std::string(name) == "Punctuation") {
       if (!s.input_enabled || !s.session || menu_save_pending)
         return;
+      // A pinned lock holds, as Windows routes the toolbar switch through ResolvePunctuationOpen: nothing changes and nothing is saved. Republishing puts the toggle back.
+      if (s.punctuation_lock != "follow") {
+        publish_mode(engine);
+        return;
+      }
       const auto directory = configured.value("preferences_directory", std::string{});
       if (!directory.empty() && directory.front() == '/') {
         save_menu_preference(engine, MenuPreference::ChinesePunctuation, enabled);
@@ -5458,9 +5532,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
        msime::linux_host::KeyRouterAdapter::lease_token(s.client_token,
                                                          s.session)},
       msime::linux_host::KeyRouterAdapter::virtual_key(key), keycode,
-      static_cast<uint32_t>(
-          flags & (IBUS_SHIFT_MASK | IBUS_CONTROL_MASK | IBUS_MOD1_MASK |
-                   IBUS_SUPER_MASK)),
+      msime::linux_host::KeyRouterAdapter::modifiers(
+          (flags & IBUS_SHIFT_MASK) != 0, (flags & IBUS_CONTROL_MASK) != 0,
+          (flags & IBUS_MOD1_MASK) != 0,
+          (flags & (IBUS_MOD4_MASK | IBUS_SUPER_MASK)) != 0),
       key <= 0xffffu ? key : 0u, false};
   const auto dispatch_result = s.key_router.check(routed_event);
   if (dispatch_result != MSIME_CLIENT_KEY_SENT)
@@ -5592,9 +5667,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   }
   s.pure_shift_candidate = false;
   s.pure_ctrl_candidate = false;
-  const guint modifiers = flags & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK |
-                                   IBUS_MOD1_MASK | IBUS_MOD4_MASK | IBUS_SUPER_MASK |
-                                   IBUS_META_MASK | IBUS_HYPER_MASK | IBUS_MOD5_MASK);
+  const guint modifiers = canonical_modifiers(flags);
   const bool screen_keyboard_key =
       (key == IBUS_k || key == IBUS_K) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK | IBUS_MOD4_MASK);
@@ -5656,8 +5729,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool character_set_toggle = character_set_chord;
   // Disabling IME spelling must not disable the system layout's Compose table.
   // GTK's asynchronous IBus passthrough does not perform dead-key composition.
+  // A voice hold key must reach the voice path even with a dead key pending: X11/GDK/mutter send Alt_R with no modifier bits, and xkb_compose ignores modifier keysyms, so feeding it would swallow the press. Windows starts voice regardless of dead-key state.
+  const bool voice_hotkey_match =
+      s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers);
   if (s.focused && !s.blocked && !s.input_enabled && !release) {
-    if ((modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
+    if (!voice_hotkey_match && (modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
       if (const auto text = s.native_compose.feed(key)) {
         if (!text->empty()) commit_text(engine, *text);
         return TRUE;
@@ -5742,6 +5818,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       s.open();
       if (s.session) {
         s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+        s.session_fullwidth = s.fullwidth;
         render(engine, s.view);
       }
       publish_mode(engine);
@@ -5913,7 +5990,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = true;
       return;
     }
-    if ((modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
+    if (!voice_hotkey_match && (modifiers & ~(IBUS_SHIFT_MASK | IBUS_MOD5_MASK)) == 0) {
       if (const auto text = s.native_compose.feed(key)) {
         if (!s.view.value("editing_text", std::string{}).empty() ||
             !s.view.value("candidates", Json::array()).empty())
@@ -6134,6 +6211,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       return;
     }
     if (modifiers == IBUS_CONTROL_MASK && key == IBUS_period) {
+      // A pinned lock holds here too, as Windows resolves Ctrl+. through ResolvePunctuationOpen: the chord is eaten and changes nothing.
+      if (s.punctuation_lock != "follow") {
+        handled = true;
+        return;
+      }
       s.chinese_punctuation = !s.chinese_punctuation;
       s.punctuation_override = s.chinese_punctuation;
       s.view = response(msime_client_set_chinese_punctuation(
@@ -6285,7 +6367,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     // 触发 -Werror=sign-compare（新编译器上整个 IBus 宿主因此编不出来），也会让任何
     // 高位为 1 的字节提升成一个巨大的无符号数去和键值比。按 unsigned char 取值。
     if (s.chinese_punctuation && s.smart_punctuation_repeat &&
-        s.paired_punctuation &&
         static_cast<guint>(static_cast<unsigned char>(s.last_smart_punctuation)) == key &&
         s.last_smart_punctuation_time != 0 &&
         g_get_monotonic_time() - s.last_smart_punctuation_time <=
@@ -6325,23 +6406,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         if (s.fullwidth)
           text = fullwidth_text(text);
         commit_text(engine, text);
-        if (s.paired_punctuation) {
-          s.last_smart_punctuation = static_cast<char>(key);
-          s.last_smart_punctuation_time = g_get_monotonic_time();
-        }
+        s.last_smart_punctuation = static_cast<char>(key);
+        s.last_smart_punctuation_time = g_get_monotonic_time();
         handled = true;
       }
-      return;
-    }
-    if (s.chinese_punctuation && !s.smart_punctuation &&
-        s.view.at("editing_text").get<std::string>().empty() &&
-        std::string("`~!@#$%^&*()-_=+[]{}\\;:'\",.<>/?").find(key) !=
-            std::string::npos) {
-      auto text = std::string(1, static_cast<char>(key));
-      if (s.fullwidth)
-        text = fullwidth_text(text);
-      commit_text(engine, text);
-      handled = true;
       return;
     }
     const bool has_composition =
@@ -6614,9 +6682,51 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   });
   return handled;
 }
+struct CandidateMenuHintNotice {
+  IBusEngine *engine;
+  std::shared_ptr<std::atomic_bool> alive;
+  uint64_t id;
+  uint64_t session;
+  uint64_t generation;
+};
+// 右键候选：Windows 弹出候选右键菜单（固定、固定排位、删除），选定之前不改动词典。IBus 没有逐个候选的右键菜单接口，「候选操作」属性菜单就是这里的对应物，所以右键只在辅助区域提示去那里操作，约 1.5 秒后恢复页码。
+//
+// 恢复前确认辅助区域仍属于这条提示：期间任何重绘都已换上新的页码，只有同一会话、同一代次仍在显示时才重绘一次。
+void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation) {
+  auto &s = state(engine);
+  ++s.candidate_menu_hint_id;
+  if (s.candidate_menu_hint_id == 0)
+    ++s.candidate_menu_hint_id;
+  ibus_engine_update_auxiliary_text(
+      engine, ibus_text_new_from_static_string("请在「候选操作」菜单中固定、调整排位或删除候选"),
+      TRUE);
+  auto *notice = new CandidateMenuHintNotice{engine, s.alive, s.candidate_menu_hint_id,
+                                             s.session, generation};
+  g_timeout_add_full(
+      G_PRIORITY_DEFAULT, 1500,
+      +[](gpointer data) -> gboolean {
+        std::unique_ptr<CandidateMenuHintNotice> notice(
+            static_cast<CandidateMenuHintNotice *>(data));
+        if (!notice->alive->load())
+          return G_SOURCE_REMOVE;
+        auto *engine = notice->engine;
+        auto &s = state(engine);
+        if (s.candidate_menu_hint_id != notice->id || !s.focused || s.blocked ||
+            s.voice_active || s.translation_candidates_active ||
+            !s.session || s.session != notice->session ||
+            s.rendered_session != s.session || !s.rendered_view.is_object() ||
+            s.rendered_view.value("generation", uint64_t{0}) != notice->generation ||
+            s.view.value("generation", uint64_t{0}) != notice->generation)
+          return G_SOURCE_REMOVE;
+        guarded(engine, "candidate_menu_hint", [&] { render(engine, s.view); });
+        return G_SOURCE_REMOVE;
+      },
+      notice, nullptr);
+}
+// Modifier and button masks in the state argument are ignored, as the Windows candidate window commits regardless of modifiers; NumLock (Mod2) alone would otherwise block every click.
 void candidate_clicked(IBusEngine *engine, guint index, guint button,
-                       guint flags) {
-  if ((button < 1 || button > 5) || flags || !state(engine).focused ||
+                       G_GNUC_UNUSED guint flags) {
+  if ((button < 1 || button > 5) || !state(engine).focused ||
       state(engine).blocked || !state(engine).input_enabled) return;
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
@@ -6627,9 +6737,13 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       const auto page_count = (s.translation_options.size() + page_size - 1) /
                               page_size;
       if (button >= 4) {
-        if (button == 4 && s.translation_page > 0)
+        // Same mapping and 鼠标滚轮 gate as the ordinary candidate page below: with the switch off the wheel does nothing, as on Windows.
+        const auto wheel = s.navigation.wheel_command(button);
+        if (!wheel)
+          return;
+        if (*wheel == MSIME_PREVIOUS_PAGE && s.translation_page > 0)
           --s.translation_page;
-        else if (button == 5 && s.translation_page + 1 < page_count)
+        else if (*wheel == MSIME_NEXT_PAGE && s.translation_page + 1 < page_count)
           ++s.translation_page;
         s.translation_cursor = 0;
         render_translation_candidates(engine);
@@ -6665,10 +6779,15 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     const auto global_index = id.at("index").get<size_t>();
     const auto source = entry.value("source", 0);
     const auto scheme = s.rendered_scheme;
-    if (button == 3 && scheme != 3 &&
-        (source == 0 || source == 1 || source == 4))
-      apply(engine, msime_client_pin_candidate(s.session, generation, global_index));
-    else if (button != 3)
+    if (button == 3) {
+      // The fences above establish the candidate, not the view it was rendered from, and
+      // rendered_view is null until the first render and again after every session rebuild.
+      // value() throws on null, guarded swallows the throw, and the whole click disappears into a
+      // warning line. The hint has nothing to restore without a view either: its timeout only
+      // re-renders while this generation is still the one on screen.
+      if (scheme != 3 && (source == 0 || source == 1 || source == 4) && s.rendered_view.is_object())
+        show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
+    } else
       apply(engine, msime_client_select(s.session, generation, global_index));
   });
 }
@@ -6729,12 +6848,20 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   }
   if (preferences == s.applied_preferences_snapshot) {
     sync_global_input_mode(engine);
-    if (s.applied_display_generation != configuration_generation) {
+    const bool display_changed = s.applied_display_generation != configuration_generation;
+    if (display_changed)
       s.refresh_host_preferences(preferences);
+    // A menu save whose snapshot a concurrent read already applied has set only the host flag; the session learns the width here.
+    const bool width_changed = s.session && s.session_fullwidth != s.fullwidth;
+    if (width_changed) {
+      s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+      s.session_fullwidth = s.fullwidth;
+    }
+    if (display_changed || width_changed) {
       render(engine, s.view);
       publish_mode(engine);
-      s.applied_display_generation = configuration_generation;
     }
+    s.applied_display_generation = configuration_generation;
     return;
   }
   // Store revisions belong to the store. The runtime needs an increasing
@@ -6774,6 +6901,11 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
     s.view = response(
         msime_client_set_chinese_punctuation(s.session, s.chinese_punctuation));
     s.session_chinese_punctuation = s.chinese_punctuation;
+  }
+  // The same holds for the width: without this the host maps idle ASCII at one width while the session commits its compositions at the other.
+  if (s.session_fullwidth != s.fullwidth) {
+    s.view = response(msime_client_set_character_width(s.session, s.fullwidth));
+    s.session_fullwidth = s.fullwidth;
   }
   sync_global_input_mode(engine);
   if (s.voice_active && !s.voice_enabled)
@@ -6904,8 +7036,10 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->punctuation_override.reset();
           if (request.preference == MenuPreference::CharacterWidth)
             self->state->paired_tracker.clear();
+          // Taken from the snapshot about to be applied, not the request: a newer revision another writer saved may have replaced it above, and apply_live_preferences re-states this flag to the session.
           if (request.preference == MenuPreference::CharacterWidth)
-            self->state->fullwidth = request.value.get<bool>();
+            self->state->fullwidth =
+                snapshot->at("preferences").value("character_width", "halfwidth") == "fullwidth";
           if (request.preference == MenuPreference::VoiceEnabled)
             self->state->voice_enabled = request.value.get<bool>();
           accepted_preferences_directory = request.directory;
@@ -7074,6 +7208,7 @@ gboolean reload_preferences(gpointer data) {
       apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
       clear(engine);
+      msime_linux_diagnostic_write("dictionary_quiesce_released");
     });
   }
   // Saving is shared across contexts, but only the initiating context receives
@@ -7291,8 +7426,13 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   engine->candidate_clicked = candidate_clicked;
   engine->page_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_PAGE); };
   engine->page_down = [](IBusEngine *e) { page(e, MSIME_NEXT_PAGE); };
-  engine->cursor_up = [](IBusEngine *e) { page(e, MSIME_PREVIOUS_CANDIDATE); };
-  engine->cursor_down = [](IBusEngine *e) { page(e, MSIME_NEXT_CANDIDATE); };
+  // The IBus GTK panel and GNOME Shell raise cursor_up/down for the wheel over the candidate window; keyboard arrows never come this way, they arrive through process_key_event and NavigationBindings. As on Windows, the wheel pages when 鼠标滚轮 is on and does nothing otherwise.
+  engine->cursor_up = [](IBusEngine *e) {
+    if (state(e).navigation.mouse_wheel) page(e, MSIME_PREVIOUS_PAGE);
+  };
+  engine->cursor_down = [](IBusEngine *e) {
+    if (state(e).navigation.mouse_wheel) page(e, MSIME_NEXT_PAGE);
+  };
   IBUS_OBJECT_CLASS(klass)->destroy = destroy;
 }
 void msime_ibus_configure(const std::string &options) {

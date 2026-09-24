@@ -33,11 +33,14 @@ from __future__ import annotations
 import pathlib
 import re
 import sys
+import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHARED = [
     ROOT / "crates/client-core/src/preferences.rs",
     ROOT / "packages/ui/src/index.tsx",
+    # The typing statistics switch and retention live in their own document rather than in the preferences.
+    ROOT / "crates/client-core/src/typing_statistics.rs",
 ]
 # reference `section.key` -> the name to look for on this side, or `!kind: why` for the ones that
 # deliberately have no target.
@@ -167,6 +170,8 @@ MAPPING: dict[str, str] = {
     "skin.skin_name": "candidate_skin",
     "soft_keyboard.background_img": "!dead: written by the reference's config template and read by nothing in it",
     "soft_keyboard.theme_mode": "mode",
+    "statistics.enabled": "enabled",
+    "statistics.retention": "retention",
     "tencent_tmt.enabled": "enabled",
     "tencent_tmt.region": "region",
     "tencent_tmt.secret_id": "secret_id",
@@ -264,6 +269,28 @@ def page_text() -> str:
     )
 
 
+# The Windows template that `test-windows-config-keys.py` holds to the reference's key set. Every key it
+# ships has to be in `MAPPING`, otherwise a reference setting can sit in the template with no answer on
+# this side and this check never looks at it; `[statistics]` was missing from the mapping that way.
+TEMPLATE = ROOT / "platforms/windows/installer/config.default.toml"
+
+
+def template_keys() -> set[str]:
+    if not TEMPLATE.is_file():
+        return set()
+    keys: set[str] = set()
+
+    def walk(prefix: list[str], value: object) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                walk(prefix + [key], child)
+        else:
+            keys.add(".".join(prefix))
+
+    walk([], tomllib.loads(TEMPLATE.read_text(encoding="utf-8")))
+    return keys
+
+
 def shared_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in SHARED if path.is_file())
 
@@ -273,6 +300,16 @@ def main() -> int:
     if not text:
         print("skipped: the shared preferences and settings page are not present")
         return 0
+    unmapped = sorted(template_keys() - MAPPING.keys())
+    for key in unmapped:
+        print(
+            f"{key} is in the Windows template but not in MAPPING: record the field that answers it, "
+            f"or `!kind: why` if nothing does.",
+            file=sys.stderr,
+        )
+    if unmapped:
+        return 1
+
     orphaned = []
     for key, target in sorted(MAPPING.items()):
         if target.startswith("!"):

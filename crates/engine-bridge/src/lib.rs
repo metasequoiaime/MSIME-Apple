@@ -132,6 +132,11 @@ mod ffi {
         pub candidate_sources: Vec<u8>,
         pub candidate_positions: Vec<u8>,
         pub candidate_corrected: Vec<bool>,
+        /// Whether each candidate answers the whole key, rather than a prefix of it or a completion
+        /// running past it. The engine decides this to advance the composition, so it is reported
+        /// rather than inferred: character count agrees only while a key has one segmentation, and
+        /// `xian` reads as both 现 and 西安.
+        pub candidate_answers_key: Vec<bool>,
     }
     #[derive(Debug)]
     pub struct EngineResult {

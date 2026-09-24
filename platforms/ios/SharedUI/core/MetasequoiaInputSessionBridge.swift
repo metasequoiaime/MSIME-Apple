@@ -22,6 +22,8 @@ private func msimeClientPunctuationWithContext(
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_command")
 private func msimeClientCommand(_ session: UInt64, _ command: UInt32) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_reset_cache")
+private func msimeClientResetCache(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select")
 private func msimeClientSelect(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_select_any_candidate")
@@ -343,6 +345,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
     // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.
     "cloud_candidates",
+    // Laid over the document from the iOS page size, like cloud candidates; the session applies it once idle, so an open composition keeps its page.
+    "candidate_page_size",
   ]
 
   /// Hand the reloaded app-edited fields to the session, leaving every other field as the session has it. The session queues the change behind an open composition, so this never interrupts typing.
@@ -671,6 +675,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func segmentBackspace() -> MetasequoiaInputSnapshot { command(12) }
   func moveCaretLeftBySegment() -> MetasequoiaInputSnapshot { command(13) }
   func moveCaretRightBySegment() -> MetasequoiaInputSnapshot { command(14) }
+  /// The Home, End and Delete keys of the Windows composition: the caret to either end of the spelling, and the letter after the caret removed.
+  func moveCaretToStart() -> MetasequoiaInputSnapshot { command(6) }
+  func moveCaretToEnd() -> MetasequoiaInputSnapshot { command(7) }
+  func deleteForward() -> MetasequoiaInputSnapshot { command(8) }
+  /// Drops the Engine's cached candidate lookups, which Windows does on Ctrl+Shift+Alt+C.
+  func resetCache() -> MetasequoiaInputSnapshot { dispatch { msimeClientResetCache(handle) } }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
@@ -1266,14 +1276,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// The keyboard host's own contract, laid over whatever the shared document holds.
   ///
-  /// Neither field is a user setting, and both have to hold for every session this host creates -
-  /// including the ones created after the shared document replaces the session's preferences. A
-  /// reload used to drop them, which left the engine answering pinyin with English completions
-  /// while the keyboard was showing Chinese mode, and paging candidates by a count the candidate
-  /// strip was never laid out for.
+  /// Both fields come from iOS-only switches in the App Group rather than the document, and have to hold for every session this host creates, including the ones created after the shared document replaces the session's preferences. A reload used to drop the page size, which left the engine paging candidates by the desktop's count while the strip numbered its own.
   private static func hostOverrides(applyingTo preferences: [String: Any]) -> [String: Any] {
     var preferences = preferences
-    preferences["candidate_page_size"] = 9
+    // See CandidatePageSizePreference. Never persisted: the shared document keeps the desktop's value.
+    preferences["candidate_page_size"] = CandidatePageSizePreference.size
     // Cloud candidates are opt-in on iOS; see CloudCandidatePreference. Never persisted: the shared document keeps the desktop's value.
     preferences["cloud_candidates"] = CloudCandidatePreference.enabled
     return preferences

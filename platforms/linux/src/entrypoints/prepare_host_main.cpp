@@ -1,5 +1,6 @@
 #include "msime_client.h"
 #include "../core/PreparePaths.h"
+#include "../core/RuntimeOptionsRefresh.h"
 
 #include <cerrno>
 #include <cstdlib>
@@ -58,6 +59,27 @@ nlohmann::json value_of(Owned raw) {
   return result.at("value");
 }
 
+// msime-client-setup --update runs this once it has dictionaries matching the installed lock (staged in a new directory beside the recorded one, named in a copy of the options it publishes only after this succeeds) and the quiesce lease has closed both hosts' sessions: the same refresh the input method hosts run at startup, so the new generation is prepared and the user dictionary replayed into it the way the Windows installer replays it after an upgrade, without waiting for the next host start. Exit 3 is the one failure setup can explain itself: the recorded dictionaries still do not match this version.
+int refresh(const std::filesystem::path &options) {
+  if (!options.is_absolute()) {
+    std::cerr << "The runtime options path must be absolute\n";
+    return 2;
+  }
+  try {
+    umask(0077);
+    const bool rewritten = msime::linux_host::refresh_runtime_options(options);
+    std::cout << (rewritten ? "refreshed" : "current") << '\n';
+    return std::cout ? 0 : 1;
+  } catch (const msime::linux_host::DictionaryOutdated &) {
+    std::cerr << "The recorded dictionaries do not match this version; runtime options were left unchanged\n";
+    return 3;
+  } catch (...) {
+    // Host diagnostics can contain private paths; do not forward them.
+    std::cerr << "Dictionary refresh failed; runtime options were left unchanged\n";
+    return 1;
+  }
+}
+
 // The Windows installer asks on a first install whether cloud candidates may run, since they are the one network feature active without any token; declining writes the preference before the input method first starts.
 void disable_cloud_candidates(const std::filesystem::path &state, nlohmann::json &options) {
   const auto directory = state.string();
@@ -79,12 +101,16 @@ int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
     std::cout << "Usage: msime-client-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
                  "       msime-client-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
+                 "       msime-client-prepare --refresh <absolute-runtime-options.json>\n"
                  "The state directory must not exist; its parent must exist.\n"
                  "--installed uses the resource bundle installed beside this executable.\n"
                  "--no-cloud-candidates turns cloud candidates off in the new preferences.\n"
-                 "Prints the new runtime-options.json path on success.\n";
+                 "Prints the new runtime-options.json path on success.\n"
+                 "--refresh moves existing runtime options to the installed dictionary generation, replaying the\n"
+                 "user dictionary; prints \"refreshed\" or \"current\", exits 3 when the recorded dictionaries are outdated.\n";
     return 0;
   }
+  if (argc == 3 && std::string(argv[1]) == "--refresh") return refresh(argv[2]);
   const bool no_cloud = argc > 1 && std::string(argv[1]) == "--no-cloud-candidates";
   if (no_cloud) {
     --argc;
@@ -92,7 +118,8 @@ int main(int argc, char **argv) {
   }
   if (argc != 3) {
     std::cerr << "Usage: msime-client-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
-                 "       msime-client-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n";
+                 "       msime-client-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
+                 "       msime-client-prepare --refresh <absolute-runtime-options.json>\n";
     return 2;
   }
   try {

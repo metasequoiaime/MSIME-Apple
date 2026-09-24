@@ -88,6 +88,12 @@ void ServerSession::set_chinese_punctuation(uint64_t epoch, bool enabled) {
   check_active(epoch);
   response(msime_client_set_chinese_punctuation(session_, enabled));
 }
+void ServerSession::balance_paired_punctuation(uint64_t epoch,
+                                               uint8_t opening) {
+  check_active(epoch);
+  response(msime_client_balance_paired_punctuation_after_auto_close(session_,
+                                                                   opening));
+}
 nlohmann::json ServerSession::toggle_traditional_output(uint64_t epoch) {
   check_active(epoch);
   traditional_output_ = !traditional_output_;

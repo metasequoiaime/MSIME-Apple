@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   DICTIONARY_PAGE_SIZE,
+  MAX_DICTIONARY_FILE_BYTES,
   decodeDictionaryBytes,
   dictionaryPageStatus,
   parsePersonalDictionaryImport,
   personalDictionaryExample,
+  readDictionaryFile,
 } from "../../../../packages/ui/src/dictionary/dictionary-file";
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
@@ -30,6 +32,28 @@ describe("dictionary file decoding", () => {
     // "你好" in GB18030, which is not valid UTF-8.
     const bytes = new Uint8Array([0xc4, 0xe3, 0xba, 0xc3]);
     expect(decodeDictionaryBytes(bytes)).toBe("你好");
+  });
+});
+
+describe("dictionary file size bound", () => {
+  it("reads a 2 MB file and refuses a 33 MB one before reading it", async () => {
+    expect(MAX_DICTIONARY_FILE_BYTES).toBe(32 * 1024 * 1024);
+    const text = "词条\tcitiao\t100\n".repeat(120_000);
+    const accepted = new File([text], "dict.txt");
+    expect(accepted.size).toBeGreaterThan(2 * 1024 * 1024);
+    await expect(readDictionaryFile(accepted)).resolves.toBe(text);
+    const refused = new File([new Uint8Array(33 * 1024 * 1024)], "dict.txt");
+    await expect(readDictionaryFile(refused)).rejects.toThrow(
+      "文件不能超过 32 MB，请拆分后分别导入。",
+    );
+  });
+
+  it("holds a caller to its own bound and names it", async () => {
+    const file = new File([new Uint8Array(65_537)], "dict.txt");
+    await expect(readDictionaryFile(file, 65_536)).rejects.toThrow("文件不能超过 64 KB");
+    await expect(readDictionaryFile(file, 1_048_576)).resolves.toHaveLength(65_537);
+    const large = new File([new Uint8Array(1_048_577)], "dict.txt");
+    await expect(readDictionaryFile(large, 1_048_576)).rejects.toThrow("文件不能超过 1 MB");
   });
 });
 
@@ -82,6 +106,8 @@ describe("personal dictionary JSON", () => {
         { kind: "quickPhrase", key: "nh1", value: "你好", weight: 100000 },
       ],
     });
-    expect(() => parsePersonalDictionaryImport(file)).toThrow("第 2 条：词条内容不符合输入引擎规则。");
+    expect(() => parsePersonalDictionaryImport(file)).toThrow(
+      "第 2 条：词条内容不符合输入引擎规则。",
+    );
   });
 });

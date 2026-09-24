@@ -1,6 +1,7 @@
 #include "../src/candidates/CandidateActionPolicy.h"
 
 #include <cassert>
+#include <string>
 
 int main() {
   using msime::linux_host::candidate_dictionary_removal_available;
@@ -30,4 +31,8 @@ int main() {
   assert(candidate_removal_slot('&', 2) == 0);
   assert(candidate_removal_slot('x', 9) == 7);
   assert(!candidate_removal_slot('&', 0));
+  // Same wording as the Windows candidate menu (置顶, 第 N 位).
+  assert(std::string(msime::linux_host::candidate_pin_label) == "置顶");
+  assert(msime::linux_host::candidate_fix_label(1) == "固定到第 1 位");
+  assert(msime::linux_host::candidate_fix_label(5) == "固定到第 5 位");
 }

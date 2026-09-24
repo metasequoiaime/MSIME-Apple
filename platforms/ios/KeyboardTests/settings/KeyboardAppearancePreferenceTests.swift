@@ -45,4 +45,13 @@ final class KeyboardAppearancePreferenceTests: XCTestCase {
     XCTAssertEqual(KeyboardAppearancePreference.style(KeyboardAppearancePreference.handwritingKey, in: preferences), .light)
     XCTAssertEqual(KeyboardAppearancePreference.style(KeyboardAppearancePreference.voiceKey, in: preferences), .dark)
   }
+
+  func testTheSettingsThemeFallsBackToTheGlobalThemeThenTheDevice() {
+    XCTAssertEqual(AppAppearancePreference.style(in: nil), .unspecified)
+    XCTAssertEqual(AppAppearancePreference.style(in: ["settings_theme": "follow", "theme": "system"]), .unspecified)
+    XCTAssertEqual(AppAppearancePreference.style(in: ["settings_theme": "follow", "theme": "dark"]), .dark)
+    XCTAssertEqual(AppAppearancePreference.style(in: ["settings_theme": "light", "theme": "dark"]), .light)
+    // The keyboard's own theme does not reach the app.
+    XCTAssertEqual(AppAppearancePreference.style(in: ["screen_keyboard_theme": "dark"]), .unspecified)
+  }
 }

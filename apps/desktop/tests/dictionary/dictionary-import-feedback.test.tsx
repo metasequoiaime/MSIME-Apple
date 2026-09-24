@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { SettingsPage, describeImportResult, type Snapshot } from "@msime/ui";
+import {
+  SettingsPage,
+  UNBATCHED_DICTIONARY_FILE_BYTES,
+  describeImportResult,
+  type Snapshot,
+} from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -115,21 +120,51 @@ test("an import the host finds too large names the size limits", async () => {
   await importFile(dictionary);
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("导入失败：词库文件过大");
-  expect(alert.textContent).toContain("1 MB");
+  expect(alert.textContent).toContain("32 MB");
   expect(alert.textContent).toContain("拆分");
 });
 
-test("a file over 1 MB is refused before anything is sent", async () => {
+test("a file over 32 MB is refused before anything is sent", async () => {
   const dictionary = {
     list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
     edit: vi.fn(),
     import: vi.fn().mockResolvedValue({ applied: 1 }),
   };
-  // Well over the old 64 KiB request bound is fine; only the file bound refuses.
-  const large = new File(["a".repeat(1_048_577)], "large.txt", { type: "text/plain" });
+  const large = new File(["a".repeat(33 * 1024 * 1024)], "large.txt", { type: "text/plain" });
   await importFile(dictionary, large);
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toContain("1 MB");
+  expect(alert.textContent).toContain("文件不能超过 32 MB");
+  expect(dictionary.import).not.toHaveBeenCalled();
+});
+
+test("a 2 MB file, over the page's old 1 MB bound, goes to the desktop bridge whole", async () => {
+  const dictionary = {
+    list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+    edit: vi.fn(),
+    import: vi.fn().mockResolvedValue({ applied: 100_000 }),
+  };
+  const text = Array.from({ length: 100_000 }, (_, index) => `词条${index}\tcitiao\t100\n`).join(
+    "",
+  );
+  const file = new File([text], "large.txt", { type: "text/plain" });
+  expect(file.size).toBeGreaterThan(2 * 1024 * 1024);
+  await importFile(dictionary, file);
+  await waitFor(() => expect(dictionary.import).toHaveBeenCalled());
+  expect(dictionary.import.mock.calls[0][2]).toBe(text);
+  expect((await screen.findByRole("status")).textContent).toContain("100000");
+});
+
+test("a host that sends the file in one request keeps its own bound", async () => {
+  const dictionary = {
+    list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+    edit: vi.fn(),
+    import: vi.fn().mockResolvedValue({ applied: 1 }),
+    maxImportFileBytes: UNBATCHED_DICTIONARY_FILE_BYTES,
+  };
+  const large = new File(["a".repeat(2 * 1024 * 1024)], "large.txt", { type: "text/plain" });
+  await importFile(dictionary, large);
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("文件不能超过 1 MB");
   expect(dictionary.import).not.toHaveBeenCalled();
 });
 

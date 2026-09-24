@@ -56,7 +56,7 @@ uint32_t msime_client_abi_version(void);
  * preparation. Caller publishes the returned config atomically after success.
  */
 char *msime_client_prepare_host(const uint8_t *options, size_t length);
-/* path is an absolute UTF-8 runtime options file path of length bytes; maximum 4096. When its dictionaries directory is not the installed resource generation (after a package upgrade), prepares that generation, replays the user dictionary into it and atomically rewrites resources/dictionaries, keeping every other key. Value is true when the file was rewritten. Call before creating any session from the file. */
+/* path is an absolute UTF-8 runtime options file path of length bytes; maximum 4096. When its dictionaries directory is not the installed resource generation (after a package upgrade), prepares that generation, replays the user dictionary into it and atomically rewrites resources/dictionaries, keeping every other key. Value is true when the file was rewritten. Call before creating any session from the file. When the recorded resource directory does not match the compiled dictionary lock (downloaded dictionaries an upgrade did not replace) the error text begins with "dictionary_outdated:" and the file is left unchanged; the rest of that text may name private paths. */
 char *msime_client_refresh_host(const uint8_t *path, size_t length);
 /* options is a readable UTF-8 buffer of length bytes; maximum 16384 bytes.
  * Object: api_version=1, resources/user_data/cache/dictionaries (absolute paths),

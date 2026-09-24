@@ -672,11 +672,46 @@ pub fn prepare_host_configuration(
     })?)
 }
 
+/// A runtime options refresh found that the recorded resource directory does not hold the resource set this build pins.
+///
+/// This is the state a user who downloaded the dictionaries (rather than getting them from the package) is left in after an upgrade that raised the dictionary version: the package replaced the lock but nothing replaced the files. It is told apart from every other refresh failure because only this one has a fix the user can run, `msime-client-setup --update --download`. The C ABI passes errors through as their `Display` text, so the stable part of the contract is the `dictionary_outdated:` prefix; what follows it is diagnostic and may name private paths.
+#[derive(Debug)]
+pub struct DictionaryOutdated(msime_client_core::resources::ResourceError);
+
+impl std::fmt::Display for DictionaryOutdated {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{DICTIONARY_OUTDATED_PREFIX} {}", self.0)
+    }
+}
+
+impl std::error::Error for DictionaryOutdated {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+/// How a [`DictionaryOutdated`] error begins once it has crossed the C ABI as text.
+pub const DICTIONARY_OUTDATED_PREFIX: &str = "dictionary_outdated:";
+
+/// Turn a verification failure out of `prepare_host_configuration` into [`DictionaryOutdated`], leaving every other error as it was. Only a length, digest or directory-content mismatch counts: an unreadable file or an invalid compiled lock is not something a download fixes.
+fn outdated_resources(error: Box<dyn std::error::Error>) -> Box<dyn std::error::Error> {
+    use msime_client_core::resources::ResourceError;
+    match error.downcast::<ResourceError>() {
+        Ok(resource) => match *resource {
+            outdated @ (ResourceError::Integrity | ResourceError::ExistingGeneration(_)) => {
+                Box::new(DictionaryOutdated(outdated))
+            }
+            other => Box::new(other),
+        },
+        Err(error) => error,
+    }
+}
+
 /// Bring a published HostOptions file up to the installed dictionary generation.
 ///
 /// A package upgrade replaces the resource bundle in place but leaves each user's options pointing at working dictionaries copied from the previous bundle, so the new dictionary never reaches the Engine and the user-dictionary replay the Windows installer runs after an upgrade never happens. When the recorded dictionaries directory is not the generation the installed lock describes, this prepares that generation (the Engine copies the new dictionaries and replays the user journal into them) and rewrites only `resources` and `dictionaries`, keeping every other key a setup or the settings app wrote. A current file is only read.
 ///
-/// Returns whether the file was rewritten. Run it before the caller's own sessions exist. The previous generation is never modified, so a host still using it keeps working until it restarts. A symlink, or a document whose paths do not follow the layout `prepare_host_configuration` produces, is left alone rather than guessed at.
+/// Returns whether the file was rewritten. Run it before the caller's own sessions exist. The previous generation is never modified, so a host still using it keeps working until it restarts. A symlink, or a document whose paths do not follow the layout `prepare_host_configuration` produces, is left alone rather than guessed at. When the recorded resources do not match the compiled lock the error is [`DictionaryOutdated`] and the file is left as it was.
 pub fn refresh_host_options(path: &std::path::Path) -> Result<bool, Box<dyn std::error::Error>> {
     use std::io::Write as _;
     let metadata = std::fs::symlink_metadata(path)?;
@@ -694,9 +729,9 @@ pub fn refresh_host_options(path: &std::path::Path) -> Result<bool, Box<dyn std:
         &document,
         &specification.generation()?,
         |resources, state| {
-            Ok(serde_json::from_str(&prepare_host_configuration(
-                resources, state,
-            )?)?)
+            Ok(serde_json::from_str(
+                &prepare_host_configuration(resources, state).map_err(outdated_resources)?,
+            )?)
         },
     )?
     else {

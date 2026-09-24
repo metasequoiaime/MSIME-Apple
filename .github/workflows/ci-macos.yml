@@ -66,8 +66,18 @@ jobs:
             case "$path" in
               platforms/macos/*|LICENSE|THIRD_PARTY_NOTICES.txt)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "macOS 改动: $path"; exit 0 ;;
-              shared/*|vendor/*|engine-lock.json|scripts/*|cmake/*|CMakeLists.txt|.github/workflows/*|product-lock.json)
+              shared/*|vendor/*|engine-lock.json|cmake/*|CMakeLists.txt|product-lock.json|.github/workflows/ci-macos.yml)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
+              # scripts/ 里只有这些进得了 macOS 的构建。其余七十来个是各平台自己的契约检查,由 Core CI
+              # 和 verify-local.sh 跑,改它们重编一次 macOS 不会多发现任何东西 —— 而 `scripts/*` 让每一个
+              # 都触发双架构构建加 Sanitizers:一个 test-android-preference-keys.py 的改动要三台 macOS
+              # 机器,公开仓库的 macOS 并发额度是个位数,队列因此堵过。
+              #
+              # apply_engine_* 是 engine-lock.json 的 overlay_scripts,fetch_engine.py 会执行它们来改
+              # Engine 源码,所以它们和 Engine 本身一样要重建。build_backend_swift.sh 由 macOS 的
+              # CMakeLists.txt 调用,其余几个由本工作流自己的步骤调用。
+              scripts/apply_engine_*|scripts/fetch_engine.py|scripts/product_lock.py|scripts/build_backend_swift.sh|scripts/format.sh|scripts/install.sh|scripts/register_input_source.swift|scripts/check-dictionary-contract.py|scripts/check-product-lock-contract.py)
+                echo "build=true" >> "$GITHUB_OUTPUT"; echo "构建脚本改动: $path"; exit 0 ;;
             esac
           done <<< "$changed"
           echo "build=false" >> "$GITHUB_OUTPUT"
@@ -76,8 +86,6 @@ jobs:
   macos:
     needs: changes
     # 这个 job 总是启动,重活才按 changes 跳过。放在 job 级的 `if:` 会让矩阵根本不展开:GitHub 上报的是字面量 `macOS 15 ${{ matrix.architecture }}` 这一个 check,而分支保护等的是 `macOS 15 arm64` 和 `macOS 15 x86_64` —— 它们永远不会出现,于是只动 platforms/ios 的 PR 一个都合不进 main,报错只有一句「the base branch policy prohibits the merge」。
-    #
-    # 代价是两台 runner 为签出和格式检查各转一分钟。格式检查本来就是全仓库的,顺带覆盖了只改 iOS 的改动。
     name: macOS 15 ${{ matrix.architecture }}
     strategy:
       fail-fast: false
@@ -87,7 +95,14 @@ jobs:
             architecture: arm64
           - runner: macos-15-intel
             architecture: x86_64
-    runs-on: ${{ matrix.runner }}
+    # 只有真要构建时才落到 macOS runner 上。要出现的 check 名字由 `name:` 决定,和跑在哪台机器无关,
+    # 所以分支保护照样等到 `macOS 15 arm64` 和 `macOS 15 x86_64`,上面那段注释说的问题不会回来。
+    #
+    # 不这样的话,每个分支不论改了什么都占住两台 macOS runner —— 其中 macos-15-intel 尤其紧俏 ——
+    # 而 build=false 时它们只做一次签出:格式检查那一步在本仓库走的是 scripts/format.sh 不存在的分支,
+    # 只 echo 一行。公开仓库的 macOS 并发额度本来就只有个位数,iOS CI 还和它抢同一批机器,于是十来个
+    # 活跃分支就能把队列堵死,而堵住队列的绝大多数 job 什么也没做。
+    runs-on: ${{ needs.changes.outputs.build == 'true' && matrix.runner || 'ubuntu-24.04' }}
     timeout-minutes: 60
     steps:
       - name: Check out source

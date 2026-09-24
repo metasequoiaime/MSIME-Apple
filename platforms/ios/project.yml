@@ -245,6 +245,7 @@ targets:
       - path: App/Services/DoubaoVoiceCoordinator.swift
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/WAVPCMExtractor.swift
+      - path: App/Services/VoiceLevel.swift
       - path: SharedUI/core/AppServicesBridge.swift
       - path: SharedUI/core/MetasequoiaTheme.swift
       - path: ../../shared/backend

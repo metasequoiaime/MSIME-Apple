@@ -761,6 +761,15 @@ void CMetasequoiaIME::_ResetSmartPunctuationHistory()
     _smartPunctuationForegroundWindow = nullptr;
 }
 
+void CMetasequoiaIME::_ClearSmartPunctuationAction()
+{
+    _ResetSmartPunctuationHistory();
+    _pendingSmartPunctuationReplacement = 0;
+    _pendingSmartPunctuationFocusToken = 0;
+    _pendingSmartPunctuationForegroundWindow = nullptr;
+    _pendingSmartPunctuationDeadline = 0;
+}
+
 bool CMetasequoiaIME::_QueueSmartPunctuationRewrite(WCHAR replacement)
 {
     if (replacement == 0 || _msgWndHandle == nullptr)

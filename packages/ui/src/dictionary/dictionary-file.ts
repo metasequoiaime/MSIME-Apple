@@ -31,12 +31,26 @@ export function decodeDictionaryBytes(bytes: Uint8Array): string {
   }
 }
 
-/** The largest dictionary file the settings page reads. The desktop bridge sends a larger import to the host as several requests, so this, not the host's 64 KiB per request, is the bound a user meets. */
-export const MAX_DICTIONARY_FILE_BYTES = 1_048_576;
+/** The largest dictionary file the settings page reads for the desktop bridge, which sends a larger import to the host as several requests, so this, not the host's 64 KiB per request, is the bound a user meets. The bridge's own bound on the decoded text, `MAX_IMPORT_TEXT_BYTES` in `apps/desktop/src-tauri/src/dictionary_import.rs`, is 1.5 times this, so a file accepted here is never refused there for its size. The Windows settings page reads a file whole without a bound; this one keeps a bound because the whole file is held in the page and then in the bridge. */
+export const MAX_DICTIONARY_FILE_BYTES = 32 * 1024 * 1024;
 
-export async function readDictionaryFile(file: File): Promise<string> {
-  if (file.size > MAX_DICTIONARY_FILE_BYTES)
-    throw new Error("文件不能超过 1 MB，请拆分后分别导入。");
+/** The bound for a host whose dictionary client sends a file to the input method in one request instead of batching it the way the desktop bridge does: the mobile hosts and HarmonyOS. It is the bound the page has always applied to them; their own request bound refuses what it cannot take. */
+export const UNBATCHED_DICTIONARY_FILE_BYTES = 1_048_576;
+
+/** A byte bound as the page states it: whole mebibytes as MB, anything smaller as KB. */
+function fileSizeLabel(bytes: number): string {
+  return bytes >= 1_048_576 && bytes % 1_048_576 === 0
+    ? `${bytes / 1_048_576} MB`
+    : `${Math.floor(bytes / 1024)} KB`;
+}
+
+/** Read and decode a dictionary file of at most `maxBytes`, refusing a larger one before reading it. A caller whose backend takes less than the desktop bridge passes its own bound. */
+export async function readDictionaryFile(
+  file: File,
+  maxBytes: number = MAX_DICTIONARY_FILE_BYTES,
+): Promise<string> {
+  if (file.size > maxBytes)
+    throw new Error(`文件不能超过 ${fileSizeLabel(maxBytes)}，请拆分后分别导入。`);
   return decodeDictionaryBytes(new Uint8Array(await file.arrayBuffer()));
 }
 

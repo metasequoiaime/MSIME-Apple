@@ -49,6 +49,7 @@ import {
   type VocabularyReviewClient,
   type VocabularyReviewStatus,
   type TypingStatisticsStatus,
+  UNBATCHED_DICTIONARY_FILE_BYTES,
 } from "@msime/ui";
 import type {
   AiAssistantClient,
@@ -643,6 +644,8 @@ function makeClient(
         request_id,
       });
     },
+    // The native bridge sends an import to the host in one request rather than in batches.
+    maxImportFileBytes: UNBATCHED_DICTIONARY_FILE_BYTES,
     import: async (
       kind: LocalDictionaryKind,
       format: LocalDictionaryFormat,
@@ -809,6 +812,20 @@ function makeClient(
     // capability tells it which of the two this is.
     openSkinDirectory: async () => {
       native.importSkinFolder();
+    },
+    // ArkWeb drops the page's download link, so the host saves the export through the system save picker instead. The deadline covers a user who leaves the picker open: timing out under them would report a failure for a file that is then written anyway.
+    saveExport: async (name: string, contents: string) => {
+      const reply = await bridgeRequest(
+        native,
+        "save_export",
+        JSON.stringify({ name, contents }),
+        30 * 60 * 1000,
+      );
+      try {
+        return unwrap<string | null>(reply);
+      } catch {
+        throw new Error("无法保存导出文件，词库未导出。");
+      }
     },
     listVoiceCaptureDevices: async () =>
       unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
