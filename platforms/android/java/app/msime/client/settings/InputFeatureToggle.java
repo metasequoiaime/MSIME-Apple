@@ -12,12 +12,17 @@ import java.util.List;
  *
  * <p>Grouped rather than listed flat because the sheets they appear in are grouped, and a toggle
  * that moves between sheets should move by changing its group here.
+ *
+ * <p>Only preferences that really are one top-level boolean belong here. 自动纠错 used to, writing
+ * `autocorrect`; the shared crate has since retired that key - it no longer enables either
+ * correction type - and split the feature into the two nested `quanpin` fields, both off by
+ * default. The switch went on rendering as checked for a feature that was off and could not be
+ * turned on. It is now two rows built by hand in the sheet, because nesting is not something this
+ * table can express and pretending otherwise is what let the key go stale unnoticed.
  */
 public enum InputFeatureToggle {
     LEARNING(Group.DICTIONARY, "learning", true, "记忆新词",
         "把你选过的词排到前面；只在本机学习"),
-    AUTOCORRECT(Group.DICTIONARY, "autocorrect", true, "自动纠错",
-        "拼音敲错一两个字母时仍然给出候选"),
     CLOUD_CANDIDATES(Group.DICTIONARY, "cloud_candidates", true, "云候选",
         "向服务端请求长句与新词，需要联网"),
     ENGLISH_SUGGESTIONS(Group.DICTIONARY, "english_suggestions", true, "英文联想",
@@ -35,7 +40,9 @@ public enum InputFeatureToggle {
     CLIPBOARD_HISTORY(Group.PRIVACY, "clipboard_history", false, "剪贴板历史",
         "在键盘里保留最近复制的内容，仅存本机；关闭会立即清空"),
     CANDIDATE_TRANSLATIONS(Group.PRIVACY, "candidate_translations", true, "候选翻译",
-        "为候选词附上译文，需要联网"),
+        "为候选词附上译文；联网翻译需同时开启下方的水杉账号翻译"),
+    CANDIDATE_TRANSLATION_ACCOUNT(Group.PRIVACY, "translation_account", false, "用水杉账号翻译候选",
+        "把当前页的中文候选词发送到 api.msime.app 翻译，首次使用会创建匿名账号；不开启则不联网翻译"),
     CANDIDATE_ENGLISH_GLOSS(Group.PRIVACY, "candidate_english_gloss", false, "候选英文释义",
         "用打包的离线词典给候选词标注释义");
 

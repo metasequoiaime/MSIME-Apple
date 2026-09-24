@@ -24,6 +24,9 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
           pnpm --filter @msime/desktop build
+      # package-container.sh installs target/offline-glosses when it is there.
+      - name: Fetch the locked offline candidate glosses
+        run: python3 scripts/fetch_offline_glosses.py
       # Builds the Release host library and desktop binary, configures the native hosts for /usr with packaging on, runs the same ctest suite the pull-request gate runs (on the Release build, where the tests keep their assertions), then produces the .deb, the .tar.gz and SHA256SUMS.
       - name: Build Linux packages
         env: {VERSION: "${{ steps.version.outputs.value }}"}

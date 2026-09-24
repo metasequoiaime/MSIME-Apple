@@ -11,7 +11,9 @@ while IFS= read -r source; do
 done < <(find "$root/shared/backend/account" "$root/shared/backend/clients" "$root/shared/backend/content" "$root/shared/backend/storage" "$root/shared/backend-ui" "$root/platforms/macos/src/backend" -type f -name '*.swift' -print | sort)
 swift_target=${MSIME_SWIFT_TARGET:-$(uname -m)-apple-macosx${MACOSX_DEPLOYMENT_TARGET:-13.0}}
 
+# Translation.framework first ships with macOS 15 and the package runs on 13, where a strong link would stop the whole backend from loading. Its only user checks #available(macOS 26) before touching it.
 exec xcrun swiftc -parse-as-library -emit-library -emit-module \
   -module-name MSIMEBackend -emit-module-path "${output%.dylib}.swiftmodule" \
   -target "$swift_target" -Xlinker -install_name -Xlinker "@rpath/$(basename "$output")" \
+  -Xlinker -weak_framework -Xlinker Translation \
   -o "$output" "${sources[@]}"

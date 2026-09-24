@@ -29,8 +29,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCES = ROOT / "platforms/harmony/entry/src/main/ets"
 
-# Entry points the framework loads by name out of module.json5 and main_pages.json, so nothing in
-# the source tree imports them. Everything else has to be reachable from one of these.
+# Entry points the framework loads by name out of module.json5, main_pages.json and the workers list in entry/build-profile.json5, so nothing in the source tree imports them. Everything else has to be reachable from one of these.
 ENTRY_POINTS = {
     "EntryAbility",
     "KeyboardExtensionAbility",
@@ -38,6 +37,7 @@ ENTRY_POINTS = {
     "KeyboardView",
     "FloatingToolbar",
     "InputModeHud",
+    "LocalAsrWorker",
 }
 
 IMPORT = re.compile(r"""^\s*import\s[^'"]*['"]([^'"]+)['"]""", re.MULTILINE)

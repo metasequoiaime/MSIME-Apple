@@ -13,6 +13,7 @@ use msime_client_core::dictionary::access::DictionaryAccess;
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};
 pub mod cloud_clipboard;
 pub mod cloud_dictionary;
+pub mod mcp_clients;
 pub mod system_fonts;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
@@ -59,14 +60,20 @@ pub(crate) const PREFERENCES_DOCUMENT_LIMIT: usize = 1 << 20;
 mod ffi;
 pub use ffi::*;
 mod doubao_auth;
+#[cfg(not(any(target_os = "android", target_env = "ohos")))]
+mod handwriting_cells;
 pub use doubao_auth::msime_client_doubao_auth_headers;
 mod learned_translation;
 mod niutrans_translation;
 mod tencent_translation;
 pub use dictionary::{
-    dictionary_request_json, msime_client_dictionary, msime_client_dictionary_import_entries,
-    msime_client_dictionary_validate, msime_client_personal_dictionary_request,
-    msime_client_personal_dictionary_sync, personal_dictionary_request_json,
+    dictionary_request_json, dictionary_words, edit_dictionary_word, edit_user_quick_phrase,
+    import_dictionary_words, lookup_candidates, msime_client_dictionary,
+    msime_client_dictionary_import_entries, msime_client_dictionary_validate,
+    msime_client_personal_dictionary_request, msime_client_personal_dictionary_sync,
+    personal_dictionary_request_json, user_quick_phrases, CandidateOrigin, DictionaryOptions,
+    LookupCandidate, LookupScheme, NewWord, QuickPhrase, QuickPhraseEdit, QuickPhrasePage, Word,
+    WordEdit, WordImport, WordKind, WordPage,
 };
 mod dictionary_snapshot;
 pub use dictionary_snapshot::{
@@ -130,8 +137,28 @@ fn engine_handwriting_candidates(
         .iter()
         .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
         .collect::<Vec<Vec<(f32, f32)>>>();
-    msime_engine_bridge::handwriting_recognize(model_path, &strokes, width, height)
-        .map_err(|_| "local handwriting recognizer unavailable")
+    let recognize = |strokes: &[Vec<(f32, f32)>]| {
+        msime_engine_bridge::handwriting_recognize(model_path, strokes, width, height)
+            .map_err(|_| "local handwriting recognizer unavailable")
+    };
+    // The Engine classifies one character per call and normalises each call's own bounding box, so a written line is split into character cells and each cell is classified on its own, as the Windows Ink recognizer segments a line into a multi-character candidate.
+    let cells = handwriting_cells::segment_handwriting_cells(&strokes);
+    if cells.len() < 2 {
+        return recognize(&strokes);
+    }
+    let mut per_cell = Vec::with_capacity(cells.len());
+    for cell in &cells {
+        let cell_strokes = cell
+            .iter()
+            .map(|&index| strokes[index].clone())
+            .collect::<Vec<_>>();
+        per_cell.push(recognize(&cell_strokes)?);
+    }
+    let combined = handwriting_cells::combine_cell_candidates(per_cell);
+    if combined.is_empty() {
+        return recognize(&strokes);
+    }
+    Ok(combined)
 }
 
 #[cfg(any(target_os = "android", target_env = "ohos"))]
@@ -538,6 +565,24 @@ fn settled_model_beside(resources: &std::path::Path) -> Option<String> {
         .join("sentence-model-desktop.safetensors");
     path.is_file().then(|| path.to_str())??.to_owned().into()
 }
+
+/// The offline gloss dictionary for one non-English target language installed beside a resource bundle, when one is there: `offline-glosses/zh-<language>.db`, built by `scripts/build_offline_glosses.py` and pinned by `resources/offline-glosses.lock.json`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and a host ships only the languages it wants. Absence is the normal case.
+pub(crate) fn offline_glosses_beside(
+    resources: &std::path::Path,
+    language: &str,
+) -> Option<std::path::PathBuf> {
+    if !OFFLINE_GLOSS_LANGUAGES.contains(&language) {
+        return None;
+    }
+    let path = resources
+        .parent()?
+        .join("offline-glosses")
+        .join(format!("zh-{language}.db"));
+    path.is_file().then_some(path)
+}
+
+/// The target languages an offline gloss dictionary can exist for; English is glossed from the packaged english.db instead.
+pub(crate) const OFFLINE_GLOSS_LANGUAGES: [&str; 6] = ["fr", "ja", "es", "ru", "de", "ko"];
 
 /// Drop the `\\?\` prefix Windows canonicalisation adds.
 ///

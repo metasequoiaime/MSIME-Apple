@@ -41,6 +41,7 @@ area/shared:
           - crates/engine-bridge/**
           - crates/host-api/**
           - crates/input-runtime/**
+          - crates/mcp-server/**
           - crates/tauri-mobile-platform/**
           - shared/**
           - platforms/common/**

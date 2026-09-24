@@ -223,6 +223,9 @@ fn parse_personal_dictionary_import(text: &str) -> Result<Vec<PersonalWord>, Str
     let mut entries = Vec::with_capacity(file.entries.len());
     for entry in file.entries {
         let entry = normalize_personal_word(entry)?;
+        entry
+            .validate_new()
+            .map_err(|_| "invalid personal dictionary entry".to_owned())?;
         if !identities.insert(entry.identity()) {
             return Err("duplicate personal dictionary entry".into());
         }
@@ -281,8 +284,9 @@ pub unsafe extern "C" fn msime_client_personal_dictionary_request(
     })
 }
 
-/// Validate and normalize one entry without opening or changing dictionary state.
+/// Validate and normalize one new entry without opening or changing dictionary state.
 /// Engine diagnostics are redacted because they can contain submitted text.
+/// New input follows the stricter rules: a quick phrase code must be letters only, as in `replacement_for_engine`. A stored row that only identifies what to edit or delete is not passed through here.
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
 #[no_mangle]
@@ -300,7 +304,15 @@ pub unsafe extern "C" fn msime_client_dictionary_validate(
             serde_json::from_slice(bytes).map_err(|_| "invalid dictionary entry".to_owned())?;
         let normalized = msime_engine_bridge::dictionary_validate(&entry.into())
             .map_err(|_| "invalid dictionary entry".to_owned())?;
-        Ok(json!(Entry::try_from(normalized)?))
+        let normalized = Entry::try_from(normalized)?;
+        if matches!(normalized.kind, Kind::QuickPhrase)
+            && !msime_client_core::dictionary::quick_phrase_code_is_well_formed(&normalized.key)
+        {
+            return Err(invalid_dictionary_entry(
+                "code contains characters this dictionary does not accept",
+            ));
+        }
+        Ok(json!(normalized))
     })
 }
 
@@ -520,33 +532,11 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             }
             // A code within one dictionary is looked up in the dictionary itself, the way the reference's manager searches, so a bundled word can be found and re-weighted. Quick phrases are few enough to list whole. Without a code the page stays the user's own words: the bundled pinyin tables alone hold hundreds of thousands of rows.
             if let Some(kind) = kind.filter(|kind| {
-                !user_only
-                    && (*kind == Kind::QuickPhrase
-                        || prefix.bytes().any(|byte| {
-                            !byte.is_ascii_whitespace() && (*kind != Kind::Pinyin || byte != b'\'')
-                        }))
+                !user_only && (*kind == Kind::QuickPhrase || names_a_code(*kind, &prefix))
             }) {
-                let page = msime_engine_bridge::dictionary_table_entries(
-                    &options,
-                    kind.into(),
-                    prefix.trim(),
-                    offset,
-                    limit,
-                )
-                .map_err(|_| "dictionary read rejected")?;
-                let entries = page
-                    .entries
-                    .into_iter()
-                    .map(|row| {
-                        let source = if row.user_inserted {
-                            Source::User
-                        } else {
-                            Source::Bundled
-                        };
-                        Entry::try_from(row.entry).map(|entry| entry.with_source(source))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                return Ok(json!({ "entries": entries, "has_more": page.has_more }));
+                let (entries, has_more) =
+                    table_entries_page(&options, kind, prefix.trim(), offset, limit)?;
+                return Ok(json!({ "entries": entries, "has_more": has_more }));
             }
             let (entries, has_more) = user_entries_page(&options, offset, limit, kind, &prefix)?;
             Ok(json!({ "entries": entries, "has_more": has_more }))
@@ -943,6 +933,39 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
     }
 }
 
+/// Does `prefix` hold anything to look a code up by? Whitespace, and a pinyin syllable separator, do not.
+fn names_a_code(kind: Kind, prefix: &str) -> bool {
+    prefix
+        .bytes()
+        .any(|byte| !byte.is_ascii_whitespace() && (kind != Kind::Pinyin || byte != b'\''))
+}
+
+/// One page of the dictionary table of `kind` under code `prefix`, bundled rows included and each marked with where it comes from. The caller holds dictionary access.
+fn table_entries_page(
+    options: &msime_engine_bridge::EngineOptions,
+    kind: Kind,
+    prefix: &str,
+    offset: usize,
+    limit: usize,
+) -> Result<(Vec<Entry>, bool), String> {
+    let page =
+        msime_engine_bridge::dictionary_table_entries(options, kind.into(), prefix, offset, limit)
+            .map_err(|_| "dictionary read rejected")?;
+    let entries = page
+        .entries
+        .into_iter()
+        .map(|row| {
+            let source = if row.user_inserted {
+                Source::User
+            } else {
+                Source::Bundled
+            };
+            Entry::try_from(row.entry).map(|entry| entry.with_source(source))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((entries, page.has_more))
+}
+
 /// One page of the user's own words, optionally within one dictionary and under one code prefix. The caller holds dictionary access.
 fn user_entries_page(
     options: &msime_engine_bridge::EngineOptions,
@@ -1205,6 +1228,14 @@ fn personal_to_kind(kind: PersonalWordKind) -> Kind {
 fn replacement_for_engine(entry: Entry) -> Result<Entry, String> {
     let entry = entry.normalized_for_engine();
     validate_entry(&entry)?;
+    // `validate_entry` also checks the previous row, which may be a stored quick phrase whose code has a digit; new input follows the reference's letters-only rule.
+    if matches!(entry.kind, Kind::QuickPhrase)
+        && !msime_client_core::dictionary::quick_phrase_code_is_well_formed(&entry.key)
+    {
+        return Err(invalid_dictionary_entry(
+            "code contains characters this dictionary does not accept",
+        ));
+    }
     Ok(entry.with_full_pinyin())
 }
 
@@ -1371,6 +1402,648 @@ fn parse_hans_import(
     Ok(entries)
 }
 
+/// Host options for a caller that manages the dictionary in-process rather than through the C ABI, such as the MCP server. Built from the same runtime-options document a host passes to `msime_client_create`.
+pub struct DictionaryOptions(msime_engine_bridge::EngineOptions);
+
+impl DictionaryOptions {
+    /// Parse a runtime-options document. The Linux desktop publishes the candidate skin catalog into the same file, and the Host API refuses that field, so it is dropped here the way the IBus and Fcitx5 hosts drop it.
+    pub fn from_host_document(mut document: serde_json::Value) -> Result<Self, String> {
+        if let Some(object) = document.as_object_mut() {
+            object.remove("candidate_skin_catalog");
+        }
+        let options: HostOptions =
+            serde_json::from_value(document).map_err(|_| "invalid host options".to_owned())?;
+        if options.api_version != 1 {
+            return Err("unsupported host API version".into());
+        }
+        options
+            .preferences
+            .validate()
+            .map_err(|_| "invalid host options".to_owned())?;
+        Ok(Self(options.into_engine_options()))
+    }
+
+    /// The Engine's user data directory, where the quiesce lease is published.
+    pub fn user_data(&self) -> &str {
+        &self.0.user_data
+    }
+}
+
+/// A quick phrase the user added: typing `code` offers `text`. The weight is deliberately absent; it only orders candidates, and a caller has no use for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuickPhrase {
+    pub code: String,
+    pub text: String,
+}
+
+pub struct QuickPhrasePage {
+    pub phrases: Vec<QuickPhrase>,
+    pub has_more: bool,
+}
+
+/// One change to the user's quick phrases. `Replace` and `Remove` name the stored phrase by code and text, which is how a caller that never sees weights identifies a row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QuickPhraseEdit {
+    Add(QuickPhrase),
+    Replace {
+        previous: QuickPhrase,
+        replacement: QuickPhrase,
+    },
+    Remove(QuickPhrase),
+}
+
+/// The weight a new quick phrase gets, the same one the settings page gives it.
+const NEW_QUICK_PHRASE_WEIGHT: i64 = 10;
+
+/// Upper bound on the user store rows one quick-phrase call reads, as for export.
+const QUICK_PHRASE_SCAN_LIMIT: usize = 1_000_000;
+
+/// Walk the user's own quick phrases in store order, stopping when `visit` returns false. Only rows the user added: the Engine never learns a quick phrase from typing, and the bundled table is not the user's.
+fn scan_user_quick_phrases(
+    options: &msime_engine_bridge::EngineOptions,
+    mut visit: impl FnMut(Entry) -> bool,
+) -> Result<(), String> {
+    const CHUNK: usize = 1000;
+    let mut scanned = 0usize;
+    while scanned < QUICK_PHRASE_SCAN_LIMIT {
+        let page = msime_engine_bridge::dictionary_entries(options, scanned, CHUNK)
+            .map_err(|_| "dictionary read rejected")?;
+        let count = page.entries.len();
+        for raw in page.entries {
+            if raw.kind != DictionaryKind::QuickPhrase {
+                continue;
+            }
+            if !visit(Entry::try_from(raw)?) {
+                return Ok(());
+            }
+        }
+        scanned += count;
+        if count == 0 || !page.has_more {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// One page of the user's quick phrases whose code starts with `code_prefix` (case-insensitive).
+pub fn user_quick_phrases(
+    options: &DictionaryOptions,
+    code_prefix: &str,
+    offset: usize,
+    limit: usize,
+) -> Result<QuickPhrasePage, String> {
+    if limit == 0 || limit > 1000 || code_prefix.len() > 256 {
+        return Err("invalid dictionary page".into());
+    }
+    let options = &options.0;
+    let _access = DictionaryAccess::try_session(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    let prefix = code_prefix.trim();
+    let mut selector = PageSelector::new(offset, limit);
+    let mut phrases = Vec::new();
+    let mut has_more = false;
+    scan_user_quick_phrases(options, |entry| {
+        if !entry.matches(Some(Kind::QuickPhrase), prefix) {
+            return true;
+        }
+        if selector.full() {
+            has_more = true;
+            return false;
+        }
+        if selector.accept() {
+            phrases.push(QuickPhrase {
+                code: entry.key,
+                text: entry.value,
+            });
+        }
+        true
+    })?;
+    Ok(QuickPhrasePage { phrases, has_more })
+}
+
+/// The stored row for `phrase`, looked up by its folded code and exact text. The Engine only edits a row it is handed exactly as stored, weight included.
+fn stored_quick_phrase(
+    options: &msime_engine_bridge::EngineOptions,
+    phrase: &QuickPhrase,
+) -> Result<Option<Entry>, String> {
+    let _access = DictionaryAccess::try_session(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    let code = phrase.code.to_ascii_lowercase();
+    let mut found = None;
+    scan_user_quick_phrases(options, |entry| {
+        if entry.key == code && entry.value == phrase.text {
+            found = Some(entry);
+            return false;
+        }
+        true
+    })?;
+    Ok(found)
+}
+
+fn quick_phrase_entry(phrase: &QuickPhrase, weight: i64) -> Result<Entry, String> {
+    replacement_for_engine(Entry {
+        kind: Kind::QuickPhrase,
+        key: phrase.code.clone(),
+        value: phrase.text.clone(),
+        weight,
+        source: None,
+    })
+}
+
+/// Apply one change to the user's quick phrases. Busy (another host holds the dictionary) comes back as "dictionary maintenance busy", which the caller retries under the quiesce lease.
+pub fn edit_user_quick_phrase(
+    options: &DictionaryOptions,
+    edit: &QuickPhraseEdit,
+    request_id: &str,
+) -> Result<(), String> {
+    let options = &options.0;
+    let (previous, replacement) = match edit {
+        QuickPhraseEdit::Add(phrase) => {
+            let replacement = quick_phrase_entry(phrase, NEW_QUICK_PHRASE_WEIGHT)?;
+            // Adding a phrase that is already there would at best rewrite the weight typing gave it.
+            if stored_quick_phrase(options, phrase)?.is_some() {
+                return Err("quick phrase already exists".into());
+            }
+            (None, Some(replacement))
+        }
+        QuickPhraseEdit::Replace {
+            previous,
+            replacement,
+        } => {
+            let stored = stored_quick_phrase(options, previous)?.ok_or("quick phrase not found")?;
+            let replacement = quick_phrase_entry(replacement, stored.weight)?;
+            (Some(stored), Some(replacement))
+        }
+        QuickPhraseEdit::Remove(phrase) => {
+            let stored = stored_quick_phrase(options, phrase)?.ok_or("quick phrase not found")?;
+            (Some(stored), None)
+        }
+    };
+    let previous = previous.map(DictionaryEntry::from);
+    let replacement = replacement.map(DictionaryEntry::from);
+    edit_personal_dictionary(options, previous.as_ref(), replacement.as_ref(), request_id)
+}
+
+/// A typing dictionary a word belongs to. Quick phrases have calls of their own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WordKind {
+    /// Full pinyin, which double pinyin types from as well.
+    Pinyin,
+    Wubi,
+    English,
+}
+
+impl From<WordKind> for Kind {
+    fn from(kind: WordKind) -> Self {
+        match kind {
+            WordKind::Pinyin => Kind::Pinyin,
+            WordKind::Wubi => Kind::Wubi,
+            WordKind::English => Kind::English,
+        }
+    }
+}
+
+/// A word in a typing dictionary: typing `code` offers `word`, ranked by `weight`. A `bundled` row shipped with the dictionary or was learned from typing; its code and word are fixed, so it can only be given another weight or removed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Word {
+    pub kind: WordKind,
+    pub code: String,
+    pub word: String,
+    pub weight: i64,
+    pub bundled: bool,
+}
+
+pub struct WordPage {
+    pub words: Vec<Word>,
+    pub has_more: bool,
+}
+
+/// A word to add. A pinyin code may be left out, and is then the word's most common reading; the weight defaults to the one the settings page gives a new word.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewWord {
+    pub code: Option<String>,
+    pub word: String,
+    pub weight: Option<i64>,
+}
+
+/// One change to a typing dictionary. A stored row is named by kind, code and word, and its current weight is looked up, which is what the Engine needs to find it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WordEdit {
+    Add(WordKind, NewWord),
+    SetWeight {
+        kind: WordKind,
+        code: String,
+        word: String,
+        weight: i64,
+    },
+    Remove {
+        kind: WordKind,
+        code: String,
+        word: String,
+    },
+}
+
+/// What a batch import did. `rejected` pairs the index of each word that was not added with the rule it broke; the reasons are fixed text and never repeat the word.
+#[derive(Debug, PartialEq, Eq)]
+pub struct WordImport {
+    pub added: usize,
+    pub existing: usize,
+    pub rejected: Vec<(usize, String)>,
+}
+
+/// The weight a new word gets, the same one the settings page gives it.
+const NEW_WORD_WEIGHT: i64 = 10;
+
+/// The most words one import takes, the same bound as a file import.
+const MAX_WORD_IMPORT: usize = 1000;
+
+/// How many table rows under a code are read to find one word. The rows come back with the user's own first and exact codes next, so a word is found early; the bound keeps a short pinyin code from turning into a scan of the whole table.
+const WORD_LOOKUP_LIMIT: usize = 20_000;
+
+fn word_from_entry(kind: WordKind, entry: Entry) -> Word {
+    Word {
+        kind,
+        bundled: entry.is_bundled(),
+        code: entry.key,
+        word: entry.value,
+        weight: entry.weight,
+    }
+}
+
+/// One page of a typing dictionary under `code_prefix`: the user's own words, or with `include_bundled` and a code to look up, every row the dictionary has under it.
+pub fn dictionary_words(
+    options: &DictionaryOptions,
+    kind: WordKind,
+    code_prefix: &str,
+    include_bundled: bool,
+    offset: usize,
+    limit: usize,
+) -> Result<WordPage, String> {
+    if limit == 0 || limit > 1000 || code_prefix.len() > 256 {
+        return Err("invalid dictionary page".into());
+    }
+    let options = &options.0;
+    let _access = DictionaryAccess::try_session(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    let prefix = code_prefix.trim();
+    let (entries, has_more) = if include_bundled && names_a_code(kind.into(), prefix) {
+        table_entries_page(options, kind.into(), prefix, offset, limit)?
+    } else {
+        user_entries_page(options, offset, limit, Some(kind.into()), prefix)?
+    };
+    Ok(WordPage {
+        words: entries
+            .into_iter()
+            .map(|entry| word_from_entry(kind, entry))
+            .collect(),
+        has_more,
+    })
+}
+
+/// A code as the dictionary compares it: folded, and for pinyin without the syllable separators it may or may not be written with.
+fn comparable_code(kind: WordKind, code: &str) -> String {
+    let code = code.trim().to_ascii_lowercase();
+    match kind {
+        WordKind::Pinyin => code.chars().filter(|c| !matches!(c, '\'' | ' ')).collect(),
+        WordKind::Wubi | WordKind::English => code,
+    }
+}
+
+/// The stored row typing `code` offers `word` from, the user's own or bundled, exactly as stored. The caller holds dictionary access.
+fn stored_word(
+    options: &msime_engine_bridge::EngineOptions,
+    kind: WordKind,
+    code: &str,
+    word: &str,
+) -> Result<Option<Entry>, String> {
+    let wanted = comparable_code(kind, code);
+    if wanted.is_empty() || code.len() > 256 {
+        return Err(invalid_dictionary_entry("code is empty or too long"));
+    }
+    const CHUNK: usize = 1000;
+    let mut offset = 0usize;
+    while offset < WORD_LOOKUP_LIMIT {
+        let (entries, has_more) =
+            table_entries_page(options, kind.into(), code.trim(), offset, CHUNK)?;
+        let count = entries.len();
+        if let Some(entry) = entries
+            .into_iter()
+            .find(|entry| entry.value == word && comparable_code(kind, &entry.key) == wanted)
+        {
+            return Ok(Some(entry));
+        }
+        offset += count;
+        if count == 0 || !has_more {
+            break;
+        }
+    }
+    Ok(None)
+}
+
+/// The entry a new word is stored as, its pinyin code resolved from the word when it has none.
+fn new_word_entry(
+    options: &msime_engine_bridge::EngineOptions,
+    kind: WordKind,
+    word: &NewWord,
+) -> Result<Entry, String> {
+    let code = match (&word.code, kind) {
+        (Some(code), _) => code.clone(),
+        (None, WordKind::Pinyin) => {
+            if !word.word.chars().all(is_han_character) {
+                return Err(invalid_dictionary_entry(
+                    "a word without a code must be Han characters only",
+                ));
+            }
+            let reading = msime_engine_bridge::hanzi_to_pinyin(options, &word.word);
+            if reading.is_empty() {
+                return Err(invalid_dictionary_entry("the word has no known reading"));
+            }
+            reading
+        }
+        (None, _) => return Err(invalid_dictionary_entry("code is empty or too long")),
+    };
+    replacement_for_engine(Entry {
+        kind: kind.into(),
+        key: code,
+        value: word.word.clone(),
+        weight: word.weight.unwrap_or(NEW_WORD_WEIGHT),
+        source: None,
+    })
+}
+
+/// Apply one change to a typing dictionary. Busy (another host holds the dictionary) comes back as "dictionary maintenance busy", which the caller retries under the quiesce lease.
+pub fn edit_dictionary_word(
+    options: &DictionaryOptions,
+    edit: &WordEdit,
+    request_id: &str,
+) -> Result<(), String> {
+    let options = &options.0;
+    let lookup = |kind: WordKind, code: &str, word: &str| {
+        let _access = DictionaryAccess::try_session(
+            Path::new(&options.user_data),
+            Path::new(&options.dictionaries),
+        )
+        .map_err(|_| "dictionary access unavailable")?
+        .ok_or("dictionary maintenance busy")?;
+        stored_word(options, kind, code, word)
+    };
+    let (kind, code, word, weight) = match edit {
+        WordEdit::Add(kind, word) => {
+            let replacement = new_word_entry(options, *kind, word)?;
+            // Adding a word that is already there would at best rewrite the weight it has.
+            if lookup(*kind, &replacement.key, &replacement.value)?.is_some() {
+                return Err("word already exists".into());
+            }
+            let replacement = DictionaryEntry::from(replacement);
+            return edit_personal_dictionary(options, None, Some(&replacement), request_id);
+        }
+        WordEdit::SetWeight {
+            kind,
+            code,
+            word,
+            weight,
+        } => (*kind, code, word, Some(*weight)),
+        WordEdit::Remove { kind, code, word } => (*kind, code, word, None),
+    };
+    let stored = lookup(kind, code, word)?.ok_or("word not found")?;
+    if stored.is_bundled() {
+        let replacement = weight.map(|weight| Entry {
+            kind: stored.kind,
+            key: stored.key.clone(),
+            value: stored.value.clone(),
+            weight,
+            source: None,
+        });
+        let weight = bundled_weight(&stored, replacement.as_ref())?;
+        return edit_bundled_entry(options, &stored, weight, request_id).map(drop);
+    }
+    let replacement = weight
+        .map(|weight| {
+            replacement_for_engine(Entry {
+                kind: stored.kind,
+                key: stored.key.clone(),
+                value: stored.value.clone(),
+                weight,
+                source: None,
+            })
+        })
+        .transpose()?
+        .map(DictionaryEntry::from);
+    let previous = DictionaryEntry::from(stored);
+    edit_personal_dictionary(options, Some(&previous), replacement.as_ref(), request_id)
+}
+
+/// Add many words to one dictionary under one hold of the dictionary. A word already there, the user's or bundled, is left as it is and counted; a word the rules refuse is named by index and the rest still go in. Each word is receipted as `{request_id}-{index}`, so replaying the same import after a failure adds nothing twice.
+pub fn import_dictionary_words(
+    options: &DictionaryOptions,
+    kind: WordKind,
+    words: &[NewWord],
+    request_id: &str,
+) -> Result<WordImport, String> {
+    if words.is_empty() || words.len() > MAX_WORD_IMPORT {
+        return Err("invalid dictionary import".into());
+    }
+    if request_id.is_empty()
+        || request_id.len() > 120
+        || !request_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err("invalid dictionary request ID".into());
+    }
+    let options = &options.0;
+    let _access = DictionaryAccess::try_maintenance(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    let mut outcome = WordImport {
+        added: 0,
+        existing: 0,
+        rejected: Vec::new(),
+    };
+    for (index, word) in words.iter().enumerate() {
+        let entry = match new_word_entry(options, kind, word) {
+            Ok(entry) => entry,
+            Err(reason) => {
+                outcome.rejected.push((index, reason));
+                continue;
+            }
+        };
+        if stored_word(options, kind, &entry.key, &entry.value)?.is_some() {
+            outcome.existing += 1;
+            continue;
+        }
+        let receipt = format!("{request_id}-{index}");
+        // The import already holds the maintenance lock; use the Engine bridge directly.
+        match msime_engine_bridge::dictionary_edit(options, None, Some(&entry.into()), &receipt) {
+            Ok(()) => outcome.added += 1,
+            Err(_) => outcome
+                .rejected
+                .push((index, "dictionary edit rejected".into())),
+        }
+    }
+    Ok(outcome)
+}
+
+/// The scheme a candidate lookup types in. Japanese is left out: its candidates come through a kana reading, not a code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LookupScheme {
+    Quanpin,
+    Shuangpin,
+    Wubi,
+}
+
+/// Where a looked-up candidate came from: the Engine's `CandidateSource` (vendor/MSIME-Engine/core/word_item.h), with a dictionary candidate told apart by the row it was found as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CandidateOrigin {
+    /// A row shipped with the dictionary or learned from typing.
+    Dictionary,
+    /// A word the user added.
+    UserWord,
+    /// Put together by the Engine from dictionary rows, such as a sentence, with no single row of its own.
+    Composed,
+    English,
+    QuickPhrase,
+    Emoji,
+    Kaomoji,
+    Generated,
+    Fallback,
+}
+
+/// A candidate typing a code offers, in the order the Engine ranks it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LookupCandidate {
+    pub text: String,
+    /// The part of the typed code this candidate covers.
+    pub code: String,
+    pub origin: CandidateOrigin,
+    /// The weight of the row a dictionary or user word was found as.
+    pub weight: Option<i64>,
+}
+
+/// The most candidates one lookup returns.
+pub const MAX_LOOKUP_CANDIDATES: usize = 50;
+
+/// The candidates typing `code` offers from the local dictionaries, in the scheme given or the user's own. The lookup types into a session of its own with learning and frequency adjustment off, so it changes nothing the user's typing offers next, and no cloud, AI or sentence-model provider is attached, so the ranking is the Engine's alone.
+pub fn lookup_candidates(
+    options: &DictionaryOptions,
+    scheme: Option<LookupScheme>,
+    code: &str,
+    limit: usize,
+) -> Result<Vec<LookupCandidate>, String> {
+    if limit == 0 || limit > MAX_LOOKUP_CANDIDATES {
+        return Err(format!(
+            "limit must be between 1 and {MAX_LOOKUP_CANDIDATES}"
+        ));
+    }
+    let mut options = options.0.clone();
+    if let Some(scheme) = scheme {
+        options.scheme = match scheme {
+            LookupScheme::Quanpin => 0,
+            LookupScheme::Shuangpin => 1,
+            LookupScheme::Wubi => 2,
+        };
+    }
+    if !matches!(options.scheme, 0..=2) {
+        return Err("candidates can only be looked up in pinyin, double pinyin or wubi".into());
+    }
+    // A semicolon is a key only in double pinyin; elsewhere it is punctuation and would end the composition.
+    let allowed = |byte: u8| {
+        byte.is_ascii_lowercase() || byte == b'\'' || (byte == b';' && options.scheme == 1)
+    };
+    if code.is_empty() || code.len() > 64 || !code.bytes().all(allowed) {
+        return Err("the code must be 1 to 64 lowercase letters or apostrophes, and semicolons only in double pinyin".into());
+    }
+    options.learning = false;
+    options.frequency_mode = "disabled".into();
+    options.local_unicode = false;
+    options.local_date_time = false;
+    options.local_quick_phrase = false;
+    options.local_emoji = false;
+    options.local_kaomoji = false;
+    options.local_super_jianpin = false;
+    options.local_temporary_english = false;
+    options.local_temporary_japanese = false;
+    let _access = DictionaryAccess::try_session(
+        Path::new(&options.user_data),
+        Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or("dictionary maintenance busy")?;
+    let session =
+        msime_engine_bridge::Session::new(&options).map_err(|_| "cannot open the dictionaries")?;
+    let mut runtime =
+        msime_input_runtime::Runtime::new(session, 9).map_err(|error| error.to_string())?;
+    // An unfocused runtime drops every keystroke.
+    runtime.focus(true).map_err(|error| error.to_string())?;
+    for value in code.bytes() {
+        runtime
+            .dispatch(msime_input_runtime::Action::Character {
+                value,
+                shift: false,
+            })
+            .map_err(|error| error.to_string())?;
+    }
+    // The Engine reports a user's word as a dictionary one, so each is looked up as the row it came from.
+    let word_kind = if options.scheme == 2 {
+        WordKind::Wubi
+    } else {
+        WordKind::Pinyin
+    };
+    runtime
+        .all_candidates()
+        .candidates
+        .into_iter()
+        .take(limit)
+        .map(|candidate| {
+            let row = |kind: WordKind| -> Result<Option<Entry>, String> {
+                stored_word(&options, kind, &candidate.code, &candidate.text)
+                    .map(|entry| entry.filter(|_| !candidate.code.is_empty()))
+            };
+            let (origin, weight) = match candidate.source {
+                0 | 1 => match row(word_kind)? {
+                    Some(entry) if entry.is_bundled() => {
+                        (CandidateOrigin::Dictionary, Some(entry.weight))
+                    }
+                    Some(entry) => (CandidateOrigin::UserWord, Some(entry.weight)),
+                    None => (CandidateOrigin::Composed, None),
+                },
+                4 => (
+                    CandidateOrigin::English,
+                    row(WordKind::English)?.map(|entry| entry.weight),
+                ),
+                5 => (CandidateOrigin::QuickPhrase, None),
+                6 => (CandidateOrigin::Emoji, None),
+                7 => (CandidateOrigin::Kaomoji, None),
+                8 => (CandidateOrigin::Generated, None),
+                9 => (CandidateOrigin::Fallback, None),
+                // Cloud (2) and AI (3) suggestions come only from providers this session never has; one here means the lookup is no longer local.
+                _ => return Err("the lookup produced a candidate that is not local".to_owned()),
+            };
+            Ok(LookupCandidate {
+                text: candidate.text,
+                code: candidate.code,
+                origin,
+                weight,
+            })
+        })
+        .collect()
+}
+
 fn is_han_character(character: char) -> bool {
     matches!(
         character as u32,
@@ -1422,6 +2095,435 @@ mod tests {
             local_temporary_japanese: true,
             sentence_alternatives: true,
         }
+    }
+
+    fn quick_phrase(code: &str, text: &str) -> QuickPhrase {
+        QuickPhrase {
+            code: code.into(),
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn typed_quick_phrase_edits_find_rows_by_code_and_text_and_list_only_user_phrases() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_str().unwrap();
+        std::fs::create_dir(directory.path().join("user")).unwrap();
+        // The smallest dictionary the Engine opens, as the host tests build it.
+        let fixture = "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                       CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                       CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                       CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+        for name in ["resources", "dictionaries"] {
+            let path = directory.path().join(name);
+            std::fs::create_dir(&path).unwrap();
+            rusqlite::Connection::open(path.join("msime.db"))
+                .unwrap()
+                .execute_batch(fixture)
+                .unwrap();
+        }
+        let mut document = json!({
+            "api_version": 1,
+            "resources": format!("{root}/resources"),
+            "user_data": format!("{root}/user"),
+            "cache": format!("{root}/cache"),
+            "dictionaries": format!("{root}/dictionaries"),
+            "preferences": msime_client_core::preferences::Preferences::default(),
+            "preferences_directory": root,
+        });
+        // The Linux desktop publishes the skin catalog into the same document.
+        document["candidate_skin_catalog"] = json!([]);
+        let options = DictionaryOptions::from_host_document(document.clone()).unwrap();
+        assert_eq!(options.user_data(), format!("{root}/user"));
+        let mut unknown = document.clone();
+        unknown["surprise"] = json!(true);
+        assert!(DictionaryOptions::from_host_document(unknown).is_err());
+
+        let list = |prefix: &str, offset: usize, limit: usize| {
+            user_quick_phrases(&options, prefix, offset, limit).unwrap()
+        };
+        assert!(list("", 0, 10).phrases.is_empty());
+
+        edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Add(quick_phrase("DZ", "合成地址")),
+            "t-add-1",
+        )
+        .unwrap();
+        edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Add(quick_phrase("sj", "合成手机")),
+            "t-add-2",
+        )
+        .unwrap();
+        // Other dictionaries share the store and must never be listed.
+        let wubi = msime_engine_bridge::DictionaryEntry {
+            kind: DictionaryKind::Wubi,
+            key: "dz".into(),
+            value: "合成".into(),
+            weight: 10,
+        };
+        edit_personal_dictionary(&options.0, None, Some(&wubi), "t-add-3").unwrap();
+
+        assert_eq!(
+            edit_user_quick_phrase(
+                &options,
+                &QuickPhraseEdit::Add(quick_phrase("dz", "合成地址")),
+                "t-add-4",
+            )
+            .unwrap_err(),
+            "quick phrase already exists"
+        );
+
+        let all = list("", 0, 10);
+        assert_eq!(all.phrases.len(), 2, "{:?}", all.phrases);
+        assert!(!all.has_more);
+        // The code is folded the way the Engine stores it.
+        assert!(all.phrases.contains(&quick_phrase("dz", "合成地址")));
+        assert_eq!(
+            list("s", 0, 10).phrases,
+            vec![quick_phrase("sj", "合成手机")]
+        );
+        let first = list("", 0, 1);
+        assert_eq!(first.phrases.len(), 1);
+        assert!(first.has_more);
+        let second = list("", 1, 1);
+        assert_eq!(second.phrases.len(), 1);
+        assert!(!second.has_more);
+        assert_ne!(first.phrases, second.phrases);
+
+        edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Replace {
+                previous: quick_phrase("DZ", "合成地址"),
+                replacement: quick_phrase("dz", "合成新地址"),
+            },
+            "t-replace-1",
+        )
+        .unwrap();
+        assert_eq!(
+            list("dz", 0, 10).phrases,
+            vec![quick_phrase("dz", "合成新地址")]
+        );
+
+        edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Remove(quick_phrase("sj", "合成手机")),
+            "t-remove-1",
+        )
+        .unwrap();
+        assert!(list("sj", 0, 10).phrases.is_empty());
+        for edit in [
+            QuickPhraseEdit::Remove(quick_phrase("sj", "合成手机")),
+            QuickPhraseEdit::Replace {
+                previous: quick_phrase("dz", "合成地址"),
+                replacement: quick_phrase("dz", "合成别的"),
+            },
+        ] {
+            assert_eq!(
+                edit_user_quick_phrase(&options, &edit, "t-missing").unwrap_err(),
+                "quick phrase not found"
+            );
+        }
+        // The host's bounds still apply to a typed caller.
+        assert!(edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Add(quick_phrase("has space", "合成")),
+            "t-invalid",
+        )
+        .unwrap_err()
+        .starts_with(crate::INVALID_DICTIONARY_ENTRY));
+        assert!(user_quick_phrases(&options, "", 0, 0).is_err());
+    }
+
+    /// A data root holding the smallest dictionary the Engine opens, with `bundled` statements run on the working dictionary.
+    fn word_fixture(directory: &Path, bundled: &str) -> DictionaryOptions {
+        let root = directory.to_str().unwrap();
+        std::fs::create_dir(directory.join("user")).unwrap();
+        // Pinyin rows live in one table per syllable count and initial; these are the ones the tests type.
+        let fixture = "CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                       CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                       CREATE TABLE tbl_3_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                       CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                       CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                       CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+        for name in ["resources", "dictionaries"] {
+            let path = directory.join(name);
+            std::fs::create_dir(&path).unwrap();
+            let connection = rusqlite::Connection::open(path.join("msime.db")).unwrap();
+            connection.execute_batch(fixture).unwrap();
+            connection.execute_batch(bundled).unwrap();
+        }
+        DictionaryOptions::from_host_document(json!({
+            "api_version": 1,
+            "resources": format!("{root}/resources"),
+            "user_data": format!("{root}/user"),
+            "cache": format!("{root}/cache"),
+            "dictionaries": format!("{root}/dictionaries"),
+            "preferences": msime_client_core::preferences::Preferences::default(),
+            "preferences_directory": root,
+        }))
+        .unwrap()
+    }
+
+    fn new_word(code: Option<&str>, word: &str) -> NewWord {
+        NewWord {
+            code: code.map(str::to_owned),
+            word: word.into(),
+            weight: None,
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn typed_word_edits_find_user_and_bundled_rows_by_code_and_word() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = word_fixture(
+            directory.path(),
+            "INSERT INTO wubi86 VALUES('aaaa','合成工',500);
+             INSERT INTO tbl_2_c VALUES('ce''shi','cs','测试',100);",
+        );
+        let list = |kind: WordKind, prefix: &str, bundled: bool| {
+            dictionary_words(&options, kind, prefix, bundled, 0, 100)
+                .unwrap()
+                .words
+        };
+        let edit = |edit: WordEdit, id: &str| edit_dictionary_word(&options, &edit, id);
+        assert!(list(WordKind::Pinyin, "", false).is_empty());
+
+        // An unseparated pinyin code is cut into the syllables the Engine stores.
+        edit(
+            WordEdit::Add(WordKind::Pinyin, new_word(Some("HeCheng"), "合成")),
+            "w-add-1",
+        )
+        .unwrap();
+        let added = Word {
+            kind: WordKind::Pinyin,
+            code: "he'cheng".into(),
+            word: "合成".into(),
+            weight: NEW_WORD_WEIGHT,
+            bundled: false,
+        };
+        assert_eq!(list(WordKind::Pinyin, "", false), vec![added.clone()]);
+        assert_eq!(list(WordKind::Pinyin, "hech", false), vec![added.clone()]);
+        assert!(list(WordKind::Wubi, "", false).is_empty());
+        for code in ["hecheng", "he'cheng", "he cheng"] {
+            assert_eq!(
+                edit(
+                    WordEdit::Add(WordKind::Pinyin, new_word(Some(code), "合成")),
+                    "w-add-2"
+                )
+                .unwrap_err(),
+                "word already exists"
+            );
+        }
+
+        // The weight found in the table is the one the Engine compares, so a re-weight lands.
+        edit(
+            WordEdit::SetWeight {
+                kind: WordKind::Pinyin,
+                code: "hecheng".into(),
+                word: "合成".into(),
+                weight: 50,
+            },
+            "w-weight-1",
+        )
+        .unwrap();
+        assert_eq!(list(WordKind::Pinyin, "", false)[0].weight, 50);
+
+        // A bundled row is found with the bundled rows included, and can be re-weighted and removed.
+        assert!(list(WordKind::Wubi, "aaaa", false).is_empty());
+        assert_eq!(
+            list(WordKind::Wubi, "aaaa", true),
+            vec![Word {
+                kind: WordKind::Wubi,
+                code: "aaaa".into(),
+                word: "合成工".into(),
+                weight: 500,
+                bundled: true,
+            }]
+        );
+        edit(
+            WordEdit::SetWeight {
+                kind: WordKind::Wubi,
+                code: "aaaa".into(),
+                word: "合成工".into(),
+                weight: 800,
+            },
+            "w-weight-2",
+        )
+        .unwrap();
+        assert_eq!(list(WordKind::Wubi, "aaaa", true)[0].weight, 800);
+        edit(
+            WordEdit::Remove {
+                kind: WordKind::Wubi,
+                code: "aaaa".into(),
+                word: "合成工".into(),
+            },
+            "w-remove-1",
+        )
+        .unwrap();
+        assert!(list(WordKind::Wubi, "aaaa", true).is_empty());
+
+        let remove = WordEdit::Remove {
+            kind: WordKind::Pinyin,
+            code: "he'cheng".into(),
+            word: "合成".into(),
+        };
+        edit(remove.clone(), "w-remove-2").unwrap();
+        assert!(list(WordKind::Pinyin, "", false).is_empty());
+        assert_eq!(edit(remove, "w-remove-3").unwrap_err(), "word not found");
+        assert!(edit(
+            WordEdit::Add(WordKind::Wubi, new_word(Some("abcde"), "合成")),
+            "w-bad"
+        )
+        .unwrap_err()
+        .starts_with(crate::INVALID_DICTIONARY_ENTRY));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn a_word_import_skips_what_is_there_names_what_is_refused_and_replays_cleanly() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = word_fixture(
+            directory.path(),
+            "INSERT INTO tbl_2_c VALUES('ce''shi','cs','测试',100);",
+        );
+        let words = [
+            new_word(Some("hecheng"), "合成"),
+            // Bundled already, found by its reading.
+            new_word(None, "测试"),
+            new_word(Some("has space!"), "合成"),
+            // No reading for a word the dictionary does not have.
+            new_word(None, "鑫"),
+            new_word(Some("hechengci"), "合成词"),
+        ];
+        let outcome =
+            import_dictionary_words(&options, WordKind::Pinyin, &words, "import-1").unwrap();
+        assert_eq!(outcome.added, 2);
+        assert_eq!(outcome.existing, 1);
+        assert_eq!(
+            outcome
+                .rejected
+                .iter()
+                .map(|(index, _)| *index)
+                .collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+        assert!(outcome
+            .rejected
+            .iter()
+            .all(|(_, reason)| reason.starts_with(crate::INVALID_DICTIONARY_ENTRY)));
+        let replay =
+            import_dictionary_words(&options, WordKind::Pinyin, &words, "import-1").unwrap();
+        assert_eq!((replay.added, replay.existing), (0, 3));
+        assert_eq!(
+            dictionary_words(&options, WordKind::Pinyin, "", false, 0, 100)
+                .unwrap()
+                .words
+                .len(),
+            2
+        );
+        assert!(import_dictionary_words(&options, WordKind::Pinyin, &[], "import-2").is_err());
+        assert!(import_dictionary_words(&options, WordKind::Pinyin, &words, "bad id").is_err());
+    }
+
+    /// Every file under `directory` with what it holds: a database by its rows, since opening a session commits to the file without changing a row, and anything else by its bytes.
+    fn tree(directory: &Path) -> Vec<(std::path::PathBuf, Vec<String>)> {
+        let mut files = Vec::new();
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files.extend(tree(&path));
+            } else if path.extension().is_some_and(|extension| extension == "db") {
+                let connection = rusqlite::Connection::open(&path).unwrap();
+                let mut rows = Vec::new();
+                let tables: Vec<String> = connection
+                    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+                    .unwrap()
+                    .query_map([], |row| row.get(0))
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap();
+                for table in tables {
+                    let mut statement = connection
+                        .prepare(&format!("SELECT * FROM \"{table}\" ORDER BY rowid"))
+                        .unwrap();
+                    let columns = statement.column_count();
+                    let mut query = statement.query([]).unwrap();
+                    while let Some(row) = query.next().unwrap() {
+                        let values: Vec<rusqlite::types::Value> =
+                            (0..columns).map(|index| row.get(index).unwrap()).collect();
+                        rows.push(format!("{table} {values:?}"));
+                    }
+                }
+                files.push((path, rows));
+            } else {
+                let bytes = std::fs::read(&path).unwrap();
+                files.push((path, vec![format!("{bytes:?}")]));
+            }
+        }
+        files.sort();
+        files
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn a_lookup_names_where_each_candidate_came_from_and_leaves_the_user_data_alone() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = word_fixture(
+            directory.path(),
+            "INSERT INTO wubi86 VALUES('aaaa','合成工',500);
+             INSERT INTO tbl_2_c VALUES('ce''shi','cs','测试',100);",
+        );
+        edit_dictionary_word(
+            &options,
+            &WordEdit::Add(
+                WordKind::Wubi,
+                NewWord {
+                    code: Some("aaaa".into()),
+                    word: "合成字".into(),
+                    weight: Some(900),
+                },
+            ),
+            "lookup-1",
+        )
+        .unwrap();
+        let before = tree(&directory.path().join("user"));
+
+        let candidates = lookup_candidates(&options, Some(LookupScheme::Wubi), "aaaa", 10).unwrap();
+        let find = |text: &str| {
+            candidates
+                .iter()
+                .find(|candidate| candidate.text == text)
+                .map(|candidate| (candidate.origin, candidate.weight))
+                .unwrap_or_else(|| panic!("{text} missing from {candidates:?}"))
+        };
+        assert_eq!(find("合成字"), (CandidateOrigin::UserWord, Some(900)));
+        assert_eq!(find("合成工"), (CandidateOrigin::Dictionary, Some(500)));
+        // The user's own scheme, quanpin by default.
+        let candidates = lookup_candidates(&options, None, "ceshi", 1).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].text, "测试");
+        assert_eq!(candidates[0].origin, CandidateOrigin::Dictionary);
+        assert_eq!(candidates[0].weight, Some(100));
+
+        for (scheme, code) in [
+            (None, ""),
+            (None, "Ceshi"),
+            (None, "ce;shi"),
+            (Some(LookupScheme::Wubi), "a;"),
+        ] {
+            assert!(
+                lookup_candidates(&options, scheme, code, 5).is_err(),
+                "{code}"
+            );
+        }
+        assert!(lookup_candidates(&options, None, &"a".repeat(65), 5).is_err());
+        assert!(lookup_candidates(&options, None, "ceshi", 0).is_err());
+        assert!(lookup_candidates(&options, None, "ceshi", MAX_LOOKUP_CANDIDATES + 1).is_err());
+        assert_eq!(tree(&directory.path().join("user")), before);
     }
 
     #[test]
@@ -1573,6 +2675,126 @@ mod tests {
         );
     }
 
+    fn quick(key: &str, value: &str) -> Entry {
+        Entry {
+            kind: Kind::QuickPhrase,
+            key: key.into(),
+            value: value.into(),
+            weight: 10_000,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn a_quick_phrase_code_is_letters_only_for_new_input_but_a_stored_digit_row_stays_editable() {
+        // New input follows the reference's letters-only rule, and says which rule it broke.
+        assert_eq!(
+            replacement_for_engine(quick("nh1", "你好")).err().unwrap(),
+            "invalid dictionary entry: code contains characters this dictionary does not accept"
+        );
+        assert_eq!(
+            replacement_for_engine(quick("NH", "你好")).unwrap().key,
+            "nh"
+        );
+        // The previous row of an edit or delete may be a stored code with a digit; the check on it does not refuse that row.
+        assert!(validate_entry(&quick("nh1", "你好")).is_ok());
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_str().unwrap();
+        let request = json!({
+            "options": {
+                "api_version": 1,
+                "resources": format!("{root}/resources"),
+                "user_data": format!("{root}/user"),
+                "cache": format!("{root}/cache"),
+                "dictionaries": format!("{root}/dictionaries"),
+                "preferences": msime_client_core::preferences::Preferences::default(),
+            },
+            "action": {
+                "operation": "edit",
+                "previous": null,
+                "replacement": quick("nh1", "你好"),
+                "request_id": "synthetic-edit",
+            },
+        });
+        assert_eq!(
+            dictionary_request_json(&serde_json::to_vec(&request).unwrap()).unwrap_err(),
+            "invalid dictionary entry: code contains characters this dictionary does not accept"
+        );
+
+        // A personal dictionary file carrying a digit code is refused, as the text import skips such a row.
+        let file = r#"{"format":"msime-personal-dictionary","version":1,"entries":[{"kind":"quickPhrase","key":"nh1","value":"你好","weight":1}]}"#;
+        assert_eq!(
+            parse_personal_dictionary_import(file).unwrap_err(),
+            "invalid personal dictionary entry"
+        );
+
+        // The validation iOS runs on every new entry follows the same rule.
+        let validate = |entry: Entry| -> serde_json::Value {
+            let bytes = serde_json::to_vec(&entry).unwrap();
+            let pointer = unsafe { msime_client_dictionary_validate(bytes.as_ptr(), bytes.len()) };
+            let value = unsafe { std::ffi::CStr::from_ptr(pointer) }
+                .to_str()
+                .unwrap()
+                .to_owned();
+            unsafe { crate::msime_client_string_free(pointer) };
+            serde_json::from_str(&value).unwrap()
+        };
+        let refused = validate(quick("nh1", "你好"));
+        assert_eq!(refused["ok"], false);
+        assert_eq!(
+            refused["error"],
+            "invalid dictionary entry: code contains characters this dictionary does not accept"
+        );
+        let accepted = validate(quick("NH", "你好"));
+        assert_eq!(accepted["ok"], true, "{accepted}");
+        assert_eq!(accepted["value"]["key"], "nh");
+    }
+
+    #[test]
+    fn a_mobile_store_holding_a_digit_quick_phrase_still_exports_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_str().unwrap();
+        let legacy = PersonalWord {
+            kind: PersonalWordKind::QuickPhrase,
+            key: "nh1".into(),
+            value: "你好".into(),
+            weight: 100_000,
+        };
+        PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"))
+            .synchronize(
+                |_| Ok(()),
+                |_| {
+                    Ok(msime_client_core::dictionary::personal::PersonalWordPage {
+                        entries: vec![legacy.clone()],
+                        has_more: false,
+                    })
+                },
+            )
+            .unwrap();
+        let request = json!({
+            "options": {
+                "api_version": 1,
+                "resources": format!("{root}/resources"),
+                "user_data": format!("{root}/user"),
+                "cache": format!("{root}/cache"),
+                "dictionaries": format!("{root}/dictionaries"),
+                "preferences": msime_client_core::preferences::Preferences::default(),
+                "preferences_directory": root,
+            },
+            "action": {
+                "operation": "export",
+                "kind": "quick_phrase",
+                "format": "standard",
+                "offset": 0,
+                "limit": 100,
+            },
+        });
+        let exported =
+            personal_dictionary_request_json(&serde_json::to_vec(&request).unwrap()).unwrap();
+        assert_eq!(exported["text"], "你好\tnh1\t100000\n");
+    }
+
     #[test]
     fn malformed_and_oversized_requests_are_redacted() {
         for bytes in [b"invalid-fixture".as_slice(), b"{}", b"{\"options\":null}"] {
@@ -1653,7 +2875,7 @@ mod tests {
           "version": 1,
           "entries": [
             {"kind":"pinyin","key":"ni hao","value":"你好","weight":100000},
-            {"kind":"quickPhrase","key":"hello1","value":"你好！","weight":2}
+            {"kind":"quickPhrase","key":"hello","value":"你好！","weight":2}
           ]
         }"#;
         let entries = parse_personal_dictionary_import(text).unwrap();
@@ -1662,7 +2884,7 @@ mod tests {
         assert_eq!(entries[1].kind, PersonalWordKind::QuickPhrase);
 
         let duplicate = text.replace(
-            r#"{"kind":"quickPhrase","key":"hello1","value":"你好！","weight":2}"#,
+            r#"{"kind":"quickPhrase","key":"hello","value":"你好！","weight":2}"#,
             r#"{"kind":"pinyin","key":"ni hao","value":"你好","weight":3}"#,
         );
         assert_eq!(
@@ -1696,12 +2918,12 @@ mod tests {
             "version":1,
             "entries":[
                 {"kind":"pinyin","key":"NI HAO","value":"拟好","weight":100000},
-                {"kind":"quickPhrase","key":"HELLO1","value":"第一行\n第二行\t末列","weight":100000}
+                {"kind":"quickPhrase","key":"HELLO","value":"第一行\n第二行\t末列","weight":100000}
             ]
         }"#;
         let entries = parse_personal_dictionary_import(text).unwrap();
         assert_eq!(entries[0].key, "ni'hao");
-        assert_eq!(entries[1].key, "hello1");
+        assert_eq!(entries[1].key, "hello");
         assert_eq!(entries[1].value, "第一行\n第二行\t末列");
 
         let large = json!({

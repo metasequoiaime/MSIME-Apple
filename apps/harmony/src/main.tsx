@@ -49,6 +49,9 @@ import {
   type VocabularyReviewClient,
   type VocabularyReviewStatus,
   type TypingStatisticsStatus,
+  type LocalVoiceModelClient,
+  type LocalVoiceModelList,
+  type LocalVoiceModelProgress,
   UNBATCHED_DICTIONARY_FILE_BYTES,
 } from "@msime/ui";
 import type {
@@ -135,6 +138,8 @@ declare global {
   var msimeHarmonyBridgeReply: ((id: number, reply: string) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyAiSkinProgress: ((requestId: string, completed: number) => void) | undefined;
+  // eslint-disable-next-line no-var
+  var msimeHarmonyVoiceModelProgress: ((document: string) => void) | undefined;
 }
 
 /**
@@ -549,6 +554,44 @@ function aiSkinClient(native: NativeBridge): AiSkinClient {
   };
 }
 
+/**
+ * The on-device model store: the catalog models the `local` provider can run, downloaded into the app's own files directory.
+ *
+ * Every operation is an asynchronous bridge request, because an install blocks for the whole download on a native worker and a bridge method returning a Promise never settles here. Progress arrives on its own global as the `{id,stage,downloaded,total}` document client-core reports. The host drops the catalog's desktop-only models, and it has already turned the core's error text into the codes the page has sentences for.
+ *
+ * An install is given hours rather than the ordinary 30 seconds: it is a download of up to a few hundred megabytes on whatever network the phone has, and client-core reports a stalled connection itself. A deadline that fired first would report a failure for a download that then finishes.
+ */
+const voiceModelProgressListeners = new Set<(progress: LocalVoiceModelProgress) => void>();
+
+globalThis.msimeHarmonyVoiceModelProgress = (document: string) => {
+  let progress: LocalVoiceModelProgress;
+  try {
+    progress = JSON.parse(document) as LocalVoiceModelProgress;
+  } catch {
+    return;
+  }
+  for (const listener of voiceModelProgressListeners) listener(progress);
+};
+
+function localVoiceModelClient(native: NativeBridge): LocalVoiceModelClient {
+  const request = <T,>(action: Record<string, unknown>, timeoutMs?: number): Promise<T> =>
+    bridgeRequest(native, "voice_local_model", JSON.stringify(action), timeoutMs).then(unwrap<T>);
+  return {
+    list: () => request<LocalVoiceModelList>({ operation: "list" }),
+    install: (id) => request<string>({ operation: "install", id }, 6 * 60 * 60 * 1000),
+    cancel: (id) => request<boolean>({ operation: "cancel", id }),
+    remove: async (id) => {
+      await request<null>({ operation: "remove", id });
+    },
+    onProgress: async (listener) => {
+      voiceModelProgressListeners.add(listener);
+      return () => {
+        voiceModelProgressListeners.delete(listener);
+      };
+    },
+  };
+}
+
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   return {
     close: async () => close(),
@@ -902,6 +945,7 @@ function makeClient(
     communitySkins: communitySkinClient(native),
     communityResources: communityResourceClient(native),
     aiSkins: aiSkinClient(native),
+    localVoiceModels: localVoiceModelClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),
   };

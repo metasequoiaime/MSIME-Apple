@@ -49,7 +49,7 @@ int main() {
         NSButton *revealNiuTrans = [window valueForKey:@"revealNiuTrans"];
         assert(target.numberOfItems == 7 && secondary.numberOfItems == 8 && secondary.indexOfSelectedItem == 0);
         assert(provider.indexOfSelectedItem == 0 && !endpoint.enabled);
-        assert(([provider.itemTitles isEqual:@[@"腾讯云", @"小牛翻译（NiuTrans）", @"自定义 DeepLX"]]));
+        assert(([provider.itemTitles isEqual:@[@"腾讯云", @"小牛翻译（NiuTrans）", @"自定义 DeepLX", @"水杉账号（发送到 api.msime.app）"]]));
         assert(offline.state == NSControlStateValueOff && offline.enabled);
         assert([grid rowAtIndex:5].hidden && ![grid rowAtIndex:8].hidden);
         [provider selectItemAtIndex:1]; [window providerChanged:nil];
@@ -165,6 +165,29 @@ int main() {
         [window save:nil]; Wait(window); assert(saves == 7);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert([stored[@"preferences"][@"candidate_english_gloss"] isEqual:@NO]);
+        assert(!stored[@"preferences"][@"translation_account"]);
+        // The MSIME account is an explicit choice: it hides every credential row, and saving it turns Tencent off even if its checkbox was left on.
+        tencent.state = NSControlStateValueOn;
+        [provider selectItemAtIndex:3]; [window providerChanged:nil];
+        assert(!tencent.enabled && !secretId.enabled && !appId.enabled && !endpoint.enabled);
+        assert([grid rowAtIndex:5].hidden && [grid rowAtIndex:7].hidden && [grid rowAtIndex:8].hidden && [grid rowAtIndex:11].hidden);
+        [window save:nil]; Wait(window); assert(saves == 8);
+        stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert([stored[@"preferences"][@"translation_account"] isEqual:@YES]);
+        assert([stored[@"preferences"][@"tencent_tmt"][@"enabled"] isEqual:@NO]);
+        assert([stored[@"preferences"][@"tencent_tmt"][@"secret_key"] isEqual:@"synthetic-tencent-edited"]);
+        assert([stored[@"preferences"][@"niutrans"][@"enabled"] isEqual:@NO]);
+        assert([stored[@"preferences"][@"custom_translation"][@"enabled"] isEqual:@NO]);
+        [provider selectItemAtIndex:0]; [window providerChanged:nil];
+        [window reload:nil]; Wait(window);
+        assert(provider.indexOfSelectedItem == 3 && tencent.state == NSControlStateValueOff && !tencent.enabled);
+        // Any other choice drops the key, so the document goes back to what an older strict parser can read.
+        [provider selectItemAtIndex:0]; [window providerChanged:nil];
+        assert(tencent.enabled && ![grid rowAtIndex:8].hidden);
+        [window save:nil]; Wait(window); assert(saves == 9);
+        stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert(!stored[@"preferences"][@"translation_account"]);
+        [window reload:nil]; Wait(window); assert(provider.indexOfSelectedItem == 0);
         [window.window.contentView layoutSubtreeIfNeeded];
         NSView *stack = window.window.contentView.subviews.firstObject;
         assert(NSMinY(stack.frame) >= 0 && NSMaxY(stack.frame) <= NSHeight(window.window.contentView.bounds));

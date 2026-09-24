@@ -32,6 +32,17 @@ int main() {
     assert(ResolveTypingSource(99, false, false, "none", "xiaohe") == TypingSource::Unknown);
     assert(msime::mac::TypingSourceId(TypingSource::NineKey) == "nineKey");
 
+    // Keys handed back to the application: printable characters count, Option characters included because Option is the macOS character layer; control characters, DEL, lone surrogates, AppKit function keys and Command/Control chords do not.
+    using msime::mac::ShouldCountPassthroughCharacter;
+    for (const char16_t counted : {u'a', u'A', u'1', u'@', u' ', u'\u20AC'})
+        assert(ShouldCountPassthroughCharacter(counted, false, false));
+    for (const char16_t rejected : {char16_t{0x1F}, u'\r', u'\t', char16_t{0x7F}, char16_t{0xD800}, char16_t{0xDFFF},
+                                    char16_t{0xF700}, char16_t{0xF704}, char16_t{0xF8FF}})
+        assert(!ShouldCountPassthroughCharacter(rejected, false, false));
+    assert(!ShouldCountPassthroughCharacter(u'c', true, false));
+    assert(!ShouldCountPassthroughCharacter(u'v', false, true));
+    static_assert(ShouldCountPassthroughCharacter(u'x', false, false));
+
     const auto directory = std::filesystem::temp_directory_path() / "msime-macos-typing-statistics-test";
     std::filesystem::remove_all(directory);
     const std::string directoryString = directory.string();

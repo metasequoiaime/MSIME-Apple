@@ -25,6 +25,8 @@ if [ "${MSIME_IOS_TAURI_COMPONENT:-0}" = 1 ]; then
 fi
 
 sdk=$([ "$variant" = device ] && echo iphoneos || echo iphonesimulator)
+# MSIMEApp 嵌入的 sherpa-onnx 运行时（本地语音识别）：按 resources/voice-runtime.lock.json 下载并校验到 target/voice-runtime/ios，已有时直接复用。
+python3 "$repo_root/scripts/fetch_voice_runtime.py" --platform ios
 (cd "$repo_root/platforms/ios" && xcodegen generate -s project.yml -p .)
 build_container=(-project "$repo_root/platforms/ios/MSIMEClient.xcodeproj")
 if [ "$variant" = device ]; then

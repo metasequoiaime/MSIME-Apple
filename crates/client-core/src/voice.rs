@@ -2,9 +2,12 @@
 //!
 //! [`controller`] drives one recognition session over an injected transport;
 //! [`doubao_frame`] is the bounded decoder for one provider's wire format.
+//! [`local_models`] installs the on-device models the `local` provider runs, and [`hotwords`] turns the user dictionary into their hotword list.
 
 pub mod controller;
 pub mod doubao_frame;
+pub mod hotwords;
+pub mod local_models;
 pub mod provider;
 
 /// Platform-injected streaming voice transport.

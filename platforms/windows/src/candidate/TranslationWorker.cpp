@@ -437,35 +437,90 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       return TranslationWorker::Result{lease, generation, merged.dump()};
     }
 
+    // The packaged glosses for this page: English without a target language,
+    // or one installed non-English dictionary with it. Nothing here reaches
+    // the network, and a page with no dictionary entry is not a failure.
+    const auto packaged_glosses =
+        [&](const std::string &target) -> std::optional<nlohmann::json> {
+      const auto resources = query.value("resources", std::string{});
+      if (resources.empty())
+        return std::nullopt;
+      auto gloss_request = nlohmann::json{{"generation", generation}};
+      const auto user_data = query.value("user_data", std::string{});
+      if (!user_data.empty())
+        gloss_request["user_data"] = user_data;
+      if (!target.empty())
+        gloss_request["target_language"] = target;
+      auto gloss_candidates = nlohmann::json::array();
+      for (const auto &candidate : query.at("candidates"))
+        gloss_candidates.push_back(
+            {{"text", candidate.at("text")}, {"source", 0}});
+      gloss_request["candidates"] = std::move(gloss_candidates);
+      const auto gloss_bytes = gloss_request.dump();
+      auto glossed = host_value(msime_client_candidate_gloss_request(
+          reinterpret_cast<const uint8_t *>(gloss_bytes.data()),
+          gloss_bytes.size(),
+          reinterpret_cast<const uint8_t *>(resources.data()),
+          resources.size()));
+      if (glossed && glossed->is_object() &&
+          glossed->value("translations", nlohmann::json::array()).is_array())
+        return glossed->at("translations");
+      return std::nullopt;
+    };
+
+    // A non-English target with its offline dictionary installed. The shared
+    // query ranks the user's own translator above that dictionary, so the
+    // providers are asked first, through this same function with the
+    // dictionary taken out of the query, and the dictionary fills only the
+    // candidates they left (fill_offline_glosses in
+    // CandidateTranslationPolicy.h).
+    const auto target = query.at("target_language").get<std::string>();
+    const auto offline_languages =
+        query.value("offline_gloss_languages", nlohmann::json::array());
+    if (target != "en" && offline_languages.is_array() &&
+        std::find(offline_languages.begin(), offline_languages.end(),
+                  target) != offline_languages.end()) {
+      auto online_query = query;
+      online_query.erase("offline_gloss_languages");
+      const auto online = translate(lease, online_query.dump(), cancelled);
+      const auto offline = packaged_glosses(target);
+      if (cancelled())
+        return std::nullopt;
+      std::vector<std::pair<std::string, std::string>> answered;
+      std::vector<std::pair<std::string, std::string>> dictionary;
+      const auto entries = [](const nlohmann::json &values, auto &into) {
+        if (!values.is_array())
+          return;
+        for (const auto &entry : values)
+          if (entry.is_object())
+            into.emplace_back(entry.value("text", std::string{}),
+                              entry.value("translation", std::string{}));
+      };
+      if (online)
+        entries(nlohmann::json::parse(online->translations), answered);
+      if (offline)
+        entries(*offline, dictionary);
+      msime::windows::fill_offline_glosses(answered, dictionary);
+      auto merged = nlohmann::json::array();
+      for (const auto &[text, translation] : answered)
+        if (!text.empty() && !translation.empty())
+          merged.push_back({{"text", text}, {"translation", translation}});
+      if (merged.empty())
+        return std::nullopt;
+      return TranslationWorker::Result{lease, generation, merged.dump()};
+    }
+
     auto translations = nlohmann::json::array().dump();
     // The offline English gloss comes from a packaged dictionary, so it is
     // resolved before any provider is consulted and never reaches the network.
     // It is also the only source available when no online provider is
     // configured, which is the usual case.
     if (query.value("english_gloss", false)) {
-      const auto resources = query.value("resources", std::string{});
-      if (!resources.empty()) {
-        auto gloss_request = nlohmann::json{{"generation", generation}};
-        const auto user_data = query.value("user_data", std::string{});
-        if (!user_data.empty())
-          gloss_request["user_data"] = user_data;
-        auto gloss_candidates = nlohmann::json::array();
-        for (const auto &candidate : query.at("candidates"))
-          gloss_candidates.push_back(
-              {{"text", candidate.at("text")}, {"source", 0}});
-        gloss_request["candidates"] = std::move(gloss_candidates);
-        const auto gloss_bytes = gloss_request.dump();
-        auto glossed = host_value(msime_client_candidate_gloss_request(
-            reinterpret_cast<const uint8_t *>(gloss_bytes.data()),
-            gloss_bytes.size(),
-            reinterpret_cast<const uint8_t *>(resources.data()),
-            resources.size()));
-        if (cancelled())
-          return std::nullopt;
-        if (glossed && glossed->is_object() &&
-            glossed->value("translations", nlohmann::json::array()).is_array())
-          translations = glossed->at("translations").dump();
-      }
+      auto glossed = packaged_glosses(std::string{});
+      if (cancelled())
+        return std::nullopt;
+      if (glossed)
+        translations = glossed->dump();
       // No gloss for this page. Fall through: an online provider may still be
       // configured, and a page with no dictionary entry is not a failure.
     }

@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { SettingsPage, translationEndpointIssue, type Snapshot } from "@msime/ui";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  SettingsPage,
+  translationEndpointIssue,
+  type HostCapabilities,
+  type Preferences,
+  type Snapshot,
+} from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -98,4 +104,138 @@ test("NiuTrans provider is mutually exclusive and exposes synthetic credential f
   fireEvent.change(apiKey, { target: { value: "synthetic-key" } });
   expect(appId.value).toBe("synthetic-app");
   expect(apiKey.value).toBe("synthetic-key");
+});
+
+describe("the MSIME account translation is an explicit choice", () => {
+  async function mountOn(platform: string, preferences: Partial<Preferences> = {}) {
+    const snapshot: Snapshot = { ...base, preferences: { ...base.preferences, ...preferences } };
+    // Echo the saved document back, as the hosts do, so a second save starts from the first.
+    const save = vi.fn(async (revision: number, saved: Preferences) => ({
+      ...snapshot,
+      revision: revision + 1,
+      preferences: saved,
+    }));
+    render(
+      <SettingsPage
+        initialPage="input"
+        client={{
+          load: async () => snapshot,
+          save,
+          host: { platform } as HostCapabilities,
+        }}
+      />,
+    );
+    await screen.findByRole("button", { name: "保存设置" });
+    return save;
+  }
+  const serviceSelect = () =>
+    screen.getByRole("combobox", { name: "候选词翻译服务" }) as HTMLSelectElement;
+  const optionValues = () => Array.from(serviceSelect().options).map((option) => option.value);
+  async function saveAndRead(save: ReturnType<typeof vi.fn>, call: number) {
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(call + 1));
+    return save.mock.calls[call][1] as Preferences;
+  }
+  const noOwnService = (saved: Preferences) => {
+    expect(saved.custom_translation?.enabled).toBe(false);
+    expect(saved.tencent_tmt?.enabled).toBe(false);
+    expect(saved.niutrans?.enabled).toBe(false);
+  };
+
+  test("macOS offers the account and saves it with every other service off", async () => {
+    const save = await mountOn("macos");
+    expect(optionValues()).toContain("account");
+    expect(serviceSelect().value).toBe("custom");
+    fireEvent.change(serviceSelect(), { target: { value: "account" } });
+    expect(serviceSelect().value).toBe("account");
+    const chosen = await saveAndRead(save, 0);
+    expect(chosen.translation_account).toBe(true);
+    noOwnService(chosen);
+
+    fireEvent.change(serviceSelect(), { target: { value: "none" } });
+    const off = await saveAndRead(save, 1);
+    expect(off.translation_account).toBeUndefined();
+    noOwnService(off);
+  });
+
+  test.each(["windows", "linux", "macos"])(
+    "%s: undoing a service change leaves nothing unsaved",
+    async (platform) => {
+      await mountOn(platform, {
+        tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
+        niutrans: { enabled: false, app_id: "", apikey: "" },
+      });
+      fireEvent.change(serviceSelect(), { target: { value: "niutrans" } });
+      expect(screen.getByText("有未保存的修改")).toBeTruthy();
+      fireEvent.change(serviceSelect(), { target: { value: "custom" } });
+      // The saved document omits translation_account while it is false, so the draft must not grow the key either.
+      await waitFor(() => expect(screen.queryByText("有未保存的修改")).toBeNull());
+    },
+  );
+
+  test.each(["windows", "linux"])("%s has no account option", async (platform) => {
+    await mountOn(platform);
+    expect(optionValues()).not.toContain("account");
+  });
+
+  test("a document without the key never shows the account as chosen on macOS", async () => {
+    await mountOn("macos", {
+      custom_translation: { enabled: false, endpoint: "", api_key: "" },
+      tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
+    });
+    expect(serviceSelect().value).toBe("none");
+  });
+
+  test("turning on Tencent from its own switch ends the account choice", async () => {
+    const save = await mountOn("macos", {
+      translation_account: true,
+      custom_translation: { enabled: false, endpoint: "", api_key: "" },
+      tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
+    });
+    expect(serviceSelect().value).toBe("account");
+    fireEvent.click(screen.getByRole("checkbox", { name: "腾讯云机器翻译" }));
+    expect(serviceSelect().value).toBe("tencent");
+    // Unusable secrets must not leave the account quietly receiving candidates behind the Tencent selection.
+    const saved = await saveAndRead(save, 0);
+    expect(saved.tencent_tmt?.enabled).toBe(true);
+    expect(saved.translation_account).toBeUndefined();
+  });
+
+  test("toggling the custom service on and off does not bring the account back", async () => {
+    const save = await mountOn("macos", {
+      translation_account: true,
+      custom_translation: { enabled: false, endpoint: "", api_key: "" },
+      tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
+    });
+    const custom = screen.getByRole("checkbox", { name: "自定义翻译服务" });
+    fireEvent.click(custom);
+    fireEvent.click(custom);
+    expect(serviceSelect().value).toBe("none");
+    const saved = await saveAndRead(save, 0);
+    expect(saved.translation_account).toBeUndefined();
+    expect(saved.custom_translation?.enabled).toBe(false);
+  });
+
+  test("Android shows the account as an unticked opt-in switch", async () => {
+    const save = await mountOn("android");
+    const account = screen.getByRole("checkbox", {
+      name: "使用水杉账号翻译候选词",
+    }) as HTMLInputElement;
+    expect(account.checked).toBe(false);
+    fireEvent.click(account);
+    expect(account.checked).toBe(true);
+    const chosen = await saveAndRead(save, 0);
+    expect(chosen.translation_account).toBe(true);
+    noOwnService(chosen);
+    fireEvent.click(account);
+    expect((await saveAndRead(save, 1)).translation_account).toBeUndefined();
+  });
+
+  test("the Android switch follows candidate translation", async () => {
+    await mountOn("android", { candidate_translations: false });
+    expect(
+      (screen.getByRole("checkbox", { name: "使用水杉账号翻译候选词" }) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+  });
 });

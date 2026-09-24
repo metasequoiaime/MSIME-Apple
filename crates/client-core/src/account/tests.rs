@@ -136,6 +136,9 @@ fn validates_dictionary_boundaries() {
     assert!(validate_dictionary_value(DictionaryKind::Wubi, "abcde", "字", 0).is_err());
     assert!(validate_dictionary_value(DictionaryKind::Quick, "k2", &"字".repeat(199), 1).is_ok());
     assert!(validate_dictionary_value(DictionaryKind::Quick, "k2", &"字".repeat(200), 1).is_err());
+    // Inbound rows tolerate a digit in a quick phrase code; a value this client writes does not.
+    assert!(validate_new_dictionary_value(DictionaryKind::Quick, "k2", "字", 1).is_err());
+    assert!(validate_new_dictionary_value(DictionaryKind::Quick, "kk", "字", 1).is_ok());
     assert!(validate_dictionary_value(DictionaryKind::English, "hello", "word", 1).is_ok());
     assert!(validate_dictionary_value(DictionaryKind::English, "hello1", "word", 1).is_err());
     assert!(validate_dictionary_import(DictionaryKind::Pinyin, "hans", "你好").is_ok());
