@@ -16,6 +16,11 @@ int main() {
         assert(!MSIMEVoiceUsesNativeHTTPProvider(@"everyapi", YES, NO));
         assert(!MSIMEVoiceUsesNativeHTTPProvider(@"local", NO, NO));
         assert(MSIMEVoiceUsesNativeHTTPProvider(@"local", NO, YES));
+        // An installed model directory streams through the helper; a Whisper file, another provider or an external socket does not.
+        assert(MSIMEVoiceUsesLocalModelHelper(@"local", NO, YES) && MSIMEVoiceUsesLocalModelHelper(@"Local", NO, YES));
+        assert(!MSIMEVoiceUsesLocalModelHelper(@"local", NO, NO) && !MSIMEVoiceUsesLocalModelHelper(@"local", YES, YES));
+        for (NSString *provider in @[@"doubao", @"system", @"openai", @""])
+            assert(!MSIMEVoiceUsesLocalModelHelper(provider, NO, YES));
         // Every provider this host calls with the stored token asks for one before recording; an unset provider preference means Doubao.
         for (NSString *provider in @[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"cloud", @"doubao", @"Doubao"]) {
             assert(MSIMEVoiceASRTokenMissing(provider, nil, NO) && MSIMEVoiceASRTokenMissing(provider, @"", NO));

@@ -135,6 +135,9 @@ check_app() {
   nested="$(only "$resources_dir"/*.app)"
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$nested/Contents/Info.plist")" = "$bundle_id"
   test -L "$nested/Contents/Frameworks/Sparkle.framework/Versions/Current"
+  # On-device voice models run in this helper, which loads the sherpa-onnx runtime beside it; the CMake build fetches the runtime from resources/voice-runtime.lock.json and stages both.
+  test -x "$nested/Contents/MacOS/msime-voice-local"
+  test -s "$nested/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
   codesign -d --entitlements - --xml "$nested" 2>/dev/null | grep -q 'com.apple.security.device.audio-input' || {
     echo "the embedded input method lost its entitlements: $nested" >&2
     exit 1
