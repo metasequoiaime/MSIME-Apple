@@ -1,6 +1,7 @@
 #import "VoiceProviderSettings.h"
 #import "VoiceProviderSettingsKeys.h"
 #import "VoiceCaptureDevice.h"
+#import "../settings/SettingsLayout.h"
 NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSIMEClientVoiceProviderSettingsDidChange";
 #import <Security/Security.h>
 
@@ -333,96 +334,123 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 }
 @end
 
-@interface MetasequoiaVoiceProviderSettingsWindow () <NSTextFieldDelegate>
+// The form is a view rather than a window's contents: the same controls are the 语音输入 page of
+// the settings window and the contents of the standalone window the input method's toolbar opens.
+// Upstream laid it out in absolute coordinates inside a fixed 610x580 window, which is why it could
+// only ever be a window.
+@interface MetasequoiaVoiceProviderSettingsView () <NSTextFieldDelegate>
 @end
-@implementation MetasequoiaVoiceProviderSettingsWindow
+@implementation MetasequoiaVoiceProviderSettingsView
 {
     NSPopUpButton *_provider;
     NSPopUpButton *_captureDevice;
     NSTextField *_endpoint, *_model, *_modelPath, *_polishEndpoint, *_polishModel;
     NSSecureTextField *_token, *_polishToken;
-    NSButton *_polish;
+    NSSwitch *_polish;
     NSTextField *_status;
     NSString *_loadedProvider;
     NSMutableDictionary<NSString *, NSString *> *_tokenDrafts;
+    /// Set while the controls are being filled from storage, so populating them saves nothing.
+    BOOL _loading;
 }
-+ (instancetype)sharedController
+
+- (NSTextField *)fieldLabelled:(NSString *)label secure:(BOOL)secure
 {
-    static MetasequoiaVoiceProviderSettingsWindow *window;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-      window = [self new];
-    });
-    return window;
-}
-// The caption is an absolutely positioned label, which AppKit cannot associate with the field on
-// its own, so every field announced itself as a bare "edit text" and the two endpoints and the two
-// keys were indistinguishable under VoiceOver.
-- (NSTextField *)field:(NSString *)title y:(CGFloat)y secure:(BOOL)secure
-{
-    NSTextField *label = [NSTextField labelWithString:title];
-    label.frame = NSMakeRect(20, y + 3, 125, 22);
-    [self.window.contentView addSubview:label];
     NSTextField *field = secure ? [NSSecureTextField new] : [NSTextField new];
-    field.frame = NSMakeRect(150, y, 435, 25);
-    field.accessibilityLabel = title;
-    [self.window.contentView addSubview:field];
+    field.accessibilityLabel = label;
+    field.delegate = self;
+    field.translatesAutoresizingMaskIntoConstraints = NO;
     return field;
 }
-- (instancetype)init
+
+- (instancetype)initWithFrame:(NSRect)frameRect
 {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 610, 580)
-                                                   styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-                                                     backing:NSBackingStoreBuffered
-                                                       defer:NO];
-    self = [super initWithWindow:window];
-    if (self)
+    self = [super initWithFrame:frameRect];
+    if (self == nil)
     {
-        window.title = @"语音输入设置";
-        _provider = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(150, 530, 435, 28) pullsDown:NO];
-        _provider.accessibilityLabel = @"识别方式";
-        [_provider addItemsWithTitles:MSIMEVoiceASRProviderTitles()];
-        _provider.target = self;
-        _provider.action = @selector(providerChanged:);
-        [window.contentView addSubview:_provider];
-        _endpoint = [self field:@"识别服务地址" y:490 secure:NO];
-        _model = [self field:@"识别模型" y:455 secure:NO];
-        _token = (NSSecureTextField *)[self field:@"API 密钥" y:420 secure:YES];
-        _modelPath = [self field:@"Whisper 模型" y:385 secure:NO];
-        _modelPath.frame = NSMakeRect(150, 385, 330, 25);
-        NSButton *browse = [NSButton buttonWithTitle:@"选择…" target:self action:@selector(browse:)];
-        browse.frame = NSMakeRect(488, 385, 97, 25);
-        [window.contentView addSubview:browse];
-        NSTextField *captureLabel = [NSTextField labelWithString:@"录音设备"];
-        captureLabel.frame = NSMakeRect(20, 350, 125, 22);
-        [window.contentView addSubview:captureLabel];
-        _captureDevice = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(150, 345, 435, 28) pullsDown:NO];
-        _captureDevice.accessibilityLabel = @"录音设备";
-        [window.contentView addSubview:_captureDevice];
-        _polish = [NSButton checkboxWithTitle:@"识别后整理文本（向此服务发送转写文本）"
-                                       target:self
-                                       action:@selector(updateEnabled:)];
-        _polish.frame = NSMakeRect(20, 305, 570, 25);
-        [window.contentView addSubview:_polish];
-        _polishEndpoint = [self field:@"整理服务地址" y:265 secure:NO];
-        _polishModel = [self field:@"整理模型" y:230 secure:NO];
-        _polishToken = (NSSecureTextField *)[self field:@"整理 API 密钥" y:195 secure:YES];
-        _endpoint.delegate = self;
-        _polishEndpoint.delegate = self;
-        _status = [NSTextField
-            wrappingLabelWithString:@"Control+Option+V 开始/结束，Esc "
-                                    @"取消。云端识别会发送本次录音；本地识别使用所选模型。密钥保存在系统钥匙串中。"];
-        _status.frame = NSMakeRect(20, 80, 570, 90);
-        [window.contentView addSubview:_status];
-        NSButton *save = [NSButton buttonWithTitle:@"保存" target:self action:@selector(save:)];
-        save.frame = NSMakeRect(490, 25, 95, 30);
-        [window.contentView addSubview:save];
-        [window center];
+        return nil;
     }
+    self.translatesAutoresizingMaskIntoConstraints = NO;
+    _tokenDrafts = [NSMutableDictionary dictionary];
+
+    _provider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _provider.accessibilityLabel = @"识别方式";
+    [_provider addItemsWithTitles:MSIMEVoiceASRProviderTitles()];
+    _provider.target = self;
+    _provider.action = @selector(providerChanged:);
+    _endpoint = [self fieldLabelled:@"识别服务地址" secure:NO];
+    _model = [self fieldLabelled:@"识别模型" secure:NO];
+    _token = (NSSecureTextField *)[self fieldLabelled:@"API 密钥" secure:YES];
+    _modelPath = [self fieldLabelled:@"Whisper 模型" secure:NO];
+    NSButton *browse = [NSButton buttonWithTitle:@"选择…" target:self action:@selector(browse:)];
+    NSStackView *modelPathRow = [NSStackView stackViewWithViews:@[ _modelPath, browse ]];
+    modelPathRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    modelPathRow.spacing = 8.0;
+    _captureDevice = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _captureDevice.accessibilityLabel = @"录音设备";
+    _captureDevice.target = self;
+    _captureDevice.action = @selector(commit:);
+    _polish = MSIMESettingSwitch(self, @selector(polishChanged:), @"识别后整理文本");
+    _polishEndpoint = [self fieldLabelled:@"整理服务地址" secure:NO];
+    _polishModel = [self fieldLabelled:@"整理模型" secure:NO];
+    _polishToken = (NSSecureTextField *)[self fieldLabelled:@"整理 API 密钥" secure:YES];
+
+    NSBox *recognitionCard = MSIMECardWithViews(@[
+        MSIMEPreferenceRow(@"识别方式", _provider),
+        MSIMEPreferenceRow(@"服务地址", _endpoint),
+        MSIMEPreferenceRow(@"识别模型", _model),
+        MSIMEPreferenceRow(@"API 密钥", _token),
+        MSIMEPreferenceRowOfWidth(@"Whisper 模型", modelPathRow, msime::mac::layout::kWideControlWidth),
+        MSIMEPreferenceRow(@"录音设备", _captureDevice),
+    ], 0.0);
+    recognitionCard.accessibilityLabel = @"语音识别卡片";
+    NSBox *polishCard = MSIMECardWithViews(@[
+        MSIMESwitchRow(@"识别后整理文本", _polish, @"会把本次转写的文本发送到下面的服务"),
+        MSIMEPreferenceRow(@"服务地址", _polishEndpoint),
+        MSIMEPreferenceRow(@"整理模型", _polishModel),
+        MSIMEPreferenceRow(@"API 密钥", _polishToken),
+    ], 0.0);
+    polishCard.accessibilityLabel = @"文本整理卡片";
+
+    NSTextField *hint = [NSTextField
+        wrappingLabelWithString:@"Control+Option+V 开始/结束，Esc "
+                                @"取消。云端识别会发送本次录音；本地识别使用所选模型。密钥保存在系统钥匙串中。"];
+    hint.font = [NSFont systemFontOfSize:11.0];
+    hint.textColor = NSColor.secondaryLabelColor;
+    _status = [NSTextField wrappingLabelWithString:@""];
+    _status.font = [NSFont systemFontOfSize:msime::mac::layout::kBodyFontSize];
+    _status.textColor = NSColor.systemRedColor;
+    _status.accessibilityLabel = @"语音设置状态";
+    _status.hidden = YES;
+
+    NSStackView *stack = [NSStackView stackViewWithViews:@[
+        MSIMESectionLabel(@"语音识别"), recognitionCard,
+        MSIMESectionLabel(@"文本整理"), polishCard,
+        hint, _status,
+    ]];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.distribution = NSStackViewDistributionFill;
+    stack.spacing = 10.0;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:stack];
+    for (NSView *view in stack.arrangedSubviews)
+    {
+        [view.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+    }
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+        [stack.topAnchor constraintEqualToAnchor:self.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+    ]];
+    [self reloadSettings];
     return self;
 }
-- (void)showAndActivate
+
+- (void)reloadSettings
 {
+    _loading = YES;
     MetasequoiaVoiceProviderSettings *value = [MetasequoiaVoiceProviderSettings loadSettings];
     NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
     NSUInteger providerIndex = [providerIDs indexOfObject:value.provider];
@@ -433,32 +461,39 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     _loadedProvider = value.provider;
     _tokenDrafts = [value.tokenSlots mutableCopy] ?: [NSMutableDictionary dictionary];
     if (MSIMEVoiceASRProviderUsesService(_loadedProvider))
+    {
         _tokenDrafts[_loadedProvider] = value.token ?: @"";
+    }
     _modelPath.stringValue = value.modelPath;
     [_captureDevice removeAllItems];
     NSMenuItem *automatic = [[NSMenuItem alloc] initWithTitle:@"系统默认" action:nil keyEquivalent:@""];
     automatic.representedObject = @"";
     [_captureDevice.menu addItem:automatic];
     BOOL foundCaptureDevice = value.captureDevice.length == 0;
-    for (NSDictionary *device in MSIMEListVoiceCaptureDevices()) {
+    for (NSDictionary *device in MSIMEListVoiceCaptureDevices())
+    {
         NSString *uid = device[@"uid"], *name = device[@"name"];
-        NSString *title = [device[@"default"] boolValue]
-            ? [NSString stringWithFormat:@"%@（当前系统默认）", name] : name;
+        NSString *title =
+            [device[@"default"] boolValue] ? [NSString stringWithFormat:@"%@（当前系统默认）", name] : name;
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
         item.representedObject = uid;
         [_captureDevice.menu addItem:item];
-        if ([uid isEqual:value.captureDevice]) {
+        if ([uid isEqual:value.captureDevice])
+        {
             [_captureDevice selectItem:item];
             foundCaptureDevice = YES;
         }
     }
-    if (!foundCaptureDevice) {
-        NSMenuItem *unavailable = [[NSMenuItem alloc]
-            initWithTitle:@"已保存的录音设备（当前不可用）" action:nil keyEquivalent:@""];
+    if (!foundCaptureDevice)
+    {
+        NSMenuItem *unavailable =
+            [[NSMenuItem alloc] initWithTitle:@"已保存的录音设备（当前不可用）" action:nil keyEquivalent:@""];
         unavailable.representedObject = value.captureDevice;
         [_captureDevice.menu addItem:unavailable];
         [_captureDevice selectItem:unavailable];
-    } else if (value.captureDevice.length == 0) {
+    }
+    else if (value.captureDevice.length == 0)
+    {
         [_captureDevice selectItem:automatic];
     }
     _polish.state = value.polishEnabled ? NSControlStateValueOn : NSControlStateValueOff;
@@ -466,14 +501,18 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     _polishModel.stringValue = value.polishModel;
     _polishToken.stringValue = value.polishToken;
     [self updateEnabled:nil];
-    [self showWindow:nil];
-    [NSApp activateIgnoringOtherApps:YES];
+    _status.stringValue = @"";
+    _status.hidden = YES;
+    _loading = NO;
 }
+
 - (void)providerChanged:(id)sender
 {
     (void)sender;
     if (MSIMEVoiceASRProviderUsesService(_loadedProvider))
+    {
         _tokenDrafts[_loadedProvider] = _token.stringValue ?: @"";
+    }
     NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
     NSUInteger index = MIN((NSUInteger)_provider.indexOfSelectedItem, providerIDs.count - 1);
     NSString *provider = providerIDs[index];
@@ -487,7 +526,15 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         : @"";
     _loadedProvider = provider;
     [self updateEnabled:nil];
+    [self commit:nil];
 }
+
+- (void)polishChanged:(id)sender
+{
+    [self updateEnabled:sender];
+    [self commit:sender];
+}
+
 - (void)updateEnabled:(id)sender
 {
     (void)sender;
@@ -503,28 +550,36 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     _polishModel.enabled = polish;
     _polishToken.enabled = polish;
 }
+
 - (void)controlTextDidChange:(NSNotification *)notification
 {
     if (notification.object == _endpoint)
+    {
         _token.stringValue = @"";
+    }
     if (notification.object == _polishEndpoint)
+    {
         _polishToken.stringValue = @"";
+    }
 }
-- (void)browse:(id)sender
+
+// Everything is stored as soon as it is set: a popup or a switch the moment it changes, a field
+// when it loses focus — which is also when a key reaches the keychain, rather than on every
+// keystroke. Upstream collected the whole form behind a 保存 button, so a change made and not
+// confirmed was discarded without a word when the window went away.
+- (void)controlTextDidEndEditing:(NSNotification *)notification
+{
+    (void)notification;
+    [self commit:nil];
+}
+
+- (void)commit:(id)sender
 {
     (void)sender;
-    NSOpenPanel *panel = [NSOpenPanel openPanel];
-    panel.canChooseDirectories = NO;
-    panel.allowsMultipleSelection = NO;
-    [panel beginSheetModalForWindow:self.window
-                  completionHandler:^(NSModalResponse response) {
-                    if (response == NSModalResponseOK)
-                        self->_modelPath.stringValue = panel.URL.path;
-                  }];
-}
-- (void)save:(id)sender
-{
-    (void)sender;
+    if (_loading)
+    {
+        return;
+    }
     MetasequoiaVoiceProviderSettings *value = [MetasequoiaVoiceProviderSettings new];
     NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
     value.provider = providerIDs[MIN((NSUInteger)_provider.indexOfSelectedItem, providerIDs.count - 1)];
@@ -532,9 +587,13 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     value.model = _model.stringValue;
     value.token = _token.stringValue;
     if (MSIMEVoiceASRProviderUsesService(value.provider))
+    {
         _tokenDrafts[value.provider] = value.token ?: @"";
+    }
     else
+    {
         [_tokenDrafts removeObjectForKey:value.provider];
+    }
     value.tokenSlots = [_tokenDrafts copy];
     value.modelPath = _modelPath.stringValue;
     value.polishEnabled = _polish.state == NSControlStateValueOn;
@@ -544,6 +603,69 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     id captureDevice = _captureDevice.selectedItem.representedObject;
     value.captureDevice = [captureDevice isKindOfClass:NSString.class] ? captureDevice : @"";
     NSError *error = nil;
-    _status.stringValue = [value save:&error] ? @"设置已保存。" : error.localizedDescription;
+    const BOOL saved = [value save:&error];
+    _status.stringValue = saved ? @"" : (error.localizedDescription ?: @"设置未能保存。");
+    _status.hidden = saved;
+}
+
+- (void)browse:(id)sender
+{
+    (void)sender;
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    __weak MetasequoiaVoiceProviderSettingsView *weakSelf = self;
+    [panel beginSheetModalForWindow:self.window
+                  completionHandler:^(NSModalResponse response) {
+                    if (response != NSModalResponseOK) return;
+                    MetasequoiaVoiceProviderSettingsView *strongSelf = weakSelf;
+                    strongSelf->_modelPath.stringValue = panel.URL.path;
+                    [strongSelf commit:nil];
+                  }];
+}
+@end
+
+@implementation MetasequoiaVoiceProviderSettingsWindow
+{
+    MetasequoiaVoiceProviderSettingsView *_form;
+}
++ (instancetype)sharedController
+{
+    static MetasequoiaVoiceProviderSettingsWindow *window;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      window = [self new];
+    });
+    return window;
+}
+- (instancetype)init
+{
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 620, 560)
+                                                   styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                                                             NSWindowStyleMaskResizable
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:NO];
+    self = [super initWithWindow:window];
+    if (self)
+    {
+        window.title = @"语音输入设置";
+        window.releasedWhenClosed = NO;
+        _form = [[MetasequoiaVoiceProviderSettingsView alloc] initWithFrame:NSZeroRect];
+        [window.contentView addSubview:_form];
+        [NSLayoutConstraint activateConstraints:@[
+            [_form.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor constant:20.0],
+            [_form.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor constant:-20.0],
+            [_form.topAnchor constraintEqualToAnchor:window.contentView.topAnchor constant:20.0],
+            [_form.bottomAnchor constraintLessThanOrEqualToAnchor:window.contentView.bottomAnchor constant:-20.0],
+        ]];
+        [window center];
+    }
+    return self;
+}
+- (void)showAndActivate
+{
+    [_form reloadSettings];
+    [self showWindow:nil];
+    [NSApp activateIgnoringOtherApps:YES];
 }
 @end
