@@ -61,6 +61,24 @@ static NSString *const FontKey = @"MSIMEClientCandidateFontSize";
 static NSString *const FontFamilyKey = @"MSIMEClientCandidateFontFamily";
 static NSString *const CandidateEnglishFontKey = @"MSIMEClientCandidateEnglishFont";
 static NSString *const TextColorKey = @"MSIMEClientCandidateTextColor";
+// The six candidate colours beside the text colour. The candidate window has been drawing with them
+// all along — InputController.mm asks for every one of them when it fills a candidate row — but they
+// arrived only from an account push into an in-memory override, so there was no way to set one here
+// and nothing survived a restart.
+static NSString *const NumberColorKey = @"MSIMEClientCandidateNumberColor";
+static NSString *const AccentColorKey = @"MSIMEClientCandidateAccentColor";
+static NSString *const SelectedColorKey = @"MSIMEClientCandidateSelectedColor";
+static NSString *const HoverColorKey = @"MSIMEClientCandidateHoverColor";
+static NSString *const SurfaceColorKey = @"MSIMEClientCandidateSurfaceColor";
+static NSString *const BorderColorKey = @"MSIMEClientCandidateBorderColor";
+/// The global light/dark choice and the two surfaces that may override it. All three are read at
+/// runtime — the candidate panel resolves its appearance from `theme` and `candidate_theme`, the
+/// floating toolbar from `theme` and `toolbar_theme` — and all three used to reach this host only
+/// from the cloud, so a machine that had never signed in had no way to choose and a machine that had
+/// lost the choice on the next launch.
+static NSString *const ThemeKey = @"MSIMEClientTheme";
+static NSString *const CandidateThemeKey = @"MSIMEClientCandidateTheme";
+static NSString *const ToolbarThemeKey = @"MSIMEClientToolbarTheme";
 static BOOL ValidTextColor(id value) {
     if (![value isKindOfClass:NSString.class] || [value length] != 7 || ![value hasPrefix:@"#"]) return NO;
     return [[value substringFromIndex:1] rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"] invertedSet]].location == NSNotFound;
@@ -76,6 +94,26 @@ static id SharedCandidateColor(NSDictionary *preferences, NSString *key, id curr
     if (!value || value == NSNull.null) return NSNull.null;
     return ValidTextColor(value) ? [value copy] : current;
 }
+/// The six candidate colours the window draws a well for, each as {property, label, stored key, shared field}. One table instead of six copies of "a well, a button, a setter, a stored key and a section entry": the wells are built from it, the well and its 跟随皮肤 button carry the property name as their identifier and are routed back through it, the merge publishes from it, and the 配色 section registers its keys from it.
+///
+/// 候选文字颜色 is not in it. It is the one colour this window already had, it is set by typing a hex value as well as by the well, and three tests name its selectors, so it keeps the row it has always had rather than being folded in and renamed.
+static NSArray<NSArray<NSString *> *> *CandidateColorControls() {
+    return @[
+        @[ @"candidateNumberColor", @"候选编号颜色", NumberColorKey, @"candidate_number_color" ],
+        @[ @"candidateAccentColor", @"候选强调色", AccentColorKey, @"candidate_accent_color" ],
+        @[ @"candidateSelectedColor", @"候选选中色", SelectedColorKey, @"candidate_selected_color" ],
+        @[ @"candidateHoverColor", @"候选悬停色", HoverColorKey, @"candidate_hover_color" ],
+        @[ @"candidateSurfaceColor", @"候选表面色", SurfaceColorKey, @"candidate_surface_color" ],
+        @[ @"candidateBorderColor", @"候选边框色", BorderColorKey, @"candidate_border_color" ],
+    ];
+}
+static NSColor *SkinTokenColor(msime::mac::Rgba color) {
+    return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
+}
+/// The global mode, and the two surface overrides that may take precedence over it. `follow` is not a
+/// mode of its own: it is the surface saying it has no opinion, which is why the two lists differ.
+static NSArray<NSString *> *ThemeModes() { return @[@"system", @"dark", @"light"]; }
+static NSArray<NSString *> *SurfaceThemes() { return @[@"follow", @"dark", @"light"]; }
 static NSString *const FallbackFontsKey = @"MSIMEClientCandidateFallbackFonts";
 static BOOL ValidFontFamily(id value) {
     return [value isKindOfClass:NSString.class] && [value length] > 0 &&
@@ -199,14 +237,25 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
     return @{
         LayoutKey : @"sharedVertical",
         CandidateFollowCursorKey : @"sharedCandidateFollowCursor",
+        InputModeHUDKey : @"sharedInputModeHUD",
         SchemeKey : @"sharedInputScheme",
         ShuangpinProfileKey : @"sharedShuangpinProfile",
         ShuangpinPreeditKey : @"sharedShuangpinPreeditUsesRaw",
+        WubiMixedPinyinKey : @"sharedWubiMixedPinyin",
         LocalModesKey : @"sharedLocalModes",
         FontKey : @"sharedFontSize",
         FontFamilyKey : @"sharedFontFamily",
         CandidateEnglishFontKey : @"sharedCandidateEnglishFont",
         TextColorKey : @"sharedTextColor",
+        NumberColorKey : @"sharedNumberColor",
+        AccentColorKey : @"sharedAccentColor",
+        SelectedColorKey : @"sharedSelectedColor",
+        HoverColorKey : @"sharedHoverColor",
+        SurfaceColorKey : @"sharedSurfaceColor",
+        BorderColorKey : @"sharedBorderColor",
+        ThemeKey : @"sharedTheme",
+        CandidateThemeKey : @"sharedCandidateTheme",
+        ToolbarThemeKey : @"sharedToolbarTheme",
         FallbackFontsKey : @"sharedFallbackFonts",
         PreeditFontKey : @"sharedPreeditFontSize",
         CandidatePreeditKey : @"sharedCandidatePreedit",
@@ -216,9 +265,11 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         DefaultImeModeKey : @"sharedDefaultImeMode",
         ImeModeScopeKey : @"sharedImeModeScope",
         FullWidthKey : @"sharedFullWidthInput",
+        TraditionalKey : @"sharedTraditionalOutput",
         ChinesePunctuationKey : @"sharedChinesePunctuation",
         SmartPunctuationKey : @"sharedSmartPunctuation",
         SmartPunctuationRepeatToChineseKey : @"sharedSmartPunctuationRepeatToChinese",
+        SmartPunctuationSpaceConvertKey : @"sharedSmartPunctuationSpaceConvert",
         PairedPunctuationKey : @"sharedPairedPunctuation",
         PunctuationLockKey : @"sharedPunctuationLock",
         MixedInputKey : @"sharedMixedInput",
@@ -241,6 +292,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         ControlTapShortcutKey : @"sharedControlTapShortcut",
         ControlOptionSpaceShortcutKey : @"sharedControlOptionSpaceShortcut",
         CharacterSetShortcutKey : @"sharedCharacterSetShortcut",
+        FullWidthShortcutKey : @"sharedFullWidthShortcut",
         FloatingToolbarKey : @"sharedToolbarEnabled",
         FloatingToolbarOptionsKey : @"sharedToolbarOptions",
     };
@@ -510,11 +562,14 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSPopUpButton *_imeModeScopeButton;
     NSNumber *_sharedToolbarEnabled;
     NSMutableDictionary *_sharedToolbarOptions;
+    NSButton *_toolbarEnglishModeButton;
     NSButton *_toolbarPunctuationButton;
     NSButton *_toolbarFullWidthButton;
     NSButton *_toolbarCharacterSetButton;
     NSButton *_toolbarEmojiButton;
+    NSButton *_toolbarHandwritingButton;
     NSButton *_toolbarScreenKeyboardButton;
+    NSButton *_toolbarVoiceButton;
     NSButton *_toolbarSettingsButton;
     NSPopUpButton *_toolbarScaleButton;
     NSPopUpButton *_toolbarFontSizeButton;
@@ -564,6 +619,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSString *_sharedFontFamily;
     id _sharedCandidateEnglishFont;
     NSArray<NSString *> *_sharedFallbackFonts;
+    NSSwitch *_inputModeHUDToggle;
     id _sharedTextColor;
     id _sharedNumberColor;
     id _sharedAccentColor;
@@ -573,11 +629,20 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     id _sharedBorderColor;
     NSTextField *_textColorField;
     NSColorWell *_textColorWell;
+    /// The wells and 跟随皮肤 buttons of CandidateColorControls(), by the property each one sets, so
+    /// that an action can find the setting it belongs to and -refreshControls can write every well
+    /// back without naming six ivars.
+    NSMutableDictionary<NSString *, NSColorWell *> *_candidateColorWells;
+    NSMutableDictionary<NSString *, NSButton *> *_candidateColorResets;
     NSNumber *_sharedPreeditFontSize;
     NSString *_sharedCandidatePreedit;
     NSNumber *_sharedPageSize;
     NSString *_sharedTheme;
     NSString *_sharedCandidateTheme;
+    NSString *_sharedToolbarTheme;
+    NSPopUpButton *_themeModeButton;
+    NSPopUpButton *_candidateThemeButton;
+    NSPopUpButton *_toolbarThemeButton;
     NSMutableDictionary *_sharedNavigation;
     NSDictionary *_sharedWordCharacter;
     NSSwitch *_wordCharacterToggle;
@@ -624,6 +689,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSSwitch *_punctuationToggle;
     NSSwitch *_smartPunctuationToggle;
     NSSwitch *_smartPunctuationRepeatToggle;
+    NSSwitch *_smartPunctuationSpaceToggle;
+    NSSwitch *_traditionalOutputToggle;
+    NSSwitch *_fullWidthShortcutToggle;
+    NSSwitch *_wubiMixedPinyinToggle;
     NSSwitch *_toolbarToggle;
     NSSwitch *_transpositionToggle;
     NSSwitch *_neighborToggle;
@@ -792,6 +861,19 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     if (_sharedCandidateEnglishFont || [_defaults objectForKey:CandidateEnglishFontKey])
         merged[@"candidate_english_font"] = self.candidateEnglishFont ?: (id)NSNull.null;
     if (_sharedTextColor || [_defaults objectForKey:TextColorKey]) merged[@"candidate_text_color"] = self.candidateTextColor ?: (id)NSNull.null;
+    // The other six. A colour this host has no value for at all is left out rather than written as
+    // null, so that merging an untouched macOS profile into the shared document does not clear a
+    // colour some other surface set; a stored empty string is the user saying 跟随皮肤 and does
+    // publish the null that clears it.
+    for (NSArray<NSString *> *entry in CandidateColorControls()) {
+        if ([self valueForKey:entry[0]] == nil && [_defaults objectForKey:entry[2]] == nil) continue;
+        merged[entry[3]] = [self valueForKey:entry[0]] ?: (id)NSNull.null;
+    }
+    // The theme keys are the settings application's own names for them, and all three are top-level
+    // siblings there rather than fields of the surface they apply to.
+    if (_sharedTheme || [_defaults objectForKey:ThemeKey]) merged[@"theme"] = self.themeMode;
+    if (_sharedCandidateTheme || [_defaults objectForKey:CandidateThemeKey]) merged[@"candidate_theme"] = self.candidateTheme;
+    if (_sharedToolbarTheme || [_defaults objectForKey:ToolbarThemeKey]) merged[@"toolbar_theme"] = self.toolbarTheme;
     if (_sharedFallbackFonts || [_defaults objectForKey:FallbackFontsKey]) merged[@"candidate_fallback_fonts"] = self.fallbackFonts;
     if (_sharedPreeditFontSize || [_defaults objectForKey:PreeditFontKey]) merged[@"candidate_preedit_font_size"] = @(self.preeditFontSize);
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
@@ -839,8 +921,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     merged[@"voice_input"] = voice;
     NSMutableDictionary *toolbar = [merged[@"floating_toolbar"] mutableCopy];
     if (!toolbar) toolbar = [NSMutableDictionary dictionary];
-    id sharedEnglishMode = _sharedToolbarOptions[@"english_mode"];
-    toolbar[@"english_mode"] = LocalModeBoolean(sharedEnglishMode) ? sharedEnglishMode : @YES;
+    toolbar[@"english_mode"] = @(self.floatingToolbarEnglishMode);
     toolbar[@"enabled"] = @(self.floatingToolbarEnabled);
     toolbar[@"punctuation"] = @(self.floatingToolbarPunctuation);
     toolbar[@"fullwidth"] = @(self.floatingToolbarFullWidth);
@@ -1357,6 +1438,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [_defaults setObject:values forKey:FloatingToolbarOptionsKey];
     [self preferencesChanged];
 }
+// The 中/英 button, which the toolbar has always drawn and the merge below has always published as a
+// constant true unless an account said otherwise. It is a component like the rest of them now.
+- (BOOL)floatingToolbarEnglishMode { return [self floatingToolbarBoolean:@"english_mode" defaultValue:YES]; }
+- (void)setFloatingToolbarEnglishMode:(BOOL)value { [self setFloatingToolbarBoolean:@"english_mode" value:value]; }
 - (BOOL)floatingToolbarPunctuation { return [self floatingToolbarBoolean:@"punctuation" defaultValue:YES]; }
 - (void)setFloatingToolbarPunctuation:(BOOL)value { [self setFloatingToolbarBoolean:@"punctuation" value:value]; }
 - (BOOL)floatingToolbarFullWidth { return [self floatingToolbarBoolean:@"fullwidth" defaultValue:YES]; }
@@ -1569,13 +1654,82 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (NSColor *)candidateNumberColorWithDefault:(NSColor *)color {
     NSColor *text = CandidateColor(self.candidateTextColor, nil);
-    return CandidateColor(_sharedNumberColor, text ? [text colorWithAlphaComponent:0x9d / 255.0] : color);
+    return CandidateColor(self.candidateNumberColor, text ? [text colorWithAlphaComponent:0x9d / 255.0] : color);
 }
-- (NSColor *)candidateAccentColorWithDefault:(NSColor *)color { return CandidateColor(_sharedAccentColor, color); }
-- (NSColor *)candidateSelectedColorWithDefault:(NSColor *)color { return CandidateColor(_sharedSelectedColor, color); }
-- (NSColor *)candidateHoverColorWithDefault:(NSColor *)color { return CandidateColor(_sharedHoverColor, color); }
-- (NSColor *)candidateSurfaceColorWithDefault:(NSColor *)color { return CandidateColor(_sharedSurfaceColor, color); }
-- (NSColor *)candidateBorderColorWithDefault:(NSColor *)color { return CandidateColor(_sharedBorderColor, color); }
+- (NSColor *)candidateAccentColorWithDefault:(NSColor *)color { return CandidateColor(self.candidateAccentColor, color); }
+- (NSColor *)candidateSelectedColorWithDefault:(NSColor *)color { return CandidateColor(self.candidateSelectedColor, color); }
+- (NSColor *)candidateHoverColorWithDefault:(NSColor *)color { return CandidateColor(self.candidateHoverColor, color); }
+- (NSColor *)candidateSurfaceColorWithDefault:(NSColor *)color { return CandidateColor(self.candidateSurfaceColor, color); }
+- (NSColor *)candidateBorderColorWithDefault:(NSColor *)color { return CandidateColor(self.candidateBorderColor, color); }
+/// The six colours of CandidateColorControls(), which read and write exactly as 候选文字颜色 above
+/// does: the account's pushed value first, then the stored one, and an empty stored string means the
+/// user has said "follow the skin" rather than that nothing was ever chosen.
+- (NSString *)candidateColorStoredAs:(NSString *)key shared:(id)shared {
+    id value = shared ?: [_defaults objectForKey:key];
+    return ValidTextColor(value) ? value : nil;
+}
+- (void)setCandidateColor:(NSString *)value storedAs:(NSString *)key {
+    if (value && !ValidTextColor(value)) { [self refreshControls]; return; }
+    [_defaults setObject:value ?: @"" forKey:key];
+    [self preferencesChanged];
+}
+/// What one of those six colours looks like when nothing overrides it: the token the candidate window
+/// would draw with, taken from the selected skin resolved for the appearance this window is currently
+/// drawn in. 候选编号颜色 has a second source above the skin — it follows 候选文字颜色 when that is set
+/// — and this answers with the same colour that accessor would.
+- (NSColor *)candidateSkinColorForProperty:(NSString *)property {
+    NSAppearanceName match = [NSApp.effectiveAppearance
+        bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+    const msime::mac::SkinTokens tokens = [self resolvedSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]].tokens;
+    if ([property isEqual:@"candidateNumberColor"]) return [self candidateNumberColorWithDefault:SkinTokenColor(tokens.number)];
+    if ([property isEqual:@"candidateAccentColor"]) return SkinTokenColor(tokens.accent);
+    if ([property isEqual:@"candidateSelectedColor"]) return SkinTokenColor(tokens.selected);
+    if ([property isEqual:@"candidateHoverColor"]) return SkinTokenColor(tokens.hover);
+    if ([property isEqual:@"candidateSurfaceColor"]) return SkinTokenColor(tokens.surface);
+    return SkinTokenColor(tokens.border);
+}
+- (NSString *)candidateNumberColor { return [self candidateColorStoredAs:NumberColorKey shared:_sharedNumberColor]; }
+- (void)setCandidateNumberColor:(NSString *)value { _sharedNumberColor = nil; [self setCandidateColor:value storedAs:NumberColorKey]; }
+- (NSString *)candidateAccentColor { return [self candidateColorStoredAs:AccentColorKey shared:_sharedAccentColor]; }
+- (void)setCandidateAccentColor:(NSString *)value { _sharedAccentColor = nil; [self setCandidateColor:value storedAs:AccentColorKey]; }
+- (NSString *)candidateSelectedColor { return [self candidateColorStoredAs:SelectedColorKey shared:_sharedSelectedColor]; }
+- (void)setCandidateSelectedColor:(NSString *)value { _sharedSelectedColor = nil; [self setCandidateColor:value storedAs:SelectedColorKey]; }
+- (NSString *)candidateHoverColor { return [self candidateColorStoredAs:HoverColorKey shared:_sharedHoverColor]; }
+- (void)setCandidateHoverColor:(NSString *)value { _sharedHoverColor = nil; [self setCandidateColor:value storedAs:HoverColorKey]; }
+- (NSString *)candidateSurfaceColor { return [self candidateColorStoredAs:SurfaceColorKey shared:_sharedSurfaceColor]; }
+- (void)setCandidateSurfaceColor:(NSString *)value { _sharedSurfaceColor = nil; [self setCandidateColor:value storedAs:SurfaceColorKey]; }
+- (NSString *)candidateBorderColor { return [self candidateColorStoredAs:BorderColorKey shared:_sharedBorderColor]; }
+- (void)setCandidateBorderColor:(NSString *)value { _sharedBorderColor = nil; [self setCandidateColor:value storedAs:BorderColorKey]; }
+- (NSString *)themeMode {
+    id value = _sharedTheme ?: [_defaults objectForKey:ThemeKey];
+    return [ThemeModes() containsObject:value] ? value : @"system";
+}
+- (void)setThemeMode:(NSString *)value {
+    if (![ThemeModes() containsObject:value]) return;
+    _sharedTheme = nil;
+    [_defaults setObject:value forKey:ThemeKey];
+    [self preferencesChanged];
+}
+- (NSString *)candidateTheme {
+    id value = _sharedCandidateTheme ?: [_defaults objectForKey:CandidateThemeKey];
+    return [SurfaceThemes() containsObject:value] ? value : @"follow";
+}
+- (void)setCandidateTheme:(NSString *)value {
+    if (![SurfaceThemes() containsObject:value]) return;
+    _sharedCandidateTheme = nil;
+    [_defaults setObject:value forKey:CandidateThemeKey];
+    [self preferencesChanged];
+}
+- (NSString *)toolbarTheme {
+    id value = _sharedToolbarTheme ?: [_defaults objectForKey:ToolbarThemeKey];
+    return [SurfaceThemes() containsObject:value] ? value : @"follow";
+}
+- (void)setToolbarTheme:(NSString *)value {
+    if (![SurfaceThemes() containsObject:value]) return;
+    _sharedToolbarTheme = nil;
+    [_defaults setObject:value forKey:ToolbarThemeKey];
+    [self preferencesChanged];
+}
 - (void)setFontFamily:(NSString *)value {
     if (!ValidFontFamily(value)) { [self refreshControls]; return; }
     _sharedFontFamily = nil;
@@ -1770,22 +1924,27 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     if ([page isKindOfClass:NSNumber.class] && !LocalModeBoolean(page) && [page doubleValue] == [page integerValue] && [page integerValue] >= 1 && [page integerValue] <= 9)
         _sharedPageSize = @(msime::mac::NormalizeCandidatePageSize([page unsignedIntegerValue]));
     id theme = preferences[@"theme"];
-    if ([@[@"dark", @"light", @"system"] containsObject:theme]) _sharedTheme = [theme copy];
+    if ([ThemeModes() containsObject:theme]) _sharedTheme = [theme copy];
     id candidateTheme = preferences[@"candidate_theme"];
-    if ([@[@"follow", @"dark", @"light"] containsObject:candidateTheme]) _sharedCandidateTheme = [candidateTheme copy];
+    if ([SurfaceThemes() containsObject:candidateTheme]) _sharedCandidateTheme = [candidateTheme copy];
+    // The toolbar's own override arrives here rather than in -applySharedToolbarPreferences: because
+    // it is a top-level key beside the other two, and that method reads the floating_toolbar
+    // dictionary and returns when there is none.
+    id toolbarTheme = preferences[@"toolbar_theme"];
+    if ([SurfaceThemes() containsObject:toolbarTheme]) _sharedToolbarTheme = [toolbarTheme copy];
     [self refreshControls];
 }
 
 - (NSAppearance *)candidateAppearanceOverride {
-    NSString *surface = _sharedCandidateTheme ?: @"follow";
-    NSString *global = _sharedTheme ?: @"system";
-    NSString *resolved = [surface isEqual:@"dark"] || [surface isEqual:@"light"] ? surface : global;
+    NSString *surface = self.candidateTheme;
+    NSString *resolved = [surface isEqual:@"dark"] || [surface isEqual:@"light"] ? surface : self.themeMode;
     if ([resolved isEqual:@"dark"]) return [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     if ([resolved isEqual:@"light"]) return [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     return nil;
 }
 - (BOOL)candidateAppearanceOverrideConfigured {
-    return _sharedTheme != nil || _sharedCandidateTheme != nil;
+    return _sharedTheme != nil || _sharedCandidateTheme != nil || [_defaults objectForKey:ThemeKey] != nil ||
+           [_defaults objectForKey:CandidateThemeKey] != nil;
 }
 - (void)setPageShortcut:(NSInteger)value {
     value = value == 1 || value == 2 ? value : 0;
@@ -1820,11 +1979,15 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         _helpcodeDisplayToggles[scheme].state = [values[@"show_in_candidate_window"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
     }
     _fullWidthToggle.state = self.fullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;
+    _fullWidthShortcutToggle.state = self.fullWidthShortcut ? NSControlStateValueOn : NSControlStateValueOff;
+    _traditionalOutputToggle.state = self.traditionalOutput ? NSControlStateValueOn : NSControlStateValueOff;
     _keymapToggle.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiToggle.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
+    _wubiMixedPinyinToggle.state = self.wubiMixedPinyinEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _punctuationToggle.state = self.chinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     _smartPunctuationToggle.state = self.smartPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     _smartPunctuationRepeatToggle.state = self.smartPunctuationRepeatToChinese ? NSControlStateValueOn : NSControlStateValueOff;
+    _smartPunctuationSpaceToggle.state = self.smartPunctuationSpaceConvert ? NSControlStateValueOn : NSControlStateValueOff;
     _pairedPunctuationToggle.state = self.pairedPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     NSDictionary *punctuationLockIndexes = @{@"follow": @0, @"chinese": @1, @"english": @2};
     [_punctuationLockButton selectItemAtIndex:[punctuationLockIndexes[self.punctuationLock] integerValue]];
@@ -1833,12 +1996,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _mixedEmojiToggle.state = self.mixedEmojiInput ? NSControlStateValueOn : NSControlStateValueOff;
     _mixedKaomojiToggle.state = self.mixedKaomojiInput ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarToggle.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarEnglishModeButton.state = self.floatingToolbarEnglishMode ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarPunctuationButton.state = self.floatingToolbarPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarFullWidthButton.state = self.floatingToolbarFullWidth ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarCharacterSetButton.state = self.floatingToolbarCharacterSet ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarEmojiButton.state = self.floatingToolbarEmoji ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarHandwritingButton.state = self.floatingToolbarHandwriting ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarScreenKeyboardButton.state = self.floatingToolbarScreenKeyboard ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarVoiceButton.state = self.floatingToolbarVoice ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarSettingsButton.state = self.floatingToolbarSettings ? NSControlStateValueOn : NSControlStateValueOff;
+    [_toolbarThemeButton selectItemAtIndex:(NSInteger)[SurfaceThemes() indexOfObject:self.toolbarTheme]];
     [_toolbarScaleButton selectItemAtIndex:[@[@75, @100, @125, @150] indexOfObject:@(self.floatingToolbarScalePercent)]];
     [_toolbarFontSizeButton selectItemAtIndex:self.floatingToolbarFontSize - 16];
     _transpositionToggle.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
@@ -1884,6 +2051,17 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _fontFamilyControl.stringValue = self.fontFamily;
     _textColorField.stringValue = self.candidateTextColor ?: @"";
     _textColorWell.color = [self candidateTextColorWithDefault:NSColor.labelColor];
+    _inputModeHUDToggle.state = self.inputModeHUD ? NSControlStateValueOn : NSControlStateValueOff;
+    [_themeModeButton selectItemAtIndex:(NSInteger)[ThemeModes() indexOfObject:self.themeMode]];
+    [_candidateThemeButton selectItemAtIndex:(NSInteger)[SurfaceThemes() indexOfObject:self.candidateTheme]];
+    // A well always shows a colour, so one that is not overridden shows the colour the candidate
+    // window is drawing with — the skin's own token, under the appearance this window is being drawn
+    // in — rather than black.
+    // Iterating the wells rather than the table skips the skin lookups entirely in the input method,
+    // where this runs on every setter and there is no window to have built them.
+    for (NSString *property in _candidateColorWells)
+        _candidateColorWells[property].color =
+            CandidateColor([self valueForKey:property], [self candidateSkinColorForProperty:property]);
     NSInteger fallbackIndex = MAX(0, _fallbackList.indexOfSelectedItem);
     [_fallbackList removeAllItems];
     for (NSString *family in self.fallbackFonts)
@@ -1920,21 +2098,25 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     const BOOL learning = self.candidateLearningEnabled;
     const BOOL toolbar = self.floatingToolbarEnabled;
     NSDictionary *wordCharacter = [self wordCharacterOptions];
-    return @[
+    NSMutableArray<NSArray *> *dependencies = [NSMutableArray arrayWithArray:@[
         // Only the selected scheme's own popup is usable, so a live row cannot look like it is
         // configuring the scheme that is actually in use.
         @[ @(scheme == 1), @[_shuangpinSchemeButton] ],
         @[ @(scheme == 2), @[_wubiSchemeButton] ],
         @[ @(self.fuzzyPinyinEnabled), _fuzzyPinyinRuleButtons.allValues ],
+        // Both places the space conversion is read — InputController.mm, where a space after a
+        // just-committed mark is rewritten — ask for 智能标点 first, so it does nothing without it.
+        @[ @(self.smartPunctuation), @[_smartPunctuationSpaceToggle] ],
         @[ @(self.mixedEnglishInput), @[_mixedEnglishPrefixButton] ],
         @[ @(learning), @[_frequencyModeButton, _frequencyTriggerButton] ],
         // The step is read only by the linear mode — EngineFrequencyOptions in
         // src/core/FrequencyAdjustmentPreference.h takes it whatever the mode is and the engine
         // then ignores it — so it is live only where it does something.
         @[ @(learning && [self.frequencyAdjustmentMode isEqual:@"linear"]), @[_frequencyStepButton] ],
-        @[ @(toolbar), @[_toolbarPunctuationButton, _toolbarFullWidthButton, _toolbarCharacterSetButton,
-                         _toolbarEmojiButton, _toolbarScreenKeyboardButton, _toolbarSettingsButton,
-                         _toolbarScaleButton, _toolbarFontSizeButton] ],
+        @[ @(toolbar), @[_toolbarEnglishModeButton, _toolbarPunctuationButton, _toolbarFullWidthButton,
+                         _toolbarCharacterSetButton, _toolbarEmojiButton, _toolbarHandwritingButton,
+                         _toolbarScreenKeyboardButton, _toolbarVoiceButton, _toolbarSettingsButton,
+                         _toolbarThemeButton, _toolbarScaleButton, _toolbarFontSizeButton] ],
         @[ @(self.quanpinHelpcodeEnabled),
            @[_helpcodeSchemaButtons[@"quanpin"], _helpcodeDisplayToggles[@"quanpin"]] ],
         @[ @(self.shuangpinHelpcodeEnabled),
@@ -1946,7 +2128,15 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         @[ @(![self navigationEnabled:wordCharacter[@"keys"]]), @[_wordCharacterToggle] ],
         // Nothing to delete the data of in a build that cannot uninstall.
         @[ @(msime_macos_uninstall_input_source != nullptr), @[_removeUserDataButton] ],
-    ];
+    ]];
+    // A 跟随皮肤 button is an offer to drop an override, so it is live only where there is one to
+    // drop. It is also the only thing on the row that says whether a colour is overridden at all: a
+    // well shows a colour either way, because the skin has one for every row it draws.
+    for (NSArray<NSString *> *entry in CandidateColorControls()) {
+        NSButton *reset = _candidateColorResets[entry[0]];
+        if (reset) [dependencies addObject:@[ @([self valueForKey:entry[0]] != nil), @[reset] ]];
+    }
+    return dependencies;
 }
 /// 以词定字 and 翻页 cannot be bound to the same key group, and the window used to answer the attempt
 /// with a beep and a control that snapped back — a rejection that names neither what was refused nor
@@ -1991,8 +2181,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         BOOL restorable = NO;
         for (NSString *key in section.keys) {
             NSString *override = overrides[key];
-            if ([_defaults objectForKey:key] == nil && (override == nil || [self valueForKey:override] == nil))
-                continue;
+            // NSNull is how the optional shared fields — the seven candidate colours and the English
+            // font — record that the account pushed nothing for this key. That is an absent override,
+            // not an override to a null colour, and counting it as one put a standing 恢复默认值 on
+            // every section holding one of them the moment any shared document was read.
+            id pushed = override == nil ? nil : [self valueForKey:override];
+            if ([_defaults objectForKey:key] == nil && (pushed == nil || pushed == NSNull.null)) continue;
             restorable = YES;
             break;
         }
@@ -2080,6 +2274,43 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSStackView *textColorControls = [NSStackView stackViewWithViews:@[_textColorField, _textColorWell,
         [NSButton buttonWithTitle:@"跟随皮肤" target:self action:@selector(resetTextColor:)]]];
     textColorControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    // The six colours the candidate window draws with beside the text colour. Each row is a well and
+    // the button that drops the override again; the property each one writes is carried as the
+    // control's identifier, so one pair of actions serves all six.
+    _candidateColorWells = [NSMutableDictionary dictionary];
+    _candidateColorResets = [NSMutableDictionary dictionary];
+    NSMutableArray<NSView *> *candidateColorRows = [NSMutableArray array];
+    for (NSArray<NSString *> *entry in CandidateColorControls()) {
+        NSColorWell *well = [[NSColorWell alloc] initWithFrame:NSMakeRect(0, 0, 40, 24)];
+        well.identifier = entry[0];
+        well.accessibilityLabel = [@"选择" stringByAppendingString:entry[1]];
+        well.target = self;
+        well.action = @selector(candidateColorWellChanged:);
+        NSButton *reset = [NSButton buttonWithTitle:@"跟随皮肤" target:self action:@selector(resetCandidateColor:)];
+        reset.identifier = entry[0];
+        reset.accessibilityLabel = [entry[1] stringByAppendingString:@"跟随皮肤"];
+        _candidateColorWells[entry[0]] = well;
+        _candidateColorResets[entry[0]] = reset;
+        NSStackView *controls = [NSStackView stackViewWithViews:@[ well, reset ]];
+        controls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+        [candidateColorRows addObject:MSIMEPreferenceRow(entry[1], controls)];
+    }
+    _themeModeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_themeModeButton addItemsWithTitles:@[@"跟随系统", @"深色", @"浅色"]];
+    _themeModeButton.accessibilityLabel = @"主题模式";
+    _themeModeButton.target = self;
+    _themeModeButton.action = @selector(themeModeChanged:);
+    _candidateThemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_candidateThemeButton addItemsWithTitles:@[@"跟随全局", @"深色", @"浅色"]];
+    _candidateThemeButton.accessibilityLabel = @"候选窗口主题";
+    _candidateThemeButton.target = self;
+    _candidateThemeButton.action = @selector(candidateThemeChanged:);
+    _toolbarThemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_toolbarThemeButton addItemsWithTitles:@[@"跟随全局", @"深色", @"浅色"]];
+    _toolbarThemeButton.accessibilityLabel = @"悬浮工具栏主题";
+    _toolbarThemeButton.target = self;
+    _toolbarThemeButton.action = @selector(toolbarThemeChanged:);
+    _inputModeHUDToggle = MSIMESettingSwitch(self, @selector(inputModeHUDChanged:), @"切换中英文时显示提示");
     _fallbackList = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _fallbackList.accessibilityLabel = @"补充字体顺序";
     [_fallbackList.widthAnchor constraintEqualToConstant:104].active = YES;
@@ -2146,11 +2377,15 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _controlOptionSpaceShortcutToggle = MSIMESettingSwitch(self, @selector(controlOptionSpaceShortcutChanged:), @"Control + Option + 空格切换中英文");
     _characterSetShortcutToggle = MSIMESettingSwitch(self, @selector(characterSetShortcutChanged:), @"Control + Shift + F 切换简繁");
     _fullWidthToggle = MSIMESettingSwitch(self, @selector(fullWidthChanged:), @"全角输入（Option + Shift + H）");
+    _fullWidthShortcutToggle = MSIMESettingSwitch(self, @selector(fullWidthShortcutChanged:), @"Option + Shift + H 切换全半角");
+    _traditionalOutputToggle = MSIMESettingSwitch(self, @selector(traditionalOutputChanged:), @"简繁输入");
     _keymapToggle = MSIMESettingSwitch(self, @selector(keymapChanged:), @"输入时显示双拼键位提示");
     _wubiToggle = MSIMESettingSwitch(self, @selector(wubiChanged:), @"五笔四码唯一候选自动上屏");
+    _wubiMixedPinyinToggle = MSIMESettingSwitch(self, @selector(wubiMixedPinyinChanged:), @"编码打不出时用拼音候选");
     _punctuationToggle = MSIMESettingSwitch(self, @selector(punctuationChanged:), @"中文标点");
     _smartPunctuationToggle = MSIMESettingSwitch(self, @selector(smartPunctuationChanged:), @"智能标点");
     _smartPunctuationRepeatToggle = MSIMESettingSwitch(self, @selector(smartPunctuationRepeatChanged:), @"重复标点转中文");
+    _smartPunctuationSpaceToggle = MSIMESettingSwitch(self, @selector(smartPunctuationSpaceChanged:), @"中文标点后按空格转换");
     _pairedPunctuationToggle = MSIMESettingSwitch(self, @selector(pairedPunctuationChanged:), @"成对标点");
     _punctuationLockButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_punctuationLockButton
@@ -2170,11 +2405,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _mixedEmojiToggle = MSIMESettingSwitch(self, @selector(mixedEmojiChanged:), @"Emoji 混输");
     _mixedKaomojiToggle = MSIMESettingSwitch(self, @selector(mixedKaomojiChanged:), @"颜文字混输");
     _toolbarToggle = MSIMESettingSwitch(self, @selector(toolbarChanged:), @"显示浮动工具栏");
+    // Nine checkboxes for the nine buttons MSIMEFloatingToolbarPanel draws. Three of them are new:
+    // without them the 中/英, 手写 and 语音 buttons were on the toolbar with no way to take them off.
+    _toolbarEnglishModeButton = [NSButton checkboxWithTitle:@"中英文按钮" target:self action:@selector(toolbarEnglishModeChanged:)];
     _toolbarPunctuationButton = [NSButton checkboxWithTitle:@"标点按钮" target:self action:@selector(toolbarPunctuationChanged:)];
     _toolbarFullWidthButton = [NSButton checkboxWithTitle:@"全半角按钮" target:self action:@selector(toolbarFullWidthChanged:)];
     _toolbarCharacterSetButton = [NSButton checkboxWithTitle:@"简繁按钮" target:self action:@selector(toolbarCharacterSetChanged:)];
     _toolbarEmojiButton = [NSButton checkboxWithTitle:@"Emoji 按钮" target:self action:@selector(toolbarEmojiChanged:)];
+    _toolbarHandwritingButton = [NSButton checkboxWithTitle:@"手写按钮" target:self action:@selector(toolbarHandwritingChanged:)];
     _toolbarScreenKeyboardButton = [NSButton checkboxWithTitle:@"屏幕键盘按钮" target:self action:@selector(toolbarScreenKeyboardChanged:)];
+    _toolbarVoiceButton = [NSButton checkboxWithTitle:@"语音按钮" target:self action:@selector(toolbarVoiceChanged:)];
     _toolbarSettingsButton = [NSButton checkboxWithTitle:@"设置按钮" target:self action:@selector(toolbarSettingsChanged:)];
     _toolbarScaleButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_toolbarScaleButton addItemsWithTitles:@[@"75%", @"100%", @"125%", @"150%"]];
@@ -2264,6 +2504,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _wubiCard = MSIMECardWithViews(@[
         MSIMEPreferenceRow(@"编码方案", wubiSchemeLabel),
         MSIMESwitchRow(@"四码唯一候选自动上屏", _wubiToggle, nil),
+        MSIMESwitchRow(@"编码打不出时用拼音候选", _wubiMixedPinyinToggle,
+                       @"五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。"),
     ], 0.0);
     _wubiCard.accessibilityLabel = @"五笔选项卡片";
 
@@ -2271,6 +2513,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMESwitchRow(@"中文标点", _punctuationToggle, @"Control + . 切换中英文标点。"),
         MSIMESwitchRow(@"智能标点", _smartPunctuationToggle, @"前一个字符为字母或数字时保留逗号、句号和冒号为 ASCII 形式。"),
         MSIMESwitchRow(@"重复标点转中文", _smartPunctuationRepeatToggle, @"短时间重复输入 ASCII 标点时替换为中文标点。"),
+        MSIMESwitchRow(@"中文标点后按空格转换", _smartPunctuationSpaceToggle,
+                       @"刚输入中文标点后按空格，转换为对应英文标点。"),
         MSIMESwitchRow(@"成对标点", _pairedPunctuationToggle, @"自动插入并配对引号、括号等标点。"),
         MSIMEPreferenceRow(@"固定标点", _punctuationLockButton),
     ], 0.0);
@@ -2308,11 +2552,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         // settings on it in no section and so out of reach of a section-level restore.
         [self sectionHeader:@"输入模式" keys:@[DefaultImeModeKey, ImeModeScopeKey]], inputModeCard,
         [self sectionHeader:@"中文输入方案"
-                       keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey]],
+                       keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey,
+                              WubiMixedPinyinKey]],
         schemeCard, _shuangpinCard, _wubiCard,
         [self sectionHeader:@"标点输入"
                        keys:@[ChinesePunctuationKey, SmartPunctuationKey, SmartPunctuationRepeatToChineseKey,
-                              PairedPunctuationKey, PunctuationLockKey]],
+                              SmartPunctuationSpaceConvertKey, PairedPunctuationKey, PunctuationLockKey]],
         punctuationCard,
         [self sectionHeader:@"中英混输" keys:@[MixedInputKey]], mixedCard,
         [self sectionHeader:@"拼音纠错" keys:@[TranspositionKey, NeighborKey]], correctionCard,
@@ -2336,6 +2581,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMEPreferenceRow(@"候选窗拼音字号", _preeditFontButton),
         MSIMEPreferenceRow(@"候选窗预编辑", _candidatePreeditButton),
         MSIMESwitchRow(@"候选窗口跟随光标", _candidateFollowCursorToggle, nil),
+        // The badge is this host's own feature and every other platform already offers a switch for
+        // it; macOS drew it, read the preference on every mode change, and had nowhere to turn it off.
+        MSIMESwitchRow(@"切换中英文时显示提示", _inputModeHUDToggle,
+                       @"切换后在光标下方短暂显示「中」或「英」。"),
     ], 0.0);
     candidateWindowCard.accessibilityLabel = @"候选窗口卡片";
     // The three clusters — a field beside a colour well, a field beside a button, a popup beside
@@ -2349,22 +2598,36 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMEPreferenceRowWithDetail(@"候选窗英文字体",
                                      @"优先用于拉丁字符；未安装时回退到候选主字体和补充字体，留空表示不设置独立英文字体。",
                                      _englishFontFamilyControl),
-        MSIMEPreferenceRow(@"候选文字颜色", textColorControls),
         MSIMEPreferenceRow(@"补充字体（最多 32 项）", fallbackAdd),
         MSIMEPreferenceRow(@"补充字体优先顺序", fallbackOrder),
     ], 0.0);
     fontCard.accessibilityLabel = @"候选字体卡片";
+    // 候选文字颜色 leaves the font card for this one, which is the only row that moves: it is a colour,
+    // the other six are colours, and a card holding one of the seven while a card under it holds the
+    // rest is a worse place to look for any of them than either card alone.
+    NSMutableArray<NSView *> *colorRows = [NSMutableArray arrayWithObjects:
+        MSIMEPreferenceRowWithDetail(@"主题模式",
+                                     @"候选窗口、悬浮工具栏、屏幕键盘与输入法菜单的默认明暗；设置窗口始终跟随系统。",
+                                     _themeModeButton),
+        MSIMEPreferenceRowWithDetail(@"候选窗口主题", @"覆盖主题模式，只影响候选窗口。", _candidateThemeButton),
+        MSIMEPreferenceRow(@"候选文字颜色", textColorControls), nil];
+    [colorRows addObjectsFromArray:candidateColorRows];
+    NSBox *colorCard = MSIMECardWithViews(colorRows, 0.0);
+    colorCard.accessibilityLabel = @"候选配色卡片";
     NSScrollView *appearancePage = PreferencesPage(@"外观", @"调整候选窗口与输入状态栏的显示方式。", @[
         // The preview writes nothing: 预览深色 and the showcase checkbox are ways of looking at the
         // settings below, not settings, so this section has nothing to restore.
         [self sectionHeader:@"效果预览" keys:@[]], _preview, previewControls,
         [self sectionHeader:@"候选窗口"
                        keys:@[LayoutKey, PageSizeKey, FontKey, PreeditFontKey, CandidatePreeditKey,
-                              CandidateFollowCursorKey]],
+                              CandidateFollowCursorKey, InputModeHUDKey]],
         candidateWindowCard,
-        [self sectionHeader:@"候选字体"
-                       keys:@[FontFamilyKey, CandidateEnglishFontKey, TextColorKey, FallbackFontsKey]],
+        [self sectionHeader:@"候选字体" keys:@[FontFamilyKey, CandidateEnglishFontKey, FallbackFontsKey]],
         fontCard,
+        [self sectionHeader:@"配色"
+                       keys:@[ThemeKey, CandidateThemeKey, TextColorKey, NumberColorKey, AccentColorKey,
+                              SelectedColorKey, HoverColorKey, SurfaceColorKey, BorderColorKey]],
+        colorCard,
     ]);
 
     // ---- 皮肤 -------------------------------------------------------------------------------
@@ -2565,6 +2828,11 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMESwitchRow(@"单按 Control 切换中英文", _controlTapShortcutToggle, nil),
         MSIMESwitchRow(@"Control + Option + 空格切换中英文", _controlOptionSpaceShortcutToggle, nil),
         MSIMESwitchRow(@"Control + Shift + F 切换简繁", _characterSetShortcutToggle, nil),
+        // The state that chord toggles, which the toolbar and the input method's menu also toggle and
+        // which nothing in this window could set.
+        MSIMESwitchRow(@"简繁输入", _traditionalOutputToggle, @"将提交的简体中文转换为繁体中文。"),
+        MSIMESwitchRow(@"Option + Shift + H 切换全半角", _fullWidthShortcutToggle,
+                       @"关掉后这个组合键交给应用处理；Control + Shift + 空格 与工具栏的全半角按钮不受影响。"),
         MSIMESwitchRow(@"全角输入", _fullWidthToggle,
                        @"Control + Shift + 空格 或 Option + Shift + H 临时切换全半角。"),
     ], 0.0);
@@ -2574,18 +2842,24 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         pagingCard,
         [self sectionHeader:@"输入状态切换"
                        keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey,
-                              ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthKey]],
+                              ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, TraditionalKey,
+                              FullWidthShortcutKey, FullWidthKey]],
         switchingCard,
     ]);
 
     // ---- 悬浮工具栏 --------------------------------------------------------------------------
     NSBox *toolbarCard = MSIMECardWithViews(@[
         MSIMESwitchRow(@"显示浮动工具栏", _toolbarToggle, nil),
+        MSIMEPreferenceRowWithDetail(@"悬浮工具栏主题", @"覆盖主题模式，只影响悬浮工具栏。", _toolbarThemeButton),
         MSIMECardSeparator(),
         MSIMECardHeader(@"工具栏按钮"),
+        // In the order the toolbar draws them, so that the grid reads left to right as the toolbar
+        // does — MSIMEFloatingToolbarPanel lays its nine buttons out in the order of
+        // FloatingToolbarComponentKeys().
         MSIMECheckboxGrid(@[
-            _toolbarPunctuationButton, _toolbarFullWidthButton, _toolbarCharacterSetButton,
-            _toolbarEmojiButton, _toolbarScreenKeyboardButton, _toolbarSettingsButton,
+            _toolbarEnglishModeButton, _toolbarPunctuationButton, _toolbarFullWidthButton,
+            _toolbarCharacterSetButton, _toolbarEmojiButton, _toolbarHandwritingButton,
+            _toolbarScreenKeyboardButton, _toolbarVoiceButton, _toolbarSettingsButton,
         ], 2),
     ], 6.0);
     toolbarCard.accessibilityLabel = @"悬浮工具栏卡片";
@@ -2598,7 +2872,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     // the finest restore this window can honestly offer for either is both: the link sits on the
     // section that owns the key, and 尺寸 does not offer one it could not keep.
     NSScrollView *floatingPage = PreferencesPage(@"悬浮工具栏", @"随时查看输入状态，通过工具栏切换常用输入选项。", @[
-        [self sectionHeader:@"显示与组件" keys:@[FloatingToolbarKey, FloatingToolbarOptionsKey]], toolbarCard,
+        [self sectionHeader:@"显示与组件" keys:@[FloatingToolbarKey, FloatingToolbarOptionsKey, ToolbarThemeKey]],
+        toolbarCard,
         [self sectionHeader:@"尺寸" keys:@[]], toolbarSizeCard,
     ]);
 
@@ -3041,11 +3316,15 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)controlOptionSpaceShortcutChanged:(NSSwitch *)sender { self.controlOptionSpaceShortcut = sender.state == NSControlStateValueOn; }
 - (void)characterSetShortcutChanged:(NSSwitch *)sender { self.characterSetShortcut = sender.state == NSControlStateValueOn; }
 - (void)fullWidthChanged:(NSSwitch *)sender { self.fullWidthInput = sender.state == NSControlStateValueOn; }
+- (void)fullWidthShortcutChanged:(NSSwitch *)sender { self.fullWidthShortcut = sender.state == NSControlStateValueOn; }
+- (void)traditionalOutputChanged:(NSSwitch *)sender { self.traditionalOutput = sender.state == NSControlStateValueOn; }
 - (void)keymapChanged:(NSSwitch *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (void)wubiChanged:(NSSwitch *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }
+- (void)wubiMixedPinyinChanged:(NSSwitch *)sender { self.wubiMixedPinyinEnabled = sender.state == NSControlStateValueOn; }
 - (void)punctuationChanged:(NSSwitch *)sender { self.chinesePunctuation = sender.state == NSControlStateValueOn; }
 - (void)smartPunctuationChanged:(NSSwitch *)sender { self.smartPunctuation = sender.state == NSControlStateValueOn; }
 - (void)smartPunctuationRepeatChanged:(NSSwitch *)sender { self.smartPunctuationRepeatToChinese = sender.state == NSControlStateValueOn; }
+- (void)smartPunctuationSpaceChanged:(NSSwitch *)sender { self.smartPunctuationSpaceConvert = sender.state == NSControlStateValueOn; }
 - (void)pairedPunctuationChanged:(NSSwitch *)sender { self.pairedPunctuation = sender.state == NSControlStateValueOn; }
 - (void)punctuationLockChanged:(NSPopUpButton *)sender { self.punctuationLock = @[@"follow", @"chinese", @"english"][sender.indexOfSelectedItem]; }
 - (void)mixedEnglishChanged:(NSSwitch *)sender { self.mixedEnglishInput = sender.state == NSControlStateValueOn; }
@@ -3053,6 +3332,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)mixedEmojiChanged:(NSSwitch *)sender { self.mixedEmojiInput = sender.state == NSControlStateValueOn; }
 - (void)mixedKaomojiChanged:(NSSwitch *)sender { self.mixedKaomojiInput = sender.state == NSControlStateValueOn; }
 - (void)toolbarChanged:(NSSwitch *)sender { self.floatingToolbarEnabled = sender.state == NSControlStateValueOn; }
+- (void)toolbarEnglishModeChanged:(NSButton *)sender { self.floatingToolbarEnglishMode = sender.state == NSControlStateValueOn; }
+- (void)toolbarHandwritingChanged:(NSButton *)sender { self.floatingToolbarHandwriting = sender.state == NSControlStateValueOn; }
+- (void)toolbarVoiceChanged:(NSButton *)sender { self.floatingToolbarVoice = sender.state == NSControlStateValueOn; }
+- (void)toolbarThemeChanged:(NSPopUpButton *)sender { self.toolbarTheme = SurfaceThemes()[sender.indexOfSelectedItem]; }
 - (void)toolbarPunctuationChanged:(NSButton *)sender { self.floatingToolbarPunctuation = sender.state == NSControlStateValueOn; }
 - (void)toolbarFullWidthChanged:(NSButton *)sender { self.floatingToolbarFullWidth = sender.state == NSControlStateValueOn; }
 - (void)toolbarCharacterSetChanged:(NSButton *)sender { self.floatingToolbarCharacterSet = sender.state == NSControlStateValueOn; }
@@ -3535,6 +3818,27 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     auto channel = [](CGFloat value) { return (unsigned int)lround(MAX(0.0, MIN(1.0, value)) * 255); };
     self.candidateTextColor = [NSString stringWithFormat:@"#%02X%02X%02X", channel(color.redComponent), channel(color.greenComponent), channel(color.blueComponent)];
 }
+/// The stored form of a colour the user picked in a well. Same six digits the shared settings page
+/// writes, so a colour set here reads back there as the colour it is.
+static NSString *CandidateColorHex(NSColor *color) {
+    NSColor *srgb = [color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    if (!srgb) return nil;
+    auto channel = [](CGFloat value) { return (unsigned int)lround(MAX(0.0, MIN(1.0, value)) * 255); };
+    return [NSString stringWithFormat:@"#%02X%02X%02X", channel(srgb.redComponent), channel(srgb.greenComponent),
+                                      channel(srgb.blueComponent)];
+}
+// The six wells and their 跟随皮肤 buttons share one action each; which colour a control belongs to is
+// the property name it carries as its identifier, the same name CandidateColorControls() built it from.
+- (void)candidateColorWellChanged:(NSColorWell *)sender {
+    NSString *hex = CandidateColorHex(sender.color);
+    if (hex && sender.identifier) [self setValue:hex forKey:sender.identifier];
+}
+- (void)resetCandidateColor:(NSButton *)sender {
+    if (sender.identifier) [self setValue:nil forKey:sender.identifier];
+}
+- (void)inputModeHUDChanged:(NSSwitch *)sender { self.inputModeHUD = sender.state == NSControlStateValueOn; }
+- (void)themeModeChanged:(NSPopUpButton *)sender { self.themeMode = ThemeModes()[sender.indexOfSelectedItem]; }
+- (void)candidateThemeChanged:(NSPopUpButton *)sender { self.candidateTheme = SurfaceThemes()[sender.indexOfSelectedItem]; }
 - (void)addFallbackFont:(id)sender {
     (void)sender;
     NSString *family = _fallbackFamilyControl.stringValue;

@@ -50,6 +50,20 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) NSUInteger preeditFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;
 @property(nonatomic, copy) NSString *candidateTextColor;
+/// The six other candidate colours, as the same 「#rrggbb」 strings, or nil while the skin's own
+/// colour is in use. The resolved forms below are what the candidate window draws with; these are
+/// what the settings window sets and what the shared document carries.
+@property(nonatomic, copy) NSString *candidateNumberColor;
+@property(nonatomic, copy) NSString *candidateAccentColor;
+@property(nonatomic, copy) NSString *candidateSelectedColor;
+@property(nonatomic, copy) NSString *candidateHoverColor;
+@property(nonatomic, copy) NSString *candidateSurfaceColor;
+@property(nonatomic, copy) NSString *candidateBorderColor;
+/// The light/dark choice: system, dark or light for the whole client, and follow, dark or light for
+/// the candidate window and the floating toolbar, each of which may override the global one.
+@property(nonatomic, copy) NSString *themeMode;
+@property(nonatomic, copy) NSString *candidateTheme;
+@property(nonatomic, copy) NSString *toolbarTheme;
 - (NSColor *)candidateTextColorWithDefault:(NSColor *)color;
 - (NSColor *)candidateNumberColorWithDefault:(NSColor *)color;
 - (NSColor *)candidateAccentColorWithDefault:(NSColor *)color;
@@ -117,6 +131,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL shuangpinKeymap;
 @property(nonatomic) BOOL wubiAutoCommitUnique;
 @property(nonatomic) BOOL floatingToolbarEnabled;
+/// The 中/英 button. It is a component like the eight below it; it had no accessor at all, so the
+/// only value the merge could publish for it was a constant.
+@property(nonatomic) BOOL floatingToolbarEnglishMode;
 @property(nonatomic) BOOL floatingToolbarPunctuation;
 @property(nonatomic) BOOL floatingToolbarFullWidth;
 @property(nonatomic) BOOL floatingToolbarCharacterSet;
