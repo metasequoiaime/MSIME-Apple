@@ -2459,6 +2459,18 @@ IBusProperty *input_mode_property(IBusEngine *engine) {
   ibus_property_set_symbol(property, ibus_text_new_from_static_string(symbol));
   return property;
 }
+IBusProperty *gnome_settings_property(IBusEngine *engine) {
+  const auto &s = state(engine);
+  // Keep one direct action in GNOME Shell's input-source menu without
+  // reintroducing the nested DesktopTools property tree that caused Shell
+  // actor and GC churn. The existing activation path launches the native
+  // Linux settings launcher, which hosts the shared settings surface.
+  return ibus_property_new(
+      "DesktopTools/Settings", PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string("设置"), "",
+      ibus_text_new_from_static_string("打开水杉输入法设置"),
+      s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
+}
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
   // GNOME Shell renders IBus properties inside its own input-source menu.
@@ -2466,12 +2478,15 @@ void publish_mode(IBusEngine *engine, bool registration) {
   // rebuild actors and collect them until the whole desktop froze.
   if (candidate_panel_is_gnome_shell()) {
     auto *mode = input_mode_property(engine);
+    auto *settings = gnome_settings_property(engine);
     if (registration) {
       auto *properties = ibus_prop_list_new();
       ibus_prop_list_append(properties, mode);
+      ibus_prop_list_append(properties, settings);
       ibus_engine_register_properties(engine, properties);
     } else {
       ibus_engine_update_property(engine, mode);
+      ibus_engine_update_property(engine, settings);
     }
     return;
   }
