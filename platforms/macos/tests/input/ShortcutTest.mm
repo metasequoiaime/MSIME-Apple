@@ -4921,10 +4921,20 @@ static void TestOfflineTargetGlosses() {
         NSOperationQueue *targetGlossQueue = [controller valueForKey:@"targetGlossQueue"];
         [glossQueue waitUntilAllOperationsAreFinished];
         [targetGlossQueue waitUntilAllOperationsAreFinished];
-        // Worker operations enqueue their apply blocks on the main queue. A sentinel drains
-        // every already-enqueued apply without sleeping for a guessed interval, and is also
-        // immediate for generations that intentionally schedule no new work.
-        DrainMainQueue();
+        // Each worker ends by dispatching its apply to the main queue, so once both queues are
+        // finished both of those blocks are already sitting in it, and a block enqueued now is
+        // behind them: when this one runs, theirs have run. That is the whole condition, and it
+        // needs no guess about how many applies a generation produces — waiting for a single
+        // apply passed unloaded and failed under the sanitizer, where the English gloss landed
+        // while the offline target one was still pending and the first assertion compared
+        // against half a delivery. The deadline is only here so a genuine hang fails as a test
+        // rather than as a timeout.
+        __block BOOL drained = NO;
+        dispatch_async(dispatch_get_main_queue(), ^{ drained = YES; });
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5.0];
+        while (!drained && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+        assert(drained);
     };
     // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
     settle();
