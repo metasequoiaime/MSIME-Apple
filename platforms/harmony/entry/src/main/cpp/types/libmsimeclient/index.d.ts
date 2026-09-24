@@ -157,6 +157,17 @@ export const applyTranslations: (
 export const voiceStart: (handle: number) => string;
 export const voiceCancel: (handle: number) => string;
 export const voiceApply: (handle: number, generation: number, text: string) => string;
+/** The user's own pinyin words as recognizer hotwords. Reads the dictionary store on a native worker thread. */
+export const voiceHotwords: (request: string) => Promise<string>;
+export const voiceHotwordCorrect: (request: string) => string;
+export const voiceLocalModels: (request: string) => string;
+/** Downloads and installs one catalog model on a native worker thread; `progress` receives each `{id,stage,downloaded,total}` document on the JS thread. */
+export const voiceLocalModelInstall: (
+  request: string,
+  progress?: (document: string) => void,
+) => Promise<string>;
+export const voiceLocalModelCancel: (request: string) => string;
+export const voiceLocalModelRemove: (request: string) => string;
 
 export interface DoubaoFrameResult {
   last: boolean;

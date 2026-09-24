@@ -12,7 +12,8 @@ enum CandidateGlossModel {
     case oversized
   }
 
-  static func request(generation: UInt64, candidates: [[String: Any]]) throws -> Data {
+  /// `targetLanguage` is one of `CandidateTranslationPreference.offlineGlossCodes`, to read that language's offline dictionary instead of English.
+  static func request(generation: UInt64, candidates: [[String: Any]], targetLanguage: String? = nil) throws -> Data {
     guard !candidates.isEmpty, candidates.count <= 4096 else { throw Failure.invalidRequest }
     let copied = try candidates.map { candidate -> [String: Any] in
       guard let text = candidate["text"] as? String,
@@ -21,10 +22,12 @@ enum CandidateGlossModel {
             bounded(text) else { throw Failure.invalidRequest }
       return ["text": text, "source": source.intValue]
     }
-    let data = try JSONSerialization.data(withJSONObject: [
-      "generation": generation,
-      "candidates": copied,
-    ])
+    var object: [String: Any] = ["generation": generation, "candidates": copied]
+    if let targetLanguage {
+      guard CandidateTranslationPreference.offlineGlossCodes.contains(targetLanguage) else { throw Failure.invalidRequest }
+      object["target_language"] = targetLanguage.lowercased()
+    }
+    let data = try JSONSerialization.data(withJSONObject: object)
     guard data.count <= maxRequestBytes else { throw Failure.oversized }
     return data
   }

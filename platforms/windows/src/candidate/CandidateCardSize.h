@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <stdexcept>
@@ -55,6 +56,8 @@ struct CandidateCardMetrics {
          translation_gap = 0.0, translation_line = 0.0;
   // Space every horizontal column keeps after its content. It belongs to the column, so neighbouring columns touch and a click between two candidates still lands on one of them.
   double column_gap = 8.0;
+  // Vertical space between two stacked rows, and between two lines of a horizontal page: the shipped presenter's CandidateList itemGap. It belongs to no row, so a click in it selects nothing, as in the shipped card.
+  double item_gap = 2.0;
 };
 inline CandidateCardMetrics candidate_card_metrics(double font_size,
                                                    double preedit_font_size,
@@ -66,9 +69,11 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
   CandidateCardMetrics metrics;
   // Selection number column plus the separator bar before the candidate text.
   metrics.number_and_bar = font_size * 0.8 + font_size * 0.2 + 8.0;
-  metrics.min_width = font_size * 7.0;
+  // kCandidateMinWidthDip in the shipped presenter (card->SetMinWidth), independent of the font size.
+  metrics.min_width = 160.0;
   metrics.preedit_row = preedit_visible ? preedit_font_size * 1.4 + 6.0 : 0.0;
-  metrics.candidate_row = font_size * 1.45 + 6.0;
+  // The shipped presenter's CandidateList itemHeight: the minimum height of one candidate row.
+  metrics.candidate_row = font_size * 1.35 + 2.0;
   metrics.annotation_line = font_size * 1.25;
   metrics.translation_font = font_size * 0.78;
   metrics.translation_gap = font_size * 0.65;
@@ -86,27 +91,31 @@ inline CandidateRowBounds candidate_row_bounds(size_t index, size_t count,
   if (index >= count || count > 9 || !std::isfinite(width) || width <= 0.0)
     throw std::invalid_argument("Invalid candidate row");
   const double top = metrics.pad_y + metrics.preedit_row;
+  const double stride = metrics.candidate_row + metrics.item_gap;
   if (!horizontal)
-    return {metrics.pad_x / 2.0, top + metrics.candidate_row * static_cast<double>(index),
+    return {metrics.pad_x / 2.0, top + stride * static_cast<double>(index),
             width - metrics.pad_x / 2.0,
-            top + metrics.candidate_row * static_cast<double>(index + 1)};
+            top + stride * static_cast<double>(index) + metrics.candidate_row};
   const double column =
       (width - metrics.pad_x) / static_cast<double>(count);
   return {metrics.pad_x / 2.0 + column * static_cast<double>(index), top,
           metrics.pad_x / 2.0 + column * static_cast<double>(index + 1),
           top + metrics.candidate_row};
 }
-// Vertical extent of the accent bar on the selected row, as the shipped presenter draws it (CandidateList::Render with selectedBarHeight = fontSize * 0.85): a fixed height from the font size, never less than twice its 3 DIP width, centred in the row. A row that grows because its text or annotation wrapped keeps the same bar in its middle instead of a stretched one; a row shorter than the bar starts it at the row top.
+// The accent bar on the selected row, as the shipped presenter draws it (CandidateList::Render with selectedBarWidth = 3 and selectedBarHeight = fontSize * 0.85): 3 DIP wide and centred on the row's left edge, a fixed height from the font size, never less than twice its width, centred in the row. A row that grows because its text or annotation wrapped keeps the same bar in its middle instead of a stretched one; a row shorter than the bar starts it at the row top. The corner radius is half the width.
 struct CandidateSelectionBar {
-  double top, bottom;
+  double left, right, top, bottom;
 };
-inline CandidateSelectionBar candidate_selection_bar(double row_top,
+inline constexpr double candidate_selection_bar_width = 3.0;
+inline CandidateSelectionBar candidate_selection_bar(double row_left,
+                                                     double row_top,
                                                      double row_bottom,
                                                      double font_size) {
-  const double height = (std::max)(font_size * 0.85, 6.0);
+  const double width = candidate_selection_bar_width;
+  const double height = (std::max)(font_size * 0.85, width * 2.0);
   const double top =
       row_top + (std::max)((row_bottom - row_top - height) * 0.5, 0.0);
-  return {top, top + height};
+  return {row_left - width * 0.5, row_left + width * 0.5, top, top + height};
 }
 // A run's box relative to the row's text column: x from where the candidate text starts, y from the row top. Zero width means the run is absent. An inline run shares the first line and is centred in it; one below the first line is top aligned and may wrap.
 struct CandidateRunBox {
@@ -231,7 +240,7 @@ candidate_page_layout(const std::vector<CandidateItemWidths> &items,
                         : 0.0;
       if (x > 0.0 && x + column > line_width) {
         close_line(index);
-        top += tallest;
+        top += tallest + metrics.item_gap;
         tallest = 0.0;
         x = 0.0;
       }
@@ -250,7 +259,7 @@ candidate_page_layout(const std::vector<CandidateItemWidths> &items,
     if (!horizontal) {
       bounds.top = top;
       bounds.bottom = top + item.height;
-      top = bounds.bottom;
+      top = bounds.bottom + metrics.item_gap;
     }
     tallest = (std::max)(tallest, item.height);
     rows.push_back({bounds, item});
@@ -331,7 +340,9 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
   const auto rows = candidate_page_layout(input.items, width, shape,
                                           input.horizontal, input.wrapped);
   // A horizontal page ends at its last line's bottom, however many lines the capped width broke it into.
+  // A vertical page is its visible rows plus one item_gap between each two of them.
   double rows_height = 0.0;
+  bool stacked = false;
   for (size_t index = 0; index < rows.size(); ++index) {
     if (!visible(input.items[index]))
       continue;
@@ -339,7 +350,8 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
     rows_height =
         input.horizontal
             ? (std::max)(rows_height, row.bounds.bottom - pad_y - preedit_row)
-            : rows_height + row.item.height;
+            : rows_height + (stacked ? shape.item_gap : 0.0) + row.item.height;
+    stacked = true;
   }
   // An empty list still reserves one row so the card cannot collapse.
   height += (std::max)(rows_height, candidate_row);
@@ -362,6 +374,15 @@ struct CandidatePlacementInput {
   int work_left = 0, work_top = 0, work_right = 0, work_bottom = 0;
   double scale = 1.0;
 };
+// The height a vertical list's flip decision starts from before any list has been measured this composition: the shipped presenter seeds its memory with DEFAULT_WINDOW_HEIGHT_DIP (CANDIDATE_WINDOW_HEIGHT, 232 DIP) and resets it to that on hide, so a short first page already flips above the caret when a full one would not fit below. The decision then follows the tallest list seen, capped at the work area height.
+inline constexpr double candidate_vertical_decision_seed_dip = 232.0;
+inline int64_t candidate_vertical_decision_height(int64_t tallest, double scale,
+                                                  int64_t available_height) {
+  const double factor = std::isfinite(scale) && scale > 0.0 ? scale : 1.0;
+  const auto seed = static_cast<int64_t>(
+      std::ceil(candidate_vertical_decision_seed_dip * factor));
+  return (std::min)((std::max)(tallest, seed), available_height);
+}
 struct CandidatePlacement {
   int x = 0;
   int y = 0;

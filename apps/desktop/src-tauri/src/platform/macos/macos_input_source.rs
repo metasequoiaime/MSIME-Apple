@@ -924,7 +924,7 @@ mod tests {
     #[test]
     fn only_a_packaged_app_resource_directory_counts() {
         assert!(is_packaged_resource_directory(Path::new(
-            "/Applications/MSIME Client Preview.app/Contents/Resources"
+            "/Applications/MSIME.app/Contents/Resources"
         )));
         assert!(!is_packaged_resource_directory(Path::new(
             "/Users/dev/msime/target/debug"

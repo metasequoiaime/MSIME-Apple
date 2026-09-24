@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [settled-model-directory]}
+source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
@@ -35,5 +35,17 @@ if [ -f "$settled_source/sentence-model-desktop.safetensors" ]; then
   echo "settled model staged: $settled_destination"
 else
   echo "no settled model at $settled_source; the desktop rerank pass stays off"
+fi
+
+# Optional: non-English candidate glosses built by scripts/build_offline_glosses.py. Engine looks for them beside the resource directory, one zh-<lang>.db per target language; without them only English is glossed offline.
+glosses_source=${3:-$repo_root/target/offline-glosses}
+glosses_destination="$repo_root/target/macos/offline-glosses"
+rm -rf "$glosses_destination"
+if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
+  mkdir -p "$glosses_destination"
+  cp "$glosses_source"/zh-*.db "$glosses_source/offline-glosses-NOTICE.txt" "$glosses_destination/"
+  echo "offline glosses staged: $glosses_destination"
+else
+  echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
 fi
 echo "macOS resources staged from the pinned dictionary release: $destination"

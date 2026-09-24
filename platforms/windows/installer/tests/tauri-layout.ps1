@@ -12,11 +12,15 @@ if ($data.Count -ne 1 -or -not $data[0].Value.Contains('\html\*')) {
 }
 $server = @($records | Where-Object { $_.Value.Contains('\server_exe\*') })
 if ($server.Count -ne 1 -or -not $server[0].Value.Contains('recursesubdirs')) {
-    throw 'Missing native/Tauri executable installation rule'
+    throw 'Missing native WinUI/Tauri executable installation rule'
+}
+# The voice runtime DLLs carry upstream version resources; an upgrade must replace them with the pinned build even when an older one reports a higher version.
+if (-not $server[0].Value.Contains('ignoreversion')) {
+    throw 'Server files, including the voice runtime, can be kept back on upgrade'
 }
 if (-not $script.Contains('#define MySettingsExeName "msime-client-settings.exe"') -or
     -not $script.Contains('{#MySettingsExeName}')) {
-    throw 'Start Menu shortcut does not target the staged Tauri settings executable'
+    throw 'Start Menu shortcut does not target the staged WinUI settings executable'
 }
 $dataDirRecords = @($records | Where-Object { $_.Value.Contains('{code:GetDataDir}') })
 if ($dataDirRecords.Count -lt 3) {
@@ -46,10 +50,14 @@ if (-not $script.Contains('function MigrateUserDataDir') -or
     -not $script.Contains('MigrateUserDataDir(ResolvePreviousDataDir')) {
     throw 'Installer does not migrate user data when DataDir changes'
 }
-if (-not $script.Contains('/COPY:DAT') -or $script.Contains('/MOVE')) {
+if ($script.Contains('/MOVE') -or
+    -not $script.Contains("Log('Copying user data; the previous directory is kept until installation succeeds.')") -or
+    -not $script.Contains('DataDirMigrated := True') -or
+    -not $script.Contains('procedure FinishDataDirMove')) {
     throw 'Installer migration must retain the previous data directory for recovery'
 }
-if (-not $script.Contains('用户数据复制失败，安装已停止')) {
+if (-not $script.Contains('RobocopySucceeded') -or
+    -not $script.Contains('原目录中的数据保持不变')) {
     throw 'Installer migration must fail closed when user data copy fails'
 }
-Write-Output 'Installer carries native/Tauri outputs without loose legacy HTML'
+Write-Output 'Installer carries native WinUI/Tauri outputs without loose legacy HTML'

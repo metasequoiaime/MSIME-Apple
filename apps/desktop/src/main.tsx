@@ -41,6 +41,7 @@ import {
   type PanelClient,
   type VoicePanelClient,
   type Preferences,
+  type PreferencesRecovery,
   type SettingsClient,
   type Snapshot,
   type DictionaryClient,
@@ -52,6 +53,11 @@ import {
   type LinuxSetupClient,
   type LinuxSetupLine,
   type LinuxSetupStatus,
+  type McpClientId,
+  type McpInstallOutcome,
+  type McpServerStatus,
+  type LocalVoiceModelList,
+  type LocalVoiceModelProgress,
   UNBATCHED_DICTIONARY_FILE_BYTES,
 } from "@msime/ui";
 import "@msime/ui/styles.css";
@@ -225,6 +231,16 @@ const client: SettingsClient = {
     move: () => invoke("move_data_directory"),
   },
   pickVoiceModelPath: () => invoke("pick_voice_model_path"),
+  localVoiceModels: {
+    list: () => invoke<LocalVoiceModelList>("voice_local_models"),
+    install: (id) => invoke<string>("voice_local_model_install", { id }),
+    cancel: (id) => invoke<boolean>("voice_local_model_cancel", { id }),
+    remove: (id) => invoke<void>("voice_local_model_remove", { id }),
+    onProgress: (listener) =>
+      listen<LocalVoiceModelProgress>("voice-local-model-progress", (event) =>
+        listener(event.payload),
+      ),
+  },
   windowControl: async (action) => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();
@@ -595,6 +611,10 @@ function DesktopSettings() {
                       },
                 }
               : {}),
+            // The macOS input method writes diagnostic.log under Application Support, which the Finder hides; the host reveals it rather than asking the user to navigate there.
+            ...(host.platform === "macos"
+              ? { openDiagnosticLogDirectory: () => invoke<void>("open_diagnostic_log_directory") }
+              : {}),
             // A host binary older than the capability sends no field and reads as false, which
             // hides the page rather than offering buttons whose every press would fail.
             ...(host.vocabulary_review ? { vocabularyReview } : {}),
@@ -605,7 +625,30 @@ function DesktopSettings() {
                     invoke<string>("save_export", { name, contents }),
                 }
               : {}),
+            // msime-mcp is packaged beside the settings app on the three desktop hosts only.
+            ...(host.platform === "macos" ||
+            host.platform === "linux" ||
+            host.platform === "windows"
+              ? {
+                  mcpServerStatus: () => invoke<McpServerStatus>("mcp_server_status"),
+                  installMcpClient: (client: McpClientId, replace: boolean) =>
+                    invoke<McpInstallOutcome>("install_mcp_client", { client, replace }),
+                }
+              : {}),
             ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
+            // iOS has no recover_preferences command: its keyboard mirrors the AI settings natively and only a save keeps that mirror in step.
+            ...(host.platform !== "ios"
+              ? {
+                  recoverPreferences: () => invoke<PreferencesRecovery>("recover_preferences"),
+                }
+              : {}),
+            ...(host.platform === "macos" ||
+            host.platform === "linux" ||
+            host.platform === "windows"
+              ? {
+                  openPreferencesDirectory: () => invoke<void>("open_preferences_directory"),
+                }
+              : {}),
             ...(host.platform === "ios" || host.platform === "android"
               ? createMobileHostServices(host.platform, {
                   invoke,

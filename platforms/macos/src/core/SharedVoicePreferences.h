@@ -163,7 +163,7 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
     NSDictionary *strings = @{
         @"language": @"Language",
         @"asr_provider": @"ASRProvider", @"asr_endpoint": @"ASREndpoint",
-        @"asr_model": @"ASRModel", @"asr_token": @"ASRToken",
+        @"asr_model": @"ASRModel", @"asr_model_path": @"ASRModelPath", @"asr_token": @"ASRToken",
         @"capture_backend": @"CaptureBackend", @"capture_device": @"CaptureDevice",
         @"commit_mode": @"CommitMode",
         @"asr_app_key": @"DoubaoAppKey", @"asr_resource_id": @"DoubaoResourceID",

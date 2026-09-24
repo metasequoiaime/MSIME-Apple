@@ -14,8 +14,10 @@ param(
     # Deprecated: both resource layouts now use DesktopResourcesDirectory.
     [string]$DictionaryDirectory = 'MetasequoiaImeDict',
     [string]$ServerReleaseDirectory = '',
-    # Tauri release binary; relative overrides are resolved against RepoRoot.
-    [string]$DesktopExecutable = 'target/release/msime-desktop.exe',
+    # Native WinUI 3 settings binary; relative overrides are resolved against RepoRoot.
+    [string]$DesktopExecutable = 'target/windows-full/x64/bin/msime-client-settings.exe',
+    # Optional shared Tauri panel shell. The normal consolidated build stages it beside the Server.
+    [string]$DesktopPreviewExecutable = '',
     # Exact files from resources/desktop-dictionary.lock.json; full packages only.
     [string]$DesktopResourcesDirectory = 'target/desktop-resources',
     [string]$Tsf32ReleaseDirectory = '',
@@ -24,6 +26,8 @@ param(
     # the notice covers the whole product and lives at the root, one level above windows/, so where
     # to read it is no longer answered by where the tip is.
     [string]$NoticesDirectory = '.',
+    # The on-device speech runtime from scripts/fetch_voice_runtime.py --platform windows-x64; relative paths are resolved against RepoRoot. Used when the Server output does not already carry it.
+    [string]$VoiceRuntimeDirectory = 'target/voice-runtime/windows-x64',
     [switch]$Light
 )
 
@@ -78,7 +82,19 @@ $desktopSource = if (-not $PSBoundParameters.ContainsKey('DesktopExecutable') -a
 } else {
     Join-Path $RepoRoot $DesktopExecutable
 }
+$previewSource = $null
+if ($DesktopPreviewExecutable) {
+    $previewSource = if ([IO.Path]::IsPathRooted($DesktopPreviewExecutable)) {
+        $DesktopPreviewExecutable
+    } else {
+        Join-Path $RepoRoot $DesktopPreviewExecutable
+    }
+} else {
+    $stagedPreview = Join-Path $serverRelease 'MSIME.exe'
+    if (Test-Path -LiteralPath $stagedPreview -PathType Leaf) { $previewSource = $stagedPreview }
+}
 $dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
+$mcpRelease = Join-Path $serverRelease 'msime-mcp.exe'
 if (-not $Tsf32ReleaseDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot 'target/windows-full/x86/bin') -PathType Container)) {
     $Tsf32ReleaseDirectory = 'target/windows-full/x86/bin'
 }
@@ -133,11 +149,15 @@ $handwritingProvenance = Join-Path $RepoRoot 'vendor\MSIME-Engine\handwriting\pr
 
 Assert-PathExists -LiteralPath $RepoRoot -Description '源码仓库根目录'
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) {
-    throw "缺少 Tauri 外壳，请先构建或通过 -DesktopExecutable 指定：$desktopSource"
+    throw "缺少 WinUI 3 设置窗口，请先构建或通过 -DesktopExecutable 指定：$desktopSource"
+}
+if ($DesktopPreviewExecutable -and -not (Test-Path -LiteralPath $previewSource -PathType Leaf)) {
+    throw "缺少 Tauri 面板外壳，请先构建或通过 -DesktopPreviewExecutable 指定：$previewSource"
 }
 Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输出目录'
 Assert-PathExists -LiteralPath (Join-Path $serverRelease 'MetasequoiaImeWatchdog.exe') -Description 'Watchdog Release EXE'
 Assert-PathExists -LiteralPath $dictionaryReplayRelease -Description '用户词库回放程序 Release EXE'
+Assert-PathExists -LiteralPath $mcpRelease -Description 'MCP 服务程序 Release EXE'
 Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf32Pdb -Description '32 位 TSF Release PDB'
@@ -215,6 +235,31 @@ if ($hasHandwritingModel) {
     }
 }
 
+# On-device speech recognition. The Server loads sherpa-onnx-c-api.dll with LoadLibrary from its own directory, and onnxruntime.dll and its provider bridge resolve beside it, so all three ride in server_exe. Build-Client.ps1 stages them into the Server output; a separately fetched runtime directory is the fallback. The set is all or nothing: a partial one would install a recognizer that fails at first use, so it is refused here, before any previous staging is replaced. With none of them the package installs without local recognition, and a dictation set to the local provider says the component cannot be loaded.
+$voiceRuntimeLibraries = @('sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
+$voiceRuntimeSource = if ([IO.Path]::IsPathRooted($VoiceRuntimeDirectory)) {
+    $VoiceRuntimeDirectory
+} else { Join-Path $RepoRoot $VoiceRuntimeDirectory }
+$voiceRuntimeFrom = $null
+foreach ($candidate in @($serverRelease, $voiceRuntimeSource)) {
+    $present = @($voiceRuntimeLibraries | Where-Object { Test-Path -LiteralPath (Join-Path $candidate $_) -PathType Leaf })
+    if ($present.Count -eq 0) { continue }
+    if ($present.Count -ne $voiceRuntimeLibraries.Count) {
+        $missing = @($voiceRuntimeLibraries | Where-Object { $_ -notin $present })
+        throw "本地语音识别运行时不完整（$candidate），缺少：$($missing -join ', ')"
+    }
+    $voiceRuntimeFrom = $candidate
+    break
+}
+# The runtime ships under Apache-2.0 (sherpa-onnx) and MIT (ONNX Runtime), both of which require their license to travel with the binaries. Collect-Notices.ps1 writes those sections; a notice file without them (an older collection, a hand-supplied one) would ship the DLLs unlicensed, so it is refused here, before any previous staging is replaced.
+if ($null -ne $voiceRuntimeFrom) {
+    $noticeText = [IO.File]::ReadAllText($thirdPartyNotices)
+    $missingVoiceNotices = @(@('sherpa-onnx', 'ONNX Runtime') | Where-Object { -not $noticeText.Contains($_) })
+    if ($missingVoiceNotices.Count -gt 0) {
+        throw "第三方声明缺少本地语音识别运行时的许可证（$($missingVoiceNotices -join ', ')），请用 Collect-Notices.ps1 重新生成：$thirdPartyNotices"
+    }
+}
+
 $targetAppData = Join-Path $PSScriptRoot 'app_data'
 $targetServer = Join-Path $PSScriptRoot 'server_exe'
 $targetTsf = Join-Path $PSScriptRoot 'tsf_dll'
@@ -273,6 +318,13 @@ $desktopPdbSource = [IO.Path]::ChangeExtension($desktopSource, '.pdb')
 if (Test-Path -LiteralPath $desktopPdbSource -PathType Leaf) {
     Copy-Item -LiteralPath $desktopPdbSource -Destination $targetDesktopPdb
 }
+if ($previewSource) {
+    Copy-Item -LiteralPath $previewSource -Destination (Join-Path $targetServer 'MSIME.exe') -Force
+    $previewPdbSource = [IO.Path]::ChangeExtension($previewSource, '.pdb')
+    if (Test-Path -LiteralPath $previewPdbSource -PathType Leaf) {
+        Copy-Item -LiteralPath $previewPdbSource -Destination (Join-Path $targetServer 'MSIME.pdb') -Force
+    }
+}
 # Inno recursively installs server_exe under Program Files. Keep these verified
 # read-only sources separate from legacy app_data and per-user writable state.
 $targetResources = Join-Path $targetServer 'resources'
@@ -327,6 +379,27 @@ if (-not $Light) {
         Write-Host "未找到落定重排模型（$settledSource），桌面落定重排保持关闭"
     }
 }
+# Non-English candidate glosses (scripts/build_offline_glosses.py), one zh-<lang>.db per target language, installed beside resources for the same reason as the settled model: the verified directory must equal the dictionary lock exactly, and the Engine looks for them in this sibling. Optional; without them the candidate glosses stay English only.
+$glossesSource = Join-Path $RepoRoot 'target/offline-glosses'
+$glossesTarget = Join-Path $targetServer 'offline-glosses'
+if (Test-Path -LiteralPath $glossesTarget) {
+    Remove-Item -LiteralPath $glossesTarget -Recurse -Force
+}
+if (-not $Light) {
+    $glossFiles = @()
+    $glossNotice = Join-Path $glossesSource 'offline-glosses-NOTICE.txt'
+    if (Test-Path -LiteralPath $glossNotice -PathType Leaf) {
+        $glossFiles = @(Get-ChildItem -LiteralPath $glossesSource -Filter 'zh-*.db' -File)
+    }
+    if ($glossFiles.Count -gt 0) {
+        New-Item -ItemType Directory -Path $glossesTarget -Force | Out-Null
+        foreach ($file in $glossFiles) { Copy-Item -LiteralPath $file.FullName -Destination $glossesTarget -Force }
+        Copy-Item -LiteralPath $glossNotice -Destination $glossesTarget -Force
+        Write-Host "Offline glosses staged: $($glossFiles.Count) languages in $glossesTarget"
+    } else {
+        Write-Host "No offline glosses with their notice in $glossesSource; candidate glosses stay English only"
+    }
+}
 # Both package modes replace Server output. Copy model resources afterwards,
 # otherwise Reset-Directory silently removes them from an otherwise valid package.
 if ($hasHandwritingModel) {
@@ -338,6 +411,14 @@ if ($hasHandwritingModel) {
     }
 } else {
     Write-Host "未找到手写模型，跳过：$handwritingModel"
+}
+if ($null -eq $voiceRuntimeFrom) {
+    Write-Host "未找到本地语音识别运行时（$voiceRuntimeSource），安装包不含本地语音识别"
+} elseif ($voiceRuntimeFrom -ne $serverRelease) {
+    # A runtime inside the Server output was already copied with it above.
+    foreach ($library in $voiceRuntimeLibraries) {
+        Copy-Item -LiteralPath (Join-Path $voiceRuntimeFrom $library) -Destination $targetServer -Force
+    }
 }
 Get-ChildItem -LiteralPath $targetServer -Recurse -File |
     Where-Object {

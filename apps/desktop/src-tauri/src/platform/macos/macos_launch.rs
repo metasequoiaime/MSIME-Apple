@@ -60,6 +60,9 @@ pub(crate) fn resolve_with_resources(
         let state_root = state_directory.as_deref().unwrap_or(application_directory);
         prepare_default_options(resources, state_root, &options_path)?;
     }
+    if options_path.symlink_metadata().is_ok() {
+        refresh_options(&options_path);
+    }
     let file =
         std::fs::File::open(&options_path).map_err(|_| "Cannot read prepared HostOptions JSON")?;
     let mut bytes = Vec::new();
@@ -302,6 +305,15 @@ pub(crate) fn recover_default_options(application_directory: &Path, native_optio
         return false;
     }
     replace_options(&local, &document).is_ok()
+}
+
+/// Bring options written before an app upgrade up to the dictionary generation this build's lock describes, the counterpart of the user-dictionary replay the Windows installer runs on every upgrade: the Host API prepares the new generation, replays the user journal into it and atomically rewrites only `resources` and `dictionaries`. This runs before any session exists. Symlinks and documents outside the prepared layout are left alone by the Host API. A failure keeps the previous generation in use and the next launch tries again; the error is not printed because it can name private paths.
+fn refresh_options(options_path: &Path) {
+    if msime_host_api::refresh_host_options(options_path).is_err() {
+        eprintln!(
+            "Cannot update the dictionary to the installed generation; keeping the current one"
+        );
+    }
 }
 
 fn prepare_default_options(
@@ -581,5 +593,57 @@ mod tests {
         );
         assert!(!application.join("runtime-options.json").exists());
         assert!(legacy.join("runtime-options.json").exists());
+    }
+
+    fn prepared_layout(root: &Path, resources: &Path, generation: &str) -> Value {
+        let state = root.join("state");
+        json!({
+            "api_version":1,
+            "resources":resources,
+            "user_data":state.join("user"),
+            "cache":state.join("cache"),
+            "dictionaries":state.join("user/dictionaries").join(generation),
+            "preferences_directory":state,
+            "online_provider_socket":"/synthetic/provider.sock"
+        })
+    }
+
+    #[test]
+    fn a_stale_generation_that_cannot_be_refreshed_keeps_the_file_and_still_launches() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("runtime-options.json");
+        let document = prepared_layout(
+            root.path(),
+            &root.path().join("missing-resources"),
+            "previous-generation",
+        );
+        let bytes = serde_json::to_vec_pretty(&document).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let launch = resolve(root.path(), None, None).unwrap();
+        assert_eq!(launch.document, document);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(launch.preferences_directory, root.path().join("state"));
+    }
+
+    #[test]
+    fn options_already_on_the_installed_generation_are_not_rewritten() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("runtime-options.json");
+        let specification: msime_client_core::resources::ResourceSet = serde_json::from_str(
+            include_str!("../../../../../../resources/desktop-dictionary.lock.json"),
+        )
+        .unwrap();
+        let document = prepared_layout(
+            root.path(),
+            &root.path().join("missing-resources"),
+            &specification.generation().unwrap(),
+        );
+        let bytes = serde_json::to_vec_pretty(&document).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        let launch = resolve(root.path(), None, None).unwrap();
+        assert_eq!(launch.document, document);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
     }
 }

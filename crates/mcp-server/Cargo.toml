@@ -1,0 +1,33 @@
+[package]
+name = "msime-mcp-server"
+description = "Model Context Protocol server over stdio that lets a local agent read and, when allowed, manage the input method's quick phrases, preferences and typing statistics."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "msime-mcp"
+path = "src/main.rs"
+
+[dependencies]
+msime-client-core = { path = "../client-core" }
+msime-host-api = { path = "../host-api" }
+rmcp = { version = "3.4.1", default-features = false, features = ["server", "macros", "transport-io"] }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { version = "1", features = ["rt", "macros", "io-std"] }
+
+# Where the Windows Server keeps its runtime options.
+[target.'cfg(windows)'.dependencies]
+msime-host-windows = { path = "../host-windows" }
+
+[dev-dependencies]
+rmcp = { version = "3.4.1", default-features = false, features = ["client", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process"] }
+rusqlite = "0.40"
+
+[lints]
+workspace = true

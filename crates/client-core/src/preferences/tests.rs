@@ -148,7 +148,16 @@ fn local_recognition_stores_an_absolute_model_path_and_refuses_anything_else() {
         },
         ..Preferences::default()
     };
-    for accepted in ["", "/Users/someone/models/ggml-large-v3-turbo.bin"] {
+    // A Windows path is absolute too: the Windows host saves one, and the same document is validated wherever it is read.
+    for accepted in [
+        "",
+        "/Users/someone/models/ggml-large-v3-turbo.bin",
+        "/Users/someone/Library/Application Support/msime/voice-models/x-asr-zh-en-streaming",
+        r"C:\Users\someone\AppData\Roaming\msime\voice-models\sense-voice-small",
+        "D:/models/ggml.bin",
+        r"\\?\C:\models\x-asr-zh-en-streaming",
+        r"\\fileserver\share\models\ggml.bin",
+    ] {
         assert!(
             with_path(accepted).validate().is_ok(),
             "{accepted:?} should be accepted"
@@ -156,7 +165,14 @@ fn local_recognition_stores_an_absolute_model_path_and_refuses_anything_else() {
     }
     // A relative path resolves against whichever process happens to read it, and a control character
     // reaches the recognizer as a filename it cannot open. Both fail while the user holds the shortcut.
-    for rejected in ["models/ggml.bin", "~/models/ggml.bin", "/models/gg\nml.bin"] {
+    for rejected in [
+        "models/ggml.bin",
+        "~/models/ggml.bin",
+        "/models/gg\nml.bin",
+        r"C:models\ggml.bin",
+        r"\models\ggml.bin",
+        "C:\\models\\gg\tml.bin",
+    ] {
         assert!(
             matches!(
                 with_path(rejected).validate(),
@@ -166,6 +182,57 @@ fn local_recognition_stores_an_absolute_model_path_and_refuses_anything_else() {
         );
     }
     assert!(with_path(&"/".repeat(4097)).validate().is_err());
+}
+
+#[test]
+fn local_model_mirror_is_empty_or_an_https_prefix() {
+    let with_mirror = |mirror: &str| Preferences {
+        voice_input: VoiceInputPreferences {
+            asr_model_mirror: mirror.into(),
+            ..Preferences::default().voice_input
+        },
+        ..Preferences::default()
+    };
+    assert!(Preferences::default()
+        .voice_input
+        .asr_model_mirror
+        .is_empty());
+    for accepted in [
+        "",
+        "https://ghproxy.example.test",
+        "https://mirror.example.test/gh/",
+    ] {
+        assert!(
+            with_mirror(accepted).validate().is_ok(),
+            "{accepted:?} should be accepted"
+        );
+    }
+    // A plain-HTTP mirror would let anyone on the path swap the model; the checksum still catches it, but the download should not be attempted at all.
+    for rejected in [
+        "http://ghproxy.example.test",
+        "https://",
+        "ghproxy.example.test",
+        "https://mirror.example.test/\n",
+        "https://mirror example.test",
+    ] {
+        assert!(
+            matches!(
+                with_mirror(rejected).validate(),
+                Err(PreferencesError::InvalidVoiceInput)
+            ),
+            "{rejected:?} should be rejected"
+        );
+    }
+    let long = format!("https://{}", "a".repeat(2048));
+    assert!(with_mirror(&long).validate().is_err());
+    // Older documents without the field still load, with no mirror.
+    let mut legacy = serde_json::to_value(Preferences::default()).unwrap();
+    legacy["voice_input"]
+        .as_object_mut()
+        .unwrap()
+        .remove("asr_model_mirror");
+    let loaded: Preferences = serde_json::from_value(legacy).unwrap();
+    assert!(loaded.voice_input.asr_model_mirror.is_empty());
 }
 
 #[test]
@@ -271,6 +338,40 @@ fn telemetry_is_opt_in_and_survives_a_save() {
     let saved = store.save(0, enabled).unwrap();
     assert!(saved.preferences.telemetry_enabled);
     assert!(store.load().unwrap().preferences.telemetry_enabled);
+}
+
+#[test]
+fn translation_account_is_opt_in_and_omitted_until_chosen() {
+    let defaults = Preferences::default();
+    assert!(!defaults.translation_account);
+    // An older strict parser must still read a document that never chose the account.
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert!(serialized.get("translation_account").is_none());
+    assert!(
+        !serde_json::from_value::<Preferences>(serialized.clone())
+            .unwrap()
+            .translation_account
+    );
+    let mut malformed = serialized;
+    malformed["translation_account"] = "yes".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let chosen = Preferences {
+        translation_account: true,
+        ..defaults
+    };
+    assert!(chosen.validate().is_ok());
+    assert_eq!(
+        serde_json::to_value(&chosen).unwrap()["translation_account"],
+        serde_json::Value::Bool(true)
+    );
+    let saved = store.save(0, chosen).unwrap();
+    assert!(saved.preferences.translation_account);
+    let loaded = store.load().unwrap().preferences;
+    assert!(loaded.translation_account);
+    assert!(!loaded.restored_to_defaults().translation_account);
 }
 
 #[test]
@@ -510,11 +611,15 @@ fn default_ime_mode_legacy_defaults_and_roundtrips() {
         .remove("default_ime_mode");
     let bytes = serde_json::to_vec(&legacy).unwrap();
     fs::write(store.path(), bytes).unwrap();
-    // A document written before the field existed takes the default, which is Chinese.
-    assert_eq!(
-        store.load().unwrap().preferences.default_ime_mode,
+    // A document written before the field existed takes the platform default: English on Windows, as the source product's factory template, and Chinese everywhere else.
+    let expected = if cfg!(windows) {
+        DefaultImeMode::English
+    } else {
         DefaultImeMode::Chinese
-    );
+    };
+    assert_eq!(DefaultImeMode::default(), expected);
+    assert_eq!(Preferences::default().default_ime_mode, expected);
+    assert_eq!(store.load().unwrap().preferences.default_ime_mode, expected);
     // An explicit English is still English; only the absent case moved.
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["default_ime_mode"] = "english".into();
@@ -2162,6 +2267,7 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     edited.voice_input.asr_token = "fixture-asr-token".into();
     edited.voice_input.asr_endpoint = "https://asr.example.test/v1".into();
     edited.voice_input.asr_model_path = "/Users/fixture/models/ggml.bin".into();
+    edited.voice_input.asr_model_mirror = "https://mirror.example.test/".into();
     edited.voice_input.polish_token = "fixture-polish-token".into();
     edited.voice_input.polish_enabled = true;
     edited.ai_assistant.token = "fixture-ai-token".into();
@@ -2215,6 +2321,10 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     assert_eq!(
         restored.voice_input.asr_model_path,
         "/Users/fixture/models/ggml.bin"
+    );
+    assert_eq!(
+        restored.voice_input.asr_model_mirror,
+        "https://mirror.example.test/"
     );
     // The seeding marker is not a setting: clearing it would re-seed rules the user turned off.
     assert!(restored.fuzzy_pinyin.seeded);
@@ -2320,6 +2430,257 @@ fn saving_clears_staged_writes_that_were_abandoned() {
     assert!(directory_named_like_a_temporary.is_dir());
     // And the save itself did what it was asked.
     assert_eq!(store.load().unwrap().preferences.candidate_font_size, 20);
+}
+
+fn corrupt_backups(directory: &Path) -> Vec<PathBuf> {
+    let mut backups: Vec<PathBuf> = fs::read_dir(directory)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("preferences.json.corrupt-"))
+        })
+        .collect();
+    backups.sort();
+    backups
+}
+
+fn expect_recovered(outcome: RecoveryOutcome) -> (PreferencesSnapshot, PathBuf, bool) {
+    match outcome {
+        RecoveryOutcome::Recovered {
+            snapshot,
+            backup_path,
+            salvaged,
+        } => (snapshot, backup_path, salvaged),
+        RecoveryOutcome::NotNeeded(_) => panic!("expected a recovery"),
+    }
+}
+
+#[test]
+fn recover_backs_up_truncated_json_and_writes_defaults() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let damaged = br#"{"format_version":1,"revision":4,"preferences":{"scheme":"#;
+    fs::write(directory.path().join("preferences.json"), damaged).unwrap();
+    assert!(matches!(store.load(), Err(PreferencesError::Json(_))));
+
+    let (snapshot, backup, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(!salvaged);
+    assert_eq!(fs::read(&backup).unwrap(), damaged);
+    assert_eq!(backup.parent().unwrap(), directory.path());
+    let name = backup.file_name().unwrap().to_str().unwrap();
+    let stamp = name.strip_prefix("preferences.json.corrupt-").unwrap();
+    assert_eq!(stamp.len(), 15);
+    assert_eq!(stamp.as_bytes()[8], b'-');
+    assert!(stamp
+        .bytes()
+        .enumerate()
+        .all(|(index, byte)| index == 8 || byte.is_ascii_digit()));
+    assert_eq!(snapshot.preferences, Preferences::default());
+    // The revision could not be read, so it restarts above anything a host counted to.
+    assert!(snapshot.revision > 1_000_000_000);
+    assert_eq!(store.load().unwrap(), snapshot);
+    // The repaired document saves like any other.
+    store
+        .save(snapshot.revision, Preferences::default())
+        .unwrap();
+}
+
+#[test]
+fn recover_treats_an_empty_document_as_damaged() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    fs::write(directory.path().join("preferences.json"), b"").unwrap();
+    let (snapshot, backup, salvaged) = expect_recovered(store.recover_malformed().unwrap());
+    assert!(!salvaged);
+    assert!(fs::read(backup).unwrap().is_empty());
+    assert_eq!(store.load().unwrap(), snapshot);
+}
+
+#[test]
+fn recover_drops_only_the_unknown_and_ill_typed_fields() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let mut preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        candidate_page_size: 7,
+        candidate_font_size: 22,
+        clipboard_history: true,
+        ..Preferences::default()
+    };
+    preferences.ai_assistant.token = "synthetic-ai-token".into();
+    let saved = store.save(0, preferences.clone()).unwrap();
+    let mut document = serde_json::to_value(&saved).unwrap();
+    document["preferences"]["from_a_newer_build"] = serde_json::json!(true);
+    document["preferences"]["learning"] = serde_json::json!("yes");
+    fs::write(
+        directory.path().join("preferences.json"),
+        serde_json::to_vec(&document).unwrap(),
+    )
+    .unwrap();
+    assert!(store.load().is_err());
+
+    let (snapshot, _, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(salvaged);
+    assert_eq!(snapshot.revision, saved.revision + 1);
+    let expected = Preferences {
+        learning: Preferences::default().learning,
+        ..preferences
+    };
+    assert_eq!(snapshot.preferences, expected);
+    assert_eq!(store.load().unwrap(), snapshot);
+}
+
+#[test]
+fn recover_keeps_a_credential_beside_a_bad_sibling() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let mut preferences = Preferences::default();
+    preferences.custom_translation.endpoint = "https://translate.example/api".into();
+    preferences.custom_translation.api_key = "synthetic-translation-key".into();
+    preferences.tencent_tmt.secret_id = "SyntheticId".into();
+    let saved = store.save(0, preferences).unwrap();
+    let mut document = serde_json::to_value(&saved).unwrap();
+    document["preferences"]["custom_translation"]["enabled"] = serde_json::json!("sometimes");
+    document["preferences"]["tencent_tmt"]["region"] = serde_json::json!("not a region!");
+    fs::write(
+        directory.path().join("preferences.json"),
+        serde_json::to_vec(&document).unwrap(),
+    )
+    .unwrap();
+
+    let (snapshot, _, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(salvaged);
+    let translation = &snapshot.preferences.custom_translation;
+    assert_eq!(translation.api_key, "synthetic-translation-key");
+    assert_eq!(translation.endpoint, "https://translate.example/api");
+    assert_eq!(
+        translation.enabled,
+        CustomTranslationPreferences::default().enabled
+    );
+    assert_eq!(snapshot.preferences.tencent_tmt.secret_id, "SyntheticId");
+    assert_eq!(
+        snapshot.preferences.tencent_tmt.region,
+        TencentTmtPreferences::default().region
+    );
+}
+
+#[test]
+fn recover_handles_a_future_format_but_malformed_scope_leaves_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                candidate_page_size: 6,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let mut document = serde_json::to_value(&saved).unwrap();
+    document["format_version"] = serde_json::json!(2);
+    let bytes = serde_json::to_vec(&document).unwrap();
+    let path = directory.path().join("preferences.json");
+    fs::write(&path, &bytes).unwrap();
+
+    // The automatic path refuses a well-formed document from a newer build.
+    assert!(matches!(
+        store.recover_malformed(),
+        Err(PreferencesError::UnsupportedFormat)
+    ));
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert!(corrupt_backups(directory.path()).is_empty());
+
+    let (snapshot, backup, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(salvaged);
+    assert_eq!(fs::read(backup).unwrap(), bytes);
+    assert_eq!(snapshot.format_version, 1);
+    assert_eq!(snapshot.revision, saved.revision + 1);
+    assert_eq!(snapshot.preferences.candidate_page_size, 6);
+}
+
+#[test]
+fn recover_is_not_needed_for_valid_missing_or_repaired_documents() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    assert_eq!(
+        store.recover().unwrap(),
+        RecoveryOutcome::NotNeeded(PreferencesSnapshot::default())
+    );
+    assert!(!directory.path().join("preferences.json").exists());
+
+    let saved = store.save(0, Preferences::default()).unwrap();
+    let before = fs::read(directory.path().join("preferences.json")).unwrap();
+    assert_eq!(
+        store.recover().unwrap(),
+        RecoveryOutcome::NotNeeded(saved.clone())
+    );
+    assert_eq!(
+        fs::read(directory.path().join("preferences.json")).unwrap(),
+        before
+    );
+    assert!(corrupt_backups(directory.path()).is_empty());
+
+    fs::write(directory.path().join("preferences.json"), b"{").unwrap();
+    let (repaired, _, _) = expect_recovered(store.recover().unwrap());
+    assert_eq!(
+        store.recover().unwrap(),
+        RecoveryOutcome::NotNeeded(repaired)
+    );
+    assert_eq!(corrupt_backups(directory.path()).len(), 1);
+}
+
+#[test]
+fn recover_suffixes_a_backup_name_that_is_taken() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    // Two backups within the same second share a stamp; retry the rare pair that straddles a second.
+    let collided = (0..5).any(|_| {
+        let first = store.write_backup(b"first").unwrap();
+        let second = store.write_backup(b"second").unwrap();
+        assert_eq!(fs::read(&first).unwrap(), b"first");
+        assert_eq!(fs::read(&second).unwrap(), b"second");
+        let first = first.file_name().unwrap().to_str().unwrap().to_owned();
+        second.file_name().unwrap().to_str().unwrap() == format!("{first}-1")
+    });
+    assert!(collided);
+
+    // A whole recovery whose stamp is taken keeps both backups.
+    let path = directory.path().join("preferences.json");
+    fs::write(&path, b"damaged").unwrap();
+    let (_, backup, _) = expect_recovered(store.recover().unwrap());
+    assert_eq!(fs::read(backup).unwrap(), b"damaged");
+    assert!(corrupt_backups(directory.path()).len() >= 3);
+}
+
+#[cfg(unix)]
+#[test]
+fn recover_leaves_the_original_when_the_backup_cannot_be_written() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let path = directory.path().join("preferences.json");
+    fs::write(&path, b"{\"format_version\":").unwrap();
+    // Create the lock file while the directory is still writable.
+    assert!(store.load().is_err());
+    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o555)).unwrap();
+    let probe = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(directory.path().join("probe"));
+    if probe.is_ok() {
+        // Running with privileges that ignore directory permissions; nothing to observe.
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let result = store.recover();
+    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(matches!(result, Err(PreferencesError::Io(_))));
+    assert_eq!(fs::read(&path).unwrap(), b"{\"format_version\":");
+    assert!(corrupt_backups(directory.path()).is_empty());
 }
 
 #[test]

@@ -55,6 +55,7 @@
 #include "../src/system/TypingStatistics.h"
 #include "SystemTheme.h"
 #include "../src/voice/VoiceAction.h"
+#include "../src/voice/VoiceHotwords.h"
 #include "../src/voice/VoiceProviderOptions.h"
 #include "../src/overlay/WaveOverlayModel.h"
 #include "../src/overlay/WaveOverlaySurface.h"
@@ -458,6 +459,7 @@ public:
     voice_socket_.clear();
     voice_language_ = "zh-cn";
     voice_options_ = Json::object();
+    voice_host_options_ = Json();
     voice_enabled_ = true;
     voice_hotkey_ctrl_f9_ = true;
     voice_hotkey_ralt_ = true;
@@ -1508,6 +1510,8 @@ public:
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
     options["phrase_preedit"] = true;
+    // On-device recognition reads the user's dictionary words as hotwords with the same options; see requestVoice.
+    voice_host_options_ = options;
     const auto document = options.dump();
     view_ = response(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
     session_ = view_.at("session").get<uint64_t>();
@@ -1750,6 +1754,30 @@ public:
       online_query_.clear();
     }
   }
+  // A non-English target whose offline dictionary is installed. The user's own translator outranks that dictionary, so after it answers the provider is asked about every candidate and its answers replace the dictionary's (prefer_online_glosses).
+  static bool offlineDictionary(const Json &query) {
+    const auto target = query.value("target_language", std::string{});
+    const auto installed = query.value("offline_gloss_languages", Json::array());
+    return target != "en" && installed.is_array() &&
+           std::find(installed.begin(), installed.end(), target) != installed.end();
+  }
+  static Json preferOnline(const Json &glosses, const Json &online) {
+    std::vector<std::pair<std::string, std::string>> merged, answers;
+    const auto read = [](const Json &values, auto &into) {
+      if (!values.is_array()) return;
+      for (const auto &item : values)
+        if (item.is_object())
+          into.emplace_back(item.value("text", std::string{}),
+                            item.value("translation", std::string{}));
+    };
+    read(glosses, merged);
+    read(online, answers);
+    msime::linux_host::prefer_online_glosses(merged, answers);
+    auto result = Json::array();
+    for (const auto &[text, translation] : merged)
+      result.push_back({{"text", text}, {"translation", translation}});
+    return result;
+  }
   void startTranslation(const Json &query, bool offline, Json local = Json::array()) {
     const auto encoded = query.dump();
     translation_query_ = encoded;
@@ -1757,13 +1785,16 @@ public:
     auto candidates = Json::array();
     for (const auto &candidate : view_.at("candidates"))
       candidates.push_back({{"text", candidate.at("text")}, {"source", candidate.at("source")}});
-    const auto gloss = Json{{"generation", query.at("generation")},
-                            {"user_data", query.value("user_data", Json())},
-                            {"candidates", candidates}}.dump();
+    const bool dictionary = offlineDictionary(query);
+    auto glossRequest = Json{{"generation", query.at("generation")},
+                             {"user_data", query.value("user_data", Json())},
+                             {"candidates", candidates}};
+    if (dictionary) glossRequest["target_language"] = query.at("target_language");
+    const auto gloss = glossRequest.dump();
     const auto socket = preferences_.value("candidate_translations", false)
                             ? translation_socket_ : std::string{};
     translation_job_ = std::async(std::launch::async,
-        [query, encoded, gloss, offline, local, socket, resources = resources_] () mutable {
+        [query, encoded, gloss, offline, local, socket, dictionary, resources = resources_] () mutable {
           if (offline) {
             try {
               local = response(msime_client_candidate_gloss_request(
@@ -1776,7 +1807,7 @@ public:
             auto missing = Json::array();
             for (const auto &candidate : query.at("candidates")) {
               const auto &text = candidate.at("text");
-              if (std::none_of(local.begin(), local.end(), [&](const Json &item) {
+              if (dictionary || std::none_of(local.begin(), local.end(), [&](const Json &item) {
                     return item.at("text") == text;
                   })) missing.push_back(text);
             }
@@ -1787,7 +1818,9 @@ public:
                 auto result = response(msime_client_translation_provider_request(
                     reinterpret_cast<const uint8_t *>(request.data()), request.size(),
                     reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
-                if (result.is_object()) {
+                if (result.is_object() && dictionary) {
+                  local = preferOnline(local, result.value("translations", Json::array()));
+                } else if (result.is_object()) {
                   for (const auto &item : result.value("translations", Json::array()))
                     local.push_back(item);
                   const auto userData = query.value("user_data", std::string{});
@@ -1842,7 +1875,7 @@ public:
         return;
       }
       if (std::chrono::steady_clock::now() < translation_due_) return;
-      startTranslation(query, query.value("english_gloss", false));
+      startTranslation(query, query.value("english_gloss", false) || offlineDictionary(query));
     } catch (...) { /* Never expose candidate text or provider credentials in errors. */ }
   }
   void refreshClipboard() {
@@ -2395,6 +2428,7 @@ public:
     const auto generation = view_.value("generation", uint64_t{});
     const auto language = voice_language_;
     const auto options = voice_options_;
+    const auto host_options = msime::linux_host::voice_wants_hotwords(options) ? voice_host_options_ : Json();
     voice_generation_ = generation;
     voice_mailbox_ = std::make_shared<FcitxVoiceMailbox>();
     voice_preedit_.clear();
@@ -2413,9 +2447,10 @@ public:
     wave_overlay_.actions_visible = true;
     updateVoiceOverlay();
     const auto mailbox = voice_mailbox_;
-    voice_job_ = std::async(std::launch::async, [socket, generation, language, options, mailbox] {
-      const auto query = Json{{"language", language}, {"generation", generation},
-                              {"options", options}, {"stream", true}}.dump();
+    voice_job_ = std::async(std::launch::async, [socket, generation, language, options, host_options, mailbox] {
+      auto request = msime::linux_host::voice_query(language, generation, options, host_options);
+      request["stream"] = true;
+      const auto query = request.dump();
       std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
           msime_client_voice_provider_stream_feedback(
               reinterpret_cast<const uint8_t *>(query.data()), query.size(),
@@ -2989,6 +3024,8 @@ public:
   std::string voice_socket_;
   std::string voice_language_ = "zh-cn";
   Json voice_options_ = Json::object();
+  // The HostOptions document of the current session, for msime_client_voice_hotwords.
+  Json voice_host_options_;
   bool voice_enabled_ = true;
   bool voice_hotkey_ctrl_f9_ = true;
   bool voice_hotkey_ralt_ = true;
@@ -6025,7 +6062,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       const auto reading = view_.value("editing_text", std::string{});
       const auto &candidates = view_.at("candidates");
       if (sym == FcitxKey_space) {
-        const auto action = japanese_conversion_.space(reading, candidates.size());
+        const int first_source = candidates.empty() ? -1 : candidates[0].value("source", -1);
+        const auto action = japanese_conversion_.space(reading, candidates.size(), first_source);
         if (action == Action::Start) return true;
         if (action == Action::StepNext || action == Action::StepFirst)
           return command(action == Action::StepFirst ? MSIME_FIRST_CANDIDATE

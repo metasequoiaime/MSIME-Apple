@@ -121,7 +121,7 @@ int main(int argc, char **argv) {
         local[@"asr_model_path"] = file;
         MSIMEHTTPVoiceRequest *localRequest = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:local error:nil];
         // A build without the recognizer must refuse the provider rather than quietly recognising elsewhere.
-        assert((localRequest != nil) == msime::voice::local_asr_available());
+        assert((localRequest != nil) == MSIMEVoiceLocalWhisperBuilt());
         assert(!localRequest || localRequest.sampleLimit == msime::voice::local_asr_sample_limit);
         assert([NSFileManager.defaultManager removeItemAtPath:directory error:nil]);
     }

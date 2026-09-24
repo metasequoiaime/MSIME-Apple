@@ -35,9 +35,14 @@ Check (-not [string]::IsNullOrWhiteSpace($versionDir)) 'VersionDir recorded in H
 Check (Test-Path -LiteralPath $app.ServerPath -PathType Leaf) "ServerPath points at an installed file ($($app.ServerPath))"
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir 'config.toml') -PathType Leaf) 'user config.toml created in DataDir'
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir '.metasequoiaime-data') -PathType Leaf) 'DataDir ownership marker written'
-foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe') {
+# The three voice runtime libraries are what the Server loads for on-device speech recognition; Build-Client.ps1 stages them for every release package.
+foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-mcp.exe',
+    'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll') {
     Check (Test-Path -LiteralPath (Join-Path $pf64 "server\$name") -PathType Leaf) "server\$name installed"
 }
+# The MCP server an AI assistant starts from the install directory must run there, not only be copied; --version touches no state and prints to stderr.
+$mcpVersion = (& (Join-Path $pf64 'server\msime-mcp.exe') --version 2>&1 | Out-String).Trim()
+Check ($LASTEXITCODE -eq 0 -and $mcpVersion -like 'msime-mcp *') "installed msime-mcp.exe runs ($mcpVersion)"
 $tip64 = Join-Path $pf64 "$versionDir\MetasequoiaImeTsf.dll"
 $tip32 = Join-Path $pf32 "$versionDir\MetasequoiaImeTsf.dll"
 Check (Test-Path -LiteralPath $tip64 -PathType Leaf) '64-bit TSF DLL installed'
@@ -66,6 +71,38 @@ $text = if (Test-Path -LiteralPath $notices) { Get-Content -LiteralPath $notices
 Check ($text.Contains('Rust crates statically linked into the MSIME host library and binaries')) 'installed notices contain the Rust crate section'
 Check ($text.Contains('npm packages bundled into the MSIME desktop settings frontend')) 'installed notices contain the npm package section'
 Check (Test-Path -LiteralPath (Join-Path $pf64 'LICENSE.txt') -PathType Leaf) 'LICENSE.txt installed'
+
+# ---- upgrade in place, then move the data directory ----
+# DataDir is the Server state root, so a reinstall must keep everything that is not a package file, and choosing a new directory must move all of it, as the source installer does. The new directory is nested inside the old one on purpose: the source installer's recursive delete of the old directory would take the moved data with it.
+function Install([string]$Directory, [string]$Log) {
+    $run = Start-Process -FilePath $Installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DATADIR=`"$Directory`"", "/LOG=`"$logs\$Log`"" -Wait -PassThru
+    if ($run.ExitCode -ne 0) { Get-Content -LiteralPath "$logs\$Log" -Tail 60; throw "installer exited with $($run.ExitCode)" }
+}
+$seeded = @{ 'preferences.json' = '{"smoke":"preferences"}'; 'user\smoke-user.txt' = 'user'; 'skins\smoke\skin.json' = 'skin' }
+foreach ($item in $seeded.GetEnumerator()) {
+    $path = Join-Path $dataDir $item.Key
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+    Set-Content -LiteralPath $path -Value $item.Value -NoNewline -Encoding utf8
+}
+Set-Content -LiteralPath (Join-Path $dataDir 'runtime-options.json') -Value 'smoke-stale-runtime-options' -NoNewline -Encoding utf8
+Install $dataDir 'upgrade.log'
+foreach ($item in $seeded.GetEnumerator()) {
+    $path = Join-Path $dataDir $item.Key
+    Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw) -eq $item.Value) "reinstall keeps $($item.Key)"
+}
+$movedDir = Join-Path $dataDir 'moved'
+Install $movedDir 'move.log'
+$app = Get-ItemProperty -LiteralPath $appKey
+Check ($app.DataDir -eq $movedDir) "DataDir recorded as the new directory ($($app.DataDir))"
+foreach ($item in $seeded.GetEnumerator()) {
+    $path = Join-Path $movedDir $item.Key
+    Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw) -eq $item.Value) "move carries $($item.Key)"
+}
+$runtimeOptions = Join-Path $movedDir 'runtime-options.json'
+Check (-not ((Test-Path -LiteralPath $runtimeOptions) -and (Get-Content -LiteralPath $runtimeOptions -Raw) -eq 'smoke-stale-runtime-options')) 'move leaves the old runtime-options.json behind'
+Check (Test-Path -LiteralPath (Join-Path $movedDir 'msime.db') -PathType Leaf) 'moved DataDir has the package dictionary'
+$left = @(Get-ChildItem -LiteralPath $dataDir -Force | ForEach-Object Name)
+Check ($left.Count -eq 1 -and $left[0] -eq 'moved') "previous DataDir emptied around the nested new one ($($left -join ', '))"
 
 # ---- uninstall ----
 # The uninstaller relaunches itself from a temporary copy and returns at once, so wait for the program directory to go away instead of the process.

@@ -29,6 +29,11 @@ import com.google.android.material.chip.ChipGroup;
 public final class FeedbackActivity extends AppCompatActivity {
     private static final String[] KINDS = {"功能异常", "候选词不对", "功能建议", "其他"};
     private static final String ISSUES = "https://github.com/metasequoiaime/msime/issues/new";
+    // These two are the same strings the macOS, iOS and shared feedback pages carry. There is no
+    // shared constant for them, which is why they have now been written out four times; the fifth
+    // copy is guarded by scripts/test-support-channels.py rather than left to be noticed.
+    private static final String QQ_GROUP = "829919142";
+    private static final String TELEGRAM_URL = "https://t.me/msimegroup";
     /** GitHub 的地址长度有限，过长的正文在这里截断，完整的走「复制报告」。 */
     private static final int MAX_BODY = 4000;
 
@@ -64,6 +69,32 @@ public final class FeedbackActivity extends AppCompatActivity {
         });
 
         findViewById(R.id.feedback_submit).setOnClickListener(ignored -> submit());
+
+        // The two channels every other host lists on its own feedback screen. This was the only
+        // feedback surface in the app and it named neither, so an Android user's only route was the
+        // GitHub issue form - the slowest of the three and the wrong one for a question.
+        MaterialButton group = findViewById(R.id.feedback_qq);
+        group.setOnClickListener(ignored -> {
+            ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+            if (clipboard == null) return;
+            clipboard.setPrimaryClip(ClipData.newPlainText("QQ 群号", QQ_GROUP));
+            group.setText(R.string.feedback_qq_copied);
+        });
+        findViewById(R.id.feedback_telegram).setOnClickListener(ignored -> openTelegram());
+    }
+
+    /** No handler for a t.me link is an ordinary state on a device without Telegram installed. */
+    private void openTelegram() {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(TELEGRAM_URL)));
+        } catch (android.content.ActivityNotFoundException error) {
+            ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("Telegram", TELEGRAM_URL));
+            }
+            android.widget.Toast.makeText(this, "已复制群组链接", android.widget.Toast.LENGTH_SHORT)
+                .show();
+        }
     }
 
     @Override protected void onStart() {
