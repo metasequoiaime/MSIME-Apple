@@ -3441,8 +3441,11 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 - (void)showAppearance:(id)sender {
     (void)sender;
+    // The desktop application answers this route on its 外观 page, so the native window has to open
+    // on its own 外观 page rather than on whichever one it happens to be showing. Which page the
+    // route named was the one thing the fallback threw away.
     MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Appearance, NSWorkspace.sharedWorkspace, ^{
-        [[MSIMEPreferencesWindowController sharedController] showAndActivate];
+        [[MSIMEPreferencesWindowController sharedController] showAndActivateWithPageIdentifier:@"appearance"];
     });
 }
 - (void)showDictionary:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"settings:dictionary", NSWorkspace.sharedWorkspace, ^{ if (!self->_session) [self prepareSession]; if (!self->_session) return; self->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:self->_session.hostOptions]; [self->_dictionaryWindow showWindow:nil]; [NSApp activateIgnoringOtherApps:YES]; }); }

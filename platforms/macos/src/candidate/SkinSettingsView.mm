@@ -1,5 +1,6 @@
 #import "SkinSettingsView.h"
 #import "../settings/AppearancePreferences.h"
+#import "../settings/SettingsLayout.h"
 #import "CandidateSkinPreviewView.h"
 #import "CandidateSkinAppearance.h"
 
@@ -7,17 +8,6 @@
 
 namespace
 {
-void ConfigureCard(NSBox *card)
-{
-    card.boxType = NSBoxCustom;
-    card.titlePosition = NSNoTitle;
-    card.borderWidth = 1.0;
-    card.cornerRadius = 12.0;
-    card.borderColor = [NSColor separatorColor];
-    card.fillColor = [NSColor controlBackgroundColor];
-    card.translatesAutoresizingMaskIntoConstraints = NO;
-}
-
 NSTextField *Label(NSString *text, CGFloat size, NSFontWeight weight, NSColor *color)
 {
     NSTextField *label = [NSTextField labelWithString:text];
@@ -130,8 +120,9 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     _skinNames = [NSMutableArray array];
     _skinCompatibility = [NSMutableArray array];
 
-    // Matches the page titles of the settings window this view is a page of.
-    NSTextField *title = Label(@"皮肤", 20.0, NSFontWeightSemibold, [NSColor labelColor]);
+    // The page opens on its summary, the way every other page of the settings window does. The 20pt
+    // 皮肤 heading that used to sit above it said what the toolbar title and the selected sidebar
+    // row both already say.
     NSTextField *summary =
         Label(@"选择内置皮肤，或从本机目录加载自定义皮肤。", 13.0, NSFontWeightRegular, [NSColor secondaryLabelColor]);
     summary.maximumNumberOfLines = 2;
@@ -148,7 +139,8 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     _document.orientation = NSUserInterfaceLayoutOrientationVertical;
     _document.alignment = NSLayoutAttributeLeading;
     _document.spacing = 16.0;
-    _document.edgeInsets = NSEdgeInsetsMake(0.0, 30.0, 20.0, 30.0);
+    _document.edgeInsets =
+        NSEdgeInsetsMake(0.0, msime::mac::layout::kPageMargin, 20.0, msime::mac::layout::kPageMargin);
     _document.translatesAutoresizingMaskIntoConstraints = NO;
     // The stack goes inside a flipped container rather than being the document view itself: an
     // unflipped document view is laid out from the bottom, so the page opens showing the last skin
@@ -167,16 +159,14 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
         [_document.bottomAnchor constraintEqualToAnchor:documentContainer.bottomAnchor],
     ]];
 
-    [self addSubview:title];
     [self addSubview:summary];
     [self addSubview:scroll];
     [NSLayoutConstraint activateConstraints:@[
-        [title.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:30.0],
-        [title.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-30.0],
-        [title.topAnchor constraintEqualToAnchor:self.topAnchor constant:28.0],
-        [summary.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [summary.trailingAnchor constraintEqualToAnchor:title.trailingAnchor],
-        [summary.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:7.0],
+        // The page margins are the ones every other page of the settings window uses, so that
+        // landing on this one does not shift the summary and the cards under the pointer.
+        [summary.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:msime::mac::layout::kPageMargin],
+        [summary.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-msime::mac::layout::kPageMargin],
+        [summary.topAnchor constraintEqualToAnchor:self.topAnchor constant:msime::mac::layout::kPageMargin],
         [scroll.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
         [scroll.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
         [scroll.topAnchor constraintEqualToAnchor:summary.bottomAnchor constant:16.0],
@@ -208,7 +198,7 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     actions.spacing = 8.0;
     NSBox *externalHeader = [[NSBox alloc] initWithFrame:NSZeroRect];
-    ConfigureCard(externalHeader);
+    MSIMEConfigureCard(externalHeader);
     externalHeader.accessibilityLabel = @"外部皮肤卡片";
     NSStackView *headerStack =
         [NSStackView stackViewWithViews:@[ externalTitle, externalHelp, _directoryLabel, actions ]];
@@ -267,7 +257,10 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
 {
     view.translatesAutoresizingMaskIntoConstraints = NO;
     [_document addArrangedSubview:view];
-    [view.widthAnchor constraintEqualToAnchor:_document.widthAnchor constant:-60.0].active = YES;
+    // A card spans the stack minus the margin the stack insets it by on either side.
+    [view.widthAnchor constraintEqualToAnchor:_document.widthAnchor
+                                     constant:-2.0 * msime::mac::layout::kPageMargin]
+        .active = YES;
 }
 
 - (NSView *)makeCardForId:(NSString *)skinId
@@ -276,7 +269,7 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
               compatible:(BOOL)compatible
 {
     NSBox *card = [[NSBox alloc] initWithFrame:NSZeroRect];
-    ConfigureCard(card);
+    MSIMEConfigureCard(card);
     card.accessibilityLabel = [name stringByAppendingString:@"皮肤卡片"];
     NSTextField *title = Label(name, 15.0, NSFontWeightSemibold, [NSColor labelColor]);
     title.accessibilityLabel = [name stringByAppendingString:@"标题"];
