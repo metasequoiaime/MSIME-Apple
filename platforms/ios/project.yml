@@ -158,6 +158,11 @@ targets:
       - path: ../../target/ios/EngineResources
         buildPhase: resources
         type: folder
+      # Staged by stage-resources.sh, empty unless offline gloss dictionaries were given to it.
+      - path: ../../target/ios/offline-glosses
+        buildPhase: resources
+        type: folder
+        optional: true
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
@@ -187,6 +192,11 @@ targets:
       - path: ../../target/ios/EngineResources
         buildPhase: resources
         type: folder
+      # Staged by stage-resources.sh, empty unless offline gloss dictionaries were given to it.
+      - path: ../../target/ios/offline-glosses
+        buildPhase: resources
+        type: folder
+        optional: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard-test-host

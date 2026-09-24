@@ -61,8 +61,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateGlossEpoch: UInt64 = 0
   private var candidateGlossRequestedGeneration: UInt64?
   private let translations = CandidateTranslationStore()
-  /// The translation service the shared document picks; `.none` means a chosen provider is incomplete and no words leave the device.
-  private var translationRoute: TranslationRoute = .account
+  /// The translation service the shared document picks; `.none` means nothing was chosen or the chosen provider is incomplete, and no words leave the device.
+  private var translationRoute: TranslationRoute = .none
   private lazy var onlineCandidates: OnlineCandidateProvider = {
     let provider = OnlineCandidateProvider(session: session)
     provider.onApplied = { [weak self] in self?.render($0) }
@@ -205,6 +205,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidates: [String] = []
   private var visibleCandidateCodes: [String] = []
   private var visibleCandidateGlosses: [String] = []
+  /// Offline glosses in the non-English target languages, by language code and then candidate text. Replaced per language by each answer; an entry left over from an earlier composition is still that word's gloss.
+  private var candidateTargetGlosses: [String: [String: String]] = [:]
+  private var offlineGlossInstalled: (resources: String, languages: Set<String>)?
   private var visibleCandidateAnnotations: [String] = []
   private var visibleCandidateSources: [Int] = []
   private var visibleCandidateFixedPositions: [Int] = []
@@ -281,19 +284,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Height reserved below the candidate row for composition and configured gloss lines.
   /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
   static var stripExtraHeight: CGFloat {
-    stripExtraHeight(glossLines: configuredGlossLines(fullAccess: false))
+    stripExtraHeight(glossLines: configuredGlossLines(fullAccess: false, onlineRoute: false))
   }
 
-  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool) -> Bool {
-    !CandidateTranslationPreference.needsNetwork(language)
-      || (CandidateTranslationPreference.onlineEnabled && fullAccess)
+  /// `onlineRoute` is whether the shared document picks a translation service at all; without one a language that needs the network can never be filled.
+  /// `offline` is the language codes whose offline gloss dictionary is installed.
+  static func canFillGloss(_ language: CandidateTranslationLanguage, fullAccess: Bool, onlineRoute: Bool,
+                           offline: Set<String> = []) -> Bool {
+    !CandidateTranslationPreference.needsNetwork(language, offline: offline)
+      || (CandidateTranslationPreference.onlineEnabled && fullAccess && onlineRoute)
   }
 
-  static func configuredGlossLines(fullAccess: Bool) -> Int {
+  static func configuredGlossLines(fullAccess: Bool, onlineRoute: Bool, offline: Set<String> = []) -> Int {
     guard CandidateGlossPreference.enabled else { return 0 }
-    var lines = canFillGloss(CandidateTranslationPreference.primary, fullAccess: fullAccess) ? 1 : 0
+    var lines = canFillGloss(CandidateTranslationPreference.primary, fullAccess: fullAccess, onlineRoute: onlineRoute,
+                             offline: offline) ? 1 : 0
     if let secondary = CandidateTranslationPreference.secondary,
-       canFillGloss(secondary, fullAccess: fullAccess) {
+       canFillGloss(secondary, fullAccess: fullAccess, onlineRoute: onlineRoute, offline: offline) {
       lines += 1
     }
     return lines
@@ -2076,7 +2083,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func currentGlossLines() -> Int {
-    Self.configuredGlossLines(fullAccess: hasFullAccess)
+    Self.configuredGlossLines(fullAccess: hasFullAccess, onlineRoute: translationRoute != .none,
+                              offline: offlineGlossLanguages)
+  }
+
+  private var offlineGlossLanguages: Set<String> {
+    guard let resources = session.candidateGlossResources() else { return [] }
+    if let installed = offlineGlossInstalled, installed.resources == resources { return installed.languages }
+    let languages = CandidateTranslationPreference.offlineGlossLanguages(resources: resources)
+    offlineGlossInstalled = (resources, languages)
+    return languages
   }
 
   private var currentStripHeight: CGFloat {
@@ -2398,6 +2414,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       candidateGlossEpoch &+= 1
       candidateGlossRequestedGeneration = nil
       visibleCandidateGlosses = []
+      candidateTargetGlosses = [:]
     }
     if let translationsEnabled = preferences["candidate_translations"] as? Bool {
       CandidateTranslationPreference.onlineEnabled = translationsEnabled
@@ -3403,7 +3420,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     var languages = [CandidateTranslationPreference.primary]
     if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
     return languages
-      .filter { Self.canFillGloss($0, fullAccess: hasFullAccess) }
+      .filter {
+        Self.canFillGloss($0, fullAccess: hasFullAccess, onlineRoute: translationRoute != .none,
+                          offline: offlineGlossLanguages)
+      }
       .map {
         gloss(word: word, language: $0,
               offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
@@ -3429,8 +3449,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func gloss(word: String, language: CandidateTranslationLanguage, offline: String) -> String? {
     if !CandidateTranslationPreference.needsNetwork(language), !inputScheme.isJapanese,
        !offline.isEmpty, offline != word { return offline }
-    guard CandidateTranslationPreference.onlineEnabled else { return nil }
-    return translations.gloss(word: word, code: language.code)
+    let target = inputScheme.isJapanese ? nil : candidateTargetGlosses[language.code]?[word]
+    let online = CandidateTranslationPreference.onlineEnabled ? translations.gloss(word: word, code: language.code) : nil
+    return Self.preferredGloss(offline: target, online: online, route: translationRoute)
+  }
+
+  /// A non-English gloss, as on macOS: a service of the user's own outranks the offline dictionary, which outranks the 水杉 account.
+  static func preferredGloss(offline: String?, online: String?, route: TranslationRoute) -> String? {
+    switch route {
+    case .account, .none: return offline ?? online
+    case .niutrans, .tencent, .custom: return online ?? offline
+    }
   }
 
   private func candidatePanelAnnotation(code: String, gloss: String, word: String, engine: String,
@@ -3451,6 +3480,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
                      scope: route.cacheScope)
     DiagnosticLog.shared.write("translation_route provider=\(route.provider?.rawValue ?? "none")")
+    // Rows reserved for network-only languages follow whether any service is chosen.
+    applyCandidateGlossLayout()
   }
 
   private func requestCandidateTranslations() {
@@ -3491,11 +3522,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard CandidateGlossPreference.enabled, !inputScheme.isJapanese,
           !isInLocalMode, !visibleCandidates.isEmpty,
           let resources = session.candidateGlossResources(), !resources.isEmpty else {
-      let hadVisibleGlosses = !visibleCandidateGlosses.isEmpty
+      let hadVisibleGlosses = !visibleCandidateGlosses.isEmpty || !candidateTargetGlosses.isEmpty
       if candidateGlossRequestedGeneration != nil || hadVisibleGlosses {
         candidateGlossEpoch &+= 1
         candidateGlossRequestedGeneration = nil
         visibleCandidateGlosses = []
+        candidateTargetGlosses = [:]
         if hadVisibleGlosses { renderCandidateStrip() }
       }
       refreshCandidatePanelAnnotations()
@@ -3563,8 +3595,38 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           // Optional display metadata must never interrupt input.
         }
       }
+      requestCandidateTargetGlosses(generation: generation, candidates: candidates, resources: resources)
     } catch {
       // Optional display metadata must never interrupt input.
+    }
+  }
+
+  /// The non-English targets with an installed offline dictionary, each asked on the same queue as English. These do not go through `applyTranslations`: the session keeps one gloss per candidate, and that one is English.
+  private func requestCandidateTargetGlosses(generation: UInt64, candidates: [[String: Any]], resources: String) {
+    var languages = [CandidateTranslationPreference.primary]
+    if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
+    let installed = offlineGlossLanguages
+    let targetEpoch = candidateGlossEpoch
+    for code in languages.map(\.code) where installed.contains(code) {
+      guard let request = try? CandidateGlossModel.request(generation: generation, candidates: candidates,
+                                                          targetLanguage: code) else { continue }
+      candidateGlossQueue.async { [weak self] in
+        guard let response = try? MetasequoiaInputSessionBridge.candidateGlosses(request: request, resources: resources),
+              let decoded = try? CandidateGlossModel.decode(response), decoded.generation == generation,
+              let entries = try? JSONSerialization.jsonObject(with: decoded.translations) as? [[String: String]]
+        else { return }
+        var glosses: [String: String] = [:]
+        for entry in entries {
+          if let text = entry["text"], let translation = entry["translation"] { glosses[text] = translation }
+        }
+        DispatchQueue.main.async { [weak self] in
+          guard let self, self.candidateGlossEpoch == targetEpoch, CandidateGlossPreference.enabled,
+                self.candidateGlossRequestedGeneration == generation else { return }
+          self.candidateTargetGlosses[code] = glosses
+          self.renderCandidateStrip()
+          self.refreshCandidatePanelAnnotations()
+        }
+      }
     }
   }
 

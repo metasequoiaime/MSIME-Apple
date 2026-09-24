@@ -99,7 +99,7 @@ SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、�
 
 皮肤浏览入口优先打开共享 Tauri `settings:skin` 页面，Tauri 不可用时回退到按固定 Apple `SkinSettingsView` 迁移的原生卡片式页面：四套内置皮肤、外部包描述、每卡独立明暗预览与单选启用开关，已启用项再次点击不会关闭。外部包通过“打开目录 → 复制皮肤文件夹 → 刷新皮肤”加载，提供空状态和无效包扫描诊断。固定 macOS 源码没有内置导入/删除按钮，本页保持该目录管理流程，不另外创建导入器。目录打开仅由用户点击触发；宿主目录创建/打开失败会显示错误，不触碰 MSIME-Apple 目录。共享页面与原生回退共用同一受控皮肤目录和设置快照。
 
-macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直接开关不联网的英文释义，并写入同一 `candidate_english_gloss` 偏好。在线候选翻译关闭但离线释义开启时，主、次目标语言仍可编辑；两种释义都关闭时才禁用语言选择。保存仍使用共享快照的 CAS 版本检查，不放宽凭据验证或并发写入保护。
+macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直接开关不联网的英文释义，并写入同一 `candidate_english_gloss` 偏好。在线候选翻译关闭但离线释义开启时，主、次目标语言仍可编辑；两种释义都关闭时才禁用语言选择。保存仍使用共享快照的 CAS 版本检查，不放宽凭据验证或并发写入保护。翻译服务可选腾讯云、小牛翻译、自定义 DeepLX 或「水杉账号」；没有选择「水杉账号」、也没有填好自己服务的凭据时不联网；只有显式选择「水杉账号」（`translation_account`）才会把当前页的中文候选词发送到 `api.msime.app`，输入法激活时不再预先创建匿名账号。
 
 腾讯、自定义与小牛翻译取回的英文释义与来源的 `PersistGloss` 一致，每次取回成功即写入偏好目录下的用户释义库 `translation-glosses.db`，不必等候选上屏；只存目标语言为英文、格式化后不超过 32 个字符且与原文按 ASCII 忽略大小写不相等的释义，其他目标语言只留在内存缓存。之后的离线释义查询先读这个库，其记录覆盖随包词典中的同词释义；过期的在线回调不写入。托管账号释义不属于来源的服务，仍只在对应候选上屏时写入。
 
@@ -290,6 +290,8 @@ ctest --test-dir target/macos --output-on-failure
 ```sh
 platforms/macos/stage-resources.sh <已校验资源目录>
 ```
+
+第三个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/fetch_offline_glosses.py` 按锁下载，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/macos/offline-glosses`，即资源目录的同级目录，宿主在翻译目标包含该语言时读取；没有时只有英语走离线释义。它和整句重排模型一样目前不随包。
 
 打包时如果 `cargo` 报某个过程宏 crate「can't find crate for `xxx_macros`」，看它前面一行的 dlopen 错误：`mis-aligned LINKEDIT string pool` 表示过程宏的 dylib 被产出成 dyld 拒绝加载的形状。成因是 `MACOSX_DEPLOYMENT_TARGET`：`tauri build` 会按 `bundle.macOS.minimumSystemVersion` 导出它，rustc 把它也用在宿主过程宏上，同一个 crate 不设该变量时产出的 dylib 能正常加载。cargo 不把这个变量算进指纹，坏掉的 dylib 会留在产物目录里被后续构建继续复用，所以换一个干净的 `CARGO_TARGET_DIR` 看起来也能「修好」——但那只是另起一整棵要从头编译、占几个 GB 的产物树，坏掉的 dylib 还留在原处，不要这么做。`package-release.sh` 因此先用不带该变量的 `cargo build --features tauri/custom-protocol` 编译设置应用，再用 `tauri bundle` 只做打包；已经坏掉的过程宏要删掉 `target/<profile>/deps` 里对应的 `.dylib` 让它重编。
 

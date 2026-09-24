@@ -851,6 +851,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSString *_glossTargetLanguage;
     NSArray<NSString *> *_glossTargetLanguages;
     NSArray<NSDictionary *> *_glossResults;
+    NSOperationQueue *_targetGlossQueue;
+    NSDictionary *_targetGlossRequest;
+    uint64_t _targetGlossEpoch;
+    NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *_targetGlossResults;
     MSIMECustomTranslationBatch *_customBatch;
     NSMutableArray<MSIMECustomTranslationBatch *> *_customBatches;
     NSTimer *_customTimer;
@@ -1184,6 +1188,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)cancelCandidateTranslations {
     [self cancelCandidateGloss];
+    [self cancelTargetGloss];
     [self cancelCustomTranslations];
     [self cancelAITranslations];
     // The account gloss arrived after this method did and was never added to it. Its request outlived
@@ -1570,11 +1575,44 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         (niuTrans ? @"niutrans" : custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy],
         @"directory":_preferencesDirectory ?: @""};
 }
+// Each offline dictionary answers a single target language, so the rows are merged per candidate in the user's target order. The English gloss and any account gloss fill the targets they cover; otherwise whichever source answered a candidate first would hide the other target rows.
+- (NSArray<NSDictionary *> *)offlineGlossResults:(NSDictionary *)targetGloss english:(NSArray<NSDictionary *> *)english {
+    NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
+    void (^fill)(id, NSString *, id) = ^(id text, NSString *target, id value) {
+        if (![text isKindOfClass:NSString.class] || ![value isKindOfClass:NSString.class] || ![(NSString *)value length]) return;
+        NSMutableDictionary *byTarget = values[text];
+        if (!byTarget) { byTarget = [NSMutableDictionary dictionary]; values[text] = byTarget; }
+        if (!byTarget[target]) byTarget[target] = value;
+    };
+    for (NSDictionary *entry in english) fill(entry[@"text"], @"en", entry[@"translation"]);
+    [targetGloss enumerateKeysAndObjectsUsingBlock:^(NSString *text, NSDictionary *byTarget, BOOL *stop) {
+        (void)stop;
+        for (NSString *target in byTarget) fill(text, target, byTarget[target]);
+    }];
+    if (_accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]]) {
+        NSArray *accountTargets = _accountGlossRequest[@"target_languages"];
+        for (NSDictionary *entry in _accountGlossResults) {
+            if (![entry[@"translation"] isKindOfClass:NSString.class]) continue;
+            NSArray *lines = [entry[@"translation"] componentsSeparatedByString:@"\n"];
+            for (NSUInteger index = 0; index < MIN(lines.count, accountTargets.count); ++index)
+                fill(entry[@"text"], accountTargets[index], lines[index]);
+        }
+    }
+    NSMutableArray *results = [NSMutableArray array];
+    for (NSDictionary *candidate in _targetGlossRequest[@"candidates"]) {
+        NSString *translation = MSIMEJoinedTranslations(values[candidate[@"text"]], _targetGlossRequest[@"target_languages"]);
+        if (translation.length) [results addObject:@{@"text":candidate[@"text"], @"translation":translation}];
+    }
+    return results;
+}
 - (void)applyCandidateTranslationResults {
     NSMutableArray *results = [NSMutableArray array];
     BOOL customCurrent = _customResults && [_customQuery isEqual:[self currentCustomTranslationRequest]];
     BOOL glossCurrent = _glossResults && [_glossRequest isEqual:[self currentGlossRequest]];
+    NSDictionary *targetGloss = _targetGlossResults.count && [_targetGlossRequest isEqual:[self currentTargetGlossRequest]]
+        ? _targetGlossResults : nil;
     if (customCurrent && _customResults.count) [results addObjectsFromArray:_customResults];
+    else if (targetGloss) [results addObjectsFromArray:[self offlineGlossResults:targetGloss english:glossCurrent ? _glossResults : nil]];
     else if (glossCurrent) [results addObjectsFromArray:_glossResults];
     if (_accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]]) {
         NSMutableSet *existing = [NSMutableSet setWithArray:[results valueForKey:@"text"] ?: @[]];
@@ -1605,11 +1643,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *query = [_session translationQueryWithError:nil];
     if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] ||
         ![query[@"target_languages"] isKindOfClass:NSArray.class]) return nil;
-    // Explicit user-owned providers take precedence. The account endpoint is the native fallback
-    // for the shared candidate-translation toggle when no local credentials are configured.
-    if ([query[@"custom_translation"] isKindOfClass:NSDictionary.class] ||
-        [query[@"tencent_tmt"] isKindOfClass:NSDictionary.class] || [query[@"niutrans"] isKindOfClass:NSDictionary.class])
-        return nil;
+    // The account endpoint (api.msime.app) is used only when the user explicitly chose it in settings. The shared core already folds in candidate_translations and the precedence of the user's own services, so this flag is the whole decision.
+    if (![query[@"translation_account"] isEqual:@YES]) return nil;
     NSArray *candidates = MSIMEOnlineGlossCandidates(query);
     return candidates.count
         ? @{ @"generation": query[@"generation"], @"target_languages": query[@"target_languages"],
@@ -1992,6 +2027,76 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         });
     }];
 }
+- (void)cancelTargetGloss {
+    ++_targetGlossEpoch;
+    [_targetGlossQueue cancelAllOperations];
+    _targetGlossRequest = nil;
+    _targetGlossResults = nil;
+}
+// The non-English targets with an installed offline dictionary. English keeps its own path above, which also overlays the user's learned glossary.
+- (NSDictionary *)currentTargetGlossRequest {
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
+        (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) ||
+        (_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss)) return nil;
+    NSDictionary *query = [_session translationQueryWithError:nil];
+    NSArray *targets = MSIMETranslationTargets(query);
+    if (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets]) return nil;
+    NSArray *installed = [query[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? query[@"offline_gloss_languages"] : @[];
+    NSMutableArray<NSString *> *languages = [NSMutableArray array];
+    for (NSString *target in targets)
+        if (![target isEqual:@"en"] && [installed containsObject:target]) [languages addObject:target];
+    if (!languages.count) return nil;
+    NSDictionary *view = [_session viewWithError:nil];
+    if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
+    if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
+    NSMutableArray *candidates = [NSMutableArray array];
+    for (NSDictionary *candidate in view[@"candidates"])
+        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class])
+            [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
+    return candidates.count ? @{@"generation":query[@"generation"], @"target_languages":targets,
+        @"offline_languages":[languages copy], @"candidates":[candidates copy]} : nil;
+}
+- (NSDictionary *)readTargetGloss:(NSDictionary *)request language:(NSString *)language resources:(NSString *)resources {
+    return [MSIMEClientSession candidateGlossRequest:@{@"generation":request[@"generation"],
+        @"target_language":language, @"candidates":request[@"candidates"]} resources:resources error:nil];
+}
+- (void)synchronizeTargetGloss {
+    NSDictionary *request = [self currentTargetGlossRequest];
+    if (!request) { [self cancelTargetGloss]; return; }
+    if ([_targetGlossRequest isEqual:request]) return;
+    [self cancelTargetGloss];
+    _targetGlossRequest = request;
+    NSString *resources = [_session.hostOptions[@"resources"] copy];
+    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) { _targetGlossResults = @{}; return; }
+    // A queue of its own: cancelCandidateGloss drains the English queue whenever the English request changes, which would otherwise drop this read and leave the request without results.
+    if (!_targetGlossQueue) { _targetGlossQueue = [NSOperationQueue new]; _targetGlossQueue.maxConcurrentOperationCount = 1; _targetGlossQueue.qualityOfService = NSQualityOfServiceUtility; }
+    const uint64_t epoch = _targetGlossEpoch;
+    MSIMEClientSession *session = _session;
+    id client = _activeClient;
+    __weak MSIMEInputController *weakSelf = self;
+    [_targetGlossQueue addOperationWithBlock:^{
+        NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
+        for (NSString *language in request[@"offline_languages"]) {
+            NSDictionary *result = [weakSelf readTargetGloss:request language:language resources:resources];
+            if (![result[@"generation"] isEqual:request[@"generation"]]) continue;
+            for (NSDictionary *entry in result[@"translations"]) {
+                NSString *text = entry[@"text"];
+                NSString *translation = entry[@"translation"];
+                if (![text isKindOfClass:NSString.class] || ![translation isKindOfClass:NSString.class] || !translation.length) continue;
+                NSMutableDictionary *byTarget = values[text];
+                if (!byTarget) { byTarget = [NSMutableDictionary dictionary]; values[text] = byTarget; }
+                byTarget[language] = translation;
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *current = weakSelf;
+            if (!current || current->_targetGlossEpoch != epoch || current->_session != session || current->_activeClient != client ||
+                ![[current currentTargetGlossRequest] isEqual:request]) return;
+            current->_targetGlossResults = [values copy];
+            [current applyCandidateTranslationResults];
+        });
+    }];
+}
 
 - (void)cancelCloudCandidates {
     ++_cloudEpoch;
@@ -2175,7 +2280,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
     if (_appearance && !_appearance.candidateTranslations) {
         [self cancelCustomTranslations];
-        if (!_appearance.candidateEnglishGloss) [self cancelCandidateGloss];
+        if (!_appearance.candidateEnglishGloss) { [self cancelCandidateGloss]; [self cancelTargetGloss]; }
     }
     if (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) {
         NSDictionary *view = [_session viewWithError:nil];
@@ -3526,7 +3631,6 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 }
 
 - (void)prepareSession {
-    if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
     BOOL reopened = NO;
     if (!_session) {
         NSDictionary *options = MSIMESessionOptions([self runtimeOptions]);
@@ -3635,6 +3739,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         [self synchronizeCloudCandidates];
     [self scheduleSettledRerank];
         [self synchronizeCandidateGloss];
+        [self synchronizeTargetGloss];
         [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
         [self synchronizeCustomTranslations];
         [self synchronizeAITranslations];
@@ -3728,7 +3833,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (translationChanged || (_glossEnabled && !_glossEnabled.boolValue)) {
         // None of these settings feed the AI request, so a pending AI suggestion survives them; AI config changes are caught by the _aiQuery identity check on the next render.
         [self cancelCustomTranslations];
-        if (!candidateEnglishGlossEnabled) [self cancelCandidateGloss];
+        if (!candidateEnglishGlossEnabled) { [self cancelCandidateGloss]; [self cancelTargetGloss]; }
         NSDictionary *view = [_session viewWithError:nil];
         if (!candidateTranslationsEnabled && !candidateEnglishGlossEnabled && view)
             [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
@@ -4657,6 +4762,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     [self synchronizeCloudCandidates];
     [self scheduleSettledRerank];
     [self synchronizeCandidateGloss];
+    [self synchronizeTargetGloss];
     [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
     [self synchronizeCustomTranslations];
     [self synchronizeAITranslations];

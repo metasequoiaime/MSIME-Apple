@@ -554,6 +554,9 @@ pub struct Preferences {
     /// legacy single-language behavior and is omitted from serialized snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_secondary_language: Option<TranslationTargetLanguage>,
+    /// True only when the user explicitly picks the MSIME account (水杉账号) as the candidate translation service in settings; candidates are then sent to `https://api.msime.app/v1/translate`. Omitted while false so documents that never chose it stay readable by older strict parsers.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub translation_account: bool,
     /// Send the anonymous start and crash events to `https://api.msime.app/v1/telemetry/events`. Off until the user turns it on. Only the Windows Server reads it so far; the other hosts keep their own telemetry behaviour, described in PRIVACY.md.
     #[serde(default)]
     pub telemetry_enabled: bool,
@@ -1306,6 +1309,7 @@ impl Default for Preferences {
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
+            translation_account: false,
             telemetry_enabled: false,
         }
     }
