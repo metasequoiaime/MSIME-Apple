@@ -4156,6 +4156,7 @@ pub fn run() {
             // their own native plugins and never build this module.
             #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
             app.manage(voice_sessions::VoiceSessions::default());
+            app.manage(voice::local_models::LocalModelInstalls::default());
             #[cfg(target_os = "linux")]
             app.manage(linux_setup::LinuxSetupState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
@@ -4423,6 +4424,10 @@ pub fn run() {
             voice::recognize_voice,
             voice::cancel_voice,
             voice::stop_voice,
+            voice::local_models::voice_local_models,
+            voice::local_models::voice_local_model_install,
+            voice::local_models::voice_local_model_cancel,
+            voice::local_models::voice_local_model_remove,
             submit_handwriting_candidate,
             open_external_url,
             #[cfg(target_os = "macos")]

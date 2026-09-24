@@ -1,0 +1,341 @@
+//! On-device speech models for the `local` provider: the settings page lists, downloads, cancels and removes them here, and a starting voice session reads the user's dictionary words from here to pass along as hotwords.
+//!
+//! Models live in `<app data dir>/voice-models/<id>`, the directory `voice_input.asr_model_path` is set to when the user picks one. Installing is `msime_client_core::voice::local_models`, which downloads into a staging directory, verifies every checksum and renames the finished model into place; this module only runs it off the command thread, forwards its progress as the `voice-local-model-progress` event and keeps the cancellation flag of each running install.
+
+use crate::*;
+use msime_client_core::voice::hotwords::Hotword;
+use msime_client_core::voice::local_models::{self, LocalModelError, LocalModelStatus};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Emitted with a [`LocalModelProgress`] while an install runs.
+pub(crate) const LOCAL_MODEL_PROGRESS_EVENT: &str = "voice-local-model-progress";
+
+/// Catalog ids are short ASCII slugs; anything much longer is not one and is refused before it reaches the map below.
+const MAX_MODEL_ID_BYTES: usize = 128;
+
+/// The cancellation flags of the installs this process is running, by model id. One install per id at a time.
+#[derive(Default)]
+pub(crate) struct LocalModelInstalls(Mutex<HashMap<String, Arc<AtomicBool>>>);
+
+impl LocalModelInstalls {
+    /// Register an install of `id`, or `None` when one is already running.
+    pub(crate) fn begin(&self, id: &str) -> Option<Arc<AtomicBool>> {
+        let mut installs = self.0.lock().ok()?;
+        if installs.contains_key(id) {
+            return None;
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        installs.insert(id.to_owned(), Arc::clone(&cancel));
+        Some(cancel)
+    }
+
+    pub(crate) fn finish(&self, id: &str) {
+        if let Ok(mut installs) = self.0.lock() {
+            installs.remove(id);
+        }
+    }
+
+    /// Ask the install of `id` to stop; it notices between download chunks and fails with `local_model_cancelled`. Whether one was running.
+    pub(crate) fn cancel(&self, id: &str) -> bool {
+        self.0
+            .lock()
+            .ok()
+            .and_then(|installs| {
+                installs
+                    .get(id)
+                    .map(|flag| flag.store(true, Ordering::Release))
+            })
+            .is_some()
+    }
+
+    pub(crate) fn running(&self, id: &str) -> bool {
+        self.0
+            .lock()
+            .map(|installs| installs.contains_key(id))
+            .unwrap_or(true)
+    }
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct LocalModelsResponse {
+    pub(crate) models: Vec<LocalModelStatus>,
+    /// The catalog's default model id.
+    pub(crate) default: &'static str,
+    /// The directory models are installed under.
+    pub(crate) root: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct LocalModelProgress {
+    pub(crate) id: String,
+    /// `download`, `verify`, `extract` or `done`.
+    pub(crate) stage: &'static str,
+    pub(crate) downloaded: u64,
+    pub(crate) total: u64,
+}
+
+pub(crate) fn local_model_root(app_data: &Path) -> PathBuf {
+    app_data.join("voice-models")
+}
+
+fn app_model_root<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<PathBuf, HostActionError> {
+    app.path()
+        .app_data_dir()
+        .map(|directory| local_model_root(&directory))
+        .map_err(|_| HostActionError {
+            code: "local_model_invalid_root",
+        })
+}
+
+fn valid_model_id(id: &str) -> Result<(), HostActionError> {
+    if id.is_empty()
+        || id.len() > MAX_MODEL_ID_BYTES
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err(HostActionError {
+            code: "local_model_unknown",
+        });
+    }
+    Ok(())
+}
+
+/// The stable code the settings page shows a message for. The detail some variants carry (a URL, an HTTP status, a file name) is not passed to the page.
+pub(crate) fn local_model_error_code(error: &LocalModelError) -> &'static str {
+    match error {
+        LocalModelError::UnknownModel => "local_model_unknown",
+        LocalModelError::InvalidRoot => "local_model_invalid_root",
+        LocalModelError::InvalidMirror => "local_model_invalid_mirror",
+        LocalModelError::Cancelled => "local_model_cancelled",
+        LocalModelError::Network(_) => "local_model_network",
+        LocalModelError::HttpStatus(_) => "local_model_http_status",
+        LocalModelError::SizeMismatch(_) | LocalModelError::ChecksumMismatch(_) => {
+            "local_model_checksum_mismatch"
+        }
+        LocalModelError::UnsafeArchive(_) | LocalModelError::MissingFile(_) => {
+            "local_model_invalid_archive"
+        }
+        LocalModelError::Io(_) => "local_model_io",
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn voice_local_models<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<LocalModelsResponse, HostActionError> {
+    let root = app_model_root(&app)?;
+    tauri::async_runtime::spawn_blocking(move || LocalModelsResponse {
+        models: local_models::list(&root),
+        default: local_models::default_model_id(),
+        root: root.to_string_lossy().into_owned(),
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })
+}
+
+/// Download and install one catalog model, resolving to the installed directory. The mirror is the saved `voice_input.asr_model_mirror`, so a mirror typed into the page applies once the preferences are saved.
+#[tauri::command]
+pub(crate) async fn voice_local_model_install<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    installs: tauri::State<'_, LocalModelInstalls>,
+    store: tauri::State<'_, Arc<PreferencesStore>>,
+    id: String,
+) -> Result<String, HostActionError> {
+    valid_model_id(&id)?;
+    let root = app_model_root(&app)?;
+    let store = store.inner().clone();
+    let mirror = tauri::async_runtime::spawn_blocking(move || {
+        store
+            .load()
+            .map(|snapshot| snapshot.preferences.voice_input.asr_model_mirror)
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let cancel = installs
+        .begin(&id)
+        .ok_or(HostActionError { code: "busy" })?;
+    let worker_app = app.clone();
+    let worker_id = id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let mut progress = |event: local_models::InstallProgress| {
+            let _ = worker_app.emit(
+                LOCAL_MODEL_PROGRESS_EVENT,
+                LocalModelProgress {
+                    id: worker_id.clone(),
+                    stage: event.stage,
+                    downloaded: event.downloaded,
+                    total: event.total,
+                },
+            );
+        };
+        local_models::install(&root, &worker_id, &mirror, &mut progress, &cancel)
+    })
+    .await;
+    installs.finish(&id);
+    let path = result
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .map_err(|error| HostActionError {
+            code: local_model_error_code(&error),
+        })?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Stop a running install. Resolves to whether one was running; the install command itself then fails with `local_model_cancelled`.
+#[tauri::command]
+pub(crate) fn voice_local_model_cancel(
+    installs: tauri::State<'_, LocalModelInstalls>,
+    id: String,
+) -> Result<bool, HostActionError> {
+    valid_model_id(&id)?;
+    Ok(installs.cancel(&id))
+}
+
+/// Delete an installed model. A model still being installed is `busy`: cancel it first.
+#[tauri::command]
+pub(crate) async fn voice_local_model_remove<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    installs: tauri::State<'_, LocalModelInstalls>,
+    id: String,
+) -> Result<(), HostActionError> {
+    valid_model_id(&id)?;
+    if installs.running(&id) {
+        return Err(HostActionError { code: "busy" });
+    }
+    let root = app_model_root(&app)?;
+    tauri::async_runtime::spawn_blocking(move || local_models::remove(&root, &id))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .map_err(|error| HostActionError {
+            code: local_model_error_code(&error),
+        })
+}
+
+/// Rows read per dictionary page, the most one list request accepts.
+#[cfg(unix)]
+const HOTWORD_PAGE: usize = 1_000;
+/// Enough rows that the heaviest words can be picked even from a large dictionary, without reading the whole store for every voice session. Same bound as `msime_client_voice_hotwords`.
+#[cfg(unix)]
+const HOTWORD_MAX_ROWS: usize = 5_000;
+
+/// Hotwords for an on-device session from the user's own pinyin dictionary words, heaviest first, at most `limit`.
+///
+/// The same selection `msime_client_voice_hotwords` makes, read through the list route this host's dictionary page uses. A dictionary that cannot be read right now (maintenance holds it, the store is missing) gives the words read so far, possibly none: recognition without hotwords is still recognition.
+#[cfg(unix)]
+pub(crate) fn dictionary_hotwords(options: &Value, limit: usize) -> Vec<Hotword> {
+    dictionary_hotwords_with(limit, |action| list_dictionary_page(options, action))
+}
+
+#[cfg(unix)]
+pub(crate) fn dictionary_hotwords_with(
+    limit: usize,
+    mut list: impl FnMut(&Value) -> Option<Value>,
+) -> Vec<Hotword> {
+    let mut rows: Vec<(String, String, i64)> = Vec::new();
+    let mut offset = 0;
+    while limit > 0 && offset < HOTWORD_MAX_ROWS {
+        let action = serde_json::json!({
+            "operation": "list",
+            "offset": offset,
+            "limit": HOTWORD_PAGE,
+            "kind": "pinyin",
+            "user_only": true,
+        });
+        let Some(page) = list(&action) else {
+            break;
+        };
+        let entries = page["entries"].as_array().cloned().unwrap_or_default();
+        rows.extend(entries.iter().filter_map(|entry| {
+            Some((
+                entry["value"].as_str()?.to_owned(),
+                entry["key"].as_str()?.to_owned(),
+                entry["weight"].as_i64().unwrap_or(0),
+            ))
+        }));
+        offset += entries.len();
+        if entries.is_empty() || page["has_more"].as_bool() != Some(true) {
+            break;
+        }
+    }
+    // Stable, so words of equal weight keep the dictionary's order.
+    rows.sort_by_key(|(_, _, weight)| std::cmp::Reverse(*weight));
+    msime_client_core::voice::hotwords::hotwords_from_entries(
+        rows.iter()
+            .map(|(text, pinyin, _)| (text.as_str(), pinyin.as_str())),
+        limit,
+    )
+}
+
+/// One list page through the same store the dictionary page reads on this host. Listing never needs the input sessions released, so none of the maintenance handshakes `dictionary_request` performs for edits apply.
+#[cfg(unix)]
+fn list_dictionary_page(options: &Value, action: &Value) -> Option<Value> {
+    let request = serde_json::json!({ "options": options, "action": action });
+    #[cfg(target_os = "ios")]
+    {
+        crate::ios_personal_dictionary_request(&request).ok()
+    }
+    #[cfg(target_os = "android")]
+    {
+        let bytes = serde_json::to_vec(&request).ok()?;
+        msime_host_api::personal_dictionary_request_json(&bytes).ok()
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        let bytes = serde_json::to_vec(&request).ok()?;
+        msime_host_api::dictionary_request_json(&bytes).ok()
+    }
+}
+
+/// Hotwords for a `local` session starting now, from the dictionary this host's settings page edits.
+#[cfg(unix)]
+pub(crate) fn session_hotwords(dictionary: &DictionaryHostOptions) -> Vec<Hotword> {
+    match dictionary.snapshot() {
+        Ok(options) => dictionary_hotwords(
+            &options,
+            msime_client_core::voice::hotwords::DEFAULT_HOTWORD_LIMIT,
+        ),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Add `hotwords` to the provider options while the serialised options stay within `budget` bytes, heaviest first.
+///
+/// The provider socket refuses a whole request over 16 KiB, and the options already carry up to 8 KiB of polishing prompt, so the list is cut to what fits rather than risking the recording. The provider can still ask `msime_client_voice_hotwords` for the full list itself.
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+pub(crate) fn add_hotwords_within(options: &mut Value, hotwords: &[Hotword], budget: usize) {
+    let Some(object) = options.as_object_mut() else {
+        return;
+    };
+    // `"hotwords":[]` plus the comma that joins it to the previous key.
+    let mut size = serde_json::to_string(&*object).map_or(usize::MAX, |text| text.len())
+        + r#","hotwords":[]"#.len();
+    let mut kept = Vec::new();
+    for hotword in hotwords {
+        let Ok(value) = serde_json::to_value(hotword) else {
+            continue;
+        };
+        let added = value.to_string().len() + usize::from(!kept.is_empty());
+        if size.saturating_add(added) > budget {
+            break;
+        }
+        size += added;
+        kept.push(value);
+    }
+    if !kept.is_empty() {
+        object.insert("hotwords".to_owned(), Value::Array(kept));
+    }
+}
