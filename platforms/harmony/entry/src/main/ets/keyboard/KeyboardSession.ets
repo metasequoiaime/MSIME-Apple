@@ -1,4 +1,5 @@
 import inputMethodEngine from '@ohos.inputMethodEngine';
+import fs from '@ohos.file.fs';
 import client from 'libmsimeclient.so';
 import { utf8Length } from './Utf8';
 import { KeyboardLog, describeError } from './KeyboardLog';
@@ -9,6 +10,7 @@ import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSki
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { KeyboardScheme, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
+import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
 import {
   CapitalizationMode, EnglishCapitalizationPolicy
 } from './input/EnglishCapitalizationPolicy';
@@ -386,6 +388,7 @@ interface GlossRequestDocument {
   generation: number;
   user_data: string;
   candidates: GlossRequestCandidate[];
+  target_language?: string;
 }
 
 interface TranslationPlanDocument {
@@ -1168,7 +1171,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         tencentSecretKey: preferences.tencent_tmt.secret_key
       };
       this.candidateGlossRows = CandidateGlossLayoutPolicy.rows(this.candidateEnglishGloss,
-        glossTargets, preferences.candidate_translations, glossProviders);
+        glossTargets, preferences.candidate_translations, glossProviders,
+        this.installedOfflineGlosses(glossTargets));
       this.modeBadge = InputModeHudPolicy.enabled(preferences.input_mode_hud);
       this.englishSuggestionsEnabled = preferences.english_suggestions !== false;
       if (ClipboardHistoryPreferencePolicy.shouldClearHistory(this.clipboardHistoryEnabled)) {
@@ -2015,6 +2019,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.voiceInput;
   }
 
+  /** The prepared host options the on-device recognizer reads the user's own words through, or null before the host has been prepared. */
+  voiceHotwordOptions(): Object | null {
+    return this.snapshotOptions ?? null;
+  }
+
   /**
    * The text before the caret, as the polish panel's starting point.
    *
@@ -2722,10 +2731,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.command(InputCommand.COMMIT_READING);
   }
 
-  /** Space starts Japanese conversion, then advances and wraps without committing. */
+  /** Space starts Japanese conversion, then advances and wraps without committing. False leaves Space to its normal commit, which is also what a lone Fallback row (the raw composition) needs. */
   convertJapanese(): boolean {
+    const firstSource: number = this.currentCandidates.length > 0 ? this.currentCandidates[0].source : -1;
     if (this.scheme !== JAPANESE_SCHEME || this.editing.length === 0
-        || this.currentCandidates.length === 0) {
+        || !JapaneseSpacePolicy.converts(this.currentCandidates.length, firstSource)) {
       return false;
     }
     if (this.japaneseConversionIndex < 0
@@ -3282,57 +3292,17 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (query.english_gloss && typeof query.resources === 'string' && query.resources.length > 0) {
       this.appendOfflineGloss(query, entries);
     }
+    const offline: Map<string, TranslationEntry[]> = this.offlineTargetGlosses(query);
     const deadline: number = Date.now() + 6000;
     const provider: string = TranslationPolicy.provider(query);
     for (const target of TranslationPolicy.targets(query)) {
       if (!this.translationCurrent(handle, epoch) || Date.now() >= deadline) return;
-      let plan: TranslationPlanItem[] = [];
-      try {
-        const planDocument: string = TranslationPolicy.planRequest(target, query.candidates);
-        const planReply: NativeReply<TranslationPlanItem[]> =
-          JSON.parse(client.translationPlan(planDocument)) as NativeReply<TranslationPlanItem[]>;
-        if (planReply.ok && Array.isArray(planReply.value)) plan = planReply.value;
-      } catch (error) {
-        KeyboardLog.error(`translation plan unavailable: ${describeError(error)}`);
-      }
-      if (plan.length === 0 || provider.length === 0) continue;
-      const pending: TranslationPlanItem[] = [];
-      for (const item of plan) {
-        if (target === 'en' && query.english_gloss
-          && entries.some((entry: TranslationEntry): boolean => entry.text === item.text)) {
-          continue;
-        }
-        const key: string = TranslationPolicy.cacheKey(query, target, item);
-        const cached: string | undefined = this.translationCache.get(key);
-        if (cached !== undefined) {
-          TranslationPolicy.append(entries, item.text, cached);
-          continue;
-        }
-        const negativeUntil: number | undefined = this.translationNegativeCache.get(key);
-        if (negativeUntil !== undefined) {
-          if (negativeUntil > Date.now()) continue;
-          this.translationNegativeCache.delete(key);
-        }
-        pending.push(item);
-      }
-      if (pending.length === 0) continue;
-      if (provider === 'tencent' && query.tencent_tmt !== null
-        && query.tencent_tmt !== undefined) {
-        await this.fetchTencentTranslations(query, pending, entries, epoch, handle, deadline);
-      } else {
-        for (const item of pending) {
-          if (!this.translationCurrent(handle, epoch) || Date.now() >= deadline) return;
-          let value: string | null = null;
-          if (provider === 'niutrans' && query.niutrans !== null
-            && query.niutrans !== undefined) {
-            value = await this.fetchNiuTranslation(query.niutrans, item, epoch, handle);
-          } else if (provider === 'custom' && query.custom_translation !== null
-            && query.custom_translation !== undefined) {
-            value = await this.fetchCustomTranslation(query.custom_translation, item, epoch, handle);
-          }
-          this.recordTranslation(query, target, item, value, entries);
-        }
-      }
+      // This target's answers are gathered apart, so the offline dictionary can fill only the candidates the online provider left unanswered.
+      const answered: TranslationEntry[] = [];
+      if (!await this.fetchTargetTranslations(query, target, provider, entries, answered, epoch,
+        handle, deadline)) return;
+      TranslationPolicy.fill(answered, offline.get(target) ?? []);
+      for (const entry of answered) TranslationPolicy.append(entries, entry.text, entry.translation);
     }
     if (!this.translationCurrent(handle, epoch) || entries.length === 0) return;
     let appliedCurrent: boolean = false;
@@ -3354,6 +3324,99 @@ export class KeyboardSession implements HardwareKeyTarget {
     } catch (error) {
       KeyboardLog.error(`candidate translations unavailable: ${describeError(error)}`);
     }
+  }
+
+  /** One target's online answers, added to `answered`. `entries` is read only for the English candidates the offline gloss already covers. False when the work went stale or ran out of time. */
+  private async fetchTargetTranslations(query: TranslationQuery, target: string, provider: string,
+    entries: TranslationEntry[], answered: TranslationEntry[], epoch: number, handle: number,
+    deadline: number): Promise<boolean> {
+    let plan: TranslationPlanItem[] = [];
+    try {
+      const planDocument: string = TranslationPolicy.planRequest(target, query.candidates);
+      const planReply: NativeReply<TranslationPlanItem[]> =
+        JSON.parse(client.translationPlan(planDocument)) as NativeReply<TranslationPlanItem[]>;
+      if (planReply.ok && Array.isArray(planReply.value)) plan = planReply.value;
+    } catch (error) {
+      KeyboardLog.error(`translation plan unavailable: ${describeError(error)}`);
+    }
+    if (plan.length === 0 || provider.length === 0) return true;
+    const pending: TranslationPlanItem[] = [];
+    for (const item of plan) {
+      if (target === 'en' && query.english_gloss
+        && entries.some((entry: TranslationEntry): boolean => entry.text === item.text)) {
+        continue;
+      }
+      const key: string = TranslationPolicy.cacheKey(query, target, item);
+      const cached: string | undefined = this.translationCache.get(key);
+      if (cached !== undefined) {
+        TranslationPolicy.append(answered, item.text, cached);
+        continue;
+      }
+      const negativeUntil: number | undefined = this.translationNegativeCache.get(key);
+      if (negativeUntil !== undefined) {
+        if (negativeUntil > Date.now()) continue;
+        this.translationNegativeCache.delete(key);
+      }
+      pending.push(item);
+    }
+    if (pending.length === 0) return true;
+    if (provider === 'tencent' && query.tencent_tmt !== null
+      && query.tencent_tmt !== undefined) {
+      await this.fetchTencentTranslations(query, pending, answered, epoch, handle, deadline);
+    } else {
+      for (const item of pending) {
+        if (!this.translationCurrent(handle, epoch) || Date.now() >= deadline) return false;
+        let value: string | null = null;
+        if (provider === 'niutrans' && query.niutrans !== null
+          && query.niutrans !== undefined) {
+          value = await this.fetchNiuTranslation(query.niutrans, item, epoch, handle);
+        } else if (provider === 'custom' && query.custom_translation !== null
+          && query.custom_translation !== undefined) {
+          value = await this.fetchCustomTranslation(query.custom_translation, item, epoch, handle);
+        }
+        this.recordTranslation(query, target, item, value, answered);
+      }
+    }
+    return this.translationCurrent(handle, epoch);
+  }
+
+  /** Each installed non-English target's offline glosses, read from the dictionary beside the resources. */
+  private offlineTargetGlosses(query: TranslationQuery): Map<string, TranslationEntry[]> {
+    const result: Map<string, TranslationEntry[]> = new Map<string, TranslationEntry[]>();
+    const resources: string = query.resources ?? '';
+    if (resources.length === 0) return result;
+    for (const language of TranslationPolicy.offlineTargets(query)) {
+      try {
+        const request: GlossRequestDocument = {
+          generation: query.generation,
+          user_data: '',
+          candidates: query.candidates.map((candidate: TranslationCandidate): GlossRequestCandidate => ({
+            text: candidate.text, source: 0
+          })),
+          target_language: language
+        };
+        const reply: NativeReply<TranslationResponseValue> = JSON.parse(
+          client.candidateGlosses(JSON.stringify(request), resources)) as NativeReply<TranslationResponseValue>;
+        if (!reply.ok || reply.value === undefined || reply.value.generation !== query.generation
+          || !Array.isArray(reply.value.translations)) continue;
+        const glosses: TranslationEntry[] = [];
+        for (const entry of reply.value.translations) {
+          TranslationPolicy.append(glosses, entry.text, entry.translation);
+        }
+        result.set(language, glosses);
+      } catch (error) {
+        KeyboardLog.error(`offline ${language} candidate glosses unavailable: ${describeError(error)}`);
+      }
+    }
+    return result;
+  }
+
+  /** The non-English targets with an offline dictionary staged beside the resources, known before any query so the gloss line is reserved up front. */
+  private installedOfflineGlosses(targets: string[]): string[] {
+    const parent: string = this.resourceDirectory.substring(0, this.resourceDirectory.lastIndexOf('/'));
+    if (parent.length === 0) return [];
+    return targets.filter((target: string): boolean => target !== 'en'
+      && fs.accessSync(`${parent}/offline-glosses/zh-${target}.db`));
   }
 
   private appendOfflineGloss(query: TranslationQuery, entries: TranslationEntry[]): void {

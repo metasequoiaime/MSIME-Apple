@@ -134,6 +134,24 @@ static void TestEngineMaintenance() {
     error = nil;
     assert(![MSIMEClientSession candidateGlossRequest:@{@"padding":[@"x" stringByPaddingToLength:262145 withString:@"x" startingAtIndex:0]} resources:options[@"dictionaries"] error:&error] && error);
     error = nil;
+    // Non-English glosses come from an offline dictionary installed beside the resource directory, one file per target language.
+    NSString *offlineGlosses = [[options[@"dictionaries"] stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"offline-glosses"];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:offlineGlosses withIntermediateDirectories:YES attributes:nil error:nil]);
+    assert(sqlite3_open([[offlineGlosses stringByAppendingPathComponent:@"zh-fr.db"] fileSystemRepresentation], &database) == SQLITE_OK);
+    assert(sqlite3_exec(database, "PRAGMA user_version=1;"
+        "CREATE TABLE zh_glosses(chinese TEXT PRIMARY KEY,gloss TEXT NOT NULL,source TEXT NOT NULL) WITHOUT ROWID;"
+        "CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
+        "INSERT INTO meta VALUES('target_language','fr');"
+        "INSERT INTO zh_glosses VALUES('你好','bonjour','hello');", nullptr, nullptr, nullptr) == SQLITE_OK);
+    assert(sqlite3_close(database) == SQLITE_OK);
+    NSDictionary *frenchRequest = @{@"generation":@7, @"target_language":@"fr", @"candidates":@[@{@"text":@"你好", @"source":@0}, @{@"text":@"hello", @"source":@4}]};
+    NSDictionary *french = [MSIMEClientSession candidateGlossRequest:frenchRequest resources:options[@"dictionaries"] error:&error];
+    assert(french && !error && [french[@"generation"] isEqual:@7]);
+    assert(([french[@"translations"] isEqual:@[@{@"text":@"你好", @"translation":@"bonjour"}]]));
+    NSMutableDictionary *germanRequest = [frenchRequest mutableCopy];
+    germanRequest[@"target_language"] = @"de";
+    NSDictionary *german = [MSIMEClientSession candidateGlossRequest:germanRequest resources:options[@"dictionaries"] error:&error];
+    assert(german && !error && [german[@"translations"] isEqual:@[]]);
     assert((![session applyTranslations:@[@{@"text":@"hello", @"translation":[@"x" stringByPaddingToLength:4097 withString:@"x" startingAtIndex:0]}] generation:translationGeneration error:&error] && error));
     error = nil;
     assert([[session setCharacterWidthFull:YES error:&error][@"character_width"] isEqual:@"Fullwidth"]);

@@ -14,21 +14,41 @@ int main() {
   const auto log = directory / "diagnostic.log";
 
   msime_macos_diagnostic_configure(directory.string(), false);
+  assert(!msime_macos_diagnostic_enabled());
   msime_macos_diagnostic_write("disabled_event");
+  msime_macos_diagnostic_writef("disabled_formatted elapsed_ms=%.1f", 1.5);
   assert(!std::filesystem::exists(log));
 
+  // A relative directory is refused, so the gate stays closed and formatting is skipped.
+  msime_macos_diagnostic_configure("relative", true);
+  assert(!msime_macos_diagnostic_enabled());
+
   msime_macos_diagnostic_configure(directory.string(), true);
+  assert(msime_macos_diagnostic_enabled());
   msime_macos_diagnostic_write("focus_in");
   msime_macos_diagnostic_write("operation_failed operation=synthetic\nprivate");
+  msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.1f", "down", 1, 2.5);
+  msime_macos_diagnostic_writef("formatted %s", "tab\there");
+  msime_macos_diagnostic_writef("long %s", std::string(400, 'x').c_str());
   std::ifstream input(log);
   const std::string contents((std::istreambuf_iterator<char>(input)), {});
   assert(contents.find("focus_in") != std::string::npos);
   assert(contents.find("operation_failed operation=synthetic?private") !=
          std::string::npos);
   assert(contents.find("disabled_event") == std::string::npos);
+  assert(contents.find("disabled_formatted") == std::string::npos);
+  assert(contents.find("[key-latency] stage=handle type=down handled=1 elapsed_ms=2.5") != std::string::npos);
+  assert(contents.find("formatted tab?here") != std::string::npos);
+  // The formatted event is cut to the 192-byte cap: "long " plus 187 x.
+  const auto longStart = contents.find("long x");
+  assert(longStart != std::string::npos);
+  const auto longEnd = contents.find('\n', longStart);
+  assert(longEnd - longStart == 192);
 
   msime_macos_diagnostic_configure(directory.string(), false);
+  assert(!msime_macos_diagnostic_enabled());
   msime_macos_diagnostic_write("after_disable");
+  msime_macos_diagnostic_writef("after_disable_formatted %d", 1);
   std::ifstream after(log);
   const std::string unchanged((std::istreambuf_iterator<char>(after)), {});
   assert(unchanged == contents);

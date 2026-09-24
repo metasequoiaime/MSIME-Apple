@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/client-core", "crates/engine-bridge", "crates/input-runtime", "crates/host-api", "crates/host-windows", "crates/host-macos", "crates/tauri-mobile-platform", "crates/ios-native-ffi", "apps/desktop/src-tauri"]
+members = ["crates/client-core", "crates/engine-bridge", "crates/input-runtime", "crates/host-api", "crates/host-windows", "crates/host-macos", "crates/tauri-mobile-platform", "crates/ios-native-ffi", "crates/mcp-server", "apps/desktop/src-tauri"]
 # Everything except the desktop app: a bare `cargo test` should cover the
 # libraries, and msime-desktop needs a built frontend and a packaged platform
 # bundle before its build script will run.
@@ -12,6 +12,7 @@ default-members = [
     "crates/host-macos",
     "crates/tauri-mobile-platform",
     "crates/ios-native-ffi",
+    "crates/mcp-server",
 ]
 resolver = "2"
 
@@ -40,6 +41,7 @@ unicode-segmentation = "1.13"
 [workspace.lints.rust]
 unsafe_code = "deny"
 
+# Smallest dev build tree rather than fastest rebuild: the repo is developed through many parallel worktrees, each with its own target/, and together they fill the disk. No debug info (backtraces keep symbol names but lose file and line) and no incremental cache (about a fifth of target/debug per worktree; edits recompile the whole crate instead). Raise either locally when you need a debugger or faster iteration.
 [profile.dev]
 debug = 0
-incremental = true
+incremental = false

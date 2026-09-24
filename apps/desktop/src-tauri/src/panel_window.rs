@@ -420,7 +420,7 @@ pub(crate) fn open_vocabulary_panel(
     #[cfg(target_os = "windows")]
     {
         let _ = remember_panel_input_target(&state);
-        let position = windows_panel_position(560.0, 680.0);
+        let position = windows_panel_position(560.0, 680.0, PanelPlacement::BottomCenter);
         open_panel_window(
             &app,
             "vocabulary-panel",

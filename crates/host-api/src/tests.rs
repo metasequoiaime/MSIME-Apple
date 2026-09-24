@@ -1765,6 +1765,60 @@ fn try_preferences_reader_reports_contention_without_defaults() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn recover_preferences_backs_up_malformed_documents_only() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap();
+    let recover = || read(unsafe { msime_client_recover_preferences(path.as_ptr(), path.len()) });
+    let document = directory.path().join("preferences.json");
+
+    // Missing: nothing is written.
+    let missing = recover();
+    assert_eq!(missing["ok"], true);
+    assert_eq!(missing["value"]["recovered"], false);
+    assert_eq!(missing["value"]["snapshot"]["revision"], 0);
+    assert!(!document.exists());
+
+    // Malformed: backed up verbatim, then replaced by a document load accepts.
+    std::fs::write(&document, "{\"format_version\":1,").unwrap();
+    let repaired = recover();
+    assert_eq!(repaired["ok"], true, "{repaired}");
+    let value = &repaired["value"];
+    assert_eq!(value["recovered"], true);
+    assert_eq!(value["salvaged"], false);
+    let backup = std::path::PathBuf::from(value["backup_path"].as_str().unwrap());
+    assert_eq!(backup.parent().unwrap(), directory.path());
+    assert_eq!(
+        value["backup_name"].as_str().unwrap(),
+        backup.file_name().unwrap().to_str().unwrap()
+    );
+    assert_eq!(std::fs::read(&backup).unwrap(), b"{\"format_version\":1,");
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["value"], value["snapshot"]);
+
+    // Valid now: a second call is a no-op.
+    let again = recover();
+    assert_eq!(again["value"]["recovered"], false);
+    assert_eq!(again["value"]["snapshot"], value["snapshot"]);
+
+    // Well-formed but from a newer build: refused and left as it is.
+    let future = json!({"format_version": 2, "revision": 3, "preferences": {}}).to_string();
+    std::fs::write(&document, &future).unwrap();
+    assert_eq!(recover()["ok"], false);
+    assert_eq!(std::fs::read_to_string(&document).unwrap(), future);
+
+    assert_eq!(
+        read(unsafe { msime_client_recover_preferences(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    let relative = "relative";
+    assert_eq!(
+        read(unsafe { msime_client_recover_preferences(relative.as_ptr(), relative.len()) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn save_preferences_uses_compare_and_swap_and_rejects_invalid_snapshots() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().to_string_lossy().into_owned();
@@ -2479,6 +2533,154 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     read(msime_client_destroy(handle));
 }
 
+fn offline_gloss_fixture(path: &std::path::Path, language: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .execute_batch(&format!(
+            "CREATE TABLE zh_glosses(chinese TEXT PRIMARY KEY, gloss TEXT NOT NULL, source TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO meta VALUES('target_language', '{language}');
+             INSERT INTO zh_glosses VALUES('你好', 'bonjour, salut', 'hello');
+             PRAGMA user_version = 1;"
+        ))
+        .unwrap();
+}
+
+/// A non-English offline dictionary is announced only when it is installed, and the query without one is the one hosts always received.
+#[test]
+fn translation_query_lists_installed_offline_gloss_languages() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        candidate_translations: false,
+        candidate_english_gloss: true,
+        translation_target_language: msime_client_core::preferences::TranslationTargetLanguage::Fr,
+        ..Preferences::default()
+    };
+    preferences.tencent_tmt.enabled = false;
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"U4e2d" {
+        read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ));
+    }
+    // Nothing installed: French with translation off has no gloss source, as before.
+    assert_eq!(
+        read(msime_client_translation_query(handle))["value"],
+        Value::Null
+    );
+    preferences.candidate_translations = true;
+    update(handle, 1, &preferences);
+    let plain = read(msime_client_translation_query(handle));
+    assert!(plain["value"].get("offline_gloss_languages").is_none());
+    assert!(plain["value"]["resources"].is_null());
+
+    offline_gloss_fixture(&dir.path().join("offline-glosses/zh-fr.db"), "fr");
+    offline_gloss_fixture(&dir.path().join("offline-glosses/zh-ko.db"), "ko");
+    preferences.translation_secondary_language =
+        Some(msime_client_core::preferences::TranslationTargetLanguage::Ja);
+    update(handle, 2, &preferences);
+    let installed = read(msime_client_translation_query(handle));
+    // Korean is installed but not a target; Japanese is a target but not installed.
+    assert_eq!(installed["value"]["offline_gloss_languages"], json!(["fr"]));
+    assert!(installed["value"]["resources"].is_string());
+    assert_eq!(installed["value"]["english_gloss"], false);
+
+    // The offline switch alone reaches it, with online translation off and no provider implied.
+    preferences.candidate_translations = false;
+    update(handle, 3, &preferences);
+    let offline = read(msime_client_translation_query(handle));
+    assert_eq!(offline["value"]["offline_gloss_languages"], json!(["fr"]));
+    assert_eq!(offline["value"]["translation_account"], false);
+    assert!(offline["value"]["tencent_tmt"].is_null());
+
+    // Both switches off: nothing, installed or not.
+    preferences.candidate_english_gloss = false;
+    update(handle, 4, &preferences);
+    assert_eq!(
+        read(msime_client_translation_query(handle))["value"],
+        Value::Null
+    );
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn candidate_gloss_request_reads_the_offline_dictionary_for_its_target_language() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let user = directory.path().join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let resources = resources.to_str().unwrap().as_bytes().to_vec();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe {
+            msime_client_candidate_gloss_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    let candidates = json!([
+        {"text":"你好","source":0},
+        {"text":"Hello","source":4},
+        {"text":"再见","source":0}
+    ]);
+    // Not installed is not an error: the host keeps whatever the online path brings.
+    let missing = call(json!({"generation":7,"target_language":"fr","candidates":candidates}));
+    assert_eq!(missing["ok"], true);
+    assert_eq!(missing["value"], json!({"generation":7,"translations":[]}));
+
+    offline_gloss_fixture(&directory.path().join("offline-glosses/zh-fr.db"), "fr");
+    // The user directory holds English only, so a French request never reads it even when given.
+    std::fs::write(user.join("custom_translations.txt"), "你好\thand written\n").unwrap();
+    let french = call(json!({
+        "generation":8,
+        "target_language":"fr",
+        "user_data":user.to_str().unwrap(),
+        "candidates":candidates
+    }));
+    assert_eq!(french["ok"], true);
+    assert_eq!(
+        french["value"],
+        json!({"generation":8,"translations":[{"text":"你好","translation":"bonjour, salut"}]})
+    );
+
+    // A file under the wrong name is refused rather than shown as another language.
+    std::fs::copy(
+        directory.path().join("offline-glosses/zh-fr.db"),
+        directory.path().join("offline-glosses/zh-ja.db"),
+    )
+    .unwrap();
+    let renamed = call(json!({"generation":9,"target_language":"ja","candidates":candidates}));
+    assert_eq!(renamed["ok"], false);
+    assert_eq!(renamed["error"], "candidate gloss dictionary unavailable");
+
+    for language in ["xx", "EN", "../fr", ""] {
+        let invalid =
+            call(json!({"generation":10,"target_language":language,"candidates":candidates}));
+        assert_eq!(
+            invalid["error"], "invalid candidate gloss request",
+            "{language}"
+        );
+    }
+    // English, spelled out or implied, is still the packaged dictionary, which this directory lacks.
+    for request in [
+        json!({"generation":11,"target_language":"en","candidates":candidates}),
+        json!({"generation":11,"candidates":candidates}),
+    ] {
+        assert_eq!(
+            call(request)["error"],
+            "candidate gloss dictionary unavailable"
+        );
+    }
+}
+
 /// Linux keeps the Tencent secret in the provider's own file, so the query's credential fields cannot say which service the user picked. The explicit choice has to survive to the socket even when that service is unusable, or the provider falls back to Tencent.
 #[cfg(unix)]
 #[test]
@@ -2562,6 +2764,8 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
 
     let query = read(msime_client_translation_query(handle))["value"].clone();
     assert_eq!(query["provider"], "tencent");
+    // The MSIME account endpoint is never chosen implicitly.
+    assert_eq!(query["translation_account"], false);
     assert_eq!(forward(&query).unwrap()["query"]["provider"], "tencent");
 
     preferences.tencent_tmt.enabled = false;
@@ -2589,6 +2793,48 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
     assert_eq!(query["provider"], "custom");
     assert!(query["custom_translation"].is_null());
     assert_eq!(forward(&query).unwrap()["query"]["provider"], "custom");
+    assert_eq!(query["translation_account"], false);
+
+    // Choosing the account switches every other service off, so the provider socket is never asked.
+    preferences.custom_translation.enabled = false;
+    preferences.translation_account = true;
+    update(handle, 4, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], true);
+    assert_eq!(query["provider"], "none");
+    assert!(
+        forward(&query).is_none(),
+        "an account query reached the provider"
+    );
+
+    // Tencent's default `enabled: true` without usable secrets is not a user choice and does not displace the account; usable secrets do.
+    preferences.tencent_tmt.enabled = true;
+    update(handle, 5, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], true);
+    preferences.tencent_tmt.secret_id = "id".into();
+    preferences.tencent_tmt.secret_key = "key".into();
+    update(handle, 6, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], false);
+    preferences.tencent_tmt.enabled = false;
+
+    // The user's own service wins over the account.
+    preferences.niutrans.enabled = true;
+    update(handle, 7, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], false);
+
+    // The offline English gloss keeps the query alive with candidate translations off, and must not carry the account.
+    preferences.niutrans.enabled = false;
+    preferences.candidate_translations = false;
+    preferences.candidate_english_gloss = true;
+    preferences.translation_target_language =
+        msime_client_core::preferences::TranslationTargetLanguage::En;
+    update(handle, 8, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["english_gloss"], true);
+    assert_eq!(query["translation_account"], false);
     read(msime_client_destroy(handle));
 }
 
@@ -3987,6 +4233,62 @@ fn invalid_buffers_and_commands_return_owned_errors() {
 }
 
 #[test]
+fn incomplete_local_mode_input_shows_the_raw_text_as_a_fallback_space_commits() {
+    // Windows' PrepareCandidateList shows the raw composition as a Fallback row whenever a special mode has nothing else, and Space commits it; a bare Y or R prefix included.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("resources")).unwrap();
+    std::fs::write(dir.path().join("resources/english.db"), b"fixture").unwrap();
+    std::fs::write(dir.path().join("resources/dict_japanese.dat"), b"synthetic").unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    let only_fallback = |transition: &Value, text: &str| {
+        let view = &transition["value"]["view"];
+        let candidates = view["candidates"].as_array().unwrap();
+        assert_eq!(candidates.len(), 1, "{view}");
+        assert_eq!(candidates[0]["text"], text, "{view}");
+        assert_eq!(candidates[0]["source"], 9, "{view}");
+    };
+    let typed = |text: &[u8]| {
+        let mut last = Value::Null;
+        for byte in text {
+            last = read(msime_client_character(
+                handle,
+                *byte,
+                byte.is_ascii_uppercase(),
+            ));
+        }
+        last
+    };
+
+    only_fallback(&typed(b"Y"), "Y");
+    let committed = read(msime_client_command(handle, 1));
+    assert_eq!(committed["value"]["commit"], "Y");
+    assert!(committed["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+
+    only_fallback(&typed(b"Kzzz"), "Kzzz");
+    read(msime_client_command(handle, 3));
+
+    only_fallback(&typed(b"U+"), "U+");
+    read(msime_client_command(handle, 3));
+
+    only_fallback(&typed(b"Txin"), "Txin");
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "Txin"
+    );
+
+    only_fallback(&typed(b"R"), "R");
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "R"
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
 fn candidate_page_edge_commands_reach_runtime() {
     let dir = tempfile::tempdir().unwrap();
     let handle = test_host(dir.path());
@@ -5079,7 +5381,11 @@ fn a_queued_dictionary_file_imports_what_it_can_and_reports_the_rest() {
 
     // The queue holds 128 words; a longer file queues the first 128 and says the rest were not read.
     let long: String = (0..200)
-        .map(|index| format!("短语{index}\tq{index}\t100\n"))
+        .map(|index: u8| {
+            // Quick phrase codes are letters only, so the index is spelled in letters.
+            let code = [b'a' + index / 26, b'a' + index % 26].map(char::from);
+            format!("短语{index}\tq{}{}\t100\n", code[0], code[1])
+        })
         .collect();
     let fresh = tempfile::tempdir().unwrap();
     let mut long_options = options.clone();
@@ -5549,5 +5855,141 @@ fn vocabulary_boundary_rejects_a_bad_envelope_without_touching_the_store() {
     assert!(
         !directory.path().join("vocabulary-progress.json").exists(),
         "a refused request writes nothing"
+    );
+}
+
+#[test]
+fn voice_hotword_correction_rewrites_homophones() {
+    let request = json!({ "text": "我在名天科技上班", "hotwords": [{"text": "明天科技", "pinyin": "ming tian ke ji"}] }).to_string();
+    let corrected =
+        read(unsafe { msime_client_voice_hotword_correct(request.as_ptr(), request.len()) });
+    assert_eq!(
+        corrected,
+        json!({"ok": true, "value": {"text": "我在明天科技上班"}})
+    );
+    let malformed = b"{\"text\": 1}";
+    assert_eq!(
+        read(unsafe { msime_client_voice_hotword_correct(malformed.as_ptr(), malformed.len()) })
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_voice_hotword_correct(std::ptr::null(), 4) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn voice_local_models_list_install_cancel_and_remove_validate_their_requests() {
+    let root = tempfile::tempdir().unwrap();
+    let request = json!({ "root": root.path() }).to_string();
+    let listed = read(unsafe { msime_client_voice_local_models(request.as_ptr(), request.len()) });
+    assert_eq!(listed["ok"], true, "{listed}");
+    let models = listed["value"]["models"].as_array().unwrap();
+    assert!(!models.is_empty());
+    assert!(models.iter().all(|model| model["installed"] == false));
+    let default = listed["value"]["default"].as_str().unwrap();
+    assert!(models.iter().any(|model| model["id"] == default));
+
+    let relative = json!({ "root": "models" }).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_voice_local_models(relative.as_ptr(), relative.len()) })["ok"],
+        false
+    );
+
+    let unknown = json!({ "root": root.path(), "id": "no-such-model" }).to_string();
+    let install = read(unsafe {
+        msime_client_voice_local_model_install(
+            unknown.as_ptr(),
+            unknown.len(),
+            None,
+            std::ptr::null_mut(),
+        )
+    });
+    assert_eq!(install["ok"], false, "{install}");
+    let remove =
+        read(unsafe { msime_client_voice_local_model_remove(unknown.as_ptr(), unknown.len()) });
+    assert_eq!(remove["ok"], false, "{remove}");
+
+    let bad_mirror =
+        json!({ "root": root.path(), "id": default, "mirror": "http://mirror.example" })
+            .to_string();
+    let install = read(unsafe {
+        msime_client_voice_local_model_install(
+            bad_mirror.as_ptr(),
+            bad_mirror.len(),
+            None,
+            std::ptr::null_mut(),
+        )
+    });
+    assert_eq!(install["ok"], false, "{install}");
+
+    let removed = json!({ "root": root.path(), "id": default }).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_voice_local_model_remove(removed.as_ptr(), removed.len()) })
+            ["ok"],
+        true
+    );
+
+    let cancel = json!({ "id": default }).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_voice_local_model_cancel(cancel.as_ptr(), cancel.len()) }),
+        json!({"ok": true, "value": false})
+    );
+    assert_eq!(
+        read(unsafe { msime_client_voice_local_model_cancel(std::ptr::null(), 0) })["ok"],
+        true
+    );
+}
+
+#[test]
+fn mcp_status_and_install_check_their_requests_before_touching_a_file() {
+    let status =
+        |request: &[u8]| read(unsafe { msime_client_mcp_status(request.as_ptr(), request.len()) });
+    let install =
+        |request: &[u8]| read(unsafe { msime_client_mcp_install(request.as_ptr(), request.len()) });
+
+    // Before the input method is set up there is no entry to show, but the server path still is.
+    let value = &status(br#"{"options":null}"#)["value"];
+    assert!(value["command"]
+        .as_str()
+        .unwrap()
+        .ends_with(&format!("msime-mcp{}", std::env::consts::EXE_SUFFIX)));
+    assert!(value["config"].is_null());
+    assert!(value["clients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|client| client["configured"] == false));
+
+    let options = if cfg!(windows) {
+        r"C:\\state\\runtime-options.json"
+    } else {
+        "/state/runtime-options.json"
+    };
+    let value = &status(format!(r#"{{"options":"{options}"}}"#).as_bytes())["value"];
+    let snippet: Value = serde_json::from_str(value["config"].as_str().unwrap()).unwrap();
+    assert_eq!(snippet["mcpServers"]["msime"]["command"], value["command"]);
+    assert_eq!(
+        snippet["mcpServers"]["msime"]["args"],
+        json!(["--options", options.replace(r"\\", r"\")])
+    );
+
+    assert_eq!(
+        status(br#"{"options":"relative.json"}"#)["error"],
+        "mcp options must be absolute"
+    );
+    assert_eq!(status(br#"{"unknown":1}"#)["error"], "invalid mcp request");
+    assert_eq!(
+        read(unsafe { msime_client_mcp_status(std::ptr::null(), 4) })["error"],
+        "invalid mcp request buffer"
+    );
+    assert_eq!(
+        install(br#"{"options":null,"client":"cursor"}"#)["error"],
+        "mcp_options_missing"
+    );
+    assert_eq!(
+        install(br#"{"options":null,"client":"other"}"#)["error"],
+        "invalid mcp request"
     );
 }

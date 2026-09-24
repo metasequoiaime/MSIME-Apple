@@ -60,13 +60,14 @@ std::string polish_cloud_text(
     std::string_view text, std::string_view provider, std::string_view endpoint,
     std::string_view model, std::string_view token, std::string_view prompt,
     const std::shared_ptr<std::atomic_bool> &cancelled, long timeout_ms = 3000);
-// Whether this build carries the on-device Whisper provider. Hosts offer the "local" provider only when it answers true; without it the recognizer below always throws, and a host that advertised the option anyway would fall back to the platform recognizer without saying so.
+// Whether this host can recognize on-device: the build carries Whisper, or the sherpa-onnx runtime loads (LocalAsr.h). Hosts offer the "local" provider only when it answers true; without it the recognizer below always throws, and a host that advertised the option anyway would fall back to the platform recognizer without saying so.
 bool local_asr_available();
-// Transcribe on this machine with the model file at `model_path`. Nothing leaves the process. `language` is the host's language tag; "auto" asks Whisper to detect. Throws VoiceError when the build has no Whisper, the model cannot be loaded, or the request was cancelled.
+// Transcribe on this machine. `model_path` is an installed catalog model directory (LocalAsr.h), or a Whisper ggml file when the build carries Whisper. Nothing leaves the process. `language` is the host's language tag; "auto" asks the model to detect. `hotwords` are the user's words for models that take them natively. Throws VoiceError when neither recognizer can take the model, the model cannot be loaded, or the request was cancelled.
 std::string recognize_local_asr(
     const std::vector<float> &samples, std::string_view model_path,
     std::string_view language,
-    const std::shared_ptr<std::atomic_bool> &cancelled);
+    const std::shared_ptr<std::atomic_bool> &cancelled,
+    const std::vector<std::string> &hotwords = {});
 }
 namespace msime::voice {
 using windows::batch_upload_sample_limit;

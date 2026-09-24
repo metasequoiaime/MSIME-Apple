@@ -90,6 +90,22 @@
                 android:text="@string/feedback_copy" />
 
             <TextView style="@style/AboutSectionFooter" android:text="@string/feedback_submit_footer" />
+
+            <TextView style="@style/AboutSectionHeading" android:text="@string/feedback_channels" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/feedback_qq"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/feedback_qq" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/feedback_telegram"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/feedback_telegram" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 </LinearLayout>

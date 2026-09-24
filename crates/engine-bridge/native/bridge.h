@@ -104,6 +104,8 @@ rust::Vec<rust::String> candidate_glosses(
     rust::Str resources, rust::Slice<const CandidateGlossInput> candidates);
 rust::Vec<rust::String> candidate_glosses_with_user(
     rust::Str resources, rust::Str user_data, rust::Slice<const CandidateGlossInput> candidates);
+rust::Vec<rust::String> candidate_target_glosses(
+    rust::Str database_path, rust::Str target_language, rust::Slice<const CandidateGlossInput> candidates);
 bool save_candidate_gloss(rust::Str user_data, bool chinese_to_english, rust::Str key, rust::Str gloss);
 #if !defined(__ANDROID__)
 rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,

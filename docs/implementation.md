@@ -47,7 +47,7 @@
 
 ### 偏好
 
-`client-core::preferences` 是唯一的配置真相来源：值、格式版本、revision 和文件存储。同目录临时文件替换避免半写 JSON，独立锁文件协调多个进程（输入法进程、设置进程、provider 进程可能同时在写），revision 比较拒绝覆盖过期设置。损坏文件、未知字段和未来格式一律报错并保留原文件，不构造可保存的虚假默认值。`try_load` 提供无等待读取，供设置监听线程在锁被占用时直接返回忙状态而不阻塞。
+`client-core::preferences` 是唯一的配置真相来源：值、格式版本、revision 和文件存储。同目录临时文件替换避免半写 JSON，独立锁文件协调多个进程（输入法进程、设置进程、provider 进程可能同时在写），revision 比较拒绝覆盖过期设置。`load` 遇到损坏文件、未知字段和未来格式一律报错，不静默回落默认值。修复是单独的显式动作：`recover` 先把原字节原样备份为同目录的 `preferences.json.corrupt-YYYYMMDD-HHMMSS`（UTC 时间戳，重名时追加 `-N`），再从默认值出发逐个顶层字段尝试并入原文件中仍能解析且通过校验的值，对象字段整体不合格时再逐个子字段尝试，因此服务凭据等与坏字段同段的值也会保留；无法解析为 JSON 时写出默认值。新 revision 为原 revision + 1，读不出 revision 时取当前 Unix 秒数，保证按 revision 比较的宿主一定会应用修复结果。文件本来就能读取时不做任何事。`recover_malformed` 只处理不是合法 JSON 的字节，合法 JSON 但被拒绝的文档（未知字段、未来格式）原样返回错误，供输入法进程自动修复时使用，避免覆盖更新版本写出的设置。`try_load` 提供无等待读取，供设置监听线程在锁被占用时直接返回忙状态而不阻塞。
 
 ### C ABI
 
@@ -63,7 +63,7 @@
 
 ### 账号、云与社区
 
-`account` 提供客户端、会话、校验与 API 四层，凭据留在 Rust 侧，交给 WebView 的只有脱敏 DTO；各平台的原生登录（iOS 的 Apple 登录、Android 的 Google 凭据管理器）把身份 token 直接交回 Rust 会话，不经过 WebView，也不写日志。`cloud` 下是快照队列、云词典与云候选；`community` 是社区资源与资源库；`credential` 按 doubao / translation / asr / probe 分别提供凭据形态与探测。`skin` 覆盖内置皮肤目录、AI 生成皮肤、社区皮肤、自定义皮肤库与键盘试用；`translation` 持有译义存储与自定义译义；`voice` 是 controller 与豆包帧编解码；`dictionary` 是导入与个人词库；`typing_statistics` 保留 366 天的按日聚合，只记字符计数与分类，不保存输入内容。
+`account` 提供客户端、会话、校验与 API 四层，凭据留在 Rust 侧，交给 WebView 的只有脱敏 DTO；各平台的原生登录（iOS 的 Apple 登录、Android 的 Google 凭据管理器）把身份 token 直接交回 Rust 会话，不经过 WebView，也不写日志。`cloud` 下是快照队列、云词典与云候选；`community` 是社区资源与资源库；`credential` 按 doubao / translation / asr / probe 分别提供凭据形态与探测。`skin` 覆盖内置皮肤目录、AI 生成皮肤、社区皮肤、自定义皮肤库与键盘试用；`translation` 持有译义存储与自定义译义；`voice` 是 controller 与豆包帧编解码；`dictionary` 是导入与个人词库；`typing_statistics` 按用户选择的保留时长（默认永久）保留按日聚合，只记字符计数与分类，不保存输入内容。
 
 ### 有界性
 

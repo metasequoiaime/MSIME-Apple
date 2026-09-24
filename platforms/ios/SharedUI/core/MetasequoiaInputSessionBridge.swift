@@ -151,7 +151,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidateGlosses: [String]
   /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, or the spelling a typo correction replaced. Never part of the committed text.
   let candidateAnnotations: [String]
-  /// The Engine source (cloud, AI, dictionary...) and pinned slot of each candidate, aligned with `candidates`; zero is a dictionary word ranked by use.
+  /// The Engine `CandidateSource` (cloud, AI, dictionary...) and pinned slot of each candidate, aligned with `candidates`; a source of -1 means the row carried none, and a fixed position of zero is a word ranked by use.
   let candidateSources: [Int]
   let candidateFixedPositions: [Int]
   let candidatePageCount: Int
@@ -1321,7 +1321,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
-      candidateSources: rows.map { ($0["source"] as? NSNumber)?.intValue ?? 0 },
+      candidateSources: rows.map { ($0["source"] as? NSNumber)?.intValue ?? -1 },
       candidateFixedPositions: rows.map { ($0["fixed_position"] as? NSNumber)?.intValue ?? 0 },
       candidatePageCount: max(0, (view["page_count"] as? NSNumber)?.intValue ?? 0),
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,

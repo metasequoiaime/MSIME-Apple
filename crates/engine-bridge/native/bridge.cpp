@@ -1172,6 +1172,53 @@ rust::Vec<rust::String> candidate_glosses_with_user(
     }
     return output;
 }
+// Glosses Chinese candidates into one non-English language from an offline-glosses/zh-<lang>.db built by scripts/build_offline_glosses.py. The file states its schema version and language; one that disagrees with the request is refused rather than shown, so a renamed file cannot put French under Japanese. Latin candidates get nothing: the file only maps Chinese words.
+rust::Vec<rust::String> candidate_target_glosses(
+    rust::Str database_path, rust::Str target_language, rust::Slice<const CandidateGlossInput> candidates) {
+    sqlite3 *database = nullptr;
+    const int opened = sqlite3_open_v2(std::string(database_path).c_str(), &database,
+                                     SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nullptr);
+    const std::unique_ptr<sqlite3, decltype(&sqlite3_close)> database_guard(database, sqlite3_close);
+    if (opened != SQLITE_OK) throw std::runtime_error("Offline gloss dictionary unavailable");
+    const auto prepare = [&](const char *sql) {
+        sqlite3_stmt *statement = nullptr;
+        if (sqlite3_prepare_v2(database, sql, -1, &statement, nullptr) != SQLITE_OK) {
+            sqlite3_finalize(statement);
+            throw std::runtime_error("Offline gloss dictionary unreadable");
+        }
+        return std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)>(statement, sqlite3_finalize);
+    };
+    const auto version = prepare("PRAGMA user_version");
+    if (sqlite3_step(version.get()) != SQLITE_ROW || sqlite3_column_int(version.get(), 0) != 1)
+        throw std::runtime_error("Offline gloss dictionary version unsupported");
+    const auto language = prepare("SELECT value FROM meta WHERE key = 'target_language'");
+    const auto *stored = sqlite3_step(language.get()) == SQLITE_ROW
+                             ? reinterpret_cast<const char *>(sqlite3_column_text(language.get(), 0))
+                             : nullptr;
+    if (!stored || std::string(stored) != std::string(target_language))
+        throw std::runtime_error("Offline gloss dictionary language mismatch");
+    const auto lookup = prepare("SELECT gloss FROM zh_glosses WHERE chinese = ?1");
+    rust::Vec<rust::String> output;
+    output.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        std::string key;
+        bool chinese_to_english = false;
+        std::string gloss;
+        if (candidate_gloss_key(candidate, key, chinese_to_english) && chinese_to_english) {
+            sqlite3_reset(lookup.get());
+            sqlite3_bind_text(lookup.get(), 1, key.data(), static_cast<int>(key.size()), SQLITE_TRANSIENT);
+            const int status = sqlite3_step(lookup.get());
+            if (status == SQLITE_ROW) {
+                const auto *text = reinterpret_cast<const char *>(sqlite3_column_text(lookup.get(), 0));
+                if (text) gloss = candidate_gloss_display(text);
+            } else if (status != SQLITE_DONE) {
+                throw std::runtime_error("Offline gloss dictionary read failed");
+            }
+        }
+        output.push_back(rust::String(gloss));
+    }
+    return output;
+}
 rust::Vec<EmojiSymbolGroup> emoji_symbol_groups(rust::Str resources) {
     const auto path = std::filesystem::u8path(std::string(resources)) / "others.db";
     sqlite3 *database = nullptr;

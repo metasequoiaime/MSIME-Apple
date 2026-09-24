@@ -101,10 +101,10 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     if (recognitionRequired) {
         const auto provider = msime::voice::normalize_voice_provider(String(snapshot, @"asr_provider"));
         if (provider == "local") {
-            // Nothing leaves the process, so there is no endpoint or token to check. What has to hold is that this build carries the recognizer and that the model is a readable file rather than a directory or a path the user has since moved.
+            // Nothing leaves the process, so there is no endpoint or token to check. What has to hold is that this build carries the Whisper recognizer and that the model is a readable file rather than a directory or a path the user has since moved. An installed model directory is recognised by the msime-voice-local helper (LocalVoiceRequest.h), never here.
             NSString *model = snapshot[@"asr_model_path"];
             BOOL directory = NO;
-            if (!msime::voice::local_asr_available() || !model.isAbsolutePath ||
+            if (!MSIMEVoiceLocalWhisperBuilt() || !model.isAbsolutePath ||
                 ![NSFileManager.defaultManager fileExistsAtPath:model isDirectory:&directory] || directory) {
                 if (error) *error = Failure(); return nil;
             }

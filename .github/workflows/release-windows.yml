@@ -33,12 +33,13 @@ jobs:
         shell: pwsh
         # rust-toolchain.toml pins the compiler; adding targets from the repository root installs that toolchain first.
         run: rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
-      - name: Prepare the locked Engine archive and settled-rerank model
+      - name: Prepare the locked Engine archive, settled-rerank model and offline candidate glosses
         # bash stops at the first failing command; a multi-line pwsh step only reports the last one.
         shell: bash
         run: |
           python scripts/fetch_engine.py
           python scripts/fetch_settled_model.py
+          python scripts/fetch_offline_glosses.py
       # Build-Client.ps1 takes installed dependency prefixes rather than a vcpkg toolchain, so the manifest is installed into one prefix per architecture: x64 for the Server, Watchdog and 64-bit TSF DLL, x86 for the 32-bit TSF DLL.
       # Restore and save separately so a run that fails after this point still keeps the installed dependencies for the retry.
       - id: vcpkg-cache
@@ -93,11 +94,11 @@ jobs:
         shell: pwsh
         run: |
           $deps = Join-Path $env:RUNNER_TEMP 'msime-deps'
-          # The Rust crates linked into the host DLL, the dictionary replay tool and the settings binary, and the npm packages bundled into its frontend, carry notices the vcpkg prefixes do not. Run on this runner, cargo resolves the Windows dependency graph.
+          # The Rust crates linked into the host DLL, the dictionary replay tool, the MCP server and the settings binary, and the npm packages bundled into its frontend, carry notices the vcpkg prefixes do not. Run on this runner, cargo resolves the Windows dependency graph.
           $supplemental = Join-Path $env:RUNNER_TEMP 'msime-supplemental-notices'
           $rust = Join-Path $supplemental 'rust-crates-NOTICES.txt'
           $frontend = Join-Path $supplemental 'frontend-npm-NOTICES.txt'
-          python -X utf8 platforms/linux/collect-notices.py cargo $rust msime-host-api msime-engine-bridge msime-desktop:tauri/custom-protocol
+          python -X utf8 platforms/linux/collect-notices.py cargo $rust msime-host-api msime-engine-bridge msime-mcp-server msime-desktop:tauri/custom-protocol
           if ($LASTEXITCODE -ne 0) { throw 'Rust crate notice collection failed' }
           python -X utf8 platforms/linux/collect-notices.py npm $frontend apps/desktop
           if ($LASTEXITCODE -ne 0) { throw 'npm notice collection failed' }

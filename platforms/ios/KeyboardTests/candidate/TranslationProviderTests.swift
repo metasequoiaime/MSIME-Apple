@@ -16,9 +16,10 @@ final class TranslationProviderTests: XCTestCase {
   private let fixedDate: @Sendable () -> Date = { Date(timeIntervalSince1970: 1_700_000_000) }
 
   func testRouteFollowsTheSharedPrecedence() {
-    XCTAssertEqual(TranslationProviderPreference.route(in: nil), .account)
+    XCTAssertEqual(TranslationProviderPreference.route(in: nil), .none)
     // Tencent is enabled by default but only usable secrets make it the route.
-    XCTAssertEqual(TranslationProviderPreference.route(in: ["tencent_tmt": ["enabled": true, "secret_id": "<id>", "secret_key": "k"]]), .account)
+    XCTAssertEqual(TranslationProviderPreference.route(in: ["tencent_tmt": ["enabled": true, "secret_id": "<id>", "secret_key": "k"]]), .none)
+    XCTAssertEqual(TranslationProviderPreference.route(in: ["translation_account": true]), .account)
     XCTAssertEqual(TranslationProviderPreference.route(in: ["tencent_tmt": ["secret_id": "AKID1", "secret_key": "key", "region": ""]]),
                    .tencent(secretID: "AKID1", secretKey: "key", region: "ap-guangzhou"))
     let everything: [String: Any] = [
@@ -51,7 +52,33 @@ final class TranslationProviderTests: XCTestCase {
     TranslationProviderPreference.select(.account, niutrans: ("app", "key"), tencent: ("AKID1", "key", "ap-beijing"),
                                          custom: ("https://example.com/t", "token"), in: &document)
     XCTAssertEqual(TranslationProviderPreference.route(in: document), .account, "Tencent is disabled explicitly, not by losing its secrets")
+    XCTAssertEqual(TranslationProviderPreference.selected(in: document), .account)
+    XCTAssertEqual(document["translation_account"] as? Bool, true)
     XCTAssertEqual((document["tencent_tmt"] as? [String: Any])?["secret_id"] as? String, "AKID1")
+    TranslationProviderPreference.select(.off, niutrans: ("app", "key"), tencent: ("AKID1", "key", "ap-beijing"),
+                                         custom: ("https://example.com/t", "token"), in: &document)
+    XCTAssertNil(document["translation_account"])
+    XCTAssertEqual(TranslationProviderPreference.route(in: document), .none, "turning translation off sends nothing anywhere")
+    XCTAssertEqual(TranslationProviderPreference.selected(in: document), .off)
+  }
+
+  /// The 水杉 account is reached only by choosing it: no document, an untouched one, a Tencent placeholder or an explicit no all stay offline, and a chosen but incomplete provider does not fall back to the account either.
+  func testNoChoiceNeverRoutesToTheAccount() {
+    let documents: [[String: Any]?] = [
+      nil,
+      [:],
+      ["tencent_tmt": ["enabled": true, "secret_id": "<SecretId>", "secret_key": "FAKESECRET_key"]],
+      ["translation_account": false],
+    ]
+    for document in documents {
+      XCTAssertEqual(TranslationProviderPreference.route(in: document), .none, "\(String(describing: document))")
+      XCTAssertEqual(TranslationProviderPreference.selected(in: document), .off, "\(String(describing: document))")
+    }
+    let incomplete: [String: Any] = [
+      "translation_account": true,
+      "niutrans": ["enabled": true, "app_id": "", "apikey": "key"],
+    ]
+    XCTAssertEqual(TranslationProviderPreference.route(in: incomplete), .none, "the account is never a fallback for the user's own service")
   }
 
   func testCacheScopeChangesWithProviderAndCredentials() {

@@ -70,7 +70,7 @@ struct TypingStatistics: Decodable {
   var days: [String: Int] = [:]
   var detail = TypingBreakdown()
   var dailyDetails: [String: TypingBreakdown] = [:]
-  /// How many days of daily records to keep, today included; `nil` keeps them all, up to the 366-day bound. The lifetime total and breakdown are never pruned.
+  /// How many days of daily records to keep, today included; `nil` keeps them all. Days a narrower window removes are also deducted from the running total and breakdown, as the source recomputes its totals from the retained days.
   var retentionDays: Int?
   /// Active typing time per day in milliseconds. A day absent here predates the measurement, which means unknown rather than zero.
   var dailyActiveMs: [String: Int] = [:]
@@ -133,6 +133,7 @@ struct TypingStatistics: Decodable {
     let recorded = days.keys.filter { Self.parseDayKey($0) != nil }.sorted()
     var result = TypingActivity()
     var totalReadable = 0
+    var recordedCharacters = 0
     for key in recorded {
       let activeMs = dailyActiveMs[key] ?? 0
       let readable = TypingActivity.readableCharacters(dailyDetails[key])
@@ -149,13 +150,14 @@ struct TypingStatistics: Decodable {
         }
       }
       let characters = days[key] ?? 0
+      recordedCharacters += characters
       if characters > result.bestDayCharacters {
         result.bestDayCharacters = characters
         result.bestDay = key
       }
     }
     result.recordedDays = recorded.count
-    result.averagePerDay = recorded.isEmpty ? 0 : Double(total) / Double(recorded.count)
+    result.averagePerDay = recorded.isEmpty ? 0 : Double(recordedCharacters) / Double(recorded.count)
     result.todayActiveMs = dailyActiveMs[todayKey] ?? 0
     result.todaySpeed = TypingActivity.charactersPerMinute(
       TypingActivity.readableCharacters(dailyDetails[todayKey]), result.todayActiveMs)

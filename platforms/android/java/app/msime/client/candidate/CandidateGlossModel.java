@@ -23,6 +23,15 @@ public final class CandidateGlossModel {
 
     /** Copy only stable display fields from one complete Engine candidate generation. */
     public static String request(long generation, JSONArray candidates) throws JSONException {
+        return request(generation, candidates, null);
+    }
+
+    /** The same request answered from the offline dictionary for {@code targetLanguage}; null asks for the English gloss. */
+    public static String request(long generation, JSONArray candidates, String targetLanguage)
+            throws JSONException {
+        if (targetLanguage != null
+                && !CandidateTranslationPolicy.OFFLINE_GLOSS_LANGUAGES.contains(targetLanguage))
+            throw new IllegalArgumentException("Invalid candidate gloss language");
         if (generation < 0 || candidates == null || candidates.length() == 0
                 || candidates.length() > MAX_CANDIDATES)
             throw new IllegalArgumentException("Invalid candidate gloss request");
@@ -36,8 +45,10 @@ public final class CandidateGlossModel {
                 throw new IllegalArgumentException("Invalid candidate entry");
             copied.put(new JSONObject().put("text", text).put("source", source));
         }
-        String request = new JSONObject().put("generation", generation)
-            .put("candidates", copied).toString();
+        JSONObject envelope = new JSONObject().put("generation", generation)
+            .put("candidates", copied);
+        if (targetLanguage != null) envelope.put("target_language", targetLanguage);
+        String request = envelope.toString();
         if (request.getBytes(StandardCharsets.UTF_8).length > MAX_REQUEST_BYTES)
             throw new IllegalArgumentException("Candidate gloss request is too large");
         return request;

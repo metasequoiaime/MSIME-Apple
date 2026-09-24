@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MSIME Client Preview",
+  "productName": "MSIME",
   "version": "0.50.0",
   "identifier": "app.msime.client",
   "build": {

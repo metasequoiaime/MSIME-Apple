@@ -22,10 +22,12 @@
 #import "../core/SharedVoicePreferences.h"
 #import "../voice/VoiceProviderOptions.h"
 #import "../voice/VoiceTextCommit.h"
+#include "SmartPunctuationRewrite.h"
 #import "../voice/VoiceDeactivation.h"
 #import "../voice/HTTPVoiceRequest.h"
 #import "../voice/VoiceHoldShortcut.h"
 #import "../voice/DoubaoVoiceRequest.h"
+#import "../voice/LocalVoiceRequest.h"
 #import "../voice/VoiceFailureMessages.h"
 #import "../core/SupportWindowController.h"
 #import "../backend/account/BackendAccountEntry.h"
@@ -38,8 +40,6 @@
 #import "../candidate/CandidateChrome.h"
 #import "../candidate/CandidateTypography.h"
 #import "../candidate/CandidateTextMetrics.h"
-#include "../candidate/CandidateGlossLayout.h"
-#include "../candidate/CandidateRowFit.h"
 #include "../candidate/CandidateSkin.h"
 #include "../candidate/CandidateWheelRouting.h"
 #import "../core/ChineseTextConversion.h"
@@ -77,6 +77,8 @@ extern "C" void MSIMEFetchAccountCandidateGlosses(const char *wordsJSON, const c
                                                     const char *secondaryCode, unsigned long long generation)
     __attribute__((weak_import));
 extern "C" void MSIMEEnsureAnonymousAccount(void) __attribute__((weak_import));
+// Apple's on-device translation, also in the Swift backend. Null when the backend was built by a toolchain older than the macOS 26 SDK.
+extern "C" void MSIMEFetchOnDeviceCandidateGlosses(const char *wordsJSON, const char *targetsJSON) __attribute__((weak_import));
 
 static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     static dispatch_queue_t queue;
@@ -108,6 +110,7 @@ static void MSIMEReloadTypingStatisticsEnabled(NSString *directory) {
     const int32_t enabled = msime_client_typing_statistics_enabled(
         static_cast<const uint8_t *>(bytes.bytes), bytes.length);
     if (enabled >= 0) MSIMETypingStatisticsEnabled.store(enabled == 1, std::memory_order_relaxed);
+    else msime_macos_diagnostic_write("stats: enabled_read_failed");
 }
 
 static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msime::mac::TypingSource source) {
@@ -123,7 +126,10 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
     const std::string_view sourceID = msime::mac::TypingSourceId(source);
     NSString *sourceString = [[NSString alloc] initWithBytes:sourceID.data() length:sourceID.size()
                                                      encoding:NSUTF8StringEncoding];
-    if (!sourceString) return;
+    if (!sourceString) {
+        msime_macos_diagnostic_write("stats: invalid_source");
+        return;
+    }
     NSDictionary *request = @{ @"directory": directory, @"action": @{
         @"operation": @"record", @"text": text,
         @"source": sourceString,
@@ -131,12 +137,26 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
         // The hour axis has to come from the same calendar as the day beside it.
         @"hour": @((long)components.hour) } };
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
-    if (!data || data.length > 65536) return;
+    if (!data || data.length > 65536) {
+        msime_macos_diagnostic_write(data ? "stats: request_too_large" : "stats: request_encode_failed");
+        return;
+    }
     dispatch_async(MSIMETypingStatisticsQueue(), ^{
         char *response = msime_client_typing_statistics(static_cast<const uint8_t *>(data.bytes), data.length);
-        if (response) msime_client_string_free(response);
-        // Statistics are best effort and must never affect text commitment. The response is
-        // intentionally discarded because it can contain no useful UI state and must not log input.
+        // Statistics are best effort and must never affect text commitment, so the response carries no UI state. A failure is logged as a label only, like the source's stats open/persist/retention lines: the error string can name files, and the log never carries it.
+        if (!response) {
+            msime_macos_diagnostic_write("stats: record_failed reason=no_response");
+            return;
+        }
+        if (msime_macos_diagnostic_enabled()) {
+            NSData *body = [NSData dataWithBytesNoCopy:response length:strlen(response) freeWhenDone:NO];
+            NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
+            if (![envelope isKindOfClass:NSDictionary.class])
+                msime_macos_diagnostic_write("stats: record_failed reason=malformed_response");
+            else if (![envelope[@"ok"] isEqual:@YES])
+                msime_macos_diagnostic_write("stats: record_failed reason=store");
+        }
+        msime_client_string_free(response);
     });
 }
 
@@ -232,6 +252,34 @@ static NSString *CandidateDisplayWithWubiHint(NSDictionary *candidate, BOOL trad
     annotated[@"annotation"] = [NSString stringWithFormat:@"(%@)", hint];
     return CandidateDisplay(annotated, traditional);
 }
+
+// The panel draws the 辅助码 (or the engine's annotation) as a run of its own after the candidate text, so it can move under a text that leaves it no room, as the Windows presenter does. The tooltip and accessibility label keep the combined CandidateDisplayWithWubiHint form.
+static NSString *CandidateTextRun(NSDictionary *candidate, BOOL traditional) {
+    if (candidate[@"annotation"] == nil) return CandidateDisplay(candidate, traditional);
+    NSMutableDictionary *plain = [candidate mutableCopy];
+    [plain removeObjectForKey:@"annotation"];
+    return CandidateDisplay(plain, traditional);
+}
+
+static NSString *CandidateAnnotationRun(NSDictionary *candidate, BOOL traditional, NSString *hint) {
+    NSString *annotation = [hint isKindOfClass:NSString.class] && hint.length ? [NSString stringWithFormat:@"(%@)", hint]
+                                                                              : candidate[@"annotation"];
+    if (![annotation isKindOfClass:NSString.class] || annotation.length == 0) return @"";
+    return MSIMEChineseOutputString(annotation, traditional);
+}
+
+// One page of candidate rows laid out at the card width they get: what the panel draws, what its buttons answer clicks in, and what the keymap panel keeps clear of.
+struct MSIMECandidatePageGeometry {
+    std::vector<msime::mac::CandidateRowLayout> rows;
+    NSArray<NSString *> *texts = @[];
+    NSArray<NSString *> *annotations = @[];
+    NSArray<NSString *> *displays = @[];
+    // Card width, the width the rows share inside it, the height they stack to, and the x of the candidate text inside a row.
+    CGFloat width = 0;
+    CGFloat lineWidth = 0;
+    CGFloat rowsHeight = 0;
+    CGFloat contentLeft = 0;
+};
 
 static NSString *CandidateTranslation(NSDictionary *candidate) {
     id text = candidate[@"translation"];
@@ -347,6 +395,11 @@ static NSArray<NSString *> *MSIMEAccountGlossIdentity(NSString *target, NSString
 static NSString *MSIMEAccountGlossCached(NSString *target, NSString *text) {
     id value = [[MSIMETranslationCache sharedCache] valueForIdentity:MSIMEAccountGlossIdentity(target, text)];
     return [value isKindOfClass:NSString.class] ? value : nil;
+}
+
+// On-device glosses share the process-wide cache for the same reason as account ones, under a scope of their own. A word the model had nothing useful for is cached as an empty answer, so it is not asked about again on the next keystroke.
+static NSArray<NSString *> *MSIMEOnDeviceGlossIdentity(NSString *target, NSString *text) {
+    return @[@"on-device", target ?: @"", text ?: @""];
 }
 
 // Which candidates the account gloss endpoint may be asked about. Only Chinese ones: a model has nothing
@@ -479,13 +532,6 @@ static BOOL MSIMEASCIIAlphanumeric(unichar character) {
     return (character >= '0' && character <= '9') || (character >= 'A' && character <= 'Z') ||
            (character >= 'a' && character <= 'z');
 }
-// Whether the view is composing: a reading, candidates, or a held phrase piece. A Ctrl+Backspace that empties the reading of a half-chosen phrase leaves the chosen piece in the composition with no reading and no candidates (the reference's `keep_creating_word_after_empty_raw`), so a test on the reading alone would let keys reach the application while the marked text still shows that piece.
-static BOOL MSIMEViewHasComposition(NSDictionary *view) {
-    NSString *editing = [view[@"editing_text"] isKindOfClass:NSString.class] ? view[@"editing_text"] : @"";
-    NSArray *candidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : @[];
-    NSString *phrase = [view[@"phrase_prefix"] isKindOfClass:NSString.class] ? view[@"phrase_prefix"] : @"";
-    return editing.length > 0 || candidates.count > 0 || phrase.length > 0;
-}
 // Match the Windows TSF classifier's CapsLock special case. CapsLock turns an
 // unshifted alphabetic key into an uppercase character, but an uppercase key
 // must remain a native application key when a new composition would otherwise
@@ -499,7 +545,9 @@ static BOOL MSIMECapsLockFreshUppercaseBypass(NSEvent *event, NSDictionary *view
     if (event.characters.length != 1) return NO;
     const unichar character = [event.characters characterAtIndex:0];
     if (character < 'A' || character > 'Z') return NO;
-    return !MSIMEViewHasComposition(view);
+    NSString *editing = [view[@"editing_text"] isKindOfClass:NSString.class] ? view[@"editing_text"] : @"";
+    NSArray *candidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : @[];
+    return editing.length == 0 && candidates.count == 0;
 }
 static NSString *MSIMEChinesePunctuationForSmart(unichar character) {
     switch (character) {
@@ -528,6 +576,9 @@ static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character) {
     case 0xFF09: return ')'; // ）
     default: return 0;
     }
+}
+static BOOL MSIMEASCIIPunctuation(unichar character) {
+    return character > 0x20 && character < 0x7F && !MSIMEASCIIAlphanumeric(character);
 }
 static BOOL MSIMESmartPunctuationSpaceKey(unichar character) {
     switch (character) {
@@ -665,6 +716,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 @end
 
+// Button target for the non-modal cloud consent prompt; NSAlert's own buttons only end a modal session.
+@interface MSIMECloudConsentTarget : NSObject
+@property(nonatomic, copy) void (^handler)(BOOL enabled);
+@end
+@implementation MSIMECloudConsentTarget
+- (void)enable:(id)sender { (void)sender; if (self.handler) self.handler(YES); }
+- (void)disable:(id)sender { (void)sender; if (self.handler) self.handler(NO); }
+@end
+
 @interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
@@ -685,7 +745,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEVoiceCommitRoute _httpVoiceCommit;
     MSIMEVoiceCommitRoute _doubaoVoiceCommit;
     MSIMEVoiceCommitRoute _liveVoiceCommit;
-    MSIMEDoubaoVoiceRequest *_doubaoVoiceRequest;
+    // Doubao's websocket or the on-device helper: the two streaming providers share this path.
+    id<MSIMEStreamingVoiceRequest> _doubaoVoiceRequest;
     MSIMEHTTPVoiceRequest *_doubaoPolishRequest;
     BOOL _doubaoFinalReceived;
     MSIMEClientSession *_doubaoVoiceSession;
@@ -756,16 +817,28 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     __weak id _smartPunctuationClient;
     unichar _rejectedSmartPunctuation;
     BOOL _smartPunctuationRejected;
-    // The ASCII key whose Chinese form the Engine has just committed, and the client it landed in. A space
-    // arriving next rewrites that mark as ASCII; anything else disarms.
+    // The last character known to have reached the application (Windows _smartPunctuationShadowChar). Terminal-like hosts never hand typed text back through attributedSubstringFromRange: - keys they pass straight to a pty leave no trace - so passthrough keys and commits are tracked here, and the document is read only while this is invalid. `_smartPunctuationShadowWritten` says a commit or rewrite recorded the shadow during the key event being handled, so the key itself does not overwrite it.
+    unichar _smartPunctuationShadow;
+    BOOL _smartPunctuationShadowValid;
+    BOOL _smartPunctuationShadowWritten;
+    // The ASCII form of the Chinese mark a punctuation commit has just left in the document (from the mark map, not the key pressed), and the client it landed in. A space arriving next rewrites that mark as ASCII; anything else disarms.
     unichar _spaceConvertMark;
     __weak id _spaceConvertClient;
+    // After a space has turned a Chinese mark into ASCII, the same key within the repeat window writes the Chinese mark back (Windows Kind::AsciiConverted). The key, the mark that was actually replaced, when, and in which client; anything else disarms.
+    unichar _spaceRevertKey;
+    unichar _spaceRevertChinese;
+    NSTimeInterval _spaceRevertTime;
+    __weak id _spaceRevertClient;
     msime::mac::PairedPunctuationTracker _pairedPunctuation;
     // The closing mark this host owes the document while a pair is open. It rides in the marked
     // text after the caret, because IMK gives an input method no way to move a client's insertion
     // point; see MSIMEApplyTransitionWithPendingClosing.
     NSString *_pendingPairedClosing;
+    // The closing mark for a pair this host opened itself from the `{` key, which the Engine commits as ASCII and so never names as an opening mark. Consumed by the next apply:.
+    NSString *_hostOpenedClosing;
     NSNumber *_typingSourceOverride;
+    // The ASCII punctuation key behind the transition about to be applied, or 0. Set only on the punctuation-key routes and consumed by the next apply:, so pairing can read the last mark of a commit that finished a composition (`nihao(` gives `你好（`) without ever rewriting a candidate that merely ends in a mark.
+    unichar _punctuationKeyInFlight;
     MSIMEModifierTap _modifierTap;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     uint64_t _voiceHoldGeneration;
@@ -785,6 +858,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSString *_glossTargetLanguage;
     NSArray<NSString *> *_glossTargetLanguages;
     NSArray<NSDictionary *> *_glossResults;
+    NSOperationQueue *_targetGlossQueue;
+    NSDictionary *_targetGlossRequest;
+    uint64_t _targetGlossEpoch;
+    NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *_targetGlossResults;
     MSIMECustomTranslationBatch *_customBatch;
     NSMutableArray<MSIMECustomTranslationBatch *> *_customBatches;
     NSTimer *_customTimer;
@@ -797,6 +874,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_accountGlossRequest;
     NSArray<NSDictionary *> *_accountGlossResults;
     uint64_t _accountGlossEpoch;
+    NSDictionary *_onDeviceGlossRequest;
     uint64_t _customEpoch;
     MSIMECustomTranslationBatch *_aiBatch;
     NSTimer *_aiTimer;
@@ -818,10 +896,110 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _spaceConvertClient = nil;
 }
 
-// A space right after a Chinese mark the user did not want takes the mark back to ASCII. It is the mirror of
-// repeat-to-Chinese and shares its caution: the preceding character is read back and has to still be the mark
-// that was committed, in the same client, with nothing composing - otherwise a character the user already saw
-// land would be rewritten out from under them.
+- (void)clearSmartPunctuationSpaceRevert {
+    _spaceRevertKey = 0;
+    _spaceRevertChinese = 0;
+    _spaceRevertTime = 0;
+    _spaceRevertClient = nil;
+}
+
+- (void)invalidateSmartPunctuationShadow {
+    _smartPunctuationShadow = 0;
+    _smartPunctuationShadowValid = NO;
+}
+
+// Records the character that now sits left of the caret because this host put it there.
+- (void)noteSmartPunctuationShadow:(unichar)character {
+    if (!character) {
+        [self invalidateSmartPunctuationShadow];
+        return;
+    }
+    _smartPunctuationShadow = character;
+    _smartPunctuationShadowValid = YES;
+    _smartPunctuationShadowWritten = YES;
+}
+
+// Port of Windows _UpdateSmartPunctuationShadow, run once per key down after the key has been handled. Editing and caret keys - Delete, Forward Delete, Return, Enter, Tab, Escape, the arrows, Home/End, Page Up/Down - and any Control, Option or Command chord leave the caret somewhere the shadow cannot follow, so they clear it. An eaten key keeps what a commit or rewrite recorded while it was handled and otherwise clears the shadow: it fed the composition, and the document answers until something is committed. A printable key that passed through to the application is the new shadow. The reference skips its smart punctuation keys because its resolver records them itself; here a smart key that is eaten is recorded by that same commit, and one that passes through (English mode, local modes) is what the application typed, so it is recorded like any other passthrough key.
+- (void)noteKeyForSmartPunctuationShadow:(NSEvent *)event eaten:(BOOL)eaten {
+    const BOOL written = _smartPunctuationShadowWritten;
+    _smartPunctuationShadowWritten = NO;
+    if (eaten) {
+        if (!written) [self invalidateSmartPunctuationShadow];
+        return;
+    }
+    switch (event.keyCode) {
+    case 51: case 117: case 36: case 76: case 48: case 53:
+    case 123: case 124: case 125: case 126:
+    case 115: case 119: case 116: case 121:
+        [self invalidateSmartPunctuationShadow];
+        return;
+    default:
+        break;
+    }
+    NSString *characters = event.characters;
+    const unichar character = characters.length == 1 ? [characters characterAtIndex:0] : 0;
+    if ((event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)) ||
+        character < 0x20 || character == 0x7F || (character >= 0xF700 && character <= 0xF8FF)) {
+        [self invalidateSmartPunctuationShadow];
+        return;
+    }
+    _smartPunctuationShadow = character;
+    _smartPunctuationShadowValid = YES;
+}
+
+// The preceding character the direct-output decision works from (Windows _GetPrecedingCharForSmartPunctuation): the shadow first, the document second.
+- (uint32_t)precedingForSmartPunctuation:(id<MSIMETextClient>)client {
+    return _smartPunctuationShadowValid ? _smartPunctuationShadow : MSIMETextClientPrecedingUnicodeScalar(client);
+}
+
+// The posted fallback for a host whose document read returned nothing, so the shadow is the only evidence of what is on screen (the reference's _SmartPunctuationFingerprintMatches trusts the state when it reads nothing back). Overridden in tests.
+- (BOOL)postSmartPunctuationRewrite:(unichar)replacement client:(id)client {
+    const NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    return MSIMECaptureSmartPunctuationRewrite(client, now).deliver(replacement);
+}
+
+// Whether the host truly exposes no text, rather than a preceding-character read that came back empty for another reason. MSIMETextClientPrecedingUnicodeScalar also returns 0 for a real selection (a mouse drag the shadow never saw) and for a caret at the start of the document; a posted Delete there would erase the selection or insert the mark at the start, so both count as readable. Terminal-like hosts hand back nothing even for the first character, and only they keep the posted route, as the reference only sends input when a collapsed caret's document read comes back empty.
+- (BOOL)textClientExposesNoText:(id<MSIMETextClient>)client {
+    if (![client respondsToSelector:@selector(selectedRange)]) return YES;
+    const NSRange selected = [client selectedRange];
+    if (selected.location == NSNotFound) return YES;
+    if (selected.length != 0) return NO;
+    if (selected.location == 0 && [client respondsToSelector:@selector(attributedSubstringFromRange:)] &&
+        [client attributedSubstringFromRange:NSMakeRange(0, 1)].string.length)
+        return NO;
+    return YES;
+}
+
+// Replaces the character left of the caret when the host exposes no text there and the shadow says it is `expected`. Returns NO, having posted nothing, when the document is readable (including a selection or a caret at its start), the shadow disagrees or is unknown, or the posted rewrite is not available.
+- (BOOL)rewriteUnreadablePreceding:(unichar)expected with:(unichar)replacement client:(id<MSIMETextClient>)client {
+    if (!_smartPunctuationShadowValid || _smartPunctuationShadow != expected) return NO;
+    if (![self textClientExposesNoText:client]) return NO;
+    if (![self postSmartPunctuationRewrite:replacement client:client]) return NO;
+    [self noteSmartPunctuationShadow:replacement];
+    return YES;
+}
+
+// Mirrors Windows Global::JapaneseInputModeEnabled: the configured Japanese scheme, not the temporary J mode. KeyEventSink only claims the two reversible smart punctuation gestures (space-to-ASCII and repeat-to-Chinese) when it is off.
+- (BOOL)japaneseSchemeActive {
+    return [_view[@"scheme"] integerValue] == 3;
+}
+
+// Arms the space conversion from what a punctuation commit actually put in the document, as the reference's _NoteCommittedChinesePunctuation does: the committed tail decides, so a candidate committed together with its mark (nihao, gives 你好，) arms too, and the ASCII target comes from the mark map rather than the key pressed (the backslash key gives 、, which converts to /). Called after apply:, so an opening mark this host has just auto-closed is seen as a pending closing and does not arm. Anything else disarms.
+- (void)noteCommittedChinesePunctuation:(NSDictionary *)transition client:(id)client {
+    NSString *commit = transition[@"commit"];
+    const unichar ascii = [commit isKindOfClass:NSString.class] && commit.length
+        ? MSIMEASCIIForSmartChinesePunctuation([commit characterAtIndex:commit.length - 1])
+        : 0;
+    if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert || !ascii ||
+        _pendingPairedClosing || [self japaneseSchemeActive]) {
+        [self clearSmartPunctuationSpaceConversion];
+        return;
+    }
+    _spaceConvertMark = ascii;
+    _spaceConvertClient = client;
+}
+
+// A space right after a Chinese mark the user did not want takes the mark back to ASCII. It is the mirror of repeat-to-Chinese and shares its caution: the preceding character is read back and has to still be the mark that was committed, in the same client, with nothing composing - otherwise a character the user already saw land would be rewritten out from under them. A host that reads back nothing at all (a terminal) is taken on the shadow's word instead and rewritten with posted events, as the reference does when its document read returns nothing.
 - (BOOL)convertSmartPunctuationSpace:(NSEvent *)event client:(id<MSIMETextClient>)client {
     if (!_spaceConvertMark) return NO;
     if (event.characters.length != 1 || [event.characters characterAtIndex:0] != ' ' ||
@@ -834,19 +1012,70 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id armed = _spaceConvertClient;
     [self clearSmartPunctuationSpaceConversion];
     if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert ||
-        _appearance.runtimeFullWidthInput || armed != client || _pendingPairedClosing.length)
+        _appearance.runtimeFullWidthInput || armed != client || _pendingPairedClosing.length ||
+        [self japaneseSchemeActive])
         return NO;
-    if (MSIMEViewHasComposition(_view)) return NO;
-    const uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
-    if (!preceding || MSIMEASCIIForSmartChinesePunctuation((unichar)preceding) != mark) return NO;
-    const NSRange selected =
-        [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
-    if (selected.location == NSNotFound || selected.location < 1) return NO;
-    NSString *ascii = [NSString stringWithCharacters:&mark length:1];
-    [client insertText:ascii replacementRange:NSMakeRange(selected.location - 1, 1)];
+    if ([_view[@"editing_text"] length] ||
+        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]))
+        return NO;
+    uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
+    if (!preceding) {
+        // Terminals and proxy stores expose no document text; the shadow is the only evidence of what is on screen, and the rewrite has to be posted.
+        const unichar shadow = _smartPunctuationShadowValid ? _smartPunctuationShadow : 0;
+        if (!shadow || MSIMEASCIIForSmartChinesePunctuation(shadow) != mark ||
+            ![self rewriteUnreadablePreceding:shadow with:mark client:client])
+            return NO;
+        preceding = shadow;
+    } else {
+        if (MSIMEASCIIForSmartChinesePunctuation((unichar)preceding) != mark) return NO;
+        const NSRange selected =
+            [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
+        if (selected.location == NSNotFound || selected.location < 1) return NO;
+        NSString *ascii = [NSString stringWithCharacters:&mark length:1];
+        [client insertText:ascii replacementRange:NSMakeRange(selected.location - 1, 1)];
+        [self noteSmartPunctuationShadow:mark];
+    }
+    // Windows records chineseLeft as the mark actually read back, so a right quote comes back as a right quote.
+    if (_appearance.smartPunctuationRepeatToChinese) {
+        _spaceRevertKey = mark;
+        _spaceRevertChinese = (unichar)preceding;
+        _spaceRevertTime = NSProcessInfo.processInfo.systemUptime;
+        _spaceRevertClient = client;
+    }
     // This space is the conversion gesture, not document content. Matching the
     // reference also avoids leaving a surprising trailing blank after the user
     // has just corrected the punctuation form.
+    return YES;
+}
+
+// The same key again right after a space conversion takes the ASCII character back to the Chinese mark it replaced (Windows _CanInterceptSmartPunctuationRevert). It is one-shot: the state is cleared before any check. Every check that fails hands the key to the Engine, which then just types the Chinese mark, as the reference falls back to inserting it.
+- (BOOL)revertSmartPunctuationSpace:(NSEvent *)event client:(id<MSIMETextClient>)client {
+    if (!_spaceRevertKey) return NO;
+    const unichar key = _spaceRevertKey;
+    const unichar chinese = _spaceRevertChinese;
+    const NSTimeInterval armedAt = _spaceRevertTime;
+    id armed = _spaceRevertClient;
+    [self clearSmartPunctuationSpaceRevert];
+    if (event.characters.length != 1 || [event.characters characterAtIndex:0] != key ||
+        (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)))
+        return NO;
+    if (!_appearance.smartPunctuation || !_appearance.smartPunctuationRepeatToChinese ||
+        _appearance.runtimeFullWidthInput || armed != client || _pendingPairedClosing.length ||
+        [self japaneseSchemeActive] || NSProcessInfo.processInfo.systemUptime - armedAt > 2.0)
+        return NO;
+    if ([_view[@"editing_text"] length] ||
+        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]))
+        return NO;
+    const uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
+    // A host that reads back nothing is rewritten with posted events on the shadow's word, as the conversion was.
+    if (!preceding) return [self rewriteUnreadablePreceding:key with:chinese client:client];
+    if (preceding != key) return NO;
+    const NSRange selected =
+        [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
+    if (selected.location == NSNotFound || selected.location < 1) return NO;
+    [client insertText:[NSString stringWithCharacters:&chinese length:1]
+      replacementRange:NSMakeRange(selected.location - 1, 1)];
+    [self noteSmartPunctuationShadow:chinese];
     return YES;
 }
 
@@ -859,37 +1088,38 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_appearance.smartPunctuation) {
         [self resetSmartPunctuationState];
         [self clearSmartPunctuationSpaceConversion];
+        [self clearSmartPunctuationSpaceRevert];
         return NO;
     }
-    const BOOL hasComposition = MSIMEViewHasComposition(_view);
-    // The space gesture covers the complete source mapping, not only the
-    // comma/period/colon subset used by direct-output and repeat-to-Chinese.
-    // Arm before Engine resolves the key; the follow-up re-reads the committed
-    // Chinese mark and refuses ASCII output, paired auto-closes and moved carets.
-    if (_appearance.smartPunctuationSpaceConvert && !hasComposition) {
-        _spaceConvertMark = character;
-        _spaceConvertClient = client;
-    }
+    const BOOL hasComposition = [_view[@"editing_text"] length] ||
+        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
+    const BOOL japanese = [self japaneseSchemeActive];
     if (!MSIMESmartPunctuationKey(character)) return NO;
-    if (!_appearance.smartPunctuationRepeatToChinese || !_appearance.pairedPunctuation) {
+    if (!_appearance.smartPunctuationRepeatToChinese) {
         _lastSmartPunctuation = 0;
         _smartPunctuationRejected = NO;
     }
     const BOOL repeat = _lastSmartPunctuation == character && !_smartPunctuationRejected &&
         _smartPunctuationClient == client && NSProcessInfo.processInfo.systemUptime - _lastSmartPunctuationTime <= 2.0;
-    if (repeat && _appearance.smartPunctuationRepeatToChinese && _appearance.pairedPunctuation &&
-        [_view[@"candidates"] isKindOfClass:NSArray.class] && !MSIMEViewHasComposition(_view)) {
+    if (repeat && !japanese && _appearance.smartPunctuationRepeatToChinese &&
+        ![_view[@"editing_text"] length] && [_view[@"candidates"] isKindOfClass:NSArray.class] && ![_view[@"candidates"] count]) {
         const uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
         NSString *expected = MSIMEFullWidthSmartMark(character, _appearance.runtimeFullWidthInput);
+        NSString *chinese = MSIMEChinesePunctuationForSmart(character);
         if (preceding && expected.length == 1 && [expected characterAtIndex:0] == (unichar)preceding) {
             const NSRange selected = [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
             const NSUInteger length = expected.length;
             if (selected.location != NSNotFound && selected.location >= length) {
-                [client insertText:MSIMEChinesePunctuationForSmart(character)
-                  replacementRange:NSMakeRange(selected.location - length, length)];
+                [client insertText:chinese replacementRange:NSMakeRange(selected.location - length, length)];
+                [self noteSmartPunctuationShadow:[chinese characterAtIndex:chinese.length - 1]];
                 [self resetSmartPunctuationState];
                 return YES;
             }
+        } else if (!preceding && expected.length == 1 && chinese.length == 1 &&
+                   [self rewriteUnreadablePreceding:[expected characterAtIndex:0] with:[chinese characterAtIndex:0] client:client]) {
+            // Nothing to read back: the shadow vouches for the ASCII mark just committed, and posted events replace it. Without the posting permission this falls through and the Engine types the Chinese mark after it, as the reference did before its SendInput rewrite.
+            [self resetSmartPunctuationState];
+            return YES;
         }
     }
     if (_lastSmartPunctuation && _lastSmartPunctuation != character) [self resetSmartPunctuationState];
@@ -904,13 +1134,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             break;
         }
     } else if (!rejected) {
-        preceding = MSIMETextClientPrecedingUnicodeScalar(client);
+        preceding = [self precedingForSmartPunctuation:client];
     }
     if (!rejected && preceding && (preceding < 0x80) && MSIMEASCIIAlphanumeric((unichar)preceding)) {
+        _punctuationKeyInFlight = character;
         NSDictionary *transition = hasComposition
             ? [_session punctuationASCII:(uint8_t)character error:nil]
             : [_session punctuation:(uint8_t)character preceding:preceding error:nil];
-        if (!transition) return NO;
+        if (!transition) { _punctuationKeyInFlight = 0; return NO; }
         if (hasComposition) {
             NSString *commit = transition[@"commit"];
             if (_appearance.runtimeFullWidthInput && [commit isKindOfClass:NSString.class] && commit.length && [commit characterAtIndex:commit.length - 1] == character) {
@@ -929,20 +1160,18 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             }
             [self apply:transition];
         } else {
+            _punctuationKeyInFlight = 0;
             return NO;
         }
-        if (_appearance.pairedPunctuation) {
-            _lastSmartPunctuation = character;
-            _lastSmartPunctuationTime = NSProcessInfo.processInfo.systemUptime;
-            _smartPunctuationClient = client;
-        }
+        _lastSmartPunctuation = character;
+        _lastSmartPunctuationTime = NSProcessInfo.processInfo.systemUptime;
+        _smartPunctuationClient = client;
         _smartPunctuationRejected = NO;
         _rejectedSmartPunctuation = 0;
         return YES;
     }
     if (rejected) [self resetSmartPunctuationState];
-    // Falling through means the Engine takes the key and commits the Chinese mark. Note it so a space
-    // arriving next can take it back; the conversion re-reads the document before touching anything.
+    // Falling through means the Engine takes the key and commits the Chinese mark; the typeASCII route in handleEvent: notes that commit so a space arriving next can take it back, and the conversion re-reads the document before touching anything.
     return NO;
 }
 
@@ -967,6 +1196,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)cancelCandidateTranslations {
     [self cancelCandidateGloss];
+    [self cancelTargetGloss];
     [self cancelCustomTranslations];
     [self cancelAITranslations];
     // The account gloss arrived after this method did and was never added to it. Its request outlived
@@ -974,6 +1204,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // IMKit keeps a controller per text input client, so that is a dozen of them merging results and
     // pushing them into sessions nobody is composing in. Its siblings are all cancelled here; so is it.
     [self cancelAccountGloss];
+    [self cancelOnDeviceGloss];
 }
 
 - (NSDictionary *)highlightedCandidateForGloss {
@@ -1023,6 +1254,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (event.keyCode == 49) { // Space
         if (!candidates.count) return NO;
+        // Let Space reach the Engine's commit when the only row is the raw-text Fallback.
+        NSDictionary *first = [candidates.firstObject isKindOfClass:NSDictionary.class] ? candidates.firstObject : nil;
+        const int firstSource = [first[@"source"] isKindOfClass:NSNumber.class] ? [first[@"source"] intValue] : -1;
+        if (msime::mac::JapaneseSpaceCommitsFallback(candidates.count, firstSource)) return NO;
         if (!_japaneseConversionIndex) {
             // The first press is the conversion itself. The panel already highlights the first
             // candidate, so nothing has to move - what changes is that Enter now means "take it".
@@ -1126,6 +1361,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (index >= _glossSenses.count || ![sender respondsToSelector:@selector(insertText:replacementRange:)])
         return NO;
     NSString *sense = _glossSenses[index];
+    // The page is drawn through the same conversion (renderCandidates), and _view is still the page view carrying the saved composition's scheme and local_mode, so what is inserted is what is shown.
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) sense = MSIMEChineseOutputString(sense, YES);
     [self discardGlossSensePage];
     [(id<MSIMETextClient>)sender insertText:sense replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     // The sense is the output; what was being composed goes away rather than following it out.
@@ -1186,6 +1423,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         ![candidate isKindOfClass:NSDictionary.class] || column <= 0) return NO;
     NSString *gloss = MSIMECandidateTranslationColumn(candidate, column);
     if (!gloss.length) return NO;
+    // Inserted text follows the traditional-output switch like every other commit (the reference's CandidateTextForOutput); Latin and kana glosses pass through unchanged.
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) gloss = MSIMEChineseOutputString(gloss, YES);
     [(id<MSIMETextClient>)sender insertText:gloss replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     _armedGlossColumn = 0;
     // The gloss is what the user asked for, so the composition goes away rather than being
@@ -1345,11 +1584,57 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         (niuTrans ? @"niutrans" : custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy],
         @"directory":_preferencesDirectory ?: @""};
 }
+// Each offline dictionary answers a single target language, so the rows are merged per candidate in the user's target order. The English gloss and any account gloss fill the targets they cover; otherwise whichever source answered a candidate first would hide the other target rows. On-device translation comes last and fills only what every dictionary left empty: it translates the word without context, which a dictionary entry does not.
+- (NSArray<NSDictionary *> *)offlineGlossResults:(NSDictionary *)targetGloss english:(NSArray<NSDictionary *> *)english
+                                        onDevice:(NSDictionary *)onDevice {
+    NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
+    void (^fill)(id, NSString *, id) = ^(id text, NSString *target, id value) {
+        if (![text isKindOfClass:NSString.class] || ![value isKindOfClass:NSString.class] || ![(NSString *)value length]) return;
+        NSMutableDictionary *byTarget = values[text];
+        if (!byTarget) { byTarget = [NSMutableDictionary dictionary]; values[text] = byTarget; }
+        if (!byTarget[target]) byTarget[target] = value;
+    };
+    for (NSDictionary *entry in english) fill(entry[@"text"], @"en", entry[@"translation"]);
+    [targetGloss enumerateKeysAndObjectsUsingBlock:^(NSString *text, NSDictionary *byTarget, BOOL *stop) {
+        (void)stop;
+        for (NSString *target in byTarget) fill(text, target, byTarget[target]);
+    }];
+    if (_accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]]) {
+        NSArray *accountTargets = _accountGlossRequest[@"target_languages"];
+        for (NSDictionary *entry in _accountGlossResults) {
+            if (![entry[@"translation"] isKindOfClass:NSString.class]) continue;
+            NSArray *lines = [entry[@"translation"] componentsSeparatedByString:@"\n"];
+            for (NSUInteger index = 0; index < MIN(lines.count, accountTargets.count); ++index)
+                fill(entry[@"text"], accountTargets[index], lines[index]);
+        }
+    }
+    for (NSDictionary *candidate in onDevice[@"candidates"])
+        for (NSString *target in onDevice[@"target_languages"])
+            fill(candidate[@"text"], target, [[MSIMETranslationCache sharedCache] valueForIdentity:MSIMEOnDeviceGlossIdentity(target, candidate[@"text"])]);
+    // Without a target dictionary the page order comes from the English answers and the on-device request, which between them cover every candidate that can carry a gloss here.
+    NSMutableArray *texts = [NSMutableArray array];
+    for (NSDictionary *candidate in targetGloss ? _targetGlossRequest[@"candidates"] : @[]) [texts addObject:candidate[@"text"]];
+    for (NSDictionary *entry in english) if (![texts containsObject:entry[@"text"]]) [texts addObject:entry[@"text"]];
+    for (NSDictionary *candidate in onDevice[@"candidates"]) if (![texts containsObject:candidate[@"text"]]) [texts addObject:candidate[@"text"]];
+    NSArray *targets = (targetGloss ? _targetGlossRequest : onDevice)[@"target_languages"];
+    NSMutableArray *results = [NSMutableArray array];
+    for (NSString *text in texts) {
+        NSString *translation = MSIMEJoinedTranslations(values[text], targets);
+        if (translation.length) [results addObject:@{@"text":text, @"translation":translation}];
+    }
+    return results;
+}
 - (void)applyCandidateTranslationResults {
     NSMutableArray *results = [NSMutableArray array];
     BOOL customCurrent = _customResults && [_customQuery isEqual:[self currentCustomTranslationRequest]];
     BOOL glossCurrent = _glossResults && [_glossRequest isEqual:[self currentGlossRequest]];
+    NSDictionary *targetGloss = _targetGlossResults.count && [_targetGlossRequest isEqual:[self currentTargetGlossRequest]]
+        ? _targetGlossResults : nil;
+    NSDictionary *onDevice = _onDeviceGlossRequest && [_onDeviceGlossRequest isEqual:[self currentOnDeviceGlossRequest]]
+        ? _onDeviceGlossRequest : nil;
     if (customCurrent && _customResults.count) [results addObjectsFromArray:_customResults];
+    else if (targetGloss || onDevice)
+        [results addObjectsFromArray:[self offlineGlossResults:targetGloss english:glossCurrent ? _glossResults : nil onDevice:onDevice]];
     else if (glossCurrent) [results addObjectsFromArray:_glossResults];
     if (_accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]]) {
         NSMutableSet *existing = [NSMutableSet setWithArray:[results valueForKey:@"text"] ?: @[]];
@@ -1380,11 +1665,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *query = [_session translationQueryWithError:nil];
     if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] ||
         ![query[@"target_languages"] isKindOfClass:NSArray.class]) return nil;
-    // Explicit user-owned providers take precedence. The account endpoint is the native fallback
-    // for the shared candidate-translation toggle when no local credentials are configured.
-    if ([query[@"custom_translation"] isKindOfClass:NSDictionary.class] ||
-        [query[@"tencent_tmt"] isKindOfClass:NSDictionary.class] || [query[@"niutrans"] isKindOfClass:NSDictionary.class])
-        return nil;
+    // The account endpoint (api.msime.app) is used only when the user explicitly chose it in settings. The shared core already folds in candidate_translations and the precedence of the user's own services, so this flag is the whole decision.
+    if (![query[@"translation_account"] isEqual:@YES]) return nil;
     NSArray *candidates = MSIMEOnlineGlossCandidates(query);
     return candidates.count
         ? @{ @"generation": query[@"generation"], @"target_languages": query[@"target_languages"],
@@ -1459,6 +1741,74 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (targets.count > 1) merge(info[@"secondaryTranslations"], targets[1]);
     _accountGlossResults = [self accountGlossResultsForRequest:_accountGlossRequest];
     [self applyCandidateTranslationResults];
+}
+
+- (void)cancelOnDeviceGloss {
+    _onDeviceGlossRequest = nil;
+}
+
+// Apple's on-device models fill the rows the offline dictionaries leave empty, for users who translate without a service of their own. A service the user configured, or the MSIME account, answers every candidate itself, so this stays idle then. Only Chinese candidates are asked about, by the same per-candidate answer the account path uses.
+- (NSDictionary *)currentOnDeviceGlossRequest {
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode || !_appearance.candidateTranslations ||
+        (_glossEnabled && !_glossEnabled.boolValue)) return nil;
+    NSDictionary *query = [_session translationQueryWithError:nil];
+    if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] || [query[@"translation_account"] isEqual:@YES]) return nil;
+    for (NSString *service in @[@"niutrans", @"custom_translation", @"tencent_tmt"]) {
+        NSDictionary *config = query[service];
+        if ([config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES]) return nil;
+    }
+    NSArray *targets = MSIMETranslationTargets(query);
+    if (!targets.count || (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets])) return nil;
+    NSDictionary *view = [_session viewWithError:nil];
+    if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"] ||
+        ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
+    NSMutableArray *candidates = [NSMutableArray array];
+    for (NSDictionary *candidate in MSIMEOnlineGlossCandidates(query)) [candidates addObject:@{@"text":candidate[@"text"]}];
+    return candidates.count ? @{@"generation":query[@"generation"], @"target_languages":targets, @"candidates":[candidates copy]} : nil;
+}
+
+- (void)fetchOnDeviceGlosses:(NSArray<NSString *> *)words targets:(NSArray<NSString *> *)targets {
+    if (MSIMEFetchOnDeviceCandidateGlosses == nullptr) return;
+    NSData *wordsJSON = [NSJSONSerialization dataWithJSONObject:words options:0 error:nil];
+    NSData *targetsJSON = [NSJSONSerialization dataWithJSONObject:targets options:0 error:nil];
+    if (!wordsJSON || !targetsJSON) return;
+    MSIMEFetchOnDeviceCandidateGlosses([[NSString alloc] initWithData:wordsJSON encoding:NSUTF8StringEncoding].UTF8String,
+                                       [[NSString alloc] initWithData:targetsJSON encoding:NSUTF8StringEncoding].UTF8String);
+}
+
+- (void)synchronizeOnDeviceGloss {
+    NSDictionary *request = [self currentOnDeviceGlossRequest];
+    if (!request) { [self cancelOnDeviceGloss]; return; }
+    if ([_onDeviceGlossRequest isEqual:request]) return;
+    _onDeviceGlossRequest = request;
+    // Only what no earlier page already answered. The backend keeps one batch in flight per language and lets a newer page replace a waiting one, so typing does not queue up stale work.
+    NSMutableArray<NSString *> *words = [NSMutableArray array];
+    NSMutableArray<NSString *> *targets = [NSMutableArray array];
+    for (NSString *target in request[@"target_languages"]) {
+        for (NSDictionary *candidate in request[@"candidates"]) {
+            NSString *text = candidate[@"text"];
+            if ([[MSIMETranslationCache sharedCache] valueForIdentity:MSIMEOnDeviceGlossIdentity(target, text)]) continue;
+            if (![words containsObject:text]) [words addObject:text];
+            if (![targets containsObject:target]) [targets addObject:target];
+        }
+    }
+    // The backend takes at most 32 words, more than any page shows.
+    if (words.count > 32) [words removeObjectsInRange:NSMakeRange(32, words.count - 32)];
+    [self applyCandidateTranslationResults];
+    if (words.count) [self fetchOnDeviceGlosses:words targets:targets];
+}
+
+- (void)onDeviceCandidateTranslationsDidArrive:(NSNotification *)notification {
+    NSString *target = notification.userInfo[@"target"];
+    NSDictionary *values = notification.userInfo[@"translations"];
+    if (![target isKindOfClass:NSString.class] || ![values isKindOfClass:NSDictionary.class]) return;
+    for (NSString *text in values) {
+        NSString *value = values[text];
+        if ([text isKindOfClass:NSString.class] && [value isKindOfClass:NSString.class])
+            [[MSIMETranslationCache sharedCache] rememberTranslation:value identity:MSIMEOnDeviceGlossIdentity(target, text)];
+    }
+    // Every controller hears the reply; only one still composing the page it asked about merges it.
+    if (_onDeviceGlossRequest && [_onDeviceGlossRequest isEqual:[self currentOnDeviceGlossRequest]]) [self applyCandidateTranslationResults];
 }
 - (MSIMECustomTranslationBatch *)customBatchForItems:(NSArray<NSDictionary *> *)items completion:(void (^)(NSArray<NSDictionary *> *))completion {
     return [[MSIMECustomTranslationBatch alloc] initWithItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
@@ -1767,6 +2117,76 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         });
     }];
 }
+- (void)cancelTargetGloss {
+    ++_targetGlossEpoch;
+    [_targetGlossQueue cancelAllOperations];
+    _targetGlossRequest = nil;
+    _targetGlossResults = nil;
+}
+// The non-English targets with an installed offline dictionary. English keeps its own path above, which also overlays the user's learned glossary.
+- (NSDictionary *)currentTargetGlossRequest {
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
+        (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) ||
+        (_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss)) return nil;
+    NSDictionary *query = [_session translationQueryWithError:nil];
+    NSArray *targets = MSIMETranslationTargets(query);
+    if (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets]) return nil;
+    NSArray *installed = [query[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? query[@"offline_gloss_languages"] : @[];
+    NSMutableArray<NSString *> *languages = [NSMutableArray array];
+    for (NSString *target in targets)
+        if (![target isEqual:@"en"] && [installed containsObject:target]) [languages addObject:target];
+    if (!languages.count) return nil;
+    NSDictionary *view = [_session viewWithError:nil];
+    if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
+    if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
+    NSMutableArray *candidates = [NSMutableArray array];
+    for (NSDictionary *candidate in view[@"candidates"])
+        if ([candidate[@"text"] isKindOfClass:NSString.class] && [candidate[@"source"] isKindOfClass:NSNumber.class])
+            [candidates addObject:@{@"text":candidate[@"text"], @"source":candidate[@"source"]}];
+    return candidates.count ? @{@"generation":query[@"generation"], @"target_languages":targets,
+        @"offline_languages":[languages copy], @"candidates":[candidates copy]} : nil;
+}
+- (NSDictionary *)readTargetGloss:(NSDictionary *)request language:(NSString *)language resources:(NSString *)resources {
+    return [MSIMEClientSession candidateGlossRequest:@{@"generation":request[@"generation"],
+        @"target_language":language, @"candidates":request[@"candidates"]} resources:resources error:nil];
+}
+- (void)synchronizeTargetGloss {
+    NSDictionary *request = [self currentTargetGlossRequest];
+    if (!request) { [self cancelTargetGloss]; return; }
+    if ([_targetGlossRequest isEqual:request]) return;
+    [self cancelTargetGloss];
+    _targetGlossRequest = request;
+    NSString *resources = [_session.hostOptions[@"resources"] copy];
+    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) { _targetGlossResults = @{}; return; }
+    // A queue of its own: cancelCandidateGloss drains the English queue whenever the English request changes, which would otherwise drop this read and leave the request without results.
+    if (!_targetGlossQueue) { _targetGlossQueue = [NSOperationQueue new]; _targetGlossQueue.maxConcurrentOperationCount = 1; _targetGlossQueue.qualityOfService = NSQualityOfServiceUtility; }
+    const uint64_t epoch = _targetGlossEpoch;
+    MSIMEClientSession *session = _session;
+    id client = _activeClient;
+    __weak MSIMEInputController *weakSelf = self;
+    [_targetGlossQueue addOperationWithBlock:^{
+        NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
+        for (NSString *language in request[@"offline_languages"]) {
+            NSDictionary *result = [weakSelf readTargetGloss:request language:language resources:resources];
+            if (![result[@"generation"] isEqual:request[@"generation"]]) continue;
+            for (NSDictionary *entry in result[@"translations"]) {
+                NSString *text = entry[@"text"];
+                NSString *translation = entry[@"translation"];
+                if (![text isKindOfClass:NSString.class] || ![translation isKindOfClass:NSString.class] || !translation.length) continue;
+                NSMutableDictionary *byTarget = values[text];
+                if (!byTarget) { byTarget = [NSMutableDictionary dictionary]; values[text] = byTarget; }
+                byTarget[language] = translation;
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *current = weakSelf;
+            if (!current || current->_targetGlossEpoch != epoch || current->_session != session || current->_activeClient != client ||
+                ![[current currentTargetGlossRequest] isEqual:request]) return;
+            current->_targetGlossResults = [values copy];
+            [current applyCandidateTranslationResults];
+        });
+    }];
+}
 
 - (void)cancelCloudCandidates {
     ++_cloudEpoch;
@@ -1825,7 +2245,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 
 - (void)synchronizeCloudCandidates {
     NSDictionary *query = _activeClient && _session && !_focusPending && !_appearance.englishMode &&
-        (!_appearance || _appearance.cloudCandidates) ? [_session onlineQueryWithError:nil] : nil;
+        (!_appearance || _appearance.cloudCandidatesEnabled) ? [_session onlineQueryWithError:nil] : nil;
     NSString *url = query ? [MSIMEClientSession cloudRequestURLForQuery:query error:nil] : nil;
     if (!url) { [self cancelCloudCandidates]; return; }
     if ([_cloudQuery isEqual:query]) return;
@@ -1840,14 +2260,14 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
             controller->_activeClient != client || controller->_focusPending || controller->_appearance.englishMode ||
-            (controller->_appearance && !controller->_appearance.cloudCandidates) ||
+            (controller->_appearance && !controller->_appearance.cloudCandidatesEnabled) ||
             ![[session onlineQueryWithError:nil] isEqual:query]) return;
         controller->_cloudTimer = nil;
         controller->_cloudRequest = [controller cloudRequestForURL:[NSURL URLWithString:url] completion:^(NSData *body) {
             MSIMEInputController *current = weakSelf;
             if (!current || current->_cloudEpoch != epoch || current->_session != session ||
                 current->_activeClient != client || current->_focusPending || current->_appearance.englishMode ||
-                (current->_appearance && !current->_appearance.cloudCandidates) ||
+                (current->_appearance && !current->_appearance.cloudCandidatesEnabled) ||
                 ![[session onlineQueryWithError:nil] isEqual:query]) return;
             current->_cloudRequest = nil;
             if (!body) {
@@ -1881,6 +2301,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEVoiceSettingsDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(voiceProviderSettingsChanged:) name:MSIMEVoiceProviderSettingsDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(accountCandidateTranslationsDidArrive:) name:@"MSIMEBackendCandidateTranslationsDidArrive" object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onDeviceCandidateTranslationsDidArrive:) name:@"MSIMEBackendOnDeviceTranslationsDidArrive" object:nil];
     [NSDistributedNotificationCenter.defaultCenter addObserver:self
         selector:@selector(typingStatisticsEnabledChanged:)
         name:MSIMETypingStatisticsEnabledChangedNotification object:nil
@@ -1946,11 +2367,11 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
     _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
-    if (!_appearance.cloudCandidates) [self cancelCloudCandidates];
+    if (!_appearance.cloudCandidatesEnabled) [self cancelCloudCandidates];
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
     if (_appearance && !_appearance.candidateTranslations) {
         [self cancelCustomTranslations];
-        if (!_appearance.candidateEnglishGloss) [self cancelCandidateGloss];
+        if (!_appearance.candidateEnglishGloss) { [self cancelCandidateGloss]; [self cancelTargetGloss]; }
     }
     if (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) {
         NSDictionary *view = [_session viewWithError:nil];
@@ -1959,7 +2380,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             if (cleared[@"view"]) _view = cleared[@"view"];
         }
     }
-    if (_appearance.englishMode && _activeClient && MSIMEViewHasComposition(_view)) {
+    if (_appearance.englishMode && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
     [self syncPageSize];
@@ -2196,6 +2617,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             }
             NSDictionary *voiceOptions = MSIMEVoiceProviderOptions(@{}, NSUserDefaults.standardUserDefaults);
             MSIMEVoiceCommitRoute route = MSIMECaptureVoiceCommit(voiceOptions[@"commit_mode"], targetClient);
+            // Text from outside the key path lands without passing the shadow, so the document answers next.
+            [controller invalidateSmartPunctuationShadow];
             const MSIMEVoiceCommitOutcome outcome = route.deliver(text);
             if (outcome == MSIMEVoiceCommitOutcome::stale) {
                 // The external editor lost focus after the panel submitted. The
@@ -2319,6 +2742,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)setEnglishInputMode:(BOOL)enabled {
     [self ensureAppearance];
     const BOOL changed = _appearance.englishMode != enabled;
+    // Read before the cancel below, whose reply need not repeat the flag.
+    const BOOL leaveEnglishCandidates = enabled && [_view[@"dedicated_english"] isEqual:@YES];
     if (enabled && !_appearance.englishMode && _session && _activeClient) {
         // Switching into English drops what was being composed rather than committing it. The
         // reference has two different rules here and this host had copied the wrong one onto both
@@ -2334,6 +2759,13 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         if (!cancelled) return; // Do not hide an unsettled composition after an Engine failure.
         [self apply:cancelled];
     }
+    // Every switch to English also leaves the English candidate mode, as the reference's status task calls SetEnglishInputMode(false) and ClearState() whenever the mode turns English (event_listener.cpp), so switching back always gives pinyin. An Engine failure leaves the mode as it was.
+    if (leaveEnglishCandidates && _session) {
+        NSError *error = nil;
+        NSDictionary *view = [_session setDedicatedEnglishEnabled:NO error:&error];
+        if (!view) { if (error) NSBeep(); return; }
+        [self apply:@{@"view":view}];
+    }
     // A Chinese/English switch puts punctuation back in step with the mode, as the reference's SyncPunctuationWithImeMode does: English mode gets English punctuation unless punctuation_lock pins Chinese. Returning to Chinese goes back to the saved starting value, the macOS adaptation for the shared chinese_punctuation setting. Set before the mode is saved so the resulting sync and toolbar refresh already see it.
     if (changed) {
         if (enabled) _appearance.runtimeChinesePunctuation = [_appearance.punctuationLock isEqual:@"chinese"];
@@ -2341,7 +2773,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     }
     _appearance.englishMode = enabled;
     [self resetCandidateAnchor];
-    [_panel orderOut:nil];
+    [self hideCandidatePanel:"mode_switch"];
     [_keymapPanel orderOut:nil];
     [self syncSystemInputModeForClient:_activeClient ?: self.client];
     if (changed && _appearance.inputModeHUD && _activeClient) {
@@ -2378,10 +2810,11 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [self ensureAppearance];
     if (!_session || _focusPending) [self prepareSession];
     if (!_session) return;
-    if (MSIMEViewHasComposition(_view)) {
-        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
-        if (!finished) return;
-        [self apply:finished];
+    if ([_view[@"editing_text"] isKindOfClass:NSString.class] && [_view[@"editing_text"] length]) {
+        // Ctrl+Shift+E is the reference's FUNCTION_CANCEL in both directions: _HandleCancel terminates the composition and commits nothing, so neither the highlighted Chinese candidate nor the English word being spelled reaches the document. An Engine failure leaves the mode as it was.
+        NSDictionary *cancelled = [_session command:MSIME_CANCEL error:nil];
+        if (!cancelled) return;
+        [self apply:cancelled];
     }
     NSError *error = nil;
     NSDictionary *view = [_session setDedicatedEnglishEnabled:enabled error:&error];
@@ -2410,16 +2843,21 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [[MetasequoiaVoiceProviderSettingsWindow sharedController] showAndActivate];
     });
 }
+- (BOOL)usesLocalModelVoice {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSString *provider = [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
+    return MSIMEVoiceUsesLocalModelHelper(provider, MSIMEVoiceProviderSocket() != nil,
+                                          MSIMELocalVoiceModelDirectory([defaults stringForKey:@"MSIMEClientVoiceASRModelPath"]));
+}
 - (BOOL)usesNativeHTTPVoice {
     NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
-    // "local" recognises on this machine rather than over HTTP, but it is the same batch shape - record, hand the samples to one request, commit what comes back - so it travels the same path. A build without the recognizer keeps the option out of the settings surface, and falls through to the platform recognizer here if a preference file names it anyway.
-    return MSIMEVoiceUsesNativeHTTPProvider(provider, MSIMEVoiceProviderSocket() != nil,
-                                            msime::voice::local_asr_available());
+    // "local" with a Whisper model file recognises on this machine rather than over HTTP, but it is the same batch shape - record, hand the samples to one request, commit what comes back - so it travels the same path. A build without the Whisper recognizer falls through to the platform recognizer here if a preference file names one anyway. An installed model directory streams through the helper instead.
+    if ([self usesLocalModelVoice]) return NO;
+    return MSIMEVoiceUsesNativeHTTPProvider(provider, MSIMEVoiceProviderSocket() != nil, MSIMEVoiceLocalWhisperBuilt());
 }
 - (BOOL)usesNativeDoubaoVoice {
     NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao";
-    return !MSIMEVoiceProviderSocket() &&
-        [provider.lowercaseString isEqual:@"doubao"];
+    return (!MSIMEVoiceProviderSocket() && [provider.lowercaseString isEqual:@"doubao"]) || [self usesLocalModelVoice];
 }
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -2434,7 +2872,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
     return [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
 }
-- (void)applyDoubaoFinalText:(NSString *)text request:(MSIMEDoubaoVoiceRequest *)request {
+- (void)applyDoubaoFinalText:(NSString *)text request:(id<MSIMEStreamingVoiceRequest>)request {
     if (_doubaoVoiceRequest != request) return;
     if ([self ownsDoubaoVoiceFocus]) {
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
@@ -2445,6 +2883,15 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 - (MSIMEDoubaoVoiceRequest *)makeDoubaoVoiceRequest:(NSDictionary *)options error:(NSError **)error {
     return [[MSIMEDoubaoVoiceRequest alloc] initWithOptions:options error:error];
+}
+- (id<MSIMEStreamingVoiceRequest>)makeLocalVoiceRequest:(NSDictionary *)options error:(NSError **)error {
+    return [[MSIMELocalVoiceRequest alloc] initWithOptions:options hostOptions:_session.hostOptions error:error];
+}
+- (id<MSIMEStreamingVoiceRequest>)makeStreamingVoiceRequest:(NSDictionary *)options error:(NSError **)error {
+    id provider = options[@"asr_provider"];
+    if ([provider isKindOfClass:NSString.class] && [[provider lowercaseString] isEqual:@"local"])
+        return [self makeLocalVoiceRequest:options error:error];
+    return [self makeDoubaoVoiceRequest:options error:error];
 }
 - (BOOL)ownsDoubaoVoiceFocus {
     return _doubaoVoiceRequest && _activeClient == _doubaoVoiceClient &&
@@ -2512,7 +2959,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 - (BOOL)startDoubaoVoiceInputWithOptions:(NSDictionary *)options {
     NSError *error = nil;
-    MSIMEDoubaoVoiceRequest *request = [self makeDoubaoVoiceRequest:options error:&error];
+    id<MSIMEStreamingVoiceRequest> request = [self makeStreamingVoiceRequest:options error:&error];
     NSDictionary *finished = request && _activeClient && _session ? [_session command:MSIME_FINISH_COMPOSITION error:&error] : nil;
     if (!finished) {
         [request cancel]; [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
@@ -2532,10 +2979,10 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     _doubaoVoiceInline = [options[@"stream"] boolValue] && [_doubaoVoiceCommit.mode isEqual:@"tsf"];
     [self bindVoiceOverlayActions];
     __weak MSIMEInputController *weakSelf = self;
-    __weak MSIMEDoubaoVoiceRequest *weakRequest = request;
+    __weak id<MSIMEStreamingVoiceRequest> weakRequest = request;
     if (![request startWithResult:^(NSString *text, BOOL final, NSError *failure) {
         MSIMEInputController *controller = weakSelf;
-        MSIMEDoubaoVoiceRequest *liveRequest = weakRequest;
+        id<MSIMEStreamingVoiceRequest> liveRequest = weakRequest;
         if (!controller || !liveRequest || controller->_doubaoVoiceRequest != liveRequest) return;
         if (![controller ownsDoubaoVoiceFocus]) { [controller cancelDoubaoVoiceInput]; return; }
         if (controller->_doubaoFinalReceived) return;
@@ -2571,7 +3018,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)]; return NO; }
     NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
     if (![_voiceService startPCMStreaming:^(NSData *pcm, NSError *failure) {
-        MSIMEDoubaoVoiceRequest *liveRequest = weakRequest;
+        id<MSIMEStreamingVoiceRequest> liveRequest = weakRequest;
         if (!liveRequest) return;
         NSError *sendError = failure;
         BOOL sent = !failure && pcm && [liveRequest appendPCM:pcm error:&sendError];
@@ -3084,6 +3531,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     _pendingPairedClosing = nil;
     _pairedPunctuation.clear();
     [self clearSmartPunctuationSpaceConversion];
+    [self clearSmartPunctuationSpaceRevert];
     [_voiceOverlay dismissFailure];
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
@@ -3117,7 +3565,78 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
     else [self startPreferencesMonitoring];
+    [self requestCloudCandidatesConsentIfNeeded];
     [self commitPendingEmojiForClient:sender];
+}
+
+- (void)resolveCloudCandidatesConsentWithOptions:(NSDictionary *)options {
+    if (![options isKindOfClass:NSDictionary.class]) return;
+    id directory = options[@"preferences_directory"];
+    id userData = options[@"user_data"];
+    if (![directory isKindOfClass:NSString.class] || ![directory isAbsolutePath]) return;
+    [_appearance resolveCloudCandidatesConsentWithPreferencesDirectory:directory
+        userDataDirectory:[userData isKindOfClass:NSString.class] && [userData isAbsolutePath] ? userData : nil];
+}
+
+// One consent prompt per process at a time, however many controllers IMK creates.
+static BOOL MSIMECloudConsentPrompting = NO;
+
+/// Ask once, on a fresh profile, before the first cloud candidate query is sent.
+///
+/// The Windows installer asks this on its 联网功能 page. macOS has no installer step that every user passes through, and the IME types without the settings app ever being opened, so the IME process asks itself. Until an answer arrives nothing is sent; a prompt closed without an answer is asked again on the next activation.
+- (void)requestCloudCandidatesConsentIfNeeded {
+    if (!_appearance || _appearance.cloudCandidatesAnswered || MSIMECloudConsentPrompting) return;
+    MSIMECloudConsentPrompting = YES;
+    MSIMEAppearancePreferences *appearance = _appearance;
+    __weak MSIMEInputController *weakSelf = self;
+    // Off the activation path, so the client's first keystrokes are not held behind the prompt.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || appearance.cloudCandidatesAnswered) { MSIMECloudConsentPrompting = NO; return; }
+        [controller presentCloudConsent:^(NSNumber *enabled) {
+            MSIMECloudConsentPrompting = NO;
+            if (enabled) [appearance answerCloudCandidates:enabled.boolValue];
+        }];
+    });
+}
+
+static NSString *const MSIMECloudConsentTitle = @"联网功能";
+static NSString *const MSIMECloudConsentMessage =
+    @"拼音切分、候选排序和词频学习全部在本机完成，不联网。\n\n"
+    @"启用云候选：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。\n\n"
+    @"这是唯一一项装完就会联网的功能。AI 联想、候选翻译、语音输入都需要你自己填入 API token 之后才会发出任何请求。之后可在「设置 → 输入」的「云候选」里更改。";
+
+/// Show the consent prompt and report the choice: @YES, @NO, or nil when it closed without one. Overridden by tests.
+///
+/// Non-modal on purpose: a modal loop would stop this process from serving IMK while the prompt is up, which would freeze typing in every other app until it is answered. The bundle is LSBackgroundOnly, so it has to activate itself for the window to take focus.
+- (void)presentCloudConsent:(void (^)(NSNumber *enabled))completion {
+    static NSAlert *alert;
+    static void (^pending)(NSNumber *);
+    pending = [completion copy];
+    alert = [NSAlert new];
+    alert.messageText = MSIMECloudConsentTitle;
+    alert.informativeText = MSIMECloudConsentMessage;
+    NSButton *enable = [alert addButtonWithTitle:@"启用云候选"];
+    NSButton *disable = [alert addButtonWithTitle:@"不启用"];
+    static MSIMECloudConsentTarget *target;
+    target = [MSIMECloudConsentTarget new];
+    target.handler = ^(BOOL enabled) {
+        [alert.window orderOut:nil];
+        void (^finish)(NSNumber *) = pending;
+        pending = nil;
+        if (finish) finish(@(enabled));
+        // Released after the button action returns; the target and the window are still on the stack here.
+        dispatch_async(dispatch_get_main_queue(), ^{ alert = nil; target = nil; });
+    };
+    enable.target = target;
+    enable.action = @selector(enable:);
+    disable.target = target;
+    disable.action = @selector(disable:);
+    [alert layout];
+    alert.window.level = NSFloatingWindowLevel;
+    [NSApp activateIgnoringOtherApps:YES];
+    [alert.window center];
+    [alert.window makeKeyAndOrderFront:nil];
 }
 
 - (void)commitPendingEmojiForClient:(id)client {
@@ -3130,6 +3649,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     NSString *toolText = _emojiReturn.take(client, NSProcessInfo.processInfo.systemUptime);
     if (toolText) {
         BOOL committed = NO;
+        [self invalidateSmartPunctuationShadow];
         @try { [client insertText:toolText replacementRange:NSMakeRange(NSNotFound, 0)]; committed = YES; }
         @catch (NSException *) { /* Never log input or client exception details. */ }
         if (committed) MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"],
@@ -3159,6 +3679,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)handwritingCandidateSelected:(NSNotification *)notification {
     NSString *text = notification.userInfo[@"text"];
     if (![text isKindOfClass:NSString.class] || text.length == 0 || !_activeClient) return;
+    [self invalidateSmartPunctuationShadow];
     @try {
         [_activeClient insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
         MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"],
@@ -3180,7 +3701,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     }
     _view = [_session viewWithError:nil] ?: @{};
     [self refreshFloatingToolbarState];
-    [_panel orderOut:nil];
+    [self hideCandidatePanel:"session_replaced"];
     [_keymapPanel orderOut:nil];
 }
 
@@ -3201,7 +3722,6 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 }
 
 - (void)prepareSession {
-    if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
     BOOL reopened = NO;
     if (!_session) {
         NSDictionary *options = MSIMESessionOptions([self runtimeOptions]);
@@ -3210,6 +3730,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
             if (!_preferencesTimer) [self startPreferencesMonitoring];
             return;
         }
+        // Before the session exists, so nothing this process writes can be mistaken for an earlier install.
+        [self resolveCloudCandidatesConsentWithOptions:options];
         if (options) {
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
@@ -3238,8 +3760,11 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 
 - (void)startPreferencesMonitoring {
     if (!_preferencesDirectory) {
-        id directory = [self runtimeOptions][@"preferences_directory"];
+        NSDictionary *options = [self runtimeOptions];
+        id directory = options[@"preferences_directory"];
         if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
+        // English-mode activation reaches here without prepareSession; a directory set earlier was already resolved where it was set.
+        [self resolveCloudCandidatesConsentWithOptions:options];
     }
     if (_activeClient && _preferencesDirectory) {
         // Activation may happen after the setting changed while the IMK process was not running.
@@ -3305,6 +3830,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         [self synchronizeCloudCandidates];
     [self scheduleSettledRerank];
         [self synchronizeCandidateGloss];
+        [self synchronizeTargetGloss];
+        [self synchronizeOnDeviceGloss];
         [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
         [self synchronizeCustomTranslations];
         [self synchronizeAITranslations];
@@ -3398,7 +3925,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (translationChanged || (_glossEnabled && !_glossEnabled.boolValue)) {
         // None of these settings feed the AI request, so a pending AI suggestion survives them; AI config changes are caught by the _aiQuery identity check on the next render.
         [self cancelCustomTranslations];
-        if (!candidateEnglishGlossEnabled) [self cancelCandidateGloss];
+        if (!candidateEnglishGlossEnabled) { [self cancelCandidateGloss]; [self cancelTargetGloss]; }
         NSDictionary *view = [_session viewWithError:nil];
         if (!candidateTranslationsEnabled && !candidateEnglishGlossEnabled && view)
             [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
@@ -3441,6 +3968,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (!sender || sender != _activeClient) return;
     _backspaceHoldArmed = NO;
     [self clearSmartPunctuationSpaceConversion];
+    [self clearSmartPunctuationSpaceRevert];
+    [self invalidateSmartPunctuationShadow];
     msime_macos_diagnostic_write("focus_out");
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
@@ -3461,7 +3990,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     _preferencesTimer = nil;
     if (_session) [self apply:[_session setFocused:NO error:nil]];
     [self resetCandidateAnchor];
-    [_panel orderOut:nil];
+    [self hideCandidatePanel:"focus_out"];
     _activeClient = nil;
     [super deactivateServer:sender];
 }
@@ -3474,7 +4003,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 - (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
     [self ensureAppearance];
-    if (_session && _activeClient && MSIMEViewHasComposition(_view)) {
+    if (_session && _activeClient && [_view[@"editing_text"] length]) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return;
         [self apply:finished];
@@ -3569,7 +4098,38 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     return MSIMETranslationTextSize(placeholder, glossFont).height + 4;
 }
 
+// Every key down leaves through here, so the smart punctuation shadow sees each one exactly once, after it has been handled and with what became of it. Events this host posted itself (the voice sendinput route and the smart punctuation rewrite) are skipped: whoever posted them has already recorded what they carry.
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
+    const bool timed = msime_macos_diagnostic_enabled();
+    const uint64_t started = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
+    _smartPunctuationShadowWritten = NO;
+    const BOOL handled = [self handleKeyEvent:event client:sender];
+    CGEventRef nativeEvent = event.CGEvent;
+    const BOOL selfPosted = nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag;
+    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) [self noteKeyForSmartPunctuationShadow:event eaten:handled];
+    if (!handled) [self recordPassthroughKey:event client:sender];
+    const double elapsedMs = timed ? static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6 : 0;
+    if (timed && elapsedMs >= 8.0) {
+        const NSEventType type = event.type;
+        const char *label = type == NSEventTypeKeyDown ? "down" : type == NSEventTypeKeyUp ? "up" : type == NSEventTypeFlagsChanged ? "flags" : "other";
+        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, handled ? 1 : 0, elapsedMs);
+    }
+    return handled;
+}
+
+- (void)recordPassthroughKey:(NSEvent *)event client:(id)sender {
+    if (!MSIMETypingStatisticsEnabled.load(std::memory_order_relaxed)) return;
+    if (event.type != NSEventTypeKeyDown || !sender) return;
+    CGEventRef nativeEvent = event.CGEvent;
+    if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return;
+    NSString *characters = event.characters;
+    if (characters.length != 1) return;
+    if (!msime::mac::ShouldCountPassthroughCharacter([characters characterAtIndex:0], (event.modifierFlags & NSEventModifierFlagControl) != 0, (event.modifierFlags & NSEventModifierFlagCommand) != 0)) return;
+    const msime::mac::TypingSource source = _appearance.englishMode ? msime::mac::TypingSource::English : MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), NO);
+    MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"], characters, source);
+}
+
+- (BOOL)handleKeyEvent:(NSEvent *)event client:(id)sender {
     CGEventRef nativeEvent = event.CGEvent;
     if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return NO;
     if (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp && event.type != NSEventTypeFlagsChanged) return NO;
@@ -3585,6 +4145,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         _voiceHoldShortcut.reset();
         _backspaceHoldArmed = NO;
         [self clearSmartPunctuationSpaceConversion];
+        [self clearSmartPunctuationSpaceRevert];
+        [self invalidateSmartPunctuationShadow];
         return NO;
     }
     [self ensureAppearance];
@@ -3604,10 +4166,13 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         _pairedPunctuation.clear();
         [self resetSmartPunctuationState];
         [self clearSmartPunctuationSpaceConversion];
+        [self clearSmartPunctuationSpaceRevert];
         _backspaceHoldArmed = NO;
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
         _activeClient = sender;
+        // Whatever the previous client was last given says nothing about this one.
+        [self invalidateSmartPunctuationShadow];
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
         [self syncSystemInputModeForClient:sender];
         // Punctuation and width are per app, so the new client's values reach the Engine before it types.
@@ -3652,7 +4217,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         // Commit first, then switch: switching rebuilds the input session, and the other order loses the
         // letters still being composed. setEnglishInputMode: finishes any composition of its own, which is
         // a no-op once this has run.
-        if (MSIMEViewHasComposition(_view) && _session && _activeClient) {
+        if ([_view[@"editing_text"] length] && _session && _activeClient) {
             NSDictionary *raw = [_session command:MSIME_COMMIT_RAW error:nil];
             if (raw) [self apply:raw];
         }
@@ -3662,11 +4227,12 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (event.type != NSEventTypeKeyDown) return NO;
     [_appearance lockActiveInputMode];
     if (event.keyCode == 51) {
-        const BOOL compositionActive = MSIMEViewHasComposition(_view);
+        const BOOL compositionActive = [_view[@"editing_text"] length] || [_view[@"candidates"] count];
         BOOL suppressEscapedRepeat = NO;
         if (!event.isARepeat) {
             _backspaceHoldArmed = compositionActive;
         } else suppressEscapedRepeat = _backspaceHoldArmed && !compositionActive;
+        [self clearSmartPunctuationSpaceRevert];
         if (_lastSmartPunctuation) {
             _smartPunctuationRejected = YES;
             _rejectedSmartPunctuation = _lastSmartPunctuation;
@@ -3830,12 +4396,17 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (keypadPunctuation &&
         !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
                                  NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
-        const BOOL hasComposition = MSIMEViewHasComposition(_view);
+        const BOOL hasComposition = [_view[@"editing_text"] length] ||
+            ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
+        _punctuationKeyInFlight = (unichar)keypadPunctuation;
         NSDictionary *transition = hasComposition || keypadPunctuation == '.'
             ? [_session punctuationASCII:(uint8_t)keypadPunctuation error:nil]
             : [_session punctuation:(uint8_t)keypadPunctuation error:nil];
+        if (!transition) _punctuationKeyInFlight = 0;
         if (transition) {
             [self apply:transition];
+            // Only the idle route commits the Engine's Chinese form; the ASCII route leaves the tail ASCII.
+            if (!hasComposition && keypadPunctuation != '.') [self noteCommittedChinesePunctuation:transition client:sender];
             if ([transition[@"handled"] boolValue]) return YES;
         }
         if (keypadPunctuation == '.') {
@@ -3850,6 +4421,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         // as the main-row '-'/'=' candidate navigation shortcut.
         return [transition[@"handled"] boolValue];
     }
+    if ([self revertSmartPunctuationSpace:event client:(id<MSIMETextClient>)sender]) return YES;
     if ([self convertSmartPunctuationSpace:event client:(id<MSIMETextClient>)sender]) return YES;
     if ([self handleSmartPunctuation:event client:(id<MSIMETextClient>)sender]) return YES;
     // The sense page owns the keyboard while it is up, and hands back anything it does not claim.
@@ -3885,7 +4457,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if ((event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift |
                                 NSEventModifierFlagOption | NSEventModifierFlagCommand)) ==
             NSEventModifierFlagControl &&
-        _session && _activeClient && MSIMEViewHasComposition(_view)) {
+        _session && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
         uint32_t segment = UINT32_MAX;
         if (event.keyCode == 51) segment = MSIME_BACKSPACE_SEGMENT;
         else if (event.keyCode == 123) segment = MSIME_MOVE_LEFT_SEGMENT;
@@ -3914,6 +4486,9 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
             [self apply:[_session command:(event.modifierFlags & NSEventModifierFlagShift) ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
             return YES;
         }
+        // With candidates visible, a disabled Tab paging shortcut is still owned by the IME:
+        // do not let the host application move focus away from the composition.
+        return YES;
     }
     // Candidate paging is keyed by the physical ANSI key, matching Windows
     // even when the current keyboard layout produces a different glyph (or no
@@ -3974,31 +4549,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
                     NSDictionary *identifier = candidate[@"id"];
                     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
                     NSDictionary *selected = [_session selectEdgeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] edge:first ? MSIME_FIRST_HAN : MSIME_LAST_HAN error:nil];
-                    // The Engine picks the edge from the simplified word, but the character the user sees is in the converted phrase: Windows takes ExtractHanCharacter(CandidateTextForOutput(word)), so 头发+] is 髮 and 皇后+] is 后, which a lone s2t of 发 or 后 cannot give. The Engine call still resets the composition and fences stale generations; only the committed text is replaced.
-                    if (selected && _appearance.traditionalOutput && MSIMEScriptConversionApplies(selected[@"commit_context"]) &&
-                        [selected[@"commit"] isKindOfClass:NSString.class] && [selected[@"commit"] length] > 0 &&
-                        [candidate[@"text"] isKindOfClass:NSString.class]) {
-                        NSString *edge = MSIMEEdgeHanCharacter(MSIMEChineseOutputString(candidate[@"text"], YES), first);
-                        if (edge) {
-                            // With phrase_preedit the runtime commits the held phrase pieces in front of the edge (hold_phrase_progress: held + edge), so keep them; they are read from the pre-select view and converted here because commit_output_converted stops apply: from converting any of the commit.
-                            NSString *held = [_view[@"phrase_prefix"] isKindOfClass:NSString.class] ? _view[@"phrase_prefix"] : @"";
-                            NSMutableDictionary *converted = [selected mutableCopy];
-                            converted[@"commit"] = [MSIMEChineseOutputString(held, YES) stringByAppendingString:edge];
-                            converted[@"commit_output_converted"] = @YES;
-                            selected = converted;
-                        }
-                    }
-                    if (!selected) return YES; // An Engine failure or a stale identity must never turn into punctuation.
-                    if ([selected[@"handled"] boolValue]) {
-                        [self apply:selected];
-                        return YES;
-                    }
-                    // A current candidate without a Han character (English word, number, emoji): Windows replies Normal and its TSF side commits the candidate followed by the key's punctuation, '-' literally and the others through the punctuation table (KeyHandler.cpp); Linux falls back to msime_client_punctuation the same way.
-                    NSDictionary *fallback = character == '-'
-                        ? [_session punctuationASCII:(uint8_t)character error:nil]
-                        : [_session punctuation:(uint8_t)character error:nil];
-                    if (fallback) [self apply:fallback];
-                    return YES;
+                    if (selected) [self apply:selected];
+                    return YES; // Unsupported/stale candidates must not turn into punctuation.
                 }
                 return YES;
             }
@@ -4056,6 +4608,30 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     // Japanese converts with Space and commits with Enter; every other scheme keeps the mapping
     // below. See handleJapaneseConversionKey: for why the two keys cannot be the shared ones.
     if ([self handleJapaneseConversionKey:event client:sender]) return YES;
+    // The reference sends `{` down its punctuation path and closes it with `}` (`_GetPairedPunctuationClosingFor`), whether or not a composition is live, and the Linux host does the same. The Engine answers `{` on its ASCII route: while composing it commits the candidate followed by `{`, and idle it leaves the key alone, so the host commits the opening mark itself. The mark is not in MSIMEPunctuationPairs because a symbol candidate that is exactly `{` is not paired by the reference.
+    if ([event.characters isEqualToString:@"{"] &&
+        !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)) &&
+        _appearance.runtimeChinesePunctuation && _appearance.pairedPunctuation && !_pendingPairedClosing &&
+        !MSIMEPairedPunctuationExcludedHost()) {
+        NSString *opening = _appearance.runtimeFullWidthInput ? @"｛" : @"{";
+        NSString *closing = _appearance.runtimeFullWidthInput ? @"｝" : @"}";
+        NSDictionary *engine = [_session punctuationASCII:'{' error:nil];
+        NSMutableDictionary *transition = nil;
+        if ([engine[@"handled"] boolValue]) {
+            transition = [engine mutableCopy];
+            NSString *commit = engine[@"commit"];
+            if ([commit isKindOfClass:NSString.class] && [commit hasSuffix:@"{"])
+                transition[@"commit"] = [[commit substringToIndex:commit.length - 1] stringByAppendingString:opening];
+        } else {
+            transition = [NSMutableDictionary dictionaryWithObject:opening forKey:@"commit"];
+            if ([engine[@"view"] isKindOfClass:NSDictionary.class]) transition[@"view"] = engine[@"view"];
+            else if (_view) transition[@"view"] = _view;
+        }
+        _hostOpenedClosing = closing;
+        [self apply:transition];
+        _hostOpenedClosing = nil;
+        return YES;
+    }
     switch (event.keyCode) {
         case 48: return NO;
         case 51: command = MSIME_BACKSPACE; break;
@@ -4067,18 +4643,23 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         case 115: command = _panel.isVisible ? MSIME_FIRST_CANDIDATE : MSIME_MOVE_HOME; break;
         case 119: command = _panel.isVisible ? MSIME_LAST_CANDIDATE : MSIME_MOVE_END; break;
         case 117: command = MSIME_DELETE_FORWARD; break;
-        case 116: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_PREVIOUS_PAGE; break;
-        case 121: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_NEXT_PAGE; break;
-        case 126: if (![_appearance navigationEnabled:@"arrows"]) return NO; command = MSIME_PREVIOUS_CANDIDATE; break;
-        case 125: if (![_appearance navigationEnabled:@"arrows"]) return NO; command = MSIME_NEXT_CANDIDATE; break;
+        case 116: if (![_appearance navigationEnabled:@"page_up_down"]) return _panel.isVisible; command = MSIME_PREVIOUS_PAGE; break;
+        case 121: if (![_appearance navigationEnabled:@"page_up_down"]) return _panel.isVisible; command = MSIME_NEXT_PAGE; break;
+        case 126: if (![_appearance navigationEnabled:@"arrows"]) return _panel.isVisible; command = MSIME_PREVIOUS_CANDIDATE; break;
+        case 125: if (![_appearance navigationEnabled:@"arrows"]) return _panel.isVisible; command = MSIME_NEXT_CANDIDATE; break;
     }
     NSDictionary *transition = nil;
     if (command != UINT32_MAX) transition = [_session command:command error:nil];
     else if (event.characters.length == 1 && [event.characters characterAtIndex:0] <= 127) {
+        const unichar typed = [event.characters characterAtIndex:0];
+        _punctuationKeyInFlight = MSIMEASCIIPunctuation(typed) ? typed : 0;
         transition = [_session typeASCII:(uint8_t)[event.characters characterAtIndex:0] shift:(event.modifierFlags & NSEventModifierFlagShift) != 0 error:nil];
     }
-    if (!transition) return NO;
+    if (!transition) { _punctuationKeyInFlight = 0; return NO; }
     [self apply:transition];
+    // A punctuation key is the only route that arms the space conversion, as in the reference, whose punctuation handler is the one caller: a candidate picked with Space or a digit never arms, even when its text ends in a mark.
+    if (command == UINT32_MAX && event.characters.length == 1 && MSIMEASCIIPunctuation([event.characters characterAtIndex:0]))
+        [self noteCommittedChinesePunctuation:transition client:sender];
     if (command == UINT32_MAX && [transition[@"handled"] boolValue] &&
         ![transition[@"commit"] isKindOfClass:NSString.class] && event.characters.length == 1 &&
         [event.characters characterAtIndex:0] >= 'a' && [event.characters characterAtIndex:0] <= 'z' &&
@@ -4088,7 +4669,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     }
     if ([transition[@"handled"] boolValue]) return YES;
     // Match Apple: Engine gets first refusal, then finish any composition before fallback.
-    if (MSIMEViewHasComposition(_view)) {
+    if ([_view[@"editing_text"] length]) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return NO;
         [self apply:finished];
@@ -4112,7 +4693,10 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     _pairedPunctuation.clear();
     [self resetSmartPunctuationState];
     [self clearSmartPunctuationSpaceConversion];
+    [self clearSmartPunctuationSpaceRevert];
     [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
+    // IMK asks for this when the user clicks into the document or focus moves, so the caret is about to leave the text just committed.
+    [self invalidateSmartPunctuationShadow];
 }
 
 - (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
@@ -4129,6 +4713,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     }
     if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]))
         text = MSIMEChineseOutputString(text, YES);
+    // Posted voice text reaches the application without passing the shadow.
+    [self invalidateSmartPunctuationShadow];
     if ([self postVoiceText:text route:route] == MSIMEVoiceCommitOutcome::unavailable) {
         _typingSourceOverride = @(static_cast<NSInteger>(msime::mac::TypingSource::Voice));
         [self apply:transition];
@@ -4168,6 +4754,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         ? static_cast<msime::mac::TypingSource>(_typingSourceOverride.integerValue)
         : msime::mac::TypingSource::Unknown;
     _typingSourceOverride = nil;
+    const unichar punctuationKey = _punctuationKeyInFlight;
+    _punctuationKeyInFlight = 0;
     NSDictionary *previousView = _view;
     NSString *commitForTracking = transition[@"commit"];
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length)
@@ -4185,33 +4773,51 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     // second press, so the alternation is left pointing at the closing mark and the *next* quote
     // the user types opens with ”. The reference rewrites it at the same point and says the same
     // thing: in paired mode every press starts a pair rather than following the toggle.
-    if (_appearance.pairedPunctuation && [commitForTracking isKindOfClass:NSString.class] &&
-        ([commitForTracking isEqualToString:@"”"] || [commitForTracking isEqualToString:@"’"]) &&
+    //
+    // A punctuation key typed during a composition finishes it, and the Engine commits the candidate and the mark as one string (`nihao(` gives `你好（`). The reference decides pairing from `punctuationStr.back()` inside its punctuation-key path, so the mark read here is the last character of such a commit. Any other commit is read whole, which keeps a candidate or phrase that merely ends in a quote or bracket exactly as it is.
+    NSString *mark = commitForTracking;
+    BOOL markEndsLongerCommit = NO;
+    if (punctuationKey && [commitForTracking isKindOfClass:NSString.class] && commitForTracking.length) {
+        const NSRange last = [commitForTracking rangeOfComposedCharacterSequenceAtIndex:commitForTracking.length - 1];
+        if (last.location > 0) {
+            mark = [commitForTracking substringWithRange:last];
+            markEndsLongerCommit = YES;
+        }
+    }
+    const BOOL quoteKey = !markEndsLongerCommit || punctuationKey == '"' || punctuationKey == '\'';
+    if (_appearance.pairedPunctuation && [mark isKindOfClass:NSString.class] && quoteKey &&
+        ([mark isEqualToString:@"”"] || [mark isEqualToString:@"’"]) &&
         !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
         NSMutableDictionary *reopened = [transition mutableCopy];
-        commitForTracking = [commitForTracking isEqualToString:@"”"] ? @"“" : @"‘";
+        NSString *opening = [mark isEqualToString:@"”"] ? @"“" : @"‘";
+        commitForTracking = [[commitForTracking substringToIndex:commitForTracking.length - mark.length] stringByAppendingString:opening];
+        mark = opening;
         reopened[@"commit"] = commitForTracking;
         transition = reopened;
     }
     NSString *openedClosing = nil;
-    if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length &&
+    if ([mark isKindOfClass:NSString.class] && mark.length &&
         _appearance.pairedPunctuation && !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
         for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
-            if ([commitForTracking isEqualToString:pair[0]]) { openedClosing = pair[1]; break; }
+            if ([mark isEqualToString:pair[0]]) { openedClosing = pair[1]; break; }
     }
+    NSString *hostOpenedClosing = _hostOpenedClosing;
+    _hostOpenedClosing = nil;
+    if (hostOpenedClosing && !openedClosing && [commitForTracking isKindOfClass:NSString.class] &&
+        [commitForTracking hasSuffix:[hostOpenedClosing isEqualToString:@"｝"] ? @"｛" : @"{"] &&
+        _appearance.pairedPunctuation && !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost())
+        openedClosing = hostOpenedClosing;
     // A pair this host closed is a pair the Engine still counts as open. Book title marks are the
     // ones that notice: 《 inside 《 is 〈, so an unbalanced count turns the next pair the user
     // types into 〈〉. Both halves of that nesting come from the same key, hence one call for both.
-    if (openedClosing && ([commitForTracking isEqualToString:@"《"] || [commitForTracking isEqualToString:@"〈"]))
+    if (openedClosing && ([mark isEqualToString:@"《"] || [mark isEqualToString:@"〈"]))
         [_session balancePairedPunctuationAfterAutoClose:'<' error:nil];
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length >= 2 && _appearance.pairedPunctuation) {
         for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
             if ([commitForTracking hasPrefix:pair[0]] && [commitForTracking hasSuffix:pair[1]]) { _pairedPunctuation.push(pair[1].UTF8String); break; }
     }
     NSDictionary *displayTransition = transition;
-    // commit_output_converted is set by this host alone (word-to-character above) for a commit already in the output script; a second s2t would turn 后 back into 後.
-    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class] &&
-        ![transition[@"commit_output_converted"] isEqual:@YES]) {
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
         NSMutableDictionary *converted = [transition mutableCopy];
         converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
         displayTransition = converted;
@@ -4219,6 +4825,11 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     NSString *pendingClosing = _pendingPairedClosing;
     MSIMEApplyTransitionWithPendingClosing(displayTransition, (id<MSIMETextClient>)_activeClient,
                                            _appearance.inlinePreeditStyle, pendingClosing);
+    // What a commit leaves left of the caret is known for certain, even in a host that never reads it back (Windows sets the shadow after every commit it makes). A pending closing mark goes in behind the commit, so it is the character the caret follows.
+    if ([displayTransition[@"commit"] isKindOfClass:NSString.class]) {
+        NSString *landed = pendingClosing.length ? pendingClosing : displayTransition[@"commit"];
+        if (landed.length) [self noteSmartPunctuationShadow:[landed characterAtIndex:landed.length - 1]];
+    }
     if (pendingClosing && [displayTransition[@"commit"] isKindOfClass:NSString.class]) {
         // The commit took the closing mark with it, so the pair is done and a later duplicate of
         // that mark should be skipped rather than typed twice.
@@ -4246,9 +4857,83 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     [self synchronizeCloudCandidates];
     [self scheduleSettledRerank];
     [self synchronizeCandidateGloss];
+    [self synchronizeTargetGloss];
+    [self synchronizeOnDeviceGloss];
     [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
     [self synchronizeCustomTranslations];
     [self synchronizeAITranslations];
+}
+
+// The card is at most half the screen's visible width, as the Windows card is at most half its work area, and at least seven times the candidate font size, as the Windows card and the source skins' `min-width: 7em` are. Every row is laid out at the width it then gets: text, 辅助码 and gloss wider than their column wrap inside it and the row takes their height (CandidateItemLayout.h).
+- (MSIMECandidatePageGeometry)candidatePageGeometry:(NSArray *)candidates font:(NSFont *)font glossFont:(NSFont *)glossFont
+                                     showSelectedBar:(BOOL)showSelectedBar inset:(CGFloat)inset paging:(BOOL)paging
+                                             visible:(NSRect)visible preeditWidth:(CGFloat)preeditWidth
+                                        minimumWidth:(CGFloat)minimumWidth {
+    MSIMECandidatePageGeometry geometry;
+    const BOOL vertical = _appearance.vertical;
+    const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
+    NSFont *numberFont = MSIMECandidateNumberFont(font);
+    NSMutableArray<NSString *> *texts = [NSMutableArray arrayWithCapacity:candidates.count];
+    NSMutableArray<NSString *> *annotations = [NSMutableArray arrayWithCapacity:candidates.count];
+    NSMutableArray<NSString *> *displays = [NSMutableArray arrayWithCapacity:candidates.count];
+    NSMutableArray<NSString *> *translations = [NSMutableArray arrayWithCapacity:candidates.count];
+    CGFloat candidateRow = MSIMECandidateTextHeight(@"", font) + MSIMECandidateRowPadding;
+    CGFloat numberWidth = 0;
+    NSUInteger index = 0;
+    for (NSDictionary *candidate in candidates) {
+        NSString *hint = MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled);
+        NSString *text = CandidateTextRun(candidate, traditional);
+        NSString *annotation = CandidateAnnotationRun(candidate, traditional, hint);
+        [texts addObject:text];
+        [annotations addObject:annotation];
+        [displays addObject:CandidateDisplayWithWubiHint(candidate, traditional, hint)];
+        [translations addObject:CandidateTranslation(candidate)];
+        NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];
+        numberWidth = MAX(numberWidth, [number sizeWithAttributes:@{NSFontAttributeName: numberFont}].width);
+        // Fallback glyphs can stand taller than the primary font; a one-line row is as tall as its tallest.
+        candidateRow = MAX(candidateRow, MSIMECandidateTextHeight([text stringByAppendingString:annotation], font) + MSIMECandidateRowPadding);
+    }
+    geometry.texts = texts;
+    geometry.annotations = annotations;
+    geometry.displays = displays;
+    geometry.contentLeft = MSIMECandidateTextLeft(showSelectedBar) + ceil(numberWidth) + MSIMECandidateNumberGap;
+    const msime::mac::CandidateLayoutMetrics metrics =
+        MSIMECandidateLayoutMetrics(font, glossFont, candidateRow, geometry.contentLeft + MSIMECandidateTextRight);
+    std::vector<msime::mac::CandidateItemWidths> items;
+    items.reserve(candidates.count);
+    CGFloat natural = 0;
+    for (NSUInteger i = 0; i < texts.count; ++i) {
+        items.push_back(MSIMECandidateItemWidths(texts[i], annotations[i], translations[i], font, glossFont));
+        const CGFloat itemWidth = ceil(msime::mac::CandidateItemNaturalWidth(items.back(), metrics, !vertical));
+        natural = vertical ? MAX(natural, itemWidth) : natural + itemWidth;
+    }
+    const CGFloat pagingWidth = paging && !vertical ? 56 : 0;
+    CGFloat width = MAX(20, natural + 2 * inset + pagingWidth);
+    width = MAX(width, preeditWidth);
+    const CGFloat widthCap = MAX(80, floor(visible.size.width * 0.5));
+    width = MIN(width, widthCap);
+    if (paging) width = MAX(width, 76);
+    // At least 7em of the candidate font, raised by the skin's floor; the 7em part stays within the half-screen cap (CandidateItemLayout.h).
+    width = MAX(width, msime::mac::CandidateCardMinimumWidth(font.pointSize, minimumWidth, widthCap));
+    geometry.width = width;
+    geometry.lineWidth = MAX(1, width - 2 * inset - pagingWidth);
+    const msime::mac::CandidatePageMeasure measure = [texts, annotations, translations, font, glossFont](std::size_t row, msime::mac::CandidateRun run, double runWidth) {
+        return MSIMECandidateRunMeasure(texts[row], annotations[row], translations[row], font, glossFont)(run, runWidth);
+    };
+    // Horizontal rows keep the height a gloss will need even before it arrives, so the card does not grow under the user seconds after the composition started.
+    const CGFloat minimumHeight = vertical ? 0 : candidateRow + [self reservedGlossHeightForFont:glossFont];
+    geometry.rows = msime::mac::LayoutCandidatePage(items, geometry.lineWidth, metrics, !vertical, measure, minimumHeight);
+    for (auto &row : geometry.rows) {
+        // Whole points keep neighbouring buttons touching and their text on the pixel grid.
+        const double left = round(row.x), right = round(row.x + row.width);
+        const double top = round(row.y), bottom = round(row.y + row.height);
+        row.x = left;
+        row.width = right - left;
+        row.y = top;
+        row.height = bottom - top;
+    }
+    geometry.rowsHeight = ceil(msime::mac::CandidatePageHeight(geometry.rows));
+    return geometry;
 }
 
 - (void)updateKeymapPanel {
@@ -4276,22 +4961,18 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if ([candidates isKindOfClass:NSArray.class] && candidates.count) {
+        // The same rows the candidate panel lays out, so a card that wraps a long candidate onto several lines is kept clear of in full.
+        NSScreen *screen = nil;
+        for (NSScreen *candidateScreen in NSScreen.screens)
+            if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidateScreen.frame)) { screen = candidateScreen; break; }
+        screen = screen ?: NSScreen.mainScreen;
         NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize englishFirst:YES];
-        CGFloat rowHeight = MSIMECandidateTextHeight(@"", font) + 12;
-        BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
-        for (NSDictionary *candidate in candidates)
-            rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(CandidateDisplayWithWubiHint(candidate, traditional,
-                MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled)), font) + 12);
-        if (!_appearance.vertical) {
-            NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
-            CGFloat glossHeight = [self reservedGlossHeightForFont:glossFont];
-            for (NSDictionary *candidate in candidates) {
-                NSString *translation = CandidateTranslation(candidate);
-                if (translation.length) glossHeight = MAX(glossHeight, MSIMETranslationTextSize(translation, glossFont).height + 4);
-            }
-            rowHeight += glossHeight;
-        }
-        clearance = MAX(clearance, (_appearance.vertical ? candidates.count : 1) * rowHeight + 24);
+        NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
+        const MSIMECandidatePageGeometry geometry =
+            [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:_skinShowsSelectedBar inset:12
+                                 paging:[_view[@"page_count"] unsignedIntegerValue] > 1
+                                visible:screen ? screen.visibleFrame : NSMakeRect(0, 0, 1440, 900) preeditWidth:0 minimumWidth:0];
+        clearance = MAX(clearance, geometry.rowsHeight + 24);
     }
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     if (_appearance.showsCandidatePreedit && [preedit length] && [_view[@"candidates"] count]) {
@@ -4301,15 +4982,23 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
 }
 
+// Every hide of the candidate window goes through here so the diagnostic log can say why it went away, like the source's candidate hide lines. Only a window that was on screen is logged.
+- (void)hideCandidatePanel:(const char *)reason {
+    if (msime_macos_diagnostic_enabled() && _panel.isVisible) msime_macos_diagnostic_writef("candidate hide reason=%s", reason);
+    [_panel orderOut:nil];
+}
+
 - (void)renderCandidates {
+    const bool timed = msime_macos_diagnostic_enabled();
+    const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     _candidateMenuToken = [NSObject new];
     [self updateKeymapPanel];
-    if (_appearance.englishMode) { [self resetCandidateAnchor]; [_panel orderOut:nil]; return; }
+    if (_appearance.englishMode) { [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
         _armedGlossColumn = 0;
         [self resetCandidateAnchor];
-        [_panel orderOut:nil];
+        [self hideCandidatePanel:"empty"];
         return;
     }
     if (_armedGlossColumn > 0) {
@@ -4319,13 +5008,13 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     NSRect reportedCursor = NSZeroRect;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
-    if (!MSIMEValidCaret(cursor)) { [_panel orderOut:nil]; return; }
+    if (!MSIMEValidCaret(cursor)) { [self hideCandidatePanel:"invalid_caret"]; return; }
     NSScreen *screen = nil;
     for (NSScreen *candidate in NSScreen.screens) {
         if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidate.frame)) { screen = candidate; break; }
     }
     screen = screen ?: NSScreen.mainScreen;
-    if (!screen) { [_panel orderOut:nil]; return; }
+    if (!screen) { [self hideCandidatePanel:"no_screen"]; return; }
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
     NSAppearance *candidateAppearance = [_appearance candidateAppearanceOverride];
@@ -4343,68 +5032,17 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
     NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize englishFirst:YES];
     CGFloat preeditHeight = preedit.length ? MAX(22.0, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0) : 0;
-    CGFloat rowHeight = MSIMECandidateTextHeight(@"", font) + 12;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
     const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
     const BOOL paging = pageCount > 1;
-    CGFloat width = 20;
-    NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
-    CGFloat totalWidth = 0;
-    NSUInteger index = 0;
-    const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
     NSFont *numberFont = MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
-    CGFloat glossHeight = [self reservedGlossHeightForFont:glossFont];
-    std::vector<msime::mac::CandidateRowItem> rowItems;
-    rowItems.reserve(candidates.count);
-    for (NSDictionary *candidate in candidates) {
-        NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];
-        NSString *display = CandidateDisplayWithWubiHint(candidate, traditional,
-            MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled));
-        NSString *title = [NSString stringWithFormat:@"%@  %@", number, display];
-        rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(title, font) + 12);
-        CGFloat itemWidth = ceil([number sizeWithAttributes:@{NSFontAttributeName: numberFont}].width +
-                                 MSIMECandidateNumberGap + [display sizeWithAttributes:@{NSFontAttributeName: font}].width +
-                                 16 + (geometry.showSelectedBar ? 6 : 0));
-        const CGFloat textWidth = itemWidth;
-        NSString *translation = CandidateTranslation(candidate);
-        if (translation.length) {
-            NSSize glossSize = MSIMETranslationTextSize(translation, glossFont);
-            if (vertical) itemWidth += msime::mac::CandidateGlossReservedWidth(glossSize.width);
-            else {
-                const CGFloat glossWidth = std::min<CGFloat>(std::max<CGFloat>(glossSize.width, 0.0),
-                                                              msime::mac::kCandidateGlossMaxWidth);
-                itemWidth = MAX(itemWidth, ceil(glossWidth) + 40 + (geometry.showSelectedBar ? 6 : 0));
-                glossHeight = MAX(glossHeight, glossSize.height + 4);
-            }
-            if (vertical) rowHeight = MAX(rowHeight, glossSize.height + 4);
-        }
-        rowItems.push_back({textWidth, itemWidth});
-        [widths addObject:@(itemWidth)];
-        totalWidth += itemWidth;
-        width = MAX(width, itemWidth + 2 * inset);
-    }
-    width = MIN(width, MAX(80, visible.size.width - 20));
-    rowHeight += glossHeight;
-    if (paging) width = MAX(width, 76);
-    if (!vertical) {
-        const CGFloat available = MAX(80, visible.size.width - 32 - (paging ? 56 : 0));
-        if (totalWidth > available) {
-            // A page holding a long sentence is worth more as one readable sentence than as nine equally
-            // shortened stubs, so the row keeps the leading candidates whole and takes the width it is short
-            // of from the glosses and from the tail. The floor leaves a squeezed item its number and a glyph.
-            const CGFloat minimumItemWidth = ceil([@"9" sizeWithAttributes:@{NSFontAttributeName: numberFont}].width +
-                                                  MSIMECandidateNumberGap + font.pointSize + 16 +
-                                                  (geometry.showSelectedBar ? 6 : 0));
-            const std::vector<double> fitted = msime::mac::FitCandidateRowWidths(rowItems, available, minimumItemWidth);
-            totalWidth = 0;
-            for (NSUInteger i = 0; i < widths.count; ++i) {
-                widths[i] = @(MAX(24, floor(fitted[i])));
-                totalWidth += widths[i].doubleValue;
-            }
-        }
-        width = totalWidth + 2 * inset + (paging ? 56 : 0);
-    }
+    const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 2 * inset + 4 + MSIMEPreeditCaretGap : 0;
+    const MSIMECandidatePageGeometry pageGeometry =
+        [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
+                             paging:paging visible:visible preeditWidth:preeditWidth
+                       minimumWidth:MAX(skin.minWidthDip, skin.decorationWidthDip)];
+    const CGFloat width = pageGeometry.width;
     if (!_panel) {
         MSIMECandidatePanel *panel = [[MSIMECandidatePanel alloc] initWithContentRect:NSZeroRect styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
         __weak MSIMEInputController *weakSelf = self;
@@ -4429,34 +5067,35 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     _panel.opaque = NO;
     _panel.backgroundColor = NSColor.clearColor;
     const CGFloat decorationHeight = skin.decorationTopDip;
-    if (preedit.length) width = MAX(width, MIN(ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 2 * inset + 4 + MSIMEPreeditCaretGap, MAX(80, visible.size.width - 20)));
-    width = MAX(width, MAX(skin.minWidthDip, skin.decorationWidthDip));
-    CGFloat height = (vertical ? candidates.count : 1) * rowHeight + 2 * inset + (paging && vertical ? 26 : 0) + decorationHeight + preeditHeight;
+    const CGFloat height = pageGeometry.rowsHeight + 2 * inset + (paging && vertical ? 26 : 0) + decorationHeight + preeditHeight;
     [_panel setContentSize:NSMakeSize(width, height)];
     MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
-    CGFloat x = inset;
+    const CGFloat rowsTop = height - inset - decorationHeight - preeditHeight;
     for (NSDictionary *candidate in candidates) {
-        NSString *display = CandidateDisplayWithWubiHint(candidate, traditional,
-            MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled));
-        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), display];
+        const msime::mac::CandidateRowLayout &row = pageGeometry.rows[slot];
+        NSString *display = pageGeometry.displays[slot];
+        NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), pageGeometry.texts[slot]];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];
         button.menu = [self menuForCandidate:candidate];
         button.tag = (NSInteger)slot;
-        CGFloat itemWidth = vertical ? width - 2 * inset : widths[slot].doubleValue;
-        button.frame = NSMakeRect(x, vertical ? height - inset - decorationHeight - preeditHeight - ((slot + 1) * rowHeight) : inset, itemWidth, rowHeight);
+        // The frame is the laid out row, so a wrapped line is inside the area that takes the click.
+        button.frame = NSMakeRect(inset + row.x, rowsTop - row.y - row.height, row.width, row.height);
+        button.accessibilityLabel = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), display];
         ++slot;
-        if (!vertical) x += itemWidth;
         button.font = font;
         button.numberFont = numberFont;
-        button.lineBreakMode = NSLineBreakByTruncatingTail;
+        button.lineBreakMode = NSLineBreakByWordWrapping;
         button.toolTip = display;
+        button.annotation = row.item.annotation.width > 0 ? pageGeometry.annotations[slot - 1] : @"";
         button.translation = CandidateTranslation(candidate);
         button.armedGlossColumn = _armedGlossColumn;
         button.translationFont = glossFont;
-        button.translationBelow = !vertical;
-        button.translationRowHeight = glossHeight;
+        button.itemLayout = row.item;
+        button.hasItemLayout = YES;
+        button.contentLeft = pageGeometry.contentLeft;
+        button.translationBelow = button.translation.length ? row.item.translation.below : !vertical;
         if (button.translation.length) button.toolTip = [display stringByAppendingFormat:@"\n%@", button.translation];
         button.bordered = NO;
         button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
@@ -4469,7 +5108,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (paging) {
         for (NSUInteger direction = 0; direction < 2; ++direction) {
             MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:direction == 0 ? @"‹" : @"›" target:self action:@selector(changeCandidatePage:)];
-            button.frame = NSMakeRect((vertical ? inset : x) + direction * 28, inset, 28, vertical ? 26 : rowHeight);
+            button.frame = NSMakeRect((vertical ? inset : inset + pageGeometry.lineWidth) + direction * 28, inset, 28,
+                                      vertical ? 26 : pageGeometry.rows.back().height);
             button.bordered = NO;
             button.tag = direction == 0 ? -1 : -2;
             button.enabled = direction == 0 ? page > 0 : page < pageCount - 1;
@@ -4513,8 +5153,15 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     const NSSize panelSize = _panel.frame.size;
     // Every hide path orders the panel out, so a panel that is not on screen yet starts a fresh flip memory.
     _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
-    [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0)];
+    const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0);
+    [_panel setFrameOrigin:origin];
     [_panel orderFrontRegardless];
+    // Geometry and counts only, the macOS form of the source's candidate-frame/candidate-position audit: flipped=1 means the window went above the caret for lack of room below.
+    if (timed)
+        msime_macos_diagnostic_writef("candidate-frame show rows=%lu vertical=%d caret=(%.0f,%.0f,%.0f,%.0f) size=(%.0f,%.0f) origin=(%.0f,%.0f) visible=(%.0f,%.0f,%.0f,%.0f) flipped=%d build_ms=%.3f",
+            (unsigned long)candidates.count, vertical ? 1 : 0, NSMinX(cursor), NSMinY(cursor), NSWidth(cursor), NSHeight(cursor),
+            panelSize.width, panelSize.height, origin.x, origin.y, NSMinX(visible), NSMinY(visible), NSWidth(visible), NSHeight(visible),
+            origin.y >= NSMaxY(cursor) ? 1 : 0, static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - buildStarted) / 1e6);
 }
 
 - (void)refreshCandidateSkin {

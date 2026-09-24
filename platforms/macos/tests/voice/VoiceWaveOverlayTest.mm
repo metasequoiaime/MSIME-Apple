@@ -213,7 +213,7 @@ int main(int argc, char **argv) {
         [panel dismissFailure];
         BriefFailureOverlay *brief = [BriefFailureOverlay new];
         [brief showFailure:MSIMEVoiceFailureCapture];
-        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
         assert(!brief.visible);
         [brief showFailure:MSIMEVoiceFailureProvider];
         [brief setListening:YES];

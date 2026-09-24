@@ -34,7 +34,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _secondary = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_secondary addItemsWithTitles:@[@"不显示", @"英语", @"法语", @"日语", @"西班牙语", @"俄语", @"德语", @"韩语"]];
     _provider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_provider addItemsWithTitles:@[@"腾讯云", @"小牛翻译（NiuTrans）", @"自定义 DeepLX"]];
+    [_provider addItemsWithTitles:@[@"腾讯云", @"小牛翻译（NiuTrans）", @"自定义 DeepLX", @"水杉账号（发送到 api.msime.app）"]];
     _provider.target = self; _provider.action = @selector(providerChanged:);
     _endpoint = [NSTextField textFieldWithString:@""]; _endpoint.placeholderString = @"https://example.com/translate";
     _key = [[NSSecureTextField alloc] initWithFrame:NSZeroRect]; _key.placeholderString = @"留空表示不鉴权";
@@ -76,7 +76,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     _grid.rowSpacing = 14;
     for (NSTextField *field in @[_endpoint, _key, _plainKey, _secretId, _tencentKey, _plainTencentKey, _region, _appId, _niuTransKey, _plainNiuTransKey])
         [field.widthAnchor constraintEqualToConstant:310].active = YES;
-    NSTextField *notice = [NSTextField wrappingLabelWithString:@"可同时显示两种候选释义；相同语言会自动去重。离线英文释义使用随客户端打包的词库，不联网；英文候选译为中文，英语目标优先查本地词库。自定义服务优先，未命中候选会发送到所填地址（建议 HTTPS）；也可选择腾讯云或小牛翻译。腾讯云须填写 SecretId 和 SecretKey，小牛翻译须填写 App ID 和 API Key。凭据仅保存在本机配置文件，不参与云端设置同步。"];
+    NSTextField *notice = [NSTextField wrappingLabelWithString:@"可同时显示两种候选释义；相同语言会自动去重。离线英文释义使用随客户端打包的词库，不联网；英文候选译为中文，英语目标优先查本地词库。不选择翻译服务时不联网。自定义服务优先，未命中候选会发送到所填地址（建议 HTTPS）；也可选择腾讯云或小牛翻译。腾讯云须填写 SecretId 和 SecretKey，小牛翻译须填写 App ID 和 API Key。凭据仅保存在本机配置文件，不参与云端设置同步。选择「水杉账号」会把当前页的中文候选词发送到 api.msime.app，首次使用会创建匿名账号。"];
     _status = [NSTextField wrappingLabelWithString:@""];
     _save = [NSButton buttonWithTitle:@"保存" target:self action:@selector(save:)];
     _reload = [NSButton buttonWithTitle:@"重新加载（放弃编辑）" target:self action:@selector(reload:)];
@@ -102,8 +102,9 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     BOOL selectedTencent = _provider.indexOfSelectedItem == 0;
     BOOL selectedNiuTrans = _provider.indexOfSelectedItem == 1;
     BOOL selectedCustom = _provider.indexOfSelectedItem == 2;
+    BOOL selectedAccount = _provider.indexOfSelectedItem == 3;
     for (NSInteger row = 5; row <= 6; ++row) [_grid rowAtIndex:row].hidden = !selectedCustom;
-    for (NSInteger row = 7; row <= 10; ++row) [_grid rowAtIndex:row].hidden = selectedCustom || selectedNiuTrans;
+    for (NSInteger row = 7; row <= 10; ++row) [_grid rowAtIndex:row].hidden = selectedCustom || selectedNiuTrans || selectedAccount;
     for (NSInteger row = 11; row <= 12; ++row) [_grid rowAtIndex:row].hidden = !selectedNiuTrans;
     BOOL custom = ready && selectedCustom;
     BOOL niuTrans = ready && selectedNiuTrans;
@@ -162,7 +163,8 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
                 [current->_target selectItemAtIndex:index == NSNotFound ? 0 : index];
                 NSUInteger secondary = [TranslationLanguages() indexOfObject:preferences[@"translation_secondary_language"] ?: @""];
                 [current->_secondary selectItemAtIndex:secondary == NSNotFound ? 0 : secondary + 1];
-                NSUInteger provider = [niutrans[@"enabled"] boolValue] ? 1 : ([custom[@"enabled"] boolValue] ? 2 : 0);
+                NSUInteger provider = [niutrans[@"enabled"] boolValue] ? 1
+                    : ([custom[@"enabled"] boolValue] ? 2 : ([preferences[@"translation_account"] boolValue] ? 3 : 0));
                 [current->_provider selectItemAtIndex:provider];
                 current->_endpoint.stringValue = custom[@"endpoint"] ?: @"";
                 current->_key.stringValue = custom[@"api_key"] ?: @"";
@@ -192,6 +194,7 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     NSUInteger provider = _provider.indexOfSelectedItem;
     BOOL selectedNiuTrans = provider == 1;
     BOOL selectedCustom = provider == 2;
+    BOOL selectedAccount = provider == 3;
     NSDictionary *custom = @{@"enabled":@(selectedCustom), @"endpoint":_endpoint.stringValue, @"api_key":key};
     // Use the same descriptor validation as runtime even for disabled drafts.
     if ([custom[@"enabled"] boolValue]) {
@@ -214,10 +217,14 @@ static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"
     }
     NSMutableDictionary *preferences = [_snapshot[@"preferences"] mutableCopy];
     preferences[@"custom_translation"] = custom;
-    preferences[@"tencent_tmt"] = @{@"enabled":@(_tencent.state == NSControlStateValueOn),
+    // Choosing the MSIME account turns Tencent off, so the account is never shadowed by a Tencent checkbox the popup no longer shows.
+    preferences[@"tencent_tmt"] = @{@"enabled":@(!selectedAccount && _tencent.state == NSControlStateValueOn),
         @"secret_id":_secretId.stringValue, @"secret_key":_revealTencent.state == NSControlStateValueOn ? _plainTencentKey.stringValue : _tencentKey.stringValue,
         @"region":_region.stringValue};
     preferences[@"niutrans"] = niutrans;
+    // Written only when chosen, like translation_secondary_language, so a document that never chose the account stays readable by older strict parsers.
+    if (selectedAccount) preferences[@"translation_account"] = @YES;
+    else [preferences removeObjectForKey:@"translation_account"];
     preferences[@"candidate_translations"] = @(_enabled.state == NSControlStateValueOn);
     preferences[@"candidate_english_gloss"] = @(_offline.state == NSControlStateValueOn);
     preferences[@"translation_target_language"] = TranslationLanguages()[_target.indexOfSelectedItem];
