@@ -215,6 +215,12 @@ assert '++cloud_clipboard_generation_' in source
 assert 'cloud_clipboard_enabled_ = true;' in source
 assert 'result.value("_socket", std::string{}) == translation_socket_' in source
 assert '{"_socket", socket}' in source
+assert 'FcitxSentenceTranslationAction' in source
+assert 'msime-translate-sentence' in source
+assert 'void translateSentence()' in source
+assert 'translation_manual_sentence_' in source
+assert '"TranslateSentence"' in ibus_source
+assert 'void translate_sentence(IBusEngine *engine)' in ibus_source
 
 # Voice provider discovery must match IBus and the standalone Linux provider
 # contract, including the runtime socket fallback during hot reload.

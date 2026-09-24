@@ -1865,6 +1865,43 @@ void translation_dispatch(IBusEngine *engine) {
         Json::array(), dictionary});
   } catch (...) { s.translation_loading = false; }
 }
+
+// Translate only after an explicit menu action. Candidate glosses retain
+// their normal 40-character bound; this separate single-item request keeps a
+// long composition off the network path while the user is typing.
+void translate_sentence(IBusEngine *engine) {
+  constexpr size_t kMaxSentenceChars = 512;
+  auto &s = state(engine);
+  if (s.translation_loading || !s.session || !s.focused || s.blocked ||
+      !s.input_enabled || s.private_input || s.translation_provider_socket.empty())
+    return;
+  try {
+    auto query = response(msime_client_translation_query(s.session));
+    const auto candidates = s.view.value("candidates", Json::array());
+    if (!query.is_object() || !candidates.is_array() || candidates.empty())
+      return;
+    const Json *selected = &candidates.front();
+    for (const auto &candidate : candidates)
+      if (candidate.value("highlighted", false)) { selected = &candidate; break; }
+    const auto text = selected->value("text", std::string{});
+    if (text.empty() || msime::linux_host::utf8_scalar_count(text) > kMaxSentenceChars)
+      return;
+    query["sentence"] = true;
+    query["target_language"] = s.translation_target_language;
+    query["candidates"] = Json::array({text});
+    const auto encoded = query.dump();
+    const auto source = selected->value("source", uint8_t{0});
+    const auto gloss_query = Json{
+        {"generation", query.at("generation")},
+        {"user_data", configured.value("user_data", std::string{})},
+        {"candidates", Json::array({Json{{"text", text}, {"source", source}}})}}
+                                 .dump();
+    start_translation_task(engine, TranslationTask{
+        s.session, s.provider_epoch, encoded, s.translation_provider_socket,
+        configured.value("resources", std::string{}), gloss_query,
+        false, Json::array(), false});
+  } catch (...) { s.translation_loading = false; }
+}
 // Match the Windows translation worker's 500ms idle window. Only copy
 // the current Engine query when dispatching, never at the first keystroke.
 /// How long the composition has to stand still before the larger model ranks it.
@@ -2573,6 +2610,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
           !s.translation_provider_socket.empty() && !menu_save_pending,
       TRUE, s.candidate_translations ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
+  auto sentence_translation = ibus_property_new(
+      "TranslateSentence", PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string("翻译当前句子"), "",
+      ibus_text_new_from_static_string("手动翻译当前首选候选句子，结果显示在候选区"),
+      s.focused && !s.blocked && s.input_enabled && s.session &&
+          !s.translation_provider_socket.empty() && !s.translation_loading,
+      TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto translation_language = ibus_property_new(
       "TranslationLanguage", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("翻译目标语言"), "",
@@ -3087,6 +3131,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, voice_cancel_property);
     ibus_prop_list_append(properties, cloud);
     ibus_prop_list_append(properties, translations);
+    ibus_prop_list_append(properties, sentence_translation);
     ibus_prop_list_append(properties, translation_language);
     ibus_prop_list_append(properties, punctuation);
     ibus_prop_list_append(properties, smart_punctuation);
@@ -3130,6 +3175,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, voice_cancel_property);
     ibus_engine_update_property(engine, cloud);
     ibus_engine_update_property(engine, translations);
+    ibus_engine_update_property(engine, sentence_translation);
     ibus_engine_update_property(engine, translation_language);
     ibus_engine_update_property(engine, punctuation);
     ibus_engine_update_property(engine, smart_punctuation);
@@ -4432,6 +4478,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
   if (property_name == "ClipboardHistory/OpenPanel") {
     if (s.focused && !s.blocked && !launch_desktop_panel("clipboard"))
       g_warning("Cannot start MSIME clipboard panel launcher");
+    return;
+  }
+  if (property_name == "TranslateSentence") {
+    if (s.focused && !s.blocked && s.input_enabled && s.session)
+      guarded(engine, "translate_sentence", [&] { translate_sentence(engine); });
     return;
   }
   if (property_name.rfind("DesktopTools/", 0) == 0) {

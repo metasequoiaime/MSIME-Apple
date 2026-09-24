@@ -290,10 +290,15 @@ impl UnixSocketProvider {
     }
 
     pub fn translate(&self, query: TranslationQuery) -> Option<Vec<TranslationResult>> {
+        const MAX_SENTENCE_CHARS: usize = 512;
+        let candidate_limit = if query.sentence { 1 } else { 9 };
         if query.candidates.is_empty()
-            || query.candidates.len() > 9
+            || query.candidates.len() > candidate_limit
             || query.candidates.iter().any(|text| {
-                text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control)
+                text.is_empty()
+                    || text.len() > 4096
+                    || (query.sentence && text.chars().count() > MAX_SENTENCE_CHARS)
+                    || text.chars().any(char::is_control)
             })
         {
             return None;
@@ -344,7 +349,7 @@ impl UnixSocketProvider {
             translations: Vec<TranslationResult>,
         }
         let reply: Reply = serde_json::from_str(&line).ok()?;
-        if reply.translations.len() > 9
+        if reply.translations.len() > candidate_limit
             || reply.translations.iter().any(|item| {
                 item.text.len() > 4096
                     || item.translation.is_empty()

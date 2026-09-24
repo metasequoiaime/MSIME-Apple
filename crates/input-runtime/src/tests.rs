@@ -221,6 +221,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
                 generation: 1,
                 target_language: "en".into(),
                 candidates: vec![format!("safe{control}")],
+                sentence: false,
                 provider: None,
                 translation_account: false,
                 custom_translation: None,
@@ -262,6 +263,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
         generation: 1,
         target_language: "en".into(),
         candidates: vec!["safe".into()],
+        sentence: false,
         provider: None,
         translation_account: false,
         custom_translation: None,
@@ -306,6 +308,14 @@ fn translation_query_carries_the_selected_service() {
         json!({"generation": 1, "candidates": ["中"], "provider": "deepl"})
     )
     .is_err());
+    let sentence: TranslationQuery = serde_json::from_value(json!({
+        "generation": 1,
+        "candidates": ["这是一个手动触发的整句翻译请求"],
+        "sentence": true
+    }))
+    .unwrap();
+    assert!(sentence.sentence);
+    assert_eq!(serde_json::to_value(sentence).unwrap()["sentence"], true);
     let account: TranslationQuery = serde_json::from_value(json!({
         "generation": 1,
         "candidates": ["中"],
@@ -322,6 +332,34 @@ fn translation_query_carries_the_selected_service() {
 
 #[cfg(unix)]
 #[test]
+fn sentence_translation_is_single_item_and_bounded() {
+    let provider = UnixSocketProvider::new("/this/provider-does-not-exist");
+    let too_long = TranslationQuery {
+        generation: 1,
+        target_language: "en".into(),
+        candidates: vec!["中".repeat(513)],
+        sentence: true,
+        provider: None,
+        translation_account: false,
+        custom_translation: None,
+        niutrans: None,
+    };
+    assert!(provider.translate(too_long).is_none());
+    let two_items = TranslationQuery {
+        generation: 1,
+        target_language: "en".into(),
+        candidates: vec!["第一句".into(), "第二句".into()],
+        sentence: true,
+        provider: None,
+        translation_account: false,
+        custom_translation: None,
+        niutrans: None,
+    };
+    assert!(provider.translate(two_items).is_none());
+}
+
+#[cfg(unix)]
+#[test]
 fn translation_switched_off_never_reaches_the_provider() {
     let directory = private_tempdir();
     let socket = directory.path().join("translation-off.sock");
@@ -331,6 +369,7 @@ fn translation_switched_off_never_reaches_the_provider() {
         generation: 1,
         target_language: "en".into(),
         candidates: vec!["中".into()],
+        sentence: false,
         provider: Some(TranslationService::Off),
         translation_account: false,
         custom_translation: None,
