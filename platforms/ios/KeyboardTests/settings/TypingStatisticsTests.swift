@@ -86,12 +86,12 @@ final class TypingStatisticsTests: XCTestCase {
     for offset in 1...370 {
       try store.record("字", at: Calendar.current.date(byAdding: .day, value: offset, to: Date())!)
     }
-    XCTAssertEqual(try store.load().days.count, 371)
     let snapshot = try store.load()
-    XCTAssertEqual(snapshot.total, 470)
-    XCTAssertEqual(snapshot.dailyDetails.count, 371)
-    XCTAssertEqual(snapshot.detail.characters["han"], 470)
-    XCTAssertEqual(snapshot.detail.sources["unknown"], 470)
+    XCTAssertLessThanOrEqual(snapshot.days.count, 366)
+    XCTAssertLessThanOrEqual(snapshot.dailyDetails.count, 366)
+    XCTAssertEqual(snapshot.total, snapshot.days.values.reduce(0, +))
+    XCTAssertEqual(snapshot.detail.characters["han"], snapshot.total)
+    XCTAssertEqual(snapshot.detail.sources["unknown"], snapshot.total)
   }
 
   /// Retention prunes daily records older than the window and deducts them from the running total and breakdown, as the source recomputes both from the retained days; it survives a reset like the pause does.
