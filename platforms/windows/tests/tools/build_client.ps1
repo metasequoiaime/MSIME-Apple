@@ -71,9 +71,9 @@ try {
     }
     if ($global:ClientBuildCalls[1].Values -notcontains 'x64' -or
         $global:ClientBuildCalls[1].Values -notcontains '-DMSIME_SERVER_UIACCESS=ON' -or
-        $global:ClientBuildCalls[8].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
-        $global:ClientBuildCalls[8].Values -notcontains 'Win32' -or
-        $global:ClientBuildCalls[9].Values -notcontains 'msime-tsf' -or
+        $global:ClientBuildCalls[10].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
+        $global:ClientBuildCalls[10].Values -notcontains 'Win32' -or
+        $global:ClientBuildCalls[11].Values -notcontains 'msime-tsf' -or
         $global:ClientBuildCalls[15].Values -notcontains '--no-bundle' -or
         $global:ClientBuildCalls[2].Values -notcontains 'RelWithDebInfo') { throw 'Build target mismatch' }
     for ($failure = 1; $failure -le $count; $failure++) {
