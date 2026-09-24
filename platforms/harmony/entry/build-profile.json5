@@ -5,6 +5,19 @@
       "copyCodeResource": {
         "enable": false
       }
+    },
+    "sourceOption": {
+      "workers": [
+        "./src/main/ets/workers/LocalAsrWorker.ets"
+      ]
+    },
+    "nativeLib": {
+      "filter": {
+        // The sherpa-onnx HAR ships its own libc++_shared.so next to the one libmsimeclient.so links; both are the NDK's, so one copy is packaged.
+        "pickFirsts": [
+          "**/libc++_shared.so"
+        ]
+      }
     }
   },
   "targets": [

@@ -291,6 +291,8 @@ struct ServiceSettingsView: View {
   /// Doubao's partial result while a live recording runs, and whether that recording's request is still open.
   @State private var liveText = ""
   @State private var recognizesLive = false
+  /// The downloaded on-device models, for the 本地模型 provider.
+  @StateObject private var localModels = LocalSpeechModelManager()
 
   init(kind: CustomServiceKind) {
     self.kind = kind
@@ -305,7 +307,12 @@ struct ServiceSettingsView: View {
   var body: some View {
     Form {
       providerSection
-      configurationSection
+      if kind == .ai || !configuration.voiceProvider.isOnDevice {
+        configurationSection
+      }
+      if kind == .voice && configuration.voiceProvider == .local {
+        LocalSpeechModelsSection(manager: localModels, disabled: busy || recorder.isRecording || recorder.isPreparing)
+      }
 
       if kind == .ai {
         Section {
@@ -347,14 +354,21 @@ struct ServiceSettingsView: View {
           Button(recorder.isRecording ? "停止录音" : "开始录音") {
             if recorder.isRecording { recorder.stop() }
             else {
-              let live = streamsLive
+              let onDevice = recognizesOnDevice
+              if onDevice && configuration.voiceProvider == .local && localModels.selectedDirectory == nil {
+                status = "请先在“本地模型”中下载并选用一个模型。"
+                return
+              }
+              let live = streamsLive || onDevice
               if live { guard save() else { return } }
               operation = Task {
                 // The recording session silences system sounds, so the start cue has to finish before it opens.
                 if voiceSettings.soundEnabled && voiceSettings.startSound { await VoiceCue.playStart() }
                 do {
                   if live {
-                    if let pcm = try await recorder.startStreaming(quietensOthers: voiceSettings.muteOthers) { recognizeLive(pcm) }
+                    if let pcm = try await recorder.startStreaming(quietensOthers: voiceSettings.muteOthers) {
+                      if onDevice { recognizeOnDevice(pcm) } else { recognizeLive(pcm) }
+                    }
                   } else {
                     try await recorder.start(quietensOthers: voiceSettings.muteOthers)
                   }
@@ -374,14 +388,16 @@ struct ServiceSettingsView: View {
               .accessibilityIdentifier("voiceLiveText")
           }
           if recorder.audio != nil && !recorder.isRecording && !recognizesLive {
-            Text("录音已准备好，尚未上传。")
-            Button(busy ? "正在识别…" : "发送录音并识别") { send() }.disabled(busy)
+            Text(recognizesOnDevice ? "录音已保留在本机，可以重新识别。" : "录音已准备好，尚未上传。")
+            Button(busy ? "正在识别…" : recognizesOnDevice ? "重新识别录音" : "发送录音并识别") { send() }.disabled(busy)
             Button("删除录音", role: .destructive) { recorder.discard() }.disabled(busy)
           }
         } header: {
           Text("语音转文字")
         } footer: {
-          Text("在水杉 App 中录音识别，再将结果发送到键盘或复制。iOS 键盘扩展不能直接录音。")
+          Text(recognizesOnDevice
+            ? "在水杉 App 中录音，由本机识别，边说边显示文字，再将结果发送到键盘或复制。iOS 键盘扩展不能直接录音。"
+            : "在水杉 App 中录音识别，再将结果发送到键盘或复制。iOS 键盘扩展不能直接录音。")
         }
         voiceOptionsSection
         voicePolishSection
@@ -429,6 +445,10 @@ struct ServiceSettingsView: View {
       Section {
         Text(kind == .ai
           ? "仅在点击发送时，将上方文字发送到你配置的服务。键盘日常输入不会自动上传。"
+          : configuration.voiceProvider == .local
+          ? "录音只在本机识别，不会上传。离开页面会清除本地录音。"
+          : configuration.voiceProvider == .system
+          ? "录音交给 iOS 的语音识别；设备支持当前语言的本机识别时不离开设备，否则按系统设置由 Apple 处理。离开页面会清除本地录音。"
           : "仅在点击发送时，将本次录音发送到你配置的服务。离开页面会清除本地录音。")
           .font(.footnote).foregroundStyle(.secondary)
       }
@@ -495,7 +515,11 @@ struct ServiceSettingsView: View {
           .padding(.leading, 16).accessibilityIdentifier("voiceEndSound")
       }
     } footer: {
-      Text(configuration.voiceProvider == .doubao
+      Text(configuration.voiceProvider == .local
+        ? "本地模型边说边显示文字；“自动识别”时由模型判断中文、英文、粤语等语言。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
+        : configuration.voiceProvider == .system
+        ? "系统语音识别按这里的语言识别；选“自动识别”时使用 iPhone 的首选语言。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
+        : configuration.voiceProvider == .doubao
         ? "豆包自动判断语言，不使用这里的选择。边说边识别时录音同步发给豆包，结果随说随显示，停止录音即得到结果；关掉则录完再发送。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
         : configuration.voiceProvider == .siliconFlow
         ? "当前服务自动判断语言，不使用这里的选择。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
@@ -561,7 +585,14 @@ struct ServiceSettingsView: View {
     if kind == .ai {
       return AIProviderPreset.allCases.map { ProviderOption(id: $0.rawValue, title: $0.title, endpoint: $0.endpoint) }
     }
-    return VoiceProviderPreset.allCases.map { ProviderOption(id: $0.rawValue, title: $0.title, endpoint: $0.endpoint) }
+    return VoiceProviderPreset.allCases.map { provider in
+      let note: String? = switch provider {
+      case .local: "在本机识别，录音不离开设备"
+      case .system: "使用 iOS 自带的语音识别"
+      default: nil
+      }
+      return ProviderOption(id: provider.rawValue, title: provider.title, endpoint: provider.endpoint, note: note)
+    }
   }
 
   private var providerSection: some View {
@@ -587,7 +618,9 @@ struct ServiceSettingsView: View {
         }
       }
     } footer: {
-      Text("选择服务商后自动填入接口和模型，填写对应 API Key 即可使用。")
+      Text(kind == .voice && configuration.voiceProvider.isOnDevice
+        ? "在本机识别，不需要 API Key。"
+        : "选择服务商后自动填入接口和模型，填写对应 API Key 即可使用。")
     }
     .disabled(busy || recorder.isRecording || recorder.isPreparing)
   }
@@ -853,6 +886,15 @@ struct ServiceSettingsView: View {
     } catch { status = error.localizedDescription; return false }
   }
   private func send() {
+    if recognizesOnDevice {
+      // A recording whose on-device pass failed is recognized again from the saved audio.
+      guard let pcm = recorder.pcmAudio, save() else { return }
+      recognizeOnDevice(AsyncStream { continuation in
+        stride(from: 0, to: pcm.count, by: 3_200).forEach { continuation.yield(pcm.subdata(in: $0..<min($0 + 3_200, pcm.count))) }
+        continuation.finish()
+      })
+      return
+    }
     guard save() else { return }
     busy = true
     status = ""
@@ -972,6 +1014,67 @@ struct ServiceSettingsView: View {
     }
   }
 
+  /// 本地模型 or 系统语音识别: recognition on the phone itself, always while the user speaks.
+  private var recognizesOnDevice: Bool {
+    kind == .voice && configuration.voiceProvider.isOnDevice
+  }
+
+  /// Recognizes on the phone while the user is still speaking, showing the running transcript. A failure leaves the recording in place once it stops, so it can be recognized again.
+  private func recognizeOnDevice(_ pcm: AsyncStream<Data>) {
+    let provider = configuration.voiceProvider
+    let language = voiceSettings.language
+    let polish = voiceSettings.polishEnabled ? voiceSettings : nil
+    let model = localModels.selectedDirectory
+    requestID = UUID()
+    let id = requestID
+    output = ""
+    transcript = ""
+    status = ""
+    liveText = ""
+    recognizesLive = true
+    operation = Task {
+      let partial: (String) -> Void = { text in
+        Task { @MainActor in if requestID == id && recognizesLive { liveText = text } }
+      }
+      do {
+        let result: String
+        if provider == .local {
+          guard let model else { throw ServiceFailure(message: "请先在“本地模型”中下载并选用一个模型。") }
+          let stateRoot = URL(fileURLWithPath: MetasequoiaInputSessionBridge.sharedStateDirectory, isDirectory: true)
+          let resources = PersonalDictionaryBridge.packagedResources
+          // The user's own words, read while the first audio is already buffering.
+          let hotwords = await Task.detached(priority: .userInitiated) {
+            resources.map { LocalSpeechModelStore.hotwords(resources: $0, stateRoot: stateRoot) } ?? []
+          }.value
+          result = try await LocalSpeechRecognizer.transcribe(pcm: pcm, modelDirectory: model, language: language,
+                                                             hotwords: hotwords, partial: partial)
+        } else {
+          result = try await SystemSpeechRecognizer.transcribe(pcm: pcm, language: language, partial: partial)
+        }
+        try Task.checkCancellation()
+        guard requestID == id else { return }
+        recognizesLive = false
+        liveText = ""
+        // The recording has been recognized; keeping it would offer to recognize it a second time.
+        recorder.discard()
+        busy = true
+        try await deliver(result, polish: polish, id: id)
+      } catch is CancellationError {
+        if requestID == id { status = "已取消" }
+      } catch {
+        if requestID == id && !Task.isCancelled {
+          if recorder.isRecording { recorder.stop() }
+          status = "识别失败：\(error.localizedDescription)"
+        }
+      }
+      if requestID == id {
+        recognizesLive = false
+        liveText = ""
+        busy = false
+      }
+    }
+  }
+
   /// The polish pass after recognition, on its own saved service or the one under 「AI 设置」.
   private static func polish(_ transcript: String, settings: VoicePolishSettings) async throws -> String {
     var (configuration, token) = try VoicePolishService.resolved()
@@ -995,6 +1098,8 @@ struct ServiceSettingsView: View {
   private func cancelAndClear() {
     cancelRequest()
     recorder.discard()
+    // A resident model holds hundreds of megabytes; nothing on this page needs it once the page is gone.
+    if kind == .voice { LocalSpeechEngine.shared.release() }
   }
 }
 

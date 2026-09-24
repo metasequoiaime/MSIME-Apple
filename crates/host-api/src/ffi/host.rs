@@ -224,6 +224,7 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
                 "enablePunctuation": value.enable_punctuation,
                 "enableDdc": value.enable_ddc,
                 "boostingTableId": value.boosting_table_id,
+                "modelPath": value.model_path,
             })
         });
         let polish = msime_client_core::voice::provider::mobile_voice_polish_configuration(

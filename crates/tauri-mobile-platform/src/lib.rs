@@ -180,6 +180,11 @@ const MAX_MOBILE_VOICE_TOKEN_BYTES: usize = 16 * 1024;
 const MAX_MOBILE_VOICE_TEXT_CHARS: usize = 10_000;
 const MAX_MOBILE_VOICE_HEADER_BYTES: usize = 8_192;
 const MAX_MOBILE_VOICE_BOOSTING_TABLE_BYTES: usize = 4_096;
+const MAX_MOBILE_VOICE_MODEL_PATH_BYTES: usize = 4_096;
+/// Same ceiling `msime_client_voice_hotwords` applies to its `limit`.
+const MAX_MOBILE_VOICE_HOTWORDS: usize = 1_000;
+const MAX_MOBILE_VOICE_HOTWORD_TEXT_BYTES: usize = 256;
+const MAX_MOBILE_VOICE_HOTWORD_PINYIN_BYTES: usize = 1_024;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -265,6 +270,32 @@ pub struct MobileVoiceTranscriptionRequest {
     pub enable_punctuation: bool,
     pub enable_ddc: bool,
     pub boosting_table_id: String,
+    /// Provider `local` only: the absolute path of the installed model directory (or Whisper file) to run on the device.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model_path: String,
+    /// Provider `local` only: the user's own dictionary words, passed to a recognizer with native hotword support or applied after the final text by `msime_client_voice_hotword_correct` when the model's manifest says `"hotwords": "pinyin"`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hotwords: Vec<MobileVoiceHotword>,
+}
+
+/// One user-dictionary word for on-device recognition, shaped like `msime_client_core::voice::hotwords::Hotword`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MobileVoiceHotword {
+    pub text: String,
+    /// Toneless, lowercase syllables separated by single spaces.
+    pub pinyin: String,
+}
+
+fn valid_mobile_voice_hotwords(hotwords: &[MobileVoiceHotword]) -> bool {
+    hotwords.len() <= MAX_MOBILE_VOICE_HOTWORDS
+        && hotwords.iter().all(|hotword| {
+            !hotword.text.trim().is_empty()
+                && hotword.text.len() <= MAX_MOBILE_VOICE_HOTWORD_TEXT_BYTES
+                && !hotword.text.chars().any(char::is_control)
+                && hotword.pinyin.len() <= MAX_MOBILE_VOICE_HOTWORD_PINYIN_BYTES
+                && !hotword.pinyin.chars().any(char::is_control)
+        })
 }
 
 impl MobileVoiceTranscriptionRequest {
@@ -282,8 +313,23 @@ impl MobileVoiceTranscriptionRequest {
             && self.token.len() <= MAX_MOBILE_VOICE_TOKEN_BYTES
             && !self.token.chars().any(char::is_control)
             && self.boosting_table_id.len() <= MAX_MOBILE_VOICE_BOOSTING_TABLE_BYTES
-            && !self.boosting_table_id.chars().any(char::is_control);
+            && !self.boosting_table_id.chars().any(char::is_control)
+            && self.model_path.len() <= MAX_MOBILE_VOICE_MODEL_PATH_BYTES
+            && !self.model_path.chars().any(char::is_control)
+            && valid_mobile_voice_hotwords(&self.hotwords);
         if !common {
+            return false;
+        }
+        // On-device recognition: nothing is sent anywhere, so no endpoint, token, header or boosting table may ride along, and the model has to be an absolute path in the app's own storage.
+        if self.provider == "local" {
+            return self.model_path.starts_with('/')
+                && self.endpoint.is_empty()
+                && self.model.is_empty()
+                && self.token.is_empty()
+                && self.headers.is_empty()
+                && self.boosting_table_id.is_empty();
+        }
+        if !self.model_path.is_empty() || !self.hotwords.is_empty() {
             return false;
         }
         // Every one of these is the same OpenAI-compatible multipart upload, so they share one
@@ -814,9 +860,10 @@ mod tests {
     use super::{
         installed_font_families, is_supported_app_icon_style, is_valid_account_session_payload,
         is_valid_ios_clipboard_text, migrated_account_session_payload, valid_android_voice_request,
-        IosKeyboardAiPreferences, IosKeyboardPreferences, MobileVoiceRequestHeader,
-        MobileVoiceTranscriptionRequest, MobileVoiceTranscriptionResponse,
-        MAX_ACCOUNT_SESSION_BYTES, MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_MOBILE_VOICE_TEXT_CHARS,
+        IosKeyboardAiPreferences, IosKeyboardPreferences, MobileVoiceHotword,
+        MobileVoiceRequestHeader, MobileVoiceTranscriptionRequest,
+        MobileVoiceTranscriptionResponse, MAX_ACCOUNT_SESSION_BYTES,
+        MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS, MAX_MOBILE_VOICE_TEXT_CHARS,
     };
     use serde_json::Value;
 
@@ -882,6 +929,8 @@ mod tests {
             enable_punctuation: true,
             enable_ddc: false,
             boosting_table_id: String::new(),
+            model_path: String::new(),
+            hotwords: Vec::new(),
         };
         assert!(request.is_valid());
         for provider in ["openai", "siliconflow", "groq", "everyapi", "mistral"] {
@@ -906,6 +955,103 @@ mod tests {
         assert!(!MobileVoiceTranscriptionRequest {
             model: "fixture\nmodel".into(),
             ..request
+        }
+        .is_valid());
+    }
+
+    #[test]
+    fn local_voice_requests_carry_only_a_model_path_and_hotwords() {
+        let request = MobileVoiceTranscriptionRequest {
+            request_id: "fixture-request-1".into(),
+            provider: "local".into(),
+            endpoint: String::new(),
+            model: String::new(),
+            token: String::new(),
+            headers: Vec::new(),
+            enable_itn: true,
+            enable_punctuation: true,
+            enable_ddc: false,
+            boosting_table_id: String::new(),
+            model_path: "/data/user/0/fixture/voice-models/x-asr-zh-en-streaming".into(),
+            hotwords: vec![MobileVoiceHotword {
+                text: "水杉".into(),
+                pinyin: "shui shan".into(),
+            }],
+        };
+        assert!(request.is_valid());
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(
+            value["modelPath"],
+            "/data/user/0/fixture/voice-models/x-asr-zh-en-streaming"
+        );
+        assert_eq!(value["hotwords"][0]["pinyin"], "shui shan");
+
+        for invalid in [
+            MobileVoiceTranscriptionRequest {
+                model_path: String::new(),
+                ..request.clone()
+            },
+            MobileVoiceTranscriptionRequest {
+                model_path: "relative/model".into(),
+                ..request.clone()
+            },
+            MobileVoiceTranscriptionRequest {
+                model_path: "/fixture/\nmodel".into(),
+                ..request.clone()
+            },
+            MobileVoiceTranscriptionRequest {
+                endpoint: "https://fixture.invalid/asr".into(),
+                ..request.clone()
+            },
+            MobileVoiceTranscriptionRequest {
+                token: "synthetic-token".into(),
+                ..request.clone()
+            },
+            MobileVoiceTranscriptionRequest {
+                hotwords: vec![
+                    MobileVoiceHotword {
+                        text: "水杉".into(),
+                        pinyin: "shui shan".into(),
+                    };
+                    1_001
+                ],
+                ..request.clone()
+            },
+            MobileVoiceTranscriptionRequest {
+                hotwords: vec![MobileVoiceHotword {
+                    text: " ".into(),
+                    pinyin: String::new(),
+                }],
+                ..request.clone()
+            },
+        ] {
+            assert!(!invalid.is_valid());
+        }
+
+        // A network provider never carries the on-device fields, and an older serialisation without them still reads.
+        let network = MobileVoiceTranscriptionRequest {
+            provider: "openai".into(),
+            endpoint: "https://fixture.invalid/v1/audio/transcriptions".into(),
+            model: "fixture-model".into(),
+            token: "synthetic-token".into(),
+            model_path: String::new(),
+            hotwords: Vec::new(),
+            ..request.clone()
+        };
+        assert!(network.is_valid());
+        let value = serde_json::to_value(&network).unwrap();
+        assert!(value.get("modelPath").is_none());
+        assert!(value.get("hotwords").is_none());
+        let decoded: MobileVoiceTranscriptionRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded, network);
+        assert!(!MobileVoiceTranscriptionRequest {
+            model_path: "/fixture/model".into(),
+            ..network.clone()
+        }
+        .is_valid());
+        assert!(!MobileVoiceTranscriptionRequest {
+            hotwords: request.hotwords.clone(),
+            ..network
         }
         .is_valid());
     }
@@ -937,6 +1083,8 @@ mod tests {
             enable_punctuation: true,
             enable_ddc: false,
             boosting_table_id: "fixture-table".into(),
+            model_path: String::new(),
+            hotwords: Vec::new(),
         };
         assert!(request.is_valid());
         assert!(!MobileVoiceTranscriptionRequest {

@@ -121,6 +121,7 @@ Source: "{#MySourceRoot}\tsf_dll\64\*.pdb"; \
     DestDir: "{commonpf64}\metasequoiaime\{code:GetVersionDir}"; \
     Flags: ignoreversion
 
+; server_exe 含本地语音识别运行时（sherpa-onnx-c-api.dll、onnxruntime.dll、onnxruntime_providers_shared.dll）。Server 从自身目录 LoadLibrary 加载它们，因此必须与 MetasequoiaImeServer.exe 同目录；ignoreversion 保证升级时换成本包锁定的版本。
 Source: "{#MySourceRoot}\server_exe\*"; \
     DestDir: "{commonpf64}\metasequoiaime\server"; \
     Flags: ignoreversion recursesubdirs createallsubdirs

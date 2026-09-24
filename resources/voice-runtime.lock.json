@@ -1,0 +1,109 @@
+{
+  "version": "1.13.8",
+  "source": "https://github.com/k2-fsa/sherpa-onnx",
+  "source_commit": "11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf",
+  "license": "Apache-2.0",
+  "platforms": {
+    "macos": {
+      "name": "sherpa-onnx-v1.13.8-macos-shared-onnxruntime-static.xcframework.zip",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/xcframework/sherpa-onnx-v1.13.8-macos-shared-onnxruntime-static.xcframework.zip",
+      "sha256": "82d5cb3af38c3cb4871c3532a6c7dc86d6b7db1077bcc9d6a1047100976f199b",
+      "size": 18268513,
+      "archive": "zip",
+      "libraries": [
+        "sherpa-onnx.xcframework/macos-arm64_x86_64/libsherpa-onnx-c-api.dylib"
+      ],
+      "tree": null
+    },
+    "ios": {
+      "name": "sherpa-onnx-v1.13.8-ios-shared-onnxruntime-static.xcframework.zip",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/xcframework/sherpa-onnx-v1.13.8-ios-shared-onnxruntime-static.xcframework.zip",
+      "sha256": "e259a7d3b38ad7dec49bb078252a30bb42ede8355e2bb130cf8c1c78ed131f75",
+      "size": 31858229,
+      "archive": "zip",
+      "libraries": [],
+      "tree": "SherpaOnnxC.xcframework"
+    },
+    "linux-x86_64": {
+      "name": "sherpa-onnx-v1.13.8-linux-x64-shared-no-tts-lib.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-x64-shared-no-tts-lib.tar.bz2",
+      "sha256": "bf2d998c8b07012cd5098f3b92673bc1333fd9b927767d7cb664be8190d8bc0b",
+      "size": 9249201,
+      "archive": "tar.bz2",
+      "libraries": [
+        "sherpa-onnx-v1.13.8-linux-x64-shared-no-tts-lib/lib/libsherpa-onnx-c-api.so",
+        "sherpa-onnx-v1.13.8-linux-x64-shared-no-tts-lib/lib/libonnxruntime.so"
+      ],
+      "tree": null
+    },
+    "linux-aarch64": {
+      "name": "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib.tar.bz2",
+      "sha256": "fb98b80628a383909bf83626daca2e0d0ffc93bf1f7d222eaaa4282b388f072f",
+      "size": 12595068,
+      "archive": "tar.bz2",
+      "libraries": [
+        "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib/lib/libsherpa-onnx-c-api.so",
+        "sherpa-onnx-v1.13.8-linux-aarch64-shared-cpu-lib/lib/libonnxruntime.so"
+      ],
+      "tree": null
+    },
+    "windows-x64": {
+      "name": "sherpa-onnx-v1.13.8-win-x64-shared-MD-Release-no-tts-lib.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-shared-MD-Release-no-tts-lib.tar.bz2",
+      "sha256": "b90992b888710715d613a4fedcd75d5b4db294ef64f3194e4f77ea0a8b387441",
+      "size": 6907798,
+      "archive": "tar.bz2",
+      "libraries": [
+        "sherpa-onnx-v1.13.8-win-x64-shared-MD-Release-no-tts-lib/lib/sherpa-onnx-c-api.dll",
+        "sherpa-onnx-v1.13.8-win-x64-shared-MD-Release-no-tts-lib/lib/onnxruntime.dll",
+        "sherpa-onnx-v1.13.8-win-x64-shared-MD-Release-no-tts-lib/lib/onnxruntime_providers_shared.dll"
+      ],
+      "tree": null
+    },
+    "windows-x86": {
+      "name": "sherpa-onnx-v1.13.8-win-x86-shared-MD-Release-no-tts-lib.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x86-shared-MD-Release-no-tts-lib.tar.bz2",
+      "sha256": "526da947e1af22b0722236999dae05cc09e79675bcb064f07567f3da26278eba",
+      "size": 5933084,
+      "archive": "tar.bz2",
+      "libraries": [
+        "sherpa-onnx-v1.13.8-win-x86-shared-MD-Release-no-tts-lib/lib/sherpa-onnx-c-api.dll",
+        "sherpa-onnx-v1.13.8-win-x86-shared-MD-Release-no-tts-lib/lib/onnxruntime.dll",
+        "sherpa-onnx-v1.13.8-win-x86-shared-MD-Release-no-tts-lib/lib/onnxruntime_providers_shared.dll"
+      ],
+      "tree": null
+    },
+    "windows-arm64": {
+      "name": "sherpa-onnx-v1.13.8-win-arm64-shared-MD-Release-no-tts-lib.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-arm64-shared-MD-Release-no-tts-lib.tar.bz2",
+      "sha256": "bdd1e9a1334d2f79ce64fac4cc417d88a954f961f6055056c213c9f5321efdd4",
+      "size": 6569191,
+      "archive": "tar.bz2",
+      "libraries": [
+        "sherpa-onnx-v1.13.8-win-arm64-shared-MD-Release-no-tts-lib/lib/sherpa-onnx-c-api.dll",
+        "sherpa-onnx-v1.13.8-win-arm64-shared-MD-Release-no-tts-lib/lib/onnxruntime.dll",
+        "sherpa-onnx-v1.13.8-win-arm64-shared-MD-Release-no-tts-lib/lib/onnxruntime_providers_shared.dll"
+      ],
+      "tree": null
+    },
+    "android": {
+      "name": "sherpa-onnx-1.13.8.aar",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar",
+      "sha256": "633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96",
+      "size": 50129134,
+      "archive": "none",
+      "libraries": [],
+      "tree": null
+    },
+    "harmony": {
+      "name": "sherpa_onnx-v1.13.8.har",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa_onnx-v1.13.8.har",
+      "sha256": "3ac965bf79bef8dfa8858fdbe3794e78ec6c66e8668e489fde58e17fee29fc46",
+      "size": 14774722,
+      "archive": "none",
+      "libraries": [],
+      "tree": null
+    }
+  }
+}

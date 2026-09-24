@@ -16,6 +16,7 @@
 #include "SmartPunctuationSpace.h"
 #include "WordCharacterBinding.h"
 #include "../voice/VoiceAction.h"
+#include "../voice/VoiceHotwords.h"
 #include "../voice/VoiceProviderOptions.h"
 #include "../voice/VoiceWorker.h"
 #include "../overlay/WaveOverlayModel.h"
@@ -3751,6 +3752,12 @@ void voice_start_impl(IBusEngine *engine) {
     return;
   const auto provider_options = msime::linux_host::voice_provider_options(
       configured.value("preferences", Json::object()));
+  // On-device recognition takes the user's dictionary words as hotwords; the worker reads them with the options sessions are opened with, which carry the dictionary paths.
+  Json hotword_options;
+  if (msime::linux_host::voice_wants_hotwords(provider_options) && configured.is_object()) {
+    hotword_options = configured;
+    hotword_options.erase("candidate_skin_catalog");
+  }
   uint64_t generation = 0;
   if (s.session) {
     const auto editing_text =
@@ -3788,14 +3795,11 @@ void voice_start_impl(IBusEngine *engine) {
   const auto provider_error = std::make_shared<std::string>();
   s.voice_worker.run_stream(
       [socket, language, generation, session_id, focus_epoch, engine, alive, provider_succeeded,
-       provider_error, provider_options](const std::atomic_bool &cancelled,
+       provider_error, provider_options, hotword_options](const std::atomic_bool &cancelled,
                          const MsimeVoiceWorker::Progress &progress) {
         if (cancelled.load())
           return std::string{};
-        const auto query = Json{{"language", language},
-                                {"generation", generation},
-                                {"options", provider_options}}
-                               .dump();
+        const auto query = msime::linux_host::voice_query(language, generation, provider_options, hotword_options).dump();
         VoiceStreamContext stream{progress, [engine, alive, generation, session_id, focus_epoch, &cancelled](uint8_t phase) {
           if (cancelled.load()) return;
           const char *labels[] = {"正在录音…", "正在识别…", "正在润色…"};

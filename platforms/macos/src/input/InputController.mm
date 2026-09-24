@@ -27,6 +27,7 @@
 #import "../voice/HTTPVoiceRequest.h"
 #import "../voice/VoiceHoldShortcut.h"
 #import "../voice/DoubaoVoiceRequest.h"
+#import "../voice/LocalVoiceRequest.h"
 #import "../voice/VoiceFailureMessages.h"
 #import "../core/SupportWindowController.h"
 #import "../backend/account/BackendAccountEntry.h"
@@ -737,7 +738,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEVoiceCommitRoute _httpVoiceCommit;
     MSIMEVoiceCommitRoute _doubaoVoiceCommit;
     MSIMEVoiceCommitRoute _liveVoiceCommit;
-    MSIMEDoubaoVoiceRequest *_doubaoVoiceRequest;
+    // Doubao's websocket or the on-device helper: the two streaming providers share this path.
+    id<MSIMEStreamingVoiceRequest> _doubaoVoiceRequest;
     MSIMEHTTPVoiceRequest *_doubaoPolishRequest;
     BOOL _doubaoFinalReceived;
     MSIMEClientSession *_doubaoVoiceSession;
@@ -2645,16 +2647,21 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [[MetasequoiaVoiceProviderSettingsWindow sharedController] showAndActivate];
     });
 }
+- (BOOL)usesLocalModelVoice {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSString *provider = [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
+    return MSIMEVoiceUsesLocalModelHelper(provider, MSIMEVoiceProviderSocket() != nil,
+                                          MSIMELocalVoiceModelDirectory([defaults stringForKey:@"MSIMEClientVoiceASRModelPath"]));
+}
 - (BOOL)usesNativeHTTPVoice {
     NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
-    // "local" recognises on this machine rather than over HTTP, but it is the same batch shape - record, hand the samples to one request, commit what comes back - so it travels the same path. A build without the recognizer keeps the option out of the settings surface, and falls through to the platform recognizer here if a preference file names it anyway.
-    return MSIMEVoiceUsesNativeHTTPProvider(provider, MSIMEVoiceProviderSocket() != nil,
-                                            msime::voice::local_asr_available());
+    // "local" with a Whisper model file recognises on this machine rather than over HTTP, but it is the same batch shape - record, hand the samples to one request, commit what comes back - so it travels the same path. A build without the Whisper recognizer falls through to the platform recognizer here if a preference file names one anyway. An installed model directory streams through the helper instead.
+    if ([self usesLocalModelVoice]) return NO;
+    return MSIMEVoiceUsesNativeHTTPProvider(provider, MSIMEVoiceProviderSocket() != nil, MSIMEVoiceLocalWhisperBuilt());
 }
 - (BOOL)usesNativeDoubaoVoice {
     NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao";
-    return !MSIMEVoiceProviderSocket() &&
-        [provider.lowercaseString isEqual:@"doubao"];
+    return (!MSIMEVoiceProviderSocket() && [provider.lowercaseString isEqual:@"doubao"]) || [self usesLocalModelVoice];
 }
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -2669,7 +2676,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
     return [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
 }
-- (void)applyDoubaoFinalText:(NSString *)text request:(MSIMEDoubaoVoiceRequest *)request {
+- (void)applyDoubaoFinalText:(NSString *)text request:(id<MSIMEStreamingVoiceRequest>)request {
     if (_doubaoVoiceRequest != request) return;
     if ([self ownsDoubaoVoiceFocus]) {
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
@@ -2680,6 +2687,15 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 - (MSIMEDoubaoVoiceRequest *)makeDoubaoVoiceRequest:(NSDictionary *)options error:(NSError **)error {
     return [[MSIMEDoubaoVoiceRequest alloc] initWithOptions:options error:error];
+}
+- (id<MSIMEStreamingVoiceRequest>)makeLocalVoiceRequest:(NSDictionary *)options error:(NSError **)error {
+    return [[MSIMELocalVoiceRequest alloc] initWithOptions:options hostOptions:_session.hostOptions error:error];
+}
+- (id<MSIMEStreamingVoiceRequest>)makeStreamingVoiceRequest:(NSDictionary *)options error:(NSError **)error {
+    id provider = options[@"asr_provider"];
+    if ([provider isKindOfClass:NSString.class] && [[provider lowercaseString] isEqual:@"local"])
+        return [self makeLocalVoiceRequest:options error:error];
+    return [self makeDoubaoVoiceRequest:options error:error];
 }
 - (BOOL)ownsDoubaoVoiceFocus {
     return _doubaoVoiceRequest && _activeClient == _doubaoVoiceClient &&
@@ -2747,7 +2763,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 - (BOOL)startDoubaoVoiceInputWithOptions:(NSDictionary *)options {
     NSError *error = nil;
-    MSIMEDoubaoVoiceRequest *request = [self makeDoubaoVoiceRequest:options error:&error];
+    id<MSIMEStreamingVoiceRequest> request = [self makeStreamingVoiceRequest:options error:&error];
     NSDictionary *finished = request && _activeClient && _session ? [_session command:MSIME_FINISH_COMPOSITION error:&error] : nil;
     if (!finished) {
         [request cancel]; [_voiceService cancelWithError:nil]; [_voiceAudioMuter restore]; [_voiceOverlay setListening:NO];
@@ -2767,10 +2783,10 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     _doubaoVoiceInline = [options[@"stream"] boolValue] && [_doubaoVoiceCommit.mode isEqual:@"tsf"];
     [self bindVoiceOverlayActions];
     __weak MSIMEInputController *weakSelf = self;
-    __weak MSIMEDoubaoVoiceRequest *weakRequest = request;
+    __weak id<MSIMEStreamingVoiceRequest> weakRequest = request;
     if (![request startWithResult:^(NSString *text, BOOL final, NSError *failure) {
         MSIMEInputController *controller = weakSelf;
-        MSIMEDoubaoVoiceRequest *liveRequest = weakRequest;
+        id<MSIMEStreamingVoiceRequest> liveRequest = weakRequest;
         if (!controller || !liveRequest || controller->_doubaoVoiceRequest != liveRequest) return;
         if (![controller ownsDoubaoVoiceFocus]) { [controller cancelDoubaoVoiceInput]; return; }
         if (controller->_doubaoFinalReceived) return;
@@ -2806,7 +2822,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)]; return NO; }
     NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
     if (![_voiceService startPCMStreaming:^(NSData *pcm, NSError *failure) {
-        MSIMEDoubaoVoiceRequest *liveRequest = weakRequest;
+        id<MSIMEStreamingVoiceRequest> liveRequest = weakRequest;
         if (!liveRequest) return;
         NSError *sendError = failure;
         BOOL sent = !failure && pcm && [liveRequest appendPCM:pcm error:&sendError];
