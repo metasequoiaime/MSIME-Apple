@@ -3640,9 +3640,12 @@ static void TestCloudCandidatePreference() {
     NSString *suite = [@"msime.cloud.preference." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-    NSButton *toggle = (id)PreferenceControl(prefs, @selector(cloudCandidatesChanged:));
+    NSSwitch *toggle = (id)PreferenceControl(prefs, @selector(cloudCandidatesChanged:));
     assert(prefs.cloudCandidates && toggle.state == NSControlStateValueOn);
-    assert([toggle.title containsString:@"Google"]);
+    // The switch has no title of its own — the wording naming where the query goes is on the row
+    // label, which is also what the switch reports to VoiceOver. Still asserted: this is the one
+    // control here that sends what is being typed off the machine, and it has to say so.
+    assert([toggle.accessibilityLabel containsString:@"Google"]);
     assert(![prefs sharedPreferencesByMerging:@{}][@"cloud_candidates"]);
     assert([[prefs sharedPreferencesByMerging:@{@"cloud_candidates":@NO}][@"cloud_candidates"] isEqual:@NO]);
     __block NSUInteger saves = 0;
