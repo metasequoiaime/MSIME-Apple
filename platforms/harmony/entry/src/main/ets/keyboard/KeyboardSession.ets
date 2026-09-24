@@ -24,6 +24,7 @@ import common from '@ohos.app.ability.common';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
 import { HardwareKeyTarget } from './HardwareKeyDispatch';
+import { EmojiPanelKey } from './emoji/EmojiPanelKeyPolicy';
 import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
   VoiceKey } from './input/VoiceHotkeyPolicy';
 import { HarmonyVoiceRecordingBehaviour } from './input/HarmonyVoiceRecordingBehaviour';
@@ -46,6 +47,8 @@ import {
   CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinPaletteTokens, CandidateSkinDecoration
 } from './candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
+import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
+import { KeyboardMetrics } from './KeyboardMetrics';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
@@ -428,6 +431,8 @@ export interface KeyboardState {
   readonly candidates: CandidateEntry[];
   readonly editing: string;
   readonly editingCaret: number;
+  /** The already-chosen part of a phrase leading `editing`, which the preedit style never hides. */
+  readonly phrasePrefix: string;
   readonly spellings: string[];
   readonly scheme: number;
   readonly shuangpinProfile: string;
@@ -1021,8 +1026,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The status-bar panel owns the window; the ArkUI handle only reports its pan gesture. */
   onToolbarDragStart: (() => void) | undefined = undefined;
   onToolbarDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
-  /** The gear, which only the host can answer: it owns the window the settings open in. */
-  onToolbarSettings: (() => void) | undefined = undefined;
+  /** The settings application, which only the host can open: it owns the context that starts it. The 2in1 toolbar gear and the phone's 更多设置 card both reach it here. */
+  onOpenSettings: (() => void) | undefined = undefined;
   /**
    * A surface the toolbar asked for, which two readers need and for different reasons: the host
    * sizes and shows the window, the view draws what goes in it. Two slots rather than one, the way
@@ -1031,6 +1036,8 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   onSurfaceRequested: ((surface: DesktopSurface) => void) | undefined = undefined;
   onSurfaceChanged: ((surface: DesktopSurface) => void) | undefined = undefined;
+  /** The emoji panel's answer to a hardware key, set by the view that draws the panel; see EmojiPanelKeyPolicy. */
+  onPanelKey: ((key: EmojiPanelKey) => boolean) | undefined = undefined;
   private desktopSurface: DesktopSurface = DesktopSurface.NONE;
   private composedLast: boolean = false;
   /** The editor's traits arrive after inputStart, so the view is told when they do. */
@@ -1632,6 +1639,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.englishMode && this.englishCandidates;
   }
 
+  /** Whether punctuation is locked to Chinese, which the Windows host keeps even in English mode (`ResolvePunctuationOpen`). */
+  punctuationLockedChinese(): boolean {
+    return this.punctuationLock === 'chinese';
+  }
+
   /**
    * Ctrl+Shift+E, as `IsEnglishModeToggleKey` → `SetEnglishInputMode` + `ClearState` on Windows.
    *
@@ -1824,9 +1836,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.requestSurface(DesktopSurface.VOICE);
         break;
       default:
-        if (this.onToolbarSettings !== undefined) {
-          this.onToolbarSettings();
-        }
+        this.openSettings();
         break;
     }
     this.refreshToolbar();
@@ -1883,6 +1893,15 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Which of them is open, for the view that has to draw it. */
   openSurface(): DesktopSurface {
     return this.desktopSurface;
+  }
+
+  /** Offers a hardware key to the open 2in1 emoji panel, which the Windows panel receives as its focused window. False when no panel is open to take it. */
+  routePanelKey(key: EmojiPanelKey): boolean {
+    if (!KeyboardFormFactor.isDesktop() || this.desktopSurface !== DesktopSurface.EMOJI
+        || this.onPanelKey === undefined) {
+      return false;
+    }
+    return this.onPanelKey(key);
   }
 
   /** Tell whichever window is drawing the mode badge what to put on it. */
@@ -2602,7 +2621,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   commitHighlighted(): void {
     if (this.translationPage !== null) {
-      this.choose(0);
+      this.choose(this.translationHighlight);
       return;
     }
     this.command(InputCommand.SELECT_HIGHLIGHTED);
@@ -2645,6 +2664,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (translations.length === 0) return;
     if (translations.length > 1) {
       this.translationPage = translations;
+      this.translationHighlight = 0;
       this.publishTranslationPage();
       return;
     }
@@ -2668,8 +2688,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Throw the composition away without committing it, which is what 重输 means. */
   cancel(): void {
     if (this.translationPage !== null) {
-      this.translationPage = null;
-      this.publishCurrentCandidates();
+      this.exitTranslationPage();
       return;
     }
     this.command(InputCommand.CANCEL);
@@ -2683,6 +2702,19 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Commit the highlighted candidate, or the reading when the scheme has no converted candidate. */
   finishComposition(): boolean {
     return this.command(InputCommand.FINISH_COMPOSITION);
+  }
+
+  /**
+   * A hardware key the composition has no use for: finish the composition, then type the key after it.
+   *
+   * The Windows host finalizes and then lets the application insert the key, so the character is typed as the key made it, halfwidth and unconverted. Here the keyboard inserts it itself, after the commit, because releasing the key would leave its order against the commit to the editor.
+   */
+  commitThenType(ascii: number): void {
+    this.finishComposition();
+    if (this.inputClient === undefined) return;
+    const literal: string = String.fromCharCode(ascii);
+    this.insertEditorText(literal);
+    this.recordTypingStatistics(literal, this.typingSource());
   }
 
   /** Commit Japanese kana as entered, without forcing the first converted candidate. */
@@ -2740,10 +2772,12 @@ export class KeyboardSession implements HardwareKeyTarget {
    * Home and End go to the ends of the whole candidate list while there are candidates, as the Windows source's `FUNCTION_MOVE_PAGE_TOP`/`BOTTOM` do and the other hosts' shared `FirstCandidate`/`LastCandidate` actions now do; with none on screen they move the caret in the spelling instead.
    */
   moveHome(): void {
+    if (this.moveTranslationHighlight(-TranslationSensePolicy.MAX_SENSES)) return;
     this.command(this.currentCandidates.length > 0 ? InputCommand.FIRST_CANDIDATE : InputCommand.MOVE_HOME);
   }
 
   moveEnd(): void {
+    if (this.moveTranslationHighlight(TranslationSensePolicy.MAX_SENSES)) return;
     this.command(this.currentCandidates.length > 0 ? InputCommand.LAST_CANDIDATE : InputCommand.MOVE_END);
   }
 
@@ -2764,19 +2798,43 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   nextPage(): void {
+    // A translation page is never more than one page: it holds at most MAX_SENSES, which is the largest page size.
+    if (this.translationPage !== null) return;
     this.command(InputCommand.NEXT_PAGE);
   }
 
   previousPage(): void {
+    if (this.translationPage !== null) return;
     this.command(InputCommand.PREVIOUS_PAGE);
   }
 
   nextCandidate(): void {
+    if (this.moveTranslationHighlight(1)) return;
     this.command(InputCommand.NEXT_CANDIDATE);
   }
 
   previousCandidate(): void {
+    if (this.moveTranslationHighlight(-1)) return;
     this.command(InputCommand.PREVIOUS_CANDIDATE);
+  }
+
+  /** Moves the highlight on the Ctrl+Enter translation page, if that page is up; false otherwise, so the key goes on to the Engine. */
+  private moveTranslationHighlight(delta: number): boolean {
+    const translations: string[] | null = this.translationPage;
+    if (translations === null) return false;
+    this.translationHighlight = Math.max(0, Math.min(translations.length - 1, this.translationHighlight + delta));
+    this.publishTranslationPage();
+    return true;
+  }
+
+  /**
+   * Puts the candidates back as they were before Ctrl+Enter, as the Windows host's `ExitTranslationCandidateMode` does. The composition was not touched while the page was up, so the Engine's own list is still the one to show.
+   */
+  private exitTranslationPage(): void {
+    if (this.translationPage === null) return;
+    this.translationPage = null;
+    this.translationHighlight = 0;
+    this.publishCurrentCandidates();
   }
 
   choose(index: number): void {
@@ -2823,6 +2881,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private apply(raw: string): boolean {
+    // Every key the translation page does not answer itself ends up here, and on Windows every such key first puts the candidates back and then does what it would have done without the page (`ExitTranslationCandidateMode`). Left up, the page swallowed every later render, so a letter lengthened a composition the strip no longer showed and Enter committed under translations that stayed on screen.
+    this.exitTranslationPage();
     let response: Response;
     try {
       response = JSON.parse(raw) as Response;
@@ -2860,6 +2920,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** For the entry points whose reply is a bare view. */
   private applyView(raw: string): void {
+    this.exitTranslationPage();
     let response: ViewResponse;
     try {
       response = JSON.parse(raw) as ViewResponse;
@@ -2912,6 +2973,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private editingCaret: number = 0;
   private currentCandidates: Candidate[] = [];
   private translationPage: string[] | null = null;
+  private translationHighlight: number = 0;
   private lastView: EngineView | undefined = undefined;
   private scheme: number = 0;
   private localMode: string = 'none';
@@ -2970,6 +3032,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。
         editing: (view.phrase_prefix ?? '') + view.editing_text,
         editingCaret: view.caret_position + (view.phrase_prefix ?? '').length,
+        phrasePrefix: view.phrase_prefix ?? '',
         spellings: view.nine_key_spellings,
         scheme: view.scheme,
         shuangpinProfile: view.shuangpin_profile,
@@ -2979,9 +3042,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       });
     }
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view.editing_text,
-        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize,
-        this.preferences().candidateMinWidthVp));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view.editing_text));
     }
     if (this.onCandidateCount !== undefined) {
       this.onCandidateCount(entries.length);
@@ -3016,16 +3077,27 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.onChanged({
       candidates: entries, editing: (view.phrase_prefix ?? '') + view.editing_text,
       editingCaret: view.caret_position + (view.phrase_prefix ?? '').length,
+      phrasePrefix: view.phrase_prefix ?? '',
       spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
       english: view.dedicated_english, diagnostic: this.diagnostic
     });
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view.editing_text,
-        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize,
-        this.preferences().candidateMinWidthVp));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view.editing_text));
     }
     if (this.onCandidateCount !== undefined) this.onCandidateCount(entries.length);
+  }
+
+  /** A horizontal candidate window on a machine with its own keys is as wide as its whole page; a vertical list is as wide as its widest row. */
+  private candidateWidthVp(entries: CandidateEntry[], editing: string): number {
+    const settings: KeyboardPreferences = this.preferences();
+    if (KeyboardFormFactor.isDesktop() && settings.candidateLayout !== 'vertical') {
+      return CandidateWidthPolicy.rowWidthVp(entries, editing, settings.candidateFontSize,
+        settings.candidatePreeditFontSize, KeyboardMetrics.CANDIDATE_PADDING_VP,
+        CandidateNumberFontPolicy.size(settings.candidateFontSize), settings.candidateMinWidthVp);
+    }
+    return CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
+      settings.candidatePreeditFontSize, settings.candidateMinWidthVp);
   }
 
   private publishTranslationPage(): void {
@@ -3034,21 +3106,19 @@ export class KeyboardSession implements HardwareKeyTarget {
     const view: EngineView | undefined = this.lastView;
     const entries: CandidateEntry[] = translations.map((text: string, index: number): CandidateEntry => ({
       text: text, hint: '', annotation: '', annotationIsTranslation: false,
-      highlighted: index === 0, badge: '',
+      highlighted: index === this.translationHighlight, badge: '',
       fixedPosition: 0, source: 0, translation: null
     }));
     this.onChanged({
       candidates: entries,
       editing: view?.editing_text ?? this.editing,
-      editingCaret: view?.caret_position ?? this.editingCaret, spellings: [],
+      editingCaret: view?.caret_position ?? this.editingCaret, phrasePrefix: '', spellings: [],
       scheme: view?.scheme ?? this.scheme, shuangpinProfile: view?.shuangpin_profile ?? this.profileName,
       localMode: view?.local_mode ?? this.localMode,
       english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic
     });
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view?.editing_text ?? this.editing,
-        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize,
-        this.preferences().candidateMinWidthVp));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing));
     }
     if (this.onCandidateCount !== undefined) this.onCandidateCount(translations.length);
   }
@@ -4258,6 +4328,13 @@ export class KeyboardSession implements HardwareKeyTarget {
    *
    * Returns whether the key was claimed, so the caller knows not to hand it on.
    */
+  /** Opens the settings application: dictionary, quick phrases, cloud and voice providers live there rather than on the keyboard. */
+  openSettings(): void {
+    if (this.onOpenSettings !== undefined) {
+      this.onOpenSettings();
+    }
+  }
+
   routeVoiceHotkey(key: VoiceKey): boolean {
     if (!this.voiceInputEnabled()) {
       return false;
