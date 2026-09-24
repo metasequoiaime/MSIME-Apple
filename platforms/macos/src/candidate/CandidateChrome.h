@@ -114,6 +114,7 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
 @property(nonatomic) BOOL showSelectedBar;
 @property(nonatomic) BOOL candidateHovered;
 @property(nonatomic) CGFloat cornerRadius;
+@property(nonatomic) CGFloat selectionLeftInset;
 @end
 @implementation MSIMECandidateButton
 {
@@ -178,7 +179,9 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
         const CGFloat barHeight = MAX(10.0, self.font.pointSize * 0.8);
         [self.barColor setFill];
         [[NSBezierPath
-            bezierPathWithRoundedRect:NSMakeRect(3.0, (self.bounds.size.height - barHeight) / 2.0, 3.0, barHeight)
+            bezierPathWithRoundedRect:NSMakeRect(MAX(1.0, self.selectionLeftInset),
+                                                 (self.bounds.size.height - barHeight) / 2.0,
+                                                 3.0, barHeight)
                               xRadius:1.5
                               yRadius:1.5] fill];
     }
@@ -286,6 +289,12 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
 @end
 @implementation MSIMECandidateChromeView
 - (BOOL)isOpaque { return NO; }
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    self.wantsLayer = YES;
+    self.layer.masksToBounds = YES;
+}
 - (void)viewDidChangeEffectiveAppearance
 {
     [super viewDidChangeEffectiveAppearance];

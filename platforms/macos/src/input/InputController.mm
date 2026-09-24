@@ -5255,7 +5255,11 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     content.strokeColor = [_appearance candidateBorderColorWithDefault:SkinColor(tokens.border)];
     content.cornerRadius = tokens.radius;
     content.lineWidth = tokens.borderWidth;
-    for (MSIMECandidateButton *button in content.subviews) {
+    NSArray<MSIMECandidateButton *> *candidateButtons = [content.subviews filteredArrayUsingPredicate:
+        [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
+            return [view isKindOfClass:MSIMECandidateButton.class] && view.tag >= 0;
+        }]];
+    for (MSIMECandidateButton *button in candidateButtons) {
         if ([button.identifier isEqual:@"candidate-preedit"] && [button isKindOfClass:NSTextField.class]) {
             ((NSTextField *)(id)button).textColor = [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
             if ([button isKindOfClass:MSIMECandidatePreeditField.class])
@@ -5274,7 +5278,10 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateNumberColorWithDefault:SkinColor(tokens.number)];
         button.barColor = [_appearance candidateAccentColorWithDefault:SkinColor(tokens.accent)];
         button.showSelectedBar = tokens.showSelectedBar;
-        button.cornerRadius = msime::mac::CandidateRowRadius(tokens, button.candidateHighlighted);
+        const BOOL first = button == candidateButtons.firstObject;
+        const BOOL last = button == candidateButtons.lastObject;
+        button.cornerRadius = msime::mac::CandidateRowRadius(tokens, button.candidateHighlighted, first, last);
+        button.selectionLeftInset = 1.0;
         button.contentTintColor = SkinColor(tokens.text);
         button.needsDisplay = YES;
     }
