@@ -74,6 +74,19 @@
 - 候选翻译、离线英文释义与补全、AI 润色、AI 对话、设置同步、具名皮肤库、社区皮肤与词库、AI 生成皮肤、个人词库文件导入、全拼与日语九键、无障碍标签、2in1 硬件键盘、悬浮工具栏与输入模式 HUD。
 - 平台无对应 API 的能力（应用图标切换、主动拉起键盘、表情与剪贴板独立窗口）在平台 README 中逐条记录了查证结果与替代做法。
 
+#### 本地语音识别
+
+- 语音服务 `local` 改为基于 sherpa-onnx 的设备端识别，六个平台共用同一份模型目录与设置页。运行时 sherpa-onnx v1.13.8 按平台由 `resources/voice-runtime.lock.json` 固定 SHA-256，`scripts/fetch_voice_runtime.py` 校验后取回，宿主在首次识别时动态加载，缺少运行时的包照常启动、只把本地识别标为不可用。
+- 模型目录 `resources/local-asr-models.json` 提供三个模型：默认的中英流式 X-ASR（边说边出字，自带标点），支持中英日韩粤的 SenseVoice-Small，以及仅桌面提供、约 1 GB 的 Fun-ASR-Nano。模型不随包分发，在设置页按需下载，逐文件校验长度与 SHA-256，完整就位后才写入 `msime-model.json`，下载可取消，也可配置 HTTPS 镜像（`voice_input.asr_model_mirror`）。
+- 用户词库里自己添加的拼音词条作为热词：X-ASR 与 Fun-ASR-Nano 原生使用，SenseVoice 在识别后按拼音做近音替换（`client-core::voice::hotwords`，含 zh/z、n/l、an/ang 等模糊对）。
+- `voice_input.asr_model_path` 接受已安装的模型目录或 Whisper 模型文件，Unix、Windows 盘符、UNC 等绝对路径写法在任何系统上都能通过校验，同一份偏好文件跨平台读取不再被拒。
+- 宿主接口新增 `msime_client_voice_hotwords`、`msime_client_voice_hotword_correct`、`msime_client_voice_local_models`、`msime_client_voice_local_model_install`、`msime_client_voice_local_model_cancel` 与 `msime_client_voice_local_model_remove`。
+- `msime-voice-local` 辅助进程通过标准输入输出上的 JSON 行协议识别，macOS 与 Linux 的输入法进程由它加载模型，自身不常驻数百 MB 的模型；空闲 120 秒释放模型，空闲 10 分钟退出。协议见 `shared/voice/README.md`，许可证见[第三方组件清单](docs/third-party.md)。
+- 识别全程不联网，只有下载模型时访问 GitHub Releases 或所配置的镜像，见[网络请求与数据流向](PRIVACY.md)。
+- 各平台接入：Windows 在 `msime-client-server` 内边录边识别，浮窗与豆包一样显示实时文本；macOS 输入法经辅助进程识别；Linux 由用户级语音服务调用辅助进程，本地识别不再要求保存任何云端凭据，安装模型时顺带启用语音服务；Android 与 HarmonyOS（arm64）在应用内识别，HarmonyOS 设置页可下载与删除模型；iOS 主应用内识别（键盘扩展受内存上限所限不加载模型）。HarmonyOS 的 armeabi-v7a 包没有本地识别。
+- 系统识别：macOS 26 与 iOS 26 起使用 SpeechAnalyzer，更早的系统在支持时要求 SFSpeechRecognizer 设备端识别；HarmonyOS 的 Core Speech Kit 改为写音频模式（`recognitionMode: 0`），识别器只听输入法写入的音频，末尾不足一帧的音频补静音后写入。
+- 修正 macOS CMake 用 `FORCE` 覆盖用户缓存变量的问题。
+
 #### 账号、云服务与联网行为
 
 - 账号、云词典、云剪贴板与社区资源统一走 `https://api.msime.app`，凭据存放在各平台的系统密钥库。

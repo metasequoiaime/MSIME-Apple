@@ -3188,7 +3188,7 @@ struct KeyboardView {
       this.voiceFinishing = false;
       KeyboardSession.shared.setVoiceRecording(false);
       this.voiceNotice = message;
-      }).catch((error: Object): void => {
+      }, KeyboardSession.shared.voiceHotwordOptions()).catch((error: Object): void => {
       KeyboardSession.shared.voiceCancel();
       this.voiceGeneration = 0;
       this.voiceBusy = false;

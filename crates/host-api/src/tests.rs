@@ -5756,3 +5756,87 @@ fn vocabulary_boundary_rejects_a_bad_envelope_without_touching_the_store() {
         "a refused request writes nothing"
     );
 }
+
+#[test]
+fn voice_hotword_correction_rewrites_homophones() {
+    let request = json!({ "text": "我在名天科技上班", "hotwords": [{"text": "明天科技", "pinyin": "ming tian ke ji"}] }).to_string();
+    let corrected =
+        read(unsafe { msime_client_voice_hotword_correct(request.as_ptr(), request.len()) });
+    assert_eq!(
+        corrected,
+        json!({"ok": true, "value": {"text": "我在明天科技上班"}})
+    );
+    let malformed = b"{\"text\": 1}";
+    assert_eq!(
+        read(unsafe { msime_client_voice_hotword_correct(malformed.as_ptr(), malformed.len()) })
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_voice_hotword_correct(std::ptr::null(), 4) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn voice_local_models_list_install_cancel_and_remove_validate_their_requests() {
+    let root = tempfile::tempdir().unwrap();
+    let request = json!({ "root": root.path() }).to_string();
+    let listed = read(unsafe { msime_client_voice_local_models(request.as_ptr(), request.len()) });
+    assert_eq!(listed["ok"], true, "{listed}");
+    let models = listed["value"]["models"].as_array().unwrap();
+    assert!(!models.is_empty());
+    assert!(models.iter().all(|model| model["installed"] == false));
+    let default = listed["value"]["default"].as_str().unwrap();
+    assert!(models.iter().any(|model| model["id"] == default));
+
+    let relative = json!({ "root": "models" }).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_voice_local_models(relative.as_ptr(), relative.len()) })["ok"],
+        false
+    );
+
+    let unknown = json!({ "root": root.path(), "id": "no-such-model" }).to_string();
+    let install = read(unsafe {
+        msime_client_voice_local_model_install(
+            unknown.as_ptr(),
+            unknown.len(),
+            None,
+            std::ptr::null_mut(),
+        )
+    });
+    assert_eq!(install["ok"], false, "{install}");
+    let remove =
+        read(unsafe { msime_client_voice_local_model_remove(unknown.as_ptr(), unknown.len()) });
+    assert_eq!(remove["ok"], false, "{remove}");
+
+    let bad_mirror =
+        json!({ "root": root.path(), "id": default, "mirror": "http://mirror.example" })
+            .to_string();
+    let install = read(unsafe {
+        msime_client_voice_local_model_install(
+            bad_mirror.as_ptr(),
+            bad_mirror.len(),
+            None,
+            std::ptr::null_mut(),
+        )
+    });
+    assert_eq!(install["ok"], false, "{install}");
+
+    let removed = json!({ "root": root.path(), "id": default }).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_voice_local_model_remove(removed.as_ptr(), removed.len()) })
+            ["ok"],
+        true
+    );
+
+    let cancel = json!({ "id": default }).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_voice_local_model_cancel(cancel.as_ptr(), cancel.len()) }),
+        json!({"ok": true, "value": false})
+    );
+    assert_eq!(
+        read(unsafe { msime_client_voice_local_model_cancel(std::ptr::null(), 0) })["ok"],
+        true
+    );
+}

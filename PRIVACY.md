@@ -52,10 +52,24 @@ macOS、iOS、Android 另提供「水杉账号」（`translation_account`，默�
 
 `voice_input.enabled` 默认 `true`，但这只表示功能可用，录音要你主动触发。默认识别服务是豆包（`wss://openspeech.bytedance.com/...`），**`asr_token` 默认为空字符串**，不填就无法使用。可选的识别服务还有 SiliconFlow、OpenAI、Groq、EveryAPI、Mistral Voxtral，以及两种不出设备的选项：
 
-- `local`：本地 Whisper（macOS），需要你指定 ggml 模型的绝对路径，音频不离开设备。
-- `system`：调用操作系统自带的识别（macOS / HarmonyOS），数据流向由操作系统决定。
+- `local`：设备上的识别模型，`asr_model_path` 是一个绝对路径，指向设置页下载的 sherpa-onnx 模型目录，或（macOS）一个 Whisper ggml 模型文件。不需要 Token，也没有端点。
+- `system`：调用操作系统自带的识别（macOS / iOS / HarmonyOS），数据流向由操作系统决定。macOS 与 iOS 26 起使用 SpeechAnalyzer（设备端）；更早的系统在识别器支持时设置 `requiresOnDeviceRecognition`，不支持时由系统决定是否上传。
 
 选择云端服务时，发送的是录制的音频。代码在 `crates/client-core/src/credential/asr.rs`，服务选择逻辑在 `crates/client-core/src/preferences.rs`。
+
+**本地模型**全程在设备上运行：录音、识别结果和热词都不离开设备，识别期间不发出任何网络请求。macOS 与 Linux 的输入法进程不自己加载模型，而是拉起本机的 `msime-voice-local` 辅助进程，经标准输入输出交换音频和文本（协议见 `shared/voice/README.md`），不经过网络套接字；Windows 在本机的 `msime-client-server` 进程内识别，Android、iOS 与 HarmonyOS 在应用进程内识别。热词取自你的个人词库（只取用户自己添加的拼音词条），在本机交给识别器，或在识别后于本机做近音替换（`crates/client-core/src/voice/hotwords.rs`）。
+
+唯一的联网发生在**下载模型**时，且只在你在设置页点「下载」后发生：
+
+| | |
+| --- | --- |
+| 目的地 | GitHub Releases（`https://github.com/k2-fsa/sherpa-onnx/releases/download/...`，下载时会被重定向到 GitHub 的文件存储域名）；配置了镜像时改为镜像地址 |
+| 发送内容 | 对模型归档的 HTTPS GET 请求，User-Agent 为 `msime/<版本号>`，不携带任何输入内容、音频、账号或设备标识 |
+| 需要凭据 | 否 |
+| 偏好字段 | `voice_input.asr_model_mirror`，默认空字符串，表示直接访问 GitHub |
+| 代码 | `crates/client-core/src/voice/local_models.rs`；地址、长度和 SHA-256 固定在 `resources/local-asr-models.json` |
+
+镜像必须是 `https://` 地址，请求 URL 是镜像前缀加上原始 GitHub 地址，所以**镜像运营方能看到你的 IP 和你下载的是哪个模型**。下载内容按目录里固定的 SHA-256 校验，镜像无法替换文件；校验不过的下载会被丢弃。重定向离开 HTTPS 时请求被拒绝。模型装好之后，识别不再需要网络。
 
 ### 语音润色（不填 Token 不发生）
 

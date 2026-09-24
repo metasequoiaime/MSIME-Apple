@@ -350,6 +350,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/voice/WebSocketFramesSmoke.java" \
   "$repo_root/platforms/android/tests/voice/DoubaoAsrPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/VoicePolishPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/voice/LocalAsrPolicySmoke.java" \
   "$repo_root/platforms/android/tests/candidate/ReplyKeyboardSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardSkinSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackSmoke.java" \
@@ -426,6 +427,7 @@ java -cp "$output_dir" HttpAsrPolicySmoke
 java -cp "$output_dir" WebSocketFramesSmoke
 java -cp "$output_dir" DoubaoAsrPolicySmoke
 java -cp "$output_dir" VoicePolishPolicySmoke
+java -cp "$output_dir" LocalAsrPolicySmoke
 java -cp "$output_dir" ReplyKeyboardSmoke
 java -cp "$output_dir" app.msime.client.KeyboardSkinSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke

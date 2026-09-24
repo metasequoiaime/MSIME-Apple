@@ -1,0 +1,367 @@
+// @vitest-environment jsdom
+import { afterEach, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  LocalModelManager,
+  SettingsPage,
+  formatModelBytes,
+  localModelErrorMessage,
+  localModelInUse,
+  localModelProgressPercent,
+  validModelMirror,
+  visibleLocalModels,
+  type LocalVoiceModel,
+  type LocalVoiceModelClient,
+  type LocalVoiceModelProgress,
+  type Snapshot,
+} from "@msime/ui";
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+const root = "/Users/someone/Library/Application Support/msime/voice-models";
+
+function model(overrides: Partial<LocalVoiceModel>): LocalVoiceModel {
+  const id = overrides.id ?? "x-asr-zh-en-streaming";
+  return {
+    id,
+    title: "中英流式",
+    description: "边说边出字。",
+    languages: ["zh", "en"],
+    streaming: true,
+    default: false,
+    desktop_only: false,
+    installed: false,
+    path: `${root}/${id}`,
+    installed_size: 200_000_000,
+    archive_size: 133_895_136,
+    memory: 500_000_000,
+    license_spdx: "Apache-2.0",
+    license_source: `https://example.com/${id}`,
+    license_terms: "",
+    license_notice: "模型按 Apache-2.0 许可分发。",
+    hotwords: "native",
+    ...overrides,
+  };
+}
+
+const streaming = model({ id: "x-asr-zh-en-streaming", title: "中英流式", default: true });
+const sense = model({
+  id: "sense-voice-small",
+  title: "快速整句",
+  streaming: false,
+  archive_size: 163_002_883,
+  license_spdx: "LicenseRef-FunASR",
+  license_terms: "https://example.com/funasr-terms",
+  hotwords: "pinyin",
+});
+const nano = model({
+  id: "fun-asr-nano",
+  title: "高精度",
+  streaming: false,
+  desktop_only: true,
+  archive_size: 841_730_611,
+  memory: 1_500_000_000,
+});
+
+function fakeClient(models: LocalVoiceModel[]) {
+  let current = models.map((entry) => ({ ...entry }));
+  let emit: ((progress: LocalVoiceModelProgress) => void) | undefined;
+  let finishInstall: ((path: string) => void) | undefined;
+  let failInstall: ((error: unknown) => void) | undefined;
+  const client: LocalVoiceModelClient = {
+    list: vi.fn(async () => ({ models: current, default: streaming.id, root })),
+    install: vi.fn(
+      (id: string) =>
+        new Promise<string>((resolve, reject) => {
+          finishInstall = (path) => {
+            current = current.map((entry) =>
+              entry.id === id ? { ...entry, installed: true } : entry,
+            );
+            resolve(path);
+          };
+          failInstall = reject;
+        }),
+    ),
+    cancel: vi.fn(async () => {
+      failInstall?.({ code: "local_model_cancelled" });
+      return true;
+    }),
+    remove: vi.fn(async (id: string) => {
+      current = current.map((entry) => (entry.id === id ? { ...entry, installed: false } : entry));
+    }),
+    onProgress: vi.fn(async (listener: (progress: LocalVoiceModelProgress) => void) => {
+      emit = listener;
+      return () => {
+        emit = undefined;
+      };
+    }),
+  };
+  return {
+    client,
+    emit: (progress: LocalVoiceModelProgress) => act(() => emit?.(progress)),
+    finish: (path: string) => act(async () => finishInstall?.(path)),
+  };
+}
+
+test("sizes read in decimal units", () => {
+  expect(formatModelBytes(133_895_136)).toBe("134 MB");
+  expect(formatModelBytes(1_500_000_000)).toBe("1.5 GB");
+  expect(formatModelBytes(0)).toBe("未知");
+});
+
+test("a phone does not offer the desktop-only model unless it is the one in use", () => {
+  const models = [streaming, sense, nano];
+  expect(visibleLocalModels(models, false, "").map((entry) => entry.id)).toEqual([
+    streaming.id,
+    sense.id,
+    nano.id,
+  ]);
+  expect(visibleLocalModels(models, true, "").map((entry) => entry.id)).toEqual([
+    streaming.id,
+    sense.id,
+  ]);
+  expect(visibleLocalModels(models, true, `${nano.path}/`).map((entry) => entry.id)).toContain(
+    nano.id,
+  );
+});
+
+test("the model in use is matched by its directory", () => {
+  expect(localModelInUse(sense, ` ${sense.path}/ `)).toBe(true);
+  expect(localModelInUse(sense, streaming.path)).toBe(false);
+  expect(localModelInUse(sense, "")).toBe(false);
+});
+
+test("progress is a bounded whole percentage", () => {
+  expect(localModelProgressPercent(undefined)).toBe(0);
+  expect(localModelProgressPercent({ id: "a", stage: "download", downloaded: 1, total: 3 })).toBe(
+    33,
+  );
+  expect(localModelProgressPercent({ id: "a", stage: "extract", downloaded: 9, total: 3 })).toBe(
+    100,
+  );
+  expect(localModelProgressPercent({ id: "a", stage: "done", downloaded: 0, total: 3 })).toBe(100);
+  expect(localModelProgressPercent({ id: "a", stage: "download", downloaded: 5, total: 0 })).toBe(
+    0,
+  );
+});
+
+test("a cancel the user asked for is not reported as a failure", () => {
+  expect(localModelErrorMessage({ code: "local_model_cancelled" })).toBeNull();
+  expect(localModelErrorMessage({ code: "local_model_network" })).toContain("镜像");
+  expect(localModelErrorMessage(new Error("boom"))).toBe("操作失败，请重试。");
+});
+
+test("a mirror is empty or an https prefix", () => {
+  expect(validModelMirror("")).toBe(true);
+  expect(validModelMirror("https://ghproxy.example.com")).toBe(true);
+  expect(validModelMirror("http://ghproxy.example.com")).toBe(false);
+  expect(validModelMirror("https://")).toBe(false);
+  expect(validModelMirror("https://a b")).toBe(false);
+});
+
+function renderManager(
+  client: LocalVoiceModelClient,
+  options: { mobile?: boolean; modelPath?: string; confirmed?: boolean } = {},
+) {
+  const onUse = vi.fn();
+  const onRemoved = vi.fn();
+  const confirm = vi.fn(async () => options.confirmed ?? true);
+  const openExternalUrl = vi.fn(async () => undefined);
+  render(
+    <LocalModelManager
+      client={client}
+      mobile={options.mobile ?? false}
+      modelPath={options.modelPath ?? ""}
+      onUse={onUse}
+      onRemoved={onRemoved}
+      confirm={confirm}
+      openExternalUrl={openExternalUrl}
+    />,
+  );
+  return { onUse, onRemoved, confirm, openExternalUrl };
+}
+
+test("each model shows what it costs, its languages and its license", async () => {
+  const { client } = fakeClient([streaming, sense, nano]);
+  const { openExternalUrl } = renderManager(client);
+
+  const card = within(await screen.findByRole("listitem", { name: "快速整句" }));
+  expect(card.getByText(/语言：中文、英语/)).toBeTruthy();
+  expect(card.getByText(/下载 163 MB/)).toBeTruthy();
+  expect(card.getByText(/LicenseRef-FunASR/)).toBeTruthy();
+  expect(card.getByText(/https:\/\/example.com\/funasr-terms/)).toBeTruthy();
+  expect(card.queryByText("流式")).toBeNull();
+  expect(within(screen.getByRole("listitem", { name: "中英流式" })).getByText("流式")).toBeTruthy();
+
+  fireEvent.click(card.getByRole("button", { name: sense.license_source }));
+  expect(openExternalUrl).toHaveBeenCalledWith(sense.license_source);
+});
+
+test("the desktop-only model is not offered on a phone", async () => {
+  const { client } = fakeClient([streaming, sense, nano]);
+  renderManager(client, { mobile: true });
+
+  await screen.findByRole("listitem", { name: "中英流式" });
+  expect(screen.queryByRole("listitem", { name: "高精度" })).toBeNull();
+});
+
+test("downloading shows progress and a first model is put to use", async () => {
+  const fake = fakeClient([streaming, sense]);
+  const { onUse } = renderManager(fake.client);
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: /下载（134 MB）/ }));
+  expect(fake.client.install).toHaveBeenCalledWith(streaming.id);
+
+  fake.emit({ id: streaming.id, stage: "download", downloaded: 66_947_568, total: 133_895_136 });
+  const bar = card.getByRole("progressbar", { name: "中英流式 下载进度" }) as HTMLProgressElement;
+  expect(bar.value).toBe(50);
+  expect(card.getByText("下载中 50%")).toBeTruthy();
+
+  await fake.finish(streaming.path);
+  expect(onUse).toHaveBeenCalledWith(streaming.path);
+  await waitFor(() => expect(card.getByRole("button", { name: "使用" })).toBeTruthy());
+  expect(card.queryByRole("progressbar")).toBeNull();
+});
+
+test("a later download does not replace the model in use", async () => {
+  const fake = fakeClient([{ ...streaming, installed: true }, sense]);
+  const { onUse } = renderManager(fake.client, { modelPath: streaming.path });
+
+  const card = within(await screen.findByRole("listitem", { name: "快速整句" }));
+  fireEvent.click(card.getByRole("button", { name: /下载/ }));
+  await fake.finish(sense.path);
+
+  await waitFor(() => expect(card.getByRole("button", { name: "使用" })).toBeTruthy());
+  expect(onUse).not.toHaveBeenCalled();
+});
+
+test("cancelling a download stops it without an error", async () => {
+  const fake = fakeClient([streaming]);
+  const { onUse } = renderManager(fake.client);
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: /下载/ }));
+  fireEvent.click(await card.findByRole("button", { name: "取消下载" }));
+
+  expect(fake.client.cancel).toHaveBeenCalledWith(streaming.id);
+  expect(await screen.findByText("已取消下载「中英流式」。")).toBeTruthy();
+  expect(card.getByRole("button", { name: /下载（134 MB）/ })).toBeTruthy();
+  expect(onUse).not.toHaveBeenCalled();
+});
+
+test("a failed download says why", async () => {
+  const fake = fakeClient([streaming]);
+  vi.mocked(fake.client.install).mockRejectedValueOnce({ code: "local_model_checksum_mismatch" });
+  renderManager(fake.client);
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: /下载/ }));
+
+  expect(await screen.findByText(/校验不通过/)).toBeTruthy();
+});
+
+test("using an installed model hands over its directory and marks it", async () => {
+  const fake = fakeClient([
+    { ...streaming, installed: true },
+    { ...sense, installed: true },
+  ]);
+  const { onUse } = renderManager(fake.client, { modelPath: streaming.path });
+
+  const inUse = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  expect(inUse.getByText("正在使用")).toBeTruthy();
+  expect((inUse.getByRole("button", { name: "使用中" }) as HTMLButtonElement).disabled).toBe(true);
+
+  fireEvent.click(
+    within(screen.getByRole("listitem", { name: "快速整句" })).getByRole("button", {
+      name: "使用",
+    }),
+  );
+  expect(onUse).toHaveBeenCalledWith(sense.path);
+});
+
+test("removing asks first and reports the removed model", async () => {
+  const fake = fakeClient([{ ...streaming, installed: true }]);
+  const { confirm, onRemoved } = renderManager(fake.client, { modelPath: streaming.path });
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: "删除" }));
+
+  await waitFor(() => expect(fake.client.remove).toHaveBeenCalledWith(streaming.id));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }));
+  expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ id: streaming.id }));
+  await waitFor(() => expect(card.getByRole("button", { name: /下载/ })).toBeTruthy());
+});
+
+test("declining the removal keeps the model", async () => {
+  const fake = fakeClient([{ ...streaming, installed: true }]);
+  const { confirm, onRemoved } = renderManager(fake.client, { confirmed: false });
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: "删除" }));
+
+  await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+  expect(fake.client.remove).not.toHaveBeenCalled();
+  expect(onRemoved).not.toHaveBeenCalled();
+});
+
+const snapshot: Snapshot = {
+  format_version: 1,
+  revision: 2,
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+    voice_input: {
+      enabled: true,
+      language: "zh-CN",
+      asr_provider: "local",
+      asr_model_path: "",
+      asr_model_mirror: "",
+    },
+  },
+};
+
+test("the settings page picks a model and a mirror into the saved preferences", async () => {
+  const fake = fakeClient([{ ...sense, installed: true }]);
+  const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => ({
+    ...snapshot,
+    revision: 3,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save,
+        host: { platform: "windows" } as never,
+        localVoiceModels: fake.client,
+      }}
+    />,
+  );
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+
+  const card = within(await screen.findByRole("listitem", { name: "快速整句" }));
+  fireEvent.click(card.getByRole("button", { name: "使用" }));
+  expect(((await screen.findByLabelText("Whisper 模型文件")) as HTMLInputElement).value).toBe(
+    sense.path,
+  );
+  fireEvent.change(screen.getByLabelText("模型下载镜像"), {
+    target: { value: "https://ghproxy.example.com" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  const saved = save.mock.calls[0]?.[1]?.voice_input;
+  expect(saved?.asr_model_path).toBe(sense.path);
+  expect(saved?.asr_model_mirror).toBe("https://ghproxy.example.com");
+  expect(
+    (screen.getByRole("option", { name: "本地模型（离线）" }) as HTMLOptionElement).disabled,
+  ).toBe(false);
+});

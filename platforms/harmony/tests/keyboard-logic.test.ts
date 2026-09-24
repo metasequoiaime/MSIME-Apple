@@ -7,6 +7,11 @@
  * source they were ported from rather than against the port.
  */
 import { KeyboardGeometry } from "../entry/src/main/ets/keyboard/KeyboardGeometry";
+import {
+  LocalAsrPolicy,
+  PcmFrameSlicer,
+  SpeechSentenceAccumulator,
+} from "../entry/src/main/ets/keyboard/input/LocalAsrPolicy";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import {
   KeyboardLayoutDragAxis,
@@ -269,6 +274,7 @@ import { DesktopSurface } from "../entry/src/main/ets/keyboard/DesktopSurface";
 import { SurfaceRoutingPolicy } from "../entry/src/main/ets/keyboard/SurfaceRoutingPolicy";
 import { PreferenceRevisionPolicy } from "../entry/src/main/ets/keyboard/input/PreferenceRevisionPolicy";
 import { PreferencesErrorCode } from "../entry/src/main/ets/keyboard/settings/PreferencesErrorCode";
+import { LocalVoiceModelPolicy } from "../entry/src/main/ets/keyboard/settings/LocalVoiceModelPolicy";
 import {
   AiCatalogPage,
   AiModelCatalogPolicy,
@@ -8889,5 +8895,321 @@ group("2in1 emoji panel tooltips read the way the Windows tooltips do", () => {
   check(
     EmojiPanelTooltipPolicy.displayName("arrow 「箭头」", "→") === "「箭头」",
     "CJK punctuation counts as Chinese, as IsCjk does",
+  );
+});
+
+group("LocalAsrPolicy", () => {
+  check(
+    LocalAsrPolicy.usesLocalModel("local", "/data/models/zipformer"),
+    "an absolute directory under the local provider is a model",
+  );
+  check(
+    !LocalAsrPolicy.usesLocalModel("system", "/data/models/zipformer"),
+    "another provider never loads a local model",
+  );
+  check(!LocalAsrPolicy.usesLocalModel("local", ""), "no picked model is not a model");
+  check(!LocalAsrPolicy.usesLocalModel("local", "models/zipformer"), "a relative path is refused");
+  check(
+    LocalAsrPolicy.modelDirectory(" /data/m/ ") === "/data/m",
+    "the path is trimmed and loses its trailing slash",
+  );
+  check(LocalAsrPolicy.modelDirectory("/data/\u0000m") === "", "control characters are refused");
+  const transducer = LocalAsrPolicy.plan(
+    "/m",
+    JSON.stringify({
+      kind: "online_transducer",
+      hotwords: "native",
+      modeling_unit: "cjkchar+bpe",
+      files: {
+        encoder: "e.onnx",
+        decoder: "d.onnx",
+        joiner: "j.onnx",
+        tokens: "tokens.txt",
+        bpe_vocab: "bpe.vocab",
+      },
+    }),
+  );
+  check(
+    transducer !== null && transducer.encoder === "/m/e.onnx",
+    "manifest roles resolve inside the model directory",
+  );
+  check(
+    transducer !== null && LocalAsrPolicy.transducerNativeHotwords(transducer),
+    "a transducer with a BPE vocabulary takes hotwords natively",
+  );
+  check(
+    transducer !== null && !LocalAsrPolicy.correctsWithPinyin(transducer),
+    "native hotwords need no pinyin correction",
+  );
+  check(
+    LocalAsrPolicy.plan(
+      "/m",
+      JSON.stringify({
+        kind: "online_transducer",
+        files: { encoder: "../e.onnx", decoder: "d.onnx", joiner: "j.onnx", tokens: "tokens.txt" },
+      }),
+    ) === null,
+    "a path escaping the directory is refused",
+  );
+  check(
+    LocalAsrPolicy.plan(
+      "/m",
+      JSON.stringify({
+        kind: "online_transducer",
+        files: { encoder: "/e.onnx", decoder: "d.onnx", joiner: "j.onnx", tokens: "tokens.txt" },
+      }),
+    ) === null,
+    "an absolute manifest path is refused",
+  );
+  check(
+    LocalAsrPolicy.plan(
+      "/m",
+      JSON.stringify({ kind: "offline_sense_voice", files: { model: "m.onnx", tokens: "t.txt" } }),
+    ) === null,
+    "SenseVoice without its VAD is incomplete",
+  );
+  check(
+    LocalAsrPolicy.plan("/m", JSON.stringify({ kind: "whisper", files: { model: "m.bin" } })) ===
+      null,
+    "an unknown kind is refused",
+  );
+  check(LocalAsrPolicy.plan("/m", "{not json") === null, "a malformed manifest is refused");
+  const sense = LocalAsrPolicy.plan(
+    "/m",
+    JSON.stringify({
+      kind: "offline_sense_voice",
+      hotwords: "pinyin",
+      files: { model: "m.onnx", tokens: "t.txt", vad: "silero.onnx" },
+    }),
+  );
+  check(
+    sense !== null && LocalAsrPolicy.correctsWithPinyin(sense),
+    "a pinyin manifest asks for post-correction",
+  );
+  check(
+    sense !== null && LocalAsrPolicy.requiredFiles(sense).length === 3,
+    "SenseVoice needs model, tokens and VAD",
+  );
+  const tokens = LocalAsrPolicy.tokenSet("<blk> 0\r\n你 1\n好 2\n\n");
+  check(
+    tokens.has("你") && tokens.has("<blk>") && !tokens.has("0"),
+    "the first column of tokens.txt is the token",
+  );
+  check(
+    LocalAsrPolicy.transducerHotwords(["你好", "你们", "AI/ML  x", "C++"], tokens) ===
+      "你好\nAI ML x\n",
+    "words with unknown tokens or punctuation are left out",
+  );
+  check(
+    LocalAsrPolicy.transducerHotwords(
+      Array.from({ length: 250 }, () => "你好"),
+      tokens,
+    ).split("\n").length === 201,
+    "at most 200 transducer hotwords",
+  );
+  check(
+    LocalAsrPolicy.funAsrHotwords(["甲乙", "", "a,b", "丙丁"]) === "甲乙,丙丁",
+    "FunASR hotwords are comma-joined without commas inside",
+  );
+  check(
+    LocalAsrPolicy.funAsrHotwords(Array.from({ length: 40 }, (_, index) => `词${index}`)).split(",")
+      .length === 30,
+    "at most 30 FunASR hotwords",
+  );
+  check(LocalAsrPolicy.senseVoiceLanguage("zh-HK") === "yue", "Hong Kong Chinese pins Cantonese");
+  check(LocalAsrPolicy.senseVoiceLanguage("ja-JP") === "ja", "Japanese is pinned");
+  check(LocalAsrPolicy.senseVoiceLanguage("zh-cn") === "auto", "Mandarin is left to the model");
+  check(
+    LocalAsrPolicy.threads(0) === 2 &&
+      LocalAsrPolicy.threads(8) === 4 &&
+      LocalAsrPolicy.threads(3) === 3,
+    "threads default to two and cap at four",
+  );
+  const pcm = new ArrayBuffer(5);
+  const view = new DataView(pcm);
+  view.setInt16(0, -32768, true);
+  view.setInt16(2, 16384, true);
+  const samples = LocalAsrPolicy.pcm16ToFloat(pcm);
+  check(
+    samples.length === 2 && samples[0] === -1 && samples[1] === 0.5,
+    "PCM16 scales to floats and drops an odd byte",
+  );
+  check(
+    LocalAsrPolicy.joinSegments(["hello", "world", "", "你好", "ok"]) === "hello world你好ok",
+    "a space only between ASCII alphanumerics",
+  );
+  check(
+    LocalAsrPolicy.tidyTranscript(" 你好 ， 世界  A I 模型 ") === "你好，世界 AI 模型",
+    "spaces around CJK marks, inside initialisms and at the ends go",
+  );
+});
+
+group("PcmFrameSlicer", () => {
+  const slicer = new PcmFrameSlicer();
+  check(slicer.push(new ArrayBuffer(1000)).length === 0, "less than a frame is held back");
+  const frames = slicer.push(new Uint8Array(3000).fill(7).buffer);
+  check(
+    frames.length === 3 && frames.every((frame) => frame.length === 1280),
+    "whole 1280-byte frames come out",
+  );
+  check(frames[0][999] === 0 && frames[0][1000] === 7, "the held bytes lead the next frame");
+  const tail = slicer.flush();
+  check(
+    tail !== null && tail.length === 1280 && tail[159] === 7 && tail[160] === 0,
+    "the tail is padded with silence",
+  );
+  check(slicer.flush() === null, "nothing pending flushes nothing");
+  slicer.push(new ArrayBuffer(10));
+  slicer.reset();
+  check(slicer.flush() === null, "reset drops the pending bytes");
+});
+
+group("SpeechSentenceAccumulator", () => {
+  const sentences = new SpeechSentenceAccumulator();
+  check(sentences.accept("你好", false) === "你好", "a partial sentence is shown alone");
+  check(sentences.accept("你好。", true) === "你好。", "a closed sentence is kept");
+  check(
+    sentences.accept("再见", false) === "你好。再见",
+    "the next sentence follows the closed ones",
+  );
+  check(sentences.accept("再见。", true) === "你好。再见。", "every closed sentence stays");
+  sentences.reset();
+  check(sentences.accept("新", false) === "新", "reset starts a new session");
+});
+
+group("LocalVoiceModelPolicy", () => {
+  check(
+    LocalVoiceModelPolicy.root("/data/storage/el2/base/haps/entry/files") ===
+      "/data/storage/el2/base/haps/entry/files/voice-models",
+    "models live under the files directory the keyboard shares",
+  );
+  // The core's Display text carries detail after the code; the page matches on the code alone.
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_network: dns error") === "local_model_network",
+    "the detail after the code is dropped",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_size_mismatch: model.onnx") ===
+      "local_model_checksum_mismatch",
+    "a size mismatch reads as a failed verification, as on desktop",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_unsafe_archive: ../x") ===
+      "local_model_invalid_archive" &&
+      LocalVoiceModelPolicy.errorCode("local_model_missing_file: tokens.txt") ===
+        "local_model_invalid_archive",
+    "an unsafe or incomplete archive is an invalid archive",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_install_running") === "busy",
+    "a second install of the same model is busy",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_cancelled") === "local_model_cancelled",
+    "a cancel keeps its code so the page does not report it as a failure",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("invalid local model root") === "local_model_invalid_root",
+    "the ABI's own root refusal is the invalid-root code",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("internal runtime failure") === "local_model_failed" &&
+      LocalVoiceModelPolicy.errorCode("") === "local_model_failed",
+    "anything unnamed is the general failure",
+  );
+  check(
+    LocalVoiceModelPolicy.rewrite(JSON.stringify({ ok: true, value: true })) ===
+      JSON.stringify({ ok: true, value: true }),
+    "an accepted reply is left alone",
+  );
+  check(
+    LocalVoiceModelPolicy.rewrite("not json") ===
+      JSON.stringify({ ok: false, error: "local_model_failed" }),
+    "an unreadable reply is a refusal",
+  );
+
+  const listed = JSON.parse(
+    LocalVoiceModelPolicy.listReply(
+      JSON.stringify({
+        ok: true,
+        value: {
+          models: [
+            { id: "x-asr-zh-en-streaming", desktop_only: false, installed: false, title: "X" },
+            { id: "fun-asr-nano", desktop_only: true, installed: false },
+            { id: "kept", desktop_only: true, installed: true },
+          ],
+          default: "x-asr-zh-en-streaming",
+        },
+      }),
+      "/files/voice-models",
+    ),
+  );
+  check(
+    listed.ok === true &&
+      listed.value.root === "/files/voice-models" &&
+      listed.value.default === "x-asr-zh-en-streaming",
+    "the list carries the root and the default",
+  );
+  check(
+    listed.value.models.map((model: { id: string }) => model.id).join(",") ===
+      "x-asr-zh-en-streaming,kept",
+    "a desktop-only model is offered only once installed, so it can still be removed",
+  );
+  check(listed.value.models[0].title === "X", "the other catalog fields pass through");
+  check(
+    LocalVoiceModelPolicy.listReply(
+      JSON.stringify({ ok: false, error: "invalid local model root" }),
+      "/r",
+    ) === JSON.stringify({ ok: false, error: "local_model_invalid_root" }),
+    "a refused list is mapped",
+  );
+
+  check(
+    LocalVoiceModelPolicy.installReply(
+      JSON.stringify({ ok: true, value: { path: "/files/voice-models/x" } }),
+    ) === JSON.stringify({ ok: true, value: "/files/voice-models/x", error: "" }),
+    "an install answers with the installed directory",
+  );
+  check(
+    LocalVoiceModelPolicy.installReply(
+      JSON.stringify({ ok: false, error: "local_model_http_status: 404" }),
+    ) === JSON.stringify({ ok: false, error: "local_model_http_status" }),
+    "a refused install is mapped",
+  );
+  check(
+    LocalVoiceModelPolicy.installReply(JSON.stringify({ ok: true, value: {} })) ===
+      JSON.stringify({ ok: false, error: "local_model_failed" }),
+    "an install without a path is not a success",
+  );
+
+  check(
+    LocalVoiceModelPolicy.mirror(
+      JSON.stringify({
+        ok: true,
+        value: {
+          revision: 3,
+          preferences: { voice_input: { asr_model_mirror: " https://m.example/ " } },
+        },
+      }),
+    ) === "https://m.example/",
+    "the saved mirror is read and trimmed",
+  );
+  check(
+    LocalVoiceModelPolicy.mirror(JSON.stringify({ ok: false, error: "storage" })) === "" &&
+      LocalVoiceModelPolicy.mirror("{") === "",
+    "unreadable preferences download from the catalog URLs",
+  );
+
+  check(LocalVoiceModelPolicy.action('{"operation":"list"}') !== null, "a list needs no id");
+  check(
+    LocalVoiceModelPolicy.action('{"operation":"install","id":"sense-voice-small"}')?.id ===
+      "sense-voice-small",
+    "an install names its model",
+  );
+  check(
+    LocalVoiceModelPolicy.action('{"operation":"remove"}') === null &&
+      LocalVoiceModelPolicy.action('{"operation":"format","id":"x"}') === null &&
+      LocalVoiceModelPolicy.action("[") === null,
+    "a missing id, an unknown operation or unreadable text is refused",
   );
 });

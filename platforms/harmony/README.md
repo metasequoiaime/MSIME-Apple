@@ -336,7 +336,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 - `native/`：NAPI/C++ 适配层。
 - `tests/`：不依赖设备的 TypeScript 键盘逻辑测试。
 - `AppScope/`、`entry/src/main/resources/`：应用元数据和资源。
-- `build-native.sh`、`stage-resources.sh`：共享 Host API、NAPI 库和固定资源的构建/暂存入口。
+- `build-native.sh`、`stage-resources.sh`、`stage-voice-runtime.sh`：共享 Host API、NAPI 库、固定资源和 sherpa-onnx HAR 的构建/暂存入口。
 - `entry/src/main/resources/rawfile/settings/index.html`：设置页的单文件打包产物，由 `apps/harmony` 生成，见下方[设置页打包](#设置页打包)。
 
 Windows 文档里的“自定义候选窗翻译”在 Harmony 上改由设置页提供。Engine 本来就在每个宿主上读这份覆盖层——`prepare_translation_sidecar` 先看用户数据目录再看资源目录——所以缺的从来不是功能，而是投放途径：没人能把文件放进应用沙盒。设置页的“自定义候选释义”把同一份内容写到 Engine 已经在看的位置（`<state>/user/custom_translations.txt`），解析规则逐条对齐 `EnglishDictionary::load_custom_translations`（Tab 分隔、`#` 注释、首尾空白修剪、源词含非 ASCII 即中译英、同源词后者覆盖前者），页面因此能在保存前说清楚这份文件里到底有多少条、多少行读不出来。留空即删除该文件，而不是留下一份 Engine 每次都读成空集的文档。**不写进已暂存的资源目录**：那里按锁文件逐项精确校验，多一个文件就会让键盘拒绝启动。
@@ -365,6 +365,7 @@ bash platforms/harmony/stage-resources.sh "$resource_dir"
 MSIME_OHOS_NDK=/absolute/openharmony/native \
 MSIME_OHOS_DEPS=/absolute/ohos-deps/arm64-v8a \
 bash platforms/harmony/build-native.sh arm64-v8a
+bash platforms/harmony/stage-voice-runtime.sh
 cd platforms/harmony
 # 使用 DevEco SDK 配套且已加入 PATH 的 hvigorw
 ohpm install
@@ -389,7 +390,11 @@ deps=$PWD/target/ohos-deps/arm64-v8a && mkdir -p "$deps/lib" "$deps/include"
 cp sqlite-amalgamation-3530400/sqlite3.h "$deps/include/"
 ```
 
-支持 `arm64-v8a`、`armeabi-v7a` 和 `x86_64`。原生库暂存到 `entry/libs/<abi>/`，这些目录是构建产物，不提交到仓库。资源准备仍使用根目录固定的 `resources/desktop-dictionary.lock.json`，不得把本机路径、凭据或用户输入放入 HAP。
+支持 `arm64-v8a`、`armeabi-v7a` 和 `x86_64`。原生库暂存到 `entry/libs/<abi>/`，这些目录是构建产物，不提交到仓库。
+
+`stage-voice-runtime.sh` 用 `scripts/fetch_voice_runtime.py --platform harmony` 取回 `resources/voice-runtime.lock.json` 按 SHA-256 锁定的 sherpa-onnx `.har`，复制到 `entry/libs/sherpa_onnx.har`（同样被忽略、不提交）。`entry/oh-package.json5` 以固定文件名依赖它，所以不先暂存 `ohpm install` 会失败。本地语音识别（`local` 提供方）在 `workers/LocalAsrWorker.ets` 里加载 `voice_input.asr_model_path` 指向的模型目录，音频不出设备；该 HAR 自带的 `libc++_shared.so` 与 `build-native.sh` 暂存的同为 NDK 运行时，`entry/build-profile.json5` 用 `pickFirsts` 只打包一份。`arm64-v8a` 和 `x86_64` 之外（即 `armeabi-v7a`）上游 HAR 不带库，本地识别在该 ABI 上不可用。
+
+系统语音（`system` 提供方）以写音频模式（`recognitionMode: 0`）启动 CoreSpeechKit：麦克风由 `HarmonyPcmCapture` 采集，按 1280 字节切帧后 `writeAudio`，`isFinal` 只结束一句，`isLast` 才结束整个会话。资源准备仍使用根目录固定的 `resources/desktop-dictionary.lock.json`，不得把本机路径、凭据或用户输入放入 HAP。
 
 ## 模拟器验证（2026-09-20）
 

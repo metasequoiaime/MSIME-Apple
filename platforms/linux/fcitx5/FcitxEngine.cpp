@@ -55,6 +55,7 @@
 #include "../src/system/TypingStatistics.h"
 #include "SystemTheme.h"
 #include "../src/voice/VoiceAction.h"
+#include "../src/voice/VoiceHotwords.h"
 #include "../src/voice/VoiceProviderOptions.h"
 #include "../src/overlay/WaveOverlayModel.h"
 #include "../src/overlay/WaveOverlaySurface.h"
@@ -458,6 +459,7 @@ public:
     voice_socket_.clear();
     voice_language_ = "zh-cn";
     voice_options_ = Json::object();
+    voice_host_options_ = Json();
     voice_enabled_ = true;
     voice_hotkey_ctrl_f9_ = true;
     voice_hotkey_ralt_ = true;
@@ -1508,6 +1510,8 @@ public:
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
     options["phrase_preedit"] = true;
+    // On-device recognition reads the user's dictionary words as hotwords with the same options; see requestVoice.
+    voice_host_options_ = options;
     const auto document = options.dump();
     view_ = response(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
     session_ = view_.at("session").get<uint64_t>();
@@ -2424,6 +2428,7 @@ public:
     const auto generation = view_.value("generation", uint64_t{});
     const auto language = voice_language_;
     const auto options = voice_options_;
+    const auto host_options = msime::linux_host::voice_wants_hotwords(options) ? voice_host_options_ : Json();
     voice_generation_ = generation;
     voice_mailbox_ = std::make_shared<FcitxVoiceMailbox>();
     voice_preedit_.clear();
@@ -2442,9 +2447,10 @@ public:
     wave_overlay_.actions_visible = true;
     updateVoiceOverlay();
     const auto mailbox = voice_mailbox_;
-    voice_job_ = std::async(std::launch::async, [socket, generation, language, options, mailbox] {
-      const auto query = Json{{"language", language}, {"generation", generation},
-                              {"options", options}, {"stream", true}}.dump();
+    voice_job_ = std::async(std::launch::async, [socket, generation, language, options, host_options, mailbox] {
+      auto request = msime::linux_host::voice_query(language, generation, options, host_options);
+      request["stream"] = true;
+      const auto query = request.dump();
       std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
           msime_client_voice_provider_stream_feedback(
               reinterpret_cast<const uint8_t *>(query.data()), query.size(),
@@ -3018,6 +3024,8 @@ public:
   std::string voice_socket_;
   std::string voice_language_ = "zh-cn";
   Json voice_options_ = Json::object();
+  // The HostOptions document of the current session, for msime_client_voice_hotwords.
+  Json voice_host_options_;
   bool voice_enabled_ = true;
   bool voice_hotkey_ctrl_f9_ = true;
   bool voice_hotkey_ralt_ = true;

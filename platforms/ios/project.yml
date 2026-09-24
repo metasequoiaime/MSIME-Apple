@@ -72,6 +72,11 @@ targets:
         buildPhase: resources
       - path: SharedResources/MLKit-Dependencies.txt
         buildPhase: resources
+      # Licences of the embedded SherpaOnnxC.xcframework below: sherpa-onnx (Apache-2.0) and the ONNX Runtime linked into it (MIT), plus the notices ONNX Runtime carries for what it bundles, shared with the desktops.
+      - path: SharedResources/VoiceRuntime-NOTICES.txt
+        buildPhase: resources
+      - path: ../linux/data/licenses/onnxruntime-ThirdPartyNotices.txt
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:
@@ -85,7 +90,9 @@ targets:
         # LaunchScreen.storyboard 一直被编进 bundle,但没有这个键就没人指向它,启动屏等于白打包。
         INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。"
+        # 语音服务选「系统语音识别」时由 Speech 框架识别录音，第一次使用前系统按这句话询问授权。
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "仅在你选择“系统语音识别”并开始录音时，用 iOS 的语音识别把录音转成文字。"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # VoicePolishPrompt.cpp includes shared/voice/PolishPrompt.h, which the desktop hosts build as C++17.
         CLANG_CXX_LANGUAGE_STANDARD: c++17
@@ -113,6 +120,11 @@ targets:
     dependencies:
       - target: MSIMEKeyboardExtension
       - sdk: Security.framework
+      # 本地语音识别的 sherpa-onnx 运行时，只进主 App：键盘扩展的内存上限装不下任何一个模型。
+      # 构建前由 scripts/fetch_voice_runtime.py --platform ios 下载校验到 target/，不入库。
+      - framework: ../../target/voice-runtime/ios/SherpaOnnxC.xcframework
+        embed: true
+        codeSign: true
   MSIMEKeyboardExtension:
     type: app-extension
     platform: iOS
@@ -249,6 +261,8 @@ targets:
       - path: ServiceTests
       - path: App/Sources/settings/AppIconSettingsView.swift
       - path: App/Services/CustomService.swift
+      - path: App/Services/LocalSpeechModel.swift
+      - path: App/Services/LocalSpeechModelStore.swift
       - path: App/Services/VoicePolish.swift
       - path: App/Services/VoicePolishPrompt.cpp
       - path: App/Services/DoubaoHostFrameCodec.swift

@@ -49,7 +49,7 @@ def source_path_blocks(body, wanted):
 
 class ProjectConfigurationTests(unittest.TestCase):
     def test_app_explains_microphone_access_for_voice_input(self):
-        explanation = "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。"
+        explanation = "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。"
         project = (IOS_ROOT / "project.yml").read_text()
         generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
         self.assertIn(f'INFOPLIST_KEY_NSMicrophoneUsageDescription: "{explanation}"', project)
@@ -80,6 +80,17 @@ class ProjectConfigurationTests(unittest.TestCase):
         generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
         self.assertIn("path = PrivacyInfo.xcprivacy", generated)
         self.assertEqual(generated.count("PrivacyInfo.xcprivacy in Resources"), 4)
+
+    def test_app_ships_the_licences_of_the_embedded_speech_runtime(self):
+        project = (IOS_ROOT / "project.yml").read_text()
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("SherpaOnnxC.xcframework", project)
+        notices = (IOS_ROOT / "SharedResources/VoiceRuntime-NOTICES.txt").read_text()
+        self.assertIn("Apache License", notices)
+        self.assertIn("MIT License", notices)
+        for resource in ("VoiceRuntime-NOTICES.txt", "onnxruntime-ThirdPartyNotices.txt"):
+            self.assertTrue(any((IOS_ROOT / path).is_file() for path in (f"SharedResources/{resource}", f"../linux/data/licenses/{resource}")))
+            self.assertEqual(generated.count(f"{resource} in Resources"), 2)
 
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"
@@ -211,6 +222,28 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn('xcodegen generate', shipping)
         self.assertIn('-scheme MSIMEApp', shipping)
         self.assertNotIn('MSIME_IOS_LEGACY_APP', script)
+
+    def test_on_device_speech_runtime_is_fetched_and_embedded_only_in_the_app(self):
+        project = (IOS_ROOT / "project.yml").read_text()
+        blocks = dict(target_blocks(project))
+        framework = "- framework: ../../target/voice-runtime/ios/SherpaOnnxC.xcframework"
+        # The keyboard extension's memory limit cannot hold a model, so only the app links the runtime.
+        self.assertEqual([name for name, body in blocks.items() if "SherpaOnnxC" in body], ["MSIMEApp"])
+        app = blocks["MSIMEApp"]
+        self.assertIn(framework, app)
+        self.assertRegex(app.split(framework, 1)[1], r"^\n\s+embed: true\n\s+codeSign: true\n")
+        self.assertIn("INFOPLIST_KEY_NSSpeechRecognitionUsageDescription:", app)
+        # Only the Swift file that runs the recognizer imports the runtime; everything the unit tests compile stays free of it.
+        importers = sorted(path.name for path in (IOS_ROOT / "App").rglob("*.swift") if "import SherpaOnnxC" in path.read_text())
+        self.assertEqual(importers, ["LocalSpeechRecognizer.swift"])
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("SherpaOnnxC.xcframework in Embed Frameworks", generated)
+        self.assertEqual(generated.count("INFOPLIST_KEY_NSSpeechRecognitionUsageDescription"), 2)
+        # Fetched and verified at build time, never committed.
+        script = (IOS_ROOT / "build-app.sh").read_text()
+        fetch = 'python3 "$repo_root/scripts/fetch_voice_runtime.py" --platform ios'
+        self.assertIn(fetch, script)
+        self.assertLess(script.index(fetch), script.rindex("xcodegen generate"))
 
 
 if __name__ == "__main__":

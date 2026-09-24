@@ -2019,6 +2019,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.voiceInput;
   }
 
+  /** The prepared host options the on-device recognizer reads the user's own words through, or null before the host has been prepared. */
+  voiceHotwordOptions(): Object | null {
+    return this.snapshotOptions ?? null;
+  }
+
   /**
    * The text before the caret, as the polish panel's starting point.
    *

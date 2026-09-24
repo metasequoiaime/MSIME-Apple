@@ -36,7 +36,9 @@ bash platforms/android/build-native.sh "$abi"
 tauri_jni="$repo_root/target/android/tauri-jniLibs/$abi"
 mkdir -p "$tauri_jni"
 cp "$repo_root/target/android/jniLibs/$abi/libmsime_android.so" \
-  "$repo_root/target/android/jniLibs/$abi/libmsime_host_api.so" "$tauri_jni/"
+  "$repo_root/target/android/jniLibs/$abi/libmsime_host_api.so" \
+  "$repo_root/target/android/jniLibs/$abi/libsherpa-onnx-c-api.so" \
+  "$repo_root/target/android/jniLibs/$abi/libonnxruntime.so" "$tauri_jni/"
 assets="$repo_root/target/android/tauri-assets"
 mkdir -p "$assets/dictionary"
 cp resources/desktop-dictionary.lock.json "$assets/"

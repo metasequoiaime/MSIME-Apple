@@ -339,6 +339,23 @@ char *msime_client_voice_cancel(uint64_t session);
 char *msime_client_voice_capture(uint32_t milliseconds);
 char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
+/* On-device speech models and user-dictionary hotwords. JSON request buffers of length bytes; standard responses. Error text of the model calls is a stable code beginning with "local_model_".
+ * voice_hotwords: {options: HostOptions as msime_client_dictionary, limit?: 200} -> {hotwords:[{text,pinyin}]}, the user's own pinyin words (two or more Chinese characters), heaviest first. Worker thread; fails with "dictionary maintenance busy" while maintenance holds the store. <=65536 bytes.
+ * voice_hotword_correct: {text, hotwords:[{text,pinyin}]} -> {text}. Pinyin-similarity replacement for models whose msime-model.json has "hotwords":"pinyin". Pure. <=1048576 bytes.
+ * voice_local_models: {root: absolute dir} -> {models:[{id,title,description,languages,streaming,default,desktop_only,installed,path,installed_size,archive_size,memory,license_spdx,license_source,license_terms,license_notice,hotwords}], default: id}. path is <root>/<id>, the value for voice_input.asr_model_path.
+ * voice_local_model_install: {root, id, mirror?: "https://..." prefix} -> {path}. Blocks for the whole download: worker thread only. progress (nullable) gets {id,stage:"download"|"verify"|"extract"|"done",downloaded,total} on the calling thread; copy the buffer before returning. One install per id at a time ("local_model_install_running").
+ * voice_local_model_cancel: {id} cancels that install, NULL/0 or {} cancels all; value is whether one was running. Any thread.
+ * voice_local_model_remove: {root, id} -> null. Only catalog ids; refused while that id is installing. */
+typedef void (*msime_client_voice_local_model_progress_callback)(const uint8_t *json, size_t length,
+                                                                 void *context);
+char *msime_client_voice_hotwords(const uint8_t *request, size_t length);
+char *msime_client_voice_hotword_correct(const uint8_t *request, size_t length);
+char *msime_client_voice_local_models(const uint8_t *request, size_t length);
+char *msime_client_voice_local_model_install(
+    const uint8_t *request, size_t length,
+    msime_client_voice_local_model_progress_callback progress, void *context);
+char *msime_client_voice_local_model_cancel(const uint8_t *request, size_t length);
+char *msime_client_voice_local_model_remove(const uint8_t *request, size_t length);
 /* Pure DeepLX-compatible descriptor builder (no network I/O). Request <=16 KiB:
  * {config:{enabled,endpoint,api_key},text,source_language,target_language}.
  * Returns null if disabled; otherwise {url,method,headers,body,timeout_ms,max_response_bytes}.
@@ -623,7 +640,7 @@ char *msime_client_voice_provider_stream_events(
     msime_client_voice_status_callback status_callback, void *context);
 /* Normalized microphone level in [0, 1]; never transcript text or audio.
  * Callback runs synchronously on the caller thread and must not throw.
- * All three stream calls return {"ok":true,"value":{"text":...}} on success and value null when the provider gave no result. A provider that names a missing optional dependency returns {"ok":false,"error":"voice_dependency_missing:websockets"} or "voice_dependency_missing:recorder". */
+ * All three stream calls return {"ok":true,"value":{"text":...}} on success and value null when the provider gave no result. A provider that names a missing optional dependency returns {"ok":false,"error":"voice_dependency_missing:websockets"}, "voice_dependency_missing:recorder" or "voice_dependency_missing:local_asr". */
 typedef void (*msime_client_voice_level_callback)(float level, void *context);
 char *msime_client_voice_provider_stream_feedback(
     const uint8_t *query, size_t query_length, const uint8_t *socket_path,

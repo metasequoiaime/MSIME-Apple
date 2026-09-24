@@ -34,11 +34,13 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 foreach ($relative in @('Cargo.toml', 'vendor/MSIME-Engine/CMakeLists.txt',
                          'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt',
                          'platforms/windows/settings/MSIME.Settings.vcxproj',
-                         'apps/desktop/package.json')) {
+                         'apps/desktop/package.json', 'scripts/fetch_voice_runtime.py')) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $relative) -PathType Leaf)) {
         throw "Missing Client build source: $relative"
     }
 }
+# The on-device speech runtime staged beside the Server; Prepare-PackageFiles.ps1 and install-smoke.ps1 name the same three files.
+$voiceRuntimeLibraries = @('sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
 $previousPrefix = $env:CMAKE_PREFIX_PATH
 $previousTarget = $env:CARGO_TARGET_DIR
 $previousDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
@@ -117,6 +119,13 @@ try {
     if (@($desktopPdbs).Count -ne 1) { throw 'Expected one Tauri desktop PDB output' }
     Invoke-ClientBuild cmake @('-E', 'copy_if_different', @($desktopPdbs)[0],
         (Join-Path $RepoRoot 'target/windows-full/x64/bin/MSIME Client Preview.pdb'))
+    # The Server recognizes speech on-device through the pinned sherpa-onnx runtime (resources/voice-runtime.lock.json), which it loads with LoadLibrary from its own directory; onnxruntime.dll resolves beside sherpa-onnx-c-api.dll. The fetch verifies the archive's SHA-256 before extracting and reuses a verified copy on later runs. These are upstream MSVC /MD builds, so they need the same VC runtime the installer already requires.
+    $voiceRuntime = Join-Path $RepoRoot 'target/voice-runtime/windows-x64'
+    Invoke-ClientBuild python @((Join-Path $RepoRoot 'scripts/fetch_voice_runtime.py'),
+        '--platform', 'windows-x64', '--out', $voiceRuntime)
+    Invoke-ClientBuild cmake (@('-E', 'copy_if_different') +
+        @($voiceRuntimeLibraries | ForEach-Object { Join-Path $voiceRuntime $_ }) +
+        @((Join-Path $RepoRoot 'target/windows-full/x64/bin')))
     foreach ($arch in @('x64', 'x86')) {
         $bin = Join-Path $RepoRoot "target/windows-full/$arch/bin"
         $prefix = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }
@@ -126,6 +135,9 @@ try {
             & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $dll) -Architecture $arch -Kind dll
         }
         if ($arch -eq 'x64') {
+            foreach ($dll in $voiceRuntimeLibraries) {
+                & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $dll) -Architecture x64 -Kind dll
+            }
             foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe',
                 'msime-client-prepare.exe', 'MetasequoiaImeDictionaryReplay.exe',
                 'msime-client-settings.exe', 'MSIME Client Preview.exe')) {

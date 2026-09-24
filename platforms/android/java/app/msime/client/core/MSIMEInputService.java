@@ -4467,7 +4467,8 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             VoiceRecognitionActivity.launch(this, requestId, voiceLanguage,
                 configured.providerName(), configured.endpoint(), configured.model(),
-                configured.token(), configured.streaming(), configured.polish());
+                configured.token(), configured.streaming(), configured.polish(),
+                configured.localModel());
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
             Toast.makeText(this, "语音识别服务无法启动", Toast.LENGTH_SHORT).show();
