@@ -895,8 +895,8 @@ fn keyboard_does_not_accept_focus_but_editable_panels_do() {
 
 #[test]
 fn csp_lets_the_skin_editor_decode_a_picked_photo() {
-    // The editor loads the photo through URL.createObjectURL; jsdom does not
-    // enforce CSP, so only this check sees a blob: loss.
+    // The editor reads a picked photo as a data: URL, so the CSP can stay without
+    // blob:. jsdom does not enforce CSP, so only this check sees the source go missing.
     let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
     let csp = config["app"]["security"]["csp"].as_str().unwrap();
     let img_src = csp
@@ -904,7 +904,9 @@ fn csp_lets_the_skin_editor_decode_a_picked_photo() {
         .map(str::trim)
         .find(|directive| directive.starts_with("img-src "))
         .unwrap();
-    assert!(img_src.split_whitespace().any(|source| source == "blob:"));
+    let sources: Vec<&str> = img_src.split_whitespace().collect();
+    assert!(sources.contains(&"data:"));
+    assert!(!sources.contains(&"blob:"));
 }
 
 #[test]
