@@ -5,6 +5,7 @@
 #include <sherpa-onnx/c-api.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
@@ -392,7 +393,8 @@ struct LoadedRecognizer {
   std::string vad_model;
   std::set<std::string> tokens;
   bool native_hotwords = false;
-  std::chrono::steady_clock::time_point last_used = std::chrono::steady_clock::now();
+  // Atomic: a session's destructor stamps it without cache_mutex, which acquire() may hold through a model load.
+  std::atomic<std::chrono::steady_clock::rep> last_used_ticks{std::chrono::steady_clock::now().time_since_epoch().count()};
 
   ~LoadedRecognizer() {
     if (online)
@@ -507,7 +509,7 @@ std::shared_ptr<LoadedRecognizer> acquire(const SherpaApi &api, const ModelDescr
     }
   }
   auto &entry = cache[key];
-  entry->last_used = std::chrono::steady_clock::now();
+  entry->last_used_ticks.store(std::chrono::steady_clock::now().time_since_epoch().count(), std::memory_order_relaxed);
   return entry;
 }
 
@@ -569,7 +571,7 @@ struct LocalAsrSession::Impl {
     if (vad)
       recognizer->api->SherpaOnnxDestroyVoiceActivityDetector(vad);
     if (recognizer)
-      recognizer->last_used = std::chrono::steady_clock::now();
+      recognizer->last_used_ticks.store(std::chrono::steady_clock::now().time_since_epoch().count(), std::memory_order_relaxed);
   }
 
   void check_cancelled() const {
@@ -760,7 +762,8 @@ std::size_t release_idle_local_models(std::chrono::steady_clock::duration idle) 
   std::lock_guard<std::mutex> lock(cache_mutex);
   std::size_t released = 0;
   for (auto it = cache.begin(); it != cache.end();) {
-    if (it->second && it->second.use_count() == 1 && now - it->second->last_used >= idle) {
+    if (it->second && it->second.use_count() == 1 &&
+        now.time_since_epoch().count() - it->second->last_used_ticks.load(std::memory_order_relaxed) >= std::chrono::steady_clock::duration(idle).count()) {
       it = cache.erase(it);
       ++released;
     } else {

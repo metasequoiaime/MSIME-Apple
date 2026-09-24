@@ -21,6 +21,8 @@ enum BackendAnonymousAccount {
   static func sessionStorage() -> any BackendSessionStorage {
     BackendLocalStore(fileName: "anonymous-session.json")
   }
+  /// One in-process actor for the anonymous storage, so its rotating refresh token has one owner.
+  static let session = BackendAccountSession(storage: sessionStorage())
 
   /// Discard the local-only identity and its session after it has been replaced
   /// by a real account or explicitly deleted by the user.

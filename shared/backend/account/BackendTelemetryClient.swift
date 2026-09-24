@@ -22,8 +22,10 @@ public actor BackendTelemetryClient {
   private let session: URLSession
   private let origin = URL(string: "https://api.msime.app")!
   private let queueURL: URL
-  private let maxEvents = 64
-  private let maxPayloadBytes = 64 * 1024
+  static let maxEvents = 64
+  static let maxPayloadBytes = 64 * 1024
+  // An older or foreign queue may exceed the payload bound; read it and keep what fits.
+  static let maxQueueFileBytes = 1024 * 1024
 
   public init(configuration: URLSessionConfiguration = .ephemeral, queueURL: URL? = nil) {
     let configuration = configuration.copy() as! URLSessionConfiguration
@@ -60,14 +62,43 @@ public actor BackendTelemetryClient {
                                       message: String(message.prefix(2048)),
                                       stack: stack.map { String($0.prefix(12_000)) })
     let url = queueURL ?? defaultQueueURL()
-    var events = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([BackendTelemetryEvent].self, from: $0) } ?? []
-    events.append(event); events = Array(events.suffix(64))
+    var events = readQueue(url)
+    events.append(event)
+    guard let data = boundedEncode(events) else { return }
     do {
       try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                attributes: [.posixPermissions: 0o700])
-      try JSONEncoder().encode(events).write(to: url, options: [.atomic])
+      try data.write(to: url, options: [.atomic])
       try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     } catch { }
+  }
+
+  static func readQueue(_ url: URL) -> [BackendTelemetryEvent] {
+    guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber,
+          size.intValue <= maxQueueFileBytes,
+          let data = try? Data(contentsOf: url),
+          let events = try? JSONDecoder().decode([BackendTelemetryEvent].self, from: data) else { return [] }
+    return events
+  }
+
+  /// The newest events whose JSON array fits maxPayloadBytes, encoded. A newest event too large
+  /// on its own has its stack shortened rather than being dropped. Nil only if nothing fits.
+  static func boundedEncode(_ events: [BackendTelemetryEvent]) -> Data? {
+    let encoder = JSONEncoder()
+    var kept = Array(events.suffix(maxEvents))
+    guard var newest = kept.popLast() else { return try? encoder.encode(kept) }
+    while let size = (try? encoder.encode(newest))?.count, size + 2 > maxPayloadBytes {
+      guard let stack = newest.stack, !stack.isEmpty else { return nil }
+      newest = BackendTelemetryEvent(id: newest.id, kind: newest.kind, platform: newest.platform, version: newest.version,
+                                     message: newest.message, stack: String(stack.prefix(stack.count / 2)))
+    }
+    // Encode each event once and sum sizes, newest first: "[" + items joined by "," + "]".
+    guard var total = (try? encoder.encode(newest))?.count.advanced(by: 2) else { return nil }
+    var start = kept.count
+    while start > 0, let size = (try? encoder.encode(kept[start - 1]))?.count, total + size + 1 <= maxPayloadBytes {
+      total += size + 1; start -= 1
+    }
+    return try? encoder.encode(Array(kept[start...]) + [newest])
   }
 
   public func flush() async {
@@ -97,14 +128,14 @@ public actor BackendTelemetryClient {
   private func enqueue(_ event: BackendTelemetryEvent) {
     var events = load()
     events.append(event)
-    if events.count > maxEvents { events.removeFirst(events.count - maxEvents) }
     save(events)
   }
 
   private func load() -> [BackendTelemetryEvent] {
-    guard let data = try? Data(contentsOf: queueURL), data.count <= maxPayloadBytes,
-          let events = try? JSONDecoder().decode([BackendTelemetryEvent].self, from: data) else { return [] }
-    return Array(events.suffix(maxEvents))
+    let events = Self.readQueue(queueURL)
+    guard !events.isEmpty, let data = Self.boundedEncode(events),
+          let bounded = try? JSONDecoder().decode([BackendTelemetryEvent].self, from: data) else { return [] }
+    return bounded
   }
 
   private func save(_ events: [BackendTelemetryEvent]) {
@@ -112,8 +143,7 @@ public actor BackendTelemetryClient {
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                attributes: [.posixPermissions: 0o700])
-      let data = try JSONEncoder().encode(events)
-      guard data.count <= maxPayloadBytes else { return }
+      guard let data = Self.boundedEncode(events) else { return }
       try data.write(to: queueURL, options: [.atomic])
       try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: queueURL.path)
     } catch { /* telemetry must never affect the host app */ }

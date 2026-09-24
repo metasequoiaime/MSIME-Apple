@@ -79,7 +79,7 @@ extension BackendAccountClient {
     var url = URLComponents()
     url.path = "/v1/users/me/dictionaries/" + kind.rawValue
     url.queryItems = [.init(name: "q", value: search), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100")]
-    guard let path = url.string else { throw Failure(status: 400) }
+    guard let path = Self.encodedPath(url) else { throw Failure(status: 400) }
     return try await json("GET", path, token: token)
   }
   func addDictionary(_ kind: DictionaryKind, value: DictionaryValue, token: String) async throws -> DictionaryChange {
@@ -141,7 +141,7 @@ extension BackendAccountClient {
     var components = URLComponents()
     components.path = "/v1/users/me/dictionaries/" + kind.rawValue + "/catalog"
     components.queryItems = [.init(name: "q", value: code), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100"), .init(name: "scheme", value: scheme), .init(name: "profile", value: profile)]
-    guard let path = components.string else { throw Failure(status: 400) }
+    guard let path = Self.encodedPath(components) else { throw Failure(status: 400) }
     return try await json("GET", path, token: token)
   }
   func editCatalog(_ entry: CatalogEntry, revision: Int64, replacement: DictionaryValue?, token: String) async throws -> DictionaryChange {

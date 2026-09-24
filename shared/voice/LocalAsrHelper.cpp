@@ -14,7 +14,9 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cerrno>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -158,7 +160,10 @@ private:
 
   void work_loop() {
     // Release a loaded model after this long without a session; the process itself exits after idle_exit_.
-    const auto release_after = std::min<std::chrono::steady_clock::duration>(idle_exit_, std::chrono::seconds(120));
+    // idle_exit_ of 0 disables the exit only; the 120 s model release still applies.
+    const std::chrono::steady_clock::duration release_after =
+        idle_exit_.count() > 0 ? std::min<std::chrono::steady_clock::duration>(idle_exit_, std::chrono::seconds(120))
+                               : std::chrono::steady_clock::duration(std::chrono::seconds(120));
     auto last_activity = std::chrono::steady_clock::now();
     for (;;) {
       std::unique_lock<std::mutex> lock(mutex_);
@@ -246,6 +251,19 @@ private:
   nlohmann::json session_id_;
 };
 
+// Whole non-negative decimal seconds, nothing else.
+bool parse_seconds(const std::string &text, std::chrono::seconds &out) {
+  if (text.empty() || text[0] < '0' || text[0] > '9')
+    return false;
+  errno = 0;
+  char *end = nullptr;
+  const long parsed = std::strtol(text.c_str(), &end, 10);
+  if (errno != 0 || end != text.c_str() + text.size() || parsed > 100000000)
+    return false;
+  out = std::chrono::seconds(parsed);
+  return true;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -277,8 +295,8 @@ int main(int argc, char **argv) {
       hotwords.push_back(value());
     else if (argument == "--runtime")
       msime::voice::set_sherpa_library_path(value());
-    else if (argument == "--idle-exit")
-      idle_exit = std::chrono::seconds(std::stoi(value()));
+    else if (argument == "--idle-exit" && parse_seconds(value(), idle_exit))
+      ; // a malformed or negative value falls through to usage
     else {
       std::fprintf(stderr, "usage: msime-voice-local [--runtime <library>] [--idle-exit <seconds>] [--model <dir> --wav <file> [--language <tag>] [--hotword <word>]...]\n");
       return 2;

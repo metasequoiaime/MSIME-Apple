@@ -102,6 +102,13 @@ struct BackendAccountClient: Sendable {
     _ = try await request("DELETE", "/v1/users/me", token: token)
   }
 
+  // URLComponents leaves '+' bare, which the server decodes as a space; only a value can hold one.
+  static func encodedPath(_ components: URLComponents) -> String? {
+    var components = components
+    components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+    return components.string
+  }
+
   // Used by the explicit user-data screens as well as account operations. No redirects,
   // cookies, cached private data, arbitrary origins, or server error text are exposed.
   func request(_ method: String, _ path: String, token: String? = nil,
