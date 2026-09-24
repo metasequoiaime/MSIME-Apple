@@ -3,8 +3,8 @@
 //! An allowlist rather than the whole document: the document also holds API keys, account tokens and endpoints, none of which an agent should read, and most of its fields are choices only the settings page can present properly. The enums are mirrored here so the tool schema names exactly the values the store accepts; `the_mirrors_serialize_as_the_store_does` keeps the two in step.
 
 use msime_client_core::preferences::{
-    CandidateLayout, ChineseScheme, InputScheme, Preferences, PreferencesSnapshot,
-    PreferencesStore, ShuangpinProfile,
+    CandidateLayout, CharacterWidthPreference, ChineseScheme, DefaultImeMode, InputScheme,
+    Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
 };
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -47,6 +47,22 @@ pub enum Profile {
 pub enum Layout {
     Horizontal,
     Vertical,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(rename_all = "snake_case")]
+pub enum StartMode {
+    Chinese,
+    English,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(rename_all = "snake_case")]
+pub enum Width {
+    Halfwidth,
+    Fullwidth,
 }
 
 impl From<InputScheme> for Scheme {
@@ -92,6 +108,42 @@ impl From<Profile> for ShuangpinProfile {
     }
 }
 
+impl From<DefaultImeMode> for StartMode {
+    fn from(value: DefaultImeMode) -> Self {
+        match value {
+            DefaultImeMode::Chinese => Self::Chinese,
+            DefaultImeMode::English => Self::English,
+        }
+    }
+}
+
+impl From<StartMode> for DefaultImeMode {
+    fn from(value: StartMode) -> Self {
+        match value {
+            StartMode::Chinese => Self::Chinese,
+            StartMode::English => Self::English,
+        }
+    }
+}
+
+impl From<CharacterWidthPreference> for Width {
+    fn from(value: CharacterWidthPreference) -> Self {
+        match value {
+            CharacterWidthPreference::Halfwidth => Self::Halfwidth,
+            CharacterWidthPreference::Fullwidth => Self::Fullwidth,
+        }
+    }
+}
+
+impl From<Width> for CharacterWidthPreference {
+    fn from(value: Width) -> Self {
+        match value {
+            Width::Halfwidth => Self::Halfwidth,
+            Width::Fullwidth => Self::Fullwidth,
+        }
+    }
+}
+
 impl From<CandidateLayout> for Layout {
     fn from(value: CandidateLayout) -> Self {
         match value {
@@ -129,6 +181,20 @@ pub struct PreferencesView {
     /// Show a badge when switching between Chinese and English (macOS).
     pub input_mode_hud: bool,
     pub fuzzy_pinyin: bool,
+    /// The mode a newly focused text field starts in.
+    pub default_ime_mode: StartMode,
+    /// The width of the ASCII letters, digits and punctuation the input method outputs.
+    pub character_width: Width,
+    /// Type Chinese punctuation in Chinese mode.
+    pub chinese_punctuation: bool,
+    /// With Chinese punctuation on, type , . : after a letter or digit as English punctuation.
+    pub smart_punctuation: bool,
+    /// Output Traditional Chinese.
+    pub traditional_chinese_output: bool,
+    /// In Wubi, answer a code with no match with candidates from the same pinyin spelling.
+    pub wubi_mixed_pinyin: bool,
+    /// In Wubi, show the rest of each candidate's code after the typed keys.
+    pub wubi_code_hint: bool,
     /// Whether the dictionary learns from typing. Read-only here: turning it off is the user's decision.
     pub learning: bool,
 }
@@ -147,6 +213,14 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             number_row_selection: preferences.number_row_selection,
             input_mode_hud: preferences.input_mode_hud,
             fuzzy_pinyin: preferences.fuzzy_pinyin.enabled,
+            default_ime_mode: preferences.default_ime_mode.into(),
+            character_width: preferences.character_width.into(),
+            chinese_punctuation: preferences.chinese_punctuation,
+            smart_punctuation: preferences.smart_punctuation,
+            traditional_chinese_output: preferences.traditional_chinese_output,
+            wubi_mixed_pinyin: preferences.wubi_mixed_pinyin,
+            // Absent means on: documents written before the switch existed keep the hint.
+            wubi_code_hint: preferences.wubi_code_hint.unwrap_or(true),
             learning: preferences.learning,
         }
     }
@@ -171,6 +245,13 @@ pub struct PreferencesChange {
     pub input_mode_hud: Option<bool>,
     /// Turning fuzzy pinyin on for the first time also turns on every fuzzy rule, as the settings page does.
     pub fuzzy_pinyin: Option<bool>,
+    pub default_ime_mode: Option<StartMode>,
+    pub character_width: Option<Width>,
+    pub chinese_punctuation: Option<bool>,
+    pub smart_punctuation: Option<bool>,
+    pub traditional_chinese_output: Option<bool>,
+    pub wubi_mixed_pinyin: Option<bool>,
+    pub wubi_code_hint: Option<bool>,
 }
 
 impl PreferencesChange {
@@ -184,6 +265,13 @@ impl PreferencesChange {
             && self.number_row_selection.is_none()
             && self.input_mode_hud.is_none()
             && self.fuzzy_pinyin.is_none()
+            && self.default_ime_mode.is_none()
+            && self.character_width.is_none()
+            && self.chinese_punctuation.is_none()
+            && self.smart_punctuation.is_none()
+            && self.traditional_chinese_output.is_none()
+            && self.wubi_mixed_pinyin.is_none()
+            && self.wubi_code_hint.is_none()
     }
 
     fn apply(&self, preferences: &mut Preferences) {
@@ -216,6 +304,27 @@ impl PreferencesChange {
         }
         if let Some(value) = self.fuzzy_pinyin {
             preferences.fuzzy_pinyin.enabled = value;
+        }
+        if let Some(mode) = self.default_ime_mode {
+            preferences.default_ime_mode = mode.into();
+        }
+        if let Some(width) = self.character_width {
+            preferences.character_width = width.into();
+        }
+        if let Some(value) = self.chinese_punctuation {
+            preferences.chinese_punctuation = value;
+        }
+        if let Some(value) = self.smart_punctuation {
+            preferences.smart_punctuation = value;
+        }
+        if let Some(value) = self.traditional_chinese_output {
+            preferences.traditional_chinese_output = value;
+        }
+        if let Some(value) = self.wubi_mixed_pinyin {
+            preferences.wubi_mixed_pinyin = value;
+        }
+        if let Some(value) = self.wubi_code_hint {
+            preferences.wubi_code_hint = Some(value);
         }
     }
 }
@@ -335,6 +444,17 @@ mod tests {
             same(json!(Layout::from(layout)), json!(layout));
             assert_eq!(CandidateLayout::from(Layout::from(layout)), layout);
         }
+        for mode in [DefaultImeMode::Chinese, DefaultImeMode::English] {
+            same(json!(StartMode::from(mode)), json!(mode));
+            assert_eq!(DefaultImeMode::from(StartMode::from(mode)), mode);
+        }
+        for width in [
+            CharacterWidthPreference::Halfwidth,
+            CharacterWidthPreference::Fullwidth,
+        ] {
+            same(json!(Width::from(width)), json!(width));
+            assert_eq!(CharacterWidthPreference::from(Width::from(width)), width);
+        }
     }
 
     fn change(revision: u64) -> PreferencesChange {
@@ -368,6 +488,9 @@ mod tests {
                 shuangpin_profile: Some(Profile::Ziranma),
                 candidate_page_size: Some(7),
                 fuzzy_pinyin: Some(true),
+                character_width: Some(Width::Fullwidth),
+                traditional_chinese_output: Some(true),
+                wubi_code_hint: Some(false),
                 ..change(before.revision)
             },
         )
@@ -376,6 +499,9 @@ mod tests {
         assert_eq!(updated.shuangpin_profile, Profile::Ziranma);
         assert_eq!(updated.candidate_page_size, 7);
         assert!(updated.fuzzy_pinyin);
+        assert_eq!(updated.character_width, Width::Fullwidth);
+        assert!(updated.traditional_chinese_output);
+        assert!(!updated.wubi_code_hint);
         assert_eq!(updated.revision, before.revision + 1);
 
         let stored = PreferencesStore::new(directory.path()).load().unwrap();
@@ -391,6 +517,9 @@ mod tests {
         expected.last_chinese_scheme = Some(ChineseScheme::Shuangpin);
         expected.shuangpin_profile = ShuangpinProfile::Ziranma;
         expected.candidate_page_size = 7;
+        expected.character_width = CharacterWidthPreference::Fullwidth;
+        expected.traditional_chinese_output = true;
+        expected.wubi_code_hint = Some(false);
         expected.fuzzy_pinyin = stored.preferences.fuzzy_pinyin.clone();
         assert_eq!(json!(stored.preferences), json!(expected));
 

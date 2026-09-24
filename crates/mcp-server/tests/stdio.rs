@@ -210,11 +210,12 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let after = ok(
         &client,
         "update_preferences",
-        json!({ "expected_revision": revision, "candidate_page_size": 7, "scheme": "wubi" }),
+        json!({ "expected_revision": revision, "candidate_page_size": 7, "scheme": "wubi", "character_width": "fullwidth" }),
     )
     .await;
     assert_eq!(after["candidate_page_size"], 7);
     assert_eq!(after["scheme"], "wubi");
+    assert_eq!(after["character_width"], "fullwidth");
     assert_eq!(after["revision"], revision + 1);
     assert_eq!(ok(&client, "get_preferences", json!({})).await, after);
     after_write_interval().await;
@@ -240,6 +241,8 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let statistics = ok(&client, "get_typing_statistics", json!({ "days": 3 })).await;
     assert_eq!(statistics["enabled"], false);
     assert_eq!(statistics["days"], json!([]));
+    assert_eq!(statistics["active_seconds"], 0);
+    assert!(statistics.get("hours").is_none());
     assert!(
         !refused(&client, "get_typing_statistics", json!({ "days": 0 }))
             .await

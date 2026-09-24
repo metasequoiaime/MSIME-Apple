@@ -241,7 +241,7 @@ impl MsimeServer {
 
     #[tool(
         name = "get_preferences",
-        description = "Read the preferences an agent may see: input scheme, shuangpin layout, candidate page size, font size and layout, and a few switches. Pass the returned revision to update_preferences.",
+        description = "Read the preferences an agent may see: input scheme, shuangpin layout, candidate page size, font size and layout, the starting mode, character width, punctuation, Traditional Chinese output, Wubi switches and a few more. Pass the returned revision to update_preferences.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_preferences(&self) -> Result<Json<PreferencesView>, String> {
@@ -283,7 +283,7 @@ impl MsimeServer {
 
     #[tool(
         name = "get_typing_statistics",
-        description = "Read aggregate typing statistics: characters per day, per category and per input scheme, and how often each candidate position is chosen. Counts only; no text is ever recorded.",
+        description = "Read aggregate typing statistics: characters per day, per category and per input scheme, time spent typing and typing speed, the distribution over the hours of the day, and how often each candidate position is chosen. Counts only; no text is ever recorded.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_typing_statistics(
