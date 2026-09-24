@@ -77,6 +77,8 @@ extern "C" void MSIMEFetchAccountCandidateGlosses(const char *wordsJSON, const c
                                                     const char *secondaryCode, unsigned long long generation)
     __attribute__((weak_import));
 extern "C" void MSIMEEnsureAnonymousAccount(void) __attribute__((weak_import));
+// Apple's on-device translation, also in the Swift backend. Null when the backend was built by a toolchain older than the macOS 26 SDK.
+extern "C" void MSIMEFetchOnDeviceCandidateGlosses(const char *wordsJSON, const char *targetsJSON) __attribute__((weak_import));
 
 static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     static dispatch_queue_t queue;
@@ -393,6 +395,11 @@ static NSArray<NSString *> *MSIMEAccountGlossIdentity(NSString *target, NSString
 static NSString *MSIMEAccountGlossCached(NSString *target, NSString *text) {
     id value = [[MSIMETranslationCache sharedCache] valueForIdentity:MSIMEAccountGlossIdentity(target, text)];
     return [value isKindOfClass:NSString.class] ? value : nil;
+}
+
+// On-device glosses share the process-wide cache for the same reason as account ones, under a scope of their own. A word the model had nothing useful for is cached as an empty answer, so it is not asked about again on the next keystroke.
+static NSArray<NSString *> *MSIMEOnDeviceGlossIdentity(NSString *target, NSString *text) {
+    return @[@"on-device", target ?: @"", text ?: @""];
 }
 
 // Which candidates the account gloss endpoint may be asked about. Only Chinese ones: a model has nothing
@@ -867,6 +874,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_accountGlossRequest;
     NSArray<NSDictionary *> *_accountGlossResults;
     uint64_t _accountGlossEpoch;
+    NSDictionary *_onDeviceGlossRequest;
     uint64_t _customEpoch;
     MSIMECustomTranslationBatch *_aiBatch;
     NSTimer *_aiTimer;
@@ -1196,6 +1204,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // IMKit keeps a controller per text input client, so that is a dozen of them merging results and
     // pushing them into sessions nobody is composing in. Its siblings are all cancelled here; so is it.
     [self cancelAccountGloss];
+    [self cancelOnDeviceGloss];
 }
 
 - (NSDictionary *)highlightedCandidateForGloss {
@@ -1575,8 +1584,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         (niuTrans ? @"niutrans" : custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":[candidates copy],
         @"directory":_preferencesDirectory ?: @""};
 }
-// Each offline dictionary answers a single target language, so the rows are merged per candidate in the user's target order. The English gloss and any account gloss fill the targets they cover; otherwise whichever source answered a candidate first would hide the other target rows.
-- (NSArray<NSDictionary *> *)offlineGlossResults:(NSDictionary *)targetGloss english:(NSArray<NSDictionary *> *)english {
+// Each offline dictionary answers a single target language, so the rows are merged per candidate in the user's target order. The English gloss and any account gloss fill the targets they cover; otherwise whichever source answered a candidate first would hide the other target rows. On-device translation comes last and fills only what every dictionary left empty: it translates the word without context, which a dictionary entry does not.
+- (NSArray<NSDictionary *> *)offlineGlossResults:(NSDictionary *)targetGloss english:(NSArray<NSDictionary *> *)english
+                                        onDevice:(NSDictionary *)onDevice {
     NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
     void (^fill)(id, NSString *, id) = ^(id text, NSString *target, id value) {
         if (![text isKindOfClass:NSString.class] || ![value isKindOfClass:NSString.class] || ![(NSString *)value length]) return;
@@ -1598,10 +1608,19 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 fill(entry[@"text"], accountTargets[index], lines[index]);
         }
     }
+    for (NSDictionary *candidate in onDevice[@"candidates"])
+        for (NSString *target in onDevice[@"target_languages"])
+            fill(candidate[@"text"], target, [[MSIMETranslationCache sharedCache] valueForIdentity:MSIMEOnDeviceGlossIdentity(target, candidate[@"text"])]);
+    // Without a target dictionary the page order comes from the English answers and the on-device request, which between them cover every candidate that can carry a gloss here.
+    NSMutableArray *texts = [NSMutableArray array];
+    for (NSDictionary *candidate in targetGloss ? _targetGlossRequest[@"candidates"] : @[]) [texts addObject:candidate[@"text"]];
+    for (NSDictionary *entry in english) if (![texts containsObject:entry[@"text"]]) [texts addObject:entry[@"text"]];
+    for (NSDictionary *candidate in onDevice[@"candidates"]) if (![texts containsObject:candidate[@"text"]]) [texts addObject:candidate[@"text"]];
+    NSArray *targets = (targetGloss ? _targetGlossRequest : onDevice)[@"target_languages"];
     NSMutableArray *results = [NSMutableArray array];
-    for (NSDictionary *candidate in _targetGlossRequest[@"candidates"]) {
-        NSString *translation = MSIMEJoinedTranslations(values[candidate[@"text"]], _targetGlossRequest[@"target_languages"]);
-        if (translation.length) [results addObject:@{@"text":candidate[@"text"], @"translation":translation}];
+    for (NSString *text in texts) {
+        NSString *translation = MSIMEJoinedTranslations(values[text], targets);
+        if (translation.length) [results addObject:@{@"text":text, @"translation":translation}];
     }
     return results;
 }
@@ -1611,8 +1630,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     BOOL glossCurrent = _glossResults && [_glossRequest isEqual:[self currentGlossRequest]];
     NSDictionary *targetGloss = _targetGlossResults.count && [_targetGlossRequest isEqual:[self currentTargetGlossRequest]]
         ? _targetGlossResults : nil;
+    NSDictionary *onDevice = _onDeviceGlossRequest && [_onDeviceGlossRequest isEqual:[self currentOnDeviceGlossRequest]]
+        ? _onDeviceGlossRequest : nil;
     if (customCurrent && _customResults.count) [results addObjectsFromArray:_customResults];
-    else if (targetGloss) [results addObjectsFromArray:[self offlineGlossResults:targetGloss english:glossCurrent ? _glossResults : nil]];
+    else if (targetGloss || onDevice)
+        [results addObjectsFromArray:[self offlineGlossResults:targetGloss english:glossCurrent ? _glossResults : nil onDevice:onDevice]];
     else if (glossCurrent) [results addObjectsFromArray:_glossResults];
     if (_accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]]) {
         NSMutableSet *existing = [NSMutableSet setWithArray:[results valueForKey:@"text"] ?: @[]];
@@ -1719,6 +1741,74 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (targets.count > 1) merge(info[@"secondaryTranslations"], targets[1]);
     _accountGlossResults = [self accountGlossResultsForRequest:_accountGlossRequest];
     [self applyCandidateTranslationResults];
+}
+
+- (void)cancelOnDeviceGloss {
+    _onDeviceGlossRequest = nil;
+}
+
+// Apple's on-device models fill the rows the offline dictionaries leave empty, for users who translate without a service of their own. A service the user configured, or the MSIME account, answers every candidate itself, so this stays idle then. Only Chinese candidates are asked about, by the same per-candidate answer the account path uses.
+- (NSDictionary *)currentOnDeviceGlossRequest {
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode || !_appearance.candidateTranslations ||
+        (_glossEnabled && !_glossEnabled.boolValue)) return nil;
+    NSDictionary *query = [_session translationQueryWithError:nil];
+    if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] || [query[@"translation_account"] isEqual:@YES]) return nil;
+    for (NSString *service in @[@"niutrans", @"custom_translation", @"tencent_tmt"]) {
+        NSDictionary *config = query[service];
+        if ([config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES]) return nil;
+    }
+    NSArray *targets = MSIMETranslationTargets(query);
+    if (!targets.count || (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets])) return nil;
+    NSDictionary *view = [_session viewWithError:nil];
+    if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"] ||
+        ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
+    NSMutableArray *candidates = [NSMutableArray array];
+    for (NSDictionary *candidate in MSIMEOnlineGlossCandidates(query)) [candidates addObject:@{@"text":candidate[@"text"]}];
+    return candidates.count ? @{@"generation":query[@"generation"], @"target_languages":targets, @"candidates":[candidates copy]} : nil;
+}
+
+- (void)fetchOnDeviceGlosses:(NSArray<NSString *> *)words targets:(NSArray<NSString *> *)targets {
+    if (MSIMEFetchOnDeviceCandidateGlosses == nullptr) return;
+    NSData *wordsJSON = [NSJSONSerialization dataWithJSONObject:words options:0 error:nil];
+    NSData *targetsJSON = [NSJSONSerialization dataWithJSONObject:targets options:0 error:nil];
+    if (!wordsJSON || !targetsJSON) return;
+    MSIMEFetchOnDeviceCandidateGlosses([[NSString alloc] initWithData:wordsJSON encoding:NSUTF8StringEncoding].UTF8String,
+                                       [[NSString alloc] initWithData:targetsJSON encoding:NSUTF8StringEncoding].UTF8String);
+}
+
+- (void)synchronizeOnDeviceGloss {
+    NSDictionary *request = [self currentOnDeviceGlossRequest];
+    if (!request) { [self cancelOnDeviceGloss]; return; }
+    if ([_onDeviceGlossRequest isEqual:request]) return;
+    _onDeviceGlossRequest = request;
+    // Only what no earlier page already answered. The backend keeps one batch in flight per language and lets a newer page replace a waiting one, so typing does not queue up stale work.
+    NSMutableArray<NSString *> *words = [NSMutableArray array];
+    NSMutableArray<NSString *> *targets = [NSMutableArray array];
+    for (NSString *target in request[@"target_languages"]) {
+        for (NSDictionary *candidate in request[@"candidates"]) {
+            NSString *text = candidate[@"text"];
+            if ([[MSIMETranslationCache sharedCache] valueForIdentity:MSIMEOnDeviceGlossIdentity(target, text)]) continue;
+            if (![words containsObject:text]) [words addObject:text];
+            if (![targets containsObject:target]) [targets addObject:target];
+        }
+    }
+    // The backend takes at most 32 words, more than any page shows.
+    if (words.count > 32) [words removeObjectsInRange:NSMakeRange(32, words.count - 32)];
+    [self applyCandidateTranslationResults];
+    if (words.count) [self fetchOnDeviceGlosses:words targets:targets];
+}
+
+- (void)onDeviceCandidateTranslationsDidArrive:(NSNotification *)notification {
+    NSString *target = notification.userInfo[@"target"];
+    NSDictionary *values = notification.userInfo[@"translations"];
+    if (![target isKindOfClass:NSString.class] || ![values isKindOfClass:NSDictionary.class]) return;
+    for (NSString *text in values) {
+        NSString *value = values[text];
+        if ([text isKindOfClass:NSString.class] && [value isKindOfClass:NSString.class])
+            [[MSIMETranslationCache sharedCache] rememberTranslation:value identity:MSIMEOnDeviceGlossIdentity(target, text)];
+    }
+    // Every controller hears the reply; only one still composing the page it asked about merges it.
+    if (_onDeviceGlossRequest && [_onDeviceGlossRequest isEqual:[self currentOnDeviceGlossRequest]]) [self applyCandidateTranslationResults];
 }
 - (MSIMECustomTranslationBatch *)customBatchForItems:(NSArray<NSDictionary *> *)items completion:(void (^)(NSArray<NSDictionary *> *))completion {
     return [[MSIMECustomTranslationBatch alloc] initWithItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
@@ -2211,6 +2301,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEVoiceSettingsDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(voiceProviderSettingsChanged:) name:MSIMEVoiceProviderSettingsDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(accountCandidateTranslationsDidArrive:) name:@"MSIMEBackendCandidateTranslationsDidArrive" object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onDeviceCandidateTranslationsDidArrive:) name:@"MSIMEBackendOnDeviceTranslationsDidArrive" object:nil];
     [NSDistributedNotificationCenter.defaultCenter addObserver:self
         selector:@selector(typingStatisticsEnabledChanged:)
         name:MSIMETypingStatisticsEnabledChangedNotification object:nil
@@ -3740,6 +3831,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     [self scheduleSettledRerank];
         [self synchronizeCandidateGloss];
         [self synchronizeTargetGloss];
+        [self synchronizeOnDeviceGloss];
         [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
         [self synchronizeCustomTranslations];
         [self synchronizeAITranslations];
@@ -4763,6 +4855,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     [self scheduleSettledRerank];
     [self synchronizeCandidateGloss];
     [self synchronizeTargetGloss];
+    [self synchronizeOnDeviceGloss];
     [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
     [self synchronizeCustomTranslations];
     [self synchronizeAITranslations];
