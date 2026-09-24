@@ -46,7 +46,10 @@ if (-not $script.Contains('function MigrateUserDataDir') -or
     -not $script.Contains('MigrateUserDataDir(ResolvePreviousDataDir')) {
     throw 'Installer does not migrate user data when DataDir changes'
 }
-if (-not $script.Contains('/COPY:DAT') -or $script.Contains('/MOVE')) {
+if ($script.Contains('/MOVE') -or
+    -not $script.Contains("Log('Copying user data; the previous directory is kept until installation succeeds.')") -or
+    -not $script.Contains('DataDirMigrated := True') -or
+    -not $script.Contains('procedure FinishDataDirMove')) {
     throw 'Installer migration must retain the previous data directory for recovery'
 }
 if (-not $script.Contains('用户数据复制失败，安装已停止')) {
