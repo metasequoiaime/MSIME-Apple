@@ -818,6 +818,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     BOOL _activeModeGlobal;
     NSMutableDictionary<NSString *, NSNumber *> *_applicationInputModes;
     NSNumber *_globalInputMode;
+    // Applications whose rule the user has switched out of by hand. A rule says what an application starts in, so an explicit Shift+空格 has to outrank it for as long as they stay there; arriving at the application again hands it back to the rule. In memory, like the remembered mode it overrides.
+    NSMutableSet<NSString *> *_inputModeRuleOverrides;
     // Per-app punctuation and width toggles. Like the reference's thread compartments they live only in memory, and a missing entry means the saved starting value.
     NSMutableDictionary<NSString *, NSNumber *> *_runtimeChinesePunctuation;
     NSMutableDictionary<NSString *, NSNumber *> *_runtimeFullWidthInput;
@@ -1644,7 +1646,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [self preferencesChanged];
 }
 - (void)activateInputModeForApplication:(NSString *)identifier {
-    _activeModeApplication = [identifier isKindOfClass:NSString.class] && identifier.length ? [identifier copy] : nil;
+    NSString *next = [identifier isKindOfClass:NSString.class] && identifier.length ? [identifier copy] : nil;
+    // Coming back to an application from somewhere else starts it in its rule again, so the hand-made override from the last visit goes. Refocusing within the same application is not a new visit and keeps it.
+    if (next != nil && ![next isEqual:_activeModeApplication]) [_inputModeRuleOverrides removeObject:next];
+    _activeModeApplication = next;
     // Scope changes take effect on activation, never in the middle of typing.
     _activeModeGlobal = [self.imeModeScope isEqual:@"global"];
 }
@@ -1664,15 +1669,17 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (mode != nil && !ValidInputModeRule(mode)) return;
     NSMutableDictionary<NSString *, NSString *> *rules = [[self applicationInputModeRules] mutableCopy];
     if (mode == nil) [rules removeObjectForKey:identifier]; else rules[identifier] = mode;
+    // Writing a rule is the user saying what this application should be in, so it takes effect now rather than waiting for them to leave and come back.
+    [_inputModeRuleOverrides removeObject:identifier];
     if (rules.count > 0) [_defaults setObject:rules forKey:AppInputModeRulesKey];
     else [_defaults removeObjectForKey:AppInputModeRulesKey];
     [self preferencesChanged];
 }
 - (BOOL)englishMode {
     if (!_activeModeApplication) return [_defaults boolForKey:EnglishKey];
-    // Rule, then memory, then the default. A rule is what the user decided this application should start in and it is saved, so it goes on answering after -resetRememberedInputModes has thrown away what they happened to do last time; it also holds under 全局 scope, which is what makes it an exception rather than a second way of saying the same thing.
+    // Rule, then memory, then the default. A rule is what the user decided this application should start in and it is saved, so it goes on answering after -resetRememberedInputModes has thrown away what they happened to do last time; it also holds under 全局 scope, which is what makes it an exception rather than a second way of saying the same thing. What it does not outrank is the user reaching for Shift+空格 inside the application: that writes an override which stands until they leave and come back.
     NSString *rule = [self applicationInputModeRules][_activeModeApplication];
-    if (rule != nil) return [rule isEqual:@"english"];
+    if (rule != nil && ![_inputModeRuleOverrides containsObject:_activeModeApplication]) return [rule isEqual:@"english"];
     NSNumber *mode = _activeModeGlobal ? _globalInputMode : _applicationInputModes[_activeModeApplication];
     return mode ? mode.boolValue : [self.defaultImeMode isEqual:@"english"];
 }
@@ -1718,6 +1725,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)resetRememberedInputModes {
     _globalInputMode = nil;
     [_applicationInputModes removeAllObjects];
+    // An override is an observation of what the user did, not a decision they wrote down, so it goes with the rest of them and the rules are left alone.
+    [_inputModeRuleOverrides removeAllObjects];
 }
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return _sharedFullWidthInput ? _sharedFullWidthInput.boolValue : [_defaults boolForKey:FullWidthKey]; }
@@ -1874,9 +1883,17 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [self preferencesChanged];
 }
 - (void)setEnglishMode:(BOOL)value {
+    [self overrideActiveInputModeRule];
     [self rememberActiveInputMode:value];
     [_defaults setBool:value forKey:EnglishKey];
     [self preferencesChanged];
+}
+/// Records that the user switched mode by hand in an application that has a rule, so -englishMode stops answering with the rule until they arrive at the application again. Does nothing where there is no rule to outrank.
+- (void)overrideActiveInputModeRule {
+    if (!_activeModeApplication) return;
+    if ([self applicationInputModeRules][_activeModeApplication] == nil) return;
+    if (!_inputModeRuleOverrides) _inputModeRuleOverrides = [NSMutableSet set];
+    [_inputModeRuleOverrides addObject:_activeModeApplication];
 }
 - (BOOL)inputModeShortcut {
     if (_sharedInputModeShortcut) return _sharedInputModeShortcut.boolValue;
@@ -2447,7 +2464,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _toolbarSettingsButton.state = self.floatingToolbarSettings ? NSControlStateValueOn : NSControlStateValueOff;
     [_toolbarThemeButton selectItemAtIndex:(NSInteger)[SurfaceThemes() indexOfObject:self.toolbarTheme]];
     [_toolbarScaleButton selectItemAtIndex:[@[@75, @100, @125, @150] indexOfObject:@(self.floatingToolbarScalePercent)]];
-    [_toolbarFontSizeButton selectItemAtIndex:self.floatingToolbarFontSize - 16];
+    // The menu steps 16, 18 … 28, so the index is the offset halved. Subtracting 16 alone indexes a 1pt menu that does not exist and runs off the end for anything above 22pt.
+    [_toolbarFontSizeButton selectItemAtIndex:(self.floatingToolbarFontSize - 16) / 2];
     _transpositionToggle.state = self.autocorrectTransposition ? NSControlStateValueOn : NSControlStateValueOff;
     _neighborToggle.state = self.autocorrectNeighbor ? NSControlStateValueOn : NSControlStateValueOff;
     _candidateFollowCursorToggle.state = self.candidateFollowCursor ? NSControlStateValueOn : NSControlStateValueOff;
