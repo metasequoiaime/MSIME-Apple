@@ -30,7 +30,9 @@ import { CandidateChipWidth } from './candidate/CandidateChipWidth';
 import { CandidateContextMenuPolicy, PointerAction, PointerButton }
   from './input/CandidateContextMenuPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
+import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
+import { CandidatePreeditStylePolicy, VisibleComposition } from './candidate/CandidatePreeditStylePolicy';
 import { CandidateTranslationStyle, TRANSLATION_OPACITY }
   from './candidate/CandidateTranslationStyle';
 import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
@@ -45,6 +47,10 @@ import { SpaceCursorMovement } from './input/SpaceCursorMovement';
 import {
   EmojiCatalogModel, EmojiCategory, EmojiItem, EmojiSymbolGroup, EMOJI_PAGE_SIZE
 } from './emoji/EmojiCatalogModel';
+import {
+  EmojiPanelKey, EmojiPanelKeyAction, EmojiPanelKeyDecision, EmojiPanelKeyPolicy
+} from './emoji/EmojiPanelKeyPolicy';
+import { EMOJI_TOOLTIP_DELAY_MS, CLIPBOARD_TOOLTIP_MAX_LINES, EmojiPanelTooltipPolicy } from './emoji/EmojiPanelTooltipPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { DesktopSurface } from './DesktopSurface';
@@ -206,6 +212,8 @@ const KAOMOJI_PANEL: string = 'kaomoji';
 const SYMBOLS_PANEL: string = 'symbols';
 // The Windows emoji panel's last page (`EmojiPanel::Page::Clipboard`). Only a 2in1 draws it as a tab: the phone reaches clipboard history from its own tools face.
 const CLIPBOARD_PANEL: string = 'clipboard';
+// Enough results to scroll through; a one-letter search would otherwise lay out the whole catalog.
+const EMOJI_SEARCH_LIMIT: number = 512;
 
 /** The shared touch-scheme record this view writes when the picker changes scheme. */
 interface TouchKeyboardSchemes {
@@ -246,6 +254,7 @@ struct KeyboardView {
   @State candidates: CandidateEntry[] = [];
   @State editing: string = '';
   @State editingCaret: number = 0;
+  @State phrasePrefix: string = '';
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
   /** Read-only English completions for the word being typed; empty whenever one is not. */
@@ -284,6 +293,20 @@ struct KeyboardView {
   @State emojiKaomojiGroups: string[] = [];
   @State emojiSymbolGroups: EmojiSymbolGroup[] = [];
   @State emojiSymbolParent: string = '';
+  // What the 2in1 panel's search reads and which item the arrows have reached; see EmojiPanelKeyPolicy.
+  @State emojiQuery: string = '';
+  @State emojiSelected: number = 0;
+  @State emojiResults: string[] = [];
+  private emojiGridScroller: Scroller = new Scroller();
+  private clipListScroller: Scroller = new Scroller();
+  // Every item of a panel with its keywords, read once per panel the first time it is searched.
+  private emojiSearchIndex: Map<string, EmojiItem[]> = new Map<string, EmojiItem[]>();
+  // The keywords of every item the panel has read, so a 2in1 hover can name it; recents that were never read show no name.
+  private emojiKeywords: Map<string, string> = new Map<string, string>();
+  // The 2in1 hover tooltip: which item it belongs to and what it says. See EmojiPanelTooltipPolicy.
+  @State hoverTipKey: string = '';
+  @State hoverTip: string = '';
+  private hoverTimer: number = -1;
   @State symbolCategory: number = 0;
   @State symbolLocked: boolean = false;
   @State nineKeyHoldOptions: string[] = [];
@@ -438,6 +461,7 @@ struct KeyboardView {
         this.voiceNotice = '已锁定录音，松开按键不会结束。';
       }
     };
+    KeyboardSession.shared.onPanelKey = (key: EmojiPanelKey): boolean => this.panelKey(key);
     KeyboardSession.shared.onSurfaceChanged = (surface: DesktopSurface): void => {
       if (SurfaceRoutingPolicy.endsVoice(this.desktop, surface) && this.voiceBusy) {
         this.cancelVoice();
@@ -446,8 +470,12 @@ struct KeyboardView {
         this.clearHandwriting();
       }
       this.desktop = surface;
-      if (surface === DesktopSurface.EMOJI && this.emojiItems.length === 0) {
-        this.loadEmoji(this.emojiGroup);
+      if (surface === DesktopSurface.EMOJI) {
+        // A search is for one visit to the panel, as it is on Windows, where the box starts empty each time the panel is shown.
+        this.resetEmojiSearch();
+        if (this.emojiItems.length === 0) {
+          this.loadEmoji(this.emojiGroup);
+        }
       }
     };
     this.applySettings();
@@ -468,7 +496,7 @@ struct KeyboardView {
       if (!KeyboardFormFactor.isDesktop()) {
         KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
           this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
-          this.settings.candidateFontSize));
+          this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
       }
     };
     KeyboardSession.shared.onReplyContextChanged = (): void => {
@@ -489,6 +517,7 @@ struct KeyboardView {
       this.candidates = state.candidates;
       this.editing = state.editing;
       this.editingCaret = state.editingCaret;
+      this.phrasePrefix = state.phrasePrefix;
       this.spellings = state.spellings;
       this.engineScheme = state.scheme;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
@@ -520,7 +549,9 @@ struct KeyboardView {
     KeyboardSession.shared.onEditorChanged = undefined;
     KeyboardSession.shared.onViewPreferencesReloaded = undefined;
     KeyboardSession.shared.onReplyContextChanged = undefined;
+    KeyboardSession.shared.onPanelKey = undefined;
     KeyboardSession.shared.invalidateReplyContext(false);
+    this.cancelHoverTip();
     this.cancelBackspace();
     this.cancelHandwritingTimer();
     this.handwritingRecognition.changed();
@@ -701,7 +732,13 @@ struct KeyboardView {
   private loadEmojiCatalog(category: string, group: string, parent: string = ''): void {
     this.emojiGroup = group;
     this.emojiShowingRecents = false;
-    const collected: string[] = [];
+    this.resetEmojiSearch();
+    this.emojiItems = this.collectEmojiCatalog(category, group, parent)
+      .map((item: EmojiItem): string => item.text);
+  }
+
+  private collectEmojiCatalog(category: string, group: string, parent: string): EmojiItem[] {
+    const collected: EmojiItem[] = [];
     let offset: number = 0;
     for (let page: number = 0; page < EMOJI_MAX_PAGES; page++) {
       const result: EmojiPage | null =
@@ -722,18 +759,166 @@ struct KeyboardView {
         break;
       }
       for (const item of items) {
-        collected.push(item.text);
+        collected.push(item);
+        if (item.annotation.length > 0) {
+          this.emojiKeywords.set(item.text, item.annotation);
+        }
       }
       offset = result.next_offset;
       if (result.complete) {
         break;
       }
     }
-    this.emojiItems = collected;
+    return collected;
+  }
+
+  /** What the grid shows: the search results while something is typed, the chosen group otherwise. */
+  private visibleEmojiItems(): string[] {
+    return this.emojiQuery.length > 0 ? this.emojiResults : this.emojiItems;
+  }
+
+  /** The clipboard entries the search leaves; Windows matches the text without regard to case. */
+  private visibleClips(): ClipboardHistoryItem[] {
+    if (this.emojiQuery.length === 0) {
+      return this.clips;
+    }
+    return this.clips.filter((entry: ClipboardHistoryItem): boolean =>
+      EmojiPanelKeyPolicy.matches(entry.text, entry.text, this.emojiQuery));
+  }
+
+  private resetEmojiSearch(): void {
+    this.emojiQuery = '';
+    this.emojiResults = [];
+    this.emojiSelected = 0;
+    this.cancelHoverTip();
+  }
+
+  /**
+   * The pointer entered or left an item. The tooltip waits until the pointer has rested for `EMOJI_TOOLTIP_DELAY_MS` and goes as soon as it leaves, like `ArmTooltip` and `CancelTooltip` on Windows. A phone has no pointer, so it never arms one.
+   */
+  private hoverItem(key: string, tip: string, isHover: boolean): void {
+    if (!KeyboardFormFactor.isDesktop()) {
+      return;
+    }
+    if (!isHover) {
+      if (this.hoverTipKey === key) {
+        this.cancelHoverTip();
+      }
+      return;
+    }
+    this.cancelHoverTip();
+    if (tip.length === 0) {
+      return;
+    }
+    this.hoverTimer = setTimeout((): void => {
+      this.hoverTimer = -1;
+      this.hoverTip = tip;
+      this.hoverTipKey = key;
+    }, EMOJI_TOOLTIP_DELAY_MS);
+  }
+
+  private cancelHoverTip(): void {
+    if (this.hoverTimer >= 0) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = -1;
+    }
+    this.hoverTipKey = '';
+    this.hoverTip = '';
+  }
+
+  /** An emoji cell's hover name; nothing when the only name there is would be the emoji itself. */
+  private emojiHoverName(item: string): string {
+    const name: string = EmojiPanelTooltipPolicy.displayName(this.emojiKeywords.get(item) ?? '', item);
+    return name === item ? '' : name;
+  }
+
+  /**
+   * Searches the open tab across all of its groups, the way a Windows detail page searches every group on it.
+   *
+   * The whole tab is read once and kept, so each key filters in memory rather than asking the Engine again.
+   */
+  private searchEmoji(query: string): void {
+    this.emojiQuery = query;
+    this.emojiSelected = 0;
+    if (query.length === 0 || this.emojiPanel === CLIPBOARD_PANEL) {
+      this.emojiResults = [];
+      return;
+    }
+    let index: EmojiItem[] | undefined = this.emojiSearchIndex.get(this.emojiPanel);
+    if (index === undefined) {
+      let pages: EmojiItem[][] = [];
+      if (this.emojiPanel === EMOJI_PANEL) {
+        pages = EmojiCatalogModel.categories().map((category: EmojiCategory): EmojiItem[] =>
+          this.collectEmojiCatalog(EMOJI_PANEL, category.group, ''));
+      } else if (this.emojiPanel === KAOMOJI_PANEL) {
+        pages = this.emojiKaomojiGroups.map((group: string): EmojiItem[] =>
+          this.collectEmojiCatalog(KAOMOJI_PANEL, group, ''));
+      } else {
+        pages = this.emojiSymbolGroups.map((group: EmojiSymbolGroup): EmojiItem[] =>
+          this.collectEmojiCatalog(SYMBOLS_PANEL, '', group.parent));
+      }
+      const flattened: EmojiItem[] = [];
+      for (const page of pages) {
+        for (const item of page) {
+          flattened.push(item);
+        }
+      }
+      index = flattened;
+      this.emojiSearchIndex.set(this.emojiPanel, index);
+    }
+    const results: string[] = [];
+    for (const item of index) {
+      if (EmojiPanelKeyPolicy.matches(item.text, item.annotation, query) && !results.includes(item.text)) {
+        results.push(item.text);
+        if (results.length === EMOJI_SEARCH_LIMIT) {
+          break;
+        }
+      }
+    }
+    this.emojiResults = results;
+  }
+
+  /** A hardware key offered to the open 2in1 panel; false leaves it to the editor. */
+  private panelKey(key: EmojiPanelKey): boolean {
+    const clipboard: boolean = this.emojiPanel === CLIPBOARD_PANEL;
+    const clips: ClipboardHistoryItem[] = clipboard ? this.visibleClips() : [];
+    const items: string[] = clipboard ? [] : this.visibleEmojiItems();
+    const decision: EmojiPanelKeyDecision = EmojiPanelKeyPolicy.decide(key,
+      clipboard ? clips.length : items.length, clipboard ? 1 : EMOJI_COLUMNS, this.emojiSelected,
+      this.emojiQuery);
+    if (decision.action === EmojiPanelKeyAction.NONE) {
+      return false;
+    }
+    if (decision.action === EmojiPanelKeyAction.CLOSE) {
+      this.leaveSurface(DesktopSurface.EMOJI);
+    } else if (decision.action === EmojiPanelKeyAction.SEARCH) {
+      this.searchEmoji(decision.query);
+      this.revealEmojiSelection(clipboard);
+    } else if (decision.action === EmojiPanelKeyAction.ACTIVATE) {
+      if (clipboard) {
+        KeyboardSession.shared.insert(clips[decision.index].text);
+      } else {
+        this.selectEmoji(items[decision.index]);
+      }
+    } else {
+      this.emojiSelected = decision.index;
+      this.revealEmojiSelection(clipboard);
+    }
+    return true;
+  }
+
+  private revealEmojiSelection(clipboard: boolean): void {
+    try {
+      (clipboard ? this.clipListScroller : this.emojiGridScroller)
+        .scrollToIndex(this.emojiSelected, false, ScrollAlign.AUTO);
+    } catch (error) {
+      KeyboardLog.error(`emoji panel scroll unavailable: ${describeError(error)}`);
+    }
   }
 
   private showEmojiPanel(panel: string): void {
     this.emojiPanel = panel;
+    this.resetEmojiSearch();
     if (panel === CLIPBOARD_PANEL) {
       this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
       this.clipboardNotice = this.clipboardEnabled ? '' : '剪贴板历史已在设置中关闭';
@@ -762,6 +947,7 @@ struct KeyboardView {
 
   private showEmojiRecents(): void {
     this.emojiShowingRecents = true;
+    this.resetEmojiSearch();
     this.emojiRecents = KeyboardSession.shared.emojiRecents();
     this.emojiItems = this.emojiRecents.slice();
   }
@@ -1306,12 +1492,16 @@ struct KeyboardView {
    * Width is estimated the way the wrap policy estimates it, one font size per code point, because
    * ArkUI reports text extent only after layout and this has to precede it.
    */
-  private candidateChipWidth(candidate: CandidateEntry): Length {
+  private candidateChipWidth(candidate: CandidateEntry, index: number): Length {
     if (KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical') {
       return '100%';
     }
     const padding: number = KeyboardMetrics.CANDIDATE_PADDING_VP;
-    const word: number = Array.from(candidate.text).length * this.settings.candidateFontSize;
+    // A desktop chip also carries its ordinal and its suffix, and the window is sized from the same estimate (CandidateWidthPolicy.rowWidthVp); counting the word alone made each chip narrower than what it draws.
+    const word: number = KeyboardFormFactor.isDesktop()
+      ? CandidateWidthPolicy.chipContentVp(candidate, index, this.settings.candidateFontSize,
+        CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
+      : Array.from(candidate.text).length * this.settings.candidateFontSize;
     if (!KeyboardSession.shared.glossesExpected()) {
       return CandidateChipWidth.chip(word, false, 0, padding);
     }
@@ -1328,8 +1518,19 @@ struct KeyboardView {
       && KeyboardSession.shared.glossRows() > 0;
   }
 
+  /** The composition as 「候选栏预编辑」 lets it be seen; see CandidatePreeditStylePolicy. */
+  private visibleComposition(): VisibleComposition {
+    return CandidatePreeditStylePolicy.visible(this.settings.candidateShowPreedit, this.phrasePrefix, this.editing,
+      this.localMode);
+  }
+
+  /** One candidate row without the reserved gloss line; see KeyboardMetrics.candidateRowHeightVp. */
+  private candidateLineHeight(): number {
+    return KeyboardMetrics.candidateRowHeightVp(this.settings.candidateFontSize, KeyboardFormFactor.isDesktop());
+  }
+
   private candidateRowHeight(): number {
-    return KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
+    return this.candidateLineHeight()
       + (this.candidateUsesGlossLine()
         ? KeyboardMetrics.glossHeightVp(KeyboardSession.shared.glossRows(),
           this.settings.candidateFontSize) : 0);
@@ -1447,19 +1648,29 @@ struct KeyboardView {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
           } else {
-            Row() {
-              Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).before)
-                .fontSize(this.settings.candidatePreeditFontSize)
-                .fontColor(this.candidateAccentColor())
-                .fontFamily(this.candidateFontFamily())
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Divider()
-                .vertical(true)
-                .strokeWidth(PREEDIT_CARET_WIDTH_VP)
-                .height(PreeditCaretPolicy.height(this.settings.candidatePreeditFontSize))
-                .color(this.candidateAccentColor())
-              Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).after)
+            if (this.visibleComposition().caret) {
+              Row() {
+                Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).before)
+                  .fontSize(this.settings.candidatePreeditFontSize)
+                  .fontColor(this.candidateAccentColor())
+                  .fontFamily(this.candidateFontFamily())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Divider()
+                  .vertical(true)
+                  .strokeWidth(PREEDIT_CARET_WIDTH_VP)
+                  .height(PreeditCaretPolicy.height(this.settings.candidatePreeditFontSize))
+                  .color(this.candidateAccentColor())
+                Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).after)
+                  .fontSize(this.settings.candidatePreeditFontSize)
+                  .fontColor(this.candidateAccentColor())
+                  .fontFamily(this.candidateFontFamily())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+              }
+            } else {
+              // 「候选栏预编辑：不显示」 on the phone: the line keeps its height and loses the spelling, but not the chosen part of a phrase or a local mode's trigger.
+              Text(this.visibleComposition().text)
                 .fontSize(this.settings.candidatePreeditFontSize)
                 .fontColor(this.candidateAccentColor())
                 .fontFamily(this.candidateFontFamily())
@@ -1474,7 +1685,7 @@ struct KeyboardView {
       }
       .width('100%')
       .height(KeyboardFormFactor.isDesktop() && !this.settings.candidateShowPreedit
-        ? 0 : KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP)
+        ? 0 : KeyboardMetrics.compositionRowHeightVp(this.settings.candidatePreeditFontSize))
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
         right: KeyboardMetrics.CANDIDATE_PADDING_VP })
 
@@ -1534,8 +1745,8 @@ struct KeyboardView {
             .fontColor(this.candidateTextColor())
             .accessibilityText(`手写候选：${candidate}`)
             .textAlign(TextAlign.Center)
-            .width(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
-            .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+            .width(this.candidateLineHeight())
+            .height(this.candidateLineHeight())
             .backgroundColor(this.handwritingSkin.keyBackground)
             .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
             .onClick(() => this.chooseHandwriting(candidate))
@@ -1563,7 +1774,7 @@ struct KeyboardView {
             .accessibilityText(KeyAccessibilityPolicy.englishSuggestion(index + 1, word))
             .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
               right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-            .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+            .height(this.candidateLineHeight())
             .onClick(() => KeyboardSession.shared.useEnglishSuggestion(index))
         }, (word: string, index: number) => `${index}:${word}`)
       }
@@ -1589,8 +1800,7 @@ struct KeyboardView {
       // One row per candidate here and exactly one there. The two used to share a ternary applied to
       // the if/else as a whole, which ArkUI cannot do: modifiers belong to a component, and a branch
       // is not one. Each branch states its own height, and the condition already decided which.
-      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
-        * Math.max(1, Math.min(9, this.candidates.length)))
+      .height(this.candidateRowHeight() * Math.max(1, Math.min(9, this.candidates.length)))
       .onAxisEvent((event?: AxisEvent): void => {
         if (!this.settings.navigation.mouseWheel || event === undefined) {
           return;
@@ -1618,13 +1828,16 @@ struct KeyboardView {
       .layoutWeight(1)
       .height(this.candidateRowHeight())
       .align(Alignment.Start)
-      Text('\u2228')
-        .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-        .fontColor(this.candidatePalette().accent)
-        .padding({ left: 10, right: 12 })
-        .onClick(() => {
-          this.expanded = KeyboardSession.shared.allCandidates();
-        })
+      // A candidate window shows its whole page and pages with the keys and the wheel, as the Windows one does; the expand chevron is the touch strip's way to reach what does not fit.
+      if (!KeyboardFormFactor.isDesktop()) {
+        Text('\u2228')
+          .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+          .fontColor(this.candidatePalette().accent)
+          .padding({ left: 10, right: 12 })
+          .onClick(() => {
+            this.expanded = KeyboardSession.shared.allCandidates();
+          })
+      }
       }
       .width('100%')
       .height(this.candidateRowHeight())
@@ -1709,7 +1922,7 @@ struct KeyboardView {
     Row() {
       if (candidate.highlighted && (this.settings.candidateSelectedBar
         ?? CandidateSkinPolicy.showSelectedBar(this.settings.candidateSkinId))) {
-        Blank().width(3).height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * 0.55)
+        Blank().width(3).height(this.candidateLineHeight() * 0.55)
           .backgroundColor(this.candidatePalette().accent).borderRadius(2)
       }
       if (CandidateNumberFontPolicy.visible(KeyboardFormFactor.isDesktop())) {
@@ -1735,7 +1948,7 @@ struct KeyboardView {
     }.alignItems(VerticalAlign.Center)
       .accessibilityText(this.candidateLabel(candidate, index))
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-      .height(this.candidateRowHeight()).width(this.candidateChipWidth(candidate))
+      .height(this.candidateRowHeight()).width(this.candidateChipWidth(candidate, index))
       .backgroundColor(index === this.hoveredCandidate ? this.candidateHoverColor()
         : candidate.highlighted ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
       .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
@@ -2542,13 +2755,15 @@ struct KeyboardView {
     this.touchCandidateMenu = false;
     this.managing = -1;
     const candidate: CandidateEntry = this.candidates[index];
-    if (CandidateManagementAction.touchActions(
+    // A 2in1 touch screen keeps the gloss alone, because its right click already opens management. A phone has no right click, so its long press is the only way to 优先显示, 固定排位 and 删除词条, and opens the whole menu the way Android's does.
+    const glossOnly: boolean = KeyboardFormFactor.isDesktop();
+    if (glossOnly && CandidateManagementAction.touchActions(
       candidate.annotation, candidate.annotationIsTranslation).length === 0) {
       return;
     }
     this.punctuation = false;
     this.brackets = false;
-    this.touchCandidateMenu = true;
+    this.touchCandidateMenu = glossOnly;
     this.managing = index;
   }
 
@@ -2572,7 +2787,7 @@ struct KeyboardView {
     this.touchVoiceShortcut = this.settings.voiceShortcut;
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
-      this.settings.candidateFontSize));
+      this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
   }
 
   private beginGeometryDrag(event: TouchEvent): void {
@@ -3627,24 +3842,13 @@ struct KeyboardView {
       return managed === null ? [] : CandidateManagementAction.touchActions(
         managed.annotation, managed.annotationIsTranslation);
     }
-    const source: number = managed === null ? 0 : managed.source;
-    const actions: ManagementAction[] = CandidateManagementAction.actionsForFixedPosition(
+    // The gloss is what the source offers here, and until now this host could show a translation without ever letting anyone type it: macOS has Option and a digit, and a touch keyboard has no modifiers to spare.
+    return CandidateManagementAction.managementActions(
+      managed === null ? '' : managed.annotation, managed !== null && managed.annotationIsTranslation,
       managed === null ? 0 : managed.fixedPosition,
       CandidateManagementAction.candidateActionsAvailable(
-        KeyboardScheme.engineSchemeName(this.engineScheme), source),
+        KeyboardScheme.engineSchemeName(this.engineScheme), managed === null ? 0 : managed.source),
       CandidateManagementAction.hasMultipleCodePoints(managed === null ? '' : managed.text));
-    // The gloss is what the source offers here, and until now this host could show a translation
-    // without ever letting anyone type it: macOS has Option and a digit, and a touch keyboard has
-    // no modifiers to spare. Only a real translation — an Engine annotation such as a Wubi code
-    // shares the slot and is not a word.
-    if (managed !== null && managed.annotationIsTranslation) {
-      const gloss: ManagementAction | null =
-        CandidateManagementAction.glossAction(managed.annotation);
-      if (gloss !== null) {
-        return [gloss].concat(actions);
-      }
-    }
-    return actions;
   }
 
   @Builder
@@ -3655,54 +3859,62 @@ struct KeyboardView {
         .fontColor(this.overlaySkin().keyForeground)
         .opacity(0.55)
         .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP })
-      if (this.expandedGloss >= 0) {
-        // One action, drawn like the others rather than as a sentence: it is a thing to tap.
-        ForEach(this.expandedGlossActions(), (item: ManagementAction) => {
-          Text(item.title)
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.overlaySkin().accent)
-            .padding({ left: 10, right: 10 })
-            .onClick(() => this.insertExpandedGloss())
-        }, (item: ManagementAction) => `${item.id}:${item.title}`)
-      } else if (this.brackets) {
-        ForEach(JapaneseNineKeyLayout.digitBrackets(), (bracket: string) => {
-          Text(bracket)
-            .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
-            .fontColor(this.overlaySkin().keyForeground)
-            .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-              right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-            .onClick(() => {
-              // Straight in, like every other label on this layer that carries no stroke.
-              KeyboardSession.shared.insert(bracket);
-              this.brackets = false;
-            })
-        }, (bracket: string) => bracket + this.faceKey())
-      } else if (this.punctuation) {
-        ForEach(QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode),
-          (item: PunctuationEntry) => {
-            Text(item.face)
-              .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
-              .fontColor(this.overlaySkin().keyForeground)
-              .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-                right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-              .onClick(() => {
-                // The face is what the Engine will print; the key is what it is told.
-                KeyboardSession.shared.punctuation(item.input.charCodeAt(0));
-                this.punctuation = false;
-              })
-          }, (item: PunctuationEntry) => item.face + this.faceKey())
-      } else {
-        ForEach(this.managementActions(), (item: ManagementAction) => {
-          Text(item.title)
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(item.available === false ? this.overlaySkin().keyForeground :
-              item.checked === true ? this.overlaySkin().keyForeground : this.overlaySkin().accent)
-            .opacity(item.available === false ? 0.35 : 1)
-            .padding({ left: 10, right: 10 })
-            .onClick(() => this.manageCandidate(item, this.managing))
-        }, (item: ManagementAction) => `${item.id}:${item.menuItemId}`)
+      // Scrolls sideways: a phone's long press opens the whole management menu, which is wider than the screen, and the title and × stay put either side of it.
+      Scroll() {
+        Row() {
+          if (this.expandedGloss >= 0) {
+            // One action, drawn like the others rather than as a sentence: it is a thing to tap.
+            ForEach(this.expandedGlossActions(), (item: ManagementAction) => {
+              Text(item.title)
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(this.overlaySkin().accent)
+                .padding({ left: 10, right: 10 })
+                .onClick(() => this.insertExpandedGloss())
+            }, (item: ManagementAction) => `${item.id}:${item.title}`)
+          } else if (this.brackets) {
+            ForEach(JapaneseNineKeyLayout.digitBrackets(), (bracket: string) => {
+              Text(bracket)
+                .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
+                .fontColor(this.overlaySkin().keyForeground)
+                .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                  right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+                .onClick(() => {
+                  // Straight in, like every other label on this layer that carries no stroke.
+                  KeyboardSession.shared.insert(bracket);
+                  this.brackets = false;
+                })
+            }, (bracket: string) => bracket + this.faceKey())
+          } else if (this.punctuation) {
+            ForEach(QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode),
+              (item: PunctuationEntry) => {
+                Text(item.face)
+                  .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
+                  .fontColor(this.overlaySkin().keyForeground)
+                  .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                    right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+                  .onClick(() => {
+                    // The face is what the Engine will print; the key is what it is told.
+                    KeyboardSession.shared.punctuation(item.input.charCodeAt(0));
+                    this.punctuation = false;
+                  })
+              }, (item: PunctuationEntry) => item.face + this.faceKey())
+          } else {
+            ForEach(this.managementActions(), (item: ManagementAction) => {
+              Text(item.title)
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(item.available === false ? this.overlaySkin().keyForeground :
+                  item.checked === true ? this.overlaySkin().keyForeground : this.overlaySkin().accent)
+                .opacity(item.available === false ? 0.35 : 1)
+                .padding({ left: 10, right: 10 })
+                .onClick(() => this.manageCandidate(item, this.managing))
+            }, (item: ManagementAction) => `${item.id}:${item.menuItemId}`)
+          }
+        }
       }
-      Blank()
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .align(Alignment.Start)
+      .layoutWeight(1)
       Text('×')
         .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
         .fontColor(this.overlaySkin().keyForeground)
@@ -3726,7 +3938,7 @@ struct KeyboardView {
   expandedFace() {
     Column() {
       Row() {
-        Text(this.editing)
+        Text(this.visibleComposition().text)
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
           .fontColor(this.skin.accent)
           .maxLines(1)
@@ -4011,6 +4223,13 @@ struct KeyboardView {
                     strength: KeyboardFeedback.nextStrength(this.feedback.strength)
                   }));
               }
+              GridItem() {
+                // The source's tray and toolbar keep the whole settings application one click away while typing; this is the phone's way there, since it has neither.
+                this.toolCard('更多设置', null, $r('app.media.tool_settings'), false, true, () => {
+                  this.show(SURFACE_NONE);
+                  KeyboardSession.shared.openSettings();
+                });
+              }
             }
             .columnsTemplate('1fr 1fr')
             .width('100%')
@@ -4123,9 +4342,20 @@ struct KeyboardView {
             right: KeyboardMetrics.CANDIDATE_PADDING_VP })
       }
 
-      Scroll() {
-        Column({ space: KeyboardMetrics.KEY_SPACING_VP }) {
-          ForEach(this.clips, (entry: ClipboardHistoryItem) => {
+      if (this.emojiQuery.length > 0 && this.visibleClips().length === 0) {
+        Text('没有匹配的剪贴板记录')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.clipboardSkin().keyForeground)
+          .opacity(0.7)
+          .width('100%')
+          .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+            right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+      }
+
+      // A List rather than a Column in a Scroll so the 2in1 arrows can bring the selected entry into view.
+      List({ space: KeyboardMetrics.KEY_SPACING_VP, scroller: this.clipListScroller }) {
+          ForEach(this.visibleClips(), (entry: ClipboardHistoryItem, index: number) => {
+            ListItem() {
             Row() {
               Text(entry.text)
                 .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
@@ -4134,6 +4364,9 @@ struct KeyboardView {
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .layoutWeight(1)
                 .onClick(() => KeyboardSession.shared.insert(entry.text))
+                .onHover((isHover: boolean): void => this.hoverItem(`clip:${entry.text}`,
+                  EmojiPanelTooltipPolicy.clipboardText(entry.text), isHover))
+                .bindPopup(this.hoverTipKey === `clip:${entry.text}`, this.hoverTipOptions(`clip:${entry.text}`))
               Text(entry.pinned ? '已固定' : '固定')
                 .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
                 .fontColor(entry.pinned ? this.clipboardSkin().accent : this.clipboardSkin().keyForeground)
@@ -4153,13 +4386,59 @@ struct KeyboardView {
               right: KeyboardMetrics.CANDIDATE_PADDING_VP, top: 6, bottom: 6 })
             .backgroundColor(this.clipboardSkin().keyBackground)
             .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+            .border({ width: this.panelKeySelected(index) ? 2 : 0, color: this.clipboardSkin().accent,
+              radius: KeyboardMetrics.KEY_CORNER_VP })
+            }
           })
-        }
-        .width('100%')
       }
       .scrollBar(BarState.Off)
       .width('100%')
       .layoutWeight(1)
+  }
+
+  /** The hover tooltip itself, in the Windows tooltip's dark plate whatever the panel's theme. */
+  @Builder
+  hoverTipBody() {
+    Text(this.hoverTip)
+      .fontSize(13)
+      .fontColor('#F5F5F7')
+      .maxLines(CLIPBOARD_TOOLTIP_MAX_LINES)
+      .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .constraintSize({ maxWidth: 360 })
+      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+  }
+
+  private hoverTipOptions(key: string): CustomPopupOptions {
+    return {
+      builder: this.hoverTipBody,
+      placement: Placement.Top,
+      enableArrow: false,
+      popupColor: '#F52B2B33',
+      autoCancel: true,
+      onStateChange: (event: PopupStateChangeParam): void => {
+        // Only the item that owns the tooltip may clear it; every other item's popup reports hidden too.
+        if (!event.isVisible && this.hoverTipKey === key) {
+          this.hoverTipKey = '';
+        }
+      }
+    };
+  }
+
+  /** Says what typing will search, the way the Windows box's placeholder follows the page. */
+  private emojiSearchPlaceholder(): string {
+    if (this.emojiPanel === CLIPBOARD_PANEL) {
+      return '键入以搜索剪贴板';
+    }
+    if (this.emojiPanel === KAOMOJI_PANEL) {
+      return '键入以搜索颜文字';
+    }
+    return this.emojiPanel === SYMBOLS_PANEL ? '键入以搜索符号' : '键入以搜索表情';
+  }
+
+  /** Whether an item carries the 2in1 keyboard selection; a phone panel is touched, so it never shows one. */
+  private panelKeySelected(index: number): boolean {
+    return KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.EMOJI
+      && index === this.emojiSelected;
   }
 
   /** The emoji grid, with the Unicode categories down the top and the group's entries below. */
@@ -4289,18 +4568,55 @@ struct KeyboardView {
       .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
       .align(Alignment.Start)
 
+      // The Windows panel's search box. Not a text field: that would ask the system for an input method inside the input method. The physical keys the panel receives spell it instead (EmojiPanelKeyPolicy), so only a 2in1, which routes them here, draws it.
+      if (KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.EMOJI) {
+        Row() {
+          Text(this.emojiQuery.length > 0 ? this.emojiQuery : this.emojiSearchPlaceholder())
+            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+            .fontColor(this.emojiSkin.keyForeground)
+            .opacity(this.emojiQuery.length > 0 ? 1 : 0.55)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+          if (this.emojiQuery.length > 0) {
+            Text('\u00d7')
+              .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+              .fontColor(this.emojiSkin.accent)
+              .padding({ left: 8, right: 8 })
+              .onClick(() => this.searchEmoji(''))
+          }
+        }
+        .width('100%')
+        .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+        .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+          right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+      }
+
       if (this.emojiPanel === CLIPBOARD_PANEL) {
         this.clipboardEntries()
+      } else if (this.emojiQuery.length > 0 && this.emojiResults.length === 0) {
+        Text('没有匹配的结果')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.emojiSkin.keyForeground)
+          .opacity(0.7)
+          .width('100%')
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
       } else {
-        Grid() {
-          ForEach(this.emojiItems, (item: string) => {
+        Grid(this.emojiGridScroller) {
+          ForEach(this.visibleEmojiItems(), (item: string, index: number) => {
             GridItem() {
               Text(item)
                 .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE + 4)
                 .fontColor(this.emojiSkin.keyForeground)
                 .textAlign(TextAlign.Center)
                 .width('100%')
+                .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+                .backgroundColor(this.panelKeySelected(index) ? this.emojiSkin.keyBackground : Color.Transparent)
                 .onClick(() => this.selectEmoji(item))
+                .onHover((isHover: boolean): void => this.hoverItem(`emoji:${index}:${item}`,
+                  this.emojiHoverName(item), isHover))
+                .bindPopup(this.hoverTipKey === `emoji:${index}:${item}`, this.hoverTipOptions(`emoji:${index}:${item}`))
             }
           }, (item: string, index: number) => `${index}:${item}`)
         }
@@ -4528,7 +4844,8 @@ struct KeyboardView {
         .padding({
           left: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
           right: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
-          top: KeyboardMetrics.ROOT_VERTICAL_PADDING_VP + KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP
+          top: KeyboardMetrics.ROOT_VERTICAL_PADDING_VP
+            + KeyboardMetrics.compositionRowHeightVp(this.settings.candidatePreeditFontSize)
             + this.candidateRowHeight() + KeyboardMetrics.ROW_SPACING_VP
         })
       }

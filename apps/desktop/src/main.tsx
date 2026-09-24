@@ -212,6 +212,10 @@ const client: SettingsClient = {
   openCloudDictionary: () => invoke("open_cloud_dictionary_panel"),
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
+  inputSourceStartup: {
+    status: () => invoke("input_source_startup_status"),
+    openSettings: () => invoke("open_input_source_settings"),
+  },
   uninstallInputSource: (removeUserData) => invoke("uninstall_input_source", { removeUserData }),
   dataDirectory: {
     status: () => invoke("data_directory_status"),

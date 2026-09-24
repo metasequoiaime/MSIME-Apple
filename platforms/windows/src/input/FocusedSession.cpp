@@ -330,6 +330,15 @@ bool FocusedSession::set_chinese_punctuation(const FocusLease &lease, bool enabl
     session_.set_chinese_punctuation(lease.epoch, enabled);
   });
 }
+bool FocusedSession::balance_paired_punctuation(const FocusLease &lease,
+                                                uint8_t opening) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    session_.balance_paired_punctuation(lease.epoch, opening);
+  });
+}
 bool FocusedSession::cancel_composition(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))

@@ -21,8 +21,12 @@ function InprocServer([string]$ClassesRoot) {
 }
 function TaskExists { $null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) }
 
+# A custom data directory, not the default: the uninstaller used to re-read DataDir after its registry value was already gone and so only ever removed the default location.
+$dataDir = Join-Path $env:RUNNER_TEMP 'msime-smoke-data'
+if (Test-Path -LiteralPath $dataDir) { Remove-Item -LiteralPath $dataDir -Recurse -Force }
+
 # ---- install ----
-$process = Start-Process -FilePath $Installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$logs\install.log`"" -Wait -PassThru
+$process = Start-Process -FilePath $Installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DATADIR=`"$dataDir`"", "/LOG=`"$logs\install.log`"" -Wait -PassThru
 if ($process.ExitCode -ne 0) { Get-Content -LiteralPath "$logs\install.log" -Tail 60; throw "installer exited with $($process.ExitCode)" }
 
 $app = Get-ItemProperty -LiteralPath $appKey
@@ -42,6 +46,19 @@ Check ((InprocServer 'HKLM:\SOFTWARE\Classes') -eq $tip64) '64-bit COM server re
 Check ((InprocServer 'HKLM:\SOFTWARE\WOW6432Node\Classes') -eq $tip32) '32-bit COM server registered to the installed DLL'
 Check (Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$clsid") 'TIP registered with the text services framework'
 Check (TaskExists) 'watchdog logon task created'
+Check ($app.DataDir -eq $dataDir) "DataDir recorded as the /DATADIR choice ($($app.DataDir))"
+# schtasks splits an unquoted /TR at the first space; the stored action must be the whole Program Files path with no arguments.
+$action = if (TaskExists) { @((Get-ScheduledTask -TaskName $taskName).Actions)[0] } else { $null }
+$watchdog = Join-Path $pf64 'server\MetasequoiaImeWatchdog.exe'
+Check ($null -ne $action -and $action.Execute.Trim('"') -eq $watchdog -and [string]::IsNullOrEmpty($action.Arguments)) "watchdog task runs the full Watchdog path ($(if ($action) { "$($action.Execute) | $($action.Arguments)" }))"
+# The Server and settings window run at medium integrity and must be able to write what the elevated installer created.
+$rules = (Get-Acl -LiteralPath $app.DataDir).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
+$usersModify = @($rules | Where-Object {
+    $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-5-32-545' -and
+    ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })
+Check ($usersModify.Count -gt 0) 'DataDir grants Users modify'
+$label = (& icacls $app.DataDir) -join "`n"
+Check ($label.Contains('Mandatory Label\Medium Mandatory Level')) 'DataDir carries a medium integrity label'
 
 # The notices must carry the supplemental Rust and npm sections that the release collects, not only the vcpkg prefixes and the Engine.
 $notices = Join-Path $pf64 'THIRD_PARTY_NOTICES.txt'
