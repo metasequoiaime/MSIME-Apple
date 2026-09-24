@@ -14,7 +14,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 - (void)reloadSkins;
 - (BOOL)applyCloudSettingsSnapshot:(NSDictionary *)values;
 - (NSDictionary *)cloudSettingsSnapshot;
-- (NSWindowController *)skinCatalogController;
+/// The skin browser, which is the 皮肤 page itself rather than a window of its own.
+- (NSView *)skinSettingsView;
 - (void)setTranslationPreferencesDirectory:(NSString *)directory;
 /// Applies only settings owned by this window to an existing shared Preferences object.
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot;
