@@ -5,7 +5,7 @@ The installer consumes a staging directory, not source-tree paths. `Prepare-Pack
 | Staging path | Contents |
 | --- | --- |
 | `tsf_dll/32` and `tsf_dll/64` | `MetasequoiaImeTsf.dll` and matching symbols |
-| `server_exe` | Windows Server, Tauri `msime-client-settings.exe`, the `msime-mcp.exe` MCP server for AI assistants, and native resources |
+| `server_exe` | Windows Server, native WinUI 3 `msime-client-settings.exe`, the shared `MSIME.exe` panel shell, the `msime-mcp.exe` MCP server for AI assistants, and native resources |
 | `app_data` | default configuration and runtime resources |
 | `app_data/html` | WebView2 UI assets |
 
@@ -17,4 +17,4 @@ For the complete release sequence, use `Package-SimplySign.ps1`. It builds both 
 
 `msime_setup.iss` requires Inno Setup 6.6 or newer. It installs the 32- and 64-bit TSF DLLs under `{commonpf32|64}\metasequoiaime\msime_v<version>\` with the `regserver` flag so the TIP is registered, puts the Server package under `{commonpf64}\metasequoiaime\server`, writes `VersionDir`, `ServerPath` and `DataDir` under `HKLM\Software\Metasequoia\MetasequoiaIME`, and copies `config.toml` only when it does not already exist so an upgrade never overwrites user configuration. `THIRD_PARTY_NOTICES.txt` and `LICENSE.txt` ship with the package, as GPLv3 sections 4 and 6 require. `ISCC /DLightPackage=1` produces the light package, which omits the bundled dictionaries.
 
-Build the Tauri desktop release before staging. `Prepare-PackageFiles.ps1` requires `target/release/msime-desktop.exe` by default; use `-DesktopExecutable` for an absolute path or a path relative to `-RepoRoot` (for example a Cargo target-triple output directory). Both full and light packages include this binary under the name resolved by the native shell launcher. A missing binary is rejected before resetting the existing staging directories. That check confirms the file is present and is the right PE type; whether the installed machine has the WebView2 runtime is checked at install time by the installer itself.
+Build the native WinUI 3 settings project and the shared Tauri panel shell before staging. `Prepare-PackageFiles.ps1` accepts the native settings executable through `-DesktopExecutable` (defaulting to `target/windows-full/x64/bin/msime-client-settings.exe`) and an optional `-DesktopPreviewExecutable`; the consolidated build discovers both beside the Server automatically. Both full and light packages include the two binaries under the names resolved by the native shell launcher. A missing settings binary is rejected before resetting the existing staging directories. The shared panel shell still needs WebView2; the WinUI 3 settings window does not.

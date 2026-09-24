@@ -13,17 +13,21 @@ try {
     [IO.File]::WriteAllText($desktopSymbols, 'synthetic symbols')
     $mcpSymbols = Join-Path $fixture 'target/x86_64-pc-windows-msvc/release/msime_mcp.pdb'
     [IO.File]::WriteAllText($mcpSymbols, 'synthetic symbols')
+    $settingsSymbols = Join-Path $fixture 'target/windows-full/x64/bin/MSIME.Settings.pdb'
+    New-Item -ItemType Directory -Force (Split-Path -Parent $settingsSymbols) | Out-Null
+    [IO.File]::WriteAllText($settingsSymbols, 'synthetic WinUI symbols')
     foreach ($arch in @('x86', 'x64')) {
         foreach ($dll in @('MetasequoiaImeTsf.dll', 'msime_host_api.dll')) {
             Write-PEFixture (Join-Path $fixture "target/windows-full/$arch/bin/$dll") $arch dll
         }
     }
     foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
-        'MetasequoiaImeDictionaryReplay.exe', 'msime-mcp.exe', 'msime-client-settings.exe')) {
+        'MetasequoiaImeDictionaryReplay.exe', 'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe')) {
         Write-PEFixture (Join-Path $fixture "target/windows-full/x64/bin/$exe") x64 exe
     }
     foreach ($relative in @('Cargo.toml', 'vendor/MSIME-Engine/CMakeLists.txt',
-        'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt', 'apps/desktop/package.json')) {
+        'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt',
+        'platforms/windows/settings/MSIME.Settings.vcxproj', 'apps/desktop/package.json')) {
         $path = Join-Path $fixture $relative
         New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
         [IO.File]::WriteAllText($path, 'synthetic')
@@ -41,12 +45,14 @@ try {
     function global:cargo { Invoke-ClientCommandProbe cargo $args }
     function global:cmake { Invoke-ClientCommandProbe cmake $args }
     function global:pnpm { Invoke-ClientCommandProbe pnpm $args }
+    function global:msbuild { Invoke-ClientCommandProbe msbuild $args }
     $entry = Join-Path $PSScriptRoot '../../Build-Client.ps1'
     $global:ClientBuildCalls = [Collections.Generic.List[object]]::new()
     $global:ClientBuildFailAt = 0
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -TargetVersion '2026.9.1'
     $count = $global:ClientBuildCalls.Count
-    $desktopArgs = $global:ClientBuildCalls[16].Values
+    $desktopCall = @($global:ClientBuildCalls | Where-Object { $_.Name -eq 'pnpm' -and $_.Values -contains 'tauri' })[0]
+    $desktopArgs = $desktopCall.Values
     $configIndex = [Array]::IndexOf($desktopArgs, '--config')
     if ($configIndex -lt 0 -or (Get-Content -LiteralPath $desktopArgs[$configIndex + 1] -Raw | ConvertFrom-Json).version -ne '2026.9.1') {
         throw 'Tauri version override missing or incorrect'
@@ -55,24 +61,25 @@ try {
         & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
-    if ($count -ne 19) { throw "Unexpected build stage count: $count" }
-    if ($global:ClientBuildCalls[18].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/msime-client-settings.pdb')) {
+    if ($count -ne 21) { throw "Unexpected build stage count: $count" }
+    if ($global:ClientBuildCalls[20].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/MSIME.pdb')) {
         throw 'Desktop PDB did not follow staged executable name'
     }
-    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15, 16, 17, 18)) {
+    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 20)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x64) { throw 'Incorrect x64 dependency scope' }
     }
-    foreach ($index in @(10, 11, 12, 13)) {
+    foreach ($index in @(12, 13, 14, 15)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x86) { throw 'Incorrect x86 dependency scope' }
     }
     if ($global:ClientBuildCalls[1].Values -notcontains 'x64' -or
         $global:ClientBuildCalls[1].Values -notcontains '-DMSIME_SERVER_UIACCESS=ON' -or
-        $global:ClientBuildCalls[11].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
-        $global:ClientBuildCalls[11].Values -notcontains 'Win32' -or
-        $global:ClientBuildCalls[12].Values -notcontains 'msime-tsf' -or
+        $global:ClientBuildCalls[13].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
+        $global:ClientBuildCalls[13].Values -notcontains 'Win32' -or
+        $global:ClientBuildCalls[14].Values -notcontains 'msime-tsf' -or
         $global:ClientBuildCalls[7].Values -notcontains 'msime-mcp' -or
         $global:ClientBuildCalls[9].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/msime-mcp.pdb') -or
-        $global:ClientBuildCalls[16].Values -notcontains '--no-bundle' -or
+        $global:ClientBuildCalls[10].Name -ne 'msbuild' -or
+        $global:ClientBuildCalls[18].Values -notcontains '--no-bundle' -or
         $global:ClientBuildCalls[2].Values -notcontains 'RelWithDebInfo') { throw 'Build target mismatch' }
     for ($failure = 1; $failure -le $count; $failure++) {
         $global:ClientBuildCalls.Clear()
@@ -94,7 +101,7 @@ try {
         if (-not $rejected -or $global:ClientBuildCalls.Count -ne 0) { throw 'Invalid version reached build tools' }
     }
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86
-    if ($global:ClientBuildCalls[16].Values -contains '--config') { throw 'Development version was overridden' }
+    if ($global:ClientBuildCalls[18].Values -contains '--config') { throw 'Development version was overridden' }
     $global:ClientBuildCalls.Clear()
     Remove-Item -LiteralPath $desktopSymbols
     $rejected = $false
@@ -120,7 +127,7 @@ try {
     }
     Write-Output 'Client build orchestration: targets, dependency scopes, failure stages and PE gate passed'
 } finally {
-    Remove-Item Function:/cargo, Function:/cmake, Function:/pnpm, Function:/Invoke-ClientCommandProbe -ErrorAction SilentlyContinue
+    Remove-Item Function:/cargo, Function:/cmake, Function:/pnpm, Function:/msbuild, Function:/Invoke-ClientCommandProbe -ErrorAction SilentlyContinue
     Remove-Variable ClientBuildCalls, ClientBuildFailAt -Scope Global -ErrorAction SilentlyContinue
     if (Test-Path $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
 }

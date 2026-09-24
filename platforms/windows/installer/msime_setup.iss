@@ -789,8 +789,9 @@ begin
   { Watchdog 必须先停，否则它可能在升级或卸载期间重新启动 Server。}
   StopProcess('{#MyWatchdogName}');
   StopProcess('{#MyAppExeName}');
-  { 设置窗口和表情 / 手写 / 屏幕键盘面板都是同一个 Tauri 外壳 msime-client-settings.exe，靠环境变量区分。关掉窗口后进程还要驻留十分钟，从开始菜单或被已崩溃的 Server 拉起时也不在 Server 的进程树里，/T 带不走它；不停掉它，覆盖安装删 server 目录和卸载都会撞上「文件正在使用」。}
+  { 设置窗口是独立的 WinUI 3 msime-client-settings.exe；表情 / 手写 / 屏幕键盘面板仍由同目录的 Tauri MSIME.exe 承载。两个进程都不在 Server 的进程树里，覆盖安装和卸载前由安装器统一停止。}
   StopProcess('{#MySettingsExeName}');
+  StopProcess('MSIME.exe');
   { AI 助手按需拉起的 msime-mcp.exe 同样不在 Server 的进程树里，助手开着就一直驻留，也会占住 server 目录。}
   StopProcess('{#MyMcpName}');
 end;

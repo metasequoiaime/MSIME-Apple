@@ -32,6 +32,10 @@ try {
         'server/build-release/bin/Release/nested/windows-server-launch.pdb',
         'server/build-release/bin/Release/msime-client-prepare.exe',
         'server/build-release/bin/Release/msime-client-prepare.pdb',
+        'server/build-release/bin/Release/msime-client-settings.exe',
+        'server/build-release/bin/Release/msime-client-settings.pdb',
+        'server/build-release/bin/Release/MSIME.exe',
+        'server/build-release/bin/Release/MSIME.pdb',
         'windows/build32-release/Release/MetasequoiaImeTsf.dll',
         'windows/build32-release/Release/MetasequoiaImeTsf.pdb',
         'windows/build64-release/Release/MetasequoiaImeTsf.dll',
@@ -103,6 +107,9 @@ try {
                          'server_exe/msime-mcp.exe',
                          'server_exe/msime-mcp.pdb',
                          'server_exe/msime-client-settings.exe',
+                         'server_exe/msime-client-settings.pdb',
+                         'server_exe/MSIME.exe',
+                         'server_exe/MSIME.pdb',
                          'server_exe/msime-client-prepare.exe',
                          'server_exe/msime-client-prepare.pdb',
                          'server_exe/handwriting/handwriting-zh_CN.model',
@@ -158,17 +165,18 @@ try {
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing watchdog damaged previous staging' }
     [IO.File]::WriteAllText($watchdog, 'fixture')
     $desktop = Join-Path $fixture 'target/release/msime-desktop.exe'
-    Remove-Item -LiteralPath $desktop
+    $nativeDesktop = Join-Path $fixture 'server/build-release/bin/Release/msime-client-settings.exe'
+    Remove-Item -LiteralPath $nativeDesktop
     $rejected = $false
-    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light } catch { $rejected = $_.Exception.Message -match 'Tauri' }
-    if (-not $rejected) { throw 'Missing Tauri shell was accepted' }
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light } catch { $rejected = $_.Exception.Message -match 'WinUI' }
+    if (-not $rejected) { throw 'Missing WinUI settings shell was accepted' }
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing shell damaged previous staging' }
-    [IO.File]::WriteAllText($desktop, 'fixture')
+    [IO.File]::WriteAllText($nativeDesktop, 'fixture')
     Write-Fixture 'installer/app_data/html/webview2/stale.html' 'synthetic obsolete staging'
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -UiHtmlDirectory ui-html -NoticesDirectory . -Light
     if (Test-Path (Join-Path $installer 'app_data/html')) { throw 'Light package retained legacy HTML staging' }
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Light package replaced dictionary data' }
-    if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.exe'))) { throw 'Light package lost Tauri shell' }
+    if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.exe'))) { throw 'Light package lost WinUI settings shell' }
     foreach ($arch in @('32', '64')) {
         $expected = if ($arch -eq '32') { 'synthetic x86 host' } else { 'synthetic x64 host' }
         if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$arch/msime_host_api.dll")) -ne $expected) {
@@ -189,22 +197,22 @@ try {
     Write-Fixture 'server/build-release/bin/Release/msime-client-settings.pdb' 'synthetic native symbols'
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light
     if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/msime-client-settings.exe')) -ne 'synthetic native shell') {
-        throw 'Native output shell did not take precedence over old Cargo output'
+        throw 'Native WinUI output did not take precedence over old Cargo output'
     }
     Remove-Item -LiteralPath $desktop
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light
     if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/msime-client-settings.pdb')) -ne 'synthetic native symbols') {
-        throw 'Native shell symbols were not packaged'
+        throw 'Native WinUI shell symbols were not packaged'
     }
     $rejected = $false
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -DesktopExecutable 'target/release/msime-desktop.exe' }
-    catch { $rejected = $_.Exception.Message -match 'Tauri' }
+    catch { $rejected = $_.Exception.Message -match 'WinUI' }
     if (-not $rejected) { throw 'Missing explicit shell silently fell back to native output' }
     [IO.File]::WriteAllText($desktop, 'fixture')
     foreach ($shellPath in @('custom build/shell.exe', (Join-Path $fixture 'custom build/shell.exe'))) {
         & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light -DesktopExecutable $shellPath
         if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/msime-client-settings.exe')) -ne 'synthetic alternate shell') {
-            throw 'Explicit Tauri shell path was not packaged'
+            throw 'Explicit settings shell path was not packaged'
         }
         if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Shell override replaced dictionary data' }
         if (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.pdb')) {

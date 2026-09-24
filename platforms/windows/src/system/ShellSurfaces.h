@@ -8,10 +8,9 @@
 #include <vector>
 
 namespace msime::windows {
-// What a tray entry asks the shared desktop shell to open. The shell is the
-// Tauri application both desktop hosts share: the IBus property menu launches
-// it through the same environment contract, so a surface exists once and both
-// hosts point at it instead of growing a second implementation.
+// What a tray entry asks a desktop surface to open. Settings uses the native
+// WinUI 3 process; panels use the shared Tauri process. Both hosts still use
+// the same environment contract, so routing remains one small protocol.
 struct ShellSurfaceRequest {
   // MSIME_CLIENT_PANEL value. Empty opens the settings window itself.
   std::string panel;
@@ -60,15 +59,19 @@ inline std::string shell_surface_route(const ShellSurfaceRequest &request) {
   return request.panel;
 }
 
-// File names the package stages beside the Server. The installer name comes
-// first so a packaged shell wins over a developer build left in the same
-// directory.
+// File names the package stages beside the Server. Settings is a native WinUI
+// 3 process; the shared Tauri process remains the owner of the other panels.
+inline std::vector<std::wstring>
+shell_executable_names(const ShellSurfaceRequest &request) {
+  if (request.panel.empty())
+    return {L"msime-client-settings.exe"};
+  return {L"MSIME.exe"};
+}
 inline std::vector<std::wstring> shell_executable_names() {
   return {L"msime-client-settings.exe", L"MSIME.exe"};
 }
-// Locate the shell: an explicit override first, then the package layout. Only
-// an existing file is accepted, so a stale setting cannot launch something
-// else, and an empty answer keeps the menu rows visibly disabled.
+// Locate the legacy shared shell for compatibility callers. Request-aware
+// callers below select the native settings binary or the panel shell.
 inline std::optional<std::filesystem::path>
 shell_executable(const std::filesystem::path &directory,
                  const std::wstring &configured) {
@@ -82,6 +85,26 @@ shell_executable(const std::filesystem::path &directory,
   if (directory.empty() || !directory.is_absolute())
     return std::nullopt;
   for (const auto &name : shell_executable_names()) {
+    const auto path = directory / name;
+    if (std::filesystem::is_regular_file(path, error))
+      return path;
+  }
+  return std::nullopt;
+}
+inline std::optional<std::filesystem::path>
+shell_executable(const std::filesystem::path &directory,
+                 const std::wstring &configured,
+                 const ShellSurfaceRequest &request) {
+  std::error_code error;
+  if (request.panel.empty() && !configured.empty()) {
+    const std::filesystem::path path(configured);
+    if (!path.is_absolute() || !std::filesystem::is_regular_file(path, error))
+      return std::nullopt;
+    return path;
+  }
+  if (directory.empty() || !directory.is_absolute())
+    return std::nullopt;
+  for (const auto &name : shell_executable_names(request)) {
     const auto path = directory / name;
     if (std::filesystem::is_regular_file(path, error))
       return path;

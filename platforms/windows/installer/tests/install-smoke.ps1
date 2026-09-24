@@ -35,7 +35,7 @@ Check (-not [string]::IsNullOrWhiteSpace($versionDir)) 'VersionDir recorded in H
 Check (Test-Path -LiteralPath $app.ServerPath -PathType Leaf) "ServerPath points at an installed file ($($app.ServerPath))"
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir 'config.toml') -PathType Leaf) 'user config.toml created in DataDir'
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir '.metasequoiaime-data') -PathType Leaf) 'DataDir ownership marker written'
-foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'msime-mcp.exe') {
+foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-mcp.exe') {
     Check (Test-Path -LiteralPath (Join-Path $pf64 "server\$name") -PathType Leaf) "server\$name installed"
 }
 # The MCP server an AI assistant starts from the install directory must run there, not only be copied; --version touches no state and prints to stderr.
