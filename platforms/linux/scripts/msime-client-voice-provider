@@ -28,6 +28,7 @@ import wave
 
 from msime_provider_runtime import open_server
 from msime_voice_doubao import normalize_doubao_auth_mode
+import msime_voice_local
 
 
 RATE = 16000
@@ -40,6 +41,8 @@ MAX_VOLUME_OUTPUT = 4096
 ASR_PROVIDERS = {"openai", "groq", "siliconflow", "everyapi", "mistral"}
 POLISH_PROVIDERS = (ASR_PROVIDERS - {"everyapi", "mistral"}) | {"deepseek"}
 ASR_PROVIDERS = ASR_PROVIDERS | {"doubao"}
+# On-device recognition through the msime-voice-local helper (msime_voice_local.py). It needs no credential: the request names the installed model directory in `asr_model_path`, so a private file entry for it carries only the provider name.
+LOCAL_PROVIDER = "local"
 # Windows voice_providers.cpp at 7fa6fb1a7862c5ca1541b9cb839d9bea3a06e2c6.
 DEFAULT_MODELS = {
     "asr": {"openai": "whisper-1", "groq": "whisper-large-v3-turbo",
@@ -438,6 +441,27 @@ def cue_audio(start):
     frames = RATE // 12
     return b"".join(struct.pack("<h", int(2500 * math.sin(2 * math.pi * (880 if start else 660) * i / RATE) *
                                         math.sin(math.pi * i / frames))) for i in range(frames))
+
+
+def local_asr_paths():
+    """The msime-voice-local helper. The build records its installed path relative to bin, beside the host library and the sherpa-onnx runtime it loads from its own directory; MSIME_VOICE_LOCAL_HELPER points a source checkout at a built helper."""
+    override = os.environ.get("MSIME_VOICE_LOCAL_HELPER")
+    if override:
+        return (Path(override),)
+    try:
+        from msime_voice_paths import LOCAL_HELPER
+    except ImportError:
+        return (None,)
+    return (Path(__file__).resolve().parent / LOCAL_HELPER,)
+
+
+def host_library_path():
+    """The installed host library, for the pinyin hotword correction of on-device transcripts. None in a source checkout, where correction is skipped."""
+    try:
+        from msime_voice_paths import HOST_LIBRARY
+    except ImportError:
+        return None
+    return Path(__file__).resolve().parent / HOST_LIBRARY
 
 
 def cue(options, start):
@@ -997,11 +1021,29 @@ class Handler(socketserver.StreamRequestHandler):
                 return
             # One validated snapshot owns both recognition and polishing for
             # this recording, even if the private file changes mid-session.
-            config = load_config(self.server.config_path)
-            asr = select_profile(config, options, "asr")
-            if asr is None:
-                self.send(generation, ok=False)
-                return
+            local = bool(options.get("asr_provider")) and provider_id(options["asr_provider"]) == LOCAL_PROVIDER
+            if local:
+                # On-device recognition reads no credential, so it works without the private file; polishing still comes from it when present.
+                try:
+                    config = load_config(self.server.config_path)
+                except FileNotFoundError:
+                    config = {}
+                model_path = options.get("asr_model_path")
+                try:
+                    manifest = msime_voice_local.model_manifest(model_path)
+                except (OSError, ValueError) as error:
+                    print("msime-client-voice-provider: local model unusable: %s" % error, file=sys.stderr, flush=True)
+                    self.send(generation, ok=False)
+                    return
+                hotwords = msime_voice_local.parse_hotwords(options.get("voice_hotwords"))
+                asr = {"provider": LOCAL_PROVIDER, "model_path": model_path,
+                       "pinyin_hotwords": manifest.get("hotwords") == "pinyin"}
+            else:
+                config = load_config(self.server.config_path)
+                asr = select_profile(config, options, "asr")
+                if asr is None:
+                    self.send(generation, ok=False)
+                    return
             polish_config = select_profile(config, options, "polish")
             if asr["provider"] == "doubao":
                 from msime_voice_doubao import websocket_dependency
@@ -1037,6 +1079,14 @@ class Handler(socketserver.StreamRequestHandler):
                 if asr["provider"] == "doubao" and not session.stopped.is_set():
                     from msime_voice_doubao import DoubaoStream
                     recognizer = DoubaoStream(asr, options, session.cancelled)
+                elif local and not session.stopped.is_set():
+                    try:
+                        recognizer = msime_voice_local.LocalStream(
+                            self.server.local_helpers, asr["model_path"], query.get("language", "zh-cn").strip(),
+                            hotwords, session.cancelled)
+                    except msime_voice_local.LocalUnavailable as error:
+                        self.dependency_missing(generation, "local_asr", error)
+                        return
                 last_partial = ""
 
                 def tick():
@@ -1072,6 +1122,8 @@ class Handler(socketserver.StreamRequestHandler):
             text = (bounded_text(recognizer.finish(tick)) if recognizer else
                     transcribe(pcm, asr, language, session))
             del pcm
+            if local and asr["pinyin_hotwords"] and text and not session.cancelled.is_set():
+                text = bounded_text(self.server.hotword_corrector.correct(text, hotwords)) or text
             if session.cancelled.is_set():
                 self.send(generation)
                 return
@@ -1136,6 +1188,20 @@ def polish_credential_test(config):
             bool(result["choices"]))
 
 
+def local_asr_test(options, server):
+    """There is no credential to test for on-device recognition: check that the chosen model is installed and that the helper starts with its runtime."""
+    try:
+        msime_voice_local.model_manifest(options.get("asr_model_path"))
+    except (OSError, ValueError):
+        return {"ok": False, "message": "本地语音模型不可用，请在“语音输入”设置中重新下载。"}
+    try:
+        helper = server.local_helpers.acquire()
+    except msime_voice_local.LocalUnavailable:
+        return {"ok": False, "message": "本地语音识别组件无法加载，请重新安装输入法。"}
+    server.local_helpers.release(helper, True)
+    return {"ok": True, "message": "本地模型和识别组件可用。"}
+
+
 def credential_test(query, server):
     service = query.get("service")
     options = query.get("config")
@@ -1144,6 +1210,9 @@ def credential_test(query, server):
     if (len(json.dumps(options, ensure_ascii=False).encode("utf-8")) > 12288 or
             any(not isinstance(value, (bool, str)) for value in options.values())):
         return {"ok": False, "message": "当前语音选项无效。"}
+    if (service == "voice.asr" and isinstance(options.get("asr_provider"), str)
+            and options["asr_provider"].lower() == LOCAL_PROVIDER):
+        return local_asr_test(options, server)
     try:
         config = load_config(server.config_path)
         name = "asr" if service == "voice.asr" else "polish"
@@ -1209,7 +1278,8 @@ def load_config(path):
         if len(raw) > 16384 or identity(info) != identity(after):
             raise ValueError()
     config = json.loads(raw.decode("utf-8"))
-    if not isinstance(config, dict) or not isinstance(config.get("asr"), dict):
+    # On-device recognition needs no entry, so a file may hold only polishing credentials.
+    if not isinstance(config, dict) or not any(isinstance(config.get(name), dict) for name in ("asr", "polish")):
         raise ValueError()
     entries = []
     for name in ("asr", "polish"):
@@ -1220,7 +1290,7 @@ def load_config(path):
             default["provider"] = provider_id(default.get("provider"))
             entries.append((name, default))
         profiles = config.get(name + "_profiles", {})
-        allowed = ASR_PROVIDERS if name == "asr" else POLISH_PROVIDERS
+        allowed = ASR_PROVIDERS | {LOCAL_PROVIDER} if name == "asr" else POLISH_PROVIDERS
         if not isinstance(profiles, dict) or len(profiles) > len(allowed):
             raise ValueError()
         normalized = {}
@@ -1235,6 +1305,9 @@ def load_config(path):
             entries.append((name, entry))
         config[name + "_profiles"] = normalized
     for name, entry in entries:
+        if name == "asr" and entry["provider"] == LOCAL_PROVIDER:
+            # Nothing to authenticate and no endpoint: the model comes with each request.
+            continue
         if any(not isinstance(entry.get(k), str) or not entry[k].strip() for k in ("provider", "token")):
             raise ValueError()
         if entry["provider"] not in (ASR_PROVIDERS if name == "asr" else POLISH_PROVIDERS):
@@ -1300,7 +1373,11 @@ def main():
     parser.add_argument("--max-recording-seconds", type=int, default=300, help="1–600 seconds, default 300")
     args = parser.parse_args()
     try:
-        config = load_config(args.config)
+        try:
+            config = load_config(args.config)
+        except FileNotFoundError:
+            # On-device recognition needs no private file, so the service starts without one; cloud requests fail until the settings page writes it, and every request reads it afresh.
+            config = {}
         validate_capture_device(args.capture_device)
         parent = args.socket.parent.stat()
         if (not args.socket.is_absolute() or parent.st_uid != os.getuid() or parent.st_mode & 0o077 or
@@ -1310,7 +1387,7 @@ def main():
         # Exit status 2 stops systemd restarting the unit, so it is kept for configuration only the user can fix.
         parser.error("invalid private configuration/socket directory, capture device, or recording limit")
     # A missing optional package only disables what needs it: batch providers keep working, and each request that needs the missing piece answers voice_dependency_missing. Requests check again, so a recorder installed later is used by the next recording; replacing a websockets package this process already imported takes a service restart.
-    if config["asr"]["provider"] == "doubao" or "doubao" in config.get("asr_profiles", {}):
+    if (config.get("asr") or {}).get("provider") == "doubao" or "doubao" in config.get("asr_profiles", {}):
         from msime_voice_doubao import websocket_dependency
         try:
             websocket_dependency()
@@ -1340,6 +1417,8 @@ def main():
     server.sessions = {}
     server.pending = {}
     server.closing = False
+    server.local_helpers = msime_voice_local.HelperPool(*local_asr_paths())
+    server.hotword_corrector = msime_voice_local.HotwordCorrector(host_library_path())
     identity = args.socket.stat() if service_lock is not None else None
 
     def stop(signum, frame):
@@ -1361,6 +1440,7 @@ def main():
         # 20 seconds while a multi-stream audio restoration is still running.
         for session in sessions:
             session.capture_done.wait()
+        server.local_helpers.close()
         server.server_close()
         if service_lock is not None:
             try:

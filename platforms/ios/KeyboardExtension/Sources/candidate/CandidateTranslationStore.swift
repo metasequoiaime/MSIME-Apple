@@ -36,7 +36,7 @@ final class CandidateTranslationStore {
   private var cache: [String: String] = [:]
   private var signature: String?
   private var debounce: Timer?
-  init(service: any CandidateTranslationService = BackendCandidateTranslationService(), scope: String = "account") {
+  init(service: any CandidateTranslationService = ProviderCandidateTranslationService(route: .none), scope: String = "none") {
     self.service = service
     self.scope = scope
   }

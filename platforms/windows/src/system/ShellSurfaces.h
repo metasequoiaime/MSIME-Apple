@@ -65,10 +65,10 @@ inline std::vector<std::wstring>
 shell_executable_names(const ShellSurfaceRequest &request) {
   if (request.panel.empty())
     return {L"msime-client-settings.exe"};
-  return {L"MSIME Client Preview.exe"};
+  return {L"MSIME.exe"};
 }
 inline std::vector<std::wstring> shell_executable_names() {
-  return {L"msime-client-settings.exe", L"MSIME Client Preview.exe"};
+  return {L"msime-client-settings.exe", L"MSIME.exe"};
 }
 // Locate the legacy shared shell for compatibility callers. Request-aware
 // callers below select the native settings binary or the panel shell.

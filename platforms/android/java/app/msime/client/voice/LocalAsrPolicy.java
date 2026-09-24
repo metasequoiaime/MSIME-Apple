@@ -1,0 +1,90 @@
+package app.msime.client;
+
+import java.io.File;
+import java.util.List;
+
+/**
+ * Whether a resolved configuration is on-device recognition this host can run, and the small rules around it.
+ *
+ * <p>Nothing about the provider is resolved here: the shared layer (`msime_client_mobile_voice_configuration`) decides that provider `local` with a model path is what the user configured. This class only checks what this host is about to hand to the recognizer, and holds the pieces that are worth testing without a device: the path check, the installed-model check and the hotword wire format.
+ */
+public final class LocalAsrPolicy {
+    public static final String PROVIDER = "local";
+    /** Written last by the shared installer, so a half-installed directory never looks usable. */
+    public static final String MANIFEST = "msime-model.json";
+    /** The same ceiling the shared preferences put on `asr_model_path`. */
+    public static final int MAX_PATH_LENGTH = 4096;
+    /** The shared default; the recognizer itself keeps at most this many. */
+    public static final int HOTWORD_LIMIT = 200;
+    /** A loaded model holds hundreds of megabytes; one not used for this long is dropped and reloaded by the next dictation. Matches the desktop helper. */
+    public static final long IDLE_RELEASE_MILLIS = 120_000;
+    /** The same cap the other recording paths use, so a forgotten session cannot hold the microphone. */
+    public static final int MAX_MILLIS = 60_000;
+    /** The manifest is the catalog entry, a few kilobytes; anything far larger is not one. */
+    public static final long MAX_MANIFEST_BYTES = 256 * 1024;
+    /** Per-word ceilings of a hotword handed in by the shared layer, in UTF-16 units; the shared request validation allows no more than this in bytes. */
+    public static final int MAX_HOTWORD_TEXT_LENGTH = 256;
+    public static final int MAX_HOTWORD_PINYIN_LENGTH = 1024;
+
+    private LocalAsrPolicy() {}
+
+    /**
+     * Whether this is on-device recognition with a model path this host may open.
+     *
+     * <p>Only a directory the shared installer produced can be used here; a Whisper model file, which desktop hosts also accept as `asr_model_path`, has no recognizer on Android. That is reported when the dictation starts ({@link #installed}), not by falling back to the platform recogniser: a user who chose on-device recognition did not agree to the audio going to whatever service the device ships.
+     */
+    public static boolean usable(String provider, String modelPath) {
+        if (!PROVIDER.equals(provider) || modelPath == null) return false;
+        if (modelPath.isEmpty() || modelPath.length() > MAX_PATH_LENGTH) return false;
+        if (modelPath.chars().anyMatch(Character::isISOControl)) return false;
+        return modelPath.startsWith("/");
+    }
+
+    /** Whether `modelPath` is an installed model directory: it exists and holds the manifest. */
+    public static boolean installed(String modelPath) {
+        if (modelPath == null || modelPath.isEmpty()) return false;
+        File manifest = new File(modelPath, MANIFEST);
+        return new File(modelPath).isDirectory() && manifest.isFile()
+            && manifest.length() > 0 && manifest.length() <= MAX_MANIFEST_BYTES;
+    }
+
+    /** Whether the model's manifest asks for post-correction rather than native biasing. */
+    public static boolean correctsByPinyin(String hotwordMode) {
+        return "pinyin".equals(hotwordMode);
+    }
+
+    /**
+     * Whether one `{text, pinyin}` hotword the shared layer resolved (the Tauri request's `hotwords`) may be carried to the recognizer.
+     *
+     * <p>The shared layer already built the list from the user's dictionary; this only keeps what crosses the activity boundary bounded and free of anything that could break the one-per-line framing. An empty pinyin is allowed: the native bias needs only the text, and the pinyin correction skips a word it cannot match.
+     */
+    public static boolean suppliedHotword(String text, String pinyin) {
+        if (text == null || pinyin == null) return false;
+        String trimmed = text.trim();
+        if (trimmed.isEmpty() || text.length() > MAX_HOTWORD_TEXT_LENGTH) return false;
+        if (pinyin.length() > MAX_HOTWORD_PINYIN_LENGTH) return false;
+        return text.chars().noneMatch(Character::isISOControl)
+            && pinyin.chars().noneMatch(Character::isISOControl);
+    }
+
+    /**
+     * Hotword texts in the form the native session takes them: one per line, at most {@link #HOTWORD_LIMIT}.
+     *
+     * <p>A word that could break the framing (a line break or any other control character) or is blank is dropped rather than repaired; the list is a bias, and a missing entry costs nothing.
+     */
+    public static String hotwordLines(List<String> words) {
+        if (words == null) return "";
+        StringBuilder out = new StringBuilder();
+        int kept = 0;
+        for (String word : words) {
+            if (kept == HOTWORD_LIMIT) break;
+            if (word == null) continue;
+            String trimmed = word.trim();
+            if (trimmed.isEmpty() || trimmed.chars().anyMatch(Character::isISOControl)) continue;
+            if (kept > 0) out.append('\n');
+            out.append(trimmed);
+            kept++;
+        }
+        return out.toString();
+    }
+}

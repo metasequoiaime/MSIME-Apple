@@ -581,7 +581,7 @@ int wmain(int argc, wchar_t **argv) {
   const auto launch = parse_server_arguments(argc, argv);
   attach_launching_console(launch);
   if (launch.kind == ServerLaunchKind::Help) {
-    std::cout << "MSIME Client Server: --config <absolute-json-path>\n"
+    std::cout << "MSIME Server: --config <absolute-json-path>\n"
                  "Managed launches use the installed TSF pipe names; preview "
                  "launches use names from the config. Ctrl+C stops.\n"
                  "Unsupported routes (including unobserved Enter) disconnect.\n";
@@ -726,6 +726,10 @@ int wmain(int argc, wchar_t **argv) {
         prepared.at("value").at("preferences").value("clipboard_history", false));
     auto voice_config = std::make_shared<VoiceInputConfig>();
     auto voice_config_mutex = std::make_shared<std::mutex>();
+    // Local recognition reads the user's dictionary words through these options. Listing the dictionary needs only the paths, which do not change while the Server runs, so the startup document serves every later preference snapshot.
+    const auto voice_host_options =
+        std::make_shared<const std::string>(prepared.at("value").dump());
+    voice_config->host_options = voice_host_options;
     WindowsServerOptions options;
     options.pipes.names = production ? production_pipe_names()
                                      : config.pipe_names();
@@ -735,7 +739,7 @@ int wmain(int argc, wchar_t **argv) {
                    : FanyImeProtocol::RequiredCapabilities;
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
-        [&, voice_config, voice_config_mutex, traditional_output,
+        [&, voice_config, voice_config_mutex, voice_host_options, traditional_output,
          toolbar_enabled, follow_cursor, voice_theme, candidate_fonts,
          toolbar_theme, menu_theme, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex,
@@ -823,6 +827,8 @@ int wmain(int argc, wchar_t **argv) {
           next.model = input.value("asr_model", std::string{});
           // Read before the tokens: the slot lookup is keyed on them.
           next.asr_provider = input.value("asr_provider", std::string{"doubao"});
+          next.asr_model_path = input.value("asr_model_path", std::string{});
+          next.host_options = voice_host_options;
           next.polish_provider = input.value("polish_provider", std::string{});
           next.token = provider_token(input, "asr_tokens", "asr_token",
                                       next.asr_provider);

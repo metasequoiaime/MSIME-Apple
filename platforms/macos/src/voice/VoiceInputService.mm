@@ -1,7 +1,9 @@
 #import "VoiceInputService.h"
 #import "VoicePCMBuffer.h"
 #import "VoiceCaptureDevice.h"
+#import "../backend/voice/BackendSpeechAnalyzer.h"
 #include "../../../../shared/voice/CaptureDuration.h"
+#include "../../../../shared/voice/LocalAsr.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudio/CoreAudio.h>
 #include <memory>
@@ -10,7 +12,7 @@
 namespace {
 struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
 }
-@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; uint64_t _transcriptionGeneration; MSIMEVoicePCMBuffer *_pcmRecording; std::shared_ptr<PCMStreamAdmission> _pcmStreamLive; std::shared_ptr<msime::voice::CaptureDuration> _captureDuration; NSTimeInterval _recordedDuration; }
+@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; id<MSIMEBackendSpeechAnalyzerSession> _analyzer; uint64_t _transcriptionGeneration; MSIMEVoicePCMBuffer *_pcmRecording; std::shared_ptr<PCMStreamAdmission> _pcmStreamLive; std::shared_ptr<msime::voice::CaptureDuration> _captureDuration; NSTimeInterval _recordedDuration; }
 - (NSTimeInterval)recordedDuration { return _captureDuration ? _captureDuration->seconds() : _recordedDuration; }
 - (AVAuthorizationStatus)microphoneAuthorizationStatus { return [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]; }
 - (void)requestMicrophonePermission:(void (^)(BOOL))completion { [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) { dispatch_async(dispatch_get_main_queue(), ^{ completion(granted); }); }]; }
@@ -113,12 +115,13 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
     AVAudioFormat *format = [input inputFormatForBus:0];
     NSError *tapError = nil;
     SFSpeechAudioBufferRecognitionRequest *speechRequest = _speechRequest;
+    id<MSIMEBackendSpeechAnalyzerSession> analyzer = _analyzer;
     auto duration = std::make_shared<msime::voice::CaptureDuration>(format.sampleRate);
     _captureDuration = duration;
     AVAudioNodeTapBlock capture = ^(AVAudioPCMBuffer *buffer, AVAudioTime *time) {
         (void)time;
         if (!duration->append(buffer.frameLength)) return;
-        [speechRequest appendAudioPCMBuffer:buffer]; bufferHandler(buffer);
+        [speechRequest appendAudioPCMBuffer:buffer]; [analyzer appendBuffer:buffer]; bufferHandler(buffer);
     };
     // AVAudioInputNode exposes the tap API without an NSError parameter on
     // the macOS SDKs supported by this host. Keep the deprecated warning
@@ -136,15 +139,25 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
 - (void)stopMicrophoneCapture {
     if (_captureDuration) { _recordedDuration = _captureDuration->finish(); _captureDuration.reset(); }
     if (!_audioEngine) return;
-    [_audioEngine.inputNode removeTapOnBus:0]; [_audioEngine stop]; _audioEngine = nil; [_speechRequest endAudio];
+    [_audioEngine.inputNode removeTapOnBus:0]; [_audioEngine stop]; _audioEngine = nil; [_speechRequest endAudio]; [_analyzer finishAudio];
 }
 - (BOOL)startTranscriptionWithLanguage:(NSString *)language textHandler:(void (^)(NSString *, BOOL))handler error:(NSError **)error {
     if ([SFSpeechRecognizer authorizationStatus] != SFSpeechRecognizerAuthorizationStatusAuthorized) { if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:2 userInfo:@{NSLocalizedDescriptionKey: @"语音识别权限未授权"}]; return NO; }
     [self stopTranscription];
-    _recognizer = [[SFSpeechRecognizer alloc] initWithLocale:[[NSLocale alloc] initWithLocaleIdentifier:language ?: @"zh-CN"]];
-    _speechRequest = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
     __weak MSIMEVoiceInputService *weakSelf = self;
     const uint64_t generation = _transcriptionGeneration;
+    // macOS 26 and later: SpeechAnalyzer, fully on device, once the locale's model is installed. Its handler already runs on main. SpeechTranscriber can leave a space before Chinese punctuation ("调整 ，"), so its text goes through the same transcript rules as the local models'.
+    _analyzer = MSIMEStartBackendSpeechAnalyzer(language ?: @"zh-CN", ^(NSString *text, BOOL final) {
+        MSIMEVoiceInputService *service = weakSelf;
+        if (!service || service->_transcriptionGeneration != generation) return;
+        handler(@(msime::voice::tidy_local_transcript(text.UTF8String ?: "").c_str()), final);
+        if (final && service->_transcriptionGeneration == generation) [service stopTranscription];
+    });
+    if (_analyzer) return YES;
+    _recognizer = [[SFSpeechRecognizer alloc] initWithLocale:[[NSLocale alloc] initWithLocaleIdentifier:language ?: @"zh-CN"]];
+    _speechRequest = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
+    // Keep the audio on this Mac whenever the locale has an on-device model; only a locale without one still goes to Apple's servers.
+    if (_recognizer.supportsOnDeviceRecognition) _speechRequest.requiresOnDeviceRecognition = YES;
     _speechTask = [_recognizer recognitionTaskWithRequest:_speechRequest resultHandler:^(SFSpeechRecognitionResult *result, NSError *recognitionError) {
         // Speech can deliver a queued result after cancellation. Serialize with
         // host lifecycle operations and never let an old task affect its successor.
@@ -162,7 +175,7 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
     }];
     return _speechTask != nil;
 }
-- (void)stopTranscription { ++_transcriptionGeneration; [_speechTask cancel]; _speechTask = nil; _speechRequest = nil; _recognizer = nil; }
+- (void)stopTranscription { ++_transcriptionGeneration; [_speechTask cancel]; _speechTask = nil; _speechRequest = nil; _recognizer = nil; [_analyzer cancel]; _analyzer = nil; }
 - (BOOL)startWithSession:(MSIMEClientSession *)session generation:(uint64_t *)generation error:(NSError **)error { if (_active) return YES; NSDictionary *result = [session startVoiceWithError:error]; if (!result) return NO; _session = session; _active = YES; if (generation) *generation = [result[@"generation"] unsignedLongLongValue]; return YES; }
 - (BOOL)cancelWithError:(NSError **)error { [self stopPCMStreamDelivery]; [_pcmRecording cancel]; _pcmRecording = nil; if (!_active) { [self stopMicrophoneCapture]; [self stopTranscription]; return YES; } BOOL ok = [_session cancelVoiceWithError:error]; [self stopMicrophoneCapture]; [self stopTranscription]; _active = NO; _session = nil; return ok; }
 - (void)applyText:(NSString *)text generation:(uint64_t)generation completion:(MSIMEVoiceInputResult)completion {

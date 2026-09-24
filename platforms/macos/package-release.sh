@@ -102,6 +102,11 @@ else
 fi
 codesign --verify --deep --strict "$staged_bundle"
 
+# ---- MCP server ----
+# The same compiler flags as the input method: msime-mcp links the Engine through msime-host-api, and those objects are shared with the build above. Nothing in the app starts it; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio.
+CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
+  cargo build --release --locked -p msime-mcp-server --bin msime-mcp
+
 # ---- Settings app ----
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop build
@@ -119,6 +124,14 @@ app_name="$(basename "$app")"
 # Tauri copies resources by following symlinks, which turns Sparkle.framework's links into duplicate files and drops the directory links, and codesign then rejects the nested bundle ("invalid Info.plist (plist or signature have been modified)"). The signed bundle staged above is copied back over it with ditto, which keeps the links; the settings app's installer recreates them in ~/Library/Input Methods the same way.
 find "$app/Contents/Resources" -maxdepth 1 -name '*.app' -exec rm -rf {} +
 ditto "$staged_bundle" "$app/Contents/Resources/$bundle_name"
+# A helper executable beside the app's own is signed on its own first, and the outer signature below seals it.
+ditto "$CARGO_TARGET_DIR/release/msime-mcp" "$app/Contents/MacOS/msime-mcp"
+sign "$app/Contents/MacOS/msime-mcp"
+# Non-English candidate glosses (scripts/fetch_offline_glosses.py), copied here rather than listed in tauri.macos.conf.json because Tauri fails on a resource path that does not exist and the package must still build without them. The input method reads them beside EngineResources.
+glosses="$repo_root/target/macos/offline-glosses"
+if [ -d "$glosses" ]; then
+  ditto "$glosses" "$app/Contents/Resources/offline-glosses"
+fi
 # Without --deep, so the input method keeps the signature and entitlements it was given above; the outer signature seals it as a nested resource.
 sign "$app"
 codesign --verify --deep --strict "$app"
@@ -131,10 +144,18 @@ check_app() {
   cargo run --quiet --locked -p msime-client-core --example verify_resources -- "$resources_dir/EngineResources" >/dev/null
   test -f "$resources_dir/handwriting/handwriting-zh_CN.model"
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"
+  test -x "$root/Contents/MacOS/msime-mcp"
+  codesign --verify --strict "$root/Contents/MacOS/msime-mcp"
+  if [ -d "$glosses" ]; then
+    test -f "$resources_dir/offline-glosses/offline-glosses-NOTICE.txt"
+  fi
   local nested
   nested="$(only "$resources_dir"/*.app)"
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$nested/Contents/Info.plist")" = "$bundle_id"
   test -L "$nested/Contents/Frameworks/Sparkle.framework/Versions/Current"
+  # On-device voice models run in this helper, which loads the sherpa-onnx runtime beside it; the CMake build fetches the runtime from resources/voice-runtime.lock.json and stages both.
+  test -x "$nested/Contents/MacOS/msime-voice-local"
+  test -s "$nested/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
   codesign -d --entitlements - --xml "$nested" 2>/dev/null | grep -q 'com.apple.security.device.audio-input' || {
     echo "the embedded input method lost its entitlements: $nested" >&2
     exit 1

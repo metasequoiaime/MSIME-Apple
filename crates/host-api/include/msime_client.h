@@ -341,6 +341,23 @@ char *msime_client_voice_cancel(uint64_t session);
 char *msime_client_voice_capture(uint32_t milliseconds);
 char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
+/* On-device speech models and user-dictionary hotwords. JSON request buffers of length bytes; standard responses. Error text of the model calls is a stable code beginning with "local_model_".
+ * voice_hotwords: {options: HostOptions as msime_client_dictionary, limit?: 200} -> {hotwords:[{text,pinyin}]}, the user's own pinyin words (two or more Chinese characters), heaviest first. Worker thread; fails with "dictionary maintenance busy" while maintenance holds the store. <=65536 bytes.
+ * voice_hotword_correct: {text, hotwords:[{text,pinyin}]} -> {text}. Pinyin-similarity replacement for models whose msime-model.json has "hotwords":"pinyin". Pure. <=1048576 bytes.
+ * voice_local_models: {root: absolute dir} -> {models:[{id,title,description,languages,streaming,default,desktop_only,installed,path,installed_size,archive_size,memory,license_spdx,license_source,license_terms,license_notice,hotwords}], default: id}. path is <root>/<id>, the value for voice_input.asr_model_path.
+ * voice_local_model_install: {root, id, mirror?: "https://..." prefix} -> {path}. Blocks for the whole download: worker thread only. progress (nullable) gets {id,stage:"download"|"verify"|"extract"|"done",downloaded,total} on the calling thread; copy the buffer before returning. One install per id at a time ("local_model_install_running").
+ * voice_local_model_cancel: {id} cancels that install, NULL/0 or {} cancels all; value is whether one was running. Any thread.
+ * voice_local_model_remove: {root, id} -> null. Only catalog ids; refused while that id is installing. */
+typedef void (*msime_client_voice_local_model_progress_callback)(const uint8_t *json, size_t length,
+                                                                 void *context);
+char *msime_client_voice_hotwords(const uint8_t *request, size_t length);
+char *msime_client_voice_hotword_correct(const uint8_t *request, size_t length);
+char *msime_client_voice_local_models(const uint8_t *request, size_t length);
+char *msime_client_voice_local_model_install(
+    const uint8_t *request, size_t length,
+    msime_client_voice_local_model_progress_callback progress, void *context);
+char *msime_client_voice_local_model_cancel(const uint8_t *request, size_t length);
+char *msime_client_voice_local_model_remove(const uint8_t *request, size_t length);
 /* Pure DeepLX-compatible descriptor builder (no network I/O). Request <=16 KiB:
  * {config:{enabled,endpoint,api_key},text,source_language,target_language}.
  * Returns null if disabled; otherwise {url,method,headers,body,timeout_ms,max_response_bytes}.
@@ -381,9 +398,8 @@ char *msime_client_parse_custom_translation_response(const uint8_t *body, size_t
 char *msime_client_apply_translations(uint64_t session, uint64_t generation,
                                       const uint8_t *translations, size_t length);
 /* Resolve copied candidates against the packaged offline English dictionary.
- * JSON request: {generation,candidates:[{text,source}]}; the generation is
- * echoed for the host to pass to apply_translations on the session thread.
- * This function owns no session handle and may run on a worker thread. */
+ * JSON request: {generation,candidates:[{text,source}],user_data?,target_language?}; the generation is echoed for the host to pass to apply_translations on the session thread. This function owns no session handle and may run on a worker thread.
+ * target_language absent or "en" reads english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources and ignore user_data; when that file is not installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
 char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
 /* Query the packaged English dictionary without creating a session.
@@ -498,8 +514,8 @@ char *msime_client_ai_request_for_query(uint64_t session,
  * A zero length clears it. */
 char *msime_client_set_ai_credential(uint64_t session, const uint8_t *token,
                                      size_t token_length);
-/* Return null or {generation,target_language,candidates:[{text}], provider:"none"|"tencent"|"niutrans"|"custom", custom_translation:{enabled,endpoint,api_key}|null, tencent_tmt:{enabled,secret_id,secret_key,region}|null, niutrans:{enabled,app_id,apikey}|null} for visible candidates.
- * provider names the service selected in preferences even when its configuration is incomplete; a transport must ask that service or none, never fall back to another. Credentials are returned only for the selected usable provider. These fields are for host-owned transport; never log the query. The existing target_language applies to both providers.
+/* Return null or {generation,target_language,candidates:[{text}], provider:"none"|"tencent"|"niutrans"|"custom", translation_account:bool, custom_translation:{enabled,endpoint,api_key}|null, tencent_tmt:{enabled,secret_id,secret_key,region}|null, niutrans:{enabled,app_id,apikey}|null} for visible candidates.
+ * provider names the service selected in preferences even when its configuration is incomplete; a transport must ask that service or none, never fall back to another. Credentials are returned only for the selected usable provider. These fields are for host-owned transport; never log the query. The existing target_language applies to both providers. translation_account is true only when the user explicitly chose the MSIME account, candidate_translations is on and no service of the user's own applies; it is the whole decision for a host's account gloss path, which must send nothing when it is false. offline_gloss_languages is present only when non-empty: the non-English target languages, in preference order, whose offline dictionary is installed beside resources; ask msime_client_candidate_gloss_request with that target_language for each.
  */
 char *msime_client_translation_query(uint64_t session);
 /* How long a cloud candidate is worth waiting for: connecting, and in total.
@@ -626,7 +642,7 @@ char *msime_client_voice_provider_stream_events(
     msime_client_voice_status_callback status_callback, void *context);
 /* Normalized microphone level in [0, 1]; never transcript text or audio.
  * Callback runs synchronously on the caller thread and must not throw.
- * All three stream calls return {"ok":true,"value":{"text":...}} on success and value null when the provider gave no result. A provider that names a missing optional dependency returns {"ok":false,"error":"voice_dependency_missing:websockets"} or "voice_dependency_missing:recorder". */
+ * All three stream calls return {"ok":true,"value":{"text":...}} on success and value null when the provider gave no result. A provider that names a missing optional dependency returns {"ok":false,"error":"voice_dependency_missing:websockets"}, "voice_dependency_missing:recorder" or "voice_dependency_missing:local_asr". */
 typedef void (*msime_client_voice_level_callback)(float level, void *context);
 char *msime_client_voice_provider_stream_feedback(
     const uint8_t *query, size_t query_length, const uint8_t *socket_path,

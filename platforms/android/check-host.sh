@@ -161,6 +161,15 @@ if ! rg -q 'msime::windows::polish_prompt_for' \
   echo "Android must read the polish presets from the shared table, not a copy" >&2
   exit 1
 fi
+# Candidate words reach api.msime.app only after an explicit account choice (PRIVACY.md). The policy smoke covers accountSelected itself; this pins the service to it: the fetch, the apply and the reserved rows read candidateTranslationAccount, and both preference paths derive it through the policy.
+account_service="$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"
+if ! rg -qU 'void scheduleCandidateTranslations\(\) \{\s*if \(!candidateTranslationAccount ' "$account_service" \
+  || ! rg -qU 'void applyCandidateTranslations\(long generation\) \{\s*if \(!candidateTranslationAccount ' "$account_service" \
+  || ! rg -qU 'glossLines\(\s*candidateTranslationTargets, candidateEnglishGloss, candidateTranslationAccount,\s*candidateOfflineTargets\(\)\)' "$account_service" \
+  || [ "$(rg -c '= candidateTranslationAccountFrom\(preferences\);' "$account_service")" != 2 ]; then
+  echo "Android must fetch candidate translations from the account only after an explicit choice" >&2
+  exit 1
+fi
 if ! rg -q '<asr_text>' \
     "$repo_root/platforms/android/java/app/msime/client/voice/VoicePolishPolicy.java"; then
   echo "Android polish must wrap the transcript in the boundary the presets name" >&2
@@ -341,6 +350,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/voice/WebSocketFramesSmoke.java" \
   "$repo_root/platforms/android/tests/voice/DoubaoAsrPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/VoicePolishPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/voice/LocalAsrPolicySmoke.java" \
   "$repo_root/platforms/android/tests/candidate/ReplyKeyboardSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardSkinSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackSmoke.java" \
@@ -417,6 +427,7 @@ java -cp "$output_dir" HttpAsrPolicySmoke
 java -cp "$output_dir" WebSocketFramesSmoke
 java -cp "$output_dir" DoubaoAsrPolicySmoke
 java -cp "$output_dir" VoicePolishPolicySmoke
+java -cp "$output_dir" LocalAsrPolicySmoke
 java -cp "$output_dir" ReplyKeyboardSmoke
 java -cp "$output_dir" app.msime.client.KeyboardSkinSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke

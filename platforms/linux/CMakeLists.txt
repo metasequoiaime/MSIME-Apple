@@ -98,6 +98,7 @@ option(MSIME_LINUX_VOICE "Build voice worker test" OFF)
 set(MSIME_HOST_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/libmsime_host_api.so" CACHE FILEPATH "Cargo-built Linux host library")
 set(MSIME_RUNTIME_OPTIONS_FILE "" CACHE FILEPATH "Prepared runtime options")
 set(MSIME_DESKTOP_BINARY "" CACHE FILEPATH "Cargo-built Tauri desktop binary")
+set(MSIME_MCP_BINARY "" CACHE FILEPATH "Cargo-built MCP server (msime-mcp)")
 set(MSIME_HANDWRITING_MODEL "${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine/handwriting/models/handwriting-zh_CN.model" CACHE FILEPATH "Trusted packaged handwriting model")
 set(MSIME_EMOJI_RESOURCES "" CACHE PATH "Trusted packaged Engine Emoji resource directory")
 set(MSIME_ENGINE_RESOURCES "" CACHE PATH "Trusted packaged Engine desktop resource directory")
@@ -185,6 +186,14 @@ target_link_libraries(msime-client-handwriting PRIVATE msime-ibus-host)
 add_executable(msime-client-voice src/voice/voice_request.cpp)
 target_compile_options(msime-client-voice PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-voice PRIVATE msime-ibus-host)
+# On-device recognition for the `local` voice provider: the voice service spawns this helper (scripts/msime_voice_local.py) and speaks its JSON-lines protocol, so the model never loads into the service or the input method. It opens the sherpa-onnx runtime with dlopen from its own directory, so it builds without one; MSIME_VOICE_RUNTIME_DIR below installs the runtime beside it. Compiled from the shared sources directly because shared/voice/CMakeLists.txt also builds the cloud providers, which need libcurl and the Engine's voice target.
+find_package(Threads REQUIRED)
+set(MSIME_SHARED_VOICE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice")
+add_executable(msime-voice-local "${MSIME_SHARED_VOICE_DIR}/LocalAsrHelper.cpp" "${MSIME_SHARED_VOICE_DIR}/LocalAsr.cpp")
+target_compile_options(msime-voice-local PRIVATE -Wall -Wextra -Werror)
+target_include_directories(msime-voice-local PRIVATE "${MSIME_SHARED_VOICE_DIR}" "${MSIME_SHARED_VOICE_DIR}/third_party"
+                           "${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine/voice/include")
+target_link_libraries(msime-voice-local PRIVATE nlohmann_json::nlohmann_json Threads::Threads ${CMAKE_DL_LIBS})
 add_executable(msime-client-emoji src/providers/emoji_request.cpp)
 target_compile_options(msime-client-emoji PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-emoji PRIVATE msime-ibus-host)
@@ -343,6 +352,12 @@ add_test(NAME linux-ibus-startup-telemetry
 set_tests_properties(linux-ibus-startup-telemetry PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 add_test(NAME linux-voice-provider-degraded-start
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/provider_degraded_start.py")
+add_test(NAME linux-voice-local-stream
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/local_stream.py")
+add_test(NAME linux-voice-provider-local
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/provider_local.py"
+                 $<TARGET_FILE:msime-voice-local>)
+set_tests_properties(linux-voice-local-stream linux-voice-provider-local PROPERTIES TIMEOUT 120)
 add_executable(linux-first-run-guidance-test tests/core/first_run_guidance.cpp)
 target_compile_options(linux-first-run-guidance-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-first-run-guidance-test PRIVATE src)
@@ -405,10 +420,30 @@ install(FILES data/msime-client-clipboard.desktop DESTINATION "${MSIME_XDG_AUTOS
 # Socket units keep the provider paths present from login, so the input method and the panels find the services the way the Windows server is simply there; systemd starts a provider on its first request.
 install(FILES data/msime-client-online.socket data/msime-client-voice.socket
         DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
-install(FILES scripts/msime_voice_doubao.py scripts/msime_provider_runtime.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES scripts/msime_voice_doubao.py scripts/msime_voice_local.py scripts/msime_provider_runtime.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
+# The helper and the sherpa-onnx runtime share the host library's private directory: the helper finds the runtime in its own directory, and libsherpa-onnx-c-api.so finds libonnxruntime.so through its $ORIGIN RPATH.
+install(TARGETS msime-voice-local RUNTIME DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
+set(MSIME_VOICE_RUNTIME_DIR "" CACHE PATH "sherpa-onnx runtime for on-device recognition, as unpacked by scripts/fetch_voice_runtime.py --platform linux-<arch>")
+set(MSIME_VOICE_RUNTIME_LIBRARIES libsherpa-onnx-c-api.so libonnxruntime.so)
+if(MSIME_VOICE_RUNTIME_DIR)
+  foreach(MSIME_VOICE_RUNTIME_LIBRARY IN LISTS MSIME_VOICE_RUNTIME_LIBRARIES)
+    if(NOT EXISTS "${MSIME_VOICE_RUNTIME_DIR}/${MSIME_VOICE_RUNTIME_LIBRARY}")
+      message(FATAL_ERROR "MSIME_VOICE_RUNTIME_DIR has no ${MSIME_VOICE_RUNTIME_LIBRARY}; run scripts/fetch_voice_runtime.py --platform linux-<arch> --out <dir>")
+    endif()
+    install(FILES "${MSIME_VOICE_RUNTIME_DIR}/${MSIME_VOICE_RUNTIME_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
+  endforeach()
+elseif(MSIME_ENABLE_PACKAGING)
+  # A package without the runtime would offer on-device recognition that fails at the first dictation.
+  message(FATAL_ERROR "Packaging requires MSIME_VOICE_RUNTIME_DIR; fetch it with scripts/fetch_voice_runtime.py (package-container.sh does)")
+endif()
 install(FILES scripts/requirements-voice.txt DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
 file(RELATIVE_PATH MSIME_VOICE_CUE_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
      "${CMAKE_INSTALL_FULL_DATADIR}/msime-client/voice")
+file(RELATIVE_PATH MSIME_VOICE_LOCAL_HELPER_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
+     "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client/msime-voice-local")
+get_filename_component(MSIME_HOST_LIBRARY_NAME "${MSIME_HOST_LIBRARY}" NAME)
+file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
+     "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client/${MSIME_HOST_LIBRARY_NAME}")
 configure_file(data/msime_voice_paths.py.in msime_voice_paths.py @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime_voice_paths.py" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES data/voice/start.pcm data/voice/end.pcm data/voice/SOURCE.md
@@ -512,6 +547,19 @@ if(MSIME_SETTLED_MODEL)
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/settled-model.lock.json"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
 endif()
+# Offline glosses for non-English translation targets, one zh-<lang>.db per language built by `scripts/build_offline_glosses.py`, installed as a sibling of the resource bundle for the same reason as the settled model; the Engine looks for them there. Optional: without them the candidate glosses stay English only. Their notice is required with them, since the databases are CC BY-SA and must travel with their attribution.
+set(MSIME_OFFLINE_GLOSSES "" CACHE PATH "Offline gloss databases with their notice, e.g. target/offline-glosses")
+if(MSIME_OFFLINE_GLOSSES)
+  if(NOT EXISTS "${MSIME_OFFLINE_GLOSSES}/offline-glosses-NOTICE.txt")
+    message(FATAL_ERROR "MSIME_OFFLINE_GLOSSES has no offline-glosses-NOTICE.txt: ${MSIME_OFFLINE_GLOSSES}")
+  endif()
+  file(GLOB MSIME_OFFLINE_GLOSS_FILES LIST_DIRECTORIES false "${MSIME_OFFLINE_GLOSSES}/zh-*.db")
+  if(NOT MSIME_OFFLINE_GLOSS_FILES)
+    message(FATAL_ERROR "MSIME_OFFLINE_GLOSSES has no zh-*.db: ${MSIME_OFFLINE_GLOSSES}")
+  endif()
+  install(FILES ${MSIME_OFFLINE_GLOSS_FILES} "${MSIME_OFFLINE_GLOSSES}/offline-glosses-NOTICE.txt"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/offline-glosses")
+endif()
 if(MSIME_DESKTOP_BINARY)
   if(NOT EXISTS "${MSIME_DESKTOP_BINARY}")
     message(FATAL_ERROR "MSIME_DESKTOP_BINARY does not exist: ${MSIME_DESKTOP_BINARY}")
@@ -524,6 +572,13 @@ if(MSIME_DESKTOP_BINARY)
   install(PROGRAMS "${MSIME_DESKTOP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME msime-client-desktop)
   install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/msime-client-settings DESTINATION "${CMAKE_INSTALL_BINDIR}")
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client.desktop DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+endif()
+# Nothing here starts the MCP server: an agent's MCP configuration names the command and runs it over stdio, so it only has to be on PATH.
+if(MSIME_MCP_BINARY)
+  if(NOT EXISTS "${MSIME_MCP_BINARY}")
+    message(FATAL_ERROR "MSIME_MCP_BINARY does not exist: ${MSIME_MCP_BINARY}")
+  endif()
+  install(PROGRAMS "${MSIME_MCP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 # 桌面入口的 Icon=msime-client、Fcitx5 输入法条目的 Icon 和 IBus 组件的 <icon> 都按名字
 # 解析，所以这些文件决定了托盘、输入法列表和启动器上显示的是 logo 还是占位图。它们此前
@@ -640,6 +695,14 @@ set(MSIME_NOTICE_NAMES
 # Header-only nlohmann/json is compiled into the IBus engine, the provider programs and the Fcitx5 addon; no runtime package carries its copyright, so a pinned copy of its license ships instead.
 list(APPEND MSIME_NOTICE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/licenses/nlohmann_json-MIT.txt")
 list(APPEND MSIME_NOTICE_NAMES nlohmann_json-MIT.txt)
+# msime-voice-local compiles the sherpa-onnx C API header in; the runtime libraries, when installed, add ONNX Runtime and the notices of what it bundles.
+list(APPEND MSIME_NOTICE_SOURCES "${MSIME_SHARED_VOICE_DIR}/third_party/sherpa-onnx/LICENSE")
+list(APPEND MSIME_NOTICE_NAMES sherpa-onnx-Apache-2.0.txt)
+if(MSIME_VOICE_RUNTIME_DIR)
+  list(APPEND MSIME_NOTICE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/licenses/onnxruntime-MIT.txt"
+       "${CMAKE_CURRENT_SOURCE_DIR}/data/licenses/onnxruntime-ThirdPartyNotices.txt")
+  list(APPEND MSIME_NOTICE_NAMES onnxruntime-MIT.txt onnxruntime-ThirdPartyNotices.txt)
+endif()
 # wayland-scanner compiles the layer-shell and xdg-shell protocol code into the IBus host, the wave overlay and the Fcitx5 addon, and only when xdg-shell.xml was found (both the IBus and the Fcitx5 side require it). The layer-shell license (HPND) asks for its notice in supporting documentation and xdg-shell's (MIT) in all copies, so the <copyright> block of the XML actually compiled is written out as the notice.
 if(MSIME_XDG_SHELL_XML)
   set(MSIME_PROTOCOL_XMLS "${CMAKE_CURRENT_SOURCE_DIR}/data/wayland/wlr-layer-shell-unstable-v1.xml" "${MSIME_XDG_SHELL_XML}")
@@ -656,8 +719,8 @@ if(MSIME_XDG_SHELL_XML)
     list(APPEND MSIME_NOTICE_NAMES "${MSIME_PROTOCOL_NOTICE}")
   endforeach()
 endif()
-# Rust crates are statically linked into the host library (a cdylib) and the desktop binary, and the desktop binary embeds a frontend bundled from npm packages. collect-notices.py gathers their license files from the resolved graphs; package-container.sh runs it and passes the results here. A development checkout has no such files, so only packaging requires them.
-set(MSIME_RUST_NOTICES "" CACHE FILEPATH "Collected license files of the Rust crates linked into the host library and desktop binary")
+# Rust crates are statically linked into the host library (a cdylib), the MCP server and the desktop binary, and the desktop binary embeds a frontend bundled from npm packages. collect-notices.py gathers their license files from the resolved graphs; package-container.sh runs it and passes the results here. A development checkout has no such files, so only packaging requires them.
+set(MSIME_RUST_NOTICES "" CACHE FILEPATH "Collected license files of the Rust crates linked into the host library, the MCP server and the desktop binary")
 set(MSIME_FRONTEND_NOTICES "" CACHE FILEPATH "Collected license files of the npm packages bundled into the desktop frontend")
 if(MSIME_ENABLE_PACKAGING AND NOT MSIME_RUST_NOTICES)
   message(FATAL_ERROR "Packaging requires MSIME_RUST_NOTICES; generate it with platforms/linux/collect-notices.py cargo (package-container.sh does)")

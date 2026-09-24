@@ -40,10 +40,16 @@ output="$repo_root/target/android/jniLibs/$abi"
 mkdir -p "$output"
 cp "$repo_root/target/android-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
 cp "$toolchain/sysroot/usr/lib/$compiler_target/libc++_shared.so" "$output/"
+# On-device speech recognition: the sherpa-onnx C API and ONNX Runtime come prebuilt from the pinned release in resources/voice-runtime.lock.json (fetched and hash-checked, never committed). Only the two native libraries are taken from the .aar; LocalAsr loads the C API with dlopen, so a missing runtime disables local recognition instead of the keyboard.
+python3 scripts/fetch_voice_runtime.py --platform android --out "$repo_root/target/voice-runtime/android"
+voice_aar=$(ls "$repo_root"/target/voice-runtime/android/sherpa-onnx-*.aar)
+unzip -o -j -q "$voice_aar" "jni/$abi/libsherpa-onnx-c-api.so" "jni/$abi/libonnxruntime.so" -d "$output"
 "$compiler++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-soname,libmsime_android.so \
-  platforms/android/native/client_jni.cpp -Icrates/host-api/include -Ishared \
-  -L"$output" -lmsime_host_api -o "$output/libmsime_android.so"
+  platforms/android/native/client_jni.cpp shared/voice/LocalAsr.cpp \
+  -Icrates/host-api/include -Ishared -Ishared/voice/third_party \
+  -Ivendor/MSIME-Engine/voice/include -I"$deps/$triplet/include" \
+  -L"$output" -lmsime_host_api -ldl -o "$output/libmsime_android.so"
 bash platforms/android/verify-native.sh "$toolchain/bin/llvm-readelf" "$output" "$abi"
 notices="$repo_root/target/android/notices/$abi"
 mkdir -p "$notices"
@@ -52,5 +58,8 @@ for copyright_file in "$deps/$triplet"/share/*/copyright; do
   cp "$copyright_file" "$notices/$package.txt"
 done
 cp "$toolchain/NOTICE" "$notices/ndk-toolchain.txt"
+cp shared/voice/third_party/sherpa-onnx/LICENSE "$notices/sherpa-onnx.txt"
+cp platforms/linux/data/licenses/onnxruntime-MIT.txt "$notices/onnxruntime.txt"
+cp platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt "$notices/onnxruntime-third-party.txt"
 cp "$toolchain/sysroot/NOTICE" "$notices/ndk-sysroot.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

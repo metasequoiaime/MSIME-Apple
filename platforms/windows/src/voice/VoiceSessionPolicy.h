@@ -40,6 +40,15 @@ inline constexpr std::string_view voice_doubao_start_message =
 inline constexpr std::string_view voice_microphone_start_message = "无法启动麦克风。";
 inline constexpr std::string_view voice_capture_interrupted_message = "录音中断，请重试。";
 inline constexpr std::string_view voice_recognition_failed_message = "语音识别失败";
+// The on-device provider needs a model instead of a token; the settings page downloads one and fills in asr_model_path.
+inline constexpr std::string_view voice_missing_local_model_message =
+    "请先在“语音输入”设置中下载并选用一个本地模型。";
+// sherpa-onnx-c-api.dll or onnxruntime.dll is missing beside the Server or will not load. The installer puts them there, so the fix is to reinstall rather than to change a setting.
+inline constexpr std::string_view voice_local_runtime_message =
+    "本地语音识别组件无法加载，请重新安装输入法。";
+// The configured model directory is gone or was never finished: the settings page can download it again.
+inline constexpr std::string_view voice_local_model_unusable_message =
+    "本地语音模型不可用，请在“语音输入”设置中重新下载。";
 
 // The configuration a recording needs before anything is opened.
 struct VoiceStartConfig {
@@ -49,6 +58,9 @@ struct VoiceStartConfig {
   std::string_view endpoint;
   std::string_view model;
   std::string_view resource_id;
+  // The on-device provider: recognition needs `model_path` (an installed model directory) and nothing the cloud providers need.
+  bool local = false;
+  std::string_view model_path{};
 };
 
 enum class VoiceStartCheck { Ready, Disabled, Rejected };
@@ -62,6 +74,10 @@ struct VoiceStartVerdict {
 constexpr VoiceStartVerdict voice_start_verdict(const VoiceStartConfig &config) {
   if (!config.enabled)
     return {VoiceStartCheck::Disabled, {}};
+  if (config.local)
+    return config.model_path.empty()
+               ? VoiceStartVerdict{VoiceStartCheck::Rejected, voice_missing_local_model_message}
+               : VoiceStartVerdict{};
   if (config.token.empty())
     return {VoiceStartCheck::Rejected, voice_missing_token_message};
   // MSIME-Windows hands an incomplete Doubao configuration to the streaming client, whose Start() refuses it; a batch provider's gaps surface in Recognize().
@@ -80,6 +96,16 @@ inline std::string voice_recognition_failure(const std::exception &error) {
     if (!cloud->user_message().empty())
       return cloud->user_message();
   return std::string(voice_recognition_failed_message);
+}
+
+// The sentence for a failed on-device recognition. The recognizer's own error text is an English diagnostic, so the person dictating is told which of the two things they can act on went wrong - the runtime beside the Server, or the model directory the setting points at - and the generic line otherwise.
+constexpr std::string_view voice_local_failure(bool runtime_available,
+                                               bool model_installed) {
+  if (!runtime_available)
+    return voice_local_runtime_message;
+  if (!model_installed)
+    return voice_local_model_unusable_message;
+  return voice_recognition_failed_message;
 }
 
 // The ✓ and ✗ buttons appear once a native recording is locked, as in MSIME-Windows ControlLoop: the key that started it is up, so the overlay is the only place left to end it besides the shortcut and Escape. A review capture has no overlay.

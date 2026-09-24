@@ -25,6 +25,7 @@
 #define MyWatchdogName "MetasequoiaImeWatchdog.exe"
 #define MyWatchdogTaskName "Metasequoia IME Watchdog"
 #define MyReplayName   "MetasequoiaImeDictionaryReplay.exe"
+#define MyMcpName      "msime-mcp.exe"
 ; Global::MetasequoiaIMECLSID in platforms/windows/tsf/Global/Globals.cpp.
 #define MyTipKey       "SOFTWARE\Microsoft\CTF\TIP\{E3062E9A-D834-4637-8958-ED8CFA427D01}"
 #define MyVersionDirBase "msime_v" + MyAppVersion
@@ -121,6 +122,7 @@ Source: "{#MySourceRoot}\tsf_dll\64\*.pdb"; \
     DestDir: "{commonpf64}\metasequoiaime\{code:GetVersionDir}"; \
     Flags: ignoreversion
 
+; server_exe 含本地语音识别运行时（sherpa-onnx-c-api.dll、onnxruntime.dll、onnxruntime_providers_shared.dll）。Server 从自身目录 LoadLibrary 加载它们，因此必须与 MetasequoiaImeServer.exe 同目录；ignoreversion 保证升级时换成本包锁定的版本。
 Source: "{#MySourceRoot}\server_exe\*"; \
     DestDir: "{commonpf64}\metasequoiaime\server"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
@@ -788,9 +790,11 @@ begin
   { Watchdog 必须先停，否则它可能在升级或卸载期间重新启动 Server。}
   StopProcess('{#MyWatchdogName}');
   StopProcess('{#MyAppExeName}');
-  { 设置窗口是独立的 WinUI 3 msime-client-settings.exe；表情 / 手写 / 屏幕键盘面板仍由同目录的 Tauri MSIME Client Preview.exe 承载。两个进程都不在 Server 的进程树里，覆盖安装和卸载前由安装器统一停止。}
+  { 设置窗口是独立的 WinUI 3 msime-client-settings.exe；表情 / 手写 / 屏幕键盘面板仍由同目录的 Tauri MSIME.exe 承载。两个进程都不在 Server 的进程树里，覆盖安装和卸载前由安装器统一停止。}
   StopProcess('{#MySettingsExeName}');
-  StopProcess('MSIME Client Preview.exe');
+  StopProcess('MSIME.exe');
+  { AI 助手按需拉起的 msime-mcp.exe 同样不在 Server 的进程树里，助手开着就一直驻留，也会占住 server 目录。}
+  StopProcess('{#MyMcpName}');
 end;
 
 procedure DeleteWatchdogLogonTask;

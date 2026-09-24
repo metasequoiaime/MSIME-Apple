@@ -53,6 +53,11 @@ import {
   type LinuxSetupClient,
   type LinuxSetupLine,
   type LinuxSetupStatus,
+  type McpClientId,
+  type McpInstallOutcome,
+  type McpServerStatus,
+  type LocalVoiceModelList,
+  type LocalVoiceModelProgress,
   UNBATCHED_DICTIONARY_FILE_BYTES,
 } from "@msime/ui";
 import "@msime/ui/styles.css";
@@ -226,6 +231,16 @@ const client: SettingsClient = {
     move: () => invoke("move_data_directory"),
   },
   pickVoiceModelPath: () => invoke("pick_voice_model_path"),
+  localVoiceModels: {
+    list: () => invoke<LocalVoiceModelList>("voice_local_models"),
+    install: (id) => invoke<string>("voice_local_model_install", { id }),
+    cancel: (id) => invoke<boolean>("voice_local_model_cancel", { id }),
+    remove: (id) => invoke<void>("voice_local_model_remove", { id }),
+    onProgress: (listener) =>
+      listen<LocalVoiceModelProgress>("voice-local-model-progress", (event) =>
+        listener(event.payload),
+      ),
+  },
   windowControl: async (action) => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();
@@ -608,6 +623,16 @@ function DesktopSettings() {
               ? {
                   saveExport: (name: string, contents: string) =>
                     invoke<string>("save_export", { name, contents }),
+                }
+              : {}),
+            // msime-mcp is packaged beside the settings app on the three desktop hosts only.
+            ...(host.platform === "macos" ||
+            host.platform === "linux" ||
+            host.platform === "windows"
+              ? {
+                  mcpServerStatus: () => invoke<McpServerStatus>("mcp_server_status"),
+                  installMcpClient: (client: McpClientId, replace: boolean) =>
+                    invoke<McpInstallOutcome>("install_mcp_client", { client, replace }),
                 }
               : {}),
             ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
