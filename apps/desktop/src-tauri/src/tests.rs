@@ -88,7 +88,20 @@ fn windows_restart_payload_is_exact_utf16_without_terminator() {
 fn linux_restart_targets_the_running_input_method_framework() {
     assert_eq!(
         super::linux_input_method_restart_command(true),
-        ("fcitx5-remote", &["-r"][..])
+        (
+            "gdbus",
+            &[
+                "call",
+                "--session",
+                "--dest",
+                "org.fcitx.Fcitx5",
+                "--object-path",
+                "/controller",
+                "--method",
+                "org.fcitx.Fcitx.Controller1.ReloadAddonConfig",
+                "'msime'",
+            ][..]
+        )
     );
     assert_eq!(
         super::linux_input_method_restart_command(false),

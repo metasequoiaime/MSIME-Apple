@@ -43,4 +43,52 @@ final class PairedPunctuationTests: XCTestCase {
     XCTAssertEqual(reopened.commitText, "“")
     XCTAssertEqual(reopened, MetasequoiaInputSnapshot(isHandled: true, commitText: "“", preedit: "", candidates: ["a"]))
   }
+
+  func testTheClosingKeyStepsOverTheInnermostClosedPair() {
+    var stack = PairedPunctuationStack()
+    stack.push(closing: "》", editor: 7)
+    stack.push(closing: "”", editor: 7)
+    XCTAssertFalse(stack.stepOver(ascii: ",", editor: 7, following: "”》"), "typing inside a pair keeps it")
+    XCTAssertTrue(stack.stepOver(ascii: "\"", editor: 7, following: "”》"))
+    XCTAssertTrue(stack.stepOver(ascii: ">", editor: 7, following: "》"))
+    XCTAssertTrue(stack.isEmpty)
+    XCTAssertFalse(stack.stepOver(ascii: ">", editor: 7, following: "》"), "nothing left to step over")
+
+    stack.push(closing: "〉", editor: 7)
+    XCTAssertTrue(stack.stepOver(ascii: ">", editor: 7, following: "〉"), "> closes a nested title too")
+    stack.push(closing: "’", editor: 7)
+    XCTAssertTrue(stack.stepOver(ascii: "'", editor: 7, following: nil), "a host that reports nothing leaves the stack as the evidence")
+    stack.push(closing: "】", editor: 7)
+    XCTAssertTrue(stack.stepOver(ascii: "]", editor: 7, following: "】abc"))
+  }
+
+  func testAPairThatIsNoLongerThereIsForgotten() {
+    var stack = PairedPunctuationStack()
+    stack.push(closing: "）", editor: 7)
+    stack.push(closing: "）", editor: 7)
+    XCTAssertFalse(stack.stepOver(ascii: ")", editor: 7, following: ""), "the caret is at the end, the closing half is gone")
+    XCTAssertTrue(stack.isEmpty)
+
+    stack.push(closing: "）", editor: 7)
+    XCTAssertFalse(stack.stepOver(ascii: ")", editor: 8, following: "）"), "another editor")
+    XCTAssertTrue(stack.isEmpty)
+
+    stack.push(closing: "）", editor: 7)
+    XCTAssertFalse(stack.stepOver(ascii: "]", editor: 7, following: "）"), "the wrong closing key ends the tracking")
+    XCTAssertTrue(stack.isEmpty)
+
+    stack.push(closing: "）", editor: 0)
+    XCTAssertTrue(stack.isEmpty, "no document, nothing to be sure about")
+  }
+
+  func testTheStackKeepsTheInnermostSixteen() {
+    var stack = PairedPunctuationStack()
+    stack.push(closing: "】", editor: 1)
+    for _ in 0..<PairedPunctuationStack.limit { stack.push(closing: "）", editor: 1) }
+    for _ in 0..<PairedPunctuationStack.limit {
+      XCTAssertTrue(stack.stepOver(ascii: ")", editor: 1, following: "）"))
+    }
+    XCTAssertTrue(stack.isEmpty, "the outermost 】 was dropped")
+    XCTAssertEqual(PairedPunctuationStack.limit, 16)
+  }
 }
