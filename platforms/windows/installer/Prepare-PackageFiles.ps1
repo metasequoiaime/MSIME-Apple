@@ -79,6 +79,7 @@ $desktopSource = if (-not $PSBoundParameters.ContainsKey('DesktopExecutable') -a
     Join-Path $RepoRoot $DesktopExecutable
 }
 $dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
+$mcpRelease = Join-Path $serverRelease 'msime-mcp.exe'
 if (-not $Tsf32ReleaseDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot 'target/windows-full/x86/bin') -PathType Container)) {
     $Tsf32ReleaseDirectory = 'target/windows-full/x86/bin'
 }
@@ -138,6 +139,7 @@ if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) {
 Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输出目录'
 Assert-PathExists -LiteralPath (Join-Path $serverRelease 'MetasequoiaImeWatchdog.exe') -Description 'Watchdog Release EXE'
 Assert-PathExists -LiteralPath $dictionaryReplayRelease -Description '用户词库回放程序 Release EXE'
+Assert-PathExists -LiteralPath $mcpRelease -Description 'MCP 服务程序 Release EXE'
 Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf32Pdb -Description '32 位 TSF Release PDB'

@@ -75,6 +75,15 @@ try {
                 (Join-Path $release 'MetasequoiaImeDictionaryReplay.exe'), $bin)
             Invoke-ClientBuild cmake @('-E', 'copy_if_different',
                 (Join-Path $release 'MetasequoiaImeDictionaryReplay.pdb'), $bin)
+            Invoke-ClientBuild cargo @('build', '--locked', '--release', '--target', $triple,
+                '-p', 'msime-mcp-server', '--bin', 'msime-mcp')
+            Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime-mcp.exe'), $bin)
+            # As for the desktop below, the PDB can carry the normalized crate name; the package wants it beside the executable under the same name.
+            $mcpPdbs = @('msime_mcp.pdb', 'msime-mcp.pdb') |
+                ForEach-Object { Join-Path $release $_ } |
+                Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+            if (@($mcpPdbs).Count -ne 1) { throw 'Expected one MCP server PDB output' }
+            Invoke-ClientBuild cmake @('-E', 'copy_if_different', @($mcpPdbs)[0], (Join-Path $bin 'msime-mcp.pdb'))
         }
     }
     $env:CMAKE_PREFIX_PATH = $X64Dependencies
@@ -110,7 +119,8 @@ try {
         }
         if ($arch -eq 'x64') {
             foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe',
-                'msime-client-prepare.exe', 'MetasequoiaImeDictionaryReplay.exe', 'msime-client-settings.exe')) {
+                'msime-client-prepare.exe', 'MetasequoiaImeDictionaryReplay.exe', 'msime-mcp.exe',
+                'msime-client-settings.exe')) {
                 & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $exe) -Architecture x64 -Kind exe
             }
         }

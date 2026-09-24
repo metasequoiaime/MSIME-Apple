@@ -13,15 +13,19 @@ function Get-Block([string]$Begin, [string]$End) {
 # ---- processes stopped before files are replaced or removed ----
 # The settings window and every shared panel are one Tauri executable, the one the Server launches (ShellSurfaces.h) and the Start Menu shortcut targets.
 $settings = [regex]::Match($script, '#define MySettingsExeName "([^"]+)"').Groups[1].Value
+if ([regex]::Match($script, '#define MyMcpName +"([^"]+)"').Groups[1].Value -ne 'msime-mcp.exe') {
+    throw 'The installer does not name the MCP server it stops'
+}
 $shell = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../src/system/ShellSurfaces.h') -Raw
 $shellNames = [regex]::Match($shell, 'shell_executable_names\(\)\s*\{\s*return\s*\{L"([^"]+)"')
 if (-not $settings -or -not $shellNames.Success -or $shellNames.Groups[1].Value -ne $settings) {
     throw 'The installer does not name the Tauri executable the Server launches'
 }
 $stop = Get-Block 'procedure StopImeProcesses;' 'procedure DeleteWatchdogLogonTask;'
-$order = @("StopProcess('{#MyWatchdogName}')", "StopProcess('{#MyAppExeName}')", "StopProcess('{#MySettingsExeName}')" |
+$order = @("StopProcess('{#MyWatchdogName}')", "StopProcess('{#MyAppExeName}')", "StopProcess('{#MySettingsExeName}')",
+    "StopProcess('{#MyMcpName}')" |
     ForEach-Object { $stop.IndexOf($_) })
-if ($order -contains -1) { throw 'StopImeProcesses does not stop the Watchdog, the Server and the Tauri shell' }
+if ($order -contains -1) { throw 'StopImeProcesses does not stop the Watchdog, the Server, the Tauri shell and the MCP server' }
 if ($order[0] -gt $order[1]) { throw 'The Watchdog must stop before the Server, or it restarts it' }
 $prepare = Get-Block 'function PrepareToInstall' 'procedure CurStepChanged'
 $uninstall = Get-Block 'procedure CurUninstallStepChanged' 'else if CurUninstallStep = usPostUninstall'

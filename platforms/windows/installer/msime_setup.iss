@@ -25,6 +25,7 @@
 #define MyWatchdogName "MetasequoiaImeWatchdog.exe"
 #define MyWatchdogTaskName "Metasequoia IME Watchdog"
 #define MyReplayName   "MetasequoiaImeDictionaryReplay.exe"
+#define MyMcpName      "msime-mcp.exe"
 ; Global::MetasequoiaIMECLSID in platforms/windows/tsf/Global/Globals.cpp.
 #define MyTipKey       "SOFTWARE\Microsoft\CTF\TIP\{E3062E9A-D834-4637-8958-ED8CFA427D01}"
 #define MyVersionDirBase "msime_v" + MyAppVersion
@@ -790,6 +791,8 @@ begin
   StopProcess('{#MyAppExeName}');
   { 设置窗口和表情 / 手写 / 屏幕键盘面板都是同一个 Tauri 外壳 msime-client-settings.exe，靠环境变量区分。关掉窗口后进程还要驻留十分钟，从开始菜单或被已崩溃的 Server 拉起时也不在 Server 的进程树里，/T 带不走它；不停掉它，覆盖安装删 server 目录和卸载都会撞上「文件正在使用」。}
   StopProcess('{#MySettingsExeName}');
+  { AI 助手按需拉起的 msime-mcp.exe 同样不在 Server 的进程树里，助手开着就一直驻留，也会占住 server 目录。}
+  StopProcess('{#MyMcpName}');
 end;
 
 procedure DeleteWatchdogLogonTask;
