@@ -1807,6 +1807,12 @@ export interface SettingsClient {
    * belongs with the document, not with this page.
    */
   loadDefaultPreferences?: () => Promise<Preferences>;
+  /**
+   * Repair a preferences document the host cannot read, as the Windows source repairs a config.toml that does not parse. The host backs the damaged file up beside it first, then keeps every setting and service key it still recognises. `backupPath` is absent when the document already loaded and nothing was written.
+   */
+  recoverPreferences?: () => Promise<PreferencesRecovery>;
+  /** Open the folder holding the preferences document, where a repair leaves its backup. */
+  openPreferencesDirectory?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** macOS opens the versioned third-party notices shipped with the app bundle. */
@@ -1906,6 +1912,15 @@ export interface SettingsClient {
   dictionaryManifest?: () => Promise<DictionaryManifest>;
 }
 
+export interface PreferencesRecovery {
+  snapshot: Snapshot;
+  backupPath?: string | null;
+  salvaged: boolean;
+}
+
+/** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
+const unreadablePreferencesMessage = "配置文件无法读取或版本较新，原文件已保留。";
+
 function message(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "object" && error !== null && "code" in error) {
@@ -1921,7 +1936,7 @@ function message(error: unknown): string {
       case "key_conflict":
         return "以词定字和翻页不能使用同一组快捷键。";
       case "format":
-        return "配置文件无法读取或版本较新，原文件已保留。";
+        return unreadablePreferencesMessage;
     }
   }
   return "无法访问设置，请重试。原有设置不会被自动重置。";
@@ -2474,6 +2489,8 @@ export function SettingsPage({
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  /** The backup the last repair wrote, while its notice is showing. */
+  const [recoveredBackup, setRecoveredBackup] = useState("");
   const [removeUserDataOnUninstall, setRemoveUserDataOnUninstall] = useState(false);
   const [uninstallConfirmation, setUninstallConfirmation] = useState(false);
   const [uninstallBusy, setUninstallBusy] = useState(false);
@@ -2925,6 +2942,7 @@ export function SettingsPage({
     setBusy(true);
     setError("");
     setNotice("");
+    setRecoveredBackup("");
     try {
       const value = await client.load();
       setSnapshot(value);
@@ -2965,6 +2983,7 @@ export function SettingsPage({
     setBusy(true);
     setError("");
     setNotice("");
+    setRecoveredBackup("");
     try {
       const value = await client.save(snapshot.revision, draft);
       if (macosPlatform && client.saveMacosShuangpinKeymap && macosShuangpinKeymap !== undefined) {
@@ -3530,6 +3549,50 @@ export function SettingsPage({
       setNotice("所有设置已恢复默认，请点击保存设置。");
     } catch {
       setError("无法读取默认设置，请重试。原有设置不会被自动重置。");
+    }
+  }
+
+  /**
+   * The Windows source repairs an unparseable config.toml by itself when the IME starts. The input method here does the same for a document that is not JSON at all, and this is the explicit path for everything else it refuses -- a newer build's fields or format, which an automatic rewrite could have destroyed. An unsaved edit survives the repair: it stays in the draft on top of the repaired revision, so saving it still works.
+   */
+  async function recoverPreferences() {
+    if (!client.recoverPreferences || busy) return;
+    const confirmed = await confirm({
+      title: "修复配置文件",
+      message:
+        "损坏的配置文件会先备份到同一目录，然后尽量保留能识别的设置和服务密钥，其余恢复默认。",
+      confirmLabel: "修复",
+    });
+    if (!confirmed || !client.recoverPreferences) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    setRecoveredBackup("");
+    try {
+      const result = await client.recoverPreferences();
+      const currentSnapshot = snapshotRef.current;
+      const currentDraft = draftRef.current;
+      const dirty =
+        !!currentSnapshot &&
+        !!currentDraft &&
+        JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
+      setSnapshot(result.snapshot);
+      if (!dirty) setDraft(result.snapshot.preferences);
+      if (!result.backupPath) {
+        setNotice("配置文件已可以正常读取，无需修复。");
+        return;
+      }
+      const backupName = result.backupPath.split(/[\\/]/).pop() ?? result.backupPath;
+      setRecoveredBackup(result.backupPath);
+      setNotice(
+        `配置文件已修复，原文件已备份为 ${backupName}。${
+          result.salvaged ? "" : "原有设置无法识别，已恢复默认。"
+        }${dirty ? "未保存的修改仍保留，请点击保存设置。" : ""}`,
+      );
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -4656,11 +4719,40 @@ export function SettingsPage({
             {error && (
               <p role="alert" className="error">
                 {error}
+                {error === unreadablePreferencesMessage && client.recoverPreferences && (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => void recoverPreferences()}
+                    >
+                      修复配置文件…
+                    </button>
+                  </>
+                )}
               </p>
             )}
             {notice && (
               <p role="status" className="notice">
                 {notice}
+                {recoveredBackup && client.openPreferencesDirectory && (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() =>
+                        void client.openPreferencesDirectory?.().catch(() =>
+                          setError("无法打开配置文件所在的文件夹。"),
+                        )
+                      }
+                    >
+                      {macosPlatform ? "在 Finder 中显示" : "打开所在文件夹"}
+                    </button>
+                  </>
+                )}
               </p>
             )}
             {inputSourceStartup &&

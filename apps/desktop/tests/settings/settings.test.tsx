@@ -6868,3 +6868,57 @@ test("a host that fixes the candidate page size and layout does not offer them",
   expect(await screen.findByLabelText("每页候选项数量", undefined, { timeout: 3000 })).toBeTruthy();
   expect(screen.getByLabelText("候选项排列方式")).toBeTruthy();
 });
+
+test("an unreadable preferences document offers a repair that backs it up first", async () => {
+  const recovered: Snapshot = {
+    ...initial,
+    revision: 12,
+    preferences: { ...initial.preferences, candidate_page_size: 7 },
+  };
+  const recoverPreferences = vi.fn().mockResolvedValue({
+    snapshot: recovered,
+    backupPath: "/Users/synthetic/Library/MSIME/preferences.json.corrupt-20260923-101500",
+    salvaged: true,
+  });
+  const openPreferencesDirectory = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    host: { platform: "macos" } as HostCapabilities,
+    load: vi.fn().mockRejectedValue({ code: "format" }),
+    save: vi.fn(),
+    recoverPreferences,
+    openPreferencesDirectory,
+  };
+  render(<SettingsPage client={client} />);
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("配置文件无法读取");
+
+  // Cancelling asks nothing of the host.
+  fireEvent.click(within(alert).getByRole("button", { name: "修复配置文件…" }));
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "损坏的配置文件会先备份到同一目录",
+  );
+  await answerConfirm("cancel");
+  expect(recoverPreferences).not.toHaveBeenCalled();
+
+  fireEvent.click(within(alert).getByRole("button", { name: "修复配置文件…" }));
+  await answerConfirm("confirm");
+  expect(recoverPreferences).toHaveBeenCalledTimes(1);
+  const notice = await screen.findByText(/配置文件已修复/);
+  expect(notice.textContent).toContain("preferences.json.corrupt-20260923-101500");
+  expect(screen.queryByRole("alert")).toBeNull();
+  await settingsReady();
+
+  fireEvent.click(within(notice).getByRole("button", { name: "在 Finder 中显示" }));
+  expect(openPreferencesDirectory).toHaveBeenCalledTimes(1);
+});
+
+test("a host without a repair keeps the unreadable-document message alone", async () => {
+  render(
+    <SettingsPage
+      client={{ load: vi.fn().mockRejectedValue({ code: "format" }), save: vi.fn() }}
+    />,
+  );
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("配置文件无法读取");
+  expect(within(alert).queryByRole("button")).toBeNull();
+});

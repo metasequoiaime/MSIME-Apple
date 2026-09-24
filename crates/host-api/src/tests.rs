@@ -1765,6 +1765,60 @@ fn try_preferences_reader_reports_contention_without_defaults() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn recover_preferences_backs_up_malformed_documents_only() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap();
+    let recover = || read(unsafe { msime_client_recover_preferences(path.as_ptr(), path.len()) });
+    let document = directory.path().join("preferences.json");
+
+    // Missing: nothing is written.
+    let missing = recover();
+    assert_eq!(missing["ok"], true);
+    assert_eq!(missing["value"]["recovered"], false);
+    assert_eq!(missing["value"]["snapshot"]["revision"], 0);
+    assert!(!document.exists());
+
+    // Malformed: backed up verbatim, then replaced by a document load accepts.
+    std::fs::write(&document, "{\"format_version\":1,").unwrap();
+    let repaired = recover();
+    assert_eq!(repaired["ok"], true, "{repaired}");
+    let value = &repaired["value"];
+    assert_eq!(value["recovered"], true);
+    assert_eq!(value["salvaged"], false);
+    let backup = std::path::PathBuf::from(value["backup_path"].as_str().unwrap());
+    assert_eq!(backup.parent().unwrap(), directory.path());
+    assert_eq!(
+        value["backup_name"].as_str().unwrap(),
+        backup.file_name().unwrap().to_str().unwrap()
+    );
+    assert_eq!(std::fs::read(&backup).unwrap(), b"{\"format_version\":1,");
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["value"], value["snapshot"]);
+
+    // Valid now: a second call is a no-op.
+    let again = recover();
+    assert_eq!(again["value"]["recovered"], false);
+    assert_eq!(again["value"]["snapshot"], value["snapshot"]);
+
+    // Well-formed but from a newer build: refused and left as it is.
+    let future = json!({"format_version": 2, "revision": 3, "preferences": {}}).to_string();
+    std::fs::write(&document, &future).unwrap();
+    assert_eq!(recover()["ok"], false);
+    assert_eq!(std::fs::read_to_string(&document).unwrap(), future);
+
+    assert_eq!(
+        read(unsafe { msime_client_recover_preferences(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    let relative = "relative";
+    assert_eq!(
+        read(unsafe { msime_client_recover_preferences(relative.as_ptr(), relative.len()) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn save_preferences_uses_compare_and_swap_and_rejects_invalid_snapshots() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().to_string_lossy().into_owned();

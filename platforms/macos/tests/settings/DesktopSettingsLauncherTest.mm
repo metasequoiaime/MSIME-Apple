@@ -52,6 +52,9 @@ int main() {
         assert(workspace.launches == 3);
         MSIMEOpenDesktopUpdateSettings(workspace, fallback);
         assert([workspace.configuration.arguments isEqual:@[@"--route=settings:about"]]);
+        // The short-lived process is what carries the route to an already open settings window.
+        assert(workspace.configuration.createsNewApplicationInstance);
+        assert(workspace.configuration.activates);
         assert(workspace.launches == 4);
         workspace.completion(NSRunningApplication.currentApplication, nil);
         assert(fallbacks == 2);
