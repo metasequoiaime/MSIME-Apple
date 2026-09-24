@@ -91,6 +91,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   // twice, and the framework de-duplicates nothing.
   private attachedKeyboards: AttachedInputDevice[] = [];
   private routingKeys: boolean = false;
+  /** Set once the ability has torn down, so a late device enumeration cannot route keys again. */
+  private tornDown: boolean = false;
 
   /** The editor moved its caret; the candidate window goes with it if it is up. */
   private readonly caretMoved: (x: number, y: number, height: number) => void =
@@ -475,6 +477,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         this.pending = inputClient;
         return;
       }
+      this.pending = undefined;
       // A caret belongs to the editor that reported it. Carrying one across a focus change puts the
       // next composition beside the last editor's text, which is worse than not knowing at all.
       this.caret = [0, 0, 0];
@@ -511,6 +514,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   }
 
   private readonly stopped: () => void = (): void => {
+    // An editor that stops while the panel is still being built must not be attached once it is.
+    this.pending = undefined;
     this.backspaceHold.reset();
     KeyboardSession.shared.detach();
     if (this.panel !== undefined) {
@@ -694,6 +699,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
 
   /** Brings the `keyEvent` subscription in line with what is attached, and only when it differs. */
   private applyKeyRouting(): void {
+    if (this.tornDown) {
+      return;
+    }
     const route: boolean =
       HardwareKeyboardPolicy.routes(KeyboardFormFactor.isDesktop(), this.attachedKeyboards);
     const transition: KeyRoutingTransition | null =
@@ -899,38 +907,51 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       // The framework allows exactly one soft keyboard panel. If it refused, the session has nothing
       // to draw into, so tear it back down rather than leaving it attached to no surface.
       KeyboardLog.error(`panel creation failed: ${describeError(error)}`);
-      KeyboardSession.shared.stop();
-      this.panel = undefined;
-      engine.off('inputStart', this.started);
-      engine.off('inputStop', this.stopped);
-      inputMethodEngine.getKeyboardDelegate().off('selectionChange', this.selectionChanged);
-      inputMethodEngine.getKeyboardDelegate().off('textChange', this.textChanged);
-      KeyboardSession.shared.onTouchHeight = undefined;
+      this.teardown();
       return;
     }
   }
 
   onDestroy(): void {
+    this.teardown();
+  }
+
+  /** Undoes everything onCreate installed. Safe to run twice: a failed onCreate and then onDestroy. */
+  private teardown(): void {
+    this.tornDown = true;
+    this.pending = undefined;
     engine.off('inputStart', this.started);
     engine.off('inputStop', this.stopped);
     inputMethodEngine.getKeyboardDelegate().off('selectionChange', this.selectionChanged);
     inputMethodEngine.getKeyboardDelegate().off('textChange', this.textChanged);
-    KeyboardSession.shared.onTouchHeight = undefined;
+    // Before releasing keyEvent, so a queued hot-plug change cannot subscribe it again.
+    HarmonyHardwareKeyboards.unwatch();
     if (this.routingKeys) {
       inputMethodEngine.getKeyboardDelegate().off('keyEvent', this.typed);
       this.routingKeys = false;
     }
+    this.attachedKeyboards = [];
     if (KeyboardFormFactor.isDesktop()) {
       inputMethodEngine.getKeyboardDelegate().off('cursorContextChange', this.caretMoved);
     }
-    HarmonyHardwareKeyboards.unwatch();
     KeyboardSession.shared.stop();
+    // These close over the panel being released.
+    KeyboardSession.shared.onTouchHeight = undefined;
+    KeyboardSession.shared.onDismiss = undefined;
+    KeyboardSession.shared.onCandidateWidth = undefined;
+    KeyboardSession.shared.onCandidateCount = undefined;
+    KeyboardSession.shared.onComposition = undefined;
+    KeyboardSession.shared.onSurfaceRequested = undefined;
+    KeyboardSession.shared.onOpenSettings = undefined;
     KeyboardSession.shared.onPreferencesReloaded = undefined;
     this.closeModeBadge();
     this.closeToolbar();
-    if (this.panel !== undefined) {
-      engine.destroyPanel(this.panel);
-      this.panel = undefined;
+    const panel: inputMethodEngine.Panel | undefined = this.panel;
+    this.panel = undefined;
+    if (panel !== undefined) {
+      engine.destroyPanel(panel).catch((error: Object): void => {
+        KeyboardLog.error(`panel would not destroy: ${describeError(error)}`);
+      });
     }
   }
 }

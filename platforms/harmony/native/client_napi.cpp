@@ -846,25 +846,32 @@ static napi_value DoubaoEncodeFrame(napi_env env, napi_callback_info info) {
     return output;
 }
 
+// ArkTS sees a NULL napi_value as undefined; the d.ts promises null on refusal.
+static napi_value nullValue(napi_env env) {
+    napi_value none = nullptr;
+    napi_get_null(env, &none);
+    return none;
+}
+
 static napi_value DoubaoDecodeFrame(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     std::vector<uint8_t> frame;
     if (!arguments(env, info, 1, argv) || !argumentArrayBuffer(env, argv[0], frame)
             || frame.size() < 12 || frame.size() > 1024 * 1024 || frame[0] != 0x11
-            || (frame[1] >> 4) != 0x09 || frame[2] != 0x11) return nullptr;
+            || (frame[1] >> 4) != 0x09 || frame[2] != 0x11) return nullValue(env);
     const uint8_t flags = frame[1] & 0x0f;
     size_t offset = 4;
     if ((flags & 0x01) != 0) offset += 4;
     if ((flags & 0x04) != 0) offset += 4;
-    if (offset + 4 > frame.size()) return nullptr;
+    if (offset + 4 > frame.size()) return nullValue(env);
     uint32_t compressed_size = 0;
     for (size_t index = 0; index < 4; ++index) {
         compressed_size = (compressed_size << 8) | frame[offset + index];
     }
     offset += 4;
-    if (compressed_size != frame.size() - offset) return nullptr;
+    if (compressed_size != frame.size() - offset) return nullValue(env);
     std::vector<uint8_t> payload;
-    if (!gzipDecompress(frame.data() + offset, compressed_size, payload)) return nullptr;
+    if (!gzipDecompress(frame.data() + offset, compressed_size, payload)) return nullValue(env);
     std::string text(reinterpret_cast<const char *>(payload.data()), payload.size());
     napi_value result = nullptr;
     napi_value last = nullptr;
@@ -873,7 +880,7 @@ static napi_value DoubaoDecodeFrame(napi_env env, napi_callback_info info) {
             || napi_get_boolean(env, (flags & 0x02) != 0, &last) != napi_ok
             || napi_create_string_utf8(env, text.data(), text.size(), &body) != napi_ok
             || napi_set_named_property(env, result, "last", last) != napi_ok
-            || napi_set_named_property(env, result, "payload", body) != napi_ok) return nullptr;
+            || napi_set_named_property(env, result, "payload", body) != napi_ok) return nullValue(env);
     return result;
 }
 

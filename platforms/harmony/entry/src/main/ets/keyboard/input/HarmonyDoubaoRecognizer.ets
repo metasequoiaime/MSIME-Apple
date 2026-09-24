@@ -110,7 +110,12 @@ export class HarmonyDoubaoRecognizer {
       if (this.isCurrent(token, socket)) void this.fail('豆包语音连接失败，请检查网络和凭据。', token);
     });
     socket.on('close', (_error: Object, _result: webSocket.CloseResult): void => {
-      if (this.isCurrent(token, socket) && !this.settled && !this.stopping) {
+      if (!this.isCurrent(token, socket) || this.settled) return;
+      if (this.stopping) {
+        // Closed after stop() without a last frame: finish with the text so far instead of hanging.
+        if (this.resultHandler !== undefined) this.resultHandler('', true);
+        void this.complete(token, socket);
+      } else {
         void this.fail('豆包语音连接已关闭。', token);
       }
     });
