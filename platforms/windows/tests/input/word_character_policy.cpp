@@ -69,6 +69,13 @@ int main() {
     REQUIRE(word_character_edge(key(0xBB, '='), WordCharacterBinding::MinusEqual) ==
             MSIME_LAST_HAN);
 
+    // In the Japanese scheme '-' is the long-vowel mark, not the first character; '=' still takes the last.
+    REQUIRE(!word_character_edge(key(0xBD, '-'), WordCharacterBinding::MinusEqual, true));
+    REQUIRE(word_character_edge(key(0xBB, '='), WordCharacterBinding::MinusEqual, true) ==
+            MSIME_LAST_HAN);
+    REQUIRE(word_character_edge(key(0xDB, '['), WordCharacterBinding::Brackets, true) ==
+            MSIME_FIRST_HAN);
+
     // One binding does not answer for the other's keys: with minus/equals
     // chosen, a bracket is an ordinary bracket.
     REQUIRE(!word_character_edge(key(0xDB, '['), WordCharacterBinding::MinusEqual));

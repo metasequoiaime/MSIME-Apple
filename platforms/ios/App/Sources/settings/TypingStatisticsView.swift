@@ -163,6 +163,11 @@ struct TypingStatisticsView: View {
           if selectedDay != nil {
             Button("返回累计") { selectedDay = nil }
           }
+          NavigationLink {
+            TypingDailyDetailView(statistics: statistics)
+          } label: {
+            Label("按日明细", systemImage: "tablecells")
+          }.accessibilityIdentifier("typingDailyDetails")
         } header: { Text(trendDays >= 360 ? "每日趋势 · 近一年" : "每日趋势 · 近 \(trendDays) 天") }
           footer: { Text("折线画到最早那条记录，最多一年。方块每天一格、一列一周，铺满一屏后可以左右拖，没有记录的日子是最浅的一档；点一个方块只看那一天的分类与占比。") }
       case .rhythm:
@@ -376,5 +381,108 @@ struct TypingStatisticsView: View {
       // looking in the wrong place. Carry what actually failed.
       errorMessage = "无法读取或保存统计：\(error.localizedDescription)"
     }
+  }
+}
+
+/// 按日明细:Windows 统计页那张九列表格。
+///
+/// iPad 的宽窗口照原样画九列;手机竖屏放不下九列,每天一行字数、下面一行小字列分类和速度 —— 挤成九列只会每格一个数字、谁也读不清。完整数据导成 CSV 交给分享面板,手机上真要逐列比对,在表格 app 里比在这里顺手。
+struct TypingDailyDetailView: View {
+  let statistics: TypingStatistics
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @State private var exportFile: URL?
+
+  /// 和 Windows 一样只列最近 30 个有记录的日子;更早的在导出的 CSV 里。
+  static let dayLimit = 30
+
+  private var rows: [TypingDailyRow] { statistics.dailyRows(limit: Self.dayLimit) }
+
+  var body: some View {
+    Form {
+      if rows.isEmpty {
+        Section { Text("暂无输入记录").foregroundStyle(.secondary) }
+      } else if horizontalSizeClass == .regular {
+        Section { table } footer: { footer }
+      } else {
+        Section {
+          ForEach(rows, id: \.day) { compactRow($0) }
+        } footer: { footer }
+      }
+    }
+    .navigationTitle("按日明细").navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      if let exportFile {
+        ToolbarItem(placement: .navigationBarTrailing) {
+          ShareLink(item: exportFile) { Label("导出 CSV", systemImage: "square.and.arrow.up") }
+            .accessibilityIdentifier("typingDailyExport")
+        }
+      }
+    }
+    .onAppear { exportFile = Self.writeExport(statistics) }
+  }
+
+  private var footer: some View {
+    Text("最近 \(Self.dayLimit) 个有记录的日子，新的在上。“其他”含其他文字、表情和符号。速度只按汉字与字母计算，和“节奏”页同一口径。导出的 CSV 含全部保留的日子。")
+  }
+
+  private var table: some View {
+    Grid(alignment: .trailing, horizontalSpacing: 14, verticalSpacing: 10) {
+      GridRow {
+        ForEach(["日期", "字数", "中文", "英文", "数字", "标点", "其他", "活跃", "速度"], id: \.self) {
+          Text($0).font(.caption).foregroundStyle(.secondary)
+        }
+      }
+      Divider()
+      ForEach(rows, id: \.day) { row in
+        GridRow {
+          Text(Self.dayLabel(row.day)).gridColumnAlignment(.leading)
+          Text("\(row.total)").fontWeight(.semibold)
+          Text("\(row.han)").foregroundStyle(.secondary)
+          Text("\(row.latin)").foregroundStyle(.secondary)
+          Text("\(row.number)").foregroundStyle(.secondary)
+          Text("\(row.punctuation)").foregroundStyle(.secondary)
+          Text("\(row.other)").foregroundStyle(.secondary)
+          Text(TypingActivity.formatActiveTime(row.activeMs))
+          Text("\(Int(row.speed.rounded())) 字/分")
+        }.monospacedDigit().accessibilityElement(children: .combine)
+      }
+    }.padding(.vertical, 6).accessibilityIdentifier("typingDailyTable")
+  }
+
+  private func compactRow(_ row: TypingDailyRow) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack {
+        Text(Self.dayLabel(row.day))
+        Spacer()
+        Text("\(row.total) 字符").fontWeight(.semibold).monospacedDigit()
+      }
+      Text(Self.compactSummary(row)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+    }.accessibilityElement(children: .combine)
+  }
+
+  /// 手机上那一行小字。为零的分类不列,不然每天都是一串「数字 0 · 标点 0」。
+  static func compactSummary(_ row: TypingDailyRow) -> String {
+    var parts = [("中文", row.han), ("英文", row.latin), ("数字", row.number), ("标点", row.punctuation), ("其他", row.other)]
+      .filter { $0.1 > 0 }.map { "\($0.0) \($0.1)" }
+    if row.activeMs > 0 {
+      parts.append("活跃 \(TypingActivity.formatActiveTime(row.activeMs))")
+      parts.append("\(Int(row.speed.rounded())) 字/分")
+    }
+    return parts.joined(separator: " · ")
+  }
+
+  /// `9月21日 周一`。明细按天读,星期几比年份有用。
+  static func dayLabel(_ key: String) -> String {
+    guard let date = TypingStatistics.parseDayKey(key) else { return key }
+    var style = Date.FormatStyle.dateTime.month().day().weekday(.abbreviated)
+    style.timeZone = TimeZone(secondsFromGMT: 0)!
+    return date.formatted(style)
+  }
+
+  /// 写到临时目录,文件名给分享面板和「存储到文件」用。写不了就不给导出按钮,而不是给一个点了没反应的按钮。
+  static func writeExport(_ statistics: TypingStatistics) -> URL? {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("水杉IME-打字统计.csv")
+    guard (try? Data(statistics.dailyCSV().utf8).write(to: url, options: .atomic)) != nil else { return nil }
+    return url
   }
 }

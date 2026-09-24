@@ -10,11 +10,17 @@
 和 SHA-256，状态交给 msime-client-prepare。下载默认不发生，必须显式 --download。
 
 Windows 安装程序注册 TSF profile，装完输入法就出现在输入法列表里；这里对应的是在状态目录就绪后把输入法加进正在运行的 Fcitx5 或 IBus 的列表。任何一步失败都退回到打印手动步骤，不影响已经准备好的状态。
+
+Windows 卸载程序注销 TSF profile 和类别，输入法随之从列表里消失，并删除水杉留下的全部状态；对应的是 --unregister：卸载时（.deb 的 prerm、CMake 卸载）在删除文件之前把输入法从这些列表里移除，再把宿主改过的桌面候选面板设置（Fcitx5 classicui 的主题、字体和滚轮翻页，IBus 面板的字体）恢复成接管之前的值——用户之后自己改过的不动——并删除水杉生成的 Fcitx5 主题。只做这些，不准备状态也不下载。
+
+--update 对应 Windows 安装程序升级时的用户词库回放。随包提供词库的安装由包管理器换掉词库，宿主启动时自己切换代次；自行下载的词库没有人替换，升级抬高词库版本后宿主只能继续用旧的。--update 读出已有状态记录的词库目录，按已安装的词库锁核对；不符时加 --download 在旁边另建一份新词库目录，与旧目录一致的几项直接链接过去，只取回缺失或不符的几项，旧目录一个文件都不动。随后请两个宿主关掉输入会话，用 msime-client-prepare --refresh 切到新代次并回放用户词库，再让它们重新打开。已有状态时给 --download 即视为 --update。
 """
 from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -24,6 +30,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -40,8 +47,16 @@ FCITX5_CONTROLLER = [
     "gdbus", "call", "--session", "--dest", "org.fcitx.Fcitx5", "--object-path", "/controller", "--method",
 ]
 FCITX5_INTERFACE = "org.fcitx.Fcitx.Controller1"
+FCITX5_BUS_NAME = "org.fcitx.Fcitx5"
 GNOME_SOURCES = ("org.gnome.desktop.input-sources", "sources")
 IBUS_PRELOAD = ("org.freedesktop.ibus.general", "preload-engines")
+# The desktop panel settings the hosts take over, and the record of what they replaced (src/candidates/PanelRestoreRecord.h).
+PANEL_RESTORE_FILE = "msime-client/panel-restore.json"
+FCITX5_CLASSICUI_URI = "fcitx://config/addon/classicui"
+FCITX5_THEME = "msime"
+# Fcitx5's stock themes, the only ones the hosts take over (src/candidates/CandidateFcitxTheme.h), for the options that name a theme.
+FCITX5_STOCK_THEMES = {"Theme": "default", "DarkTheme": "default-dark"}
+IBUS_PANEL = "org.freedesktop.ibus.panel"
 
 
 def data_home() -> Path:
@@ -89,9 +104,28 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
+# The Engine's helpcode tables live in this subdirectory of the resource directory; the host's verification lets it through (crates/client-core/src/resources.rs).
+HELPCODE_DIRECTORY = "helpcodes"
+
+
+def unexpected_entries(directory: Path, lock: dict) -> list[str]:
+    """目录里锁之外的条目。宿主要求词库目录恰好是锁里那几项，多一个文件就拒绝整份词库；下载补不掉它们，得由用户移走。"""
+    if not directory.is_dir():
+        return []
+    names = {artifact["name"] for artifact in lock["artifacts"]}
+    return [
+        f"{entry.name} 不在词库锁中或不是普通文件，宿主会拒绝这份词库；请把它移出 {directory}"
+        for entry in sorted(os.scandir(directory), key=lambda item: item.name)
+        if not (entry.name == HELPCODE_DIRECTORY and entry.is_dir(follow_symlinks=False))
+        and (entry.name not in names or not entry.is_file(follow_symlinks=False))
+    ]
+
+
 def verify_directory(directory: Path, lock: dict) -> list[str]:
-    """锁文件与目录不符之处，逐条列出；空列表表示这份词库可用。"""
-    problems = []
+    """锁文件与目录不符之处，逐条列出；空列表表示这份词库可用。
+
+    与宿主的校验一致，锁之外的条目也算：升级去掉某项词库时旧文件会留在下载目录里，在这里报出来，而不是等宿主拒绝后只剩一句笼统的失败。"""
+    problems = unexpected_entries(directory, lock)
     for artifact in lock["artifacts"]:
         name = artifact["name"]
         path = directory / name
@@ -122,10 +156,13 @@ def fetch(url: str, destination: Path) -> None:
 
 
 def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) -> None:
-    """按锁下载并校验，全部通过后才发布到目标目录。校验不过即中止，不留半份词库。"""
+    """按锁下载并校验，全部通过后才发布到目标目录。校验不过或下载中断即中止，目标目录一个文件都不动，不留半份词库。
+
+    先在同一文件系统的临时目录里备齐并逐个校验，再逐个改名发布。改名替换的是目录项而不是文件内容，所以更新时从旧词库目录硬链接过来的文件被替换后，旧目录里那一份不受影响。"""
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=directory.parent) as staging_name:
         staging = Path(staging_name)
+        verified = []
         for artifact in lock["artifacts"]:
             name = artifact["name"]
             target = directory / name
@@ -170,6 +207,8 @@ def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) ->
                 archive.unlink()
             if digest(staged) != artifact["sha256"]:
                 raise SystemExit(f"{name} 校验失败，已中止；目标目录未改动")
+            verified.append((staged, target))
+        for staged, target in verified:
             staged.replace(target)
 
 
@@ -179,13 +218,261 @@ def prepare_command(command: Path, resources: Path, state: Path, cloud_candidate
     return [str(command), *flags, str(resources), str(state)]
 
 
-def prepare_state(prefix: Path, resources: Path, state: Path, cloud_candidates: bool) -> None:
+def prepare_executable(prefix: Path) -> Path:
     command = prefix / "bin/msime-client-prepare"
-    if not command.is_file():
-        command = Path(shutil.which("msime-client-prepare") or "msime-client-prepare")
+    if command.is_file():
+        return command
+    return Path(shutil.which("msime-client-prepare") or "msime-client-prepare")
+
+
+def prepare_state(prefix: Path, resources: Path, state: Path, cloud_candidates: bool) -> None:
+    command = prepare_executable(prefix)
     result = subprocess.run(prepare_command(command, resources, state, cloud_candidates), check=False)
     if result.returncode != 0:
         raise SystemExit("准备状态目录失败，见上面的输出")
+
+
+def load_engine_lock(prefix: Path, lock_file: Path) -> dict | None:
+    for path in (prefix / "share/msime-client/engine-lock.json", lock_file.parent / "engine-lock.json"):
+        if path.is_file():
+            return json.loads(path.read_text())
+    return None
+
+
+def fetch_missing(lock: dict, engine_lock: dict | None, resources: Path, in_use: Path | None = None) -> list[str]:
+    """按锁取回缺失或不符的词库，返回取回之后仍然不符之处。网络失败时目标目录不变；有下载补不掉的多余条目时不下载。in_use 是更新时输入法正在用、这里不写入的那份目录。"""
+    unexpected = unexpected_entries(resources, lock)
+    if unexpected:
+        return unexpected
+    try:
+        download_artifacts(lock, engine_lock, resources)
+    except OSError as error:
+        raise SystemExit(f"下载失败：{error}\n词库目录未改动：{in_use or resources}")
+    return verify_directory(resources, lock)
+
+
+def print_problems(heading: str, problems: list[str]) -> None:
+    print(heading, file=sys.stderr)
+    for problem in problems[:5]:
+        print(f"  {problem}", file=sys.stderr)
+
+
+# msime-client-prepare --refresh exits 3 when the host library still finds the recorded dictionaries outdated.
+REFRESH_OUTDATED = 3
+
+
+def read_options(options_file: Path) -> dict:
+    try:
+        document = json.loads(options_file.read_text())
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"无法读取 {options_file}：{error}")
+    if not isinstance(document, dict):
+        raise SystemExit(f"{options_file} 不是 msime-client-prepare 生成的配置")
+    return document
+
+
+def recorded_path(document: dict, key: str, options_file: Path) -> Path:
+    """已有状态记录的某个目录：resources 是宿主校验、Engine 读取的那份词库，user_data 是输入会话持锁的用户目录。"""
+    value = document.get(key)
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise SystemExit(f"{options_file} 没有记录 {key}，不是 msime-client-prepare 生成的配置")
+    return Path(value)
+
+
+def updatable(path: Path, prefix: Path) -> bool:
+    """只更新当前用户自己下载的那份词库。随本次安装提供的词库归包管理器，哪怕装在用户可写的前缀下；别人的目录同样不碰。装在 ~/.local 这类前缀下时，随包词库的位置就是首次配置的下载目录，那里的词库是用户自己下载的，不算随包。目录不在时看它的上一级，下载会把它建出来。"""
+    packaged = (prefix / "share/msime-client/resources").resolve()
+    if path.resolve() == packaged and packaged != (data_home() / "msime-client/resources").resolve():
+        return False
+    existing = path if path.exists() else path.parent
+    try:
+        return existing.is_dir() and existing.stat().st_uid == os.geteuid() and os.access(existing, os.W_OK)
+    except OSError:
+        return False
+
+
+def link_or_copy(source: str, target: str) -> None:
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+
+
+def staged_resources(resources: Path, lock: dict) -> Path:
+    """新版本词库的目录：与正在使用的那份并列，按锁的内容命名，中断后再运行会接着用同一个目录。
+
+    正在使用的目录不能原地更新：旧代次的会话每次查询都按路径打开其中的 others.db 等文件，换掉其中几项它就读到新旧混杂的一份，切换失败时也无法退回。与锁一致的文件直接硬链接过来，只有缺失或不符的几项需要下载；下载总是改名替换，不写已有文件，所以链接不会改到旧目录。"""
+    tag = hashlib.sha256(
+        "\n".join(f"{artifact['name']}:{artifact['sha256']}" for artifact in lock["artifacts"]).encode()
+    ).hexdigest()[:16]
+    target = resources.parent / f"resources-{tag}"
+    if target.resolve() == resources.resolve():
+        # The recorded directory already carries this lock's name yet does not match it; stage beside it all the same.
+        target = Path(tempfile.mkdtemp(prefix=f"resources-{tag}-", dir=resources.parent))
+    target.mkdir(parents=True, exist_ok=True)
+    for artifact in lock["artifacts"]:
+        source, staged = resources / artifact["name"], target / artifact["name"]
+        if staged.exists() or not source.is_file() or source.stat().st_size != artifact["size"]:
+            continue
+        link_or_copy(str(source), str(staged))
+    helpcodes = resources / HELPCODE_DIRECTORY
+    if helpcodes.is_dir() and not helpcodes.is_symlink() and not (target / HELPCODE_DIRECTORY).exists():
+        shutil.copytree(helpcodes, target / HELPCODE_DIRECTORY, copy_function=link_or_copy)
+    return target
+
+
+# The lease the settings window writes for dictionary maintenance (platforms/linux/src/core/DictionaryQuiesceLease.h): while it is live both hosts finish the composition, close their sessions and open no new ones. They ignore an expiry more than 30 s out, so it is written for less and renewed while held.
+QUIESCE_LEASE = ".msime-dictionary-quiesce"
+QUIESCE_LEASE_SECONDS = 20
+QUIESCE_RENEW_SECONDS = 5
+# Every input session holds this lock shared on the user directory (crates/client-core/src/dictionary/access.rs), so holding it exclusively proves the sessions are gone and keeps new ones from opening.
+ACCESS_LOCK = ".msime-dictionary-access.lock"
+# Long enough for the IBus host's one-second lease check to come round twice, the same budget the settings window gives it.
+QUIESCE_BUDGET = 2.5
+# The IBus host rereads runtime-options.json within 100 ms when its directory monitor works and every 5 s otherwise; a session it opened before that would go back to the previous generation.
+IBUS_OPTIONS_RELOAD = 6
+
+
+class HostsBusy(Exception):
+    """An input session still held the dictionaries when the budget ran out."""
+
+
+@contextlib.contextmanager
+def hosts_held_off(user_data: Path):
+    """Keep both hosts' sessions closed on user_data while the body runs, as the settings window does for dictionary maintenance.
+
+    The refresh replays the user journal into the new generation once. A session left open would keep learning into the previous generation and the journal after that replay, and nothing replays it again, so those words would be missing from the new dictionaries. A missing user directory has no session to close."""
+    if not user_data.is_dir():
+        yield
+        return
+    lease = user_data / QUIESCE_LEASE
+
+    def publish() -> None:
+        staged = lease.with_name(f"{QUIESCE_LEASE}.{os.getpid()}")
+        staged.write_text(f"{int((time.time() + QUIESCE_LEASE_SECONDS) * 1000)}\n")
+        staged.replace(lease)
+
+    stop = threading.Event()
+
+    def renew() -> None:
+        while not stop.wait(QUIESCE_RENEW_SECONDS):
+            try:
+                publish()
+            except OSError:
+                # The exclusive lock below still keeps sessions from opening once the lease has lapsed.
+                pass
+
+    descriptor = -1
+    renewer = threading.Thread(target=renew, daemon=True)
+    try:
+        publish()
+        renewer.start()
+        descriptor = os.open(user_data / ACCESS_LOCK, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+        deadline = time.monotonic() + QUIESCE_BUDGET
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise HostsBusy from None
+                time.sleep(0.05)
+        yield
+    finally:
+        stop.set()
+        if renewer.is_alive():
+            renewer.join()
+        # Release the lock before the lease, as the settings window does, so a session reopening on the lease going away can take its shared lock.
+        if descriptor >= 0:
+            os.close(descriptor)
+        lease.unlink(missing_ok=True)
+
+
+def run_refresh(prefix: Path, options_file: Path, document: dict, resources: Path) -> tuple[subprocess.CompletedProcess, bool]:
+    """msime-client-prepare --refresh, pointed at resources. Returns the result and whether runtime-options.json was rewritten.
+
+    A new resource directory is written into a copy of the options beside the file, and the copy replaces the file only once the refresh has rewritten it; on any failure the file never names the new directory."""
+    command = str(prepare_executable(prefix))
+    if Path(document["resources"]) == resources:
+        result = subprocess.run([command, "--refresh", str(options_file)], capture_output=True, text=True, check=False)
+        return result, result.returncode == 0 and result.stdout.strip() == "refreshed"
+    descriptor, name = tempfile.mkstemp(prefix=".runtime-options-update-", dir=options_file.parent)
+    staged = Path(name)
+    try:
+        with os.fdopen(descriptor, "w") as handle:
+            json.dump(dict(document, resources=str(resources)), handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        staged.chmod(options_file.stat().st_mode & 0o777)
+        result = subprocess.run([command, "--refresh", str(staged)], capture_output=True, text=True, check=False)
+        refreshed = result.returncode == 0 and result.stdout.strip() == "refreshed"
+        if refreshed:
+            staged.replace(options_file)
+        return result, refreshed
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def update_dictionaries(prefix: Path, lock_file: Path, lock: dict, options_file: Path, download: bool) -> int:
+    """把已有状态记录的那份词库补到已安装的锁，再切换代次并回放用户词库。"""
+    document = read_options(options_file)
+    resources = recorded_path(document, "resources", options_file)
+    user_data = recorded_path(document, "user_data", options_file)
+    if options_file.is_symlink():
+        print(f"{options_file} 是符号链接，不是 msime-client-prepare 生成的布局，不改写。", file=sys.stderr)
+        return 1
+    if not updatable(resources, prefix):
+        print(
+            f"词库目录 {resources} 不是当前用户自己下载的那份：随安装包提供的词库由包管理器更新，升级安装包后输入法会自己切换到新词库。",
+            file=sys.stderr,
+        )
+        return 1
+    problems = verify_directory(resources, lock)
+    if problems and not download:
+        print_problems(f"词库与当前版本不符：{resources}", problems)
+        print("\n加 --download 按锁文件只取回缺失或不符的几项。", file=sys.stderr)
+        return 1
+    target = resources
+    if problems:
+        try:
+            target = staged_resources(resources, lock)
+        except OSError as error:
+            raise SystemExit(f"无法建立新词库目录：{error}\n词库目录未改动：{resources}")
+        remaining = fetch_missing(lock, load_engine_lock(prefix, lock_file), target, resources)
+        if remaining:
+            print_problems("下载后仍不完整：", remaining)
+            return 1
+    print(f"词库已校验：{target}")
+    try:
+        with hosts_held_off(user_data):
+            result, refreshed = run_refresh(prefix, options_file, document, target)
+            if refreshed and running("ibus-daemon"):
+                time.sleep(IBUS_OPTIONS_RELOAD)
+    except HostsBusy:
+        print("输入法仍有输入会话占用词库，没有切换：runtime-options.json 未改动，输入法继续使用旧词库。请稍后再运行一次。", file=sys.stderr)
+        return 1
+    except OSError as error:
+        print(f"切换词库失败：{error}\nruntime-options.json 未改动，输入法继续使用旧词库。", file=sys.stderr)
+        return 1
+    if refreshed:
+        print("已切换到新版本的词库，用户词库已回放进去。输入法在切换期间暂停了输入会话，现在已恢复，新的输入即使用新词库。")
+        if target != resources:
+            print(f"旧词库目录 {resources} 保留未动，确认新词库正常后可以自行删除。")
+        return 0
+    if result.returncode == 0:
+        print(f"{options_file} 未改写：它已指向当前版本的词库，或不是 msime-client-prepare 生成的布局。")
+        return 0
+    if result.stderr.strip():
+        print(result.stderr.strip(), file=sys.stderr)
+    if result.returncode == REFRESH_OUTDATED:
+        print(
+            "输入法的宿主库与已安装的词库锁不是同一版本，请重新安装安装包。runtime-options.json 未改动，输入法继续使用旧词库。",
+            file=sys.stderr,
+        )
+    elif target != resources:
+        print(f"切换词库失败：runtime-options.json 未改动，输入法继续使用旧词库。新词库已备在 {target}，再运行一次本命令即可重试。", file=sys.stderr)
+    else:
+        print("切换词库失败：runtime-options.json 未改动，输入法继续使用旧词库，下次启动时会再试。", file=sys.stderr)
+    return 1
 
 
 def running(name: str) -> bool:
@@ -221,7 +508,7 @@ def enable_services(units: list[str]) -> None:
 
 
 class RegistrationFailed(Exception):
-    """One step of adding the input method to the host's list did not work; setup falls back to printing the manual steps."""
+    """One step of adding the input method to, or removing it from, the host's list did not work; setup falls back to printing the manual steps, and --unregister reports it and goes on with the other lists."""
 
 
 def command_output(arguments: list[str]) -> str:
@@ -251,7 +538,9 @@ def parse_gvariant(text: str):
 
 
 def gvariant_text(value) -> str:
-    """The inverse of parse_gvariant for strings, tuples and non-empty arrays, the only values written here."""
+    """The inverse of parse_gvariant for strings, booleans, tuples and non-empty arrays, the only values written here."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, str):
         return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
     if isinstance(value, tuple):
@@ -275,6 +564,14 @@ def fcitx5_group(name: str) -> tuple[str, list]:
     return value
 
 
+def fcitx5_current_group() -> str:
+    current = parse_gvariant(fcitx5_call("CurrentInputMethodGroup"))
+    group = current[0] if isinstance(current, tuple) and current else ""
+    if not isinstance(group, str) or not group:
+        raise RegistrationFailed("Fcitx5 没有返回当前输入法组")
+    return group
+
+
 def fcitx5_loaded() -> bool:
     # AvailableInputMethods returns one (unique name, name, native name, icon, label, language, configurable) entry per input method Fcitx5 has loaded.
     value = parse_gvariant(fcitx5_call("AvailableInputMethods"))
@@ -296,10 +593,7 @@ def register_fcitx5() -> str:
                 pass
         else:
             raise RegistrationFailed(f"Fcitx5 重启之后仍没有加载 {FCITX5_INPUT_METHOD}")
-    current = parse_gvariant(fcitx5_call("CurrentInputMethodGroup"))
-    group = current[0] if isinstance(current, tuple) and current else ""
-    if not isinstance(group, str) or not group:
-        raise RegistrationFailed("Fcitx5 没有返回当前输入法组")
+    group = fcitx5_current_group()
     layout, items = fcitx5_group(group)
     if any(item[0] == FCITX5_INPUT_METHOD for item in items):
         return f"「{FCITX5_NAME}」已在 Fcitx5 当前输入法组「{group}」中。"
@@ -363,6 +657,260 @@ def register_ibus() -> str:
     return f"已把「{IBUS_NAME}」加入输入源列表，用桌面的输入法切换快捷键即可切换到它。"
 
 
+def fcitx5_on_bus() -> bool:
+    """Whether Fcitx5 owns its name on this session bus. Asked of the bus itself, so a Fcitx5 that is not running is never D-Bus activated just to be edited, and one running in another user's session does not count."""
+    owner = parse_gvariant(command_output([
+        "gdbus", "call", "--session", "--dest", "org.freedesktop.DBus", "--object-path", "/org/freedesktop/DBus",
+        "--method", "org.freedesktop.DBus.NameHasOwner", gvariant_text(FCITX5_BUS_NAME),
+    ]))
+    return owner == (True,)
+
+
+def unregister_fcitx5() -> str:
+    """The inverse of register_fcitx5: drop the input method from Fcitx5's current group. Returns what happened."""
+    if not fcitx5_on_bus():
+        return "Fcitx5 没有在运行，其输入法组未改动。"
+    group = fcitx5_current_group()
+    layout, items = fcitx5_group(group)
+    remaining = [item for item in items if item[0] != FCITX5_INPUT_METHOD]
+    if len(remaining) == len(items):
+        return f"「{FCITX5_NAME}」不在 Fcitx5 当前输入法组「{group}」中。"
+    if not remaining:
+        # Same rule as registering: an empty group leaves Fcitx5 nothing to fall back to when inactive, so a group holding only this input method is left for the user to fix.
+        return f"Fcitx5 当前输入法组「{group}」只有「{FCITX5_NAME}」，移除后会变空，保持不变。"
+    fcitx5_call("SetInputMethodGroupInfo", gvariant_text(group), gvariant_text(layout), gvariant_text(remaining))
+    return f"已从 Fcitx5 当前输入法组「{group}」移除「{FCITX5_NAME}」。"
+
+
+def unregister_setting(schema: str, key: str, entry) -> str:
+    """The inverse of register_ibus for one list. Returns what happened."""
+    current = parse_gvariant(command_output(["gsettings", "get", schema, key]))
+    if not isinstance(current, list):
+        raise RegistrationFailed(f"{schema} {key} 不是列表")
+    remaining = [item for item in current if item != entry]
+    if len(remaining) == len(current):
+        return f"「{IBUS_NAME}」不在 {schema} {key} 中。"
+    if not remaining:
+        # An empty list hands the desktop back to a default it does not store here, which may not be what the user had before; leave the list for the user to change.
+        return f"{schema} {key} 只有「{IBUS_NAME}」，移除后会变空，保持不变。"
+    command_output(["gsettings", "set", schema, key, gvariant_text(remaining)])
+    return f"已从 {schema} {key} 移除「{IBUS_NAME}」。"
+
+
+def xdg_base(variable: str, fallback: str) -> Path:
+    """An XDG base directory as the hosts resolve it: a relative value is ignored, as the specification requires."""
+    value = os.environ.get(variable)
+    return Path(value) if value and Path(value).is_absolute() else Path.home() / fallback
+
+
+def fcitx5_unescape(value: str) -> str:
+    """A value as Fcitx5's INI reader returns it: a quoted value loses its quotes and its escaped quotes, and backslash escapes are resolved in either form."""
+    quoted = len(value) >= 2 and value[0] == value[-1] == '"'
+    if quoted:
+        value = value[1:-1]
+    return re.sub(r"\\(.)", lambda match: "\n" if match.group(1) == "n" else match.group(1), value)
+
+
+def fcitx5_escape(value: str) -> str:
+    """The inverse, as Fcitx5 writes it: a value holding whitespace or a quote is quoted."""
+    escaped = value.replace("\\", "\\\\").replace("\n", "\\n")
+    if not any(character.isspace() or character == '"' for character in value):
+        return escaped
+    return '"' + escaped.replace('"', '\\"') + '"'
+
+
+def classicui_file() -> Path:
+    return config_home() / "fcitx5/conf/classicui.conf"
+
+
+def classicui_options(path: Path) -> dict[str, str]:
+    """The top-level options of classicui.conf, which is where Fcitx5 saves every change to the addon's configuration, whether MSIME, fcitx5-configtool or anything else made it."""
+    options = {}
+    with contextlib.suppress(FileNotFoundError):
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("["):
+                break
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                options[key.strip()] = fcitx5_unescape(value.strip())
+    return options
+
+
+def edit_classicui(path: Path, values: dict[str, str]) -> None:
+    """Set top-level options in classicui.conf in place, for a Fcitx5 that is not running; the other lines, comments and sections stay as they were. Only options the file holds are restored, since only those can hold what MSIME wrote."""
+    lines = path.read_text().splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("["):
+            break
+        key = stripped.split("=", 1)[0].strip()
+        if "=" in stripped and not stripped.startswith("#") and key in values:
+            lines[index] = f"{key}={fcitx5_escape(values[key])}"
+    staged = path.with_name(path.name + ".msime-new")
+    staged.write_text("".join(line + "\n" for line in lines))
+    os.replace(staged, path)
+
+
+def fcitx5_config_variant(values: dict[str, str]) -> str:
+    """SetConfig's argument: a variant holding the a{sv} map Fcitx5 turns back into the addon's raw configuration."""
+    return "<{" + ", ".join(f"{gvariant_text(key)}: <{gvariant_text(value)}>" for key, value in values.items()) + "}>"
+
+
+def restorable(entries: dict, current) -> tuple[dict, list[str]]:
+    """Split a host's record into the values to put back, for settings that still hold what MSIME wrote, and the names of those the user has changed since."""
+    restore, kept = {}, []
+    for key, entry in entries.items():
+        if isinstance(entry, dict) and "prior" in entry and "written" in entry and current(key) == entry["written"]:
+            restore[key] = entry["prior"]
+        else:
+            kept.append(key)
+    return restore, kept
+
+
+def kept_note(kept: list[str]) -> str:
+    return f"；{'、'.join(kept)} 在水杉写入之后已被改动，保持不变" if kept else ""
+
+
+def restore_fcitx5_panel(entries: dict) -> str | None:
+    """Put back the classicui options MSIME replaced. A running Fcitx5 takes them over D-Bus, the way fcitx5-configtool writes them, so it applies and saves them itself; otherwise classicui.conf is edited, since a file edited under a running Fcitx5 is overwritten by its next save."""
+    path = classicui_file()
+    current = classicui_options(path)
+    restore, kept = restorable(entries, current.get)
+    # A value never read from the addon cannot be put back.
+    restore = {key: value for key, value in restore.items() if isinstance(value, str)}
+    # MSIME's theme is removed after this, so a theme option left naming it goes back to the stock theme: one set by a build that kept no record, or recorded by it as the value it replaced.
+    for key, stock in FCITX5_STOCK_THEMES.items():
+        if restore.get(key, current.get(key)) == FCITX5_THEME:
+            restore[key] = stock
+            if key in kept:
+                kept.remove(key)
+    if not restore:
+        return "Fcitx5 候选面板设置无需恢复" + kept_note(kept) + "。" if entries else None
+    names = "、".join(restore)
+    try:
+        if fcitx5_on_bus():
+            fcitx5_call("SetConfig", gvariant_text(FCITX5_CLASSICUI_URI), fcitx5_config_variant(restore))
+            return f"已恢复 Fcitx5 候选面板设置 {names}" + kept_note(kept) + "。"
+    except RegistrationFailed as error:
+        print(f"未能经 D-Bus 恢复 Fcitx5 候选面板设置：{error}，改为直接编辑 {path}", file=sys.stderr)
+    try:
+        edit_classicui(path, restore)
+    except OSError as error:
+        raise RegistrationFailed(f"无法写入 {path}：{error.strerror}") from error
+    return f"已在 {path} 恢复 Fcitx5 候选面板设置 {names}" + kept_note(kept) + "。"
+
+
+def restore_ibus_panel(entries: dict) -> str | None:
+    """Put back the IBus panel font keys MSIME replaced; a key the user had never set is reset to the schema default."""
+    if not entries:
+        return None
+    if IBUS_PANEL not in set(command_output(["gsettings", "list-schemas"]).split()):
+        return f"没有 {IBUS_PANEL} 设置项，IBus 候选面板设置无需恢复。"
+    restore, kept = restorable(
+        entries, lambda key: parse_gvariant(command_output(["gsettings", "get", IBUS_PANEL, key]))
+    )
+    # The hosts record strings, booleans and null; anything else did not come from them.
+    kept += [key for key, value in restore.items() if not isinstance(value, (str, bool, type(None)))]
+    restore = {key: value for key, value in restore.items() if key not in kept}
+    for key, value in restore.items():
+        if value is None:
+            command_output(["gsettings", "reset", IBUS_PANEL, key])
+        else:
+            command_output(["gsettings", "set", IBUS_PANEL, key, gvariant_text(value)])
+    if not restore:
+        return "IBus 候选面板设置无需恢复" + kept_note(kept) + "。"
+    return f"已恢复 IBus 候选面板设置 {'、'.join(restore)}" + kept_note(kept) + "。"
+
+
+@contextlib.contextmanager
+def panel_restore_lock(record_file: Path):
+    """The lock the hosts hold around each change to the record (src/candidates/PanelRestoreRecord.h). Its file is never removed: a host waiting on the old one while another opened a new one would put both in the critical section at once."""
+    descriptor = os.open(record_file.with_name(record_file.name + ".lock"), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def restore_panel_settings() -> None:
+    """Undo what the hosts changed in the desktop's candidate panel settings, which every input method shares, and remove the theme MSIME generated for Fcitx5. The record is removed once every host's settings were dealt with; a failure keeps it, so a later --unregister can still restore them.
+
+    The hosts replace the record atomically, so it is read without the lock. The lock is not held while restoring either: a running Fcitx5 applies the options on the thread its host would be waiting on the lock from. Instead the record is removed under the lock only if it is still the one read, so a change a host still running recorded meanwhile is kept for a later --unregister."""
+    record_file = xdg_base("XDG_STATE_HOME", ".local/state") / PANEL_RESTORE_FILE
+    text = None
+    try:
+        text = record_file.read_text()
+        record = json.loads(text)
+    except FileNotFoundError:
+        record = {}
+    except (OSError, ValueError) as error:
+        print(f"无法读取候选面板设置的恢复记录 {record_file}：{error}", file=sys.stderr)
+        record = None
+    complete = record is not None
+    for host, restore in (("fcitx5", restore_fcitx5_panel), ("ibus", restore_ibus_panel)):
+        entries = record.get(host) if isinstance(record, dict) else None
+        try:
+            # The Fcitx5 theme options are looked at even without a record: builds before it set MSIME's theme without one.
+            message = restore(entries if isinstance(entries, dict) else {})
+        except RegistrationFailed as error:
+            complete = False
+            print(f"未能恢复候选面板设置：{error}", file=sys.stderr)
+        else:
+            if message:
+                print(message)
+    theme = xdg_base("XDG_DATA_HOME", ".local/share") / "fcitx5/themes" / FCITX5_THEME
+    if theme.is_dir():
+        try:
+            shutil.rmtree(theme)
+            print(f"已删除水杉生成的 Fcitx5 主题 {theme}。")
+        except OSError as error:
+            print(f"未能删除水杉生成的 Fcitx5 主题 {theme}：{error.strerror}", file=sys.stderr)
+    if text is None:
+        return
+    if complete:
+        try:
+            with panel_restore_lock(record_file):
+                if record_file.read_text() == text:
+                    record_file.unlink()
+                    return
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            print(f"未能删除候选面板设置的恢复记录 {record_file}：{error.strerror}", file=sys.stderr)
+            return
+        print(f"恢复期间宿主又记下了候选面板设置的改动，恢复记录保留在 {record_file}，可稍后再次运行 msime-client-setup --unregister。", file=sys.stderr)
+    elif record is not None:
+        print(f"恢复记录保留在 {record_file}，可稍后再次运行 msime-client-setup --unregister。", file=sys.stderr)
+
+
+def unregister_input_method() -> None:
+    """Remove the input method from every list setup may have added it to, one list at a time so a missing tool or bus only skips its own list.
+
+    Unlike registering, this does not depend on which host is running or on the desktop: the uninstaller runs it from the user's systemd manager, where XDG_CURRENT_DESKTOP is often unset, and a list can hold the entry from an earlier session under another desktop. Both IBus lists are cleaned whenever their schema is installed.
+    """
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS") and runtime and (Path(runtime) / "bus").exists():
+        # A transient unit in the user's systemd manager inherits only what the desktop imported into it; without the session bus address gsettings would write to a throwaway backend and gdbus would find no bus. The user bus of systemd sessions lives at this path.
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={Path(runtime) / 'bus'}"
+    steps = [unregister_fcitx5]
+    try:
+        schemas = set(command_output(["gsettings", "list-schemas"]).split())
+    except RegistrationFailed as error:
+        print(f"未能读取输入源设置：{error}", file=sys.stderr)
+        schemas = set()
+    for schema, key, entry in ((*GNOME_SOURCES, ("ibus", IBUS_ENGINE)), (*IBUS_PRELOAD, IBUS_ENGINE)):
+        if schema in schemas:
+            steps.append(lambda schema=schema, key=key, entry=entry: unregister_setting(schema, key, entry))
+    for step in steps:
+        try:
+            print(step())
+        except RegistrationFailed as error:
+            print(f"未能从输入法列表移除：{error}", file=sys.stderr)
+    restore_panel_settings()
+
+
 def active_host() -> str | None:
     if running("fcitx5"):
         return "fcitx5"
@@ -407,7 +955,12 @@ def main() -> int:
     parser.add_argument(
         "--download",
         action="store_true",
-        help="允许按已安装的词库锁下载缺失词库（首次约 170 MB），默认不下载",
+        help="允许按已安装的词库锁下载缺失词库（首次约 170 MB），默认不下载；状态目录已有 runtime-options.json 时即视为 --update",
+    )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="升级之后把已有状态记录的词库补到当前版本并切换过去，用户词库随之回放；缺的词库要配合 --download 取回",
     )
     parser.add_argument(
         "--no-cloud-candidates",
@@ -419,16 +972,31 @@ def main() -> int:
         action="store_true",
         help="不把输入法加入正在运行的 Fcitx5 或 IBus 的输入法列表，只打印手动添加的步骤",
     )
+    parser.add_argument(
+        "--unregister",
+        action="store_true",
+        help="把水杉输入法从 GNOME 输入源、IBus 预载引擎和 Fcitx5 当前输入法组中移除，恢复被改过的候选面板主题、字体和滚轮翻页设置后退出，不准备状态也不下载；卸载时自动执行",
+    )
     arguments = parser.parse_args()
+    if arguments.unregister:
+        unregister_input_method()
+        return 0
 
     prefix = install_prefix()
     state = (arguments.state or config_home() / "msime-client").expanduser()
     if not state.is_absolute():
         raise SystemExit("状态目录必须是绝对路径")
-    if state.exists():
+    options_file = state / "runtime-options.json"
+    update = arguments.update or (arguments.download and options_file.is_file())
+    if update and arguments.resources:
+        raise SystemExit("--update 使用状态目录记录的词库目录，不能再用 --resources 另指一份。")
+    if update and not options_file.is_file():
+        raise SystemExit(f"{state} 里没有 runtime-options.json，还没有完成首次配置：去掉 --update 先做一次首次配置。")
+    if state.exists() and not update:
         raise SystemExit(
             f"状态目录已存在：{state}\n"
-            "msime-client-prepare 不覆盖已有目录。要重新准备请另选目录，或先自行移走这一份。"
+            "msime-client-prepare 不覆盖已有目录。要重新准备请另选目录，或先自行移走这一份。\n"
+            "升级之后要把这份状态换到新版本的词库，运行 msime-client-setup --update --download。"
         )
 
     lock_file = next((path for path in lock_candidates(prefix) if path.is_file()), None)
@@ -438,6 +1006,8 @@ def main() -> int:
             "自定义前缀可用 MSIME_DICTIONARY_LOCK 指向它。"
         )
     lock = json.loads(lock_file.read_text())
+    if update:
+        return update_dictionaries(prefix, lock_file, lock, options_file, arguments.download)
 
     if arguments.resources:
         resources = arguments.resources.expanduser()
@@ -451,9 +1021,7 @@ def main() -> int:
 
     problems = verify_directory(resources, lock)
     if problems and not arguments.download:
-        print(f"词库目录不可用：{resources}", file=sys.stderr)
-        for problem in problems[:5]:
-            print(f"  {problem}", file=sys.stderr)
+        print_problems(f"词库目录不可用：{resources}", problems)
         print(
             "\n加 --download 按锁文件取回（首次约 170 MB），"
             "或用 --resources 指向一份已备齐的目录。",
@@ -461,24 +1029,9 @@ def main() -> int:
         )
         return 1
     if problems:
-        engine_lock_file = next(
-            (
-                path
-                for path in (
-                    prefix / "share/msime-client/engine-lock.json",
-                    lock_file.parent / "engine-lock.json",
-                )
-                if path.is_file()
-            ),
-            None,
-        )
-        engine_lock = json.loads(engine_lock_file.read_text()) if engine_lock_file else None
-        download_artifacts(lock, engine_lock, resources)
-        remaining = verify_directory(resources, lock)
+        remaining = fetch_missing(lock, load_engine_lock(prefix, lock_file), resources)
         if remaining:
-            print("下载后仍不完整：", file=sys.stderr)
-            for problem in remaining[:5]:
-                print(f"  {problem}", file=sys.stderr)
+            print_problems("下载后仍不完整：", remaining)
             return 1
 
     print(f"词库已校验：{resources}")

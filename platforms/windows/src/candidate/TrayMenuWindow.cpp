@@ -154,11 +154,14 @@ void TrayMenuWindow::choose(size_t index) {
   if (index >= items_.size() || !items_[index].available)
     return;
   const auto command = items_[index].command;
-  // A command that could not run leaves the menu open, so a failure is not
-  // mistaken for an applied action.
-  if (command_(command))
+  // A command that could not run leaves the menu open, so a failure is not mistaken for an applied action.
+  if (command_(command) && tray_menu_closes_after(command)) {
     hide();
-  else if (window_)
+    return;
+  }
+  // A switch that stays open redraws from the live state, so the row shows what the Server now reports rather than what the click assumed.
+  items_ = tray_menu_items(capabilities_, toolbar_state_());
+  if (window_)
     InvalidateRect(window_, nullptr, FALSE);
 }
 void TrayMenuWindow::paint() {
@@ -266,16 +269,16 @@ void TrayMenuWindow::paint() {
     const float half = static_cast<float>(metrics_.toggle_height) / 2.0f;
     const D2D1_ROUNDED_RECT track{
         {track_left, centre - half, track_right, centre + half}, half, half};
-    if (items_[index].checked)
-      target->FillRoundedRectangle(track, brush(palette_.accent));
-    else
-      target->DrawRoundedRectangle(track, brush(palette_.number), 1.0f);
+    // Filled in both states with a white thumb, as the shipped MenuFlyoutItem draws it; only the track colour says on or off.
+    target->FillRoundedRectangle(track,
+                                 brush(items_[index].checked
+                                           ? palette_.accent
+                                           : tray_toggle_off_color(palette_)));
     const float knob = half - 3.0f;
     const float knob_x =
         items_[index].checked ? track_right - half : track_left + half;
     target->FillEllipse({{knob_x, centre}, knob, knob},
-                        brush(items_[index].checked ? palette_.surface
-                                                    : palette_.number));
+                        brush(candidate_rgb(0xFFFFFF)));
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.

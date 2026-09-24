@@ -1775,6 +1775,11 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
     {
         // The closing half was emitted here, not by a closing keystroke, so the nest-pair depth that resolving the opening advanced would never be paid back (the '>' is consumed by step-over). Balance it now, or the next 《》 degrades into 〈〉.
         pCompositionProcessorEngine->BalanceNestPairAfterAutoClose(wch);
+        if (wch == L'<')
+        {
+            // With candidates open the Server's Engine resolved the opening and advanced its own nesting count, which this TSF cannot reach, so the Server pays it back too. Both counts stop at zero, so telling the Server when the TSF resolved the opening itself is harmless.
+            SendPairedPunctuationAutoClosedToServerViaNamedPipe(wch);
+        }
         _InvalidateSmartPunctuationShadow();
         // Track the pair so its closing key steps over the auto-inserted half, and move the caret between the halves through the queued move: WM_PairedPunctuationCaretMove only runs a move whose focus token _QueuePairedPunctuationCaretMove recorded.
         _PushPairedPunctuation(pairedOpening, pairedClosing);

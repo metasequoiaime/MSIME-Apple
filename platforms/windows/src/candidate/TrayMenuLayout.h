@@ -66,6 +66,10 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
        capabilities.settings, false},
   };
 }
+// Whether a row that ran closes the menu. The toolbar row is a switch: the reference flips it in place and leaves the menu open (tray_menu_presenter.cpp:175-186), while every other row opens a surface and dismisses the menu first (:188-199).
+inline bool tray_menu_closes_after(TrayMenuCommand command) {
+  return command != TrayMenuCommand::ToggleFloatingToolbar;
+}
 struct TrayMenuMetrics {
   double width = 220.0;
   double row_height = 36.0;

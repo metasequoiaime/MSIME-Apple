@@ -41,12 +41,16 @@ public:
   void reset_cache();
   void set_input_enabled(uint64_t epoch, bool enabled);
   void set_chinese_punctuation(uint64_t epoch, bool enabled);
+  // The TSF inserted the closing half of a pair whose opening the Engine resolved, so pay back the nesting the opening advanced. A no-op when the count is already zero.
+  void balance_paired_punctuation(uint64_t epoch, uint8_t opening);
   // Toggle the host-side simplified/traditional output projection without
   // changing Engine composition. Persistence is owned by the caller.
   nlohmann::json toggle_traditional_output(uint64_t epoch);
   // Queue-owned runtime operation, never a write to default preferences.
   // Exit cancels composition without committing and returns the Engine view.
   nlohmann::json dedicated_english(uint64_t epoch, bool exit);
+  // Ctrl+Shift+E: flip the dedicated English mode. Like the reference, the open composition is discarded rather than committed. Returns the new view.
+  nlohmann::json toggle_dedicated_english(uint64_t epoch);
   bool input_enabled() const {
     check_thread();
     return input_enabled_;

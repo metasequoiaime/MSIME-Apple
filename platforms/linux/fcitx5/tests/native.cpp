@@ -1,5 +1,6 @@
 // Real Fcitx input contexts and the real Host API. All input is synthetic.
 #include "../FcitxEngine.cpp"
+#include <array>
 #include <iostream>
 #include <filesystem>
 #include <thread>
@@ -102,10 +103,78 @@ void candidateThemeDecoration() {
   require(copies().empty(), "previous skin's overlay removed");
   std::filesystem::remove_all(root);
 }
+// The mode badge draws in the candidate panel's appearance. The default candidate_theme "follow" and global "system" on a light desktop used to give a dark badge, because only an explicit "light" counted. Runs before the resource fixture.
+void modeBadgeTheme() {
+  require(fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, false),
+          "follow on a light desktop gives a light badge");
+  require(!fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, true),
+          "follow on a dark desktop gives a dark badge");
+  require(fcitx_mode_badge_light_theme(Json::object(), false), "absent keys follow a light desktop");
+  require(!fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "follow"}}, false),
+          "follow defers to a dark global theme");
+  require(fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true),
+          "an explicit light candidate theme wins");
+  require(!fcitx_mode_badge_light_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false),
+          "an explicit dark candidate theme wins");
+}
+// classicui's options belong to every input method, so the first takeover records what it replaced for msime-client-setup --unregister, and a later write keeps that value while the option still holds MSIME's. Runs against a scratch XDG_STATE_HOME before the resource fixture; the fixture instance does not load classicui, so this drives the recording step the addon's writes go through.
+void classicuiTakeoverRecord() {
+  char temporary[] = "/tmp/msime-fcitx5-restore-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "restore fixture directory");
+  const std::filesystem::path root(directory);
+  const auto *saved = std::getenv("XDG_STATE_HOME");
+  const std::optional<std::string> savedStateHome = saved ? std::optional<std::string>(saved) : std::nullopt;
+  setenv("XDG_STATE_HOME", (root / "state").c_str(), 1);
+  const auto record = root / "state" / "msime-client" / "panel-restore.json";
+  const auto read = [&] {
+    std::ifstream in(record);
+    return Json::parse(in);
+  };
+  fcitx::RawConfig stock;
+  stock.setValueByPath("Theme", "default");
+  stock.setValueByPath("DarkTheme", "default-dark");
+  stock.setValueByPath("Font", "Sans 10");
+  fcitx::RawConfig theme;
+  theme.setValueByPath("Theme", std::string(msime::linux_host::kFcitxCandidateTheme));
+  record_classicui_takeover(stock, theme);
+  require(read() == Json{{"fcitx5", {{"Theme", {{"prior", "default"}, {"written", "msime"}}}}}},
+          "first takeover records the stock theme it replaced");
+  // A skin change writes the theme again: the stock theme is still the one to restore.
+  fcitx::RawConfig taken;
+  taken.setValueByPath("Theme", "msime");
+  taken.setValueByPath("DarkTheme", "default-dark");
+  taken.setValueByPath("Font", "Sans 10");
+  theme.setValueByPath("DarkTheme", "msime");
+  record_classicui_takeover(taken, theme);
+  fcitx::RawConfig font;
+  font.setValueByPath("Font", "Noto Sans SC 18px");
+  record_classicui_takeover(taken, font);
+  require(read() == Json{{"fcitx5",
+                          {{"Theme", {{"prior", "default"}, {"written", "msime"}}},
+                           {"DarkTheme", {{"prior", "default-dark"}, {"written", "msime"}}},
+                           {"Font", {{"prior", "Sans 10"}, {"written", "Noto Sans SC 18px"}}}}}},
+          "later writes keep the replaced values and record each option on its first change");
+  // An earlier build set MSIME's theme without keeping a record: the stock themes it stands in for are recorded, since uninstall removes MSIME's.
+  std::filesystem::remove(record);
+  fcitx::RawConfig upgraded;
+  upgraded.setValueByPath("Theme", "msime");
+  upgraded.setValueByPath("DarkTheme", "msime");
+  record_classicui_takeover(upgraded, theme);
+  require(read() == Json{{"fcitx5",
+                          {{"Theme", {{"prior", "default"}, {"written", "msime"}}},
+                           {"DarkTheme", {{"prior", "default-dark"}, {"written", "msime"}}}}}},
+          "a theme option already naming MSIME's theme records the stock theme");
+  if (savedStateHome) setenv("XDG_STATE_HOME", savedStateHome->c_str(), 1);
+  else unsetenv("XDG_STATE_HOME");
+  std::filesystem::remove_all(root);
+}
 int main(int argc, char **argv) {
   try {
     autocorrectMarker();
     candidateThemeDecoration();
+    modeBadgeTheme();
+    classicuiTakeoverRecord();
     require(argc == 2 || (argc == 3 && std::string(argv[2]) == "--ai"),
             "usage: fcitx5-native-test <verified-resources> [--ai]");
     const bool ai = argc == 3;
@@ -327,6 +396,42 @@ int main(int argc, char **argv) {
       FcitxEngine::refreshOptions();
       require(diagnosticText().find("operation_failed operation=dictionary_generation_refresh") != std::string::npos,
               "diagnostic log records a real refresh failure");
+      require(diagnosticText().find("reason=dictionary_outdated") == std::string::npos,
+              "an invalid options path is not reported as outdated dictionaries");
+      // The guide is spawned asynchronously, so a stray spawn would only reach the log later.
+      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      require(guideCalls().size() == 1, "an ordinary refresh failure does not open the guide");
+      {
+        // Downloaded dictionaries an upgrade did not replace: options in the prepared layout whose resource directory holds files the compiled lock does not pin. The refresh reports it by name and hands the notification to the guide script; the options file is not touched.
+        const auto outdated = std::filesystem::path(directory) / "outdated";
+        std::filesystem::create_directories(outdated / "resources");
+        std::filesystem::create_directories(outdated / "state");
+        std::ofstream(outdated / "resources/msime.db") << "previous generation";
+        const auto outdatedOptions = outdated / "state/runtime-options.json";
+        const auto document = Json{{"api_version", 1},
+                                   {"resources", (outdated / "resources").string()},
+                                   {"user_data", (outdated / "state/user").string()},
+                                   {"cache", (outdated / "state/cache").string()},
+                                   {"dictionaries", (outdated / "state/user/dictionaries/previous").string()},
+                                   {"preferences_directory", (outdated / "state").string()},
+                                   {"preferences", Json::object()}}.dump(2);
+        std::ofstream(outdatedOptions) << document;
+        setenv("MSIME_FCITX5_OPTIONS", outdatedOptions.c_str(), 1);
+        FcitxEngine::refreshOptions();
+        require(diagnosticText().find("operation_failed operation=dictionary_generation_refresh reason=dictionary_outdated") !=
+                    std::string::npos,
+                "outdated dictionaries are named in the diagnostic log");
+        const auto outdatedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (guideCalls().size() < 2 && std::chrono::steady_clock::now() < outdatedDeadline)
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        require(guideCalls().size() == 2 && guideCalls().back() == "--reason dictionary-outdated",
+                "outdated dictionaries hand the notification to the guide script");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        require(guideCalls().size() == 2, "outdated dictionaries open the guide exactly once");
+        std::ifstream written(outdatedOptions);
+        require(std::string(std::istreambuf_iterator<char>(written), std::istreambuf_iterator<char>()) == document,
+                "outdated dictionaries leave the runtime options unchanged");
+      }
       msime_linux_diagnostic_configure(std::string(), false);
       unsetenv("MSIME_TEST_FIRST_RUN_LOG");
       if (savedConfigHome) setenv("XDG_CONFIG_HOME", savedConfigHome->c_str(), 1);
@@ -466,6 +571,11 @@ int main(int argc, char **argv) {
     engine.learning_action_.activate(&ic);
     require(state->preferences_.value("learning", false),
             "learning status action restores user learning");
+    // Candidate maintenance labels follow the Windows candidate menu (置顶, 第 N 位), shared with the candidate actions and the IBus menu.
+    require(engine.pin_action_.shortText(&ic) == "置顶", "pin action uses the Windows wording");
+    require(engine.fix1_action_.shortText(&ic) == "固定到第 1 位" &&
+                engine.fix5_action_.shortText(&ic) == "固定到第 5 位",
+            "fix actions name the target position");
     require(engine.candidate_layout_action_.shortText(&ic) == "候选：横向",
             "candidate layout action reflects reloaded preference");
     engine.candidate_layout_action_.activate(&ic);
@@ -674,19 +784,38 @@ int main(int argc, char **argv) {
             "emoji paging menu attached");
     const auto routeScript = std::string(directory) + "/route-helper.sh";
     const auto routeOutput = std::string(directory) + "/route-output";
-    std::ofstream(routeScript) << "#!/bin/sh\nprintf '%s\\n' \"$MSIME_CLIENT_ROUTE\" > \"$MSIME_TEST_ROUTE_OUTPUT\"\n";
+    // The helper renames a finished file into place so the poll below never reads a half-written one.
+    std::ofstream(routeScript) << "#!/bin/sh\nprintf '%s\\n%s\\n%s\\n' \"$MSIME_CLIENT_ROUTE\" \"$MSIME_CLIENT_PANEL\" \"${MSIME_CLIENT_SETTINGS_PAGE:-}\" > \"$MSIME_TEST_ROUTE_OUTPUT.tmp\" && mv \"$MSIME_TEST_ROUTE_OUTPUT.tmp\" \"$MSIME_TEST_ROUTE_OUTPUT\"\n";
     require(chmod(routeScript.c_str(), 0700) == 0, "desktop route helper permissions");
     setenv("MSIME_CLIENT_SETTINGS_COMMAND", routeScript.c_str(), 1);
     setenv("MSIME_TEST_ROUTE_OUTPUT", routeOutput.c_str(), 1);
-    engine.handwriting_action_.activate(&ic);
-    const auto routeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (!std::filesystem::exists(routeOutput) && std::chrono::steady_clock::now() < routeDeadline)
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    require(std::filesystem::exists(routeOutput), "desktop route helper launched");
-    std::ifstream routeFile(routeOutput);
-    std::string route;
-    std::getline(routeFile, route);
-    require(route == "handwriting", "desktop route environment propagated");
+    // A page inherited from the addon's own environment must not leak into a surface launch.
+    setenv("MSIME_CLIENT_SETTINGS_PAGE", "stale", 1);
+    const auto launchedRoute = [&](FcitxDesktopPanelAction &action, const std::string &label) {
+      std::filesystem::remove(routeOutput);
+      action.activate(&ic);
+      const auto routeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      while (!std::filesystem::exists(routeOutput) && std::chrono::steady_clock::now() < routeDeadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      require(std::filesystem::exists(routeOutput), (label + " desktop route helper launched").c_str());
+      std::ifstream routeFile(routeOutput);
+      std::array<std::string, 3> fields;
+      for (auto &field : fields) std::getline(routeFile, field);
+      return fields;
+    };
+    require(launchedRoute(engine.handwriting_action_, "handwriting") ==
+                std::array<std::string, 3>{"handwriting", "handwriting", ""},
+            "desktop route environment propagated");
+    // About, help and feedback are settings sections: each opens its own page, as the IBus host and Windows do, rather than the settings home page.
+    for (auto *action : {&engine.about_action_, &engine.help_action_, &engine.feedback_action_}) {
+      const auto page = action == &engine.about_action_  ? std::string("about")
+                        : action == &engine.help_action_ ? std::string("help")
+                                                         : std::string("feedback");
+      require(launchedRoute(*action, page) ==
+                  std::array<std::string, 3>{"settings:" + page, "settings", page},
+              (page + " menu opens its settings section").c_str());
+    }
+    unsetenv("MSIME_CLIENT_SETTINGS_PAGE");
     engine.emoji_action_.activate(&ic);
     const auto emojiDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (state->emoji_items_.empty() && std::chrono::steady_clock::now() < emojiDeadline) {
@@ -867,6 +996,68 @@ int main(int argc, char **argv) {
       require(key(FcitxKey_Escape) && ic.inputPanel().clientPreedit().toString().empty(),
               "Escape clears the Ctrl+Shift+F test composition");
     }
+    // Resetting MSIME is what Windows gets by restarting its Server: the controller's ReloadAddonConfig (the settings page's restart button), Ctrl+Shift+Alt+R and the status-menu action all end the composition, destroy the Engine session and give the focused context a new one at once. None of them may depend on a helper program, so a fcitx5-remote that fails and records being run stands first on PATH.
+    {
+      const auto *pathVariable = std::getenv("PATH");
+      const std::string savedPath = pathVariable ? pathVariable : "";
+      const auto stubDirectory = std::string(directory) + "/reset-bin";
+      const auto stubLog = std::string(directory) + "/fcitx5-remote.log";
+      std::filesystem::create_directory(stubDirectory);
+      const auto stub = stubDirectory + "/fcitx5-remote";
+      std::ofstream(stub) << "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" << stubLog << "'\nexit 1\n";
+      require(chmod(stub.c_str(), 0755) == 0, "fcitx5-remote stub permissions");
+      setenv("PATH", (stubDirectory + ":" + savedPath).c_str(), 1);
+      const auto sessionGone = [](uint64_t handle) {
+        try {
+          response(msime_client_view(handle));
+          return false;
+        } catch (...) {
+          return true;
+        }
+      };
+      const auto compose = [&](const char *message) {
+        require(key(FcitxKey_n) && key(FcitxKey_i) && !state->view_.at("candidates").empty() &&
+                    !ic.inputPanel().clientPreedit().toString().empty(),
+                message);
+      };
+      const auto requireReset = [&](uint64_t before, const std::string &committed, const char *message) {
+        require(before != 0 && sessionGone(before), message);
+        require(state->session_ != 0 && state->session_ != before, "the focused context has a new session at once");
+        require(state->view_.value("editing_text", std::string()).empty() && state->view_.at("candidates").empty() &&
+                    ic.inputPanel().clientPreedit().toString().empty() && !ic.inputPanel().candidateList(),
+                "the reset ends the composition and clears the panel");
+        require(ic.committed == committed, "the reset drops the composition as focus-out does, committing nothing");
+      };
+      compose("composition before ReloadAddonConfig");
+      auto before = state->session_;
+      auto committedBefore = ic.committed;
+      engine.reloadConfig();
+      requireReset(before, committedBefore, "ReloadAddonConfig destroys the old Engine session");
+      compose("the new session composes after ReloadAddonConfig");
+      require(key(FcitxKey_Escape), "cancel the composition after ReloadAddonConfig");
+      compose("composition before Ctrl+Shift+Alt+R");
+      before = state->session_;
+      committedBefore = ic.committed;
+      const fcitx::KeyStates chord{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift, fcitx::KeyState::Alt};
+      fcitx::KeyEvent press(&ic, fcitx::Key(FcitxKey_R, chord));
+      engine.keyEvent(entry, press);
+      require(press.accepted(), "Ctrl+Shift+Alt+R is consumed even though fcitx5-remote fails");
+      requireReset(before, committedBefore, "Ctrl+Shift+Alt+R destroys the old Engine session");
+      const auto reopened = state->session_;
+      fcitx::KeyEvent repeat(&ic, fcitx::Key(FcitxKey_R, chord));
+      engine.keyEvent(entry, repeat);
+      require(repeat.accepted() && state->session_ == reopened, "auto-repeat of the held chord is swallowed without another reset");
+      fcitx::KeyEvent release(&ic, fcitx::Key(FcitxKey_r, fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt}), true);
+      engine.keyEvent(entry, release);
+      require(release.accepted() && !state->maintenance_reload_held_, "the chord's release is consumed and ends the hold");
+      compose("the new session composes after Ctrl+Shift+Alt+R");
+      before = state->session_;
+      committedBefore = ic.committed;
+      engine.reload_service_action_.activate(&ic);
+      requireReset(before, committedBefore, "the status-menu action destroys the old Engine session");
+      require(!std::filesystem::exists(stubLog), "no reset path runs fcitx5-remote");
+      setenv("PATH", savedPath.c_str(), 1);
+    }
     // English mode keeps the "always Chinese punctuation" lock and fullwidth output, as Windows does with the IME closed; without either, keys pass through. The lock is set on the host field directly so no preference save races the checks.
     {
       require(ctrlSpace() && !state->input_enabled_, "English output test starts in English");
@@ -956,6 +1147,55 @@ int main(int argc, char **argv) {
       require(ctrlSpace() && state->input_enabled_ && state->chinese_punctuation_ &&
                   state->session_chinese_punctuation_,
               "switching back to Chinese under the follow lock restores Chinese punctuation");
+    }
+    // In Chinese mode a pinned lock holds as well, as Windows resolves Ctrl+. and the toolbar switch through ResolvePunctuationOpen: the chord is eaten, the punctuation state stays, and no preference save starts. The lock is set on the host field directly so no lock save races the checks.
+    {
+      require(state->input_enabled_ && !state->composingOrCandidates(),
+              "Chinese-mode lock test starts idle in Chinese");
+      require(!state->options_path_.empty(), "Chinese-mode lock test has a preference store a toggle would save to");
+      state->waitForPreferenceSave();
+      state->punctuation_lock_ = 2;
+      state->chinese_punctuation_ = false;
+      state->syncSessionChinesePunctuation();
+      const auto savedPunctuation = state->preferences_.value("chinese_punctuation", Json());
+      fcitx::KeyEvent chord(&ic, fcitx::Key(FcitxKey_period, fcitx::KeyStates(fcitx::KeyState::Ctrl)));
+      engine.keyEvent(entry, chord);
+      fcitx::KeyEvent chordRelease(&ic, fcitx::Key(FcitxKey_period, fcitx::KeyStates(fcitx::KeyState::Ctrl)), true);
+      engine.keyEvent(entry, chordRelease);
+      require(chord.accepted(), "Chinese-mode Ctrl+. is consumed under the English punctuation lock");
+      require(!state->chinese_punctuation_ && !state->session_chinese_punctuation_,
+              "Chinese-mode Ctrl+. does not override the English punctuation lock");
+      require(!state->preferences_save_job_.valid() &&
+                  state->preferences_.value("chinese_punctuation", Json()) == savedPunctuation,
+              "Chinese-mode Ctrl+. under a lock saves nothing");
+      engine.chinese_punctuation_action_.activate(&ic);
+      require(!state->chinese_punctuation_ && !state->session_chinese_punctuation_ &&
+                  !engine.chinese_punctuation_action_.isChecked(&ic),
+              "the Chinese punctuation status item does not override the English punctuation lock");
+      require(!state->preferences_save_job_.valid() &&
+                  state->preferences_.value("chinese_punctuation", Json()) == savedPunctuation,
+              "the Chinese punctuation status item under a lock saves nothing");
+      state->punctuation_lock_ = 0;
+      state->chinese_punctuation_ = true;
+      state->syncSessionChinesePunctuation();
+    }
+    // 重复标点转中文 depends only on smart punctuation and its repeat switch, as Windows _CanInterceptSmartPunctuationRevert does; paired completion is a separate feature. A comma after an ASCII letter goes to the editor as ASCII, and the same key again inside the window replaces it with the Chinese mark.
+    {
+      require(state->input_enabled_ && !state->composingOrCandidates(),
+              "repeat test starts idle in Chinese");
+      state->paired_punctuation_ = false;
+      state->smart_punctuation_ = true;
+      state->smart_punctuation_repeat_ = true;
+      state->forgetSmartPunctuationRepeat();
+      const auto before = ic.committed;
+      ic.surroundingText().setText("a", 1, 1);
+      require(!key(FcitxKey_comma) && ic.committed == before,
+              "smart punctuation hands a comma after a letter back to the editor");
+      ic.surroundingText().setText("a,", 2, 2);
+      require(key(FcitxKey_comma) && ic.committed == before + "，",
+              "a repeated comma turns Chinese with paired completion off");
+      ic.surroundingText().invalidate();
+      state->paired_punctuation_ = true;
     }
     // 四个模式快捷键里的裸修饰键：按下只是布防，松开才切换，期间打了别的键或按住太久都
     // 不算。这一段此前没有任何覆盖，而实现被一条「松开或修饰键一律不处理」的返回挡在后
@@ -1579,6 +1819,112 @@ int main(int argc, char **argv) {
       settingsPageSetsScheme("japanese");
       state->scheme_override_.reset();
       state->shuangpin_profile_override_.reset();
+      state->close();
+      state->clearPanel();
+    }
+    // 全角 is a saved preference like any other: a session opens at the saved width, a focus change keeps it, and a reload moves the open session without one. The host's English-mode width is read back from the session's view, so the letter below proves the host and the runtime agree.
+    {
+      const auto loadStore = [&] {
+        return response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+      };
+      const auto saveStore = [&](const auto &edit) {
+        auto snapshot = loadStore();
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        edit(snapshot["preferences"]);
+        snapshot["revision"] = revision + 1;
+        const auto document = snapshot.dump();
+        const auto saved = response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        require(saved.value("revision", uint64_t{}) > revision, "store saved");
+      };
+      const auto setWidth = [&](const char *width, bool mirror) {
+        saveStore([&](Json &preferences) { preferences["character_width"] = width; });
+        if (!mirror) return;
+        options["preferences"]["character_width"] = width;
+        std::ofstream(path) << options.dump();
+      };
+      const auto sessionWidth = [&] { return state->view_.value("character_width", std::string()); };
+      // What an English-mode letter puts in the document; a letter handed back to the application reads as itself.
+      const auto englishLetter = [&] {
+        const auto before = ic.committed;
+        state->input_enabled_ = false;
+        fcitx::KeyEvent letter(&ic, fcitx::Key(FcitxKey_a));
+        engine.keyEvent(entry, letter);
+        state->input_enabled_ = true;
+        return letter.accepted() ? ic.committed.substr(before.size()) : std::string("a");
+      };
+      const auto reloadUntil = [&](const auto &ready) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!ready() && std::chrono::steady_clock::now() < deadline) {
+          state->refreshPreferences();
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return ready();
+      };
+      setWidth("fullwidth", true);
+      require(state->ensure() && sessionWidth() == "Fullwidth" && engine.width_action_.isChecked(&ic),
+              "a session opens at the saved fullwidth");
+      require(englishLetter() == "ａ", "the saved fullwidth widens an English-mode letter");
+      ic.focusOut();
+      require(state->session_ == 0, "focus out closes the fullwidth session");
+      ic.focusIn();
+      engine.activate(entry, focus);
+      require(state->session_ != 0 && sessionWidth() == "Fullwidth", "fullwidth survives a focus change");
+      require(englishLetter() == "ａ", "the refocused session still widens a letter");
+      const auto reloadedSession = state->session_;
+      setWidth("halfwidth", false);
+      require(reloadUntil([&] { return sessionWidth() == "Halfwidth"; }) && state->session_ == reloadedSession,
+              "a halfwidth store reaches the open session without a focus change");
+      require(!engine.width_action_.isChecked(&ic) && englishLetter() == "a",
+              "the reloaded halfwidth hands the letter back");
+      setWidth("fullwidth", false);
+      require(reloadUntil([&] { return sessionWidth() == "Fullwidth"; }), "fullwidth reloads into the open session");
+      // Another window's status bar reaches only the store; the runtime options file still says fullwidth from the first step, so write halfwidth there to prove the store wins.
+      options["preferences"]["character_width"] = "halfwidth";
+      std::ofstream(path) << options.dump();
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && sessionWidth() == "Fullwidth",
+              "a store width the runtime options file never saw wins on the next session");
+      setWidth("halfwidth", true);
+      require(reloadUntil([&] { return sessionWidth() == "Halfwidth"; }), "width fixture restored to halfwidth");
+      // The reload tick nearly always has a store read in flight when the status bar toggles the width. That read predates the toggle; applied after the save, it would put the session back to the old width until the next tick read the saved store.
+      const auto toggleHolds = [&](const char *expected, const char *stored) {
+        state->refreshPreferences();
+        require(state->preferences_job_.valid(), "a store read is in flight before the toggle");
+        state->preferences_job_.wait();
+        require(state->toggleWidth() && sessionWidth() == expected, "the status bar toggles the width");
+        for (int tick = 0; tick < 4; ++tick) {
+          if (state->preferences_save_job_.valid()) state->preferences_save_job_.wait();
+          if (state->preferences_job_.valid()) state->preferences_job_.wait();
+          state->refreshPreferences();
+          require(sessionWidth() == expected, "a read that predates the toggle does not undo it");
+        }
+        require(!state->preferences_save_retry_ &&
+                    loadStore().at("preferences").value("character_width", std::string()) == stored,
+                "the toggled width is saved");
+      };
+      toggleHolds("Fullwidth", "fullwidth");
+      toggleHolds("Halfwidth", "halfwidth");
+      // The diagnostic switch applies on the reload too, with the same session and no focus change.
+      const auto diagnosticLog = std::filesystem::path(preferenceDirectory) / "diagnostic.log";
+      std::filesystem::remove(diagnosticLog);
+      const auto diagnosticSession = state->session_;
+      saveStore([](Json &preferences) { preferences["diagnostic_log"]["server"] = true; });
+      require(reloadUntil([&] {
+                msime_linux_diagnostic_write("native_probe");
+                return std::filesystem::exists(diagnosticLog);
+              }) && state->session_ == diagnosticSession,
+              "turning the diagnostic log on reaches the open session");
+      saveStore([](Json &preferences) { preferences["diagnostic_log"]["server"] = false; });
+      require(reloadUntil([&] {
+                const auto before = std::filesystem::file_size(diagnosticLog);
+                msime_linux_diagnostic_write("native_probe");
+                return std::filesystem::file_size(diagnosticLog) == before;
+              }) && state->session_ == diagnosticSession,
+              "turning the diagnostic log off stops it without a focus change");
       state->close();
       state->clearPanel();
     }

@@ -119,6 +119,29 @@ if ! rg -q 'CandidateNavigationPolicy\.commandFor' \
   echo "Android candidate paging must route through CandidateNavigationPolicy" >&2
   exit 1
 fi
+# A key code written as a bare number reads correctly to everybody and is only ever falsified by
+# pressing the key. One of them was wrong for as long as this host has had hardware chords: 简繁 sat
+# on 33, which is KEYCODE_E, while the preference is named ..._ctrl_shift_f and the settings page
+# promises Ctrl+Shift+F. Comparisons in these files name their key.
+for policy in HardwareShortcutPolicy HardwareKeyPolicy NumberRowSelectionPolicy CandidateNavigationPolicy; do
+  source_file="$repo_root/platforms/android/java/app/msime/client/policy/$policy.java"
+  [[ -f "$source_file" ]] || source_file="$repo_root/platforms/android/java/app/msime/client/keyboard/$policy.java"
+  if rg -q '(key|keyCode|keycode)\s*(==|>=|<=|>|<)\s*[0-9]+' "$source_file"; then
+    echo "Android $policy compares a key code against a bare number; name it with KeyEvent" >&2
+    exit 1
+  fi
+done
+# Both ends of the first/last-candidate commands, so neither side can drift alone: the shared header
+# owns the numbers and this host must reach them by name rather than by repeating them at a call site.
+if ! rg -q 'MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105' \
+    "$repo_root/crates/host-api/include/msime_client.h" \
+  || ! rg -q 'FIRST_CANDIDATE = 104' \
+    "$repo_root/platforms/android/java/app/msime/client/policy/CandidateNavigationPolicy.java" \
+  || ! rg -q 'LAST_CANDIDATE = 105' \
+    "$repo_root/platforms/android/java/app/msime/client/policy/CandidateNavigationPolicy.java"; then
+  echo "Android Home/End must map to the shared first/last candidate commands" >&2
+  exit 1
+fi
 # 「候选栏预编辑」 governs the spelling only. The chosen part of a phrase is held out of the
 # document at this host's request, so it must keep being drawn whatever the setting says - that is
 # the same half-state scripts/test-phrase-preedit-hosts.py guards from the other side.

@@ -71,4 +71,38 @@ int main() {
   fresh.activate(1);
   assert(fresh.dedicated_english(1, false).at("dedicated_english") == false);
   assert(options["preferences"]["default_ime_mode"] == "english");
+  // Ctrl+Shift+E flips the dedicated English mode and discards the open composition, as the reference Server does. The TSF has already cancelled locally, so the key stages a frame-less LocalCancel.
+  {
+    ReplyComposer composer(43, 1);
+    FanyImeNamedpipeData key{};
+    key.client_id = 43;
+    key.event_type = FanyImePipeEventType::KeyEvent;
+    key.request_id = 5;
+    key.keycode = 'A';
+    key.wch = 'a';
+    assert(composer.basic_key(fresh, key, 1, TsfPreeditStyle::Pinyin));
+    composer.confirm_delivery(43, 1, 5);
+    assert(fresh.view().at("editing_text") == "a");
+    FanyImeNamedpipeData toggle{};
+    toggle.client_id = 43;
+    toggle.event_type = FanyImePipeEventType::KeyEvent;
+    toggle.request_id = 6;
+    toggle.keycode = 'E';
+    toggle.wch = 0x05;
+    toggle.modifiers_down = 3;
+    const auto entered = composer.basic_key(fresh, toggle, 1, TsfPreeditStyle::Pinyin);
+    assert(entered && !entered->encoded);
+    composer.confirm_delivery(43, 1, 6);
+    assert(fresh.view().at("dedicated_english") == true);
+    assert(fresh.view().at("editing_text") == "");
+    toggle.request_id = 7;
+    assert(composer.basic_key(fresh, toggle, 1, TsfPreeditStyle::Pinyin));
+    composer.confirm_delivery(43, 1, 7);
+    assert(fresh.view().at("dedicated_english") == false);
+    // With Alt the chord is not the toggle and stays with the application.
+    toggle.request_id = 8;
+    toggle.modifiers_down = 7;
+    assert(!composer.basic_key(fresh, toggle, 1, TsfPreeditStyle::Pinyin));
+    assert(fresh.view().at("dedicated_english") == false);
+  }
 }
