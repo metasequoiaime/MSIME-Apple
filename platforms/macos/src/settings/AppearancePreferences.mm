@@ -126,6 +126,9 @@ static const NSUInteger kFallbackFontLimit = 32;
 static NSPasteboardType const MSIMEFallbackFontRowType = @"app.msime.client.fallback-font-row";
 /// The reuse identifier of a row view in 补充字体优先顺序. Every row is one family name, so there is one kind of view and one identifier.
 static NSUserInterfaceItemIdentifier const MSIMEFallbackFontCellIdentifier = @"MSIMEFallbackFontCell";
+/// The two columns of 应用例外 and the reuse identifier of a cell in each: an application's name, and the mode it is to start in.
+static NSUserInterfaceItemIdentifier const MSIMEAppRuleApplicationColumn = @"application";
+static NSUserInterfaceItemIdentifier const MSIMEAppRuleModeColumn = @"mode";
 static BOOL ValidFallbackFonts(id value) {
     if (![value isKindOfClass:NSArray.class] || [value count] > kFallbackFontLimit) return NO;
     for (id family in value) if (!ValidFontFamily(family)) return NO;
@@ -147,6 +150,15 @@ static NSString *const SkinKey = @"MSIMEClientCandidateSkin";
 static NSString *const EnglishKey = @"MSIMEClientEnglishInputMode";
 static NSString *const DefaultImeModeKey = @"MSIMEClientDefaultImeMode";
 static NSString *const ImeModeScopeKey = @"MSIMEClientImeModeScope";
+/// The applications the user has decided the input mode of, against 「chinese」 or 「english」.
+///
+/// Deliberately not the same store as the remembered mode: a rule is a decision the user wrote down and a memory is an observation of what they last did, so a rule is saved and a memory is not, and -resetRememberedInputModes throws the observations away on every input-source switch without touching the decisions. Reading them apart is also the only way the lookup below can put the rule first.
+///
+/// macOS-local for now, and so absent from both -sharedPreferencesByMerging: and -cloudSettingsSnapshot. Publishing it would make it a field of crates/client-core's Preferences, which is a shape Windows, Linux, iOS and HarmonyOS have to agree on before any one host starts writing it.
+static NSString *const AppInputModeRulesKey = @"MSIMEClientAppInputModeRules";
+static BOOL ValidInputModeRule(id value) {
+    return [value isKindOfClass:NSString.class] && [@[@"chinese", @"english"] containsObject:value];
+}
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
@@ -315,6 +327,11 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
     };
 }
 
+/// 应用例外, read by the probe table below. It is not in AppearancePreferences.h because nothing outside this file reads or writes a rule — the lookup that consults them is -englishMode, which is public already — and the probes are written above the implementation, so the name has to be declared before they can ask for it by it.
+@interface MSIMEAppearancePreferences ()
+- (NSDictionary<NSString *, NSString *> *)applicationInputModeRules;
+@end
+
 /// What one stored key currently reads as, asked of the accessors rather than of the stored entry.
 ///
 /// A block rather than a key path, so that the compiler checks the names, and so that a key whose value is spread over several accessors — the four mixed-input choices, the eleven fuzzy rules, the twelve floating-toolbar options — can still be answered in one place. Dictionary-valued probes are also what let a section own part of a stored dictionary instead of all of it; see MSIMESettingsSection.fields.
@@ -330,6 +347,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
         NSMutableDictionary<NSString *, MSIMESettingProbe> *table = [@{
             DefaultImeModeKey : ^id(MSIMEAppearancePreferences *p) { return p.defaultImeMode ?: NSNull.null; },
             ImeModeScopeKey : ^id(MSIMEAppearancePreferences *p) { return p.imeModeScope ?: NSNull.null; },
+            AppInputModeRulesKey : ^id(MSIMEAppearancePreferences *p) { return [p applicationInputModeRules]; },
             SchemeKey : ^id(MSIMEAppearancePreferences *p) { return p.inputScheme ?: NSNull.null; },
             ShuangpinProfileKey : ^id(MSIMEAppearancePreferences *p) { return p.shuangpinProfile ?: NSNull.null; },
             ShuangpinPreeditKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinPreeditUsesRaw); },
@@ -805,6 +823,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSMutableDictionary<NSString *, NSNumber *> *_runtimeFullWidthInput;
     NSPopUpButton *_defaultImeModeButton;
     NSPopUpButton *_imeModeScopeButton;
+    /// 应用例外: the rules table, the identifiers it is currently showing in the order it shows them, and the two controls whose state depends on what is selected in it. The order is held rather than derived on every call because the table asks for it once per row per redraw and a dictionary has none.
+    NSTableView *_appRuleTable;
+    NSArray<NSString *> *_appRuleIdentifiers;
+    NSMutableDictionary<NSString *, NSString *> *_appRuleNames;
+    NSButton *_appRuleRemoveButton;
+    NSTextField *_appRuleStatusLabel;
     NSNumber *_sharedToolbarEnabled;
     NSMutableDictionary *_sharedToolbarOptions;
     NSButton *_toolbarEnglishModeButton;
@@ -1624,8 +1648,31 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // Scope changes take effect on activation, never in the middle of typing.
     _activeModeGlobal = [self.imeModeScope isEqual:@"global"];
 }
+/// The rules the user has written down, with anything the stored dictionary has picked up that is not one dropped.
+- (NSDictionary<NSString *, NSString *> *)applicationInputModeRules {
+    NSDictionary *stored = [_defaults dictionaryForKey:AppInputModeRulesKey];
+    if (![stored isKindOfClass:NSDictionary.class]) return @{};
+    NSMutableDictionary<NSString *, NSString *> *rules = [NSMutableDictionary dictionary];
+    for (id identifier in stored)
+        if ([identifier isKindOfClass:NSString.class] && [identifier length] > 0 && ValidInputModeRule(stored[identifier]))
+            rules[identifier] = [stored[identifier] copy];
+    return rules;
+}
+/// Writes one rule, or removes it when the mode is nil. The key goes rather than being left holding an empty dictionary, so that 恢复默认值 has nothing to offer once the last rule is gone.
+- (void)setInputMode:(NSString *)mode forApplication:(NSString *)identifier {
+    if (![identifier isKindOfClass:NSString.class] || identifier.length == 0) return;
+    if (mode != nil && !ValidInputModeRule(mode)) return;
+    NSMutableDictionary<NSString *, NSString *> *rules = [[self applicationInputModeRules] mutableCopy];
+    if (mode == nil) [rules removeObjectForKey:identifier]; else rules[identifier] = mode;
+    if (rules.count > 0) [_defaults setObject:rules forKey:AppInputModeRulesKey];
+    else [_defaults removeObjectForKey:AppInputModeRulesKey];
+    [self preferencesChanged];
+}
 - (BOOL)englishMode {
     if (!_activeModeApplication) return [_defaults boolForKey:EnglishKey];
+    // Rule, then memory, then the default. A rule is what the user decided this application should start in and it is saved, so it goes on answering after -resetRememberedInputModes has thrown away what they happened to do last time; it also holds under 全局 scope, which is what makes it an exception rather than a second way of saying the same thing.
+    NSString *rule = [self applicationInputModeRules][_activeModeApplication];
+    if (rule != nil) return [rule isEqual:@"english"];
     NSNumber *mode = _activeModeGlobal ? _globalInputMode : _applicationInputModes[_activeModeApplication];
     return mode ? mode.boolValue : [self.defaultImeMode isEqual:@"english"];
 }
@@ -2335,6 +2382,22 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)refreshControls {
     [_defaultImeModeButton selectItemAtIndex:[self.defaultImeMode isEqual:@"english"] ? 1 : 0];
     [_imeModeScopeButton selectItemAtIndex:[self.imeModeScope isEqual:@"global"] ? 1 : 0];
+    // 应用例外, in the order the user reads rather than the order a dictionary hands them over in. Sorted by the name on screen, so two rules do not swap places between two openings of the window.
+    NSDictionary<NSString *, NSString *> *applicationRules = [self applicationInputModeRules];
+    _appRuleIdentifiers = [applicationRules.allKeys sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        return [[self applicationNameForBundleIdentifier:a] localizedStandardCompare:[self applicationNameForBundleIdentifier:b]];
+    }];
+    const NSInteger applicationRuleSelection = _appRuleTable.selectedRow;
+    [_appRuleTable reloadData];
+    if (applicationRuleSelection >= 0 && (NSUInteger)applicationRuleSelection < _appRuleIdentifiers.count)
+        [_appRuleTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)applicationRuleSelection]
+                   byExtendingSelection:NO];
+    _appRuleRemoveButton.enabled = _appRuleTable.selectedRow >= 0;
+    // Written here rather than left where -addApplicationInputModeRule: may have put a refusal: the refusal is about the press that has just happened, and the next thing to happen to this table replaces it with what the table now holds.
+    _appRuleStatusLabel.textColor = NSColor.secondaryLabelColor;
+    _appRuleStatusLabel.stringValue = applicationRules.count == 0
+        ? @"还没有应用例外，所有应用都按上面的设置走。"
+        : [NSString stringWithFormat:@"已为 %lu 个应用指定了输入模式。", (unsigned long)applicationRules.count];
     NSDictionary *wordCharacter = [self wordCharacterOptions];
     _wordCharacterToggle.state = [wordCharacter[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
     [_wordCharacterKeys selectItemAtIndex:[wordCharacter[@"keys"] isEqual:@"minus_equal"] ? 1 : 0];
@@ -2800,6 +2863,43 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _imeModeScopeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_imeModeScopeButton addItemsWithTitles:@[@"按应用", @"全局"]];
     _imeModeScopeButton.target = self; _imeModeScopeButton.action = @selector(imeModeScopeChanged:);
+    // 应用例外. 模式作用范围 has offered 按应用 all along with no list of applications anywhere behind it, and the only thing that was per-application was a dictionary in memory that the next input-source switch emptied — so 按应用 meant "until you switch away", and the window said none of it.
+    _appRuleNames = [NSMutableDictionary dictionary];
+    _appRuleTable = [[NSTableView alloc] initWithFrame:NSZeroRect];
+    _appRuleTable.accessibilityLabel = @"应用例外";
+    _appRuleTable.headerView = nil;
+    _appRuleTable.allowsMultipleSelection = NO;
+    _appRuleTable.rowHeight = 24.0;
+    _appRuleTable.style = NSTableViewStyleFullWidth;
+    NSTableColumn *appRuleApplication = [[NSTableColumn alloc] initWithIdentifier:MSIMEAppRuleApplicationColumn];
+    appRuleApplication.resizingMask = NSTableColumnAutoresizingMask;
+    [_appRuleTable addTableColumn:appRuleApplication];
+    NSTableColumn *appRuleMode = [[NSTableColumn alloc] initWithIdentifier:MSIMEAppRuleModeColumn];
+    appRuleMode.width = 108.0;
+    appRuleMode.resizingMask = NSTableColumnNoResizing;
+    [_appRuleTable addTableColumn:appRuleMode];
+    _appRuleTable.dataSource = self;
+    _appRuleTable.delegate = self;
+    NSScrollView *appRuleScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    appRuleScroll.documentView = _appRuleTable;
+    appRuleScroll.hasVerticalScroller = YES;
+    appRuleScroll.borderType = NSBezelBorder;
+    appRuleScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    [appRuleScroll.heightAnchor constraintEqualToConstant:112.0].active = YES;
+    [appRuleScroll.widthAnchor constraintGreaterThanOrEqualToConstant:msime::mac::layout::kControlMinWidth].active = YES;
+    NSButton *addAppRule = [NSButton buttonWithTitle:@"添加应用…" target:self action:@selector(addApplicationInputModeRule:)];
+    addAppRule.accessibilityLabel = @"添加应用例外";
+    _appRuleRemoveButton = [NSButton buttonWithTitle:@"移除" target:self action:@selector(removeApplicationInputModeRule:)];
+    _appRuleRemoveButton.accessibilityLabel = @"移除应用例外";
+    // How many rules there are, and — when the panel is handed something that is not an application — why the last press added nothing.
+    _appRuleStatusLabel = MSIMEDetailLabel(@"");
+    NSStackView *appRuleButtons = [NSStackView stackViewWithViews:@[ addAppRule, _appRuleRemoveButton ]];
+    appRuleButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    NSStackView *appRuleControls = [NSStackView stackViewWithViews:@[ appRuleScroll, appRuleButtons ]];
+    appRuleControls.orientation = NSUserInterfaceLayoutOrientationVertical;
+    appRuleControls.alignment = NSLayoutAttributeLeading;
+    appRuleControls.spacing = 6.0;
+    [appRuleScroll.widthAnchor constraintEqualToAnchor:appRuleControls.widthAnchor].active = YES;
     _shiftTapShortcutToggle = MSIMESettingSwitch(self, @selector(shiftTapShortcutChanged:), @"单按 Shift 切换中英文");
     _controlTapShortcutToggle = MSIMESettingSwitch(self, @selector(controlTapShortcutChanged:), @"单按 Control 切换中英文");
     _controlOptionSpaceShortcutToggle = MSIMESettingSwitch(self, @selector(controlOptionSpaceShortcutChanged:), @"Control + Option + 空格切换中英文");
@@ -2911,6 +3011,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                      aka:@[@"按应用", @"全局"]],
     ], 0.0);
     inputModeCard.accessibilityLabel = @"输入模式卡片";
+    NSBox *appRuleCard = MSIMECardWithViews(@[
+        MSIMEDetailLabel(@"这里的规则优先于「模式作用范围」和记忆：规则保存在本机，切换输入源或重新登录后仍然有效。没有规则的应用按记忆走，而记忆只存在于当前这次输入法进程里，切换到别的输入源就清空了。"),
+        [self settingRow:@"按应用指定输入模式" detailLabel:_appRuleStatusLabel control:appRuleControls aka:@[@"应用例外", @"白名单"]],
+    ], 6.0);
+    appRuleCard.accessibilityLabel = @"应用例外卡片";
 
     // The scheme is one choice, so it reads as radios with each scheme's own popup trailing it,
     // disabled until that scheme is selected. The stored value stays the same scheme string.
@@ -3003,6 +3108,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         // The first card is the only one on the page that had no heading, which also left the two
         // settings on it in no section and so out of reach of a section-level restore.
         [self sectionHeader:@"输入模式" keys:@[DefaultImeModeKey, ImeModeScopeKey]], inputModeCard,
+        [self sectionHeader:@"应用例外" keys:@[AppInputModeRulesKey]], appRuleCard,
         [self sectionHeader:@"中文输入方案"
                        keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey,
                               WubiMixedPinyinKey, HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
@@ -3792,6 +3898,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 /// The same row, for a sentence written as the window runs rather than as it is built.
 - (NSView *)settingRow:(NSString *)title detailLabel:(NSTextField *)detail control:(NSView *)control {
     return [self registerSearchRow:MSIMEPreferenceRowWithDetailLabel(title, detail, control) named:title aka:nil];
+}
+- (NSView *)settingRow:(NSString *)title
+           detailLabel:(NSTextField *)detail
+               control:(NSView *)control
+                   aka:(NSArray<NSString *> *)synonyms {
+    return [self registerSearchRow:MSIMEPreferenceRowWithDetailLabel(title, detail, control) named:title aka:synonyms];
 }
 /// Peer checkboxes: a fuzzy rule, a toolbar component, an extended input mode. Each box is a setting of its own and carries its own wording, so each is registered under the title it draws and is its own landing target.
 - (NSView *)settingCheckboxes:(NSArray<NSButton *> *)boxes columns:(NSInteger)columns {
@@ -4620,12 +4732,15 @@ static NSString *CandidateColorHex(NSColor *color) {
 - (void)preeditFontChanged:(NSPopUpButton *)sender { self.preeditFontSize = sender.indexOfSelectedItem + 12; }
 - (void)candidatePreeditChanged:(NSPopUpButton *)sender { self.showsCandidatePreedit = sender.indexOfSelectedItem == 0; }
 
-#pragma mark - Fallback font order table
+#pragma mark - Fallback font order and application exception tables
 // This object is the sidebar's data source as well, and an NSOutlineView is an NSTableView, so each of these answers for the one table it was written for and says so rather than assuming it can only have been called by that table.
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
-    return tableView == _fallbackTable ? (NSInteger)self.fallbackFonts.count : 0;
+    if (tableView == _fallbackTable) return (NSInteger)self.fallbackFonts.count;
+    if (tableView == _appRuleTable) return (NSInteger)_appRuleIdentifiers.count;
+    return 0;
 }
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row {
+    if (tableView == _appRuleTable) return [self applicationRuleCellForColumn:tableColumn row:row];
     (void)tableColumn;
     if (tableView != _fallbackTable || row < 0 || (NSUInteger)row >= self.fallbackFonts.count) return nil;
     NSTableCellView *cell = [tableView makeViewWithIdentifier:MSIMEFallbackFontCellIdentifier owner:self];
@@ -4681,5 +4796,99 @@ static NSString *CandidateColorHex(NSColor *color) {
     self.fallbackFonts = fonts;
     [self selectFallbackRow:destination];
     return YES;
+}
+/// One row of 应用例外: the application on the leading edge, the mode it is to start in trailing it.
+///
+/// The cells are built fresh rather than reused. There are as many rows as the user has written rules, which is a handful, and a reused popup would have to have its row number rewritten anyway.
+- (NSView *)applicationRuleCellForColumn:(NSTableColumn *)column row:(NSInteger)row {
+    if (row < 0 || (NSUInteger)row >= _appRuleIdentifiers.count) return nil;
+    NSString *identifier = _appRuleIdentifiers[(NSUInteger)row];
+    if ([column.identifier isEqual:MSIMEAppRuleModeColumn]) {
+        NSPopUpButton *mode = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        [mode addItemsWithTitles:@[ @"中文", @"英文" ]];
+        [mode selectItemAtIndex:[[self applicationInputModeRules][identifier] isEqual:@"english"] ? 1 : 0];
+        mode.controlSize = NSControlSizeSmall;
+        mode.font = [NSFont systemFontOfSize:[NSFont systemFontSizeForControlSize:NSControlSizeSmall]];
+        mode.accessibilityLabel = [NSString stringWithFormat:@"%@的输入模式", [self applicationNameForBundleIdentifier:identifier]];
+        mode.tag = row;
+        mode.target = self;
+        mode.action = @selector(applicationInputModeRuleChanged:);
+        return mode;
+    }
+    NSTableCellView *cell = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
+    NSTextField *label = [NSTextField labelWithString:[self applicationNameForBundleIdentifier:identifier]];
+    label.font = [NSFont systemFontOfSize:msime::mac::layout::kBodyFontSize weight:NSFontWeightRegular];
+    label.lineBreakMode = NSLineBreakByTruncatingTail;
+    // The bundle identifier, for the two applications whose names read the same and for the rule left behind by one that has since been deleted, whose name is the identifier anyway.
+    label.toolTip = identifier;
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [cell addSubview:label];
+    cell.textField = label;
+    [NSLayoutConstraint activateConstraints:@[
+        [label.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor constant:4.0],
+        [label.trailingAnchor constraintLessThanOrEqualToAnchor:cell.trailingAnchor],
+        [label.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
+    ]];
+    return cell;
+}
+/// What the user calls the application, falling back on the bundle identifier for one that is not installed on this machine — which is what a rule carried over from another Mac, or left behind by an application since deleted, looks like.
+///
+/// Remembered for as long as the window is open. The answer comes from LaunchServices, and -refreshControls asks for it once per rule to draw the list and O(n log n) times to sort it — on every switch flipped anywhere in the window.
+- (NSString *)applicationNameForBundleIdentifier:(NSString *)identifier {
+    NSString *remembered = _appRuleNames[identifier];
+    if (remembered != nil) return remembered;
+    NSURL *url = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:identifier];
+    NSString *name = url == nil ? nil : [NSFileManager.defaultManager displayNameAtPath:url.path];
+    NSString *resolved = name.length > 0 ? name : identifier;
+    _appRuleNames[identifier] = resolved;
+    return resolved;
+}
+- (void)tableViewSelectionDidChange:(NSNotification *)notification {
+    if (notification.object != _appRuleTable) return;
+    _appRuleRemoveButton.enabled = _appRuleTable.selectedRow >= 0;
+}
+- (void)applicationInputModeRuleChanged:(NSPopUpButton *)sender {
+    if (sender.tag < 0 || (NSUInteger)sender.tag >= _appRuleIdentifiers.count) return;
+    [self setInputMode:sender.indexOfSelectedItem == 1 ? @"english" : @"chinese"
+        forApplication:_appRuleIdentifiers[(NSUInteger)sender.tag]];
+}
+/// Picks the application a rule is about. An open panel rather than a list of what happens to be running: a rule is most often written for the application the user has just been annoyed by, and that one may well have been quit before they got here.
+- (void)addApplicationInputModeRule:(id)sender {
+    (void)sender;
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    // An application is a package, and left as a directory the panel would let the user walk into one and pick something inside it.
+    panel.treatsFilePackagesAsDirectories = NO;
+    panel.directoryURL = [NSURL fileURLWithPath:@"/Applications" isDirectory:YES];
+    panel.prompt = @"添加";
+    panel.message = @"选择一个应用程序，为它指定启动时的输入模式。";
+    if ([panel runModal] != NSModalResponseOK || panel.URL == nil) return;
+    NSString *identifier = [NSBundle bundleWithURL:panel.URL].bundleIdentifier;
+    if (identifier.length == 0) {
+        // Said where the press went rather than beeped: the panel will happily hand back a document, a script, or a folder that merely ends in .app, and none of those has an identifier to write a rule against.
+        _appRuleStatusLabel.stringValue = @"所选项目不是应用程序，没有可用的 Bundle ID。";
+        _appRuleStatusLabel.textColor = NSColor.systemRedColor;
+        return;
+    }
+    // A rule for an application that already has one is that application's rule, so the selection moves to it rather than a second row appearing.
+    if ([self applicationInputModeRules][identifier] == nil) [self setInputMode:@"chinese" forApplication:identifier];
+    [self refreshControls];
+    const NSUInteger index = [_appRuleIdentifiers indexOfObject:identifier];
+    if (index != NSNotFound) {
+        [_appRuleTable selectRowIndexes:[NSIndexSet indexSetWithIndex:index] byExtendingSelection:NO];
+        [_appRuleTable scrollRowToVisible:(NSInteger)index];
+    }
+}
+- (void)removeApplicationInputModeRule:(id)sender {
+    (void)sender;
+    const NSInteger row = _appRuleTable.selectedRow;
+    if (row < 0 || (NSUInteger)row >= _appRuleIdentifiers.count) return;
+    [self setInputMode:nil forApplication:_appRuleIdentifiers[(NSUInteger)row]];
+    [self refreshControls];
+    // The row under the one that was removed, so that removing several in a row does not need the pointer to go back to the list between each.
+    const NSInteger next = MIN(row, (NSInteger)_appRuleIdentifiers.count - 1);
+    if (next >= 0) [_appRuleTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)next] byExtendingSelection:NO];
 }
 @end
