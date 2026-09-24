@@ -4932,7 +4932,7 @@ static void TestOfflineTargetGlosses() {
     // Without English among the targets the offline dictionary is the only local source.
     session.generation++; session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"];
     settle();
-    assert([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}]]);
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}]]));
     // Nothing installed for the chosen targets leaves the English path exactly as it was.
     session.generation++; session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"de"];
     settle();

@@ -127,8 +127,6 @@ ANSWERED_BY: dict[str, str] = {
     "base_structures": "platforms/windows/src/ipc/PipeMetadata.h",
     "defines": "platforms/windows/src/ipc/PipeMetadata.h",
     "client_fallback": "platforms/windows/tests/runtime/server_launch.cpp",
-    # The reference's TSF-side statistics test. Its passthrough half is this test; its classification half is the `classify` tests in crates/client-core/src/typing_statistics.rs, where classification moved.
-    "statistics": "crates/client-core/src/typing_statistics.rs",
 }
 
 # Reference file stem -> why nothing here answers it. Each reason says what the user gets instead,
