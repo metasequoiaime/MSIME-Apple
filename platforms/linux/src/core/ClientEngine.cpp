@@ -6781,7 +6781,12 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
     const auto source = entry.value("source", 0);
     const auto scheme = s.rendered_scheme;
     if (button == 3) {
-      if (scheme != 3 && (source == 0 || source == 1 || source == 4))
+      // The fences above establish the candidate, not the view it was rendered from, and
+      // rendered_view is null until the first render and again after every session rebuild.
+      // value() throws on null, guarded swallows the throw, and the whole click disappears into a
+      // warning line. The hint has nothing to restore without a view either: its timeout only
+      // re-renders while this generation is still the one on screen.
+      if (scheme != 3 && (source == 0 || source == 1 || source == 4) && s.rendered_view.is_object())
         show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
     } else
       apply(engine, msime_client_select(s.session, generation, global_index));
