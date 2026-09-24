@@ -729,6 +729,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 @interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
+- (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
 @end
 
 @implementation MSIMEInputController {
@@ -787,6 +788,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSTimer *_preferencesTimer;
     MSIMEPreferenceLoadState _preferenceLoadState;
     MSIMEPreferenceSaveState _preferenceSaveState;
+    BOOL _preferenceRecoveryAttempted;
     MSIMEAppearancePreferences *_appearance;
     BOOL _wubiCodeHintEnabled;
     msime::input::EnglishPunctuationState _englishPunctuation;
@@ -3790,6 +3792,10 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     return [MSIMEClientSession loadPreferencesInDirectory:directory error:error];
 }
 
+- (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
+    return [MSIMEClientSession recoverPreferencesInDirectory:directory error:error];
+}
+
 - (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
                        session:(MSIMEClientSession *)session client:(id)client {
     if (!_preferenceLoadState.finish(generation)) return;
@@ -3851,8 +3857,22 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     NSString *directory = [_preferencesDirectory copy];
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        MSIMEInputController *current = weakSelf;
+        if (!current) return;
         NSError *error = nil;
-        NSDictionary *snapshot = [weakSelf readPreferencesSnapshotInDirectory:directory error:&error];
+        NSDictionary *snapshot = [current readPreferencesSnapshotInDirectory:directory error:&error];
+        if (!snapshot && error && !current->_preferenceRecoveryAttempted) {
+            current->_preferenceRecoveryAttempted = YES;
+            NSError *recoveryError = nil;
+            NSDictionary *recovery = [current recoverPreferencesInDirectory:directory error:&recoveryError];
+            NSDictionary *recoveredSnapshot = [recovery[@"snapshot"] isKindOfClass:NSDictionary.class] ? recovery[@"snapshot"] : nil;
+            if (recoveredSnapshot && !recoveryError) {
+                snapshot = recoveredSnapshot;
+                error = nil;
+            } else if (recoveryError) {
+                error = recoveryError;
+            }
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             [weakSelf completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
         });
