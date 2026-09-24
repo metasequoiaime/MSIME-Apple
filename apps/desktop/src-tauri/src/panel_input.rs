@@ -245,11 +245,24 @@ pub(crate) fn remember_panel_input_target(
     label: &str,
     replace: bool,
 ) -> Result<(), HostActionError> {
-    let mut target = state.0.lock().map_err(|_| HostActionError {
+    let unavailable = || HostActionError {
         code: "unavailable",
-    })?;
+    };
+    if !replace
+        && state
+            .0
+            .lock()
+            .map_err(|_| unavailable())?
+            .contains_key(label)
+    {
+        return Ok(());
+    }
+    // The probes run session tools with timeouts of their own; send_key and the
+    // other panels must not wait on the lock for them.
+    let captured = capture_panel_input_target()?;
+    let mut target = state.0.lock().map_err(|_| unavailable())?;
     if replace || !target.contains_key(label) {
-        target.insert(label.to_owned(), capture_panel_input_target()?);
+        target.insert(label.to_owned(), captured);
     }
     Ok(())
 }

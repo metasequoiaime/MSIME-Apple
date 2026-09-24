@@ -424,6 +424,13 @@ pub(crate) async fn recognize_voice(
                     code: "unsupported_voice",
                 },
             )?;
+            // The iOS plugin only uploads to a provider; it has no on-device recogniser yet, so a
+            // local model is unsupported here rather than a generic plugin rejection.
+            if configuration.provider == "local" {
+                return Err(HostActionError {
+                    code: "unsupported_voice",
+                });
+            }
             let hotwords = mobile_session_hotwords(&configuration, &dictionary);
             Ok::<_, HostActionError>((configuration, hotwords))
         })

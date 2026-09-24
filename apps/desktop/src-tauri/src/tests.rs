@@ -41,8 +41,27 @@ fn ai_models_url_reuses_the_api_prefix() {
         .unwrap_or_else(|_| panic!("fixture endpoint should be valid"));
     assert_eq!(
         crate::ai::ai_models_url(&endpoint).as_str(),
-        "https://api.example.test/v1/models"
+        "https://api.example.test/models"
     );
+
+    for (endpoint, models) in [
+        (
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            "https://generativelanguage.googleapis.com/v1beta/openai/models",
+        ),
+        (
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            "https://open.bigmodel.cn/api/paas/v4/models",
+        ),
+        (
+            "https://host.example.test/v1/chat/completions/",
+            "https://host.example.test/v1/models",
+        ),
+    ] {
+        let endpoint = crate::ai::validate_ai_endpoint(endpoint)
+            .unwrap_or_else(|_| panic!("fixture endpoint should be valid"));
+        assert_eq!(crate::ai::ai_models_url(&endpoint).as_str(), models);
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -873,6 +892,49 @@ fn keyboard_does_not_accept_focus_but_editable_panels_do() {
         assert!(crate::panel_window::panel_accepts_focus(label));
     }
 }
+
+#[test]
+fn csp_lets_the_skin_editor_decode_a_picked_photo() {
+    // The editor loads the photo through URL.createObjectURL; jsdom does not
+    // enforce CSP, so only this check sees a blob: loss.
+    let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let csp = config["app"]["security"]["csp"].as_str().unwrap();
+    let img_src = csp
+        .split(';')
+        .map(str::trim)
+        .find(|directive| directive.starts_with("img-src "))
+        .unwrap();
+    assert!(img_src.split_whitespace().any(|source| source == "blob:"));
+}
+
+#[test]
+fn every_opened_panel_label_can_be_closed() {
+    let closable = crate::panel_window::CLOSABLE_PANELS;
+    for label in [
+        "keyboard-panel",
+        "handwriting-panel",
+        "emoji-panel",
+        "clipboard-panel",
+    ] {
+        assert!(closable.contains(&label), "{label}");
+    }
+    // The literal labels passed straight to open_panel_window.
+    let source = include_str!("panel_window.rs");
+    let lines = source.lines().map(str::trim).collect::<Vec<_>>();
+    let mut literal_labels = 0;
+    for pair in lines.windows(2) {
+        if pair[0] == "&app," {
+            if let Some(label) = pair[1]
+                .strip_prefix('"')
+                .and_then(|rest| rest.strip_suffix("\","))
+            {
+                literal_labels += 1;
+                assert!(closable.contains(&label), "{label}");
+            }
+        }
+    }
+    assert!(literal_labels >= 4);
+}
 #[test]
 fn toolbar_stylesheet_command_errors_do_not_expose_paths() {
     let state = tempfile::tempdir().unwrap();
@@ -1587,6 +1649,18 @@ fn linux_account_storage_round_trips_an_owner_only_session() {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(storage.load().is_err());
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(storage.load().expect("load").is_some());
+
+    // A leftover world-readable temporary from an interrupted save must not
+    // pass its mode on to the published tokens.
+    let temporary = directory.path().join("account-session.json.new");
+    std::fs::write(&temporary, b"stale").unwrap();
+    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o644)).unwrap();
+    storage.save(&session).expect("save over a stale temporary");
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     assert!(storage.load().expect("load").is_some());
 
     storage.clear().expect("clear");
