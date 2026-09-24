@@ -153,9 +153,9 @@ export function McpConnectSection({
                 {server.config}
               </pre>
               <p className="notice">
-                要让助手修改快捷短语、设置和词库，在 args 中加入 <code>--allow-write</code>
-                ；要让它读取你的用户词库，加入 <code>--allow-dictionary-read</code>
-                。这两项只应在你信任该助手时开启。
+                要让助手修改快捷短语和设置，在 args 中加入 <code>--allow-write</code>
+                ；要让它读取你的用户词库、查看编码的候选，加入 <code>--allow-dictionary-read</code>
+                ；两项都加才能增删、调整和导入词。这两项只应在你信任该助手时开启。
               </p>
               {copyText && (
                 <div className={settings.serviceRow}>
