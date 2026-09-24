@@ -280,6 +280,8 @@ msime-client-ibus-launcher
 msime-client-prepare --installed /absolute/new-state
 ```
 
+非英文翻译目标（法、日、西、俄、德、韩）的离线释义词典是可选的：用 `scripts/build_offline_glosses.py` 生成到 `target/offline-glosses` 后，配置时传 `-DMSIME_OFFLINE_GLOSSES=/absolute/target/offline-glosses`，CMake 把其中的 `zh-*.db` 连同必需的 `offline-glosses-NOTICE.txt` 装到资源目录的同级 `${CMAKE_INSTALL_DATADIR}/msime-client/offline-glosses`。使用显式资源目录时，把它们放在该目录同级的 `offline-glosses/` 下即可。IBus 与 Fcitx5 在主翻译目标装有词典时先显示词典释义，开启候选翻译且配置了自己的翻译服务时再逐个询问所有候选，服务的回答替换词典的，没回答的保留词典释义。没有这些文件时候选释义仍只有英文。
+
 `--installed` 通过 `/proc/self/exe` 的实际路径和配置时的数据目录相对位置定位同一安装前缀下的资源目录，状态目录仍必须是绝对路径且不存在。它不会修改输入法选择、启动服务或创建用户状态，只有显式执行命令才会准备新状态；未配置资源包时请继续使用显式资源目录形式。
 
 Linux 桌面设置保存时会先按 `PreferencesStore` 的 revision 规则写入 `preferences.json`，随后以原子替换同步同一 HostOptions 的 `preferences` 到 `MSIME_IBUS_OPTIONS`，或 `MSIME_CLIENT_HOST_OPTIONS` 指向的 `runtime-options.json`；未设置前者时，桌面应用也可直接用 `MSIME_IBUS_OPTIONS` 作为 HostOptions 来源。这样正在运行的 IBus 宿主可以通过已有文件监听接收新设置；同步失败会把保存命令报告为存储错误，避免界面误报已同步。发布给宿主的是一份去掉屏幕键盘自定义皮肤照片（`custom_touch_keyboard_skin.photo`）的副本：IBus 和 Fcitx5 宿主不画屏幕键盘，设置应用自己的屏幕键盘读的是 `preferences.json`，照片仍在那里；整份文件不超过两个宿主读取的 16 KiB 上限，超出时（例如提示词过长）不写入，原文件保持可读，这次保存也整体撤回并报错（`runtime_options_too_large`），而不是写出一份让两个宿主都无法启动的配置。

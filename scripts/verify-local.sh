@@ -270,6 +270,10 @@ python3 scripts/test-preference-suite-cleanup.py || fail "preference suite clean
 note "candidate sources"
 python3 scripts/test-candidate-sources.py || fail "candidate sources"
 
+# The offline glosses for the non-English targets are built from Wiktionary rows whose shape is easy to misread: the Mandarin rows are "Chinese Mandarin", the plain "Chinese" ones are topolects, and senses[] repeats the top-level tables. The fixture holds real rows, so a rule that drifts from them fails here instead of in a release.
+note "offline glosses"
+python3 scripts/test-offline-glosses.py || fail "offline glosses"
+
 # The palette is most of what makes one window look like another, and this one
 # is built with Tailwind rather than by importing the source's sheet, so the two
 # copies of the same 64 names can drift a hex at a time without anyone noticing.

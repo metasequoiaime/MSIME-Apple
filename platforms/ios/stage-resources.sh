@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: stage-resources.sh <verified-resource-directory>}
+source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/ios/EngineResources"
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$source_dir")
@@ -29,4 +29,15 @@ for asset in contract["assets"]:
 PY
 cp "$engine/helpcode/NOTICE.md" "$destination/helpcodes/NOTICE.md"
 cp "$repo_root/resources/helpcodes/NOTICE.md" "$destination/helpcodes/NOTICE-jiajia.md"
+# Optional: non-English candidate glosses built by scripts/build_offline_glosses.py, bundled beside EngineResources because host-api looks for them next to the resource directory. The directory is always created, empty when there are none, since the keyboard target bundles it as a folder; without the databases only English is glossed offline.
+glosses_source=${2:-$repo_root/target/offline-glosses}
+glosses_destination="$repo_root/target/ios/offline-glosses"
+rm -rf "$glosses_destination"
+mkdir -p "$glosses_destination"
+if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
+  cp "$glosses_source"/zh-*.db "$glosses_source/offline-glosses-NOTICE.txt" "$glosses_destination/"
+  echo "offline glosses staged: $glosses_destination"
+else
+  echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
+fi
 echo "iOS resources staged from the pinned dictionary release: $destination"

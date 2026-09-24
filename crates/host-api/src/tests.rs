@@ -2479,6 +2479,154 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     read(msime_client_destroy(handle));
 }
 
+fn offline_gloss_fixture(path: &std::path::Path, language: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .execute_batch(&format!(
+            "CREATE TABLE zh_glosses(chinese TEXT PRIMARY KEY, gloss TEXT NOT NULL, source TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO meta VALUES('target_language', '{language}');
+             INSERT INTO zh_glosses VALUES('你好', 'bonjour, salut', 'hello');
+             PRAGMA user_version = 1;"
+        ))
+        .unwrap();
+}
+
+/// A non-English offline dictionary is announced only when it is installed, and the query without one is the one hosts always received.
+#[test]
+fn translation_query_lists_installed_offline_gloss_languages() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        candidate_translations: false,
+        candidate_english_gloss: true,
+        translation_target_language: msime_client_core::preferences::TranslationTargetLanguage::Fr,
+        ..Preferences::default()
+    };
+    preferences.tencent_tmt.enabled = false;
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"U4e2d" {
+        read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ));
+    }
+    // Nothing installed: French with translation off has no gloss source, as before.
+    assert_eq!(
+        read(msime_client_translation_query(handle))["value"],
+        Value::Null
+    );
+    preferences.candidate_translations = true;
+    update(handle, 1, &preferences);
+    let plain = read(msime_client_translation_query(handle));
+    assert!(plain["value"].get("offline_gloss_languages").is_none());
+    assert!(plain["value"]["resources"].is_null());
+
+    offline_gloss_fixture(&dir.path().join("offline-glosses/zh-fr.db"), "fr");
+    offline_gloss_fixture(&dir.path().join("offline-glosses/zh-ko.db"), "ko");
+    preferences.translation_secondary_language =
+        Some(msime_client_core::preferences::TranslationTargetLanguage::Ja);
+    update(handle, 2, &preferences);
+    let installed = read(msime_client_translation_query(handle));
+    // Korean is installed but not a target; Japanese is a target but not installed.
+    assert_eq!(installed["value"]["offline_gloss_languages"], json!(["fr"]));
+    assert!(installed["value"]["resources"].is_string());
+    assert_eq!(installed["value"]["english_gloss"], false);
+
+    // The offline switch alone reaches it, with online translation off and no provider implied.
+    preferences.candidate_translations = false;
+    update(handle, 3, &preferences);
+    let offline = read(msime_client_translation_query(handle));
+    assert_eq!(offline["value"]["offline_gloss_languages"], json!(["fr"]));
+    assert_eq!(offline["value"]["translation_account"], false);
+    assert!(offline["value"]["tencent_tmt"].is_null());
+
+    // Both switches off: nothing, installed or not.
+    preferences.candidate_english_gloss = false;
+    update(handle, 4, &preferences);
+    assert_eq!(
+        read(msime_client_translation_query(handle))["value"],
+        Value::Null
+    );
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn candidate_gloss_request_reads_the_offline_dictionary_for_its_target_language() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let user = directory.path().join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let resources = resources.to_str().unwrap().as_bytes().to_vec();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe {
+            msime_client_candidate_gloss_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    let candidates = json!([
+        {"text":"你好","source":0},
+        {"text":"Hello","source":4},
+        {"text":"再见","source":0}
+    ]);
+    // Not installed is not an error: the host keeps whatever the online path brings.
+    let missing = call(json!({"generation":7,"target_language":"fr","candidates":candidates}));
+    assert_eq!(missing["ok"], true);
+    assert_eq!(missing["value"], json!({"generation":7,"translations":[]}));
+
+    offline_gloss_fixture(&directory.path().join("offline-glosses/zh-fr.db"), "fr");
+    // The user directory holds English only, so a French request never reads it even when given.
+    std::fs::write(user.join("custom_translations.txt"), "你好\thand written\n").unwrap();
+    let french = call(json!({
+        "generation":8,
+        "target_language":"fr",
+        "user_data":user.to_str().unwrap(),
+        "candidates":candidates
+    }));
+    assert_eq!(french["ok"], true);
+    assert_eq!(
+        french["value"],
+        json!({"generation":8,"translations":[{"text":"你好","translation":"bonjour, salut"}]})
+    );
+
+    // A file under the wrong name is refused rather than shown as another language.
+    std::fs::copy(
+        directory.path().join("offline-glosses/zh-fr.db"),
+        directory.path().join("offline-glosses/zh-ja.db"),
+    )
+    .unwrap();
+    let renamed = call(json!({"generation":9,"target_language":"ja","candidates":candidates}));
+    assert_eq!(renamed["ok"], false);
+    assert_eq!(renamed["error"], "candidate gloss dictionary unavailable");
+
+    for language in ["xx", "EN", "../fr", ""] {
+        let invalid =
+            call(json!({"generation":10,"target_language":language,"candidates":candidates}));
+        assert_eq!(
+            invalid["error"], "invalid candidate gloss request",
+            "{language}"
+        );
+    }
+    // English, spelled out or implied, is still the packaged dictionary, which this directory lacks.
+    for request in [
+        json!({"generation":11,"target_language":"en","candidates":candidates}),
+        json!({"generation":11,"candidates":candidates}),
+    ] {
+        assert_eq!(
+            call(request)["error"],
+            "candidate gloss dictionary unavailable"
+        );
+    }
+}
+
 /// Linux keeps the Tencent secret in the provider's own file, so the query's credential fields cannot say which service the user picked. The explicit choice has to survive to the socket even when that service is unusable, or the provider falls back to Tencent.
 #[cfg(unix)]
 #[test]
@@ -2562,6 +2710,8 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
 
     let query = read(msime_client_translation_query(handle))["value"].clone();
     assert_eq!(query["provider"], "tencent");
+    // The MSIME account endpoint is never chosen implicitly.
+    assert_eq!(query["translation_account"], false);
     assert_eq!(forward(&query).unwrap()["query"]["provider"], "tencent");
 
     preferences.tencent_tmt.enabled = false;
@@ -2589,6 +2739,48 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
     assert_eq!(query["provider"], "custom");
     assert!(query["custom_translation"].is_null());
     assert_eq!(forward(&query).unwrap()["query"]["provider"], "custom");
+    assert_eq!(query["translation_account"], false);
+
+    // Choosing the account switches every other service off, so the provider socket is never asked.
+    preferences.custom_translation.enabled = false;
+    preferences.translation_account = true;
+    update(handle, 4, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], true);
+    assert_eq!(query["provider"], "none");
+    assert!(
+        forward(&query).is_none(),
+        "an account query reached the provider"
+    );
+
+    // Tencent's default `enabled: true` without usable secrets is not a user choice and does not displace the account; usable secrets do.
+    preferences.tencent_tmt.enabled = true;
+    update(handle, 5, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], true);
+    preferences.tencent_tmt.secret_id = "id".into();
+    preferences.tencent_tmt.secret_key = "key".into();
+    update(handle, 6, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], false);
+    preferences.tencent_tmt.enabled = false;
+
+    // The user's own service wins over the account.
+    preferences.niutrans.enabled = true;
+    update(handle, 7, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["translation_account"], false);
+
+    // The offline English gloss keeps the query alive with candidate translations off, and must not carry the account.
+    preferences.niutrans.enabled = false;
+    preferences.candidate_translations = false;
+    preferences.candidate_english_gloss = true;
+    preferences.translation_target_language =
+        msime_client_core::preferences::TranslationTargetLanguage::En;
+    update(handle, 8, &preferences);
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["english_gloss"], true);
+    assert_eq!(query["translation_account"], false);
     read(msime_client_destroy(handle));
 }
 

@@ -25,8 +25,13 @@ export class CandidateGlossLayoutPolicy {
     targetLanguages: string[],
     onlineTranslations: boolean,
     providers: CandidateGlossProviderState,
+    offlineTargets: string[],
   ): number {
-    const offline: boolean = offlineEnglish && targetLanguages.includes("en");
+    // An installed non-English dictionary answers under either switch, as the shared translation query does.
+    const offline: boolean =
+      (offlineEnglish && targetLanguages.includes("en")) ||
+      ((offlineEnglish || onlineTranslations) &&
+        targetLanguages.some((target: string): boolean => offlineTargets.includes(target)));
     const online: boolean = onlineTranslations && CandidateGlossLayoutPolicy.hasProvider(providers);
     return offline || online ? 1 : 0;
   }

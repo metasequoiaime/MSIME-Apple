@@ -25,6 +25,16 @@ cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$
 mkdir -p "$assets/native-notices"
 cp -R target/android/notices/. "$assets/native-notices/"
 cp LICENSE "$assets/client-LICENSE.txt"
+# Optional non-English candidate glosses (scripts/build_offline_glosses.py). Bootstrap extracts them beside the resources, where the Engine looks for one zh-<lang>.db per target language; without them only English is glossed offline.
+glosses_source=${MSIME_OFFLINE_GLOSSES:-$repo_root/target/offline-glosses}
+rm -rf "$assets/offline-glosses"
+if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
+  mkdir -p "$assets/offline-glosses"
+  cp "$glosses_source"/zh-*.db "$glosses_source/offline-glosses-NOTICE.txt" "$assets/offline-glosses/"
+  echo "offline glosses packaged from $glosses_source"
+else
+  echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
+fi
 
 gradle_dir="$repo_root/platforms/android/gradle-app"
 tauri_gradlew="$repo_root/apps/desktop/src-tauri/gen/android/gradlew"

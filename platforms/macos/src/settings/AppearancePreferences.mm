@@ -2392,7 +2392,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         accountCard.accessibilityLabel = @"水杉账号卡片";
         accountPaneView = MSIMECardWithViews(@[MSIMESectionLabel(@"水杉账号"), accountCard], 0.0);
     }
-    NSScrollView *accountPage = PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[
+    NSScrollView *accountPage = PreferencesPage(@"账号", @"登录水杉账号后，云同步等需要账号的功能才会生效；候选词翻译要在「翻译服务」里选择「水杉账号」才会使用账号。", @[
         accountPaneView,
     ]);
 

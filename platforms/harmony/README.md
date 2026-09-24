@@ -372,6 +372,8 @@ ohpm install
 hvigorw assembleHap
 ```
 
+`stage-resources.sh` 的第二个参数（默认 `target/offline-glosses`）是可选的非英文离线释义，由 `scripts/build_offline_glosses.py` 生成。数据库和 `offline-glosses-NOTICE.txt` 都在时暂存到 `resfile/offline-glosses`，键盘启动时用同一个 `StagedResources` 复制到 `files/offline-glosses`，与 `files/engine` 相邻，引擎就在那里找 `zh-<lang>.db`；新包不带它们时会删掉旧副本。已安装词典的目标语言在翻译查询里以 `offline_gloss_languages` 出现：用户自己配置的在线翻译先答，离线词典只补在线没答上的候选，同一行按目标顺序合并。
+
 `MSIME_OHOS_DEPS` 指向的 sqlite3 前缀需要自己准备一次，NDK 不带，仓库也不带。2026-09-20 用官方 amalgamation 走通过一次，记录在此以便复现：
 
 ```sh
