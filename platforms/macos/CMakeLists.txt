@@ -802,7 +802,7 @@ target_include_directories(shuangpin-keymap-input-test PRIVATE src ../../vendor/
 target_compile_options(shuangpin-keymap-input-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shuangpin-keymap-input-test PRIVATE apple-client "-framework AppKit")
 add_test(NAME shuangpin-keymap-input COMMAND shuangpin-keymap-input-test)
-add_executable(candidate-panel-test tests/candidate/CandidatePanelTests.mm src/candidate/CandidatePanel.mm src/candidate/CandidateSkinAppearance.mm src/candidate/CandidateSkin.cpp)
+add_executable(candidate-panel-test tests/candidate/CandidatePanelTests.mm src/candidate/CandidatePanel.mm src/core/DiagnosticLog.cpp src/candidate/CandidateSkinAppearance.mm src/candidate/CandidateSkin.cpp)
 target_compile_options(candidate-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(candidate-panel-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit")
 add_test(NAME candidate-panel COMMAND candidate-panel-test)

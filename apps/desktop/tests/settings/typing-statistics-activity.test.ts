@@ -3,6 +3,7 @@ import {
   activityMetrics,
   addDays,
   currentStreak,
+  dailyDetailRows,
   formatActiveTime,
   longestStreak,
   type TypingStatistics,
@@ -94,6 +95,17 @@ test("days that predate the measurement are unknown rather than instant", () => 
   expect(metrics.currentStreak).toBe(2);
 });
 
+test("the per-day average divides the recorded days, not a total that outlived them", () => {
+  // A document pruned by an older build keeps a running total above what its remaining days hold. The baseline divides the sum of its day rows by their count, so the dropped history must not inflate the average.
+  const value = statistics({
+    total: 900,
+    days: { "2026-09-19": 200, "2026-09-20": 300 },
+  });
+  const metrics = activityMetrics(value, "2026-09-21");
+  expect(metrics.recordedDays).toBe(2);
+  expect(metrics.averagePerDay).toBe(250);
+});
+
 test("a day too short to mean anything cannot win fastest", () => {
   const value = statistics({
     total: 120,
@@ -171,4 +183,80 @@ test("active time reads as a duration rather than milliseconds", () => {
   expect(formatActiveTime(12 * 60_000)).toBe("12分");
   expect(formatActiveTime(60 * 60_000)).toBe("1小时");
   expect(formatActiveTime(83 * 60_000)).toBe("1小时23分");
+});
+
+test("the per-day details list recorded days up to today, newest first and capped at 30", () => {
+  const days: Record<string, number> = {};
+  for (let offset = 0; offset < 40; offset += 1) days[addDays("2026-09-21", -offset)] = offset + 1;
+  // A key after today (a clock that moved back) and a key that is not a day never become rows.
+  days["2026-09-22"] = 5;
+  days.bogus = 7;
+  const rows = dailyDetailRows(statistics({ total: 0, days }), "2026-09-21");
+  expect(rows).toHaveLength(30);
+  expect(rows[0].key).toBe("2026-09-21");
+  expect(rows[1].key).toBe("2026-09-20");
+  expect(rows.at(-1)?.key).toBe(addDays("2026-09-21", -29));
+  // Days with no record are not rows, so the window is 30 recorded days rather than 30 calendar days.
+  const sparse = dailyDetailRows(
+    statistics({ days: { "2026-01-02": 1, "2026-09-01": 2, "2026-09-21": 3 } }),
+    "2026-09-21",
+  );
+  expect(sparse.map((row) => row.key)).toEqual(["2026-09-21", "2026-09-01", "2026-01-02"]);
+  expect(dailyDetailRows(statistics(), "2026-09-21")).toEqual([]);
+});
+
+test("the per-day detail columns fold the finer classes into 其他", () => {
+  const [row] = dailyDetailRows(
+    statistics({
+      total: 100,
+      days: { "2026-09-21": 100 },
+      dailyDetails: {
+        "2026-09-21": {
+          characters: {
+            han: 30,
+            latin: 20,
+            otherLetter: 10,
+            number: 5,
+            punctuation: 8,
+            emoji: 2,
+            symbol: 3,
+          },
+        },
+      },
+      dailyActiveMs: { "2026-09-21": 120_000 },
+    }),
+    "2026-09-21",
+  );
+  expect(row).toMatchObject({ total: 100, han: 30, latin: 20, number: 5, punctuation: 8 });
+  // otherLetter 10 + emoji 2 + symbol 3 + the 22 characters the breakdown does not classify.
+  expect(row.other).toBe(37);
+  expect(row.activeMs).toBe(120_000);
+  // Speed counts han, latin and otherLetter only: 60 characters over two minutes.
+  expect(row.speed).toBe(30);
+});
+
+test("a day that predates active-time measurement has unknown activity and speed, not zero", () => {
+  const rows = dailyDetailRows(
+    statistics({
+      total: 20,
+      days: { "2026-09-20": 10, "2026-09-21": 10 },
+      dailyDetails: {
+        "2026-09-20": { characters: { han: 10 } },
+        "2026-09-21": { characters: { han: 10 } },
+      },
+      dailyActiveMs: { "2026-09-21": 0 },
+    }),
+    "2026-09-21",
+  );
+  // Measured at zero is a known value; absent is not.
+  expect(rows[0]).toMatchObject({ key: "2026-09-21", activeMs: 0, speed: 0 });
+  expect(rows[1]).toMatchObject({ key: "2026-09-20", activeMs: null, speed: null });
+  const [unmeasured] = dailyDetailRows(
+    statistics({ total: 5, days: { "2026-09-21": 5 } }),
+    "2026-09-21",
+  );
+  expect(unmeasured.activeMs).toBeNull();
+  expect(unmeasured.speed).toBeNull();
+  // With no breakdown at all, the whole day is unclassified and lands in 其他.
+  expect(unmeasured.other).toBe(5);
 });

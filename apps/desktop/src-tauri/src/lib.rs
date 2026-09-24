@@ -405,6 +405,8 @@ struct SkinDirectoryState(PathBuf);
 /// The Engine's user directory: where the documents a user writes by hand live, `custom_translations.txt` among them.
 struct UserDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
+/// The shared preferences directory, where the input method writes `diagnostic.log` when its diagnostic switch is on.
+struct DiagnosticLogState(PathBuf);
 
 /// The application data directory the 背单词 store and wordbook library live under.
 ///
@@ -532,6 +534,58 @@ async fn open_typing_statistics_directory(
         .await
         .map_err(|_| CommandError { code: "storage" })?
         .map_err(|code| CommandError { code })
+}
+
+/// What the settings page's diagnostic-log action should show: the log file itself where the platform can select a file in its file manager and the file exists, otherwise the directory that will hold it.
+#[derive(Debug, PartialEq, Eq)]
+enum DiagnosticLogTarget {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    File(PathBuf),
+    Directory(PathBuf),
+}
+
+fn diagnostic_log_target(directory: &std::path::Path) -> DiagnosticLogTarget {
+    #[cfg(target_os = "macos")]
+    {
+        let file = directory.join("diagnostic.log");
+        if file.is_file() {
+            return DiagnosticLogTarget::File(file);
+        }
+    }
+    DiagnosticLogTarget::Directory(directory.to_path_buf())
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_file_in_finder(file: &std::path::Path) -> Result<(), &'static str> {
+    let status = std::process::Command::new("open")
+        .arg("-R")
+        .arg(file)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|_| "storage")?;
+    status.success().then_some(()).ok_or("storage")
+}
+
+/// Reveal the input method's diagnostic log so it can be sent after a reproduction.
+///
+/// MSIME-Windows writes its log to the Desktop to make it easy to find; on macOS the file stays in the preferences directory under Application Support and this action selects it in Finder instead. The host picks the location - the webview cannot name one.
+#[tauri::command]
+async fn open_diagnostic_log_directory(
+    state: tauri::State<'_, DiagnosticLogState>,
+) -> Result<(), CommandError> {
+    let directory = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || match diagnostic_log_target(&directory) {
+        #[cfg(target_os = "macos")]
+        DiagnosticLogTarget::File(file) => reveal_file_in_finder(&file),
+        #[cfg(not(target_os = "macos"))]
+        DiagnosticLogTarget::File(_) => Err("unavailable"),
+        DiagnosticLogTarget::Directory(root) => skin_directory::open(&root),
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+    .map_err(|code| CommandError { code })
 }
 
 /// Write a document the settings page exported into the user's Downloads folder and return the path.
@@ -4063,6 +4117,7 @@ pub fn run() {
                 }
             }
             app.manage(TypingStatisticsState(typing_statistics));
+            app.manage(DiagnosticLogState(directory.clone()));
             // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
             // sibling of `EngineResources/` because `ResourceStore::verify` requires that
             // directory to hold exactly the pinned dictionary artifacts, and one extra entry
@@ -4376,6 +4431,7 @@ pub fn run() {
             set_typing_statistics_retention,
             reset_typing_statistics,
             open_typing_statistics_directory,
+            open_diagnostic_log_directory,
             vocabulary::load_vocabulary_review,
             vocabulary::answer_vocabulary_card,
             vocabulary::set_vocabulary_settings,
