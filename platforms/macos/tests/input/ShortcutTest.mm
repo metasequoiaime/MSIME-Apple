@@ -39,6 +39,14 @@ static void SelectScheme(MSIMEAppearancePreferences *preferences, NSInteger inde
     assert(false && "Missing scheme radio");
 }
 
+static BOOL MSIMEViewHasComposition(NSDictionary *view) {
+    if (![view isKindOfClass:NSDictionary.class]) return NO;
+    NSString *editing = [view[@"editing_text"] isKindOfClass:NSString.class] ? view[@"editing_text"] : @"";
+    NSArray *candidates = [view[@"candidates"] isKindOfClass:NSArray.class] ? view[@"candidates"] : @[];
+    NSString *phrase = [view[@"phrase_prefix"] isKindOfClass:NSString.class] ? view[@"phrase_prefix"] : @"";
+    return editing.length || candidates.count || phrase.length;
+}
+
 static NSControl *PreferenceControl(MSIMEAppearancePreferences *preferences, SEL action) {
     NSControl *control = MSIMEFindPreferenceControl(preferences.window.contentView, action);
     assert(control && "Missing preference action");
