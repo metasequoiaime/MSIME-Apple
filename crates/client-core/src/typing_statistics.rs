@@ -10,6 +10,8 @@ use std::time::SystemTime;
 use unicode_general_category::{get_general_category, GeneralCategory};
 use unicode_segmentation::UnicodeSegmentation;
 
+const MAX_RETAINED_DAYS: usize = 366;
+
 /// Only a guard against loading a hostile or garbage file, not a retention limit. It must stay far above anything `Forever` can produce, because a document over it cannot be read at all and the whole history is lost with it; a day costs a few hundred bytes, so 64 MiB covers centuries.
 const MAX_DOCUMENT_BYTES: u64 = 64 * 1_048_576;
 const MAX_COMMIT_BYTES: usize = 40_000;
