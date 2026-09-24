@@ -107,6 +107,7 @@ static void MSIMEReloadTypingStatisticsEnabled(NSString *directory) {
     const int32_t enabled = msime_client_typing_statistics_enabled(
         static_cast<const uint8_t *>(bytes.bytes), bytes.length);
     if (enabled >= 0) MSIMETypingStatisticsEnabled.store(enabled == 1, std::memory_order_relaxed);
+    else msime_macos_diagnostic_write("stats: enabled_read_failed");
 }
 
 static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msime::mac::TypingSource source) {
@@ -122,7 +123,10 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
     const std::string_view sourceID = msime::mac::TypingSourceId(source);
     NSString *sourceString = [[NSString alloc] initWithBytes:sourceID.data() length:sourceID.size()
                                                      encoding:NSUTF8StringEncoding];
-    if (!sourceString) return;
+    if (!sourceString) {
+        msime_macos_diagnostic_write("stats: invalid_source");
+        return;
+    }
     NSDictionary *request = @{ @"directory": directory, @"action": @{
         @"operation": @"record", @"text": text,
         @"source": sourceString,
@@ -130,12 +134,26 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
         // The hour axis has to come from the same calendar as the day beside it.
         @"hour": @((long)components.hour) } };
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
-    if (!data || data.length > 65536) return;
+    if (!data || data.length > 65536) {
+        msime_macos_diagnostic_write(data ? "stats: request_too_large" : "stats: request_encode_failed");
+        return;
+    }
     dispatch_async(MSIMETypingStatisticsQueue(), ^{
         char *response = msime_client_typing_statistics(static_cast<const uint8_t *>(data.bytes), data.length);
-        if (response) msime_client_string_free(response);
-        // Statistics are best effort and must never affect text commitment. The response is
-        // intentionally discarded because it can contain no useful UI state and must not log input.
+        // Statistics are best effort and must never affect text commitment, so the response carries no UI state. A failure is logged as a label only, like the source's stats open/persist/retention lines: the error string can name files, and the log never carries it.
+        if (!response) {
+            msime_macos_diagnostic_write("stats: record_failed reason=no_response");
+            return;
+        }
+        if (msime_macos_diagnostic_enabled()) {
+            NSData *body = [NSData dataWithBytesNoCopy:response length:strlen(response) freeWhenDone:NO];
+            NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
+            if (![envelope isKindOfClass:NSDictionary.class])
+                msime_macos_diagnostic_write("stats: record_failed reason=malformed_response");
+            else if (![envelope[@"ok"] isEqual:@YES])
+                msime_macos_diagnostic_write("stats: record_failed reason=store");
+        }
+        msime_client_string_free(response);
     });
 }
 
@@ -690,6 +708,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 @end
 
+// Button target for the non-modal cloud consent prompt; NSAlert's own buttons only end a modal session.
+@interface MSIMECloudConsentTarget : NSObject
+@property(nonatomic, copy) void (^handler)(BOOL enabled);
+@end
+@implementation MSIMECloudConsentTarget
+- (void)enable:(id)sender { (void)sender; if (self.handler) self.handler(YES); }
+- (void)disable:(id)sender { (void)sender; if (self.handler) self.handler(NO); }
+@end
+
 @interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
@@ -1211,6 +1238,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (event.keyCode == 49) { // Space
         if (!candidates.count) return NO;
+        // Let Space reach the Engine's commit when the only row is the raw-text Fallback.
+        NSDictionary *first = [candidates.firstObject isKindOfClass:NSDictionary.class] ? candidates.firstObject : nil;
+        const int firstSource = [first[@"source"] isKindOfClass:NSNumber.class] ? [first[@"source"] intValue] : -1;
+        if (msime::mac::JapaneseSpaceCommitsFallback(candidates.count, firstSource)) return NO;
         if (!_japaneseConversionIndex) {
             // The first press is the conversion itself. The panel already highlights the first
             // candidate, so nothing has to move - what changes is that Enter now means "take it".
@@ -2017,7 +2048,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 
 - (void)synchronizeCloudCandidates {
     NSDictionary *query = _activeClient && _session && !_focusPending && !_appearance.englishMode &&
-        (!_appearance || _appearance.cloudCandidates) ? [_session onlineQueryWithError:nil] : nil;
+        (!_appearance || _appearance.cloudCandidatesEnabled) ? [_session onlineQueryWithError:nil] : nil;
     NSString *url = query ? [MSIMEClientSession cloudRequestURLForQuery:query error:nil] : nil;
     if (!url) { [self cancelCloudCandidates]; return; }
     if ([_cloudQuery isEqual:query]) return;
@@ -2032,14 +2063,14 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
             controller->_activeClient != client || controller->_focusPending || controller->_appearance.englishMode ||
-            (controller->_appearance && !controller->_appearance.cloudCandidates) ||
+            (controller->_appearance && !controller->_appearance.cloudCandidatesEnabled) ||
             ![[session onlineQueryWithError:nil] isEqual:query]) return;
         controller->_cloudTimer = nil;
         controller->_cloudRequest = [controller cloudRequestForURL:[NSURL URLWithString:url] completion:^(NSData *body) {
             MSIMEInputController *current = weakSelf;
             if (!current || current->_cloudEpoch != epoch || current->_session != session ||
                 current->_activeClient != client || current->_focusPending || current->_appearance.englishMode ||
-                (current->_appearance && !current->_appearance.cloudCandidates) ||
+                (current->_appearance && !current->_appearance.cloudCandidatesEnabled) ||
                 ![[session onlineQueryWithError:nil] isEqual:query]) return;
             current->_cloudRequest = nil;
             if (!body) {
@@ -2138,7 +2169,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)appearanceChanged:(NSNotification *)notification {
     (void)notification;
     _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
-    if (!_appearance.cloudCandidates) [self cancelCloudCandidates];
+    if (!_appearance.cloudCandidatesEnabled) [self cancelCloudCandidates];
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
     if (_appearance && !_appearance.candidateTranslations) {
         [self cancelCustomTranslations];
@@ -2544,7 +2575,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     }
     _appearance.englishMode = enabled;
     [self resetCandidateAnchor];
-    [_panel orderOut:nil];
+    [self hideCandidatePanel:"mode_switch"];
     [_keymapPanel orderOut:nil];
     [self syncSystemInputModeForClient:_activeClient ?: self.client];
     if (changed && _appearance.inputModeHUD && _activeClient) {
@@ -3322,7 +3353,78 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     _focusPending = _appearance.englishMode;
     if (!_appearance.englishMode) [self prepareSession];
     else [self startPreferencesMonitoring];
+    [self requestCloudCandidatesConsentIfNeeded];
     [self commitPendingEmojiForClient:sender];
+}
+
+- (void)resolveCloudCandidatesConsentWithOptions:(NSDictionary *)options {
+    if (![options isKindOfClass:NSDictionary.class]) return;
+    id directory = options[@"preferences_directory"];
+    id userData = options[@"user_data"];
+    if (![directory isKindOfClass:NSString.class] || ![directory isAbsolutePath]) return;
+    [_appearance resolveCloudCandidatesConsentWithPreferencesDirectory:directory
+        userDataDirectory:[userData isKindOfClass:NSString.class] && [userData isAbsolutePath] ? userData : nil];
+}
+
+// One consent prompt per process at a time, however many controllers IMK creates.
+static BOOL MSIMECloudConsentPrompting = NO;
+
+/// Ask once, on a fresh profile, before the first cloud candidate query is sent.
+///
+/// The Windows installer asks this on its 联网功能 page. macOS has no installer step that every user passes through, and the IME types without the settings app ever being opened, so the IME process asks itself. Until an answer arrives nothing is sent; a prompt closed without an answer is asked again on the next activation.
+- (void)requestCloudCandidatesConsentIfNeeded {
+    if (!_appearance || _appearance.cloudCandidatesAnswered || MSIMECloudConsentPrompting) return;
+    MSIMECloudConsentPrompting = YES;
+    MSIMEAppearancePreferences *appearance = _appearance;
+    __weak MSIMEInputController *weakSelf = self;
+    // Off the activation path, so the client's first keystrokes are not held behind the prompt.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || appearance.cloudCandidatesAnswered) { MSIMECloudConsentPrompting = NO; return; }
+        [controller presentCloudConsent:^(NSNumber *enabled) {
+            MSIMECloudConsentPrompting = NO;
+            if (enabled) [appearance answerCloudCandidates:enabled.boolValue];
+        }];
+    });
+}
+
+static NSString *const MSIMECloudConsentTitle = @"联网功能";
+static NSString *const MSIMECloudConsentMessage =
+    @"拼音切分、候选排序和词频学习全部在本机完成，不联网。\n\n"
+    @"启用云候选：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。\n\n"
+    @"这是唯一一项装完就会联网的功能。AI 联想、候选翻译、语音输入都需要你自己填入 API token 之后才会发出任何请求。之后可在「设置 → 输入」的「云候选」里更改。";
+
+/// Show the consent prompt and report the choice: @YES, @NO, or nil when it closed without one. Overridden by tests.
+///
+/// Non-modal on purpose: a modal loop would stop this process from serving IMK while the prompt is up, which would freeze typing in every other app until it is answered. The bundle is LSBackgroundOnly, so it has to activate itself for the window to take focus.
+- (void)presentCloudConsent:(void (^)(NSNumber *enabled))completion {
+    static NSAlert *alert;
+    static void (^pending)(NSNumber *);
+    pending = [completion copy];
+    alert = [NSAlert new];
+    alert.messageText = MSIMECloudConsentTitle;
+    alert.informativeText = MSIMECloudConsentMessage;
+    NSButton *enable = [alert addButtonWithTitle:@"启用云候选"];
+    NSButton *disable = [alert addButtonWithTitle:@"不启用"];
+    static MSIMECloudConsentTarget *target;
+    target = [MSIMECloudConsentTarget new];
+    target.handler = ^(BOOL enabled) {
+        [alert.window orderOut:nil];
+        void (^finish)(NSNumber *) = pending;
+        pending = nil;
+        if (finish) finish(@(enabled));
+        // Released after the button action returns; the target and the window are still on the stack here.
+        dispatch_async(dispatch_get_main_queue(), ^{ alert = nil; target = nil; });
+    };
+    enable.target = target;
+    enable.action = @selector(enable:);
+    disable.target = target;
+    disable.action = @selector(disable:);
+    [alert layout];
+    alert.window.level = NSFloatingWindowLevel;
+    [NSApp activateIgnoringOtherApps:YES];
+    [alert.window center];
+    [alert.window makeKeyAndOrderFront:nil];
 }
 
 - (void)commitPendingEmojiForClient:(id)client {
@@ -3387,7 +3489,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     }
     _view = [_session viewWithError:nil] ?: @{};
     [self refreshFloatingToolbarState];
-    [_panel orderOut:nil];
+    [self hideCandidatePanel:"session_replaced"];
     [_keymapPanel orderOut:nil];
 }
 
@@ -3417,6 +3519,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
             if (!_preferencesTimer) [self startPreferencesMonitoring];
             return;
         }
+        // Before the session exists, so nothing this process writes can be mistaken for an earlier install.
+        [self resolveCloudCandidatesConsentWithOptions:options];
         if (options) {
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
@@ -3445,8 +3549,11 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 
 - (void)startPreferencesMonitoring {
     if (!_preferencesDirectory) {
-        id directory = [self runtimeOptions][@"preferences_directory"];
+        NSDictionary *options = [self runtimeOptions];
+        id directory = options[@"preferences_directory"];
         if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
+        // English-mode activation reaches here without prepareSession; a directory set earlier was already resolved where it was set.
+        [self resolveCloudCandidatesConsentWithOptions:options];
     }
     if (_activeClient && _preferencesDirectory) {
         // Activation may happen after the setting changed while the IMK process was not running.
@@ -3670,7 +3777,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     _preferencesTimer = nil;
     if (_session) [self apply:[_session setFocused:NO error:nil]];
     [self resetCandidateAnchor];
-    [_panel orderOut:nil];
+    [self hideCandidatePanel:"focus_out"];
     _activeClient = nil;
     [super deactivateServer:sender];
 }
@@ -3780,12 +3887,33 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 
 // Every key down leaves through here, so the smart punctuation shadow sees each one exactly once, after it has been handled and with what became of it. Events this host posted itself (the voice sendinput route and the smart punctuation rewrite) are skipped: whoever posted them has already recorded what they carry.
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
+    const bool timed = msime_macos_diagnostic_enabled();
+    const uint64_t started = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     _smartPunctuationShadowWritten = NO;
     const BOOL handled = [self handleKeyEvent:event client:sender];
     CGEventRef nativeEvent = event.CGEvent;
     const BOOL selfPosted = nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag;
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted) [self noteKeyForSmartPunctuationShadow:event eaten:handled];
+    if (!handled) [self recordPassthroughKey:event client:sender];
+    const double elapsedMs = timed ? static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6 : 0;
+    if (timed && elapsedMs >= 8.0) {
+        const NSEventType type = event.type;
+        const char *label = type == NSEventTypeKeyDown ? "down" : type == NSEventTypeKeyUp ? "up" : type == NSEventTypeFlagsChanged ? "flags" : "other";
+        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, handled ? 1 : 0, elapsedMs);
+    }
     return handled;
+}
+
+- (void)recordPassthroughKey:(NSEvent *)event client:(id)sender {
+    if (!MSIMETypingStatisticsEnabled.load(std::memory_order_relaxed)) return;
+    if (event.type != NSEventTypeKeyDown || !sender) return;
+    CGEventRef nativeEvent = event.CGEvent;
+    if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return;
+    NSString *characters = event.characters;
+    if (characters.length != 1) return;
+    if (!msime::mac::ShouldCountPassthroughCharacter([characters characterAtIndex:0], (event.modifierFlags & NSEventModifierFlagControl) != 0, (event.modifierFlags & NSEventModifierFlagCommand) != 0)) return;
+    const msime::mac::TypingSource source = _appearance.englishMode ? msime::mac::TypingSource::English : MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), NO);
+    MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"], characters, source);
 }
 
 - (BOOL)handleKeyEvent:(NSEvent *)event client:(id)sender {
@@ -4636,15 +4764,23 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
 }
 
+// Every hide of the candidate window goes through here so the diagnostic log can say why it went away, like the source's candidate hide lines. Only a window that was on screen is logged.
+- (void)hideCandidatePanel:(const char *)reason {
+    if (msime_macos_diagnostic_enabled() && _panel.isVisible) msime_macos_diagnostic_writef("candidate hide reason=%s", reason);
+    [_panel orderOut:nil];
+}
+
 - (void)renderCandidates {
+    const bool timed = msime_macos_diagnostic_enabled();
+    const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     _candidateMenuToken = [NSObject new];
     [self updateKeymapPanel];
-    if (_appearance.englishMode) { [self resetCandidateAnchor]; [_panel orderOut:nil]; return; }
+    if (_appearance.englishMode) { [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
         _armedGlossColumn = 0;
         [self resetCandidateAnchor];
-        [_panel orderOut:nil];
+        [self hideCandidatePanel:"empty"];
         return;
     }
     if (_armedGlossColumn > 0) {
@@ -4654,13 +4790,13 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     NSRect reportedCursor = NSZeroRect;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
-    if (!MSIMEValidCaret(cursor)) { [_panel orderOut:nil]; return; }
+    if (!MSIMEValidCaret(cursor)) { [self hideCandidatePanel:"invalid_caret"]; return; }
     NSScreen *screen = nil;
     for (NSScreen *candidate in NSScreen.screens) {
         if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidate.frame)) { screen = candidate; break; }
     }
     screen = screen ?: NSScreen.mainScreen;
-    if (!screen) { [_panel orderOut:nil]; return; }
+    if (!screen) { [self hideCandidatePanel:"no_screen"]; return; }
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
     NSAppearance *candidateAppearance = [_appearance candidateAppearanceOverride];
@@ -4799,8 +4935,15 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     const NSSize panelSize = _panel.frame.size;
     // Every hide path orders the panel out, so a panel that is not on screen yet starts a fresh flip memory.
     _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
-    [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0)];
+    const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0);
+    [_panel setFrameOrigin:origin];
     [_panel orderFrontRegardless];
+    // Geometry and counts only, the macOS form of the source's candidate-frame/candidate-position audit: flipped=1 means the window went above the caret for lack of room below.
+    if (timed)
+        msime_macos_diagnostic_writef("candidate-frame show rows=%lu vertical=%d caret=(%.0f,%.0f,%.0f,%.0f) size=(%.0f,%.0f) origin=(%.0f,%.0f) visible=(%.0f,%.0f,%.0f,%.0f) flipped=%d build_ms=%.3f",
+            (unsigned long)candidates.count, vertical ? 1 : 0, NSMinX(cursor), NSMinY(cursor), NSWidth(cursor), NSHeight(cursor),
+            panelSize.width, panelSize.height, origin.x, origin.y, NSMinX(visible), NSMinY(visible), NSWidth(visible), NSHeight(visible),
+            origin.y >= NSMaxY(cursor) ? 1 : 0, static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - buildStarted) / 1e6);
 }
 
 - (void)refreshCandidateSkin {

@@ -198,6 +198,6 @@ test("complete personal dictionary reports an empty export without rows", () => 
 test("dictionary editor hints follow the selected kind", () => {
   expect(dictionaryKindKeyHint("pinyin")).toContain("ni'hao");
   expect(dictionaryKindKeyHint("wubi")).toBe("1–4 个字母");
-  expect(dictionaryKindKeyHint("quick_phrase")).toBe("1–32 个字母或数字");
+  expect(dictionaryKindKeyHint("quick_phrase")).toBe("1–32 个字母");
   expect(dictionaryKindKeyHint("english")).toBe("1–64 个字母");
 });

@@ -63,8 +63,12 @@ jobs:
             case "$path" in
               platforms/ios/*)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "iOS 改动: $path"; exit 0 ;;
-              shared/*|vendor/*|engine-lock.json|scripts/*|cmake/*|CMakeLists.txt|.github/workflows/*|product-lock.json)
+              shared/*|vendor/*|engine-lock.json|cmake/*|CMakeLists.txt|product-lock.json|.github/workflows/ci-ios.yml)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
+              # 同 ci-macos.yml:scripts/ 下只有真正进得了这条构建的才触发。iOS 的工作流引用 fetch_engine.py
+              # 与 run_ui_tests.sh,apply_engine_* 是 fetch_engine.py 执行的 Engine overlay。
+              scripts/apply_engine_*|scripts/fetch_engine.py|scripts/run_ui_tests.sh)
+                echo "build=true" >> "$GITHUB_OUTPUT"; echo "构建脚本改动: $path"; exit 0 ;;
             esac
           done <<< "$changed"
           echo "build=false" >> "$GITHUB_OUTPUT"

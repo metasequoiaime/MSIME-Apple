@@ -987,6 +987,36 @@ fn scanning_missing_skin_directory_does_not_create_it() {
     assert!(!root.exists());
 }
 
+// The diagnostic-log action takes no path from the webview: it resolves from the host's preferences directory alone, selects the file in Finder once the input method has written it, and falls back to the directory before that.
+#[test]
+fn diagnostic_log_target_resolves_from_the_host_directory() {
+    let state = tempfile::tempdir().unwrap();
+    let directory = state.path().join("MSIME");
+    std::fs::create_dir_all(&directory).unwrap();
+    assert_eq!(
+        super::diagnostic_log_target(&directory),
+        super::DiagnosticLogTarget::Directory(directory.clone())
+    );
+    std::fs::write(directory.join("diagnostic.log"), "focus_in\n").unwrap();
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        super::diagnostic_log_target(&directory),
+        super::DiagnosticLogTarget::File(directory.join("diagnostic.log"))
+    );
+    #[cfg(not(target_os = "macos"))]
+    assert_eq!(
+        super::diagnostic_log_target(&directory),
+        super::DiagnosticLogTarget::Directory(directory.clone())
+    );
+    // A directory named like the log is not mistaken for it.
+    let other = state.path().join("other");
+    std::fs::create_dir_all(other.join("diagnostic.log")).unwrap();
+    assert_eq!(
+        super::diagnostic_log_target(&other),
+        super::DiagnosticLogTarget::Directory(other.clone())
+    );
+}
+
 #[cfg(target_os = "linux")]
 use super::*;
 // The panel helpers these cover live in `panel_input` since the delivery code

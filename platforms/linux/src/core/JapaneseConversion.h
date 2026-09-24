@@ -7,6 +7,9 @@
 
 namespace msime::linux_host {
 
+// The Engine's `CandidateSource::Fallback`, as it appears in a view candidate's `source`.
+inline constexpr int kCandidateSourceFallback = 9;
+
 // Space converts and Enter takes what is on screen - the way every Japanese input method works.
 //
 // Romaji is not what the user typed; かな is. The Engine keeps both (`editing_text` is the romaji,
@@ -43,10 +46,14 @@ class JapaneseConversion
         CommitReading,
     };
 
-    Action space(std::string_view reading, std::size_t candidates)
+    /// `first_source` is the `source` of the first candidate, or -1 when there is none.
+    Action space(std::string_view reading, std::size_t candidates, int first_source)
     {
         forget_if_reading_changed(reading);
         if (candidates == 0)
+            return Action::None;
+        // A lone Fallback row is the raw composition the Engine shows when there is nothing to convert (a bare Shift+R prefix, or romaji it cannot read). Windows commits it on the first Space, so Space keeps its commit meaning here.
+        if (candidates == 1 && first_source == kCandidateSourceFallback)
             return Action::None;
         if (!index_)
         {

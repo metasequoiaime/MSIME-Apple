@@ -6587,8 +6587,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       // later ones step through it, which is the only way to reach the second candidate.
       if (japanese_composition && has_composition) {
         using Action = msime::linux_host::JapaneseConversion::Action;
-        const auto candidates = s.view.at("candidates").size();
-        const auto action = s.japanese_conversion.space(japanese_reading, candidates);
+        const auto &candidates = s.view.at("candidates");
+        const int first_source = candidates.empty() ? -1 : candidates[0].value("source", -1);
+        const auto action =
+            s.japanese_conversion.space(japanese_reading, candidates.size(), first_source);
         if (action == Action::Start) {
           handled = true;
           return;
@@ -6767,11 +6769,8 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       return;
     }
     const auto &candidates = s.rendered_candidates;
-    // rendered_candidates and rendered_view are separate members: a non-empty candidate array does
-    // not mean the view survived the last session rebuild, and value() on a null view throws.
-    if (!s.session || s.rendered_session != s.session || !s.rendered_view.is_object() ||
-        !candidates.is_array() || index >= candidates.size())
-      return;
+    if (!s.session || s.rendered_session != s.session ||
+        !candidates.is_array() || index >= candidates.size()) return;
     const auto &entry = candidates.at(index);
     if (!entry.is_object() || !entry.contains("id")) return;
     const auto &id = entry.at("id");

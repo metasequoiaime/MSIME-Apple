@@ -61,6 +61,8 @@ SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、�
 
 菜单栏的输入源图标常驻显示当前模式，对应来源托盘语言栏的中 / 英图标：bundle 声明中文模式 `app.msime.inputmethod.MetasequoiaIME.Hans`（图标「中」）与英文模式 `app.msime.inputmethod.MetasequoiaIME.Roman`（图标「英」，名称「水杉输入法 · 英」/「Metasequoia · EN」），两者在系统设置的输入源列表里是两条，Ctrl+空格与地球键轮换也会停在英文条目上。Shift / 快捷键、输入法菜单与悬浮工具栏切换中英文时，控制器用 `selectInputMode:` 选中对应模式；从系统输入法菜单选中某一条或轮换到它时，系统经 `setValue:forTag:client:` 报告模式，控制器随之切换中英文状态。两边共享一份「当前显示的模式」记录（`src/input/InputModeIdentifiers.h`），只重复当前模式的报告和控制器自己请求引起的回报都不算用户选择，因此不会来回回声；中英文状态按 `ime_mode_scope` 按应用或全局记忆，客户端获得焦点时把菜单栏模式对齐到当前作用域的状态；输入法进程重启后各应用从 `default_ime_mode` 开始，菜单栏同样在获得焦点时对齐。英文模式在系统设置里被移除，或旧安装尚未重新登记（`install.sh`、设置应用启动时的安装与刷新以及设置页的「安装 / 更新」以 `--register-input-source` 登记并启用两个模式，设置页的「重启输入法」以 `--reregister-input-source` 重新登记；带 `SUFeedURL` 的构建经 Sparkle 应用内更新时只替换 bundle，不重新登记；设置应用的启动检查从不降级，不会用自带的旧版本覆盖更新的安装）时，控制器不请求这个不可选的模式，菜单栏保持「中」图标，行为与只有一个模式时相同。大写锁定用系统自带的指示；日语、全半角与标点显示在悬浮工具栏上。macOS 14 起 `selectInputMode:` 可能弹出系统自己的输入源光标提示，与上面的 HUD 重复时可在设置页关掉 HUD。
 
+手写识别板（菜单「手写输入…」或悬浮工具栏）用随包的 zinnia 模型识别：一行横写或竖写的笔迹先按书写方向切成字格，每格各自识别，候选里就有整个词或短语，首位是各格首选拼成的整串，共 12 个、中文在前，与 Windows 来源的多字候选一致；单字或近似方形的笔迹仍按单字识别。切分与组合在共享的 `crates/host-api/src/handwriting_cells.rs`。
+
 打开字符面板同样先完成组合，再请求系统 Character Viewer；测试以替身记录系统入口，不实际打开面板。原生测试覆盖菜单勾选、偏好保存、组合完成/失败、英文按键旁路、七种竞争修饰组合、重复/禁用快捷键、无会话懒加载与焦点恢复。输入法菜单和悬浮工具栏的“检查更新…”优先打开 Tauri 共享 About 页；Tauri 不可用时，有 `SUFeedURL` 的发布包回退 Sparkle 原生更新控制器，未配置 feed 的构建会明确说明不能应用内检查，并在用户确认后打开固定的官方发布页，打开失败也会显示错误，而不是静默无动作。共享 `theme` 与 `candidate_theme` 作用于实际 IMK 候选窗：`dark`/`light` 表面覆盖全局主题，`follow` 继承全局，`system` 通过 `NSPanel.appearance = nil` 交给 AppKit 跟随系统；偏好热更新会保留当前 Engine 组合并重绘候选皮肤。
 
 原生菜单提供“简体输出”（默认）与“繁体输出”，保存到宿主偏好 `MSIMEClientTraditionalOutput`。调用 `msime-host-api` 的 `msime_client_simplified_to_traditional` 导出转换候选显示、完整 tooltip 和最终上屏文本（包括 Ctrl+Enter 上屏的译文、释义页选中的义项与 Option/Ctrl+数字取的释义列；释义页按转换后的文本绘制，选中后上屏的就是页面上显示的那一项），与 Windows、Linux 及来源同用 OpenCC s2t 词级词典（「头发」→「頭髮」而非逐字的「頭發」），输入不是合法 UTF-8 时保留原文；日语方案与 Unicode 精确码点模式不转换。转换只发生在原生展示/插入边界，Engine 原文、候选 ID、组合与运行时视图保持不变。
@@ -120,6 +122,10 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 ## 候选学习与跟随光标
 
 候选设置还提供候选窗口跟随光标开关，以及候选学习与拼音调频：关闭跟随后，在一次组合期间锁定首次有效光标位置；切换输入会话、结束组合或重新开启跟随时重新定位。学习开关以及关闭、置顶、折半、线性、置前五种调频模式，触发次数和线性步长均为 1–10。值保存在宿主偏好域，并按共享 `candidate_follow_cursor`、`learning` / `frequency` 快照合并；输入会话仍由共享 host-api 在组合结束后延迟应用，Engine 继续负责学习数据和调频算法。旧快照缺少这些字段时保持默认值，不改写原文件。Emoji SwiftUI 面板消费共享 `emoji_theme`：显式深色/浅色覆盖全局，`follow` 继承全局，系统主题保持 `nil` 让 SwiftUI/AppKit 自然跟随；旧快照未提供该字段时沿用全局主题。
+
+## 云候选的首次同意
+
+云候选是唯一一项装完就会把输入内容发出设备的功能：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选；已上屏的文本、词库内容和学习到的词频都不会发送。全新配置下，输入法第一次激活时弹出「联网功能」对话框说明这一点，按钮为「启用云候选」（默认）与「不启用」，回答之前不发任何云候选请求。对话框不阻塞当前应用的输入，没有回答就在下次激活时再问。升级不问：宿主偏好里已有云候选选择，或输入法第一次判断时共享 `preferences.json` 已存在、Engine 用户数据目录已有内容（用过输入法但从没改过设置的配置也算），就沿用原值。判断结果只做一次，记在宿主偏好 `MSIMEClientCloudCandidatesConsent`；答案写入共享偏好 `cloud_candidates`，之后可在原生设置的「云端与智能候选」或 Tauri 设置输入页的「云候选」里更改，原生设置里改动开关本身也算作回答。实现在 `src/settings/AppearancePreferences.mm`（`resolveCloudCandidatesConsentWithPreferencesDirectory:userDataDirectory:`、`cloudCandidatesEnabled`、`answerCloudCandidates:`）与 `src/input/InputController.mm`（`requestCloudCandidatesConsentIfNeeded`、`presentCloudConsent:`）。
 
 ## 语音输入
 
@@ -265,7 +271,7 @@ Home/End 在候选可见时通过共享运行时移到当前页首/末候选，�
 
 真实 IMKServer / IMKInputController 入口，静态链接共享 Rust/C++ 运行时。平台代码负责系统按键、文本插入、预编辑和不激活候选面板。分页、高亮、会话代次、候选选择与组词仍由共享层负责。
 
-按键处理覆盖 ASCII 输入、退格、移动编辑光标、空格选择、回车原文、Esc 取消、候选上下移动和翻页、鼠标选词，以及由共享运行时处理的当前页数字选词与标点结束组词。候选面板显示对应数字；Engine 优先接收字符，保留 Unicode 等输入模式与拼音分隔符。未被 Engine 接收的 ASCII 标点先按当前高亮完成组词，再复用 Engine 中文标点转换；关闭中文标点时保留 ASCII。设置后台重读、输入法菜单和 Tauri 安装入口均已接入。原始 ASCII 编辑串用于内联预编辑，光标单位与 Engine 一致；日语等美化预编辑另行处理。
+按键处理覆盖 ASCII 输入、退格、移动编辑光标、空格选择、回车原文、Esc 取消、候选上下移动和翻页、鼠标选词，以及由共享运行时处理的当前页数字选词与标点结束组词。候选面板显示对应数字；Engine 优先接收字符，保留 Unicode 等输入模式与拼音分隔符。未被 Engine 接收的 ASCII 标点先按当前高亮完成组词，再复用 Engine 中文标点转换；关闭中文标点时保留 ASCII。设置后台重读、输入法菜单和 Tauri 安装入口均已接入。原始 ASCII 编辑串用于内联预编辑，光标单位与 Engine 一致；日语等美化预编辑另行处理。日语方案下空格通常开始转换，但当唯一候选是快捷模式的原文 Fallback（候选 `source` 为 9，即 `CandidateSource::Fallback`）时，空格直接交给 Engine 上屏这条原文，与 Windows 一致。
 
 ## 词库准备与 Tauri 设置应用
 
@@ -296,6 +302,8 @@ Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `run
 `prepare_host` 生成的配置包含 `preferences_directory`。宿主激活时立即后台读取此目录，之后每秒检查一次，前一次未完成时不重叠读取；失活后停止定时器。文件锁和读取不占用会话主线程，应用仍在主线程且有组合时延迟；读取错误保留原配置。旧配置没有此字段时不自动重读，需要重新准备开发配置（先停止该开发宿主）。
 
 从仓库根目录让设置页写入同一份隔离配置：`MSIME_CLIENT_STATE_DIR="$PWD/target/macos-state" pnpm --filter @msime/desktop tauri dev`。保存后活跃宿主通常在下一次轮询收到快照，当前组词结束后生效；无需 Tauri 常驻。
+
+设置页的词库管理与来源一致：快捷短语编码只能包含英文字母（1 到 32 个，导入时先转小写），新增、编辑和导入里带数字的编码会被拒绝，文本导入不收这一行，计入失败数并列在错误明细里。已经存有数字编码的条目仍出现在列表里、照常导出和同步，但 K 模式打不出来（引擎在 K 模式只接受字母）；可以删除它，或改成纯字母编码后保存，重新导入导出文件时这些行计入失败数。
 
 ## 词库维护
 

@@ -28,7 +28,8 @@ enum TauriPersonalDictionaryBridge {
       return response(try store.read())
     case "edit":
       let requestID = try requestID(action)
-      let previous = try word(action["previous"])
+      // The previous entry is a stored row that only names what to edit or delete; it may carry a quick phrase code with a digit that new input may no longer use, so it skips the new-entry validation.
+      let previous = try storedWord(action["previous"])
       let replacement = try word(action["replacement"])
       guard previous != nil || replacement != nil else { throw Failure.invalid }
       _ = try store.enqueue(previous: previous, replacement: replacement, requestID: requestID)
@@ -107,11 +108,15 @@ enum TauriPersonalDictionaryBridge {
   }
 
   private static func word(_ value: Any?) throws -> PersonalWord? {
+    guard let word = try storedWord(value) else { return nil }
+    // A bundled row goes back as listed; the keyboard's Engine refuses anything but a new weight for it.
+    return word.isBundled ? word : try word.validated()
+  }
+
+  private static func storedWord(_ value: Any?) throws -> PersonalWord? {
     if value == nil || value is NSNull { return nil }
     guard let fields = value as? [String: Any] else { throw Failure.invalid }
-    // A bundled row goes back as listed; the keyboard's Engine refuses anything but a new weight for it.
-    let word = try PersonalWord(bridgeValue: fields)
-    return word.isBundled ? word : try word.validated()
+    return try PersonalWord(bridgeValue: fields)
   }
 
   private static func requestID(_ action: [String: Any]) throws -> String {

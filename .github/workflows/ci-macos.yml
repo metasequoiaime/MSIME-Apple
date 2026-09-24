@@ -66,8 +66,18 @@ jobs:
             case "$path" in
               platforms/macos/*|LICENSE|THIRD_PARTY_NOTICES.txt)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "macOS 改动: $path"; exit 0 ;;
-              shared/*|vendor/*|engine-lock.json|scripts/*|cmake/*|CMakeLists.txt|.github/workflows/*|product-lock.json)
+              shared/*|vendor/*|engine-lock.json|cmake/*|CMakeLists.txt|product-lock.json|.github/workflows/ci-macos.yml)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
+              # scripts/ 里只有这些进得了 macOS 的构建。其余七十来个是各平台自己的契约检查,由 Core CI
+              # 和 verify-local.sh 跑,改它们重编一次 macOS 不会多发现任何东西 —— 而 `scripts/*` 让每一个
+              # 都触发双架构构建加 Sanitizers:一个 test-android-preference-keys.py 的改动要三台 macOS
+              # 机器,公开仓库的 macOS 并发额度是个位数,队列因此堵过。
+              #
+              # apply_engine_* 是 engine-lock.json 的 overlay_scripts,fetch_engine.py 会执行它们来改
+              # Engine 源码,所以它们和 Engine 本身一样要重建。build_backend_swift.sh 由 macOS 的
+              # CMakeLists.txt 调用,其余几个由本工作流自己的步骤调用。
+              scripts/apply_engine_*|scripts/fetch_engine.py|scripts/product_lock.py|scripts/build_backend_swift.sh|scripts/format.sh|scripts/install.sh|scripts/register_input_source.swift|scripts/check-dictionary-contract.py|scripts/check-product-lock-contract.py)
+                echo "build=true" >> "$GITHUB_OUTPUT"; echo "构建脚本改动: $path"; exit 0 ;;
             esac
           done <<< "$changed"
           echo "build=false" >> "$GITHUB_OUTPUT"

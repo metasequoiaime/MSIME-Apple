@@ -1100,17 +1100,27 @@ int wmain(int argc, wchar_t **argv) {
     // the shared desktop shell, which is a separate process: with no shell
     // installed beside this Server those rows stay visible and disabled rather
     // than accepting a click that does nothing.
-    const auto shell = shell_executable(executable_directory(),
-                                        configured_shell_command());
+    const auto shell_directory = executable_directory();
+    const auto configured_shell = configured_shell_command();
+    const auto settings_request = shell_surface_request(TrayMenuCommand::OpenSettings);
+    const auto preview_request = shell_surface_request(TrayMenuCommand::OpenEmojiPanel);
+    const auto settings_shell = settings_request
+                                    ? shell_executable(shell_directory, configured_shell,
+                                                       *settings_request)
+                                    : std::nullopt;
+    const auto preview_shell = preview_request
+                                   ? shell_executable(shell_directory, {}, *preview_request)
+                                   : std::nullopt;
     const ShellLaunchContext shell_context{
         config.state_root, config.state_root / L"runtime-options.json"};
     const auto launch_shell = [&](const ShellSurfaceRequest &request) {
-      return shell && launch_shell_surface(*shell, request, shell_context);
+      const auto executable = shell_executable(shell_directory, configured_shell, request);
+      return executable && launch_shell_surface(*executable, request, shell_context);
     };
     toolbar.set_character_set_action([&] {
       (void)character_set_clicks.submit(CharacterSetClick{});
     });
-    toolbar.set_shell_available(shell.has_value());
+    toolbar.set_shell_available(settings_shell.has_value() || preview_shell.has_value());
     toolbar.set_settings_action([&] {
       const auto request = shell_surface_request(TrayMenuCommand::OpenSettings);
       if (request) (void)launch_shell(*request);
@@ -1128,11 +1138,11 @@ int wmain(int argc, wchar_t **argv) {
       toolbar.hide();
     });
     TrayMenuCapabilities menu_capabilities;
-    menu_capabilities.emoji_panel = shell.has_value();
-    menu_capabilities.handwriting_panel = shell.has_value();
-    menu_capabilities.keyboard_panel = shell.has_value();
+    menu_capabilities.emoji_panel = preview_shell.has_value();
+    menu_capabilities.handwriting_panel = preview_shell.has_value();
+    menu_capabilities.keyboard_panel = preview_shell.has_value();
     menu_capabilities.voice_input = true;
-    menu_capabilities.settings = shell.has_value();
+    menu_capabilities.settings = settings_shell.has_value();
     TrayMenuWindow tray(
         menu_capabilities,
         [&](TrayMenuCommand command) {
