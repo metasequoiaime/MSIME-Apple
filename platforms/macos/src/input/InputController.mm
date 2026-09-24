@@ -69,6 +69,7 @@
 #include "../core/PairedPunctuation.h"
 #include "../core/TypingStatistics.h"
 #include "../core/DiagnosticLog.h"
+#include "../../../../shared/input/EnglishModeOutput.h"
 #include <atomic>
 
 // Implemented by the Swift backend dylib loaded by input_method_main.mm. The account provider
@@ -728,6 +729,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 @interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
+- (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
 @end
 
 @implementation MSIMEInputController {
@@ -786,8 +788,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSTimer *_preferencesTimer;
     MSIMEPreferenceLoadState _preferenceLoadState;
     MSIMEPreferenceSaveState _preferenceSaveState;
+    BOOL _preferenceRecoveryAttempted;
     MSIMEAppearancePreferences *_appearance;
     BOOL _wubiCodeHintEnabled;
+    msime::input::EnglishPunctuationState _englishPunctuation;
     BOOL _capsLock;
     // A physical Backspace hold that began while this controller owned a
     // composition stays ours after one repeat deletes the last preedit byte.
@@ -2768,6 +2772,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     }
     // A Chinese/English switch puts punctuation back in step with the mode, as the reference's SyncPunctuationWithImeMode does: English mode gets English punctuation unless punctuation_lock pins Chinese. Returning to Chinese goes back to the saved starting value, the macOS adaptation for the shared chinese_punctuation setting. Set before the mode is saved so the resulting sync and toolbar refresh already see it.
     if (changed) {
+        _englishPunctuation = {};
         if (enabled) _appearance.runtimeChinesePunctuation = [_appearance.punctuationLock isEqual:@"chinese"];
         else [_appearance resetRuntimePunctuationForActiveApplication];
     }
@@ -3790,6 +3795,10 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     return [MSIMEClientSession loadPreferencesInDirectory:directory error:error];
 }
 
+- (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
+    return [MSIMEClientSession recoverPreferencesInDirectory:directory error:error];
+}
+
 - (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
                        session:(MSIMEClientSession *)session client:(id)client {
     if (!_preferenceLoadState.finish(generation)) return;
@@ -3851,8 +3860,22 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     NSString *directory = [_preferencesDirectory copy];
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        MSIMEInputController *current = weakSelf;
+        if (!current) return;
         NSError *error = nil;
-        NSDictionary *snapshot = [weakSelf readPreferencesSnapshotInDirectory:directory error:&error];
+        NSDictionary *snapshot = [current readPreferencesSnapshotInDirectory:directory error:&error];
+        if (!snapshot && error && !current->_preferenceRecoveryAttempted) {
+            current->_preferenceRecoveryAttempted = YES;
+            NSError *recoveryError = nil;
+            NSDictionary *recovery = [current recoverPreferencesInDirectory:directory error:&recoveryError];
+            NSDictionary *recoveredSnapshot = [recovery[@"snapshot"] isKindOfClass:NSDictionary.class] ? recovery[@"snapshot"] : nil;
+            if (recoveredSnapshot && !recoveryError) {
+                snapshot = recoveredSnapshot;
+                error = nil;
+            } else if (recoveryError) {
+                error = recoveryError;
+            }
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             [weakSelf completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
         });
@@ -4010,6 +4033,12 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return;
         [self apply:finished];
+    }
+    if ([_appearance.punctuationLock isEqual:@"chinese"] || [_appearance.punctuationLock isEqual:@"english"]) {
+        _appearance.runtimeChinesePunctuation = [_appearance.punctuationLock isEqual:@"chinese"];
+        [self syncPunctuation];
+        [self refreshFloatingToolbarState];
+        return;
     }
     // Like the reference's compartment, the toggle is this app's runtime state; the saved value stays the starting point.
     _appearance.runtimeChinesePunctuation = !_appearance.runtimeChinesePunctuation;
@@ -4230,7 +4259,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (event.type != NSEventTypeKeyDown) return NO;
     [_appearance lockActiveInputMode];
     if (event.keyCode == 51) {
-        const BOOL compositionActive = [_view[@"editing_text"] length] || [_view[@"candidates"] count];
+        const BOOL compositionActive = [_view[@"editing_text"] length] || [_view[@"candidates"] count] ||
+            [_view[@"phrase_prefix"] length];
         BOOL suppressEscapedRepeat = NO;
         if (!event.isARepeat) {
             _backspaceHoldArmed = compositionActive;
@@ -4329,7 +4359,30 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         }
         return YES;
     }
-    if (_appearance.englishMode) return NO;
+    // English mode normally leaves keys to the application, but the Chinese
+    // punctuation lock and full-width setting still belong to the IME. This
+    // mirrors the closed-IME path used by the other native hosts.
+    if (_appearance.englishMode) {
+        const NSEventModifierFlags competing = NSEventModifierFlagControl | NSEventModifierFlagOption |
+                                                NSEventModifierFlagCommand;
+        if (!(event.modifierFlags & competing) && event.characters.length == 1) {
+            const BOOL keypad = (event.modifierFlags & NSEventModifierFlagNumericPad) != 0 || event.keyCode == 65;
+            const BOOL chinese = [_appearance.punctuationLock isEqual:@"chinese"] ||
+                ([_appearance.punctuationLock isEqual:@"follow"] && _appearance.runtimeChinesePunctuation);
+            const unichar character = [event.characters characterAtIndex:0];
+            const std::string output = msime::input::english_mode_output(
+                character, keypad, chinese, _appearance.runtimeFullWidthInput, _englishPunctuation);
+            if (!output.empty()) {
+                NSString *text = [[NSString alloc] initWithBytes:output.data() length:output.size()
+                                                         encoding:NSUTF8StringEncoding];
+                [(id<MSIMETextClient>)sender insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+                MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text,
+                                            msime::mac::TypingSource::English);
+                return YES;
+            }
+        }
+        return NO;
+    }
     if (MSIMECapsLockFreshUppercaseBypass(event, _view)) return NO;
     if (!_session) [self prepareSession];
     if (!_session) return NO;
@@ -4460,7 +4513,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if ((event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift |
                                 NSEventModifierFlagOption | NSEventModifierFlagCommand)) ==
             NSEventModifierFlagControl &&
-        _session && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
+        _session && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count] ||
+                                      [_view[@"phrase_prefix"] length])) {
         uint32_t segment = UINT32_MAX;
         if (event.keyCode == 51) segment = MSIME_BACKSPACE_SEGMENT;
         else if (event.keyCode == 123) segment = MSIME_MOVE_LEFT_SEGMENT;
@@ -4552,7 +4606,13 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
                     NSDictionary *identifier = candidate[@"id"];
                     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
                     NSDictionary *selected = [_session selectEdgeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] edge:first ? MSIME_FIRST_HAN : MSIME_LAST_HAN error:nil];
-                    if (selected) [self apply:selected];
+                    if (selected) {
+                        NSMutableDictionary *annotated = [selected mutableCopy];
+                        annotated[@"word_character_candidate"] = candidate[@"text"] ?: @"";
+                        annotated[@"word_character_prefix"] = _view[@"phrase_prefix"] ?: @"";
+                        annotated[@"word_character_first"] = @(first);
+                        [self apply:annotated];
+                    }
                     return YES; // Unsupported/stale candidates must not turn into punctuation.
                 }
                 return YES;
@@ -4760,6 +4820,23 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     const unichar punctuationKey = _punctuationKeyInFlight;
     _punctuationKeyInFlight = 0;
     NSDictionary *previousView = _view;
+    NSDictionary *wordCharacter = transition[@"word_character_candidate"] ? transition : nil;
+    NSString *commit = transition[@"commit"];
+    if (_appearance.traditionalOutput && wordCharacter && [commit isKindOfClass:NSString.class] &&
+        MSIMEScriptConversionApplies(transition[@"commit_context"]) &&
+        [wordCharacter[@"word_character_candidate"] isKindOfClass:NSString.class] &&
+        [wordCharacter[@"word_character_prefix"] isKindOfClass:NSString.class]) {
+        NSString *prefix = wordCharacter[@"word_character_prefix"];
+        NSString *candidate = wordCharacter[@"word_character_candidate"];
+        NSString *convertedWord = MSIMEChineseOutputString([prefix stringByAppendingString:candidate], YES);
+        NSString *edge = MSIMEEdgeHanCharacter(convertedWord, [wordCharacter[@"word_character_first"] boolValue]);
+        if (edge.length) {
+            NSMutableDictionary *converted = [transition mutableCopy];
+            converted[@"commit"] = [MSIMEChineseOutputString(prefix, YES) stringByAppendingString:edge];
+            converted[@"word_character_converted"] = @YES;
+            transition = converted;
+        }
+    }
     NSString *commitForTracking = transition[@"commit"];
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length)
         [self persistCommittedCandidateTranslation:commitForTracking];
@@ -4820,7 +4897,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
             if ([commitForTracking hasPrefix:pair[0]] && [commitForTracking hasSuffix:pair[1]]) { _pairedPunctuation.push(pair[1].UTF8String); break; }
     }
     NSDictionary *displayTransition = transition;
-    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
+    if (_appearance.traditionalOutput && ![transition[@"word_character_converted"] boolValue] &&
+        MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
         NSMutableDictionary *converted = [transition mutableCopy];
         converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
         displayTransition = converted;

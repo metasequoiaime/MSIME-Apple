@@ -1120,7 +1120,7 @@ begin
   ) and (ResultCode >= 0) and (ResultCode < 8);
 end;
 
-{ 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），用户词库回放或登录任务失败都会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接用带删除的 robocopy，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
+{ 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），用户词库回放或登录任务失败都会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接使用破坏性的移动参数，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
 function MigrateUserDataDir(const OldDir, NewDir: String): String;
 var
   FindRec: TFindRec;

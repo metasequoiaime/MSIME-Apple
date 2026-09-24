@@ -2586,8 +2586,10 @@ public:
     return characters;
   }
   bool composingOrCandidates() const {
-    return !view_.value("editing_text", std::string{}).empty() ||
-           !view_.value("candidates", Json::array()).empty();
+    return msime::linux_host::view_has_composition(
+        view_.value("editing_text", std::string{}),
+        !view_.value("candidates", Json::array()).empty(),
+        view_.value("phrase_prefix", std::string{}));
   }
   bool fullwidthOutput() const {
     return view_.value("character_width", std::string{}) == "Fullwidth";
@@ -5704,9 +5706,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (!bareBackspace) {
     backspace_hold_.reset();
   } else {
-    const bool composing = !view_.value("editing_text", std::string{}).empty() ||
-                           !view_.value("candidates", Json::array()).empty();
-    if (backspace_hold_.press(composing)) return true;
+    if (backspace_hold_.press(composingOrCandidates())) return true;
   }
   if (sym == FcitxKey_BackSpace) {
     if (last_smart_punctuation_ != 0) {
@@ -5769,7 +5769,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     return true;
   }
   if (event.isRelease() || key.isModifier()) return false;
-  const bool composing = !view_.value("editing_text", std::string()).empty();
+  // A held phrase piece with no reading left is still a composition (core/PhrasePreedit.h): Enter commits it, Escape discards it and Ctrl+Backspace deletes it.
+  const bool composing = msime::linux_host::view_has_composition(
+      view_.value("editing_text", std::string()), false,
+      view_.value("phrase_prefix", std::string()));
   const bool ctrl = states.test(fcitx::KeyState::Ctrl);
   const bool alt = states.test(fcitx::KeyState::Alt);
   const bool shift = states.test(fcitx::KeyState::Shift);
