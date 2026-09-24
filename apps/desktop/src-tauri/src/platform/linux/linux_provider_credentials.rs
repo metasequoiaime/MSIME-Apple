@@ -1,6 +1,6 @@
 //! Linux provider credential files.
 //!
-//! Windows and macOS keep AI tokens, translation secrets and speech keys in the shared preferences document, because the shell itself sends those requests. On Linux the network requests belong to the user's provider services: `msime-client-online-provider` reads `ai-provider.json` and `tencent-provider.json`, and `msime-client-voice-provider` reads `voice-provider.json`, all from `$XDG_CONFIG_HOME/msime-client` and on every request. This module lets the settings page write those files instead of asking the user to hand-edit JSON: the provider picks the change up on the next request, without a restart. The voice service refuses to start without a valid file, so saving the first voice credential also enables its socket unit.
+//! Windows and macOS keep AI tokens, translation secrets and speech keys in the shared preferences document, because the shell itself sends those requests. On Linux the network requests belong to the user's provider services: `msime-client-online-provider` reads `ai-provider.json` and `tencent-provider.json`, and `msime-client-voice-provider` reads `voice-provider.json`, all from `$XDG_CONFIG_HOME/msime-client` and on every request. This module lets the settings page write those files instead of asking the user to hand-edit JSON: the provider picks the change up on the next request, without a restart. The voice service starts without the file, because on-device recognition (`local`) reads no credential and polishing credentials alone are a file it accepts; saving a voice credential still enables its socket unit, so a socket left disabled by an earlier setup or version comes back once the user configures voice input.
 //!
 //! The files follow the provider's own reader (`load_private_config`, `load_ai_config`, `load_tencent_config`): a regular file owned by this user with no group or other bits, at most 16 KiB, published by rename so the provider never reads a half-written document. Validation mirrors the provider's, so a document this module writes is one the provider accepts - the AI file is validated as a whole, and a single bad profile would disable every provider in it.
 //!
@@ -24,6 +24,8 @@ const TENCENT_FILE: &str = "tencent-provider.json";
 const VOICE_FILE: &str = "voice-provider.json";
 const VOICE_SOCKET_UNIT: &str = "msime-client-voice.socket";
 const VOICE_SERVICE_UNIT: &str = "msime-client-voice.service";
+/// The voice provider's `LOCAL_PROVIDER`: on-device recognition, whose file entry, when a user writes one, carries only the provider name.
+const LOCAL_ASR_PROVIDER: &str = "local";
 /// The voice provider's `ASR_PROVIDERS` and `POLISH_PROVIDERS`.
 const ASR_PROVIDERS: [&str; 6] = [
     "openai",
@@ -57,8 +59,6 @@ pub(crate) enum CredentialError {
     TooManyProfiles,
     InvalidSecret,
     InvalidRegion,
-    /// The voice provider requires a recognition entry; polishing alone is not a file it accepts.
-    VoiceAsrRequired,
 }
 
 impl CredentialError {
@@ -75,7 +75,6 @@ impl CredentialError {
             Self::TooManyProfiles => "provider_credentials_too_many_profiles",
             Self::InvalidSecret => "provider_credentials_invalid_secret",
             Self::InvalidRegion => "provider_credentials_invalid_region",
-            Self::VoiceAsrRequired => "provider_credentials_voice_asr_required",
         }
     }
 }
@@ -124,7 +123,7 @@ pub struct VoiceCredentialStatus {
 #[serde(rename_all = "camelCase")]
 pub struct VoiceSaveResponse {
     status: ProviderCredentialStatus,
-    /// Whether `systemctl --user` accepted the change to the voice socket unit. False on a system without the user manager or without the unit installed; the file is saved either way.
+    /// Whether `systemctl --user` accepted enabling the voice socket unit after a save; always true after a removal, which leaves the unit alone because on-device recognition needs the service without any file. False on a system without the user manager or without the unit installed; the file is saved either way.
     service_updated: bool,
 }
 
@@ -155,6 +154,11 @@ impl VoiceKind {
             Self::Asr => &ASR_PROVIDERS,
             Self::Polish => &POLISH_PROVIDERS,
         }
+    }
+
+    /// The most entries of this kind the provider accepts: one per credential provider, plus the `local` recognition entry a user may have written by hand.
+    fn max_entries(self) -> usize {
+        self.providers().len() + usize::from(self == Self::Asr)
     }
 }
 
@@ -518,11 +522,20 @@ fn doubao_field_ok(value: &str) -> bool {
     value.len() <= MAX_DOUBAO_FIELD && value.bytes().all(|byte| (33..=126).contains(&byte))
 }
 
+/// Whether `entry` is the provider's on-device recognition entry, which `load_config` accepts without a credential.
+fn is_local_asr_entry(kind: VoiceKind, entry: &Map<String, Value>) -> bool {
+    kind == VoiceKind::Asr && entry_text(entry, "provider") == LOCAL_ASR_PROVIDER
+}
+
 /// The checks the voice provider's `load_config` applies to each entry, with its defaults for an absent endpoint or model.
 fn validate_voice_entry(
     kind: VoiceKind,
     entry: &Map<String, Value>,
 ) -> Result<(), CredentialError> {
+    if is_local_asr_entry(kind, entry) {
+        // Nothing to authenticate and no endpoint: the provider takes the model from each request.
+        return Ok(());
+    }
     let provider = entry_text(entry, "provider");
     if !kind.providers().contains(&provider) {
         return Err(CredentialError::InvalidProvider);
@@ -580,12 +593,16 @@ fn voice_status_of(
     kind: VoiceKind,
     entries: &VoiceEntries,
 ) -> Result<Vec<VoiceCredentialStatus>, CredentialError> {
-    if entries.entries.len() > kind.providers().len() {
+    if entries.entries.len() > kind.max_entries() {
         return Err(CredentialError::Existing);
     }
     let mut status = Vec::new();
     for (provider, entry) in &entries.entries {
         validate_voice_entry(kind, entry).map_err(|_| CredentialError::Existing)?;
+        // Not a credential: the settings page has nothing to show or clear for it.
+        if is_local_asr_entry(kind, entry) {
+            continue;
+        }
         let doubao = kind == VoiceKind::Asr && provider == "doubao";
         status.push(VoiceCredentialStatus {
             provider: provider.clone(),
@@ -605,10 +622,11 @@ type VoiceStatusPair = (Vec<VoiceCredentialStatus>, Vec<VoiceCredentialStatus>);
 
 fn voice_status(document: &Map<String, Value>) -> Result<VoiceStatusPair, CredentialError> {
     let asr = voice_entries(document, VoiceKind::Asr)?;
-    if asr.default.is_none() {
+    let polish = voice_entries(document, VoiceKind::Polish)?;
+    // `load_config` needs a recognition or a polishing entry; either alone is a file it accepts.
+    if asr.default.is_none() && polish.default.is_none() {
         return Err(CredentialError::Existing);
     }
-    let polish = voice_entries(document, VoiceKind::Polish)?;
     Ok((
         voice_status_of(VoiceKind::Asr, &asr)?,
         voice_status_of(VoiceKind::Polish, &polish)?,
@@ -624,7 +642,7 @@ fn place_voice_entries(
     let profiles_key = format!("{}_profiles", kind.key());
     document.remove(kind.key());
     document.remove(&profiles_key);
-    if voice.entries.len() > kind.providers().len() {
+    if voice.entries.len() > kind.max_entries() {
         return Err(CredentialError::TooManyProfiles);
     }
     let default = voice
@@ -661,6 +679,10 @@ pub(crate) fn save_voice_in(
     let mut voice = voice_entries(&document, kind)?;
     let provider = voice_provider_id(trim_pasted(credential.provider))
         .ok_or(CredentialError::InvalidProvider)?;
+    // On-device recognition has no credential to store.
+    if !kind.providers().contains(&provider.as_str()) {
+        return Err(CredentialError::InvalidProvider);
+    }
     let mut entry = voice.entries.remove(&provider).unwrap_or_default();
     let token = match credential.token.map(trim_pasted) {
         Some(token) => token.to_owned(),
@@ -713,9 +735,6 @@ pub(crate) fn save_voice_in(
         CredentialError::TooManyProfiles => error,
         _ => CredentialError::Existing,
     })?;
-    if !document.contains_key("asr") {
-        return Err(CredentialError::VoiceAsrRequired);
-    }
     // The other kind is carried over untouched, but it still has to pass: the provider rejects the whole file for one bad entry.
     let other = match kind {
         VoiceKind::Asr => VoiceKind::Polish,
@@ -726,41 +745,34 @@ pub(crate) fn save_voice_in(
     write_private(&path, Some(&Value::Object(document)))
 }
 
-/// Remove one voice credential. Removing the last recognition entry while polishing entries remain would leave a file the provider refuses, so that is an error; removing the last entry of all removes the file.
+/// Remove one voice credential. Either kind may go on its own, since the provider accepts a file with only recognition or only polishing entries; removing the last entry of all removes the file.
 pub(crate) fn clear_voice_in(
     directory: &Path,
     kind: VoiceKind,
     provider: &str,
-) -> Result<bool, CredentialError> {
+) -> Result<(), CredentialError> {
     let _guard = WRITE_LOCK
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let path = directory.join(VOICE_FILE);
     let Some(mut document) = read_private(&path)? else {
-        return Ok(false);
+        return Ok(());
     };
     let mut voice = voice_entries(&document, kind)?;
     let provider =
         voice_provider_id(trim_pasted(provider)).ok_or(CredentialError::InvalidProvider)?;
     if voice.entries.remove(&provider).is_none() {
-        return Ok(false);
+        return Ok(());
     }
     place_voice_entries(&mut document, kind, voice).map_err(|_| CredentialError::Existing)?;
-    let asr_left = document.contains_key("asr");
-    let polish_left = document.contains_key("polish");
-    if !asr_left && polish_left {
-        return Err(CredentialError::VoiceAsrRequired);
+    if !document.contains_key("asr") && !document.contains_key("polish") {
+        return write_private(&path, None);
     }
-    if !asr_left {
-        write_private(&path, None)?;
-        return Ok(true);
-    }
-    write_private(&path, Some(&Value::Object(document)))?;
-    Ok(false)
+    write_private(&path, Some(&Value::Object(document)))
 }
 
-/// Point the voice socket unit at the new state of the file: enabled once there is a credential for it to serve, disabled once the file is gone. A failed earlier start is cleared so the next connection tries again.
-fn update_voice_service(enabled: bool) -> bool {
+/// Enable the voice socket unit, clearing a failed earlier start so the next connection tries again. The unit is never disabled from here: without any credential the service still serves on-device recognition, and `msime-client-setup` enables it for that reason.
+pub(crate) fn enable_voice_service() -> bool {
     let systemctl = |arguments: &[&str]| {
         std::process::Command::new("systemctl")
             .arg("--user")
@@ -771,12 +783,8 @@ fn update_voice_service(enabled: bool) -> bool {
             .status()
             .is_ok_and(|status| status.success())
     };
-    if enabled {
-        let _ = systemctl(&["reset-failed", VOICE_SERVICE_UNIT]);
-        systemctl(&["enable", "--now", VOICE_SOCKET_UNIT])
-    } else {
-        systemctl(&["disable", "--now", VOICE_SOCKET_UNIT])
-    }
+    let _ = systemctl(&["reset-failed", VOICE_SERVICE_UNIT]);
+    systemctl(&["enable", "--now", VOICE_SOCKET_UNIT])
 }
 
 /// Store the credential for `provider`, bound to `endpoint` and `model`. A `None` token keeps the stored one, so the user can rebind an endpoint or model without pasting the key again.
@@ -986,7 +994,7 @@ pub async fn save_voice_provider_credential(
                 auth_mode: &auth_mode,
             },
         )?;
-        let service_updated = update_voice_service(true);
+        let service_updated = enable_voice_service();
         Ok(VoiceSaveResponse {
             status: status_in(directory)?,
             service_updated,
@@ -1001,11 +1009,10 @@ pub async fn clear_voice_provider_credential(
     provider: String,
 ) -> Result<VoiceSaveResponse, crate::CommandError> {
     run(move |directory| {
-        let removed_file = clear_voice_in(directory, VoiceKind::parse(&kind)?, &provider)?;
-        let service_updated = !removed_file || update_voice_service(false);
+        clear_voice_in(directory, VoiceKind::parse(&kind)?, &provider)?;
         Ok(VoiceSaveResponse {
             status: status_in(directory)?,
-            service_updated,
+            service_updated: true,
         })
     })
     .await
@@ -1244,13 +1251,10 @@ mod tests {
     fn saves_voice_entries_in_the_layout_the_voice_provider_requires() {
         let temp = directory();
         let root = temp.path();
-        // Polishing alone is not a file the provider starts with.
+        // On-device recognition has no credential to save.
         assert_eq!(
-            save_voice_in(
-                root,
-                &voice(VoiceKind::Polish, "deepseek", "", Some("sk-p"))
-            ),
-            Err(CredentialError::VoiceAsrRequired)
+            save_voice_in(root, &voice(VoiceKind::Asr, "local", "", Some("sk"))),
+            Err(CredentialError::InvalidProvider)
         );
         assert!(!root.join(VOICE_FILE).exists());
         save_voice_in(
@@ -1300,19 +1304,56 @@ mod tests {
         .unwrap();
         assert_eq!(read(&path)["asr"]["token"], "sk-s");
 
-        // Recognition cannot go while polishing depends on it; the last entry of all takes the file.
+        // Either kind can go on its own, as the provider accepts a file with only one; the last entry of all takes the file.
         clear_voice_in(root, VoiceKind::Asr, "siliconflow").unwrap();
         assert_eq!(read(&path)["asr"]["provider"], "openai");
+        clear_voice_in(root, VoiceKind::Asr, "openai").unwrap();
         assert_eq!(
-            clear_voice_in(root, VoiceKind::Asr, "openai"),
-            Err(CredentialError::VoiceAsrRequired)
+            read(&path),
+            serde_json::json!({
+                "polish": {"provider": "deepseek", "token": "sk-p", "model": "deepseek-v4-flash"}
+            })
         );
-        assert_eq!(
-            clear_voice_in(root, VoiceKind::Polish, "deepseek"),
-            Ok(false)
-        );
-        assert_eq!(clear_voice_in(root, VoiceKind::Asr, "openai"), Ok(true));
+        let status = status_in(root).unwrap();
+        assert!(status.voice_asr.is_empty() && !status.voice_invalid);
+        clear_voice_in(root, VoiceKind::Polish, "deepseek").unwrap();
         assert!(!path.exists());
+        assert!(!status_in(root).unwrap().voice_invalid);
+    }
+
+    #[test]
+    fn polishing_needs_no_recognition_credential() {
+        let temp = directory();
+        let root = temp.path();
+        // A user on on-device recognition only has polishing to store.
+        save_voice_in(
+            root,
+            &voice(VoiceKind::Polish, "deepseek", "", Some("sk-p")),
+        )
+        .unwrap();
+        let path = root.join(VOICE_FILE);
+        assert_eq!(
+            read(&path),
+            serde_json::json!({"polish": {"provider": "deepseek", "token": "sk-p"}})
+        );
+        let status = status_in(root).unwrap();
+        assert!(status.voice_asr.is_empty() && !status.voice_invalid);
+        assert_eq!(status.voice_polish[0].provider, "deepseek");
+
+        // A hand-written `local` recognition entry is one the provider accepts: it is carried over, not reported as a credential.
+        let mut document = read(&path);
+        document["asr"] = serde_json::json!({"provider": "local"});
+        write_private(&path, Some(&document)).unwrap();
+        let status = status_in(root).unwrap();
+        assert!(!status.voice_invalid && status.voice_asr.is_empty());
+        save_voice_in(root, &voice(VoiceKind::Asr, "openai", "", Some("sk-o"))).unwrap();
+        assert_eq!(read(&path)["asr"], serde_json::json!({"provider": "local"}));
+        assert_eq!(read(&path)["asr_profiles"]["openai"]["token"], "sk-o");
+        assert_eq!(status_in(root).unwrap().voice_asr.len(), 1);
+
+        // A file with neither kind is not one the provider starts with.
+        write_private(&path, Some(&serde_json::json!({}))).unwrap();
+        assert!(status_in(root).unwrap().voice_invalid);
     }
 
     #[test]

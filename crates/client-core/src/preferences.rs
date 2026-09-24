@@ -562,6 +562,9 @@ pub struct Preferences {
     /// legacy single-language behavior and is omitted from serialized snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_secondary_language: Option<TranslationTargetLanguage>,
+    /// True only when the user explicitly picks the MSIME account (水杉账号) as the candidate translation service in settings; candidates are then sent to `https://api.msime.app/v1/translate`. Omitted while false so documents that never chose it stay readable by older strict parsers.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub translation_account: bool,
     /// Send the anonymous start and crash events to `https://api.msime.app/v1/telemetry/events`. Off until the user turns it on. Only the Windows Server reads it so far; the other hosts keep their own telemetry behaviour, described in PRIVACY.md.
     #[serde(default)]
     pub telemetry_enabled: bool,
@@ -610,10 +613,12 @@ pub struct VoiceInputPreferences {
     pub asr_endpoint: String,
     #[serde(default)]
     pub asr_model: String,
-    /// Absolute path to a local Whisper model file. Only the `local` provider
-    /// reads it; nothing is uploaded and no endpoint or token applies.
+    /// Absolute path to the on-device model the `local` provider runs: either an installed model directory (one containing `msime-model.json`, see `voice::local_models`) or a Whisper model file. Nothing is uploaded and no endpoint or token applies. Any absolute form the host OS uses is accepted, since the same document is read on Windows.
     #[serde(default)]
     pub asr_model_path: String,
+    /// Optional `https://` prefix placed in front of every local model download URL (ghproxy-style), for networks where GitHub release downloads are slow or blocked. Empty downloads from the catalog URLs as they are.
+    #[serde(default)]
+    pub asr_model_mirror: String,
     #[serde(default)]
     pub asr_resource_id: String,
     #[serde(default)]
@@ -685,6 +690,7 @@ impl Default for VoiceInputPreferences {
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
             asr_model_path: String::new(),
+            asr_model_mirror: String::new(),
             asr_resource_id: "volc.seedasr.sauc.duration".into(),
             polish_enabled: false,
             polish_text: source_voice_default(),
@@ -1311,6 +1317,7 @@ impl Default for Preferences {
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
+            translation_account: false,
             telemetry_enabled: false,
         }
     }
@@ -1468,6 +1475,34 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
     }
 }
 
+/// Whether `path` is absolute on any OS a preferences document may be read on: a Unix path, a Windows drive path (`C:\...` or `C:/...`), a verbatim or device path (`\\?\...`, `\\.\...`) or a UNC share (`\\server\share`). Checked textually rather than with `Path::is_absolute`, which answers only for the OS doing the checking, so a Windows path saved by the Windows host would be refused when the same document is validated elsewhere.
+pub fn is_absolute_model_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    if bytes.first() == Some(&b'/') {
+        return true;
+    }
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/')
+    {
+        return true;
+    }
+    // `\\server\share`, `\\?\C:\...` and `\\.\device`: two leading separators and something after them.
+    bytes.len() > 2 && bytes[0] == b'\\' && bytes[1] == b'\\' && bytes[2] != b'\\'
+}
+
+/// Whether `mirror` is an acceptable `asr_model_mirror`: empty, or an `https://` URL of at most 2048 bytes with no control characters or whitespace.
+pub fn valid_model_mirror(mirror: &str) -> bool {
+    mirror.is_empty()
+        || (mirror.len() <= 2048
+            && mirror.len() > "https://".len()
+            && mirror.starts_with("https://")
+            && !mirror
+                .chars()
+                .any(|ch| ch.is_control() || ch.is_whitespace()))
+}
+
 fn default_shuangpin_helpcode() -> HelpcodePreferences {
     HelpcodePreferences {
         enabled: true,
@@ -1476,10 +1511,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
     }
 }
 
-/// Persisted recognition provider identifiers. Hosts expose only the providers
-/// they implement: `system` is the macOS Speech adapter, not a cloud profile,
-/// and `local` is on-device Whisper, which needs `asr_model_path` and a host
-/// built with the recognizer behind it.
+/// Persisted recognition provider identifiers. Hosts expose only the providers they implement: `system` is the platform speech adapter, not a cloud profile, and `local` is an on-device model (an installed sherpa-onnx model directory or a Whisper model file) named by `asr_model_path`, which needs a host built with the recognizer behind it.
 pub const ASR_PROVIDERS: [&str; 8] = [
     "doubao",
     "siliconflow",
@@ -1572,6 +1604,7 @@ impl Preferences {
         next.voice_input.asr_endpoint = self.voice_input.asr_endpoint.clone();
         next.voice_input.asr_model = self.voice_input.asr_model.clone();
         next.voice_input.asr_model_path = self.voice_input.asr_model_path.clone();
+        next.voice_input.asr_model_mirror = self.voice_input.asr_model_mirror.clone();
         next.voice_input.asr_resource_id = self.voice_input.asr_resource_id.clone();
         next.voice_input.doubao_auth_mode = self.voice_input.doubao_auth_mode.clone();
         next.voice_input.polish_provider = self.voice_input.polish_provider.clone();
@@ -1650,7 +1683,8 @@ impl Preferences {
             || !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str())
             || model_path.len() > 4096
             || model_path.chars().any(char::is_control)
-            || (!model_path.is_empty() && !model_path.starts_with('/'))
+            || (!model_path.is_empty() && !is_absolute_model_path(model_path))
+            || !valid_model_mirror(&self.voice_input.asr_model_mirror)
         {
             return Err(PreferencesError::InvalidVoiceInput);
         }
@@ -1878,6 +1912,28 @@ pub enum PreferencesError {
     Json(#[from] serde_json::Error),
 }
 
+/// What `PreferencesStore::recover` did.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RecoveryOutcome {
+    /// The document already loads (or does not exist yet); nothing was written or backed up.
+    NotNeeded(PreferencesSnapshot),
+    /// The damaged document was copied verbatim to `backup_path` and replaced by `snapshot`. `salvaged` is true when at least one setting from the damaged document survived; false means the replacement is the defaults.
+    Recovered {
+        snapshot: PreferencesSnapshot,
+        backup_path: PathBuf,
+        salvaged: bool,
+    },
+}
+
+/// Which damaged documents `recover` may rewrite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryScope {
+    /// Anything the normal read rejects, other than a storage failure.
+    Unreadable,
+    /// Only bytes that are not well-formed JSON at all. A well-formed document the schema rejects may come from a newer build and is left alone.
+    Malformed,
+}
+
 pub struct PreferencesStore {
     directory: PathBuf,
 }
@@ -1887,6 +1943,11 @@ impl PreferencesStore {
         Self {
             directory: directory.into(),
         }
+    }
+
+    /// The directory holding `preferences.json`, its lock and any `preferences.json.corrupt-*` backups `recover` wrote.
+    pub fn directory(&self) -> &Path {
+        &self.directory
     }
 
     fn open_lock(&self) -> Result<File, PreferencesError> {
@@ -2027,6 +2088,170 @@ impl PreferencesStore {
         )?;
         Ok(snapshot)
     }
+
+    /// Replace a document that `load` rejects, keeping what can be kept.
+    ///
+    /// This is the counterpart of the source's `SyncConfigWithInstalledTemplate` repair of a config.toml that does not parse. The damaged bytes are first copied verbatim to `preferences.json.corrupt-YYYYMMDD-HHMMSS` (UTC) beside the document; if that copy cannot be written nothing else happens, so the original is never lost. Then every top-level setting the current schema accepts is carried over one at a time onto the defaults, and a section that fails as a whole (a wrong-typed sibling next to a service key, say) is retried field by field, so credentials survive the way `ReapplyRealCredentials` keeps real API tokens. Whatever still does not fit takes its default.
+    ///
+    /// A missing or already loadable document is `NotNeeded` and nothing is written, so calling this twice, or racing another writer that already repaired the file, is harmless. Storage failures are returned unchanged and never lead to a rewrite. There is no compare-and-swap: the caller has no valid revision to offer, and the lock plus the re-check that the document is still unreadable cover the race.
+    pub fn recover(&self) -> Result<RecoveryOutcome, PreferencesError> {
+        self.recover_within(RecoveryScope::Unreadable)
+    }
+
+    /// `recover`, restricted to a document that is not well-formed JSON (truncated, empty, overwritten with other bytes). A well-formed document the schema rejects - unknown fields or a newer `format_version` - returns the load error unchanged, because it is most likely a newer build's file and rewriting it behind the user's back would lose that build's settings. Input method hosts call this automatically; the explicit settings-page repair uses `recover`.
+    pub fn recover_malformed(&self) -> Result<RecoveryOutcome, PreferencesError> {
+        self.recover_within(RecoveryScope::Malformed)
+    }
+
+    fn recover_within(&self, scope: RecoveryScope) -> Result<RecoveryOutcome, PreferencesError> {
+        let _lock = self.lock()?;
+        let failure = match self.read_locked() {
+            Ok(snapshot) => return Ok(RecoveryOutcome::NotNeeded(snapshot)),
+            Err(PreferencesError::Io(error)) => return Err(PreferencesError::Io(error)),
+            Err(failure) => failure,
+        };
+        let bytes = fs::read(self.path())?;
+        let document = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+        if scope == RecoveryScope::Malformed && document.is_some() {
+            return Err(failure);
+        }
+        let backup_path = self.write_backup(&bytes)?;
+        let (preferences, salvaged) = match &document {
+            Some(document) => salvage_preferences(document)?,
+            None => (Preferences::default(), false),
+        };
+        let revision = match document
+            .as_ref()
+            .and_then(|document| document.get("revision"))
+            .and_then(serde_json::Value::as_u64)
+        {
+            Some(revision) => revision
+                .checked_add(1)
+                .ok_or(PreferencesError::RevisionExhausted)?,
+            // Hosts skip a document whose revision equals the one they last applied, so restarting at 1 could leave a running host on the pre-damage values. Seconds since the epoch are far above any revision a host counted up to and still leave the counter room to grow.
+            None => std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_secs())
+                .unwrap_or(0)
+                .max(1),
+        };
+        let snapshot = PreferencesSnapshot {
+            format_version: 1,
+            revision,
+            preferences,
+        };
+        atomic_write(
+            &self.directory,
+            &self.path(),
+            &serde_json::to_vec_pretty(&snapshot)?,
+        )?;
+        Ok(RecoveryOutcome::Recovered {
+            snapshot,
+            backup_path,
+            salvaged,
+        })
+    }
+
+    /// Copy the damaged bytes to a new file and make sure they reached the disk before the original is replaced. `create_new` means an existing backup is never overwritten; a name already taken gets a `-N` suffix.
+    fn write_backup(&self, bytes: &[u8]) -> Result<PathBuf, PreferencesError> {
+        let now = time::OffsetDateTime::now_utc();
+        let stem = format!(
+            "preferences.json.corrupt-{:04}{:02}{:02}-{:02}{:02}{:02}",
+            now.year(),
+            u8::from(now.month()),
+            now.day(),
+            now.hour(),
+            now.minute(),
+            now.second()
+        );
+        let mut attempt = 0u32;
+        loop {
+            let name = if attempt == 0 {
+                stem.clone()
+            } else {
+                format!("{stem}-{attempt}")
+            };
+            let path = self.directory.join(name);
+            let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    attempt += 1;
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+                drop(file);
+                let _ = fs::remove_file(&path);
+                return Err(error.into());
+            }
+            return Ok(path);
+        }
+    }
+}
+
+/// Whether `preferences` is a document `load` would accept.
+fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>) -> bool {
+    serde_json::from_value::<Preferences>(serde_json::Value::Object(candidate.clone())).is_ok_and(
+        |mut preferences| {
+            preferences.normalize_voice_providers();
+            preferences.validate().is_ok()
+        },
+    )
+}
+
+/// Carry every setting of a damaged document that the current schema accepts onto the defaults, one top-level key at a time, retrying a rejected section one field at a time. Returns the result and whether anything was kept.
+fn salvage_preferences(
+    document: &serde_json::Value,
+) -> Result<(Preferences, bool), PreferencesError> {
+    let default = Preferences::default();
+    let serde_json::Value::Object(mut salvaged) = serde_json::to_value(&default)? else {
+        return Ok((default, false));
+    };
+    // A snapshot keeps its settings under `preferences`; a bare settings object at the root is accepted too.
+    let source = match document.get("preferences") {
+        Some(serde_json::Value::Object(source)) => source,
+        _ => match document {
+            serde_json::Value::Object(source) => source,
+            _ => return Ok((default, false)),
+        },
+    };
+    let mut kept = false;
+    for (key, value) in source {
+        let mut candidate = salvaged.clone();
+        candidate.insert(key.clone(), value.clone());
+        if acceptable_preferences(&candidate) {
+            salvaged = candidate;
+            kept = true;
+            continue;
+        }
+        let serde_json::Value::Object(fields) = value else {
+            continue;
+        };
+        let mut section = match salvaged.get(key) {
+            Some(serde_json::Value::Object(section)) => section.clone(),
+            _ => serde_json::Map::new(),
+        };
+        let mut section_kept = false;
+        for (field, field_value) in fields {
+            let mut trial = section.clone();
+            trial.insert(field.clone(), field_value.clone());
+            let mut candidate = salvaged.clone();
+            candidate.insert(key.clone(), serde_json::Value::Object(trial.clone()));
+            if acceptable_preferences(&candidate) {
+                section = trial;
+                section_kept = true;
+            }
+        }
+        if section_kept {
+            salvaged.insert(key.clone(), serde_json::Value::Object(section));
+            kept = true;
+        }
+    }
+    // Every step above was accepted by the same check, so this cannot fail on the salvaged map.
+    let mut preferences: Preferences = serde_json::from_value(serde_json::Value::Object(salvaged))?;
+    preferences.normalize_voice_providers();
+    Ok((preferences, kept))
 }
 
 fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), PreferencesError> {

@@ -19,7 +19,7 @@ import java.util.Map;
  * "no characters typed" say different things to whoever is reading the page.
  */
 public final class TypingStatisticsModel {
-    /** 每日明细最多保留 366 天，再往前没有数据可画。 */
+    /** 趋势窗口最多画一年；这是图表的宽度上限，不是保留期限，更早的每日明细仍在存储里。 */
     public static final int MAX_TREND_DAYS = 366;
 
     /** Which distribution the page is showing. Trend is the series rather than a distribution. */

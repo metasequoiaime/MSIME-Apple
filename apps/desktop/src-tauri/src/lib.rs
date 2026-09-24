@@ -7,8 +7,6 @@ mod ai;
 mod clipboard_history;
 #[cfg(not(target_os = "android"))]
 mod dictionary_import;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-mod dictionary_quiesce;
 // Only the two hosts that have to replay input into another window build this.
 // macOS delivers through the input method itself and needs none of it.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -105,6 +103,8 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use tauri::Manager;
 
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+use msime_host_api::mcp_clients;
 use msime_host_api::system_fonts;
 use shared::export_file;
 use shared::skin_directory;
@@ -405,6 +405,8 @@ struct SkinDirectoryState(PathBuf);
 /// The Engine's user directory: where the documents a user writes by hand live, `custom_translations.txt` among them.
 struct UserDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
+/// The shared preferences directory, where the input method writes `diagnostic.log` when its diagnostic switch is on.
+struct DiagnosticLogState(PathBuf);
 
 /// The application data directory the 背单词 store and wordbook library live under.
 ///
@@ -534,6 +536,58 @@ async fn open_typing_statistics_directory(
         .map_err(|code| CommandError { code })
 }
 
+/// What the settings page's diagnostic-log action should show: the log file itself where the platform can select a file in its file manager and the file exists, otherwise the directory that will hold it.
+#[derive(Debug, PartialEq, Eq)]
+enum DiagnosticLogTarget {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    File(PathBuf),
+    Directory(PathBuf),
+}
+
+fn diagnostic_log_target(directory: &std::path::Path) -> DiagnosticLogTarget {
+    #[cfg(target_os = "macos")]
+    {
+        let file = directory.join("diagnostic.log");
+        if file.is_file() {
+            return DiagnosticLogTarget::File(file);
+        }
+    }
+    DiagnosticLogTarget::Directory(directory.to_path_buf())
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_file_in_finder(file: &std::path::Path) -> Result<(), &'static str> {
+    let status = std::process::Command::new("open")
+        .arg("-R")
+        .arg(file)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|_| "storage")?;
+    status.success().then_some(()).ok_or("storage")
+}
+
+/// Reveal the input method's diagnostic log so it can be sent after a reproduction.
+///
+/// MSIME-Windows writes its log to the Desktop to make it easy to find; on macOS the file stays in the preferences directory under Application Support and this action selects it in Finder instead. The host picks the location - the webview cannot name one.
+#[tauri::command]
+async fn open_diagnostic_log_directory(
+    state: tauri::State<'_, DiagnosticLogState>,
+) -> Result<(), CommandError> {
+    let directory = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || match diagnostic_log_target(&directory) {
+        #[cfg(target_os = "macos")]
+        DiagnosticLogTarget::File(file) => reveal_file_in_finder(&file),
+        #[cfg(not(target_os = "macos"))]
+        DiagnosticLogTarget::File(_) => Err("unavailable"),
+        DiagnosticLogTarget::Directory(root) => skin_directory::open(&root),
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+    .map_err(|code| CommandError { code })
+}
+
 /// Write a document the settings page exported into the user's Downloads folder and return the path.
 ///
 /// The page names the file and the host picks the folder, the same outcome as the Windows source's WebView2 download. A download link cannot do it here: the WKWebView behind the macOS window cancels downloads it has no handler for. A taken name becomes `name (2).txt` rather than being overwritten.
@@ -552,6 +606,46 @@ async fn save_export(
         .map_err(|_| CommandError { code: "storage" })?
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|code| CommandError { code })
+}
+
+/// `msime-mcp` beside this executable, the runtime options it would be pointed at, the entry to paste into an assistant, and whether each assistant offered here already has it.
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn mcp_server_status(
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+) -> Result<mcp_clients::McpServerStatus, CommandError> {
+    let options = runtime.path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let executable = std::env::current_exe().map_err(|_| CommandError { code: "storage" })?;
+        mcp_clients::status(&executable, options.as_deref(), |name| {
+            std::env::var_os(name)
+        })
+        .map_err(|code| CommandError { code })
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+/// Write the entry into `client`'s configuration file. A different `msime` entry there fails with `mcp_entry_exists` unless `replace` is set, so the page asks before overwriting it.
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn install_mcp_client(
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+    client: mcp_clients::McpClient,
+    replace: bool,
+) -> Result<mcp_clients::InstallOutcome, CommandError> {
+    let options = runtime.path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let executable = std::env::current_exe().map_err(|_| CommandError {
+            code: "mcp_server_missing",
+        })?;
+        mcp_clients::install_client(&executable, options.as_deref(), client, replace, |name| {
+            std::env::var_os(name)
+        })
+        .map_err(|code| CommandError { code })
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
 }
 
 fn read_skin_toolbar_stylesheet_at(
@@ -1625,50 +1719,6 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
 /// dictionary is locked by another process, the edit itself was refused, and
 /// the store could not be opened - and the page used to print one identical
 /// sentence for all of them.
-/// Ask the Windows Server to release or retake its Engine sessions.
-///
-/// Dictionary maintenance needs the exclusive file lock that every session
-/// holds a share of, so with the IME in use it fails with "maintenance busy"
-/// every time. The Server answers "OK" only once the sessions really are gone,
-/// so that reply - not the write succeeding - is what makes it safe to open
-/// the dictionaries exclusively.
-///
-/// The Server also resumes on its own after a deadline, so a settings process
-/// that dies mid-import cannot leave input without sessions.
-#[cfg(target_os = "windows")]
-fn dictionary_maintenance_handshake(verb: &str) -> bool {
-    use std::io::{Read, Write};
-    const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
-    let payload: Vec<u8> = verb
-        .encode_utf16()
-        .flat_map(|unit| unit.to_le_bytes())
-        .collect();
-    for attempt in 0..5 {
-        match fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(PIPE_NAME)
-        {
-            Ok(mut pipe) => {
-                if pipe.write_all(&payload).is_err() {
-                    return false;
-                }
-                let mut reply = [0_u8; 8];
-                let Ok(read) = pipe.read(&mut reply) else {
-                    return false;
-                };
-                // The Server writes UTF-16LE "OK" and nothing else.
-                return reply[..read] == *b"O\x00K\x00";
-            }
-            Err(_) if attempt < 4 => std::thread::sleep(std::time::Duration::from_millis(20)),
-            // No Server listening means no sessions to release, so the lock is
-            // already free and the caller should go ahead.
-            Err(_) => return verb == "DictionaryQuiesce",
-        }
-    }
-    false
-}
-
 fn dictionary_error_code(reason: &str) -> &'static str {
     match reason {
         "dictionary maintenance busy" => "dictionary_busy",
@@ -1759,9 +1809,9 @@ async fn dictionary_request(
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
         let requires_quiesce = dictionary_action_requires_quiesce(&action);
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         let _ = requires_quiesce;
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         let user_data = options["user_data"].as_str().map(str::to_owned);
         let request = serde_json::json!({ "options": options, "action": action });
         #[cfg(target_os = "ios")]
@@ -1782,36 +1832,22 @@ async fn dictionary_request(
         {
             // One request to the host. An import too large for one request is several, each through this, so whatever releases the input sessions below stays in force until the last of them.
             let host = |bytes: &[u8]| msime_host_api::dictionary_request_json(bytes);
-            // The input hosts release their sessions when they see the lease, so the lock failure is retried under it. The IBus and Fcitx5 hosts find it on their timers; the macOS input method is also told at once over a distributed notification when the lease first goes up, and its one-second timer catches one that was missed. The lease is removed when `hosts` goes, after the last request.
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
-            let mut hosts = dictionary_quiesce::QuiescedHosts::new(user_data.as_deref(), || {
-                #[cfg(target_os = "macos")]
-                msime_host_macos::quiesce_input_sessions();
-            });
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            // The input hosts are asked to let go and the lock failure is retried until they have. On Linux and macOS that is a lease the hosts find on their timers, with the macOS input method also told at once over a distributed notification when the lease first goes up; on Windows the Server is asked over its pipe and answers once its sessions are gone. Either is renewed before each later request, so a large import that runs past the 30 second bound keeps the hosts released, and let go when `hosts` goes, after the last request, whatever the outcome.
+            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+            let mut hosts = msime_client_core::dictionary::quiesce::QuiescedHosts::new(
+                user_data.as_deref(),
+                || {
+                    #[cfg(target_os = "macos")]
+                    msime_host_macos::quiesce_input_sessions();
+                },
+            );
+            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             let send = |bytes: &[u8]| {
                 if requires_quiesce {
                     hosts.run(|| host(bytes))
                 } else {
                     host(bytes)
                 }
-            };
-            // Only the lock is worth a handshake. Every other failure is about the request itself and would fail again with sessions released. The Server gives its sessions back 30 seconds after the last DictionaryQuiesce, and a large import runs longer than that, so once quiesced each later request renews it first, the way `QuiescedHosts::run` renews the lease. A renewal that fails or comes too late makes the request busy, which is handshaken and retried like the first.
-            #[cfg(target_os = "windows")]
-            let mut quiesced = false;
-            #[cfg(target_os = "windows")]
-            let send = |bytes: &[u8]| {
-                if quiesced {
-                    let _ = dictionary_maintenance_handshake("DictionaryQuiesce");
-                }
-                let result = host(bytes);
-                if matches!(&result, Err(reason) if reason == "dictionary maintenance busy")
-                    && dictionary_maintenance_handshake("DictionaryQuiesce")
-                {
-                    quiesced = true;
-                    return host(bytes);
-                }
-                result
             };
             #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
             let send = host;
@@ -1820,11 +1856,6 @@ async fn dictionary_request(
                 &request["action"],
                 send,
             );
-            // Resume whatever happened: leaving the IME without sessions because an import failed would be worse than the failure itself.
-            #[cfg(target_os = "windows")]
-            if quiesced {
-                let _ = dictionary_maintenance_handshake("DictionaryResume");
-            }
             result.map_err(|reason| CommandError {
                 code: dictionary_error_code(&reason),
             })
@@ -4063,6 +4094,7 @@ pub fn run() {
                 }
             }
             app.manage(TypingStatisticsState(typing_statistics));
+            app.manage(DiagnosticLogState(directory.clone()));
             // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
             // sibling of `EngineResources/` because `ResourceStore::verify` requires that
             // directory to hold exactly the pinned dictionary artifacts, and one extra entry
@@ -4156,6 +4188,7 @@ pub fn run() {
             // their own native plugins and never build this module.
             #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
             app.manage(voice_sessions::VoiceSessions::default());
+            app.manage(voice::local_models::LocalModelInstalls::default());
             #[cfg(target_os = "linux")]
             app.manage(linux_setup::LinuxSetupState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
@@ -4375,6 +4408,7 @@ pub fn run() {
             set_typing_statistics_retention,
             reset_typing_statistics,
             open_typing_statistics_directory,
+            open_diagnostic_log_directory,
             vocabulary::load_vocabulary_review,
             vocabulary::answer_vocabulary_card,
             vocabulary::set_vocabulary_settings,
@@ -4382,6 +4416,10 @@ pub fn run() {
             vocabulary::remove_vocabulary_wordbook,
             vocabulary::reset_vocabulary_review,
             save_export,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            mcp_server_status,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            install_mcp_client,
             scan_skin_catalog,
             read_skin_image,
             read_skin_font,
@@ -4423,6 +4461,10 @@ pub fn run() {
             voice::recognize_voice,
             voice::cancel_voice,
             voice::stop_voice,
+            voice::local_models::voice_local_models,
+            voice::local_models::voice_local_model_install,
+            voice::local_models::voice_local_model_cancel,
+            voice::local_models::voice_local_model_remove,
             submit_handwriting_candidate,
             open_external_url,
             #[cfg(target_os = "macos")]

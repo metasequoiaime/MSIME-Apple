@@ -9,7 +9,7 @@
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory>}
+resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory]}
 resource_dir=$(cd "$resource_dir" && pwd)
 # The directory has to match the lock exactly, down to containing no extra file, because the same
 # check runs again on the device inside prepare_host. Failing here is far cheaper than failing there.
@@ -20,3 +20,15 @@ mkdir -p "$staged"
 while IFS= read -r artifact; do cp "$resource_dir/$artifact" "$staged/"; done <<< "$artifacts"
 cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$staged" >/dev/null
 echo "Staged for the HAP: $staged"
+
+# Optional non-English candidate glosses built by scripts/build_offline_glosses.py. They sit beside the engine directory rather than in it, which the lock check above would reject; the keyboard copies them next to its copy of the resources, where the Engine looks for one zh-<lang>.db per target language. Without them only English is glossed offline.
+glosses_source=${2:-$repo_root/target/offline-glosses}
+glosses_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/offline-glosses"
+rm -rf "$glosses_staged"
+if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
+  mkdir -p "$glosses_staged"
+  cp "$glosses_source"/zh-*.db "$glosses_source/offline-glosses-NOTICE.txt" "$glosses_staged/"
+  echo "Offline glosses staged for the HAP: $glosses_staged"
+else
+  echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
+fi

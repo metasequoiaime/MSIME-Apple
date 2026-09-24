@@ -44,6 +44,9 @@ int main() {
   assert(!msime_voice_stream_inline_enabled(true, "doubao", "sendinput"));
   assert(!msime_voice_stream_inline_enabled(true, "doubao", "ctrl_v"));
   assert(!msime_voice_stream_inline_enabled(true, "openai"));
+  assert(msime_voice_stream_inline_enabled(true, "local"));
+  assert(!msime_voice_stream_inline_enabled(true, "local", "sendinput"));
+  assert(!msime_voice_stream_inline_enabled(false, "local"));
   assert(!msime_voice_stream_inline_enabled(false, "doubao"));
   assert(!msime_voice_overlay_light_theme("follow", "dark", false));
   assert(msime_voice_overlay_light_theme("follow", "light", true));

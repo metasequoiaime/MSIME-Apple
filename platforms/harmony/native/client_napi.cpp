@@ -265,6 +265,173 @@ static napi_value SnapshotRestore(napi_env env, napi_callback_info info) {
     return promise;
 }
 
+TEXT_ENTRY(VoiceHotwordCorrect, msime_client_voice_hotword_correct)
+TEXT_ENTRY(VoiceLocalModels, msime_client_voice_local_models)
+TEXT_ENTRY(VoiceLocalModelCancel, msime_client_voice_local_model_cancel)
+TEXT_ENTRY(VoiceLocalModelRemove, msime_client_voice_local_model_remove)
+
+static void rejectWith(napi_env env, napi_deferred deferred, const char *text) {
+    napi_value message = nullptr;
+    napi_value error = nullptr;
+    if (napi_create_string_utf8(env, text, NAPI_AUTO_LENGTH, &message) != napi_ok
+            || napi_create_error(env, nullptr, message, &error) != napi_ok) {
+        napi_get_undefined(env, &error);
+    }
+    napi_reject_deferred(env, deferred, error);
+}
+
+// Settles a voice promise with the Rust response and frees it; a missing response is the only rejection, every refusal arrives as {"ok":false} like the synchronous calls.
+static void settleVoicePromise(napi_env env, napi_status status, napi_deferred deferred, char *result,
+                               const char *failure) {
+    napi_value value = nullptr;
+    const bool resolved = status == napi_ok && result != nullptr
+        && napi_create_string_utf8(env, result, std::strlen(result), &value) == napi_ok;
+    if (result) msime_client_string_free(result);
+    if (resolved) {
+        napi_resolve_deferred(env, deferred, value);
+    } else {
+        rejectWith(env, deferred, failure);
+    }
+}
+
+// The hotword read touches the user dictionary store, which the host API refuses on the UI thread, so it runs as async work and answers through a promise.
+struct VoiceHotwordsWork {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    std::string request;
+    char *result = nullptr;
+};
+
+static void executeVoiceHotwords(napi_env, void *data) {
+    auto *work = static_cast<VoiceHotwordsWork *>(data);
+    work->result = msime_client_voice_hotwords(
+        reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size());
+}
+
+static void completeVoiceHotwords(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<VoiceHotwordsWork *>(data);
+    settleVoicePromise(env, status, work->deferred, work->result, "Voice hotword worker failed");
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+static napi_value VoiceHotwords(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    auto *work = new VoiceHotwordsWork();
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], work->request)) {
+        delete work;
+        return invalid(env, "Expected a voice hotword request");
+    }
+    napi_value promise = nullptr;
+    napi_value resource = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
+            || napi_create_string_utf8(env, "MSIME voice hotwords", NAPI_AUTO_LENGTH,
+                &resource) != napi_ok
+            || napi_create_async_work(env, nullptr, resource, executeVoiceHotwords,
+                completeVoiceHotwords, work, &work->work) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create voice hotword worker");
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        return invalid(env, "Unable to queue voice hotword worker");
+    }
+    return promise;
+}
+
+// A model install blocks for the whole download, so it runs as async work; progress is reported on that worker thread and crosses to the JS thread through a thread-safe function holding a copy of each document.
+struct VoiceModelInstallWork {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    napi_threadsafe_function progress = nullptr;
+    std::string request;
+    char *result = nullptr;
+};
+
+static void callVoiceModelProgress(napi_env env, napi_value callback, void *, void *data) {
+    auto *document = static_cast<std::string *>(data);
+    if (env != nullptr && callback != nullptr) {
+        napi_value argument = nullptr;
+        napi_value receiver = nullptr;
+        if (napi_create_string_utf8(env, document->data(), document->size(), &argument) == napi_ok
+                && napi_get_undefined(env, &receiver) == napi_ok) {
+            napi_call_function(env, receiver, callback, 1, &argument, nullptr);
+        }
+    }
+    delete document;
+}
+
+static void reportVoiceModelProgress(const uint8_t *json, size_t length, void *context) {
+    auto *work = static_cast<VoiceModelInstallWork *>(context);
+    if (work->progress == nullptr || json == nullptr) return;
+    // The buffer belongs to the caller only for the duration of this call.
+    auto *document = new std::string(reinterpret_cast<const char *>(json), length);
+    if (napi_call_threadsafe_function(work->progress, document, napi_tsfn_nonblocking) != napi_ok) {
+        delete document;
+    }
+}
+
+static void executeVoiceModelInstall(napi_env, void *data) {
+    auto *work = static_cast<VoiceModelInstallWork *>(data);
+    work->result = msime_client_voice_local_model_install(
+        reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size(),
+        work->progress != nullptr ? reportVoiceModelProgress : nullptr, work);
+}
+
+static void completeVoiceModelInstall(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<VoiceModelInstallWork *>(data);
+    if (work->progress != nullptr) {
+        napi_release_threadsafe_function(work->progress, napi_tsfn_release);
+        work->progress = nullptr;
+    }
+    settleVoicePromise(env, status, work->deferred, work->result, "Voice model install worker failed");
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+static napi_value VoiceLocalModelInstall(napi_env env, napi_callback_info info) {
+    size_t count = 2;
+    napi_value argv[2] = { nullptr, nullptr };
+    if (napi_get_cb_info(env, info, &count, argv, nullptr, nullptr) != napi_ok || count < 1) {
+        return invalid(env, "Expected a voice model install request");
+    }
+    auto *work = new VoiceModelInstallWork();
+    if (!argumentText(env, argv[0], work->request)) {
+        delete work;
+        return invalid(env, "Expected a voice model install request");
+    }
+    napi_value resource = nullptr;
+    if (napi_create_string_utf8(env, "MSIME voice model install", NAPI_AUTO_LENGTH, &resource)
+            != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create voice model install worker");
+    }
+    napi_valuetype callbackType = napi_undefined;
+    if (count >= 2 && napi_typeof(env, argv[1], &callbackType) == napi_ok
+            && callbackType == napi_function
+            && napi_create_threadsafe_function(env, argv[1], nullptr, resource, 0, 1, nullptr,
+                nullptr, nullptr, callVoiceModelProgress, &work->progress) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create voice model progress channel");
+    }
+    napi_value promise = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
+            || napi_create_async_work(env, nullptr, resource, executeVoiceModelInstall,
+                completeVoiceModelInstall, work, &work->work) != napi_ok) {
+        if (work->progress != nullptr) napi_release_threadsafe_function(work->progress, napi_tsfn_release);
+        delete work;
+        return invalid(env, "Unable to create voice model install worker");
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        if (work->progress != nullptr) napi_release_threadsafe_function(work->progress, napi_tsfn_release);
+        delete work;
+        return invalid(env, "Unable to queue voice model install worker");
+    }
+    return promise;
+}
+
 #define PAIR_ENTRY(name, call)                                                                     \
     static napi_value name(napi_env env, napi_callback_info info) {                                 \
         std::vector<napi_value> argv;                                                               \
@@ -788,6 +955,12 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("voiceStart", VoiceStart),
         ENTRY("voiceCancel", VoiceCancel),
         ENTRY("voiceApply", VoiceApply),
+        ENTRY("voiceHotwords", VoiceHotwords),
+        ENTRY("voiceHotwordCorrect", VoiceHotwordCorrect),
+        ENTRY("voiceLocalModels", VoiceLocalModels),
+        ENTRY("voiceLocalModelInstall", VoiceLocalModelInstall),
+        ENTRY("voiceLocalModelCancel", VoiceLocalModelCancel),
+        ENTRY("voiceLocalModelRemove", VoiceLocalModelRemove),
         ENTRY("doubaoEncodeFrame", DoubaoEncodeFrame),
         ENTRY("doubaoDecodeFrame", DoubaoDecodeFrame),
     };

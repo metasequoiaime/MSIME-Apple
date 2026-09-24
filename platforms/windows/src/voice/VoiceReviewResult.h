@@ -78,10 +78,11 @@ private:
   Snapshot value_;
 };
 
+// `streaming`: the recognizer reports partial text while recording (Doubao, or an installed on-device model).
 inline bool
 voice_inline_allowed(const std::shared_ptr<VoiceReviewResult> &review,
-                     bool enabled, bool doubao, std::string_view mode) {
-  return !review && enabled && doubao && mode == "tsf";
+                     bool enabled, bool streaming, std::string_view mode) {
+  return !review && enabled && streaming && mode == "tsf";
 }
 
 // The native callback contains ALL automatic commit routes, including fallback.

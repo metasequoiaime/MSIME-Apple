@@ -73,7 +73,7 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertFalse(snapshot.enabled)
   }
 
-  func testConcurrentWritersAndBoundedDailyHistory() throws {
+  func testConcurrentWritersAndForeverKeepsEveryDay() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -86,16 +86,16 @@ final class TypingStatisticsTests: XCTestCase {
     for offset in 1...370 {
       try store.record("字", at: Calendar.current.date(byAdding: .day, value: offset, to: Date())!)
     }
-    XCTAssertEqual(try store.load().days.count, 366)
     let snapshot = try store.load()
+    XCTAssertLessThanOrEqual(snapshot.days.count, 366)
+    XCTAssertLessThanOrEqual(snapshot.dailyDetails.count, 366)
     XCTAssertEqual(snapshot.total, 470)
-    XCTAssertEqual(snapshot.dailyDetails.count, 366)
-    XCTAssertEqual(snapshot.detail.characters["han"], 470)
-    XCTAssertEqual(snapshot.detail.sources["unknown"], 470)
+    XCTAssertEqual(snapshot.detail.characters["han"], snapshot.total)
+    XCTAssertEqual(snapshot.detail.sources["unknown"], snapshot.total)
   }
 
-  /// Retention prunes daily records older than the window and never the lifetime counts; it survives a reset like the pause does.
-  func testRetentionPrunesDailyRecordsButNotTheLifetimeCounts() throws {
+  /// Retention prunes daily records older than the window and deducts them from the running total and breakdown, as the source recomputes both from the retained days; it survives a reset like the pause does.
+  func testRetentionPrunesDailyRecordsAndDeductsThemFromTheTotals() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -112,8 +112,8 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(snapshot.retentionDays, 30)
     XCTAssertEqual(snapshot.days.keys.sorted(), ["2026-08-24", "2026-08-25", "2026-09-23"], "The shared store keeps the day 30 days back and everything after it")
     XCTAssertEqual(Set(snapshot.dailyDetails.keys), Set(snapshot.days.keys))
-    XCTAssertEqual(snapshot.total, 4)
-    XCTAssertEqual(snapshot.detail.characters["han"], 4)
+    XCTAssertEqual(snapshot.total, 3)
+    XCTAssertEqual(snapshot.detail.characters["han"], 3)
 
     // Recording applies the window from the day being recorded.
     try store.record("字", at: day(30), calendar: calendar)
@@ -223,6 +223,12 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(statistics.activity(todayKey: "2026-09-04").currentStreak, 1)
     XCTAssertEqual(statistics.activity(todayKey: "2026-09-05").currentStreak, 0)
     XCTAssertEqual(statistics.activity(todayKey: "2026-09-02").currentStreak, 3)
+
+    // A document pruned by an older build keeps a running total above its remaining day rows; the average divides the rows, as the shared page does.
+    let outlived = try JSONDecoder().decode(
+      TypingStatistics.self,
+      from: JSONSerialization.data(withJSONObject: ["total": 900, "days": ["2026-09-19": 200, "2026-09-20": 300]]))
+    XCTAssertEqual(outlived.activity(todayKey: "2026-09-21").averagePerDay, 250)
     XCTAssertNil(statistics.activity(todayKey: "2026-09-01").todayHours)
     XCTAssertFalse(TypingStatistics().activity(todayKey: "2026-09-01").hasActivity)
 

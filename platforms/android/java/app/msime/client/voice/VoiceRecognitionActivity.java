@@ -24,11 +24,7 @@ import java.util.concurrent.Executors;
 /**
  * Voice capture, by whichever engine the user's settings call for.
  *
- * <p>Two of them. Android's SpeechRecognizer owns the microphone itself and needs no account, no
- * token and no network of the user's choosing; it is what this activity uses when nothing has been
- * configured, and it stays the default. A user who configured a transcription provider has chosen
- * a different transcriber, and reaching it means holding the audio here and uploading it - that is
- * {@link HttpAsrRecognizer}.
+ * <p>Android's SpeechRecognizer owns the microphone itself and needs no account, no token and no network of the user's choosing; it is what this activity uses when nothing has been configured, and it stays the default. A user who configured a transcription provider has chosen a different transcriber, and reaching it means holding the audio here and uploading it - that is {@link HttpAsrRecognizer}, or {@link DoubaoRecognizer} for the streaming socket. A user who chose on-device recognition gets {@link LocalAsrRecognizer}: the installed model runs in this process and the audio never leaves the device.
  *
  * <p>Either way this activity persists only the bounded text result for the isolated IME process.
  */
@@ -50,13 +46,19 @@ public final class VoiceRecognitionActivity extends Activity {
     private static final String EXTRA_STREAM_PUNC = "app.msime.client.voice.STREAM_PUNC";
     private static final String EXTRA_STREAM_DDC = "app.msime.client.voice.STREAM_DDC";
     private static final String EXTRA_STREAM_BOOSTING = "app.msime.client.voice.STREAM_BOOSTING";
+    private static final String EXTRA_LOCAL_MODEL = "app.msime.client.voice.LOCAL_MODEL";
+    private static final String EXTRA_LOCAL_HOTWORD_TEXTS = "app.msime.client.voice.LOCAL_HOTWORD_TEXTS";
+    private static final String EXTRA_LOCAL_HOTWORD_PINYIN = "app.msime.client.voice.LOCAL_HOTWORD_PINYIN";
     private static volatile WeakReference<VoiceRecognitionActivity> active =
         new WeakReference<>(null);
     private static volatile String activeRequestId;
     private SpeechRecognizer recognizer;
     private HttpAsrRecognizer provider;
     private DoubaoRecognizer streaming;
+    private LocalAsrRecognizer local;
     private ExecutorService providerWorker;
+    private TextView recordingTitle;
+    private TextView recordingHint;
     private boolean stopping;
     private boolean finished;
 
@@ -95,6 +97,27 @@ public final class VoiceRecognitionActivity extends Activity {
     public static void launch(Context context, String requestId, String language,
                               String provider, String endpoint, String model, String token,
                               Streaming streaming, Polish polish) {
+        launch(context, requestId, language, provider, endpoint, model, token, streaming, polish,
+            null);
+    }
+
+    /**
+     * Launch with every engine this activity has. `localModel` is the installed model directory for on-device recognition, already resolved by the shared layer; when present it wins over the network settings, which the shared resolution leaves empty for provider `local` anyway.
+     */
+    public static void launch(Context context, String requestId, String language,
+                              String provider, String endpoint, String model, String token,
+                              Streaming streaming, Polish polish, String localModel) {
+        launch(context, requestId, language, provider, endpoint, model, token, streaming, polish,
+            localModel, null, null);
+    }
+
+    /**
+     * {@link #launch(Context, String, String, String, String, String, String, Streaming, Polish, String)} with the hotwords the shared layer already resolved for `localModel`: the Tauri request carries them as parallel `text` / `pinyin` arrays. Null reads them from the user's dictionary when the dictation starts.
+     */
+    public static void launch(Context context, String requestId, String language,
+                              String provider, String endpoint, String model, String token,
+                              Streaming streaming, Polish polish, String localModel,
+                              String[] localHotwordTexts, String[] localHotwordPinyin) {
         markLaunched(requestId);
         Intent intent = new Intent(context, VoiceRecognitionActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -104,6 +127,12 @@ public final class VoiceRecognitionActivity extends Activity {
         if (endpoint != null) intent.putExtra(EXTRA_ENDPOINT, endpoint);
         if (model != null) intent.putExtra(EXTRA_MODEL, model);
         if (token != null) intent.putExtra(EXTRA_TOKEN, token);
+        if (localModel != null) intent.putExtra(EXTRA_LOCAL_MODEL, localModel);
+        if (localModel != null && localHotwordTexts != null && localHotwordPinyin != null
+            && localHotwordTexts.length == localHotwordPinyin.length) {
+            intent.putExtra(EXTRA_LOCAL_HOTWORD_TEXTS, localHotwordTexts);
+            intent.putExtra(EXTRA_LOCAL_HOTWORD_PINYIN, localHotwordPinyin);
+        }
         if (streaming != null) {
             intent.putExtra(EXTRA_STREAM_ENDPOINT, streaming.endpoint());
             intent.putExtra(EXTRA_STREAM_HEADERS, streaming.headers());
@@ -128,7 +157,7 @@ public final class VoiceRecognitionActivity extends Activity {
         if (requestId != null) activeRequestId = requestId;
         // Only the platform recognizer needs the system service. A configured provider records
         // here, so a device without that service can still use voice input through one.
-        if (!usesStreaming() && !usesProvider() && !available(this)) {
+        if (!usesLocal() && !usesStreaming() && !usesProvider() && !available(this)) {
             fail("设备没有可用的系统语音识别服务");
             finish();
             return;
@@ -170,6 +199,11 @@ public final class VoiceRecognitionActivity extends Activity {
 
     @Override protected void onDestroy() {
         finished = true;
+        if (local != null) {
+            // Releases the microphone and stops a decode; the loaded model stays cached for the next dictation and is dropped after it has been idle (LocalAsrPolicy).
+            local.cancel();
+            local = null;
+        }
         if (streaming != null) {
             streaming.cancel();
             streaming = null;
@@ -200,6 +234,12 @@ public final class VoiceRecognitionActivity extends Activity {
         super.onDestroy();
     }
 
+    /** Whether this request is on-device recognition with an installed model directory. */
+    private boolean usesLocal() {
+        return LocalAsrPolicy.usable(LocalAsrPolicy.PROVIDER,
+            getIntent().getStringExtra(EXTRA_LOCAL_MODEL));
+    }
+
     /** Whether this request carries a provider configuration this host can actually speak. */
     /** Whether this request is the streaming protocol rather than an upload. */
     private boolean usesStreaming() {
@@ -215,6 +255,10 @@ public final class VoiceRecognitionActivity extends Activity {
 
     private void startRecognition() {
         if (finished) return;
+        if (usesLocal()) {
+            startLocalRecognition();
+            return;
+        }
         if (usesStreaming()) {
             startStreamingRecognition();
             return;
@@ -325,10 +369,12 @@ public final class VoiceRecognitionActivity extends Activity {
         int pad = Math.round(getResources().getDisplayMetrics().density * 20);
         root.setPadding(pad, pad, pad, pad);
         TextView title = new TextView(this);
+        recordingTitle = title;
         title.setText("正在录音");
         title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18);
         root.addView(title);
         TextView hint = new TextView(this);
+        recordingHint = hint;
         hint.setText("说完后点「完成」开始转写；「取消」会丢弃这次录音。");
         hint.setPadding(0, pad / 2, 0, pad);
         root.addView(hint);
@@ -346,13 +392,76 @@ public final class VoiceRecognitionActivity extends Activity {
         done.setOnClickListener(ignored -> {
             done.setEnabled(false);
             title.setText("正在转写");
-            hint.setText("正在把录音交给识别服务，请稍候。");
+            // Local recognition has already shown the text as it was spoken; keep it on screen while the last words are decoded rather than replacing it with a status line.
+            if (local == null) hint.setText("正在把录音交给识别服务，请稍候。");
             stopRecognition();
         });
         actions.addView(done);
         root.addView(actions, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(root);
+    }
+
+    /**
+     * Dictate with the installed on-device model, showing the text as it is recognised.
+     *
+     * <p>Everything runs on the worker: the first dictation after the model was dropped loads hundreds of megabytes from storage, and every one decodes while the user speaks. Hotwords are the ones the launcher resolved (the Tauri voice panel passes them in), otherwise read from the user's dictionary through the same runtime options the keyboard uses.
+     */
+    private void startLocalRecognition() {
+        if (local != null) return;
+        showRecordingControls();
+        recordingHint.setText("正在本机识别，音频不会离开设备。说完后点「完成」；「取消」会丢弃这次录音。");
+        LocalAsrRecognizer.watchMemory(this);
+        Intent intent = getIntent();
+        String modelDirectory = intent.getStringExtra(EXTRA_LOCAL_MODEL);
+        String language = intent.getStringExtra(EXTRA_LANGUAGE);
+        String[] hotwordTexts = intent.getStringArrayExtra(EXTRA_LOCAL_HOTWORD_TEXTS);
+        String[] hotwordPinyin = intent.getStringArrayExtra(EXTRA_LOCAL_HOTWORD_PINYIN);
+        File files = getFilesDir();
+        local = new LocalAsrRecognizer();
+        if (providerWorker == null) providerWorker = Executors.newSingleThreadExecutor();
+        LocalAsrRecognizer running = local;
+        providerWorker.execute(() -> {
+            String text = null;
+            String message = null;
+            try {
+                text = running.recognize(modelDirectory, language, runtimeOptions(files),
+                    hotwordTexts, hotwordPinyin,
+                    partial -> runOnUiThread(() -> {
+                        if (!finished && recordingHint != null) recordingHint.setText(partial);
+                    }));
+            } catch (LocalAsrRecognizer.Refused refused) {
+                message = switch (refused.failure()) {
+                    case PERMISSION -> "语音识别需要麦克风权限";
+                    case UNAVAILABLE -> "麦克风被其他应用占用";
+                    case MODEL -> "本地语音模型未安装或已损坏，请在设置中重新下载";
+                    case RUNTIME -> "本地语音识别组件无法加载";
+                    case EMPTY -> "没有听到内容";
+                    case CANCELLED -> null;
+                };
+            }
+            String finalMessage = message;
+            String polishedText = text == null ? null : polished(text);
+            runOnUiThread(() -> {
+                if (finished) return;
+                if (polishedText != null) saveResult(polishedText);
+                else if (finalMessage != null) fail(finalMessage);
+                finishRequest();
+            });
+        });
+    }
+
+    /** The runtime options document the keyboard's session uses, or empty when it is not ready. */
+    private static String runtimeOptions(File files) {
+        if (files == null) return "";
+        File options = new File(files, "runtime-options.json");
+        try {
+            if (!options.isFile() || options.length() > 16_384) return "";
+            return new String(java.nio.file.Files.readAllBytes(options.toPath()),
+                java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException error) {
+            return "";
+        }
     }
 
     private void startStreamingRecognition() {
@@ -384,6 +493,10 @@ public final class VoiceRecognitionActivity extends Activity {
     private void stopRecognition() {
         if (finished) return;
         stopping = true;
+        if (local != null) {
+            local.stop();
+            return;
+        }
         if (streaming != null) {
             streaming.stop();
             return;
@@ -398,6 +511,7 @@ public final class VoiceRecognitionActivity extends Activity {
     private void cancelRecognition() {
         if (finished) return;
         finished = true;
+        if (local != null) local.cancel();
         if (streaming != null) streaming.cancel();
         if (provider != null) provider.cancel();
         if (recognizer != null) recognizer.cancel();
@@ -411,6 +525,7 @@ public final class VoiceRecognitionActivity extends Activity {
         if (recognizer != null) recognizer.stopListening();
         if (provider != null) provider.stop();
         if (streaming != null) streaming.stop();
+        if (local != null) local.stop();
         clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
         finish();
     }

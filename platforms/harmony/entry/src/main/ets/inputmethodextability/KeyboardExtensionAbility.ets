@@ -742,6 +742,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         `${files}/engine.ready`)) {
       return;
     }
+    // Optional non-English candidate glosses, staged beside the resources where the Engine looks for them, on the same ordinary storage SQLite needs. A package built without them removes any an earlier one left; either way the keyboard still starts.
+    const glosses: string = `${this.context.resourceDir}/offline-glosses`;
+    if (fs.accessSync(glosses)) {
+      StagedResources.stage(glosses, `${files}/offline-glosses`, `${files}/offline-glosses.ready`);
+    } else {
+      StagedResources.unstage(`${files}/offline-glosses`, `${files}/offline-glosses.ready`);
+    }
     // The extension context knows the system colour mode; the view has no context of its own to ask.
     const systemDark: boolean =
       this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;

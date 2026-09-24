@@ -67,10 +67,10 @@ ANSWERED_BY: dict[str, str] = {
     "dictionary_manager": "crates/client-core/src/dictionary/import.rs",
     "dictionary_validation": "crates/client-core/src/dictionary/import.rs",
     "dictionary_page": "crates/engine-bridge/src/lib.rs",
-    # Settings application. A Tauri window here, so the reference's Win32 host, its splash and its
-    # launcher become the shell, the window background and the host-side launcher respectively.
-    "settings_app": "apps/desktop/src-tauri/src/lib.rs",
-    "settings_splash": "apps/desktop/src-tauri/src/lib.rs",
+    # Windows settings are a native WinUI 3 window. The shared Tauri shell remains the panel host,
+    # so its launcher is still part of the platform boundary but is no longer the settings product.
+    "settings_app": "platforms/windows/settings/main.cpp",
+    "settings_splash": "platforms/windows/settings/main.cpp",
     "emoji_panel_splash": "apps/desktop/src-tauri/src/panel_window.rs",
     "settings_launcher": "platforms/windows/src/system/ShellLauncher.cpp",
     "ime_config": "crates/client-core/src/preferences.rs",
@@ -128,7 +128,7 @@ ANSWERED_BY: dict[str, str] = {
     "defines": "platforms/windows/src/ipc/PipeMetadata.h",
     "client_fallback": "platforms/windows/tests/runtime/server_launch.cpp",
     # The reference's TSF-side statistics test. Its passthrough half is this test; its classification half is the `classify` tests in crates/client-core/src/typing_statistics.rs, where classification moved.
-    "statistics": "platforms/windows/tsf/tests/passthrough_statistics.cpp",
+    "statistics": "crates/client-core/src/typing_statistics.rs",
 }
 
 # Reference file stem -> why nothing here answers it. Each reason says what the user gets instead,
@@ -155,7 +155,7 @@ DELIBERATELY_ABSENT: dict[str, str] = {
     # Infrastructure with no counterpart because the surrounding design differs.
     "serial_task_queue": (
         "Serialises the reference settings window's background work onto one thread. The settings "
-        "window here is a Tauri application whose commands already run on its async runtime."
+        "window here is a native WinUI 3 application whose bounded host-api calls run on its UI thread."
     ),
 }
 

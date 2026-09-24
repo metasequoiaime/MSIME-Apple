@@ -74,4 +74,23 @@ inline std::vector<std::string> untranslated_texts(
   return pending;
 }
 
+// Adds a non-English offline dictionary's glosses to what the user's own translator answered for the same target.
+//
+// The precedence is the reverse of the English path above, and deliberately so: the shared translation query documents that an online answer outranks an installed dictionary for these targets, so the dictionary only fills the candidates left without a gloss. A text already answered keeps its online gloss and gets no second one, an entry with an empty gloss takes the dictionary's in place, and the dictionary's other texts follow the answers in its own order.
+inline void fill_offline_glosses(
+    std::vector<std::pair<std::string, std::string>> &answered,
+    const std::vector<std::pair<std::string, std::string>> &offline) {
+  for (const auto &entry : offline) {
+    if (entry.first.empty() || entry.second.empty())
+      continue;
+    const auto existing = std::find_if(
+        answered.begin(), answered.end(),
+        [&](const auto &item) { return item.first == entry.first; });
+    if (existing == answered.end())
+      answered.push_back(entry);
+    else if (existing->second.empty())
+      existing->second = entry.second;
+  }
+}
+
 } // namespace msime::windows

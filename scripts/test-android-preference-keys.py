@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Every switch the Android sheets render must write a key something still reads.
+
+`InputFeatureToggle` is a table of "preference key, default, label". Nothing checked that the key on
+the left was still live. `autocorrect` stopped being one: the shared crate split pinyin correction
+into the two nested `quanpin` fields and kept the old key only so older snapshots parse, documented
+as "no longer enables either correction type". The Android switch went on rendering it - checked,
+because the retired key still defaults to true - so the user saw 自动纠错 on, for a feature that was
+off and that this host offered no way to turn on. Writing the switch did nothing at all.
+
+Two questions per key, both of which `autocorrect` failed:
+
+1. Does the shared schema still declare it? A typo or a renamed field fails here.
+2. Does anything outside the schema file and outside tests read it? A key that only the schema
+   mentions is a key that parses and is then dropped on the floor, which is exactly what a retired
+   compatibility field looks like.
+
+The second is the one that matters and the one no other gate asks. It is deliberately crude - any
+reference counts - because the failure it is built for is a field with *zero* readers, and a
+stricter rule would start arguing about what counts as a read.
+"""
+import pathlib
+import re
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+TOGGLES = ROOT / "platforms/android/java/app/msime/client/settings/InputFeatureToggle.java"
+SCHEMA = ROOT / "crates/client-core/src/preferences.rs"
+
+# `NAME(Group.X, "key", default, "title", "description")`
+ENTRY = re.compile(r"^\s*[A-Z_]+\(Group\.[A-Z_]+,\s*\"([a-z0-9_]+)\"", re.MULTILINE)
+
+keys = ENTRY.findall(TOGGLES.read_text())
+if len(keys) < 5:
+    sys.exit(f"expected the Android toggle table to have entries, parsed {len(keys)}")
+
+schema = SCHEMA.read_text()
+failures = []
+for key in keys:
+    if not re.search(rf"^\s*pub {re.escape(key)}:", schema, re.MULTILINE):
+        failures.append(f"{key}: no `pub {key}:` field in {SCHEMA.relative_to(ROOT)}")
+        continue
+    # Any mention outside the schema file and outside test trees counts as a reader.
+    found = subprocess.run(
+        [
+            "rg", "-l", rf"\.{key}\b|\"{key}\"",
+            "--glob", "!**/tests/**", "--glob", "!**/tests.rs",
+            f"--glob=!{SCHEMA.relative_to(ROOT)}",
+            "crates", "apps",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if not found.stdout.strip():
+        failures.append(
+            f"{key}: declared in the schema and read by nothing - a retired key still on a switch"
+        )
+
+if failures:
+    for line in failures:
+        print(f"{TOGGLES.relative_to(ROOT)}: {line}")
+    sys.exit(
+        "an Android switch writes a preference key that no longer does anything; "
+        "point it at the live key or drop the row"
+    )
+
+print(f"android preference keys: {len(keys)} toggles, every key declared and read")

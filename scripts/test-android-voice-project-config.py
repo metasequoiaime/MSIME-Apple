@@ -119,6 +119,38 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("return polished == null ? text : polished;", activity)
         self.assertIn("return null;", polisher)
 
+    def test_on_device_recognition_keeps_the_audio_on_the_device(self):
+        """A user who chose provider `local` must get the installed model or an error, never the platform recognizer, and the model must run through the shared runtime rather than a copy."""
+        plugin = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoicePlugin.kt"
+        ).read_text()
+        activity = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+        ).read_text()
+        recognizer = (
+            ROOT / "platforms/android/java/app/msime/client/voice/LocalAsrRecognizer.java"
+        ).read_text()
+        service = (
+            ROOT / "platforms/android/java/app/msime/client/core/MSIMEInputService.java"
+        ).read_text()
+        jni = (ROOT / "platforms/android/native/client_jni.cpp").read_text()
+        build = (ROOT / "platforms/android/build-native.sh").read_text()
+
+        self.assertIn("LocalAsrPolicy.usable(it.provider, it.modelPath)", plugin)
+        self.assertIn("local == null && streaming == null && HttpAsrPolicy.usable(", plugin)
+        self.assertIn("configured.localModel()", service)
+        self.assertIn("startLocalRecognition()", activity)
+        self.assertIn("local.cancel()", activity)
+        # Decoding happens on the worker, never on the thread drawing the window.
+        self.assertIn("providerWorker.execute(", activity)
+        self.assertIn("NativeClient.localSpeechAccept(", recognizer)
+        self.assertIn("NativeClient.voiceHotwords(", recognizer)
+        self.assertIn("LocalAsrPolicy.IDLE_RELEASE_MILLIS", recognizer)
+        self.assertIn("msime::voice::LocalAsrSession", jni)
+        self.assertIn("msime_client_voice_hotwords", jni)
+        self.assertIn("shared/voice/LocalAsr.cpp", build)
+        self.assertIn("scripts/fetch_voice_runtime.py --platform android", build)
+
     def test_the_streaming_protocol_reaches_the_host_and_builds_no_frames_of_its_own(self):
         """Android has no platform WebSocket, so this host carries one for a single endpoint. What
         it must not carry is a second copy of the protocol: the frames and the authentication
@@ -138,7 +170,9 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("streaming == null && HttpAsrPolicy.usable(", plugin)
         self.assertIn("VoiceRecognitionActivity.Streaming(", plugin)
         self.assertIn("startStreamingRecognition()", activity)
-        self.assertIn("if (!usesStreaming() && !usesProvider() && !available(this))", activity)
+        self.assertIn(
+            "if (!usesLocal() && !usesStreaming() && !usesProvider() && !available(this))", activity
+        )
 
         # Frames come from the shared builders; nothing here encodes the protocol.
         self.assertIn("NativeClient.doubaoStartFrame(", recognizer)

@@ -47,7 +47,9 @@ REVIEWED: dict[str, str] = {
     "**installer:** 首次安装时询问云候选，不再默认静默联网": (
         "platforms/windows/installer/msime_setup.iss: CreateInputOptionPage after the licence "
         "page, skipped on upgrade, writing only [general].cloud_candidates of a config.toml this "
-        "install created."
+        "install created. macOS: platforms/macos/src/input/InputController.mm activateServer: "
+        "prompt (requestCloudCandidatesConsentIfNeeded) plus the MSIMEClientCloudCandidatesConsent "
+        "key in platforms/macos/src/settings/AppearancePreferences.mm, asked on a fresh profile only."
     ),
     "**installer:** include release PDB symbols": (
         "Packaging. platforms/windows/installer/Prepare-PackageFiles.ps1 collects what this "

@@ -325,6 +325,11 @@ mod ffi {
             user_data: &str,
             candidates: &[CandidateGlossInput],
         ) -> Result<Vec<String>>;
+        fn candidate_target_glosses(
+            database_path: &str,
+            target_language: &str,
+            candidates: &[CandidateGlossInput],
+        ) -> Result<Vec<String>>;
         fn save_candidate_gloss(
             user_data: &str,
             chinese_to_english: bool,
@@ -634,6 +639,22 @@ pub fn candidate_glosses_with_user(
     } else {
         ffi::candidate_glosses_with_user(resources, user_data, &candidates)
     }
+}
+
+/// Look up display-only glosses of Chinese candidates in one offline `zh-<lang>.db`. The result is parallel to `candidates`; a Latin, symbol or unknown candidate has an empty gloss. Fails when the file is missing, unreadable, or not the version and language asked for.
+pub fn candidate_target_glosses(
+    database_path: &str,
+    target_language: &str,
+    candidates: &[(String, u8)],
+) -> Result<Vec<String>, cxx::Exception> {
+    let candidates = candidates
+        .iter()
+        .map(|(text, source)| ffi::CandidateGlossInput {
+            text: text.clone(),
+            source: *source,
+        })
+        .collect::<Vec<_>>();
+    ffi::candidate_target_glosses(database_path, target_language, &candidates)
 }
 
 /// Apply Engine's shared handwriting candidate policy to provider results.
@@ -1027,6 +1048,61 @@ mod tests {
                 vec!["learned gloss"]
             );
         }
+    }
+
+    fn offline_gloss_database(path: &std::path::Path, language: &str, version: i32) {
+        let database = rusqlite::Connection::open(path).unwrap();
+        database
+            .execute_batch(&format!(
+                "CREATE TABLE zh_glosses(chinese TEXT PRIMARY KEY, gloss TEXT NOT NULL, source TEXT NOT NULL) WITHOUT ROWID;
+                 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+                 INSERT INTO meta VALUES('target_language', '{language}');
+                 INSERT INTO zh_glosses VALUES('猫', 'chat, chatte; félin', 'cat; cat');
+                 INSERT INTO zh_glosses VALUES('天', 'jour; ciel; firmament', 'day; sky; heaven');
+                 PRAGMA user_version = {version};"
+            ))
+            .unwrap();
+    }
+
+    #[test]
+    fn offline_target_glosses_answer_chinese_candidates_only() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("zh-fr.db");
+        offline_gloss_database(&path, "fr", 1);
+        let path = path.to_str().unwrap();
+        let candidates = vec![
+            ("猫".into(), 0),
+            ("天".into(), 0),
+            ("狗".into(), 0),
+            ("cat".into(), 4),
+            ("猫".into(), 6),
+        ];
+        // A third sense is cut by the same display rule as the English glosses; Latin candidates and emoji sources get nothing.
+        assert_eq!(
+            candidate_target_glosses(path, "fr", &candidates).unwrap(),
+            vec!["chat, chatte; félin", "jour; ciel", "", "", ""]
+        );
+    }
+
+    #[test]
+    fn offline_target_glosses_refuse_a_file_for_another_language_or_version() {
+        let directory = tempfile::tempdir().unwrap();
+        let candidates = vec![("猫".into(), 0)];
+        let renamed = directory.path().join("zh-ja.db");
+        offline_gloss_database(&renamed, "fr", 1);
+        assert!(candidate_target_glosses(renamed.to_str().unwrap(), "ja", &candidates).is_err());
+        let future = directory.path().join("zh-de.db");
+        offline_gloss_database(&future, "de", 2);
+        assert!(candidate_target_glosses(future.to_str().unwrap(), "de", &candidates).is_err());
+        let missing = directory.path().join("zh-ko.db");
+        assert!(candidate_target_glosses(missing.to_str().unwrap(), "ko", &candidates).is_err());
+        assert!(
+            !missing.exists(),
+            "a read-only open must not create the file"
+        );
+        let damaged = directory.path().join("zh-es.db");
+        std::fs::write(&damaged, "synthetic damaged database").unwrap();
+        assert!(candidate_target_glosses(damaged.to_str().unwrap(), "es", &candidates).is_err());
     }
 
     pub(super) fn options(root: &std::path::Path) -> EngineOptions {

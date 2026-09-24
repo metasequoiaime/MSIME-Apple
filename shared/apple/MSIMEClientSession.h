@@ -155,6 +155,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 + (nullable NSDictionary<NSString *, id> *)savePreferencesInDirectory:(NSString *)directory expectedRevision:(uint64_t)revision snapshot:(NSDictionary<NSString *, id> *)snapshot error:(NSError **)error;
 /// Read the complete shared snapshot, including its current revision.
 + (nullable NSDictionary<NSString *, id> *)loadPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
+/// Repair a preferences document that is not well-formed JSON after backing it up beside itself; see msime_client_recover_preferences. Returns {recovered, snapshot, backup_path?, backup_name?, salvaged?}. Blocks on disk: call off the main thread.
++ (nullable NSDictionary<NSString *, id> *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
 /// Start on main thread; disk/lock work runs in background, completion on main.
 - (void)reloadPreferencesDirectory:(NSString *)directory completion:(void (^)(NSDictionary * _Nullable result, NSError * _Nullable error))completion;
 - (BOOL)closeWithError:(NSError **)error;
