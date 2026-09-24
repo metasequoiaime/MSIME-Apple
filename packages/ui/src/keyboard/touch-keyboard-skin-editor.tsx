@@ -40,30 +40,33 @@ function boundedSkinName(value: string): string {
 
 async function boundedPhoto(file: File): Promise<string> {
   if (!file.type.startsWith("image/") || file.size > 20_000_000) throw new Error("invalid image");
-  const url = URL.createObjectURL(file);
-  try {
-    const image = new Image();
-    image.src = url;
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("image decode failed"));
-    });
-    if (!image.naturalWidth || !image.naturalHeight) throw new Error("empty image");
-    const scale = Math.min(1, 1024 / Math.max(image.naturalWidth, image.naturalHeight));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("canvas unavailable");
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    for (const quality of [0.8, 0.6, 0.4, 0.2]) {
-      const data = canvas.toDataURL("image/jpeg", quality).split(",")[1] ?? "";
-      if (Math.floor(data.length * 0.75) <= 512_000) return data;
-    }
-    throw new Error("image too large");
-  } finally {
-    URL.revokeObjectURL(url);
+  // A data: URL, not a blob: one: the settings CSP is `img-src 'self' data:`, which WebKitGTK
+  // enforces, so a blob: source never loads there and every photo read as undecodable.
+  const url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("image read failed"));
+    reader.readAsDataURL(file);
+  });
+  const image = new Image();
+  image.src = url;
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("image decode failed"));
+  });
+  if (!image.naturalWidth || !image.naturalHeight) throw new Error("empty image");
+  const scale = Math.min(1, 1024 / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("canvas unavailable");
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  for (const quality of [0.8, 0.6, 0.4, 0.2]) {
+    const data = canvas.toDataURL("image/jpeg", quality).split(",")[1] ?? "";
+    if (Math.floor(data.length * 0.75) <= 512_000) return data;
   }
+  throw new Error("image too large");
 }
 
 async function boundedArtwork(artwork: AiSkinProposal["artwork"]): Promise<string> {
