@@ -82,6 +82,11 @@ docker run --rm --init \
       crate_roots+=(msime-desktop:tauri/custom-protocol)
     fi
     python3 platforms/linux/collect-notices.py cargo /build/notices/rust-crates-NOTICES.txt "${crate_roots[@]}"
+    # Non-English candidate glosses from scripts/fetch_offline_glosses.py, installed only when the databases and their NOTICE are both there; without them the package glosses offline in English only.
+    glosses_args=()
+    if compgen -G "target/offline-glosses/zh-*.db" >/dev/null && [ -f target/offline-glosses/offline-glosses-NOTICE.txt ]; then
+      glosses_args=(-DMSIME_OFFLINE_GLOSSES=/source/target/offline-glosses)
+    fi
     # Configure from scratch every time: a cached MSIME_DESKTOP_BINARY or version from an earlier run must not leak into this package.
     rm -rf /build/cmake /build/dist
     cmake -S platforms/linux -B /build/cmake -G Ninja \
@@ -92,7 +97,7 @@ docker run --rm --init \
       -DMSIME_HOST_LIBRARY=/build/cargo/release/libmsime_host_api.so \
       -DMSIME_PACKAGE_VERSION="$MSIME_VERSION" \
       -DMSIME_RUST_NOTICES=/build/notices/rust-crates-NOTICES.txt \
-      "${desktop_args[@]}"
+      "${desktop_args[@]}" "${glosses_args[@]}"
     cmake --build /build/cmake
     ctest --test-dir /build/cmake --output-on-failure
     cpack --config /build/cmake/CPackConfig.cmake -G "TGZ;DEB" -B /build/dist

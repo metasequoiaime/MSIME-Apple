@@ -11,5 +11,54 @@
     "size": 506832713
   },
   "sqlite_version": "3.50.4",
-  "artifacts": []
+  "artifacts": [
+    {
+      "name": "zh-fr.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/offline-glosses-2026.09.02/zh-fr.db",
+      "sha256": "bfeb5c22776c5a487852c016671f8229e1f307a52b96d5d5079195de9c6137df",
+      "size": 1396736
+    },
+    {
+      "name": "zh-ja.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/offline-glosses-2026.09.02/zh-ja.db",
+      "sha256": "7fe531fe8dbe49d4b18fdc4d290408f096248264ca6739ae9de39c334af44c40",
+      "size": 1265664
+    },
+    {
+      "name": "zh-es.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/offline-glosses-2026.09.02/zh-es.db",
+      "sha256": "42e13e8cd8997fb532ec37f2af593ce3476240a807a180e45586d5958e60845e",
+      "size": 1372160
+    },
+    {
+      "name": "zh-ru.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/offline-glosses-2026.09.02/zh-ru.db",
+      "sha256": "af322f6f2b077c18eef355743c15b7ba238cbc9a9b4c3b2f2611f8e233d865e1",
+      "size": 1990656
+    },
+    {
+      "name": "zh-de.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/offline-glosses-2026.09.02/zh-de.db",
+      "sha256": "24ca0dd31dd5a27a7eb659bbe229eb1f1375d8f67d9e3d2cc9b5105a4ab72c93",
+      "size": 1466368
+    },
+    {
+      "name": "zh-ko.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/offline-glosses-2026.09.02/zh-ko.db",
+      "sha256": "142b49a857fc66da74151f9e9fe2fa036917c28a1b74985d90d78d5ce570a7fa",
+      "size": 913408
+    },
+    {
+      "name": "offline-glosses-NOTICE.txt",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/offline-glosses-2026.09.02/offline-glosses-NOTICE.txt",
+      "sha256": "420b42239b8429735290d274393c60cca85c31ef4824506b495445f7598a5fa1",
+      "size": 1297
+    }
+  ],
+  "filtered_input": {
+    "name": "offline-glosses-input-2026.09.02.jsonl.gz",
+    "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/offline-glosses-2026.09.02/offline-glosses-input-2026.09.02.jsonl.gz",
+    "sha256": "47056367f0bd36f405fc4e60c17f3f2e2e8a4202574c625347cf947afd6735e3",
+    "size": 7951274
+  }
 }

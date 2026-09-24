@@ -128,10 +128,14 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 | 许可 | CC BY-SA 4.0（维基词典按 CC BY-SA 4.0 与 GFDL 双许可，这里取前者）。CC BY-SA 4.0 可单向兼容到 GPL-3.0 |
 | 生成器 | `scripts/build_offline_glosses.py`，只用 Python 标准库；离线测试 `scripts/test-offline-glosses.py` 用真实结构的夹具 `scripts/offline-glosses-fixture.jsonl` |
 | 产物 | `offline-glosses/zh-<lang>.db`，每种语言一个文件，外加 `offline-glosses-NOTICE.txt` |
-| 取词范围 | 同一张译文表（同一个英文义项）里的 Mandarin 行与目标语言行配对；只读顶层 `translations`；键为简体，用 `msime.db` 的词表校验；每个中文词最多两个义项、每个义项最多两个词 |
-| 锁 | `resources/offline-glosses.lock.json`。发布前 `artifacts` 为空，`input` 各项为 `null` |
+| 取词范围 | 同一张译文表（同一个英文义项）里的 Mandarin 行与目标语言行配对；读 `senses[].translations` 和顶层 `translations`；键为简体，用 `msime.db` 的词表校验；每个中文词最多两个义项、每个义项最多两个词 |
+| 锁 | `resources/offline-glosses.lock.json`：`input` 是 kaikki dump，`filtered_input` 是生成时实际读的过滤后 jsonl，`artifacts` 是六个数据库和 NOTICE |
+| 发布位置 | [`metasequoiaime/chinese-ime-lm` 的 `offline-glosses-2026.09.02`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/offline-glosses-2026.09.02)，与整句重排模型同一个仓库，不在应用内更新检查读取的 `metasequoiaime/msime/releases` |
+| 获取 | `scripts/fetch_offline_glosses.py` 按锁下载并校验 sha256 与大小，默认写到 `target/offline-glosses` |
 
-**产物尚未发布，也还没有任何宿主读取它。** 共享层已经能用：`msime_client_candidate_gloss_request` 接受 `target_language`，翻译查询里的 `offline_gloss_languages` 列出已安装的语言。发布前还需要做三件事：一是用固定的 kaikki dump 生成六个文件和过滤后的 jsonl；二是把它们连同 NOTICE 发到不被应用内更新检查读取的 release（不要发到 `metasequoiaime/msime/releases`）；三是把 url、sha256、size、dump 日期、Wiktextract 版本和生成时的 SQLite 版本回填到锁里。kaikki 每周覆盖同一个 URL，所以能复现构建的是过滤后的 jsonl，它也要作为 artifact 锁定。上游已把 postprocessed 的 English jsonl 标为 deprecated，将来可能只剩约 2.9 GB 的 raw dump；生成器两种格式都接受。
+Android、iOS、Windows 与 Linux 的发布工作流在打包前运行 `fetch_offline_glosses.py`，各自的打包脚本发现 `target/offline-glosses` 里有数据库和 NOTICE 时才带上它们。macOS 与 HarmonyOS 的发布包目前不带：macOS 和整句重排模型一样只在本地暂存，HarmonyOS 的发布工作流不暂存资源。本地构建同样先运行这个脚本，不运行则照常构建、只有英语走离线释义。
+
+kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`，用它加上锁住的 `msime.db` 与 `english.db` 运行 `build_offline_glosses.py build`（`--dump-date`、`--source-revision` 取锁里的值）即可得到逐字节相同的数据库，前提是 SQLite 版本与锁里的 `sqlite_version` 一致。上游已把 postprocessed 的 English jsonl 标为 deprecated，将来可能只剩约 2.9 GB 的 raw dump；生成器两种格式都接受。
 
 **放在 resources 的兄弟目录 `offline-glosses/`**，不放进去，理由与 `settled-model`、`wordbooks` 相同：资源目录必须和词库锁逐字节一致，而且各平台只想带自己需要的语言。
 
