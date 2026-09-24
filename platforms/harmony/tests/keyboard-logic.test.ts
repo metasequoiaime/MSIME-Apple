@@ -475,6 +475,36 @@ group("merges translation rows without unbounded display growth", () => {
   check(entries[0].translation === "hello / greeting", "oversized glosses are ignored");
 });
 
+group("offline dictionaries fill only what the user's own translator left", () => {
+  const query: TranslationQuery = {
+    generation: 3,
+    target_language: "en",
+    target_languages: ["ja", "fr"],
+    candidates: [{ text: "你好" }, { text: "世界" }],
+    english_gloss: true,
+    offline_gloss_languages: ["en", "fr", "de"],
+  };
+  check(
+    TranslationPolicy.offlineTargets(query).join(",") === "fr",
+    "only installed non-English targets are read offline",
+  );
+  check(
+    TranslationPolicy.offlineTargets({ ...query, offline_gloss_languages: undefined }).length === 0,
+    "a query without installed dictionaries reads none",
+  );
+  const answered: TranslationEntry[] = [{ text: "你好", translation: "salut" }];
+  TranslationPolicy.fill(answered, [
+    { text: "你好", translation: "bonjour" },
+    { text: "世界", translation: "monde" },
+  ]);
+  check(
+    answered.length === 2 &&
+      answered[0].translation === "salut" &&
+      answered[1].translation === "monde",
+    "the online answer stays and the dictionary fills the unanswered candidate",
+  );
+});
+
 group("bounds native speech language, session and result text", () => {
   check(VoiceRecognitionPolicy.language("  ") === "zh-CN", "voice defaults to Chinese");
   check(VoiceRecognitionPolicy.language("x".repeat(100)).length <= 32, "voice language is bounded");
@@ -2418,11 +2448,11 @@ group("candidate gloss layout follows both independent switches before answers a
     "online translations do not depend on the packaged English gloss switch",
   );
   check(
-    CandidateGlossLayoutPolicy.rows(true, ["ja", "en"], false, none) === 1,
+    CandidateGlossLayoutPolicy.rows(true, ["ja", "en"], false, none, []) === 1,
     "an English secondary target reserves the packaged gloss line",
   );
   check(
-    CandidateGlossLayoutPolicy.rows(true, ["ja"], false, none) === 0,
+    CandidateGlossLayoutPolicy.rows(true, ["ja"], false, none, []) === 0,
     "the English dictionary does not reserve a wrong-language line",
   );
   const custom: CandidateGlossProviderState = {
@@ -2431,7 +2461,7 @@ group("candidate gloss layout follows both independent switches before answers a
     customEndpoint: "https://translation.example.invalid",
   };
   check(
-    CandidateGlossLayoutPolicy.rows(false, ["ja"], true, custom) === 1,
+    CandidateGlossLayoutPolicy.rows(false, ["ja"], true, custom, []) === 1,
     "a usable online provider reserves one merged Harmony gloss line",
   );
   const placeholder: CandidateGlossProviderState = {
@@ -2441,8 +2471,20 @@ group("candidate gloss layout follows both independent switches before answers a
     tencentSecretKey: "FAKESECRET_fixture",
   };
   check(
-    CandidateGlossLayoutPolicy.rows(false, ["en"], true, placeholder) === 0,
+    CandidateGlossLayoutPolicy.rows(false, ["en"], true, placeholder, []) === 0,
     "placeholder credentials do not leave a permanently empty row",
+  );
+  check(
+    CandidateGlossLayoutPolicy.rows(false, ["ja"], true, none, ["ja"]) === 1,
+    "an installed Japanese dictionary reserves the line without an online provider",
+  );
+  check(
+    CandidateGlossLayoutPolicy.rows(true, ["ja"], false, none, ["ja"]) === 1,
+    "the offline gloss switch alone reaches an installed dictionary",
+  );
+  check(
+    CandidateGlossLayoutPolicy.rows(false, ["ja"], false, none, ["ja"]) === 0,
+    "both switches off reserve nothing even with a dictionary installed",
   );
 });
 

@@ -58,6 +58,20 @@ export class StagedResources {
     }
   }
 
+  /** Removes a staged directory and its marker, for resources the installed package no longer carries. */
+  static unstage(destination: string, marker: string): void {
+    try {
+      if (fs.accessSync(marker)) {
+        fs.unlinkSync(marker);
+      }
+      if (fs.accessSync(destination)) {
+        fs.rmdirSync(destination);
+      }
+    } catch (error) {
+      KeyboardLog.error(`unstaging failed: ${describeError(error)}`);
+    }
+  }
+
   private static readMarker(marker: string): string | null {
     try {
       return fs.accessSync(marker) ? fs.readTextSync(marker) : null;
