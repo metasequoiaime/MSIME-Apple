@@ -108,7 +108,7 @@ int main(int argc, char **argv) {
     if (msime::linux_host::refresh_runtime_options(options_path))
       std::cerr << "Dictionary updated to the installed generation\n";
   } catch (const msime::linux_host::DictionaryOutdated &) {
-    std::cerr << "Installed dictionaries are older than this version; keeping the current ones. Run msime-client-setup --update --download\n";
+    std::cerr << "Installed dictionaries are older than this version; keeping the current ones. Run msime-linux-setup --update --download\n";
     notify_dictionary_outdated();
   } catch (...) {
     std::cerr << "Cannot update the dictionary to the installed generation; keeping the current one\n";

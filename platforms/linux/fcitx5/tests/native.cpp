@@ -117,7 +117,7 @@ void modeBadgeTheme() {
   require(!fcitx_mode_badge_light_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false),
           "an explicit dark candidate theme wins");
 }
-// classicui's options belong to every input method, so the first takeover records what it replaced for msime-client-setup --unregister, and a later write keeps that value while the option still holds MSIME's. Runs against a scratch XDG_STATE_HOME before the resource fixture; the fixture instance does not load classicui, so this drives the recording step the addon's writes go through.
+// classicui's options belong to every input method, so the first takeover records what it replaced for msime-linux-setup --unregister, and a later write keeps that value while the option still holds MSIME's. Runs against a scratch XDG_STATE_HOME before the resource fixture; the fixture instance does not load classicui, so this drives the recording step the addon's writes go through.
 void classicuiTakeoverRecord() {
   char temporary[] = "/tmp/msime-fcitx5-restore-XXXXXX";
   const auto *directory = mkdtemp(temporary);

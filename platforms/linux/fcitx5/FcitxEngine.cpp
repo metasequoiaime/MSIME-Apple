@@ -4649,7 +4649,7 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
-// classicui's options are shared by every input method, so before one changes, the value it replaces is recorded for msime-client-setup --unregister to put back (see PanelRestoreRecord.h). A failed record does not hold the change back.
+// classicui's options are shared by every input method, so before one changes, the value it replaces is recorded for msime-linux-setup --unregister to put back (see PanelRestoreRecord.h). A failed record does not hold the change back.
 void record_classicui_takeover(const fcitx::RawConfig &current, const fcitx::RawConfig &written) {
   const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
   if (!file) return;

@@ -31,6 +31,8 @@ def respond(url, timeout, body=None, token=None, extra_headers=None):
         return {"Response": {"TargetTextList": ["synthetic tencent"]}}
     if url == NIUTRANS:
         return {"tgtText": "synthetic niutrans"}
+    if url == "https://api.msime.app/v1/translate":
+        return {"code": 200, "data": ["synthetic account"]}
     return {"data": "synthetic custom"}
 
 
@@ -85,6 +87,51 @@ class TranslationProviderSelection(unittest.TestCase):
                 result, urls = self.contacted(query)
                 self.assertEqual(result, [{"text": "测试", "translation": translation}])
                 self.assertEqual(urls, [expected])
+
+    def test_explicit_account_selection_uses_the_account_endpoint(self):
+        self.server.anonymous_account_path = None
+        self.server.anonymous_session_path = None
+        self.server.anonymous_lock = threading.Lock()
+        with mock.patch.object(provider, "anonymous_access_token", return_value="a" * 64):
+            result, urls = self.contacted({"provider": "none", "translation_account": True})
+        self.assertEqual(result, [{"text": "测试", "translation": "synthetic account"}])
+        self.assertEqual(urls, ["https://api.msime.app/v1/translate"])
+
+    def test_account_identity_is_generated_owner_only_and_stable(self):
+        with tempfile.TemporaryDirectory(prefix="msime-anonymous-account-") as directory:
+            path = Path(directory) / "anonymous-account.json"
+            server = SimpleNamespace(anonymous_account_path=path)
+            first = provider._anonymous_identity(server)
+            self.assertIsNotNone(first)
+            self.assertRegex(first[0], r"^msime-[a-z0-9]{16}$")
+            self.assertRegex(first[1], r"^[a-z0-9]{48}$")
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(provider._anonymous_identity(server), first)
+
+    def test_account_token_is_created_and_cached_without_exposing_the_secret(self):
+        with tempfile.TemporaryDirectory(prefix="msime-anonymous-session-") as directory:
+            root = Path(directory)
+            server = SimpleNamespace(
+                anonymous_account_path=root / "anonymous-account.json",
+                anonymous_session_path=root / "anonymous-session.json",
+                anonymous_lock=threading.Lock(),
+            )
+            tokens = {
+                "access_token": "a" * 64,
+                "refresh_token": "b" * 64,
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "user": {"id": "synthetic-user"},
+            }
+            with mock.patch.object(provider, "fetch", side_effect=[
+                {"challenge_id": "synthetic-challenge"}, tokens,
+            ]) as fetch:
+                self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+                self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual((root / "anonymous-account.json").stat().st_mode & 0o777, 0o600)
+            self.assertEqual((root / "anonymous-session.json").stat().st_mode & 0o777, 0o600)
+            self.assertNotIn("secret", (root / "anonymous-session.json").read_text())
 
     def test_query_from_an_older_host_keeps_its_choice(self):
         # Hosts that predate the provider field sent only the usable block, with Tencent as the remaining default.

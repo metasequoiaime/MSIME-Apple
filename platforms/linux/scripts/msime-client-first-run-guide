@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# Called by the IBus launcher and the Fcitx5 addon when MSIME is selected before first-run setup has published any runtime-options.json. It opens the settings window, which shows its first-run page while that file is missing, and posts a desktop notification. It never prepares state and never downloads anything: the first-run page and msime-client-setup only fetch dictionaries when the user asks for it.
+# Called by the IBus launcher and the Fcitx5 addon when MSIME is selected before first-run setup has published any runtime-options.json. It opens the settings window, which shows its first-run page while that file is missing, and posts a desktop notification. It never prepares state and never downloads anything: the first-run page and msime-linux-setup only fetch dictionaries when the user asks for it.
 #
-# Both frontends may call this repeatedly: ibus-daemon starts the component again every time the engine is selected, and Fcitx5 activates the input method on every focus change. A stamp outside the state directory limits the guidance to once per login session across both frontends; a window that keeps reappearing while the user types elsewhere is worse than none. The state directory itself is never created here, because msime-client-setup refuses to prepare a directory that already exists.
+# Both frontends may call this repeatedly: ibus-daemon starts the component again every time the engine is selected, and Fcitx5 activates the input method on every focus change. A stamp outside the state directory limits the guidance to once per login session across both frontends; a window that keeps reappearing while the user types elsewhere is worse than none. The state directory itself is never created here, because msime-linux-setup refuses to prepare a directory that already exists.
 #
 # The same hosts also call it with --reason dictionary-outdated when the runtime options refresh at startup finds that the dictionaries the user downloaded are older than the installed version. A package upgrade replaces the dictionary lock but not downloaded dictionaries, so the host keeps the previous generation and this only posts a notification naming the command that fetches the new ones; it opens no window. That reason keeps its own stamp, so being told about an outdated dictionary never uses up the first-run guidance or the other way round.
 #
@@ -84,7 +84,7 @@ detach() {
 if [ "$reason" = dictionary-outdated ]; then
   if command -v notify-send >/dev/null 2>&1; then
     detach notify-send -a "水杉输入法" -i msime-client "水杉输入法词库需要更新" \
-      "已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-client-setup --update --download 取回新词库并切换，用户词库会一并迁移。"
+      "已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-linux-setup --update --download 取回新词库并切换，用户词库会一并迁移。"
   fi
   exit 0
 fi
@@ -109,6 +109,10 @@ if [ -z "$settings" ]; then
     settings=msime-client-settings
   fi
 fi
+# A stale explicit override must not make the guide claim that a settings window opened.
+if [ -n "$settings" ] && [ ! -x "$settings" ]; then
+  settings=
+fi
 
 # What to do once setup is done differs per host. Fcitx5 retries the options on the next key or focus change, so nothing more is needed. The IBus component has already exited and ibus-daemon only starts it again when the engine is selected anew, so the user has to switch away and back; ibus restart is the fallback when the daemon still holds the failed engine. The launcher's crash supervisor does not help here: without a readable configuration the launcher exits before it starts supervising, and a restart could not read the configuration either.
 case "$host" in
@@ -122,7 +126,7 @@ if [ -n "$settings" ]; then
   detach env -u MSIME_CLIENT_PANEL -u MSIME_CLIENT_ROUTE -u MSIME_CLIENT_SETTINGS_PAGE "$settings"
   body="已打开「水杉输入法」设置，请在首次配置页完成配置。$resume"
 else
-  body="请在终端运行 msime-client-setup 完成首次配置。$resume"
+  body="请在终端运行 msime-linux-setup 完成首次配置。$resume"
 fi
 
 if command -v notify-send >/dev/null 2>&1; then

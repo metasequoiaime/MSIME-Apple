@@ -771,7 +771,7 @@ pub(crate) fn clear_voice_in(
     write_private(&path, Some(&Value::Object(document)))
 }
 
-/// Enable the voice socket unit, clearing a failed earlier start so the next connection tries again. The unit is never disabled from here: without any credential the service still serves on-device recognition, and `msime-client-setup` enables it for that reason.
+/// Enable the voice socket unit, clearing a failed earlier start so the next connection tries again. The unit is never disabled from here: without any credential the service still serves on-device recognition, and `msime-linux-setup` enables it for that reason.
 pub(crate) fn enable_voice_service() -> bool {
     let systemctl = |arguments: &[&str]| {
         std::process::Command::new("systemctl")

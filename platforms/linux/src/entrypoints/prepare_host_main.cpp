@@ -50,6 +50,31 @@ bool publish(const std::filesystem::path &state, const std::string &document) {
   return fsync(directory.value) == 0 && success && removed;
 }
 
+bool installer_account_state(const std::filesystem::path &state) {
+  struct stat directory {};
+  if (lstat(state.c_str(), &directory) != 0 || !S_ISDIR(directory.st_mode) ||
+      directory.st_uid != geteuid() || (directory.st_mode & 0077) != 0) {
+    return false;
+  }
+  bool found = false;
+  std::error_code error;
+  for (const auto &entry : std::filesystem::directory_iterator(state, error)) {
+    if (error || entry.is_symlink(error) || error ||
+        (entry.path().filename() != "anonymous-account.json" &&
+         entry.path().filename() != "anonymous-session.json") ||
+        !entry.is_regular_file(error) || error) {
+      return false;
+    }
+    struct stat file {};
+    if (lstat(entry.path().c_str(), &file) != 0 || file.st_uid != geteuid() ||
+        (file.st_mode & 0077) != 0) {
+      return false;
+    }
+    found = true;
+  }
+  return !error && found;
+}
+
 using Owned = std::unique_ptr<char, decltype(&msime_client_string_free)>;
 
 nlohmann::json value_of(Owned raw) {
@@ -59,7 +84,7 @@ nlohmann::json value_of(Owned raw) {
   return result.at("value");
 }
 
-// msime-client-setup --update runs this once it has dictionaries matching the installed lock (staged in a new directory beside the recorded one, named in a copy of the options it publishes only after this succeeds) and the quiesce lease has closed both hosts' sessions: the same refresh the input method hosts run at startup, so the new generation is prepared and the user dictionary replayed into it the way the Windows installer replays it after an upgrade, without waiting for the next host start. Exit 3 is the one failure setup can explain itself: the recorded dictionaries still do not match this version.
+// msime-linux-setup --update runs this once it has dictionaries matching the installed lock (staged in a new directory beside the recorded one, named in a copy of the options it publishes only after this succeeds) and the quiesce lease has closed both hosts' sessions: the same refresh the input method hosts run at startup, so the new generation is prepared and the user dictionary replayed into it the way the Windows installer replays it after an upgrade, without waiting for the next host start. Exit 3 is the one failure setup can explain itself: the recorded dictionaries still do not match this version.
 int refresh(const std::filesystem::path &options) {
   if (!options.is_absolute()) {
     std::cerr << "The runtime options path must be absolute\n";
@@ -102,7 +127,7 @@ int main(int argc, char **argv) {
     std::cout << "Usage: msime-client-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
                  "       msime-client-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
                  "       msime-client-prepare --refresh <absolute-runtime-options.json>\n"
-                 "The state directory must not exist; its parent must exist.\n"
+                 "The state directory must not exist (except for installer-created anonymous account files); its parent must exist.\n"
                  "--installed uses the resource bundle installed beside this executable.\n"
                  "--no-cloud-candidates turns cloud candidates off in the new preferences.\n"
                  "Prints the new runtime-options.json path on success.\n"
@@ -152,7 +177,7 @@ int main(int argc, char **argv) {
                                        {"state_root", state.string()}}).dump();
     if (request.size() > 16384) return 2;
     umask(0077);
-    if (mkdir(state.c_str(), 0700) != 0) {
+    if (mkdir(state.c_str(), 0700) != 0 && (errno != EEXIST || !installer_account_state(state))) {
       std::cerr << "Cannot create a fresh state directory; existing state is never replaced\n";
       return 1;
     }

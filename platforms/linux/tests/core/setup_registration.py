@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""msime-client-setup 在状态目录就绪后把输入法加入正在运行的宿主的输入法列表，--unregister 在卸载时把它从这些列表里移除。
+"""msime-linux-setup 在状态目录就绪后把输入法加入正在运行的宿主的输入法列表，--unregister 在卸载时把它从这些列表里移除。
 
 用桩代替 pgrep、gdbus、gsettings、ibus、systemctl 和 msime-client-prepare：桩把收到的调用记进日志，把 Fcitx5 输入法组、dconf 设置和 IBus 已知的引擎存在一份 JSON 里。不需要词库、不联网，也不碰真实的 D-Bus 会话或 dconf。
 """
@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts/msime-client-setup"
+SCRIPT = ROOT / "scripts/msime-linux-setup"
 
 # One stub serves every tool; it dispatches on the name it was invoked as. Arguments the setup script writes are Python literals once GVariant's text form is read back, so the stub parses them with ast rather than reusing the code under test.
 STUB = r'''#!/usr/bin/env python3
@@ -157,7 +157,7 @@ class Harness:
         self.scratch = scratch
         prefix = scratch / "prefix"
         (prefix / "bin").mkdir(parents=True)
-        self.setup = prefix / "bin/msime-client-setup"
+        self.setup = prefix / "bin/msime-linux-setup"
         self.setup.write_text(SCRIPT.read_text())
         self.setup.chmod(0o755)
         tools = scratch / "tools"
@@ -227,7 +227,7 @@ class Harness:
         return result
 
     def run(self, *extra: str) -> subprocess.CompletedProcess:
-        # msime-client-setup refuses to prepare a directory that exists, so every run gets a fresh one.
+        # msime-linux-setup refuses to prepare a directory that exists, so every run gets a fresh one.
         self.runs += 1
         state = self.scratch / f"state-{self.runs}"
         result = subprocess.run(

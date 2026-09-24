@@ -218,6 +218,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
                 target_language: "en".into(),
                 candidates: vec![format!("safe{control}")],
                 provider: None,
+                translation_account: false,
                 custom_translation: None,
                 niutrans: None,
             })
@@ -258,6 +259,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
         target_language: "en".into(),
         candidates: vec!["safe".into()],
         provider: None,
+        translation_account: false,
         custom_translation: None,
         niutrans: None,
     };
@@ -278,6 +280,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
 fn translation_query_carries_the_selected_service() {
     for (service, name) in [
         (TranslationService::Off, "none"),
+        (TranslationService::Account, "account"),
         (TranslationService::Tencent, "tencent"),
         (TranslationService::NiuTrans, "niutrans"),
         (TranslationService::Custom, "custom"),
@@ -299,6 +302,18 @@ fn translation_query_carries_the_selected_service() {
         json!({"generation": 1, "candidates": ["中"], "provider": "deepl"})
     )
     .is_err());
+    let account: TranslationQuery = serde_json::from_value(json!({
+        "generation": 1,
+        "candidates": ["中"],
+        "provider": "none",
+        "translation_account": true
+    }))
+    .unwrap();
+    assert!(account.translation_account);
+    assert_eq!(
+        serde_json::to_value(account).unwrap()["translation_account"],
+        true
+    );
 }
 
 #[cfg(unix)]
@@ -313,6 +328,7 @@ fn translation_switched_off_never_reaches_the_provider() {
         target_language: "en".into(),
         candidates: vec!["中".into()],
         provider: Some(TranslationService::Off),
+        translation_account: false,
         custom_translation: None,
         niutrans: None,
     };

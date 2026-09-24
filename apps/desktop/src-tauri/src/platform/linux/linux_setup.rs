@@ -1,6 +1,6 @@
 //! First-run preparation from the settings window.
 //!
-//! The packaged `msime-client-setup` script owns the whole preparation: it verifies the dictionary lock, optionally downloads what is missing, runs `msime-client-prepare`, enables the user units and adds the input method to the running Fcitx5 or IBus input method list, falling back to printing the manual steps. This module only locates that script, runs it for the state directory this window already reads, and streams its output to the page, so the terminal and the graphical paths cannot drift apart.
+//! The packaged `msime-linux-setup` script owns the whole preparation: it verifies the dictionary lock, optionally downloads what is missing, runs `msime-client-prepare`, enables the user units and adds the input method to the running Fcitx5 or IBus input method list, falling back to printing the manual steps. This module only locates that script, runs it for the state directory this window already reads, and streams its output to the page, so the terminal and the graphical paths cannot drift apart.
 use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::io::{BufRead, BufReader, Read};
@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::RuntimeOptionsState;
 
-const SETUP_PROGRAM: &str = "msime-client-setup";
+const SETUP_PROGRAM: &str = "msime-linux-setup";
 /// The first download is about 170 MB; a stalled mirror must still end the run rather than leave the page busy forever.
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_LINE_BYTES: usize = 2048;
@@ -300,7 +300,7 @@ mod tests {
     fn status_distinguishes_missing_prepared_and_occupied_state() {
         let root = scratch("status");
         let options = root.join("msime-client/runtime-options.json");
-        let program = Path::new("/usr/bin/msime-client-setup");
+        let program = Path::new("/usr/bin/msime-linux-setup");
         let missing = status_for(Some(&options), None);
         assert!(!missing.prepared && !missing.directory_occupied && !missing.setup_available);
         std::fs::create_dir_all(options.parent().unwrap()).unwrap();

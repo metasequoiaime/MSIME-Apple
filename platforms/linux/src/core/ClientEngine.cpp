@@ -114,7 +114,7 @@ void publish_candidate_panel_status() {
                                                           : msime::linux_host::CandidatePanelLimit::None));
 }
 
-// The panel keys are the desktop's, so before one changes, what it held is recorded for msime-client-setup --unregister (see PanelRestoreRecord.h): the user's own value, or null for a key left at the schema default, which uninstall resets. A failed record does not hold the change back.
+// The panel keys are the desktop's, so before one changes, what it held is recorded for msime-linux-setup --unregister (see PanelRestoreRecord.h): the user's own value, or null for a key left at the schema default, which uninstall resets. A failed record does not hold the change back.
 void record_ibus_panel_takeover(GSettings *settings, const char *key, const Json &written) {
   const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
   if (!file) return;

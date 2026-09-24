@@ -203,16 +203,6 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 .collect::<Vec<_>>();
             let custom_translation = &preferences.custom_translation;
             let tencent = &preferences.tencent_tmt;
-            // The selected service, derived from the enable flags alone so an incomplete NiuTrans or custom configuration stays selected instead of reading as Tencent. A host whose Tencent secret lives outside preferences (Linux keeps it in the provider's own file) relies on this to honour 关闭.
-            let provider = if preferences.niutrans.enabled {
-                TranslationService::NiuTrans
-            } else if custom_translation.enabled {
-                TranslationService::Custom
-            } else if tencent.enabled {
-                TranslationService::Tencent
-            } else {
-                TranslationService::Off
-            };
             // The MSIME account gloss endpoint (api.msime.app) is used only when the user explicitly chose it and no service of their own takes precedence. Tencent counts only with usable secrets, because its default `enabled: true` is not a user choice.
             let translation_account = preferences.candidate_translations
                 && preferences.translation_account
@@ -221,6 +211,18 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 && !(tencent.enabled
                     && msime_client_core::translation::usable_tencent_secret(&tencent.secret_id)
                     && msime_client_core::translation::usable_tencent_secret(&tencent.secret_key));
+            // The selected service, derived from the enable flags alone so an incomplete NiuTrans or custom configuration stays selected instead of reading as Tencent. A host whose Tencent secret lives outside preferences (Linux keeps it in the provider's own file) relies on this to honour 关闭.
+            let provider = if translation_account {
+                TranslationService::Account
+            } else if preferences.niutrans.enabled {
+                TranslationService::NiuTrans
+            } else if custom_translation.enabled {
+                TranslationService::Custom
+            } else if tencent.enabled {
+                TranslationService::Tencent
+            } else {
+                TranslationService::Off
+            };
             // Selecting custom translation must never silently fall back to TMT.
             let tencent_tmt = (!custom_translation.enabled
                 && !preferences.niutrans.enabled

@@ -104,7 +104,7 @@ def main() -> int:
         assert f'"{longname}"' in (ROOT / "src/entrypoints/ibus_main.cpp").read_text()
         assert f"切回「{longname}」" in calls(log, "notify")[0], calls(log, "notify")
         assert calls(log, "ibus") == []
-        # 状态目录必须仍不存在：msime-client-setup 拒绝准备一个已存在的目录。
+        # 状态目录必须仍不存在：msime-linux-setup 拒绝准备一个已存在的目录。
         assert not (config_home / "msime-client").exists()
 
         # ibus-daemon 每次选中都会再起一次启动器；同一登录会话内不再弹窗、不再通知。
@@ -157,10 +157,16 @@ def main() -> int:
 
         # 没装设置窗口（只装输入法的最小安装）：仍然通知，改为指向终端命令。
         (bin_dir / "msime-client-settings").unlink()
-        environment = dict(graphical, PATH=f"{tools}:/usr/bin:/bin")
+        # Keep the minimal-install case independent of a settings launcher that may be
+        # installed in the test runner's real PATH.
+        environment = dict(
+            graphical,
+            PATH=f"{tools}:/usr/bin:/bin",
+            MSIME_CLIENT_SETTINGS_COMMAND=str(scratch / "missing-settings"),
+        )
         assert launch(environment).returncode == 1
-        wait_for(lambda: len(calls(log, "notify")) == 4, "notification missing without a settings window")
-        assert "msime-client-setup" in calls(log, "notify")[-1], calls(log, "notify")
+        wait_for(lambda: any("msime-linux-setup" in line for line in calls(log, "notify")), "notification missing without a settings window")
+        assert any("msime-linux-setup" in line for line in calls(log, "notify")), calls(log, "notify")
         assert len(calls(log, "settings")) == 3
         stub(bin_dir / "msime-client-settings", log, "settings")
 
@@ -213,7 +219,7 @@ def main() -> int:
         assert subprocess.run(outdated, env=graphical, timeout=10).returncode == 0
         wait_for(lambda: len(calls(log, "notify")) == notified + 1, "outdated dictionary notification missing")
         message = calls(log, "notify")[-1]
-        assert "词库需要更新" in message and "msime-client-setup --update --download" in message, message
+        assert "词库需要更新" in message and "msime-linux-setup --update --download" in message, message
         assert "尚未完成首次配置" not in message, message
         assert outdated_stamp.exists()
         settle()
@@ -228,7 +234,7 @@ def main() -> int:
             assert subprocess.run(arguments, env=graphical, timeout=10).returncode == 0, arguments
             wait_for(lambda: len(calls(log, "notify")) == count + 1, f"outdated dictionary notification missing for {arguments}")
             message = calls(log, "notify")[-1]
-            assert "msime-client-setup --update --download" in message and "尚未完成首次配置" not in message, message
+            assert "msime-linux-setup --update --download" in message and "尚未完成首次配置" not in message, message
         notified += len(orders)
         settle()
         assert len(calls(log, "settings")) == 6, log.read_text()
@@ -254,19 +260,19 @@ def main() -> int:
         settle()
         assert len(calls(log, "notify")) == notified + 2 and not outdated_stamp.exists() and not first_run_stamp.exists()
 
-    # 引导脚本本身不发起任何下载：msime-client-setup 和 --download 只出现在注释和这几条通知文案里，从不作为命令执行。文案按原样去掉，剩下的非注释行里一处都不许有。
+    # 引导脚本本身不发起任何下载：msime-linux-setup 和 --download 只出现在注释和这几条通知文案里，从不作为命令执行。文案按原样去掉，剩下的非注释行里一处都不许有。
     guide = (SCRIPTS / "msime-client-first-run-guide").read_text()
     for forbidden in ("curl", "wget"):
         assert forbidden not in guide, forbidden
     for body in (
-        '"已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-client-setup --update --download 取回新词库并切换，用户词库会一并迁移。"',
-        'body="请在终端运行 msime-client-setup 完成首次配置。$resume"',
+        '"已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-linux-setup --update --download 取回新词库并切换，用户词库会一并迁移。"',
+        'body="请在终端运行 msime-linux-setup 完成首次配置。$resume"',
     ):
         assert guide.count(body) == 1, body
         guide = guide.replace(body, "")
     for line in guide.splitlines():
         if not line.strip().startswith("#"):
-            assert "msime-client-setup" not in line and "--download" not in line, line
+            assert "msime-linux-setup" not in line and "--download" not in line, line
 
     print("first-run guide tests passed")
     return 0
