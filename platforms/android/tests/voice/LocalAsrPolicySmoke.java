@@ -1,0 +1,54 @@
+import app.msime.client.LocalAsrPolicy;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+/** When this host runs on-device recognition, and the hotword list it hands the native session. */
+public final class LocalAsrPolicySmoke {
+    static void check(boolean condition, String message) {
+        if (!condition) throw new AssertionError(message);
+    }
+
+    public static void main(String[] args) throws IOException {
+        check(LocalAsrPolicy.usable("local", "/data/user/0/app.msime.client/files/models/sense-voice-small"), "an absolute model directory is usable");
+        check(!LocalAsrPolicy.usable("openai", "/models/x"), "another provider is not local recognition");
+        check(!LocalAsrPolicy.usable("local", null) && !LocalAsrPolicy.usable("local", ""), "an unset model path is not usable");
+        check(!LocalAsrPolicy.usable("local", "models/x"), "a relative path is refused");
+        check(!LocalAsrPolicy.usable("local", "/models/x\n/other"), "a control character is refused");
+        check(!LocalAsrPolicy.usable("local", "/" + "a".repeat(LocalAsrPolicy.MAX_PATH_LENGTH)), "an overlong path is refused");
+
+        Path root = Files.createTempDirectory("msime-local-asr");
+        try {
+            Path model = root.resolve("model");
+            Files.createDirectories(model);
+            check(!LocalAsrPolicy.installed(model.toString()), "a directory without a manifest is not installed");
+            Path manifest = model.resolve(LocalAsrPolicy.MANIFEST);
+            Files.write(manifest, new byte[0]);
+            check(!LocalAsrPolicy.installed(model.toString()), "an empty manifest is not installed");
+            Files.write(manifest, "{\"hotwords\":\"pinyin\"}".getBytes(StandardCharsets.UTF_8));
+            check(LocalAsrPolicy.installed(model.toString()), "a directory with its manifest is installed");
+            Files.write(manifest, new byte[(int) LocalAsrPolicy.MAX_MANIFEST_BYTES + 1]);
+            check(!LocalAsrPolicy.installed(model.toString()), "an oversized manifest is refused");
+            check(!LocalAsrPolicy.installed(manifest.toString()), "a file is not a model directory");
+            check(!LocalAsrPolicy.installed(root.resolve("missing").toString()) && !LocalAsrPolicy.installed(null), "a missing directory is not installed");
+            Files.delete(manifest);
+            Files.delete(model);
+        } finally {
+            Files.delete(root);
+        }
+
+        check(LocalAsrPolicy.correctsByPinyin("pinyin"), "pinyin mode corrects after decoding");
+        check(!LocalAsrPolicy.correctsByPinyin("native") && !LocalAsrPolicy.correctsByPinyin(null), "native mode biases the decoder instead");
+
+        check(LocalAsrPolicy.hotwordLines(null).isEmpty(), "no dictionary is no hotwords");
+        check(LocalAsrPolicy.hotwordLines(Arrays.asList(" 元宇宙 ", "", null, "a\nb", "Metasequoia")).equals("元宇宙\nMetasequoia"), "blank and framing-breaking words are dropped, the rest trimmed");
+        List<String> many = new ArrayList<>();
+        for (int i = 0; i < LocalAsrPolicy.HOTWORD_LIMIT + 50; i++) many.add("w" + i);
+        check(LocalAsrPolicy.hotwordLines(many).split("\n").length == LocalAsrPolicy.HOTWORD_LIMIT, "the list is capped at the shared limit");
+        System.out.println("LocalAsrPolicySmoke passed");
+    }
+}
