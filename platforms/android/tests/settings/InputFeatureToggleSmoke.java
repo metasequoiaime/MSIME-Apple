@@ -31,8 +31,12 @@ public final class InputFeatureToggleSmoke {
 
         // 默认值必须跟 crates/client-core 的 Preferences 一致：一个默认开的设置在界面上画成关，
         // 说的就是键盘行为的反面，而「打开」它写进去的又是本来就在的值。
-        check(enabledByDefault("learning") && enabledByDefault("autocorrect"),
-            "learning and autocorrect are on by default");
+        check(enabledByDefault("learning"), "learning is on by default");
+        // 自动纠错 used to be asserted here and the assertion passed: the retired `autocorrect` key
+        // does still default to true in the schema. Matching a default is not enough when the field
+        // itself no longer does anything - scripts/test-android-preference-keys.py is what asks the
+        // question this file cannot, and the two corrections now have their own rows in the sheet.
+        check(!hasToggle("autocorrect"), "the retired all-types autocorrect key is not a switch");
         check(enabledByDefault("cloud_candidates") && enabledByDefault("candidate_translations"),
             "the two network-backed candidate features are on by default");
         check(enabledByDefault("english_suggestions") && enabledByDefault("chinese_punctuation"),
@@ -51,6 +55,13 @@ public final class InputFeatureToggleSmoke {
                 .anyMatch(toggle -> "translation_account".equals(toggle.key())),
             "the account translation switch is grouped where its consequence is stated");
         System.out.println("Android input feature toggles: keys, grouping and shared defaults passed");
+    }
+
+    private static boolean hasToggle(String key) {
+        for (InputFeatureToggle toggle : InputFeatureToggle.values()) {
+            if (toggle.key().equals(key)) return true;
+        }
+        return false;
     }
 
     private static boolean enabledByDefault(String key) {

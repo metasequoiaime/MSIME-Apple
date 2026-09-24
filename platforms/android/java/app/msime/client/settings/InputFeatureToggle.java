@@ -12,12 +12,17 @@ import java.util.List;
  *
  * <p>Grouped rather than listed flat because the sheets they appear in are grouped, and a toggle
  * that moves between sheets should move by changing its group here.
+ *
+ * <p>Only preferences that really are one top-level boolean belong here. 自动纠错 used to, writing
+ * `autocorrect`; the shared crate has since retired that key - it no longer enables either
+ * correction type - and split the feature into the two nested `quanpin` fields, both off by
+ * default. The switch went on rendering as checked for a feature that was off and could not be
+ * turned on. It is now two rows built by hand in the sheet, because nesting is not something this
+ * table can express and pretending otherwise is what let the key go stale unnoticed.
  */
 public enum InputFeatureToggle {
     LEARNING(Group.DICTIONARY, "learning", true, "记忆新词",
         "把你选过的词排到前面；只在本机学习"),
-    AUTOCORRECT(Group.DICTIONARY, "autocorrect", true, "自动纠错",
-        "拼音敲错一两个字母时仍然给出候选"),
     CLOUD_CANDIDATES(Group.DICTIONARY, "cloud_candidates", true, "云候选",
         "向服务端请求长句与新词，需要联网"),
     ENGLISH_SUGGESTIONS(Group.DICTIONARY, "english_suggestions", true, "英文联想",

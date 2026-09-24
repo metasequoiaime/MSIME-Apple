@@ -211,6 +211,12 @@ python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 note "android voice project config"
 python3 scripts/test-android-voice-project-config.py || fail "android voice project config"
 
+# A switch that writes a retired preference key compiles, renders and saves; only reading the shared
+# crate tells you it does nothing. 自动纠错 was in that state on this host for as long as the key has
+# been retired, showing checked for a correction that was off and unreachable.
+note "android preference keys"
+python3 scripts/test-android-preference-keys.py || fail "android preference keys"
+
 # Its iOS counterpart went the same way, and further: it was never wired here at all. Seven assertions rotted silently while the code they pin moved on - the voice types were generalised from Ios* to Mobile* for Android, the voice commands left lib.rs for voice.rs, the onboarding skip button became a CSS-module class, and the keyboard bridging header and two frontend modules moved into their <feature> directories. Nothing built the XcodeGen project on this machine or on a runner either, so the same reasoning that wired the Android one applies here.
 note "ios project config"
 python3 scripts/test-ios-project-config.py || fail "ios project config"
