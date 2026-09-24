@@ -69,6 +69,66 @@ final class CompositionCaretTests: XCTestCase {
     XCTAssertFalse(SpaceCursorMovement.movesBySegment(velocity: .nan))
   }
 
+  func testHomeEndAndForwardDeleteActInsideTheSpelling() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    var snapshot = MetasequoiaInputSnapshot()
+    for letter in "nihao" { snapshot = bridge.handleCharacter(String(letter)) }
+    snapshot = bridge.moveCaretToStart()
+    XCTAssertTrue(snapshot.isHandled)
+    XCTAssertEqual(snapshot.caretPosition, 0)
+    snapshot = bridge.deleteForward()
+    XCTAssertEqual(snapshot.editingText, "ihao", "the letter after the caret goes")
+    XCTAssertEqual(snapshot.caretPosition, 0)
+    snapshot = bridge.moveCaretToEnd()
+    XCTAssertEqual(snapshot.caretPosition, 4)
+    _ = bridge.cancel()
+  }
+
+  func testTheSpellingMenuDimsWhatWouldDoNothing() {
+    let atStart = KeyboardViewController.spellingEditMenu(("nihao", 0))
+    XCTAssertEqual(atStart.map(\.title), ["光标移到开头", "光标移到末尾", "删除光标后的字母"])
+    XCTAssertEqual(atStart.map(\.enabled), [false, true, true])
+    XCTAssertEqual(KeyboardViewController.spellingEditMenu(("nihao", 5)).map(\.enabled), [true, false, false])
+    XCTAssertEqual(KeyboardViewController.spellingEditMenu(("nihao", 2)).map(\.enabled), [true, true, true])
+  }
+
+  @MainActor
+  func testTappingTheSpellingOffersHomeEndAndDelete() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.layoutIfNeeded()
+    let preedit = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "preeditButton"
+    } as? UIButton)
+    XCTAssertNotEqual(preedit.menu?.title, "编辑拼写", "nothing to edit before a spelling")
+
+    for letter in "NIHAO" {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(letter)" } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    let menu = try XCTUnwrap(preedit.menu)
+    XCTAssertEqual(menu.title, "编辑拼写")
+    XCTAssertTrue(preedit.accessibilityTraits.contains(.button))
+    let home = try XCTUnwrap(menu.children.first as? UIAction)
+    home.performWithSender(nil, target: nil)
+    XCTAssertEqual(preedit.configuration?.title, "|nihao")
+    let delete = try XCTUnwrap(preedit.menu?.children.last as? UIAction)
+    XCTAssertFalse(delete.attributes.contains(.disabled))
+    delete.performWithSender(nil, target: nil)
+    XCTAssertEqual(preedit.configuration?.title, "|ihao")
+    try XCTUnwrap(preedit.menu?.children[1] as? UIAction).performWithSender(nil, target: nil)
+    XCTAssertNotEqual(preedit.configuration?.title, "|ihao", "the caret is back at the end")
+    XCTAssertTrue(try XCTUnwrap(preedit.menu?.children.last as? UIAction).attributes.contains(.disabled))
+  }
+
+  private func descendants(_ root: UIView) -> [UIView] {
+    root.subviews + root.subviews.flatMap(descendants)
+  }
+
   func testOnlyAnAsciiSpellingWithAnInnerCaretIsSplit() {
     XCTAssertEqual(MetasequoiaInputSnapshot(editingText: "nihao", caretPosition: 0).editingTextWithCaret, "|nihao")
     XCTAssertNil(MetasequoiaInputSnapshot(editingText: "nihao", caretPosition: 5).editingTextWithCaret)
