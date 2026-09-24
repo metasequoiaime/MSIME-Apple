@@ -2327,6 +2327,123 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
     })?
 }
 
+/// What the start-time install/refresh of the input method did, for the settings page to tell the user.
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, serde::Serialize)]
+struct InputSourceStartupStatus {
+    /// `installed`, `updated`, `up_to_date`, `login_required` (installed, but the source list only picks it up after the next login) or `failed`.
+    action: &'static str,
+    /// Whether the input source is in the System Settings list afterwards; absent when that list could not be read.
+    enabled: Option<bool>,
+    bundled_version: Option<String>,
+    installed_version: Option<String>,
+}
+
+/// The start-time check runs in the background, so the settings page may ask before it has finished; the command waits for it. `None` inside means the check did not run for this launch (a panel launch, a run outside a packaged app, or a build that carries no input method).
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct InputSourceStartupState {
+    result: Mutex<Option<Option<InputSourceStartupStatus>>>,
+    finished: std::sync::Condvar,
+}
+
+#[cfg(target_os = "macos")]
+impl InputSourceStartupState {
+    fn finish(&self, status: Option<InputSourceStartupStatus>) {
+        *self
+            .result
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = Some(status);
+        self.finished.notify_all();
+    }
+
+    fn wait(&self, timeout: std::time::Duration) -> Option<InputSourceStartupStatus> {
+        let guard = self
+            .result
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let (guard, _) = self
+            .finished
+            .wait_timeout_while(guard, timeout, |result| result.is_none())
+            .unwrap_or_else(|poison| poison.into_inner());
+        guard.clone().flatten()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_input_source_startup(
+    resource_directory: &std::path::Path,
+) -> Option<InputSourceStartupStatus> {
+    let status = match macos_input_source::ensure_current(resource_directory) {
+        Ok(outcome) => InputSourceStartupStatus {
+            action: match outcome.refresh {
+                macos_input_source::Refresh::Install => "installed",
+                macos_input_source::Refresh::Update => "updated",
+                macos_input_source::Refresh::UpToDate => "up_to_date",
+            },
+            enabled: None,
+            bundled_version: outcome
+                .bundled
+                .as_ref()
+                .map(|version| version.label().to_string()),
+            installed_version: outcome
+                .installed
+                .as_ref()
+                .map(|version| version.label().to_string()),
+        },
+        Err(macos_input_source::InstallError::SourceUnavailable) => return None,
+        // A failed install or registration has already restored the previous bundle, so the installed version reported is the one still in place; a first install whose registration waits for the next login keeps the new bundle, so that is the one reported.
+        Err(error) => InputSourceStartupStatus {
+            action: if matches!(error, macos_input_source::InstallError::RegistrationPending) {
+                "login_required"
+            } else {
+                "failed"
+            },
+            enabled: None,
+            bundled_version: macos_input_source::bundle_version(
+                &resource_directory.join(macos_input_source::INPUT_SOURCE_BUNDLE_NAME),
+            )
+            .map(|version| version.label().to_string()),
+            installed_version: macos_input_source::installed_bundle_path()
+                .ok()
+                .and_then(|path| macos_input_source::bundle_version(&path))
+                .map(|version| version.label().to_string()),
+        },
+    };
+    Some(InputSourceStartupStatus {
+        enabled: macos_input_source::input_source_enabled(),
+        ..status
+    })
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn input_source_startup_status(
+    state: tauri::State<'_, Arc<InputSourceStartupState>>,
+) -> Result<Option<InputSourceStartupStatus>, HostActionError> {
+    let state = Arc::clone(&state);
+    // Copying and registering takes seconds, not minutes; the bound only keeps a wedged registration from holding the page's request open forever.
+    tauri::async_runtime::spawn_blocking(move || state.wait(std::time::Duration::from_secs(120)))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn open_input_source_settings() -> Result<(), HostActionError> {
+    let status = std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.Keyboard-Settings.extension")
+        .status()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    status.success().then_some(()).ok_or(HostActionError {
+        code: "unavailable",
+    })
+}
+
 // The input method writes through NSUserDefaults.standardUserDefaults, so its domain is its bundle identifier; reading any other name finds an empty - or stale - plist while the settings page reports that it saved.
 #[cfg(target_os = "macos")]
 const MACOS_INPUT_METHOD_DEFAULTS_DOMAIN: &str = "app.msime.inputmethod.MetasequoiaIME";
@@ -2677,6 +2794,8 @@ async fn uninstall_input_source(
         .find(|candidate| candidate.exists())
         .unwrap_or_else(|| input_methods.join("水杉输入法.app"));
     tauri::async_runtime::spawn_blocking(move || {
+        // Wait for a start-time refresh or a manual install that is still writing the bundle.
+        let _guard = macos_input_source::install_lock();
         msime_host_macos::uninstall_input_source(&bundle, &state, remove_user_data).map_err(|_| {
             HostActionError {
                 code: "unavailable",
@@ -2686,7 +2805,7 @@ async fn uninstall_input_source(
     .await
     .map_err(|_| HostActionError {
         code: "unavailable",
-    })?;
+    })??;
     // The installed bundle is gone after a successful operation. Exit the
     // settings shell too, matching the native Apple flow and avoiding a UI
     // process that can no longer repair the removed installation.
@@ -3796,6 +3915,30 @@ pub fn run() {
             app.manage(macos_cloud_clipboard::CloudState::from_environment()?);
             #[cfg(target_os = "macos")]
             app.manage(macos_cloud_dictionary::DictionaryState::from_environment()?);
+            // Install or refresh the input method on every start, as the Windows installer registers its TSF DLLs on every install and upgrade. In the background so a slow or failed registration never holds up the window. Only a packaged app does this: `tauri dev`, `cargo run` and a binary under target/<profile> resolve their resource directory to the cargo output directory, where tauri-build has copied the development input method, and must not replace the developer's installed one. A run with its own host options and a panel the running input method asked for are skipped too.
+            #[cfg(target_os = "macos")]
+            {
+                let startup = Arc::new(InputSourceStartupState::default());
+                app.manage(Arc::clone(&startup));
+                let development_run = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS").is_some()
+                    || std::env::var_os("MSIME_IBUS_OPTIONS").is_some();
+                let panel_launch = requested_surface_route().and_then(|route| route.panel()).is_some();
+                match app.path().resource_dir() {
+                    Ok(resource_directory)
+                        if !tauri::is_dev()
+                            && macos_input_source::is_packaged_resource_directory(
+                                &resource_directory,
+                            )
+                            && !development_run
+                            && !panel_launch =>
+                    {
+                        tauri::async_runtime::spawn_blocking(move || {
+                            startup.finish(run_input_source_startup(&resource_directory));
+                        });
+                    }
+                    _ => startup.finish(None),
+                }
+            }
             #[cfg(target_os = "macos")]
             let macos_launch = {
                 let options_override = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
@@ -4289,6 +4432,10 @@ pub fn run() {
             restart_input_method,
             #[cfg(target_os = "macos")]
             install_input_source,
+            #[cfg(target_os = "macos")]
+            input_source_startup_status,
+            #[cfg(target_os = "macos")]
+            open_input_source_settings,
             #[cfg(target_os = "macos")]
             data_directory_status,
             #[cfg(target_os = "macos")]

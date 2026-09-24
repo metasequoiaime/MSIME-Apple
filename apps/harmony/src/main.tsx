@@ -813,6 +813,20 @@ function makeClient(
     openSkinDirectory: async () => {
       native.importSkinFolder();
     },
+    // ArkWeb drops the page's download link, so the host saves the export through the system save picker instead. The deadline covers a user who leaves the picker open: timing out under them would report a failure for a file that is then written anyway.
+    saveExport: async (name: string, contents: string) => {
+      const reply = await bridgeRequest(
+        native,
+        "save_export",
+        JSON.stringify({ name, contents }),
+        30 * 60 * 1000,
+      );
+      try {
+        return unwrap<string | null>(reply);
+      } catch {
+        throw new Error("无法保存导出文件，词库未导出。");
+      }
+    },
     listVoiceCaptureDevices: async () =>
       unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
     listFontFamilies: async () => unwrap<string[]>(native.listFontFamilies()),

@@ -1745,6 +1745,128 @@ test("macOS service page exposes installation separately from re-registration", 
   expect(await screen.findByText("输入源已安装并注册。")).toBeDefined();
 });
 
+test("macOS reports the start-time input method refresh and a source that still needs enabling", async () => {
+  const openSettings = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: {
+          status: vi.fn().mockResolvedValue({
+            action: "updated",
+            enabled: false,
+            bundled_version: "0.51.0 (7300)",
+            installed_version: "0.51.0 (7300)",
+          }),
+          openSettings,
+        },
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  const banner = await screen.findByRole("status", { name: "水杉输入法安装状态" });
+  expect(within(banner).getByText("水杉输入法已更新到 0.51.0 (7300)。")).toBeDefined();
+  expect(
+    within(banner).getByText(/请在 系统设置 > 键盘 > 输入法 中添加并启用水杉输入法/),
+  ).toBeDefined();
+  fireEvent.click(within(banner).getByRole("button", { name: "打开键盘设置" }));
+  await waitFor(() => expect(openSettings).toHaveBeenCalledOnce());
+  fireEvent.click(within(banner).getByRole("button", { name: "知道了" }));
+  expect(screen.queryByRole("status", { name: "水杉输入法安装状态" })).toBeNull();
+});
+
+test("macOS stays quiet when the input method is current and enabled, and points to the manual button on failure", async () => {
+  const quiet = vi.fn().mockResolvedValue({
+    action: "up_to_date",
+    enabled: true,
+    bundled_version: "0.50.0 (1)",
+    installed_version: "0.50.0 (2)",
+  });
+  const { unmount } = render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: { status: quiet, openSettings: vi.fn() },
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  await waitFor(() => expect(quiet).toHaveBeenCalledOnce());
+  expect(screen.queryByLabelText("水杉输入法安装状态")).toBeNull();
+  unmount();
+
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: {
+          status: vi.fn().mockResolvedValue({
+            action: "failed",
+            enabled: null,
+            bundled_version: "0.50.0 (1)",
+            installed_version: null,
+          }),
+          openSettings: vi.fn(),
+        },
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  const banner = await screen.findByRole("alert", { name: "水杉输入法安装状态" });
+  expect(within(banner).getByText(/点「安装 \/ 更新」重试/)).toBeDefined();
+  expect(within(banner).queryByRole("button", { name: "打开键盘设置" })).toBeNull();
+});
+
+test("macOS asks for a new login when a first install waits for the input source list", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: {
+          status: vi.fn().mockResolvedValue({
+            action: "login_required",
+            enabled: false,
+            bundled_version: "0.50.0 (1)",
+            installed_version: "0.50.0 (1)",
+          }),
+          openSettings: vi.fn(),
+        },
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  const banner = await screen.findByRole("status", { name: "水杉输入法安装状态" });
+  expect(within(banner).getByText(/请注销并重新登录/)).toBeDefined();
+  expect(within(banner).queryByRole("button", { name: "打开键盘设置" })).toBeNull();
+});
+
+test("the start-time input method report is macOS only", async () => {
+  const status = vi.fn().mockResolvedValue({
+    action: "installed",
+    enabled: false,
+    bundled_version: "0.50.0 (1)",
+    installed_version: "0.50.0 (1)",
+  });
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        inputSourceStartup: { status, openSettings: vi.fn() },
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(status).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText("水杉输入法安装状态")).toBeNull();
+});
+
 test("macOS about page exposes reversible uninstall with explicit data removal", async () => {
   const uninstallInputSource = vi.fn().mockResolvedValue(undefined);
   render(
@@ -2308,6 +2430,27 @@ test("a refused host-saved dictionary export shows an error and never claims suc
   expect((await screen.findByRole("alert")).textContent).toBe("无法写入“下载”文件夹，词库未导出。");
   expect(screen.queryByText(/已导出/)).toBeNull();
   expect(screen.queryByText("正在读取全部用户词库…")).toBeNull();
+});
+
+test("a host save picker the user closes cancels the export without an error or a success", async () => {
+  const saveExport = vi.fn().mockResolvedValue(null);
+  render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  expect(await screen.findByText("已取消导出。")).toBeDefined();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText(/已导出/)).toBeNull();
+});
+
+test("a host that names its own export failure has that message shown", async () => {
+  const saveExport = vi.fn().mockRejectedValue(new Error("无法保存导出文件，词库未导出。"));
+  render(<SettingsPage client={exportingDictionaryClient(saveExport)} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导出当前类型" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("无法保存导出文件，词库未导出。");
+  expect(screen.queryByText(/已导出/)).toBeNull();
 });
 
 test("a host without saveExport keeps the download link", async () => {
