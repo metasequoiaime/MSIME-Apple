@@ -4425,32 +4425,22 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     const NSEventModifierFlags candidateDigitModifiers = NSEventModifierFlagShift | NSEventModifierFlagControl |
                                                           NSEventModifierFlagOption | NSEventModifierFlagCommand;
     const int physicalDigit = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
+    NSArray *visibleCandidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
     const NSEventModifierFlags glossModifiers = event.modifierFlags &
         (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand);
-    // Gloss chords name a row the way plain digits do: through the rendered
-    // button, whose order puts pinned candidates first. Indexing _view directly
-    // would read the Engine's order and gloss a word the user did not pick.
-    NSDictionary *glossCandidate = nil;
-    if (_panel.isVisible && physicalDigit >= 0) {
-        NSDictionary *identifier = MSIMERenderedCandidateIdentity(_panel, physicalDigit);
-        NSArray *candidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
-        if (MSIMECurrentCandidateIdentity(identifier, _view))
-            for (NSDictionary *candidate in candidates)
-                if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"id"] isEqual:identifier]) {
-                    glossCandidate = candidate;
-                    break;
-                }
-    }
     if (_panel.isVisible && physicalDigit >= 0 &&
         glossModifiers == NSEventModifierFlagOption) {
-        if ([self commitCandidateGlossColumn:1 candidate:glossCandidate client:sender]) return YES;
+        NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
+        if ([self commitCandidateGlossColumn:1 candidate:candidate client:sender]) return YES;
     }
     if (_panel.isVisible && physicalDigit >= 0 &&
         glossModifiers == NSEventModifierFlagControl) {
-        if ([self commitCandidateGlossColumn:2 candidate:glossCandidate client:sender]) return YES;
+        NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
+        if ([self commitCandidateGlossColumn:2 candidate:candidate client:sender]) return YES;
     }
     if (_panel.isVisible && physicalDigit >= 0 && glossModifiers == 0 && _armedGlossColumn > 0) {
-        if ([self commitCandidateGlossColumn:_armedGlossColumn candidate:glossCandidate client:sender]) return YES;
+        NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
+        if ([self commitCandidateGlossColumn:_armedGlossColumn candidate:candidate client:sender]) return YES;
     }
     const BOOL unicodeComposition = [_view[@"local_mode"] isEqual:@"unicode"];
     if (msime::mac::ShouldRoutePhysicalCandidateDigit(
