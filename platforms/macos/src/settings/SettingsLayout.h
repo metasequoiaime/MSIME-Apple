@@ -11,10 +11,7 @@
 // repeats that list, so a new .mm would have to be added to a dozen of them.
 
 namespace msime::mac::layout {
-/// The sidebar is draggable between these two, which is why it is a range rather than a width: the
-/// system sidebar the window now uses is resizable and the widest item — 悬浮工具栏 — has to fit
-/// without an ellipsis. The upper bound is also what the window's minimum width is derived from,
-/// so that the body column never falls under kContentColumnMin.
+/// The sidebar is draggable between these two, which is why it is a range rather than a width: the system sidebar the window now uses is resizable and the widest item — 帮助与反馈 — has to fit without an ellipsis. The upper bound is also what the window's minimum width is derived from, so that the body column never falls under kContentColumnMin.
 inline constexpr CGFloat kSidebarWidth = 204.0;
 inline constexpr CGFloat kSidebarMaxWidth = 240.0;
 inline constexpr CGFloat kSidebarRowHeight = 28.0;
@@ -28,9 +25,6 @@ inline constexpr CGFloat kCardRadius = 10.0;
 inline constexpr CGFloat kCardInsetH = 12.0;
 inline constexpr CGFloat kCardInsetV = 6.0;
 inline constexpr CGFloat kPageMargin = 22.0;
-/// The body column is capped rather than filling the window: a switch eighty characters away from
-/// the label it belongs to is a row nobody can read across.
-inline constexpr CGFloat kContentColumnMax = 660.0;
 /// The floor the window has to keep the body column above. It is not a design preference:
 /// platforms/macos/tests/candidate/SkinPreviewTest.mm:250 asserts the candidate preview — which is
 /// one of the views laid out in this column — comes out wider than 500pt.
@@ -117,7 +111,7 @@ static inline NSTextField *MSIMESectionLabel(NSString *title) {
     return label;
 }
 
-/// Marks a view whose text is not the name of a setting: a page summary, a row's line of explanation, an inline error, the link that restores a section. The settings search indexes the text of every label and button it finds so that a setting can be found by name, and none of these is a name — without this it answers 「翻页」 with the sentence that mentions paging instead of with the setting that sentence is about, and 「恢复」 with one link per section.
+/// Marks a view whose text is not the name of a setting: a page summary, a row's line of explanation, the link that restores a section. The settings search indexes the text of every label and button it finds so that a setting can be found by name, and none of these is a name — without this it answers 「翻页」 with the sentence that mentions paging instead of with the setting that sentence is about, and 「恢复」 with one link per section.
 static NSString *const MSIMESettingsUnindexedIdentifier = @"MSIMESettingsUnindexed";
 
 /// A line of explanation in the window's quieter voice: the second line of a row, the sentence under a page title, the note under a group of checkboxes. Wrapping rather than truncating, because these are sentences and the window is resizable.
@@ -220,25 +214,9 @@ static inline NSView *MSIMEPreferenceRowWithDetail(NSString *title, NSString *de
                                                     msime::mac::layout::kControlMinWidth);
 }
 
-/// The same row, for a sentence that is written as the window runs rather than as it is built: a
-/// conflict naming the binding that already owns a key group is one, and the caller keeps the label
-/// so it can say which one.
+/// The same row, for a sentence that is written as the window runs rather than as it is built — a conflict naming the binding that already owns a key group, or the note under a menu whose items cannot name the state the setting is in. The caller keeps the label so it can say which.
 static inline NSView *MSIMEPreferenceRowWithDetailLabel(NSString *title, NSTextField *detail, NSView *control) {
     return MSIMEPreferenceRowWithDetailLabelOfWidth(title, detail, control, msime::mac::layout::kControlMinWidth);
-}
-
-/// A rejected value reported under the row that holds it, instead of a beep and a silent revert
-/// that leave the user guessing which of the five fields on the card was the wrong one. Callers
-/// keep the label and swap its stringValue and hidden as the error comes and goes.
-static inline NSTextField *MSIMEInlineNotice(NSString *message) {
-    NSTextField *notice = [NSTextField wrappingLabelWithString:message ?: @""];
-    notice.font = [NSFont systemFontOfSize:msime::mac::layout::kDetailFontSize weight:NSFontWeightRegular];
-    notice.textColor = NSColor.systemRedColor;
-    notice.selectable = NO;
-    notice.identifier = MSIMESettingsUnindexedIdentifier;
-    notice.translatesAutoresizingMaskIntoConstraints = NO;
-    notice.hidden = message.length == 0;
-    return notice;
 }
 
 /// A setting that takes effect the moment it is flipped, which is what AppKit puts a switch on.

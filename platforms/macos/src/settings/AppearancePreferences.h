@@ -16,12 +16,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 - (NSDictionary *)cloudSettingsSnapshot;
 /// The skin browser, which is the 皮肤 page itself rather than a window of its own.
 - (NSView *)skinSettingsView;
-/// Opens the window on a named page. The identifiers are the tails of the shared settings: routes —
-/// input, appearance, skin, dictionary, about, helpcode, shortcuts, floating, account, help,
-/// feedback, voice, utilities — so an entry point that deep-links into the desktop application can
-/// hand its native fallback the same name. Returns NO, and leaves the page alone, for a name this
-/// version does not have; callers that do not care which page they land on should not call this at
-/// all, so that the window opens on the page the user left it on.
+/// Opens the window on a named page. The identifiers are the tails of the shared settings: routes — input, habits, shortcuts, voice, appearance, skin, floating, dictionary, account, help, about — so an entry point that deep-links into the desktop application can hand its native fallback the same name. Returns NO, and leaves the page alone, for a name this version does not have, which is what the retired helpcode, feedback and utilities names now get; callers that do not care which page they land on should not call this at all, so that the window opens on the page the user left it on.
 - (BOOL)showSettingsPageWithIdentifier:(NSString *)identifier;
 - (void)setTranslationPreferencesDirectory:(NSString *)directory;
 /// Applies only settings owned by this window to an existing shared Preferences object.
@@ -159,7 +154,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 /// The native candidate panel appearance override. A nil value means AppKit follows the system.
 @property(nonatomic, readonly) NSAppearance *candidateAppearanceOverride;
 @property(nonatomic, readonly) BOOL candidateAppearanceOverrideConfigured;
-// 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
+/// The paging key group as one of the three presets the menu offers: 0 for -/= (the default), 1 for [/], 2 for Page Up/Page Down. It is read back out of the navigation bindings rather than out of a stored number of its own, so it is -1 when those bindings are in a state no preset names; setting it to anything else is setting it to 0.
 @property(nonatomic) NSInteger pageShortcut;
 - (BOOL)navigationEnabled:(NSString *)key;
 - (void)setNavigation:(NSString *)key enabled:(BOOL)enabled;
