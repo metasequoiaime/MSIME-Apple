@@ -6676,6 +6676,61 @@ test.each(["windows", "macos", "linux"])(
   },
 );
 
+test("this window's own save echoed back by the monitor is not reported as another window's", async () => {
+  let changed: ((snapshot: Snapshot) => void) | undefined;
+  let finishSave: ((snapshot: Snapshot) => void) | undefined;
+  const saved: Snapshot = {
+    ...initial,
+    revision: 8,
+    preferences: { ...initial.preferences, candidate_page_size: 9 },
+  };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(
+      () =>
+        new Promise<Snapshot>((resolve) => {
+          finishSave = resolve;
+        }),
+    ),
+    onPreferencesChanged: vi.fn(async (listener) => {
+      changed = listener;
+      return () => {
+        changed = undefined;
+      };
+    }),
+    host: { platform: "linux" } as never,
+  };
+  render(<SettingsPage client={client} />);
+  const size = (await screen.findByRole("combobox", {
+    name: "每页候选项数量",
+  })) as HTMLSelectElement;
+  await waitFor(() => expect(changed).toBeDefined());
+  fireEvent.change(size, { target: { value: "9" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(finishSave).toBeDefined());
+  // The echo lands between the file write and the invoke resolving, then again afterwards.
+  act(() => changed?.(saved));
+  await act(async () => finishSave?.(saved));
+  act(() => changed?.(saved));
+  // And an event older than what is on screen is ignored.
+  act(() => changed?.(initial));
+  expect(await screen.findByText("设置已保存。")).toBeDefined();
+  expect(screen.queryByText("设置已被其他窗口修改。请重新读取后再保存。")).toBeNull();
+  expect(screen.queryByText("设置已从其他窗口更新。")).toBeNull();
+  expect(size.value).toBe("9");
+
+  // A genuinely newer revision from elsewhere still applies.
+  act(() =>
+    changed?.({
+      ...initial,
+      revision: 9,
+      preferences: { ...initial.preferences, candidate_page_size: 5 },
+    }),
+  );
+  await waitFor(() => expect(size.value).toBe("5"));
+  expect(await screen.findByText("设置已从其他窗口更新。")).toBeDefined();
+});
+
 test("failed initial load never enables saving fabricated defaults", async () => {
   const client: SettingsClient = {
     load: vi.fn().mockRejectedValue({ code: "format" }),

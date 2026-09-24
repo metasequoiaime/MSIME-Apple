@@ -1,5 +1,13 @@
 import { createVoiceRecognitionClient } from "./voice/voice-recognition-client";
-import { StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  StrictMode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -472,6 +480,13 @@ function DesktopSettings() {
   >(null);
   const mobilePanelRef = useRef(mobilePanel);
   const [initialPage, setInitialPage] = useState<string | undefined>();
+  // A section requested while the page is already open. It navigates the mounted page rather than
+  // remounting it, which used to drop an unsaved draft; the nonce makes a repeated request count.
+  const [settingsRoute, setSettingsRoute] = useState<{ page: string; nonce: number }>();
+  const requestSettingsPage = useCallback((page: string) => {
+    setInitialPage(page);
+    setSettingsRoute((current) => ({ page, nonce: (current?.nonce ?? 0) + 1 }));
+  }, []);
   useEffect(() => {
     mobilePanelRef.current = mobilePanel;
   }, [mobilePanel]);
@@ -488,7 +503,7 @@ function DesktopSettings() {
     }
     setMobilePanel(next);
   };
-  const closeMobilePanel = () => {
+  const closeMobilePanel = useCallback(() => {
     if (
       typeof window !== "undefined" &&
       window.history.state?.msimeSettings === true &&
@@ -498,7 +513,35 @@ function DesktopSettings() {
     } else {
       setMobilePanel(null);
     }
-  };
+  }, []);
+  // The mobile panels restart their catalog, clipboard subscription or recording whenever their
+  // client changes, so these are built once rather than on every render of this component.
+  const closeMobilePanelAsync = useCallback(async () => closeMobilePanel(), [closeMobilePanel]);
+  const mobileEmojiClient = useMemo(
+    () => ({
+      ...panelClients.emoji,
+      close: closeMobilePanelAsync,
+      rememberInputTarget: undefined,
+      sendText: undefined,
+    }),
+    [closeMobilePanelAsync],
+  );
+  const iosHost = settingsClient?.host?.platform === "ios";
+  const mobileVoiceClient = useMemo(
+    () => ({
+      ...panelClients.voice,
+      close: closeMobilePanelAsync,
+      rememberInputTarget: undefined,
+      ...(iosHost
+        ? {
+            description:
+              "iOS App 负责录音和识别；识别结果不会直接写入键盘扩展，确认提交后会保存为待插入的语音结果。",
+            submitNotice: "已发送到本机键盘。返回目标 App，打开键盘“更多 → 语音结果”，确认后插入。",
+          }
+        : {}),
+    }),
+    [closeMobilePanelAsync, iosHost],
+  );
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
       const state = event.state;
@@ -533,7 +576,7 @@ function DesktopSettings() {
         typeof page === "string" &&
         ["home", "appearance", "dictionary", "account", "about", "help", "feedback"].includes(page)
       ) {
-        setInitialPage(page);
+        requestSettingsPage(page);
         setMobilePanel(null);
       }
     };
@@ -553,7 +596,8 @@ function DesktopSettings() {
     let unsubscribe: (() => void) | undefined;
     if (isTauri()) {
       void listen<string>("settings-route", (event) => {
-        if (active) setInitialPage(event.payload || undefined);
+        // An entry with no section only brings the window forward; it keeps the page in view.
+        if (active && event.payload) requestSettingsPage(event.payload);
       })
         .then((stop) => {
           if (active) unsubscribe = stop;
@@ -870,25 +914,7 @@ function DesktopSettings() {
       : {}),
   };
   if (mobilePanel === "voice") {
-    const ios = settingsClient.host?.platform === "ios";
-    return (
-      <VoicePanel
-        client={{
-          ...panelClients.voice,
-          close: async () => closeMobilePanel(),
-          rememberInputTarget: undefined,
-          ...(ios
-            ? {
-                description:
-                  "iOS App 负责录音和识别；识别结果不会直接写入键盘扩展，确认提交后会保存为待插入的语音结果。",
-                submitNotice:
-                  "已发送到本机键盘。返回目标 App，打开键盘“更多 → 语音结果”，确认后插入。",
-              }
-            : {}),
-        }}
-        theme="light"
-      />
-    );
+    return <VoicePanel client={mobileVoiceClient} theme="light" />;
   }
   if (mobilePanel === "emoji" || mobilePanel === "clipboard") {
     return (
@@ -897,13 +923,8 @@ function DesktopSettings() {
           <DesktopEmojiPanel
             theme={theme}
             initialPage={mobilePanel === "clipboard" ? "clipboard" : "home"}
-            client={{
-              ...panelClients.emoji,
-              close: async () => closeMobilePanel(),
-              rememberInputTarget: undefined,
-              sendText: undefined,
-            }}
-            close={async () => closeMobilePanel()}
+            client={mobileEmojiClient}
+            close={closeMobilePanelAsync}
           />
         )}
       </DesktopPanelTheme>
@@ -981,9 +1002,9 @@ function DesktopSettings() {
   }
   return (
     <SettingsPage
-      key={initialPage ?? "default"}
       client={settingsClient}
       initialPage={initialPage}
+      route={settingsRoute}
       onReplayOnboarding={() => setReplayOnboarding(true)}
     />
   );

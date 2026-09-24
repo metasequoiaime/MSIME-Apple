@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import * as style from "../community/community-style";
 
 /**
@@ -41,6 +41,9 @@ export function useConfirm(): {
   // confirmation drops the user at the top of the page.
   const restoreFocus = useRef<HTMLElement | null>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const messageId = useId();
   // Resolving twice would be harmless for a promise but hides a double-close bug, and an unmount
   // while open must resolve rather than leave the caller waiting forever.
   const open = useRef<Pending>(undefined);
@@ -88,7 +91,9 @@ export function useConfirm(): {
 
   useEffect(() => {
     if (!pending) return;
-    confirmButton.current?.focus();
+    // A destructive request starts on the harmless answer, so a stray Enter or Space (a repeating
+    // key, or the one that opened the dialog) cannot delete anything.
+    (pending.danger ? cancelButton : confirmButton).current?.focus();
   }, [pending]);
 
   const confirmation = pending ? (
@@ -104,7 +109,8 @@ export function useConfirm(): {
         className={`${style.dialog} w-[min(420px,100%)]`}
         role="alertdialog"
         aria-modal="true"
-        aria-label={pending.title ?? "确认操作"}
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.stopPropagation();
@@ -112,10 +118,19 @@ export function useConfirm(): {
           }
         }}
       >
-        <h2 className={style.dialogTitle}>{pending.title ?? "确认操作"}</h2>
-        <p className="m-0 leading-relaxed text-secondary">{pending.message}</p>
+        <h2 id={titleId} className={style.dialogTitle}>
+          {pending.title ?? "确认操作"}
+        </h2>
+        <p id={messageId} className="m-0 leading-relaxed text-secondary">
+          {pending.message}
+        </p>
         <div className={style.dialogActions}>
-          <button type="button" className="secondary" onClick={() => settle(false)}>
+          <button
+            type="button"
+            ref={cancelButton}
+            className="secondary"
+            onClick={() => settle(false)}
+          >
             {pending.cancelLabel ?? "取消"}
           </button>
           <button

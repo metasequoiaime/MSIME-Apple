@@ -164,11 +164,24 @@ export function VocabularyReviewPage({
   }
 
   async function chooseFile(file: File) {
-    if (!client.importWordbook) return;
+    if (!client.importWordbook || requestRef.current) return;
     setImportNote("");
+    setError("");
     // Real word lists arrive as UTF-16-with-BOM and GB18030 from Windows tools, which is why the
     // shared decoder exists rather than a bare File.text().
-    const text = await readDictionaryFile(file, WORDBOOK_FILE_BYTES);
+    let text: string;
+    try {
+      text = await readDictionaryFile(file, WORDBOOK_FILE_BYTES);
+    } catch (cause) {
+      // The read happens outside `update`, so nothing else would report it. Only the size refusal
+      // carries a message worth showing; a failed read's own is technical and often English.
+      setImportNote(
+        file.size > WORDBOOK_FILE_BYTES && cause instanceof Error
+          ? cause.message
+          : "无法读取所选文件，请重新选择。",
+      );
+      return;
+    }
     const name = file.name.replace(/\.[^.]+$/, "").slice(0, 64) || "导入的词表";
     await update(async () => {
       const next = await client.importWordbook!(name, text);

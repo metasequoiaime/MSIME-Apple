@@ -2287,10 +2287,14 @@ export function translationEndpointIssue(endpoint: string): string {
 export function SettingsPage({
   client,
   initialPage,
+  route,
   onReplayOnboarding,
 }: {
   client: SettingsClient;
+  /** The section the page opens on. Read once, at mount. */
   initialPage?: string;
+  /** A section requested after mount; a new `nonce` navigates there and keeps the draft. */
+  route?: { page: string; nonce: number };
   onReplayOnboarding?: () => void;
 }) {
   const { confirm, confirmation } = useConfirm();
@@ -2884,6 +2888,41 @@ export function SettingsPage({
     draftRef.current = draft;
   }, [snapshot, draft]);
 
+  // The refs are also written the moment a load or save resolves: the host's monitor echoes this
+  // window's own save back as a change, and it can arrive before React commits the new snapshot.
+  const adoptSnapshot = (value: Snapshot) => {
+    snapshotRef.current = value;
+    draftRef.current = value.preferences;
+    setSnapshot(value);
+    setDraft(value.preferences);
+  };
+  // A change that arrives while this window's save is in flight waits for it rather than being
+  // judged against the revision the save is about to replace; the revision check then drops the
+  // echo and still applies another window's later write.
+  const savingRef = useRef(false);
+  const heldChange = useRef<Snapshot>(undefined);
+  const applyPreferencesChange = (value: Snapshot) => {
+    const currentSnapshot = snapshotRef.current;
+    // Our own save echoed back, or an event older than what a reload already read.
+    if (currentSnapshot && value.revision <= currentSnapshot.revision) return;
+    const currentDraft = draftRef.current;
+    const dirty =
+      !!currentSnapshot &&
+      !!currentDraft &&
+      JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
+    if (dirty) {
+      setNotice("设置已被其他窗口修改。请重新读取后再保存。");
+      return;
+    }
+    adoptSnapshot(value);
+    setError("");
+    setNotice("设置已从其他窗口更新。");
+  };
+  // The subscription outlives renders; it reaches the handler through this so it never runs a stale
+  // one (the handler itself only touches refs and state setters).
+  const applyPreferencesChangeRef = useRef(applyPreferencesChange);
+  applyPreferencesChangeRef.current = applyPreferencesChange;
+
   useEffect(() => {
     if (!client.onPreferencesChanged) return;
     let active = true;
@@ -2891,20 +2930,12 @@ export function SettingsPage({
     void client
       .onPreferencesChanged((value) => {
         if (!active) return;
-        const currentSnapshot = snapshotRef.current;
-        const currentDraft = draftRef.current;
-        const dirty =
-          !!currentSnapshot &&
-          !!currentDraft &&
-          JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
-        if (dirty) {
-          setNotice("设置已被其他窗口修改。请重新读取后再保存。");
+        if (savingRef.current) {
+          if (!heldChange.current || value.revision > heldChange.current.revision)
+            heldChange.current = value;
           return;
         }
-        setSnapshot(value);
-        setDraft(value.preferences);
-        setError("");
-        setNotice("设置已从其他窗口更新。");
+        applyPreferencesChangeRef.current(value);
       })
       .then((value) => {
         if (active) unsubscribe = value;
@@ -2922,10 +2953,7 @@ export function SettingsPage({
     client
       .load()
       .then((value) => {
-        if (active) {
-          setSnapshot(value);
-          setDraft(value.preferences);
-        }
+        if (active) adoptSnapshot(value);
       })
       .catch((reason) => {
         if (active) setError(message(reason));
@@ -2945,8 +2973,7 @@ export function SettingsPage({
     setRecoveredBackup("");
     try {
       const value = await client.load();
-      setSnapshot(value);
-      setDraft(value.preferences);
+      adoptSnapshot(value);
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -2984,6 +3011,7 @@ export function SettingsPage({
     setError("");
     setNotice("");
     setRecoveredBackup("");
+    savingRef.current = true;
     try {
       const value = await client.save(snapshot.revision, draft);
       if (macosPlatform && client.saveMacosShuangpinKeymap && macosShuangpinKeymap !== undefined) {
@@ -2997,13 +3025,16 @@ export function SettingsPage({
         await client.saveMacosWubiAutoCommitUnique(macosWubiAutoCommitUnique);
         setSavedMacosWubiAutoCommitUnique(macosWubiAutoCommitUnique);
       }
-      setSnapshot(value);
-      setDraft(value.preferences);
+      adoptSnapshot(value);
       setNotice("设置已保存。");
     } catch (reason) {
       setError(message(reason));
     } finally {
       setBusy(false);
+      savingRef.current = false;
+      const held = heldChange.current;
+      heldChange.current = undefined;
+      if (held) applyPreferencesChange(held);
     }
   }
 
@@ -3646,7 +3677,16 @@ export function SettingsPage({
       setAiModels(null);
       setAiModelsStatus("");
     }
-    if (draft) setDraft({ ...draft, ai_assistant: { ...ai, ...patch } });
+    // Merged into the current draft, not this render's: fetchAiModels applies its result after an
+    // await, and a render-time copy would revert whatever was typed meanwhile.
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            ai_assistant: { ...(current.ai_assistant ?? defaultAiAssistant), ...patch },
+          }
+        : current,
+    );
   };
   const updateAiToken = (value: string) => {
     aiRequestGeneration.current += 1;
@@ -3870,8 +3910,17 @@ export function SettingsPage({
   const doubaoAuthMode =
     voiceInput.doubao_auth_mode ||
     (voiceInput.asr_app_key && !voiceInput.asr_app_key.startsWith("<") ? "legacy" : "api_key");
+  // Functional for the same reason as updateAi: a local model download finishes into the draft
+  // minutes after the click, and the render-time copy would revert every edit made in between.
   const updateVoice = (patch: Partial<VoiceInputPreferences>) => {
-    if (draft) setDraft({ ...draft, voice_input: { ...voiceInput, ...patch } });
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            voice_input: { ...defaultVoiceInput, ...current.voice_input, ...patch },
+          }
+        : current,
+    );
   };
   const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
   const tencentTranslation = draft?.tencent_tmt ?? defaultTencentTranslation;
@@ -4383,6 +4432,13 @@ export function SettingsPage({
     }
     if (next === "community") setCommunityDestination("all");
   };
+  // The request the page mounted with is already in `page`'s initializer; only later ones navigate.
+  const handledRoute = useRef(route?.nonce);
+  useEffect(() => {
+    if (!route || route.nonce === handledRoute.current) return;
+    handledRoute.current = route.nonce;
+    selectPage(requestedPage(route.page));
+  }, [route?.nonce]);
   const selectMobileTab = (tab: SettingsPageId) => {
     if (!mobilePrimaryPageIds.includes(tab as MobilePrimaryPageId)) return;
     const primary = tab as MobilePrimaryPageId;
@@ -9633,10 +9689,22 @@ export function SettingsPage({
                         mobile={mobilePlatform}
                         modelPath={voiceInput.asr_model_path ?? ""}
                         onUse={(asr_model_path) => updateVoice({ asr_model_path })}
-                        onRemoved={(model) => {
-                          if (localModelInUse(model, voiceInput.asr_model_path ?? ""))
-                            updateVoice({ asr_model_path: "" });
-                        }}
+                        onRemoved={(model) =>
+                          // Checked against the draft as it is once the removal lands.
+                          setDraft((current) =>
+                            current &&
+                            localModelInUse(model, current.voice_input?.asr_model_path ?? "")
+                              ? {
+                                  ...current,
+                                  voice_input: {
+                                    ...defaultVoiceInput,
+                                    ...current.voice_input,
+                                    asr_model_path: "",
+                                  },
+                                }
+                              : current,
+                          )
+                        }
                         confirm={confirm}
                         openExternalUrl={client.openExternalUrl ? openExternalUrl : undefined}
                       />

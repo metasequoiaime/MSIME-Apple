@@ -37,11 +37,17 @@ function chatError(error: unknown): string {
   return "连接失败，请检查网络后重试。";
 }
 
+// Mirrors MAX_CHAT_MESSAGE_BYTES in client-core, which counts UTF-8 bytes. The composer's
+// maxLength counts UTF-16 units, so a long CJK message passes it at a third of that size and
+// would only come back as the generic 消息或模型无效.
+const MAX_MESSAGE_BYTES = 16 * 1024;
+const utf8 = new TextEncoder();
+
 function boundedHistory(messages: DisplayMessage[]): ChatMessage[] {
   const result: ChatMessage[] = [];
   let bytes = 0;
   for (const message of [...messages].reverse()) {
-    const nextBytes = bytes + new TextEncoder().encode(message.content).length;
+    const nextBytes = bytes + utf8.encode(message.content).length;
     if (result.length >= 14 || nextBytes >= 48_000) break;
     result.unshift({ role: message.role, content: message.content });
     bytes = nextBytes;
@@ -144,6 +150,11 @@ export function ChatPage({
       return;
     }
     if (!selectedModel) return;
+    // Refused before it joins the conversation; otherwise every retry would resend it and fail.
+    if (utf8.encode(content).length > MAX_MESSAGE_BYTES) {
+      setError("消息过长，请精简后再发送。");
+      return;
+    }
     const next = [...messages, { id: nextMessageId.current++, role: "user" as const, content }];
     setMessages(next);
     setDraft("");

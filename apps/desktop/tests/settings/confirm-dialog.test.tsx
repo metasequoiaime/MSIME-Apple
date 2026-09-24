@@ -6,7 +6,13 @@ import { useConfirm } from "@msime/ui";
 
 afterEach(cleanup);
 
-function Harness({ onAnswer }: { onAnswer?: (confirmed: boolean) => void }) {
+function Harness({
+  onAnswer,
+  danger = true,
+}: {
+  onAnswer?: (confirmed: boolean) => void;
+  danger?: boolean;
+}) {
   const { confirm, confirmation } = useConfirm();
   const [answer, setAnswer] = useState("未问");
   return (
@@ -14,7 +20,7 @@ function Harness({ onAnswer }: { onAnswer?: (confirmed: boolean) => void }) {
       <button
         type="button"
         onClick={() =>
-          void confirm({ message: "删除词条“你好”？", danger: true }).then((confirmed) => {
+          void confirm({ message: "删除词条“你好”？", danger }).then((confirmed) => {
             setAnswer(confirmed ? "已确认" : "已取消");
             onAnswer?.(confirmed);
           })
@@ -60,17 +66,31 @@ test("escape and the backdrop both cancel", async () => {
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 });
 
-test("focus moves to the confirming button and returns where it came from", async () => {
+test("a destructive request focuses cancel and focus returns where it came from", async () => {
   render(<Harness />);
   const trigger = screen.getByRole("button", { name: "删除" });
   trigger.focus();
   fireEvent.click(trigger);
+  // A stray Enter must not confirm a deletion.
   await waitFor(() =>
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "确定" })),
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "取消" })),
+  );
+  const dialog = screen.getByRole("alertdialog", { name: "确认操作" });
+  expect(dialog.getAttribute("aria-describedby")).toBeTruthy();
+  expect(document.getElementById(dialog.getAttribute("aria-describedby")!)?.textContent).toBe(
+    "删除词条“你好”？",
   );
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   // Without this every confirmation would drop the user at the top of the page.
   await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
+
+test("a benign request still focuses the confirming button", async () => {
+  render(<Harness danger={false} />);
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "确定" })),
+  );
 });
 
 test("unmounting while open answers no rather than leaving the caller waiting", async () => {
