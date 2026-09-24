@@ -26,6 +26,8 @@ param(
     # the notice covers the whole product and lives at the root, one level above windows/, so where
     # to read it is no longer answered by where the tip is.
     [string]$NoticesDirectory = '.',
+    # The on-device speech runtime from scripts/fetch_voice_runtime.py --platform windows-x64; relative paths are resolved against RepoRoot. Used when the Server output does not already carry it.
+    [string]$VoiceRuntimeDirectory = 'target/voice-runtime/windows-x64',
     [switch]$Light
 )
 
@@ -233,6 +235,31 @@ if ($hasHandwritingModel) {
     }
 }
 
+# On-device speech recognition. The Server loads sherpa-onnx-c-api.dll with LoadLibrary from its own directory, and onnxruntime.dll and its provider bridge resolve beside it, so all three ride in server_exe. Build-Client.ps1 stages them into the Server output; a separately fetched runtime directory is the fallback. The set is all or nothing: a partial one would install a recognizer that fails at first use, so it is refused here, before any previous staging is replaced. With none of them the package installs without local recognition, and a dictation set to the local provider says the component cannot be loaded.
+$voiceRuntimeLibraries = @('sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
+$voiceRuntimeSource = if ([IO.Path]::IsPathRooted($VoiceRuntimeDirectory)) {
+    $VoiceRuntimeDirectory
+} else { Join-Path $RepoRoot $VoiceRuntimeDirectory }
+$voiceRuntimeFrom = $null
+foreach ($candidate in @($serverRelease, $voiceRuntimeSource)) {
+    $present = @($voiceRuntimeLibraries | Where-Object { Test-Path -LiteralPath (Join-Path $candidate $_) -PathType Leaf })
+    if ($present.Count -eq 0) { continue }
+    if ($present.Count -ne $voiceRuntimeLibraries.Count) {
+        $missing = @($voiceRuntimeLibraries | Where-Object { $_ -notin $present })
+        throw "本地语音识别运行时不完整（$candidate），缺少：$($missing -join ', ')"
+    }
+    $voiceRuntimeFrom = $candidate
+    break
+}
+# The runtime ships under Apache-2.0 (sherpa-onnx) and MIT (ONNX Runtime), both of which require their license to travel with the binaries. Collect-Notices.ps1 writes those sections; a notice file without them (an older collection, a hand-supplied one) would ship the DLLs unlicensed, so it is refused here, before any previous staging is replaced.
+if ($null -ne $voiceRuntimeFrom) {
+    $noticeText = [IO.File]::ReadAllText($thirdPartyNotices)
+    $missingVoiceNotices = @(@('sherpa-onnx', 'ONNX Runtime') | Where-Object { -not $noticeText.Contains($_) })
+    if ($missingVoiceNotices.Count -gt 0) {
+        throw "第三方声明缺少本地语音识别运行时的许可证（$($missingVoiceNotices -join ', ')），请用 Collect-Notices.ps1 重新生成：$thirdPartyNotices"
+    }
+}
+
 $targetAppData = Join-Path $PSScriptRoot 'app_data'
 $targetServer = Join-Path $PSScriptRoot 'server_exe'
 $targetTsf = Join-Path $PSScriptRoot 'tsf_dll'
@@ -363,6 +390,14 @@ if ($hasHandwritingModel) {
     }
 } else {
     Write-Host "未找到手写模型，跳过：$handwritingModel"
+}
+if ($null -eq $voiceRuntimeFrom) {
+    Write-Host "未找到本地语音识别运行时（$voiceRuntimeSource），安装包不含本地语音识别"
+} elseif ($voiceRuntimeFrom -ne $serverRelease) {
+    # A runtime inside the Server output was already copied with it above.
+    foreach ($library in $voiceRuntimeLibraries) {
+        Copy-Item -LiteralPath (Join-Path $voiceRuntimeFrom $library) -Destination $targetServer -Force
+    }
 }
 Get-ChildItem -LiteralPath $targetServer -Recurse -File |
     Where-Object {

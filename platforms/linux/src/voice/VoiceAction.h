@@ -18,10 +18,11 @@ inline bool msime_voice_overlay_light_theme(std::string_view surface_theme,
   return false;
 }
 
+// The streaming providers, whose partial transcripts can stand in the composition while the user speaks: Doubao in the cloud and on-device recognition, whose helper reports the transcript so far as it decodes.
 inline bool msime_voice_stream_inline_enabled(bool configured,
                                               std::string_view provider,
                                               std::string_view commit_mode = "tsf") {
-  return configured && provider == "doubao" &&
+  return configured && (provider == "doubao" || provider == "local") &&
          (commit_mode.empty() || commit_mode == "tsf");
 }
 
@@ -66,6 +67,8 @@ inline const char *msime_voice_provider_failure_notice(std::string_view error) {
     return "豆包语音需要 websockets 15 或更高版本，请安装 python3-websockets";
   if (error == "voice_dependency_missing:recorder")
     return "未找到录音工具，请安装 pulseaudio-utils、pipewire-bin 或 alsa-utils";
+  if (error == "voice_dependency_missing:local_asr")
+    return "本地语音识别组件无法加载，请重新安装输入法";
   return "语音输入失败，请检查语音服务、麦克风及提供商配置后重试";
 }
 

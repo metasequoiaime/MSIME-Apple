@@ -16,6 +16,10 @@ Components included by the macOS client include:
 * whisper.cpp / ggml — MIT License.
 * zinnia and the bundled handwriting model — the notices supplied with the
   Engine resources.
+* sherpa-onnx (Contents/Frameworks/libsherpa-onnx-c-api.dylib, loaded by the Contents/MacOS/msime-voice-local helper for on-device speech recognition) — Apache License 2.0 (sherpa-onnx-Apache-2.0.txt).
+* ONNX Runtime, statically linked into the sherpa-onnx library as its inference backend — MIT License (onnxruntime-MIT.txt), with the notices of the components ONNX Runtime itself bundles in onnxruntime-ThirdPartyNotices.txt.
+
+The speech recognition models are not part of this application; the settings page downloads them on request, and each model directory carries its own license.
 
 The source tree retains each upstream notice. This collection is not a
 license-completeness or redistribution-authorization assessment; nested

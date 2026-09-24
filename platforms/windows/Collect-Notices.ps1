@@ -40,6 +40,22 @@ foreach ($relative in @('crates/client-core/data/opencc/LICENSE')) {
     if (-not $content) { throw "Empty repository notice: $relative" }
     $documents.Add("===== OpenCC dictionaries ($relative), BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6 =====`n$content`n")
 }
+# The on-device speech runtime Build-Client.ps1 stages beside the Server from resources/voice-runtime.lock.json: sherpa-onnx-c-api.dll (Apache-2.0), and onnxruntime.dll with onnxruntime_providers_shared.dll (MIT, plus the notices of the components ONNX Runtime bundles). The upstream archive carries no license files, so the texts pinned for the Linux package are the ones collected here; the Windows DLLs report the same ONNX Runtime release those texts name. Prepare-PackageFiles.ps1 refuses to package the runtime with a notice file that lacks these sections.
+$voiceLockPath = Join-Path $RepoRoot 'resources/voice-runtime.lock.json'
+if (-not (Test-Path -LiteralPath $voiceLockPath -PathType Leaf)) { throw 'Missing voice runtime lock: resources/voice-runtime.lock.json' }
+$voiceVersion = "$((Get-Content -LiteralPath $voiceLockPath -Raw | ConvertFrom-Json).version)"
+if ($voiceVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Cannot resolve locked voice runtime version' }
+foreach ($voiceNotice in @(
+    @('shared/voice/third_party/sherpa-onnx/LICENSE', "sherpa-onnx $voiceVersion (sherpa-onnx-c-api.dll), Apache License 2.0"),
+    @('platforms/linux/data/licenses/onnxruntime-MIT.txt', 'ONNX Runtime (onnxruntime.dll, onnxruntime_providers_shared.dll), MIT License'),
+    @('platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt', 'ONNX Runtime third-party notices'))) {
+    $relative = $voiceNotice[0]
+    $noticePath = Join-Path $RepoRoot $relative
+    if (-not (Test-Path -LiteralPath $noticePath -PathType Leaf)) { throw "Missing repository notice: $relative" }
+    $content = Get-Content -LiteralPath $noticePath -Raw
+    if (-not $content) { throw "Empty repository notice: $relative" }
+    $documents.Add("===== $($voiceNotice[1]) ($relative) =====`n$content`n")
+}
 $number = 0
 foreach ($prefix in $DependencyPrefixes) {
     $number++

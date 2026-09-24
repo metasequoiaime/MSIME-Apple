@@ -124,6 +124,40 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 | --- | --- | --- |
 | [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0 | `crates/client-core/data/opencc/`，许可证全文在同目录 `LICENSE`。`STPhrases.txt`、`STCharacters.txt`、`CJK_Compatibility_Ideographs.txt` 原样取自该提交的 `data/dictionary/`；`STPhrases_GeneratedFromRegionalPhrases.txt` 是该提交的 OpenCC 构建产物（`data/scripts/generate_st_phrases_from_regional_phrases.py` 用 `t2s.json` 生成），本仓不重新生成。提交号与来源 MSIME-Windows 的 `vendor/opencc` 子模块一致。只使用数据，不链接 OpenCC 的 C++ 库；`chinese_conversion.rs` 按 `s2t.json` 的规则实现转换。Windows 通知由 `Collect-Notices.ps1` 一并收集 |
 
+## 本地语音识别
+
+语音服务选 `local` 且 `asr_model_path` 指向已安装的模型目录时，识别在设备上完成。这条路径分两部分：一份随包分发的推理运行时，和由用户在设置页按需下载的模型。**模型不随包分发**，仓库只携带下载地址、长度和 SHA-256。
+
+### 运行时（`resources/voice-runtime.lock.json`）
+
+锁文件为每个平台固定一个 sherpa-onnx v1.13.8 的上游预编译产物（来源提交 `11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf`）的 URL、长度和 SHA-256，`scripts/fetch_voice_runtime.py --platform <平台>` 校验后展开到被忽略的 `target/voice-runtime/<平台>/`，各平台的构建与打包脚本从那里取文件。
+
+| 组件 | 许可证 | 说明 |
+| --- | --- | --- |
+| [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Apache-2.0 | 语音识别运行时。宿主不在构建期链接它，而是在第一次识别时用 `dlopen`/`LoadLibrary` 加载其 C API 库（`shared/voice/LocalAsr.h`）。构建期只需要它的 C 头文件，原样放在 `shared/voice/third_party/sherpa-onnx/c-api.h`，许可证全文在同目录 `LICENSE`。Android 使用上游的 `.aar`，HarmonyOS 使用上游的 `.har`，iOS 使用 `SherpaOnnxC.xcframework` |
+| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | MIT | sherpa-onnx 的推理后端，随上述产物一起来，版本由 sherpa-onnx 的发布决定。macOS 与 iOS 的产物把它静态链接进 sherpa-onnx 库；Linux 另带 `libonnxruntime.so`，Windows 另带 `onnxruntime.dll` 与 `onnxruntime_providers_shared.dll`。分发时需要携带它的许可证与第三方通知 |
+
+### 模型（`resources/local-asr-models.json`）
+
+模型目录由设置页的模型管理下载：`client-core::voice::local_models` 只接受 HTTPS，逐字节校验长度与 SHA-256，只保留目录清单 `files` 里列出的文件（`test_wavs`、`test_onnx.py`、`bpe.model` 不解包），最后写入 `msime-model.json`。三份归档都是 sherpa-onnx 项目转换成 ONNX 后在 `asr-models` 发布里公开提供的版本，下表的许可证取自目录里各条目的 `license` 字段：
+
+| 目录 id | 模型 | 许可证 | 来源 | 说明 |
+| --- | --- | --- | --- | --- |
+| `x-asr-zh-en-streaming`（默认） | X-ASR 中英流式 zipformer transducer，int8 | Apache-2.0 | [Gilgamesh-J/X-ASR](https://github.com/Gilgamesh-J/X-ASR) | 原生支持热词。热词需要的 `bpe.vocab` 上游归档里没有，仓库自带一份 `resources/voice-models/x-asr-zh-en-bpe.vocab`（69,594 字节，SHA-256 记在目录的 `extra` 里），编译进 `client-core`，安装时写入模型目录；它是该模型的派生数据，适用同一许可证 |
+| `sense-voice-small` | SenseVoice-Small，int8 | **FunASR Model License v1.1**（`LicenseRef-FunASR-Model-License-1.1`），不是 OSI 开源许可证 | [FunAudioLLM/SenseVoice](https://github.com/FunAudioLLM/SenseVoice)，条款全文见 [FunASR MODEL_LICENSE](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE) | 阿里巴巴通义实验室。条款要求保留模型名称和署名，目录条目的 `notice` 原样记录了这段署名，设置页在模型旁显示它。**不随 MSIME 分发**，只在用户点下载时从上游取得 |
+| `fun-asr-nano`（仅桌面） | Fun-ASR-Nano-2512，int8 | Apache-2.0 | [FunAudioLLM/Fun-ASR](https://github.com/FunAudioLLM/Fun-ASR) | 阿里巴巴通义实验室。解码器是 Qwen3-0.6B，同为 Apache-2.0 |
+| `silero_vad.onnx`（后两个模型的附加文件） | Silero VAD | MIT | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | 整句模型用它切分语音段。从 sherpa-onnx 的 `asr-models` 发布下载，SHA-256 固定在目录的 `extra` 里 |
+
+用户可以在设置里配置下载镜像（`asr_model_mirror`）；镜像只改变从哪里取文件，校验用的 SHA-256 不变，所以镜像无法替换内容。
+
+### 编译进共享层的 Rust 依赖
+
+| crate | 版本 | 许可证 | 用途 |
+| --- | --- | --- | --- |
+| `pinyin` | 0.11 | MIT | 把用户词库的热词转成无声调拼音，给不支持原生热词的模型做近音纠正（`client-core::voice::hotwords`） |
+| `tar` | 0.4 | MIT OR Apache-2.0 | 解包模型归档 |
+| `bzip2` | 0.6 | MIT OR Apache-2.0 | 解压 `.tar.bz2`。0.6 默认使用纯 Rust 的 `libbz2-rs-sys` 后端，该 crate 的许可证是 `bzip2-1.0.6`（bzip2 原作的 BSD 式许可，要求保留版权声明） |
+
 ## 各平台引入的第三方 SDK
 
 | 平台 | 组件 | 许可 |
@@ -145,7 +179,7 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 
 逐个列出会立刻过时，以锁文件为准：
 
-- Rust：`Cargo.lock`，当前 573 个 package 条目（含本 workspace 自身的成员）。`cargo audit` 是 `scripts/verify-local.sh` 完整版的一个阶段，漏洞视为失败；被接受的 `unmaintained` / `unsound` 公告逐条记在 [`.cargo/audit.toml`](../.cargo/audit.toml) 里，每条都写明引入链和接受理由。
+- Rust：`Cargo.lock`，当前 578 个 package 条目（含本 workspace 自身的成员）。`cargo audit` 是 `scripts/verify-local.sh` 完整版的一个阶段，漏洞视为失败；被接受的 `unmaintained` / `unsound` 公告逐条记在 [`.cargo/audit.toml`](../.cargo/audit.toml) 里，每条都写明引入链和接受理由。
 - Node：`pnpm-lock.yaml`。
 - iOS：`platforms/ios/Podfile.lock`。
 

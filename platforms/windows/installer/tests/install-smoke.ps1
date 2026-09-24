@@ -35,7 +35,9 @@ Check (-not [string]::IsNullOrWhiteSpace($versionDir)) 'VersionDir recorded in H
 Check (Test-Path -LiteralPath $app.ServerPath -PathType Leaf) "ServerPath points at an installed file ($($app.ServerPath))"
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir 'config.toml') -PathType Leaf) 'user config.toml created in DataDir'
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir '.metasequoiaime-data') -PathType Leaf) 'DataDir ownership marker written'
-foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-mcp.exe') {
+# The three voice runtime libraries are what the Server loads for on-device speech recognition; Build-Client.ps1 stages them for every release package.
+foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-mcp.exe',
+    'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll') {
     Check (Test-Path -LiteralPath (Join-Path $pf64 "server\$name") -PathType Leaf) "server\$name installed"
 }
 # The MCP server an AI assistant starts from the install directory must run there, not only be copied; --version touches no state and prints to stderr.

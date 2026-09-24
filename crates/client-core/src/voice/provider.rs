@@ -30,6 +30,8 @@ pub struct MobileVoiceProviderConfiguration {
     pub enable_punctuation: bool,
     pub enable_ddc: bool,
     pub boosting_table_id: String,
+    /// The on-device model for provider `local` (an installed model directory or a Whisper file); empty for every network provider, which carry an endpoint and token instead.
+    pub model_path: String,
 }
 
 /// The optional rewrite that runs over a transcript, resolved the same way the provider is.
@@ -128,6 +130,9 @@ pub fn mobile_voice_provider_configuration(
     preferences: &Preferences,
 ) -> Option<MobileVoiceProviderConfiguration> {
     let voice = &preferences.voice_input;
+    if voice.asr_provider == "local" {
+        return local_provider_configuration(preferences);
+    }
     let (default_endpoint, default_model) = match voice.asr_provider.as_str() {
         "doubao" => (
             "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
@@ -220,5 +225,72 @@ pub fn mobile_voice_provider_configuration(
         enable_punctuation: voice.doubao_enable_punc,
         enable_ddc: voice.doubao_enable_ddc,
         boosting_table_id: boosting_table_id.to_owned(),
+        model_path: String::new(),
     })
+}
+
+/// On-device recognition: no endpoint, token or header applies, only the model the user installed or picked. `None` until a model is chosen, the same "not configured" answer a network provider without a token gets.
+fn local_provider_configuration(
+    preferences: &Preferences,
+) -> Option<MobileVoiceProviderConfiguration> {
+    let voice = &preferences.voice_input;
+    let model_path = voice.asr_model_path.trim();
+    if model_path.is_empty()
+        || model_path.len() > 4096
+        || model_path.chars().any(char::is_control)
+        || !crate::preferences::is_absolute_model_path(model_path)
+    {
+        return None;
+    }
+    Some(MobileVoiceProviderConfiguration {
+        provider: voice.asr_provider.clone(),
+        endpoint: String::new(),
+        model: String::new(),
+        token: String::new(),
+        headers: Vec::new(),
+        enable_itn: voice.doubao_enable_itn,
+        enable_punctuation: voice.doubao_enable_punc,
+        enable_ddc: voice.doubao_enable_ddc,
+        boosting_table_id: String::new(),
+        model_path: model_path.to_owned(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_provider_resolves_without_endpoint_or_token() {
+        let mut preferences = Preferences::default();
+        preferences.voice_input.asr_provider = "local".into();
+        preferences.voice_input.asr_endpoint = "https://fixture.invalid/ignored".into();
+        preferences.voice_input.asr_token = "synthetic-ignored".into();
+        assert!(mobile_voice_provider_configuration(&preferences).is_none());
+
+        preferences.voice_input.asr_model_path =
+            "/data/user/0/app/files/voice-models/x-asr-zh-en-streaming".into();
+        let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
+        assert_eq!(configuration.provider, "local");
+        assert_eq!(
+            configuration.model_path,
+            "/data/user/0/app/files/voice-models/x-asr-zh-en-streaming"
+        );
+        assert!(configuration.endpoint.is_empty());
+        assert!(configuration.token.is_empty());
+        assert!(configuration.headers.is_empty());
+
+        preferences.voice_input.asr_model_path = "relative/model".into();
+        assert!(mobile_voice_provider_configuration(&preferences).is_none());
+    }
+
+    #[test]
+    fn network_providers_carry_no_model_path() {
+        let mut preferences = Preferences::default();
+        preferences.voice_input.asr_provider = "openai".into();
+        preferences.voice_input.asr_token = "synthetic-token".into();
+        preferences.voice_input.asr_model_path = "/models/ggml.bin".into();
+        let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
+        assert!(configuration.model_path.is_empty());
+    }
 }

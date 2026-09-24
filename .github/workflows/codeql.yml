@@ -71,6 +71,7 @@ jobs:
       - name: Generate Xcode project
         run: |
           set -euo pipefail
+          python3 scripts/fetch_voice_runtime.py --platform ios
           (cd platforms/ios && xcodegen generate -s project.yml -p .)
           (cd platforms/ios && pod install --deployment)
       - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4

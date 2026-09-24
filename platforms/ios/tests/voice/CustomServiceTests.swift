@@ -73,7 +73,7 @@ final class CustomServiceTests: XCTestCase {
     // Existing installations have these keys without a provider identifier.
     defaults.set("https://custom.invalid/audio/transcriptions", forKey: "service.voice.endpoint")
     defaults.set("legacy-model", forKey: "service.voice.model")
-    for provider in VoiceProviderPreset.allCases where provider != .custom {
+    for provider in VoiceProviderPreset.allCases where provider != .custom && !provider.isOnDevice {
       var config = CustomServiceConfiguration.loadVoicePreset(provider, defaults: defaults)
       XCTAssertEqual(try config.validatedURL(allowWebSocket: provider == .doubao).absoluteString,
                      provider.endpoint)
@@ -86,7 +86,7 @@ final class CustomServiceTests: XCTestCase {
       try config.save(.voice, token: "", defaults: defaults)
       XCTAssertEqual(CustomServiceConfiguration.load(.voice, defaults: defaults).voiceProvider, provider)
     }
-    for provider in VoiceProviderPreset.allCases where provider != .custom {
+    for provider in VoiceProviderPreset.allCases where provider != .custom && !provider.isOnDevice {
       XCTAssertEqual(CustomServiceConfiguration.loadVoicePreset(provider, defaults: defaults).model,
                      "saved-\(provider.rawValue)")
     }

@@ -4,6 +4,7 @@
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod credential_command_tests;
+mod local_model_tests;
 
 #[cfg(not(target_os = "android"))]
 #[test]

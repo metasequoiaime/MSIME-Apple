@@ -1,6 +1,12 @@
 import { useConfirm } from "./core/confirm";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
+  LocalModelManager,
+  localModelInUse,
+  validModelMirror,
+  type LocalVoiceModelClient,
+} from "./voice/local-models";
+import {
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -279,6 +285,19 @@ export {
   type CustomTranslationReport,
 } from "./dictionary/custom-translations";
 export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
+export {
+  LocalModelManager,
+  formatModelBytes,
+  localModelErrorMessage,
+  localModelInUse,
+  localModelProgressPercent,
+  validModelMirror,
+  visibleLocalModels,
+  type LocalVoiceModel,
+  type LocalVoiceModelClient,
+  type LocalVoiceModelList,
+  type LocalVoiceModelProgress,
+} from "./voice/local-models";
 
 export type HelpcodeSchema =
   | "lantian"
@@ -883,8 +902,6 @@ export function providerCredentialErrorMessage(error: unknown): string {
       return "请填写凭据。";
     case "provider_credentials_invalid_region":
       return "地域只能包含小写字母、数字和连字符，例如 ap-guangzhou。";
-    case "provider_credentials_voice_asr_required":
-      return "语音 provider 需要至少一个识别凭据：请先保存识别凭据，或先清除润色凭据。";
     case "provider_credentials_too_many_profiles":
       return "已保存的 AI 服务商过多，请先清除不再使用的凭据。";
     case "provider_credentials_existing_invalid":
@@ -944,8 +961,10 @@ export type VoiceInputPreferences = {
   polish_enabled?: boolean;
   polish_text?: boolean;
   asr_model?: string;
-  /** Absolute path to a local Whisper model file; only the `local` provider reads it. */
+  /** Absolute path the `local` provider loads: an installed model directory (one holding msime-model.json) or a Whisper model file. */
   asr_model_path?: string;
+  /** Optional `https://` prefix put in front of every model download URL (a ghproxy-style mirror); empty downloads from the catalog URLs as-is. */
+  asr_model_mirror?: string;
   asr_resource_id?: string;
   commit_mode?: "tsf" | "sendinput" | "ctrl_v";
   polish_provider?: string;
@@ -1842,6 +1861,8 @@ export interface SettingsClient {
    * by path and a file input hands back contents instead, so only the host can answer this.
    */
   pickVoiceModelPath?: () => Promise<string | null>;
+  /** The host's on-device speech model store; hosts that provide it offer the `local` provider with a model manager. */
+  localVoiceModels?: LocalVoiceModelClient;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
@@ -3738,7 +3759,43 @@ export function SettingsPage({
   // and the card then announced itself as macOS on an Android phone.
   const systemVoiceHostName = harmonyPlatform ? "HarmonyOS" : androidPlatform ? "Android" : "macOS";
   // On-device Whisper. Like the system recognizer it has no service behind it, so it hides the same endpoint, token and model rows - but unlike it, the user has to say which model file to load.
-  const localVoice = macosPlatform && voiceInput.asr_provider === "local";
+  // macOS has always run a hand-picked Whisper file; a host with a model store can run the downloadable models too.
+  const localVoiceAvailable = macosPlatform || client.localVoiceModels !== undefined;
+  const localVoice = localVoiceAvailable && voiceInput.asr_provider === "local";
+  // A Whisper file picked by hand: the whole setting on a host without a model store, and an advanced option under the model manager otherwise.
+  const manualVoiceModelPath = () => (
+    <div className="section">
+      <label className="section-header">
+        <span className="section-title">
+          Whisper 模型文件
+          <small>ggml 模型的绝对路径，例如 /Users/you/models/ggml-large-v3-turbo.bin</small>
+        </span>
+        <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
+          <input
+            aria-label="Whisper 模型文件"
+            value={voiceInput.asr_model_path ?? ""}
+            placeholder="/path/to/ggml-model.bin"
+            onChange={(event) => updateVoice({ asr_model_path: event.target.value })}
+          />
+          {client.pickVoiceModelPath && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                void (async () => {
+                  // Cancelling resolves to null and must leave the field as it was, rather than clearing a path that already worked.
+                  const chosen = await client.pickVoiceModelPath?.();
+                  if (chosen) updateVoice({ asr_model_path: chosen });
+                })();
+              }}
+            >
+              选择…
+            </button>
+          )}
+        </span>
+      </label>
+    </div>
+  );
   const serviceVoice = !systemVoice && !localVoice;
   const harmonyUnsupportedAsr =
     harmonyPlatform &&
@@ -9255,11 +9312,11 @@ export function SettingsPage({
                   <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
                     {localVoice ? (
                       <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">本地 Whisper</div>
+                        <div className="section-title">本地识别</div>
                         <p className={settings.panelPreviewLabel}>
-                          录音和识别都在这台机器上完成，音频不会离开本机，也不需要任何 API
-                          Key。需要自备 whisper.cpp 的 ggml
-                          模型文件（.bin），在下方填写它的绝对路径；模型越大越准也越慢，首次识别要等模型载入。可选的文本润色仍会调用你配置的云服务。
+                          {client.localVoiceModels
+                            ? "录音和识别都在这台设备上完成，音频不会离开本机，也不需要任何 API Key。在下方下载一个模型并点击“使用”，保存设置后生效；下载只会连接 GitHub 或你配置的镜像。你的用户词库会作为热词提高专有名词的识别率。可选的文本润色仍会调用你配置的云服务。"
+                            : "录音和识别都在这台机器上完成，音频不会离开本机，也不需要任何 API Key。需要自备 whisper.cpp 的 ggml 模型文件（.bin），在下方填写它的绝对路径；模型越大越准也越慢，首次识别要等模型载入。可选的文本润色仍会调用你配置的云服务。"}
                         </p>
                       </div>
                     ) : systemVoice ? (
@@ -9387,10 +9444,10 @@ export function SettingsPage({
                             <option value="everyapi">EveryAPI</option>
                             <option value="mistral">Mistral · Voxtral</option>
                             {macosPlatform && <option value="system">macOS 系统识别</option>}
-                            {macosPlatform && <option value="local">本地 Whisper（离线）</option>}
-                            {!macosPlatform && voiceInput.asr_provider === "local" && (
+                            {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
+                            {!localVoiceAvailable && voiceInput.asr_provider === "local" && (
                               <option value="local" disabled>
-                                本地 Whisper（当前平台不可用）
+                                本地模型（当前平台不可用）
                               </option>
                             )}
                             {harmonyPlatform && <option value="system">HarmonyOS 系统识别</option>}
@@ -9432,44 +9489,55 @@ export function SettingsPage({
                         </datalist>
                       </label>
                     </div>
-                    {localVoice && (
+                    {localVoice && client.localVoiceModels && (
+                      <LocalModelManager
+                        client={client.localVoiceModels}
+                        mobile={mobilePlatform}
+                        modelPath={voiceInput.asr_model_path ?? ""}
+                        onUse={(asr_model_path) => updateVoice({ asr_model_path })}
+                        onRemoved={(model) => {
+                          if (localModelInUse(model, voiceInput.asr_model_path ?? ""))
+                            updateVoice({ asr_model_path: "" });
+                        }}
+                        confirm={confirm}
+                        openExternalUrl={client.openExternalUrl ? openExternalUrl : undefined}
+                      />
+                    )}
+                    {localVoice && client.localVoiceModels && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
-                            Whisper 模型文件
+                            模型下载镜像
                             <small>
-                              ggml 模型的绝对路径，例如 /Users/you/models/ggml-large-v3-turbo.bin
+                              可选。以 https://
+                              开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub
+                              下载。保存设置后生效
                             </small>
                           </span>
-                          <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
-                            <input
-                              aria-label="Whisper 模型文件"
-                              value={voiceInput.asr_model_path ?? ""}
-                              placeholder="/path/to/ggml-model.bin"
-                              onChange={(event) =>
-                                updateVoice({ asr_model_path: event.target.value })
-                              }
-                            />
-                            {client.pickVoiceModelPath && (
-                              <button
-                                type="button"
-                                className="secondary"
-                                onClick={() => {
-                                  void (async () => {
-                                    // Cancelling resolves to null and must leave the field as it was,
-                                    // rather than clearing a path that already worked.
-                                    const chosen = await client.pickVoiceModelPath?.();
-                                    if (chosen) updateVoice({ asr_model_path: chosen });
-                                  })();
-                                }}
-                              >
-                                选择…
-                              </button>
-                            )}
-                          </span>
+                          <input
+                            aria-label="模型下载镜像"
+                            maxLength={2048}
+                            value={voiceInput.asr_model_mirror ?? ""}
+                            placeholder="https://mirror.example.com"
+                            aria-invalid={
+                              !validModelMirror((voiceInput.asr_model_mirror ?? "").trim())
+                            }
+                            onChange={(event) =>
+                              updateVoice({ asr_model_mirror: event.target.value })
+                            }
+                          />
                         </label>
                       </div>
                     )}
+                    {localVoice &&
+                      (client.localVoiceModels ? (
+                        <details className="section">
+                          <summary>高级：手动指定 Whisper 模型文件</summary>
+                          {manualVoiceModelPath()}
+                        </details>
+                      ) : (
+                        manualVoiceModelPath()
+                      ))}
                     {showVoiceProviderSettings &&
                       serviceVoice &&
                       providerPresetControls(

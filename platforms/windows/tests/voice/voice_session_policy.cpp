@@ -59,6 +59,29 @@ int main() {
             VoiceStartCheck::Ready);
     REQUIRE(voice_start_verdict({true, false, "t", "https://synthetic", "m", ""}).check ==
             VoiceStartCheck::Ready);
+    // The on-device provider needs an installed model and none of the cloud fields: no token, endpoint, model name or resource id.
+    const auto local_ready = voice_start_verdict({true, false, "", "", "", "", true, "C:\\Users\\synthetic\\voice-models\\x-asr-zh-en-streaming"});
+    REQUIRE(local_ready.check == VoiceStartCheck::Ready);
+    REQUIRE(local_ready.message.empty());
+    const auto local_missing = voice_start_verdict({true, false, "", "", "", "", true, ""});
+    REQUIRE(local_missing.check == VoiceStartCheck::Rejected);
+    REQUIRE(local_missing.message == voice_missing_local_model_message);
+    // A token left over from a cloud provider does not stand in for the model.
+    REQUIRE(voice_start_verdict({true, false, "t", "https://synthetic", "m", "", true, ""}).message ==
+            voice_missing_local_model_message);
+    // Disabled still wins, silently.
+    REQUIRE(voice_start_verdict({false, false, "", "", "", "", true, ""}).check == VoiceStartCheck::Disabled);
+    // A cloud provider is unaffected by a model path.
+    REQUIRE(voice_start_verdict({true, false, "", "https://synthetic", "m", "", false, "C:\\model"}).message ==
+            voice_missing_token_message);
+
+    // A failed on-device recognition names what the person can fix: the runtime first, then the model.
+    REQUIRE(voice_local_failure(false, true) == voice_local_runtime_message);
+    REQUIRE(voice_local_failure(false, false) == voice_local_runtime_message);
+    REQUIRE(voice_local_failure(true, false) == voice_local_model_unusable_message);
+    REQUIRE(voice_local_failure(true, true) == voice_recognition_failed_message);
+    REQUIRE(voice_missing_local_model_message.find("本地模型") != std::string_view::npos);
+
     REQUIRE(voice_missing_token_message.find("API Token") != std::string_view::npos);
     REQUIRE(voice_microphone_start_message == "无法启动麦克风。");
     REQUIRE(voice_capture_interrupted_message == "录音中断，请重试。");

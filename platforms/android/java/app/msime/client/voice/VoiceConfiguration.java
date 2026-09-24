@@ -22,16 +22,24 @@ public final class VoiceConfiguration {
     private final String token;
     private final VoiceRecognitionActivity.Streaming streaming;
     private final VoiceRecognitionActivity.Polish polish;
+    private final String localModel;
 
     private VoiceConfiguration(String providerName, String endpoint, String model, String token,
                                VoiceRecognitionActivity.Streaming streaming,
                                VoiceRecognitionActivity.Polish polish) {
+        this(providerName, endpoint, model, token, streaming, polish, null);
+    }
+
+    private VoiceConfiguration(String providerName, String endpoint, String model, String token,
+                               VoiceRecognitionActivity.Streaming streaming,
+                               VoiceRecognitionActivity.Polish polish, String localModel) {
         this.providerName = providerName;
         this.endpoint = endpoint;
         this.model = model;
         this.token = token;
         this.streaming = streaming;
         this.polish = polish;
+        this.localModel = localModel;
     }
 
     /** Nothing configured: the platform recogniser, with no rewrite. */
@@ -68,6 +76,11 @@ public final class VoiceConfiguration {
         return polish;
     }
 
+    /** The installed model directory for on-device recognition, or null for every other engine. */
+    public String localModel() {
+        return localModel;
+    }
+
     /** Read the shared resolution for this preferences directory; failures mean "not configured". */
     public static VoiceConfiguration read(String directory, String requestId) {
         if (directory == null || directory.isEmpty()) return none();
@@ -81,9 +94,9 @@ public final class VoiceConfiguration {
     /**
      * Decode one shared answer.
      *
-     * <p>A request qualifies for exactly one transport: Doubao's streaming socket or the
-     * OpenAI-compatible upload. Anything the host cannot speak leaves both null and the platform
-     * recogniser runs, rather than the voice button failing.
+     * <p>A request qualifies for exactly one transport: on-device recognition, Doubao's streaming
+     * socket or the OpenAI-compatible upload. Anything the host cannot speak leaves all three null
+     * and the platform recogniser runs, rather than the voice button failing.
      */
     public static VoiceConfiguration decode(String response, String requestId) {
         try {
@@ -100,6 +113,10 @@ public final class VoiceConfiguration {
             String model = provider.optString("model", "");
             String token = provider.optString("token", "");
             String[] headers = headers(provider.optJSONArray("headers"));
+            String modelPath = provider.isNull("modelPath") ? "" : provider.optString("modelPath", "");
+            if (LocalAsrPolicy.usable(name, modelPath)) {
+                return new VoiceConfiguration(name, null, null, null, null, polish, modelPath);
+            }
             if (DoubaoAsrPolicy.usable(name, endpoint, java.util.Arrays.asList(names(headers)))) {
                 return new VoiceConfiguration(name, null, null, null,
                     new VoiceRecognitionActivity.Streaming(endpoint, headers,

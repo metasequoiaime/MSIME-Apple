@@ -14,6 +14,10 @@ $server = @($records | Where-Object { $_.Value.Contains('\server_exe\*') })
 if ($server.Count -ne 1 -or -not $server[0].Value.Contains('recursesubdirs')) {
     throw 'Missing native WinUI/Tauri executable installation rule'
 }
+# The voice runtime DLLs carry upstream version resources; an upgrade must replace them with the pinned build even when an older one reports a higher version.
+if (-not $server[0].Value.Contains('ignoreversion')) {
+    throw 'Server files, including the voice runtime, can be kept back on upgrade'
+}
 if (-not $script.Contains('#define MySettingsExeName "msime-client-settings.exe"') -or
     -not $script.Contains('{#MySettingsExeName}')) {
     throw 'Start Menu shortcut does not target the staged WinUI settings executable'
