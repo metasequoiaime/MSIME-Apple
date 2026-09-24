@@ -400,7 +400,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         MSIMEPreferenceRow(@"服务地址", _endpoint),
         MSIMEPreferenceRow(@"识别模型", _model),
         MSIMEPreferenceRow(@"API 密钥", _token),
-        MSIMEPreferenceRowOfWidth(@"Whisper 模型", modelPathRow, msime::mac::layout::kWideControlWidth),
+        MSIMEPreferenceRow(@"Whisper 模型", modelPathRow),
         MSIMEPreferenceRow(@"录音设备", _captureDevice),
     ], 0.0);
     recognitionCard.accessibilityLabel = @"语音识别卡片";

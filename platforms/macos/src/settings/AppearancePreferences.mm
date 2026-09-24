@@ -2143,14 +2143,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         MSIMESwitchRow(@"候选窗口跟随光标", _candidateFollowCursorToggle, nil),
     ], 0.0);
     candidateWindowCard.accessibilityLabel = @"候选窗口卡片";
-    // The three clusters need a wider control column than one popup does; at the shared width the
-    // colour well and the reorder buttons are squeezed past the edge of the card.
+    // The three clusters — a field beside a colour well, a field beside a button, a popup beside
+    // three buttons — are wider than one popup, and the row now lets them be: the control column is
+    // placed against the trailing edge rather than pinned to a width, so the card keeps one control
+    // edge without the second fixed width these rows used to ask for.
     NSBox *fontCard = MSIMECardWithViews(@[
         MSIMEPreferenceRow(@"候选字体", _fontFamilyControl),
         MSIMEPreferenceRow(@"候选窗英文字体", _englishFontFamilyControl),
-        MSIMEPreferenceRowOfWidth(@"候选文字颜色", textColorControls, kWideControlWidth),
-        MSIMEPreferenceRowOfWidth(@"补充字体（最多 32 项）", fallbackAdd, kWideControlWidth),
-        MSIMEPreferenceRowOfWidth(@"补充字体优先顺序", fallbackOrder, kWideControlWidth),
+        MSIMEPreferenceRow(@"候选文字颜色", textColorControls),
+        MSIMEPreferenceRow(@"补充字体（最多 32 项）", fallbackAdd),
+        MSIMEPreferenceRow(@"补充字体优先顺序", fallbackOrder),
     ], 0.0);
     fontCard.accessibilityLabel = @"候选字体卡片";
     NSScrollView *appearancePage = PreferencesPage(@"外观", @"调整候选窗口与输入状态栏的显示方式。", @[
