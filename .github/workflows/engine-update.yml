@@ -34,7 +34,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          commit="$(git ls-remote https://github.com/metasequoiaime/msime-engine.git refs/heads/main | cut -f1)"
+          # The lock's own repository, so the commit and the archive relock_engine.py pins cannot drift apart.
+          repository="$(python3 -c 'import json; print(json.load(open("engine-lock.json"))["repository"])')"
+          commit="$(git ls-remote "https://github.com/$repository.git" refs/heads/main | cut -f1)"
+          [ -n "$commit" ] || { echo "::error::no main branch at $repository"; exit 1; }
           current="$(python3 -c 'import json; print(json.load(open("engine-lock.json"))["commit"])')"
           if [ "$commit" = "$current" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -51,14 +54,22 @@ jobs:
           #
           # 用和 release-please 同一个凭据,理由见 release-*.yml 里那条注释。留 GITHUB_TOKEN 作回退,让没配这个 secret 的分叉至少还能推出分支。
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          COMMIT: ${{ steps.update.outputs.commit }}
         run: |
-          branch="automation/engine-${{ steps.update.outputs.commit }}"
+          set -euo pipefail
+          branch="automation/engine-$COMMIT"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git switch -c "$branch"
           git add engine-lock.json
           git commit -m "build: update MSIME-Engine dependency"
           git push --force origin "$branch"
+          # A bump PR for this commit still open from an earlier run: the push above refreshed it, and gh pr create would fail on it.
+          open="$(gh pr list --head "$branch" --base develop --state open --json number -q length)"
+          if [ "$open" != "0" ]; then
+            echo "PR for $branch already open; branch refreshed"
+            exit 0
+          fi
           gh pr create --base develop --head "$branch" \
             --title "build: update MSIME-Engine dependency" \
-            --body "Updates the verified MSIME-Engine archive to commit ${{ steps.update.outputs.commit }}. CI must pass before merging."
+            --body "Updates the MSIME-Engine archive to commit $COMMIT. The SHA-256 is the one GitHub serves for that commit today, recorded rather than independently verified, and the lock's dependency pins are unchanged. CI must pass before merging."

@@ -52,7 +52,9 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn('request.setValue("multipart/form-data; boundary=', swift)
         self.assertIn("willPerformHTTPRedirection", swift)
         self.assertIn("private static let maximumResponseBytes = 1024 * 1024", swift)
-        self.assertIn('["openai", "siliconflow", "groq"].contains(args.provider)', swift)
+        self.assertIn(
+            '["openai", "siliconflow", "groq", "everyapi", "mistral"].contains(args.provider)', swift
+        )
         self.assertIn('args.provider == "doubao"', swift)
         self.assertIn('components.scheme?.lowercased() == "wss"', swift)
         self.assertIn('@_silgen_name("msime_client_doubao_start_frame")', doubao)

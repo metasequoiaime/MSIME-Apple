@@ -214,7 +214,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 ## 七、本地验证入口
 
-`scripts/verify-local.sh` 是统一入口，三种用法：`--quick` 只跑编译阶段（pre-merge 门禁，`.githooks/pre-push` 与 `pre-merge-commit` 直接 exec 它），无参数跑全量，`--update-baseline` 重写基线清单。
+`scripts/verify-local.sh` 是统一入口，三种用法：`--quick` 只跑编译阶段（pre-merge 门禁，`.githooks/pre-push` 与 `pre-merge-commit` 直接 exec 它），无参数跑全量，`--update-baseline` 把本次新观察到的失败追加进基线清单（只追加，不删除也不重排）。
 
 它的核心设计是**把失败的测试名集合与 `scripts/known-failures.txt` 比对，只对不在清单里的名字失败**。多个套件有长期失败，裸 pass/fail 没有信息量；清单里每一条都带完整的取证记录，文件开头写明「Every line here is debt, not an exemption」。
 
