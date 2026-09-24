@@ -4265,6 +4265,7 @@ static void TestCloudCandidateConsent() {
 @property(nonatomic, copy) NSArray *targetLanguages;
 @property(nonatomic, copy) NSArray *offlineGlossLanguages;
 @property(nonatomic, copy) NSArray *delivered;
+@property(nonatomic) NSUInteger applyCount;
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) BOOL offline;
 @end
@@ -4284,6 +4285,7 @@ static void TestCloudCandidateConsent() {
 - (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
     (void)error;
     assert(NSThread.isMainThread && generation == self.generation);
+    ++self.applyCount;
     self.delivered = translations;
     return @{@"applied":@YES, @"view":[self viewWithError:nil]};
 }
@@ -4915,7 +4917,7 @@ static void TestOfflineTargetGlosses() {
     [controller setValue:session forKey:@"session"];
     [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
     void (^settle)(void) = ^{
-        session.delivered = nil;
+        NSUInteger applyCount = session.applyCount;
         [controller synchronizeCandidateGloss];
         [controller synchronizeTargetGloss];
         [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
@@ -4924,12 +4926,8 @@ static void TestOfflineTargetGlosses() {
         // runner, a fixed 200 ms drain can return before both applies have run, leaving the
         // test to assert against a stale (or nil) delivery. Wait for the applies that this
         // request actually scheduled, while retaining a bounded timeout for a real failure.
-        BOOL needsGloss = [controller currentGlossRequest] != nil;
-        BOOL needsTargetGloss = [controller currentTargetGlossRequest] != nil;
         NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3.0];
-        while (deadline.timeIntervalSinceNow > 0 &&
-               (!session.delivered || (needsGloss && ![controller valueForKey:@"glossResults"]) ||
-                (needsTargetGloss && ![controller valueForKey:@"targetGlossResults"])))
+        while (deadline.timeIntervalSinceNow > 0 && session.applyCount == applyCount)
             [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
     };
     // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
