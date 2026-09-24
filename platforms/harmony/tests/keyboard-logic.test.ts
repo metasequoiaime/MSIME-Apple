@@ -274,6 +274,7 @@ import { DesktopSurface } from "../entry/src/main/ets/keyboard/DesktopSurface";
 import { SurfaceRoutingPolicy } from "../entry/src/main/ets/keyboard/SurfaceRoutingPolicy";
 import { PreferenceRevisionPolicy } from "../entry/src/main/ets/keyboard/input/PreferenceRevisionPolicy";
 import { PreferencesErrorCode } from "../entry/src/main/ets/keyboard/settings/PreferencesErrorCode";
+import { LocalVoiceModelPolicy } from "../entry/src/main/ets/keyboard/settings/LocalVoiceModelPolicy";
 import {
   AiCatalogPage,
   AiModelCatalogPolicy,
@@ -9032,4 +9033,141 @@ group("SpeechSentenceAccumulator", () => {
   check(sentences.accept("再见。", true) === "你好。再见。", "every closed sentence stays");
   sentences.reset();
   check(sentences.accept("新", false) === "新", "reset starts a new session");
+});
+
+group("LocalVoiceModelPolicy", () => {
+  check(
+    LocalVoiceModelPolicy.root("/data/storage/el2/base/haps/entry/files") ===
+      "/data/storage/el2/base/haps/entry/files/voice-models",
+    "models live under the files directory the keyboard shares",
+  );
+  // The core's Display text carries detail after the code; the page matches on the code alone.
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_network: dns error") === "local_model_network",
+    "the detail after the code is dropped",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_size_mismatch: model.onnx") ===
+      "local_model_checksum_mismatch",
+    "a size mismatch reads as a failed verification, as on desktop",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_unsafe_archive: ../x") ===
+      "local_model_invalid_archive" &&
+      LocalVoiceModelPolicy.errorCode("local_model_missing_file: tokens.txt") ===
+        "local_model_invalid_archive",
+    "an unsafe or incomplete archive is an invalid archive",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_install_running") === "busy",
+    "a second install of the same model is busy",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("local_model_cancelled") === "local_model_cancelled",
+    "a cancel keeps its code so the page does not report it as a failure",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("invalid local model root") === "local_model_invalid_root",
+    "the ABI's own root refusal is the invalid-root code",
+  );
+  check(
+    LocalVoiceModelPolicy.errorCode("internal runtime failure") === "local_model_failed" &&
+      LocalVoiceModelPolicy.errorCode("") === "local_model_failed",
+    "anything unnamed is the general failure",
+  );
+  check(
+    LocalVoiceModelPolicy.rewrite(JSON.stringify({ ok: true, value: true })) ===
+      JSON.stringify({ ok: true, value: true }),
+    "an accepted reply is left alone",
+  );
+  check(
+    LocalVoiceModelPolicy.rewrite("not json") ===
+      JSON.stringify({ ok: false, error: "local_model_failed" }),
+    "an unreadable reply is a refusal",
+  );
+
+  const listed = JSON.parse(
+    LocalVoiceModelPolicy.listReply(
+      JSON.stringify({
+        ok: true,
+        value: {
+          models: [
+            { id: "x-asr-zh-en-streaming", desktop_only: false, installed: false, title: "X" },
+            { id: "fun-asr-nano", desktop_only: true, installed: false },
+            { id: "kept", desktop_only: true, installed: true },
+          ],
+          default: "x-asr-zh-en-streaming",
+        },
+      }),
+      "/files/voice-models",
+    ),
+  );
+  check(
+    listed.ok === true &&
+      listed.value.root === "/files/voice-models" &&
+      listed.value.default === "x-asr-zh-en-streaming",
+    "the list carries the root and the default",
+  );
+  check(
+    listed.value.models.map((model: { id: string }) => model.id).join(",") ===
+      "x-asr-zh-en-streaming,kept",
+    "a desktop-only model is offered only once installed, so it can still be removed",
+  );
+  check(listed.value.models[0].title === "X", "the other catalog fields pass through");
+  check(
+    LocalVoiceModelPolicy.listReply(
+      JSON.stringify({ ok: false, error: "invalid local model root" }),
+      "/r",
+    ) === JSON.stringify({ ok: false, error: "local_model_invalid_root" }),
+    "a refused list is mapped",
+  );
+
+  check(
+    LocalVoiceModelPolicy.installReply(
+      JSON.stringify({ ok: true, value: { path: "/files/voice-models/x" } }),
+    ) === JSON.stringify({ ok: true, value: "/files/voice-models/x", error: "" }),
+    "an install answers with the installed directory",
+  );
+  check(
+    LocalVoiceModelPolicy.installReply(
+      JSON.stringify({ ok: false, error: "local_model_http_status: 404" }),
+    ) === JSON.stringify({ ok: false, error: "local_model_http_status" }),
+    "a refused install is mapped",
+  );
+  check(
+    LocalVoiceModelPolicy.installReply(JSON.stringify({ ok: true, value: {} })) ===
+      JSON.stringify({ ok: false, error: "local_model_failed" }),
+    "an install without a path is not a success",
+  );
+
+  check(
+    LocalVoiceModelPolicy.mirror(
+      JSON.stringify({
+        ok: true,
+        value: {
+          revision: 3,
+          preferences: { voice_input: { asr_model_mirror: " https://m.example/ " } },
+        },
+      }),
+    ) === "https://m.example/",
+    "the saved mirror is read and trimmed",
+  );
+  check(
+    LocalVoiceModelPolicy.mirror(JSON.stringify({ ok: false, error: "storage" })) === "" &&
+      LocalVoiceModelPolicy.mirror("{") === "",
+    "unreadable preferences download from the catalog URLs",
+  );
+
+  check(LocalVoiceModelPolicy.action('{"operation":"list"}') !== null, "a list needs no id");
+  check(
+    LocalVoiceModelPolicy.action('{"operation":"install","id":"sense-voice-small"}')?.id ===
+      "sense-voice-small",
+    "an install names its model",
+  );
+  check(
+    LocalVoiceModelPolicy.action('{"operation":"remove"}') === null &&
+      LocalVoiceModelPolicy.action('{"operation":"format","id":"x"}') === null &&
+      LocalVoiceModelPolicy.action("[") === null,
+    "a missing id, an unknown operation or unreadable text is refused",
+  );
 });

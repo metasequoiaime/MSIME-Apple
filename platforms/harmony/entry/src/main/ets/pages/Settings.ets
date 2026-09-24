@@ -36,6 +36,14 @@ import {
 } from '../keyboard/settings/AiModelCatalogPolicy';
 import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
+import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
+
+/** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id}` for a removal, `{id}` for a cancel. */
+interface LocalVoiceModelRequest {
+  root?: string;
+  id?: string;
+  mirror?: string;
+}
 
 /** One key-feedback operation from the page: load, save or preview. */
 interface KeyboardFeedbackAction {
@@ -706,6 +714,11 @@ class SettingsBridge {
       this.aiTest(payload).then(deliver).catch(failed);
     } else if (kind === 'api_credential') {
       this.testApiCredential(payload).then(deliver).catch(failed);
+    } else if (kind === 'voice_local_model') {
+      this.voiceLocalModel(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`local voice model request failed: ${describeError(error)}`);
+        deliver(LocalVoiceModelPolicy.refusal('local_model_failed'));
+      });
     } else if (kind === 'save_export') {
       this.saveExport(payload).then(deliver).catch((error: Object): void => {
         KeyboardLog.error(`export save failed: ${describeError(error)}`);
@@ -777,6 +790,51 @@ class SettingsBridge {
         // A missing staging file is already the desired postcondition.
       }
     }
+  }
+
+  /**
+   * The on-device model manager: list, install, cancel and remove catalog models under `<filesDir>/voice-models`, the directory the keyboard's local recognizer loads `asr_model_path` from.
+   *
+   * Every operation goes through the asynchronous bridge because an install blocks for the whole download and runs on a native worker; the three short ones answer at once but share the route so the page has one shape to wait on. The install downloads through the mirror the saved preferences name, read at the moment it starts, which is what the page means by "save the settings first".
+   */
+  private async voiceLocalModel(document: string): Promise<string> {
+    const action: LocalVoiceModelAction | null = LocalVoiceModelPolicy.action(document);
+    if (action === null || this.context === undefined) {
+      return LocalVoiceModelPolicy.refusal('local_model_failed');
+    }
+    const root: string = LocalVoiceModelPolicy.root(this.context.filesDir);
+    const id: string = action.id ?? '';
+    if (action.operation === 'list') {
+      const request: LocalVoiceModelRequest = { root: root };
+      return LocalVoiceModelPolicy.listReply(client.voiceLocalModels(JSON.stringify(request)), root);
+    }
+    if (action.operation === 'cancel') {
+      const request: LocalVoiceModelRequest = { id: id };
+      return LocalVoiceModelPolicy.rewrite(client.voiceLocalModelCancel(JSON.stringify(request)));
+    }
+    if (action.operation === 'remove') {
+      const request: LocalVoiceModelRequest = { root: root, id: id };
+      return LocalVoiceModelPolicy.rewrite(client.voiceLocalModelRemove(JSON.stringify(request)));
+    }
+    if (!fs.accessSync(root)) {
+      fs.mkdirSync(root, true);
+    }
+    const mirror: string = LocalVoiceModelPolicy.mirror(client.loadPreferences(this.stateDirectory));
+    const request: LocalVoiceModelRequest = { root: root, id: id, mirror: mirror };
+    const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
+      (progress: string): void => this.deliverVoiceModelProgress(progress));
+    return LocalVoiceModelPolicy.installReply(reply);
+  }
+
+  private deliverVoiceModelProgress(progress: string): void {
+    if (this.webview === undefined) return;
+    this.webview.runJavaScript(
+      `globalThis.msimeHarmonyVoiceModelProgress && globalThis.msimeHarmonyVoiceModelProgress(`
+      + `${JSON.stringify(progress)})`)
+      .catch((error: Object): void => {
+        // A progress tick that does not arrive costs the user a moving bar, not the download.
+        KeyboardLog.error(`voice model progress not delivered: ${describeError(error)}`);
+      });
   }
 
   /** Hands one reply back to the page, under the number it was asked with. */

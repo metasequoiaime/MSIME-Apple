@@ -887,8 +887,6 @@ export function providerCredentialErrorMessage(error: unknown): string {
       return "请填写凭据。";
     case "provider_credentials_invalid_region":
       return "地域只能包含小写字母、数字和连字符，例如 ap-guangzhou。";
-    case "provider_credentials_voice_asr_required":
-      return "语音 provider 需要至少一个识别凭据：请先保存识别凭据，或先清除润色凭据。";
     case "provider_credentials_too_many_profiles":
       return "已保存的 AI 服务商过多，请先清除不再使用的凭据。";
     case "provider_credentials_existing_invalid":
@@ -9390,16 +9388,10 @@ export function SettingsPage({
                             <option value="everyapi">EveryAPI</option>
                             <option value="mistral">Mistral · Voxtral</option>
                             {macosPlatform && <option value="system">macOS 系统识别</option>}
-                            {localVoiceAvailable && (
-                              <option value="local">
-                                {client.localVoiceModels
-                                  ? "本地模型（离线）"
-                                  : "本地 Whisper（离线）"}
-                              </option>
-                            )}
+                            {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
                             {!localVoiceAvailable && voiceInput.asr_provider === "local" && (
                               <option value="local" disabled>
-                                本地 Whisper（当前平台不可用）
+                                本地模型（当前平台不可用）
                               </option>
                             )}
                             {harmonyPlatform && <option value="system">HarmonyOS 系统识别</option>}
