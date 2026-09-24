@@ -87,8 +87,9 @@ final class TypingStatisticsTests: XCTestCase {
       try store.record("字", at: Calendar.current.date(byAdding: .day, value: offset, to: Date())!)
     }
     let snapshot = try store.load()
-    XCTAssertLessThanOrEqual(snapshot.days.count, 366)
-    XCTAssertLessThanOrEqual(snapshot.dailyDetails.count, 366)
+    // Forever, the default, keeps every day: today plus 370 later ones, or one fewer if the loop crosses midnight.
+    XCTAssertGreaterThanOrEqual(snapshot.days.count, 370)
+    XCTAssertEqual(snapshot.dailyDetails.count, snapshot.days.count)
     XCTAssertEqual(snapshot.total, 470)
     XCTAssertEqual(snapshot.detail.characters["han"], snapshot.total)
     XCTAssertEqual(snapshot.detail.sources["unknown"], snapshot.total)
