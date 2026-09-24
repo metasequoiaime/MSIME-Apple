@@ -37,9 +37,11 @@ struct SkinTokens
 };
 
 // Corner radius of a candidate row background: selectedRadius for the highlighted row, candidateRadius for hover and every other row. Built-in skins keep the two equal to Windows candidate_presenter.cpp tokens.itemRadius, which Controls.cpp uses for selected, pressed and hover fills alike.
-inline float CandidateRowRadius(const SkinTokens &tokens, bool highlighted)
+inline float CandidateRowRadius(const SkinTokens &tokens, bool highlighted, bool first = false, bool last = false)
 {
-    return highlighted ? tokens.selectedRadius : tokens.candidateRadius;
+    const float radius = highlighted ? tokens.selectedRadius : tokens.candidateRadius;
+    if (highlighted && (first || last)) return tokens.radius;
+    return radius;
 }
 
 struct SkinColors

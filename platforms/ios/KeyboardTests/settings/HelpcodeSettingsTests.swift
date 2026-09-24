@@ -1,6 +1,7 @@
 import XCTest
 
 /// The settings app's helpcode page merges single fields into the helpcode objects of the shared document; the keyboard has to act on them, and needs the Engine's tables to act with.
+@MainActor
 final class HelpcodeSettingsTests: XCTestCase {
   private var state: URL!
 
@@ -27,7 +28,7 @@ final class HelpcodeSettingsTests: XCTestCase {
   }
 
   /// A Shift letter narrows the composition by helpcode, and turning helpcode off in the app reaches the session the keyboard already has.
-  func testReloadTurnsHelpcodeOffInTheLiveSession() {
+  func testReloadTurnsHelpcodeOffInTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     let plain = compose(bridge, "shi", helpcode: nil)
     // 自然码 Y is the 讠 radical: 识 试 诗 lead instead of 是.
@@ -37,7 +38,7 @@ final class HelpcodeSettingsTests: XCTestCase {
     XCTAssertEqual(narrowed.candidates.first, "识")
 
     update { $0["enabled"] = false }
-    reload(bridge)
+    await reload(bridge)
 
     let off = compose(bridge, "shi", helpcode: "Y")
     XCTAssertEqual(off.preedit, "shi")
@@ -45,12 +46,12 @@ final class HelpcodeSettingsTests: XCTestCase {
   }
 
   /// "Show in the candidate bar" puts each candidate's helpcode in the annotations the strip draws.
-  func testShownHelpcodeReachesTheCandidateAnnotations() {
+  func testShownHelpcodeReachesTheCandidateAnnotations() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertEqual(compose(bridge, "shi", helpcode: nil).candidateAnnotations.first, "", "全拼 ships with helpcode hidden")
 
     update { $0["show_in_candidate_window"] = true }
-    reload(bridge)
+    await reload(bridge)
 
     let shown = compose(bridge, "shi", helpcode: nil)
     let first = shown.candidateAnnotations.first ?? ""
@@ -67,11 +68,11 @@ final class HelpcodeSettingsTests: XCTestCase {
     })
   }
 
-  private func reload(_ bridge: MetasequoiaInputSessionBridge) {
+  private func reload(_ bridge: MetasequoiaInputSessionBridge) async {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 5)
+    await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
   }
 

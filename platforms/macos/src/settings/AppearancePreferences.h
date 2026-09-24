@@ -16,6 +16,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 - (NSDictionary *)cloudSettingsSnapshot;
 /// The skin browser, which is the 皮肤 page itself rather than a window of its own.
 - (NSView *)skinSettingsView;
+/// Opens the window on a named page. The identifiers are the tails of the shared settings: routes — input, habits, shortcuts, voice, appearance, skin, floating, dictionary, account, help, about — so an entry point that deep-links into the desktop application can hand its native fallback the same name. Returns NO, and leaves the page alone, for a name this version does not have, which is what the retired helpcode, feedback and utilities names now get; callers that do not care which page they land on should not call this at all, so that the window opens on the page the user left it on.
+- (BOOL)showSettingsPageWithIdentifier:(NSString *)identifier;
 - (void)setTranslationPreferencesDirectory:(NSString *)directory;
 /// Applies only settings owned by this window to an existing shared Preferences object.
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot;
@@ -43,6 +45,20 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) NSUInteger preeditFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;
 @property(nonatomic, copy) NSString *candidateTextColor;
+/// The six other candidate colours, as the same 「#rrggbb」 strings, or nil while the skin's own
+/// colour is in use. The resolved forms below are what the candidate window draws with; these are
+/// what the settings window sets and what the shared document carries.
+@property(nonatomic, copy) NSString *candidateNumberColor;
+@property(nonatomic, copy) NSString *candidateAccentColor;
+@property(nonatomic, copy) NSString *candidateSelectedColor;
+@property(nonatomic, copy) NSString *candidateHoverColor;
+@property(nonatomic, copy) NSString *candidateSurfaceColor;
+@property(nonatomic, copy) NSString *candidateBorderColor;
+/// The light/dark choice: system, dark or light for the whole client, and follow, dark or light for
+/// the candidate window and the floating toolbar, each of which may override the global one.
+@property(nonatomic, copy) NSString *themeMode;
+@property(nonatomic, copy) NSString *candidateTheme;
+@property(nonatomic, copy) NSString *toolbarTheme;
 - (NSColor *)candidateTextColorWithDefault:(NSColor *)color;
 - (NSColor *)candidateNumberColorWithDefault:(NSColor *)color;
 - (NSColor *)candidateAccentColorWithDefault:(NSColor *)color;
@@ -117,7 +133,23 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 - (NSDictionary *)helpcodeOptionsForScheme:(NSString *)scheme;
 @property(nonatomic) BOOL shuangpinKeymap;
 @property(nonatomic) BOOL wubiAutoCommitUnique;
+/// Dictation, which is read straight out of NSUserDefaults by the input method and by the voice module rather than through the shared document. The recogniser and the text it produces are the voice form's; these are the preferences around it — whether dictation runs at all, which language it transcribes, whether it plays a cue, whether it mutes what else is playing, and whether the partial transcript appears inline while it listens.
+@property(nonatomic) BOOL voiceInputEnabled;
+/// The BCP 47 tag the recogniser is asked for, as one of the two the client offers: zh-CN or en-US.
+@property(nonatomic, copy) NSString *voiceLanguage;
+@property(nonatomic) BOOL voiceSoundEnabled;
+@property(nonatomic) BOOL voiceMuteSystemAudio;
+@property(nonatomic) BOOL voiceStreamInlinePreedit;
+/// The four ways of starting dictation and the one that locks a held shortcut down. Control + F9 is a press, the other three are holds; 按住时按空格锁定录音 applies to whichever hold is in use.
+@property(nonatomic) BOOL voiceHotkeyCtrlF9;
+@property(nonatomic) BOOL voiceHotkeyRightAlt;
+@property(nonatomic) BOOL voiceHotkeyCtrlCommand;
+@property(nonatomic) BOOL voiceHotkeyCtrlOption;
+@property(nonatomic) BOOL voiceHotkeyHoldSpace;
 @property(nonatomic) BOOL floatingToolbarEnabled;
+/// The 中/英 button. It is a component like the eight below it; it had no accessor at all, so the
+/// only value the merge could publish for it was a constant.
+@property(nonatomic) BOOL floatingToolbarEnglishMode;
 @property(nonatomic) BOOL floatingToolbarPunctuation;
 @property(nonatomic) BOOL floatingToolbarFullWidth;
 @property(nonatomic) BOOL floatingToolbarCharacterSet;
@@ -143,7 +175,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 /// The native candidate panel appearance override. A nil value means AppKit follows the system.
 @property(nonatomic, readonly) NSAppearance *candidateAppearanceOverride;
 @property(nonatomic, readonly) BOOL candidateAppearanceOverrideConfigured;
-// 0: -/= (default), 1: [/], 2: Page Up/Page Down only.
+/// The paging key group as one of the three presets the menu offers: 0 for -/= (the default), 1 for [/], 2 for Page Up/Page Down. It is read back out of the navigation bindings rather than out of a stored number of its own, so it is -1 when those bindings are in a state no preset names; setting it to anything else is setting it to 0.
 @property(nonatomic) NSInteger pageShortcut;
 - (BOOL)navigationEnabled:(NSString *)key;
 - (void)setNavigation:(NSString *)key enabled:(BOOL)enabled;

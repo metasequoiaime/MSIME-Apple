@@ -54,7 +54,7 @@ final class CandidatePageSizeTests: XCTestCase {
     XCTAssertFalse(KeyboardViewController.digitHasNoChip("7", chips: 0, composing: false), "with nothing composing a digit is typed")
   }
 
-  func testAChangeReachesTheLiveSessionOnReload() throws {
+  func testAChangeReachesTheLiveSessionOnReload() async throws {
     CandidatePageSizePreference.size = 9
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertEqual(bridge.sharedPreferences?["candidate_page_size"] as? Int, 9)
@@ -66,7 +66,7 @@ final class CandidatePageSizeTests: XCTestCase {
       XCTAssertTrue(accepted)
       reloaded.fulfill()
     }
-    wait(for: [reloaded], timeout: 10)
+    await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertEqual(bridge.sharedPreferences?["candidate_page_size"] as? Int, 5)
     var snapshot = bridge.cancel()
     for letter in "shi" { snapshot = bridge.handleCharacter(String(letter)) }

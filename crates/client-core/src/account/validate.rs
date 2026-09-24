@@ -346,6 +346,15 @@ pub(super) fn validate_dictionary_value(
     word: &str,
     weight: i64,
 ) -> Result<(), AccountError> {
+    // Keep writes and inbound responses on the same shared contract. The cloud
+    // module owns the common bounds/control-character checks; this layer adds
+    // only the per-dictionary syntax and legacy inbound compatibility rules.
+    crate::cloud::dictionary::validate_value(&crate::cloud::dictionary::DictionaryValue {
+        code: code.to_owned(),
+        word: word.to_owned(),
+        weight,
+    })
+    .map_err(|_| AccountError::Invalid)?;
     let (code_ok, code_limit) = match kind {
         DictionaryKind::Pinyin => (
             code.bytes()
@@ -441,12 +450,7 @@ pub(super) fn validate_dictionary_import(
 ) -> Result<(), AccountError> {
     if !matches!(format, "standard" | "windows" | "hans")
         || (format == "hans" && kind != DictionaryKind::Pinyin)
-        || text.is_empty()
-        || text.len() > 64 * 1024
-        || text.contains('\0')
-        || text
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+        || crate::cloud::dictionary::validate_import(text).is_err()
     {
         return Err(AccountError::Invalid);
     }

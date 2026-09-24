@@ -39,7 +39,7 @@ static NSColor *TestCandidateColor(NSString *value) {
 
 static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults) {
     NSComboBox *entry = (id)FindControl(preferences.window.contentView, @"添加补充字体");
-    NSPopUpButton *list = (id)FindControl(preferences.window.contentView, @"补充字体顺序");
+    NSTableView *list = (id)FindControl(preferences.window.contentView, @"补充字体顺序");
     assert(entry && list);
     NSString *sans = [NSFont fontWithName:@"PingFangSC-Regular" size:18].familyName;
     NSString *serif = [NSFont fontWithName:@"STSongti-SC-Regular" size:18].familyName;
@@ -47,7 +47,7 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     __block NSUInteger notifications = 0;
     id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
     [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Menlo", @"candidate_english_font": @"Helvetica", @"candidate_fallback_fonts": @[sans, serif]}];
-    assert(notifications == 0 && list.numberOfItems == 2);
+    assert(notifications == 0 && list.numberOfRows == 2);
     assert([preferences.candidateEnglishFont isEqual:@"Helvetica"]);
     NSDictionary *fontMerge = [preferences sharedPreferencesByMerging:@{}];
     assert([fontMerge[@"candidate_english_font"] isEqual:@"Helvetica"]);
@@ -56,7 +56,7 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     assert(!preferences.candidateEnglishFont);
     [preferences applySharedCandidatePreferences:@{@"candidate_english_font": @"Helvetica"}];
     assert([RenderedFamily([preferences candidateFontOfSize:18]) isEqual:sans]);
-    [list selectItemAtIndex:1];
+    [list selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
     [NSApp sendAction:NSSelectorFromString(@"moveFallbackFontUp:") to:preferences from:nil];
     assert([preferences.fallbackFonts.firstObject isEqual:serif]);
     assert([RenderedFamily([preferences candidateFontOfSize:18]) isEqual:serif]);
@@ -64,7 +64,7 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     assert([preferences.fallbackFonts.firstObject isEqual:sans]);
     entry.stringValue = @"MSIME Synthetic Unavailable Supplement";
     [NSApp sendAction:NSSelectorFromString(@"addFallbackFont:") to:preferences from:entry];
-    assert(preferences.fallbackFonts.count == 3 && list.indexOfSelectedItem == 2);
+    assert(preferences.fallbackFonts.count == 3 && list.selectedRow == 2);
     [NSApp sendAction:NSSelectorFromString(@"removeFallbackFont:") to:preferences from:nil];
     assert(preferences.fallbackFonts.count == 2);
     MSIMEAppearancePreferences *reloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
@@ -81,7 +81,7 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     NSMutableArray *limit = [NSMutableArray array];
     for (NSUInteger i = 0; i < 32; ++i) [limit addObject:sans];
     preferences.fallbackFonts = limit;
-    assert(preferences.fallbackFonts.count == 32 && list.numberOfItems == 32);
+    assert(preferences.fallbackFonts.count == 32 && list.numberOfRows == 32);
     [limit addObject:serif];
     preferences.fallbackFonts = limit;
     assert(preferences.fallbackFonts.count == 32);

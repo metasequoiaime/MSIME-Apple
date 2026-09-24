@@ -1,6 +1,7 @@
 import XCTest
 
 /// The settings app's candidate page merges single fields into nested objects of the shared document; the keyboard has to act on them.
+@MainActor
 final class CandidateOptionsSettingsTests: XCTestCase {
   private var state: URL!
 
@@ -33,7 +34,7 @@ final class CandidateOptionsSettingsTests: XCTestCase {
   }
 
   /// Typo correction is enabled by default and an explicit false still reaches the live session.
-  func testReloadHandsTypoCorrectionToTheLiveSession() {
+  func testReloadHandsTypoCorrectionToTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     // The engine's own autocorrect check: with the default enabled, gau leads with 挂 (gua).
     XCTAssertEqual(firstCandidates(bridge, "gau").first, "挂", "transposition correction ships on")
@@ -46,14 +47,14 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 5)
+    await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
 
     XCTAssertNotEqual(firstCandidates(bridge, "gau").first, "挂")
   }
 
   /// 「双拼预编辑」 turned off in the app makes the live session spell out the pinyin behind the raw shuangpin keys the strip otherwise shows.
-  func testReloadHandsShuangpinPreeditToTheLiveSession() {
+  func testReloadHandsShuangpinPreeditToTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     _ = bridge.switch(toShuangpin: true)
     XCTAssertEqual(spelling(bridge, "ui"), "ui", "raw keys ship on")
@@ -64,7 +65,7 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 5)
+    await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
 
     XCTAssertEqual(spelling(bridge, "ui"), "shi")

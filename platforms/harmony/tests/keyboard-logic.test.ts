@@ -3187,6 +3187,28 @@ group("maps hardware composition editing commands like Windows", () => {
     HardwareKeyRouter.route(key(2055, true, true), true, true).action === HardwareKeyAction.RELEASE,
     "Shift+Ctrl remains an editor shortcut",
   );
+  // A Ctrl+Backspace that empties the reading of a half-chosen phrase leaves only the chosen piece, as the Windows `keep_creating_word_after_empty_raw` does. It is still a composition, so the next Backspace, Ctrl+Backspace, Enter and Escape stay with the session.
+  const heldOnly: boolean = HardwareKeyRouter.composing("", "海滩");
+  check(heldOnly, "a held phrase piece with no reading is a composition");
+  check(HardwareKeyRouter.composing("paobu", ""), "a reading is a composition");
+  check(!HardwareKeyRouter.composing("", ""), "nothing held and nothing typed is no composition");
+  check(
+    HardwareKeyRouter.route(key(2055, true), heldOnly, true).action ===
+      HardwareKeyAction.BACKSPACE_SEGMENT,
+    "Ctrl+Backspace deletes the held piece once the reading is gone",
+  );
+  check(
+    HardwareKeyRouter.route(key(2055, true), false, true).action === HardwareKeyAction.RELEASE,
+    "Ctrl+Backspace with nothing composed is the editor's",
+  );
+  for (const code of [2055, 2054, 2070]) {
+    check(
+      HardwareKeyRouter.route(key(code), heldOnly, true).action ===
+        HardwareKeyRouter.route(key(code), true, true).action &&
+        HardwareKeyRouter.route(key(code), heldOnly, true).action !== HardwareKeyAction.RELEASE,
+      `key ${code} stays with the session while only a phrase piece is held`,
+    );
+  }
   check(
     HardwareKeyRouter.route(key(2054, true), true, true, false, navigation, true).action ===
       HardwareKeyAction.COMMIT_TRANSLATION,
@@ -8717,6 +8739,10 @@ group("the 2in1 draws the composition inline as tsf_preedit_style says", () => {
   check(
     InlinePreeditPolicy.text("raw", true, true, "", "", "") === "",
     "no composition, no preview",
+  );
+  check(
+    InlinePreeditPolicy.text("raw", true, true, "", "", "海滩") === "海滩",
+    "a held phrase piece stays in the preview after Ctrl+Backspace empties the reading",
   );
   check(
     InlinePreeditPolicy.beforePreview("好nihao", "nihao") === "好",

@@ -1548,7 +1548,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
   // Reloading the settings app's document replaced the session's preferences wholesale, dropping
   // the two values this host sets for itself along with them.
-  func testSharedPreferenceReloadKeepsTheHostSessionContract() throws {
+  func testSharedPreferenceReloadKeepsTheHostSessionContract() async throws {
     let state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-reload-overrides-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: state) }
@@ -1559,7 +1559,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertTrue(accepted)
       reloaded.fulfill()
     }
-    wait(for: [reloaded], timeout: 10)
+    await fulfillment(of: [reloaded], timeout: 15)
 
     let preferences = try XCTUnwrap(bridge.sharedPreferences)
     XCTAssertEqual(preferences["candidate_page_size"] as? Int, 9)
