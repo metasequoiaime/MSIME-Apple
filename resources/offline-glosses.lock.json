@@ -4,12 +4,12 @@
   "input": {
     "edition": "en",
     "url": "https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz",
-    "etag": null,
-    "dump_date": null,
-    "source_revision": null,
-    "sha256": null,
-    "size": null
+    "etag": "\"6aaf6bc1-1e35a749\"",
+    "dump_date": "2026-09-02",
+    "source_revision": "d6fca2773bc90b9157248b9edf69585da06bf393",
+    "sha256": "de6533a7bc7143167f0b27b4d2b568930436cd20bb5c1ce3cf542c1ec7bbbfec",
+    "size": 506832713
   },
-  "sqlite_version": null,
+  "sqlite_version": "3.50.4",
   "artifacts": []
 }

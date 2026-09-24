@@ -3,7 +3,7 @@
 
 english.db only glosses Chinese into English. For fr/ja/es/ru/de/ko this pairs, inside one translation table of the English Wiktionary (one English sense), the Mandarin row with the target-language rows, and writes one SQLite file per language: ``zh-<lang>.db`` with ``zh_glosses(chinese, gloss, source)``, a ``meta`` table naming the language and the input, and ``PRAGMA user_version = 1``. The bridge refuses a file whose version or language does not match what it was asked for, so a renamed file never shows French under Japanese.
 
-The input is a Wiktextract JSONL dump from kaikki.org: either the postprocessed English edition (``kaikki.org-dictionary-English.jsonl.gz``) or the raw dump (``raw-wiktextract-data.jsonl.gz``), where only rows with ``lang_code == "en"`` are English entries. Only top-level ``translations`` are read: ``senses[].translations`` are the same rows redistributed by a heuristic and would count every pair twice and leak rows across senses. Mandarin rows are ``lang == "Chinese Mandarin"``; the ``lang == "Chinese"`` rows are Hokkien, Dungan and other topolects. The last ``/`` segment of a Mandarin form is the simplified one (``"空閒 /空閑 /空闲"``).
+The input is a Wiktextract JSONL dump from kaikki.org: either the postprocessed English edition (``kaikki.org-dictionary-English.jsonl.gz``) or the raw dump (``raw-wiktextract-data.jsonl.gz``), where only rows with ``lang_code == "en"`` are English entries. Wiktextract now places most translation rows under ``senses[].translations`` (a sample of the 2026-09-02 dump has six times as many there as in the deprecated top-level ``translations``, and no row in both), so both are read: sense rows first, in the page's sense order, then the top-level ones. The same table attached to several senses is kept once, since rows are grouped by their ``sense`` string anyway. Mandarin rows are ``lang == "Chinese Mandarin"``; the ``lang == "Chinese"`` rows are Hokkien, Dungan and other topolects. The last ``/`` segment of a Mandarin form is the simplified one (``"空閒 /空閑 /空闲"``).
 
 Nothing is downloaded here. ``filter`` reduces a dump to the rows this build reads, which is the file worth keeping because kaikki overwrites its URLs every week; ``build`` accepts either the dump or that reduction, since the filter is idempotent.
 
@@ -67,8 +67,26 @@ def entries(path: Path):
                 entry = json.loads(line)
             except json.JSONDecodeError as error:
                 raise SystemExit(f"{path}:{number}: not JSON ({error})")
-            if entry.get("lang_code") == "en" and isinstance(entry.get("translations"), list):
+            if entry.get("lang_code") == "en":
                 yield entry
+
+
+def translation_rows(entry: dict) -> list[dict]:
+    groups = [sense.get("translations") for sense in entry.get("senses") or [] if isinstance(sense, dict)]
+    groups.append(entry.get("translations"))
+    rows, seen = [], set()
+    for group in groups:
+        if not isinstance(group, list):
+            continue
+        for row in group:
+            if not isinstance(row, dict):
+                continue
+            tags = row.get("tags")
+            identity = (row.get("lang"), row.get("code"), row.get("sense"), row.get("word"), tuple(tags) if isinstance(tags, list) else ())
+            if identity not in seen:
+                seen.add(identity)
+                rows.append(row)
+    return rows
 
 
 def wanted_row(row: dict, languages) -> bool:
@@ -78,7 +96,7 @@ def wanted_row(row: dict, languages) -> bool:
 def reduce(entry: dict, languages) -> dict | None:
     rows = [
         {key: row[key] for key in ("lang", "code", "sense", "word", "tags") if key in row}
-        for row in entry["translations"]
+        for row in translation_rows(entry)
         if wanted_row(row, languages)
     ]
     if not any(row.get("lang") == MANDARIN for row in rows) or not any(row.get("code") in languages for row in rows):
@@ -186,8 +204,8 @@ def collect(path: Path, languages, vocabulary, weights):
             continue
         weight = weights.get(page.lower(), 0)
         tables: dict[str, list[dict]] = {}
-        for row in entry["translations"]:
-            if isinstance(row, dict) and isinstance(row.get("sense"), str) and row["sense"]:
+        for row in translation_rows(entry):
+            if isinstance(row.get("sense"), str) and row["sense"]:
                 tables.setdefault(row["sense"], []).append(row)
         for table_index, rows in enumerate(tables.values()):
             mandarin = ranked_forms(row for row in rows if row.get("lang") == MANDARIN)[:MAX_MANDARIN_PER_SENSE]
@@ -205,9 +223,12 @@ def collect(path: Path, languages, vocabulary, weights):
                 if not targets:
                     continue
                 gloss = ", ".join(targets)
-                # Across pages the more frequent English word wins (天 is "day" before "sky"), then the page's own sense order.
-                order = (-weight, page, sequence, table_index)
+                # A page's leading sense beats a minor sense of a more common word (呕吐 is "vomir" from vomit before the slang of cat's "vomit" sense); among equal positions the more frequent English word wins (天 is "day" before "sky").
+                order = (table_index, -weight, page, sequence)
                 for key in keys:
+                    # A single character is mostly a bound morpheme; reached only from an English word the frequency list does not know, it is a rare reading (回 from gyrus, 里 from li), not what the candidate means.
+                    if len(key) == 1 and weights and not weight:
+                        continue
                     found[language][key].append((order, gloss, page))
     return found
 
@@ -252,7 +273,7 @@ Wiktionary edition: English
 Wiktextract dump date: {dump_date}
 Wiktextract revision: {source_revision}
 
-Changes: only Mandarin and {languages} rows of the same translation table were paired; archaic, rare, dialectal and similar forms were removed; Russian stress marks, Korean hanja annotations and stray gender markers were removed; each Chinese word keeps at most two senses of at most two words each; the result was converted to SQLite.
+Changes: only Mandarin and {languages} rows of the same translation table were paired; archaic, rare, dialectal and similar forms were removed; Russian stress marks, Korean hanja annotations and stray gender markers were removed; single characters reached only from English words outside the frequency list were dropped; each Chinese word keeps at most two senses of at most two words each; the result was converted to SQLite.
 
 These files are licensed under the Creative Commons Attribution-ShareAlike 4.0 International License (https://creativecommons.org/licenses/by-sa/4.0/), the license of the Wiktionary text they adapt. They are provided as is, without warranties of any kind.
 """
