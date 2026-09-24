@@ -22,7 +22,7 @@ if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf) -or
     throw 'Engine sources are not prepared from the locked archive; run scripts/fetch_engine.py'
 }
 $documents = [Collections.Generic.List[string]]::new()
-$documents.Add("MSIME Client third-party notice collection`nEngine commit: $pin`nThis collection is not a license-completeness or redistribution-authorization assessment. Nested third-party archives, Rust/frontend and other distribution-specific notices must also be supplied and reviewed.`n")
+$documents.Add("MSIME third-party notice collection`nEngine commit: $pin`nThis collection is not a license-completeness or redistribution-authorization assessment. Nested third-party archives, Rust/frontend and other distribution-specific notices must also be supplied and reviewed.`n")
 foreach ($relative in @('NOTICE.md', 'LICENSE', 'dictionary/NOTICE.md', 'dictionary/makecikudb/LICENSE',
     'helpcode/NOTICE.md', 'voice/LICENSE', 'handwriting/models/HandwritingModel-LICENSE.txt',
     'handwriting/third_party/zinnia/Zinnia-LICENSE.txt')) {

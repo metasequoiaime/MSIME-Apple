@@ -72,8 +72,9 @@ docker run --rm --init \
   ${vendor:+-e MSIME_SKIP_ENGINE_FETCH=1} \
   "$package_image" bash -euo pipefail -c '
     cargo build --release --locked -p msime-host-api
+    cargo build --release --locked -p msime-mcp-server --bin msime-mcp
     desktop_args=()
-    crate_roots=(msime-host-api)
+    crate_roots=(msime-host-api msime-mcp-server)
     if [ "$MSIME_PACKAGE_DESKTOP" = 1 ]; then
       # tauri/custom-protocol is what `tauri build` enables: without it the binary is a dev build that loads devUrl instead of the embedded frontend. TAURI_CONFIG sets the version the app reports, as Build-Client.ps1 does for Windows.
       TAURI_CONFIG="{\"version\":\"$MSIME_VERSION\"}" \
@@ -102,6 +103,7 @@ docker run --rm --init \
       -DMSIME_ENABLE_PACKAGING=ON \
       -DMSIME_ENABLE_FCITX5=ON \
       -DMSIME_HOST_LIBRARY=/build/cargo/release/libmsime_host_api.so \
+      -DMSIME_MCP_BINARY=/build/cargo/release/msime-mcp \
       -DMSIME_PACKAGE_VERSION="$MSIME_VERSION" \
       -DMSIME_RUST_NOTICES=/build/notices/rust-crates-NOTICES.txt \
       -DMSIME_VOICE_RUNTIME_DIR=/build/voice-runtime \

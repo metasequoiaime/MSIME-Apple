@@ -90,10 +90,11 @@ if ($DesktopPreviewExecutable) {
         Join-Path $RepoRoot $DesktopPreviewExecutable
     }
 } else {
-    $stagedPreview = Join-Path $serverRelease 'MSIME Client Preview.exe'
+    $stagedPreview = Join-Path $serverRelease 'MSIME.exe'
     if (Test-Path -LiteralPath $stagedPreview -PathType Leaf) { $previewSource = $stagedPreview }
 }
 $dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
+$mcpRelease = Join-Path $serverRelease 'msime-mcp.exe'
 if (-not $Tsf32ReleaseDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot 'target/windows-full/x86/bin') -PathType Container)) {
     $Tsf32ReleaseDirectory = 'target/windows-full/x86/bin'
 }
@@ -156,6 +157,7 @@ if ($DesktopPreviewExecutable -and -not (Test-Path -LiteralPath $previewSource -
 Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输出目录'
 Assert-PathExists -LiteralPath (Join-Path $serverRelease 'MetasequoiaImeWatchdog.exe') -Description 'Watchdog Release EXE'
 Assert-PathExists -LiteralPath $dictionaryReplayRelease -Description '用户词库回放程序 Release EXE'
+Assert-PathExists -LiteralPath $mcpRelease -Description 'MCP 服务程序 Release EXE'
 Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf32Pdb -Description '32 位 TSF Release PDB'
@@ -317,10 +319,10 @@ if (Test-Path -LiteralPath $desktopPdbSource -PathType Leaf) {
     Copy-Item -LiteralPath $desktopPdbSource -Destination $targetDesktopPdb
 }
 if ($previewSource) {
-    Copy-Item -LiteralPath $previewSource -Destination (Join-Path $targetServer 'MSIME Client Preview.exe') -Force
+    Copy-Item -LiteralPath $previewSource -Destination (Join-Path $targetServer 'MSIME.exe') -Force
     $previewPdbSource = [IO.Path]::ChangeExtension($previewSource, '.pdb')
     if (Test-Path -LiteralPath $previewPdbSource -PathType Leaf) {
-        Copy-Item -LiteralPath $previewPdbSource -Destination (Join-Path $targetServer 'MSIME Client Preview.pdb') -Force
+        Copy-Item -LiteralPath $previewPdbSource -Destination (Join-Path $targetServer 'MSIME.pdb') -Force
     }
 }
 # Inno recursively installs server_exe under Program Files. Keep these verified

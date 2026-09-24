@@ -102,6 +102,11 @@ else
 fi
 codesign --verify --deep --strict "$staged_bundle"
 
+# ---- MCP server ----
+# The same compiler flags as the input method: msime-mcp links the Engine through msime-host-api, and those objects are shared with the build above. Nothing in the app starts it; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio.
+CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
+  cargo build --release --locked -p msime-mcp-server --bin msime-mcp
+
 # ---- Settings app ----
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop build
@@ -119,6 +124,9 @@ app_name="$(basename "$app")"
 # Tauri copies resources by following symlinks, which turns Sparkle.framework's links into duplicate files and drops the directory links, and codesign then rejects the nested bundle ("invalid Info.plist (plist or signature have been modified)"). The signed bundle staged above is copied back over it with ditto, which keeps the links; the settings app's installer recreates them in ~/Library/Input Methods the same way.
 find "$app/Contents/Resources" -maxdepth 1 -name '*.app' -exec rm -rf {} +
 ditto "$staged_bundle" "$app/Contents/Resources/$bundle_name"
+# A helper executable beside the app's own is signed on its own first, and the outer signature below seals it.
+ditto "$CARGO_TARGET_DIR/release/msime-mcp" "$app/Contents/MacOS/msime-mcp"
+sign "$app/Contents/MacOS/msime-mcp"
 # Without --deep, so the input method keeps the signature and entitlements it was given above; the outer signature seals it as a nested resource.
 sign "$app"
 codesign --verify --deep --strict "$app"
@@ -131,6 +139,8 @@ check_app() {
   cargo run --quiet --locked -p msime-client-core --example verify_resources -- "$resources_dir/EngineResources" >/dev/null
   test -f "$resources_dir/handwriting/handwriting-zh_CN.model"
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"
+  test -x "$root/Contents/MacOS/msime-mcp"
+  codesign --verify --strict "$root/Contents/MacOS/msime-mcp"
   local nested
   nested="$(only "$resources_dir"/*.app)"
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$nested/Contents/Info.plist")" = "$bundle_id"

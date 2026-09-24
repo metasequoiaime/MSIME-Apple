@@ -1,4 +1,4 @@
-MSIME Client for macOS — bundled third-party notices
+MSIME for macOS — bundled third-party notices
 =====================================================
 
 This application embeds msime-engine at the locked revision recorded by

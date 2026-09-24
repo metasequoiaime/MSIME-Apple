@@ -6,10 +6,10 @@
 .\platforms\windows\Collect-Notices.ps1 -DependencyPrefixes C:\deps\x64,C:\deps\x86 -SupplementalNotices C:\release\rust-frontend-notices.txt
 ```
 
-The Rust crates statically linked into the host DLL, the dictionary replay tool and the settings binary, and the npm packages bundled into the settings frontend, are not in any dependency prefix. `platforms/linux/collect-notices.py` collects them from the resolved graphs; run it on Windows so Cargo resolves the Windows graph, after `Build-Client.ps1` has installed `node_modules`, and pass both outputs as supplemental notices. `.github/workflows/release-windows.yml` does exactly this:
+The Rust crates statically linked into the host DLL, the dictionary replay tool, the MCP server and the settings binary, and the npm packages bundled into the settings frontend, are not in any dependency prefix. `platforms/linux/collect-notices.py` collects them from the resolved graphs; run it on Windows so Cargo resolves the Windows graph, after `Build-Client.ps1` has installed `node_modules`, and pass both outputs as supplemental notices. `.github/workflows/release-windows.yml` does exactly this:
 
 ```powershell
-python -X utf8 platforms\linux\collect-notices.py cargo C:\release\rust-crates-NOTICES.txt msime-host-api msime-engine-bridge msime-desktop:tauri/custom-protocol
+python -X utf8 platforms\linux\collect-notices.py cargo C:\release\rust-crates-NOTICES.txt msime-host-api msime-engine-bridge msime-mcp-server msime-desktop:tauri/custom-protocol
 python -X utf8 platforms\linux\collect-notices.py npm C:\release\frontend-npm-NOTICES.txt apps\desktop
 ```
 
