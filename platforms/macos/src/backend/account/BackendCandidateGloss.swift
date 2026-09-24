@@ -5,8 +5,8 @@ import Foundation
 // C entry point and a notification carrying display-safe strings back to the main thread.
 private enum BackendCandidateGloss {
   static let notification = Notification.Name("MSIMEBackendCandidateTranslationsDidArrive")
-  private static let account = BackendAccountSession()
-  private static let anonymous = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage())
+  private static let account = BackendAccountSession.shared
+  private static let anonymous = BackendAnonymousAccount.session
   private static let client = BackendAccountClient()
 
   private static func token() async throws -> String {

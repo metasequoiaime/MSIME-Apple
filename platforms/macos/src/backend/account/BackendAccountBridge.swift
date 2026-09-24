@@ -28,9 +28,9 @@ private actor AnonymousAccountBootstrap {
   func runOnce() async {
     guard !attempted else { return }
     attempted = true
-    let signedIn = BackendAccountSession()
+    let signedIn = BackendAccountSession.shared
     if (try? await signedIn.accessToken()) != nil { return }
-    let anonymous = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage())
+    let anonymous = BackendAnonymousAccount.session
     if (try? await anonymous.accessToken()) != nil { return }
     _ = try? await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: BackendAccountClient())
   }

@@ -499,6 +499,18 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
            [identifier[@"index"] compare:@(NSUIntegerMax)] != NSOrderedDescending;
 }
 
+// Background readers borrow the controller strongly. Its last release must not
+// land on their queue, where -dealloc would tear down AppKit objects off main.
+// Takes the caller's reference and clears it before main can drop the handoff.
+static void MSIMEReleaseControllerOnMain(__strong id *controller) {
+    if (!*controller) return;
+    CFTypeRef owner = CFBridgingRetain(*controller);
+    *controller = nil;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        (void)CFBridgingRelease(owner);
+    });
+}
+
 // Numeric and space selection must use the candidate identities captured by the
 // panel that is actually on screen. AppKit can deliver another key event before
 // the previous content view has painted, while _view already points at the next
@@ -2092,7 +2104,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id client = _activeClient;
     __weak MSIMEInputController *weakSelf = self;
     [_glossQueue addOperationWithBlock:^{
-        NSDictionary *result = hasResources ? [weakSelf readCandidateGloss:request resources:resources] : nil;
+        id reader = hasResources ? weakSelf : nil; // id: handed to MSIMEReleaseControllerOnMain
+        NSDictionary *result = reader ? [reader readCandidateGloss:request resources:resources] : nil;
+        MSIMEReleaseControllerOnMain(&reader);
         if (result && ![result[@"generation"] isEqual:request[@"generation"]]) return;
         NSMutableArray *translations = [result[@"translations"] mutableCopy] ?: [NSMutableArray array];
         if (directory.isAbsolutePath && learnedItems.count) {
@@ -2170,8 +2184,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     __weak MSIMEInputController *weakSelf = self;
     [_targetGlossQueue addOperationWithBlock:^{
         NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
+        id reader = weakSelf;
         for (NSString *language in request[@"offline_languages"]) {
-            NSDictionary *result = [weakSelf readTargetGloss:request language:language resources:resources];
+            NSDictionary *result = [reader readTargetGloss:request language:language resources:resources];
             if (![result[@"generation"] isEqual:request[@"generation"]]) continue;
             for (NSDictionary *entry in result[@"translations"]) {
                 NSString *text = entry[@"text"];
@@ -2182,6 +2197,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 byTarget[language] = translation;
             }
         }
+        MSIMEReleaseControllerOnMain(&reader);
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
             if (!current || current->_targetGlossEpoch != epoch || current->_session != session || current->_activeClient != client ||
@@ -2872,6 +2888,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (_globalVoiceHotkeyMonitor) [NSEvent removeMonitor:_globalVoiceHotkeyMonitor];
     [_desktopInputSession stop]; [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel];
     [_doubaoPolishRequest cancel]; [_livePolishRequest cancel];
+    // A client that dies without deactivateServer: leaves the repeating timer on the run loop.
+    [_preferencesTimer invalidate];
 }
 - (MSIMEHTTPVoiceRequest *)makeDoubaoPolishRequest:(NSDictionary *)options {
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
@@ -3779,10 +3797,12 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         [_preferencesTimer invalidate];
         __weak MSIMEInputController *weakSelf = self;
         _preferencesTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
-            (void)timer;
+            // The run loop, not the controller, keeps this timer; it stops once its owner is gone.
+            MSIMEInputController *owner = weakSelf;
+            if (!owner) { [timer invalidate]; return; }
             // Catches a maintenance notification that never arrived.
             [MSIMEInputController releaseQuiescedDictionarySessions];
-            [weakSelf reloadPreferences];
+            [owner reloadPreferences];
         }];
         [self reloadPreferences];
     }
@@ -3855,14 +3875,17 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     MSIMEClientSession *session = _session;
     id client = _activeClient;
     NSString *directory = [_preferencesDirectory copy];
+    // The recovery flag is only read and written on main; the worker gets a copy.
+    const BOOL mayRecover = !_preferenceRecoveryAttempted;
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         MSIMEInputController *current = weakSelf;
         if (!current) return;
         NSError *error = nil;
+        BOOL recovered = NO;
         NSDictionary *snapshot = [current readPreferencesSnapshotInDirectory:directory error:&error];
-        if (!snapshot && error && !current->_preferenceRecoveryAttempted) {
-            current->_preferenceRecoveryAttempted = YES;
+        if (!snapshot && error && mayRecover) {
+            recovered = YES;
             NSError *recoveryError = nil;
             NSDictionary *recovery = [current recoverPreferencesInDirectory:directory error:&recoveryError];
             NSDictionary *recoveredSnapshot = [recovery[@"snapshot"] isKindOfClass:NSDictionary.class] ? recovery[@"snapshot"] : nil;
@@ -3873,8 +3896,14 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
                 error = recoveryError;
             }
         }
+        // Hand the strong reference to main so the last release - and -dealloc with
+        // its AppKit teardown - can never run on this utility queue.
+        CFTypeRef owner = CFBridgingRetain(current);
+        current = nil;
         dispatch_async(dispatch_get_main_queue(), ^{
-            [weakSelf completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+            MSIMEInputController *controller = CFBridgingRelease(owner);
+            if (recovered) controller->_preferenceRecoveryAttempted = YES;
+            [controller completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
         });
     });
 }
@@ -4402,22 +4431,32 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     const NSEventModifierFlags candidateDigitModifiers = NSEventModifierFlagShift | NSEventModifierFlagControl |
                                                           NSEventModifierFlagOption | NSEventModifierFlagCommand;
     const int physicalDigit = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
-    NSArray *visibleCandidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
     const NSEventModifierFlags glossModifiers = event.modifierFlags &
         (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand);
+    // Gloss chords name a row the way plain digits do: through the rendered
+    // button, whose order puts pinned candidates first. Indexing _view directly
+    // would read the Engine's order and gloss a word the user did not pick.
+    NSDictionary *glossCandidate = nil;
+    if (_panel.isVisible && physicalDigit >= 0) {
+        NSDictionary *identifier = MSIMERenderedCandidateIdentity(_panel, physicalDigit);
+        NSArray *candidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
+        if (MSIMECurrentCandidateIdentity(identifier, _view))
+            for (NSDictionary *candidate in candidates)
+                if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"id"] isEqual:identifier]) {
+                    glossCandidate = candidate;
+                    break;
+                }
+    }
     if (_panel.isVisible && physicalDigit >= 0 &&
         glossModifiers == NSEventModifierFlagOption) {
-        NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
-        if ([self commitCandidateGlossColumn:1 candidate:candidate client:sender]) return YES;
+        if ([self commitCandidateGlossColumn:1 candidate:glossCandidate client:sender]) return YES;
     }
     if (_panel.isVisible && physicalDigit >= 0 &&
         glossModifiers == NSEventModifierFlagControl) {
-        NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
-        if ([self commitCandidateGlossColumn:2 candidate:candidate client:sender]) return YES;
+        if ([self commitCandidateGlossColumn:2 candidate:glossCandidate client:sender]) return YES;
     }
     if (_panel.isVisible && physicalDigit >= 0 && glossModifiers == 0 && _armedGlossColumn > 0) {
-        NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
-        if ([self commitCandidateGlossColumn:_armedGlossColumn candidate:candidate client:sender]) return YES;
+        if ([self commitCandidateGlossColumn:_armedGlossColumn candidate:glossCandidate client:sender]) return YES;
     }
     const BOOL unicodeComposition = [_view[@"local_mode"] isEqual:@"unicode"];
     if (msime::mac::ShouldRoutePhysicalCandidateDigit(

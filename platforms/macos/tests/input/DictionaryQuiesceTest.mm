@@ -91,6 +91,7 @@ int main() {
         QuiesceOptions = options;
         NSString *userData = options[@"user_data"];
         const std::string leaseRoot(userData.fileSystemRepresentation);
+        std::string raised;
 
         NSString *suite = [@"msime.dictionary-quiesce." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -122,7 +123,7 @@ int main() {
         assert([typing.marked isEqual:@"U4e2d"]);
 
         // With it, every controller lets go at once and what was typed is committed, not lost.
-        assert(msime::dictionary_lease::raise_dictionary_quiesce_lease(leaseRoot));
+        assert(msime::dictionary_lease::raise_dictionary_quiesce_lease(leaseRoot, raised));
         AnnounceMaintenance();
         assert(![first valueForKey:@"session"] && ![second valueForKey:@"session"]);
         assert(typing.marked.length == 0 && typing.insertions.count == 1);
@@ -135,7 +136,7 @@ int main() {
         assert(MaintenanceLockAvailable(userData));
 
         // Lease gone: the next key opens a session again, and dedicated English is what it was.
-        msime::dictionary_lease::lower_dictionary_quiesce_lease(leaseRoot);
+        msime::dictionary_lease::lower_dictionary_quiesce_lease(leaseRoot, raised);
         [second handleEvent:Key(0, @"a", 0) client:english];
         assert([second valueForKey:@"session"]);
         assert([[second valueForKey:@"view"][@"dedicated_english"] isEqual:@YES]);
@@ -145,11 +146,11 @@ int main() {
         assert(!MaintenanceLockAvailable(userData));
 
         // A missed notification: the preferences timer's check finds the lease and releases every holder.
-        assert(msime::dictionary_lease::raise_dictionary_quiesce_lease(leaseRoot));
+        assert(msime::dictionary_lease::raise_dictionary_quiesce_lease(leaseRoot, raised));
         [MSIMEInputController releaseQuiescedDictionarySessions];
         assert(![first valueForKey:@"session"] && ![second valueForKey:@"session"]);
         assert(MaintenanceLockAvailable(userData));
-        msime::dictionary_lease::lower_dictionary_quiesce_lease(leaseRoot);
+        msime::dictionary_lease::lower_dictionary_quiesce_lease(leaseRoot, raised);
 
         // A lease that has run out (a settings process that died) no longer keeps input off.
         {
