@@ -4256,7 +4256,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (event.type != NSEventTypeKeyDown) return NO;
     [_appearance lockActiveInputMode];
     if (event.keyCode == 51) {
-        const BOOL compositionActive = [_view[@"editing_text"] length] || [_view[@"candidates"] count];
+        const BOOL compositionActive = [_view[@"editing_text"] length] || [_view[@"candidates"] count] ||
+            [_view[@"phrase_prefix"] length];
         BOOL suppressEscapedRepeat = NO;
         if (!event.isARepeat) {
             _backspaceHoldArmed = compositionActive;
@@ -4509,7 +4510,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if ((event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift |
                                 NSEventModifierFlagOption | NSEventModifierFlagCommand)) ==
             NSEventModifierFlagControl &&
-        _session && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
+        _session && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count] ||
+                                      [_view[@"phrase_prefix"] length])) {
         uint32_t segment = UINT32_MAX;
         if (event.keyCode == 51) segment = MSIME_BACKSPACE_SEGMENT;
         else if (event.keyCode == 123) segment = MSIME_MOVE_LEFT_SEGMENT;
