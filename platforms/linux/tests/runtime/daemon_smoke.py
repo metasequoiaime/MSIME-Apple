@@ -60,14 +60,14 @@ def host_of(supervisor):
     return children[0] if len(children) == 1 else (None, None)
 
 
-wait(lambda: any(engine.get_name() == "msime-client" for engine in bus.list_active_engines()))
+wait(lambda: any(engine.get_name() == "msime-linux" for engine in bus.list_active_engines()))
 context = bus.create_input_context("msime-synthetic-editor")
 commits = []
 context.connect("commit-text", lambda _context, text: commits.append(text.get_text()))
 context.set_capabilities(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT | IBus.Capabilite.LOOKUP_TABLE)
 context.focus_in()
-assert bus.set_global_engine("msime-client"), "Global engine activation failed"
-wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client")
+assert bus.set_global_engine("msime-linux"), "Global engine activation failed"
+wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-linux")
 context.property_activate("ChinesePunctuation", IBus.PropState.UNCHECKED)
 context.property_activate("EnglishCandidates", IBus.PropState.CHECKED)
 context.property_activate("EmojiCandidates", IBus.PropState.CHECKED)
@@ -83,8 +83,8 @@ context.property_activate("InputMode", IBus.PropState.UNCHECKED)
 assert not context.process_key_event(ord("n"), 0, 0), "InputMode property did not leave Chinese"
 assert bus.set_global_engine("xkb:us::eng"), "US input source activation failed"
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "xkb:us::eng")
-assert bus.set_global_engine("msime-client"), "Input source reactivation failed"
-wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client")
+assert bus.set_global_engine("msime-linux"), "Input source reactivation failed"
+wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-linux")
 for character in "nihao":
     assert context.process_key_event(ord(character), 0, 0), "Source switch retained global English mode"
 assert context.process_key_event(IBus.KEY_space, 0, 0)
@@ -102,7 +102,7 @@ if supervisor:
         assert arguments[0] == "--recovered", arguments
 
         def typing_resumed():
-            if context.get_engine() is None or context.get_engine().get_name() != "msime-client":
+            if context.get_engine() is None or context.get_engine().get_name() != "msime-linux":
                 return False
             context.property_activate("InputMode", IBus.PropState.CHECKED)
             return context.process_key_event(ord("n"), 0, 0)
@@ -132,7 +132,7 @@ if supervisor:
     launcher = subprocess.Popen([os.environ["MSIME_SMOKE_LAUNCHER"]], env=environment)
     try:
         wait(lambda: host_of(launcher.pid)[0] is not None
-             and any(engine.get_name() == "msime-client" for engine in bus.list_active_engines()))
+             and any(engine.get_name() == "msime-linux" for engine in bus.list_active_engines()))
         bus.exit(False)  # What `ibus exit` sends.
         assert launcher.wait(timeout=10) == 0, launcher.returncode
     finally:

@@ -2271,7 +2271,7 @@ fn linux_input_method_restart_command(
     fcitx5_running: bool,
 ) -> (&'static str, &'static [&'static str]) {
     if fcitx5_running {
-        // Fcitx5 owns the process that loads the MSIME addon, so restarting it would take every other input method in the user's group down too. The controller's ReloadAddonConfig for the `msime` addon reaches the addon's reloadConfig, which resets MSIME in process: it ends every composition, closes the Engine sessions and re-reads runtime-options.json. `fcitx5-remote -r` sends ReloadConfig instead, which reloads only Fcitx5's global configuration and never reaches an addon. The call goes through `gdbus`, the same client msime-client-setup uses for this controller; `gdbus call` waits for the reply, so a controller that refused the call fails the action.
+        // Fcitx5 owns the process that loads the MSIME addon, so restarting it would take every other input method in the user's group down too. The controller's ReloadAddonConfig for the `msime` addon reaches the addon's reloadConfig, which resets MSIME in process: it ends every composition, closes the Engine sessions and re-reads runtime-options.json. `fcitx5-remote -r` sends ReloadConfig instead, which reloads only Fcitx5's global configuration and never reaches an addon. The call goes through `gdbus`, the same client msime-linux-setup uses for this controller; `gdbus call` waits for the reply, so a controller that refused the call fails the action.
         (
             "gdbus",
             &[

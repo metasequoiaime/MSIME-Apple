@@ -11,6 +11,7 @@ import http.client
 import json
 import os
 from pathlib import Path
+import secrets
 import signal
 import socket
 import socketserver
@@ -19,8 +20,10 @@ import struct
 import string
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import urllib.parse
 import urllib.request
 
@@ -38,6 +41,10 @@ http_stopping = threading.Event()
 MAX_AI_CACHE_ENTRIES = 4096
 MAX_TRANSLATION_CACHE_ENTRIES = 4096
 NEGATIVE_TRANSLATION_CACHE_TTL = 480
+ANONYMOUS_ACCOUNT_ORIGIN = "https://api.msime.app"
+ANONYMOUS_ACCOUNT_MAX_BYTES = 16 * 1024
+ANONYMOUS_ACCOUNT_SUBJECT_LENGTH = 16
+ANONYMOUS_ACCOUNT_SECRET_LENGTH = 48
 CLOUD_REQUEST_TIMEOUT = 2.0
 # Windows ai_assistant.cpp gives model inference CURLOPT_TIMEOUT_MS 8000 and CURLOPT_CONNECTTIMEOUT_MS 2500, the same numbers client-core's AI descriptor carries. This is also the longest deadline an HTTP worker accepts, so no caller can ask for a budget the worker would silently refuse.
 AI_REQUEST_TIMEOUT = 8.0
@@ -362,6 +369,177 @@ def translation_gloss(value):
     return value if candidate(value, 0) and not any(127 <= ord(c) <= 159 for c in value) else None
 
 
+def _anonymous_private_path(path):
+    """Read one owner-only anonymous-account document, or return None when absent."""
+    if path is None:
+        return None
+    try:
+        return load_private_config(path)
+    except FileNotFoundError:
+        return None
+
+
+def _write_anonymous_private(path, document):
+    """Atomically publish a small owner-only JSON document beside provider config."""
+    if path is None or not path.is_absolute() or not isinstance(document, dict):
+        return False
+    encoded = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > ANONYMOUS_ACCOUNT_MAX_BYTES:
+        return False
+    try:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = path.parent.stat()
+        if info.st_uid != os.getuid() or info.st_mode & 0o077 or not stat.S_ISDIR(info.st_mode):
+            return False
+        descriptor, temporary_name = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
+        temporary = Path(temporary_name)
+        os.fchmod(descriptor, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as target:
+                descriptor = None
+                target.write(encoded)
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(temporary, path)
+            return True
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+    except OSError:
+        return False
+
+
+def _anonymous_identity(server):
+    """Return the local anonymous subject and secret, creating them if needed."""
+    path = getattr(server, "anonymous_account_path", None)
+    try:
+        current = _anonymous_private_path(path)
+    except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
+        return None
+    if current:
+        subject, secret = current.get("subject"), current.get("secret")
+        if (isinstance(subject, str) and isinstance(secret, str) and
+                subject.startswith("msime-") and len(subject) == 6 + ANONYMOUS_ACCOUNT_SUBJECT_LENGTH and
+                all(ch in "abcdefghijklmnopqrstuvwxyz0123456789" for ch in subject[6:]) and
+                len(secret) == ANONYMOUS_ACCOUNT_SECRET_LENGTH and
+                all(ch in "abcdefghijklmnopqrstuvwxyz0123456789" for ch in secret)):
+            return subject, secret
+        return None
+    if path is None:
+        return None
+    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+    identity = {
+        "subject": "msime-" + "".join(secrets.choice(alphabet) for _ in range(ANONYMOUS_ACCOUNT_SUBJECT_LENGTH)),
+        "secret": "".join(secrets.choice(alphabet) for _ in range(ANONYMOUS_ACCOUNT_SECRET_LENGTH)),
+    }
+    if _write_anonymous_private(path, identity):
+        return identity["subject"], identity["secret"]
+    # Another provider thread may have published the identity first.
+    try:
+        current = _anonymous_private_path(path)
+    except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
+        return None
+    if current:
+        return _anonymous_identity(SimpleNamespace(anonymous_account_path=path))
+    return None
+
+
+def _anonymous_tokens(server):
+    path = getattr(server, "anonymous_session_path", None)
+    try:
+        current = _anonymous_private_path(path)
+    except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(current, dict):
+        return None
+    tokens = current.get("tokens")
+    expiry = current.get("expires_at_unix_ms")
+    if not isinstance(tokens, dict) or not isinstance(expiry, (int, float)):
+        return None
+    token = tokens.get("access_token")
+    if (isinstance(token, str) and len(token) == 64 and
+            all(ch in string.hexdigits for ch in token) and
+            expiry > int(time.time() * 1000) + 30_000):
+        return token
+    return None
+
+
+def _validated_anonymous_tokens(document):
+    if not isinstance(document, dict):
+        return None
+    access = document.get("access_token")
+    refresh = document.get("refresh_token")
+    expires = document.get("expires_in")
+    user = document.get("user")
+    if (not isinstance(access, str) or len(access) != 64 or not all(ch in string.hexdigits for ch in access) or
+            not isinstance(refresh, str) or len(refresh) != 64 or not all(ch in string.hexdigits for ch in refresh) or
+            document.get("token_type") != "Bearer" or not isinstance(expires, int) or not 0 < expires <= 86_400 * 30 or
+            not isinstance(user, dict) or not isinstance(user.get("id"), str) or not user["id"]):
+        return None
+    return {"access_token": access, "refresh_token": refresh, "token_type": "Bearer",
+            "expires_in": expires, "user": user}
+
+
+def anonymous_access_token(server):
+    """Get the translation token, creating the device's anonymous backend account when needed."""
+    lock = getattr(server, "anonymous_lock", None)
+    if lock is None:
+        return None
+    with lock:
+        current = _anonymous_tokens(server)
+        if current:
+            return current
+        identity = _anonymous_identity(server)
+        if identity is None:
+            return None
+        subject, secret = identity
+        # A refresh avoids creating another account when a long-lived device token expires.
+        try:
+            saved = _anonymous_private_path(getattr(server, "anonymous_session_path", None))
+        except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
+            saved = None
+        refresh = saved.get("tokens", {}).get("refresh_token") if isinstance(saved, dict) else None
+        if isinstance(refresh, str) and len(refresh) == 64 and all(ch in string.hexdigits for ch in refresh):
+            refreshed = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/refresh", 10,
+                               {"refresh_token": refresh})
+            tokens = _validated_anonymous_tokens(refreshed)
+            if tokens and _write_anonymous_private(
+                    server.anonymous_session_path,
+                    {"tokens": tokens, "expires_at_unix_ms": int(time.time() * 1000) + tokens["expires_in"] * 1000}):
+                return tokens["access_token"]
+        challenge = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/challenges", 10,
+                           {"provider": "anonymous", "target": subject, "purpose": "login"})
+        challenge_id = challenge.get("challenge_id") if isinstance(challenge, dict) else None
+        if not isinstance(challenge_id, str) or not challenge_id:
+            return None
+        logged_in = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/login", 10,
+                           {"challenge_id": challenge_id, "credential": secret})
+        tokens = _validated_anonymous_tokens(logged_in)
+        if not tokens or not _write_anonymous_private(
+                server.anonymous_session_path,
+                {"tokens": tokens, "expires_at_unix_ms": int(time.time() * 1000) + tokens["expires_in"] * 1000}):
+            return None
+        return tokens["access_token"]
+
+
+def anonymous_translation(texts, source, target, server):
+    token = anonymous_access_token(server)
+    if not token:
+        return [None] * len(texts)
+    result = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/translate", 2.5,
+                    {"texts": texts, "source_lang": source.upper(), "target_lang": target.upper()}, token)
+    if (not isinstance(result, dict) or result.get("code") not in (200, "200") or
+            not isinstance(result.get("data"), list)):
+        return [None] * len(texts)
+    values = result["data"]
+    return [translation_gloss(values[index]) if index < len(values) else None
+            for index in range(len(texts))]
+
+
 def custom_translation(config, text, source, target, timeout):
     result = fetch(config["endpoint"], timeout, {
         "text": text, "source_lang": source.upper(), "target_lang": target.upper()}, config.get("api_key"))
@@ -449,12 +627,20 @@ def translations(query, server):
     custom = custom if isinstance(custom, dict) and custom.get("enabled") else None
     # Match Windows ActiveProvider/WorkerLoop: only the service the user selected may be asked, and an unusable selection sends nothing rather than falling back to Tencent. A query without the field comes from a host that predates it and keeps that host's own choice.
     selected = query.get("provider")
+    account_selected = query.get("translation_account") is True and query.get("provider") in (None, "none", "account")
+    if account_selected:
+        # The shared query marks this only after the user explicitly chose the
+        # MSIME account and no user-owned service is usable. Keep that choice
+        # visible to this process instead of falling back to Tencent.
+        selected = "account"
     if selected is None:
         selected = "niutrans" if niutrans else "custom" if custom else "tencent"
-    if (selected not in ("tencent", "niutrans", "custom") or
+    if (selected not in ("tencent", "niutrans", "custom", "account") or
         (selected == "niutrans" and not niutrans) or (selected == "custom" and not custom)):
         return []
-    if selected == "niutrans":
+    if selected == "account":
+        provider = ("account", str(getattr(server, "anonymous_account_path", "")))
+    elif selected == "niutrans":
         app_id = niutrans.get("app_id", "")
         apikey = niutrans.get("apikey", "")
         if (not isinstance(app_id, str) or not isinstance(apikey, str) or
@@ -505,7 +691,11 @@ def translations(query, server):
         else:
             groups.setdefault(direction, []).append(text)
     for (source, destination), pending in groups.items():
-        if selected == "niutrans":
+        if selected == "account":
+            remaining = min(2.5, deadline - time.monotonic())
+            values = anonymous_translation(pending, source, destination, server) if remaining > 0 else None
+            values = values or [None] * len(pending)
+        elif selected == "niutrans":
             values = []
             for text in pending:
                 remaining = min(2.5, deadline - time.monotonic())
@@ -853,16 +1043,44 @@ def load_ai_config(path):
     return config
 
 
+def anonymous_server(config_directory):
+    config_directory = config_directory.absolute()
+    return SimpleNamespace(
+        anonymous_account_path=config_directory / "anonymous-account.json",
+        anonymous_session_path=config_directory / "anonymous-session.json",
+        anonymous_lock=threading.Lock(),
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("socket", type=Path, help="absolute socket path in a private runtime directory")
+    parser.add_argument("socket", type=Path, nargs="?", help="absolute socket path in a private runtime directory")
+    parser.add_argument(
+        "--ensure-anonymous-account",
+        action="store_true",
+        help="create or refresh this user's anonymous translation account, then exit",
+    )
     parser.add_argument("--ai-config", type=Path, help="owner-only JSON: provider/endpoint/model/token and optional profiles by provider")
     parser.add_argument("--tencent-config", type=Path, help="owner-only JSON: secret_id, secret_key, optional region")
     parser.add_argument("--config-directory", type=Path,
                         help="absolute directory for optional AI/Tencent config files, read on each request")
     args = parser.parse_args()
+    if args.config_directory is None:
+        config_root = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+        if not Path(config_root).is_absolute():
+            parser.error("config directory must be absolute")
+        args.config_directory = Path(config_root) / "msime-client"
     if args.config_directory and not args.config_directory.is_absolute():
         parser.error("config directory must be absolute")
+    if args.ensure_anonymous_account:
+        if args.socket is not None:
+            parser.error("--ensure-anonymous-account does not take a socket")
+        token = anonymous_access_token(anonymous_server(args.config_directory))
+        if not token:
+            parser.error("anonymous account could not be created")
+        return
+    if args.socket is None:
+        parser.error("the following arguments are required: socket")
     if args.ai_config:
         try:
             load_ai_config(args.ai_config)
@@ -893,6 +1111,10 @@ def main():
         parser.error("online service is already running or its socket cannot be recovered")
     server.ai_config_path = args.ai_config.absolute() if args.ai_config else None
     server.tencent_config_path = args.tencent_config.absolute() if args.tencent_config else None
+    account = anonymous_server(args.config_directory) if args.config_directory else None
+    server.anonymous_account_path = account.anonymous_account_path if account else None
+    server.anonymous_session_path = account.anonymous_session_path if account else None
+    server.anonymous_lock = account.anonymous_lock if account else None
     server.translation_cache = {}
     server.translation_lock = threading.Lock()
     server.ai_candidate_cache = {}

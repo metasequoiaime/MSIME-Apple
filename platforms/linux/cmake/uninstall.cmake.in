@@ -69,7 +69,7 @@ foreach(installed IN LISTS installed_files)
   list(APPEND removals "${target}")
 endforeach()
 
-# The Windows uninstaller stops the IME processes and removes their logon task. The Linux counterpart is the user units msime-client-setup enabled, which would otherwise keep restarting against deleted programs. An uninstall run as the user disables them in that user's manager, one unit at a time so an absent one does not stop the rest; a root or staged uninstall cannot reach other users' managers and prints the command instead.
+# The Windows uninstaller stops the IME processes and removes their logon task. The Linux counterpart is the user units msime-linux-setup enabled, which would otherwise keep restarting against deleted programs. An uninstall run as the user disables them in that user's manager, one unit at a time so an absent one does not stop the rest; a root or staged uninstall cannot reach other users' managers and prints the command instead.
 set(user_units @MSIME_USER_UNIT_LIST@)
 list(JOIN user_units " " user_unit_list)
 execute_process(COMMAND id -u OUTPUT_VARIABLE user_id OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
@@ -80,13 +80,13 @@ if(staging STREQUAL "" AND systemctl_program AND NOT user_id STREQUAL "0" AND DE
   endforeach()
   message(STATUS "MSIME user services stopped and disabled for this user")
 else()
-  message(STATUS "Each user who ran msime-client-setup should stop its services: systemctl --user disable --now ${user_unit_list}")
+  message(STATUS "Each user who ran msime-linux-setup should stop its services: systemctl --user disable --now ${user_unit_list}")
 endif()
 
-# The Windows uninstaller also unregisters the TSF profile, which takes the input method out of the input method lists. The counterpart is msime-client-setup --unregister, which must run while the program still exists. An uninstall run as the user runs it for that user; its failure, or a missing Python, does not stop the uninstall. A root or staged uninstall cannot reach other users' sessions and says what to remove by hand, since the program is deleted right after.
+# The Windows uninstaller also unregisters the TSF profile, which takes the input method out of the input method lists. The counterpart is msime-linux-setup --unregister, which must run while the program still exists. An uninstall run as the user runs it for that user; its failure, or a missing Python, does not stop the uninstall. A root or staged uninstall cannot reach other users' sessions and says what to remove by hand, since the program is deleted right after.
 set(setup_program "")
 foreach(target IN LISTS removals)
-  if(target MATCHES "/msime-client-setup$")
+  if(target MATCHES "/msime-linux-setup$")
     set(setup_program "${target}")
   endif()
 endforeach()

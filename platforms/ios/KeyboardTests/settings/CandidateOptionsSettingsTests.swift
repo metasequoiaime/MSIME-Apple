@@ -33,15 +33,15 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     XCTAssertEqual((after["minimum_prefix"] as? NSNumber)?.intValue, (before["minimum_prefix"] as? NSNumber)?.intValue)
   }
 
-  /// Transposition correction turned on in the app reaches the session the keyboard already has.
+  /// Typo correction is enabled by default and an explicit false still reaches the live session.
   func testReloadHandsTypoCorrectionToTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
-    // The engine's own autocorrect check: with transposition on, gau leads with 挂 (gua).
-    XCTAssertNotEqual(firstCandidates(bridge, "gau").first, "挂", "transposition correction ships off")
+    // The engine's own autocorrect check: with the default enabled, gau leads with 挂 (gua).
+    XCTAssertEqual(firstCandidates(bridge, "gau").first, "挂", "transposition correction ships on")
 
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
       var quanpin = $0["quanpin"] as? [String: Any] ?? [:]
-      quanpin["autocorrect_transposition"] = true
+      quanpin["autocorrect_transposition"] = false
       $0["quanpin"] = quanpin
     })
     let reloaded = expectation(description: "reload")
@@ -50,7 +50,7 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
 
-    XCTAssertEqual(firstCandidates(bridge, "gau").first, "挂")
+    XCTAssertNotEqual(firstCandidates(bridge, "gau").first, "挂")
   }
 
   /// 「双拼预编辑」 turned off in the app makes the live session spell out the pinyin behind the raw shuangpin keys the strip otherwise shows.

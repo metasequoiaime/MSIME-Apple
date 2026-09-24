@@ -6742,35 +6742,17 @@ test("failed initial load never enables saving fabricated defaults", async () =>
   expect(client.save).not.toHaveBeenCalled();
 });
 
-test("legacy autocorrect stays ignored and granular corrections save independently", async () => {
+test("autocorrect is enabled by default and its controls stay out of the settings UI", async () => {
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
-    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
-      ...initial,
-      revision: 8,
-      preferences,
-    })),
+    save: vi.fn(),
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  // The fixed Windows baseline retired the old single switch, so a snapshot
-  // that only carries it leaves both granular corrections off.
-  const transposition = (await screen.findByLabelText(
-    "全拼纠错：字母顺序错位",
-  )) as HTMLInputElement;
-  const neighbor = screen.getByLabelText("全拼纠错：相邻键误触") as HTMLInputElement;
-  expect(transposition.checked).toBe(false);
-  expect(neighbor.checked).toBe(false);
-  fireEvent.click(transposition);
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, {
-    ...initial.preferences,
-    quanpin: { autocorrect_transposition: true, autocorrect_neighbor: false },
-  });
-  expect(transposition.checked).toBe(true);
-  expect(neighbor.checked).toBe(false);
+  expect(screen.queryByRole("group", { name: "全拼纠错" })).toBeNull();
+  expect(screen.queryByLabelText("全拼纠错：字母顺序错位")).toBeNull();
+  expect(screen.queryByLabelText("全拼纠错：相邻键误触")).toBeNull();
 });
 
 test("category navigation preserves one draft and saves edits across pages", async () => {

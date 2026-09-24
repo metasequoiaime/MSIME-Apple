@@ -687,7 +687,7 @@ public:
   }
   bool toggleQuanpinAutocorrect(const char *key) {
     if (!session_ || view_.value("scheme", 0u) != 0 || !key || !*key) return false;
-    const bool enabled = !preferences_.value("quanpin", Json::object()).value(key, false);
+    const bool enabled = !preferences_.value("quanpin", Json::object()).value(key, true);
     auto snapshot = preferences_snapshot_;
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
@@ -3559,7 +3559,7 @@ public:
     const auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->view_.value("scheme", 0u) != 0) return false;
     const auto key = mode_ == Mode::Transposition ? "autocorrect_transposition" : "autocorrect_neighbor";
-    return state->preferences_.value("quanpin", Json::object()).value(key, false);
+    return state->preferences_.value("quanpin", Json::object()).value(key, true);
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
@@ -4659,7 +4659,7 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
-// classicui's options are shared by every input method, so before one changes, the value it replaces is recorded for msime-client-setup --unregister to put back (see PanelRestoreRecord.h). A failed record does not hold the change back.
+// classicui's options are shared by every input method, so before one changes, the value it replaces is recorded for msime-linux-setup --unregister to put back (see PanelRestoreRecord.h). A failed record does not hold the change back.
 void record_classicui_takeover(const fcitx::RawConfig &current, const fcitx::RawConfig &written) {
   const auto file = msime::linux_host::panel_restore_file(std::getenv("XDG_STATE_HOME"), std::getenv("HOME"));
   if (!file) return;
@@ -4833,8 +4833,6 @@ public:
     nine_key_menu_.addAction(&nine_key_spelling8_);
     nine_key_menu_.addAction(&nine_key_spelling9_);
     helpcode_action_.registerAction("msime-helpcode", &instance->userInterfaceManager());
-    autocorrect_transposition_action_.registerAction("msime-autocorrect-transposition", &instance->userInterfaceManager());
-    autocorrect_neighbor_action_.registerAction("msime-autocorrect-neighbor", &instance->userInterfaceManager());
     mixed_english_action_.registerAction("msime-mixed-english", &instance->userInterfaceManager());
     mixed_emoji_action_.registerAction("msime-mixed-emoji", &instance->userInterfaceManager());
     mixed_kaomoji_action_.registerAction("msime-mixed-kaomoji", &instance->userInterfaceManager());
@@ -5075,8 +5073,6 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &nine_key_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &autocorrect_transposition_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &autocorrect_neighbor_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_emoji_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_kaomoji_action_);
@@ -5148,8 +5144,6 @@ public:
     event.inputContext()->statusArea().removeAction(&width_action_);
     event.inputContext()->statusArea().removeAction(&nine_key_action_);
     event.inputContext()->statusArea().removeAction(&helpcode_action_);
-    event.inputContext()->statusArea().removeAction(&autocorrect_transposition_action_);
-    event.inputContext()->statusArea().removeAction(&autocorrect_neighbor_action_);
     event.inputContext()->statusArea().removeAction(&mixed_english_action_);
     event.inputContext()->statusArea().removeAction(&mixed_emoji_action_);
     event.inputContext()->statusArea().removeAction(&mixed_kaomoji_action_);

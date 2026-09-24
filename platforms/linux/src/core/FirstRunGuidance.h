@@ -5,9 +5,9 @@
 
 namespace msime::linux_host {
 
-// On Windows the installer prepares the data directory, so the input method is ready the moment it can be selected. A Linux package installs no user state; until msime-client-setup (or the settings window's first-run page) publishes runtime-options.json, selecting MSIME cannot open a session. The frontends tell that state apart from a broken configuration and point the user at setup instead of a generic error.
+// On Windows the installer prepares the data directory, so the input method is ready the moment it can be selected. A Linux package installs no user state; until msime-linux-setup (or the settings window's first-run page) publishes runtime-options.json, selecting MSIME cannot open a session. The frontends tell that state apart from a broken configuration and point the user at setup instead of a generic error.
 inline constexpr std::string_view kFirstRunHint =
-    "水杉输入法尚未完成首次配置：请打开「水杉输入法」设置，或在终端运行 msime-client-setup";
+    "水杉输入法尚未完成首次配置：请打开「水杉输入法」设置，或在终端运行 msime-linux-setup";
 
 // Installed beside the IBus launcher; it opens the settings window and posts a notification at most once per login session. Both frontends call the same script so that limit is shared between them.
 inline constexpr std::string_view kFirstRunGuideProgram = "msime-client-first-run-guide";

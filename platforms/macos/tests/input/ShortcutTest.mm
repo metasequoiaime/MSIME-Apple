@@ -721,7 +721,7 @@ static void TestIndependentAssistancePreferences() {
     [defaults setBool:NO forKey:@"MSIMEClientHelpcodeEnabled"];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled);
-    assert(!prefs.autocorrectTransposition && !prefs.autocorrectNeighbor);
+    assert(prefs.autocorrectTransposition && prefs.autocorrectNeighbor);
     assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:
         (@{@"schema": @"ziranma", @"show_in_candidate_window": @NO})]);
     assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:
@@ -736,7 +736,7 @@ static void TestIndependentAssistancePreferences() {
     NSDictionary *shared = @{@"autocorrect": @NO, @"quanpin_helpcode": @{@"enabled": @YES, @"auto_display": @NO}, @"shuangpin_helpcode": @{@"enabled": @NO, @"future_field": @7}};
     [controller applySharedToolbarPreferences:shared];
     assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 0);
-    assert(quanpin.state == NSControlStateValueOn && shuangpin.state == NSControlStateValueOff && autocorrect.state == NSControlStateValueOff);
+    assert(quanpin.state == NSControlStateValueOn && shuangpin.state == NSControlStateValueOff && autocorrect.state == NSControlStateValueOn);
     for (NSString *key in shared) assert([[prefs sharedPreferencesByMerging:shared][key] isEqual:shared[key]]);
     [controller applySharedToolbarPreferences:@{@"autocorrect": @1, @"quanpin_helpcode": @{@"enabled": @0}, @"shuangpin_helpcode": NSNull.null}];
     assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 0);
@@ -803,10 +803,10 @@ static void TestIndependentAssistancePreferences() {
     assert([correctionMerged[@"autocorrect_transposition"] isEqual:@NO] && [correctionMerged[@"autocorrect_neighbor"] isEqual:@YES] && [correctionMerged[@"future"] isEqual:@7]);
     NSUInteger beforeCorrectionRefresh = saves;
     [prefs applySharedAssistancePreferences:@{@"autocorrect": @NO, @"quanpin": @{}}];
-    assert(!prefs.autocorrectTransposition && !prefs.autocorrectNeighbor && saves == beforeCorrectionRefresh);
+    assert(prefs.autocorrectTransposition && prefs.autocorrectNeighbor && saves == beforeCorrectionRefresh);
     assert([prefs sharedPreferencesByMerging:@{}][@"quanpin"][@"autocorrect_neighbor"] == NSNull.null);
     [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_neighbor": @1}}];
-    assert(!prefs.autocorrectNeighbor);
+    assert(prefs.autocorrectNeighbor);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }

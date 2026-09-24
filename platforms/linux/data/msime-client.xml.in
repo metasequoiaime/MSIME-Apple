@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component>
-  <name>msime-client</name>
+  <name>msime-linux</name>
   <description>MSIME Linux input method</description>
   <exec>&quot;@CMAKE_INSTALL_FULL_BINDIR@/msime-client-ibus-launcher&quot; &quot;@CMAKE_INSTALL_FULL_SYSCONFDIR@/msime-client/runtime-options.json&quot;</exec>
   <version>0.1.0</version>
@@ -10,7 +10,7 @@
   <textdomain>msime-client</textdomain>
   <engines>
     <engine>
-      <name>msime-client</name>
+      <name>msime-linux</name>
       <longname>Metasequoia 水杉输入法</longname>
       <description>Shared MSIME Linux input runtime</description>
       <language>zh</language>

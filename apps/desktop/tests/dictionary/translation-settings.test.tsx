@@ -142,21 +142,24 @@ describe("the MSIME account translation is an explicit choice", () => {
     expect(saved.niutrans?.enabled).toBe(false);
   };
 
-  test("macOS offers the account and saves it with every other service off", async () => {
-    const save = await mountOn("macos");
-    expect(optionValues()).toContain("account");
-    expect(serviceSelect().value).toBe("custom");
-    fireEvent.change(serviceSelect(), { target: { value: "account" } });
-    expect(serviceSelect().value).toBe("account");
-    const chosen = await saveAndRead(save, 0);
-    expect(chosen.translation_account).toBe(true);
-    noOwnService(chosen);
+  test.each(["macos", "linux"])(
+    "%s offers the account and saves it with every other service off",
+    async (platform) => {
+      const save = await mountOn(platform);
+      expect(optionValues()).toContain("account");
+      expect(serviceSelect().value).toBe("custom");
+      fireEvent.change(serviceSelect(), { target: { value: "account" } });
+      expect(serviceSelect().value).toBe("account");
+      const chosen = await saveAndRead(save, 0);
+      expect(chosen.translation_account).toBe(true);
+      noOwnService(chosen);
 
-    fireEvent.change(serviceSelect(), { target: { value: "none" } });
-    const off = await saveAndRead(save, 1);
-    expect(off.translation_account).toBeUndefined();
-    noOwnService(off);
-  });
+      fireEvent.change(serviceSelect(), { target: { value: "none" } });
+      const off = await saveAndRead(save, 1);
+      expect(off.translation_account).toBeUndefined();
+      noOwnService(off);
+    },
+  );
 
   test.each(["windows", "linux", "macos"])(
     "%s: undoing a service change leaves nothing unsaved",
@@ -173,7 +176,8 @@ describe("the MSIME account translation is an explicit choice", () => {
     },
   );
 
-  test.each(["windows", "linux"])("%s has no account option", async (platform) => {
+  test("Windows has no account option", async () => {
+    const platform = "windows";
     await mountOn(platform);
     expect(optionValues()).not.toContain("account");
   });

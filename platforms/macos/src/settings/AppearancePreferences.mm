@@ -1484,8 +1484,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (BOOL)candidateEnglishGloss { if (_sharedCandidateEnglishGloss) return _sharedCandidateEnglishGloss.boolValue; return [_defaults boolForKey:CandidateEnglishGlossKey]; }
 - (void)setCandidateEnglishGloss:(BOOL)value { _sharedCandidateEnglishGloss = nil; [_defaults setBool:value forKey:CandidateEnglishGlossKey]; [self preferencesChanged]; }
 - (void)setAutocorrect:(BOOL)value { _sharedAutocorrect = nil; [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
-- (BOOL)autocorrectTransposition { id value = _sharedTransposition ?: [_defaults objectForKey:TranspositionKey]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
-- (BOOL)autocorrectNeighbor { id value = _sharedNeighbor ?: [_defaults objectForKey:NeighborKey]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
+- (BOOL)autocorrectTransposition { id value = _sharedTransposition ?: [_defaults objectForKey:TranspositionKey]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
+- (BOOL)autocorrectNeighbor { id value = _sharedNeighbor ?: [_defaults objectForKey:NeighborKey]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
 - (void)setAutocorrectTransposition:(BOOL)value { _sharedTransposition = nil; [_defaults setBool:value forKey:TranspositionKey]; [self preferencesChanged]; }
 - (void)setAutocorrectNeighbor:(BOOL)value { _sharedNeighbor = nil; [_defaults setBool:value forKey:NeighborKey]; [self preferencesChanged]; }
 - (BOOL)helpcodeEnabled { return [_defaults objectForKey:HelpcodeKey] == nil ? YES : [_defaults boolForKey:HelpcodeKey]; }
@@ -3219,6 +3219,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [self settingRow:@"全拼邻键纠错" detail:@"例如把 shang 输入为 shabg。" control:_neighborToggle aka:@[@"打错"]],
     ], 0.0);
     correctionCard.accessibilityLabel = @"拼音纠错卡片";
+    // Quanpin correction is enabled by default and is no longer exposed as a native setting.
+    // Keep the controls attached for older automation and explicit shared-preference compatibility,
+    // but keep the card out of the visible and accessible settings page.
+    correctionCard.hidden = YES;
+    correctionCard.accessibilityHidden = YES;
     NSMutableArray<NSButton *> *fuzzyRuleBoxes = [NSMutableArray array];
     for (NSArray *entry in FuzzyPinyinRuleControls()) {
         NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(fuzzyPinyinRuleChanged:)];

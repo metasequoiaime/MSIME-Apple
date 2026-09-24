@@ -73,6 +73,7 @@ struct Observation {
   bool clipboard_toggle_sensitive = false;
   bool clipboard_clear_sensitive = false;
   bool punctuation_enabled = false;
+  bool autocorrect_properties_registered = false;
   bool autocorrect_transposition = false;
   bool autocorrect_neighbor = false;
   bool learning_enabled = false;
@@ -189,6 +190,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     if (key == "Punctuation")
       seen.punctuation_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (key == "AutocorrectTransposition")
+      seen.autocorrect_properties_registered = true;
+    if (key == "AutocorrectNeighbor")
+      seen.autocorrect_properties_registered = true;
     if (key == "AutocorrectTransposition")
       seen.autocorrect_transposition =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
@@ -1789,24 +1794,8 @@ int main(int argc, char **argv) {
             "Restored number-row selection did not select the candidate");
     seen.committed.clear();
     invoke("Reset");
-    require(!seen.autocorrect_transposition && !seen.autocorrect_neighbor,
-            "Legacy autocorrect unexpectedly enabled granular menu defaults");
-    invoke("PropertyActivate",
-           g_variant_new("(su)", "AutocorrectTransposition",
-                         PROP_STATE_CHECKED));
-    require(wait_saved_preferences([](const nlohmann::json &preferences) {
-              return preferences.at("quanpin")
-                  .at("autocorrect_transposition").get<bool>();
-            }) && seen.autocorrect_transposition && !seen.autocorrect_neighbor,
-            "Transposition correction was not independently enabled");
-    invoke("PropertyActivate",
-           g_variant_new("(su)", "AutocorrectTransposition",
-                         PROP_STATE_UNCHECKED));
-    require(wait_saved_preferences([](const nlohmann::json &preferences) {
-              return !preferences.at("quanpin")
-                  .at("autocorrect_transposition").get<bool>();
-            }) && !seen.autocorrect_transposition && !seen.autocorrect_neighbor,
-            "Transposition correction was not restored to the disabled default");
+    require(!seen.autocorrect_properties_registered,
+            "Autocorrect controls unexpectedly appeared in the IBus menu");
     invoke("PropertyActivate",
            g_variant_new("(su)", "CharacterMode", PROP_STATE_CHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {

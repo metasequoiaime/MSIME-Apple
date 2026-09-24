@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The CMake uninstall takes the input method out of the uninstalling user's input method lists, the counterpart of the Windows uninstaller unregistering the TSF profile.
 
-The installed msime-client-setup is a stub that records how it was called and whether it still existed at that moment, and `id` is a stub so the non-root path runs under the root build-gate container too. The uninstall runs against a synthetic manifest in a scratch prefix, without DESTDIR unless a case asks for it.
+The installed msime-linux-setup is a stub that records how it was called and whether it still existed at that moment, and `id` is a stub so the non-root path runs under the root build-gate container too. The uninstall runs against a synthetic manifest in a scratch prefix, without DESTDIR unless a case asks for it.
 
 Usage: uninstall_unregister.py <cmake> <configured uninstall.cmake>
 """
@@ -35,11 +35,11 @@ def uninstall(temp: Path, uid: str = "1000", staged: bool = False, setup_status:
     root = Path(str(stage) + str(prefix)) if stage else prefix
     installed = [prefix / "share/msime-client/other.txt"]
     if with_setup:
-        installed.append(prefix / "bin/msime-client-setup")
+        installed.append(prefix / "bin/msime-linux-setup")
     for path in installed:
         target = root / path.relative_to(prefix)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(SETUP if path.name == "msime-client-setup" else "installed")
+        target.write_text(SETUP if path.name == "msime-linux-setup" else "installed")
         target.chmod(0o755)
     script, count = re.subn(r'set\(manifest "[^"]*"\)', lambda _: f'set(manifest "{temp / "manifest.txt"}")', UNINSTALL.read_text())
     assert count == 1, "uninstall.cmake no longer names its manifest"
@@ -87,7 +87,7 @@ def main() -> None:
             result, calls = uninstall(Path(name), **kwargs)
             assert calls == [], (kwargs, calls)
             assert MANUAL in result.stdout, (kwargs, result.stdout)
-            assert "msime-client-setup --unregister" not in result.stdout, result.stdout
+            assert "msime-linux-setup --unregister" not in result.stdout, result.stdout
 
     # An installation without the setup script has nothing to run.
     with tempfile.TemporaryDirectory() as name:

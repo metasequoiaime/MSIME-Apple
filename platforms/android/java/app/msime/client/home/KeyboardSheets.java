@@ -133,59 +133,8 @@ public final class KeyboardSheets {
                         changed)));
             }
         }
-        addQuanpinAutocorrect(context, fragment, snapshot, preferences, status, changed, sheet);
         sheet.addNote("模糊音、辅助码和候选外观在键盘自己的设置面板里，那里能一边改一边看。");
         sheet.show();
-    }
-
-    /**
-     * 全拼纠错：两项分别控制，写的是共享的嵌套 `quanpin` 对象。
-     *
-     * <p>Built by hand rather than declared in {@link InputFeatureToggle} because the two values
-     * live under `quanpin`, and that table only knows top-level booleans. The single 自动纠错
-     * switch it used to carry wrote `autocorrect`, which the shared crate retired; it rendered
-     * checked while both corrections were off and there was no way to turn either on.
-     *
-     * <p>Each row writes the whole object rather than its own field, so the other row's value
-     * survives - the same reason the AI sheet rebuilds its object from the previous one. The
-     * previous value is re-read from the snapshot at save time rather than captured: `save`
-     * replaces the snapshot's `preferences` object outright, so anything captured when the sheet
-     * opened is detached after the first write and the second row would drop the first row's value.
-     */
-    private static void addQuanpinAutocorrect(Context context, Fragment fragment,
-            JSONObject snapshot, JSONObject preferences, TextView status, Runnable changed,
-            SettingsSheet sheet) {
-        JSONObject quanpin = preferences.optJSONObject("quanpin");
-        boolean transposition = quanpin != null && quanpin.optBoolean("autocorrect_transposition", false);
-        boolean neighbor = quanpin != null && quanpin.optBoolean("autocorrect_neighbor", false);
-        sheet.addHeading("全拼纠错");
-        sheet.add(toggle(context, "字母顺序错位", "例如把 shang 输入为 sahng", transposition,
-            value -> save(fragment, snapshot, "quanpin",
-                quanpinAutocorrect(currentQuanpin(snapshot), value, null),
-                status, null, changed)));
-        sheet.add(toggle(context, "相邻键误触", "例如把 shang 输入为 shabg", neighbor,
-            value -> save(fragment, snapshot, "quanpin",
-                quanpinAutocorrect(currentQuanpin(snapshot), null, value),
-                status, null, changed)));
-    }
-
-    @Nullable private static JSONObject currentQuanpin(JSONObject snapshot) {
-        JSONObject preferences = preferences(snapshot);
-        return preferences == null ? null : preferences.optJSONObject("quanpin");
-    }
-
-    /** The `quanpin` object with one field replaced; a null argument leaves that field alone. */
-    private static JSONObject quanpinAutocorrect(@Nullable JSONObject previous,
-            @Nullable Boolean transposition, @Nullable Boolean neighbor) {
-        try {
-            JSONObject next = previous == null ? new JSONObject()
-                : new JSONObject(previous.toString());
-            if (transposition != null) next.put("autocorrect_transposition", (boolean) transposition);
-            if (neighbor != null) next.put("autocorrect_neighbor", (boolean) neighbor);
-            return next;
-        } catch (JSONException error) {
-            return new JSONObject();
-        }
     }
 
     /**

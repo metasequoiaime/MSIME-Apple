@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""msime-client-setup 的判定规则，不需要词库也不联网。
+"""msime-linux-setup 的判定规则，不需要词库也不联网。
 
 这个入口要做的判断——这份词库能不能用、锁里没有 URL 的那一项归哪个固定归档、去哪里找锁
 和已有词库——都是纯函数，钉在这里。容器门禁不带词库，凡是需要真实词库才注册的检查在那里
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_loader(
     "msime_client_setup",
     importlib.machinery.SourceFileLoader(
-        "msime_client_setup", str(ROOT / "scripts/msime-client-setup")
+        "msime_client_setup", str(ROOT / "scripts/msime-linux-setup")
     ),
 )
 setup = importlib.util.module_from_spec(SPEC)
@@ -115,10 +115,22 @@ def main() -> int:
             "msime-client-voice.socket",
             "msime-client-clipboard.service",
         ]
-        assert setup.service_units(Path(directory) / "elsewhere", config) == [
-            "msime-client-online.socket",
-            "msime-client-voice.socket",
-        ]
+    assert setup.service_units(Path(directory) / "elsewhere", config) == [
+        "msime-client-online.socket",
+        "msime-client-voice.socket",
+    ]
+
+    # Debian postinst may have created the anonymous account before first-run setup. That
+    # directory is safe to complete in place; unrelated or empty state directories remain
+    # protected by the fresh-state rule.
+    with tempfile.TemporaryDirectory() as directory:
+        state = Path(directory)
+        (state / "anonymous-account.json").write_text("{}")
+        assert setup.anonymous_account_state(state)
+        (state / "unrelated.json").write_text("{}")
+        assert not setup.anonymous_account_state(state)
+    with tempfile.TemporaryDirectory() as directory:
+        assert not setup.anonymous_account_state(Path(directory))
 
     # 拒绝云候选时标志放在位置参数之前，这是 msime-client-prepare 唯一接受的位置。
     command = Path("/opt/msime/bin/msime-client-prepare")

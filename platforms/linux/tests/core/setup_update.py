@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""msime-client-setup --update：升级之后只取回过期的那几项词库，再让宿主库切换代次。
+"""msime-linux-setup --update：升级之后只取回过期的那几项词库，再让宿主库切换代次。
 
 词库从本机的一个 HTTP 桩取，记下被请求的路径；msime-client-prepare 换成桩，--refresh 时把配置指向新代次，记下调用以及那一刻输入会话是否已被请走（租约有效、会话锁被独占）。不联网，不需要真实词库。给出已构建的 msime-client-prepare 时，另外核对它的 --refresh 在词库过期时以 3 退出且不改写配置，这是 setup 与两个宿主区分「词库过期」的依据。
 """
@@ -18,7 +18,7 @@ import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts/msime-client-setup"
+SCRIPT = ROOT / "scripts/msime-linux-setup"
 
 # Stands in for msime-client-prepare. --refresh points the options at a new generation, the observable effect of the real command, unless STUB_REFRESH_EXIT asks for a failure. It also records what the hosts would see at that moment: whether the quiesce lease is live and whether the session lock is held exclusively, and which resource directory it was asked to prepare.
 PREPARE_STUB = r'''#!/usr/bin/env python3
@@ -85,7 +85,7 @@ class Harness:
         self.scratch = scratch
         self.prefix = scratch / "prefix"
         (self.prefix / "bin").mkdir(parents=True)
-        self.setup = self.prefix / "bin/msime-client-setup"
+        self.setup = self.prefix / "bin/msime-linux-setup"
         self.setup.write_text(SCRIPT.read_text())
         self.setup.chmod(0o755)
         prepare = self.prefix / "bin/msime-client-prepare"

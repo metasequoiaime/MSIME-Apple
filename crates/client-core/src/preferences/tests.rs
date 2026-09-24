@@ -1440,8 +1440,8 @@ fn autocorrect_legacy_default_and_disabled_roundtrip() {
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap();
     assert!(loaded.preferences.autocorrect);
-    assert!(!loaded.preferences.quanpin_autocorrect_transposition());
-    assert!(!loaded.preferences.quanpin_autocorrect_neighbor());
+    assert!(loaded.preferences.quanpin_autocorrect_transposition());
+    assert!(loaded.preferences.quanpin_autocorrect_neighbor());
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
     let preferences = Preferences {
         autocorrect: false,
@@ -1449,8 +1449,8 @@ fn autocorrect_legacy_default_and_disabled_roundtrip() {
     };
     let saved = store.save(0, preferences).unwrap();
     assert!(!saved.preferences.autocorrect);
-    assert!(!saved.preferences.quanpin_autocorrect_transposition());
-    assert!(!saved.preferences.quanpin_autocorrect_neighbor());
+    assert!(saved.preferences.quanpin_autocorrect_transposition());
+    assert!(saved.preferences.quanpin_autocorrect_neighbor());
 
     let explicit = Preferences {
         autocorrect: true,

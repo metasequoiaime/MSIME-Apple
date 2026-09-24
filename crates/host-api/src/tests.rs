@@ -5,6 +5,27 @@
 use super::*;
 
 #[test]
+fn default_sentence_model_uses_verified_resources_not_prepared_dictionaries() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let dictionaries = root.path().join("user/dictionaries/generation");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::create_dir_all(&dictionaries).unwrap();
+    std::fs::write(resources.join("sentence-model.safetensors"), b"synthetic").unwrap();
+
+    let actual = ffi::sentence_model_path(resources.to_str().unwrap(), None);
+    assert_eq!(actual, resources.join("sentence-model.safetensors"));
+    assert!(actual.is_file());
+    assert!(!dictionaries.join("sentence-model.safetensors").exists());
+
+    let explicit = root.path().join("custom-model.safetensors");
+    assert_eq!(
+        ffi::sentence_model_path(resources.to_str().unwrap(), explicit.to_str()),
+        explicit
+    );
+}
+
+#[test]
 fn windows_legacy_mixed_input_is_imported_without_leaking_other_config() {
     let mut preferences = Preferences::default();
     assert!(apply_windows_legacy_mixed_input(
@@ -1089,7 +1110,14 @@ fn helpcode_settings_switch_independently_after_composition() {
 #[test]
 fn autocorrect_update_waits_for_composition_end() {
     let dir = tempfile::tempdir().unwrap();
-    let handle = test_host(dir.path());
+    let disabled_preferences = Preferences {
+        quanpin: msime_client_core::preferences::QuanpinPreferences {
+            autocorrect_transposition: Some(false),
+            autocorrect_neighbor: Some(false),
+        },
+        ..chinese_preferences()
+    };
+    let handle = test_host_preferences(dir.path(), disabled_preferences.clone());
     read(msime_client_focus(handle, true));
     read(msime_client_character(handle, b'U', true));
     let before = read(msime_client_view(handle))["value"].clone();
@@ -1112,7 +1140,7 @@ fn autocorrect_update_waits_for_composition_end() {
         assert!(sessions.borrow()[&handle].options.autocorrect_neighbor);
     });
     assert_eq!(
-        update(handle, 2, &Preferences::default())["value"]["deferred"],
+        update(handle, 2, &disabled_preferences)["value"]["deferred"],
         false
     );
     SESSIONS.with(|sessions| {
@@ -2795,17 +2823,17 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
     assert_eq!(forward(&query).unwrap()["query"]["provider"], "custom");
     assert_eq!(query["translation_account"], false);
 
-    // Choosing the account switches every other service off, so the provider socket is never asked.
+    // Choosing the account switches every other service off, and the Linux provider socket receives
+    // the explicit account flag so it can create or reuse the anonymous translation identity.
     preferences.custom_translation.enabled = false;
     preferences.translation_account = true;
     update(handle, 4, &preferences);
     let query = read(msime_client_translation_query(handle))["value"].clone();
     assert_eq!(query["translation_account"], true);
-    assert_eq!(query["provider"], "none");
-    assert!(
-        forward(&query).is_none(),
-        "an account query reached the provider"
-    );
+    assert_eq!(query["provider"], "account");
+    let received = forward(&query).expect("an account query should reach the provider");
+    assert_eq!(received["query"]["provider"], "account");
+    assert_eq!(received["query"]["translation_account"], true);
 
     // Tencent's default `enabled: true` without usable secrets is not a user choice and does not displace the account; usable secrets do.
     preferences.tencent_tmt.enabled = true;
@@ -5617,7 +5645,7 @@ fn refresh_leaves_a_symlinked_options_file_alone() {
     assert!(!super::refresh_host_options(&current).unwrap());
 }
 
-/// Downloaded dictionaries that an upgrade left behind the compiled lock are reported as `dictionary_outdated`, the one refresh failure hosts turn into a pointer at `msime-client-setup --update --download`, and the options file keeps pointing at the working previous generation.
+/// Downloaded dictionaries that an upgrade left behind the compiled lock are reported as `dictionary_outdated`, the one refresh failure hosts turn into a pointer at `msime-linux-setup --update --download`, and the options file keeps pointing at the working previous generation.
 #[test]
 fn refresh_reports_outdated_resources_and_leaves_the_options_alone() {
     let directory = tempfile::tempdir().unwrap();

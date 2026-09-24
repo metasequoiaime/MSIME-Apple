@@ -2450,7 +2450,7 @@ export function SettingsPage({
   const platformQuickStart = androidPlatform
     ? "在系统设置的“语言和输入法”或“屏幕键盘”中启用并选择水杉输入法，也可以从首次启动页打开这些入口。默认是全拼输入法。"
     : linuxPlatform
-      ? "首次配置（首次配置页或 msime-client-setup）完成后会把水杉输入法自动加入正在运行的 Fcitx5 或 IBus 的输入法列表，之后用输入法切换快捷键切换即可。未能自动加入时手动添加：使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组；使用 IBus 时，执行 ibus restart 后在系统设置的输入源中添加「Metasequoia 水杉输入法」。默认是全拼输入法。"
+      ? "首次配置（首次配置页或 msime-linux-setup）完成后会把水杉输入法自动加入正在运行的 Fcitx5 或 IBus 的输入法列表，之后用输入法切换快捷键切换即可。未能自动加入时手动添加：使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组；使用 IBus 时，执行 ibus restart 后在系统设置的输入源中添加「Metasequoia 水杉输入法」。默认是全拼输入法。"
       : macosPlatform
         ? "设置应用每次启动时会自动安装或更新随附的水杉输入法，并在系统设置的键盘输入法中启用它；首次安装后如提示需要重新登录，注销并重新登录一次即可。之后使用系统配置的输入法切换快捷键。默认是全拼输入法。"
         : harmonyPlatform
@@ -2463,7 +2463,7 @@ export function SettingsPage({
   const platformNetworkDescription = androidPlatform
     ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。"
     : linuxPlatform
-      ? "日常拼音输入无需联网。云候选默认开启（首次配置时可以关闭，之后也可在设置里改），开启时会把正在输入的拼写发给 Google input-tools 换回一条候选；语音识别、候选词翻译和 AI 功能只在启用并配置好对应服务（凭据，或自定义翻译的服务地址）后联网。这些请求由用户级的 msime-client-online-provider 和 msime-client-voice-provider 服务发出，输入法本身不联网。在 AI、腾讯翻译和语音页面填写的凭据只写入用户配置目录（通常是 ~/.config/msime-client）下仅本人可读的 ai-provider.json、tencent-provider.json 和 voice-provider.json，不进入共享设置；小牛翻译和自定义翻译服务的密钥则保存在共享设置中。账号功能只在登录后联网。"
+      ? "日常拼音输入无需联网。云候选默认开启（首次配置时可以关闭，之后也可在设置里改），开启时会把正在输入的拼写发给 Google input-tools 换回一条候选；语音识别、候选词翻译和 AI 功能只在启用并配置好对应服务（凭据、自定义翻译服务，或显式选择水杉账号）后联网。这些请求由用户级的 msime-client-online-provider 和 msime-client-voice-provider 服务发出，输入法本身不联网。Linux 安装后的用户初始化会自动注册本机匿名水杉账号，网络失败时稍后重试；选择水杉账号才会把候选词发送到 api.msime.app。在 AI、腾讯翻译和语音页面填写的凭据只写入用户配置目录（通常是 ~/.config/msime-client）下仅本人可读的 ai-provider.json、tencent-provider.json 和 voice-provider.json，不进入共享设置；小牛翻译和自定义翻译服务的密钥则保存在共享设置中。普通账号功能只在登录后联网。"
       : macosPlatform
         ? "语音识别、候选词翻译和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
         : harmonyPlatform
@@ -3814,10 +3814,6 @@ export function SettingsPage({
   // turns that mode off when its resource is absent, so the trigger key inserts its capital instead of
   // being swallowed.
   const visibleLocalModeRows = localModeRows;
-  const quanpinAutocorrect = {
-    autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? false,
-    autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? false,
-  };
   const clipboardHistory = iosPlatform || (draft?.clipboard_history ?? false);
   function toggleClipboardHistory(enabled: boolean) {
     if (!draft) return;
@@ -3938,7 +3934,7 @@ export function SettingsPage({
       ? "custom"
       : tencentTranslation.enabled
         ? "tencent"
-        : macosPlatform && draft?.translation_account
+        : (macosPlatform || linuxPlatform) && draft?.translation_account
           ? "account"
           : "none";
   // One service at a time: the MSIME account is only ever used when chosen here, and any other choice clears it. A cleared choice is left undefined rather than false, because the saved document omits the key while it is false and an undone edit must compare equal to it again.
@@ -4810,9 +4806,9 @@ export function SettingsPage({
                       type="button"
                       className="secondary"
                       onClick={() =>
-                        void client.openPreferencesDirectory?.().catch(() =>
-                          setError("无法打开配置文件所在的文件夹。"),
-                        )
+                        void client
+                          .openPreferencesDirectory?.()
+                          .catch(() => setError("无法打开配置文件所在的文件夹。"))
                       }
                     >
                       {macosPlatform ? "在 Finder 中显示" : "打开所在文件夹"}
@@ -6764,8 +6760,8 @@ export function SettingsPage({
                             <span className="section-title">
                               使用水杉账号翻译候选词
                               <small>
-                                当前页的中文候选词会发送到
-                                api.msime.app，首次使用会创建匿名账号；不开启则不联网翻译
+                                当前页的中文候选词会发送到 api.msime.app；匿名账号在 Linux
+                                安装后的用户初始化中自动注册；不开启则不联网翻译
                               </small>
                             </span>
                             <input
@@ -6808,7 +6804,7 @@ export function SettingsPage({
                               <option value="tencent">腾讯云机器翻译</option>
                               <option value="niutrans">小牛翻译（NiuTrans）</option>
                               <option value="custom">自定义 DeepLX 兼容服务</option>
-                              {macosPlatform && (
+                              {(macosPlatform || linuxPlatform) && (
                                 <option value="account">
                                   水杉账号（候选词发送到 api.msime.app）
                                 </option>
@@ -7333,54 +7329,6 @@ export function SettingsPage({
                           </div>
                         </div>
                       )}
-                    </div>
-                    <div className="section" role="group" aria-label="全拼纠错">
-                      <div className="section-title">
-                        全拼纠错<small>分别控制字母错位和邻键误触的拼音纠错</small>
-                      </div>
-                      <label className="section-header">
-                        <span className="section-title">
-                          字母顺序错位<small>例如把 shang 输入为 sahng</small>
-                        </span>
-                        <input
-                          aria-label="全拼纠错：字母顺序错位"
-                          className="toggle"
-                          type="checkbox"
-                          checked={quanpinAutocorrect.autocorrect_transposition}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              quanpin: {
-                                ...draft.quanpin,
-                                ...quanpinAutocorrect,
-                                autocorrect_transposition: event.target.checked,
-                              },
-                            })
-                          }
-                        />
-                      </label>
-                      <div className="input-option-divider" />
-                      <label className="section-header">
-                        <span className="section-title">
-                          相邻键误触<small>例如把 shang 输入为 shabg</small>
-                        </span>
-                        <input
-                          aria-label="全拼纠错：相邻键误触"
-                          className="toggle"
-                          type="checkbox"
-                          checked={quanpinAutocorrect.autocorrect_neighbor}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              quanpin: {
-                                ...draft.quanpin,
-                                ...quanpinAutocorrect,
-                                autocorrect_neighbor: event.target.checked,
-                              },
-                            })
-                          }
-                        />
-                      </label>
                     </div>
                     {client.fuzzyPinyin && (
                       <div className="section" role="group" aria-label="模糊音">

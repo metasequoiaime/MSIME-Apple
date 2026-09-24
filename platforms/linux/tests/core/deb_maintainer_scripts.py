@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The Debian prerm and postinst: which systemctl and systemd-run calls they make for which dpkg action, including the prerm's msime-client-setup --unregister.
+"""The Debian prerm and postinst: which systemctl and systemd-run calls they make for which dpkg action, including the prerm's msime-linux-setup --unregister.
 
 systemctl, systemd-run, notify-send and loginctl are stubs that record their arguments, and PATH holds nothing else, so the scripts also prove they need no other program. A real systemd user manager is not started here; the build-gate container runs under an init that is not systemd.
 
-Usage: deb_maintainer_scripts.py <configured-debian-dir> <configured-uninstall.cmake> <unit list> <installed msime-client-setup>
+Usage: deb_maintainer_scripts.py <configured-debian-dir> <configured-uninstall.cmake> <unit list> <installed msime-linux-setup>
 """
 import os
 import subprocess
@@ -16,6 +16,7 @@ UNINSTALL = Path(sys.argv[2])
 UNITS = sys.argv[3].split()
 SERVICES = [unit for unit in UNITS if unit.endswith(".service")]
 SETUP = sys.argv[4]
+PROVIDER = SETUP.rsplit("/", 1)[0] + "/msime-client-online-provider"
 # Removing the input method from each user's lists, the counterpart of the Windows uninstaller unregistering the TSF profile.
 MANUAL_LISTS = "remove the input method from its lists: Metasequoia 水杉输入法 from the desktop input sources (IBus), MSIME from the current group in fcitx5-configtool (Fcitx5)"
 
@@ -102,13 +103,22 @@ def restart_calls(uid: str) -> list:
     return [f"--user -M {uid}@ daemon-reload"] + [f"--user -M {uid}@ try-restart {service}" for service in SERVICES]
 
 
+def account_call(uid: str) -> list:
+    return [f"systemd-run --user -M {uid}@ --wait --collect --quiet {PROVIDER} --ensure-anonymous-account"]
+
+
+def configure_calls(uid: str, account: bool = True) -> list:
+    calls = restart_calls(uid)
+    return calls[:1] + (account_call(uid) if account else []) + calls[1:]
+
+
 def notify_call(uid: str) -> list:
     return [f"systemd-run --user -M {uid}@ --collect --quiet {NOTICE}"]
 
 
 def main() -> None:
     assert UNITS and SERVICES and len(SERVICES) < len(UNITS), UNITS
-    assert SETUP.startswith("/") and SETUP.endswith("/bin/msime-client-setup"), SETUP
+    assert SETUP.startswith("/") and SETUP.endswith("/bin/msime-linux-setup"), SETUP
     # Both removal paths stop the same units: the CMake uninstall is configured from the same list.
     assert f"set(user_units {' '.join(UNITS)})" in UNINSTALL.read_text()
 
@@ -153,13 +163,13 @@ def main() -> None:
     result, calls = run("prerm", "remove", tools=("systemctl", "loginctl", "systemd-run"), STUB_UNREACHABLE="1000")
     expect(result, calls, disable_calls("1000")[:1] + removal_calls("1001"), stderr_lines=1)
     assert "alice" in result.stderr and MANUAL_LISTS in result.stderr, result.stderr
-    assert "msime-client-setup --unregister" not in result.stderr, result.stderr
+    assert "msime-linux-setup --unregister" not in result.stderr, result.stderr
 
     # An upgrade keeps the input method, and a deconfigure keeps the package installed: neither unregisters.
     for args in (("upgrade", "1.0.1"), ("failed-upgrade", "1.0.0"), ("deconfigure", "in-favour", "breaker", "2.0")):
         expect(*run("prerm", *args, tools=("systemctl", "loginctl", "systemd-run")), [])
 
-    # An upgrade reloads each user manager and restarts only running services; sockets are left listening.
+    # Every configure (including a first install) asks each reachable user manager to register its anonymous account, then reloads the manager and restarts only running services; sockets are left listening.
     result, calls = run("postinst", "configure", "1.0.0")
     expect(result, calls, restart_calls("1000") + restart_calls("1001"))
 
@@ -171,32 +181,35 @@ def main() -> None:
     expect(result, calls, restart_calls("1000") + restart_calls("1001")[:1], stderr_lines=1)
     assert "bob" in result.stderr and f"systemctl --user try-restart {' '.join(SERVICES)}" in result.stderr, result.stderr
 
-    # An upgrade also tells each reachable user how to switch the input method to the new build, through a transient unit in that user's manager, after its services were restarted. notify-send itself never runs as root here.
+    # An upgrade also tells each reachable user how to switch the input method to the new build, through a transient unit in that user's manager, after account registration and service restart. notify-send itself never runs as root here.
     result, calls = run("postinst", "configure", "1.0.0", tools=NOTIFYING)
-    expect(result, calls, restart_calls("1000") + notify_call("1000") + restart_calls("1001") + notify_call("1001"))
+    expect(result, calls, configure_calls("1000") + notify_call("1000") + configure_calls("1001") + notify_call("1001"))
 
     # A notification that cannot be sent (no session bus, old systemd) does not fail the upgrade or skip the next user.
     result, calls = run("postinst", "configure", "1.0.0", tools=NOTIFYING, STUB_SYSTEMD_RUN_FAILS="1")
-    expect(result, calls, restart_calls("1000") + notify_call("1000") + restart_calls("1001") + notify_call("1001"))
+    expect(result, calls, configure_calls("1000") + notify_call("1000") + configure_calls("1001") + notify_call("1001"))
 
     # A user manager that cannot be reached gets no notification, and the printed commands include restarting the input method.
     result, calls = run("postinst", "configure", "1.0.0", tools=NOTIFYING, STUB_UNREACHABLE="1000")
-    expect(result, calls, restart_calls("1000")[:1] + restart_calls("1001") + notify_call("1001"), stderr_lines=1)
+    expect(result, calls, restart_calls("1000")[:1] + configure_calls("1001") + notify_call("1001"), stderr_lines=1)
     assert "alice" in result.stderr and "ibus restart" in result.stderr and "fcitx5 -r" in result.stderr, result.stderr
 
     # Without either program there is nothing to send; the services are still restarted.
     for tools in (("systemctl", "loginctl", "systemd-run"), ("systemctl", "loginctl", "notify-send")):
         result, calls = run("postinst", "configure", "1.0.0", tools=tools)
-        expect(result, calls, restart_calls("1000") + restart_calls("1001"))
+        expected = (configure_calls("1000") + configure_calls("1001")) if "systemd-run" in tools else restart_calls("1000") + restart_calls("1001")
+        expect(result, calls, expected)
 
-    # Removal and a first installation notify nobody.
+    # Removal does not register anything; a first installation still registers reachable users but has no upgrade notification.
     expect(*run("prerm", "remove", tools=NOTIFYING), removal_calls("1000") + removal_calls("1001"))
     for args in (("configure", ""), ("configure",), ("abort-upgrade", "1.0.1")):
-        expect(*run("postinst", *args, tools=NOTIFYING), [])
+        expected = (configure_calls("1000") + configure_calls("1001")) if args[0] == "configure" else []
+        expect(*run("postinst", *args, tools=NOTIFYING), expected)
 
-    # A first installation has nothing running; the abort paths have nothing to undo.
+    # A first installation has nothing running; the abort paths have nothing to undo. Without systemd-run, account registration is deferred to msime-linux-setup.
     for args in (("configure", ""), ("configure",), ("abort-upgrade", "1.0.1"), ("abort-remove",), ("abort-deconfigure", "in-favour", "breaker", "2.0")):
-        expect(*run("postinst", *args), [])
+        expected = restart_calls("1000") + restart_calls("1001") if args[0] == "configure" else []
+        expect(*run("postinst", *args), expected)
 
     # Containers and systems without systemd: nothing to do, nothing printed, never a failure.
     for script, args in (("prerm", ("remove",)), ("postinst", ("configure", "1.0.0"))):

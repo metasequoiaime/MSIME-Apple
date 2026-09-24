@@ -2,13 +2,11 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Candidate text size and font, the candidate skin, what the strip shows while spelling, pinyin typo correction, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
+/// Candidate text size and font, the candidate skin, what the strip shows while spelling, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
 ///
 /// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. Cloud candidates are the exception: an iOS-only switch in the App Group (see CloudCandidatePreference). The keyboard hands a change to its live session the next time it appears. The candidate skin, theme and colours are shared too, and the switch that lets them replace the keyboard skin's colours is iOS-only (see CandidatePalette).
 struct CandidateOptionsSettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
-  @State private var transposition = false
-  @State private var neighbor = false
   @State private var english = true
   @State private var minimumPrefix = 5
   @State private var emoji = false
@@ -118,18 +116,6 @@ struct CandidateOptionsSettingsView: View {
         Text("预编辑")
       } footer: {
         Text("行内预编辑默认关闭；个别 App 显示输入框里的组字不完整时可以关掉。候选栏预编辑选「不显示」时，候选栏不再显示正在拼写的编码，把位置留给候选；已选定的半个词和本地输入模式的名称仍会显示。")
-      }
-      Section {
-        Toggle(isOn: stored("quanpin", "autocorrect_transposition", $transposition)) {
-          labelled("字母顺序错位", "例如把 shang 输入为 sahng")
-        }.accessibilityIdentifier("autocorrectTransposition")
-        Toggle(isOn: stored("quanpin", "autocorrect_neighbor", $neighbor)) {
-          labelled("相邻键误触", "例如把 shang 输入为 shabg")
-        }.accessibilityIdentifier("autocorrectNeighbor")
-      } header: {
-        Text("全拼纠错")
-      } footer: {
-        Text("分别控制字母错位和邻键误触的拼音纠错，只对全拼生效。")
       }
       Section {
         Toggle(isOn: stored("word_character", "enabled", $wordCharacter)) {
@@ -378,10 +364,7 @@ struct CandidateOptionsSettingsView: View {
 
   private func reload() {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
-    let quanpin = preferences["quanpin"] as? [String: Any] ?? [:]
     let mixed = preferences["mixed_input"] as? [String: Any] ?? [:]
-    transposition = quanpin["autocorrect_transposition"] as? Bool ?? false
-    neighbor = quanpin["autocorrect_neighbor"] as? Bool ?? false
     english = mixed["english"] as? Bool ?? english
     minimumPrefix = (mixed["minimum_prefix"] as? NSNumber)?.intValue ?? minimumPrefix
     emoji = mixed["emoji"] as? Bool ?? emoji
