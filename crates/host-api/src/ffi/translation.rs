@@ -451,6 +451,8 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         generation: u64,
         #[serde(default)]
         user_data: Option<String>,
+        #[serde(default)]
+        target_language: Option<String>,
         candidates: Vec<GlossCandidate>,
     }
     #[derive(Deserialize)]
@@ -496,9 +498,29 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         {
             return Err("user data path must be absolute".into());
         }
-        let glosses =
-            msime_engine_bridge::candidate_glosses_with_user(resources, user_data, &candidates)
-                .map_err(|_| "candidate gloss dictionary unavailable")?;
+        let glosses = match request.target_language.as_deref() {
+            None | Some("en") => {
+                msime_engine_bridge::candidate_glosses_with_user(resources, user_data, &candidates)
+                    .map_err(|_| "candidate gloss dictionary unavailable")?
+            }
+            // Another language reads only its offline dictionary: the learned store and custom_translations.txt hold English. A dictionary that is not installed answers nothing, so the host keeps whatever the online path brings.
+            Some(language) if crate::OFFLINE_GLOSS_LANGUAGES.contains(&language) => {
+                let Some(database) =
+                    crate::offline_glosses_beside(std::path::Path::new(resources), language)
+                else {
+                    return Ok(json!({
+                        "generation": request.generation,
+                        "translations": [],
+                    }));
+                };
+                let database = database
+                    .to_str()
+                    .ok_or("candidate gloss dictionary unavailable")?;
+                msime_engine_bridge::candidate_target_glosses(database, language, &candidates)
+                    .map_err(|_| "candidate gloss dictionary unavailable")?
+            }
+            Some(_) => return Err("invalid candidate gloss request".into()),
+        };
         if glosses.len() != candidates.len() {
             return Err("candidate gloss response mismatch".into());
         }

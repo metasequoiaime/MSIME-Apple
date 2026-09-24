@@ -1,0 +1,15 @@
+{
+  "source": "https://kaikki.org/dictionary/English/",
+  "license": "CC-BY-SA-4.0",
+  "input": {
+    "edition": "en",
+    "url": "https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz",
+    "etag": null,
+    "dump_date": null,
+    "source_revision": null,
+    "sha256": null,
+    "size": null
+  },
+  "sqlite_version": null,
+  "artifacts": []
+}

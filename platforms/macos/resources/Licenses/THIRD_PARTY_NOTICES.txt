@@ -16,6 +16,7 @@ Components included by the macOS client include:
 * whisper.cpp / ggml — MIT License.
 * zinnia and the bundled handwriting model — the notices supplied with the
   Engine resources.
+* Offline candidate glosses for French, Japanese, Spanish, Russian, German and Korean (offline-glosses/zh-*.db, when installed) — adapted from the English Wiktionary by Wiktionary contributors, CC BY-SA 4.0; the attribution, source revision and changes are in offline-glosses-NOTICE.txt beside those files.
 
 The source tree retains each upstream notice. This collection is not a
 license-completeness or redistribution-authorization assessment; nested

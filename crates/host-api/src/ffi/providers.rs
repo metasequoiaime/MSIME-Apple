@@ -143,7 +143,28 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                     preferences.translation_target_language,
                     msime_client_core::preferences::TranslationTargetLanguage::En
                 );
-            if !preferences.candidate_translations && !english_gloss {
+            // Non-English targets with an offline dictionary installed beside the resources, in preference order. The same switches as macOS's English fallback reach them: the offline gloss switch, or candidate translation, whose online answer replaces the offline one when it arrives. Never read from the user directory, so no user path is needed for them.
+            let offline_gloss_languages =
+                if preferences.candidate_translations || preferences.candidate_english_gloss {
+                    target_languages
+                        .iter()
+                        .filter_map(|language| {
+                            let language = serde_json::to_value(language).ok()?;
+                            let code = language.as_str()?;
+                            crate::offline_glosses_beside(
+                                std::path::Path::new(&session.options.resources),
+                                code,
+                            )
+                            .map(|_| code.to_owned())
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+            if !preferences.candidate_translations
+                && !english_gloss
+                && offline_gloss_languages.is_empty()
+            {
                 return Ok(Value::Null);
             }
             let view = session.runtime.view();
@@ -229,7 +250,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             .then(|| serde_json::to_value(&preferences.niutrans))
             .transpose()
             .map_err(|_| "invalid NiuTrans translation configuration")?;
-            Ok(json!({
+            let mut query = json!({
                 "generation": view.generation,
                 "target_language": serde_json::to_value(preferences.translation_target_language)
                     .map_err(|e| e.to_string())?,
@@ -247,10 +268,16 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 // The packaged resource path is only needed for offline
                 // lookup. The user path is also needed by a background host
                 // worker to persist successful English-target translations.
-                "resources": english_gloss.then(|| session.options.resources.clone()),
+                "resources": (english_gloss || !offline_gloss_languages.is_empty())
+                    .then(|| session.options.resources.clone()),
                 "user_data": (english_gloss || persist_english_translation)
                     .then(|| session.options.user_data.clone()),
-            }))
+            });
+            // Omitted rather than empty, so a host with no offline dictionary installed sees the query it always did.
+            if !offline_gloss_languages.is_empty() {
+                query["offline_gloss_languages"] = json!(offline_gloss_languages);
+            }
+            Ok(query)
         })
     })
 }

@@ -539,6 +539,24 @@ fn settled_model_beside(resources: &std::path::Path) -> Option<String> {
     path.is_file().then(|| path.to_str())??.to_owned().into()
 }
 
+/// The offline gloss dictionary for one non-English target language installed beside a resource bundle, when one is there: `offline-glosses/zh-<language>.db`, built by `scripts/build_offline_glosses.py` and pinned by `resources/offline-glosses.lock.json`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and a host ships only the languages it wants. Absence is the normal case.
+pub(crate) fn offline_glosses_beside(
+    resources: &std::path::Path,
+    language: &str,
+) -> Option<std::path::PathBuf> {
+    if !OFFLINE_GLOSS_LANGUAGES.contains(&language) {
+        return None;
+    }
+    let path = resources
+        .parent()?
+        .join("offline-glosses")
+        .join(format!("zh-{language}.db"));
+    path.is_file().then_some(path)
+}
+
+/// The target languages an offline gloss dictionary can exist for; English is glossed from the packaged english.db instead.
+pub(crate) const OFFLINE_GLOSS_LANGUAGES: [&str; 6] = ["fr", "ja", "es", "ru", "de", "ko"];
+
 /// Drop the `\\?\` prefix Windows canonicalisation adds.
 ///
 /// The Engine validates the directories it is given with `std::filesystem::path::is_absolute`, and
