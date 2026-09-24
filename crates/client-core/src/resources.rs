@@ -92,8 +92,7 @@ impl ResourceSet {
                 // with neither, is a manifest that cannot be resolved unambiguously.
                 || artifact.url.is_empty() == artifact.engine_path.is_empty()
                 || (!artifact.url.is_empty() && !artifact.url.starts_with("https://"))
-                || artifact.engine_path.contains("..")
-                || artifact.engine_path.starts_with('/')
+                || !portable_relative_path(&artifact.engine_path)
             {
                 return Err(ResourceError::InvalidManifest);
             }
@@ -105,6 +104,38 @@ impl ResourceSet {
         self.validate()?;
         let encoded = serde_json::to_vec(self).map_err(|_| ResourceError::InvalidManifest)?;
         Ok(hex::encode(Sha256::digest(encoded)))
+    }
+}
+
+/// An Engine path must stay inside the checkout on every host, so it is checked as text rather
+/// than with `Path`, which would read `C:` or `a\b` as ordinary components on Linux: forward-slash
+/// segments of the same characters a name allows, none empty, `.` or `..`. Empty is left to the
+/// one-source rule.
+fn portable_relative_path(path: &str) -> bool {
+    path.is_empty()
+        || path.split('/').all(|segment| {
+            !matches!(segment, "" | "." | "..")
+                && segment
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        })
+}
+
+/// Remove stages an installer left when it was killed mid-download. Only called under the
+/// exclusive `resources.lock`, so none of them can still be in use. Only real directories are
+/// removed, and a failure never stops the install.
+fn sweep_abandoned_stages(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let is_stage = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with("incoming-"));
+        if is_stage && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            let _ = fs::remove_dir_all(entry.path());
+        }
     }
 }
 
@@ -132,6 +163,7 @@ impl ResourceStore {
             .truncate(false)
             .open(self.root.join("resources.lock"))?;
         crate::file_lock::exclusive(&lock)?;
+        sweep_abandoned_stages(&self.root);
         let destination = self.root.join(generation);
         if fs::symlink_metadata(&destination).is_ok() {
             self.verify(&destination, specification)?;
@@ -375,6 +407,13 @@ mod tests {
         assert!(with("http://example.invalid/a", "").is_err());
         assert!(with("", "../escape.dat").is_err());
         assert!(with("", "/absolute.dat").is_err());
+        // Windows would re-root these on join, so they are refused on every host.
+        for path in [
+            "C:/x.dat", "C:x.dat", "a\\b.dat", "\\x.dat", "a//b", "./a", "a/",
+        ] {
+            assert!(with("", path).is_err(), "{path}");
+        }
+        assert!(with("", "data/a..b.dat").is_ok());
     }
 
     #[test]
@@ -409,6 +448,29 @@ mod tests {
             assert!(!root.path().join(spec.generation().unwrap()).exists());
             assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
         }
+    }
+    #[test]
+    fn stages_an_interrupted_install_left_are_swept() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ResourceStore::new(root.path());
+        let spec = specification();
+        let stale = root.path().join("incoming-abandoned");
+        fs::create_dir(&stale).unwrap();
+        fs::write(stale.join("msime.db"), b"fix").unwrap();
+        let path = store.install(&spec, |_| Ok(source(b"fixture"))).unwrap();
+        assert!(!stale.exists());
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 2);
+        // A cached install sweeps too, and a file of that name is left alone.
+        fs::create_dir(&stale).unwrap();
+        fs::write(root.path().join("incoming-note"), b"").unwrap();
+        assert_eq!(
+            store
+                .install(&spec, |_| panic!("must not fetch cached resources"))
+                .unwrap(),
+            path
+        );
+        assert!(!stale.exists());
+        assert!(root.path().join("incoming-note").is_file());
     }
     #[test]
     fn failed_upgrade_preserves_previous_generation() {

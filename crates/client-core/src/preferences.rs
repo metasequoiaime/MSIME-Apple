@@ -722,7 +722,9 @@ impl Default for VoiceInputPreferences {
 pub struct AiAssistantPreferences {
     #[serde(default = "source_ai_default")]
     pub enabled: bool,
-    #[serde(default)]
+    /// A missing key falls back to the same provider as a missing section, so
+    /// a hand-edited or older `{"enabled": true}` still loads.
+    #[serde(default = "default_ai_provider")]
     pub provider: String,
     #[serde(default)]
     pub model: String,
@@ -786,6 +788,11 @@ impl Default for TencentTmtPreferences {
 
 fn default_ai_candidate_limit() -> u8 {
     3
+}
+
+/// Kept equal to `AiAssistantPreferences::default().provider`.
+fn default_ai_provider() -> String {
+    "deepseek".into()
 }
 
 impl Default for AiAssistantPreferences {

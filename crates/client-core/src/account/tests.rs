@@ -105,6 +105,22 @@ fn validates_chat_catalog_and_request_boundaries() {
         "fixture-chat",
     )
     .is_err());
+    let chat = |content: &str| {
+        validate_chat_request(
+            &[AccountChatMessage {
+                role: "user".into(),
+                content: content.into(),
+            }],
+            "fixture-chat",
+        )
+    };
+    assert!(chat("第一行\n第二行").is_ok());
+    assert!(chat("a\r\n\tb").is_ok());
+    for rejected in ["  \n", "a\u{0}b", "a\u{1b}[31mb"] {
+        assert!(chat(rejected).is_err(), "{rejected:?}");
+    }
+    assert!(!chat_text_has_disallowed_control("第一段\n\n第二段"));
+    assert!(chat_text_has_disallowed_control("a\u{7f}"));
 
     let mut duplicate = models.clone();
     duplicate.data.push(AccountChatModel {

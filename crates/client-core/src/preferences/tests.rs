@@ -86,6 +86,35 @@ fn unreachable_voice_providers_normalize_on_read_without_rewriting_the_file() {
 }
 
 #[test]
+fn ai_assistant_without_a_provider_key_loads_with_the_default_provider() {
+    assert_eq!(
+        default_ai_provider(),
+        AiAssistantPreferences::default().provider
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot {
+        format_version: 1,
+        revision: 3,
+        preferences: Preferences::default(),
+    })
+    .unwrap();
+    document["preferences"]["ai_assistant"] = serde_json::json!({ "enabled": true });
+    std::fs::write(
+        directory.path().join("preferences.json"),
+        serde_json::to_vec(&document).unwrap(),
+    )
+    .unwrap();
+
+    let snapshot = store
+        .load()
+        .expect("a section without provider still loads");
+    assert_eq!(snapshot.preferences.ai_assistant.provider, "deepseek");
+    let saved = store.save(3, snapshot.preferences.clone()).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+}
+
+#[test]
 fn every_reachable_voice_provider_validates_and_others_are_rejected_on_save() {
     for provider in ASR_PROVIDERS {
         let preferences = Preferences {

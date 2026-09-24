@@ -30,19 +30,19 @@ pub struct Lease {
     path: PathBuf,
     /// The process and a number no other lease in it has, so two leases in one process are told apart too.
     owner: String,
+    /// The number in `owner`, which also names this lease's staged file, so two leases in one process never stage over each other.
+    serial: u64,
     written: String,
 }
 
 impl Lease {
     pub fn acquire(user_data: &Path) -> std::io::Result<Self> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
+        let serial = NEXT.fetch_add(1, Ordering::Relaxed);
         let mut lease = Self {
             path: user_data.join(LEASE_NAME),
-            owner: format!(
-                "{} {}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ),
+            owner: format!("{} {serial}", std::process::id()),
+            serial,
             written: String::new(),
         };
         lease.publish()?;
@@ -56,13 +56,16 @@ impl Lease {
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .ok_or_else(|| std::io::Error::other("clock before the epoch"))?
             .as_millis();
-        let staged = self
-            .path
-            .with_file_name(format!("{LEASE_NAME}.{}", std::process::id()));
+        let staged = self.path.with_file_name(format!(
+            "{LEASE_NAME}.{}-{}",
+            std::process::id(),
+            self.serial
+        ));
         // The owner line tells this lease from one another writer put up; the expiry alone could coincide.
         let contents = format!("{expiry}\n{}\n", self.owner);
-        std::fs::write(&staged, &contents)?;
-        if let Err(error) = std::fs::rename(&staged, &self.path) {
+        if let Err(error) =
+            std::fs::write(&staged, &contents).and_then(|()| std::fs::rename(&staged, &self.path))
+        {
             let _ = std::fs::remove_file(&staged);
             return Err(error);
         }
@@ -80,7 +83,7 @@ impl Drop for Lease {
     }
 }
 
-/// The lease itself, or one still being staged under `<lease>.<pid>`. Copying either along with the user directory would keep input off in the copy until it expired. Only the Linux data-directory move copies the user directory.
+/// The lease itself, or one still being staged under `<lease>.<pid>-<n>` (by these writers and by the macOS input method). Copying either along with the user directory would keep input off in the copy until it expired. Only the Linux data-directory move copies the user directory.
 pub fn is_lease_file(name: &OsStr) -> bool {
     name.to_str().is_some_and(|name| {
         name.strip_prefix(LEASE_NAME)
@@ -253,11 +256,39 @@ mod tests {
     }
 
     #[test]
+    fn leases_in_one_process_publish_side_by_side() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_owned();
+        let writers: Vec<_> = (0..2)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let mut lease = Lease::acquire(&path).unwrap();
+                    for _ in 0..50 {
+                        lease.publish().unwrap();
+                    }
+                    lease
+                })
+            })
+            .collect();
+        let leases: Vec<_> = writers
+            .into_iter()
+            .map(|writer| writer.join().unwrap())
+            .collect();
+        // Whichever wrote last owns the lease, and no staged file is left behind.
+        let current = std::fs::read_to_string(path.join(LEASE_NAME)).unwrap();
+        assert!(leases.iter().any(|lease| lease.written == current));
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 1);
+        drop(leases);
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 0);
+    }
+
+    #[test]
     fn a_lease_a_host_raised_is_left_in_place() {
         let directory = tempfile::tempdir().unwrap();
         let lease = Lease::acquire(directory.path()).unwrap();
-        // The macOS input method raises the lease for its own dictionary window with the expiry alone (`raise_dictionary_quiesce_lease`).
-        let raised = format!("{}\n", lease_expiry(directory.path()).unwrap());
+        // The macOS input method raises the lease for its own dictionary window with its own owner line (`raise_dictionary_quiesce_lease`).
+        let raised = format!("{}\n4242 0\n", lease_expiry(directory.path()).unwrap());
         std::fs::write(directory.path().join(LEASE_NAME), &raised).unwrap();
         drop(lease);
         assert_eq!(
@@ -440,6 +471,9 @@ mod tests {
     fn lease_files_include_a_lease_being_staged() {
         assert!(is_lease_file(OsStr::new(LEASE_NAME)));
         assert!(is_lease_file(OsStr::new(".msime-dictionary-quiesce.4242")));
+        assert!(is_lease_file(OsStr::new(
+            ".msime-dictionary-quiesce.4242-0"
+        )));
         assert!(!is_lease_file(OsStr::new(".msime-dictionary-quiesced")));
         assert!(!is_lease_file(OsStr::new(".msime-dictionary-access.lock")));
         assert!(!is_lease_file(OsStr::new("msime_user.db")));
