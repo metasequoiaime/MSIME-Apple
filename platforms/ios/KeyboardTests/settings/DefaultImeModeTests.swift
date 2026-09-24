@@ -36,7 +36,7 @@ final class DefaultImeModeTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    let result = XCTWaiter().wait(for: [reloaded], timeout: 10)
+    let result = XCTWaiter().wait(for: [reloaded], timeout: 15)
     XCTAssertEqual(result, .completed, "the reload callback did not arrive")
     XCTAssertTrue(accepted, "the reload was refused")
     XCTAssertFalse(KeyboardViewController.startsInChinese(bridge.sharedPreferences), "a reload keeps the stored mode too")

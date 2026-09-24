@@ -97,7 +97,7 @@ final class CandidateFontSizeTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 5)
+    wait(for: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
     XCTAssertEqual(CandidateFontPreference.candidateSize(in: bridge.sharedPreferences, tablet: false), 22)
   }

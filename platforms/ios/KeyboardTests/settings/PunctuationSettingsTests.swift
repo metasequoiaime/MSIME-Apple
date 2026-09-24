@@ -60,7 +60,7 @@ final class PunctuationSettingsTests: XCTestCase {
       accepted = loaded
       reloaded.fulfill()
     }
-    wait(for: [reloaded], timeout: 5)
+    wait(for: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
   }
 }

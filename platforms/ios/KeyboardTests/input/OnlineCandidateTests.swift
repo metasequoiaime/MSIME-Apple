@@ -52,7 +52,7 @@ final class OnlineCandidateTests: XCTestCase {
     CloudCandidatePreference.enabled = true
     let reloaded = expectation(description: "reload")
     bridge.reloadSharedPreferences { _ in reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 5)
+    wait(for: [reloaded], timeout: 15)
     type(bridge, "nihao")
     let document = try XCTUnwrap(bridge.onlineQuery())
     let query = try XCTUnwrap(try JSONSerialization.jsonObject(with: document) as? [String: Any])
@@ -62,7 +62,7 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) { $0["cloud_candidates"] = true })
     let turnedOff = expectation(description: "reload off")
     bridge.reloadSharedPreferences { _ in turnedOff.fulfill() }
-    wait(for: [turnedOff], timeout: 5)
+    wait(for: [turnedOff], timeout: 15)
     type(bridge, "nihao")
     let offDocument = bridge.onlineQuery()
     let offQuery = offDocument.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }

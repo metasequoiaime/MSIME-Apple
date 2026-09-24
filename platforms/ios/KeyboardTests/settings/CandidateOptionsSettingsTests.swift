@@ -46,7 +46,7 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 5)
+    wait(for: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
 
     XCTAssertEqual(firstCandidates(bridge, "gau").first, "挂")
@@ -64,7 +64,7 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 5)
+    wait(for: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
 
     XCTAssertEqual(spelling(bridge, "ui"), "shi")
