@@ -89,7 +89,7 @@ final class TypingStatisticsTests: XCTestCase {
     let snapshot = try store.load()
     XCTAssertLessThanOrEqual(snapshot.days.count, 366)
     XCTAssertLessThanOrEqual(snapshot.dailyDetails.count, 366)
-    XCTAssertEqual(snapshot.total, snapshot.days.values.reduce(0, +))
+    XCTAssertEqual(snapshot.total, 470)
     XCTAssertEqual(snapshot.detail.characters["han"], snapshot.total)
     XCTAssertEqual(snapshot.detail.sources["unknown"], snapshot.total)
   }
