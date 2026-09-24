@@ -1,7 +1,9 @@
 #include "DiagnosticLog.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
+#include <cstdarg>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -17,6 +19,9 @@ namespace {
 constexpr std::uintmax_t kMaxLogBytes = 1024 * 1024;
 constexpr std::size_t kMaxEventBytes = 192;
 
+// Mirrors Log::enabled_ for lock-free checks; configure() is the only writer.
+std::atomic_bool gEnabled{false};
+
 class Log {
 public:
   void configure(const std::string &directory, bool enabled) noexcept {
@@ -24,6 +29,7 @@ public:
     enabled_ = enabled && !directory.empty() && directory.front() == '/' &&
                directory.size() <= 4096;
     path_.clear();
+    gEnabled.store(enabled_, std::memory_order_relaxed);
     if (enabled_)
       path_ = (std::filesystem::path(directory) / "diagnostic.log").string();
   }
@@ -112,4 +118,22 @@ void msime_macos_diagnostic_configure(const std::string &directory,
 
 void msime_macos_diagnostic_write(std::string_view event) noexcept {
   log().write(event);
+}
+
+bool msime_macos_diagnostic_enabled() noexcept {
+  return gEnabled.load(std::memory_order_relaxed);
+}
+
+void msime_macos_diagnostic_writef(const char *format, ...) noexcept {
+  if (!format || !msime_macos_diagnostic_enabled())
+    return;
+  char buffer[kMaxEventBytes + 1]{};
+  va_list arguments;
+  va_start(arguments, format);
+  const int length = std::vsnprintf(buffer, sizeof(buffer), format, arguments);
+  va_end(arguments);
+  if (length < 0)
+    return;
+  log().write(std::string_view(
+      buffer, std::min(static_cast<std::size_t>(length), kMaxEventBytes)));
 }

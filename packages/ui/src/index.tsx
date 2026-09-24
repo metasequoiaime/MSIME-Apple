@@ -101,9 +101,11 @@ export {
   activityMetrics,
   addDays,
   currentStreak,
+  dailyDetailRows,
   formatActiveTime,
   longestStreak,
   type ActivityMetrics,
+  type DailyDetailRow,
   type TypingBreakdown,
   type TypingStatistics,
   type TypingStatisticsClient,
@@ -1751,6 +1753,10 @@ export interface SettingsClient {
   readSkinFont?: SkinFontReader;
   readSkinToolbarCss?: (id: string, relative?: string) => Promise<string | null>;
   openSkinDirectory?: () => Promise<void>;
+  /**
+   * Shows the input method's diagnostic log in the file manager so it can be sent after a reproduction. The host resolves the location itself; absent on hosts without a reachable file manager, which then show no button.
+   */
+  openDiagnosticLogDirectory?: () => Promise<void>;
   /**
    * Write an exported document into the user's Downloads folder and resolve to the absolute path written, which may carry a " (2)" suffix when the name was taken. A host whose webview drops download links (the macOS WKWebView cancels them) offers this; without it the page falls back to a download link.
    */
@@ -8669,7 +8675,7 @@ export function SettingsPage({
                               {linuxPlatform
                                 ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库维护时释放会话的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
                                 : macosPlatform
-                                  ? "排查焦点切换和设置加载失败时开启。记录焦点进出与偏好加载、应用、保存的结果，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后可直接发送。"
+                                  ? "排查按键延迟、候选窗位置、焦点切换和设置加载失败时开启。记录焦点进出，偏好加载、应用、保存的结果，超过 8 毫秒的按键处理耗时，候选窗的显示位置与隐藏原因，以及输入统计写入失败的类别，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后用「在 Finder 中显示」找到它并发送。"
                                   : "排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。"}
                             </small>
                           </span>
@@ -8692,6 +8698,39 @@ export function SettingsPage({
                             }
                           />
                         </label>
+                        {client.openDiagnosticLogDirectory && (
+                          <>
+                            <div className="input-option-divider" />
+                            <div className="section-header">
+                              <span className="section-title">
+                                日志文件
+                                <small>
+                                  {macosPlatform
+                                    ? "在 Finder 中选中 diagnostic.log；还没有写入时打开它所在的目录。"
+                                    : "打开日志文件所在的目录。"}
+                                </small>
+                              </span>
+                              <button
+                                type="button"
+                                className="secondary"
+                                onClick={() => {
+                                  const reveal = client.openDiagnosticLogDirectory;
+                                  if (!reveal) return;
+                                  setError("");
+                                  void reveal().catch(() =>
+                                    setError(
+                                      macosPlatform
+                                        ? "无法在 Finder 中显示诊断日志，请稍后重试。"
+                                        : "无法打开日志目录，可能是文件管理器不可用。",
+                                    ),
+                                  );
+                                }}
+                              >
+                                {macosPlatform ? "在 Finder 中显示" : "打开日志目录"}
+                              </button>
+                            </div>
+                          </>
+                        )}
                         {(!client.host || windowsPlatform) && (
                           <>
                             <div className="input-option-divider" />
