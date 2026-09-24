@@ -6767,11 +6767,8 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       return;
     }
     const auto &candidates = s.rendered_candidates;
-    // rendered_candidates and rendered_view are separate members: a non-empty candidate array does
-    // not mean the view survived the last session rebuild, and value() on a null view throws.
-    if (!s.session || s.rendered_session != s.session || !s.rendered_view.is_object() ||
-        !candidates.is_array() || index >= candidates.size())
-      return;
+    if (!s.session || s.rendered_session != s.session ||
+        !candidates.is_array() || index >= candidates.size()) return;
     const auto &entry = candidates.at(index);
     if (!entry.is_object() || !entry.contains("id")) return;
     const auto &id = entry.at("id");
