@@ -309,6 +309,10 @@ struct State {
   // retain the last lookup table for one short grace window while invalidating
   // its action snapshot immediately.
   guint candidate_hide_source = 0;
+  // GNOME Shell rebuilds the whole nested property menu on every update.
+  // Candidate identity changes on each letter, so publish the menu only after
+  // the user pauses instead of making the desktop rebuild it per keystroke.
+  guint candidate_properties_source = 0;
   uint64_t candidate_hide_serial = 0;
   uint64_t seen_menu_status_generation = 0;
   uint64_t seen_menu_configuration = 0;
@@ -579,6 +583,11 @@ struct State {
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
+      g_source_remove(source);
+    }
+    if (candidate_properties_source) {
+      const auto source = candidate_properties_source;
+      candidate_properties_source = 0;
       g_source_remove(source);
     }
     ++candidate_hide_serial;
@@ -2401,6 +2410,31 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
       s.session && s.focused && !s.blocked && s.input_enabled && editable_candidates,
       TRUE, PROP_STATE_UNCHECKED, items);
 }
+void cancel_candidate_properties(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.candidate_properties_source) return;
+  const auto source = s.candidate_properties_source;
+  s.candidate_properties_source = 0;
+  g_source_remove(source);
+}
+void publish_candidate_properties(IBusEngine *engine) {
+  cancel_candidate_properties(engine);
+  ibus_engine_update_property(engine, candidate_actions(engine));
+  ibus_engine_update_property(engine, nine_key_spellings(engine));
+}
+void schedule_candidate_properties(IBusEngine *engine) {
+  cancel_candidate_properties(engine);
+  state(engine).candidate_properties_source = g_timeout_add_full(
+      G_PRIORITY_DEFAULT, 400,
+      [](gpointer data) -> gboolean {
+        auto *engine = IBUS_ENGINE(data);
+        state(engine).candidate_properties_source = 0;
+        ibus_engine_update_property(engine, candidate_actions(engine));
+        ibus_engine_update_property(engine, nine_key_spellings(engine));
+        return G_SOURCE_REMOVE;
+      },
+      g_object_ref(engine), [](gpointer data) { g_object_unref(data); });
+}
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
   if (s.skin_override) {
@@ -3134,8 +3168,7 @@ gboolean apply_candidate_hide(gpointer data) {
   s.rendered_candidates = Json::array();
   s.rendered_scheme = 255;
   s.rendered_session = 0;
-  ibus_engine_update_property(request->engine, candidate_actions(request->engine));
-  ibus_engine_update_property(request->engine, nine_key_spellings(request->engine));
+  publish_candidate_properties(request->engine);
   return G_SOURCE_REMOVE;
 }
 
@@ -3185,8 +3218,7 @@ void clear(IBusEngine *engine) {
   s.rendered_candidates = Json::array();
   s.rendered_scheme = 255;
   s.rendered_session = 0;
-  ibus_engine_update_property(engine, candidate_actions(engine));
-  ibus_engine_update_property(engine, nine_key_spellings(engine));
+  publish_candidate_properties(engine);
 }
 // Windows re-resolves the punctuation state on every Chinese/English switch: under the "follow" lock it tracks the mode (Chinese punctuation in Chinese mode, ASCII in English), and a pinned lock keeps its value. The switch supersedes a Ctrl+. choice, so the session override is dropped and the saved preference is the authority again on the next focus or refresh; the preference file itself is not written. Call after open(), because opening a session re-derives chinese_punctuation from the preferences.
 void resync_punctuation_for_mode(IBusEngine *engine) {
@@ -3296,8 +3328,7 @@ void render(IBusEngine *engine, const Json &view) {
     s.rendered_scheme = 255;
     s.rendered_session = 0;
     s.rendered_view = nullptr;
-    ibus_engine_update_property(engine, candidate_actions(engine));
-    ibus_engine_update_property(engine, nine_key_spellings(engine));
+    publish_candidate_properties(engine);
     s.wave_overlay.status = s.voice_phase;
     s.wave_overlay.locked = s.voice_space_locked && !s.voice_stopping;
     s.wave_overlay.listening = !s.voice_stopping && s.voice_level.has_value();
@@ -3359,8 +3390,7 @@ void render(IBusEngine *engine, const Json &view) {
     s.rendered_scheme = 255;
     s.rendered_session = 0;
     s.rendered_view = nullptr;
-    ibus_engine_update_property(engine, candidate_actions(engine));
-    ibus_engine_update_property(engine, nine_key_spellings(engine));
+    publish_candidate_properties(engine);
     if (had_candidates)
       schedule_candidate_hide(engine);
     else
@@ -3474,8 +3504,7 @@ void render(IBusEngine *engine, const Json &view) {
   s.rendered_candidates = candidates;
   s.rendered_scheme = view.value("scheme", 255);
   s.rendered_session = s.session;
-  ibus_engine_update_property(engine, candidate_actions(engine));
-  ibus_engine_update_property(engine, nine_key_spellings(engine));
+  schedule_candidate_properties(engine);
 }
 void render_translation_candidates(IBusEngine *engine) {
   auto &s = state(engine);
