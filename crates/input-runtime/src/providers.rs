@@ -940,8 +940,13 @@ impl UnixSocketProvider {
 /// receives only copied query data. Results remain inert until the owner
 /// applies them through Runtime::apply_online_candidate, which revalidates
 /// session identity and Engine generation.
+///
+/// Only the newest query waits: a submit overwrites whatever is pending, so a
+/// provider that is busy for seconds still answers the text the user has now,
+/// not the first intermediate one that happened to fit a queue.
 pub struct OnlineProviderWorker {
-    requests: Option<mpsc::SyncSender<OnlineQuery>>,
+    pending: Arc<Mutex<Option<OnlineQuery>>>,
+    wake: Option<mpsc::SyncSender<()>>,
     results: mpsc::Receiver<OnlineCandidate>,
     join: Option<JoinHandle<()>>,
 }
@@ -954,6 +959,8 @@ impl OnlineProviderWorker {
         Self::spawn_with_debounce(capacity, std::time::Duration::ZERO, provider)
     }
 
+    /// `capacity` is kept for API stability and must be positive; the worker
+    /// holds a single latest-value slot regardless.
     pub fn spawn_with_debounce<F>(
         capacity: usize,
         debounce: std::time::Duration,
@@ -965,17 +972,19 @@ impl OnlineProviderWorker {
         if capacity == 0 {
             return Err("provider queue capacity must be positive");
         }
-        let (requests, incoming) = mpsc::sync_channel::<OnlineQuery>(capacity);
+        let pending = Arc::new(Mutex::new(None::<OnlineQuery>));
+        let slot = Arc::clone(&pending);
+        // A wake-up signal only; the query itself lives in the slot. A full
+        // signal channel already promises the worker will look again.
+        let (wake, incoming) = mpsc::sync_channel::<()>(1);
         let (outgoing, results) = mpsc::channel();
         let join = thread::Builder::new()
             .name("msime-online-provider".into())
             .spawn(move || {
-                while let Ok(mut query) = incoming.recv() {
-                    // Coalesce bursts from one composition: Windows waits for
-                    // input to settle instead of querying every intermediate text.
-                    while let Ok(newest) = incoming.try_recv() {
-                        query = newest;
-                    }
+                while incoming.recv().is_ok() {
+                    // Windows waits for input to settle instead of querying
+                    // every intermediate text; a submit during the wait just
+                    // replaces the query read when it ends.
                     if !debounce.is_zero() {
                         let deadline = std::time::Instant::now() + debounce;
                         loop {
@@ -985,12 +994,20 @@ impl OnlineProviderWorker {
                                 break;
                             }
                             match incoming.recv_timeout(remaining) {
-                                Ok(newest) => query = newest,
+                                Ok(()) => {}
                                 Err(mpsc::RecvTimeoutError::Timeout) => break,
                                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
                             }
                         }
                     }
+                    // Hold the lock only for the swap, never across the provider.
+                    let query = match slot.lock() {
+                        Ok(mut pending) => pending.take(),
+                        Err(poisoned) => poisoned.into_inner().take(),
+                    };
+                    let Some(query) = query else {
+                        continue;
+                    };
                     if let Some((text, source)) = provider(query.clone()) {
                         if text.is_empty() || source > 1 {
                             continue;
@@ -1010,16 +1027,24 @@ impl OnlineProviderWorker {
             })
             .map_err(|_| "could not spawn provider worker")?;
         Ok(Self {
-            requests: Some(requests),
+            pending,
+            wake: Some(wake),
             results,
             join: Some(join),
         })
     }
 
+    /// Replace the pending query with this one. False only after shutdown or
+    /// when the worker is gone.
     pub fn submit(&self, query: OnlineQuery) -> bool {
-        self.requests
-            .as_ref()
-            .is_some_and(|requests| requests.try_send(query).is_ok())
+        let Some(wake) = self.wake.as_ref() else {
+            return false;
+        };
+        match self.pending.lock() {
+            Ok(mut pending) => *pending = Some(query),
+            Err(_) => return false,
+        }
+        !matches!(wake.try_send(()), Err(mpsc::TrySendError::Disconnected(_)))
     }
 
     pub fn try_recv(&self) -> Option<OnlineCandidate> {
@@ -1027,7 +1052,7 @@ impl OnlineProviderWorker {
     }
 
     pub fn shutdown(mut self) {
-        self.requests.take();
+        self.wake.take();
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }

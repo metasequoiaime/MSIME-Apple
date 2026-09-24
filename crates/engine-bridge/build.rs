@@ -37,6 +37,8 @@ fn prepare_engine() {
     }
     // An offline build of a tree that is already prepared has nothing to do here, and no network to
     // do it with. Verification has already happened for that tree; it is the lock's own record.
+    // Tracked before the early return, so clearing it re-runs the fetch and verification.
+    println!("cargo:rerun-if-env-changed=MSIME_SKIP_ENGINE_FETCH");
     if std::env::var_os("MSIME_SKIP_ENGINE_FETCH").is_some() {
         return;
     }
