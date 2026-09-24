@@ -334,6 +334,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
 /// 应用例外, read by the probe table below. It is not in AppearancePreferences.h because nothing outside this file reads or writes a rule — the lookup that consults them is -englishMode, which is public already — and the probes are written above the implementation, so the name has to be declared before they can ask for it by it.
 @interface MSIMEAppearancePreferences ()
 - (NSDictionary<NSString *, NSString *> *)applicationInputModeRules;
+- (instancetype)initSilentlyWithDefaults:(NSUserDefaults *)defaults;
 @end
 
 /// What one stored key currently reads as, asked of the accessors rather than of the stored entry.
@@ -476,13 +477,13 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
 
 /// What every probe reads on a machine that has never changed a setting, which is the only thing a stored or pushed value has to be compared against to know whether it is worth offering to undo.
 ///
-/// The answers come from the accessors themselves, asked of a preferences object over empty storage, rather than from a second list of default literals written beside them: a hand-kept list of defaults is the shape these lists were already in, and drifting apart is what they already did. Building that object posts one MSIMEAppearanceDidChangeNotification, because -initWithDefaults:skinsRoot: resolves the selected skin and announces it; it happens once, lazily, and only once a settings window has sections to ask about, and every observer reads from its own preferences object rather than from the notification.
+/// The answers come from the accessors themselves, asked of a preferences object over empty storage, rather than from a second list of default literals written beside them: a hand-kept list of defaults is the shape these lists were already in, and drifting apart is what they already did. That object is built with -initSilentlyWithDefaults: rather than the ordinary initialiser, because resolving the selected skin ends in -preferencesChanged and an object built only to be read must not tell the host its appearance changed: the notification reaches every live MSIMEInputController, whose -appearanceChanged: cancels cloud candidates and resets gloss state. It surfaced as TestOfflineTargetGlosses failing on all three macOS CI jobs and on no local run, because the tests that trigger this path run before it in the same process and only there.
 static NSDictionary<NSString *, id> *DefaultSettingValues() {
     static NSDictionary<NSString *, id> *values;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         MSIMEAppearancePreferences *untouched =
-            [[MSIMEAppearancePreferences alloc] initWithDefaults:[MSIMEUntouchedDefaults new] skinsRoot:nil];
+            [[MSIMEAppearancePreferences alloc] initSilentlyWithDefaults:[MSIMEUntouchedDefaults new]];
         NSMutableDictionary<NSString *, id> *defaults = [NSMutableDictionary dictionary];
         [SettingProbes() enumerateKeysAndObjectsUsingBlock:^(NSString *key, MSIMESettingProbe probe, BOOL *stop) {
             (void)stop;
@@ -824,6 +825,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_globalInputMode;
     // Applications whose rule the user has switched out of by hand. A rule says what an application starts in, so an explicit Shift+空格 has to outrank it for as long as they stay there; arriving at the application again hands it back to the rule. In memory, like the remembered mode it overrides.
     NSMutableSet<NSString *> *_inputModeRuleOverrides;
+    // Set on the throwaway instance DefaultSettingValues() reads the defaults out of. That object exists to be asked questions, and an object nobody can see has no business telling the host its appearance changed.
+    BOOL _silent;
     // Per-app punctuation and width toggles. Like the reference's thread compartments they live only in memory, and a missing entry means the saved starting value.
     NSMutableDictionary<NSString *, NSNumber *> *_runtimeChinesePunctuation;
     NSMutableDictionary<NSString *, NSNumber *> *_runtimeFullWidthInput;
@@ -1023,6 +1026,16 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (self) {
         _defaults = defaults;
         _skinsRoot = [root copy];
+        [self reloadSkins];
+    }
+    return self;
+}
+/// The same object over the same storage, minus the announcement. -reloadSkins resolves the selected skin and says so, which is right for the host's own preferences and wrong for an object built only to be asked what a value is when nothing has been set: MSIMEAppearanceDidChangeNotification reaches every live MSIMEInputController, and -appearanceChanged: cancels its cloud candidates and resets its gloss state on the way past. Silence is not an optimisation here; the notification is a lie, because nothing changed.
+- (instancetype)initSilentlyWithDefaults:(NSUserDefaults *)defaults {
+    self = [super initWithWindow:nil];
+    if (self) {
+        _defaults = defaults;
+        _silent = YES;
         [self reloadSkins];
     }
     return self;
@@ -2201,6 +2214,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 - (void)preferencesChanged {
     [self refreshControls];
+    if (_silent) return;
     [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
 }
 - (NSUInteger)preeditFontSize {
