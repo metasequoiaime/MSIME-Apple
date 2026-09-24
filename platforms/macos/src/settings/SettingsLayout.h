@@ -111,16 +111,12 @@ static inline NSTextField *MSIMESectionLabel(NSString *title) {
     return label;
 }
 
-/// Marks a view whose text is not the name of a setting: a page summary, a row's line of explanation, the link that restores a section. The settings search indexes the text of every label and button it finds so that a setting can be found by name, and none of these is a name — without this it answers 「翻页」 with the sentence that mentions paging instead of with the setting that sentence is about, and 「恢复」 with one link per section.
-static NSString *const MSIMESettingsUnindexedIdentifier = @"MSIMESettingsUnindexed";
-
 /// A line of explanation in the window's quieter voice: the second line of a row, the sentence under a page title, the note under a group of checkboxes. Wrapping rather than truncating, because these are sentences and the window is resizable.
 static inline NSTextField *MSIMEDetailLabel(NSString *text) {
     NSTextField *label = [NSTextField wrappingLabelWithString:text ?: @""];
     label.font = [NSFont systemFontOfSize:msime::mac::layout::kDetailFontSize weight:NSFontWeightRegular];
     label.textColor = NSColor.secondaryLabelColor;
     label.selectable = NO;
-    label.identifier = MSIMESettingsUnindexedIdentifier;
     label.translatesAutoresizingMaskIntoConstraints = NO;
     return label;
 }
