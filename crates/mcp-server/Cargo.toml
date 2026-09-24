@@ -20,6 +20,10 @@ serde_json.workspace = true
 tempfile.workspace = true
 tokio = { version = "1", features = ["rt", "macros", "io-std"] }
 
+# Where the Windows Server keeps its runtime options.
+[target.'cfg(windows)'.dependencies]
+msime-host-windows = { path = "../host-windows" }
+
 [dev-dependencies]
 rmcp = { version = "3.4.1", default-features = false, features = ["client", "transport-io"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process"] }

@@ -152,7 +152,6 @@ async fn read_only_by_default() {
 }
 
 #[tokio::test]
-#[cfg(not(windows))]
 async fn an_agent_manages_quick_phrases_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());

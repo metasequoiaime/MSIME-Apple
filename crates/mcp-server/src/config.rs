@@ -13,7 +13,7 @@ pub const USAGE: &str = "usage: msime-mcp [--options <runtime-options.json>] [--
 
 Serves the Model Context Protocol over stdio for 水杉输入法 (MSIME).
 
-  --options <path>     The runtime-options document the input method hosts read. Defaults to MSIME_CLIENT_HOST_OPTIONS, then MSIME_IBUS_OPTIONS, then the platform's usual location. Required on Windows.
+  --options <path>     The runtime-options document the input method hosts read. Defaults to MSIME_CLIENT_HOST_OPTIONS, then MSIME_IBUS_OPTIONS, then the platform's usual location.
   --state-dir <path>   The directory holding preferences.json and typing-statistics.json. Defaults to MSIME_CLIENT_STATE_DIR, then the document's preferences_directory.
   --allow-write        Offer the tools that change quick phrases and preferences. Without it the server is read-only.
   --help, --version";
@@ -61,9 +61,6 @@ pub fn parse(
             _ => return Err(format!("unknown argument {}", arg.to_string_lossy())),
         }
     }
-    if allow_write && cfg!(windows) {
-        return Err("--allow-write is not supported on Windows yet: the Windows hosts cannot yet be asked to release the dictionary".into());
-    }
     let options = match options {
         Some(path) => path,
         None => env("MSIME_CLIENT_HOST_OPTIONS")
@@ -105,6 +102,14 @@ fn default_options_path(env: &impl Fn(&str) -> Option<OsString>) -> Option<PathB
             })
             .map(|config| config.join("msime-client/runtime-options.json"));
     }
+    #[cfg(windows)]
+    {
+        // The Server prepares the document in its state directory (`windows_server_state_directory` in the desktop app). That directory is resolved from the real environment and the registry, not from `env`.
+        let _ = env;
+        return msime_host_windows::server_state_directory()
+            .map(|directory| directory.join("runtime-options.json"));
+    }
+    #[allow(unreachable_code)]
     None
 }
 
@@ -151,8 +156,8 @@ fn state_dir(explicit: Option<&Path>, document: &Value, options: &Path) -> Resul
             )
         }
     }
-    // The macOS desktop app keeps its state beside the document.
-    if cfg!(target_os = "macos") {
+    // The macOS desktop app keeps its state beside the document, and the Windows Server uses its state directory, where the document is, when it names no other.
+    if cfg!(any(target_os = "macos", windows)) {
         if let Some(parent) = options.parent() {
             return Ok(parent.to_owned());
         }
@@ -215,7 +220,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(windows))]
     fn allow_write_is_an_explicit_flag() {
         let config = serve(
             parse(
@@ -225,16 +229,6 @@ mod tests {
             .unwrap(),
         );
         assert!(config.allow_write);
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn windows_refuses_writing() {
-        assert!(parse(
-            args(&["--options", "C:\\a.json", "--allow-write"]),
-            |_: &str| None
-        )
-        .is_err());
     }
 
     #[test]

@@ -1,8 +1,10 @@
-//! Dictionary maintenance with the input hosts' sessions released, on Linux and macOS.
+//! Dictionary maintenance with the input hosts' sessions released.
 //!
-//! Importing, editing or clearing learned data needs the Engine's exclusive dictionary lock, and every open input session holds it shared. Windows asks its server to drop the sessions over a window message. The Linux hosts (IBus, Fcitx5) and the macOS input method are other processes, so this writes a lease beside the lock instead. The hosts check it on their preference timers (Fcitx5 every 250 ms, IBus and macOS every second), finish the composition, close their sessions and open no new ones while it is live; the settings window also tells the macOS input method at once over a distributed notification (the `announce` of [`QuiescedHosts`]), so it lets go without waiting for its timer. The lease holds its own expiry, so a writer that dies mid-import cannot leave input off for longer than that. The file name, the expiry on the first line and the 30 second bound are shared with `platforms/common/DictionaryQuiesceLease.h`. Moving the data directory on Linux holds the same lease for the whole copy (the desktop app's `platform::linux::linux_dictionary_quiesce`).
+//! Importing, editing or clearing learned data needs the Engine's exclusive dictionary lock, and every open input session holds it shared. The Linux hosts (IBus, Fcitx5) and the macOS input method are other processes, so on those platforms this writes a lease beside the lock. The hosts check it on their preference timers (Fcitx5 every 250 ms, IBus and macOS every second), finish the composition, close their sessions and open no new ones while it is live; the settings window also tells the macOS input method at once over a distributed notification (the `announce` of [`QuiescedHosts`]), so it lets go without waiting for its timer. The lease holds its own expiry, so a writer that dies mid-import cannot leave input off for longer than that. The file name, the expiry on the first line and the 30 second bound are shared with `platforms/common/DictionaryQuiesceLease.h`. Moving the data directory on Linux holds the same lease for the whole copy (the desktop app's `platform::linux::linux_dictionary_quiesce`).
 //!
 //! More than one process writes the lease: the settings window and the `msime-mcp` server. Each writes a second line naming itself and removes the lease only while that line is still its own, so one writer finishing does not take down a lease another one is still working under. The hosts read only the first line.
+//!
+//! On Windows every input session lives in the one Server process, which releases them when asked over its auxiliary pipe instead (see [`server`]). The Server does not track who asked, so one writer's resume can hand the sessions back while another is still working; that writer's next request then finds the dictionaries busy, asks again and is retried like the first.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -16,6 +18,12 @@ pub const RETRY_BUDGET: Duration = Duration::from_millis(2500);
 pub const RETRY_INTERVAL: Duration = Duration::from_millis(50);
 /// The host API's reason when an input session holds the dictionaries.
 pub const BUSY: &str = "dictionary maintenance busy";
+
+#[cfg(windows)]
+use server::ServerRelease as Release;
+/// What the hosts are released under: the lease, or on Windows the Server's own release. Both are taken with `acquire`, renewed with `publish` and let go when dropped.
+#[cfg(not(windows))]
+use Lease as Release;
 
 /// The lease as one writer holds it: where it is and what this writer last put there.
 pub struct Lease {
@@ -84,7 +92,7 @@ pub fn is_lease_file(name: &OsStr) -> bool {
 pub struct QuiescedHosts<'a, Announce: FnMut()> {
     user_data: Option<&'a Path>,
     announce: Announce,
-    lease: Option<Lease>,
+    lease: Option<Release>,
 }
 
 impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
@@ -118,7 +126,7 @@ impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
             return result;
         };
         if self.lease.is_none() {
-            let Ok(lease) = Lease::acquire(user_data) else {
+            let Ok(lease) = Release::acquire(user_data) else {
                 return result;
             };
             self.lease = Some(lease);
@@ -127,9 +135,87 @@ impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
         let deadline = Instant::now() + budget;
         while matches!(&result, Err(reason) if reason == BUSY) && Instant::now() < deadline {
             std::thread::sleep(RETRY_INTERVAL);
+            // A session that came back after the Server released them (a window focused meanwhile, or another writer resuming) is only let go when the Server is asked again. The Linux and macOS hosts keep watching the lease, so there is nothing to repeat there.
+            #[cfg(windows)]
+            if let Some(release) = &mut self.lease {
+                let _ = release.publish();
+            }
             result = attempt();
         }
         result
+    }
+}
+
+/// The Windows Server's release, asked for over its auxiliary pipe with the UTF-16LE message `DictionaryQuiesce` and given back with `DictionaryResume` (`platforms/windows/src/ipc/AuxMessage.h`). It answers "OK" only once its sessions really are gone, so that reply, not a write getting through, is what makes the exclusive lock safe to take. It gives the sessions back by itself 30 seconds after the last `DictionaryQuiesce`, so a writer that dies mid-import cannot leave input off for longer, and a long one renews the release before each request.
+#[cfg(any(windows, test))]
+pub mod server {
+    pub const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
+
+    pub fn message(verb: &str) -> Vec<u8> {
+        verb.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    }
+
+    /// The Server writes UTF-16LE "OK" and nothing else.
+    pub fn answered(reply: &[u8]) -> bool {
+        reply == b"O\x00K\x00"
+    }
+
+    /// Send `verb` and wait for the Server's answer. No pipe means no Server and so no sessions to release. Any other failure to reach it, a refused connection included, is reported rather than taken for release: going ahead would only meet the lock.
+    #[cfg(windows)]
+    pub fn ask(verb: &str) -> std::io::Result<()> {
+        use std::io::{Read, Write};
+        /// Every instance of the pipe is serving another client.
+        const ERROR_PIPE_BUSY: i32 = 231;
+        let mut attempt = 0;
+        let mut pipe = loop {
+            match std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(PIPE_NAME)
+            {
+                Ok(pipe) => break pipe,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY) && attempt < 4 => {
+                    attempt += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(error) => return Err(error),
+            }
+        };
+        pipe.write_all(&message(verb))?;
+        let mut reply = [0_u8; 8];
+        let read = pipe.read(&mut reply)?;
+        if answered(&reply[..read]) {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(
+                "the input method server did not release its sessions",
+            ))
+        }
+    }
+
+    #[cfg(windows)]
+    pub struct ServerRelease(());
+
+    #[cfg(windows)]
+    impl ServerRelease {
+        /// The user directory is where the Linux and macOS lease goes; the Server needs no path.
+        pub fn acquire(_user_data: &std::path::Path) -> std::io::Result<Self> {
+            ask("DictionaryQuiesce")?;
+            Ok(Self(()))
+        }
+
+        pub fn publish(&mut self) -> std::io::Result<()> {
+            ask("DictionaryQuiesce")
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for ServerRelease {
+        /// Resume whatever happened: input without sessions because an import failed would be worse than the failure itself.
+        fn drop(&mut self) {
+            let _ = ask("DictionaryResume");
+        }
     }
 }
 
@@ -335,6 +421,19 @@ mod tests {
             || Err(BUSY.to_owned()),
         );
         assert_eq!(silent.get(), 0);
+    }
+
+    #[test]
+    fn the_windows_server_is_spoken_to_in_utf16() {
+        assert_eq!(server::message("DictionaryResume")[..4], *b"D\x00i\x00");
+        assert_eq!(
+            server::message("DictionaryQuiesce").len(),
+            2 * "DictionaryQuiesce".len()
+        );
+        assert!(server::answered(b"O\x00K\x00"));
+        for reply in [&b""[..], b"O\x00", b"OK", b"O\x00K\x00\n\x00"] {
+            assert!(!server::answered(reply));
+        }
     }
 
     #[test]

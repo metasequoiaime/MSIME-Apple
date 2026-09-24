@@ -1624,50 +1624,6 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
 /// dictionary is locked by another process, the edit itself was refused, and
 /// the store could not be opened - and the page used to print one identical
 /// sentence for all of them.
-/// Ask the Windows Server to release or retake its Engine sessions.
-///
-/// Dictionary maintenance needs the exclusive file lock that every session
-/// holds a share of, so with the IME in use it fails with "maintenance busy"
-/// every time. The Server answers "OK" only once the sessions really are gone,
-/// so that reply - not the write succeeding - is what makes it safe to open
-/// the dictionaries exclusively.
-///
-/// The Server also resumes on its own after a deadline, so a settings process
-/// that dies mid-import cannot leave input without sessions.
-#[cfg(target_os = "windows")]
-fn dictionary_maintenance_handshake(verb: &str) -> bool {
-    use std::io::{Read, Write};
-    const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
-    let payload: Vec<u8> = verb
-        .encode_utf16()
-        .flat_map(|unit| unit.to_le_bytes())
-        .collect();
-    for attempt in 0..5 {
-        match fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(PIPE_NAME)
-        {
-            Ok(mut pipe) => {
-                if pipe.write_all(&payload).is_err() {
-                    return false;
-                }
-                let mut reply = [0_u8; 8];
-                let Ok(read) = pipe.read(&mut reply) else {
-                    return false;
-                };
-                // The Server writes UTF-16LE "OK" and nothing else.
-                return reply[..read] == *b"O\x00K\x00";
-            }
-            Err(_) if attempt < 4 => std::thread::sleep(std::time::Duration::from_millis(20)),
-            // No Server listening means no sessions to release, so the lock is
-            // already free and the caller should go ahead.
-            Err(_) => return verb == "DictionaryQuiesce",
-        }
-    }
-    false
-}
-
 fn dictionary_error_code(reason: &str) -> &'static str {
     match reason {
         "dictionary maintenance busy" => "dictionary_busy",
@@ -1758,9 +1714,9 @@ async fn dictionary_request(
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
         let requires_quiesce = dictionary_action_requires_quiesce(&action);
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         let _ = requires_quiesce;
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         let user_data = options["user_data"].as_str().map(str::to_owned);
         let request = serde_json::json!({ "options": options, "action": action });
         #[cfg(target_os = "ios")]
@@ -1781,8 +1737,8 @@ async fn dictionary_request(
         {
             // One request to the host. An import too large for one request is several, each through this, so whatever releases the input sessions below stays in force until the last of them.
             let host = |bytes: &[u8]| msime_host_api::dictionary_request_json(bytes);
-            // The input hosts release their sessions when they see the lease, so the lock failure is retried under it. The IBus and Fcitx5 hosts find it on their timers; the macOS input method is also told at once over a distributed notification when the lease first goes up, and its one-second timer catches one that was missed. The lease is removed when `hosts` goes, after the last request.
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            // The input hosts are asked to let go and the lock failure is retried until they have. On Linux and macOS that is a lease the hosts find on their timers, with the macOS input method also told at once over a distributed notification when the lease first goes up; on Windows the Server is asked over its pipe and answers once its sessions are gone. Either is renewed before each later request, so a large import that runs past the 30 second bound keeps the hosts released, and let go when `hosts` goes, after the last request, whatever the outcome.
+            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             let mut hosts = msime_client_core::dictionary::quiesce::QuiescedHosts::new(
                 user_data.as_deref(),
                 || {
@@ -1790,30 +1746,13 @@ async fn dictionary_request(
                     msime_host_macos::quiesce_input_sessions();
                 },
             );
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             let send = |bytes: &[u8]| {
                 if requires_quiesce {
                     hosts.run(|| host(bytes))
                 } else {
                     host(bytes)
                 }
-            };
-            // Only the lock is worth a handshake. Every other failure is about the request itself and would fail again with sessions released. The Server gives its sessions back 30 seconds after the last DictionaryQuiesce, and a large import runs longer than that, so once quiesced each later request renews it first, the way `QuiescedHosts::run` renews the lease. A renewal that fails or comes too late makes the request busy, which is handshaken and retried like the first.
-            #[cfg(target_os = "windows")]
-            let mut quiesced = false;
-            #[cfg(target_os = "windows")]
-            let send = |bytes: &[u8]| {
-                if quiesced {
-                    let _ = dictionary_maintenance_handshake("DictionaryQuiesce");
-                }
-                let result = host(bytes);
-                if matches!(&result, Err(reason) if reason == "dictionary maintenance busy")
-                    && dictionary_maintenance_handshake("DictionaryQuiesce")
-                {
-                    quiesced = true;
-                    return host(bytes);
-                }
-                result
             };
             #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
             let send = host;
@@ -1822,11 +1761,6 @@ async fn dictionary_request(
                 &request["action"],
                 send,
             );
-            // Resume whatever happened: leaving the IME without sessions because an import failed would be worse than the failure itself.
-            #[cfg(target_os = "windows")]
-            if quiesced {
-                let _ = dictionary_maintenance_handshake("DictionaryResume");
-            }
             result.map_err(|reason| CommandError {
                 code: dictionary_error_code(&reason),
             })

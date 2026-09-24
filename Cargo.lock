@@ -2528,6 +2528,7 @@ version = "0.1.0"
 dependencies = [
  "msime-client-core",
  "msime-host-api",
+ "msime-host-windows",
  "rmcp",
  "rusqlite",
  "serde",

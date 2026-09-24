@@ -301,7 +301,7 @@ impl MsimeServer {
     }
 }
 
-/// Apply `edits` in order under one lease, so the input hosts let go of the dictionary once for the whole call rather than once per edit. The lease is removed when this returns. The macOS input method finds it on its one-second timer; the desktop app also tells it at once, which would take the macOS host crate here for a second's difference.
+/// Apply `edits` in order under one release, so the input hosts let go of the dictionary once for the whole call rather than once per edit, and are let back when this returns. On Linux and macOS that is a lease the hosts find on their timers; the macOS input method finds it within a second, and the desktop app also tells it at once, which would take the macOS host crate here for a second's difference. On Windows the Server is asked over its pipe and answers once its sessions are gone.
 fn apply_edits(options: &DictionaryOptions, edits: &[QuickPhraseEdit]) -> EditOutcome {
     let mut hosts = QuiescedHosts::new(Some(options.user_data()), || {});
     for (index, edit) in edits.iter().enumerate() {
