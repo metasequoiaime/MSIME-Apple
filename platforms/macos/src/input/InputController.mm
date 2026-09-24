@@ -4273,6 +4273,9 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
             [self apply:[_session command:(event.modifierFlags & NSEventModifierFlagShift) ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
             return YES;
         }
+        // With candidates visible, a disabled Tab paging shortcut is still owned by the IME:
+        // do not let the host application move focus away from the composition.
+        return YES;
     }
     // Candidate paging is keyed by the physical ANSI key, matching Windows
     // even when the current keyboard layout produces a different glyph (or no
@@ -4427,10 +4430,10 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         case 115: command = _panel.isVisible ? MSIME_FIRST_CANDIDATE : MSIME_MOVE_HOME; break;
         case 119: command = _panel.isVisible ? MSIME_LAST_CANDIDATE : MSIME_MOVE_END; break;
         case 117: command = MSIME_DELETE_FORWARD; break;
-        case 116: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_PREVIOUS_PAGE; break;
-        case 121: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_NEXT_PAGE; break;
-        case 126: if (![_appearance navigationEnabled:@"arrows"]) return NO; command = MSIME_PREVIOUS_CANDIDATE; break;
-        case 125: if (![_appearance navigationEnabled:@"arrows"]) return NO; command = MSIME_NEXT_CANDIDATE; break;
+        case 116: if (![_appearance navigationEnabled:@"page_up_down"]) return _panel.isVisible; command = MSIME_PREVIOUS_PAGE; break;
+        case 121: if (![_appearance navigationEnabled:@"page_up_down"]) return _panel.isVisible; command = MSIME_NEXT_PAGE; break;
+        case 126: if (![_appearance navigationEnabled:@"arrows"]) return _panel.isVisible; command = MSIME_PREVIOUS_CANDIDATE; break;
+        case 125: if (![_appearance navigationEnabled:@"arrows"]) return _panel.isVisible; command = MSIME_NEXT_CANDIDATE; break;
     }
     NSDictionary *transition = nil;
     if (command != UINT32_MAX) transition = [_session command:command error:nil];
