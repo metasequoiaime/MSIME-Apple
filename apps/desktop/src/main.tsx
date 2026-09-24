@@ -598,6 +598,10 @@ function DesktopSettings() {
                       },
                 }
               : {}),
+            // The macOS input method writes diagnostic.log under Application Support, which the Finder hides; the host reveals it rather than asking the user to navigate there.
+            ...(host.platform === "macos"
+              ? { openDiagnosticLogDirectory: () => invoke<void>("open_diagnostic_log_directory") }
+              : {}),
             // A host binary older than the capability sends no field and reads as false, which
             // hides the page rather than offering buttons whose every press would fail.
             ...(host.vocabulary_review ? { vocabularyReview } : {}),
