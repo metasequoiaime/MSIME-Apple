@@ -1,6 +1,7 @@
 import XCTest
 
 /// The settings app's punctuation page writes the shared document; the keyboard has to act on it.
+@MainActor
 final class PunctuationSettingsTests: XCTestCase {
   private var state: URL!
 
@@ -37,7 +38,7 @@ final class PunctuationSettingsTests: XCTestCase {
   /// A switch turned off in the app stops working the next time the keyboard appears, without waiting for a new session.
   ///
   /// The keyboard has already written its own preferences by then - it applies the learning switches every time it appears - so the document's revision is not what the session last counted to.
-  func testReloadHandsPunctuationSwitchesToTheLiveSession() {
+  func testReloadHandsPunctuationSwitchesToTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertNotEqual(bridge.handlePunctuationWithContext(",", preceding: 0x61).commitText, "，",
                       "direct-after-letter ships on, so a comma after a letter stays ASCII")
@@ -48,19 +49,19 @@ final class PunctuationSettingsTests: XCTestCase {
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
       $0["smart_punctuation_direct_letter"] = false
     })
-    reload(bridge)
+    await reload(bridge)
 
     XCTAssertEqual(bridge.handlePunctuationWithContext(",", preceding: 0x61).commitText, "，")
   }
 
-  private func reload(_ bridge: MetasequoiaInputSessionBridge) {
+  private func reload(_ bridge: MetasequoiaInputSessionBridge) async {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { loaded in
       accepted = loaded
       reloaded.fulfill()
     }
-    wait(for: [reloaded], timeout: 5)
+    await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
   }
 }

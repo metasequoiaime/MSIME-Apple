@@ -44,6 +44,25 @@ int main()
             require([MetasequoiaChineseOutputString(source, YES) isEqualToString:phrases[source]],
                     "Traditional output did not use the OpenCC s2t phrase tables.");
         }
+        // Mirrors the reference server's test_candidate_text_policy.cpp: word-to-character takes the first or last Han character, skipping everything else.
+        require([MetasequoiaEdgeHanCharacter(@"中文", YES) isEqualToString:@"中"] &&
+                    [MetasequoiaEdgeHanCharacter(@"中文", NO) isEqualToString:@"文"],
+                "Edge extraction did not take the first and last Han characters.");
+        require([MetasequoiaEdgeHanCharacter(@"a1中b2文c", YES) isEqualToString:@"中"] &&
+                    [MetasequoiaEdgeHanCharacter(@"a1中b2文c", NO) isEqualToString:@"文"],
+                "Edge extraction did not skip non-Han characters.");
+        require([MetasequoiaEdgeHanCharacter(@"\U00020000x", YES) isEqualToString:@"\U00020000"] &&
+                    [MetasequoiaEdgeHanCharacter(@"x中\U00020000", NO) isEqualToString:@"\U00020000"],
+                "Edge extraction split a non-BMP Han character.");
+        require([MetasequoiaEdgeHanCharacter(@"〇", YES) isEqualToString:@"〇"] &&
+                    [MetasequoiaEdgeHanCharacter(@"\U000323AF", NO) isEqualToString:@"\U000323AF"],
+                "Edge extraction missed a Han range the reference counts.");
+        require(MetasequoiaEdgeHanCharacter(@"abc 123 😀，", YES) == nil && MetasequoiaEdgeHanCharacter(@"", NO) == nil &&
+                    MetasequoiaEdgeHanCharacter(nil, YES) == nil,
+                "Edge extraction returned a character from text without Han.");
+        require([MetasequoiaEdgeHanCharacter(MetasequoiaChineseOutputString(@"头发", YES), NO) isEqualToString:@"髮"] &&
+                    [MetasequoiaEdgeHanCharacter(MetasequoiaChineseOutputString(@"皇后", YES), NO) isEqualToString:@"后"],
+                "Edge extraction over the converted phrase lost the phrase-level character.");
     }
     return 0;
 }

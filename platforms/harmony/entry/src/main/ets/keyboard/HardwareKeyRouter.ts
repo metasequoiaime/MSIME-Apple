@@ -235,7 +235,14 @@ export class HardwareKeyRouter {
   }
 
   /**
-   * @param composing whether the Engine is holding a composition right now
+   * Whether the Engine is holding a composition: a reading, or a phrase piece already chosen. A Ctrl+Backspace that empties the reading of a half-chosen phrase leaves the chosen piece in the composition with no reading, as the Windows `keep_creating_word_after_empty_raw` does, and the next Backspace or Ctrl+Backspace edits it; a test on the reading alone would hand those keys, Enter and Escape to the editor while the preview still shows that piece.
+   */
+  static composing(editing: string, phrasePrefix: string): boolean {
+    return editing.length > 0 || phrasePrefix.length > 0;
+  }
+
+  /**
+   * @param composing whether the Engine is holding a composition right now, as `composing` answers it
    * @param chinese whether the Engine would spell with a letter rather than pass it through
    * @param chinesePunctuationInEnglish whether punctuation is still the keyboard's in English mode, which the Windows host does when `punctuation_lock` is Chinese (`ResolvePunctuationOpen`)
    */

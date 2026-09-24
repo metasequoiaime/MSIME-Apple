@@ -4024,6 +4024,53 @@ fn custom_translation_plan_preserves_direction_and_filters_visible_sources() {
     );
 }
 #[test]
+fn mixed_script_chinese_candidates_are_planned_and_saved_like_the_windows_source() {
+    // Windows `IsCloudTranslatableChinese` only needs one Han codepoint and no emoji, so words such as 卡拉OK and T恤 are translated zh->target and their English gloss is learned.
+    let bytes = serde_json::to_vec(&json!({
+        "target_language": "en",
+        "candidates": [
+            {"text":"卡拉OK","source":0},
+            {"text":"T恤","source":0},
+            {"text":"T恤😀","source":0},
+        ],
+    }))
+    .unwrap();
+    assert_eq!(
+        read(unsafe { msime_client_custom_translation_plan(bytes.as_ptr(), bytes.len()) })["value"],
+        json!([
+            {"text":"卡拉OK","key":"卡拉OK","source_language":"zh","target_language":"en"},
+            {"text":"T恤","key":"T恤","source_language":"zh","target_language":"en"}
+        ])
+    );
+    let user = tempfile::tempdir().unwrap();
+    let user_path = user.path().to_str().unwrap();
+    let request = serde_json::to_vec(&json!({
+        "target_language": "en",
+        "translations": [{"text":"卡拉OK","translation":"karaoke"}],
+    }))
+    .unwrap();
+    let saved = read(unsafe {
+        msime_client_translation_gloss_save(
+            request.as_ptr(),
+            request.len(),
+            user_path.as_ptr(),
+            user_path.len(),
+        )
+    });
+    assert_eq!(saved["value"]["saved"], 1);
+    let database = rusqlite::Connection::open(user.path().join("translation-glosses.db")).unwrap();
+    assert_eq!(
+        database
+            .query_row(
+                "SELECT english_gloss FROM zh_en_glosses WHERE chinese='卡拉OK'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "karaoke"
+    );
+}
+#[test]
 fn learned_translation_buffers_are_bounded() {
     assert_eq!(
         read(unsafe { msime_client_ai_http_request(std::ptr::null(), 0) })["ok"],
