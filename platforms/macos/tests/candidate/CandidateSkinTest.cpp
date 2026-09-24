@@ -48,12 +48,15 @@ int main() {
     for (const auto &f : fixtures) {
         const auto t = BuiltInSkinTokens(f.id, f.dark);
         assert(msime::mac::CandidateRowRadius(t, true) == f.selectedRadius);
+        assert(msime::mac::CandidateRowRadius(t, true, true, false) == t.radius);
+        assert(msime::mac::CandidateRowRadius(t, true, false, true) == t.radius);
         assert(msime::mac::CandidateRowRadius(t, false) == f.candidateRadius);
     }
     msime::mac::SkinTokens split;
     split.candidateRadius = 3.0f;
     split.selectedRadius = 7.0f;
     assert(msime::mac::CandidateRowRadius(split, true) == 7.0f);
+    assert(msime::mac::CandidateRowRadius(split, true, true, false) == split.radius);
     assert(msime::mac::CandidateRowRadius(split, false) == 3.0f);
     CheckColor(BuiltInSkinTokens("fluent", false).selected, 0xE8E8E8);
     CheckColor(BuiltInSkinTokens("fluent", true).selected, 0x3E3E3E, .725f);
