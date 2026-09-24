@@ -159,6 +159,9 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertLessThanOrEqual(data.count, 512_000)
     try Data("not an image".utf8).write(to: url)
     XCTAssertNil(SkinPhotoData.thumbnail(at: url))
+    let decoded = try XCTUnwrap(SkinPhotoData.image(from: try XCTUnwrap(original.pngData()), maxPixelSize: 600))
+    XCTAssertEqual(max(decoded.size.width, decoded.size.height), 600, accuracy: 1)
+    XCTAssertNil(SkinPhotoData.image(from: Data("not an image".utf8)))
     var design = CustomKeyboardSkin.templates[2].1
     design.photo = data; design.keyOpacity = 0.45
     let item = SavedKeyboardSkin(name: "照片夜色", design: design)

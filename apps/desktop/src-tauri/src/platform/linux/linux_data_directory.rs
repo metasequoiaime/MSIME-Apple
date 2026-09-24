@@ -594,7 +594,7 @@ pub(crate) async fn move_data_directory(
         move_holding_hosts(
             plan,
             || hold_hosts_for_move(&user_data, &dictionaries),
-            || match crate::restart_input_method() {
+            || match crate::restart_input_method_blocking() {
                 Ok(()) => true,
                 Err(error) => {
                     eprintln!(

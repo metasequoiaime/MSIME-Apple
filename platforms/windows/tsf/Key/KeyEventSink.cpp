@@ -561,10 +561,14 @@ bool CMetasequoiaIME::_MatchChordInputHotkey(WPARAM wParam, _Out_ GUID *hotkeyGu
     const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-    const auto hotkeys = FanyUtils::ReadConfiguredSwitchLanguageHotkeys();
 
-    if (code == VK_SPACE && ctrl && alt && !shift && hotkeys.ctrl_alt_space)
+    // Runs on every key-down: read the preferences only once the chord matches.
+    if (code == VK_SPACE && ctrl && alt && !shift)
     {
+        if (!FanyUtils::ReadConfiguredSwitchLanguageHotkeys().ctrl_alt_space)
+        {
+            return false;
+        }
         *hotkeyGuid = Global::MetasequoiaIMEGuidImeModePreserveKey02;
         return true;
     }
@@ -590,13 +594,12 @@ bool CMetasequoiaIME::_MatchModifierReleaseHotkey(WPARAM wParam, _Out_ GUID *hot
 
     const UINT code = LOWORD(wParam);
     const auto now = std::chrono::steady_clock::now();
-    const auto hotkeys = FanyUtils::ReadConfiguredSwitchLanguageHotkeys();
 
     // The arming latch already proves that this modifier was pressed alone;
     // unlike PureShiftKeyUp, it does not depend on a host's stale GetKeyState.
     if (IsShiftVk(code) && _shiftHotkeyArmed)
     {
-        const bool fire = now < _modifierHotkeyExpire && hotkeys.shift;
+        const bool fire = now < _modifierHotkeyExpire && FanyUtils::ReadConfiguredSwitchLanguageHotkeys().shift;
         _shiftHotkeyArmed = false;
         _ctrlHotkeyArmed = false;
         if (fire)
@@ -609,7 +612,7 @@ bool CMetasequoiaIME::_MatchModifierReleaseHotkey(WPARAM wParam, _Out_ GUID *hot
 
     if (IsControlVk(code) && _ctrlHotkeyArmed)
     {
-        const bool fire = now < _modifierHotkeyExpire && hotkeys.ctrl;
+        const bool fire = now < _modifierHotkeyExpire && FanyUtils::ReadConfiguredSwitchLanguageHotkeys().ctrl;
         _shiftHotkeyArmed = false;
         _ctrlHotkeyArmed = false;
         if (fire)
@@ -661,7 +664,8 @@ __inline UINT VKeyFromVKPacketAndWchar(UINT vk, WCHAR wch)
         }
         else if ((wch >= L'a') && (wch <= L'z'))
         {
-            vkRet = (UINT)(L'A') + ((UINT)(L'z') - static_cast<UINT>(wch));
+            // Same VK as the uppercase letter (SampleIME mirrored the alphabet here).
+            vkRet = static_cast<UINT>(L'A') + (static_cast<UINT>(wch) - static_cast<UINT>(L'a'));
         }
         else if ((wch >= L'A') && (wch <= L'Z'))
         {
@@ -978,8 +982,10 @@ BOOL CMetasequoiaIME::_IsKeyboardDisabled()
             VARIANT var;
             if (pCompartmentDisabled->GetValue(&var) == S_OK)
             {
-                if (var.vt == VT_I4) // Even VT_EMPTY, GetValue() can succeed
-                    fDisabled = (BOOL)var.lVal;
+                // Even VT_EMPTY, GetValue() can succeed. Either compartment
+                // disables input; one must not clear the other.
+                if (var.vt == VT_I4 && var.lVal != 0)
+                    fDisabled = TRUE;
             }
             pCompartmentDisabled->Release();
         }
@@ -990,8 +996,8 @@ BOOL CMetasequoiaIME::_IsKeyboardDisabled()
             VARIANT var;
             if (pCompartmentEmptyContext->GetValue(&var) == S_OK)
             {
-                if (var.vt == VT_I4) // Even VT_EMPTY, GetValue() can succeed
-                    fDisabled = (BOOL)var.lVal;
+                if (var.vt == VT_I4 && var.lVal != 0) // Even VT_EMPTY, GetValue() can succeed
+                    fDisabled = TRUE;
             }
             pCompartmentEmptyContext->Release();
         }
@@ -1568,7 +1574,8 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
         *pIsEaten = FALSE;
         return S_OK;
     }
-    if (wParam == VK_CAPITAL)
+    // Only the first press toggles; auto-repeat would flip the prediction back.
+    if (wParam == VK_CAPITAL && !IsAutoRepeat(lParam))
     {
         Global::CapsLockEnabled.store((GetKeyState(VK_CAPITAL) & 0x0001) == 0, std::memory_order_relaxed);
         _RequestLanguageBarCapsIconRefresh();

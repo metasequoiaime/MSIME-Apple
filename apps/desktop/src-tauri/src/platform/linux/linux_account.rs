@@ -153,11 +153,13 @@ impl AccountSessionStorage for LinuxAccountStorage {
         // Publish by rename so a reader never sees a half-written document, and
         // create the temporary file 0600 from the start rather than widening it
         // afterwards - between create and chmod the tokens would be readable.
+        // mode() only applies to a new file, so a leftover temporary (or a
+        // symlink planted there) is removed and creation is exclusive.
         let temporary = self.path.with_extension("json.new");
+        let _ = std::fs::remove_file(&temporary);
         let mut file = std::fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
             .open(&temporary)
             .map_err(|_| AccountError::Storage)?;

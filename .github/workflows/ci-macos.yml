@@ -68,6 +68,11 @@ jobs:
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "macOS 改动: $path"; exit 0 ;;
               shared/*|vendor/*|engine-lock.json|cmake/*|CMakeLists.txt|product-lock.json|.github/workflows/ci-macos.yml)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
+              # 工作区清单与工具链:Dependabot 的 cargo 分组只改这几个。crates/ 只列这条构建真正编译的:
+              # CMakeLists.txt 直接编 host-macos/native,cargo build -p msime-host-api 带上它依赖的三个 crate。
+              # host-windows、mcp-server 等改动重编 macOS 不会多发现什么,理由同下面 scripts/ 那段。
+              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-macos/*|crates/host-api/*|crates/client-core/*|crates/engine-bridge/*|crates/input-runtime/*)
+                echo "build=true" >> "$GITHUB_OUTPUT"; echo "Rust 输入改动: $path"; exit 0 ;;
               # scripts/ 里只有这些进得了 macOS 的构建。其余七十来个是各平台自己的契约检查,由 Core CI
               # 和 verify-local.sh 跑,改它们重编一次 macOS 不会多发现任何东西 —— 而 `scripts/*` 让每一个
               # 都触发双架构构建加 Sanitizers:一个 test-android-preference-keys.py 的改动要三台 macOS

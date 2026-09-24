@@ -148,13 +148,18 @@ fn speed_characters_on(statistics: &TypingStatistics, day: &str) -> u64 {
         SPEED_CATEGORIES
             .iter()
             .filter_map(|category| detail.characters.get(*category))
-            .sum()
+            .fold(0, |sum, count| sum.saturating_add(*count))
     })
 }
 
 /// Rounded to the nearest whole character; `None` when nothing was timed.
 fn per_minute(characters: u64, active_ms: u64) -> Option<u64> {
-    (active_ms > 0).then(|| (characters.saturating_mul(60_000) + active_ms / 2) / active_ms)
+    (active_ms > 0).then(|| {
+        characters
+            .saturating_mul(60_000)
+            .saturating_add(active_ms / 2)
+            / active_ms
+    })
 }
 
 #[cfg(test)]
@@ -223,6 +228,37 @@ mod tests {
         for absent in ["last_commit", "lastCommit", "2026-09-20"] {
             assert!(!json.contains(absent), "{absent} leaked into {json}");
         }
+    }
+
+    #[test]
+    fn huge_counts_saturate_rather_than_overflow() {
+        assert_eq!(per_minute(u64::MAX, 2), Some(u64::MAX / 2));
+        assert_eq!(
+            per_minute(1_000_000_000_000_000, 1000),
+            Some(u64::MAX / 1000)
+        );
+        let mut statistics = TypingStatistics {
+            enabled: true,
+            ..TypingStatistics::default()
+        };
+        let huge = u64::MAX / 2 + 1;
+        statistics.days.insert("2026-09-22".into(), huge);
+        statistics.daily_details.insert(
+            "2026-09-22".into(),
+            TypingBreakdown {
+                characters: SPEED_CATEGORIES
+                    .iter()
+                    .map(|category| ((*category).to_owned(), huge))
+                    .collect(),
+                sources: Default::default(),
+            },
+        );
+        statistics.daily_active_ms.insert("2026-09-22".into(), 1000);
+        assert_eq!(speed_characters_on(&statistics, "2026-09-22"), u64::MAX);
+        assert_eq!(
+            view(&statistics, 1).characters_per_minute,
+            Some(u64::MAX / 1000)
+        );
     }
 
     #[test]

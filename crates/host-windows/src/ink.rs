@@ -21,8 +21,9 @@ pub type Stroke = Vec<(f32, f32)>;
 /// they need different things from the user.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InkError {
-    /// No Simplified Chinese recognizer is installed. The user has to add the
-    /// handwriting feature for the language; nothing we do will substitute.
+    /// No Chinese recognizer is installed (Simplified is preferred, Traditional
+    /// is the fallback). The user has to add the handwriting feature for the
+    /// language; nothing we do will substitute.
     NoChineseRecognizer,
     /// Nothing to recognize.
     EmptyInput,
@@ -37,16 +38,60 @@ const MAX_STROKES: usize = 128;
 /// Longest single stroke. A pointer stream stuck in a loop is bounded here.
 const MAX_POINTS: usize = 4096;
 
-/// True when the recognizer's name looks like Simplified Chinese.
+/// How well the recognizer's name matches Simplified Chinese: 3 Simplified,
+/// 2 Chinese of unstated script, 1 Traditional, 0 not Chinese.
 ///
 /// Matching on the name is what the reference does. The recognizer list is
 /// localised, so the display name arrives in the user's own UI language and no
 /// single spelling covers it — hence several, including the English one.
-fn looks_like_chinese(name: &str) -> bool {
+/// Traditional still ranks above nothing: most characters are shared, and a
+/// machine with only the zh-TW/zh-HK pack should keep a working panel.
+fn chinese_rank(name: &str) -> u8 {
     let lowered = name.to_lowercase();
-    ["中文", "简体", "chinese", "zh-cn"]
-        .iter()
-        .any(|needle| lowered.contains(needle))
+    let has = |needles: &[&str]| needles.iter().any(|needle| lowered.contains(needle));
+    // Gate on Chinese first, so "Traditional Mongolian" never qualifies.
+    if !has(&["中文", "chinese", "简体", "簡體", "繁體", "繁体", "zh-"]) {
+        return 0;
+    }
+    // The script, when named, decides; a zh-TW UI spells Simplified as 簡體.
+    if has(&["简体", "簡體", "simplified", "zh-hans"]) {
+        return 3;
+    }
+    // Region-only names such as "中文(台灣)" carry no script word, and are
+    // checked before the Simplified regions so "中国台湾" is not read as China.
+    if has(&[
+        "繁",
+        "traditional",
+        "zh-hant",
+        "台灣",
+        "臺灣",
+        "台湾",
+        "香港",
+        "澳門",
+        "澳门",
+        "taiwan",
+        "hong kong",
+        "macao",
+        "macau",
+        "zh-tw",
+        "zh-hk",
+        "zh-mo",
+    ]) {
+        return 1;
+    }
+    if has(&[
+        "中国",
+        "中國",
+        "china",
+        "prc",
+        "新加坡",
+        "singapore",
+        "zh-cn",
+        "zh-sg",
+    ]) {
+        return 3;
+    }
+    2
 }
 
 /// True when the text contains a CJK ideograph.
@@ -72,25 +117,32 @@ fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, 
     let recognizers = container
         .GetRecognizers()
         .map_err(|_| InkError::Unavailable)?;
-    let mut chosen = false;
+    // The list order is arbitrary, so the first Chinese match could be the
+    // Traditional pack; keep the best and stop early only on Simplified.
+    let mut best = None;
+    let mut best_rank = 0;
     for recognizer in recognizers {
         let name = recognizer
             .Name()
             .map(|value| value.to_string_lossy())
             .unwrap_or_default();
-        if looks_like_chinese(&name) {
-            container
-                .SetDefaultRecognizer(&recognizer)
-                .map_err(|_| InkError::Unavailable)?;
-            chosen = true;
-            break;
+        let rank = chinese_rank(&name);
+        if rank > best_rank {
+            best_rank = rank;
+            best = Some(recognizer);
+            if rank == 3 {
+                break;
+            }
         }
     }
-    if !chosen {
+    let Some(recognizer) = best else {
         // Not a failure we can retry around: the user has to install the
         // handwriting feature for Chinese.
         return Ok(Err(InkError::NoChineseRecognizer));
-    }
+    };
+    container
+        .SetDefaultRecognizer(&recognizer)
+        .map_err(|_| InkError::Unavailable)?;
 
     let strokes_container = InkStrokeContainer::new().map_err(|_| InkError::Unavailable)?;
     let builder = InkStrokeBuilder::new().map_err(|_| InkError::Unavailable)?;
@@ -177,6 +229,10 @@ mod tests {
 
     // Name matching is the part that decides whether Windows recognises
     // Chinese at all, and the list arrives localised.
+    fn looks_like_chinese(name: &str) -> bool {
+        chinese_rank(name) > 0
+    }
+
     #[test]
     fn recognizer_names_are_matched_in_any_ui_language() {
         assert!(looks_like_chinese("中文(简体，中国)"));
@@ -198,6 +254,35 @@ mod tests {
         assert!(!looks_like_chinese("한국어"));
         assert!(!looks_like_chinese("Deutsch"));
         assert!(!looks_like_chinese(""));
+        assert!(!looks_like_chinese("Mongolian (Traditional Mongolian)"));
+    }
+
+    // With both packs installed the list order is arbitrary; Simplified has to
+    // win, and Traditional must still beat having no recognizer at all.
+    #[test]
+    fn simplified_recognizers_rank_above_traditional() {
+        let simplified = [
+            "Microsoft 中文(简体)手写识别器",
+            "Microsoft 中文(簡體)手寫辨識器",
+            "Chinese (Simplified, China)",
+            "中文(中国)",
+            "zh-Hans",
+        ];
+        let traditional = [
+            "Microsoft 中文(繁體)手寫辨識器",
+            "Chinese (Traditional)",
+            "Chinese (Traditional, Taiwan)",
+            "中文(香港特別行政區)",
+            "中文(台灣)",
+            "Chinese (Taiwan)",
+        ];
+        for name in simplified {
+            assert_eq!(chinese_rank(name), 3, "{name}");
+        }
+        for name in traditional {
+            assert_eq!(chinese_rank(name), 1, "{name}");
+        }
+        assert_eq!(chinese_rank("Microsoft Chinese Handwriting Recognizer"), 2);
     }
 
     #[test]

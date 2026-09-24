@@ -33,6 +33,25 @@ private actor RefreshAPI: BackendSessionAPI {
   }
   func finish() { continuation?.resume(returning: Self.tokens("b")); continuation = nil }
 }
+// Several actors share one storage; the server revokes a refresh token once it has rotated.
+private final class SharedStoreAPI: BackendSessionAPI, @unchecked Sendable {
+  private let lock = NSLock()
+  private var calls = 0
+  private let onRefresh: @Sendable (String) throws -> BackendAccountClient.Tokens
+  init(_ onRefresh: @escaping @Sendable (String) throws -> BackendAccountClient.Tokens) { self.onRefresh = onRefresh }
+  var refreshCount: Int { lock.lock(); defer { lock.unlock() }; return calls }
+  static func tokens(_ access: String, _ refresh: String) -> BackendAccountClient.Tokens {
+    .init(access_token: String(repeating: access, count: 64), refresh_token: String(repeating: refresh, count: 64),
+          token_type: "Bearer", expires_in: 900,
+          user: .init(id: "synthetic-user", display_name: "测试", created_at: "2026-09-08"))
+  }
+  func login(challenge: String, credential: String, linkToken: String?) async throws -> BackendAccountClient.Tokens { Self.tokens("a", "f") }
+  func logout(token: String, all: Bool) async throws { }
+  func refresh(_ token: String) async throws -> BackendAccountClient.Tokens {
+    lock.lock(); calls += 1; lock.unlock()
+    return try onRefresh(token)
+  }
+}
 final class BackendAccountSessionTests: XCTestCase {
   func testConcurrentCallersShareOneRefreshAndPersistRotation() async throws {
     let storage = MemorySessions(.init(tokens: RefreshAPI.tokens(), expiresAt: .distantPast))
@@ -99,5 +118,54 @@ final class BackendAccountSessionTests: XCTestCase {
     let user = try await session.user()
     XCTAssertNil(user)
     XCTAssertNil(try storage.load())
+  }
+
+  func testSecondActorAdoptsRotationInsteadOfRefreshingRevokedToken() async throws {
+    let storage = MemorySessions(.init(tokens: SharedStoreAPI.tokens("a", "f"), expiresAt: .distantPast))
+    let api = SharedStoreAPI { token in
+      guard token == String(repeating: "f", count: 64) else { throw BackendAccountClient.Failure(status: 401) }
+      return SharedStoreAPI.tokens("b", "g")
+    }
+    let first = BackendAccountSession(api: api, storage: storage)
+    let second = BackendAccountSession(api: api, storage: storage)
+    _ = try await second.user()
+    let rotated = try await first.accessToken()
+    let adopted = try await second.accessToken()
+    XCTAssertEqual(adopted, rotated)
+    XCTAssertEqual(api.refreshCount, 1)
+    XCTAssertEqual(try storage.load()?.tokens.refresh_token, String(repeating: "g", count: 64))
+  }
+  func testUnauthorizedRefreshKeepsSessionRotatedMeanwhile() async throws {
+    let storage = MemorySessions(.init(tokens: SharedStoreAPI.tokens("a", "f"), expiresAt: .distantPast))
+    let winner = BackendSavedSession(tokens: SharedStoreAPI.tokens("b", "g"), expiresAt: Date().addingTimeInterval(600))
+    let api = SharedStoreAPI { _ in
+      // Another process rotates while this refresh is in flight, so ours is rejected.
+      try storage.save(winner)
+      throw BackendAccountClient.Failure(status: 401)
+    }
+    let session = BackendAccountSession(api: api, storage: storage)
+    let token = try await session.accessToken()
+    XCTAssertEqual(token, winner.tokens.access_token)
+    XCTAssertEqual(try storage.load()?.tokens.refresh_token, winner.tokens.refresh_token)
+  }
+  func testUnauthorizedRefreshOfStoredTokenClearsIt() async throws {
+    let storage = MemorySessions(.init(tokens: SharedStoreAPI.tokens("a", "f"), expiresAt: .distantPast))
+    let api = SharedStoreAPI { _ in throw BackendAccountClient.Failure(status: 401) }
+    let session = BackendAccountSession(api: api, storage: storage)
+    do { _ = try await session.accessToken(); XCTFail("revoked session must not yield a token") }
+    catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 401) }
+    XCTAssertNil(try storage.load())
+  }
+  func testActorThatLoadedNothingSeesLaterSignIn() async throws {
+    let storage = MemorySessions(nil)
+    let api = SharedStoreAPI { _ in throw BackendAccountClient.Failure(status: 401) }
+    let session = BackendAccountSession(api: api, storage: storage)
+    let before = try await session.user()
+    XCTAssertNil(before)
+    let signedIn = BackendSavedSession(tokens: SharedStoreAPI.tokens("c", "h"), expiresAt: Date().addingTimeInterval(600))
+    try storage.save(signedIn)
+    let token = try await session.accessToken()
+    XCTAssertEqual(token, signedIn.tokens.access_token)
+    XCTAssertEqual(api.refreshCount, 0)
   }
 }

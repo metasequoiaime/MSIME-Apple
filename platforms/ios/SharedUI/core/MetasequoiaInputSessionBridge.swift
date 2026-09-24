@@ -1145,6 +1145,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// The core's transient lease conflict; the text is fixed by crates/host-api/src/dictionary_snapshot.rs.
+  static func isSnapshotBusy(_ error: Error) -> Bool {
+    if case .response("snapshot access busy") = error as? InputBridgeFailure { return true }
+    return false
+  }
+
   func applyPersonalPrevious(_ previous: [String: Any]?, replacement: [String: Any]?, requestID: String) throws {
     var action: [String: Any] = ["operation": "edit", "request_id": requestID]
     action["previous"] = previous ?? NSNull()

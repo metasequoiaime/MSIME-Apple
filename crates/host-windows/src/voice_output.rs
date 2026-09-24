@@ -40,7 +40,8 @@ fn paste_text_with_limit(target: InputTarget, text: &str, max_bytes: usize) -> b
     if !focus_external(target) {
         return false;
     }
-    let Some(sequence) = write_unicode_clipboard(text) else {
+    // A zero sequence cannot be compared afterwards, so it counts as failure here.
+    let Some(sequence) = write_unicode_clipboard(text).filter(|sequence| *sequence != 0) else {
         return false;
     };
     std::thread::sleep(std::time::Duration::from_millis(30));
@@ -64,7 +65,10 @@ pub fn paste_voice_text(target: InputTarget, text: &str) -> bool {
     paste_text_with_limit(target, text, MAX_TEXT_BYTES)
 }
 
-fn write_unicode_clipboard(text: &str) -> Option<u32> {
+/// Replace the clipboard with `text`, returning the clipboard sequence number
+/// (which Windows may report as 0) once the data has been handed over.
+/// The caller validates `text`; this only owns the Win32 transfer.
+pub(crate) fn write_unicode_clipboard(text: &str) -> Option<u32> {
     let units: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     // SAFETY: STATIC is a system-provided window class. This non-visible owner
     // is created and destroyed on the current thread. A NULL clipboard owner
@@ -121,7 +125,7 @@ fn write_unicode_clipboard(text: &str) -> Option<u32> {
             GlobalFree(memory);
         }
         DestroyWindow(owner);
-        (transferred && sequence != 0).then_some(sequence)
+        transferred.then_some(sequence)
     }
 }
 

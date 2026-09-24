@@ -177,6 +177,7 @@ target_compile_options(msime-client-translation PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-translation PRIVATE msime-ibus-host)
 add_executable(msime-client-clipboard src/clipboard/clipboard_history.cpp)
 target_compile_options(msime-client-clipboard PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-client-clipboard PRIVATE nlohmann_json::nlohmann_json)
 add_executable(msime-client-clipboard-capture src/clipboard/clipboard_capture.cpp)
 target_compile_options(msime-client-clipboard-capture PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-client-clipboard-capture PRIVATE msime-ibus-host)
@@ -358,6 +359,13 @@ add_test(NAME linux-voice-provider-local
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/provider_local.py"
                  $<TARGET_FILE:msime-voice-local>)
 set_tests_properties(linux-voice-local-stream linux-voice-provider-local PROPERTIES TIMEOUT 120)
+add_test(NAME linux-voice-command-bounds
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/voice_command_bounds.py")
+add_test(NAME linux-voice-capture-device
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/capture_device_contract.py")
+add_test(NAME linux-clipboard-tool-parity
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/clipboard/clipboard_tool_parity.py"
+                 $<TARGET_FILE:msime-client-clipboard>)
 add_executable(linux-first-run-guidance-test tests/core/first_run_guidance.cpp)
 target_compile_options(linux-first-run-guidance-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-first-run-guidance-test PRIVATE src)

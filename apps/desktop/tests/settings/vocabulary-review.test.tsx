@@ -169,6 +169,18 @@ test("a host that cannot import a file renders no import button", async () => {
   expect(await screen.findByRole("button", { name: "导入词表文件" })).toBeTruthy();
 });
 
+test("a word list over 1 MiB is refused with a message instead of failing silently", async () => {
+  const importWordbook = vi.fn(async () => status());
+  const { container } = render(<VocabularyReviewPage client={client({ importWordbook })} />);
+  await screen.findByRole("button", { name: "导入词表文件" });
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+  const file = new File(["单词"], "big.txt", { type: "text/plain" });
+  Object.defineProperty(file, "size", { value: 1_048_577 });
+  fireEvent.change(input, { target: { files: [file] } });
+  expect(await screen.findByText("文件不能超过 1 MB，请拆分后分别导入。")).toBeTruthy();
+  expect(importWordbook).not.toHaveBeenCalled();
+});
+
 test("a bundled wordbook offers no delete, an imported one does", async () => {
   const removeWordbook = vi.fn(async () => status());
   render(<VocabularyReviewPage client={client({ removeWordbook })} />);

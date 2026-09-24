@@ -31,12 +31,16 @@ export class HarmonyHttpAsrRecognizer {
   private sessionToken: number = 0;
   private stopping: boolean = false;
   private settled: boolean = false;
+  // True from a valid start() until the session settles, so stop() during capturer setup is not lost.
+  private running: boolean = false;
+  // True once startCapturer() has returned for this session.
+  private capturing: boolean = false;
   private timeoutHandle: number | undefined = undefined;
   private resultHandler: HttpAsrResultHandler | undefined = undefined;
   private errorHandler: HttpAsrErrorHandler | undefined = undefined;
 
   isActive(): boolean {
-    return this.capturer !== undefined || this.request !== undefined;
+    return this.running || this.capturer !== undefined || this.request !== undefined;
   }
 
   async start(config: VoiceInputConfiguration, onResult: HttpAsrResultHandler,
@@ -51,8 +55,16 @@ export class HarmonyHttpAsrRecognizer {
     this.audioBytes = 0;
     this.stopping = false;
     this.settled = false;
+    this.running = true;
+    this.capturing = false;
     this.timeoutHandle = setTimeout((): void => {
-      if (token === this.sessionToken) void this.fail('语音识别超时。', token);
+      if (token !== this.sessionToken || this.settled) return;
+      // Reaching the limit while recording transcribes what was said; a stuck setup or stop fails.
+      if (this.capturing && !this.stopping) {
+        this.stop();
+      } else {
+        void this.fail('语音识别超时。', token);
+      }
     }, MAX_DURATION_MS);
     try {
       await this.startCapturer(config, token);
@@ -61,18 +73,23 @@ export class HarmonyHttpAsrRecognizer {
       await this.fail(`语音采集启动失败：${describeError(error)}`, token);
       throw new Error('语音采集启动失败');
     }
+    if (token !== this.sessionToken || this.settled) return;
+    this.capturing = true;
+    // A stop() that arrived during setup was only recorded; honour it now.
+    if (this.stopping) void this.finish(token);
   }
 
   stop(): void {
     if (!this.isActive() || this.stopping || this.settled) return;
     this.stopping = true;
-    void this.finish(this.sessionToken);
+    if (this.capturing) void this.finish(this.sessionToken);
   }
 
   cancel(): void {
     this.sessionToken += 1;
     this.stopping = true;
     this.settled = true;
+    this.running = false;
     this.clearTimeout();
     void this.releaseCapturer();
     const request: http.HttpRequest | undefined = this.request;
@@ -92,7 +109,7 @@ export class HarmonyHttpAsrRecognizer {
     // Before the capturer exists, because the routing choice is process-wide rather than a property
     // of one stream. A device that has gone away leaves the system default in place.
     await HarmonyVoiceCaptureDevices.select(config.capture_backend, config.capture_device);
-    if (token !== this.sessionToken || this.settled) {
+    if (token !== this.sessionToken || this.settled || this.stopping) {
       return;
     }
     const options: audio.AudioCapturerOptions = {
@@ -108,7 +125,7 @@ export class HarmonyHttpAsrRecognizer {
       }
     };
     const capturer: audio.AudioCapturer = await audio.createAudioCapturer(options);
-    if (token !== this.sessionToken || this.settled) {
+    if (token !== this.sessionToken || this.settled || this.stopping) {
       await capturer.release();
       return;
     }
@@ -133,14 +150,19 @@ export class HarmonyHttpAsrRecognizer {
 
   private readAudio(data: ArrayBuffer, token: number): void {
     if (token !== this.sessionToken || this.stopping || this.settled || data.byteLength === 0) return;
-    if (this.audioBytes + data.byteLength > MAX_AUDIO_BYTES) {
-      void this.fail('录音时间超过限制。', token);
-      return;
+    let length: number = data.byteLength;
+    const full: boolean = this.audioBytes + length >= MAX_AUDIO_BYTES;
+    if (full) {
+      // Keep the whole-sample prefix that fits, then stop and transcribe instead of discarding.
+      length = Math.floor((MAX_AUDIO_BYTES - this.audioBytes) / SAMPLE_BYTES) * SAMPLE_BYTES;
     }
-    const copy: Uint8Array = new Uint8Array(data.byteLength);
-    copy.set(new Uint8Array(data));
-    this.chunks.push(copy);
-    this.audioBytes += copy.length;
+    if (length > 0) {
+      const copy: Uint8Array = new Uint8Array(length);
+      copy.set(new Uint8Array(data, 0, length));
+      this.chunks.push(copy);
+      this.audioBytes += copy.length;
+    }
+    if (full) this.stop();
   }
 
   private async finish(token: number): Promise<void> {
@@ -156,6 +178,8 @@ export class HarmonyHttpAsrRecognizer {
       await this.fail('语音配置已失效。', token);
       return;
     }
+    // The upload is bounded by the request's own connect/read timeouts, not the recording limit.
+    this.clearTimeout();
     await this.send(config, wav, token);
   }
 
@@ -202,6 +226,7 @@ export class HarmonyHttpAsrRecognizer {
   private async complete(text: string, token: number): Promise<void> {
     if (token !== this.sessionToken || this.settled) return;
     this.settled = true;
+    this.running = false;
     this.clearTimeout();
     this.chunks = [];
     this.audioBytes = 0;
@@ -214,6 +239,7 @@ export class HarmonyHttpAsrRecognizer {
   private async fail(message: string, token: number): Promise<void> {
     if (token !== this.sessionToken || this.settled) return;
     this.settled = true;
+    this.running = false;
     this.clearTimeout();
     await this.releaseCapturer();
     const request: http.HttpRequest | undefined = this.request;

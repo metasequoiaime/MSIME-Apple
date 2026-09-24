@@ -129,12 +129,27 @@ fn failures(report: &Value) -> Vec<(u64, String)> {
         .collect()
 }
 
+/// `n` spelled with one letter per decimal digit, `a` for 0 through `j` for 9: a quick phrase code
+/// unique to its line and exactly as long as the number, since a code is letters only
+/// (`quick_phrase_code_is_well_formed`) and several tests depend on the file's byte size.
+fn letters(n: usize) -> String {
+    n.to_string()
+        .bytes()
+        .map(|digit| char::from(b'a' + (digit - b'0')))
+        .collect()
+}
+
+/// The quick phrase code the fixtures give line `n`.
+fn code(n: usize) -> String {
+    format!("q{}", letters(n))
+}
+
 /// One quick phrase per line, word first, with `special` put in place of the lines it names (1-based).
 fn phrases(count: usize, special: &[(usize, &str)]) -> String {
     (1..=count)
         .map(|line| match special.iter().find(|(at, _)| *at == line) {
             Some((_, text)) => format!("{text}\n"),
-            None => format!("短语{line}\tq{line}\t100\n"),
+            None => format!("短语{line}\t{}\t100\n", code(line)),
         })
         .collect()
 }
@@ -249,7 +264,7 @@ fn replaying_a_batched_import_writes_nothing_again() {
     );
     let first_ids = host.ids();
     // The user deletes one entry; a retried request with the same ID must not bring it back.
-    let deleted = ("q7".to_owned(), "短语7".to_owned());
+    let deleted = (code(7), "短语7".to_owned());
     assert!(host.store.remove(&deleted));
     host.actions.clear();
     let replayed = host
@@ -277,7 +292,7 @@ fn a_rime_header_longer_than_one_batch_is_never_read_as_rows() {
     text.push_str("...\n");
     let header_lines = text.lines().count();
     for index in 1..=1500 {
-        text.push_str(&format!("短语{index}\tq{index}\t100\n"));
+        text.push_str(&format!("短语{index}\t{}\t100\n", code(index)));
     }
     text.push_str("短语\tNOT-LOWER\n");
     assert!(text.len() > 2 * BATCH_REQUEST_BYTES);
@@ -305,7 +320,7 @@ fn a_rime_header_longer_than_one_batch_is_never_read_as_rows() {
 fn a_file_in_the_other_column_order_is_read_that_way_throughout() {
     let mut host = FakeHost::new();
     let text: String = (1..=2500)
-        .map(|index| format!("q{index}\t短语{index}\t100\n"))
+        .map(|index| format!("{}\t短语{index}\t100\n", code(index)))
         .collect();
     let report = host
         .import("quick_phrase", "standard", &text, "ui-swap")
@@ -316,9 +331,7 @@ fn a_file_in_the_other_column_order_is_read_that_way_throughout() {
         .actions
         .iter()
         .all(|action| action["format"] == "windows"));
-    assert!(host
-        .store
-        .contains(&("q2500".to_owned(), "短语2500".to_owned())));
+    assert!(host.store.contains(&(code(2500), "短语2500".to_owned())));
 }
 
 #[test]
@@ -328,9 +341,9 @@ fn a_batch_of_bad_rows_is_not_read_in_the_other_order_on_its_own() {
     let text: String = (1..=3000)
         .map(|index| {
             if (1001..=2000).contains(&index) {
-                format!("q{index}\t短语{index}\t100\n")
+                format!("{}\t短语{index}\t100\n", code(index))
             } else {
-                format!("短语{index}\tq{index}\t100\n")
+                format!("短语{index}\t{}\t100\n", code(index))
             }
         })
         .collect();
@@ -345,9 +358,7 @@ fn a_batch_of_bad_rows_is_not_read_in_the_other_order_on_its_own() {
         .actions
         .iter()
         .all(|action| action["format"] == "standard"));
-    assert!(!host
-        .store
-        .contains(&("q1500".to_owned(), "短语1500".to_owned())));
+    assert!(!host.store.contains(&(code(1500), "短语1500".to_owned())));
 }
 
 #[test]
@@ -360,7 +371,7 @@ fn a_batch_the_engine_refuses_whole_is_counted_row_by_row() {
             } else {
                 "q"
             };
-            format!("短语{index}\t{key}{index}\t100\n")
+            format!("短语{index}\t{key}{}\t100\n", letters(index))
         })
         .collect();
     let report = host

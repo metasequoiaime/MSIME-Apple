@@ -861,6 +861,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   private snapshotOptions: Object | undefined = undefined;
   private snapshotQueueTimer: number = -1;
   private editorGeneration: number = 0;
+  // Bumped only by attach/detach: an idle Engine restart (which bumps editorGeneration) must not
+  // drop the focused editor's attribute.
+  private attributeGeneration: number = 0;
   // Editor mutations are echoed asynchronously through KeyboardDelegate.textChange. Keep the
   // count raised until those callbacks arrive so our own commit cannot be mistaken for a host edit
   // and finish a residual composition that the Engine deliberately left active.
@@ -2131,6 +2134,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
     const editorGeneration: number = ++this.editorGeneration;
+    const attributeGeneration: number = ++this.attributeGeneration;
     this.pendingOwnEdits = 0;
     this.previewSupported = false;
     this.previewText = '';
@@ -2138,7 +2142,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
     inputClient.getEditorAttribute().then((attribute: inputMethodEngine.EditorAttribute): void => {
-      if (editorGeneration !== this.editorGeneration || this.inputClient !== inputClient) {
+      if (attributeGeneration !== this.attributeGeneration || this.inputClient !== inputClient) {
         return;
       }
       this.enterKey = attribute.enterKeyType;
@@ -2160,7 +2164,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.modeScope.mode(this.defaultEnglish) || EditorPolicy.prefersLatin(this.traits);
       if (this.handle !== 0 && EditorPolicy.appliesDelayedLanguage(
         this.composing(), this.englishMode, english,
-        this.manualLanguageGeneration === editorGeneration)) {
+        this.manualLanguageGeneration >= editorGeneration)) {
         this.englishMode = english;
         this.applyView(client.setEnglishMode(this.handle, english));
       }
@@ -2186,6 +2190,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   detach(): void {
     this.editorGeneration++;
+    this.attributeGeneration++;
     this.manualLanguageGeneration = -1;
     this.pendingOwnEdits = 0;
     this.modeScope.deactivate();

@@ -179,6 +179,12 @@ export function LocalModelManager({
   const [installing, setInstalling] = useState<Record<string, boolean>>({});
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
   const mounted = useRef(true);
+  // A download takes minutes; what it finishes into is the page as it is then, not as it was on
+  // the click that started it.
+  const modelPathRef = useRef(modelPath);
+  modelPathRef.current = modelPath;
+  const onUseRef = useRef(onUse);
+  onUseRef.current = onUse;
 
   const refresh = async () => {
     try {
@@ -222,7 +228,7 @@ export function LocalModelManager({
       if (!mounted.current) return;
       setNotice(`「${model.title}」已下载。`);
       // A first model is what the user downloaded it for; a later one waits to be picked.
-      if (!modelPath.trim()) onUse(path);
+      if (!modelPathRef.current.trim()) onUseRef.current(path);
     } catch (error) {
       if (mounted.current)
         setNotice(localModelErrorMessage(error) ?? `已取消下载「${model.title}」。`);

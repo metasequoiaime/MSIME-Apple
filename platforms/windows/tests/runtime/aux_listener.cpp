@@ -128,8 +128,8 @@ int main() {
       // records what it was asked and answers what the test tells it to, so
       // both outcomes can be checked at the wire.
       std::atomic<bool> deactivated{false};
-      std::atomic<int32_t> seen_client{0};
-      std::atomic<int32_t> seen_token{0};
+      std::atomic<uint64_t> seen_client{0};
+      std::atomic<uint64_t> seen_token{0};
       std::atomic<uint64_t> terminal_calls{0};
       std::atomic<bool> maintenance_ok{false};
       std::atomic<uint64_t> quiesces{0};
@@ -197,22 +197,46 @@ int main() {
       // A deactivation that did not happen must not be acknowledged: the DLL
       // would take an "OK" as proof of a teardown. It counts as unhandled and
       // nothing is written back.
+      // The client id is the DLL's real (pid << 32) | tid, which does not
+      // fit in 32 bits, and the listener checks the pid against the sender.
+      const uint64_t own_client =
+          (static_cast<uint64_t>(GetCurrentProcessId()) << 32) |
+          GetCurrentThreadId();
+      const auto terminal_message = [](uint64_t client, uint64_t token) {
+        return L"TerminalDeactivation|" + std::to_wstring(client) + L"|" +
+               std::to_wstring(token);
+      };
+      const uint64_t large_token = 18446744073709551615ull;
       deactivated.store(false);
-      require(send_and_read_reply(name, L"TerminalDeactivation|7|42").empty());
-      require(deliver(name, L"TerminalDeactivation|7|42",
+      require(
+          send_and_read_reply(name, terminal_message(own_client, large_token))
+              .empty());
+      require(deliver(name, terminal_message(own_client, large_token),
                       [&] { return listener->stats().unknown_verb; }, 3));
       // The sink is told exactly which client and focus token the DLL named.
-      require(seen_client.load() == 7 && seen_token.load() == 42);
+      require(seen_client.load() == own_client &&
+              seen_token.load() == large_token);
 
       // Once the client really is gone, the "OK" the DLL is polling for is
       // written back on the same connection, so it stops waiting out its
       // 150 ms.
       deactivated.store(true);
       const auto before = terminal_calls.load();
-      require(send_and_read_reply(name, L"TerminalDeactivation|9|11") == L"OK");
+      require(send_and_read_reply(name, terminal_message(own_client, 11)) ==
+              L"OK");
       require(terminal_calls.load() > before);
-      require(seen_client.load() == 9 && seen_token.load() == 11);
+      require(seen_client.load() == own_client && seen_token.load() == 11);
       // An acknowledged deactivation is dispatched work, not an unknown verb.
+      require(listener->stats().unknown_verb == 3);
+      // A client id naming another process is refused before the sink runs,
+      // so one host cannot fence another's focus.
+      const uint64_t foreign_client =
+          (static_cast<uint64_t>(GetCurrentProcessId() + 4) << 32) | 1;
+      const auto calls_before_forgery = terminal_calls.load();
+      require(send_and_read_reply(name, terminal_message(foreign_client, 11))
+                  .empty());
+      require(listener->stats().rejected == 1);
+      require(terminal_calls.load() == calls_before_forgery);
       require(listener->stats().unknown_verb == 3);
       // Dictionary maintenance: the settings process takes "OK" as permission
       // to open the dictionaries exclusively, so a release that did not happen

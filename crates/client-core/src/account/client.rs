@@ -1076,7 +1076,7 @@ impl AccountApi for BackendAccountClient {
         if reply.role != "assistant"
             || reply.content.trim().is_empty()
             || reply.content.len() > MAX_CHAT_RESPONSE_BYTES
-            || reply.content.chars().any(char::is_control)
+            || chat_text_has_disallowed_control(&reply.content)
         {
             return Err(AccountError::Unavailable);
         }

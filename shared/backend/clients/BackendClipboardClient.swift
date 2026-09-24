@@ -14,7 +14,7 @@ extension BackendAccountClient {
     var components = URLComponents()
     components.path = "/v1/users/me/clipboard"
     components.queryItems = [URLQueryItem(name: "q", value: search)]
-    guard let path = components.string else { throw Failure(status: 0) }
+    guard let path = Self.encodedPath(components) else { throw Failure(status: 0) }
     return try await json("GET", path, token: token)
   }
   func setClipboardEnabled(_ enabled: Bool, token: String) async throws {

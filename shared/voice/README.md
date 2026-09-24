@@ -38,7 +38,7 @@ msime-voice-local [--runtime <library>] [--idle-exit <seconds>]
 msime-voice-local [--runtime <library>] --model <dir> --wav <file> [--language <tag>] [--hotword <word>]...
 ```
 
-The second form transcribes a 16 kHz mono 16-bit PCM WAV file, prints the text and exits; it is for tests and for checking an installed model by hand. `--idle-exit` defaults to 600; 0 disables it.
+The second form transcribes a 16 kHz mono 16-bit PCM WAV file, prints the text and exits; it is for tests and for checking an installed model by hand. `--idle-exit` takes whole non-negative seconds and defaults to 600; 0 disables it.
 
 On start the helper writes `{"type":"hello","version":1,"available":<bool>,"error":"<why the runtime did not load, or empty>"}`. The runtime is loaded to answer it, not the model.
 
@@ -53,7 +53,7 @@ On start the helper writes `{"type":"hello","version":1,"available":<bool>,"erro
 
 Any failure produces `{"type":"error","id":X,"message":"..."}` and closes the session; `id` is the request's for a failed `start` and the open session's otherwise. A line that is not JSON gets an error without `id`, and an unknown `op` gets an error too. A failure caused by `cancel` is reported as `cancelled`, so a cancelled session always ends with exactly one `cancelled`.
 
-Requests are handled in order on one worker thread. A loaded model is released after 120 seconds without a session (or `--idle-exit`, if shorter), and the process exits on stdin EOF or after `--idle-exit` seconds without a request while no session is open. Hosts should respawn it on demand rather than keep it alive.
+Requests are handled in order on one worker thread. A loaded model is released after 120 seconds without a session (or `--idle-exit`, if shorter and not 0), and the process exits on stdin EOF or after `--idle-exit` seconds without a request while no session is open. Hosts should respawn it on demand rather than keep it alive.
 
 With a fetched runtime and an installed model, `tests/local_helper.py` drives this protocol end to end:
 

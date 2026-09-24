@@ -525,7 +525,6 @@ CMetasequoiaIME::~CMetasequoiaIME()
         _pCandidateListUIPresenter = nullptr;
     }
     _DrainPendingCandidatePresenterCleanup();
-    DllRelease();
 
     /* 处理线程的清理 */
     if (_pIpcThread)
@@ -552,6 +551,8 @@ CMetasequoiaIME::~CMetasequoiaIME()
         CloseHandle(_ipcStopEvent);
         _ipcStopEvent = nullptr;
     }
+    // Last, so DllCanUnloadNow cannot report idle while the IPC thread is still joining.
+    DllRelease();
 }
 
 HRESULT CMetasequoiaIME::_RequestDeferredApplicationTextEditSession(_In_ ITfContext *pContext, WCHAR wch,

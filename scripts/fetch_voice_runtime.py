@@ -47,9 +47,13 @@ def download(artifact: dict, destination: Path) -> None:
     # Staged beside the destination so a failed or mismatched download never sits where the next run would take it as finished.
     with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as staged:
         staged_path = Path(staged.name)
-        with urllib.request.urlopen(url) as response:
-            while block := response.read(CHUNK):
-                staged.write(block)
+        try:
+            with urllib.request.urlopen(url, timeout=300) as response:
+                while block := response.read(CHUNK):
+                    staged.write(block)
+        except BaseException:
+            staged_path.unlink(missing_ok=True)
+            raise
     actual = digest(staged_path)
     size = staged_path.stat().st_size
     if actual != artifact["sha256"] or size != artifact["size"]:
@@ -78,7 +82,14 @@ def extract(archive: Path, kind: str, into: Path) -> None:
                 path.chmod(0o755)
     elif kind == "tar.bz2":
         with tarfile.open(archive, "r:bz2") as bundle:
-            bundle.extractall(into, filter="data")
+            if hasattr(tarfile, "data_filter"):
+                bundle.extractall(into, filter="data")
+            else:
+                # No extraction filters before 3.9.17/3.10.12/3.11.4 (macOS's stock 3.9.6): check names and links by hand.
+                for member in bundle.getmembers():
+                    if not safe_member(member.name) or ((member.issym() or member.islnk()) and not safe_member(member.linkname)):
+                        raise SystemExit(f"{archive.name}: unsafe member {member.name}")
+                bundle.extractall(into)
     else:
         raise SystemExit(f"{archive.name}: unknown archive kind {kind}")
 

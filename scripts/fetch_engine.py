@@ -78,7 +78,8 @@ def download_and_extract(artifact: dict, directory: Path) -> Path:
     """Download, verify, and extract one GitHub source archive."""
     archive = directory / "source.tar.gz"
     directory.mkdir(parents=True)
-    urllib.request.urlretrieve(artifact["archive"], archive)
+    with urllib.request.urlopen(artifact["archive"], timeout=300) as response, archive.open("wb") as out:
+        shutil.copyfileobj(response, out)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     if digest != artifact["sha256"]:
         raise RuntimeError(
@@ -91,9 +92,14 @@ def download_and_extract(artifact: dict, directory: Path) -> Path:
         members = source.getmembers()
         for member in members:
             path = Path(member.name)
-            if path.is_absolute() or ".." in path.parts:
+            link = Path(member.linkname) if member.issym() or member.islnk() else None
+            if path.is_absolute() or ".." in path.parts or (link and (link.is_absolute() or ".." in link.parts)):
                 raise RuntimeError(f"unsafe archive member: {member.name}")
-        source.extractall(extracted)
+        # The data filter where this interpreter has it; macOS's stock 3.9.6 does not, and relies on the check above.
+        if hasattr(tarfile, "data_filter"):
+            source.extractall(extracted, filter="data")
+        else:
+            source.extractall(extracted)
     roots = {member.name.split("/", 1)[0] for member in members if member.name}
     if len(roots) != 1:
         raise RuntimeError(f"archive for {artifact['repository']} has no single root directory")

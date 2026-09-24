@@ -496,22 +496,26 @@ pub(crate) fn open_cloud_dictionary_panel(
     }
 }
 
+/// Every label an `open_*_panel` command creates. `close_panel` refuses anything
+/// else, so a new panel belongs here too or its page can never close itself.
+pub(crate) const CLOSABLE_PANELS: &[&str] = &[
+    "keyboard-panel",
+    "handwriting-panel",
+    "emoji-panel",
+    "clipboard-panel",
+    "voice-panel",
+    "vocabulary-panel",
+    "cloud-clipboard-panel",
+    "cloud-dictionary-panel",
+];
+
 #[tauri::command]
 pub(crate) fn close_panel(
     app: tauri::AppHandle,
     label: String,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    if !matches!(
-        label.as_str(),
-        "keyboard-panel"
-            | "handwriting-panel"
-            | "emoji-panel"
-            | "clipboard-panel"
-            | "voice-panel"
-            | "cloud-clipboard-panel"
-            | "cloud-dictionary-panel"
-    ) {
+    if !CLOSABLE_PANELS.contains(&label.as_str()) {
         return Err(HostActionError {
             code: "invalid_panel",
         });
@@ -544,18 +548,7 @@ pub(crate) fn close_panel(
         .map_err(|_| HostActionError {
             code: "unavailable",
         });
-    if result.is_ok()
-        && matches!(
-            label.as_str(),
-            "keyboard-panel"
-                | "handwriting-panel"
-                | "emoji-panel"
-                | "clipboard-panel"
-                | "voice-panel"
-                | "cloud-clipboard-panel"
-                | "cloud-dictionary-panel"
-        )
-    {
+    if result.is_ok() {
         if let Ok(mut target) = state.0.lock() {
             #[cfg(target_os = "linux")]
             {

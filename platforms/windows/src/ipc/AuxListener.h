@@ -18,6 +18,9 @@ struct AuxStats {
   uint64_t malformed = 0;
   uint64_t unknown_verb = 0;
   uint64_t dispatched = 0;
+  // A well-formed verb from a peer not allowed to send it. Kept apart from
+  // unknown_verb so a forged request is not mistaken for a protocol mismatch.
+  uint64_t rejected = 0;
 };
 
 // A fourth, session-less pipe endpoint. The TSF DLL writes one message and

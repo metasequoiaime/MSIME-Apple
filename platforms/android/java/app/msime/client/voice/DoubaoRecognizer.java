@@ -12,6 +12,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import org.json.JSONException;
@@ -44,6 +47,8 @@ public final class DoubaoRecognizer {
     private final AtomicBoolean stopped = new AtomicBoolean();
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final SecureRandom random = new SecureRandom();
+    /** The plain socket under TLS, so cancel() can unblock a pending read without TLS I/O. */
+    private volatile java.net.Socket transport;
 
     public void stop() {
         stopped.set(true);
@@ -52,6 +57,14 @@ public final class DoubaoRecognizer {
     public void cancel() {
         cancelled.set(true);
         stopped.set(true);
+        java.net.Socket active = transport;
+        if (active != null) {
+            try {
+                active.close();
+            } catch (IOException | RuntimeException ignored) {
+                // The blocked read fails either way, which is the point.
+            }
+        }
     }
 
     /**
@@ -70,7 +83,7 @@ public final class DoubaoRecognizer {
         SSLSocket socket = null;
         try {
             socket = connect(uri, headers);
-            if (socket == null) return null;
+            if (socket == null || cancelled.get()) return null;
             OutputStream out = socket.getOutputStream();
             InputStream in = socket.getInputStream();
             send(out, start);
@@ -81,15 +94,10 @@ public final class DoubaoRecognizer {
             return null;
         } finally {
             if (recorder != null) {
-                try {
-                    if (recorder.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
-                        recorder.stop();
-                    }
-                } catch (IllegalStateException ignored) {
-                    // Already stopped; releasing the microphone is what matters.
-                }
+                stopRecording(recorder);
                 recorder.release();
             }
+            transport = null;
             if (socket != null) {
                 try {
                     socket.close();
@@ -113,6 +121,8 @@ public final class DoubaoRecognizer {
         while (!finished) {
             if (cancelled.get()) return null;
             boolean last = stopped.get() || sent >= limit;
+            // Release the microphone before waiting on the final answer.
+            if (last) stopRecording(recorder);
             int read = last ? 0 : recorder.read(chunk, 0, chunk.length);
             if (read < 0) return null;
             sent += read;
@@ -132,8 +142,7 @@ public final class DoubaoRecognizer {
                     pending -= decoded.consumed();
                     if (decoded.opcode() == WebSocketFrames.OPCODE_CLOSE) return transcript;
                     if (decoded.opcode() == WebSocketFrames.OPCODE_PING) {
-                        send(out, WebSocketFrames.clientFrame(WebSocketFrames.OPCODE_PONG,
-                            decoded.payload(), decoded.payload().length, mask()));
+                        sendFrame(out, WebSocketFrames.OPCODE_PONG, decoded.payload());
                         continue;
                     }
                     if (decoded.opcode() != WebSocketFrames.OPCODE_BINARY
@@ -182,26 +191,49 @@ public final class DoubaoRecognizer {
         int port = uri.getPort() > 0 ? uri.getPort() : 443;
         // Connect first, then hand the connected socket to TLS, so the connect attempt is bounded:
         // SSLSocketFactory.createSocket(host, port) connects with no timeout at all.
-        java.net.Socket transport = new java.net.Socket();
-        transport.connect(new java.net.InetSocketAddress(uri.getHost(), port),
-            CONNECT_TIMEOUT_MILLIS);
-        SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
-        SSLSocket socket = (SSLSocket) factory.createSocket(transport, uri.getHost(), port, true);
-        socket.setSoTimeout(READ_TIMEOUT_MILLIS);
-        socket.startHandshake();
-        String key = Base64.getEncoder().encodeToString(randomBytes(16));
-        String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
-        if (uri.getRawQuery() != null) path = path + "?" + uri.getRawQuery();
-        socket.getOutputStream().write(WebSocketFrames
-            .handshakeRequest(uri.getHost(), path, key, headers)
-            .getBytes(StandardCharsets.US_ASCII));
-        socket.getOutputStream().flush();
-        String response = readHandshake(socket.getInputStream());
-        if (!WebSocketFrames.handshakeAccepted(response, key)) {
-            socket.close();
-            return null;
+        java.net.Socket plain = new java.net.Socket();
+        transport = plain;
+        SSLSocket socket = null;
+        try {
+            plain.connect(new java.net.InetSocketAddress(uri.getHost(), port),
+                CONNECT_TIMEOUT_MILLIS);
+            SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+            socket = (SSLSocket) factory.createSocket(plain, uri.getHost(), port, true);
+            // A raw SSLSocket checks the chain but not the hostname unless asked to.
+            SSLParameters parameters = socket.getSSLParameters();
+            parameters.setEndpointIdentificationAlgorithm("HTTPS");
+            socket.setSSLParameters(parameters);
+            socket.setSoTimeout(READ_TIMEOUT_MILLIS);
+            socket.startHandshake();
+            if (!HttpsURLConnection.getDefaultHostnameVerifier()
+                    .verify(uri.getHost(), socket.getSession())) {
+                throw new SSLPeerUnverifiedException("certificate does not match " + uri.getHost());
+            }
+            String key = Base64.getEncoder().encodeToString(randomBytes(16));
+            String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+            if (uri.getRawQuery() != null) path = path + "?" + uri.getRawQuery();
+            socket.getOutputStream().write(WebSocketFrames
+                .handshakeRequest(uri.getHost(), path, key, headers)
+                .getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+            String response = readHandshake(socket.getInputStream());
+            if (!WebSocketFrames.handshakeAccepted(response, key)) {
+                socket.close();
+                return null;
+            }
+            return socket;
+        } catch (IOException | RuntimeException error) {
+            try {
+                if (socket != null) {
+                    socket.close();
+                } else {
+                    plain.close();
+                }
+            } catch (IOException ignored) {
+                // Already failing; the original error is the one worth reporting.
+            }
+            throw error;
         }
-        return socket;
     }
 
     /** Read exactly the response head, leaving any frame bytes that followed it in the stream. */
@@ -248,9 +280,22 @@ public final class DoubaoRecognizer {
         return recorder;
     }
 
+    private static void stopRecording(AudioRecord recorder) {
+        try {
+            if (recorder.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+                recorder.stop();
+            }
+        } catch (IllegalStateException ignored) {
+            // Already stopped; releasing the microphone is what matters.
+        }
+    }
+
     private void send(OutputStream out, byte[] payload) throws IOException {
-        out.write(WebSocketFrames.clientFrame(WebSocketFrames.OPCODE_BINARY, payload,
-            payload.length, mask()));
+        sendFrame(out, WebSocketFrames.OPCODE_BINARY, payload);
+    }
+
+    private void sendFrame(OutputStream out, int opcode, byte[] payload) throws IOException {
+        out.write(WebSocketFrames.clientFrame(opcode, payload, payload.length, mask()));
         out.flush();
     }
 

@@ -16,11 +16,11 @@
 # Usage:
 #   scripts/verify-local.sh --quick   compile only, the pre-merge gate
 #   scripts/verify-local.sh           everything
-#   scripts/verify-local.sh --update-baseline   rewrite known-failures.txt
+#   scripts/verify-local.sh --update-baseline   append newly observed failures to known-failures.txt
 #
-# --update-baseline records one run. Several desktop tests are flaky, so a
-# single run under-reports: the committed baseline is the union of several,
-# and entries should be removed as they are fixed rather than re-recorded.
+# --update-baseline appends what one run observed and removes nothing. Several
+# desktop tests are flaky, so a single run under-reports: the committed baseline
+# is the union of several, and entries are removed by hand as they are fixed.
 set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -101,6 +101,19 @@ fi
 failed=0
 new_failures=""
 observed_wine="$(mktemp)"
+collected="$(mktemp)"
+# One EXIT trap for every temp file and whichever build lock this run holds; the lock sections set and clear held_lock instead of replacing the trap.
+held_lock=""
+# shellcheck disable=SC2317  # reached through the trap
+cleanup() {
+  local file
+  for file in "$collected" "$collected".* "$observed_wine" "${harmony_log:-}" "${cross_log:-}" "${wine_log:-}" "${android_host_log:-}"; do
+    if [ -n "$file" ]; then rm -f -- "$file"; fi
+  done
+  if [ -n "$held_lock" ]; then rmdir "$held_lock" 2>/dev/null; fi
+  return 0
+}
+trap cleanup EXIT
 note() { printf '\n=== %s ===\n' "$1"; }
 fail() { echo "FAIL: $1"; failed=1; }
 
@@ -118,9 +131,6 @@ compare() {
     echo "$phase: at baseline"
   fi
 }
-
-collected="$(mktemp)"
-trap 'rm -f "$collected" "$collected".*' EXIT
 
 # A stale engine tree fails the build with undeclared-identifier errors that look
 # exactly like a code break - this script's own first run lost time to that.
@@ -147,6 +157,10 @@ python3 scripts/test-tracked-symlinks.py || fail "tracked symlinks"
 # The Linux container gates borrow another checkout's vendor/; one prepared for an older lock looks like a code break.
 note "borrowed engine tree"
 python3 scripts/test-fetch-engine-matches.py || fail "borrowed engine tree"
+
+# engine-update.yml's relock step, offline: only commit, archive and sha256 may change.
+note "engine relock"
+python3 scripts/test-relock-engine.py || fail "engine relock"
 
 # Same shape again, one target further out: `std::fs::File::lock` compiles for Android and then
 # fails at runtime, so only a keyboard running on a handset ever finds out.
@@ -325,13 +339,13 @@ if [ -n "$cross_vcpkg" ]; then
     echo "windows x86 syntax: skipped (another run holds $x86_lock)"
     x86_lock="skipped"
   else
-    trap 'rmdir "$x86_lock" 2>/dev/null' EXIT
+    held_lock="$x86_lock"
   fi
 fi
 if [ "$x86_lock" != "skipped" ]; then
   python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
   [ -n "$x86_lock" ] && rmdir "$x86_lock" 2>/dev/null
-  trap - EXIT
+  held_lock=""
 fi
 
 # Most of the Windows tests are policy with no Win32 call in the translation
@@ -465,8 +479,14 @@ fi
 # against the SDK's android.jar and runs those tests, and it needs no device.
 note "android host java"
 if [ -n "$android_sdk" ] && [ -d "$android_sdk/platforms" ]; then
-  ANDROID_SDK_ROOT="$android_sdk" bash platforms/android/check-host.sh >/dev/null 2>&1     || fail "android host java"
-  echo "android host java: service, policies and smoke tests compile and pass"
+  android_host_log="$(mktemp)"
+  if ANDROID_SDK_ROOT="$android_sdk" bash platforms/android/check-host.sh >"$android_host_log" 2>&1; then
+    echo "android host java: service, policies and smoke tests compile and pass"
+  else
+    tail -20 "$android_host_log"
+    fail "android host java"
+  fi
+  rm -f "$android_host_log"
 else
   echo "skipped: no Android SDK platforms directory"
 fi
@@ -631,7 +651,7 @@ elif [ -n "$cross_vcpkg" ]; then
     echo "windows cross build: skipped (another run holds $cross_lock)"
   else
     cross_build_ok=0
-    trap 'rmdir "$cross_lock" 2>/dev/null' EXIT
+    held_lock="$cross_lock"
     cross_log="$(mktemp)"
     if MSIME_VCPKG_ROOT="$cross_vcpkg" MSIME_WINDOWS_DEPS_ROOT="$cross_deps" \
       bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
@@ -646,7 +666,7 @@ elif [ -n "$cross_vcpkg" ]; then
     fi
     rm -f "$cross_log"
     rmdir "$cross_lock" 2>/dev/null
-    trap - EXIT
+    held_lock=""
   fi
 
   # The native CMake build does not compile the shared Tauri shell. Its Windows
@@ -808,20 +828,31 @@ fi
 note "rust tests"
 : > "$collected.rust"
 # msime-host-macos and msime-desktop were missing from this list, and a crate nobody tests is not the
-# worst of it: the compile failure is swallowed by the `|| true` below, so a crate that does not build at
+# worst of it: cargo's exit status is not the verdict here (known failures make it non-zero), so a crate that does not build at
 # all collects no failing names and is reported as being at baseline. msime-desktop did not link on macOS
-# for that reason, and its 86 tests had never run.
-for package in msime-client-core msime-host-api msime-input-runtime msime-host-windows \
-  msime-host-macos msime-mcp-server msime-desktop; do
+# for that reason, and its 86 tests had never run. msime-engine-bridge and msime-tauri-mobile-platform
+# were missing too, and nothing else runs their tests on the host target.
+for package in msime-client-core msime-engine-bridge msime-host-api msime-input-runtime msime-host-windows \
+  msime-host-macos msime-mcp-server msime-tauri-mobile-platform msime-desktop; do
   # A package that does not build produces no failing test names, which reads as "at baseline" - which is
   # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
-  cargo test -p "$package" --no-fail-fast > "$collected.$package" 2>&1 || true
+  status=0 build_failed=0
+  cargo test -p "$package" --no-fail-fast > "$collected.$package" 2>&1 || status=$?
   if grep -qE "^error: (could not compile|linking with)" "$collected.$package"; then
     grep -E "^error: (could not compile|linking with)" "$collected.$package" | head -1
     fail "$package build"
+    build_failed=1
   fi
-  grep -E "^    [a-z_]+::" "$collected.$package" |
-    sed "s/^ *//;s#^#$package #" >> "$collected.rust" || true
+  # Names come only from the list under each binary's second `failures:` header (the first is followed
+  # by unindented `---- name stdout ----` blocks), so top-level integration tests and doc-tests count too.
+  names="$(awk '/^failures:$/ { list = 1; next } list && /^    / { sub(/^ +/, ""); print; next } { list = 0 }' \
+    "$collected.$package")"
+  if [ -n "$names" ]; then
+    printf '%s\n' "$names" | sed "s#^#$package #" >> "$collected.rust"
+  elif [ "$status" -ne 0 ] && [ "$build_failed" -eq 0 ]; then
+    # A failure cargo named nowhere (a crashed test binary, a summary this parser missed) is still one.
+    echo "$package <unnamed failure>" >> "$collected.rust"
+  fi
 done
 compare "rust tests" "$collected.rust"
 
@@ -1028,9 +1059,16 @@ else
 fi
 
 if [ "$update" -eq 1 ]; then
-  cat "$collected".rust "$collected".native "$collected".pipe "$collected".ts     2>/dev/null | sort -u > "$baseline"
+  # Append-only: phases skip by host (wine, macos, latency, typescript), so what was not observed here
+  # is not evidence of a fix, and the comments beside each entry must stay where they are.
+  added="$(cat "$collected".rust "$collected".native "$collected".macos "$collected".apple_bridge \
+      "$collected".pipe "$collected".ts "$collected".latency "$observed_wine" 2>/dev/null |
+    grep -v '^ *$' | sort -u | comm -23 - <(grep -vE '^ *(#|$)' "$baseline" | sort -u) || true)"
+  if [ -n "$added" ]; then
+    { printf '\n# Added by --update-baseline on %s\n' "$(date +%F)"; printf '%s\n' "$added"; } >> "$baseline"
+  fi
   echo
-  echo "baseline rewritten: $(wc -l < "$baseline") known failures"
+  echo "baseline: $(printf '%s' "$added" | grep -c . || true) new entries appended"
   exit 0
 fi
 

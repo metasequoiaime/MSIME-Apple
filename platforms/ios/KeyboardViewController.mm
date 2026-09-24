@@ -173,6 +173,8 @@
 
 - (void)viewDidDisappear:(BOOL)animated {
     [self.session closeWithError:nil];
+    // A closed session cannot refocus; startSession makes a new one on the next appearance.
+    self.session = nil;
     [super viewDidDisappear:animated];
 }
 

@@ -499,6 +499,18 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
            [identifier[@"index"] compare:@(NSUIntegerMax)] != NSOrderedDescending;
 }
 
+// Background readers borrow the controller strongly. Its last release must not
+// land on their queue, where -dealloc would tear down AppKit objects off main.
+// Takes the caller's reference and clears it before main can drop the handoff.
+static void MSIMEReleaseControllerOnMain(__strong id *controller) {
+    if (!*controller) return;
+    CFTypeRef owner = CFBridgingRetain(*controller);
+    *controller = nil;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        (void)CFBridgingRelease(owner);
+    });
+}
+
 // Numeric and space selection must use the candidate identities captured by the
 // panel that is actually on screen. AppKit can deliver another key event before
 // the previous content view has painted, while _view already points at the next
@@ -2092,7 +2104,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     id client = _activeClient;
     __weak MSIMEInputController *weakSelf = self;
     [_glossQueue addOperationWithBlock:^{
-        NSDictionary *result = hasResources ? [weakSelf readCandidateGloss:request resources:resources] : nil;
+        id reader = hasResources ? weakSelf : nil; // id: handed to MSIMEReleaseControllerOnMain
+        NSDictionary *result = reader ? [reader readCandidateGloss:request resources:resources] : nil;
+        MSIMEReleaseControllerOnMain(&reader);
         if (result && ![result[@"generation"] isEqual:request[@"generation"]]) return;
         NSMutableArray *translations = [result[@"translations"] mutableCopy] ?: [NSMutableArray array];
         if (directory.isAbsolutePath && learnedItems.count) {
@@ -2170,8 +2184,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     __weak MSIMEInputController *weakSelf = self;
     [_targetGlossQueue addOperationWithBlock:^{
         NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
+        id reader = weakSelf;
         for (NSString *language in request[@"offline_languages"]) {
-            NSDictionary *result = [weakSelf readTargetGloss:request language:language resources:resources];
+            NSDictionary *result = [reader readTargetGloss:request language:language resources:resources];
             if (![result[@"generation"] isEqual:request[@"generation"]]) continue;
             for (NSDictionary *entry in result[@"translations"]) {
                 NSString *text = entry[@"text"];
@@ -2182,6 +2197,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 byTarget[language] = translation;
             }
         }
+        MSIMEReleaseControllerOnMain(&reader);
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
             if (!current || current->_targetGlossEpoch != epoch || current->_session != session || current->_activeClient != client ||
@@ -2872,6 +2888,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (_globalVoiceHotkeyMonitor) [NSEvent removeMonitor:_globalVoiceHotkeyMonitor];
     [_desktopInputSession stop]; [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel];
     [_doubaoPolishRequest cancel]; [_livePolishRequest cancel];
+    // A client that dies without deactivateServer: leaves the repeating timer on the run loop.
+    [_preferencesTimer invalidate];
 }
 - (MSIMEHTTPVoiceRequest *)makeDoubaoPolishRequest:(NSDictionary *)options {
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
@@ -3782,10 +3800,12 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         [_preferencesTimer invalidate];
         __weak MSIMEInputController *weakSelf = self;
         _preferencesTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
-            (void)timer;
+            // The run loop, not the controller, keeps this timer; it stops once its owner is gone.
+            MSIMEInputController *owner = weakSelf;
+            if (!owner) { [timer invalidate]; return; }
             // Catches a maintenance notification that never arrived.
             [MSIMEInputController releaseQuiescedDictionarySessions];
-            [weakSelf reloadPreferences];
+            [owner reloadPreferences];
         }];
         [self reloadPreferences];
     }
@@ -5257,8 +5277,9 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     content.lineWidth = tokens.borderWidth;
     NSArray<MSIMECandidateButton *> *candidateButtons = [content.subviews filteredArrayUsingPredicate:
         [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
-            return [view isKindOfClass:MSIMECandidateButton.class] &&
-                ![view isKindOfClass:MSIMECandidatePreeditField.class] && view.tag >= 0;
+            return ([view isKindOfClass:MSIMECandidateButton.class] ||
+                    [view isKindOfClass:MSIMECandidatePreeditField.class]) &&
+                view.tag >= 0;
         }]];
     for (MSIMECandidateButton *button in candidateButtons) {
         if ([button.identifier isEqual:@"candidate-preedit"] && [button isKindOfClass:NSTextField.class]) {

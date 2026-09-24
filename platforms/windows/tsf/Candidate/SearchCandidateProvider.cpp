@@ -39,7 +39,14 @@ CSearchCandidateProvider::CSearchCandidateProvider(_In_ ITfTextInputProcessorEx 
 {
     assert(ptip != nullptr);
 
+    // A search client can keep the provider after the TIP is released; hold
+    // the TIP so a late call sees a null engine instead of freed memory. No
+    // cycle: Deactivate drops the TIP's provider reference.
     _pTip = ptip;
+    if (_pTip)
+    {
+        _pTip->AddRef();
+    }
     _refCount = 0;
 }
 
@@ -50,6 +57,11 @@ destructor of CSearchCandidateProvider
 ------------------------------------------------------------------------------*/
 CSearchCandidateProvider::~CSearchCandidateProvider(void)
 {
+    if (_pTip)
+    {
+        _pTip->Release();
+        _pTip = nullptr;
+    }
 }
 
 /*------------------------------------------------------------------------------
@@ -130,6 +142,10 @@ STDMETHODIMP CSearchCandidateProvider::GetSearchCandidates(BSTR bstrQuery, BSTR 
     bstrApplicationID;
     bstrQuery;
     HRESULT hr = E_FAIL;
+    if (pplist == nullptr)
+    {
+        return E_POINTER;
+    }
     *pplist = nullptr;
 
     if (nullptr == _pTip)
@@ -161,7 +177,10 @@ STDMETHODIMP CSearchCandidateProvider::GetSearchCandidates(BSTR bstrQuery, BSTR 
             hr = CTipCandidateString::CreateInstance(&pCandStr);
             if (FAILED(hr) || (pCandStr == nullptr))
             {
-                return hr;
+                // Callers do not release on failure.
+                (*pplist)->Release();
+                *pplist = nullptr;
+                return FAILED(hr) ? hr : E_OUTOFMEMORY;
             }
 
             pCandStr->SetIndex(iCand);

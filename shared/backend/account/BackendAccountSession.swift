@@ -124,12 +124,18 @@ actor BackendAccountSession {
   }
   func accessToken(retrying rejectedToken: String? = nil) async throws -> String {
     try load()
+    if let current = saved, current.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != current.tokens.access_token {
+      return current.tokens.access_token
+    }
+    if let refreshing { return try await refreshing.value }
+    // Other actors and processes share this storage and may already have rotated (or created) the session.
+    if let stored = try? storage.load(), stored.tokens.refresh_token != saved?.tokens.refresh_token { saved = stored }
     guard let current = saved else { throw BackendAccountClient.Failure(status: 401) }
     if current.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != current.tokens.access_token { return current.tokens.access_token }
-    if let refreshing { return try await refreshing.value }
+    let refreshToken = current.tokens.refresh_token
     let version = generation
     let task = Task<String, Error> {
-      let tokens = try await self.api.refresh(current.tokens.refresh_token)
+      let tokens = try await self.api.refresh(refreshToken)
       guard self.generation == version else { throw CancellationError() }
       try self.install(tokens)
       return tokens.access_token
@@ -139,7 +145,16 @@ actor BackendAccountSession {
     do { return try await task.value }
     catch {
       if version == generation, let failure = error as? BackendAccountClient.Failure, failure.status == 401 {
-        try storage.clear(); saved = nil
+        // Clear only the session that was rejected; a rotation saved meanwhile elsewhere is adopted.
+        // A nil read may be an unreadable keychain rather than an absent item, so it is not cleared.
+        let stored = try? storage.load()
+        if let stored, stored.tokens.refresh_token != refreshToken {
+          saved = stored
+          if stored.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != stored.tokens.access_token { return stored.tokens.access_token }
+        } else {
+          if stored != nil { try storage.clear() }
+          saved = nil
+        }
       }
       throw error
     }

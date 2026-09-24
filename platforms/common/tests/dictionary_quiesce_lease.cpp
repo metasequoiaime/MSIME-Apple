@@ -42,19 +42,39 @@ int main() {
   }
   assert(!dictionary_quiesced(root.string(), 1000000));
   std::filesystem::remove(root / ".msime-dictionary-quiesce.4242");
-  // A host raising the lease itself leaves exactly the lease behind, live for the bound, and lowering it clears it.
+  // A host raising the lease itself leaves exactly the lease behind, live for the bound, with its owner line after the expiry, and lowering it clears it.
   using msime::dictionary_lease::lower_dictionary_quiesce_lease;
   using msime::dictionary_lease::raise_dictionary_quiesce_lease;
-  assert(raise_dictionary_quiesce_lease(root.string(), 1000000));
+  std::string written;
+  assert(raise_dictionary_quiesce_lease(root.string(), written, 1000000));
+  assert(written.rfind("1030000\n", 0) == 0 && written.size() > 8 && written.back() == '\n');
+  {
+    std::ifstream lease(root / ".msime-dictionary-quiesce");
+    assert(std::string(std::istreambuf_iterator<char>(lease), std::istreambuf_iterator<char>()) == written);
+  }
   assert(dictionary_quiesced(root.string(), 1000000));
   assert(dictionary_quiesced(root.string(), 1029999));
   assert(!dictionary_quiesced(root.string(), 1030000));
   assert(std::distance(std::filesystem::directory_iterator(root), std::filesystem::directory_iterator()) == 1);
-  lower_dictionary_quiesce_lease(root.string());
+  lower_dictionary_quiesce_lease(root.string(), written);
   assert(!dictionary_quiesced(root.string(), 1000000));
   assert(std::filesystem::is_empty(root));
-  assert(!raise_dictionary_quiesce_lease("relative", 1000000));
-  assert(!raise_dictionary_quiesce_lease((root / "missing").string(), 1000000));
+  // Two raises in one process are told apart.
+  std::string second;
+  assert(raise_dictionary_quiesce_lease(root.string(), written, 1000000));
+  assert(raise_dictionary_quiesce_lease(root.string(), second, 1000000));
+  assert(second != written);
+  // A lease another writer has put up since is theirs: lowering ours leaves it in place.
+  lower_dictionary_quiesce_lease(root.string(), written);
+  assert(dictionary_quiesced(root.string(), 1000000));
+  {
+    std::ofstream(root / ".msime-dictionary-quiesce", std::ios::trunc) << "1030000\n999 0\n";
+  }
+  lower_dictionary_quiesce_lease(root.string(), second);
+  assert(dictionary_quiesced(root.string(), 1000000));
+  std::filesystem::remove(root / ".msime-dictionary-quiesce");
+  assert(!raise_dictionary_quiesce_lease("relative", written, 1000000));
+  assert(!raise_dictionary_quiesce_lease((root / "missing").string(), written, 1000000));
   std::filesystem::remove_all(root);
   return 0;
 }

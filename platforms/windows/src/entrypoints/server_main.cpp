@@ -1231,9 +1231,8 @@ int wmain(int argc, wchar_t **argv) {
         // under that token, so an "OK" never reports a teardown that did not
         // happen.
         [&server](const AuxTerminalDeactivation &terminal) {
-          return server.deactivate_terminal(
-              static_cast<uint64_t>(terminal.client_id),
-              static_cast<uint64_t>(terminal.focus_token));
+          return server.deactivate_terminal(terminal.client_id,
+                                            terminal.focus_token);
         },
         // Dictionary maintenance runs in the settings process and needs the
         // exclusive lock every Engine session holds a share of. Releasing it

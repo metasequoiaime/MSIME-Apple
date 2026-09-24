@@ -2291,8 +2291,18 @@ fn linux_input_method_restart_command(
     }
 }
 
+// Off the main thread: the Linux restart runs fcitx5-remote and gdbus or ibus
+// with timeouts of several seconds.
 #[tauri::command]
-fn restart_input_method() -> Result<(), HostActionError> {
+async fn restart_input_method() -> Result<(), HostActionError> {
+    tauri::async_runtime::spawn_blocking(restart_input_method_blocking)
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+}
+
+fn restart_input_method_blocking() -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
         const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
@@ -2963,14 +2973,32 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
     let _ = app.emit("settings-route", page);
 }
 
+// The Linux capture runs swaymsg, xdotool and the like; a synchronous command
+// would hold the GTK main thread for their timeouts.
+#[cfg(target_os = "linux")]
+#[tauri::command]
+async fn remember_input_target(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<(), HostActionError> {
+    let label = window.label().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<PanelInputState>();
+        remember_panel_input_target(&state, &label, label == "keyboard-panel")
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 #[allow(unused_variables)]
 fn remember_input_target(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    #[cfg(target_os = "linux")]
-    return remember_panel_input_target(&state, window.label(), window.label() == "keyboard-panel");
     #[cfg(target_os = "windows")]
     return remember_panel_input_target(&state);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -3687,29 +3715,36 @@ fn open_external_url(
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-fn open_external_url(url: String) -> Result<(), HostActionError> {
-    if !external_url_is_safe(&url) {
+async fn open_external_url(url: String) -> Result<(), HostActionError> {
+    tauri::async_runtime::spawn_blocking(move || open_external_url_blocking(&url))
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+}
+
+#[cfg(not(target_os = "android"))]
+fn open_external_url_blocking(url: &str) -> Result<(), HostActionError> {
+    if !external_url_is_safe(url) {
         return Err(HostActionError {
             code: "invalid_url",
         });
     }
     #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open").arg(&url).status();
+    let result = std::process::Command::new("open").arg(url).status();
     #[cfg(target_os = "linux")]
     {
-        return linux_process::run_status(
-            "xdg-open",
-            &[url.as_str()],
-            std::time::Duration::from_secs(3),
-        )
-        .then_some(())
-        .ok_or(HostActionError {
-            code: "unavailable",
-        });
+        // Generic-mode xdg-open waits on the browser; a launcher still running
+        // after the check has opened the page.
+        return linux_process::launch("xdg-open", &[url], std::time::Duration::from_secs(1))
+            .then_some(())
+            .ok_or(HostActionError {
+                code: "unavailable",
+            });
     }
     #[cfg(target_os = "windows")]
     {
-        return msime_host_windows::open_url(&url)
+        return msime_host_windows::open_url(url)
             .then_some(())
             .ok_or(HostActionError {
                 code: "unavailable",

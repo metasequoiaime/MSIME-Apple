@@ -43,6 +43,24 @@ test("loads models, sends a message, and starts a new conversation", async () =>
   expect(screen.queryByText("fixture reply")).toBeNull();
 });
 
+test("a message over the host's byte bound is refused before it is sent", async () => {
+  const complete = vi.fn(async () => "fixture reply");
+  render(<ChatPage client={client({ complete })} />);
+  await screen.findByRole("combobox", { name: "聊天模型" });
+  // 6,000 CJK characters are well under maxLength but 18,000 UTF-8 bytes.
+  const long = "测".repeat(6_000);
+  fireEvent.change(screen.getByRole("textbox", { name: "聊天消息" }), {
+    target: { value: long },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("消息过长，请精简后再发送。");
+  expect(complete).not.toHaveBeenCalled();
+  // The draft is kept so it can be shortened.
+  expect((screen.getByRole("textbox", { name: "聊天消息" }) as HTMLTextAreaElement).value).toBe(
+    long,
+  );
+});
+
 test("shows an actionable error and retries the latest user message", async () => {
   const complete = vi.fn<(messages: ChatMessage[], model: string) => Promise<string>>();
   complete

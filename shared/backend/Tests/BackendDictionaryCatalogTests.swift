@@ -23,6 +23,8 @@ private final class DictionaryCatalogProtocol: URLProtocol {
       if !(value?["replacement"] is NSNull) || value?["revision"] as? Int != 42 { status = 400 }
       data = Data(#"{"revision":43,"previous":null,"replacement":null}"#.utf8)
     }
+    // Form-style query parsing on the server would read a bare '+' as a space.
+    if request.url!.absoluteString.contains("+") { status = 400 }
     client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type":"application/json"])!, cacheStoragePolicy: .notAllowed)
     client?.urlProtocol(self, didLoad: data)
     client?.urlProtocolDidFinishLoading(self)
@@ -41,5 +43,20 @@ final class BackendDictionaryCatalogTests: XCTestCase {
     XCTAssertEqual(entry.word, "你好")
     let deleted = try await client.editCatalog(entry, revision: catalog.revision, replacement: nil, token: "session")
     XCTAssertEqual(deleted.revision, 43)
+  }
+
+  func testQueryPlusIsSentEscaped() async throws {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [DictionaryCatalogProtocol.self]
+    let client = BackendAccountClient(configuration: config)
+    _ = try await client.dictionaryCatalog(.pinyin, code: "C++", token: "session")
+    var components = URLComponents()
+    components.path = "/v1/users/me/dictionaries/english"
+    components.queryItems = [.init(name: "q", value: "C++ x"), .init(name: "context", value: "a+b")]
+    let path = try XCTUnwrap(BackendAccountClient.encodedPath(components))
+    XCTAssertTrue(path.contains("q=C%2B%2B%20x"), path)
+    XCTAssertTrue(path.contains("context=a%2Bb"), path)
+    let decoded = URLComponents(string: path)?.queryItems
+    XCTAssertEqual(decoded?.first { $0.name == "q" }?.value, "C++ x")
   }
 }

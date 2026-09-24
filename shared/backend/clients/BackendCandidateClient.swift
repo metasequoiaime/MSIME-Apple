@@ -69,7 +69,7 @@ extension BackendAccountClient {
     var components = URLComponents()
     components.path = "/v1/users/me/dictionary/positions"
     components.queryItems = [.init(name: "context", value: context), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100")]
-    guard let path = components.string else { throw Failure(status: 400) }
+    guard let path = Self.encodedPath(components) else { throw Failure(status: 400) }
     return try await json("GET", path, token: token)
   }
   func setFixedPosition(context: String, code: String, word: String, position: Int?, revision: Int64, token: String) async throws -> DictionaryRevision {

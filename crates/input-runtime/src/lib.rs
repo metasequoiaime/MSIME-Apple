@@ -54,6 +54,7 @@ use std::path::PathBuf;
 #[cfg(unix)]
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
