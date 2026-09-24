@@ -262,6 +262,52 @@ struct TypingActivity: Equatable {
   }
 }
 
+/// One row of the 按日明细 table, in the columns of the Windows statistics page: 日期 字数 中文 英文 数字 标点 其他 活跃 速度.
+struct TypingDailyRow: Equatable {
+  var day: String
+  var total: Int
+  var han: Int
+  var latin: Int
+  var number: Int
+  var punctuation: Int
+  /// Everything the four named columns leave out: other scripts, emoji, symbols and the unclassified remainder of older records, so the columns always add up to the total.
+  var other: Int
+  var activeMs: Int
+  /// Characters per minute of active time, counted over the same prose kinds as 输入节奏.
+  var speed: Double
+}
+
+extension TypingStatistics {
+  /// Recorded days, newest first. `limit` keeps the most recent ones, as the Windows page lists the last 30.
+  func dailyRows(limit: Int? = nil) -> [TypingDailyRow] {
+    let keys = days.keys.filter { Self.parseDayKey($0) != nil }.sorted(by: >)
+    return keys.prefix(limit ?? keys.count).map { key in
+      let total = days[key] ?? 0
+      let characters = dailyDetails[key]?.characters ?? [:]
+      let han = characters[TypingCharacterKind.han.rawValue] ?? 0
+      let latin = characters[TypingCharacterKind.latin.rawValue] ?? 0
+      let number = characters[TypingCharacterKind.number.rawValue] ?? 0
+      let punctuation = characters[TypingCharacterKind.punctuation.rawValue] ?? 0
+      let activeMs = dailyActiveMs[key] ?? 0
+      return TypingDailyRow(
+        day: key, total: total, han: han, latin: latin, number: number, punctuation: punctuation,
+        other: max(0, total - han - latin - number - punctuation), activeMs: activeMs,
+        speed: TypingActivity.charactersPerMinute(TypingActivity.readableCharacters(dailyDetails[key]), activeMs))
+    }
+  }
+
+  /// Every recorded day as CSV, newest first. A byte order mark leads so that Numbers and Excel read the Chinese header as UTF-8; active time is in minutes so a spreadsheet can sum it.
+  func dailyCSV() -> String {
+    var lines = ["日期,字数,中文,英文,数字,标点,其他,活跃分钟,速度(字/分)"]
+    for row in dailyRows() {
+      let minutes = String(format: "%.1f", Double(row.activeMs) / 60_000)
+      let fields: [String] = [row.day, "\(row.total)", "\(row.han)", "\(row.latin)", "\(row.number)", "\(row.punctuation)", "\(row.other)", minutes, "\(Int(row.speed.rounded()))"]
+      lines.append(fields.joined(separator: ","))
+    }
+    return "\u{FEFF}" + lines.joined(separator: "\r\n") + "\r\n"
+  }
+}
+
 @_silgen_name("msime_client_typing_statistics")
 private func msimeTypingStatistics(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
