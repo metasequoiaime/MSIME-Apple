@@ -9,6 +9,7 @@ import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSki
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { KeyboardScheme, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
+import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
 import {
   CapitalizationMode, EnglishCapitalizationPolicy
 } from './input/EnglishCapitalizationPolicy';
@@ -2722,10 +2723,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.command(InputCommand.COMMIT_READING);
   }
 
-  /** Space starts Japanese conversion, then advances and wraps without committing. */
+  /** Space starts Japanese conversion, then advances and wraps without committing. False leaves Space to its normal commit, which is also what a lone Fallback row (the raw composition) needs. */
   convertJapanese(): boolean {
+    const firstSource: number = this.currentCandidates.length > 0 ? this.currentCandidates[0].source : -1;
     if (this.scheme !== JAPANESE_SCHEME || this.editing.length === 0
-        || this.currentCandidates.length === 0) {
+        || !JapaneseSpacePolicy.converts(this.currentCandidates.length, firstSource)) {
       return false;
     }
     if (this.japaneseConversionIndex < 0

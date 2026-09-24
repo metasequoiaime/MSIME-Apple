@@ -356,6 +356,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyActionsSmoke.java" \
   "$repo_root/platforms/android/tests/core/JapaneseVariantPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/core/JapaneseSpacePolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/HandwritingContractSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateAppearanceSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateGlossModelSmoke.java" \
@@ -431,6 +432,7 @@ java -cp "$output_dir" KeyboardActionRowSmoke
 java -cp "$output_dir" JapaneseNineKeyLayoutSmoke
 java -cp "$output_dir" JapaneseNineKeyActionsSmoke
 java -cp "$output_dir" JapaneseVariantPolicySmoke
+java -cp "$output_dir" JapaneseSpacePolicySmoke
 java -cp "$output_dir" HandwritingContractSmoke
 java -cp "$output_dir" CandidateAppearanceSmoke
 java -cp "$output_dir" CandidateGlossModelSmoke

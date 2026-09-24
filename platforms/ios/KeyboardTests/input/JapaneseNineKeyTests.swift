@@ -99,6 +99,25 @@ final class JapaneseNineKeyTests: XCTestCase {
     XCTAssertEqual(enter.configuration?.title, "改行")
   }
 
+  /// A lone Fallback row is the raw composition, which Space commits the way Windows does rather than converting.
+  func testJapaneseSpaceCommitsALoneFallbackRow() {
+    let fallback = KeyboardViewController.candidateSourceFallback
+    XCTAssertFalse(KeyboardViewController.japaneseSpaceConverts(candidateCount: 1, firstSource: fallback))
+    XCTAssertTrue(KeyboardViewController.japaneseSpaceConverts(candidateCount: 1, firstSource: 0))
+    XCTAssertTrue(KeyboardViewController.japaneseSpaceConverts(candidateCount: 2, firstSource: fallback))
+    XCTAssertFalse(KeyboardViewController.japaneseSpaceConverts(candidateCount: 0, firstSource: -1))
+  }
+
+  func testSnapshotCarriesEachCandidateSource() {
+    let bridge = MetasequoiaInputSessionBridge()
+    _ = bridge.switchToJapanese()
+    _ = bridge.handleCharacter("k")
+    let snapshot = bridge.handleCharacter("a")
+    XCTAssertFalse(snapshot.candidates.isEmpty)
+    XCTAssertEqual(snapshot.candidateSources.count, snapshot.candidates.count)
+    XCTAssertFalse(snapshot.candidateSources.contains(-1), "every Engine row names its source")
+  }
+
   func testExistingJapaneseEnablesBothLayoutsOnlyOnce() throws {
     let name = "japanese-scheme-test-" + UUID().uuidString
     let store = try XCTUnwrap(UserDefaults(suiteName: name))

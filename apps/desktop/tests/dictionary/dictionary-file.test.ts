@@ -96,4 +96,18 @@ describe("personal dictionary JSON", () => {
       parsePersonalDictionaryImport(envelope("quickPhrase", "字".repeat(1_366))),
     ).toThrow();
   });
+
+  it("refuses a quick phrase code with a digit, naming the row", () => {
+    const file = JSON.stringify({
+      format: "msime-personal-dictionary",
+      version: 1,
+      entries: [
+        { kind: "quickPhrase", key: "nh", value: "你好", weight: 100000 },
+        { kind: "quickPhrase", key: "nh1", value: "你好", weight: 100000 },
+      ],
+    });
+    expect(() => parsePersonalDictionaryImport(file)).toThrow(
+      "第 2 条：词条内容不符合输入引擎规则。",
+    );
+  });
 });

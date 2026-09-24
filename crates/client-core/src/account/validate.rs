@@ -376,6 +376,20 @@ pub(super) fn validate_dictionary_value(
     Ok(())
 }
 
+/// The check for a value this client is about to write: `validate_dictionary_value` plus the stricter rules new input follows. A quick phrase code must be letters only, as in the reference; inbound rows keep the lenient check so a stored code with a digit still syncs.
+pub(super) fn validate_new_dictionary_value(
+    kind: DictionaryKind,
+    code: &str,
+    word: &str,
+    weight: i64,
+) -> Result<(), AccountError> {
+    validate_dictionary_value(kind, code, word, weight)?;
+    if kind == DictionaryKind::Quick && !crate::dictionary::quick_phrase_code_is_well_formed(code) {
+        return Err(AccountError::Invalid);
+    }
+    Ok(())
+}
+
 pub(super) fn validate_dictionary_entry(
     entry: &AccountDictionaryEntry,
     expected_kind: DictionaryKind,

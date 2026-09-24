@@ -223,6 +223,9 @@ fn parse_personal_dictionary_import(text: &str) -> Result<Vec<PersonalWord>, Str
     let mut entries = Vec::with_capacity(file.entries.len());
     for entry in file.entries {
         let entry = normalize_personal_word(entry)?;
+        entry
+            .validate_new()
+            .map_err(|_| "invalid personal dictionary entry".to_owned())?;
         if !identities.insert(entry.identity()) {
             return Err("duplicate personal dictionary entry".into());
         }
@@ -281,8 +284,9 @@ pub unsafe extern "C" fn msime_client_personal_dictionary_request(
     })
 }
 
-/// Validate and normalize one entry without opening or changing dictionary state.
+/// Validate and normalize one new entry without opening or changing dictionary state.
 /// Engine diagnostics are redacted because they can contain submitted text.
+/// New input follows the stricter rules: a quick phrase code must be letters only, as in `replacement_for_engine`. A stored row that only identifies what to edit or delete is not passed through here.
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
 #[no_mangle]
@@ -300,7 +304,15 @@ pub unsafe extern "C" fn msime_client_dictionary_validate(
             serde_json::from_slice(bytes).map_err(|_| "invalid dictionary entry".to_owned())?;
         let normalized = msime_engine_bridge::dictionary_validate(&entry.into())
             .map_err(|_| "invalid dictionary entry".to_owned())?;
-        Ok(json!(Entry::try_from(normalized)?))
+        let normalized = Entry::try_from(normalized)?;
+        if matches!(normalized.kind, Kind::QuickPhrase)
+            && !msime_client_core::dictionary::quick_phrase_code_is_well_formed(&normalized.key)
+        {
+            return Err(invalid_dictionary_entry(
+                "code contains characters this dictionary does not accept",
+            ));
+        }
+        Ok(json!(normalized))
     })
 }
 
@@ -1216,6 +1228,14 @@ fn personal_to_kind(kind: PersonalWordKind) -> Kind {
 fn replacement_for_engine(entry: Entry) -> Result<Entry, String> {
     let entry = entry.normalized_for_engine();
     validate_entry(&entry)?;
+    // `validate_entry` also checks the previous row, which may be a stored quick phrase whose code has a digit; new input follows the reference's letters-only rule.
+    if matches!(entry.kind, Kind::QuickPhrase)
+        && !msime_client_core::dictionary::quick_phrase_code_is_well_formed(&entry.key)
+    {
+        return Err(invalid_dictionary_entry(
+            "code contains characters this dictionary does not accept",
+        ));
+    }
     Ok(entry.with_full_pinyin())
 }
 
@@ -2655,6 +2675,126 @@ mod tests {
         );
     }
 
+    fn quick(key: &str, value: &str) -> Entry {
+        Entry {
+            kind: Kind::QuickPhrase,
+            key: key.into(),
+            value: value.into(),
+            weight: 10_000,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn a_quick_phrase_code_is_letters_only_for_new_input_but_a_stored_digit_row_stays_editable() {
+        // New input follows the reference's letters-only rule, and says which rule it broke.
+        assert_eq!(
+            replacement_for_engine(quick("nh1", "你好")).err().unwrap(),
+            "invalid dictionary entry: code contains characters this dictionary does not accept"
+        );
+        assert_eq!(
+            replacement_for_engine(quick("NH", "你好")).unwrap().key,
+            "nh"
+        );
+        // The previous row of an edit or delete may be a stored code with a digit; the check on it does not refuse that row.
+        assert!(validate_entry(&quick("nh1", "你好")).is_ok());
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_str().unwrap();
+        let request = json!({
+            "options": {
+                "api_version": 1,
+                "resources": format!("{root}/resources"),
+                "user_data": format!("{root}/user"),
+                "cache": format!("{root}/cache"),
+                "dictionaries": format!("{root}/dictionaries"),
+                "preferences": msime_client_core::preferences::Preferences::default(),
+            },
+            "action": {
+                "operation": "edit",
+                "previous": null,
+                "replacement": quick("nh1", "你好"),
+                "request_id": "synthetic-edit",
+            },
+        });
+        assert_eq!(
+            dictionary_request_json(&serde_json::to_vec(&request).unwrap()).unwrap_err(),
+            "invalid dictionary entry: code contains characters this dictionary does not accept"
+        );
+
+        // A personal dictionary file carrying a digit code is refused, as the text import skips such a row.
+        let file = r#"{"format":"msime-personal-dictionary","version":1,"entries":[{"kind":"quickPhrase","key":"nh1","value":"你好","weight":1}]}"#;
+        assert_eq!(
+            parse_personal_dictionary_import(file).unwrap_err(),
+            "invalid personal dictionary entry"
+        );
+
+        // The validation iOS runs on every new entry follows the same rule.
+        let validate = |entry: Entry| -> serde_json::Value {
+            let bytes = serde_json::to_vec(&entry).unwrap();
+            let pointer = unsafe { msime_client_dictionary_validate(bytes.as_ptr(), bytes.len()) };
+            let value = unsafe { std::ffi::CStr::from_ptr(pointer) }
+                .to_str()
+                .unwrap()
+                .to_owned();
+            unsafe { crate::msime_client_string_free(pointer) };
+            serde_json::from_str(&value).unwrap()
+        };
+        let refused = validate(quick("nh1", "你好"));
+        assert_eq!(refused["ok"], false);
+        assert_eq!(
+            refused["error"],
+            "invalid dictionary entry: code contains characters this dictionary does not accept"
+        );
+        let accepted = validate(quick("NH", "你好"));
+        assert_eq!(accepted["ok"], true, "{accepted}");
+        assert_eq!(accepted["value"]["key"], "nh");
+    }
+
+    #[test]
+    fn a_mobile_store_holding_a_digit_quick_phrase_still_exports_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_str().unwrap();
+        let legacy = PersonalWord {
+            kind: PersonalWordKind::QuickPhrase,
+            key: "nh1".into(),
+            value: "你好".into(),
+            weight: 100_000,
+        };
+        PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"))
+            .synchronize(
+                |_| Ok(()),
+                |_| {
+                    Ok(msime_client_core::dictionary::personal::PersonalWordPage {
+                        entries: vec![legacy.clone()],
+                        has_more: false,
+                    })
+                },
+            )
+            .unwrap();
+        let request = json!({
+            "options": {
+                "api_version": 1,
+                "resources": format!("{root}/resources"),
+                "user_data": format!("{root}/user"),
+                "cache": format!("{root}/cache"),
+                "dictionaries": format!("{root}/dictionaries"),
+                "preferences": msime_client_core::preferences::Preferences::default(),
+                "preferences_directory": root,
+            },
+            "action": {
+                "operation": "export",
+                "kind": "quick_phrase",
+                "format": "standard",
+                "offset": 0,
+                "limit": 100,
+            },
+        });
+        let exported =
+            personal_dictionary_request_json(&serde_json::to_vec(&request).unwrap()).unwrap();
+        assert_eq!(exported["text"], "你好\tnh1\t100000\n");
+    }
+
     #[test]
     fn malformed_and_oversized_requests_are_redacted() {
         for bytes in [b"invalid-fixture".as_slice(), b"{}", b"{\"options\":null}"] {
@@ -2735,7 +2875,7 @@ mod tests {
           "version": 1,
           "entries": [
             {"kind":"pinyin","key":"ni hao","value":"你好","weight":100000},
-            {"kind":"quickPhrase","key":"hello1","value":"你好！","weight":2}
+            {"kind":"quickPhrase","key":"hello","value":"你好！","weight":2}
           ]
         }"#;
         let entries = parse_personal_dictionary_import(text).unwrap();
@@ -2744,7 +2884,7 @@ mod tests {
         assert_eq!(entries[1].kind, PersonalWordKind::QuickPhrase);
 
         let duplicate = text.replace(
-            r#"{"kind":"quickPhrase","key":"hello1","value":"你好！","weight":2}"#,
+            r#"{"kind":"quickPhrase","key":"hello","value":"你好！","weight":2}"#,
             r#"{"kind":"pinyin","key":"ni hao","value":"你好","weight":3}"#,
         );
         assert_eq!(
@@ -2778,12 +2918,12 @@ mod tests {
             "version":1,
             "entries":[
                 {"kind":"pinyin","key":"NI HAO","value":"拟好","weight":100000},
-                {"kind":"quickPhrase","key":"HELLO1","value":"第一行\n第二行\t末列","weight":100000}
+                {"kind":"quickPhrase","key":"HELLO","value":"第一行\n第二行\t末列","weight":100000}
             ]
         }"#;
         let entries = parse_personal_dictionary_import(text).unwrap();
         assert_eq!(entries[0].key, "ni'hao");
-        assert_eq!(entries[1].key, "hello1");
+        assert_eq!(entries[1].key, "hello");
         assert_eq!(entries[1].value, "第一行\n第二行\t末列");
 
         let large = json!({

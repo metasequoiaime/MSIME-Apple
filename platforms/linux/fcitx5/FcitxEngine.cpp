@@ -6025,7 +6025,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       const auto reading = view_.value("editing_text", std::string{});
       const auto &candidates = view_.at("candidates");
       if (sym == FcitxKey_space) {
-        const auto action = japanese_conversion_.space(reading, candidates.size());
+        const int first_source = candidates.empty() ? -1 : candidates[0].value("source", -1);
+        const auto action = japanese_conversion_.space(reading, candidates.size(), first_source);
         if (action == Action::Start) return true;
         if (action == Action::StepNext || action == Action::StepFirst)
           return command(action == Action::StepFirst ? MSIME_FIRST_CANDIDATE

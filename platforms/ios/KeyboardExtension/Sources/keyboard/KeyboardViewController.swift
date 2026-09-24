@@ -2900,6 +2900,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
   }
 
+  /// The Engine's `CandidateSource::Fallback`, as it appears in a view candidate's `source`.
+  nonisolated static let candidateSourceFallback = 9
+
+  /// Whether Japanese Space arms or steps a conversion. A lone Fallback row is the raw composition the Engine shows when there is nothing to convert (a bare Shift+R prefix, or romaji it cannot read); Windows commits it on the first Space, so Space takes the normal commit path instead.
+  nonisolated static func japaneseSpaceConverts(candidateCount: Int, firstSource: Int) -> Bool {
+    guard candidateCount > 0 else { return false }
+    return !(candidateCount == 1 && firstSource == candidateSourceFallback)
+  }
+
   /// Tab on the full-size iPad keyboard. On the desktop Tab turns the candidate page; the strip here has no pages to turn, only the full candidate panel behind it, so with candidates showing Tab opens that. Otherwise it ends any composition and types a tab, as an unhandled key does.
   private func handleTab() {
     let composing = isChineseMode && (!visiblePreedit.isEmpty || !visibleCandidates.isEmpty)
@@ -3075,7 +3084,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       refreshEnglishSuggestions()
       return
     }
-    if inputScheme.isJapanese && hasComposition && !visibleCandidates.isEmpty {
+    if inputScheme.isJapanese && hasComposition
+        && Self.japaneseSpaceConverts(candidateCount: visibleCandidates.count,
+                                      firstSource: visibleCandidateSources.first ?? -1) {
       let next = (japaneseConversionIndex.map { $0 + 1 } ?? 0) % visibleCandidates.count
       japaneseConversionIndex = next
       renderCandidateStrip()
