@@ -1411,6 +1411,7 @@ pub struct QuickPhrasePage {
 }
 
 /// One change to the user's quick phrases. `Replace` and `Remove` name the stored phrase by code and text, which is how a caller that never sees weights identifies a row.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QuickPhraseEdit {
     Add(QuickPhrase),
     Replace {
