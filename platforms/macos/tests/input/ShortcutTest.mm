@@ -1860,6 +1860,18 @@ static void TestJapaneseConversionKeys(MSIMEAppearancePreferences *appearance) {
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
     assert(session.lastCommand == MSIME_COMMIT_CANDIDATE);
+
+    // A bare Shift+R shows its raw prefix as the one Fallback candidate (source 9). Like Windows, the first Space commits it; there is nothing to convert.
+    NSMutableDictionary *fallback = [composing(3) mutableCopy];
+    fallback[@"editing_text"] = @"R";
+    fallback[@"reading"] = @"";
+    fallback[@"local_mode"] = @"temporary_japanese";
+    fallback[@"candidates"] = @[@{ @"text": @"R", @"source": @9, @"highlighted": @YES,
+                                   @"id": @{ @"session": @4, @"generation": @7, @"index": @0 } }];
+    [controller setValue:fallback forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    assert(session.lastCommand == MSIME_COMMIT_CANDIDATE);
     [controller setValue:composing(3) forKey:@"view"];
     session.lastCommand = UINT32_MAX;
     [controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client];
@@ -3837,6 +3849,187 @@ static void TestCloudCandidatePreference() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
+@interface ConsentCloudController : CloudShortcutController
+@property(nonatomic) NSUInteger prompts;
+@property(nonatomic, copy) void (^answer)(NSNumber *);
+@end
+@implementation ConsentCloudController
+- (void)presentCloudConsent:(void (^)(NSNumber *))completion { ++self.prompts; self.answer = completion; }
+@end
+
+// Runs the main queue until everything already enqueued on it has run: the main queue is FIFO, so a sentinel enqueued now runs after them. A fixed run-loop slice was not enough on slow CI runners.
+static void DrainMainQueue() {
+    __block BOOL drained = NO;
+    dispatch_async(dispatch_get_main_queue(), ^{ drained = YES; });
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+    while (!drained && deadline.timeIntervalSinceNow > 0) CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, true);
+    assert(drained);
+}
+
+static void TestCloudCandidateConsent() {
+    NSDictionary *query = @{@"scheme":@0, @"generation":@1, @"identity":@"synthetic", @"query_text":@"nihao", @"cache_key":@"nihao", @"pinyin_segments":@[@"ni", @"hao"], @"cloud_eligible":@YES, @"ai_eligible":@NO, @"cloud_candidates":@YES, @"session_id":@1};
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *preferencesFile = [root stringByAppendingPathComponent:@"preferences.json"];
+
+    // A profile that was never resolved (no preferences directory known) keeps sending as before.
+    NSString *suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:nil userDataDirectory:nil];
+    assert(prefs.cloudCandidatesAnswered && prefs.cloudCandidatesEnabled);
+
+    // Fresh profile: nothing is sent and the prompt is requested exactly once.
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:root userDataDirectory:nil];
+    assert(!prefs.cloudCandidatesAnswered && prefs.cloudCandidates && !prefs.cloudCandidatesEnabled);
+    ConsentCloudController *controller = [ConsentCloudController alloc];
+    controller.requests = [NSMutableArray array];
+    CloudShortcutSession *session = [CloudShortcutSession new];
+    session.query = query;
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    [controller synchronizeCloudCandidates];
+    assert([controller valueForKey:@"cloudTimer"] == nil && controller.requests.count == 0);
+    [controller requestCloudCandidatesConsentIfNeeded];
+    [controller requestCloudCandidatesConsentIfNeeded];
+    assert(controller.prompts == 0); // Deferred off the activation path.
+    DrainMainQueue();
+    assert(controller.prompts == 1 && controller.answer);
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 1); // Still showing.
+
+    // A preferences.json that appears later (this host writes one after any appearance change) does not turn pending into answered.
+    assert([@"{}" writeToFile:preferencesFile atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:root userDataDirectory:nil];
+    assert(!prefs.cloudCandidatesAnswered);
+    assert([NSFileManager.defaultManager removeItemAtPath:preferencesFile error:nil]);
+
+    // Closed without an answer: still pending, asked again on the next activation.
+    void (^dismiss)(NSNumber *) = controller.answer;
+    dismiss(nil);
+    assert(!prefs.cloudCandidatesAnswered);
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 2);
+
+    // Declining stores cloud_candidates = false in the shared preferences and sends nothing.
+    __block NSUInteger changes = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++changes; }];
+    void (^decline)(NSNumber *) = controller.answer;
+    decline(@NO);
+    assert(prefs.cloudCandidatesAnswered && !prefs.cloudCandidates && !prefs.cloudCandidatesEnabled && changes == 1);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"cloud_candidates"] isEqual:@NO]);
+    [controller synchronizeCloudCandidates];
+    assert([controller valueForKey:@"cloudTimer"] == nil && controller.requests.count == 0);
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 2);
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(snapshot && !error);
+    NSDictionary *merged = [prefs sharedPreferencesByMerging:snapshot[@"preferences"]];
+    assert(([MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+        snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":merged} error:&error] && !error));
+    NSDictionary *loaded = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(loaded && !error && [loaded[@"preferences"][@"cloud_candidates"] isEqual:@NO]);
+
+    // Enabling afterwards resumes queries.
+    [prefs answerCloudCandidates:YES];
+    assert(prefs.cloudCandidatesEnabled);
+    [controller synchronizeCloudCandidates];
+    NSTimer *timer = [controller valueForKey:@"cloudTimer"];
+    assert(timer);
+    [timer fire]; [timer invalidate];
+    assert(controller.requests.count == 1 && controller.requests.lastObject.started);
+    [controller cancelCloudCandidates];
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    // Accepting from the prompt enables queries straight away.
+    suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    NSString *empty = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:empty withIntermediateDirectories:YES attributes:nil error:nil]);
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:empty userDataDirectory:nil];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 3);
+    void (^accept)(NSNumber *) = controller.answer;
+    accept(@YES);
+    assert(prefs.cloudCandidatesEnabled && [[prefs sharedPreferencesByMerging:@{}][@"cloud_candidates"] isEqual:@YES]);
+    // The native settings checkbox counts as an answer too.
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:empty userDataDirectory:nil];
+    assert(!prefs.cloudCandidatesAnswered);
+    NSButton *toggle = (id)PreferenceControl(prefs, @selector(cloudCandidatesChanged:));
+    toggle.state = NSControlStateValueOff;
+    [NSApp sendAction:toggle.action to:toggle.target from:toggle];
+    assert(prefs.cloudCandidatesAnswered && !prefs.cloudCandidatesEnabled);
+    [prefs.window close];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    // Upgrade with an existing preferences.json: answered, never asked, stored value kept (including false).
+    assert([@"{}" writeToFile:[empty stringByAppendingPathComponent:@"preferences.json"] atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    for (NSNumber *stored in @[@NO, @YES]) {
+        suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+        defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        [prefs applySharedInputPreferences:@{@"cloud_candidates":stored}];
+        [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:empty userDataDirectory:nil];
+        assert(prefs.cloudCandidatesAnswered && prefs.cloudCandidates == stored.boolValue);
+        assert(prefs.cloudCandidatesEnabled == stored.boolValue);
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller requestCloudCandidatesConsentIfNeeded];
+        DrainMainQueue();
+        assert(controller.prompts == 3);
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+
+    // Upgrade with an existing NSUserDefaults choice and no shared file: answered, value kept.
+    NSString *bare = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:bare withIntermediateDirectories:YES attributes:nil error:nil]);
+    suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    [defaults setBool:NO forKey:@"MSIMEClientCloudCandidates"];
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:bare userDataDirectory:nil];
+    assert(prefs.cloudCandidatesAnswered && !prefs.cloudCandidates);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    // An empty Engine user-data directory is still a fresh profile.
+    NSString *userData = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:userData withIntermediateDirectories:YES attributes:nil error:nil]);
+    suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:bare userDataDirectory:userData];
+    assert(!prefs.cloudCandidatesAnswered && !prefs.cloudCandidatesEnabled);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    // Upgrade from a profile that typed but never changed a setting: no preferences.json and no stored choice, only Engine user data. Answered, never asked, default kept.
+    assert([NSData.data writeToFile:[userData stringByAppendingPathComponent:@"msime_user.db"] atomically:YES]);
+    suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:bare userDataDirectory:userData];
+    assert(prefs.cloudCandidatesAnswered && prefs.cloudCandidates && prefs.cloudCandidatesEnabled);
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller requestCloudCandidatesConsentIfNeeded];
+    DrainMainQueue();
+    assert(controller.prompts == 3);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    [controller setValue:nil forKey:@"appearance"];
+    for (NSString *path in @[root, empty, bare, userData]) assert([NSFileManager.defaultManager removeItemAtPath:path error:nil]);
+}
+
 @interface GlossSession : ShortcutSession
 @property(nonatomic) NSUInteger applications;
 @property(nonatomic) NSUInteger clears;
@@ -4935,6 +5128,7 @@ int main(int argc, char **argv) {
         TestAiCandidateDescriptorFailureIsRetryable();
         TestAiCandidateEngineDelivery();
         TestCloudCandidatePreference();
+        TestCloudCandidateConsent();
         TestGlossScheduling();
         TestAccountGlossSkipsNonChineseCandidates();
         TestAccountGlossCacheIsSharedAcrossControllers();
