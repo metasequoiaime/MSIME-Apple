@@ -48,12 +48,12 @@ final class PunctuationSettingsTests: XCTestCase {
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
       $0["smart_punctuation_direct_letter"] = false
     })
-    reload(bridge)
+    await reload(bridge)
 
     XCTAssertEqual(bridge.handlePunctuationWithContext(",", preceding: 0x61).commitText, "，")
   }
 
-  private func reload(_ bridge: MetasequoiaInputSessionBridge) {
+  private func reload(_ bridge: MetasequoiaInputSessionBridge) async {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { loaded in

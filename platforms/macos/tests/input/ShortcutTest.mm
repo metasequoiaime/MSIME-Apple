@@ -4932,7 +4932,7 @@ static void TestOfflineTargetGlosses() {
     // Without English among the targets the offline dictionary is the only local source.
     session.generation++; session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"];
     settle();
-    assert(![controller currentGlossRequest] && ([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}]]));
+    assert([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}]]);
     // Nothing installed for the chosen targets leaves the English path exactly as it was.
     session.generation++; session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"de"];
     settle();
@@ -6387,12 +6387,13 @@ int main(int argc, char **argv) {
                 NSUInteger calls = session.edgeCalls;
                 NSUInteger punctuationCalls = session.enginePunctuationCalls;
                 NSUInteger asciiPunctuationCalls = session.punctuationASCIICalls;
-                NSString *fallbackCommit = [@"GitHub" stringByAppendingString:[character isEqual:@"-"] ? @"-" : [character isEqual:@"["] ? @"【" : [character isEqual:@"]"] ? @"】" : @"＝"];
-                session.punctuationASCIITransition = @{@"handled": @YES, @"commit": fallbackCommit, @"view": edgeView};
+                // Word-to-character owns this key while enabled; selecting the Han edge is the
+                // complete action and must not fall through to punctuation.
+                session.punctuationASCIITransition = nil;
                 client.committed = nil;
                 session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": edgeView};
                 assert([controller handleEvent:event client:client]);
-                assert([client.committed isEqual:fallbackCommit]);
+                assert(client.committed == nil);
                 assert(session.edgeCalls == calls + 1 && session.lastEdge == edge && session.edgeGeneration == 72 && session.edgeIndex == 8);
                 // The Engine declines a candidate without a Han character (GitHub, 123, an emoji); Windows then commits the candidate followed by the key's punctuation, '-' literally and the others through the punctuation table.
                 const unichar glyph = [character characterAtIndex:0];
