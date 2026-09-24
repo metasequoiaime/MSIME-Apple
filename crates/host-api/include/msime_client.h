@@ -536,6 +536,9 @@ char *msime_client_cloud_request_url(const uint8_t *query, size_t query_length);
 char *msime_client_apply_cloud_response(uint64_t session,
                                       const uint8_t *query, size_t query_length,
                                       const uint8_t *body, size_t body_length);
+/* The #if !defined(_WIN32) blocks below mirror #[cfg(unix)] exports, so a
+ * Windows host fails at compile time instead of with unresolved externals. */
+#if !defined(_WIN32)
 /* Linux: perform one bounded request to a user-owned Unix-socket provider.
  * Call from a worker thread with a copied query; returns null value when no
  * candidate is available. Credentials and network policy stay in that service. */
@@ -555,12 +558,14 @@ char *msime_client_cloud_clipboard_provider_request(const uint8_t *request,
                                                     size_t request_length,
                                                     const uint8_t *socket_path,
                                                     size_t socket_length);
+#endif
 /* Persist {target_language,translations:[{text,translation}]} in an existing
  * absolute user-data directory. Only short changed English-target glosses are
  * saved. Candidate gloss requests may include user_data to read this overlay.
  * Maximum request size 128 KiB; path 4096 bytes. Does not access a session. */
 char *msime_client_translation_gloss_save(const uint8_t *request, size_t request_length,
                                          const uint8_t *user_data, size_t user_data_length);
+#if !defined(_WIN32)
 char *msime_client_translation_provider_request(const uint8_t *query,
                                                 size_t query_length,
                                                 const uint8_t *socket_path,
@@ -596,17 +601,20 @@ char *msime_client_emoji_catalog_request(const uint8_t *query,
                                          size_t query_length,
                                          const uint8_t *resources,
                                          size_t resources_length);
+#endif
 /* Shared Doubao authentication policy. Input (max 32768 bytes):
  * {auth_mode,app_id,token,resource_id}; absent mode supports legacy documents.
  * Response value: {headers:[[name,value],...]}. Contains credentials: never
  * log/persist the response; release with msime_client_string_free. */
 char *msime_client_doubao_auth_headers(const uint8_t *request, size_t length);
+#if !defined(_WIN32)
 /* Linux voice adapter. The user-owned socket captures audio and runs ASR,
  * returning {text}; the query contains language and the active generation. */
 char *msime_client_voice_provider_request(const uint8_t *query,
                                           size_t query_length,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
+#endif
 /* Decode one Doubao v1 response frame. The value contains either {last,payload}
  * for a UTF-8 JSON response or {error_code} for a type-0xF error frame. */
 char *msime_client_doubao_decode_frame(const uint8_t *frame,
@@ -623,6 +631,7 @@ bool msime_client_doubao_audio_frame(int32_t sequence, const uint8_t *pcm,
                                      size_t pcm_length, bool final_chunk,
                                      uint8_t *output, size_t output_capacity,
                                      size_t *output_length);
+#if !defined(_WIN32)
 typedef void (*msime_client_voice_update_callback)(const uint8_t *text,
                                                    size_t text_length,
                                                    bool final,
@@ -657,6 +666,7 @@ char *msime_client_voice_provider_cancel(const uint8_t *socket_path,
 char *msime_client_voice_provider_stop(const uint8_t *socket_path,
                                        size_t socket_length,
                                        uint64_t generation);
+#endif
 /* Apply a UTF-8 cloud (source=0) or AI (source=1) result for a copied query. */
 char *msime_client_apply_online_candidate(uint64_t session,
                                            const uint8_t *query,
