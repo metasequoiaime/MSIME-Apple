@@ -1548,11 +1548,11 @@ impl Preferences {
     }
 
     pub fn quanpin_autocorrect_transposition(&self) -> bool {
-        self.quanpin.autocorrect_transposition.unwrap_or(false)
+        self.quanpin.autocorrect_transposition.unwrap_or(true)
     }
 
     pub fn quanpin_autocorrect_neighbor(&self) -> bool {
-        self.quanpin.autocorrect_neighbor.unwrap_or(false)
+        self.quanpin.autocorrect_neighbor.unwrap_or(true)
     }
 
     pub fn active_helpcode(&self) -> HelpcodePreferences {

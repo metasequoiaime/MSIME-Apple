@@ -2525,12 +2525,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
       mixed_input_value("emoji", false));
   const bool kaomoji_candidates = s.kaomoji_override.value_or(
       mixed_input_value("kaomoji", false));
-  const auto quanpin_preferences = configured.at("preferences").value(
-      "quanpin", Json::object());
-  const bool autocorrect_transposition = s.autocorrect_transposition_override.value_or(
-      quanpin_preferences.value("autocorrect_transposition", false));
-  const bool autocorrect_neighbor = s.autocorrect_neighbor_override.value_or(
-      quanpin_preferences.value("autocorrect_neighbor", false));
   const auto active_scheme = s.scheme_override.value_or(
       configured.at("preferences").value("scheme", "quanpin"));
   const bool nine_key = active_scheme == "quanpin" && s.view.is_object() &&
@@ -2679,18 +2673,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("切换 Engine 的独立英文输入模式（Ctrl+Shift+E）"),
       s.focused && !s.blocked && s.input_enabled && s.session, TRUE,
       s.english_mode ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  auto autocorrect_transposition_property = ibus_property_new(
-      "AutocorrectTransposition", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("拼音错位纠错"), "",
-      ibus_text_new_from_static_string("纠正拼音字母顺序错位"),
-      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
-      autocorrect_transposition ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  auto autocorrect_neighbor_property = ibus_property_new(
-      "AutocorrectNeighbor", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("拼音邻键纠错"), "",
-      ibus_text_new_from_static_string("纠正相邻键误触"),
-      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
-      autocorrect_neighbor ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto helpcode_property = ibus_property_new(
       "Helpcode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("辅助码"), "",
@@ -3115,8 +3097,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, traditional);
     ibus_prop_list_append(properties, english);
     ibus_prop_list_append(properties, english_mode);
-    ibus_prop_list_append(properties, autocorrect_transposition_property);
-    ibus_prop_list_append(properties, autocorrect_neighbor_property);
     ibus_prop_list_append(properties, helpcode_property);
     ibus_prop_list_append(properties, helpcode_schema);
     ibus_prop_list_append(properties, emoji);
@@ -3160,8 +3140,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_engine_update_property(engine, traditional);
     ibus_engine_update_property(engine, english);
     ibus_engine_update_property(engine, english_mode);
-    ibus_engine_update_property(engine, autocorrect_transposition_property);
-    ibus_engine_update_property(engine, autocorrect_neighbor_property);
     ibus_engine_update_property(engine, helpcode_property);
     ibus_engine_update_property(engine, helpcode_schema);
     ibus_engine_update_property(engine, emoji);
@@ -4544,8 +4522,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "TraditionalOutput" &&
        std::string(name) != "EnglishCandidates" &&
        std::string(name) != "EnglishMode" &&
-       std::string(name) != "AutocorrectTransposition" &&
-       std::string(name) != "AutocorrectNeighbor" &&
        std::string(name) != "Helpcode" &&
        property_name.rfind("HelpcodeSchema/", 0) != 0 &&
        std::string(name) != "EmojiCandidates" &&
@@ -5235,33 +5211,6 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.english_mode = enabled;
       s.dedicated_english_override = enabled;
       render(engine, s.view);
-      publish_mode(engine);
-      return;
-    }
-    if (std::string(name) == "AutocorrectTransposition" ||
-        std::string(name) == "AutocorrectNeighbor") {
-      const bool enabled = value == PROP_STATE_CHECKED;
-      const bool transposition = std::string(name) == "AutocorrectTransposition";
-      const auto key = transposition ? "autocorrect_transposition" : "autocorrect_neighbor";
-      const auto current = configured.at("preferences").value("quanpin", Json::object())
-          .value(key, false);
-      auto &setting_override = transposition ? s.autocorrect_transposition_override
-                                             : s.autocorrect_neighbor_override;
-      if (menu_save_pending || setting_override.value_or(current) == enabled)
-        return;
-      const auto directory = configured.value("preferences_directory", std::string{});
-      if (!directory.empty() && directory.front() == '/') {
-        save_menu_preference(engine, transposition ? MenuPreference::AutocorrectTransposition
-                                                  : MenuPreference::AutocorrectNeighbor, enabled);
-        return;
-      }
-      if (s.session)
-        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
-      s.close();
-      setting_override = enabled;
-      s.open();
-      if (s.session)
-        apply(engine, msime_client_focus(s.session, true));
       publish_mode(engine);
       return;
     }

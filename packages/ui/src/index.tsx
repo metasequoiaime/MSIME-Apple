@@ -3767,10 +3767,6 @@ export function SettingsPage({
   // turns that mode off when its resource is absent, so the trigger key inserts its capital instead of
   // being swallowed.
   const visibleLocalModeRows = localModeRows;
-  const quanpinAutocorrect = {
-    autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? false,
-    autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? false,
-  };
   const clipboardHistory = iosPlatform || (draft?.clipboard_history ?? false);
   function toggleClipboardHistory(enabled: boolean) {
     if (!draft) return;
@@ -7267,54 +7263,6 @@ export function SettingsPage({
                           </div>
                         </div>
                       )}
-                    </div>
-                    <div className="section" role="group" aria-label="全拼纠错">
-                      <div className="section-title">
-                        全拼纠错<small>分别控制字母错位和邻键误触的拼音纠错</small>
-                      </div>
-                      <label className="section-header">
-                        <span className="section-title">
-                          字母顺序错位<small>例如把 shang 输入为 sahng</small>
-                        </span>
-                        <input
-                          aria-label="全拼纠错：字母顺序错位"
-                          className="toggle"
-                          type="checkbox"
-                          checked={quanpinAutocorrect.autocorrect_transposition}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              quanpin: {
-                                ...draft.quanpin,
-                                ...quanpinAutocorrect,
-                                autocorrect_transposition: event.target.checked,
-                              },
-                            })
-                          }
-                        />
-                      </label>
-                      <div className="input-option-divider" />
-                      <label className="section-header">
-                        <span className="section-title">
-                          相邻键误触<small>例如把 shang 输入为 shabg</small>
-                        </span>
-                        <input
-                          aria-label="全拼纠错：相邻键误触"
-                          className="toggle"
-                          type="checkbox"
-                          checked={quanpinAutocorrect.autocorrect_neighbor}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              quanpin: {
-                                ...draft.quanpin,
-                                ...quanpinAutocorrect,
-                                autocorrect_neighbor: event.target.checked,
-                              },
-                            })
-                          }
-                        />
-                      </label>
                     </div>
                     {client.fuzzyPinyin && (
                       <div className="section" role="group" aria-label="模糊音">

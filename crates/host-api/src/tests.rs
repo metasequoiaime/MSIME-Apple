@@ -1110,7 +1110,14 @@ fn helpcode_settings_switch_independently_after_composition() {
 #[test]
 fn autocorrect_update_waits_for_composition_end() {
     let dir = tempfile::tempdir().unwrap();
-    let handle = test_host(dir.path());
+    let disabled_preferences = Preferences {
+        quanpin: msime_client_core::preferences::QuanpinPreferences {
+            autocorrect_transposition: Some(false),
+            autocorrect_neighbor: Some(false),
+        },
+        ..chinese_preferences()
+    };
+    let handle = test_host_preferences(dir.path(), disabled_preferences.clone());
     read(msime_client_focus(handle, true));
     read(msime_client_character(handle, b'U', true));
     let before = read(msime_client_view(handle))["value"].clone();
@@ -1133,7 +1140,7 @@ fn autocorrect_update_waits_for_composition_end() {
         assert!(sessions.borrow()[&handle].options.autocorrect_neighbor);
     });
     assert_eq!(
-        update(handle, 2, &Preferences::default())["value"]["deferred"],
+        update(handle, 2, &disabled_preferences)["value"]["deferred"],
         false
     );
     SESSIONS.with(|sessions| {
