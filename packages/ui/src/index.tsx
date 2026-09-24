@@ -4601,6 +4601,7 @@ export function SettingsPage({
               <button
                 type="button"
                 aria-label="最小化"
+                disabled={!client.windowControl}
                 onClick={() => void client.windowControl!("minimize")}
               >
                 <img
@@ -4613,6 +4614,7 @@ export function SettingsPage({
               <button
                 type="button"
                 aria-label={windowMaximized ? "还原" : "最大化"}
+                disabled={!client.windowControl}
                 onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}
               >
                 <img
@@ -4626,6 +4628,7 @@ export function SettingsPage({
                 type="button"
                 className={settings.windowClose}
                 aria-label="关闭"
+                disabled={!client.windowControl}
                 onClick={() => void client.windowControl!("close")}
               >
                 <img

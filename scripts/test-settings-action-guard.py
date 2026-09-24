@@ -35,8 +35,11 @@ def main() -> int:
         print("no optional client callbacks found; the interface shape changed", file=sys.stderr)
         return 1
     offenders = []
-    for match in re.finditer(r"<button\b((?:[^<]|\n)*?)</button>", text):
-        block = match.group(1)
+    # Avoid a backtracking-heavy expression: JSX button bodies may contain nested
+    # expressions and long strings. Scan each button linearly up to its closing tag.
+    button = re.compile(r"<button\b(?P<body>.*?)</button>", re.DOTALL)
+    for match in button.finditer(text):
+        block = match.group("body")
         for name in sorted(optional):
             # Both shapes count: calling the callback, and handing it to a helper such as
             # `openPanel(client.openScreenKeyboard)`, which is how the panel buttons are written.
