@@ -3745,6 +3745,7 @@ static void TestCloudCandidatePreference() {
 @property(nonatomic, copy) NSDictionary *niuTrans;
 @property(nonatomic, copy) NSArray *page;
 @property(nonatomic, copy) NSArray *targetLanguages;
+@property(nonatomic, copy) NSArray *offlineGlossLanguages;
 @property(nonatomic, copy) NSArray *delivered;
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) BOOL offline;
@@ -3753,7 +3754,7 @@ static void TestCloudCandidatePreference() {
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
     return self.enabled ? @{@"generation":@(self.generation), @"target_language":self.targetLanguage ?: @"en",
-        @"target_languages":self.targetLanguages ?: @[],
+        @"target_languages":self.targetLanguages ?: @[], @"offline_gloss_languages":self.offlineGlossLanguages ?: @[],
         @"custom_translation":self.custom ?: @{}, @"tencent_tmt":self.tencent ?: @{}, @"niutrans":self.niuTrans ?: @{}} : nil;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
@@ -4003,6 +4004,15 @@ static void TestAiCandidateDescriptorFailureIsRetryable() {
 - (NSDictionary *)readCandidateGloss:(NSDictionary *)request resources:(NSString *)resources {
     assert(!NSThread.isMainThread && [resources isEqual:@"/synthetic"]);
     return @{@"generation":request[@"generation"], @"translations":@[@{@"text":@"Hello", @"translation":@"本地释义"}]};
+}
+- (NSDictionary *)readTargetGloss:(NSDictionary *)request language:(NSString *)language resources:(NSString *)resources {
+    assert(!NSThread.isMainThread && [resources isEqual:@"/synthetic"]);
+    NSDictionary *glosses = @{@"fr":@{@"测试":@"essai"}, @"ja":@{@"测试":@"テスト", @"你好":@"こんにちは"}};
+    NSMutableArray *translations = [NSMutableArray array];
+    for (NSDictionary *candidate in request[@"candidates"])
+        if (glosses[language][candidate[@"text"]])
+            [translations addObject:@{@"text":candidate[@"text"], @"translation":glosses[language][candidate[@"text"]]}];
+    return @{@"generation":request[@"generation"], @"translations":translations};
 }
 - (MSIMECustomTranslationBatch *)tencentBatchForItems:(NSArray<NSDictionary *> *)items config:(NSDictionary *)config
                                          completion:(void (^)(NSArray<NSDictionary *> *))completion {
@@ -4370,6 +4380,51 @@ static void TestAccountGlossRequiresExplicitChoice() {
     assert([controller currentAccountGlossRequest]);
 }
 
+static void TestOfflineTargetGlosses() {
+    [[MSIMETranslationCache sharedCache] clear];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1; session.offline = YES;
+    session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"fr"]; session.offlineGlossLanguages = @[@"fr", @"ja"];
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}, @{@"text":@"你好", @"source":@0}];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    void (^settle)(void) = ^{
+        [controller synchronizeCandidateGloss];
+        [controller synchronizeTargetGloss];
+        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+        [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    };
+    // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
+    settle();
+    assert(([[controller currentTargetGlossRequest][@"offline_languages"] isEqual:@[@"fr"]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\nessai"}]]));
+    session.generation++; session.targetLanguage = @"ja"; session.targetLanguages = @[@"ja", @"en"];
+    settle();
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"\n本地释义"}, @{@"text":@"测试", @"translation":@"テスト"},
+        @{@"text":@"你好", @"translation":@"こんにちは"}]]));
+    // Without English among the targets the offline dictionary is the only local source.
+    session.generation++; session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"];
+    settle();
+    assert(![controller currentGlossRequest] && ([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"essai"}]]));
+    // Nothing installed for the chosen targets leaves the English path exactly as it was.
+    session.generation++; session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"de"];
+    settle();
+    assert(![controller currentTargetGlossRequest] && ([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}]]));
+    // The user's own translator still takes precedence over the offline dictionary.
+    session.generation++; session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"];
+    session.custom = @{@"enabled":@YES, @"endpoint":@"https://offline-gloss.invalid/api", @"api_key":@""};
+    settle();
+    [controller synchronizeCustomTranslations];
+    assert(controller.batches.count == 1);
+    controller.batches[0].reply(@[@{@"text":@"测试", @"translation":@"test en ligne"}]);
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"test en ligne"}]]));
+    [controller cancelCandidateTranslations];
+    assert(![controller valueForKey:@"targetGlossRequest"] && ![controller valueForKey:@"targetGlossResults"]);
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationController() {
     CustomTranslationController *controller = [CustomTranslationController alloc];
     controller.batches = [NSMutableArray array];
@@ -4810,6 +4865,7 @@ int main(int argc, char **argv) {
             TestAccountGlossSkipsNonChineseCandidates();
             TestAccountGlossRequiresExplicitChoice();
             TestAccountGlossCacheIsSharedAcrossControllers();
+            TestOfflineTargetGlosses();
             TestCustomTranslationController();
             TestSecondaryTranslationScheduling();
             TestCustomTranslationCacheDelivery();
@@ -4839,6 +4895,7 @@ int main(int argc, char **argv) {
         TestAccountGlossSkipsNonChineseCandidates();
         TestAccountGlossRequiresExplicitChoice();
         TestAccountGlossCacheIsSharedAcrossControllers();
+        TestOfflineTargetGlosses();
         TestCustomTranslationController();
         TestSecondaryTranslationScheduling();
         TestCustomTranslationCacheDelivery();
