@@ -50,7 +50,9 @@ if (-not $script.Contains('function MigrateUserDataDir') -or
     -not $script.Contains('MigrateUserDataDir(ResolvePreviousDataDir')) {
     throw 'Installer does not migrate user data when DataDir changes'
 }
-if (-not $script.Contains('/COPY:DAT') -or $script.Contains('/MOVE')) {
+# Keep the assertion insensitive to line folding/spacing in the Pascal string while still
+# requiring a data-preserving copy (and explicitly rejecting the destructive move variant).
+if ($script -notmatch '(?i)/COPY\s*:\s*DAT' -or $script -match '(?i)/MOVE') {
     throw 'Installer migration must retain the previous data directory for recovery'
 }
 if (-not $script.Contains('用户数据复制失败，安装已停止')) {

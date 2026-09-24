@@ -27,7 +27,7 @@ final class HelpcodeSettingsTests: XCTestCase {
   }
 
   /// A Shift letter narrows the composition by helpcode, and turning helpcode off in the app reaches the session the keyboard already has.
-  func testReloadTurnsHelpcodeOffInTheLiveSession() {
+  func testReloadTurnsHelpcodeOffInTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     let plain = compose(bridge, "shi", helpcode: nil)
     // 自然码 Y is the 讠 radical: 识 试 诗 lead instead of 是.
@@ -71,7 +71,7 @@ final class HelpcodeSettingsTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 15)
+    await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
   }
 

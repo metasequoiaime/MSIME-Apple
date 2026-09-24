@@ -15,7 +15,7 @@ final class LocalModeSettingsTests: XCTestCase {
     super.tearDown()
   }
 
-  func testReloadTurnsAModeOffInTheLiveSession() {
+  func testReloadTurnsAModeOffInTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(opens(bridge, "T"), "date and time ship on")
     XCTAssertTrue(opens(bridge, "U"), "Unicode ships on")
@@ -28,7 +28,7 @@ final class LocalModeSettingsTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 15)
+    await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
 
     XCTAssertFalse(opens(bridge, "T"))

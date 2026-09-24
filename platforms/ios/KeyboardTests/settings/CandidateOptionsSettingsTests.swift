@@ -33,7 +33,7 @@ final class CandidateOptionsSettingsTests: XCTestCase {
   }
 
   /// Transposition correction turned on in the app reaches the session the keyboard already has.
-  func testReloadHandsTypoCorrectionToTheLiveSession() {
+  func testReloadHandsTypoCorrectionToTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     // The engine's own autocorrect check: with transposition on, gau leads with 挂 (gua).
     XCTAssertNotEqual(firstCandidates(bridge, "gau").first, "挂", "transposition correction ships off")
@@ -46,14 +46,14 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 15)
+    await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
 
     XCTAssertEqual(firstCandidates(bridge, "gau").first, "挂")
   }
 
   /// 「双拼预编辑」 turned off in the app makes the live session spell out the pinyin behind the raw shuangpin keys the strip otherwise shows.
-  func testReloadHandsShuangpinPreeditToTheLiveSession() {
+  func testReloadHandsShuangpinPreeditToTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     _ = bridge.switch(toShuangpin: true)
     XCTAssertEqual(spelling(bridge, "ui"), "ui", "raw keys ship on")
@@ -64,7 +64,7 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     let reloaded = expectation(description: "reload")
     var accepted = false
     bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
-    wait(for: [reloaded], timeout: 15)
+    await fulfillment(of: [reloaded], timeout: 15)
     XCTAssertTrue(accepted, "the reload was refused")
 
     XCTAssertEqual(spelling(bridge, "ui"), "shi")
