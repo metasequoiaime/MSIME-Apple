@@ -15,7 +15,7 @@ $cases = @($tests | ForEach-Object {
     [PSCustomObject]@{ Name = $_; Label = $_; Arguments = '' }
 })
 $cases += [PSCustomObject]@{
-    Name = 'msime-client-server.exe'; Label = 'preview-help'; Arguments = '--help'
+    Name = 'MetasequoiaImeServer.exe'; Label = 'preview-help'; Arguments = '--help'
 }
 if ($PSBoundParameters.ContainsKey('ResourcesDirectory')) {
     if ([string]::IsNullOrWhiteSpace($ResourcesDirectory)) {
