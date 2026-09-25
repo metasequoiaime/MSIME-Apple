@@ -993,7 +993,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (KeyboardFormFactor.isDesktop()) {
       inputMethodEngine.getKeyboardDelegate().off('cursorContextChange', this.caretMoved);
     }
-    KeyboardSession.shared.stop();
+    KeyboardSession.shared.shutdown();
     // These close over the panel being released.
     KeyboardSession.shared.onTouchHeight = undefined;
     KeyboardSession.shared.onDismiss = undefined;

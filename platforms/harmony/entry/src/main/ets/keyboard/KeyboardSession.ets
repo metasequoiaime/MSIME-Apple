@@ -2235,6 +2235,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** Final ability teardown: invalidate editor callbacks that may still be awaiting attributes. */
+  shutdown(): void {
+    this.stop();
+    this.attributeGeneration++;
+    this.inputClient = undefined;
+    this.previewSupported = false;
+    this.previewText = '';
+  }
+
   /** Invalidate host-side network work before the focused editor changes or the session dies. */
   private cancelOnlineProviders(): void {
     this.onlineEpoch++;
