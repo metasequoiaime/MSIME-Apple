@@ -1,6 +1,6 @@
 JSON for Modern C++ (nlohmann/json), https://github.com/nlohmann/json
 
-Header-only; compiled into msime-client-ibus, the provider and preparation programs that share its host code, and the Fcitx5 addon. Copyright holders and license as recorded for nlohmann/json 3.11.2 (Debian 12 nlohmann-json3-dev 3.11.2-2, the version the release packages are built against).
+Header-only; compiled into msime-linux-ibus, the provider and preparation programs that share its host code, and the Fcitx5 addon. Copyright holders and license as recorded for nlohmann/json 3.11.2 (Debian 12 nlohmann-json3-dev 3.11.2-2, the version the release packages are built against).
 
 Copyright (c) 2013-2022 Niels Lohmann
 Copyright (c) 2009 Florian Loitsch (include/nlohmann/detail/conversions/to_chars.hpp)

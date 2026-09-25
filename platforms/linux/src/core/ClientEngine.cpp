@@ -4252,7 +4252,7 @@ void panel_input_listen() {
   }, nullptr);
 }
 
-// Set once a package upgrade replaced msime-client-ibus under this process and the host quit for it; main() turns it into msime_ibus_upgraded_exit so the launcher starts the new build at once.
+// Set once a package upgrade replaced msime-linux-ibus under this process and the host quit for it; main() turns it into msime_ibus_upgraded_exit so the launcher starts the new build at once.
 bool upgrade_restart_requested = false;
 bool upgrade_restart_scheduled = false;
 struct UpgradeRestart {

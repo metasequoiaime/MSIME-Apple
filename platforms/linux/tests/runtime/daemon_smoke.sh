@@ -28,7 +28,7 @@ for attempt in $(seq 1 100); do
   sleep 0.05
 done
 # Start the host the way ibus-daemon does, through the launcher installed beside it and that launcher's crash supervisor. daemon_smoke.py crashes the supervised host and stops the supervisor, so it needs the supervisor's PID and a way to start another.
-launcher="$(dirname -- "$binary")/msime-client-ibus-launcher"
+launcher="$(dirname -- "$binary")/msime-linux-ibus-launcher"
 if [[ -x "$launcher" ]]; then
   MSIME_IBUS_OPTIONS="$options" "$launcher" &
   host_pid=$!

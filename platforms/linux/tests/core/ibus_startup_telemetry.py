@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """IBus 宿主的启动上报：注册 component 之后才在后台线程发出，端点挂起也不耽误注册和主循环；守护进程崩溃重启（--recovered）时不发；上报的版本是构建版本。
 
-跑的是真的 msime-client-ibus 和真的 platforms/common/Telemetry.cpp。ibus-daemon 由一个普通 dbus-daemon 加 ibus-registration-bus 桩代替，桩只应答 RegisterComponent 并打出注册时刻和宿主的总线名。端点挂起期间，桩的 probe 模式向宿主的 IBusFactory 请求一个不存在的引擎：这个错误只能由宿主主循环回出来，所以上报一旦回到主线程同步执行，探测就会超时。上报端点经 libcurl 自己认的 HTTPS_PROXY 指到本地一个只 accept、从不回应的 TCP 监听，所以请求永远到不了 api.msime.app，而且对宿主来说就是一个挂起的端点。事件在发送前先写进 $XDG_STATE_HOME/msime/telemetry.json，版本号从那里核对。
+跑的是真的 msime-linux-ibus 和真的 platforms/common/Telemetry.cpp。ibus-daemon 由一个普通 dbus-daemon 加 ibus-registration-bus 桩代替，桩只应答 RegisterComponent 并打出注册时刻和宿主的总线名。端点挂起期间，桩的 probe 模式向宿主的 IBusFactory 请求一个不存在的引擎：这个错误只能由宿主主循环回出来，所以上报一旦回到主线程同步执行，探测就会超时。上报端点经 libcurl 自己认的 HTTPS_PROXY 指到本地一个只 accept、从不回应的 TCP 监听，所以请求永远到不了 api.msime.app，而且对宿主来说就是一个挂起的端点。事件在发送前先写进 $XDG_STATE_HOME/msime/telemetry.json，版本号从那里核对。
 
 用法：ibus_startup_telemetry.py HOST REGISTRATION_BUS EXPECTED_VERSION
 """

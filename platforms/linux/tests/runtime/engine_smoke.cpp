@@ -379,7 +379,7 @@ int main(int argc, char **argv) {
     auto create_engine = [&] {
       auto created = IBUS_ENGINE(
           g_object_new(msime_ibus_engine_get_type(), "engine-name",
-                     "msime-client", "object-path",
+                     "msime-linux", "object-path",
                      "/app/msime/test/engine", "connection", server, nullptr));
       g_object_ref_sink(created);
       return created;
