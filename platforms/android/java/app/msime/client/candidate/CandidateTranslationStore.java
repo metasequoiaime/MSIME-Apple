@@ -102,7 +102,8 @@ public final class CandidateTranslationStore {
     private void send(List<String> words, List<String> targets, long generation, long epoch) {
         pending = null;
         if (epoch != requestEpoch) return;
-        String stamp = String.join(",", targets) + "|" + generation + "|" + String.join("|", words);
+        String stamp = "targets=" + signature(targets) + "|generation=" + generation
+            + "|words=" + signature(words);
         if (stamp.equals(signature)) return;
         Map<String, ArrayList<String>> requests = new LinkedHashMap<>();
         for (String target : targets) {
@@ -130,6 +131,14 @@ public final class CandidateTranslationStore {
         } catch (RuntimeException ignored) {
             // A stopped worker is equivalent to an unavailable optional service.
         }
+    }
+
+    private static String signature(List<String> values) {
+        StringBuilder result = new StringBuilder().append(values.size()).append(':');
+        for (String value : values) {
+            result.append(value.length()).append(':').append(value);
+        }
+        return result.toString();
     }
 
     private void absorb(long epoch, String target, long generation,
