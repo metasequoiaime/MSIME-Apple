@@ -34,12 +34,14 @@ fi
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
 bash platforms/android/build-native.sh "$abi"
 tauri_jni="$repo_root/target/android/tauri-jniLibs/$abi"
+rm -rf "$tauri_jni"
 mkdir -p "$tauri_jni"
 cp "$repo_root/target/android/jniLibs/$abi/libmsime_android.so" \
   "$repo_root/target/android/jniLibs/$abi/libmsime_host_api.so" \
   "$repo_root/target/android/jniLibs/$abi/libsherpa-onnx-c-api.so" \
   "$repo_root/target/android/jniLibs/$abi/libonnxruntime.so" "$tauri_jni/"
 assets="$repo_root/target/android/tauri-assets"
+rm -rf "$assets"
 mkdir -p "$assets/dictionary"
 cp resources/desktop-dictionary.lock.json "$assets/"
 while IFS= read -r artifact; do cp "$resource_dir/$artifact" "$assets/dictionary/"; done <<< "$artifacts"
