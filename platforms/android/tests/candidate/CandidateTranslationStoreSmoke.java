@@ -58,6 +58,32 @@ public final class CandidateTranslationStoreSmoke {
         } finally {
             normalizationWorker.shutdownNow();
         }
+
+        FakeScheduler collisionScheduler = new FakeScheduler();
+        ExecutorService collisionWorker = Executors.newSingleThreadExecutor();
+        AtomicInteger collisionCalls = new AtomicInteger();
+        CountDownLatch firstCollisionCall = new CountDownLatch(1);
+        CountDownLatch secondCollisionCall = new CountDownLatch(1);
+        CandidateTranslationStore collisionStore = new CandidateTranslationStore(
+            (texts, target) -> {
+                if (collisionCalls.incrementAndGet() == 1) firstCollisionCall.countDown();
+                else secondCollisionCall.countDown();
+                return texts.stream().map(text -> text + " translation").toList();
+            }, collisionWorker, collisionScheduler, generation -> { });
+        try {
+            collisionStore.refresh(List.of("甲|乙"), List.of("en"), 6);
+            collisionScheduler.runDelayed();
+            check(firstCollisionCall.await(2, TimeUnit.SECONDS), "first collision request started");
+            collisionScheduler.runPosted();
+
+            collisionStore.refresh(List.of("甲", "乙"), List.of("en"), 6);
+            collisionScheduler.runDelayed();
+            check(secondCollisionCall.await(2, TimeUnit.SECONDS), "second collision request started");
+            collisionScheduler.runPosted();
+            check(collisionCalls.get() == 2, "word separators do not collide");
+        } finally {
+            collisionWorker.shutdownNow();
+        }
         System.out.println("Android candidate translation store: stale request fencing passed");
     }
 

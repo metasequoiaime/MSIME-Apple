@@ -83,6 +83,24 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertNil(store.gloss(word: "中国", code: "EN"))
   }
 
+  func testWordSeparatorsCannotCollideInRequestSignature() async throws {
+    let service = StubTranslationService(
+      answers: ["EN": ["甲|乙": "combined", "甲": "a", "乙": "b"]])
+    let store = CandidateTranslationStore(service: service)
+    let firstArrived = expectation(description: "first page arrived")
+    store.onArrival = { firstArrived.fulfill() }
+
+    store.refresh(words: ["甲|乙"], codes: ["EN"])
+    await fulfillment(of: [firstArrived], timeout: 5)
+    let secondArrived = expectation(description: "second page arrived")
+    store.onArrival = { secondArrived.fulfill() }
+    store.refresh(words: ["甲", "乙"], codes: ["EN"])
+    await fulfillment(of: [secondArrived], timeout: 5)
+    XCTAssertEqual(service.calls.count, 2)
+    XCTAssertEqual(store.gloss(word: "甲", code: "EN"), "a")
+    XCTAssertEqual(store.gloss(word: "乙", code: "EN"), "b")
+  }
+
   func testQueuedRequestIsCancelledWhenCompositionEnds() async throws {
     let service = StubTranslationService(answers: ["EN": ["你好": "hello"]])
     let store = CandidateTranslationStore(service: service)

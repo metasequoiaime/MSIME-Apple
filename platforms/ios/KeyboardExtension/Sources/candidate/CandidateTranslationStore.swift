@@ -76,9 +76,14 @@ final class CandidateTranslationStore {
     for task in tasks { task.cancel() }
     tasks.removeAll()
   }
+  private static func signature(_ values: [String]) -> String {
+     values.reduce(into: "\(values.count):") { result, value in
+       result += "\(value.utf8.count):\(value)"
+     }
+   }
   private func send(words: [String], codes: [String]) {
     debounce = nil
-    let stamp = (codes + words).joined(separator: "|")
+    let stamp = "codes=" + Self.signature(codes) + "|words=" + Self.signature(words)
     // Evict before `pending` so the page on screen is asked again for every code.
     if cache.count > cacheLimit { cache.removeAll(); signature = nil }
     var pending: [String: [String]] = [:]
