@@ -7,6 +7,7 @@ from pathlib import Path
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     voice = (root / "platforms/harmony/entry/src/main/ets/keyboard/input/HarmonyVoiceRecognizer.ets").read_text()
+    behaviour = (root / "platforms/harmony/entry/src/main/ets/keyboard/input/HarmonyVoiceRecordingBehaviour.ets").read_text()
     ability = (root / "platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets").read_text()
 
     checks = {
@@ -16,6 +17,11 @@ def main() -> int:
             "if (session !== this.sessionId || this.resultHandler === undefined)" in voice,
         "voice creation releases a late engine":
             "created.shutdown();" in voice,
+        "voice tone closes raw file after player creation failure":
+            "let rawFdOpen: boolean = false;" in behaviour
+            and "rawFdOpen = true;" in behaviour
+            and "if (rawFdOpen)" in behaviour
+            and "await context.resourceManager.closeRawFd(asset);" in behaviour,
         "main panel creation checks teardown":
             "const panel: inputMethodEngine.Panel = await engine.createPanel" in ability
             and "if (this.tornDown) {" in ability,
