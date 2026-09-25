@@ -251,6 +251,19 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
   }
 
+  private func withSharedLock<T>(_ body: (URL) throws -> T) throws -> T {
+    guard let directory else { throw StoreError.unavailable }
+    Self.processLock.lock()
+    defer { Self.processLock.unlock() }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let descriptor = open(directory.appendingPathComponent("sync.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else { throw StoreError.unavailable }
+    defer { close(descriptor) }
+    guard flock(descriptor, LOCK_SH | LOCK_NB) == 0 else { throw StoreError.busy }
+    defer { flock(descriptor, LOCK_UN) }
+    return try body(directory)
+  }
+
   private static func validRequestID(_ id: String) -> Bool {
     !id.isEmpty && id.utf8.count <= 120 && id.utf8.allSatisfy {
       ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 90) ||
@@ -394,13 +407,19 @@ final class PersonalDictionaryStore: @unchecked Sendable {
 
   /// A copy of the written export under its desktop name, for the share sheet. The shared file stays where the keyboard wrote it.
   func exportCopy(for result: PersonalExportResult) throws -> URL {
-    guard result.error == nil, let file = exportFile else { throw StoreError.unavailable }
-    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("PersonalExport", isDirectory: true)
-    try? FileManager.default.removeItem(at: folder)
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    let copy = folder.appendingPathComponent(result.request.fileName)
-    try FileManager.default.copyItem(at: file, to: copy)
-    return copy
+    guard result.error == nil else { throw StoreError.unavailable }
+    return try withSharedLock { directory in
+      let state = try readFile(at: directory.appendingPathComponent("sync.json"))
+      guard state.exportResult?.request.id == result.request.id,
+            state.exportResult?.error == nil else { throw StoreError.conflict }
+      let file = directory.appendingPathComponent("export.txt")
+      let folder = FileManager.default.temporaryDirectory.appendingPathComponent("PersonalExport", isDirectory: true)
+      try? FileManager.default.removeItem(at: folder)
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      let copy = folder.appendingPathComponent(result.request.fileName)
+      try FileManager.default.copyItem(at: file, to: copy)
+      return copy
+    }
   }
 
   /// Ask the keyboard to write one dictionary out. It replaces any export not yet written, and the keyboard answers it after the edits already queued.
