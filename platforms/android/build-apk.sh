@@ -7,8 +7,10 @@ resource_dir=${1:?usage: build-apk.sh <verified-resource-directory>}
 resource_dir=$(cd "$resource_dir" && pwd)
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 tools_dir="$android_sdk/build-tools/35.0.0"
-android_jar="$android_sdk/platforms/android-35/android.jar"
-[[ -f "$android_jar" && -x "$tools_dir/d8" ]] || { echo "Android platform/build-tools 35 required" >&2; exit 1; }
+# The Gradle host module compiles against API 36. Check the same platform here so a
+# partially installed SDK fails before Gradle starts resolving dependencies.
+android_jar="$android_sdk/platforms/android-36/android.jar"
+[[ -f "$android_jar" && -x "$tools_dir/d8" ]] || { echo "Android API 36 platform and build-tools 35 required" >&2; exit 1; }
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
 for abi in arm64-v8a x86_64; do bash platforms/android/build-native.sh "$abi"; done
 

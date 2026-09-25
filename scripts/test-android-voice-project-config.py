@@ -6,6 +6,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
+    def test_native_apk_preflight_matches_gradle_compile_sdk(self):
+        gradle = (ROOT / "platforms/android/gradle-app/app/build.gradle.kts").read_text()
+        build = (ROOT / "platforms/android/build-apk.sh").read_text()
+
+        self.assertIn("compileSdk = 36", gradle)
+        self.assertIn('platforms/android-36/android.jar', build)
+        self.assertNotIn('platforms/android-35/android.jar', build)
+
     def test_shared_voice_panel_is_wired_to_the_android_plugin(self):
         plugin_rust = (ROOT / "crates/tauri-mobile-platform/src/lib.rs").read_text()
         # The voice commands are split across two files: the recognition path moved out into
