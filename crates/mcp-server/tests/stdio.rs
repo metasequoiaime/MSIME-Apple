@@ -135,7 +135,8 @@ async fn read_only_by_default() {
             "get_preferences",
             "get_typing_statistics",
             "list_quick_phrases",
-            "read_diagnostic_log"
+            "read_diagnostic_log",
+            "set_diagnostic_log"
         ]
     );
     let page = ok(&client, "list_quick_phrases", json!({})).await;
@@ -156,7 +157,7 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
     let (client, _child) = start(&options, &["--allow-write"]).await;
-    assert_eq!(tool_names(&client).await.len(), 6);
+    assert_eq!(tool_names(&client).await.len(), 7);
 
     // Quick phrases: add, list, replace, remove, with a failure in the middle of a batch.
     let outcome = ok(
@@ -266,7 +267,7 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
     client.cancel().await.unwrap();
 
     let (client, _child) = start(&options, &["--allow-write", "--allow-dictionary-read"]).await;
-    assert_eq!(tool_names(&client).await.len(), 10);
+    assert_eq!(tool_names(&client).await.len(), 11);
 
     let outcome = ok(
         &client,
@@ -377,26 +378,30 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
 async fn an_agent_turns_on_and_reads_the_diagnostic_log() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
-    let (client, _child) = start(&options, &["--allow-write"]).await;
-    assert!(tool_names(&client)
-        .await
-        .contains(&"read_diagnostic_log".to_owned()));
+    // No flags: the settings page registers the server this way, and someone who cannot edit a configuration file must still get from a description of the problem to the log.
+    let (client, _child) = start(&options, &[]).await;
 
     // Off by default: nothing to read, and the answer says how to get something.
     let view = ok(&client, "read_diagnostic_log", json!({})).await;
     assert_eq!(view["server_enabled"], false);
     assert_eq!(view["lines"], json!([]));
-    assert!(view["hint"].as_str().unwrap().contains("off"));
+    assert!(view["hint"]
+        .as_str()
+        .unwrap()
+        .contains("set_diagnostic_log"));
 
-    let before = ok(&client, "get_preferences", json!({})).await;
-    assert_eq!(before["diagnostic_log_server"], false);
-    let after = ok(
-        &client,
-        "update_preferences",
-        json!({ "expected_revision": before["revision"], "diagnostic_log_server": true }),
-    )
-    .await;
-    assert_eq!(after["diagnostic_log_server"], true);
+    let switched = ok(&client, "set_diagnostic_log", json!({ "enabled": true })).await;
+    assert_eq!(switched["server_enabled"], true);
+    assert_eq!(switched["tsf_enabled"], cfg!(windows));
+    assert_eq!(
+        ok(&client, "get_preferences", json!({})).await["diagnostic_log_server"],
+        true
+    );
+    let view = ok(&client, "read_diagnostic_log", json!({})).await;
+    assert!(view["hint"]
+        .as_str()
+        .unwrap()
+        .contains("nothing has been written"));
 
     // What a host writes once the user reproduces the problem, in the place this platform's host writes it.
     let file = if cfg!(windows) {
@@ -444,6 +449,16 @@ async fn an_agent_turns_on_and_reads_the_diagnostic_log() {
     )
     .await
     .is_empty());
+
+    // Done: the log goes off again, and what was written stays readable.
+    after_write_interval().await;
+    let switched = ok(&client, "set_diagnostic_log", json!({ "enabled": false })).await;
+    assert_eq!(
+        switched,
+        json!({ "server_enabled": false, "tsf_enabled": false })
+    );
+    let view = ok(&client, "read_diagnostic_log", json!({})).await;
+    assert_eq!(view["lines"].as_array().unwrap().len(), 4);
 
     client.cancel().await.unwrap();
 }

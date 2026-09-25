@@ -1,7 +1,10 @@
 //! The input method's diagnostic log as an agent may see it, so a user can describe a problem and have the agent read what the hosts recorded around it.
 //!
+//! The log is off until the user or an agent turns it on; `set` does that the way the settings page does, so an agent can go from the user's description of a problem to the log without the user touching a setting.
+//!
 //! Every desktop host writes the log beside its preferences when the user turns on `diagnostic_log.server` (or, on Windows, `diagnostic_log.tsf`): `diagnostic.log` on macOS and Linux, `logs\server.log` on Windows, each rotated to a `.1` copy once it grows past a few MiB. The hosts keep to event names, counts, timings and error codes, but the Windows TIP's key-trace records (`[msime][issue47]`) name the key that was pressed; those fields are blanked here before a line is returned, so what the user typed does not reach the agent.
 
+use crate::preferences::{self, PreferencesChange};
 use msime_client_core::preferences::PreferencesStore;
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -43,6 +46,42 @@ pub struct LogView {
     /// What to do when there is nothing to read.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct SwitchRequest {
+    /// True to start recording before the user repeats what went wrong, false to stop once the problem is understood.
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SwitchView {
+    /// Whether the input method now writes its log.
+    pub server_enabled: bool,
+    /// Whether the Windows TIP now adds its records. Windows only; always false elsewhere.
+    pub tsf_enabled: bool,
+}
+
+/// Turn the log on or off. On Windows the TIP's records go with it: problems with composing text show up there, and the agent should not need to know which half of the input method to ask.
+pub fn set(state_dir: &Path, options: &Path, enabled: bool) -> Result<SwitchView, String> {
+    let revision = PreferencesStore::new(state_dir)
+        .load()
+        .map_err(|error| error.to_string())?
+        .revision;
+    let change = PreferencesChange {
+        expected_revision: revision,
+        diagnostic_log_server: Some(enabled),
+        diagnostic_log_tsf: cfg!(windows).then_some(enabled),
+        ..PreferencesChange::default()
+    };
+    let view = preferences::update(state_dir, options, &change)?;
+    Ok(SwitchView {
+        server_enabled: view.diagnostic_log_server,
+        tsf_enabled: cfg!(windows) && view.diagnostic_log_tsf,
+    })
 }
 
 /// Where the host writes its log, relative to its preferences directory.
@@ -92,12 +131,9 @@ pub fn load(state_dir: &Path, request: &LogRequest) -> Result<LogView, String> {
         .collect();
     let tsf_enabled = cfg!(windows) && switches.tsf;
     let hint = if !switches.server && !tsf_enabled {
-        Some(
-            "The diagnostic log is off. Turn it on (diagnostic_log_server in update_preferences, or the diagnostic log switch in the input method's settings), have the user reproduce the problem, then read the log again."
-                .to_owned(),
-        )
+        Some("The diagnostic log is off. Turn it on with set_diagnostic_log, ask the user to do again what went wrong, then read the log again.".to_owned())
     } else if !found {
-        Some("The log is on but nothing has been written yet; have the user reproduce the problem, then read the log again.".to_owned())
+        Some("The log is on but nothing has been written yet. Ask the user to do again what went wrong, then read the log again.".to_owned())
     } else {
         None
     };
