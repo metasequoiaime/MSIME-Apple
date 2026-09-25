@@ -195,6 +195,10 @@ pub struct PreferencesView {
     pub wubi_mixed_pinyin: bool,
     /// In Wubi, show the rest of each candidate's code after the typed keys.
     pub wubi_code_hint: bool,
+    /// Whether the input method writes its diagnostic log: focus changes, slow requests, candidate window and dictionary events and failures, never what is typed.
+    pub diagnostic_log_server: bool,
+    /// Windows only: whether the TIP adds its composition and key-latency records to the diagnostic log.
+    pub diagnostic_log_tsf: bool,
     /// Whether the dictionary learns from typing. Read-only here: turning it off is the user's decision.
     pub learning: bool,
 }
@@ -221,6 +225,8 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             wubi_mixed_pinyin: preferences.wubi_mixed_pinyin,
             // Absent means on: documents written before the switch existed keep the hint.
             wubi_code_hint: preferences.wubi_code_hint.unwrap_or(true),
+            diagnostic_log_server: preferences.diagnostic_log.server,
+            diagnostic_log_tsf: preferences.diagnostic_log.tsf,
             learning: preferences.learning,
         }
     }
@@ -252,6 +258,10 @@ pub struct PreferencesChange {
     pub traditional_chinese_output: Option<bool>,
     pub wubi_mixed_pinyin: Option<bool>,
     pub wubi_code_hint: Option<bool>,
+    /// Turn on to look into a problem the user reports, and off again once it is understood.
+    pub diagnostic_log_server: Option<bool>,
+    /// Windows only; the other platforms keep it for the Windows settings to find.
+    pub diagnostic_log_tsf: Option<bool>,
 }
 
 impl PreferencesChange {
@@ -272,6 +282,8 @@ impl PreferencesChange {
             && self.traditional_chinese_output.is_none()
             && self.wubi_mixed_pinyin.is_none()
             && self.wubi_code_hint.is_none()
+            && self.diagnostic_log_server.is_none()
+            && self.diagnostic_log_tsf.is_none()
     }
 
     fn apply(&self, preferences: &mut Preferences) {
@@ -325,6 +337,12 @@ impl PreferencesChange {
         }
         if let Some(value) = self.wubi_code_hint {
             preferences.wubi_code_hint = Some(value);
+        }
+        if let Some(value) = self.diagnostic_log_server {
+            preferences.diagnostic_log.server = value;
+        }
+        if let Some(value) = self.diagnostic_log_tsf {
+            preferences.diagnostic_log.tsf = value;
         }
     }
 }
@@ -491,6 +509,7 @@ mod tests {
                 character_width: Some(Width::Fullwidth),
                 traditional_chinese_output: Some(true),
                 wubi_code_hint: Some(false),
+                diagnostic_log_server: Some(true),
                 ..change(before.revision)
             },
         )
@@ -502,6 +521,7 @@ mod tests {
         assert_eq!(updated.character_width, Width::Fullwidth);
         assert!(updated.traditional_chinese_output);
         assert!(!updated.wubi_code_hint);
+        assert!(updated.diagnostic_log_server && !updated.diagnostic_log_tsf);
         assert_eq!(updated.revision, before.revision + 1);
 
         let stored = PreferencesStore::new(directory.path()).load().unwrap();
@@ -520,6 +540,7 @@ mod tests {
         expected.character_width = CharacterWidthPreference::Fullwidth;
         expected.traditional_chinese_output = true;
         expected.wubi_code_hint = Some(false);
+        expected.diagnostic_log.server = true;
         expected.fuzzy_pinyin = stored.preferences.fuzzy_pinyin.clone();
         assert_eq!(json!(stored.preferences), json!(expected));
 

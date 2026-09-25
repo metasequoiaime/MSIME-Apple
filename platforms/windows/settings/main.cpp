@@ -522,9 +522,7 @@ private:
 
   // 「连接 AI 助手」: the msime-mcp entry an assistant runs, to copy or to write into Claude Desktop's or Cursor's configuration. The same section as the shared settings page, through msime_client_mcp_status and msime_client_mcp_install.
   void append_mcp_section(StackPanel const &panel) {
-    append_text(panel, L"通过 MCP（Model Context Protocol）让本机的 AI "
-                       L"助手读取快捷短语、设置和打字统计。服务器只在本机运行，"
-                       L"不联网；默认只读。");
+    append_text(panel, L"连接后，直接告诉 AI 助手输入法哪里不对劲（比如卡顿、候选框不见了），它会打开诊断日志、请你把出问题的操作再做一遍，然后读日志帮你找原因。它也能读取快捷短语、设置和打字统计。通过 MCP（Model Context Protocol）在本机运行，不联网；除了开关诊断日志，默认不改动任何设置。");
     const auto response =
         call_mcp(msime_client_mcp_status, mcp_request(runtime_options_path()));
     JsonObject status{nullptr};

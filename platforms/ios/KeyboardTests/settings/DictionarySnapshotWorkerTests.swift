@@ -50,7 +50,15 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
       if try queue.read().request?.status == .applied { break }
       try await Task.sleep(nanoseconds: 30_000_000)
     }
-    XCTAssertEqual(try queue.read().request?.status, .applied, messages.joined(separator: "; "))
+    // The worker leaves a job where it is, without a message, when the job is still preparing, when the worker lease is held elsewhere, or when activation reports the snapshot busy; name which one, so a timeout here says why.
+    var stalled = messages
+    if try queue.read().request?.status != .applied {
+      stalled.append("preparing: \(worker?.isPreparing == true)")
+      let prepared = worker.flatMap { Mirror(reflecting: $0).descendant("prepared") }.map { String(describing: $0) } ?? "unknown"
+      stalled.append("prepared: \(prepared != "nil")")
+      stalled.append("worker lease free: \((try? queue.acquireWorkerLease()) != nil)")
+    }
+    XCTAssertEqual(try queue.read().request?.status, .applied, stalled.joined(separator: "; "))
     if try queue.read().request?.status == .applied {
       let page = try session!.personalEntries(atOffset: 0)
       let rows = try XCTUnwrap(page["entries"] as? [[String: Any]])
