@@ -20,7 +20,13 @@ final class CloudDictionaryTransferTests: XCTestCase {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let store = PersonalDictionaryStore(directory: root)
-    let session = MetasequoiaInputSessionBridge()
+    let resources = try XCTUnwrap(
+      Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true)
+    )
+    let session = MetasequoiaInputSessionBridge(
+      resources: resources,
+      stateRoot: root.appendingPathComponent("EngineState", isDirectory: true)
+    )
     defer {
       _ = session.cancel()
       try? session.applyPersonalPrevious(word.bridgeValue, replacement: nil, requestID: UUID().uuidString)
