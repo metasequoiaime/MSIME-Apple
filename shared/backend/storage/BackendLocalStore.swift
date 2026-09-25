@@ -67,4 +67,22 @@ struct BackendLocalStore: BackendSessionStorage {
       return true
     } catch { return false }
   }
+
+  /// Atomically create this store's file only when no process has created it yet.
+  /// The result is false when another process already owns the file.
+  @discardableResult func writeIfAbsent(_ data: Data) -> Bool {
+    do {
+      return try withLock {
+        guard let url, !FileManager.default.fileExists(atPath: url.path) else { return false }
+        try data.write(to: url, options: [.atomic])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        return true
+      }
+    } catch { return false }
+  }
+
+  @discardableResult static func writeIfAbsent(_ data: Data, to fileName: String) -> Bool {
+    guard let directory else { return false }
+    return BackendLocalStore(fileName: fileName, directory: directory).writeIfAbsent(data)
+  }
 }
