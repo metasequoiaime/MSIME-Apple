@@ -165,6 +165,14 @@ function AiSkinGeneration({
   const [publishAgreed, setPublishAgreed] = useState(false);
   const [publishBusy, setPublishBusy] = useState(false);
   const requestRef = useRef("");
+  const mounted = useRef(true);
+
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
   useEffect(() => {
     requestRef.current = requestId;
@@ -215,6 +223,7 @@ function AiSkinGeneration({
           },
         })),
       );
+      if (!mounted.current) return;
       setProposals(prepared);
     } catch (error) {
       if (
@@ -223,10 +232,10 @@ function AiSkinGeneration({
         !("code" in error) ||
         error.code !== "ai_skin_cancelled"
       )
-        setMessage(aiSkinMessage(error));
+        if (mounted.current) setMessage(aiSkinMessage(error));
     } finally {
-      setBusy(false);
-      requestRef.current = "";
+      if (mounted.current) setBusy(false);
+      if (requestRef.current === id) requestRef.current = "";
     }
   };
 
@@ -245,11 +254,12 @@ function AiSkinGeneration({
       const next = await library.mutate({ operation: "create", name, design: proposal.design });
       const item = next.find((value) => value.name === name);
       if (!item) throw new Error("skin was not saved");
+      if (!mounted.current) return null;
       setSaved((currentSaved) => ({ ...currentSaved, [proposal.name]: item }));
       setMessage("已保存到“我的皮肤”。");
       return item;
     } catch (error) {
-      setMessage(libraryError(error));
+      if (mounted.current) setMessage(libraryError(error));
       return null;
     }
   };
@@ -265,18 +275,20 @@ function AiSkinGeneration({
     setPublishBusy(true);
     try {
       await communitySkins.publish(publishing.id, name, description, publishing.design);
+      if (!mounted.current) return;
       setPublishing(null);
       setPublishDescription("");
       setPublishAgreed(false);
       setMessage("已发布到社区。");
     } catch (error) {
-      setMessage(
-        typeof error === "object" && error !== null && "code" in error
-          ? `发布失败：${String(error.code)}`
-          : "暂时无法发布皮肤，请稍后重试。",
-      );
+      if (mounted.current)
+        setMessage(
+          typeof error === "object" && error !== null && "code" in error
+            ? `发布失败：${String(error.code)}`
+            : "暂时无法发布皮肤，请稍后重试。",
+        );
     } finally {
-      setPublishBusy(false);
+      if (mounted.current) setPublishBusy(false);
     }
   };
 
