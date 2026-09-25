@@ -77,20 +77,26 @@ export function ChatPage({
   const [error, setError] = useState("");
   const [loginNeeded, setLoginNeeded] = useState(false);
   const generation = useRef(0);
+  const modelGeneration = useRef(0);
+  const mounted = useRef(true);
   const nextMessageId = useRef(1);
   const composer = useRef<HTMLTextAreaElement>(null);
 
   const loadModels = async () => {
+    if (!mounted.current) return;
+    const current = ++modelGeneration.current;
     setLoadingModels(true);
     setError("");
     setLoginNeeded(false);
     try {
       const value = await client.models();
+      if (!mounted.current || modelGeneration.current !== current) return;
       setCatalog(value);
       setSelectedModel((current) =>
         value.data.some((model) => model.id === current) ? current : value.defaultModel,
       );
     } catch (cause) {
+      if (!mounted.current || modelGeneration.current !== current) return;
       const unauthorized =
         typeof cause === "object" &&
         cause !== null &&
@@ -99,13 +105,16 @@ export function ChatPage({
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
-      setLoadingModels(false);
+      if (mounted.current && modelGeneration.current === current) setLoadingModels(false);
     }
   };
 
   useEffect(() => {
+    mounted.current = true;
     void loadModels();
     return () => {
+      mounted.current = false;
+      modelGeneration.current += 1;
       generation.current += 1;
     };
   }, [client]);
