@@ -66,7 +66,7 @@ int main() {
   const std::string hint(msime::linux_host::kFirstRunHint);
   assert(hint.find("「水杉输入法」") != std::string::npos);
   assert(hint.find("msime-linux-setup") != std::string::npos);
-  assert(msime::linux_host::kFirstRunGuideProgram == "msime-client-first-run-guide");
+  assert(msime::linux_host::kFirstRunGuideProgram == "msime-linux-first-run-guide");
 
   std::error_code error;
   std::filesystem::remove_all(root, error);

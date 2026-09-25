@@ -51,7 +51,7 @@ class CustomTranslationConfig(unittest.TestCase):
             thread.join(timeout=3)
         self.addCleanup(stop_http)
         self.endpoint = "http://127.0.0.1:" + str(http.server_port) + "/translate"
-        process = subprocess.Popen([sys.executable, str(ROOT / "scripts" / "msime-client-online-provider"), str(self.address)],
+        process = subprocess.Popen([sys.executable, str(ROOT / "scripts" / "msime-linux-online-provider"), str(self.address)],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         def stop_provider():
             if process.poll() is None:

@@ -10,7 +10,7 @@
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-handwriting [provider-socket] | --local [model]\n";
+    std::cout << "Usage: msime-linux-handwriting [provider-socket] | --local [model]\n";
     return 0;
   }
   const bool local = argc >= 2 && std::string(argv[1]) == "--local";

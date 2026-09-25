@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """msime-linux-setup 在状态目录就绪后把输入法加入正在运行的宿主的输入法列表，--unregister 在卸载时把它从这些列表里移除。
 
-用桩代替 pgrep、gdbus、gsettings、ibus、systemctl 和 msime-client-prepare：桩把收到的调用记进日志，把 Fcitx5 输入法组、dconf 设置和 IBus 已知的引擎存在一份 JSON 里。不需要词库、不联网，也不碰真实的 D-Bus 会话或 dconf。
+用桩代替 pgrep、gdbus、gsettings、ibus、systemctl 和 msime-linux-prepare：桩把收到的调用记进日志，把 Fcitx5 输入法组、dconf 设置和 IBus 已知的引擎存在一份 JSON 里。不需要词库、不联网，也不碰真实的 D-Bus 会话或 dconf。
 """
 import hashlib
 import importlib.machinery
@@ -50,8 +50,8 @@ def save():
 
 if name == "pgrep":
     sys.exit(0 if arguments[-1] in state["running"] else 1)
-if name in ("systemctl", "msime-client-prepare"):
-    if name == "msime-client-prepare":
+if name in ("systemctl", "msime-linux-prepare"):
+    if name == "msime-linux-prepare":
         Path(arguments[-1]).mkdir(parents=True)
     sys.exit(0)
 if name == "gdbus":
@@ -167,7 +167,7 @@ class Harness:
         stub.chmod(0o755)
         for tool in TOOLS:
             (tools / tool).symlink_to(stub)
-        (prefix / "bin/msime-client-prepare").symlink_to(stub)
+        (prefix / "bin/msime-linux-prepare").symlink_to(stub)
         resources = scratch / "resources"
         resources.mkdir()
         payload = b"synthetic dictionary"
@@ -221,7 +221,7 @@ class Harness:
         assert result.returncode == 0, result
         assert "Traceback" not in result.stderr, result.stderr
         # Only the lists: no dictionary check, no state preparation, no services.
-        assert self.calls("msime-client-prepare") == [] and self.calls("systemctl") == [], self.log.read_text()
+        assert self.calls("msime-linux-prepare") == [] and self.calls("systemctl") == [], self.log.read_text()
         assert not (self.scratch / "config/msime-client").exists()
         assert "词库" not in result.stdout, result.stdout
         return result

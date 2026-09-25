@@ -6,9 +6,9 @@ GenericName=Chinese Input Method Settings
 GenericName[zh_CN]=中文输入法设置
 Comment=Configure the MSIME Linux desktop host
 Comment[zh_CN]=配置水杉输入法的 Linux 桌面宿主
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings
-TryExec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings
-Icon=msime-client
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings
+TryExec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings
+Icon=msime-linux
 Terminal=false
 Categories=Settings;Utility;
 StartupNotify=true
@@ -17,44 +17,44 @@ Actions=Handwriting;Keyboard;Emoji;Clipboard;Dictionary;Voice;CloudDictionary;Cl
 [Desktop Action Handwriting]
 Name=Handwriting
 Name[zh_CN]=手写识别板
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel handwriting
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel handwriting
 
 [Desktop Action Keyboard]
 Name=Screen Keyboard
 Name[zh_CN]=屏幕键盘
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel keyboard
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel keyboard
 
 [Desktop Action Emoji]
 Name=Emoji and Symbols
 Name[zh_CN]=表情与符号
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel emoji
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel emoji
 
 [Desktop Action Voice]
 Name=Voice Input
 Name[zh_CN]=语音输入
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel voice
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel voice
 
 [Desktop Action CloudDictionary]
 Name=Cloud Dictionary
 Name[zh_CN]=云词典
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel cloud-dictionary
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel cloud-dictionary
 
 [Desktop Action CloudClipboard]
 Name=Cloud Clipboard
 Name[zh_CN]=云剪贴板
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel cloud-clipboard
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel cloud-clipboard
 
 [Desktop Action About]
 Name=About MSIME
 Name[zh_CN]=关于水杉输入法
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel about
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel about
 
 [Desktop Action Clipboard]
 Name=Local Clipboard History
 Name[zh_CN]=本地剪贴板
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel clipboard
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel clipboard
 
 [Desktop Action Dictionary]
 Name=Local Dictionary
 Name[zh_CN]=本地词典
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings --panel dictionary
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel dictionary

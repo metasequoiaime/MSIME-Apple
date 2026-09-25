@@ -3,7 +3,7 @@ Description=MSIME online candidate and translation provider
 
 [Service]
 Type=simple
-ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/msime-client-provider-session" online
+ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-provider-session" online
 UMask=0077
 Restart=on-failure
 RestartSec=3

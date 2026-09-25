@@ -5,7 +5,7 @@
 #
 # The same hosts also call it with --reason dictionary-outdated when the runtime options refresh at startup finds that the dictionaries the user downloaded are older than the installed version. A package upgrade replaces the dictionary lock but not downloaded dictionaries, so the host keeps the previous generation and this only posts a notification naming the command that fetches the new ones; it opens no window. That reason keeps its own stamp, so being told about an outdated dictionary never uses up the first-run guidance or the other way round.
 #
-# Usage: msime-client-first-run-guide [--host ibus|fcitx5] [--reason first-run|dictionary-outdated]. The host only selects the recovery step named in the first-run notification.
+# Usage: msime-linux-first-run-guide [--host ibus|fcitx5] [--reason first-run|dictionary-outdated]. The host only selects the recovery step named in the first-run notification.
 set -u
 
 host=
@@ -83,7 +83,7 @@ detach() {
 
 if [ "$reason" = dictionary-outdated ]; then
   if command -v notify-send >/dev/null 2>&1; then
-    detach notify-send -a "水杉输入法" -i msime-client "水杉输入法词库需要更新" \
+    detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法词库需要更新" \
       "已安装的词库早于当前版本，输入法暂时继续使用旧词库。在终端运行 msime-linux-setup --update --download 取回新词库并切换，用户词库会一并迁移。"
   fi
   exit 0
@@ -103,10 +103,10 @@ if [ -z "$settings" ]; then
     esac
   done
   script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" 2>/dev/null && pwd) || script_dir=
-  if [ -n "$script_dir" ] && [ -x "$script_dir/msime-client-settings" ]; then
-    settings=$script_dir/msime-client-settings
-  elif command -v msime-client-settings >/dev/null 2>&1; then
-    settings=msime-client-settings
+  if [ -n "$script_dir" ] && [ -x "$script_dir/msime-linux-settings" ]; then
+    settings=$script_dir/msime-linux-settings
+  elif command -v msime-linux-settings >/dev/null 2>&1; then
+    settings=msime-linux-settings
   fi
 fi
 # A stale explicit override must not make the guide claim that a settings window opened.
@@ -130,6 +130,6 @@ else
 fi
 
 if command -v notify-send >/dev/null 2>&1; then
-  detach notify-send -a "水杉输入法" -i msime-client "水杉输入法尚未完成首次配置" "$body"
+  detach notify-send -a "水杉输入法" -i msime-linux "水杉输入法尚未完成首次配置" "$body"
 fi
 exit 0

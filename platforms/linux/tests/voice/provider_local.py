@@ -17,7 +17,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PROVIDER = ROOT / "scripts" / "msime-client-voice-provider"
+PROVIDER = ROOT / "scripts" / "msime-linux-voice-provider"
 FAKE_HELPER = Path(__file__).resolve().parent / "local_fake_helper.py"
 BUILT_HELPER = None
 # Endless silence; the recording limit ends it after two seconds.

@@ -22,7 +22,7 @@ from gi.repository import Gdk, GLib, Gtk
 READER = Path(sys.argv.pop(1)).resolve()
 STRING_OWNER = Path(sys.argv.pop(1)).resolve()
 ROOT = Path(__file__).resolve().parents[2]
-loader = importlib.machinery.SourceFileLoader("monitor", str(ROOT / "scripts" / "msime-client-clipboard-monitor"))
+loader = importlib.machinery.SourceFileLoader("monitor", str(ROOT / "scripts" / "msime-linux-clipboard-monitor"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 monitor = importlib.util.module_from_spec(spec)
 loader.exec_module(monitor)
@@ -102,7 +102,7 @@ class NativeRead(unittest.TestCase):
         self.clipboard.set_text(text, -1)
         with tempfile.TemporaryDirectory(prefix="msime-native-reader-") as directory:
             root = Path(directory)
-            (root / "msime-client-clipboard-watch-x11").symlink_to(READER)
+            (root / "msime-linux-clipboard-watch-x11").symlink_to(READER)
             with mock.patch.object(monitor, "__file__", str(root / "monitor.py")), \
                  mock.patch.dict(os.environ, {"PATH": "", "WAYLAND_DISPLAY": ""}), \
                  concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:

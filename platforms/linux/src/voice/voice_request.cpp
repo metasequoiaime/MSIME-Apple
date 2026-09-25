@@ -19,7 +19,7 @@ void print_stream_update(const uint8_t *text, size_t length, bool final,
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-voice [--stream] [provider-socket]\n"
+    std::cout << "Usage: msime-linux-voice [--stream] [provider-socket]\n"
                  "Defaults to MSIME_VOICE_PROVIDER_SOCKET, then "
                  "$XDG_RUNTIME_DIR/msime-client/voice.sock.\n";
     return 0;

@@ -1860,7 +1860,7 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 来源的安装程序在安装时就把词库和出厂配置写进数据目录，输入法一能选中就能用，不存在「选中了但没准备好」这个状态。Linux 安装包按设计不产生用户状态，首次配置要由 `msime-linux-setup` 或设置窗口的首次配置页完成；此前用户若先在 IBus 里选中 MSIME，启动器只往 stderr 写一行就退出，界面上什么也看不到，Fcitx5 则只显示笼统的「MSIME：请检查运行配置」，两者都不告诉用户下一步做什么。
 
-适配方式不是照搬安装程序（包管理器安装不应按用户写状态，也不能替用户决定是否联网下载词库），而是在这个状态下把用户引到已有的首次配置页：新增随装脚本 `platforms/linux/scripts/msime-client-first-run-guide`，有图形会话时脱离调用方打开 `msime-client-settings`（窗口在缺少 `runtime-options.json` 时自己进入首次配置页），并用 `notify-send` 发一条通知；IBus 启动器与 Fcitx5 插件在「没有显式覆盖、用户与系统配置都不存在」时调用它，Fcitx5 面板同时显示「水杉输入法尚未完成首次配置：请打开「水杉输入法」设置，或在终端运行 msime-linux-setup」。显式覆盖无效、文件不可读或悬空符号链接仍按配置损坏处理。
+适配方式不是照搬安装程序（包管理器安装不应按用户写状态，也不能替用户决定是否联网下载词库），而是在这个状态下把用户引到已有的首次配置页：新增随装脚本 `platforms/linux/scripts/msime-linux-first-run-guide`，有图形会话时脱离调用方打开 `msime-linux-settings`（窗口在缺少 `runtime-options.json` 时自己进入首次配置页），并用 `notify-send` 发一条通知；IBus 启动器与 Fcitx5 插件在「没有显式覆盖、用户与系统配置都不存在」时调用它，Fcitx5 面板同时显示「水杉输入法尚未完成首次配置：请打开「水杉输入法」设置，或在终端运行 msime-linux-setup」。显式覆盖无效、文件不可读或悬空符号链接仍按配置损坏处理。
 
 限流放在脚本里、两个宿主共用：`$XDG_RUNTIME_DIR/msime-client/first-run-guide.stamp` 存在就不再弹窗与通知，每个登录会话只引导一次，因为 ibus-daemon 每次选中都会重新拉起启动器、Fcitx5 每次聚焦都会激活输入法，按时间过期的冷却期会让继续打字的用户每隔几分钟被打断一次；会话没有 `XDG_RUNTIME_DIR` 时退到跨会话保留的缓存目录，只能按 5 分钟冷却期限流。Fcitx5 只在激活输入法时拉起引导，按键只显示面板提示，打字途中弹出的窗口可能抢走键盘焦点；插件另外把自身的拉起频率压到 30 秒一次。通知里的后续步骤按宿主区分：Fcitx5 下次按键就会重读配置，写「完成后即可直接输入」；IBus 组件已退出，写先切换到其他输入法再切回、仍不行就 `ibus restart`（后者未在真实 IBus 会话里验证）。脚本不创建状态目录（`msime-linux-setup` 拒绝准备已存在的目录），不发起任何网络请求。
 
@@ -1876,7 +1876,7 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 ### Linux 候选翻译只问用户选中的那一家（2026-09-23）
 
-- 缺口：Linux 的腾讯密钥存放在 provider 自己的 `tencent-provider.json` 中，在设置页换成别的服务或选「关闭」，这个文件都不会被删。socket 协议只携带 `custom_translation` 和 `niutrans`；host-api 生成的 `tencent_tmt` 字段会在 `TranslationQuery` 反序列化时被丢掉，而且 Linux 偏好里本来就没有腾讯密钥，这个字段始终是空的。结果是 `msime-client-online-provider` 只要收不到另外两家的配置，就去读腾讯文件并发出请求：选「关闭」、选 NiuTrans 但 App ID/API Key 不全、选自定义服务但 endpoint 为空，这三种情况下候选文字都会发给腾讯。来源 `cloud_translation.cpp` 的 `ActiveProvider()` 同一时刻只认一家（NiuTrans 优先，其次自定义，再次腾讯），`ResolveCredentials()` 在 `tencent_tmt.enabled=false` 时返回空，`WorkerLoop` 发现所选服务不可用时直接 `continue`，从不退回腾讯。
+- 缺口：Linux 的腾讯密钥存放在 provider 自己的 `tencent-provider.json` 中，在设置页换成别的服务或选「关闭」，这个文件都不会被删。socket 协议只携带 `custom_translation` 和 `niutrans`；host-api 生成的 `tencent_tmt` 字段会在 `TranslationQuery` 反序列化时被丢掉，而且 Linux 偏好里本来就没有腾讯密钥，这个字段始终是空的。结果是 `msime-linux-online-provider` 只要收不到另外两家的配置，就去读腾讯文件并发出请求：选「关闭」、选 NiuTrans 但 App ID/API Key 不全、选自定义服务但 endpoint 为空，这三种情况下候选文字都会发给腾讯。来源 `cloud_translation.cpp` 的 `ActiveProvider()` 同一时刻只认一家（NiuTrans 优先，其次自定义，再次腾讯），`ResolveCredentials()` 在 `tencent_tmt.enabled=false` 时返回空，`WorkerLoop` 发现所选服务不可用时直接 `continue`，从不退回腾讯。
 - 协议：`TranslationQuery` 新增 `provider`（`none` / `tencent` / `niutrans` / `custom`）。host-api 只根据三个 `enabled` 开关计算这个值，规则与来源 `ActiveProvider()` 一致，三家都没开时为 `none`；所选服务配置不全时也照实填写。协议里只说明选的是哪家，不传任何腾讯密钥。
 - provider：`translations()` 按 `provider` 分派。`none`、未知值、所选的 NiuTrans 或自定义服务没有随请求带来配置，都返回空结果，不访问网络；只有 `provider=tencent` 时才读取腾讯文件。后续发请求也按所选服务分派，请求里夹带的其他服务配置不会改变去向。缺少该字段的请求来自旧版宿主，这时沿用旧规则（NiuTrans、自定义、腾讯依次取第一个可用的），混用新旧版本时行为不变。
 - 宿主侧：`UnixSocketProvider::translate` 遇到 `none` 直接返回空结果，连本地 socket 都不连接，候选文字不会离开输入法进程。IBus 与 Fcitx5 引擎代码没有改动：它们转发的是 host-api 生成的查询，`provider` 变化会让去重键变化，从而重新发起请求。

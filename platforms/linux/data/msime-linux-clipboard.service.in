@@ -5,7 +5,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/msime-client-clipboard-monitor" "%E/msime-client/runtime-options.json"
+ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-clipboard-monitor" "%E/msime-client/runtime-options.json"
 UMask=0077
 Restart=on-failure
 RestartSec=3

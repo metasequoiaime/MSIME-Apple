@@ -13,7 +13,7 @@ from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
-loader = SourceFileLoader("msime_voice_provider", str(ROOT / "scripts" / "msime-client-voice-provider"))
+loader = SourceFileLoader("msime_voice_provider", str(ROOT / "scripts" / "msime-linux-voice-provider"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 provider = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(provider)

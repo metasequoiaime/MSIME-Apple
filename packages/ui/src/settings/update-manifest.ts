@@ -49,7 +49,7 @@ export function compareVersions(left: Version, right: Version): number {
 const installerNamePattern = /^MetasequoiaIME_Setup_v[\w.-]+\.exe$/i;
 const sha256Pattern = /^[0-9a-f]{64}$/i;
 
-// The asset name is shown inside a shell command the user may copy, so it is limited to characters that need no quoting and cannot start with an option dash. CPack names the Linux packages `msime-client_VERSION_ARCH.deb` and `msime-client-VERSION-linux-ARCH.tar.gz` (platforms/linux/cmake/packaging.cmake).
+// The asset name is shown inside a shell command the user may copy, so it is limited to characters that need no quoting and cannot start with an option dash. CPack names the Linux packages `msime-linux_VERSION_ARCH.deb` and `msime-linux-VERSION-linux-ARCH.tar.gz` (platforms/linux/cmake/packaging.cmake).
 const linuxPackagePatterns = [/^[a-z0-9][\w.+~-]*\.deb$/i, /^[a-z0-9][\w.+~-]*\.tar\.gz$/i];
 const githubDigestPattern = /^sha256:([0-9a-f]{64})$/;
 

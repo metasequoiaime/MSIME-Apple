@@ -111,13 +111,13 @@ def main() -> int:
         config = Path(directory) / "msime-client"
         config.mkdir()
         assert setup.service_units(config, config) == [
-            "msime-client-online.socket",
-            "msime-client-voice.socket",
-            "msime-client-clipboard.service",
+            "msime-linux-online.socket",
+            "msime-linux-voice.socket",
+            "msime-linux-clipboard.service",
         ]
     assert setup.service_units(Path(directory) / "elsewhere", config) == [
-        "msime-client-online.socket",
-        "msime-client-voice.socket",
+        "msime-linux-online.socket",
+        "msime-linux-voice.socket",
     ]
 
     # Debian postinst may have created the anonymous account before first-run setup. That
@@ -132,8 +132,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as directory:
         assert not setup.anonymous_account_state(Path(directory))
 
-    # 拒绝云候选时标志放在位置参数之前，这是 msime-client-prepare 唯一接受的位置。
-    command = Path("/opt/msime/bin/msime-client-prepare")
+    # 拒绝云候选时标志放在位置参数之前，这是 msime-linux-prepare 唯一接受的位置。
+    command = Path("/opt/msime/bin/msime-linux-prepare")
     assert setup.prepare_command(command, Path("/r"), Path("/s"), True) == [str(command), "/r", "/s"]
     assert setup.prepare_command(command, Path("/r"), Path("/s"), False) == [
         str(command), "--no-cloud-candidates", "/r", "/s"

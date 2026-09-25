@@ -48,7 +48,7 @@ class ConfigDiscovery(unittest.TestCase):
 
     def start(self, *args):
         process = subprocess.Popen(
-            [sys.executable, "-c", HARNESS, str(ROOT / "scripts" / "msime-client-online-provider"),
+            [sys.executable, "-c", HARNESS, str(ROOT / "scripts" / "msime-linux-online-provider"),
              str(self.address), *map(str, args)], env=self.env,
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         self.addCleanup(self.stop, process)
@@ -69,7 +69,7 @@ class ConfigDiscovery(unittest.TestCase):
                 return json.loads(reader.readline(16385))
 
     def test_launcher_tracks_directory_before_files_exist(self):
-        loader = importlib.machinery.SourceFileLoader("launcher", str(ROOT / "scripts" / "msime-client-provider-session"))
+        loader = importlib.machinery.SourceFileLoader("launcher", str(ROOT / "scripts" / "msime-linux-provider-session"))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
@@ -144,7 +144,7 @@ class ConfigDiscovery(unittest.TestCase):
         listener.listen()
         env = {**self.env, "MSIME_TEST_SOCKET_ACTIVATION": "1", "LISTEN_FDS": "1"}
         process = subprocess.Popen(
-            [sys.executable, "-c", HARNESS, str(ROOT / "scripts" / "msime-client-online-provider"),
+            [sys.executable, "-c", HARNESS, str(ROOT / "scripts" / "msime-linux-online-provider"),
              str(self.address), "--config-directory", str(self.config)], env=env,
             pass_fds=(3,), preexec_fn=lambda: os.dup2(listener.fileno(), 3),
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -165,7 +165,7 @@ class ConfigDiscovery(unittest.TestCase):
         listener.listen()
         env = {**self.env, "MSIME_TEST_SOCKET_ACTIVATION": "1", "LISTEN_FDS": "1"}
         process = subprocess.Popen(
-            [sys.executable, "-c", HARNESS, str(ROOT / "scripts" / "msime-client-online-provider"),
+            [sys.executable, "-c", HARNESS, str(ROOT / "scripts" / "msime-linux-online-provider"),
              str(self.address), "--config-directory", str(self.config)], env=env,
             pass_fds=(3,), preexec_fn=lambda: os.dup2(listener.fileno(), 3),
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)

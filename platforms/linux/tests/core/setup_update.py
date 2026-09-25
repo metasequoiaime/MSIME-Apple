@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """msime-linux-setup --update：升级之后只取回过期的那几项词库，再让宿主库切换代次。
 
-词库从本机的一个 HTTP 桩取，记下被请求的路径；msime-client-prepare 换成桩，--refresh 时把配置指向新代次，记下调用以及那一刻输入会话是否已被请走（租约有效、会话锁被独占）。不联网，不需要真实词库。给出已构建的 msime-client-prepare 时，另外核对它的 --refresh 在词库过期时以 3 退出且不改写配置，这是 setup 与两个宿主区分「词库过期」的依据。
+词库从本机的一个 HTTP 桩取，记下被请求的路径；msime-linux-prepare 换成桩，--refresh 时把配置指向新代次，记下调用以及那一刻输入会话是否已被请走（租约有效、会话锁被独占）。不联网，不需要真实词库。给出已构建的 msime-linux-prepare 时，另外核对它的 --refresh 在词库过期时以 3 退出且不改写配置，这是 setup 与两个宿主区分「词库过期」的依据。
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/msime-linux-setup"
 
-# Stands in for msime-client-prepare. --refresh points the options at a new generation, the observable effect of the real command, unless STUB_REFRESH_EXIT asks for a failure. It also records what the hosts would see at that moment: whether the quiesce lease is live and whether the session lock is held exclusively, and which resource directory it was asked to prepare.
+# Stands in for msime-linux-prepare. --refresh points the options at a new generation, the observable effect of the real command, unless STUB_REFRESH_EXIT asks for a failure. It also records what the hosts would see at that moment: whether the quiesce lease is live and whether the session lock is held exclusively, and which resource directory it was asked to prepare.
 PREPARE_STUB = r'''#!/usr/bin/env python3
 import fcntl, json, os, sys, time
 from pathlib import Path
@@ -88,7 +88,7 @@ class Harness:
         self.setup = self.prefix / "bin/msime-linux-setup"
         self.setup.write_text(SCRIPT.read_text())
         self.setup.chmod(0o755)
-        prepare = self.prefix / "bin/msime-client-prepare"
+        prepare = self.prefix / "bin/msime-linux-prepare"
         prepare.write_text(PREPARE_STUB)
         prepare.chmod(0o755)
         self.current = {"a.db": b"dictionary a, unchanged", "b.db": b"dictionary b, next release"}
@@ -306,7 +306,7 @@ def check_setup(harness: Harness) -> None:
 
 
 def check_prepare(prepare: Path, harness: Harness) -> None:
-    """The built msime-client-prepare against the lock it was compiled with: the fixture dictionaries match none of it."""
+    """The built msime-linux-prepare against the lock it was compiled with: the fixture dictionaries match none of it."""
     result = subprocess.run([str(prepare), "--refresh", "runtime-options.json"], capture_output=True, text=True, timeout=30)
     assert result.returncode == 2, result
     state = harness.installed("state-real")

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Check the maintainer scripts inside a built msime-client .deb: prerm and postinst are present, executable (CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION gives them 0755), and pass shellcheck as the POSIX sh they declare; and DEBIAN/conffiles lists exactly the files the package ships under /etc. Their behaviour per dpkg action is tested by tests/core/deb_maintainer_scripts.py in ctest; this proves CPack actually put them into the package.
 #
-# Usage: check-deb-maintainer-scripts.sh <msime-client.deb>
+# Usage: check-deb-maintainer-scripts.sh <msime-linux.deb>
 # Needs dpkg-deb and shellcheck.
 set -euo pipefail
 
 [[ $# == 1 && -f $1 ]] || {
-  echo "usage: check-deb-maintainer-scripts.sh <msime-client.deb>" >&2
+  echo "usage: check-deb-maintainer-scripts.sh <msime-linux.deb>" >&2
   exit 2
 }
 control=$(mktemp -d)

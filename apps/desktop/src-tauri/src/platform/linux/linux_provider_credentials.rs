@@ -1,6 +1,6 @@
 //! Linux provider credential files.
 //!
-//! Windows and macOS keep AI tokens, translation secrets and speech keys in the shared preferences document, because the shell itself sends those requests. On Linux the network requests belong to the user's provider services: `msime-client-online-provider` reads `ai-provider.json` and `tencent-provider.json`, and `msime-client-voice-provider` reads `voice-provider.json`, all from `$XDG_CONFIG_HOME/msime-client` and on every request. This module lets the settings page write those files instead of asking the user to hand-edit JSON: the provider picks the change up on the next request, without a restart. The voice service starts without the file, because on-device recognition (`local`) reads no credential and polishing credentials alone are a file it accepts; saving a voice credential still enables its socket unit, so a socket left disabled by an earlier setup or version comes back once the user configures voice input.
+//! Windows and macOS keep AI tokens, translation secrets and speech keys in the shared preferences document, because the shell itself sends those requests. On Linux the network requests belong to the user's provider services: `msime-linux-online-provider` reads `ai-provider.json` and `tencent-provider.json`, and `msime-linux-voice-provider` reads `voice-provider.json`, all from `$XDG_CONFIG_HOME/msime-client` and on every request. This module lets the settings page write those files instead of asking the user to hand-edit JSON: the provider picks the change up on the next request, without a restart. The voice service starts without the file, because on-device recognition (`local`) reads no credential and polishing credentials alone are a file it accepts; saving a voice credential still enables its socket unit, so a socket left disabled by an earlier setup or version comes back once the user configures voice input.
 //!
 //! The files follow the provider's own reader (`load_private_config`, `load_ai_config`, `load_tencent_config`): a regular file owned by this user with no group or other bits, at most 16 KiB, published by rename so the provider never reads a half-written document. Validation mirrors the provider's, so a document this module writes is one the provider accepts - the AI file is validated as a whole, and a single bad profile would disable every provider in it.
 //!
@@ -22,8 +22,8 @@ const MAX_AI_PROFILES: usize = 16;
 const AI_FILE: &str = "ai-provider.json";
 const TENCENT_FILE: &str = "tencent-provider.json";
 const VOICE_FILE: &str = "voice-provider.json";
-const VOICE_SOCKET_UNIT: &str = "msime-client-voice.socket";
-const VOICE_SERVICE_UNIT: &str = "msime-client-voice.service";
+const VOICE_SOCKET_UNIT: &str = "msime-linux-voice.socket";
+const VOICE_SERVICE_UNIT: &str = "msime-linux-voice.service";
 /// The voice provider's `LOCAL_PROVIDER`: on-device recognition, whose file entry, when a user writes one, carries only the provider name.
 const LOCAL_ASR_PROVIDER: &str = "local";
 /// The voice provider's `ASR_PROVIDERS` and `POLISH_PROVIDERS`.
@@ -175,7 +175,7 @@ pub(crate) struct VoiceCredential<'a> {
     pub auth_mode: &'a str,
 }
 
-/// `$XDG_CONFIG_HOME/msime-client`, resolved the way `msime-client-provider-session` resolves it: a relative `XDG_CONFIG_HOME` is an error, not a fallback.
+/// `$XDG_CONFIG_HOME/msime-client`, resolved the way `msime-linux-provider-session` resolves it: a relative `XDG_CONFIG_HOME` is an error, not a fallback.
 fn config_directory() -> Result<PathBuf, CredentialError> {
     let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
         Some(value) => PathBuf::from(value),

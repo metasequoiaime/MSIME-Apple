@@ -44,7 +44,7 @@ REFERENCE = {"CONNECT": 2000, "REQUEST": 2000}
 
 # The AI candidate has its own budget. client-core's AI descriptor carries the reference's 2500 ms connect and 8000 ms total, and Windows AiAssistant waits 650 ms of idle input before asking (the cloud candidate waits 500 ms). The Linux hosts do not read the descriptor: the online provider fetches with its own Python constants and both engines hold their own idle timers, so those literals are pinned here against the descriptor.
 AI_DESCRIPTOR = ROOT / "crates/client-core/src/ai.rs"
-LINUX_PROVIDER = ROOT / "platforms/linux/scripts/msime-client-online-provider"
+LINUX_PROVIDER = ROOT / "platforms/linux/scripts/msime-linux-online-provider"
 LINUX_TRANSPORT = ROOT / "crates/input-runtime/src/providers.rs"
 LINUX_IBUS = ROOT / "platforms/linux/src/core/ClientEngine.cpp"
 LINUX_FCITX = ROOT / "platforms/linux/fcitx5/FcitxEngine.cpp"

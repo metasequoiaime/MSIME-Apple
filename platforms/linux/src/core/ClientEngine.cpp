@@ -1241,7 +1241,7 @@ void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
-    command = "msime-client-settings";
+    command = "msime-linux-settings";
   gchar *argv[] = {const_cast<gchar *>(command), nullptr};
   gchar **environment = g_get_environ();
   const std::string requested = panel ? panel : "";

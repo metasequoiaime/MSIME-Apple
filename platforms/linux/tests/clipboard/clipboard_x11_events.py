@@ -44,16 +44,16 @@ class ClipboardEvents(unittest.TestCase):
             x11.XSync(display, 0)
         with tempfile.TemporaryDirectory(prefix="msime-x11-clipboard-") as directory:
             root = Path(directory)
-            monitor = root / "msime-client-clipboard-monitor"
+            monitor = root / "msime-linux-clipboard-monitor"
             shutil.copyfile(ROOT / "scripts" / monitor.name, monitor)
-            (root / "msime-client-clipboard-watch-x11").symlink_to(WATCHER)
+            (root / "msime-linux-clipboard-watch-x11").symlink_to(WATCHER)
             log = root / "captures"
             def executable(name, source):
                 path = root / name
                 path.write_text("#!" + sys.executable + "\n" + source)
                 path.chmod(0o700)
             executable("xclip", "import sys\nsys.stdout.write('synthetic identical clipboard')\n")
-            executable("msime-client-clipboard-capture", "import os, sys\n"
+            executable("msime-linux-clipboard-capture", "import os, sys\n"
                        "assert sys.stdin.buffer.read() == b'synthetic identical clipboard'\n"
                        "with open(os.environ['MSIME_TEST_CAPTURES'], 'a') as log: log.write('capture\\n')\n")
             options = root / "runtime.json"

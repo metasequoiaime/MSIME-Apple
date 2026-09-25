@@ -30,15 +30,15 @@ fi
 [[ -z $vendor ]] || mkdir -p "$repo_root/vendor"
 # Tag per checkout, as build-container.sh does: with a fixed tag, concurrent worktrees overwrite each other's image and a run can silently test another checkout's Dockerfile.
 tag=$(printf %s "$repo_root" | shasum | cut -c1-12)
-base_image=msime-client-linux-test:$tag
+base_image=msime-linux-test:$tag
 docker build -t "$base_image" -f "$repo_root/platforms/linux/tests/tools/Dockerfile" "$repo_root/platforms/linux/tests"
 test_image=$base_image
 if [[ ${2:-} == --ibus-1.5.32 ]]; then
-  test_image=msime-client-linux-ibus132-test:$tag
+  test_image=msime-linux-ibus132-test:$tag
   docker build -t "$test_image" --build-arg BASE_IMAGE="$base_image" -f "$repo_root/platforms/linux/tests/tools/Dockerfile.ibus-1.5.32" "$repo_root/platforms/linux/tests"
 fi
 if [[ ${2:-} == --fcitx5 ]]; then
-  test_image=msime-client-linux-fcitx5-test:$tag
+  test_image=msime-linux-fcitx5-test:$tag
   docker build -t "$test_image" --build-arg BASE_IMAGE="$base_image" -f "$repo_root/platforms/linux/tests/tools/Dockerfile.fcitx5" "$repo_root/platforms/linux/tests"
 fi
 docker run --rm --init \

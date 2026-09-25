@@ -10,7 +10,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 loader = importlib.machinery.SourceFileLoader(
-    "candidate_online_provider", str(ROOT / "scripts" / "msime-client-online-provider"))
+    "candidate_online_provider", str(ROOT / "scripts" / "msime-linux-online-provider"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 online = importlib.util.module_from_spec(spec)
 loader.exec_module(online)

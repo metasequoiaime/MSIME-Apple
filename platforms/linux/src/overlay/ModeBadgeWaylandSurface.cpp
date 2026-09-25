@@ -96,7 +96,7 @@ bool ModeBadgeWaylandSurface::ensure_surface() {
     surface_ = wl_compositor_create_surface(compositor_);
     layer_surface_ = zwlr_layer_shell_v1_get_layer_surface(
         layer_shell_, surface_, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
-        "msime-client-mode-badge");
+        "msime-linux-mode-badge");
     static const zwlr_layer_surface_v1_listener layer_listener = {layer_configure, layer_closed};
     zwlr_layer_surface_v1_add_listener(layer_surface_, &layer_listener, this);
     zwlr_layer_surface_v1_set_size(layer_surface_, kWidth, kHeight);

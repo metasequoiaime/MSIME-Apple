@@ -83,7 +83,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 ### 账号与同步（需要登录）
 
-`https://api.msime.app`，定义在 `crates/client-core/src/account.rs` 的 `ACCOUNT_ORIGIN`。普通账号不登录不发生。Linux 安装包会在 Debian `postinst` 为可联系的登录用户注册匿名账号；手工安装或当时网络不可用时，`msime-linux-setup` 会在首次配置时重试。候选翻译只有在选择了「水杉账号」后才发送，见[候选翻译](#候选翻译默认不联网需要你选择服务)；Android 浏览社区皮肤与词库目录时，也会先取匿名账号的令牌（`platforms/android/java/app/msime/client/community/CommunityCatalog.java`），取不到照常列出目录。macOS 输入法激活时不创建账号。Linux 的匿名身份和令牌由 `msime-client-online-provider` 保存在用户配置目录的 `anonymous-account.json` 与 `anonymous-session.json`，两个文件均为当前用户专用权限，不进入设置页或输入法进程。凭据存放在系统密钥库：macOS/iOS 用 Keychain（`crates/host-macos/native/account.mm`、`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘。
+`https://api.msime.app`，定义在 `crates/client-core/src/account.rs` 的 `ACCOUNT_ORIGIN`。普通账号不登录不发生。Linux 安装包会在 Debian `postinst` 为可联系的登录用户注册匿名账号；手工安装或当时网络不可用时，`msime-linux-setup` 会在首次配置时重试。候选翻译只有在选择了「水杉账号」后才发送，见[候选翻译](#候选翻译默认不联网需要你选择服务)；Android 浏览社区皮肤与词库目录时，也会先取匿名账号的令牌（`platforms/android/java/app/msime/client/community/CommunityCatalog.java`），取不到照常列出目录。macOS 输入法激活时不创建账号。Linux 的匿名身份和令牌由 `msime-linux-online-provider` 保存在用户配置目录的 `anonymous-account.json` 与 `anonymous-session.json`，两个文件均为当前用户专用权限，不进入设置页或输入法进程。凭据存放在系统密钥库：macOS/iOS 用 Keychain（`crates/host-macos/native/account.mm`、`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘。
 
 ### 资源与更新下载
 

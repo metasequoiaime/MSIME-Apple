@@ -294,6 +294,6 @@ assert "notConfigured(*state, false)" in keyEvent and "notConfigured(*state, tru
 assert "kFirstRunHint" in source and "kFirstRunGuideProgram" in source
 assert 'fcitx::startProcess({guide, "--host", "fcitx5"})' in source
 assert 'MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}"' in cmake_fcitx5
-assert "scripts/msime-client-first-run-guide" in cmake
+assert "scripts/msime-linux-first-run-guide" in cmake
 
 print("Fcitx5 addon metadata passed")

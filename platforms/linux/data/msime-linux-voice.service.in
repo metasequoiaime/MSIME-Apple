@@ -3,7 +3,7 @@ Description=MSIME voice input provider
 
 [Service]
 Type=simple
-ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/msime-client-provider-session" voice
+ExecStart="@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-provider-session" voice
 UMask=0077
 Restart=on-failure
 RestartSec=3

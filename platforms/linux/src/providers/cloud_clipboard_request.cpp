@@ -9,7 +9,7 @@
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-cloud-clipboard <provider-socket>\n";
+    std::cout << "Usage: msime-linux-cloud-clipboard <provider-socket>\n";
     return 0;
   }
   const auto socket_path = msime_cli_provider_socket(

@@ -2,7 +2,7 @@
 set -eu
 
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: msime-client-settings [--panel settings|about|help|feedback|dictionary|handwriting|keyboard|emoji|clipboard|voice|cloud-dictionary|cloud-clipboard] [desktop arguments...]"
+  echo "Usage: msime-linux-settings [--panel settings|about|help|feedback|dictionary|handwriting|keyboard|emoji|clipboard|voice|cloud-dictionary|cloud-clipboard] [desktop arguments...]"
   exit 0
 fi
 if [ "${1:-}" = "--panel" ]; then
@@ -91,6 +91,6 @@ if [ -n "${MSIME_CLIENT_ROUTE:-}" ]; then
   # Keep the route in argv as well as the compatibility environment variable.
   # The single-instance plugin forwards argv from a second launch, while the
   # environment remains useful to a newly started shell.
-  exec "$launcher_dir/msime-client-desktop" "--route=$MSIME_CLIENT_ROUTE" "$@"
+  exec "$launcher_dir/msime-linux-desktop" "--route=$MSIME_CLIENT_ROUTE" "$@"
 fi
-exec "$launcher_dir/msime-client-desktop" "$@"
+exec "$launcher_dir/msime-linux-desktop" "$@"
