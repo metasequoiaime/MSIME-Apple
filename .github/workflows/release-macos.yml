@@ -12,15 +12,15 @@ jobs:
     # arm64: the Homebrew boost, fmt and spdlog on this runner are arm64-only, so the package is built for Apple silicon and the asset name says so.
     runs-on: macos-15
     timeout-minutes: 120
-    # Mapped here because secrets.* cannot appear in a step's if:. All six are optional; see the signing comment below and platforms/macos/README.md (发布包).
-    #   MACOS_CERTIFICATE_P12_BASE64  base64 of the Developer ID Application certificate and key, exported as .p12
-    #   MACOS_CERTIFICATE_PASSWORD    the .p12 export password
-    #   MACOS_SIGNING_IDENTITY        the identity name, e.g. "Developer ID Application: Name (TEAMID)"
-    #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
+    # Mapped here because secrets.* cannot appear in a step's if:. All are optional; see the signing comment below and platforms/macos/README.md (发布包). The names are the ones the repository's Developer ID secrets were stored under; reading any other name gives an empty string, which silently turns every release into an ad-hoc, un-notarized package.
+    #   MACOS_DEVELOPER_ID_CERTIFICATE_BASE64    base64 of the Developer ID Application certificate and key, exported as .p12
+    #   MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD  the .p12 export password
+    #   MACOS_DEVELOPER_ID_APPLICATION           the identity name, e.g. "Developer ID Application: Name (TEAMID)"
+    #   MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, MACOS_NOTARY_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
     env:
-      MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}"
-      MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}"
-      MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_SIGNING_IDENTITY }}"
+      MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}"
+      MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}"
+      MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
@@ -94,9 +94,9 @@ jobs:
       - name: Build macOS package
         env:
           VERSION: "${{ steps.version.outputs.value }}"
-          APPLE_ID: "${{ secrets.APPLE_ID }}"
-          APPLE_TEAM_ID: "${{ secrets.APPLE_TEAM_ID }}"
-          APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
+          APPLE_ID: "${{ secrets.MACOS_NOTARY_APPLE_ID }}"
+          APPLE_TEAM_ID: "${{ secrets.MACOS_NOTARY_TEAM_ID }}"
+          APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.MACOS_NOTARY_APP_SPECIFIC_PASSWORD }}"
         run: bash platforms/macos/package-release.sh "$VERSION" dist
       - name: Remove signing keychain
         if: ${{ always() && env.MSIME_SIGNING_KEYCHAIN != '' }}

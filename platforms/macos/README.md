@@ -30,12 +30,14 @@ DMG 里是设置应用（`MSIME.app`）和指向 `/Applications` 的链接。设
 
 包里只能证明本机能构建出的东西：脚本在构建后和挂载 DMG 后各检查一遍内嵌资源、输入法的 bundle identifier 与麦克风 entitlement、两层签名的 `codesign --verify --deep --strict`，任何一项不符就失败。
 
-签名与公证取决于仓库 secrets，全部可选：
+签名与公证取决于仓库 secrets，全部可选。括号里是 workflow 把它们交给 `package-release.sh` 时用的环境变量名，本机打包时直接设置这些变量：
 
-- `MACOS_CERTIFICATE_P12_BASE64`：Developer ID Application 证书连私钥导出的 `.p12`，base64 编码
-- `MACOS_CERTIFICATE_PASSWORD`：`.p12` 的导出密码
-- `MACOS_SIGNING_IDENTITY`：签名身份名，如 `Developer ID Application: Name (TEAMID)`
-- `APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD`：`xcrun notarytool` 的公证凭据
+- `MACOS_DEVELOPER_ID_CERTIFICATE_BASE64`（`MACOS_CERTIFICATE_P12_BASE64`）：Developer ID Application 证书连私钥导出的 `.p12`，base64 编码
+- `MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD`（`MACOS_CERTIFICATE_PASSWORD`）：`.p12` 的导出密码
+- `MACOS_DEVELOPER_ID_APPLICATION`（`MACOS_SIGNING_IDENTITY`）：签名身份名，如 `Developer ID Application: Name (TEAMID)`
+- `MACOS_NOTARY_APPLE_ID`、`MACOS_NOTARY_TEAM_ID`、`MACOS_NOTARY_APP_SPECIFIC_PASSWORD`（`APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD`）：`xcrun notarytool` 的公证凭据
+
+workflow 曾经读取的是括号里的名字，而仓库的 secrets 是以前面的名字存的；读不存在的 secret 得到空串，不报错，于是每次发布都悄悄退回 ad-hoc。
 
 有证书时，输入法按 `scripts/install.sh` 的方式签名（`--deep --options runtime --timestamp`，带 `resources/VoiceInput.entitlements`），设置应用与 DMG 再各签一层（外层不加 `--deep`，以免覆盖输入法的 entitlements）；三项公证凭据也齐全时 DMG 经公证并 staple。只有签名且公证过的包才能走完上面的安装流程。本机设置 `MACOS_SIGNING_IDENTITY`（钥匙串里已有的 Developer ID 身份）与三项公证凭据即可走同一条签名与公证路径，CI 另从 `MACOS_CERTIFICATE_P12_BASE64` 导入证书；目前只验证过 ad-hoc 路径。
 
