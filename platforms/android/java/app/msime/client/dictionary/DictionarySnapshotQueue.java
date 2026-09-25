@@ -141,7 +141,8 @@ public final class DictionarySnapshotQueue {
         Request applied = locked(() -> {
             State state = readUnlocked();
             Request request = state.request();
-            if (request != null && request.id().toString().equals(version.split(":", -1)[1])) {
+            if (request != null && request.status().active()
+                    && request.id().toString().equals(version.split(":", -1)[1])) {
                 request = copy(request, Status.APPLIED);
             }
             writeState(new State(version, request));
