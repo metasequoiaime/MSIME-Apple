@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """选中输入法却还没做首次配置时的引导：IBus 启动器与共享的引导脚本；以及升级后下载的词库落后于当前版本时的通知。
 
-用桩代替 msime-client-settings、notify-send 和 msime-client-ibus，只看谁被调用了几次，不联网、不需要词库，也不起任何桌面进程。
+用桩代替 msime-client-settings、notify-send 和 msime-linux-ibus，只看谁被调用了几次，不联网、不需要词库，也不起任何桌面进程。
 """
 import os
 import re
@@ -47,12 +47,12 @@ def main() -> int:
         bin_dir = scratch / "bin"
         bin_dir.mkdir()
         log = scratch / "calls.log"
-        for script in ("msime-client-ibus-launcher", "msime-client-first-run-guide"):
+        for script in ("msime-linux-ibus-launcher", "msime-client-first-run-guide"):
             target = bin_dir / script
             target.write_text((SCRIPTS / script).read_text())
             target.chmod(0o755)
         stub(bin_dir / "msime-client-settings", log, "settings")
-        stub(bin_dir / "msime-client-ibus", log, "ibus")
+        stub(bin_dir / "msime-linux-ibus", log, "ibus")
         tools = scratch / "tools"
         tools.mkdir()
         stub(tools / "notify-send", log, "notify")
@@ -76,7 +76,7 @@ def main() -> int:
 
         def launch(environment: dict) -> subprocess.CompletedProcess:
             return subprocess.run(
-                [str(bin_dir / "msime-client-ibus-launcher"), str(system_options)],
+                [str(bin_dir / "msime-linux-ibus-launcher"), str(system_options)],
                 env=environment, capture_output=True, text=True, timeout=10,
             )
 
@@ -98,7 +98,7 @@ def main() -> int:
         assert "尚未完成首次配置" in calls(log, "notify")[0], calls(log, "notify")
         # IBus 组件已经退出，恢复步骤是切走再切回，必要时 ibus restart。
         assert "切换到其他输入法" in calls(log, "notify")[0] and "ibus restart" in calls(log, "notify")[0], calls(log, "notify")
-        # 切回时要找的名字就是 IBus 输入源列表里显示的 longname：组件 XML 与 msime-client-ibus 自报的描述都得是这一个。
+        # 切回时要找的名字就是 IBus 输入源列表里显示的 longname：组件 XML 与 msime-linux-ibus 自报的描述都得是这一个。
         longname = re.search(r"<longname>([^<]+)</longname>", (ROOT / "data/msime-client.xml.in").read_text()).group(1)
         assert longname == "Metasequoia 水杉输入法", longname
         assert f'"{longname}"' in (ROOT / "src/entrypoints/ibus_main.cpp").read_text()
@@ -192,7 +192,7 @@ def main() -> int:
         assert launch(no_runtime).returncode == 1
         wait_for(lambda: len(calls(log, "settings")) == 6, "a future stamp suppressed the guidance")
 
-        # 配置已就绪：直接交给 msime-client-ibus，不引导。
+        # 配置已就绪：直接交给 msime-linux-ibus，不引导。
         system_options.parent.mkdir(parents=True)
         system_options.write_text("{}")
         (runtime / "msime-client/first-run-guide.stamp").unlink(missing_ok=True)

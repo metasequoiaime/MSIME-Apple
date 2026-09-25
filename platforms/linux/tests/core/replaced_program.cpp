@@ -150,15 +150,15 @@ void running_executable_replaced_and_removed() {
   const char *created = mkdtemp(pattern.data());
   assert(created != nullptr);
   const std::filesystem::path root(created);
-  const auto program = root / "msime-client-ibus";
+  const auto program = root / "msime-linux-ibus";
   std::filesystem::copy_file("/proc/self/exe", program);
   std::filesystem::permissions(program, std::filesystem::perms::owner_all);
   const auto reporter = start_reporter(program);
 
   assert(reporter.ask() == ProgramFileState::Current);
-  std::filesystem::copy_file("/proc/self/exe", root / "msime-client-ibus.dpkg-new");
-  std::filesystem::permissions(root / "msime-client-ibus.dpkg-new", std::filesystem::perms::owner_all);
-  std::filesystem::rename(root / "msime-client-ibus.dpkg-new", program);
+  std::filesystem::copy_file("/proc/self/exe", root / "msime-linux-ibus.dpkg-new");
+  std::filesystem::permissions(root / "msime-linux-ibus.dpkg-new", std::filesystem::perms::owner_all);
+  std::filesystem::rename(root / "msime-linux-ibus.dpkg-new", program);
   assert(reporter.ask() == ProgramFileState::Replaced);
   // Removing the package leaves no program to restart into.
   std::filesystem::remove(program);

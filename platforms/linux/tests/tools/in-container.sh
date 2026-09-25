@@ -51,7 +51,7 @@ if [[ -x /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 ]]; then
   xvfb-run -a python3 platforms/linux/tests/clipboard/clipboard_x11_events.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11
   xvfb-run -a python3 platforms/linux/tests/clipboard/clipboard_x11_read.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 /build/ibus/msime-test-x11-string-owner
 fi
-test -x /build/stage/usr/local/bin/msime-client-ibus
+test -x /build/stage/usr/local/bin/msime-linux-ibus
 test -x /build/stage/usr/local/bin/msime-client-dictionary
 test -x /build/stage/usr/local/bin/msime-client-cloud-dictionary
 test -x /build/stage/usr/local/bin/msime-client-cloud-clipboard
@@ -85,7 +85,7 @@ echo "Linux clipboard remove-index acceptance passed"
 [[ ! -e "$clipboard_fixture/history.json" ]]
 echo "Linux clipboard clear acceptance passed"
 /build/ibus/ibus-engine-smoke /resources
-installed_host=/build/stage/usr/local/bin/msime-client-ibus
+installed_host=/build/stage/usr/local/bin/msime-linux-ibus
 python3 - "$installed_host" <<'PYTHON'
 import re
 import subprocess
@@ -154,6 +154,6 @@ runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayl
 uninstall_log=$(DESTDIR=/build/stage cmake -P /build/ibus/uninstall.cmake)
 grep -F "systemctl --user disable --now msime-client-online.socket msime-client-online.service msime-client-voice.socket msime-client-voice.service msime-client-clipboard.service" <<<"$uninstall_log" >/dev/null
 grep -F "MSIME from the current group in fcitx5-configtool" <<<"$uninstall_log" >/dev/null
-test ! -e /build/stage/usr/local/bin/msime-client-ibus
+test ! -e /build/stage/usr/local/bin/msime-linux-ibus
 test ! -e /build/stage/usr/local/etc/xdg/autostart/msime-client-clipboard.desktop
 echo "Staged uninstall names the user units and input method lists, and removes the programs"
