@@ -392,21 +392,23 @@ function ResourceDetail({
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const mounted = useRef(true);
   const run = async (action: () => Promise<void>) => {
-    if (busy) return;
+    if (busy || !mounted.current) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
       await action();
     } catch (actionError) {
-      setError(resourceMessage(actionError));
+      if (mounted.current) setError(resourceMessage(actionError));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
   useEffect(() => {
     let active = true;
+    mounted.current = true;
     void client
       .detail(initial.id)
       .then((value) => {
@@ -417,16 +419,19 @@ function ResourceDetail({
       });
     return () => {
       active = false;
+      mounted.current = false;
     };
   }, [client, initial.id]);
   const save = () =>
     void run(async () => {
       await client.save(item.id, !item.saved);
-      setItem(await client.detail(item.id));
+      const updated = await client.detail(item.id);
+      if (mounted.current) setItem(updated);
     });
   const apply = () =>
     void run(async () => {
       const result = await client.apply(item.id, item.revision);
+      if (!mounted.current) return;
       setNotice(`已导入云端词库，新增或更新 ${result.imported} 个词条。`);
     });
   const applyLocal = () =>
@@ -452,20 +457,25 @@ function ResourceDetail({
         );
         applied += result.applied;
       }
+      if (!mounted.current) return;
       setNotice(`已导入本机词库，应用 ${applied} 个词条。`);
     });
   const storeReply = () =>
     void run(async () => {
       await client.save(item.id, true);
       const latest = await client.detail(item.id);
+      if (!mounted.current) return;
       await client.storeReply(latest);
+      if (!mounted.current) return;
       setItem(latest);
       setNotice("已添加到回复键盘；只有点按生成时才会发送文字。");
     });
   const rateResource = (stars: number) =>
     void run(async () => {
       await client.rate(item.id, stars);
-      setItem(await client.detail(item.id));
+      const updated = await client.detail(item.id);
+      if (!mounted.current) return;
+      setItem(updated);
       setNotice(`已评分：${stars} 星。`);
     });
   const removeReply = () =>
@@ -476,6 +486,7 @@ function ResourceDetail({
   const unpublish = () =>
     void run(async () => {
       await client.unpublish(item.id);
+      if (!mounted.current) return;
       setConfirmDelete(false);
       close();
     });

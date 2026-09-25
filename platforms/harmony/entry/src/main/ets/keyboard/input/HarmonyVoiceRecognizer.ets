@@ -77,13 +77,27 @@ export class HarmonyVoiceRecognizer {
     }
     this.generation = (this.generation + 1) % 1000000000;
     this.sessionId = VoiceRecognitionPolicy.sessionId(this.generation);
+    const session: string = this.sessionId;
     if (this.engine === undefined) {
-      this.engine = await speechRecognizer.createEngine({
+      const created: speechRecognizer.SpeechRecognitionEngine =
+        await speechRecognizer.createEngine({
         language: VoiceRecognitionPolicy.language(language),
         // CoreSpeechKit's offline recognizer is the platform-specific Harmony path.
         online: 1,
         extraParams: { recognizerMode: 'short' }
       });
+      // shutdown() can run while the framework is still creating the engine. Do not install a
+      // late engine into a torn-down ability; it would retain the microphone service until the
+      // next recognizer instance happened to replace it.
+      if (session !== this.sessionId || this.resultHandler === undefined) {
+        try {
+          created.shutdown();
+        } catch (error) {
+          // The framework may have released the engine while creation was in flight.
+        }
+        return;
+      }
+      this.engine = created;
       this.engine.setListener({
         onStart: (): void => {},
         onEvent: (): void => {},
@@ -107,7 +121,9 @@ export class HarmonyVoiceRecognizer {
     }
     this.sentences.reset();
     this.slicer.reset();
-    const session: string = this.sessionId;
+    if (session !== this.sessionId || this.engine === undefined || this.resultHandler === undefined) {
+      return;
+    }
     // Mode 0 is write-audio: the recognizer does not open the microphone itself and hears only what writeAudio hands it.
     this.engine.startListening({
       sessionId: session,
