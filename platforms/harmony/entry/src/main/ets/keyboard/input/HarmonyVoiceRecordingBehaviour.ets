@@ -85,8 +85,10 @@ export class HarmonyVoiceRecordingBehaviour {
       return;
     }
     let player: media.AVPlayer | undefined = undefined;
+    let rawFdOpen: boolean = false;
     try {
       const file = await context.resourceManager.getRawFd(asset);
+      rawFdOpen = true;
       player = await media.createAVPlayer();
       const created: media.AVPlayer = player;
       created.fdSrc = { fd: file.fd, offset: file.offset, length: file.length };
@@ -117,10 +119,16 @@ export class HarmonyVoiceRecordingBehaviour {
           resolve();
         });
       });
-      await context.resourceManager.closeRawFd(asset);
     } catch (error) {
       KeyboardLog.error(`voice tone unavailable: ${describeError(error)}`);
     } finally {
+      if (rawFdOpen) {
+        try {
+          await context.resourceManager.closeRawFd(asset);
+        } catch (error) {
+          KeyboardLog.error(`voice tone raw file not closed: ${describeError(error)}`);
+        }
+      }
       if (player !== undefined) {
         try {
           await player.release();
