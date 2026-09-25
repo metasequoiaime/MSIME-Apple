@@ -10,6 +10,7 @@ use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub const DEFAULT_LINES: usize = 200;
 pub const MAX_LINES: usize = 2000;
@@ -17,6 +18,30 @@ pub const MAX_LINES: usize = 2000;
 const READ_LIMIT: u64 = 8 << 20;
 /// The fields of a Windows key-trace record that identify the key: its virtual-key code, the character it produced and that character printed.
 const KEY_FIELDS: [&str; 3] = ["vk=", "wch=", "key="];
+
+/// The local offset from UTC when the server started. On macOS and Linux it can only be read while the process has a single thread, so a change of offset while the server runs, such as the start of summer time, is not followed.
+static LOCAL_OFFSET: OnceLock<time::UtcOffset> = OnceLock::new();
+
+/// Read the local offset while it still can be; see `LOCAL_OFFSET`. Without it `now` is left out.
+pub fn remember_local_offset() {
+    if let Ok(offset) = time::UtcOffset::current_local_offset() {
+        let _ = LOCAL_OFFSET.set(offset);
+    }
+}
+
+/// The current local time as the hosts write it, `YYYY-MM-DD HH:MM:SS`.
+fn local_now() -> Option<String> {
+    let now = time::OffsetDateTime::now_utc().to_offset(*LOCAL_OFFSET.get()?);
+    Some(format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    ))
+}
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -37,6 +62,9 @@ pub struct LogView {
     pub server_enabled: bool,
     /// Whether the Windows TIP adds its composition and key-latency records (`diagnostic_log_tsf`). Windows only; always false elsewhere.
     pub tsf_enabled: bool,
+    /// The current local time, in the form the log's lines start with, to turn "a few minutes ago" into `since`. Absent when the local time zone could not be read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub now: Option<String>,
     /// The log's file name within the input method's data directory.
     pub file: String,
     /// The matching lines, oldest first, with the rotated copy's lines ahead of the current file's.
@@ -140,6 +168,7 @@ pub fn load(state_dir: &Path, request: &LogRequest) -> Result<LogView, String> {
     Ok(LogView {
         server_enabled: switches.server,
         tsf_enabled,
+        now: local_now(),
         file: relative.to_string_lossy().into_owned(),
         lines,
         has_more,

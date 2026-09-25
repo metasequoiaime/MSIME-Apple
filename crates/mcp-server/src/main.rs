@@ -14,6 +14,8 @@ use rmcp::ServiceExt;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // Before the runtime starts any thread: on macOS and Linux the offset cannot be read once the process has more than one.
+    diagnostics::remember_local_offset();
     let config = match config::parse(std::env::args_os().skip(1), |name| std::env::var_os(name)) {
         Ok(config::Command::Serve(config)) => config,
         Ok(config::Command::Help) => {

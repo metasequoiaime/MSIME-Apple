@@ -385,6 +385,10 @@ async fn an_agent_turns_on_and_reads_the_diagnostic_log() {
     let view = ok(&client, "read_diagnostic_log", json!({})).await;
     assert_eq!(view["server_enabled"], false);
     assert_eq!(view["lines"], json!([]));
+    // The local time to measure "a few minutes ago" from, in the log's own form.
+    let now = view["now"].as_str().unwrap();
+    assert_eq!(now.len(), 19);
+    assert!(now.starts_with("20") && now.as_bytes()[10] == b' ');
     assert!(view["hint"]
         .as_str()
         .unwrap()
