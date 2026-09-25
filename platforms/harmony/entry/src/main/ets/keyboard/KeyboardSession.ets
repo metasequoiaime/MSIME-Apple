@@ -2250,12 +2250,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   private cancelOnlineProviders(): void {
     this.onlineEpoch++;
     this.onlineSignature = '';
+    for (const request of this.onlineRequests) request.destroy();
+    this.onlineRequests.clear();
     if (this.onlineTimer >= 0) {
       clearTimeout(this.onlineTimer);
       this.onlineTimer = -1;
     }
     this.translationEpoch++;
     this.translationSignature = '';
+    for (const request of this.translationRequests) request.destroy();
+    this.translationRequests.clear();
     if (this.translationTimer >= 0) {
       clearTimeout(this.translationTimer);
       this.translationTimer = -1;
@@ -2989,9 +2993,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   private toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(KeyboardSkin.from('forest', false));
   private onlineTimer: number = -1;
   private onlineEpoch: number = 0;
+  private readonly onlineRequests: Set<http.HttpRequest> = new Set<http.HttpRequest>();
   private onlineSignature: string = '';
   private translationTimer: number = -1;
   private translationEpoch: number = 0;
+  private readonly translationRequests: Set<http.HttpRequest> = new Set<http.HttpRequest>();
   private translationSignature: string = '';
   private readonly translationCache: Map<string, string> = new Map<string, string>();
   private readonly translationNegativeCache: Map<string, number> = new Map<string, number>();
@@ -3221,6 +3227,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     const request = http.createHttp();
+    this.onlineRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(url, {
         method: http.RequestMethod.GET,
@@ -3239,6 +3246,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`cloud candidate unavailable: ${describeError(error)}`);
       return false;
     } finally {
+      this.onlineRequests.delete(request);
       request.destroy();
     }
   }
@@ -3256,6 +3264,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return;
     }
     const request = http.createHttp();
+    this.onlineRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(descriptor.url, {
         method: http.RequestMethod.POST,
@@ -3274,6 +3283,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     } catch (error) {
       KeyboardLog.error(`AI candidate unavailable: ${describeError(error)}`);
     } finally {
+      this.onlineRequests.delete(request);
       request.destroy();
     }
   }
@@ -3590,6 +3600,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         && !(allowHttp && descriptor.url.startsWith('http://')))) return null;
     if (descriptor.max_response_bytes > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
     const request = http.createHttp();
+    this.translationRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(descriptor.url, {
         method: http.RequestMethod.POST,
@@ -3607,6 +3618,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`candidate translation request unavailable: ${describeError(error)}`);
       return null;
     } finally {
+      this.translationRequests.delete(request);
       request.destroy();
     }
   }
