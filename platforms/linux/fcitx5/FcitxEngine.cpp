@@ -104,6 +104,14 @@ using Json = nlohmann::json;
 class FcitxEngine;
 class FcitxMaintenanceAction;
 
+// Unlike std::async, dropping the future never waits: close() and ~FcitxState run on the Fcitx5 loop and must not block on a provider. Workers copy their inputs; one still running at unload shares the statistics thread's risk.
+template <class F> std::shared_future<Json> detachedJob(F work) {
+  std::packaged_task<Json()> task(std::move(work));
+  auto future = task.get_future().share();
+  std::thread(std::move(task)).detach();
+  return future;
+}
+
 struct PendingPreferenceSave {
   std::string directory;
   std::string section;
@@ -947,10 +955,10 @@ public:
     // A store read already in flight predates the choice being saved; applied after the save it would put back what the status bar just changed (the width and punctuation it re-states to the session included), so refreshPreferences() drops it and reads again once the save lands, as refreshProviderSockets() fences a read from a moved store.
     preferences_job_session_ = 0;
     preferences_save_retry_ = request;
-    preferences_save_job_ = std::async(std::launch::async, [request = std::move(request)] {
+    preferences_save_job_ = detachedJob([request = std::move(request)] {
       try { return savePreference(request); }
       catch (...) { return Json::object(); }
-    }).share();
+    });
   }
   bool retryPreferenceSave() {
     if (preferences_save_job_.valid()) {
@@ -1607,11 +1615,11 @@ public:
       }
       if (!session_ || options_path_.empty() || !ic_.hasFocus() || restricted()) return;
       preferences_job_session_ = session_;
-      preferences_job_ = std::async(std::launch::async, [directory = options_path_] {
+      preferences_job_ = detachedJob([directory = options_path_] {
         fcitx_typing_statistics.refresh(directory);
         return response(msime_client_try_load_preferences(
             reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-      }).share();
+      });
     } catch (...) {
       // Keep the active settings on malformed or concurrently written files.
     }
@@ -1740,7 +1748,7 @@ public:
         online_job_session_ = session_;
         slot.query = encoded;
         slot.epoch = online_epoch_;
-        slot.job = std::async(std::launch::async,
+        slot.job = detachedJob(
             [providerEncoded, encoded, socket = online_socket_] {
               auto raw = response(msime_client_online_provider_request(
                   reinterpret_cast<const uint8_t *>(providerEncoded.data()), providerEncoded.size(),
@@ -1748,7 +1756,7 @@ public:
               Json result = raw.is_object() ? raw : Json::object();
               result["query"] = encoded;
               return result;
-            }).share();
+            });
       }
     } catch (...) {
       online_query_.clear();
@@ -1795,7 +1803,7 @@ public:
     const auto gloss = glossRequest.dump();
     const auto socket = (manual_sentence || preferences_.value("candidate_translations", false))
                             ? translation_socket_ : std::string{};
-    translation_job_ = std::async(std::launch::async,
+    translation_job_ = detachedJob(
         [query, encoded, gloss, offline, local, socket, dictionary, resources = resources_] () mutable {
           if (offline) {
             try {
@@ -1844,7 +1852,7 @@ public:
           return Json{{"query", encoded}, {"translations", local},
                       {"continue_online", offline && !socket.empty()},
                       {"_socket", socket}};
-        }).share();
+        });
   }
   void translateSentence() {
     constexpr size_t kMaxSentenceChars = 512;
@@ -1944,14 +1952,14 @@ public:
       clipboard_loading_ = true;
       const auto path = clipboard_path_;
       const auto generation = clipboard_generation_;
-      clipboard_job_ = std::async(std::launch::async, [path, generation] {
+      clipboard_job_ = detachedJob([path, generation] {
         auto raw = response(msime_client_load_clipboard_history(
             reinterpret_cast<const uint8_t *>(path.data()), path.size()));
         if (!raw.is_object()) return Json::object();
         raw["_path"] = path;
         raw["_generation"] = generation;
         return raw;
-      }).share();
+      });
     } catch (...) { clipboard_loading_ = false; clipboard_items_.clear(); }
   }
   msime::linux_host::TypingSource typingSource() const {
@@ -2015,12 +2023,12 @@ public:
     const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
     if (text.empty()) return false;
     const auto path = clipboard_path_;
-    clipboard_mutation_job_ = std::async(std::launch::async, [path, text] {
+    clipboard_mutation_job_ = detachedJob([path, text] {
       const auto request = Json{{"directory", path}, {"text", text}}.dump();
       auto raw = response(msime_client_remove_clipboard_history(
           reinterpret_cast<const uint8_t *>(request.data()), request.size()));
       return raw.is_object() ? raw : Json::object();
-    }).share();
+    });
     return true;
   }
   bool clearClipboard() {
@@ -2034,7 +2042,7 @@ public:
     }
     if (texts.empty()) return false;
     const auto path = clipboard_path_;
-    clipboard_mutation_job_ = std::async(std::launch::async, [path, texts = std::move(texts)] {
+    clipboard_mutation_job_ = detachedJob([path, texts = std::move(texts)] {
       Json result = Json::object();
       for (const auto &text : texts) {
         const auto request = Json{{"directory", path}, {"text", text}}.dump();
@@ -2042,7 +2050,7 @@ public:
             reinterpret_cast<const uint8_t *>(request.data()), request.size()));
       }
       return result;
-    }).share();
+    });
     return true;
   }
   void refreshCloudClipboard() {
@@ -2076,7 +2084,7 @@ public:
     if (cloud_clipboard_job_.valid()) return false;
     const auto socket = cloud_clipboard_socket_;
     const auto generation = cloud_clipboard_generation_;
-    cloud_clipboard_job_ = std::async(std::launch::async, [socket, generation] {
+    cloud_clipboard_job_ = detachedJob([socket, generation] {
       const auto request = Json{{"operation", "list"}, {"search", ""}}.dump();
       auto raw = response(msime_client_cloud_clipboard_provider_request(
           reinterpret_cast<const uint8_t *>(request.data()), request.size(),
@@ -2085,7 +2093,7 @@ public:
       raw["_socket"] = socket;
       raw["_generation"] = generation;
       return raw;
-    }).share();
+    });
     return false;
   }
   bool requestCloudClipboard() { return pasteCloudClipboard(); }
@@ -2131,7 +2139,7 @@ public:
     const auto generation = emoji_generation_;
     emoji_offset_ = offset;
     emoji_job_query_ = search;
-    emoji_job_ = std::async(std::launch::async, [resources, category, group, search, offset, generation] {
+    emoji_job_ = detachedJob([resources, category, group, search, offset, generation] {
       const auto query = Json{{"limit", 5}, {"offset", offset}, {"cursor", true},
                               {"category", category}, {"group", group}, {"search", search}}.dump();
       auto result = response(msime_client_emoji_catalog_request(
@@ -2140,7 +2148,7 @@ public:
       if (!result.is_object()) return Json::object();
       result["_generation"] = generation;
       return result;
-    }).share();
+    });
     return true;
   }
   bool beginEmojiSearch() {
@@ -2213,7 +2221,7 @@ public:
       const auto resources = resources_;
       const auto category = emoji_category_;
       const auto generation = emoji_generation_;
-      emoji_groups_job_ = std::async(std::launch::async, [resources, category, generation] {
+      emoji_groups_job_ = detachedJob([resources, category, generation] {
         const auto query = Json{{"limit", 1}, {"list_groups", true}, {"category", category}}.dump();
         auto result = response(msime_client_emoji_catalog_request(
             reinterpret_cast<const uint8_t *>(query.data()), query.size(),
@@ -2221,7 +2229,7 @@ public:
         if (!result.is_object()) return Json::object();
         result["_generation"] = generation;
         return result;
-      }).share();
+      });
       return false;
     }
     emoji_group_index_ = (emoji_group_index_ + 1) % (emoji_groups_.size() + 1);
@@ -2483,7 +2491,7 @@ public:
     wave_overlay_.actions_visible = true;
     updateVoiceOverlay();
     const auto mailbox = voice_mailbox_;
-    voice_job_ = std::async(std::launch::async, [socket, generation, language, options, host_options, mailbox] {
+    voice_job_ = detachedJob([socket, generation, language, options, host_options, mailbox] {
       auto request = msime::linux_host::voice_query(language, generation, options, host_options);
       request["stream"] = true;
       const auto query = request.dump();
@@ -2500,7 +2508,7 @@ public:
         return Json{{"provider_error", document.value("error", std::string{})}};
       const auto result = document.at("value");
       return result.is_object() ? result : Json{{"provider_error", std::string{}}};
-    }).share();
+    });
     return true;
   }
   bool stopVoice() {

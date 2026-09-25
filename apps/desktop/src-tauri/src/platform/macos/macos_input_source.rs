@@ -601,6 +601,7 @@ mod tests {
         bundle
     }
 
+    #[cfg(target_os = "macos")]
     fn versioned_fixture(root: &Path, short: &str, build: &str, contents: &[u8]) -> PathBuf {
         let bundle = fixture(root, INPUT_SOURCE_BUNDLE_ID, contents);
         fs::write(
@@ -668,6 +669,10 @@ mod tests {
         assert!(BundleVersion::parse("0.50.0", "").is_none());
     }
 
+    // `bundle_version` reads the plist through `/usr/bin/plutil`, which exists only on macOS. The
+    // module is built and tested on every Unix for its file handling, but a test that needs a real
+    // version read can only run where `plutil` does; elsewhere every read is `None` by design.
+    #[cfg(target_os = "macos")]
     #[test]
     fn reads_bundle_version_from_info_plist() {
         let root = tempdir().unwrap();
@@ -685,6 +690,10 @@ mod tests {
         assert_eq!(bundle_version(&root.path().join("missing.app")), None);
     }
 
+    // `bundle_version` reads the plist through `/usr/bin/plutil`, which exists only on macOS. The
+    // module is built and tested on every Unix for its file handling, but a test that needs a real
+    // version read can only run where `plutil` does; elsewhere every read is `None` by design.
+    #[cfg(target_os = "macos")]
     #[test]
     fn ensure_current_replaces_only_an_older_install() {
         let root = tempdir().unwrap();

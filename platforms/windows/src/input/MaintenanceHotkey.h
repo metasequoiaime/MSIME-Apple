@@ -32,6 +32,8 @@ private:
   Handler handler_;
   CapsSink caps_sink_;
   bool caps_ = false;
+  // Low-level hooks carry no repeat bit; only the first down after an up toggles.
+  bool caps_down_ = false;
   HHOOK hook_ = nullptr;
   static MaintenanceHotkeyController *instance_;
 };

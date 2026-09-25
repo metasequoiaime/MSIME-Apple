@@ -1,6 +1,7 @@
 #include "AuxListener.h"
 #include "PipeIo.h"
 #include "PipeListener.h"
+#include "PipePeer.h"
 
 namespace msime::windows {
 namespace {
@@ -117,6 +118,20 @@ void AuxListener::run() {
       ++stats_.malformed;
       continue;
     }
+    // The DACL has to admit AppContainer and low-integrity hosts, because the
+    // TIP runs inside them. The verbs that restart the Server or drop every
+    // session are only ever sent by the settings process, so they are
+    // accepted from a full desktop process of this user and nothing else.
+    const auto maintenance = parse_aux_dictionary_maintenance(*text);
+    if (maintenance || *text == L"RestartServer") {
+      DWORD peer_error = ERROR_SUCCESS;
+      if (!pipe_client_is_desktop_user(accepted.connection->handle(),
+                                       peer_error)) {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        ++stats_.rejected;
+        continue;
+      }
+    }
     if (message_sink_)
       message_sink_(*text);
     if (const auto activation = parse_aux_activation(*text)) {
@@ -126,7 +141,7 @@ void AuxListener::run() {
       ++stats_.dispatched;
       continue;
     }
-    if (const auto maintenance = parse_aux_dictionary_maintenance(*text)) {
+    if (maintenance) {
       // Same contract as the deactivation below: the caller takes "OK" as
       // proof that the sessions are gone and the dictionary lock is free, so
       // it is written only once that is actually true.
@@ -141,6 +156,16 @@ void AuxListener::run() {
       continue;
     }
     if (const auto terminal = parse_aux_terminal_deactivation(*text)) {
+      // The client id is (pid << 32) | tid; a sender may only fence its own.
+      ULONG pid = 0;
+      DWORD peer_error = ERROR_SUCCESS;
+      if (!pipe_client_in_session(accepted.connection->handle(), pid,
+                                  peer_error) ||
+          static_cast<DWORD>(terminal->client_id >> 32) != pid) {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        ++stats_.rejected;
+        continue;
+      }
       // The DLL polls this pipe for a literal "OK" and blocks its TSF thread
       // for 150 ms without one. Answer only once the client really is gone:
       // an unconditional "OK" would tell the DLL a teardown happened that did

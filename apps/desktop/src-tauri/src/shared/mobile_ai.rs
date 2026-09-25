@@ -74,6 +74,7 @@ fn valid_token(token: &str) -> Result<String, Error> {
     Ok(value.to_owned())
 }
 
+// Keep in step with the desktop `ai::ai_models_url`.
 fn models_url(endpoint: &str) -> Result<reqwest::Url, Error> {
     let mut url = valid_endpoint(endpoint)?;
     let mut path = url.path().trim_end_matches('/').to_owned();

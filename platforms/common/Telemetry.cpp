@@ -28,12 +28,24 @@ std::filesystem::path file() {
   return std::filesystem::path(base) / (std::getenv("XDG_STATE_HOME") ? "msime/telemetry.json" : ".local/state/msime/telemetry.json");
 #endif
 }
-std::string id() { static std::random_device random; std::ostringstream out; out << std::hex << random() << random(); return out.str(); }
+std::string id() {
+  // start() and the terminate handler can race here, so each thread draws from its own device.
+  thread_local std::random_device random; std::ostringstream out; out << std::hex << random() << random(); return out.str();
+}
+// Hand-edited or foreign queue files can hold anything; keep only well-formed events.
+bool queued(const nlohmann::json &event) {
+  return event.is_object() && event.contains("id") && event["id"].is_string();
+}
 void append(nlohmann::json event) {
   std::lock_guard guard(lock); auto path = file(); std::error_code error; std::filesystem::create_directories(path.parent_path(), error);
   nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { in >> all; } catch (...) {} }
   if (!all.is_array())
     all = nlohmann::json::array();
+  nlohmann::json kept = nlohmann::json::array();
+  for (auto &queuedEvent : all)
+    if (queued(queuedEvent))
+      kept.push_back(std::move(queuedEvent));
+  all = std::move(kept);
   all.push_back(std::move(event));
   while (all.size() > 64)
     all.erase(all.begin());
@@ -52,14 +64,20 @@ bool send(const nlohmann::json &event) {
 }
 void remove(const std::string &eventID) {
   std::lock_guard guard(lock); auto path = file(); nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { in >> all; } catch (...) { return; } }
-  nlohmann::json kept = nlohmann::json::array(); for (const auto &event : all) if (event.value("id", "") != eventID) kept.push_back(event);
+  if (!all.is_array()) return;
+  nlohmann::json kept = nlohmann::json::array(); for (const auto &event : all) if (queued(event) && event["id"].get<std::string>() != eventID) kept.push_back(event);
   std::ofstream out(path); if (out) out << kept.dump();
 }
 }
+// Telemetry must never take the host down: crash() runs inside the terminate handler.
 void start(const std::string &platform, const std::string &version) {
-  nlohmann::json event{{"id", id()}, {"kind", "download"}, {"platform", platform}, {"version", version}}; append(event); if (send(event)) remove(event["id"]);
+  try {
+    nlohmann::json event{{"id", id()}, {"kind", "download"}, {"platform", platform}, {"version", version}}; append(event); if (send(event)) remove(event["id"]);
+  } catch (...) {}
 }
 void crash(const std::string &platform, const std::string &version, const std::string &message) {
-  nlohmann::json event{{"id", id()}, {"kind", "crash"}, {"platform", platform}, {"version", version}, {"message", message.substr(0, 2048)}}; append(event); if (send(event)) remove(event["id"]);
+  try {
+    nlohmann::json event{{"id", id()}, {"kind", "crash"}, {"platform", platform}, {"version", version}, {"message", message.substr(0, 2048)}}; append(event); if (send(event)) remove(event["id"]);
+  } catch (...) {}
 }
 }

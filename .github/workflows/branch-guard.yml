@@ -2,7 +2,8 @@ name: Branch guard
 
 # main is the release branch: it only moves when develop is promoted for a release, or when
 # release-please lands the version commit it generates on top of that promotion. Everything else
-# targets develop.
+# targets develop. The head must also be a branch of this repository: a fork's branch can be named
+# develop too.
 #
 # This is a check rather than a ruleset rule because GitHub rulesets can protect a base branch but
 # cannot say which head branches may target it. Add it to main's required status checks so a pull
@@ -29,7 +30,12 @@ jobs:
       - name: Check the head branch may target main
         env:
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::Pull requests into main must come from a branch in $GITHUB_REPOSITORY, not '$HEAD_REPO'. Retarget this pull request at develop."
+            exit 1
+          fi
           case "$HEAD_REF" in
             develop | release/* | release-please--*)
               echo "$HEAD_REF may target main."

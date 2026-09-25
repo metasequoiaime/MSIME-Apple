@@ -16,7 +16,8 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
     if (!result && [failure.localizedDescription isEqualToString:@"dictionary maintenance busy"] &&
         [userData isKindOfClass:NSString.class] && userData.isAbsolutePath) {
         const std::string root(userData.fileSystemRepresentation);
-        if (msime::dictionary_lease::raise_dictionary_quiesce_lease(root)) {
+        std::string lease;
+        if (msime::dictionary_lease::raise_dictionary_quiesce_lease(root, lease)) {
             void (^announce)(void) = ^{
                 [NSNotificationCenter.defaultCenter postNotificationName:@"MSIMEDictionaryMaintenanceWillBeginNotification" object:nil];
             };
@@ -29,7 +30,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
                 failure = nil;
                 result = [MSIMEClientSession dictionaryRequest:request error:&failure];
             }
-            msime::dictionary_lease::lower_dictionary_quiesce_lease(root);
+            msime::dictionary_lease::lower_dictionary_quiesce_lease(root, lease);
         }
     }
     if (error) *error = failure;

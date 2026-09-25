@@ -9,7 +9,7 @@ final class KeyboardSkinBackgroundView: UIView {
     didSet {
       backgroundColor = skin == .custom ? CustomKeyboardSkin.color((designOverride ?? CustomKeyboardSkinStore.current).background) : skin.background
       let data = skin == .custom ? (designOverride ?? CustomKeyboardSkinStore.current).photo : nil
-      if data != photoData { photoData = data; photoImage = data.flatMap { UIImage(data: $0) } }
+      if data != photoData { photoData = data; photoImage = data.flatMap { SkinPhotoData.image(from: $0) } }
       setNeedsDisplay()
     }
   }

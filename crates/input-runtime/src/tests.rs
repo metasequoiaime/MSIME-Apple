@@ -2746,3 +2746,200 @@ fn selecting_a_reseated_candidate_commits_that_candidate() {
     let done = runtime.dispatch(Action::Select(page[1].id)).unwrap();
     assert_eq!(done.commit.as_deref(), Some("AI"));
 }
+
+// A phrase held over an emptied reading is still a composition: swapping the engine under it would
+// retype the old scheme's reading into the new one on the next Backspace.
+#[test]
+fn a_held_phrase_over_an_emptied_reading_is_not_idle() {
+    let mut runtime = phrase_runtime("haitanpaobu", vec![6]);
+    let id = runtime.view().candidates[0].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+    let kept = runtime.dispatch(Action::SegmentBackspace).unwrap();
+    assert_eq!(kept.view.phrase_prefix, "海滩");
+    assert!(kept.view.editing_text.is_empty());
+    assert!(!runtime.is_idle());
+    let generation = runtime.view().generation;
+    assert!(matches!(
+        runtime.replace_engine(PhraseEngine::new(vec![6]), 5),
+        Err(RuntimeError::CompositionActive)
+    ));
+    assert!(matches!(
+        runtime.set_page_size(7),
+        Err(RuntimeError::CompositionActive)
+    ));
+    assert!(matches!(
+        runtime.set_nine_key_enabled(false),
+        Err(RuntimeError::CompositionActive)
+    ));
+    assert_eq!(runtime.view().generation, generation);
+    // Dropping the held piece ends the composition.
+    runtime.dispatch(Action::SegmentBackspace).unwrap();
+    assert!(runtime.is_idle());
+}
+
+/// Settling that moves nothing keeps the generation, so a host that redraws on a new generation
+/// does not flicker on every pause.
+#[test]
+fn settling_that_moves_nothing_keeps_the_generation() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    let page = type_key(&mut runtime).view;
+    assert!(!runtime.rerank_settled());
+    assert_eq!(runtime.view().generation, page.generation);
+}
+
+#[test]
+fn the_full_list_seats_online_candidates_as_paging_does_and_retires_page_ids() {
+    // The released tail carries a cloud candidate. Paging seats it second; the panel has to agree,
+    // and the page drawn before the release must not select by the reordered seats.
+    let with_cloud = || {
+        let mut runtime = withholding_runtime(12, 8, 5);
+        runtime.engine.sources = (0..20).map(|n| if n == 15 { 2 } else { 0 }).collect();
+        runtime.engine.codes = vec![String::new(); 20];
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let mut runtime = with_cloud();
+    let page = type_key(&mut runtime).view;
+    let panel = runtime.all_candidates();
+    assert_eq!(panel.candidates.len(), 20);
+    assert_eq!(panel.candidates[1].text, "candidate-15");
+    assert_eq!(panel.generation, page.generation + 1);
+    assert!(matches!(
+        runtime.dispatch(Action::Select(page.candidates[1].id)),
+        Err(RuntimeError::StaleCandidate)
+    ));
+
+    let mut paged = with_cloud();
+    type_key(&mut paged);
+    for _ in 0..3 {
+        paged.dispatch(Action::NextPage).unwrap();
+    }
+    let texts = |snapshot: CandidateSnapshot| -> Vec<String> {
+        snapshot.candidates.into_iter().map(|c| c.text).collect()
+    };
+    assert_eq!(texts(paged.all_candidates()), texts(panel));
+}
+
+/// An engine whose snapshot fails once a candidate has been committed.
+struct FailsAfterCommit {
+    inner: Fixture,
+    committed: bool,
+}
+
+impl InputEngine for FailsAfterCommit {
+    fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
+        if self.committed {
+            return Err(RuntimeError::Engine("injected snapshot failure".into()));
+        }
+        self.inner.snapshot()
+    }
+    fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError> {
+        self.inner.character(value, shift)
+    }
+    fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError> {
+        self.inner.command(command)
+    }
+    fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        self.committed = true;
+        self.inner.select(index)
+    }
+    fn select_edge(
+        &mut self,
+        index: usize,
+        edge: CandidateEdge,
+    ) -> Result<EngineResult, RuntimeError> {
+        self.committed = true;
+        self.inner.select_edge(index, edge)
+    }
+    fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        self.inner.finish(index)
+    }
+    fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
+        self.inner.punctuation(value)
+    }
+}
+
+#[test]
+fn a_wubi_auto_commit_survives_a_failed_refresh() {
+    let mut runtime = Runtime::new(
+        FailsAfterCommit {
+            inner: Fixture {
+                scheme: 2,
+                words: vec!["合成候选".into()],
+                ..Fixture::default()
+            },
+            committed: false,
+        },
+        5,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    let mut last = None;
+    for value in b"wqaa" {
+        last = Some(
+            runtime
+                .dispatch(Action::Character {
+                    value: *value,
+                    shift: false,
+                })
+                .unwrap(),
+        );
+    }
+    let last = last.unwrap();
+    assert_eq!(last.commit.as_deref(), Some("合成候选"));
+    assert!(last
+        .diagnostic
+        .as_deref()
+        .is_some_and(|diagnostic| diagnostic.starts_with("Candidate refresh failed")));
+}
+
+#[test]
+fn a_busy_provider_answers_the_newest_query_not_the_oldest() {
+    let query = |text: &str| OnlineQuery {
+        scheme: 0,
+        generation: 1,
+        identity: text.into(),
+        query_text: text.into(),
+        cache_key: text.into(),
+        pinyin_segments: vec![],
+        cloud_eligible: true,
+        ai_eligible: false,
+        cloud_candidates: true,
+        session_id: 1,
+        ai_context: String::new(),
+        ai_assistant: None,
+        ai_cache_only: false,
+    };
+    let (started, first_running) = std::sync::mpsc::channel::<()>();
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate = std::sync::Mutex::new(gate);
+    let worker = OnlineProviderWorker::spawn(1, move |query: OnlineQuery| {
+        if query.query_text == "ni" {
+            started.send(()).unwrap();
+            gate.lock().unwrap().recv().unwrap();
+        }
+        Some((query.query_text.clone(), 0))
+    })
+    .unwrap();
+    assert!(worker.submit(query("ni")));
+    first_running
+        .recv_timeout(Duration::from_secs(5))
+        .expect("first query running");
+    for text in ["nih", "niha", "nihao"] {
+        assert!(worker.submit(query(text)));
+    }
+    release.send(()).unwrap();
+    let mut answered = Vec::new();
+    for _ in 0..500 {
+        if let Some(result) = worker.try_recv() {
+            answered.push(result.text);
+            if answered.len() == 2 {
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(answered, vec!["ni".to_owned(), "nihao".to_owned()]);
+    worker.shutdown();
+}

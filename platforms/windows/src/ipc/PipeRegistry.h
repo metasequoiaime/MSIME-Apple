@@ -56,6 +56,9 @@ private:
   struct Client;
   std::shared_ptr<Client> lookup(uint64_t client, bool create);
   void retire(uint64_t id, const std::shared_ptr<Client> &client);
+  // Retire clients whose process or pipes are gone; true if a slot may now
+  // be free.
+  bool reclaim_dead();
   static PipeTicket ticket(uint64_t id, const Client &client);
   static bool current(const PipeTicket &ticket, const Client &client);
   size_t max_clients_;

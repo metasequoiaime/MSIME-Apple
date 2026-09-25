@@ -633,15 +633,17 @@ pub unsafe extern "C" fn msime_client_voice_local_model_remove(
         }
         let request: RemoveRequest = local_voice_request(request, length, 16_384)?;
         let root = local_model_root(&request.root)?;
-        if local_model_installs()
+        // Hold the registry across the removal: releasing it after the check would let an
+        // install of the same id register and have its staging directory swept mid-download.
+        let installs = local_model_installs()
             .lock()
-            .map_err(|_| "internal runtime failure")?
-            .contains_key(&request.id)
-        {
+            .map_err(|_| "internal runtime failure")?;
+        if installs.contains_key(&request.id) {
             return Err("local_model_install_running".into());
         }
-        msime_client_core::voice::local_models::remove(root, &request.id)
-            .map_err(|error| error.to_string())?;
+        let removed = msime_client_core::voice::local_models::remove(root, &request.id);
+        drop(installs);
+        removed.map_err(|error| error.to_string())?;
         Ok(Value::Null)
     })
 }

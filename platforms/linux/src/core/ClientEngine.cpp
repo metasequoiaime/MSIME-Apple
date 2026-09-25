@@ -536,6 +536,7 @@ struct State {
   bool candidate_translations = true;
   bool candidate_english_gloss = false;
   bool translation_reset_pending = false;
+  uint64_t sentence_translation_generation = 0;
   std::string translation_target_language = "en";
   uint64_t provider_epoch = 0;
   std::string translation_dispatched_query;
@@ -564,6 +565,7 @@ struct State {
     ++provider_epoch;
     online_loading.fill(false);
     translation_loading = false;
+    sentence_translation_generation = 0;
     translation_dispatched_query.clear();
     for (auto &query : online_dispatched_query) query.clear();
   }
@@ -1890,6 +1892,7 @@ void translate_sentence(IBusEngine *engine) {
     query["target_language"] = s.translation_target_language;
     query["candidates"] = Json::array({text});
     const auto encoded = query.dump();
+    s.sentence_translation_generation = query.at("generation").get<uint64_t>();
     const auto source = selected->value("source", uint8_t{0});
     const auto gloss_query = Json{
         {"generation", query.at("generation")},
@@ -3491,7 +3494,9 @@ void render(IBusEngine *engine, const Json &view) {
     const bool show_translations =
         engine_state.candidate_translations ||
         (engine_state.candidate_english_gloss &&
-         engine_state.translation_target_language == "en");
+         engine_state.translation_target_language == "en") ||
+        candidate.value("id", Json::object()).value("generation", uint64_t{0}) ==
+            engine_state.sentence_translation_generation;
     if (show_translations && !engine_state.translation_reset_pending &&
         candidate.contains("translation") && !candidate.at("translation").is_null()) {
       auto translation = candidate.at("translation").get<std::string>();

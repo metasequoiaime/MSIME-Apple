@@ -23,10 +23,27 @@ CEnumTfCandidates::CEnumTfCandidates(_In_ const CMetasequoiaImeArray<ITfCandidat
     _refCount = 0;
     _rgelm = rgelm;
     _currentCandidateStrIndex = currentNum;
+    // The enumerator can outlive the candidate list that owns these strings.
+    for (UINT i = 0; i < _rgelm.Count(); i++)
+    {
+        ITfCandidateString *pCandStr = *_rgelm.GetAt(i);
+        if (pCandStr)
+        {
+            pCandStr->AddRef();
+        }
+    }
 }
 
 CEnumTfCandidates::~CEnumTfCandidates()
 {
+    for (UINT i = 0; i < _rgelm.Count(); i++)
+    {
+        ITfCandidateString *pCandStr = *_rgelm.GetAt(i);
+        if (pCandStr)
+        {
+            pCandStr->Release();
+        }
+    }
 }
 
 //
@@ -77,18 +94,34 @@ STDMETHODIMP_(ULONG) CEnumTfCandidates::Release()
 STDMETHODIMP CEnumTfCandidates::Next(ULONG ulCount, _Out_ ITfCandidateString **ppObj, _Out_ ULONG *pcFetched)
 {
     ULONG fetched = 0;
-    if (ppObj == nullptr)
+    if (ppObj == nullptr || (ulCount > 1 && pcFetched == nullptr))
     {
         return E_INVALIDARG;
     }
-    *ppObj = nullptr;
+    if (ulCount == 0)
+    {
+        if (pcFetched)
+        {
+            *pcFetched = 0;
+        }
+        return S_OK;
+    }
 
+    // Fill ppObj[0..fetched); every slot the caller sees must be ours or null.
     while ((fetched < ulCount) && (_currentCandidateStrIndex < _rgelm.Count()))
     {
-        *ppObj = *_rgelm.GetAt(_currentCandidateStrIndex);
-        (*ppObj)->AddRef();
+        ITfCandidateString *pCandStr = *_rgelm.GetAt(_currentCandidateStrIndex);
+        ppObj[fetched] = pCandStr;
+        if (pCandStr)
+        {
+            pCandStr->AddRef();
+        }
         _currentCandidateStrIndex++;
         fetched++;
+    }
+    for (ULONG i = fetched; i < ulCount; i++)
+    {
+        ppObj[i] = nullptr;
     }
 
     if (pcFetched)

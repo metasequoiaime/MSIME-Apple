@@ -255,7 +255,7 @@ pub struct PreferencesChange {
 }
 
 impl PreferencesChange {
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.scheme.is_none()
             && self.shuangpin_profile.is_none()
             && self.candidate_page_size.is_none()

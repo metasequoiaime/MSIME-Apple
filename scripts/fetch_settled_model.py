@@ -49,9 +49,13 @@ def fetch(artifact: dict, destination: Path) -> None:
     # file where an installer would pick it up as finished.
     with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as staged:
         staged_path = Path(staged.name)
-        with urllib.request.urlopen(url) as response:
-            while block := response.read(CHUNK):
-                staged.write(block)
+        try:
+            with urllib.request.urlopen(url, timeout=300) as response:
+                while block := response.read(CHUNK):
+                    staged.write(block)
+        except BaseException:
+            staged_path.unlink(missing_ok=True)
+            raise
     actual = digest(staged_path)
     size = staged_path.stat().st_size
     if actual != artifact["sha256"] or size != artifact["size"]:

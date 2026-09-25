@@ -1832,13 +1832,13 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** The AI HTTPS descriptor for this query, or null when it no longer matches the settings. */
-    private JSONObject aiRequestDescriptor(long targetSession, String document) {
+    /** The AI HTTPS descriptor in this envelope, or null when it no longer matches the settings. */
+    private static JSONObject aiRequestDescriptor(String raw) {
+        if (raw == null) return null;
         try {
-            JSONObject envelope = new JSONObject(
-                NativeClient.aiRequestForQuery(targetSession, document));
+            JSONObject envelope = new JSONObject(raw);
             return envelope.optBoolean("ok", false) ? envelope.optJSONObject("value") : null;
-        } catch (JSONException | RuntimeException | LinkageError error) {
+        } catch (JSONException | RuntimeException error) {
             return null;
         }
     }
@@ -1910,7 +1910,10 @@ public final class MSIMEInputService extends InputMethodService {
         int limit = OnlineCandidatePolicy.aiCandidateLimit(
             aiAssistant == null ? 0 : aiAssistant.optInt("candidate_limit", 0));
         if (!requestsAi(aiQuery) || limit == 0) return;
-        JSONObject descriptor = aiRequestDescriptor(targetSession, aiDocument);
+        // Sessions are bound to the main thread; only the network request stays on the worker.
+        final String queryDocument = aiDocument;
+        JSONObject descriptor = aiRequestDescriptor(onSessionThread(targetSession, epoch,
+            () -> NativeClient.aiRequestForQuery(targetSession, queryDocument)));
         if (descriptor == null) return;
         java.util.List<String> candidates = OnlineCandidatePolicy.aiCandidates(
             aiCandidateTexts(OnlineCandidateTransport.ai(descriptor)), limit);
@@ -1957,6 +1960,31 @@ public final class MSIMEInputService extends InputMethodService {
             return null;
         }
         return refreshed.get();
+    }
+
+    /** Run a session-bound call on the session thread and return its raw result, or null. */
+    private String onSessionThread(long targetSession, long epoch,
+            java.util.function.Supplier<String> call) {
+        final java.util.concurrent.atomic.AtomicReference<String> result =
+            new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        main.post(() -> {
+            try {
+                if (epoch != onlineEpoch || targetSession != session) return;
+                result.set(call.get());
+            } catch (RuntimeException | LinkageError error) {
+                // Online candidates are optional.
+            } finally {
+                done.countDown();
+            }
+        });
+        try {
+            if (!done.await(2, TimeUnit.SECONDS)) return null;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        return result.get();
     }
 
     private int candidateGlossLineCount() {

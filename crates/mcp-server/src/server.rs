@@ -18,6 +18,7 @@ use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::schemars::JsonSchema;
 use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -40,6 +41,8 @@ const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input met
 pub struct MsimeServer {
     config: Arc<Config>,
     last_write: Arc<Mutex<Option<Instant>>>,
+    /// Set while a write runs. rmcp runs each request as its own task and a write can outlast the interval, so spacing alone would let two overlap on the quiesce lease and on a check-then-write edit.
+    writing: Arc<AtomicBool>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -164,6 +167,7 @@ impl MsimeServer {
         Self {
             config: Arc::new(config),
             last_write: Arc::new(Mutex::new(None)),
+            writing: Arc::new(AtomicBool::new(false)),
             tool_router,
         }
     }
@@ -215,10 +219,11 @@ impl MsimeServer {
         if request.edits.is_empty() || request.edits.len() > MAX_EDITS {
             return Err(format!("send between 1 and {MAX_EDITS} edits"));
         }
-        self.claim_write()?;
+        let guard = self.claim_write()?;
         let config = self.config.clone();
         let edits: Vec<QuickPhraseEdit> = request.edits.into_iter().map(Into::into).collect();
         let outcome = blocking(move || {
+            let _guard = guard;
             let options = DictionaryOptions::from_host_document(config.read_options()?)?;
             Ok(apply_edits(
                 &options,
@@ -267,9 +272,14 @@ impl MsimeServer {
         &self,
         Parameters(change): Parameters<PreferencesChange>,
     ) -> Result<Json<PreferencesView>, String> {
-        self.claim_write()?;
+        // Refused before the slot is taken, so a mistaken call does not hold up the corrected one.
+        if change.is_empty() {
+            return Err("no preference to change".into());
+        }
+        let guard = self.claim_write()?;
         let config = self.config.clone();
         let result = blocking(move || {
+            let _guard = guard;
             let state_dir = config.state_dir(&config.read_options()?)?;
             preferences::update(&state_dir, &config.options, &change).map(Json)
         })
@@ -352,10 +362,11 @@ impl MsimeServer {
         if request.edits.is_empty() || request.edits.len() > MAX_EDITS {
             return Err(format!("send between 1 and {MAX_EDITS} edits"));
         }
-        self.claim_write()?;
+        let guard = self.claim_write()?;
         let config = self.config.clone();
         let edits: Vec<WordEdit> = request.edits.into_iter().map(Into::into).collect();
         let outcome = blocking(move || {
+            let _guard = guard;
             let options = DictionaryOptions::from_host_document(config.read_options()?)?;
             Ok(apply_edits(
                 &options,
@@ -393,11 +404,12 @@ impl MsimeServer {
         if request.words.is_empty() || request.words.len() > words::MAX_IMPORT {
             return Err(format!("send between 1 and {} words", words::MAX_IMPORT));
         }
-        self.claim_write()?;
+        let guard = self.claim_write()?;
         let config = self.config.clone();
         let kind = request.dictionary.into();
         let new_words = request.new_words();
         let result = blocking(move || {
+            let _guard = guard;
             let options = DictionaryOptions::from_host_document(config.read_options()?)?;
             let request_id = msime_client_core::uuid::Uuid::new_v4().simple().to_string();
             let mut hosts = QuiescedHosts::new(Some(options.user_data()), || {});
@@ -455,8 +467,16 @@ impl ServerHandler for MsimeServer {
 }
 
 impl MsimeServer {
-    /// Take the next write slot, or refuse when the previous write was too recent.
-    fn claim_write(&self) -> Result<(), String> {
+    /// Take the next write slot, or refuse when another write is still running or the previous one was too recent. The guard goes into the blocking work, not the handler future: a cancelled request drops the future while the work runs on.
+    fn claim_write(&self) -> Result<WriteGuard, String> {
+        if self
+            .writing
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return Err("another change is still being applied; try again when it finishes".into());
+        }
+        let guard = WriteGuard(self.writing.clone());
         let mut last = self
             .last_write
             .lock()
@@ -466,7 +486,16 @@ impl MsimeServer {
             return Err("writes are limited to one a second; try again shortly".into());
         }
         *last = Some(now);
-        Ok(())
+        Ok(guard)
+    }
+}
+
+/// Clears the write-in-progress flag when the write it covers ends, however it ends.
+struct WriteGuard(Arc<AtomicBool>);
+
+impl Drop for WriteGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 
@@ -580,9 +609,36 @@ mod tests {
     #[test]
     fn writes_are_spaced_out() {
         let server = server(true);
-        server.claim_write().unwrap();
+        drop(server.claim_write().unwrap());
         assert!(server.claim_write().is_err());
         *server.last_write.lock().unwrap() = Some(Instant::now() - WRITE_INTERVAL);
+        server.claim_write().unwrap();
+    }
+
+    #[test]
+    fn a_running_write_holds_off_the_next() {
+        let server = server(true);
+        let guard = server.claim_write().unwrap();
+        *server.last_write.lock().unwrap() = Some(Instant::now() - WRITE_INTERVAL);
+        assert!(server.claim_write().is_err());
+        // The refusal did not take the slot.
+        drop(guard);
+        server.claim_write().unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_empty_preferences_change_does_not_take_the_slot() {
+        let server = server(true);
+        let change: PreferencesChange =
+            serde_json::from_value(serde_json::json!({ "expected_revision": 0 })).unwrap();
+        assert_eq!(
+            server
+                .update_preferences(Parameters(change))
+                .await
+                .err()
+                .as_deref(),
+            Some("no preference to change")
+        );
         server.claim_write().unwrap();
     }
 

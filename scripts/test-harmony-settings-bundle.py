@@ -20,7 +20,6 @@ import hashlib
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,24 +46,23 @@ def main() -> int:
     committed = digest(BUNDLE)
     # The build writes over the tracked file in place, so keep the bytes to put back: this check
     # reports drift, it does not silently resolve it. A developer who wanted the rebuild would have
-    # run the rebuild.
+    # run the rebuild. The restore is in `finally` so a Ctrl-C mid-build puts it back too.
     original = BUNDLE.read_bytes()
-    with tempfile.TemporaryDirectory() as scratch:
-        backup = Path(scratch) / "index.html"
-        backup.write_bytes(original)
+    try:
         try:
             result = subprocess.run(REBUILD, cwd=ROOT, capture_output=True, text=True)
         except OSError as error:
-            BUNDLE.write_bytes(original)
             print(f"skipped: could not run the bundle build ({error})")
             return 0
         if result.returncode != 0:
-            BUNDLE.write_bytes(original)
             print("the settings bundle does not build")
             print(result.stdout[-2000:])
             print(result.stderr[-2000:])
             return 1
         rebuilt = digest(BUNDLE)
+    finally:
+        # emptyOutDir clears the directory before the build writes it, so it may be gone.
+        BUNDLE.parent.mkdir(parents=True, exist_ok=True)
         BUNDLE.write_bytes(original)
 
     if rebuilt == committed:

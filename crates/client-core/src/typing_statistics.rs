@@ -10,8 +10,6 @@ use std::time::SystemTime;
 use unicode_general_category::{get_general_category, GeneralCategory};
 use unicode_segmentation::UnicodeSegmentation;
 
-const MAX_RETAINED_DAYS: usize = 366;
-
 /// Only a guard against loading a hostile or garbage file, not a retention limit. It must stay far above anything `Forever` can produce, because a document over it cannot be read at all and the whole history is lost with it; a day costs a few hundred bytes, so 64 MiB covers centuries.
 const MAX_DOCUMENT_BYTES: u64 = 64 * 1_048_576;
 const MAX_COMMIT_BYTES: usize = 40_000;
@@ -656,19 +654,10 @@ impl TypingStatisticsStore {
                 .ok_or(TypingStatisticsError::CountExhausted)?;
         }
 
-        // Keep the hard safety cap independent of the optional retention preference. A document
-        // can be written by an older host (or with `forever`) and must still never grow without
-        // bound. Prune before applying the calendar window so all four per-day maps stay aligned.
-        while value.days.len() > MAX_RETAINED_DAYS {
-            let oldest = value.days.keys().next().cloned().expect("nonempty days");
-            value.days.remove(&oldest);
-            value.daily_details.remove(&oldest);
-            value.daily_active_ms.remove(&oldest);
-            value.daily_hours.remove(&oldest);
-        }
-        // The retention setting is the only thing that deletes days beyond this safety cap,
-        // matching the baseline's RetentionCutoff/ClearThrough. It runs on the first write of
-        // each day; doing it on every write would read the whole history on every commit.
+        // The retention setting is the only thing that deletes days, matching the baseline's
+        // RetentionCutoff/ClearThrough: `Forever` keeps every one, and `MAX_DOCUMENT_BYTES` is what
+        // bounds the file. It runs on the first write of each day; doing it on every write would
+        // read the whole history on every commit.
         if value.last_pruned_day != day {
             value.apply_retention(day);
             value.last_pruned_day = day.to_owned();

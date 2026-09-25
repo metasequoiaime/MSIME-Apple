@@ -394,16 +394,26 @@ impl<E: InputEngine> Runtime<E> {
     /// Returns false when nothing changed, so a host can skip redrawing the candidate window. A
     /// window that repaints identically on every pause is a flicker the user cannot explain.
     pub fn rerank_settled(&mut self) -> bool {
-        if self.settled_reranker.is_none() || self.is_idle() {
+        // A reorder has to advance the generation (old IDs would otherwise select by the new seats),
+        // so an exhausted generation cannot reorder at all.
+        if self.settled_reranker.is_none()
+            || self.is_idle()
+            || self.generation.checked_add(1).is_none()
+        {
             return false;
         }
-        let leader = self.cached.candidates.first().cloned();
+        let before = self.cached.candidates.clone();
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
         self.rerank();
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
-        let moved = self.cached.candidates.first() != leader.as_ref();
+        // The same passes the fast path runs after its rerank, so the seats they fix stay fixed.
+        self.demote_runner_up_readings();
+        self.normalize_online_slots();
+        let moved = self.cached.candidates != before;
         if moved {
             self.snapshot_valid = true;
+            self.highlighted = 0;
+            let _ = self.advance();
         }
         moved
     }
@@ -486,12 +496,9 @@ impl<E: InputEngine> Runtime<E> {
     /// quietly showing the first tranche. Release them here too: this call is the request for all of
     /// them. A refusal is not fatal; the caller still gets whatever the generation already holds.
     pub fn all_candidates(&mut self) -> CandidateSnapshot {
-        if self.engine.expand_initial_candidates().unwrap_or(false) {
-            if let Ok(snapshot) = self.engine.snapshot() {
-                self.load_snapshot(snapshot);
-                self.rerank();
-                self.demote_runner_up_readings();
-            }
+        // The released tail reorders the list, so the page's IDs must not keep selecting by seat.
+        if self.expand_cached_candidates().unwrap_or(false) {
+            let _ = self.advance();
         }
         self.all_candidates_cached()
     }
@@ -556,8 +563,10 @@ impl<E: InputEngine> Runtime<E> {
         }
     }
 
+    /// A held phrase counts as a composition even when its reading is empty.
     pub fn is_idle(&self) -> bool {
         self.snapshot_valid
+            && self.phrase_prefix.is_empty()
             && self.cached.preedit.is_empty()
             && self.cached.editing_text.is_empty()
             && self.cached.candidates.is_empty()
@@ -1461,7 +1470,9 @@ impl<E: InputEngine> Runtime<E> {
             && self.phrase_prefix.is_empty()
         {
             result = self.engine.select(self.engine_index(0))?;
-            self.refresh()?;
+            if let Err(error) = self.refresh() {
+                result.diagnostic = format!("Candidate refresh failed: {error}");
+            }
         }
         // The Engine takes what it used off the front of the reading, so what is gone from the
         // front is what the selection consumed. A reading that did not simply shrink - a special

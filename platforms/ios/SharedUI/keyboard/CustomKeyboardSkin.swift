@@ -211,4 +211,16 @@ enum SkinPhotoData {
     }
     return nil
   }
+
+  // Synced or downloaded photos skip `thumbnail`; never decode them at full size in the extension.
+  static func image(from data: Data, maxPixelSize: Int = 1536) -> UIImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+          let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceShouldCacheImmediately: true
+          ] as CFDictionary) else { return nil }
+    return UIImage(cgImage: cg)
+  }
 }

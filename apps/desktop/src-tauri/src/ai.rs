@@ -41,11 +41,23 @@ pub(crate) fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
         })
 }
 
+/// The listing sits next to the chat endpoint, whatever its version prefix
+/// (`/v1`, `/v1beta/openai`, `/api/paas/v4`). Keep in step with
+/// `mobile_ai::models_url`.
 pub(crate) fn ai_models_url(endpoint: &Url) -> Url {
     let mut url = endpoint.clone();
-    let path = endpoint.path();
-    let base = path.find("/v1/").map(|index| &path[..index]).unwrap_or("");
-    url.set_path(&format!("{base}/v1/models"));
+    let mut path = endpoint.path().trim_end_matches('/').to_owned();
+    for suffix in ["/chat/completions", "/audio/transcriptions"] {
+        if let Some(prefix) = path.strip_suffix(suffix) {
+            path = prefix.to_owned();
+            break;
+        }
+    }
+    if !path.ends_with('/') {
+        path.push('/');
+    }
+    path.push_str("models");
+    url.set_path(&path);
     url.set_query(None);
     url
 }

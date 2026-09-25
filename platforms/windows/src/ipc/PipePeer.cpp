@@ -54,20 +54,105 @@ bool user(HANDLE process, std::vector<unsigned char> &data, DWORD &error) {
   }
   return true;
 }
+bool same_session(ULONG session, DWORD &error) {
+  DWORD own_session = 0;
+  if (!ProcessIdToSessionId(GetCurrentProcessId(), &own_session)) {
+    error = GetLastError();
+    return false;
+  }
+  if (session != own_session) {
+    error = ERROR_ACCESS_DENIED;
+    return false;
+  }
+  return true;
+}
+bool same_user(HANDLE process, DWORD &error) {
+  std::vector<unsigned char> peer_user, own_user;
+  if (!user(process, peer_user, error) ||
+      !user(GetCurrentProcess(), own_user, error))
+    return false;
+  const auto peer_sid =
+      reinterpret_cast<const TOKEN_USER *>(peer_user.data())->User.Sid;
+  const auto own_sid =
+      reinterpret_cast<const TOKEN_USER *>(own_user.data())->User.Sid;
+  if (!IsValidSid(peer_sid) || !IsValidSid(own_sid) ||
+      !EqualSid(peer_sid, own_sid)) {
+    error = ERROR_ACCESS_DENIED;
+    return false;
+  }
+  return true;
+}
+// Not an AppContainer and at least medium integrity: what the settings
+// process is, and what a sandboxed host the TIP runs inside is not.
+bool desktop_token(HANDLE process, DWORD &error) {
+  Handle token;
+  if (!OpenProcessToken(process, TOKEN_QUERY, &token.value)) {
+    error = GetLastError();
+    return false;
+  }
+  DWORD app_container = 1, size = 0;
+  if (!GetTokenInformation(token.value, TokenIsAppContainer, &app_container,
+                           sizeof(app_container), &size)) {
+    error = GetLastError();
+    return false;
+  }
+  if (app_container) {
+    error = ERROR_ACCESS_DENIED;
+    return false;
+  }
+  DWORD needed = 0;
+  GetTokenInformation(token.value, TokenIntegrityLevel, nullptr, 0, &needed);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !needed) {
+    error = ERROR_INVALID_DATA;
+    return false;
+  }
+  std::vector<unsigned char> data(needed);
+  if (!GetTokenInformation(token.value, TokenIntegrityLevel, data.data(),
+                           needed, &needed)) {
+    error = GetLastError();
+    return false;
+  }
+  PSID label = reinterpret_cast<const TOKEN_MANDATORY_LABEL *>(data.data())
+                   ->Label.Sid;
+  if (!IsValidSid(label) || *GetSidSubAuthorityCount(label) == 0) {
+    error = ERROR_INVALID_DATA;
+    return false;
+  }
+  const DWORD rid =
+      *GetSidSubAuthority(label, *GetSidSubAuthorityCount(label) - 1);
+  if (rid < SECURITY_MANDATORY_MEDIUM_RID) {
+    error = ERROR_ACCESS_DENIED;
+    return false;
+  }
+  return true;
+}
 } // namespace
+bool pipe_client_in_session(HANDLE pipe, ULONG &pid, DWORD &error) {
+  error = ERROR_SUCCESS;
+  ULONG session = 0;
+  return identity(pipe, pid, session, error) && same_session(session, error);
+}
+bool pipe_client_is_desktop_user(HANDLE pipe, DWORD &error) {
+  ULONG pid = 0;
+  if (!pipe_client_in_session(pipe, pid, error))
+    return false;
+  Handle process;
+  process.value = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (!process.value) {
+    error = GetLastError();
+    return false;
+  }
+  return same_user(process.value, error) && desktop_token(process.value, error);
+}
 std::unique_ptr<PipePeer> PipePeer::bind(HANDLE pipe, uint64_t client_id,
                                          DWORD &error) {
   error = ERROR_SUCCESS;
   ULONG pid = 0, session = 0;
   if (!identity(pipe, pid, session, error))
     return nullptr;
-  DWORD own_session = 0;
-  if (!ProcessIdToSessionId(GetCurrentProcessId(), &own_session)) {
-    error = GetLastError();
+  if (!same_session(session, error))
     return nullptr;
-  }
-  if (client_id == 0 || static_cast<DWORD>(client_id >> 32) != pid ||
-      session != own_session) {
+  if (client_id == 0 || static_cast<DWORD>(client_id >> 32) != pid) {
     error = ERROR_ACCESS_DENIED;
     return nullptr;
   }
@@ -78,19 +163,8 @@ std::unique_ptr<PipePeer> PipePeer::bind(HANDLE pipe, uint64_t client_id,
     error = GetLastError();
     return nullptr;
   }
-  std::vector<unsigned char> peer_user, own_user;
-  if (!user(process.value, peer_user, error) ||
-      !user(GetCurrentProcess(), own_user, error))
+  if (!same_user(process.value, error))
     return nullptr;
-  const auto peer_sid =
-      reinterpret_cast<const TOKEN_USER *>(peer_user.data())->User.Sid;
-  const auto own_sid =
-      reinterpret_cast<const TOKEN_USER *>(own_user.data())->User.Sid;
-  if (!IsValidSid(peer_sid) || !IsValidSid(own_sid) ||
-      !EqualSid(peer_sid, own_sid)) {
-    error = ERROR_ACCESS_DENIED;
-    return nullptr;
-  }
   // Allocate before handing off ownership, preserving cleanup on exceptions.
   auto peer = std::unique_ptr<PipePeer>(
       new PipePeer(process.value, client_id, session));

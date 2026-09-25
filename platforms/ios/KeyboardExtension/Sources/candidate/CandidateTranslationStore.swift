@@ -36,9 +36,13 @@ final class CandidateTranslationStore {
   private var cache: [String: String] = [:]
   private var signature: String?
   private var debounce: Timer?
-  init(service: any CandidateTranslationService = ProviderCandidateTranslationService(route: .none), scope: String = "none") {
+  /// The keyboard process lives long; only the page on screen needs its glosses kept.
+  private let cacheLimit: Int
+  init(service: any CandidateTranslationService = ProviderCandidateTranslationService(route: .none), scope: String = "none",
+       cacheLimit: Int = 2_000) {
     self.service = service
     self.scope = scope
+    self.cacheLimit = cacheLimit
   }
   /// Switch provider; glosses from another provider or other credentials are dropped, including replies still in flight.
   func use(_ service: any CandidateTranslationService, scope: String) {
@@ -69,6 +73,8 @@ final class CandidateTranslationStore {
   private func send(words: [String], codes: [String]) {
     debounce = nil
     let stamp = (codes + words).joined(separator: "|")
+    // Evict before `pending` so the page on screen is asked again for every code.
+    if cache.count > cacheLimit { cache.removeAll(); signature = nil }
     var pending: [String: [String]] = [:]
     for code in codes {
       let missing = words.filter { cache["\(code)|\($0)"] == nil }

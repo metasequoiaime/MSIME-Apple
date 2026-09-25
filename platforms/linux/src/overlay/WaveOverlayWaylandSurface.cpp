@@ -51,6 +51,13 @@ int create_shm_file() {
   return fd;
 }
 
+void release_pointer(wl_pointer *pointer) {
+  if (wl_pointer_get_version(pointer) >= WL_POINTER_RELEASE_SINCE_VERSION)
+    wl_pointer_release(pointer);
+  else
+    wl_pointer_destroy(pointer);
+}
+
 }  // namespace
 
 void WaveOverlayWaylandSurface::registry_global(
@@ -103,7 +110,7 @@ void WaveOverlayWaylandSurface::seat_capabilities(void *data, wl_seat *seat,
     }();
     wl_pointer_add_listener(self->pointer_, &pointer_listener, self);
   } else if (!pointer_available && self->pointer_) {
-    wl_pointer_destroy(self->pointer_);
+    release_pointer(self->pointer_);
     self->pointer_ = nullptr;
     self->pointer_inside_ = false;
     self->action_pressed_ = false;
@@ -532,6 +539,15 @@ void WaveOverlayWaylandSurface::destroy_surface() {
     wl_compositor_destroy(compositor_);
   if (shm_)
     wl_shm_destroy(shm_);
+  // After the roundtrip, which may still create pointer_; a kept seat would never rebind on reconnect.
+  if (pointer_)
+    release_pointer(pointer_);
+  if (seat_) {
+    if (wl_seat_get_version(seat_) >= WL_SEAT_RELEASE_SINCE_VERSION)
+      wl_seat_release(seat_);
+    else
+      wl_seat_destroy(seat_);
+  }
   if (display_)
     wl_display_disconnect(display_);
   display_ = nullptr;
@@ -541,6 +557,10 @@ void WaveOverlayWaylandSurface::destroy_surface() {
   layer_shell_ = nullptr;
   surface_ = nullptr;
   layer_surface_ = nullptr;
+  seat_ = nullptr;
+  pointer_ = nullptr;
+  pointer_inside_ = false;
+  action_pressed_ = false;
   buffers_.fill(nullptr);
   pixels_.fill(nullptr);
   buffer_busy_.fill(false);

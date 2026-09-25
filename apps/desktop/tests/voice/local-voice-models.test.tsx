@@ -239,6 +239,28 @@ test("a later download does not replace the model in use", async () => {
   expect(onUse).not.toHaveBeenCalled();
 });
 
+test("a model picked while the first download runs is not replaced when it finishes", async () => {
+  const fake = fakeClient([streaming, { ...sense, installed: true }]);
+  const onUse = vi.fn();
+  const props = {
+    client: fake.client,
+    mobile: false,
+    onUse,
+    onRemoved: vi.fn(),
+    confirm: vi.fn(async () => true),
+  };
+  const view = render(<LocalModelManager {...props} modelPath="" />);
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: /下载/ }));
+  // The user picks the installed model meanwhile, and the page re-renders with it.
+  view.rerender(<LocalModelManager {...props} modelPath={sense.path} />);
+  await fake.finish(streaming.path);
+
+  await waitFor(() => expect(card.getByRole("button", { name: "使用" })).toBeTruthy());
+  expect(onUse).not.toHaveBeenCalled();
+});
+
 test("cancelling a download stops it without an error", async () => {
   const fake = fakeClient([streaming]);
   const { onUse } = renderManager(fake.client);

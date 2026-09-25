@@ -170,8 +170,10 @@ public final class WebSocketFrames {
             return 4;
         }
         frame[1] = (byte) (0x80 | 127);
+        // Widen first: an int shift distance is taken mod 32.
+        long value = size;
         for (int index = 0; index < 8; index++) {
-            frame[2 + index] = (byte) (size >>> (7 - index) * 8 & 0xff);
+            frame[2 + index] = (byte) (value >>> (7 - index) * 8 & 0xff);
         }
         return 10;
     }

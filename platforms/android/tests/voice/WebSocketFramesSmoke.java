@@ -74,6 +74,10 @@ public final class WebSocketFramesSmoke {
         byte[] large = WebSocketFrames.clientFrame(WebSocketFrames.OPCODE_BINARY,
             new byte[70000], 70000, mask);
         check((large[1] & 0x7f) == 127, "beyond 65535 introduces an eight-byte length");
+        check(large[2] == 0 && large[3] == 0 && large[4] == 0 && large[5] == 0,
+            "the high half of the eight-byte length is zero");
+        check(large[6] == 0 && large[7] == 0x01 && large[8] == 0x11 && large[9] == 0x70,
+            "the low half of the eight-byte length is the size");
 
         // Server frames are never masked, and decode has to agree with encode on every length form.
         byte[] server = {(byte) 0x82, 0x03, 1, 2, 3};

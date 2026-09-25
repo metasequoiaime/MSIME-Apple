@@ -68,3 +68,25 @@ test("macOS AI entry opens the shared AI category without implicit credential re
   expect(await screen.findByRole("button", { name: "保存设置" })).toBeDefined();
   expect(probe).not.toHaveBeenCalled();
 });
+
+test("a menu entry picked while the page is open navigates without dropping the draft", async () => {
+  const client = {
+    load: async () => snapshot,
+    save: vi.fn(),
+    testApiCredential: vi.fn(),
+    host: { platform: "macos" } as never,
+  };
+  const view = render(<SettingsPage initialPage="input" client={client} />);
+  fireEvent.change(await screen.findByLabelText("NiuTrans App ID"), {
+    target: { value: "synthetic-edited" },
+  });
+
+  view.rerender(<SettingsPage initialPage="ai" route={{ page: "ai", nonce: 1 }} client={client} />);
+  expect(await screen.findByRole("heading", { name: "AI 辅助" })).toBeDefined();
+  // The same section asked for again still counts as a request.
+  view.rerender(
+    <SettingsPage initialPage="input" route={{ page: "input", nonce: 2 }} client={client} />,
+  );
+  const appId = (await screen.findByLabelText("NiuTrans App ID")) as HTMLInputElement;
+  expect(appId.value).toBe("synthetic-edited");
+});

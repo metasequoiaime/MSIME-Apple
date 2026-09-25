@@ -50,8 +50,7 @@ extension BackendAccountClient {
     parts.path = "/v1/community/resources"
     parts.queryItems = [.init(name: "kind", value: kind.rawValue), .init(name: "scope", value: scope.rawValue),
                         .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
-    parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-    guard let path = parts.string else { throw Failure(status: 400) }
+    guard let path = Self.encodedPath(parts) else { throw Failure(status: 400) }
     let page: ResourcePage = try await json("GET", path, token: token, maximumResponseBytes: 48 * 1024 * 1024)
     guard page.items.count <= 20, !page.has_more || !page.items.isEmpty,
           Set(page.items.map(\.id)).count == page.items.count,
