@@ -14,6 +14,21 @@ def main() -> int:
             "this.attributeGeneration++;" in session
             and "this.inputClient = undefined;" in session,
         "ability uses final teardown": "KeyboardSession.shared.shutdown();" in ability,
+        "reply request is cancelled with its context":
+            "private replyRequest: http.HttpRequest | undefined" in session
+            and "if (request !== undefined) request.destroy();" in session,
+        "reply request is cleared after completion":
+            "if (this.replyRequest === requestHttp) this.replyRequest = undefined;" in session,
+        "online requests are cancelled with the epoch":
+            "private readonly onlineRequests: Set<http.HttpRequest>" in session
+            and "for (const request of this.onlineRequests) request.destroy();" in session,
+        "translation requests are cancelled with the epoch":
+            "private readonly translationRequests: Set<http.HttpRequest>" in session
+            and "for (const request of this.translationRequests) request.destroy();" in session,
+        "online requests are removed after completion":
+            "this.onlineRequests.delete(request);" in session,
+        "translation requests are removed after completion":
+            "this.translationRequests.delete(request);" in session,
     }
     problems = [name for name, present in checks.items() if not present]
     if problems:
