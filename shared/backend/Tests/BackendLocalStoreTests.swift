@@ -40,4 +40,31 @@ final class BackendLocalStoreTests: XCTestCase {
     close(descriptor)
     #endif
   }
+
+  func testWriteIfAbsentAllowsOnlyOneCreator() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-create-test-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = BackendLocalStore(fileName: "anonymous-account.json", directory: directory)
+    let first = Data("synthetic-first".utf8)
+    let second = Data("synthetic-second".utf8)
+    let outcomesLock = NSLock()
+    var outcomes = [Bool]()
+    let firstDone = expectation(description: "first creator")
+    let secondDone = expectation(description: "second creator")
+    DispatchQueue.global().async {
+      let won = store.writeIfAbsent(first)
+      outcomesLock.lock(); outcomes.append(won); outcomesLock.unlock()
+      firstDone.fulfill()
+    }
+    DispatchQueue.global().async {
+      let won = store.writeIfAbsent(second)
+      outcomesLock.lock(); outcomes.append(won); outcomesLock.unlock()
+      secondDone.fulfill()
+    }
+    wait(for: [firstDone, secondDone], timeout: 2)
+    XCTAssertEqual(outcomes.filter { $0 }.count, 1)
+    let value = try Data(contentsOf: directory.appendingPathComponent("anonymous-account.json"))
+    XCTAssertTrue(value == first || value == second)
+    XCTAssertFalse(store.writeIfAbsent(Data("synthetic-third".utf8)))
+  }
 }

@@ -33,10 +33,21 @@ enum BackendAnonymousAccount {
 
   static func ensureSignedIn(session: BackendAccountSession,
                              client: BackendAccountClient) async throws -> Credentials {
-    let credentials = stored() ?? generated()
+    let credentials: Credentials
+    if let existing = stored() {
+      credentials = existing
+    } else {
+      let candidate = generated()
+      let data = try JSONEncoder().encode(candidate)
+      if BackendLocalStore.writeIfAbsent(data, to: fileName) {
+        credentials = candidate
+      } else {
+        guard let existing = stored() else { throw BackendAccountClient.Failure(status: 0) }
+        credentials = existing
+      }
+    }
     let challenge = try await client.challenge(provider: "anonymous", target: credentials.subject)
     try await session.signIn(challenge: challenge.challenge_id, credential: credentials.secret)
-    if stored() == nil { _ = BackendLocalStore.write(try JSONEncoder().encode(credentials), to: fileName) }
     return credentials
   }
 }
