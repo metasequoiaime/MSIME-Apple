@@ -427,6 +427,7 @@ export function CommunitySkinsPage({
    * had expired while giving no way to do anything about it.
    */
   const fail = (failure: unknown) => {
+    if (!mounted.current) return;
     setError(communityMessage(failure));
     setSignInRequired(needsSignIn(failure));
   };
@@ -436,6 +437,7 @@ export function CommunitySkinsPage({
   const nextOffset = useRef(0);
   const activeSearch = useRef("");
   const trialRef = useRef<CommunitySkinTrial | null>(null);
+  const mounted = useRef(true);
 
   const requestList = async (query: string, append: boolean) => {
     const generation = ++listGeneration.current;
@@ -459,8 +461,10 @@ export function CommunitySkinsPage({
   };
 
   useEffect(() => {
+    mounted.current = true;
     void requestList("", false);
     return () => {
+      mounted.current = false;
       listGeneration.current += 1;
       detailGeneration.current += 1;
       const pending = trialRef.current;
@@ -546,6 +550,7 @@ export function CommunitySkinsPage({
     setError("");
     try {
       const result = await client.download(selected.id, selected.name);
+      if (!mounted.current) return;
       setSelected((current) => (current ? { ...current, design: result.skin.design } : current));
       trialRef.current = result.trial;
       setTrial(result.trial);
@@ -553,7 +558,7 @@ export function CommunitySkinsPage({
     } catch (actionError) {
       fail(actionError);
     } finally {
-      setActionBusy(false);
+      if (mounted.current) setActionBusy(false);
     }
   };
 
@@ -564,13 +569,14 @@ export function CommunitySkinsPage({
     setError("");
     try {
       await client.finishTrial(pending.id, keep);
+      if (!mounted.current) return;
       trialRef.current = null;
       setTrial(null);
       setActionNotice(keep ? "已保留这款皮肤。" : "已恢复试用前的皮肤。");
     } catch (actionError) {
       fail(actionError);
     } finally {
-      setActionBusy(false);
+      if (mounted.current) setActionBusy(false);
     }
   };
 
@@ -580,12 +586,14 @@ export function CommunitySkinsPage({
     setError("");
     try {
       await client.rate(selected.id, stars);
-      setSelected(await client.detail(selected.id));
+      const updated = await client.detail(selected.id);
+      if (!mounted.current) return;
+      setSelected(updated);
       setActionNotice(`已评分：${stars} 星。`);
     } catch (actionError) {
       fail(actionError);
     } finally {
-      setActionBusy(false);
+      if (mounted.current) setActionBusy(false);
     }
   };
 
@@ -595,6 +603,7 @@ export function CommunitySkinsPage({
     setError("");
     try {
       await client.unpublish(selected.id);
+      if (!mounted.current) return;
       detailGeneration.current += 1;
       setSelected(null);
       setConfirmUnpublish(false);
@@ -603,11 +612,12 @@ export function CommunitySkinsPage({
     } catch (actionError) {
       fail(actionError);
     } finally {
-      setActionBusy(false);
+      if (mounted.current) setActionBusy(false);
     }
   };
 
   const publishDone = async () => {
+    if (!mounted.current) return;
     setPublishOpen(false);
     setActionNotice("已发布到社区。");
     await requestList(activeSearch.current, false);
