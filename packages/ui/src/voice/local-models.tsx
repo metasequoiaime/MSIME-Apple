@@ -179,6 +179,8 @@ export function LocalModelManager({
   const [installing, setInstalling] = useState<Record<string, boolean>>({});
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
   const mounted = useRef(true);
+  const activeClient = useRef(client);
+  activeClient.current = client;
   // A download takes minutes; what it finishes into is the page as it is then, not as it was on
   // the click that started it.
   const modelPathRef = useRef(modelPath);
@@ -189,9 +191,10 @@ export function LocalModelManager({
   const refresh = async () => {
     try {
       const next = await client.list();
-      if (mounted.current) setList(next);
+      if (mounted.current && activeClient.current === client) setList(next);
     } catch (error) {
-      if (mounted.current) setNotice(localModelErrorMessage(error) ?? "");
+      if (mounted.current && activeClient.current === client)
+        setNotice(localModelErrorMessage(error) ?? "");
     }
   };
 
@@ -202,7 +205,8 @@ export function LocalModelManager({
     let cancelled = false;
     void client
       .onProgress((event) => {
-        if (mounted.current) setProgress((current) => ({ ...current, [event.id]: event }));
+        if (mounted.current && activeClient.current === client)
+          setProgress((current) => ({ ...current, [event.id]: event }));
       })
       .then((stop) => {
         if (cancelled) stop();
@@ -225,15 +229,15 @@ export function LocalModelManager({
     }));
     try {
       const path = await client.install(model.id);
-      if (!mounted.current) return;
+      if (!mounted.current || activeClient.current !== client) return;
       setNotice(`「${model.title}」已下载。`);
       // A first model is what the user downloaded it for; a later one waits to be picked.
       if (!modelPathRef.current.trim()) onUseRef.current(path);
     } catch (error) {
-      if (mounted.current)
+      if (mounted.current && activeClient.current === client)
         setNotice(localModelErrorMessage(error) ?? `已取消下载「${model.title}」。`);
     } finally {
-      if (mounted.current) {
+      if (mounted.current && activeClient.current === client) {
         setInstalling((current) => ({ ...current, [model.id]: false }));
         setProgress((current) => {
           const next = { ...current };
@@ -259,12 +263,13 @@ export function LocalModelManager({
     setRemoving((current) => ({ ...current, [model.id]: true }));
     try {
       await client.remove(model.id);
-      if (!mounted.current) return;
+      if (!mounted.current || activeClient.current !== client) return;
       onRemoved(model);
     } catch (error) {
-      if (mounted.current) setNotice(localModelErrorMessage(error) ?? "");
+      if (mounted.current && activeClient.current === client)
+        setNotice(localModelErrorMessage(error) ?? "");
     } finally {
-      if (mounted.current) {
+      if (mounted.current && activeClient.current === client) {
         setRemoving((current) => ({ ...current, [model.id]: false }));
         await refresh();
       }
