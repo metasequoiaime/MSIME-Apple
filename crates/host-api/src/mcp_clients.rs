@@ -2,7 +2,7 @@
 //!
 //! Both settings hosts use this: the shared settings page in the desktop shell, and on Windows the WinUI settings window through `msime_client_mcp_status` and `msime_client_mcp_install`. The page shows the server entry so it can be copied into any assistant, and for Claude Desktop and Cursor writes it into their configuration file. Only `mcpServers.msime` is touched: every other key the user has is kept, a file that is not a JSON object is refused rather than replaced, and the write is atomic so a crash leaves the old file or the new one, never half of either.
 //!
-//! The entry is read-only: it names the runtime options and no flags. Letting an assistant change quick phrases, preferences or words (`--allow-write`), or read the user's words (`--allow-dictionary-read`), is a decision the user makes by adding the flag to the args themselves.
+//! The entry is read-only: it names the runtime options and no flags. Letting an assistant change quick phrases, preferences or words (`--allow-write`), read the user's words (`--allow-dictionary-read`), or read the input method's diagnostic log (`--allow-diagnostic-read`), is a decision the user makes by adding the flag to the args themselves.
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
