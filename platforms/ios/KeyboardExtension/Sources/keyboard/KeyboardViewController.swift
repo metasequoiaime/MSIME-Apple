@@ -545,6 +545,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.cancel()
     onlineCandidates.cancel()
     closeKeyboardService()
+    candidateGlossTimer?.invalidate()
+    candidateGlossTimer = nil
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = nil
     closeKeyboardPicker()
