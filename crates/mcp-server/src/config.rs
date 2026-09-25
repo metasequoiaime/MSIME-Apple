@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 /// The largest runtime-options document read. A macOS document carries the preferences, and with them a custom screen-keyboard photo of up to 1 MiB of base64.
 const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
-pub const USAGE: &str = "usage: msime-mcp [--options <runtime-options.json>] [--state-dir <directory>] [--allow-write] [--allow-dictionary-read]
+pub const USAGE: &str = "usage: msime-mcp [--options <runtime-options.json>] [--state-dir <directory>] [--allow-write] [--allow-dictionary-read] [--allow-diagnostic-read]
 
 Serves the Model Context Protocol over stdio for 水杉输入法 (MSIME).
 
@@ -18,6 +18,8 @@ Serves the Model Context Protocol over stdio for 水杉输入法 (MSIME).
   --allow-write        Offer the tools that change quick phrases and preferences. Without it the server is read-only.
   --allow-dictionary-read
                        Offer the tools that read the user's own dictionary words and look up the candidates a code offers. With --allow-write as well, also the tools that add, reweight, remove and import words.
+  --allow-diagnostic-read
+                       Offer the tool that reads the input method's diagnostic log, so an agent can look into a problem the user describes. Keys the Windows TIP traces are blanked out.
   --help, --version";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -35,6 +37,8 @@ pub struct Config {
     pub allow_write: bool,
     /// The user's own words are what they type, so reading them is a separate choice from writing quick phrases and preferences.
     pub allow_dictionary_read: bool,
+    /// The diagnostic log records what the input method did and when, which is a separate choice from reading the user's words.
+    pub allow_diagnostic_read: bool,
 }
 
 /// Parse the command line. `env` is the process environment, passed in so the lookup order can be tested.
@@ -46,6 +50,7 @@ pub fn parse(
     let mut state_dir = None;
     let mut allow_write = false;
     let mut allow_dictionary_read = false;
+    let mut allow_diagnostic_read = false;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.to_str() {
@@ -53,6 +58,7 @@ pub fn parse(
             Some("--version" | "-V") => return Ok(Command::Version),
             Some("--allow-write") => allow_write = true,
             Some("--allow-dictionary-read") => allow_dictionary_read = true,
+            Some("--allow-diagnostic-read") => allow_diagnostic_read = true,
             Some(flag @ ("--options" | "--state-dir")) => {
                 let value = args
                     .next()
@@ -86,6 +92,7 @@ pub fn parse(
         state_dir,
         allow_write,
         allow_dictionary_read,
+        allow_diagnostic_read,
     }))
 }
 
@@ -201,6 +208,7 @@ mod tests {
         assert_eq!(config.state_dir, Some(PathBuf::from("/env/state")));
         assert!(!config.allow_write);
         assert!(!config.allow_dictionary_read);
+        assert!(!config.allow_diagnostic_read);
 
         let config = serve(parse(args(&[]), env).unwrap());
         assert_eq!(config.options, PathBuf::from("/env/host.json"));
@@ -234,6 +242,12 @@ mod tests {
         assert!(write.allow_write && !write.allow_dictionary_read);
         let read = config(&["--options", "/a.json", "--allow-dictionary-read"]);
         assert!(!read.allow_write && read.allow_dictionary_read);
+        let diagnostic = config(&["--options", "/a.json", "--allow-diagnostic-read"]);
+        assert!(
+            diagnostic.allow_diagnostic_read
+                && !diagnostic.allow_write
+                && !diagnostic.allow_dictionary_read
+        );
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! stdout carries the protocol and nothing else; anything for a person goes to stderr.
 
 mod config;
+mod diagnostics;
 mod preferences;
 mod server;
 mod statistics;

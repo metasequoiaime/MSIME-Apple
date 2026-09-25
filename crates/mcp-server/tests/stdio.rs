@@ -371,3 +371,78 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
 
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn an_agent_turns_on_and_reads_the_diagnostic_log() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let (client, _child) = start(&options, &["--allow-diagnostic-read", "--allow-write"]).await;
+    assert!(tool_names(&client)
+        .await
+        .contains(&"read_diagnostic_log".to_owned()));
+
+    // Off by default: nothing to read, and the answer says how to get something.
+    let view = ok(&client, "read_diagnostic_log", json!({})).await;
+    assert_eq!(view["server_enabled"], false);
+    assert_eq!(view["lines"], json!([]));
+    assert!(view["hint"].as_str().unwrap().contains("off"));
+
+    let before = ok(&client, "get_preferences", json!({})).await;
+    assert_eq!(before["diagnostic_log_server"], false);
+    let after = ok(
+        &client,
+        "update_preferences",
+        json!({ "expected_revision": before["revision"], "diagnostic_log_server": true }),
+    )
+    .await;
+    assert_eq!(after["diagnostic_log_server"], true);
+
+    // What a host writes once the user reproduces the problem, in the place this platform's host writes it.
+    let file = if cfg!(windows) {
+        directory.path().join("logs").join("server.log")
+    } else {
+        directory.path().join("diagnostic.log")
+    };
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(
+        &file,
+        "2026-09-25 09:00:00 [p1] focus_in\n\
+         2026-09-25 10:00:00 [p1] candidate_window_slow stage=layout elapsed_ms=180\n\
+         2026-09-25 10:00:01 [p1:t2] [msime][issue47] seq=1 stage=key-down vk=0x41 wch=U+0061 key=a key_class=letter\n\
+         2026-09-25 10:00:02 [p1] focus_out\n",
+    )
+    .unwrap();
+
+    let view = ok(
+        &client,
+        "read_diagnostic_log",
+        json!({ "since": "2026-09-25 10:00", "lines": 2 }),
+    )
+    .await;
+    assert_eq!(view["server_enabled"], true);
+    assert!(view.get("hint").is_none());
+    assert_eq!(view["has_more"], true);
+    assert_eq!(
+        view["lines"],
+        json!([
+            "2026-09-25 10:00:01 [p1:t2] [msime][issue47] seq=1 stage=key-down vk=- wch=- key=- key_class=letter",
+            "2026-09-25 10:00:02 [p1] focus_out"
+        ])
+    );
+    let view = ok(
+        &client,
+        "read_diagnostic_log",
+        json!({ "contains": "SLOW" }),
+    )
+    .await;
+    assert_eq!(view["lines"].as_array().unwrap().len(), 1);
+    assert!(!refused(
+        &client,
+        "read_diagnostic_log",
+        json!({ "since": "earlier" })
+    )
+    .await
+    .is_empty());
+
+    client.cancel().await.unwrap();
+}
