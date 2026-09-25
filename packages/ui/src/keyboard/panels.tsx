@@ -1721,18 +1721,28 @@ export function VoicePanel({
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
 
   useEffect(() => {
+    let active = true;
     if (!client.loadVoiceLanguage) return;
     void client
       .loadVoiceLanguage()
       .then((next) => {
-        if (validVoiceLanguage(next)) setLanguage(next);
+        if (active && validVoiceLanguage(next)) setLanguage(next);
       })
       .catch(() => undefined);
+    return () => {
+      active = false;
+    };
   }, [client]);
 
   useEffect(() => {
+    let active = true;
     if (!client.rememberInputTarget) return;
-    void client.rememberInputTarget().catch(() => setNotice("未能记录前台输入窗口"));
+    void client.rememberInputTarget().catch(() => {
+      if (active) setNotice("未能记录前台输入窗口");
+    });
+    return () => {
+      active = false;
+    };
   }, [client]);
 
   useEffect(() => {

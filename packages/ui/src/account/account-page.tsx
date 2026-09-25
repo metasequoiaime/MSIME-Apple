@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as account from "./account-style";
 
 export type AccountUser = {
@@ -146,29 +146,38 @@ function MobileAccountProfilePage({
     "logout" | "logout-all" | "relogin" | "delete" | null
   >(null);
   const [copied, setCopied] = useState(false);
+  const mounted = useRef(true);
   const normalizedName = name.trim();
   const validName =
     Boolean(normalizedName) &&
     [...normalizedName].length <= 64 &&
     !/[\u0000-\u001f\u007f]/.test(normalizedName);
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   const perform = async (operation: () => Promise<void>) => {
-    if (busy) return;
+    if (busy || !mounted.current) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
       await operation();
     } catch (cause) {
-      if (!isAccountCancellation(cause)) setError(accountMessage(cause));
+      if (mounted.current && !isAccountCancellation(cause)) setError(accountMessage(cause));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
   const rename = () =>
     void perform(async () => {
       if (!validName) throw { code: "account_invalid" };
       const updated = await client.rename(normalizedName);
+      if (!mounted.current) return;
       onProfileUpdated(updated);
       setName(updated.user.displayName);
       setNotice("昵称已更新。");
@@ -176,16 +185,19 @@ function MobileAccountProfilePage({
   const signOut = (all: boolean) =>
     void perform(async () => {
       await client.logout(all);
+      if (!mounted.current) return;
       onSignedOut();
     });
   const clearExpired = () =>
     void perform(async () => {
       await client.clearExpired();
+      if (!mounted.current) return;
       onSignedOut();
     });
   const deleteAccount = () =>
     void perform(async () => {
       await client.deleteAccount();
+      if (!mounted.current) return;
       onSignedOut();
     });
   const confirmAction = () => {
@@ -201,8 +213,11 @@ function MobileAccountProfilePage({
     void navigator.clipboard
       .writeText(user.id)
       .then(() => {
+        if (!mounted.current) return;
         setCopied(true);
-        window.setTimeout(() => setCopied(false), 1800);
+        window.setTimeout(() => {
+          if (mounted.current) setCopied(false);
+        }, 1800);
       })
       .catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
   };
@@ -399,9 +414,11 @@ function AppIconSettingsCard({
   const [info, setInfo] = useState<AppIconInfo | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const mounted = useRef(true);
 
   useEffect(() => {
     let active = true;
+    mounted.current = true;
     setInfo(null);
     setError("");
     void client
@@ -414,6 +431,7 @@ function AppIconSettingsCard({
       });
     return () => {
       active = false;
+      mounted.current = false;
     };
   }, [client]);
 
@@ -423,6 +441,7 @@ function AppIconSettingsCard({
     setError("");
     try {
       const updated = await client.set(style);
+      if (!mounted.current) return;
       setInfo(updated);
       if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
     } catch {
@@ -430,13 +449,14 @@ function AppIconSettingsCard({
       // applying the icon. Read the OS state again before showing a failure.
       try {
         const updated = await client.info();
+        if (!mounted.current) return;
         setInfo(updated);
         if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
       } catch {
-        setError("图标未能更换，请稍后重试。");
+        if (mounted.current) setError("图标未能更换，请稍后重试。");
       }
     } finally {
-      setPending(null);
+      if (mounted.current) setPending(null);
     }
   };
 
@@ -505,19 +525,28 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState<"upload" | "apply" | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const load = async () => {
-    if (busy) return;
+    if (busy || !mounted.current) return;
     setBusy(true);
     setMessage("");
     try {
       const [nextSchema, nextCloud] = await Promise.all([client.schema(), client.load()]);
+      if (!mounted.current) return;
       setSchema(nextSchema);
       setCloud(nextCloud);
     } catch (error) {
-      if (!isAccountCancellation(error)) setMessage(accountMessage(error));
+      if (mounted.current && !isAccountCancellation(error)) setMessage(accountMessage(error));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -551,17 +580,23 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
     const operation = confirmation;
     setConfirmation(null);
     try {
-      if (operation === "upload") setCloud(await client.upload());
-      else await client.apply(userId, cloud);
+      if (operation === "upload") {
+        const next = await client.upload();
+        if (!mounted.current) return;
+        setCloud(next);
+      } else {
+        await client.apply(userId, cloud);
+        if (!mounted.current) return;
+      }
       setMessage(
         operation === "upload"
           ? "本机设置已上传。"
           : "已应用云端设置。请重新打开键盘使部分设置生效。",
       );
     } catch (error) {
-      if (!isAccountCancellation(error)) setMessage(accountMessage(error));
+      if (mounted.current && !isAccountCancellation(error)) setMessage(accountMessage(error));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -748,6 +783,14 @@ function AccountDetailsPage({
   const [editingProfile, setEditingProfile] = useState(false);
   const [mobileProfilePage, setMobileProfilePage] = useState(false);
   const [copiedAccountId, setCopiedAccountId] = useState(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!mobile || typeof window === "undefined") return;
@@ -769,7 +812,7 @@ function AccountDetailsPage({
 
   const loadProfile = async () => {
     const value = await client.profile();
-    applyProfile(value);
+    if (mounted.current) applyProfile(value);
   };
 
   useEffect(() => {
@@ -809,16 +852,17 @@ function AccountDetailsPage({
   }, [challenge]);
 
   const perform = async (operation: () => Promise<void>) => {
-    if (busy) return;
+    if (busy || !mounted.current) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
       await operation();
     } catch (operationError) {
-      if (!isAccountCancellation(operationError)) setError(accountMessage(operationError));
+      if (mounted.current && !isAccountCancellation(operationError))
+        setError(accountMessage(operationError));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -837,6 +881,7 @@ function AccountDetailsPage({
       const normalized = target.trim();
       if (!normalized) throw { code: "account_invalid" };
       const value = await client.requestCode(channel, normalized);
+      if (!mounted.current) return;
       const timestamp = Date.now();
       setNow(timestamp);
       setChallenge(value);
@@ -851,12 +896,14 @@ function AccountDetailsPage({
       if (!challenge || code.length !== 6 || !/^\d{6}$/.test(code) || expiresAt <= Date.now())
         throw { code: "account_invalid" };
       const result = await client.login(challenge.challengeId, code);
+      if (!mounted.current) return;
       if (!result.user) throw { code: "account_unavailable" };
       setUser(result.user);
       setChannel(null);
       setChallenge(null);
       setCode("");
       await loadProfile();
+      if (!mounted.current) return;
       setNotice("登录成功。");
       onLoginComplete?.();
     });
@@ -864,6 +911,7 @@ function AccountDetailsPage({
   const signOut = (all: boolean) =>
     void perform(async () => {
       await client.logout(all);
+      if (!mounted.current) return;
       setUser(null);
       setProfile(null);
       setName("");
@@ -874,6 +922,7 @@ function AccountDetailsPage({
   const deleteAccount = () =>
     void perform(async () => {
       await client.deleteAccount();
+      if (!mounted.current) return;
       setUser(null);
       setProfile(null);
       setName("");
@@ -884,6 +933,7 @@ function AccountDetailsPage({
   const clearExpired = () =>
     void perform(async () => {
       await client.clearExpired();
+      if (!mounted.current) return;
       setUser(null);
       setProfile(null);
       setName("");
@@ -895,7 +945,9 @@ function AccountDetailsPage({
       const normalized = name.trim();
       if (!normalized || [...normalized].length > 64 || /[\u0000-\u001f\u007f]/.test(normalized))
         throw { code: "account_invalid" };
-      applyProfile(await client.rename(normalized));
+      const updated = await client.rename(normalized);
+      if (!mounted.current) return;
+      applyProfile(updated);
       setNotice("昵称已更新。");
     });
 
@@ -904,10 +956,15 @@ function AccountDetailsPage({
     void navigator.clipboard
       .writeText(user.id)
       .then(() => {
+        if (!mounted.current) return;
         setCopiedAccountId(true);
-        window.setTimeout(() => setCopiedAccountId(false), 1800);
+        window.setTimeout(() => {
+          if (mounted.current) setCopiedAccountId(false);
+        }, 1800);
       })
-      .catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
+      .catch(() => {
+        if (mounted.current) setError("账号 ID 暂时无法复制，请稍后重试。");
+      });
   };
 
   const openPublishedSkins = onOpenCommunity

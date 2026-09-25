@@ -2112,6 +2112,14 @@ function PersonalDictionaryImportCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const chooseFile = async (file: File | undefined) => {
     if (!file) return;
@@ -2122,11 +2130,14 @@ function PersonalDictionaryImportCard({
     setBusy(true);
     try {
       // The Apple-compatible personal dictionary file is at most 1 MiB.
-      setEntries(parsePersonalDictionaryImport(await readDictionaryFile(file, 1_048_576)));
+      const parsed = parsePersonalDictionaryImport(await readDictionaryFile(file, 1_048_576));
+      if (!mounted.current) return;
+      setEntries(parsed);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。");
+      if (mounted.current)
+        setError(cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。");
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -2138,15 +2149,17 @@ function PersonalDictionaryImportCard({
     try {
       const text = JSON.stringify({ format: "msime-personal-dictionary", version: 1, entries });
       const result = await dictionary.importPersonal(text, `ui-personal-import-${Date.now()}`);
+      if (!mounted.current) return;
       setNotice(
         `已加入本机同步队列，共 ${entries.length} 条；当前等待同步 ${result.pending_count} 条。`,
       );
       setEntries(null);
       setFileName("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "导入失败，请稍后重试。");
+      if (mounted.current)
+        setError(cause instanceof Error ? cause.message : "导入失败，请稍后重试。");
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -2609,6 +2622,14 @@ export function SettingsPage({
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const phraseRequestGeneration = useRef(0);
   const phraseListRef = useRef<HTMLUListElement>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      phraseRequestGeneration.current += 1;
+    };
+  }, []);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<
     Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>
@@ -3269,7 +3290,7 @@ export function SettingsPage({
   // One page per request: a real dictionary is far too large to pull into the
   // page before showing anything.
   async function loadPhrases(kind: LocalDictionaryKind = dictionaryKind, offset = 0) {
-    if (!client.dictionary) return;
+    if (!client.dictionary || !mounted.current) return;
     const generation = ++phraseRequestGeneration.current;
     setPhraseBusy(true);
     setPhraseError("");
@@ -3282,7 +3303,7 @@ export function SettingsPage({
       // line counted the filtered rows against the unfiltered page.
       const query = phraseSearch.trim();
       const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, query);
-      if (generation !== phraseRequestGeneration.current) return;
+      if (!mounted.current || generation !== phraseRequestGeneration.current) return;
       // Older hosts and the mobile personal dictionary ignore the extra arguments, so keep filtering defensively - with the host's own rule, so nothing it matched is dropped here.
       const entries = page.entries.filter(
         (entry) => entry.kind === kind && dictionaryKeyMatches(kind, entry.key, query),
@@ -3297,11 +3318,11 @@ export function SettingsPage({
         status: dictionaryPageStatus(offset, entries.length, page.has_more),
       });
     } catch {
-      if (generation !== phraseRequestGeneration.current) return;
+      if (!mounted.current || generation !== phraseRequestGeneration.current) return;
       setPhraseError("无法读取词库。");
       setPhrasePage((current) => ({ ...current, status: "查询失败，请重试" }));
     } finally {
-      if (generation === phraseRequestGeneration.current) setPhraseBusy(false);
+      if (mounted.current && generation === phraseRequestGeneration.current) setPhraseBusy(false);
     }
   }
   function turnPhrasePage(offset: number) {
@@ -3311,7 +3332,7 @@ export function SettingsPage({
     void loadPhrases(dictionaryKind, offset);
   }
   async function removePhrase(entry: DictionaryEntry) {
-    if (!client.dictionary) return;
+    if (!client.dictionary || !mounted.current) return;
     // Deletion is not undoable and the row is one click away from 编辑.
     const confirmed = await confirm({
       title: "删除词条",
@@ -3319,7 +3340,7 @@ export function SettingsPage({
       confirmLabel: "删除",
       danger: true,
     });
-    if (!confirmed || !client.dictionary) return;
+    if (!confirmed || !client.dictionary || !mounted.current) return;
     setPhraseBusy(true);
     setPhraseError("");
     setPhraseNotice("");
@@ -3334,18 +3355,19 @@ export function SettingsPage({
           : phrasePage.offset;
       await loadPhrases(dictionaryKind, offset);
     } catch (error) {
-      setPhraseError(
-        dictionaryErrorMessage(
-          error,
-          `${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`,
-        ),
-      );
+      if (mounted.current)
+        setPhraseError(
+          dictionaryErrorMessage(
+            error,
+            `${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`,
+          ),
+        );
     } finally {
-      setPhraseBusy(false);
+      if (mounted.current) setPhraseBusy(false);
     }
   }
   async function savePhrase() {
-    if (!client.dictionary || !phraseForm) return;
+    if (!client.dictionary || !phraseForm || !mounted.current) return;
     const bundled = phraseForm.previous?.source === "bundled" ? phraseForm.previous : null;
     // A bundled row keeps its code and word; only the weight is the user's to change.
     const replacement: DictionaryEntry = bundled
@@ -3369,24 +3391,26 @@ export function SettingsPage({
         replacement,
         requestId(phraseForm.previous ? "ui-edit" : "ui-add"),
       );
+      if (!mounted.current) return;
       setPhraseForm(null);
       // An edit keeps the reader where they were; only a new entry returns to
       // the first page, where the shared runtime lists it.
       await loadPhrases(dictionaryKind, phraseForm.previous ? phrasePage.offset : 0);
     } catch (error) {
-      setPhraseError(
-        dictionaryErrorMessage(
-          error,
-          `${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`,
-          dictionaryKind,
-        ),
-      );
+      if (mounted.current)
+        setPhraseError(
+          dictionaryErrorMessage(
+            error,
+            `${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`,
+            dictionaryKind,
+          ),
+        );
     } finally {
-      setPhraseBusy(false);
+      if (mounted.current) setPhraseBusy(false);
     }
   }
   async function importPhrases(file: File) {
-    if (!client.dictionary) return;
+    if (!client.dictionary || !mounted.current) return;
     setPhraseBusy(true);
     setPhraseError("");
     setPhraseNotice("");
@@ -3420,39 +3444,41 @@ export function SettingsPage({
         }
       }
       await loadPhrases(dictionaryKind);
+      if (!mounted.current) return;
       // The host reports what it skipped; saying nothing reads as a clean import.
       if (imported)
         setPhraseNotice(describeImportResult(dictionaryKindLabel(dictionaryKind), imported));
     } catch (error) {
-      setPhraseError(importFailureMessage(dictionaryKindLabel(dictionaryKind), error));
+      if (mounted.current)
+        setPhraseError(importFailureMessage(dictionaryKindLabel(dictionaryKind), error));
     } finally {
-      setPhraseBusy(false);
+      if (mounted.current) setPhraseBusy(false);
     }
   }
   async function retryDictionaryFailure(requestId: string) {
-    if (!client.dictionary?.retry) return;
+    if (!client.dictionary?.retry || !mounted.current) return;
     setPhraseBusy(true);
     setPhraseError("");
     try {
       await client.dictionary.retry(requestId);
       await loadPhrases(dictionaryKind, phrasePage.offset);
     } catch {
-      setPhraseError("词条重试失败，请稍后重试。");
+      if (mounted.current) setPhraseError("词条重试失败，请稍后重试。");
     } finally {
-      setPhraseBusy(false);
+      if (mounted.current) setPhraseBusy(false);
     }
   }
   async function dismissDictionaryFailure(requestId: string) {
-    if (!client.dictionary?.dismissFailure) return;
+    if (!client.dictionary?.dismissFailure || !mounted.current) return;
     setPhraseBusy(true);
     setPhraseError("");
     try {
       await client.dictionary.dismissFailure(requestId);
       await loadPhrases(dictionaryKind, phrasePage.offset);
     } catch {
-      setPhraseError("移除失败记录失败，请稍后重试。");
+      if (mounted.current) setPhraseError("移除失败记录失败，请稍后重试。");
     } finally {
-      setPhraseBusy(false);
+      if (mounted.current) setPhraseBusy(false);
     }
   }
   /**
