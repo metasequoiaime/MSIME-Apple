@@ -208,12 +208,25 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// A manually requested sentence translation is deliberately separate from
+/// the live candidate gloss path.  Hosts use it only after an explicit user
+/// action, so a long composition never causes a network request on every
+/// keystroke.
+const fn default_sentence_translation() -> bool {
+    false
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct TranslationQuery {
     pub generation: u64,
     #[serde(default = "default_translation_target_language")]
     pub target_language: String,
     pub candidates: Vec<String>,
+    #[serde(
+        default = "default_sentence_translation",
+        skip_serializing_if = "is_false"
+    )]
+    pub sentence: bool,
     /// Absent only in documents from a host that predates the field; the provider then keeps its legacy choice (NiuTrans, then custom, then Tencent) so mixed versions behave as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<TranslationService>,

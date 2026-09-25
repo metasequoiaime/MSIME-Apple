@@ -37,7 +37,7 @@ def running(pid):
 
 
 def hosts(parent=None):
-    """Live msime-client-ibus processes, optionally only the children of one supervisor."""
+    """Live msime-linux-ibus processes, optionally only the children of one supervisor."""
     found = []
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
@@ -50,7 +50,7 @@ def hosts(parent=None):
                 arguments = cmdline.read().decode(errors="replace").split("\0")
         except OSError:
             continue
-        if os.path.basename(arguments[0]) == "msime-client-ibus":
+        if os.path.basename(arguments[0]) == "msime-linux-ibus":
             found.append((int(entry), arguments[1:]))
     return found
 

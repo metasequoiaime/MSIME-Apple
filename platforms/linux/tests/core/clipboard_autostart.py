@@ -83,25 +83,25 @@ def uninstalled() -> None:
     with tempfile.TemporaryDirectory() as name:
         temp = Path(name)
         stage = temp / "stage"
-        manifest = ["/usr/bin/msime-client-ibus", f"/etc/xdg/autostart/{NAME}"]
+        manifest = ["/usr/bin/msime-linux-ibus", f"/etc/xdg/autostart/{NAME}"]
         result = uninstall("/etc/xdg/autostart", "/usr", manifest, stage, temp)
         assert result.returncode == 0, result.stderr
         assert not any(Path(str(stage) + path).exists() for path in manifest), list(stage.rglob("*"))
         # Only that directory is accepted outside the prefix; anything else under /etc still aborts before removing.
-        manifest = ["/usr/bin/msime-client-ibus", "/etc/other/file"]
+        manifest = ["/usr/bin/msime-linux-ibus", "/etc/other/file"]
         result = uninstall("/etc/xdg/autostart", "/usr", manifest, stage, temp)
         assert result.returncode != 0 and "outside the uninstall prefix" in result.stderr, result.stderr
-        assert Path(str(stage) + "/usr/bin/msime-client-ibus").exists()
+        assert Path(str(stage) + "/usr/bin/msime-linux-ibus").exists()
     # Any other prefix: the entry moved with the prefix, including one overridden at uninstall time as after `cmake --install --prefix`.
     with tempfile.TemporaryDirectory() as name:
         temp = Path(name)
         stage = temp / "stage"
-        manifest = ["/opt/msime/bin/msime-client-ibus", f"/opt/msime/etc/xdg/autostart/{NAME}"]
+        manifest = ["/opt/msime/bin/msime-linux-ibus", f"/opt/msime/etc/xdg/autostart/{NAME}"]
         result = uninstall("etc/xdg/autostart", "/opt/msime", manifest, stage, temp)
         assert result.returncode == 0, result.stderr
         assert not any(Path(str(stage) + path).exists() for path in manifest), list(stage.rglob("*"))
         # A relative directory adds no root: /etc stays outside.
-        manifest = ["/opt/msime/bin/msime-client-ibus", f"/etc/xdg/autostart/{NAME}"]
+        manifest = ["/opt/msime/bin/msime-linux-ibus", f"/etc/xdg/autostart/{NAME}"]
         result = uninstall("etc/xdg/autostart", "/opt/msime", manifest, stage, temp)
         assert result.returncode != 0 and "outside the uninstall prefix" in result.stderr, result.stderr
 

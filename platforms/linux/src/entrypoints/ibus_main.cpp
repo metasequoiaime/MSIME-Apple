@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
   // --recovered is passed only by the launcher's crash supervisor when it restarts this process.
   const bool recovered = argc == 3 && g_strcmp0(argv[1], "--recovered") == 0;
   if ((argc != 2 && !recovered) || argv[argc - 1][0] != '/') {
-    std::cerr << "usage: msime-client-ibus [--recovered] /absolute/runtime-options.json\n";
+    std::cerr << "usage: msime-linux-ibus [--recovered] /absolute/runtime-options.json\n";
     return 2;
   }
   const char *options_path = argv[argc - 1];

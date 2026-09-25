@@ -1786,9 +1786,11 @@ public:
       result.push_back({{"text", text}, {"translation", translation}});
     return result;
   }
-  void startTranslation(const Json &query, bool offline, Json local = Json::array()) {
+  void startTranslation(const Json &query, bool offline, Json local = Json::array(),
+                        bool manual_sentence = false) {
     const auto encoded = query.dump();
     translation_query_ = encoded;
+    translation_manual_sentence_ = manual_sentence;
     translation_session_ = session_;
     auto candidates = Json::array();
     for (const auto &candidate : view_.at("candidates"))
@@ -1799,7 +1801,7 @@ public:
                              {"candidates", candidates}};
     if (dictionary) glossRequest["target_language"] = query.at("target_language");
     const auto gloss = glossRequest.dump();
-    const auto socket = preferences_.value("candidate_translations", false)
+    const auto socket = (manual_sentence || preferences_.value("candidate_translations", false))
                             ? translation_socket_ : std::string{};
     translation_job_ = detachedJob(
         [query, encoded, gloss, offline, local, socket, dictionary, resources = resources_] () mutable {
@@ -1852,6 +1854,28 @@ public:
                       {"_socket", socket}};
         });
   }
+  void translateSentence() {
+    constexpr size_t kMaxSentenceChars = 512;
+    if (!session_ || !ic_.hasFocus() || restricted() || privateInput() ||
+        translation_socket_.empty() || translation_job_.valid())
+      return;
+    try {
+      auto query = response(msime_client_translation_query(session_));
+      const auto candidates = view_.value("candidates", Json::array());
+      if (!query.is_object() || !candidates.is_array() || candidates.empty()) return;
+      const Json *selected = &candidates.front();
+      for (const auto &candidate : candidates)
+        if (candidate.value("highlighted", false)) { selected = &candidate; break; }
+      const auto text = selected->value("text", std::string{});
+      if (text.empty() || msime::linux_host::utf8_scalar_count(text) > kMaxSentenceChars)
+        return;
+      query["sentence"] = true;
+      query["target_language"] = preferences_.value("translation_target_language", std::string("en"));
+      query["candidates"] = Json::array({text});
+      translation_pending_.clear();
+      startTranslation(query, false, Json::array(), true);
+    } catch (...) {}
+  }
   void refreshTranslations() {
     try {
       const bool allowed = session_ && ic_.hasFocus() && !restricted() && !privateInput();
@@ -1861,8 +1885,17 @@ public:
         if (translation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = translation_job_.get();
         translation_job_ = {};
+        bool manual_query_matches = false;
+        if (translation_manual_sentence_ && result.is_object()) {
+          try {
+            manual_query_matches = Json::parse(result.value("query", "{}"))
+                                       .value("generation", uint64_t{0}) ==
+                                   query.value("generation", uint64_t{0});
+          } catch (...) {}
+        }
         if (allowed && session_ == translation_session_ && query.is_object() &&
-            result.is_object() && result.value("query", "") == encodedQuery &&
+            result.is_object() &&
+            (result.value("query", "") == encodedQuery || manual_query_matches) &&
             result.value("_socket", std::string{}) == translation_socket_) {
           const auto encoded = result.value("translations", Json::array()).dump();
           view_ = response(msime_client_apply_translations(
@@ -1873,6 +1906,9 @@ public:
             startTranslation(query, false, result.at("translations"));
             return;
           }
+          if (translation_manual_sentence_)
+            translation_query_ = encodedQuery;
+          translation_manual_sentence_ = false;
         }
       }
       if (!query.is_object()) { translation_pending_.clear(); return; }
@@ -3002,6 +3038,7 @@ public:
   std::chrono::steady_clock::time_point online_due_{};
   std::chrono::steady_clock::time_point ai_due_{};
   std::string translation_query_, translation_pending_, translation_socket_;
+  bool translation_manual_sentence_ = false;
   std::chrono::steady_clock::time_point translation_due_{};
   uint64_t translation_session_ = 0;
   std::shared_future<Json> translation_job_;
@@ -4074,6 +4111,25 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxSentenceTranslationAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxSentenceTranslationAction(fcitx::FactoryFor<FcitxState> *factory)
+      : factory_(factory) {
+    setLongText("手动翻译当前首选候选句子");
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "翻译当前句子"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->session_ && !state->restricted() && !state->privateInput())
+        state->translateSentence();
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxPunctuationLockAction : public fcitx::SimpleAction {
 public:
   explicit FcitxPunctuationLockAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -4887,6 +4943,7 @@ public:
     frequency_step_action_.registerAction("msime-frequency-step", &instance->userInterfaceManager());
     mode_scope_action_.registerAction("msime-mode-scope", &instance->userInterfaceManager());
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
+    sentence_translation_action_.registerAction("msime-translate-sentence", &instance->userInterfaceManager());
     punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
     translation_language_action_.registerAction("msime-translation-language", &instance->userInterfaceManager());
     cloud_candidates_action_.registerAction("msime-cloud-candidates", &instance->userInterfaceManager());
@@ -5120,6 +5177,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_step_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mode_scope_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &sentence_translation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &translation_language_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_candidates_action_);
@@ -5188,6 +5246,7 @@ public:
     event.inputContext()->statusArea().removeAction(&frequency_step_action_);
     event.inputContext()->statusArea().removeAction(&mode_scope_action_);
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
+    event.inputContext()->statusArea().removeAction(&sentence_translation_action_);
     event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
     event.inputContext()->statusArea().removeAction(&translation_language_action_);
     event.inputContext()->statusArea().removeAction(&cloud_candidates_action_);
@@ -5344,6 +5403,7 @@ public:
   FcitxFrequencyNumberAction frequency_step_action_{&factory_, "linear_step", "线性调整步长"};
   FcitxModeScopeAction mode_scope_action_{&factory_};
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
+  FcitxSentenceTranslationAction sentence_translation_action_{&factory_};
   FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
   FcitxTranslationLanguageAction translation_language_action_{&factory_};
   FcitxCloudCandidatesAction cloud_candidates_action_{&factory_};

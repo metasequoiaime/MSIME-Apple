@@ -122,7 +122,7 @@ Java 侧按 `java/app/msime/client/<feature>/` 分层（core、home、keyboard�
 
 ### Linux
 
-IBus 与 Fcitx5 是**并列的两个系统入口**，不是宿主和它的插件——`CMakeLists.txt` 里的注释和 README 都写明了这一点，两者链的是同一个 `msime-host-api` ABI。IBus 侧是 `msime-client-ibus` 可执行文件，由 `data/msime-client.xml` 注册成 IBus component，`<exec>` 指向随装的 `msime-client-ibus-launcher`；Fcitx5 侧是独立子工程编出的 `msime-fcitx5` MODULE，显式 `unset(CMAKE_CXX_STANDARD)` 以免继承上级钉死的 C++17（Fcitx5 5.1 的公开头用了 `std::span`）。装了 Fcitx5 开发包或开了打包就默认构建它，没装则打印获取方式而不是静默丢掉这一半。
+IBus 与 Fcitx5 是**并列的两个系统入口**，不是宿主和它的插件——`CMakeLists.txt` 里的注释和 README 都写明了这一点，两者链的是同一个 `msime-host-api` ABI。IBus 侧是 `msime-linux-ibus` 可执行文件，由 `data/msime-client.xml` 注册成 IBus component，`<exec>` 指向随装的 `msime-linux-ibus-launcher`；Fcitx5 侧是独立子工程编出的 `msime-fcitx5` MODULE，显式 `unset(CMAKE_CXX_STANDARD)` 以免继承上级钉死的 C++17（Fcitx5 5.1 的公开头用了 `std::span`）。装了 Fcitx5 开发包或开了打包就默认构建它，没装则打印获取方式而不是静默丢掉这一半。
 
 在线候选、语音、剪贴板、手写、emoji、词典、翻译各有独立的可执行入口，其中在线候选、语音和剪贴板另配 systemd 用户单元；前两者是 socket 激活的，`ListenStream` 落在 `%t/msime-client/` 下、`SocketMode=0600`。浮层在 `src/overlay/`，提供模式徽章和语音波形，X11 与 Wayland layer-shell 两套后端（Wayland 协议代码由 `wayland-scanner` 从 `data/wayland/` 的 layer-shell 描述加系统 `xdg-shell.xml` 生成），缺依赖时退回面板文字。诊断日志写偏好目录下的 `diagnostic.log`，1 MiB 轮转一份，只用户可读。
 

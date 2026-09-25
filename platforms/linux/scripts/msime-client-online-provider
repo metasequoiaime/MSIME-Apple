@@ -617,7 +617,10 @@ def tencent_translation(config, texts, source, target, timeout):
 def translations(query, server):
     texts = query.get("candidates")
     target = query.get("target_language", "en")
-    if (not isinstance(texts, list) or len(texts) > 9 or
+    sentence = query.get("sentence", False)
+    max_text_chars = 512 if sentence else 40
+    if (not isinstance(sentence, bool) or not isinstance(texts, list) or
+        len(texts) > (1 if sentence else 9) or
         any(not isinstance(text, str) or len(text.encode()) > 4096 for text in texts) or
         target not in ("en", "fr", "ja", "es", "ru", "de", "ko")):
         return []
@@ -680,7 +683,8 @@ def translations(query, server):
     found = {}
     groups = {}
     for text in dict.fromkeys(texts):
-        direction = translation_direction(text, target) if 0 < len(text) <= 40 else None
+        direction = (translation_direction(text, target)
+                     if 0 < len(text) and len(text) <= max_text_chars else None)
         if direction is None:
             continue
         key = (provider, direction, text)

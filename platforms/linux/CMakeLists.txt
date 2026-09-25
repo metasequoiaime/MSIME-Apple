@@ -140,13 +140,13 @@ if(NOT MSIME_LINUX_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
   message(FATAL_ERROR "The Linux package version must be MAJOR.MINOR.PATCH: ${MSIME_LINUX_VERSION}")
 endif()
 find_package(Threads REQUIRED)
-add_executable(msime-client-ibus src/entrypoints/ibus_main.cpp src/system/SystemTheme.cpp)
-target_sources(msime-client-ibus PRIVATE ../common/Telemetry.cpp)
-target_include_directories(msime-client-ibus PRIVATE ../common)
-target_compile_definitions(msime-client-ibus PRIVATE MSIME_LINUX_VERSION="${MSIME_LINUX_VERSION}")
-target_link_libraries(msime-client-ibus PRIVATE CURL::libcurl Threads::Threads)
-target_compile_options(msime-client-ibus PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-ibus PRIVATE msime-ibus-host)
+add_executable(msime-linux-ibus src/entrypoints/ibus_main.cpp src/system/SystemTheme.cpp)
+target_sources(msime-linux-ibus PRIVATE ../common/Telemetry.cpp)
+target_include_directories(msime-linux-ibus PRIVATE ../common)
+target_compile_definitions(msime-linux-ibus PRIVATE MSIME_LINUX_VERSION="${MSIME_LINUX_VERSION}")
+target_link_libraries(msime-linux-ibus PRIVATE CURL::libcurl Threads::Threads)
+target_compile_options(msime-linux-ibus PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-ibus PRIVATE msime-ibus-host)
 add_executable(msime-client-dictionary src/providers/dictionary_request.cpp)
 add_executable(msime-client-prepare src/entrypoints/prepare_host_main.cpp)
 target_compile_options(msime-client-prepare PRIVATE -Wall -Wextra -Werror)
@@ -349,7 +349,7 @@ target_compile_options(linux-ibus-registration-bus PRIVATE -Wall -Wextra -Werror
 target_link_libraries(linux-ibus-registration-bus PRIVATE PkgConfig::IBUS)
 add_test(NAME linux-ibus-startup-telemetry
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/ibus_startup_telemetry.py"
-                 $<TARGET_FILE:msime-client-ibus> $<TARGET_FILE:linux-ibus-registration-bus> "${MSIME_LINUX_VERSION}")
+                 $<TARGET_FILE:msime-linux-ibus> $<TARGET_FILE:linux-ibus-registration-bus> "${MSIME_LINUX_VERSION}")
 set_tests_properties(linux-ibus-startup-telemetry PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 add_test(NAME linux-voice-provider-degraded-start
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/provider_degraded_start.py")
@@ -397,13 +397,13 @@ if(MSIME_LINUX_VOICE)
  add_test(NAME linux-voice-worker COMMAND msime-voice-worker-test)
 endif()
 configure_file(data/msime-client.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client.xml @ONLY)
-install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-clipboard
+install(TARGETS msime-linux-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-clipboard
                 msime-client-handwriting msime-client-voice msime-client-emoji msime-client-clipboard-capture msime-client-prepare
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(MSIME_LINUX_VOICE)
  install(TARGETS msime-voice-worker-test RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
-install(PROGRAMS scripts/msime-client-ibus-launcher scripts/msime-client-first-run-guide scripts/msime-client-online-provider scripts/msime-client-voice-provider scripts/msime-client-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(PROGRAMS scripts/msime-linux-ibus-launcher scripts/msime-client-first-run-guide scripts/msime-client-online-provider scripts/msime-client-voice-provider scripts/msime-client-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS scripts/msime-client-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # 安装后的首次配置入口。词库与状态目录此前没有任何产品侧的路径：词库要么在配置阶段随包
 # 装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而
@@ -603,7 +603,7 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client.xml DESTINATION "${CMAKE_
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
-set_target_properties(msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-handwriting
+set_target_properties(msime-linux-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-handwriting
                       msime-client-voice msime-client-emoji msime-client-clipboard-capture msime-client-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
 
