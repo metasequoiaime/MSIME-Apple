@@ -52,6 +52,8 @@ public final class HttpAsrRecognizer {
 
     private final AtomicBoolean stopped = new AtomicBoolean();
     private final AtomicBoolean cancelled = new AtomicBoolean();
+    /** The in-flight upload, if recording has already finished. Cancel must unblock its read. */
+    private volatile HttpURLConnection connection;
 
     /** Stop recording and transcribe what has been captured so far. */
     public void stop() {
@@ -62,6 +64,8 @@ public final class HttpAsrRecognizer {
     public void cancel() {
         cancelled.set(true);
         stopped.set(true);
+        HttpURLConnection active = connection;
+        if (active != null) active.disconnect();
     }
 
     /**
@@ -133,31 +137,37 @@ public final class HttpAsrRecognizer {
 
     private String upload(String endpoint, String token, String boundary, byte[] body)
             throws Refused {
-        HttpURLConnection connection = null;
+        HttpURLConnection opened = null;
         try {
-            connection = (HttpURLConnection) new URL(endpoint).openConnection();
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
-            connection.setRequestMethod("POST");
-            connection.setDoOutput(true);
-            connection.setFixedLengthStreamingMode(body.length);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-            connection.setRequestProperty("Content-Type",
+            opened = (HttpURLConnection) new URL(endpoint).openConnection();
+            connection = opened;
+            if (cancelled.get()) throw new Refused(Failure.CANCELLED);
+            opened.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
+            opened.setReadTimeout(READ_TIMEOUT_MILLIS);
+            opened.setRequestMethod("POST");
+            opened.setDoOutput(true);
+            opened.setFixedLengthStreamingMode(body.length);
+            opened.setRequestProperty("Authorization", "Bearer " + token);
+            opened.setRequestProperty("Content-Type",
                 "multipart/form-data; boundary=" + boundary);
-            connection.setRequestProperty("Accept", "application/json");
-            try (OutputStream out = connection.getOutputStream()) {
+            opened.setRequestProperty("Accept", "application/json");
+            try (OutputStream out = opened.getOutputStream()) {
                 out.write(body);
             }
             if (cancelled.get()) throw new Refused(Failure.CANCELLED);
-            int status = connection.getResponseCode();
+            int status = opened.getResponseCode();
             if (status < 200 || status >= 300) throw new Refused(Failure.NETWORK);
-            String text = text(read(connection.getInputStream()));
+            String text;
+            try (InputStream input = opened.getInputStream()) {
+                text = text(read(input));
+            }
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
             return text;
         } catch (IOException error) {
             throw new Refused(Failure.NETWORK);
         } finally {
-            if (connection != null) connection.disconnect();
+            if (connection == opened) connection = null;
+            if (opened != null) opened.disconnect();
         }
     }
 
