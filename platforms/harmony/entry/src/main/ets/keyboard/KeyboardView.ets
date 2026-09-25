@@ -554,10 +554,23 @@ struct KeyboardView {
     this.cancelHoverTip();
     this.cancelBackspace();
     this.cancelHandwritingTimer();
+    if (this.diagnosticTimer !== -1) {
+      clearTimeout(this.diagnosticTimer);
+      this.diagnosticTimer = -1;
+    }
+    this.cursorDrag.cancel();
     this.handwritingRecognition.changed();
     this.voiceRecognizer.shutdown();
     KeyboardSession.shared.voiceCancel();
     this.voiceGeneration = 0;
+    // Replies and polish belong to the surface's current editor context. A view can disappear
+    // while either request is awaiting the network; invalidate both generations so a late answer
+    // cannot reappear when the same view is shown for a different field.
+    this.replyGeneration += 1;
+    this.replyBusy = false;
+    this.replyResults = [];
+    this.polishGeneration += 1;
+    this.polishBusy = false;
     this.voiceBusy = false;
     this.voiceFinishing = false;
     KeyboardSession.shared.setVoiceRecording(false, true);
