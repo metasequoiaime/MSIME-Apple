@@ -2481,7 +2481,16 @@ static void TestStaleClientDeactivation() {
 }
 @end
 
+// Lays out every window whose layout is still owed, before a bounded wait starts its clock. A test that builds a settings window and never turns the run loop leaves that window's constraint and layout pass pending, and AppKit settles it from a run-loop observer on the next turn, whichever wait that happens to be: measured at about a second for the windows the earlier cases leave behind, several times that under AddressSanitizer, which is how DrainMainQueue and the other waits below timed out on CI without anything they wait for being late. Settled here, unbounded, the clock only measures what the wait is for.
+static void SettleWindowLayout() {
+    for (NSWindow *window in NSApp.windows) {
+        [window updateConstraintsIfNeeded];
+        [window layoutIfNeeded];
+    }
+}
+
 static void WaitForPreferenceCompletions(AsyncPreferencesController *controller, NSUInteger count) {
+    SettleWindowLayout();
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
     while (controller.completions < count && deadline.timeIntervalSinceNow > 0)
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
@@ -2624,6 +2633,7 @@ static void TestPreferenceRevisionSkipsUnchangedDocuments() {
 @end
 
 static void WaitForRecoveringCompletions(RecoveringPreferencesController *controller, NSUInteger count) {
+    SettleWindowLayout();
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
     while (controller.completions < count && deadline.timeIntervalSinceNow > 0)
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
@@ -4056,6 +4066,7 @@ static void TestCloudCandidatePreference() {
 static void DrainMainQueue() {
     __block BOOL drained = NO;
     dispatch_async(dispatch_get_main_queue(), ^{ drained = YES; });
+    SettleWindowLayout();
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
     while (!drained && deadline.timeIntervalSinceNow > 0) CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, true);
     assert(drained);
@@ -4551,6 +4562,7 @@ static NSDictionary *TencentConfig() {
     return @{@"enabled":@YES, @"secret_id":@"AKIDsynthetic", @"secret_key":@"synthetic", @"region":@"ap-guangzhou"};
 }
 static void WaitForGloss(CustomTranslationController *controller) {
+    SettleWindowLayout();
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
     while (![controller valueForKey:@"glossResults"] && deadline.timeIntervalSinceNow > 0)
         [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
@@ -4738,6 +4750,7 @@ static void TestTencentCandidateScheduling() {
     [controller synchronizeCandidateGloss]; [controller synchronizeCustomTranslations];
     assert(![controller currentCustomTranslationRequest]);
     NSUInteger before = controller.batches.count;
+    SettleWindowLayout();
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
     while (controller.batches.count == before && deadline.timeIntervalSinceNow > 0)
         [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
@@ -4933,6 +4946,7 @@ static void TestOfflineTargetGlosses() {
         // rather than as a timeout.
         __block BOOL drained = NO;
         dispatch_async(dispatch_get_main_queue(), ^{ drained = YES; });
+        SettleWindowLayout();
         NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5.0];
         while (!drained && deadline.timeIntervalSinceNow > 0)
             [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
@@ -5106,6 +5120,7 @@ static void TestCustomTranslationController() {
     [controller synchronizeCandidateGloss];
     [controller synchronizeCustomTranslations];
     assert(![controller currentCustomTranslationRequest]); // Wait for offline lookup.
+    SettleWindowLayout();
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
     NSUInteger previous = controller.batches.count;
     while (controller.batches.count == previous && deadline.timeIntervalSinceNow > 0)
@@ -5247,6 +5262,7 @@ static void TestCustomTranslationIdleDelay(BOOL tencent) {
     [controller cancelCandidateTranslations];
     [controller setValue:@NO forKey:@"focusPending"];
     [controller synchronizeCustomTranslations];
+    SettleWindowLayout();
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
     while (!controller.batches.count && deadline.timeIntervalSinceNow > 0)
         [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
@@ -5282,6 +5298,7 @@ static void TestGlossScheduling() {
     [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
     assert(session.applications == 0);
     dispatch_semaphore_signal(controller.released);
+    SettleWindowLayout();
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
     while (session.applications == 0 && deadline.timeIntervalSinceNow > 0)
         [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
@@ -5405,6 +5422,7 @@ static void TestCandidateTranslationPreference() {
     // A failed asynchronous launch still reaches the existing native editor.
     [NSApp sendAction:aiEntry.action to:aiEntry.target from:aiEntry];
     prefs.testWorkspace.completion(nil, [NSError errorWithDomain:@"SyntheticLaunchFailure" code:1 userInfo:nil]);
+    SettleWindowLayout();
     NSDate *launchDeadline = [NSDate dateWithTimeIntervalSinceNow:2];
     while (![prefs valueForKey:@"aiWindow"] && launchDeadline.timeIntervalSinceNow > 0)
         [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
