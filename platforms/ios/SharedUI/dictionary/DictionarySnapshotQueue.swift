@@ -96,10 +96,13 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     let applied = try update { state -> DictionarySnapshotRequest? in
       state.localVersion = version
       // The Engine's durable generation UUID is the receipt if publication
-      // succeeded but queue acknowledgement failed. Reconcile even a later
-      // cancellation: an already-applied dictionary cannot be cancelled retroactively.
+      // succeeded but queue acknowledgement failed. A terminal queue state
+      // wins if cancellation or another transition was recorded first.
       let generation = version.split(separator: ":")[1]
-      guard var request = state.request, request.id.uuidString == generation else { return nil }
+      // A receipt can arrive after cancellation or another terminal transition.
+      // Do not resurrect that request merely because the Engine generation matches.
+      guard var request = state.request, request.status.active,
+            request.id.uuidString == generation else { return nil }
       request.status = .applied
       state.request = request
       return request

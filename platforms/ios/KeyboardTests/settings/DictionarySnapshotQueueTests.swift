@@ -82,20 +82,19 @@ final class DictionarySnapshotQueueTests: XCTestCase {
       XCTAssertEqual(try queue.read().request?.status, .applied)
     }
   }
-  func testDurableReceiptReconcilesCancellationAfterLostAcknowledgement() throws {
+  func testLateActivationReceiptDoesNotResurrectCancelledRequest() throws {
     try fixture { queue, file, hash, _ in
       let id = try enqueue(queue, file, hash)
       let lease = try queue.acquireWorkerLease()
-      let request = try XCTUnwrap(queue.claim(using: lease))
+      _ = try XCTUnwrap(queue.claim(using: lease))
       XCTAssertThrowsError(try queue.complete(id: id, using: lease, currentVersion: first, alreadyApplied: false) {
         throw CocoaError(.fileWriteUnknown)
       })
       try queue.cancel(accountID: "synthetic-account")
       let published = "local-v1:" + id.uuidString + ":" + String(repeating: "b", count: 64)
       try queue.publishLocalVersion(published)
-      XCTAssertEqual(try queue.read().request?.status, .applied)
+      XCTAssertEqual(try queue.read().request?.status, .cancelled)
       XCTAssertEqual(try queue.read().localVersion, published)
-      XCTAssertFalse(FileManager.default.fileExists(atPath: try queue.fileURL(for: request).path))
     }
   }
   func testChangedFileAndBusyQueueDoNotReplaceExistingRequest() throws {

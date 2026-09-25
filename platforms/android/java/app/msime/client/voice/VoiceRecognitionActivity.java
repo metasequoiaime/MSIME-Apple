@@ -197,6 +197,17 @@ public final class VoiceRecognitionActivity extends Activity {
         if (activity != null) activity.runOnUiThread(activity::cancelRecognition);
     }
 
+    @Override protected void onStop() {
+        super.onStop();
+        // A dialog activity can be stopped by Home, the lock screen or another app without being
+        // destroyed. Do not leave a microphone or provider request alive behind that screen. The
+        // permission prompt is also a stopped state, so only cancel once an engine was created.
+        if (!isChangingConfigurations() && !isFinishing() && !finished
+                && (recognizer != null || provider != null || streaming != null || local != null)) {
+            cancelRecognition();
+        }
+    }
+
     @Override protected void onDestroy() {
         finished = true;
         if (local != null) {

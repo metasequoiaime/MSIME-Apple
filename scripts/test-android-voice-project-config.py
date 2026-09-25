@@ -272,6 +272,18 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("connection = opened;", recognizer)
         self.assertIn("if (connection == opened) connection = null;", recognizer)
 
+    def test_stopping_the_voice_activity_cancels_active_capture(self):
+        activity = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+        ).read_text()
+        stop_start = activity.index("@Override protected void onStop()")
+        destroy_start = activity.index("@Override protected void onDestroy()", stop_start)
+        stopped = activity[stop_start:destroy_start]
+        self.assertIn("!isChangingConfigurations()", stopped)
+        self.assertIn("!isFinishing()", stopped)
+        self.assertIn("recognizer != null || provider != null || streaming != null || local != null", stopped)
+        self.assertIn("cancelRecognition();", stopped)
+
 
 if __name__ == "__main__":
     unittest.main()
