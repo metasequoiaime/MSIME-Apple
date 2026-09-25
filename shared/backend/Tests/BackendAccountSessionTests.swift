@@ -68,6 +68,19 @@ final class BackendAccountSessionTests: XCTestCase {
     XCTAssertEqual(count, 1)
     XCTAssertEqual(try storage.load()?.tokens.access_token, a)
   }
+  func testConcurrentCallerJoinsRefreshAfterAnotherCallerRejectsCurrentToken() async throws {
+    let original = BackendSavedSession(tokens: RefreshAPI.tokens(), expiresAt: Date().addingTimeInterval(600))
+    let storage = MemorySessions(original)
+    let api = RefreshAPI()
+    let session = BackendAccountSession(api: api, storage: storage)
+    let refreshing = Task { try await session.accessToken(retrying: original.tokens.access_token) }
+    await api.waitUntilRefreshing()
+    let concurrent = Task { try await session.accessToken() }
+    await api.finish()
+    let rotated = try await refreshing.value
+    let concurrentToken = try await concurrent.value
+    XCTAssertEqual(concurrentToken, rotated)
+  }
   func testProfileCacheUpdatePreservesSessionAndRejectsLateResult() async throws {
     let original = BackendSavedSession(tokens: RefreshAPI.tokens(), expiresAt: Date().addingTimeInterval(600))
     let storage = MemorySessions(original)

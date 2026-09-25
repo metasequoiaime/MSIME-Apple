@@ -1086,7 +1086,7 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
             // relative to is gone afterwards. Every platform host routes candidate selection
             // through here, so counting it here covers all of them without a line of platform
             // code; doing it per host would have meant six chances to forget.
-            let position = selected_position(session, &action);
+            let position = selected_position(&action);
             let result = session
                 .runtime
                 .dispatch(action)
@@ -1104,16 +1104,15 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
 
 /// The one-based position of the candidate an action is about, or `None` when it is not about one.
 ///
-/// `Select` indexes into the visible page, so the page it sits on has to be added back; a commit
-/// from row 2 of page 3 is the twentieth candidate, and counting it as the second would make the
-/// first-candidate rate look far better than it is. `SelectAnyCandidate` already carries an index
-/// into the whole list.
-fn selected_position(session: &HostSession, action: &Action) -> Option<usize> {
+/// Both selection actions carry the absolute candidate index from the runtime's generation, so
+/// adding a view page offset would double-count candidates after the first page.
+fn selected_position(action: &Action) -> Option<usize> {
     match action {
-        Action::Select(id) => {
-            let view = session.runtime.view();
-            Some(view.page * view.page_size + id.index + 1)
-        }
+        // Candidate IDs carry the absolute index in the cached generation, even
+        // when the view only shows one page. Adding the page offset here counted
+        // every selection after the first page twice (and pushed it into the
+        // aggregate `beyond` bucket in typing statistics).
+        Action::Select(id) => Some(id.index + 1),
         Action::SelectAnyCandidate(id) => Some(id.index + 1),
         _ => None,
     }

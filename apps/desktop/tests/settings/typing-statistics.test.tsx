@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { answerConfirm } from "../support/confirm";
 import {
+  TypingStatisticsPage,
   SettingsPage,
   type HostCapabilities,
   type SettingsClient,
@@ -284,6 +285,22 @@ test("desktop statistics refresh when the settings window regains focus", async 
   window.dispatchEvent(new Event("focus"));
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
   finish(status());
+});
+
+test("a late statistics response is ignored after the page unmounts", async () => {
+  let finish!: (value: TypingStatisticsStatus) => void;
+  const load = vi.fn(
+    () =>
+      new Promise<TypingStatisticsStatus>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const view = render(
+    <TypingStatisticsPage client={{ load, setEnabled: vi.fn(), reset: vi.fn() }} />,
+  );
+  view.unmount();
+  finish(status());
+  await Promise.resolve();
 });
 
 test("statistics toggle refreshes immediately and reset requires confirmation without re-enabling", async () => {

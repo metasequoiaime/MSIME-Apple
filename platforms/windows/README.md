@@ -295,7 +295,7 @@ x86 的 Rust GNU 目标要求 DWARF 展开，而 Homebrew 的 i686 MinGW 用 SJL
 
 ### Server 命令行入口
 
-完整构建产出 `msime-client-server.exe`。生产启动使用 `--production`（Watchdog 使用等价的 `--watchdog-managed`），从安装状态目录读取配置并监听生产 TSF 管道；隔离预览实例使用 `--config <绝对配置路径>`，用来在不碰系统输入源的前提下跑一个独立 Server。`--help` 只显示模式说明，不读写状态。TSF 注册由安装器负责，Server 不在启动时修改系统输入法注册。预览配置是最多 16 KiB 的 JSON，以下五个字段必需，另可提供 key_bindings；其余字段拒绝：
+完整构建产出 `MetasequoiaImeServer.exe`。生产启动使用 `--production`（Watchdog 使用等价的 `--watchdog-managed`），从安装状态目录读取配置并监听生产 TSF 管道；隔离预览实例使用 `--config <绝对配置路径>`，用来在不碰系统输入源的前提下跑一个独立 Server。`--help` 只显示模式说明，不读写状态。TSF 注册由安装器负责，Server 不在启动时修改系统输入法注册。预览配置是最多 16 KiB 的 JSON，以下五个字段必需，另可提供 key_bindings；其余字段拒绝：
 
 ```json
 {"format_version":1,"resources":"C:\\MSIME-Preview\\resources","state_root":"C:\\MSIME-Preview\\state","pipe_namespace":"dev-01","preedit_style":"pinyin"}

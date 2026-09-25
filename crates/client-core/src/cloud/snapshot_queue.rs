@@ -297,7 +297,11 @@ impl DictionarySnapshotQueue {
             if let Some(request) = state
                 .request
                 .as_mut()
-                .filter(|request| request.id.to_string() == owner)
+                // A receipt can arrive after logout or another terminal
+                // transition. Do not resurrect a cancelled/failed/conflicted
+                // request merely because its generation id appears in the
+                // version string.
+                .filter(|request| request.status.active() && request.id.to_string() == owner)
             {
                 request.status = SnapshotRequestStatus::Applied;
                 return Ok(Some(request.id));
@@ -658,6 +662,31 @@ mod tests {
         assert_eq!(
             queue.read().unwrap().request.unwrap().status,
             SnapshotRequestStatus::Conflict
+        );
+    }
+
+    #[test]
+    fn a_late_activation_receipt_does_not_resurrect_cancelled_request() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("queue");
+        let source = parent.path().join("snapshot.ndjson");
+        fs::write(&source, b"synthetic snapshot\n").unwrap();
+        let digest = hex::encode(Sha256::digest(fs::read(&source).unwrap()));
+        let initial = version("legacy", 'a');
+        let queue = DictionarySnapshotQueue::new(root).unwrap();
+        queue.publish_local_version(&initial).unwrap();
+        let id = queue
+            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .unwrap();
+        queue.cancel("fixture").unwrap();
+
+        // The worker's activation receipt may be delivered after cancellation.
+        queue
+            .publish_local_version(&version(&id.to_string(), 'b'))
+            .unwrap();
+        assert_eq!(
+            queue.read().unwrap().request.unwrap().status,
+            SnapshotRequestStatus::Cancelled
         );
     }
 

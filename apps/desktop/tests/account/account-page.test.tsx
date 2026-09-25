@@ -89,6 +89,28 @@ test("profile rename, logout-all confirmation and account deletion use explicit 
   await waitFor(() => expect(client.logout).toHaveBeenCalledWith(true));
 });
 
+test("a late profile mutation is ignored after the profile page unmounts", async () => {
+  let finish!: (value: AccountProfile) => void;
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    rename: vi.fn(
+      () =>
+        new Promise<AccountProfile>((resolve) => {
+          finish = resolve;
+        }),
+    ),
+  });
+  const view = render(<AccountPage client={client} platform="ios" />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "编辑社区昵称" }), {
+    target: { value: "晚到的昵称" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存昵称" }));
+  view.unmount();
+  finish({ user: { ...user, displayName: "晚到的昵称" }, providers: ["email"] });
+  await Promise.resolve();
+});
+
 test("mobile accounts keep profile editing and session actions on the pushed profile page", async () => {
   window.history.replaceState({ msimeSettings: true, page: "account" }, "");
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });
