@@ -1016,6 +1016,7 @@ export function TypingStatisticsPage({
   const requestStartedAtRef = useRef(0);
   const lastRequestAtRef = useRef(0);
   const statusSignatureRef = useRef("");
+  const mounted = useRef(true);
   const mobileTrendDays = useMemo(
     () => recentDays(mobileTrendLength(status?.statistics.days ?? {})),
     [status?.statistics.days],
@@ -1023,8 +1024,16 @@ export function TypingStatisticsPage({
   const desktopTrendDays = useMemo(() => recentDays(period === 0 ? 30 : period), [period]);
   const trendDays = mobile ? mobileTrendDays : desktopTrendDays;
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestRef.current = null;
+    };
+  }, []);
+
   async function update(operation: () => Promise<TypingStatisticsStatus>, overview = false) {
-    if (requestRef.current) return;
+    if (!mounted.current || requestRef.current) return;
     setBusy(true);
     setError("");
     const request = operation();
@@ -1033,16 +1042,16 @@ export function TypingStatisticsPage({
     if (overview) lastRequestAtRef.current = requestStartedAtRef.current;
     try {
       const next = await request;
-      if (requestRef.current !== request) return;
+      if (!mounted.current || requestRef.current !== request) return;
       statusSignatureRef.current = JSON.stringify(next);
       setStatus(next);
     } catch {
-      if (requestRef.current === request)
+      if (mounted.current && requestRef.current === request)
         setError("无法读取或保存统计，请稍后重试。原有统计不会被自动重置。");
     } finally {
       if (requestRef.current === request) {
         requestRef.current = null;
-        setBusy(false);
+        if (mounted.current) setBusy(false);
       }
     }
   }
@@ -1050,6 +1059,7 @@ export function TypingStatisticsPage({
   useEffect(() => {
     let active = true;
     const refreshWhenVisible = () => {
+      if (!mounted.current) return;
       const now = Date.now();
       if (
         document.visibilityState === "hidden" ||
@@ -1078,7 +1088,7 @@ export function TypingStatisticsPage({
         .finally(() => {
           if (requestRef.current === request) {
             requestRef.current = null;
-            if (active) setBusy(false);
+            if (active && mounted.current) setBusy(false);
           }
         });
     };

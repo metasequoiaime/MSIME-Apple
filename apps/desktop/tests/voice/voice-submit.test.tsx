@@ -81,3 +81,26 @@ test("an old host submission cannot clear text after host replacement", async ()
   await act(async () => host.finish());
   expect(host.input.value).toBe("fixture-original");
 });
+
+test("an old host language response cannot overwrite the replacement host", async () => {
+  let resolveOld!: (language: string) => void;
+  const oldClient = {
+    close: vi.fn().mockResolvedValue(undefined),
+    loadVoiceLanguage: vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveOld = resolve;
+        }),
+    ),
+  };
+  const view = render(<VoicePanel client={oldClient} />);
+  const replacement = {
+    close: vi.fn().mockResolvedValue(undefined),
+    loadVoiceLanguage: vi.fn().mockResolvedValue("en"),
+  };
+  view.rerender(<VoicePanel client={replacement} />);
+  await act(async () => {});
+  expect((screen.getByRole("combobox", { name: "识别语言" }) as HTMLInputElement).value).toBe("en");
+  await act(async () => resolveOld("ja"));
+  expect((screen.getByRole("combobox", { name: "识别语言" }) as HTMLInputElement).value).toBe("en");
+});
