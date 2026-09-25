@@ -388,6 +388,7 @@ python3 scripts/test-harmony-resource-staging.py || fail "harmony resource stagi
 python3 scripts/test-harmony-candidate-translation.py || fail "harmony candidate translation"
 python3 scripts/test-harmony-expanded-candidates.py || fail "harmony expanded candidates"
 python3 scripts/test-harmony-reply-lifecycle.py || fail "harmony reply lifecycle"
+python3 scripts/test-harmony-voice-lifecycle.py || fail "harmony voice lifecycle"
 python3 scripts/test-harmony-custom-skin-rendering.py || fail "harmony custom skin rendering"
 python3 scripts/test-harmony-typing-statistics.py || fail "harmony typing statistics"
 python3 scripts/test-harmony-traditional-output.py || fail "harmony traditional output"
