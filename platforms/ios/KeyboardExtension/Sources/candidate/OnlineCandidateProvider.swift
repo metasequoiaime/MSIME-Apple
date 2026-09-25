@@ -106,8 +106,12 @@ final class OnlineCandidateProvider {
       assistant = String(decoding: data, as: UTF8.self)
     }
     let session = (query["session_id"] as? NSNumber)?.stringValue ?? "0"
-    return [session, query["cache_key"] as? String ?? "", query["identity"] as? String ?? "",
-            String(query["cloud_candidates"] as? Bool == true), assistant].joined(separator: ":")
+    return "session=\(session)|cache=\(field(query["cache_key"] as? String))|identity=\(field(query["identity"] as? String))|cloud=\(query["cloud_candidates"] as? Bool == true)|assistant=\(field(assistant))"
+  }
+
+  private static func field(_ value: String?) -> String {
+    let value = value ?? ""
+    return "\(value.utf8.count):\(value)"
   }
 
   static func cloudRequest(_ url: URL) -> OnlineCandidateRequest {
