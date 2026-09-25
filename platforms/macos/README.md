@@ -45,6 +45,16 @@ workflow 曾经读取的是括号里的名字，而仓库的 secrets 是以前�
 
 DMG 不提供 Sparkle appcast，输入法与设置应用的「检查更新…」打开官方发布页。
 
+### Homebrew
+
+```sh
+brew install --cask metasequoiaime/tap/msime
+```
+
+cask 放在 [metasequoiaime/homebrew-tap](https://github.com/metasequoiaime/homebrew-tap) 的 `Casks/msime.rb`，模板是本目录的 `homebrew/msime.rb.in`。改 cask 改模板，tap 里的副本每次发布都会被覆盖。`release-macos.yml` 在 `publish` 打开、`prerelease` 关闭的发布之后，用刚发布的 DMG 的版本与 SHA-256 填好模板并推到 tap；DMG 没有通过 `xcrun stapler validate`（没有公证）或仓库没有 `HOMEBREW_TAP_TOKEN`（能推送该仓库的 token）时跳过并留下警告，因为 ad-hoc 包装得上但输入法注册不了。
+
+cask 安装 `MSIME.app`，并把其中的 `msime-mcp` 链接到 `PATH`，供在终端里配置的 AI 助手使用。和拖进「应用程序」一样，装完要打开一次 MSIME，由它把输入法装进 `~/Library/Input Methods` 并登记；全新的机器还要按上面的首次安装规则注销并重新登录。`brew uninstall` 同时删除 `~/Library/Input Methods/水杉输入法.app`，`--zap` 再删除设置、词库与缓存。只提供 Apple silicon，最低 macOS 13，与 DMG 相同。
+
 ## 标识与数据目录
 
 这里有两个不同产品进程，不能用同一个概念混写：输入法本体是 InputMethodKit bundle，继续使用系统已经登记的 `app.msime.inputmethod.MetasequoiaIME`；承载共享 React 设置页的设置应用使用 `app.msime.client`。设置应用的默认状态根和输入法读取的原生定位器都在 `~/Library/Application Support/app.msime.client/`，外部皮肤、偏好、统计与 `runtime-options.json` 以此为当前默认来源。
