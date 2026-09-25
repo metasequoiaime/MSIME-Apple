@@ -565,6 +565,9 @@ char *msime_client_cloud_clipboard_provider_request(const uint8_t *request,
  * Maximum request size 128 KiB; path 4096 bytes. Does not access a session. */
 char *msime_client_translation_gloss_save(const uint8_t *request, size_t request_length,
                                          const uint8_t *user_data, size_t user_data_length);
+/* TranslationQuery accepts the optional sentence:true flag for an explicit
+ * single-item sentence request (up to 512 Unicode characters); ordinary
+ * candidate gloss requests retain their normal limits. */
 #if !defined(_WIN32)
 char *msime_client_translation_provider_request(const uint8_t *query,
                                                 size_t query_length,

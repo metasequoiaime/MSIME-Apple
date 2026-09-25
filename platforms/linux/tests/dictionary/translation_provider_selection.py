@@ -88,6 +88,19 @@ class TranslationProviderSelection(unittest.TestCase):
                 self.assertEqual(result, [{"text": "测试", "translation": translation}])
                 self.assertEqual(urls, [expected])
 
+    def test_sentence_requests_allow_one_long_item_without_changing_candidate_limits(self):
+        sentence = "这是一个超过普通候选词限制但仍在整句请求上限内的合成测试句子。" * 4
+        custom = {"enabled": True, "endpoint": CUSTOM, "api_key": ""}
+        result, urls = self.contacted({"provider": "custom", "custom_translation": custom,
+                                       "sentence": True, "candidates": [sentence]})
+        self.assertEqual(result, [{"text": sentence, "translation": "synthetic custom"}])
+        self.assertEqual(urls, [CUSTOM])
+
+        result, urls = self.contacted({"provider": "custom", "custom_translation": custom,
+                                       "candidates": [sentence]})
+        self.assertEqual(result, [])
+        self.assertEqual(urls, [])
+
     def test_explicit_account_selection_uses_the_account_endpoint(self):
         self.server.anonymous_account_path = None
         self.server.anonymous_session_path = None
