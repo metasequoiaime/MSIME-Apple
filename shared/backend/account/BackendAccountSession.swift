@@ -124,10 +124,13 @@ actor BackendAccountSession {
   }
   func accessToken(retrying rejectedToken: String? = nil) async throws -> String {
     try load()
+    // A refresh may have been started because another caller received a 401
+    // for the still-unexpired access token. Every concurrent caller must join
+    // it before returning that rejected token from the fast path.
+    if let refreshing { return try await refreshing.value }
     if let current = saved, current.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != current.tokens.access_token {
       return current.tokens.access_token
     }
-    if let refreshing { return try await refreshing.value }
     // Other actors and processes share this storage and may already have rotated (or created) the session.
     if let stored = try? storage.load(), stored.tokens.refresh_token != saved?.tokens.refresh_token { saved = stored }
     guard let current = saved else { throw BackendAccountClient.Failure(status: 401) }
@@ -192,4 +195,3 @@ actor BackendAccountSession {
     try await api.logout(token: token, all: all)
   }
 }
-
