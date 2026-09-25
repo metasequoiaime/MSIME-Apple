@@ -36,9 +36,7 @@ export class StagedResources {
       if (fs.accessSync(marker)) {
         fs.unlinkSync(marker);
       }
-      if (fs.accessSync(destination)) {
-        fs.rmdirSync(destination);
-      }
+      StagedResources.removeDirectory(destination);
       fs.mkdirSync(destination, true);
       for (const artifact of artifacts) {
         fs.copyFileSync(`${packaged}/${artifact.name}`, `${destination}/${artifact.name}`);
@@ -64,9 +62,7 @@ export class StagedResources {
       if (fs.accessSync(marker)) {
         fs.unlinkSync(marker);
       }
-      if (fs.accessSync(destination)) {
-        fs.rmdirSync(destination);
-      }
+      StagedResources.removeDirectory(destination);
     } catch (error) {
       KeyboardLog.error(`unstaging failed: ${describeError(error)}`);
     }
@@ -78,5 +74,21 @@ export class StagedResources {
     } catch (error) {
       return null;
     }
+  }
+
+  /** Remove a staged tree before replacing it; rmdirSync only accepts empty directories. */
+  static removeDirectory(directory: string): void {
+    if (!fs.accessSync(directory)) {
+      return;
+    }
+    for (const entry of fs.listFileSync(directory)) {
+      const child: string = `${directory}/${entry}`;
+      if (fs.statSync(child).isDirectory()) {
+        StagedResources.removeDirectory(child);
+      } else {
+        fs.unlinkSync(child);
+      }
+    }
+    fs.rmdirSync(directory);
   }
 }

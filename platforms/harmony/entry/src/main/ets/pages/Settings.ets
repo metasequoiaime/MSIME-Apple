@@ -651,7 +651,7 @@ class SettingsBridge {
       if (fs.accessSync(destination)) {
         // Replacing rather than merging: a half-overwritten skin is a skin whose stylesheet and
         // assets come from two different versions, which the catalog would list and then draw wrong.
-        fs.rmdirSync(destination);
+        StagedResources.removeDirectory(destination);
       }
       fs.copyDirSync(picked[0], `${this.stateDirectory}/skins`, 1);
     } catch (error) {
