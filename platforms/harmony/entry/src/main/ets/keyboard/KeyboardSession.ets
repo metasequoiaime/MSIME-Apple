@@ -991,6 +991,8 @@ export class KeyboardSession implements HardwareKeyTarget {
    * tapping the microphone silently discard a polish request that was about to answer.
    */
   private readonly polisher: HarmonyVoicePolisher = new HarmonyVoicePolisher();
+  /** The one in-flight reply request; invalidating its editor context must cancel the HTTP wait. */
+  private replyRequest: http.HttpRequest | undefined = undefined;
   private aiAssistant: PreparedAiAssistant = {
     enabled: false, provider: 'deepseek', model: '', token: '', tokens: {}, endpoint: '',
     candidate_limit: 3, prompt_id: 'custom_1', prompt: '', prompt_custom_1: '',
@@ -2235,16 +2237,29 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** Final ability teardown: invalidate editor callbacks that may still be awaiting attributes. */
+  shutdown(): void {
+    this.stop();
+    this.attributeGeneration++;
+    this.inputClient = undefined;
+    this.previewSupported = false;
+    this.previewText = '';
+  }
+
   /** Invalidate host-side network work before the focused editor changes or the session dies. */
   private cancelOnlineProviders(): void {
     this.onlineEpoch++;
     this.onlineSignature = '';
+    for (const request of this.onlineRequests) request.destroy();
+    this.onlineRequests.clear();
     if (this.onlineTimer >= 0) {
       clearTimeout(this.onlineTimer);
       this.onlineTimer = -1;
     }
     this.translationEpoch++;
     this.translationSignature = '';
+    for (const request of this.translationRequests) request.destroy();
+    this.translationRequests.clear();
     if (this.translationTimer >= 0) {
       clearTimeout(this.translationTimer);
       this.translationTimer = -1;
@@ -2254,6 +2269,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Invalidate asynchronous reply work without logging or retaining editor text. */
   invalidateReplyContext(notifyEditorChange: boolean = true): void {
     this.replyContextGeneration++;
+    const request: http.HttpRequest | undefined = this.replyRequest;
+    this.replyRequest = undefined;
+    if (request !== undefined) request.destroy();
     this.replyResultEditorGeneration = -1;
     this.replyResultContextGeneration = -1;
     this.replyResultTexts = [];
@@ -2975,9 +2993,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   private toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(KeyboardSkin.from('forest', false));
   private onlineTimer: number = -1;
   private onlineEpoch: number = 0;
+  private readonly onlineRequests: Set<http.HttpRequest> = new Set<http.HttpRequest>();
   private onlineSignature: string = '';
   private translationTimer: number = -1;
   private translationEpoch: number = 0;
+  private readonly translationRequests: Set<http.HttpRequest> = new Set<http.HttpRequest>();
   private translationSignature: string = '';
   private readonly translationCache: Map<string, string> = new Map<string, string>();
   private readonly translationNegativeCache: Map<string, number> = new Map<string, number>();
@@ -3207,6 +3227,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     const request = http.createHttp();
+    this.onlineRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(url, {
         method: http.RequestMethod.GET,
@@ -3225,6 +3246,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`cloud candidate unavailable: ${describeError(error)}`);
       return false;
     } finally {
+      this.onlineRequests.delete(request);
       request.destroy();
     }
   }
@@ -3242,6 +3264,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return;
     }
     const request = http.createHttp();
+    this.onlineRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(descriptor.url, {
         method: http.RequestMethod.POST,
@@ -3260,6 +3283,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     } catch (error) {
       KeyboardLog.error(`AI candidate unavailable: ${describeError(error)}`);
     } finally {
+      this.onlineRequests.delete(request);
       request.destroy();
     }
   }
@@ -3576,6 +3600,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         && !(allowHttp && descriptor.url.startsWith('http://')))) return null;
     if (descriptor.max_response_bytes > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
     const request = http.createHttp();
+    this.translationRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(descriptor.url, {
         method: http.RequestMethod.POST,
@@ -3593,6 +3618,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`candidate translation request unavailable: ${describeError(error)}`);
       return null;
     } finally {
+      this.translationRequests.delete(request);
       request.destroy();
     }
   }
@@ -3961,6 +3987,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return [];
     }
     const requestHttp = http.createHttp();
+    this.replyRequest = requestHttp;
     try {
       const response: http.HttpResponse = await requestHttp.request(descriptor.url, {
         method: http.RequestMethod.POST, header: descriptor.headers,
@@ -3987,6 +4014,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`thoughtful reply unavailable: ${describeError(error)}`);
       return [];
     } finally {
+      if (this.replyRequest === requestHttp) this.replyRequest = undefined;
       requestHttp.destroy();
     }
   }

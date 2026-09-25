@@ -492,6 +492,15 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("Date(timeIntervalSinceReferenceDate: seconds)", store)
         self.assertIn("encoder.dateEncodingStrategy = .iso8601", store)
 
+    def test_keyboard_cancels_delayed_gloss_work_when_hidden(self):
+        controller = (
+            TAURI_ROOT / "../../../platforms/ios/KeyboardExtension/Sources/keyboard/KeyboardViewController.swift"
+        ).read_text()
+        disappear_start = controller.index("  override func viewWillDisappear")
+        disappear = controller[disappear_start : controller.index("\n  private func", disappear_start)]
+        self.assertIn("candidateGlossTimer?.invalidate()", disappear)
+        self.assertIn("candidateGlossTimer = nil", disappear)
+
 
 if __name__ == "__main__":
     unittest.main()
