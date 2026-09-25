@@ -238,6 +238,14 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertEqual(copy.lastPathComponent, "水杉IME-快捷短语用户词库.txt")
     XCTAssertEqual(try String(contentsOf: copy, encoding: .utf8), "q0\t短语0\t100\nq1\t短语1\t100\n")
 
+    // A newer export must not be copied under an older result's filename.
+    let newer = try host.requestExport(kind: .pinyin, format: "standard")
+    try keyboard.synchronize(apply: { _ in }, page: empty, export: { _ in
+      PersonalExportText(text: "new\t新\t1\n", complete: true)
+    })
+    XCTAssertEqual(try host.read().exportResult?.request, newer)
+    XCTAssertThrowsError(try host.exportCopy(for: result))
+
     // A failed export leaves no stale file behind and says why.
     enum Failure: LocalizedError { case injected; var errorDescription: String? { "injected" } }
     let failed = try host.requestExport(kind: .pinyin, format: "standard")

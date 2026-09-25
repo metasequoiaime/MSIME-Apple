@@ -991,6 +991,8 @@ export class KeyboardSession implements HardwareKeyTarget {
    * tapping the microphone silently discard a polish request that was about to answer.
    */
   private readonly polisher: HarmonyVoicePolisher = new HarmonyVoicePolisher();
+  /** The one in-flight reply request; invalidating its editor context must cancel the HTTP wait. */
+  private replyRequest: http.HttpRequest | undefined = undefined;
   private aiAssistant: PreparedAiAssistant = {
     enabled: false, provider: 'deepseek', model: '', token: '', tokens: {}, endpoint: '',
     candidate_limit: 3, prompt_id: 'custom_1', prompt: '', prompt_custom_1: '',
@@ -2267,6 +2269,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Invalidate asynchronous reply work without logging or retaining editor text. */
   invalidateReplyContext(notifyEditorChange: boolean = true): void {
     this.replyContextGeneration++;
+    const request: http.HttpRequest | undefined = this.replyRequest;
+    this.replyRequest = undefined;
+    if (request !== undefined) request.destroy();
     this.replyResultEditorGeneration = -1;
     this.replyResultContextGeneration = -1;
     this.replyResultTexts = [];
@@ -3982,6 +3987,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return [];
     }
     const requestHttp = http.createHttp();
+    this.replyRequest = requestHttp;
     try {
       const response: http.HttpResponse = await requestHttp.request(descriptor.url, {
         method: http.RequestMethod.POST, header: descriptor.headers,
@@ -4008,6 +4014,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`thoughtful reply unavailable: ${describeError(error)}`);
       return [];
     } finally {
+      if (this.replyRequest === requestHttp) this.replyRequest = undefined;
       requestHttp.destroy();
     }
   }
