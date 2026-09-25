@@ -14,6 +14,11 @@ def main() -> int:
             "this.attributeGeneration++;" in session
             and "this.inputClient = undefined;" in session,
         "ability uses final teardown": "KeyboardSession.shared.shutdown();" in ability,
+        "reply request is cancelled with its context":
+            "private replyRequest: http.HttpRequest | undefined" in session
+            and "if (request !== undefined) request.destroy();" in session,
+        "reply request is cleared after completion":
+            "if (this.replyRequest === requestHttp) this.replyRequest = undefined;" in session,
     }
     problems = [name for name, present in checks.items() if not present]
     if problems:
