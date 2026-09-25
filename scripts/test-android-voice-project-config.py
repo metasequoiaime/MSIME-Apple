@@ -259,6 +259,19 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("stopRecognition();", activity)
         self.assertIn("cancel.setOnClickListener(ignored -> cancelRecognition());", activity)
 
+    def test_cancelling_an_upload_disconnects_the_in_flight_request(self):
+        recognizer = (
+            ROOT / "platforms/android/java/app/msime/client/voice/HttpAsrRecognizer.java"
+        ).read_text()
+        # Activity destruction can cancel after recording has handed the audio to the network.
+        # Keep the connection visible to cancel() so it does not wait for the 60-second read
+        # timeout while the isolated IME process is being torn down.
+        self.assertIn("private volatile HttpURLConnection connection;", recognizer)
+        self.assertIn("HttpURLConnection active = connection;", recognizer)
+        self.assertIn("if (active != null) active.disconnect();", recognizer)
+        self.assertIn("connection = opened;", recognizer)
+        self.assertIn("if (connection == opened) connection = null;", recognizer)
+
 
 if __name__ == "__main__":
     unittest.main()
