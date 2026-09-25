@@ -5,6 +5,22 @@
 use super::*;
 
 #[test]
+fn selection_statistics_use_the_candidate_id_absolute_index() {
+    let action = Action::Select(CandidateId {
+        session: 7,
+        generation: 11,
+        index: 9,
+    });
+    assert_eq!(selected_position(&action), Some(10));
+    let action = Action::SelectAnyCandidate(CandidateId {
+        session: 7,
+        generation: 11,
+        index: 14,
+    });
+    assert_eq!(selected_position(&action), Some(15));
+}
+
+#[test]
 fn default_sentence_model_uses_verified_resources_not_prepared_dictionaries() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
