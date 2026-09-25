@@ -219,7 +219,9 @@ function MobileAccountProfilePage({
           if (mounted.current) setCopied(false);
         }, 1800);
       })
-      .catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
+      .catch(() => {
+        if (mounted.current) setError("账号 ID 暂时无法复制，请稍后重试。");
+      });
   };
 
   return (
