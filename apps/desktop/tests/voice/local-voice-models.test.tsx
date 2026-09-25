@@ -261,6 +261,35 @@ test("a model picked while the first download runs is not replaced when it finis
   expect(onUse).not.toHaveBeenCalled();
 });
 
+test("a previous client's model list cannot replace the active client after a host switch", async () => {
+  const first = fakeClient([streaming]);
+  let resolveFirst:
+    | ((value: { models: LocalVoiceModel[]; default: string; root: string }) => void)
+    | undefined;
+  vi.mocked(first.client.list).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+  );
+  const second = fakeClient([{ ...sense, installed: true }]);
+  const props = {
+    mobile: false,
+    onUse: vi.fn(),
+    onRemoved: vi.fn(),
+    confirm: vi.fn(async () => true),
+  };
+  const view = render(<LocalModelManager {...props} client={first.client} modelPath="" />);
+  view.rerender(<LocalModelManager {...props} client={second.client} modelPath="" />);
+  await screen.findByRole("listitem", { name: "快速整句" });
+  resolveFirst?.({ models: [streaming], default: streaming.id, root });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(screen.queryByRole("listitem", { name: "中英流式" })).toBeNull();
+  expect(screen.getByRole("listitem", { name: "快速整句" })).toBeTruthy();
+});
+
 test("cancelling a download stops it without an error", async () => {
   const fake = fakeClient([streaming]);
   const { onUse } = renderManager(fake.client);

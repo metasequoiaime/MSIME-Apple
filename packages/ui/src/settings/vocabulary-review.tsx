@@ -117,26 +117,35 @@ export function VocabularyReviewPage({
   const [importNote, setImportNote] = useState("");
   const requestRef = useRef<Promise<VocabularyReviewStatus> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestRef.current = null;
+    };
+  }, []);
 
   // One funnel, one in-flight request. Two taps on 认识 in quick succession would otherwise both
   // read the same card and the second would schedule from a state the first had already replaced.
   async function update(operation: () => Promise<VocabularyReviewStatus>) {
-    if (requestRef.current) return;
+    if (!mounted.current || requestRef.current) return;
     setBusy(true);
     setError("");
     const request = operation();
     requestRef.current = request;
     try {
       const next = await request;
-      if (requestRef.current !== request) return;
+      if (!mounted.current || requestRef.current !== request) return;
       setStatus(next);
     } catch {
-      if (requestRef.current === request)
+      if (mounted.current && requestRef.current === request)
         setError("无法读取或保存背单词进度，请稍后重试。已有的进度不会被自动清空。");
     } finally {
       if (requestRef.current === request) {
         requestRef.current = null;
-        setBusy(false);
+        if (mounted.current) setBusy(false);
       }
     }
   }
@@ -175,17 +184,19 @@ export function VocabularyReviewPage({
     } catch (cause) {
       // The read happens outside `update`, so nothing else would report it. Only the size refusal
       // carries a message worth showing; a failed read's own is technical and often English.
-      setImportNote(
-        file.size > WORDBOOK_FILE_BYTES && cause instanceof Error
-          ? cause.message
-          : "无法读取所选文件，请重新选择。",
-      );
+      if (mounted.current)
+        setImportNote(
+          file.size > WORDBOOK_FILE_BYTES && cause instanceof Error
+            ? cause.message
+            : "无法读取所选文件，请重新选择。",
+        );
       return;
     }
+    if (!mounted.current) return;
     const name = file.name.replace(/\.[^.]+$/, "").slice(0, 64) || "导入的词表";
     await update(async () => {
       const next = await client.importWordbook!(name, text);
-      setImportNote(`已导入「${name}」。`);
+      if (mounted.current) setImportNote(`已导入「${name}」。`);
       return next;
     });
   }

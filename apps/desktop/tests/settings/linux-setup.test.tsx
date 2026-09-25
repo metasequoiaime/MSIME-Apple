@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { LinuxSetupPage, type LinuxSetupClient, type LinuxSetupStatus } from "@msime/ui";
+import {
+  LinuxSetupPage,
+  type LinuxSetupClient,
+  type LinuxSetupLine,
+  type LinuxSetupStatus,
+} from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -74,6 +79,23 @@ test("Linux first-run page keeps the output and offers a retry when setup fails"
       false,
     ),
   );
+});
+
+test("late setup output and completion are ignored after the page unmounts", async () => {
+  let emit!: (line: LinuxSetupLine) => void;
+  let release!: (result: LinuxSetupStatus) => void;
+  const run = vi.fn((_choices: unknown, onLine: (line: LinuxSetupLine) => void) => {
+    emit = onLine;
+    return new Promise<LinuxSetupStatus>((resolve) => {
+      release = resolve;
+    });
+  });
+  const view = render(<LinuxSetupPage status={missing} client={{ run }} onComplete={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "开始配置" }));
+  view.unmount();
+  emit({ text: "晚到的输出", error: false });
+  release({ ...missing, prepared: true });
+  await Promise.resolve();
 });
 
 test("Linux first-run page explains why it cannot start instead of offering a failing button", () => {

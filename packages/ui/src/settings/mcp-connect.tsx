@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import * as settings from "./settings-style";
 
@@ -75,18 +75,31 @@ export function McpConnectSection({
   const [busy, setBusy] = useState<McpClientId>();
   const [result, setResult] = useState<string>();
   const [copied, setCopied] = useState(false);
+  const mounted = useRef(true);
+  const refreshGeneration = useRef(0);
 
-  const refresh = useCallback(
-    () =>
-      status().then(
-        (next) => {
-          setServer(next);
-          setLoadFailed(false);
-        },
-        () => setLoadFailed(true),
-      ),
-    [status],
-  );
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      refreshGeneration.current += 1;
+    };
+  }, []);
+
+  const refresh = useCallback(() => {
+    const generation = ++refreshGeneration.current;
+    return status().then(
+      (next) => {
+        if (!mounted.current || refreshGeneration.current !== generation) return;
+        setServer(next);
+        setLoadFailed(false);
+      },
+      () => {
+        if (!mounted.current || refreshGeneration.current !== generation) return;
+        setLoadFailed(true);
+      },
+    );
+  }, [status]);
 
   useEffect(() => {
     void refresh();
@@ -111,16 +124,18 @@ export function McpConnectSection({
         if (!replace) return;
         outcome = await install(id, true);
       }
-      setResult(
-        outcome === "unchanged"
-          ? `${name} 已经连接，无需改动。`
-          : `已写入 ${name} 的配置。重新启动 ${name} 后生效。`,
-      );
+      if (mounted.current) {
+        setResult(
+          outcome === "unchanged"
+            ? `${name} 已经连接，无需改动。`
+            : `已写入 ${name} 的配置。重新启动 ${name} 后生效。`,
+        );
+      }
       await refresh();
     } catch (error) {
-      setResult(failure(error, name));
+      if (mounted.current) setResult(failure(error, name));
     } finally {
-      setBusy(undefined);
+      if (mounted.current) setBusy(undefined);
     }
   }
 
@@ -167,8 +182,11 @@ export function McpConnectSection({
                       className="secondary"
                       onClick={() =>
                         void copyText(server.config!).then(() => {
+                          if (!mounted.current) return;
                           setCopied(true);
-                          window.setTimeout(() => setCopied(false), 1600);
+                          window.setTimeout(() => {
+                            if (mounted.current) setCopied(false);
+                          }, 1600);
                         })
                       }
                     >
