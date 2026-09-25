@@ -76,6 +76,13 @@ public final class DictionarySnapshotQueueSmoke {
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.CONFLICT);
             queue.cancel(account);
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.CONFLICT);
+            String conflictVersion = "local-v1:legacy:" + "d".repeat(64);
+            UUID cancelled = queue.enqueue(source, account, 44, conflictVersion, digest);
+            queue.cancel(account);
+            String lateReceipt = "local-v1:" + cancelled + ":" + "e".repeat(64);
+            queue.publishLocalVersion(lateReceipt);
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);
+            check(lateReceipt.equals(queue.read().localVersion()));
             System.out.println("Android dictionary snapshot queue: atomic files, hash bounds, lease and conflict guards passed");
         } finally {
             try (Stream<Path> paths = Files.walk(root)) {
