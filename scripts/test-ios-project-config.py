@@ -501,6 +501,15 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("candidateGlossTimer?.invalidate()", disappear)
         self.assertIn("candidateGlossTimer = nil", disappear)
 
+    def test_candidate_translation_cancel_stops_inflight_tasks(self):
+        store = (
+            TAURI_ROOT / "../../../platforms/ios/KeyboardExtension/Sources/candidate/CandidateTranslationStore.swift"
+        ).read_text()
+        self.assertIn("private var tasks: [Task<Void, Never>] = []", store)
+        self.assertIn("for task in tasks { task.cancel() }", store)
+        self.assertIn("tasks.removeAll()", store)
+        self.assertIn("tasks.append(task)", store)
+
 
 if __name__ == "__main__":
     unittest.main()
