@@ -168,10 +168,22 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
 
   private async openToolbar(): Promise<void> {
     try {
-      this.toolbar = await engine.createPanel(this.context, {
+      const toolbar: inputMethodEngine.Panel = await engine.createPanel(this.context, {
         type: inputMethodEngine.PanelType.STATUS_BAR
       });
-      await this.toolbar.setUiContent('keyboard/FloatingToolbar');
+      if (this.tornDown) {
+        await engine.destroyPanel(toolbar);
+        return;
+      }
+      this.toolbar = toolbar;
+      await toolbar.setUiContent('keyboard/FloatingToolbar');
+      if (this.tornDown) {
+        if (this.toolbar === toolbar) {
+          this.toolbar = undefined;
+          await engine.destroyPanel(toolbar);
+        }
+        return;
+      }
       KeyboardSession.shared.onToolbarDragStart = (): void => {
         this.beginToolbarDrag();
       };
@@ -179,6 +191,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         this.dragToolbar(offsetX, offsetY);
       };
       await this.resizeToolbar(this.density);
+      if (this.tornDown) {
+        if (this.toolbar === toolbar) {
+          this.toolbar = undefined;
+          await engine.destroyPanel(toolbar);
+        }
+        return;
+      }
       KeyboardSession.shared.refreshToolbar();
       // Lower right by default, clear of the dock, where a status bar is looked for and where it is least likely to sit on top of what is being written. macOS picks the same corner.
       const width: number = FloatingToolbarLayout.widthVp(
@@ -190,6 +209,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.toolbarPosition = [Math.round(this.screenWidth - width - margin),
         Math.round(this.screenHeight - height - margin * 4)];
       await this.toolbar.moveTo(this.toolbarPosition[0], this.toolbarPosition[1]);
+      if (this.tornDown) {
+        if (this.toolbar === toolbar) {
+          this.toolbar = undefined;
+          await engine.destroyPanel(toolbar);
+        }
+        return;
+      }
       await this.toolbar.show();
     } catch (error) {
       KeyboardLog.error(`toolbar unavailable: ${describeError(error)}`);
@@ -213,11 +239,23 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
 
   private async openModeBadge(): Promise<void> {
     try {
-      this.hud = await engine.createPanel(this.context, {
+      const hud: inputMethodEngine.Panel = await engine.createPanel(this.context, {
         type: inputMethodEngine.PanelType.STATUS_BAR
       });
-      await this.hud.setUiContent('keyboard/InputModeHud');
-      await this.hud.resize(Math.round(HUD_WIDTH_VP * this.density),
+      if (this.tornDown) {
+        await engine.destroyPanel(hud);
+        return;
+      }
+      this.hud = hud;
+      await hud.setUiContent('keyboard/InputModeHud');
+      if (this.tornDown) {
+        if (this.hud === hud) {
+          this.hud = undefined;
+          await engine.destroyPanel(hud);
+        }
+        return;
+      }
+      await hud.resize(Math.round(HUD_WIDTH_VP * this.density),
         Math.round(HUD_HEIGHT_VP * this.density));
     } catch (error) {
       // Worth saying but not worth failing over: the keyboard types perfectly well without a badge, and refusing to start because a piece of feedback would not build helps nobody.
@@ -809,8 +847,23 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         : inputMethodEngine.PanelFlag.FLG_FIXED
     };
     try {
-      this.panel = await engine.createPanel(this.context, info);
-      await this.panel.setUiContent('keyboard/KeyboardView');
+      const panel: inputMethodEngine.Panel = await engine.createPanel(this.context, info);
+      // onDestroy can arrive while the framework is still creating or populating the panel. Do
+      // not attach a late panel after teardown; otherwise the ability leaks a window with no host
+      // callbacks left to hide or destroy it.
+      if (this.tornDown) {
+        await engine.destroyPanel(panel);
+        return;
+      }
+      this.panel = panel;
+      await panel.setUiContent('keyboard/KeyboardView');
+      if (this.tornDown) {
+        if (this.panel === panel) {
+          this.panel = undefined;
+          await engine.destroyPanel(panel);
+        }
+        return;
+      }
       // A panel has no size until it is given one, and a zero-height panel never appears. The height
       // is the candidate row plus four key rows, or the strip alone where the keys are not drawn; the
       // width is the display width, which the panel reports through its own window rather than being
@@ -837,9 +890,15 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.density = screen.densityPixels;
       this.screenWidth = screen.width;
       this.screenHeight = screen.height;
-      await this.panel.resize(widthPx, Math.round(heightVp * screen.densityPixels));
+      await panel.resize(widthPx, Math.round(heightVp * screen.densityPixels));
+      if (this.tornDown) {
+        if (this.panel === panel) {
+          this.panel = undefined;
+          await engine.destroyPanel(panel);
+        }
+        return;
+      }
       // The view asks; only the ability holds the panel.
-      const panel: inputMethodEngine.Panel = this.panel;
       KeyboardSession.shared.onDismiss = (): void => {
         panel.hide();
       };
