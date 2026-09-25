@@ -51,8 +51,8 @@ fi
 
 # Per-checkout tags for the same reason as the gate: parallel worktrees must not run each other's images.
 checkout_hash="$(printf %s "$repo_root" | shasum | cut -c1-12)"
-gate_image="msime-client-linux-build-gate:$checkout_hash"
-package_image="msime-client-linux-package:$checkout_hash"
+gate_image="msime-linux-build-gate:$checkout_hash"
+package_image="msime-linux-package:$checkout_hash"
 docker build -q -t "$gate_image" \
   -f platforms/linux/tests/tools/Dockerfile.build-gate platforms/linux/tests >/dev/null
 docker build -q -t "$package_image" --build-arg MSIME_BUILD_GATE_IMAGE="$gate_image" \

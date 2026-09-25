@@ -40,8 +40,8 @@ esac
 if [ ! -r "$config" ]; then
   echo "MSIME runtime options not found: $config" >&2
   # ibus-daemon shows nothing for a component that exits, so the user would see a dead input method. Open the first-run page instead; the guide limits itself to once per session because the daemon starts this launcher again on every selection.
-  if [ -n "$not_configured" ] && [ -x "$launcher_dir/msime-client-first-run-guide" ]; then
-    "$launcher_dir/msime-client-first-run-guide" --host ibus || :
+  if [ -n "$not_configured" ] && [ -x "$launcher_dir/msime-linux-first-run-guide" ]; then
+    "$launcher_dir/msime-linux-first-run-guide" --host ibus || :
   fi
   exit 1
 fi

@@ -1,6 +1,6 @@
 # Fcitx5 acceptance image. Keep the base image pinned in Dockerfile so the
 # normal Linux checks and the Fcitx5 checks share the same Rust/Engine toolchain.
-ARG BASE_IMAGE=msime-client-linux-test:local
+ARG BASE_IMAGE=msime-linux-linux-test:local
 FROM ${BASE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fcitx5 fcitx5-modules fcitx5-frontend-gtk3 \

@@ -598,7 +598,7 @@ pub(crate) async fn move_data_directory(
                 Ok(()) => true,
                 Err(error) => {
                     eprintln!(
-                        "msime-client-settings: data directory moved, but restarting the input method failed ({})",
+                        "msime-linux-settings: data directory moved, but restarting the input method failed ({})",
                         error.code
                     );
                     false

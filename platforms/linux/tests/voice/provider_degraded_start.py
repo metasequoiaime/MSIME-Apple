@@ -15,7 +15,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PROVIDER = ROOT / "scripts" / "msime-client-voice-provider"
+PROVIDER = ROOT / "scripts" / "msime-linux-voice-provider"
 CONFIG = {
     "asr": {"provider": "openai", "token": "fixture-token", "endpoint": "https://127.0.0.1:9/v1"},
     "asr_profiles": {"doubao": {"provider": "doubao", "token": "fixture-token",

@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import msime_voice_local as local  # noqa: E402
 
 loader = importlib.machinery.SourceFileLoader(
-    "local_voice_provider", str(ROOT / "scripts" / "msime-client-voice-provider"))
+    "local_voice_provider", str(ROOT / "scripts" / "msime-linux-voice-provider"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 voice = importlib.util.module_from_spec(spec)
 loader.exec_module(voice)

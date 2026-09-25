@@ -16,9 +16,9 @@ import tempfile
 from pathlib import Path
 
 CMAKE, BUILD, AUTOSTART_DIR, UNINSTALL = sys.argv[1:5]
-SOURCE = Path(__file__).resolve().parents[2] / "data/msime-client-clipboard.desktop"
-NAME = "msime-client-clipboard.desktop"
-UNIT = "msime-client-clipboard.service"
+SOURCE = Path(__file__).resolve().parents[2] / "data/msime-linux-clipboard.desktop"
+NAME = "msime-linux-clipboard.desktop"
+UNIT = "msime-linux-clipboard.service"
 
 SYSTEMCTL = """#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB_LOG"

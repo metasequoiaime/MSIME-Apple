@@ -23,8 +23,8 @@ def load(name, filename):
     return module
 
 
-online = load("credential_online_provider", "msime-client-online-provider")
-voice = load("credential_voice_provider", "msime-client-voice-provider")
+online = load("credential_online_provider", "msime-linux-online-provider")
+voice = load("credential_voice_provider", "msime-linux-voice-provider")
 
 
 class OnlineCredentialTest(unittest.TestCase):

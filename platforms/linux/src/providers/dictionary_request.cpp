@@ -7,7 +7,7 @@
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-dictionary < request.json\n";
+    std::cout << "Usage: msime-linux-dictionary < request.json\n";
     return 0;
   }
   if (argc != 1)

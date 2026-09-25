@@ -32,31 +32,31 @@ msime-linux-setup --download   # 允许按随装的词库锁取回缺失词库�
 msime-linux-setup --update --download   # 升级之后只取回过期的那几项词库并切换过去
 ```
 
-它按 `desktop-dictionary.lock.json` 逐个核对词库的名称、大小和 SHA-256，再调用 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client`（默认 `~/.config/msime-client`）建立状态并发布 `runtime-options.json`，最后把输入法加入正在运行的 Fcitx5 或 IBus 的输入法列表（见下文）。词库目录按「随包安装的 `${CMAKE_INSTALL_DATADIR}/msime-client/resources` → `$XDG_DATA_HOME/msime-client/resources`」的顺序查找，`--resources` 显式指定优先；状态目录必须尚不存在，已存在时报错而不是覆盖，只有下文的 `--update` 例外。所有需要取回的词库先在同一文件系统的临时目录里下载并逐个校验，全部通过后才改名放进词库目录；校验不过或下载中断就中止，词库目录一个文件都不动，不会留下半份或新旧混杂的词库。锁之外的文件同样报出来（Engine 的 `helpcodes` 子目录除外），因为宿主会因此拒绝整份词库，而下载补不掉它们，需要用户自己移走。
+它按 `desktop-dictionary.lock.json` 逐个核对词库的名称、大小和 SHA-256，再调用 `msime-linux-prepare` 在 `$XDG_CONFIG_HOME/msime-client`（默认 `~/.config/msime-client`）建立状态并发布 `runtime-options.json`，最后把输入法加入正在运行的 Fcitx5 或 IBus 的输入法列表（见下文）。词库目录按「随包安装的 `${CMAKE_INSTALL_DATADIR}/msime-client/resources` → `$XDG_DATA_HOME/msime-client/resources`」的顺序查找，`--resources` 显式指定优先；状态目录必须尚不存在，已存在时报错而不是覆盖，只有下文的 `--update` 例外。所有需要取回的词库先在同一文件系统的临时目录里下载并逐个校验，全部通过后才改名放进词库目录；校验不过或下载中断就中止，词库目录一个文件都不动，不会留下半份或新旧混杂的词库。锁之外的文件同样报出来（Engine 的 `helpcodes` 子目录除外），因为宿主会因此拒绝整份词库，而下载补不掉它们，需要用户自己移走。
 
 `--download` 之外不发起任何网络请求。词库锁里 `dict_pinyin.dat` 没有下载地址——它来自引擎源码树——所以该项按同样随装的 `engine-lock.json` 找到对应的固定依赖归档，校验归档摘要后只取出这一个文件，再按词库锁校验它本身。两份锁都无条件随装：此前词库锁只在配置阶段传了 `MSIME_ENGINE_RESOURCES` 时才安装，也就是最需要它的那种安装里反而没有，只拿到安装包的用户没有任何办法把词库凑齐。
 
-不想开终端也可以直接打开应用列表里的「水杉输入法」：还没有 `runtime-options.json` 时，`msime-client-settings` 不再报错退出，而是打开首次配置页。页面运行的就是同一个随装的 `msime-linux-setup`（优先取桌面二进制旁边的那份，其次 `PATH`），状态目录固定为设置窗口读取的那个 `runtime-options.json` 所在目录，输出逐行显示在页面上；下载只在勾选「词库不完整时从固定地址下载」时才加 `--download`。配置完成后直接进入设置，窗口每次读取都会重读这份文件，所以不需要重启。目录已存在但缺少 `runtime-options.json` 时，只有其中仅有安装流程创建的匿名账号文件这一种情况仍可继续；含其他文件时页面只说明原因、不提供按钮，与脚本拒绝覆盖的规则一致；已安装系统级配置（`MSIME_SETTINGS_SYSTEM_CONFIG`）时仍以它为准，不出现首次配置页。
+不想开终端也可以直接打开应用列表里的「水杉输入法」：还没有 `runtime-options.json` 时，`msime-linux-settings` 不再报错退出，而是打开首次配置页。页面运行的就是同一个随装的 `msime-linux-setup`（优先取桌面二进制旁边的那份，其次 `PATH`），状态目录固定为设置窗口读取的那个 `runtime-options.json` 所在目录，输出逐行显示在页面上；下载只在勾选「词库不完整时从固定地址下载」时才加 `--download`。配置完成后直接进入设置，窗口每次读取都会重读这份文件，所以不需要重启。目录已存在但缺少 `runtime-options.json` 时，只有其中仅有安装流程创建的匿名账号文件这一种情况仍可继续；含其他文件时页面只说明原因、不提供按钮，与脚本拒绝覆盖的规则一致；已安装系统级配置（`MSIME_SETTINGS_SYSTEM_CONFIG`）时仍以它为准，不出现首次配置页。
 
-升级安装包之后不需要重新准备状态。Windows 安装程序在升级时回放用户词库，Linux 没有这样一个按用户执行的安装步骤，所以改由输入法宿主在启动时完成：IBus 宿主和 Fcitx5 插件在建立任何会话之前调用 `msime_client_refresh_host`，它用库里编译进去的词库锁算出当前代次，与 `runtime-options.json` 中 `dictionaries` 指向的代次目录比较；不一致时校验新词库、由 Engine 复制出新代次的工作词库并把用户词库日志回放进去，再原子替换这份文件，只改 `resources` 和 `dictionaries` 两项，provider socket、模型路径等其他键原样保留。已是当前代次时只读一次文件。旧代次目录不会被改动，还在用它的另一个宿主重启前照常工作；准备失败时文件保持原样，输入法继续用旧词库，下次启动再试。符号链接、系统级 `/etc/msime-client/runtime-options.json` 以及路径不符合 `msime-client-prepare` 布局的文件都不会被改写。
+升级安装包之后不需要重新准备状态。Windows 安装程序在升级时回放用户词库，Linux 没有这样一个按用户执行的安装步骤，所以改由输入法宿主在启动时完成：IBus 宿主和 Fcitx5 插件在建立任何会话之前调用 `msime_client_refresh_host`，它用库里编译进去的词库锁算出当前代次，与 `runtime-options.json` 中 `dictionaries` 指向的代次目录比较；不一致时校验新词库、由 Engine 复制出新代次的工作词库并把用户词库日志回放进去，再原子替换这份文件，只改 `resources` 和 `dictionaries` 两项，provider socket、模型路径等其他键原样保留。已是当前代次时只读一次文件。旧代次目录不会被改动，还在用它的另一个宿主重启前照常工作；准备失败时文件保持原样，输入法继续用旧词库，下次启动再试。符号链接、系统级 `/etc/msime-client/runtime-options.json` 以及路径不符合 `msime-linux-prepare` 布局的文件都不会被改写。
 
 升级后两个宿主都要换到新程序才会用上新版本。Windows 安装程序先停掉输入法进程、装完再启动新的；dpkg 则把新文件改名覆盖旧文件，正在运行的 IBus 宿主和 Fcitx5 进程继续执行已被替换的旧程序。所以 `.deb` 升级时 postinst 除了重启正在运行的用户服务（见下文「生成 Linux 安装包」），还给每个联系得上的已登录用户发一条桌面通知「水杉输入法已升级」，写明 IBus 执行 `ibus restart`、Fcitx5 执行 `fcitx5 -r` 或注销后重新登录；通知作为该用户 systemd 实例里的临时单元发送，用的是该用户的会话总线，postinst 不等它完成，没有 `systemd-run` 或 `notify-send` 时不发，发送失败也不会让 apt 失败。IBus 宿主在输入焦点变化时检查 `/proc/self/exe`，发现自身程序已被新文件替换、且当前没有组字、候选或语音录音时，在焦点事件处理完后以专用状态 78 退出，launcher 立即带 `--recovered` 启动新版本，不等待，也不计入崩溃退避（见下文「IBus 宿主崩溃后自动恢复」），所以通常切换一次窗口就换到了新版本，组字中的内容不会丢，有焦点的编辑器也不必重新选择输入法；正在组字时推迟到之后的焦点变化。从还没有这项检查的版本升级时，正在运行的旧宿主不会自己退出，这正是通知里写明 `ibus restart` 的原因。程序被删除而不是替换（`apt remove`）时宿主不退出，因为没有可以启动的新程序，退出只会让输入法提前消失；它继续运行到 `ibus restart` 或注销，期间若崩溃，launcher 发现程序已不在就不再重启。Fcitx5 插件与 Fcitx5 同进程，自己重启会带走其他输入法，设置页的「重启输入法服务」对 Fcitx5 只在进程内重置水杉插件的会话和配置（见下文 Fcitx5 的 `Ctrl+Shift+Alt+R` 一段），不加载新程序，所以插件在激活时检查 `/proc/self/maps` 里自身代码所在的共享库：已被替换时在面板上提示「水杉输入法已升级：执行 fcitx5 -r 或注销后重新登录即可使用新版本」，已被删除时提示「水杉输入法已卸载：执行 fcitx5 -r 或注销后重新登录即可完成卸载」，状态每变化一次只提示一次（卸载后没有重启 Fcitx5 就重新安装时，改为提示已升级），优先于配置相关的提示，下一次组字时被输入面板的内容替换。从源码树重新编译后仍在运行的旧宿主也会这样处理，换到的就是新编译的程序。检测由 `tests/core/replaced_program.cpp`（真实内核：改名覆盖和删除正在运行的程序与已映射的文件）钉住，launcher 的处理由 `tests/core/ibus_launcher_supervisor.py`、通知由 `tests/core/deb_maintainer_scripts.py` 钉住。
 
-随包提供词库的安装由包管理器在升级时换掉词库，宿主下次启动就切到新代次。用 `msime-linux-setup --download` 自己下载的词库没有人替换：升级抬高了词库版本，而记录的词库目录仍是旧的那份时，`msime_client_refresh_host` 的校验失败以 `dictionary_outdated:` 开头报告，与其他准备失败区分开。这时宿主照旧继续用旧代次，IBus 宿主在 stderr 写明原因，Fcitx5 写诊断 `reason=dictionary_outdated`，两者都以不阻塞的方式调用随装的 `msime-client-first-run-guide --reason dictionary-outdated`。有图形会话时它发一条桌面通知「水杉输入法词库需要更新」，指向 `msime-linux-setup --update --download`，不打开窗口；限流与首次配置引导相同，但标记是独立的 `dictionary-outdated.stamp`，两种引导互不抑制。`msime-linux-setup --update`（状态目录已有 `runtime-options.json` 时给 `--download` 即视为 `--update`）对应 Windows 安装程序升级时的用户词库回放：它读出这份配置记录的 `resources`，按随装的词库锁核对；不符时加 `--download` 在它旁边另建一份按锁内容命名的 `resources-<摘要>` 目录，与锁一致的文件直接硬链接过去，只取回缺失或不符的几项。正在使用的那份目录一个文件都不写：旧代次的会话每次查询都按路径读其中的 `others.db` 等文件，原地替换会让它读到新旧混杂的一份，切换失败时也无法退回；旧目录保留，确认后由用户自行删除，锁之外的多余文件也随之留在旧目录里。随后它像设置窗口做词库维护那样写入 `.msime-dictionary-quiesce` 租约（在切换期间续期），并独占会话锁证明两个宿主都已关掉输入会话，再运行 `msime-client-prepare --refresh`，走与宿主启动时同一条刷新路径切到新代次并回放用户词库。新目录先写进同目录下的一份配置副本交给刷新，刷新成功后这份副本才原子替换 `runtime-options.json`。切换期间不开会话是为了回放完整：Engine 只在准备新代次时回放一次用户词库日志，之后一个仍开着的会话学到的词只会写进旧代次和日志，新代次再也拿不到。会话在 2.5 秒内未释放时不切换、配置不变，已下好的新目录留给下次重试。记录的词库目录是本次安装随包提供的那份（前缀下的 `share/msime-client/resources` 与 `$XDG_DATA_HOME/msime-client/resources` 重合时除外，例如装在 `~/.local` 下，那里的词库是首次配置时用户自己下载的），或不归当前用户所有、当前用户不可写时拒绝更新，说明它由包管理器负责；`--update` 不接受 `--resources`，没有 `runtime-options.json` 时报错并提示先做首次配置。`msime-client-prepare --refresh` 输出 `refreshed` 或 `current`，词库仍与本版本不符时以 3 退出，其他失败以 1 退出，文件都保持原样。租约撤下后宿主重新打开的会话即使用新代次：Fcitx5 在建立会话时读取这份文件；IBus 宿主监视它并在 100 ms 内重读，监视不可用时每 5 秒重读一次，所以 IBus 在运行时租约会在切换后再保留 6 秒。
+随包提供词库的安装由包管理器在升级时换掉词库，宿主下次启动就切到新代次。用 `msime-linux-setup --download` 自己下载的词库没有人替换：升级抬高了词库版本，而记录的词库目录仍是旧的那份时，`msime_client_refresh_host` 的校验失败以 `dictionary_outdated:` 开头报告，与其他准备失败区分开。这时宿主照旧继续用旧代次，IBus 宿主在 stderr 写明原因，Fcitx5 写诊断 `reason=dictionary_outdated`，两者都以不阻塞的方式调用随装的 `msime-linux-first-run-guide --reason dictionary-outdated`。有图形会话时它发一条桌面通知「水杉输入法词库需要更新」，指向 `msime-linux-setup --update --download`，不打开窗口；限流与首次配置引导相同，但标记是独立的 `dictionary-outdated.stamp`，两种引导互不抑制。`msime-linux-setup --update`（状态目录已有 `runtime-options.json` 时给 `--download` 即视为 `--update`）对应 Windows 安装程序升级时的用户词库回放：它读出这份配置记录的 `resources`，按随装的词库锁核对；不符时加 `--download` 在它旁边另建一份按锁内容命名的 `resources-<摘要>` 目录，与锁一致的文件直接硬链接过去，只取回缺失或不符的几项。正在使用的那份目录一个文件都不写：旧代次的会话每次查询都按路径读其中的 `others.db` 等文件，原地替换会让它读到新旧混杂的一份，切换失败时也无法退回；旧目录保留，确认后由用户自行删除，锁之外的多余文件也随之留在旧目录里。随后它像设置窗口做词库维护那样写入 `.msime-dictionary-quiesce` 租约（在切换期间续期），并独占会话锁证明两个宿主都已关掉输入会话，再运行 `msime-linux-prepare --refresh`，走与宿主启动时同一条刷新路径切到新代次并回放用户词库。新目录先写进同目录下的一份配置副本交给刷新，刷新成功后这份副本才原子替换 `runtime-options.json`。切换期间不开会话是为了回放完整：Engine 只在准备新代次时回放一次用户词库日志，之后一个仍开着的会话学到的词只会写进旧代次和日志，新代次再也拿不到。会话在 2.5 秒内未释放时不切换、配置不变，已下好的新目录留给下次重试。记录的词库目录是本次安装随包提供的那份（前缀下的 `share/msime-client/resources` 与 `$XDG_DATA_HOME/msime-client/resources` 重合时除外，例如装在 `~/.local` 下，那里的词库是首次配置时用户自己下载的），或不归当前用户所有、当前用户不可写时拒绝更新，说明它由包管理器负责；`--update` 不接受 `--resources`，没有 `runtime-options.json` 时报错并提示先做首次配置。`msime-linux-prepare --refresh` 输出 `refreshed` 或 `current`，词库仍与本版本不符时以 3 退出，其他失败以 1 退出，文件都保持原样。租约撤下后宿主重新打开的会话即使用新代次：Fcitx5 在建立会话时读取这份文件；IBus 宿主监视它并在 100 ms 内重读，监视不可用时每 5 秒重读一次，所以 IBus 在运行时租约会在切换后再保留 6 秒。
 
 **状态准备好后，setup 把输入法加进正在运行的宿主的输入法列表**，对应 Windows 安装程序注册 TSF profile 后输入法直接出现在列表里。两个宿主都在跑时以 Fcitx5 为准。Fcitx5 经 D-Bus（`org.fcitx.Fcitx5` 的 `/controller`）先看 `AvailableInputMethods` 是否已列出 `msime`，没有才调用 `Restart`（Fcitx5 只在启动时加载插件，写入组里的未加载输入法会被它丢掉），然后读出当前输入法组，把 `msime`（显示为「水杉输入法」，英文界面为「MSIME」）追加到组末尾后写回，再读回核对。IBus 下先看 `ibus list-engine` 是否已列出 `msime-linux`，没有才执行 `ibus restart`（ibus-daemon 只在启动时读组件文件），然后把 `('ibus', 'msime-linux')` 追加到 GNOME 的 `org.gnome.desktop.input-sources sources`（`XDG_CURRENT_DESKTOP` 含 GNOME 且装有该 schema 时；GNOME Shell 不读 IBus 自己的列表），其他桌面追加到 `org.freedesktop.ibus.general preload-engines`，输入源里显示为「Metasequoia 水杉输入法」。已在列表里时只读不写，重复运行不会重复添加；IBus 列表为空说明桌面在用一份没写进该项的默认输入源，这时不写，免得把它替换掉；Fcitx5 当前组为空时同样不写，因为组里第一项是非激活状态下使用的输入法，应当是键盘布局，只放本输入法会让它无处可切回。任何一步失败（宿主没在跑、D-Bus 调用失败、宿主重启后仍未加载本输入法、列表或当前组为空）都只在 stderr 说明原因并打印手动步骤：Fcitx5 用 `fcitx5-configtool` 把「水杉输入法」加入当前输入法组，IBus 执行 `ibus restart` 后在输入源里添加「Metasequoia 水杉输入法」；已经准备好的状态不受影响，退出码仍为 0。`--no-register` 跳过这一步，只打印手动步骤。卸载时由 `msime-linux-setup --unregister` 把本输入法从这些列表里移除（见下文「卸载 CMake 安装」）。
 
-**先选了输入法、还没做首次配置时，宿主会把用户引到首次配置页，而不是静默失效。** Windows 的安装程序在安装时就把数据目录准备好，输入法一能选中就能用；Linux 安装包不产生用户状态，此前在 IBus 里选中 MSIME 时启动器只往 stderr 写一行就退出，用户看到的是一个没反应的输入法，Fcitx5 则只显示笼统的「请检查运行配置」。现在只有「没有显式覆盖、用户的 `runtime-options.json` 与系统级配置都不存在」这一种状态被判为「尚未完成首次配置」；显式指定的 `MSIME_IBUS_OPTIONS`/`MSIME_FCITX5_OPTIONS` 无效、文件不可读或是悬空符号链接，仍按配置损坏处理，不做引导。判为尚未配置时，IBus 启动器照旧写 stderr 并以非零状态退出，Fcitx5 在面板上显示「水杉输入法尚未完成首次配置：请打开「水杉输入法」设置，或在终端运行 msime-linux-setup」，按键继续交给应用；两者随后都调用随装的 `msime-client-first-run-guide`（Fcitx5 只在激活输入法时调用，按键只显示提示，免得打字途中弹出的窗口抢走键盘焦点）。这个脚本在有图形会话（设置了 `DISPLAY` 或 `WAYLAND_DISPLAY`）时以脱离调用方的方式打开 `msime-client-settings`（窗口自己会进入首次配置页），并在装有 `notify-send` 时发一条桌面通知；没装设置窗口的最小安装只发通知，改为指向 `msime-linux-setup`。通知里的后续步骤按宿主区分（调用方传 `--host ibus|fcitx5`）：Fcitx5 下次按键或聚焦就会重读配置，写的是「完成后即可直接输入」；IBus 组件已经退出，写的是先切换到其他输入法再切回，仍不行就运行 `ibus restart`。ibus-daemon 每次选中都会重新拉起启动器、Fcitx5 每次聚焦都会激活输入法，所以引导有限流：标记放在 `$XDG_RUNTIME_DIR/msime-client/first-run-guide.stamp`，每个登录会话两个宿主合计只弹一次，标记不按时间过期，重新登录后才会再弹；会话没有 `XDG_RUNTIME_DIR` 时退到跨会话保留的 `$XDG_CACHE_HOME/msime-client/`，只能按 5 分钟冷却期限流。没有图形会话时既不弹窗也不写标记。脚本不创建状态目录（`msime-linux-setup` 拒绝准备已存在的目录），也不发起任何网络请求，下载仍只在用户勾选或传 `--download` 时发生。契约由 `tests/core/first_run_guide.py`（桩掉设置窗口与 `notify-send`，验证只调用一次、同一会话内不再调用、并发调用只引导一次、缓存目录下的冷却期、按宿主区分的通知文案、无图形会话时不调用，以及 `--reason dictionary-outdated` 只发通知不开窗口、与首次配置各用一个标记互不抑制）、`tests/core/first_run_guidance.cpp`（Fcitx5 的配置定位与「尚未配置」判定）和 `fcitx5/tests/native.cpp` 里的首次配置用例（真实插件：面板提示、按键不被拦截、按键不拉起引导、激活只拉起一次、不写失败诊断；词库过期时写 `reason=dictionary_outdated`、以 `--reason dictionary-outdated` 拉起引导且不改写配置）钉住。
+**先选了输入法、还没做首次配置时，宿主会把用户引到首次配置页，而不是静默失效。** Windows 的安装程序在安装时就把数据目录准备好，输入法一能选中就能用；Linux 安装包不产生用户状态，此前在 IBus 里选中 MSIME 时启动器只往 stderr 写一行就退出，用户看到的是一个没反应的输入法，Fcitx5 则只显示笼统的「请检查运行配置」。现在只有「没有显式覆盖、用户的 `runtime-options.json` 与系统级配置都不存在」这一种状态被判为「尚未完成首次配置」；显式指定的 `MSIME_IBUS_OPTIONS`/`MSIME_FCITX5_OPTIONS` 无效、文件不可读或是悬空符号链接，仍按配置损坏处理，不做引导。判为尚未配置时，IBus 启动器照旧写 stderr 并以非零状态退出，Fcitx5 在面板上显示「水杉输入法尚未完成首次配置：请打开「水杉输入法」设置，或在终端运行 msime-linux-setup」，按键继续交给应用；两者随后都调用随装的 `msime-linux-first-run-guide`（Fcitx5 只在激活输入法时调用，按键只显示提示，免得打字途中弹出的窗口抢走键盘焦点）。这个脚本在有图形会话（设置了 `DISPLAY` 或 `WAYLAND_DISPLAY`）时以脱离调用方的方式打开 `msime-linux-settings`（窗口自己会进入首次配置页），并在装有 `notify-send` 时发一条桌面通知；没装设置窗口的最小安装只发通知，改为指向 `msime-linux-setup`。通知里的后续步骤按宿主区分（调用方传 `--host ibus|fcitx5`）：Fcitx5 下次按键或聚焦就会重读配置，写的是「完成后即可直接输入」；IBus 组件已经退出，写的是先切换到其他输入法再切回，仍不行就运行 `ibus restart`。ibus-daemon 每次选中都会重新拉起启动器、Fcitx5 每次聚焦都会激活输入法，所以引导有限流：标记放在 `$XDG_RUNTIME_DIR/msime-client/first-run-guide.stamp`，每个登录会话两个宿主合计只弹一次，标记不按时间过期，重新登录后才会再弹；会话没有 `XDG_RUNTIME_DIR` 时退到跨会话保留的 `$XDG_CACHE_HOME/msime-client/`，只能按 5 分钟冷却期限流。没有图形会话时既不弹窗也不写标记。脚本不创建状态目录（`msime-linux-setup` 拒绝准备已存在的目录），也不发起任何网络请求，下载仍只在用户勾选或传 `--download` 时发生。契约由 `tests/core/first_run_guide.py`（桩掉设置窗口与 `notify-send`，验证只调用一次、同一会话内不再调用、并发调用只引导一次、缓存目录下的冷却期、按宿主区分的通知文案、无图形会话时不调用，以及 `--reason dictionary-outdated` 只发通知不开窗口、与首次配置各用一个标记互不抑制）、`tests/core/first_run_guidance.cpp`（Fcitx5 的配置定位与「尚未配置」判定）和 `fcitx5/tests/native.cpp` 里的首次配置用例（真实插件：面板提示、按键不被拦截、按键不拉起引导、激活只拉起一次、不写失败诊断；词库过期时写 `reason=dictionary_outdated`、以 `--reason dictionary-outdated` 拉起引导且不改写配置）钉住。
 
-**Fcitx5 的状态区入口需要桌面提供托盘宿主。** 中英文、简繁、工具栏这些动作挂在输入法状态区，由托盘（StatusNotifierItem）承载；部分发行版以 `fcitx5 --disable notificationitem` 启动，那些入口就不会出现。输入本身不受影响，设置也仍可从应用列表里的「水杉输入法」或 `msime-client-settings` 打开；要让它们显示，需要在桌面侧恢复托盘。这属于发行版与桌面的配置，输入法不代劳，也不因此改为创建脱离输入上下文的悬浮窗口。
+**Fcitx5 的状态区入口需要桌面提供托盘宿主。** 中英文、简繁、工具栏这些动作挂在输入法状态区，由托盘（StatusNotifierItem）承载；部分发行版以 `fcitx5 --disable notificationitem` 启动，那些入口就不会出现。输入本身不受影响，设置也仍可从应用列表里的「水杉输入法」或 `msime-linux-settings` 打开；要让它们显示，需要在桌面侧恢复托盘。这属于发行版与桌面的配置，输入法不代劳，也不因此改为创建脱离输入上下文的悬浮窗口。
 
-判定规则由 `tests/core/setup_resolution.py` 钉住，不需要词库也不联网：哪份词库算可用、锁里没有 URL 的那项归哪个归档、去哪里找锁和已有词库。加入输入法列表由 `tests/core/setup_registration.py` 钉住：用桩代替 `gdbus`、`gsettings`、`ibus` 与 `pgrep`，验证每种宿主写的是哪一项、`ibus restart` 只在引擎未被列出时执行、重复运行不重复写入、D-Bus 失败与 Fcitx5 丢弃写入时退回手动步骤、`--no-register` 不发起任何调用。升级更新由 `tests/core/setup_update.py` 钉住：词库从本机的 HTTP 桩取，验证只请求过期的那一项且下载进新目录、旧目录原样不动、一致的文件是硬链接，`msime-client-prepare --refresh` 运行时租约有效且会话锁被独占、拿到的是新目录，配置随后指向新代次且不留副本与租约；会话不释放、刷新失败、下载中途失败时配置都不变，旧目录不动；装在与数据目录重合的前缀下时照常更新，随包词库目录以及不带 `--update` 的重复首次配置都被拒绝；门禁里它还直接运行构建出的 `msime-client-prepare --refresh`，确认相对路径以 2 退出、与编译进去的锁不符的词库以 3 退出且不改写配置。
+判定规则由 `tests/core/setup_resolution.py` 钉住，不需要词库也不联网：哪份词库算可用、锁里没有 URL 的那项归哪个归档、去哪里找锁和已有词库。加入输入法列表由 `tests/core/setup_registration.py` 钉住：用桩代替 `gdbus`、`gsettings`、`ibus` 与 `pgrep`，验证每种宿主写的是哪一项、`ibus restart` 只在引擎未被列出时执行、重复运行不重复写入、D-Bus 失败与 Fcitx5 丢弃写入时退回手动步骤、`--no-register` 不发起任何调用。升级更新由 `tests/core/setup_update.py` 钉住：词库从本机的 HTTP 桩取，验证只请求过期的那一项且下载进新目录、旧目录原样不动、一致的文件是硬链接，`msime-linux-prepare --refresh` 运行时租约有效且会话锁被独占、拿到的是新目录，配置随后指向新代次且不留副本与租约；会话不释放、刷新失败、下载中途失败时配置都不变，旧目录不动；装在与数据目录重合的前缀下时照常更新，随包词库目录以及不带 `--update` 的重复首次配置都被拒绝；门禁里它还直接运行构建出的 `msime-linux-prepare --refresh`，确认相对路径以 2 退出、与编译进去的锁不符的词库以 3 退出且不改写配置。
 
 ## 生成 Linux 安装包
 
-发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件是一个 Debian 包 `msime-client_<版本>_<架构>.deb`、一个与它同一套文件、按 `/usr` 布局的归档 `msime-client-<版本>-linux-<架构>.tar.gz` 和二者的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，不依赖其中的版本与架构段。
+发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件是一个 Debian 包 `msime-linux_<版本>_<架构>.deb`、一个与它同一套文件、按 `/usr` 布局的归档 `msime-linux-<版本>-linux-<架构>.tar.gz` 和二者的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，不依赖其中的版本与架构段。
 
-安装前先核对校验值：`sha256sum -c SHA256SUMS --ignore-missing`。Debian/Ubuntu 用 `sudo apt install ./msime-client_<版本>_<架构>.deb`，依赖由 apt 一并装好，卸载用 `sudo apt remove msime-client`。对应 Windows 安装程序在卸载和升级时停止输入法进程：`apt remove` 删除文件前，包的 prerm 在每个已登录（或启用了 linger）用户的 systemd 用户实例里逐个 `disable --now` 与 CMake 卸载相同的那组在线、语音和剪贴板单元，免得它们指着已删除的程序反复重启，再在同一实例里以临时单元运行 `msime-linux-setup --unregister`，把本输入法从该用户的输入法列表里移除（见「卸载 CMake 安装」）；升级后 postinst 让这些实例重读单元文件，并重启其中正在运行的服务，使其换到新程序，socket 单元保持监听，再通知用户怎样让输入法换到新版本（见上文「安装后首次使用」里的升级一段）。联系不上的用户实例只打印该用户需要执行的命令，包括重启输入法；未登录的用户没有运行中的服务，但启用链接仍留在各自的 `~/.config/systemd/user`，需要时自行执行 `systemctl --user disable …`。没有 systemd 的环境（例如容器）两步都跳过，也都不会让 apt 失败。包里唯一不在 `/usr` 下的文件是剪贴板服务的 XDG 自启动项 `/etc/xdg/autostart/msime-client-clipboard.desktop`（见「独立剪贴板采集」），它是 conffile：管理员修改或删除它之后，升级不会把它改回来；`apt remove` 留下它、`apt purge` 才删除，留下的自启动项在服务已被 prerm 停用后什么也不做。归档给不经 apt 安装的 Debian 系系统用，不是跨发行版的通用包：库目录是 Debian 的多架构布局 `usr/lib/<三元组>/`（例如 `usr/lib/x86_64-linux-gnu/`），Fcitx5 插件因此在 `usr/lib/<三元组>/fcitx5/`，Arch（`/usr/lib/fcitx5`）和 Fedora（`/usr/lib64/fcitx5`）上的 Fcitx5 不会去那里加载它。用法：`sudo tar -xzf msime-client-<版本>-linux-<架构>.tar.gz --strip-components=1 -C /`，再执行 `sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor`；归档没有依赖声明，需由发行版提供 IBus 1.5.20+ 或 Fcitx5 5.0.20+、Python 3.9+，以及二进制链接的共享库（WebKitGTK 4.1、GTK 3、libsoup 3、ICU、libcurl、SQLite、D-Bus、Wayland、X11、xkbcommon 等，完整列表以同版本 `.deb` 的 Depends 为准）；它也没有卸载入口，删除时按归档内的文件列表（`tar -tzf`）逐个移除。两种方式装完都按上面的「安装后首次使用」执行 `msime-linux-setup`。
+安装前先核对校验值：`sha256sum -c SHA256SUMS --ignore-missing`。Debian/Ubuntu 用 `sudo apt install ./msime-linux_<版本>_<架构>.deb`，依赖由 apt 一并装好，卸载用 `sudo apt remove msime-client`。对应 Windows 安装程序在卸载和升级时停止输入法进程：`apt remove` 删除文件前，包的 prerm 在每个已登录（或启用了 linger）用户的 systemd 用户实例里逐个 `disable --now` 与 CMake 卸载相同的那组在线、语音和剪贴板单元，免得它们指着已删除的程序反复重启，再在同一实例里以临时单元运行 `msime-linux-setup --unregister`，把本输入法从该用户的输入法列表里移除（见「卸载 CMake 安装」）；升级后 postinst 让这些实例重读单元文件，并重启其中正在运行的服务，使其换到新程序，socket 单元保持监听，再通知用户怎样让输入法换到新版本（见上文「安装后首次使用」里的升级一段）。联系不上的用户实例只打印该用户需要执行的命令，包括重启输入法；未登录的用户没有运行中的服务，但启用链接仍留在各自的 `~/.config/systemd/user`，需要时自行执行 `systemctl --user disable …`。没有 systemd 的环境（例如容器）两步都跳过，也都不会让 apt 失败。包里唯一不在 `/usr` 下的文件是剪贴板服务的 XDG 自启动项 `/etc/xdg/autostart/msime-linux-clipboard.desktop`（见「独立剪贴板采集」），它是 conffile：管理员修改或删除它之后，升级不会把它改回来；`apt remove` 留下它、`apt purge` 才删除，留下的自启动项在服务已被 prerm 停用后什么也不做。归档给不经 apt 安装的 Debian 系系统用，不是跨发行版的通用包：库目录是 Debian 的多架构布局 `usr/lib/<三元组>/`（例如 `usr/lib/x86_64-linux-gnu/`），Fcitx5 插件因此在 `usr/lib/<三元组>/fcitx5/`，Arch（`/usr/lib/fcitx5`）和 Fedora（`/usr/lib64/fcitx5`）上的 Fcitx5 不会去那里加载它。用法：`sudo tar -xzf msime-linux-<版本>-linux-<架构>.tar.gz --strip-components=1 -C /`，再执行 `sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor`；归档没有依赖声明，需由发行版提供 IBus 1.5.20+ 或 Fcitx5 5.0.20+、Python 3.9+，以及二进制链接的共享库（WebKitGTK 4.1、GTK 3、libsoup 3、ICU、libcurl、SQLite、D-Bus、Wayland、X11、xkbcommon 等，完整列表以同版本 `.deb` 的 Depends 为准）；它也没有卸载入口，删除时按归档内的文件列表（`tar -tzf`）逐个移除。两种方式装完都按上面的「安装后首次使用」执行 `msime-linux-setup`。
 
 两种附件都在 Debian 12（bookworm）容器里构建，链接的是 bookworm 的库版本：`.deb` 的 Depends 因此含 `libicu72`、`libfcitx5core7 (>= 5.0.21)` 等，只能装在提供这些包的发行版上（Debian 12 可以；Ubuntu 22.04 与 24.04 提供的分别是 `libicu70` 与 `libicu74`，都不满足），归档在 ICU 版本不同的系统上同样无法启动。支持更多发行版需要按目标发行版分别构建，本流程目前只产出这一个基线。
 
@@ -72,7 +72,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 保留执行安装的构建目录，可用 `cmake --build <build-dir> --target uninstall` 删除该构建的 `install_manifest.txt` 中记录的程序、资源和桌面入口。卸载前先切换到其他输入法并关闭 MSIME 面板。执行卸载所需权限与原安装相同。对应 Windows 卸载时停止输入法进程并删除登录任务：以普通用户身份卸载时，删除文件前会在当前用户的 systemd 用户实例里逐个 `disable --now` `msime-linux-setup` 启用过的在线、语音和剪贴板服务，免得它们指着已删除的程序反复重启；以 root 或带 `DESTDIR` 卸载时够不到各用户的实例，只打印每个用户需要执行的那条 `systemctl --user disable --now …` 命令。卸载不停止输入法宿主：正在运行的 IBus 宿主继续运行到 `ibus restart` 或注销，不会因程序被删而自行重启；Fcitx5 在下次激活 MSIME 时提示执行 `fcitx5 -r` 或注销后重新登录。
 
-从带 `-preview` 后缀的旧安装升级时，先执行一次上面的卸载，或手工删除 `${CMAKE_INSTALL_DATADIR}/ibus/component/msime-client-preview.xml`。安装只写入当前的 `msime-client.xml`，不会带走改名前留下的那一份，两份并存会让 IBus 的输入法列表里同时出现新旧两项。Fcitx5 侧的 addon 与 inputmethod 配置文件名未变，不受影响。
+从带 `-preview` 后缀的旧安装升级时，先执行一次上面的卸载，或手工删除 `${CMAKE_INSTALL_DATADIR}/ibus/component/msime-linux-preview.xml`。安装只写入当前的 `msime-linux.xml`，不会带走改名前留下的那一份，两份并存会让 IBus 的输入法列表里同时出现新旧两项。Fcitx5 侧的 addon 与 inputmethod 配置文件名未变，不受影响。
 
 暂存安装使用相同的 `DESTDIR`，例如 `DESTDIR=/absolute/staging cmake --build <build-dir> --target uninstall`。若安装时用 `cmake --install` 的 `--prefix` 覆盖了配置前缀，使用 `cmake -DMSIME_UNINSTALL_PREFIX=/actual/prefix -P <build-dir>/uninstall.cmake`。程序文件必须位于该前缀内，唯一的例外是前缀为 `/usr` 时装到 `/etc/xdg/autostart/` 的剪贴板自启动项；前缀外的其他自定义绝对安装目录会使卸载在删除前中止，需要按原安装布局单独处理。
 
@@ -100,7 +100,7 @@ Fcitx5 下 `Ctrl+Shift+Alt+R`、状态菜单「重载输入法服务」和设置
 
 候选注释也由 Engine 快照按候选顺序提供：启用帮助码时使用当前方案和帮助码表生成，无法生成时保留纠错提示。Linux 宿主只显示该注释，不重复实现帮助码计算。
 
-可选的 `online_provider_socket` 顶层启动配置指定用户管理的绝对 Unix socket。宿主复制在线查询后在 GLib worker 中请求该服务，再通过 Host API 的代次校验回填候选；未配置时不发起在线请求。请求带有 `kind:"online"`，启用 AI 联想时还携带已校验的 provider、model、候选数量和提示词配置，但不携带 token；socket 服务负责凭据、网络和 provider 策略。独立入口 `msime-client-online /absolute/provider.sock` 从标准输入读取同一 OnlineQuery JSON 并输出受界限的 JSON 响应，供 GTK/Qt 面板或其他 Linux 宿主复用。也可用 `translation_provider_socket` 或 `MSIME_TRANSLATION_PROVIDER_SOCKET` 指定独立的候选翻译服务；未指定时翻译继续复用在线 socket。`MSIME_ONLINE_PROVIDER_SOCKET` 可作为在线 socket 的环境变量回退。
+可选的 `online_provider_socket` 顶层启动配置指定用户管理的绝对 Unix socket。宿主复制在线查询后在 GLib worker 中请求该服务，再通过 Host API 的代次校验回填候选；未配置时不发起在线请求。请求带有 `kind:"online"`，启用 AI 联想时还携带已校验的 provider、model、候选数量和提示词配置，但不携带 token；socket 服务负责凭据、网络和 provider 策略。独立入口 `msime-linux-online /absolute/provider.sock` 从标准输入读取同一 OnlineQuery JSON 并输出受界限的 JSON 响应，供 GTK/Qt 面板或其他 Linux 宿主复用。也可用 `translation_provider_socket` 或 `MSIME_TRANSLATION_PROVIDER_SOCKET` 指定独立的候选翻译服务；未指定时翻译继续复用在线 socket。`MSIME_ONLINE_PROVIDER_SOCKET` 可作为在线 socket 的环境变量回退。
 
 候选翻译服务选择「水杉账号」时，Linux provider 只在这个选项被保存且没有其他可用翻译服务时发送候选词到 `/v1/translate`。安装包的 Debian `postinst` 会为每个可联系到的登录用户调用 provider 的 `--ensure-anonymous-account`，`msime-linux-setup` 也会在首次配置时执行同一步；它先生成本机匿名身份，再通过 `https://api.msime.app/v1/auth/challenges` 与 `/v1/auth/login` 换取翻译令牌。网络失败只会提示并留待下一次重试。身份和轮换后的令牌分别保存在 `$XDG_CONFIG_HOME/msime-client/anonymous-account.json` 与 `anonymous-session.json`，文件由当前用户独占读写（0600），不传给设置页或输入法进程。未选择「水杉账号」时不会发送候选翻译，但账号注册仍按安装流程完成。
 
@@ -116,7 +116,7 @@ IBus 属性菜单中的“候选翻译”在配置绝对共享偏好目录时按
 
 “翻译目标语言”菜单可选择英语、法语、日语、西班牙语、俄语、德语或韩语；配置绝对共享偏好目录时按 revision 持久化，保存成功后使旧语言请求失效并按当前候选重新请求，未配置目录时只覆盖当前会话。
 
-语音输入通过可选的 `voice_provider_socket` 顶层绝对 Unix socket 接入，也可用 `MSIME_VOICE_PROVIDER_SOCKET` 作为环境回退。IBus 属性中的“语音输入”首次点击启动录音，再次点击结束录音并等待识别结果上屏，与 Windows 托盘语音操作一致；识别和润色期间该属性不可重复操作，Esc 仍可取消当前语音代次。IBus 的语音输入与 Windows 一样不随中英文模式停用：英文模式下语音快捷键（包括本来会交给应用的单独 RAlt）、“语音输入”属性和 Esc 取消照常工作，录音途中无论用快捷键还是属性菜单切换中英文都不会取消录音。英文模式下通常没有 Engine 会话，这时录音代次由宿主自己编号（最高位置 1，与 Engine 代次不会相撞），识别结果不经 Engine 确认代次，直接按 provider 原文上屏，与 Windows 英文模式下语音不经过组字一致；繁体输出和全角设置仍照常套用，与中文模式上屏的文字相同。用户管理的 socket 服务收到 `{"version":1,"kind":"voice","query":{"language":"zh-cn","generation":1,"stream":true,"options":{"sound_enabled":true,"start_sound":true,"end_sound":true,"mute_system_audio":false,"polish_enabled":false,"stream_inline_preedit":true,"doubao_boosting_table_id":""}}}` 后负责 PipeWire/ALSA 录音、提示音、静音、ASR 凭据、网络和结果润色，并按行返回 `{"text":"中间结果","type":"partial"}` 以及最终的 `{"text":"识别结果","type":"final"}`；旧版只返回 `{"text":"识别结果"}` 的服务仍按最终结果处理。取消时输入法另发 `{"version":1,"kind":"voice_cancel","query":{"generation":1}}`，provider 应停止对应录音并忽略后续结果；按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 松开时则发送 `{"version":1,"kind":"voice_stop","query":{"generation":1}}`，provider 应停止录音并让原连接返回最终结果，Ctrl+F9 和再次点击 IBus“语音输入”属性也使用该完成路径。豆包流式识别且 `preferences.voice_input.stream_inline_preedit` 开启时，中间文本更新 IBus 预编辑；关闭该选项或使用其他识别服务时只在辅助区域显示实时转写并提交最终文本。Linux 上语音结果只经 IBus（或 Fcitx5）提交这一条路径，设置页不提供「结果提交策略」，偏好里存着的 `commit_mode` 在这里不起作用；设置应用里的独立语音面板同样把文本交给当前的输入法宿主，不按它改用粘贴。`options` 只包含非敏感行为配置（包括有长度上限的润色提示词和 Doubao boosting table ID），输入法不会转发 token、app key 或其他凭据；provider 可以忽略不支持的字段。结果回到 GLib 主线程后再次校验会话和代次；最终文本为空但已有有效中间转写时，输入法保留该转写提交，只有没有任何可提交文本的空结果、过期结果和取消结果才不会上屏。若 Engine 应用结果失败，宿主也会把同一有界文本直接提交到 IBus。每条响应文本最多 4096 字节，服务调用最长等待 730 秒（包含录音及识别），每 100ms 检查取消，整行响应最多 16 KiB。`preferences.voice_input.enabled` 和 `preferences.voice_input.language` 控制属性是否可用及识别语言。独立入口 `msime-client-voice /absolute/provider.sock` 从标准输入读取同一查询 JSON 并输出受界限的 JSON 响应；加上 `--stream` 参数时按行输出 `partial`/`final` 事件，供 GTK/Qt 面板或其他 Linux 宿主复用，不在输入法进程内保存凭据或原始音频。
+语音输入通过可选的 `voice_provider_socket` 顶层绝对 Unix socket 接入，也可用 `MSIME_VOICE_PROVIDER_SOCKET` 作为环境回退。IBus 属性中的“语音输入”首次点击启动录音，再次点击结束录音并等待识别结果上屏，与 Windows 托盘语音操作一致；识别和润色期间该属性不可重复操作，Esc 仍可取消当前语音代次。IBus 的语音输入与 Windows 一样不随中英文模式停用：英文模式下语音快捷键（包括本来会交给应用的单独 RAlt）、“语音输入”属性和 Esc 取消照常工作，录音途中无论用快捷键还是属性菜单切换中英文都不会取消录音。英文模式下通常没有 Engine 会话，这时录音代次由宿主自己编号（最高位置 1，与 Engine 代次不会相撞），识别结果不经 Engine 确认代次，直接按 provider 原文上屏，与 Windows 英文模式下语音不经过组字一致；繁体输出和全角设置仍照常套用，与中文模式上屏的文字相同。用户管理的 socket 服务收到 `{"version":1,"kind":"voice","query":{"language":"zh-cn","generation":1,"stream":true,"options":{"sound_enabled":true,"start_sound":true,"end_sound":true,"mute_system_audio":false,"polish_enabled":false,"stream_inline_preedit":true,"doubao_boosting_table_id":""}}}` 后负责 PipeWire/ALSA 录音、提示音、静音、ASR 凭据、网络和结果润色，并按行返回 `{"text":"中间结果","type":"partial"}` 以及最终的 `{"text":"识别结果","type":"final"}`；旧版只返回 `{"text":"识别结果"}` 的服务仍按最终结果处理。取消时输入法另发 `{"version":1,"kind":"voice_cancel","query":{"generation":1}}`，provider 应停止对应录音并忽略后续结果；按住 RAlt、Ctrl+Win 或 RCtrl+RAlt 松开时则发送 `{"version":1,"kind":"voice_stop","query":{"generation":1}}`，provider 应停止录音并让原连接返回最终结果，Ctrl+F9 和再次点击 IBus“语音输入”属性也使用该完成路径。豆包流式识别且 `preferences.voice_input.stream_inline_preedit` 开启时，中间文本更新 IBus 预编辑；关闭该选项或使用其他识别服务时只在辅助区域显示实时转写并提交最终文本。Linux 上语音结果只经 IBus（或 Fcitx5）提交这一条路径，设置页不提供「结果提交策略」，偏好里存着的 `commit_mode` 在这里不起作用；设置应用里的独立语音面板同样把文本交给当前的输入法宿主，不按它改用粘贴。`options` 只包含非敏感行为配置（包括有长度上限的润色提示词和 Doubao boosting table ID），输入法不会转发 token、app key 或其他凭据；provider 可以忽略不支持的字段。结果回到 GLib 主线程后再次校验会话和代次；最终文本为空但已有有效中间转写时，输入法保留该转写提交，只有没有任何可提交文本的空结果、过期结果和取消结果才不会上屏。若 Engine 应用结果失败，宿主也会把同一有界文本直接提交到 IBus。每条响应文本最多 4096 字节，服务调用最长等待 730 秒（包含录音及识别），每 100ms 检查取消，整行响应最多 16 KiB。`preferences.voice_input.enabled` 和 `preferences.voice_input.language` 控制属性是否可用及识别语言。独立入口 `msime-linux-voice /absolute/provider.sock` 从标准输入读取同一查询 JSON 并输出受界限的 JSON 响应；加上 `--stream` 参数时按行输出 `partial`/`final` 事件，供 GTK/Qt 面板或其他 Linux 宿主复用，不在输入法进程内保存凭据或原始音频。
 
 语音波形展示通过 `WaveOverlaySurface` 注入宿主。Wayland 且系统提供 `wayland-client`、`wayland-scanner` 和 `xdg-shell` 协议文件时，宿主优先使用 `wlr-layer-shell` 底部居中的 overlay layer；不支持该协议的 compositor 会回退到 IBus 辅助栏。X11 且同时提供 `x11`、`xfixes`、`xrandr` 开发模块时使用不抢焦点的原生浮层，按前台窗口所在显示器（取不到时用指针所在或主显示器，经 XRandR 枚举）的工作区底部居中定位，尺寸按 `Xft.dpi`/`GDK_SCALE` 缩放，每次显示时重新计算；没有 XRandR 时回退到 EWMH 工作区或 root 屏幕尺寸并保留多屏负坐标；录音阶段浮层两侧的取消、结束按钮仅接收按钮区域输入，其余区域保持输入透明，连接失败也会回退到 IBus。Wayland 后端继续不请求键盘焦点，仅在浮层两侧动作按钮区域接收鼠标输入；没有可用指针设备时仍可通过 IBus 菜单完成动作。可用 `MSIME_WAVE_OVERLAY_BACKEND=wayland`、`x11` 或 `ibus` 请求指定后端。Wayland 后端使用固定尺寸双缓冲共享内存，不请求键盘焦点，也不占用工作区 exclusive zone；检测到 `pangocairo` 时会在同一缓冲区绘制状态和实时转写文字，否则保留波形与转写长度指示。
 
@@ -138,7 +138,7 @@ Fcitx5 切换中英文时（共享偏好 `input_mode_hud`，默认开启），�
 {"version":1,"kind":"translation","query":{"generation":9,"target_language":"en","candidates":["你好","世界"],"provider":"tencent"}}
 ```
 
-服务应在一行内返回 `{"translations":[{"text":"你好","translation":"hello"}]}`；未知候选可以省略。独立入口 `msime-client-translation /absolute/provider.sock` 从标准输入读取同一 TranslationQuery JSON 并输出受界限的 JSON 响应，供 GTK/Qt 面板或其他 Linux 宿主复用。`provider` 是设置页「翻译服务」当前的选择（`none`、`account`、`tencent`、`niutrans`、`custom`），即使所选服务配置不全也照实填写；服务只能询问这一家，选「关闭」或所选服务不可用时不发出任何请求，不得退回腾讯。缺少该字段的请求来自旧版宿主，服务沿用旧规则（有 NiuTrans 用 NiuTrans，其次自定义，否则腾讯）。腾讯密钥只存在于服务自己的 `tencent-provider.json`，协议里不传。启用自定义翻译时，请求还会携带已验证的 `custom_translation` endpoint 和 API Key，provider 可据此调用兼容 DeepLX 的服务。宿主只接受最多 9 个候选、每项最多 4096 字节、每次完整响应最多 8 秒、128 KiB，并把返回的 generation 原样交给 Host API 校验；过期视图不会被更新。服务必须由用户管理绝对 Unix socket，负责所有凭据、网络访问和日志策略，输入法不会记录原始输入或 API Key。关闭 `preferences.candidate_translations` 后不会发起该请求。候选翻译会按当前候选布局附加到 IBus 候选行。
+服务应在一行内返回 `{"translations":[{"text":"你好","translation":"hello"}]}`；未知候选可以省略。独立入口 `msime-linux-translation /absolute/provider.sock` 从标准输入读取同一 TranslationQuery JSON 并输出受界限的 JSON 响应，供 GTK/Qt 面板或其他 Linux 宿主复用。`provider` 是设置页「翻译服务」当前的选择（`none`、`account`、`tencent`、`niutrans`、`custom`），即使所选服务配置不全也照实填写；服务只能询问这一家，选「关闭」或所选服务不可用时不发出任何请求，不得退回腾讯。缺少该字段的请求来自旧版宿主，服务沿用旧规则（有 NiuTrans 用 NiuTrans，其次自定义，否则腾讯）。腾讯密钥只存在于服务自己的 `tencent-provider.json`，协议里不传。启用自定义翻译时，请求还会携带已验证的 `custom_translation` endpoint 和 API Key，provider 可据此调用兼容 DeepLX 的服务。宿主只接受最多 9 个候选、每项最多 4096 字节、每次完整响应最多 8 秒、128 KiB，并把返回的 generation 原样交给 Host API 校验；过期视图不会被更新。服务必须由用户管理绝对 Unix socket，负责所有凭据、网络访问和日志策略，输入法不会记录原始输入或 API Key。关闭 `preferences.candidate_translations` 后不会发起该请求。候选翻译会按当前候选布局附加到 IBus 候选行。
 
 “翻译当前句子”是显式动作，不受 `candidate_translations` 自动开关控制。它发送 `sentence: true` 的单项请求，最多 512 个 Unicode 字符；普通候选翻译仍最多 9 项、每项 40 个字符。结果复用当前候选代次写回候选区，过期结果会丢弃。
 
@@ -150,11 +150,11 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 {"version":1,"kind":"handwriting","query":{"language":"zh-CN","strokes":[[{"x":0.2,"y":0.3},{"x":0.7,"y":0.8}]]}}
 ```
 
-识别服务返回 `{"candidates":["你","好"]}`，最多 12 个候选，每项最多 4096 字节；请求和响应各自限时 500ms。模型、凭据和平台识别器由该服务负责，面板可以用 `msime-client-handwriting /absolute/socket` 复用 Host API 契约。服务不可用或响应过期时面板保留笔画，不向 IBus 会话伪造提交；候选点击应由面板在当前手写请求代次内完成。
+识别服务返回 `{"candidates":["你","好"]}`，最多 12 个候选，每项最多 4096 字节；请求和响应各自限时 500ms。模型、凭据和平台识别器由该服务负责，面板可以用 `msime-linux-handwriting /absolute/socket` 复用 Host API 契约。服务不可用或响应过期时面板保留笔画，不向 IBus 会话伪造提交；候选点击应由面板在当前手写请求代次内完成。
 
-若部署了 Engine 的可选离线手写组件，面板也可执行 `msime-client-handwriting --local /absolute/handwriting-zh_CN.model`。安装后的工具省略模型参数时会读取绝对路径环境变量 `MSIME_HANDWRITING_MODEL`，否则按自身安装前缀查找 `share/msime-client/handwriting/handwriting-zh_CN.model`。该入口把归一化笔画交给 Engine 内置的 Zinnia 识别器，模型路径必须是受信任的绝对路径；没有模型或识别失败时返回错误，不回退为伪造候选。
+若部署了 Engine 的可选离线手写组件，面板也可执行 `msime-linux-handwriting --local /absolute/handwriting-zh_CN.model`。安装后的工具省略模型参数时会读取绝对路径环境变量 `MSIME_HANDWRITING_MODEL`，否则按自身安装前缀查找 `share/msime-client/handwriting/handwriting-zh_CN.model`。该入口把归一化笔画交给 Engine 内置的 Zinnia 识别器，模型路径必须是受信任的绝对路径；没有模型或识别失败时返回错误，不回退为伪造候选。
 
-独立 Emoji 面板也可通过该 socket 查询目录。请求使用 `kind:"emoji"`，查询包含 `search`、`category` 和 `limit`；服务返回 `{"items":[{"text":"😀","annotation":"grinning face"}]}`。搜索最多 256 字节、分类最多 128 字节、结果最多 96 项，每项文本最多 64 字节、注释最多 256 字节，调用限时 500ms。面板使用 `msime-client-emoji /absolute/socket` 获取结果；没有 provider 时可用 `msime-client-emoji --local /absolute/resource-generation` 直接查询已验证的 `others.db`。Linux 桌面打开面板时保存当前输入目标，点击项目优先用 `xdotool type` 或 `wtype` 回填当前编辑器，目标已失效时回退到剪贴板；IBus Engine 仍只负责组合中的本地 Emoji 模式，不读取系统剪贴板。
+独立 Emoji 面板也可通过该 socket 查询目录。请求使用 `kind:"emoji"`，查询包含 `search`、`category` 和 `limit`；服务返回 `{"items":[{"text":"😀","annotation":"grinning face"}]}`。搜索最多 256 字节、分类最多 128 字节、结果最多 96 项，每项文本最多 64 字节、注释最多 256 字节，调用限时 500ms。面板使用 `msime-linux-emoji /absolute/socket` 获取结果；没有 provider 时可用 `msime-linux-emoji --local /absolute/resource-generation` 直接查询已验证的 `others.db`。Linux 桌面打开面板时保存当前输入目标，点击项目优先用 `xdotool type` 或 `wtype` 回填当前编辑器，目标已失效时回退到剪贴板；IBus Engine 仍只负责组合中的本地 Emoji 模式，不读取系统剪贴板。
 
 桌面 Tauri Emoji 面板在 Linux 上直接读取 HostOptions `resources` 下 Engine 提供的 `others.db`，通过 Engine bridge 分页读取完整 Emoji、颜文字和符号目录，并按数据库分类聚合后交给共享 UI；读取失败时 UI 保留内置目录。面板只接收资源目录中的目录数据，不读取用户输入、凭据或私人资料。
 
@@ -190,7 +190,7 @@ IBus 与 Fcitx5 会话都支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除
 
 Windows 配置中的 `candidate_arrow_navigation` 兼容名称也会映射到共享导航的 `arrows` 开关，保证迁移配置在 Linux 上保持一致。
 
-Linux 的 `floating_toolbar` 偏好映射为 IBus 原生属性菜单中的“工具栏”入口，不创建脱离输入上下文的伪悬浮窗口。启用后，菜单按偏好显示中英文模式、独立英文输入模式、全角字符、中文标点、繁体输出、Emoji、屏幕键盘和设置动作；模式动作复用当前 IBus 会话，面板动作通过 `msime-client-settings` 启动已有 Tauri 面板，并把当前输入目标交给面板保存。关闭工具栏或单独关闭组件后，入口会在配置热重载时同步隐藏。
+Linux 的 `floating_toolbar` 偏好映射为 IBus 原生属性菜单中的“工具栏”入口，不创建脱离输入上下文的伪悬浮窗口。启用后，菜单按偏好显示中英文模式、独立英文输入模式、全角字符、中文标点、繁体输出、Emoji、屏幕键盘和设置动作；模式动作复用当前 IBus 会话，面板动作通过 `msime-linux-settings` 启动已有 Tauri 面板，并把当前输入目标交给面板保存。关闭工具栏或单独关闭组件后，入口会在配置热重载时同步隐藏。
 
 ## 构建与运行
 
@@ -230,19 +230,19 @@ Windows 的 `clipboard_history` 依赖独立剪贴板监听器和候选历史 UI
 
 `candidate_theme` 是 Windows 候选窗口的整体深浅主题覆盖。IBus Engine 只提交 lookup table 内容与文本属性，候选 panel 的边框、间距和主题切换由桌面环境控制；Linux 保留共享设置，但不伪造 panel 主题覆盖。显式文字、编号和表面色按 IBus 属性传递。
 
-个人词典维护使用共享 Host API 的独立 `msime-client-dictionary` 原生入口，不由 IBus 输入线程执行。它从标准输入读取一个不超过 65536 字节的 JSON 请求并输出 JSON 响应；请求格式和 `list`/`edit` 操作见 `msime_client.h`。`list` 不带词库类型和编码前缀时只列出用户自己添加的词；指定类型并给出编码前缀（快捷短语不需要前缀）时，同时按前缀查到随输入法附带的内置词条，用户词排在前面，每条带 `source`（`user` 或 `bundled`）。内置词条只能调整权重或删除：`edit` 的替换项必须保持类型、编码和词不变，否则返回 `bundled dictionary entry is read-only`；改动与 Windows 一样记入用户词库日志，词库升级重放后仍然生效。拼音词库的 `export` 除用户词外还带出对内置词学到或设置过的权重，并与 Windows 一样略去单字；五笔、英文和快捷短语只导出用户词。调用方必须在编辑前停止使用相关词典的会话，API 负责共享访问锁、请求幂等和 Engine 原子写入；错误输出不包含词条内容。该入口不替代桌面设置页，便于 GTK/Qt 前端复用同一契约。
+个人词典维护使用共享 Host API 的独立 `msime-linux-dictionary` 原生入口，不由 IBus 输入线程执行。它从标准输入读取一个不超过 65536 字节的 JSON 请求并输出 JSON 响应；请求格式和 `list`/`edit` 操作见 `msime_client.h`。`list` 不带词库类型和编码前缀时只列出用户自己添加的词；指定类型并给出编码前缀（快捷短语不需要前缀）时，同时按前缀查到随输入法附带的内置词条，用户词排在前面，每条带 `source`（`user` 或 `bundled`）。内置词条只能调整权重或删除：`edit` 的替换项必须保持类型、编码和词不变，否则返回 `bundled dictionary entry is read-only`；改动与 Windows 一样记入用户词库日志，词库升级重放后仍然生效。拼音词库的 `export` 除用户词外还带出对内置词学到或设置过的权重，并与 Windows 一样略去单字；五笔、英文和快捷短语只导出用户词。调用方必须在编辑前停止使用相关词典的会话，API 负责共享访问锁、请求幂等和 Engine 原子写入；错误输出不包含词条内容。该入口不替代桌面设置页，便于 GTK/Qt 前端复用同一契约。
 
 该入口也支持本地词库批量迁移：`import` 接受不超过 64 KiB、最多 1000 行的 UTF-8 文本，`standard` 格式为 `词条<TAB>编码<TAB>权重`，`windows` 格式为 `编码<TAB>词条<TAB>权重`，`rime` 格式兼容 `userdb.txt/dict.yaml` 的 `词条<TAB>编码[<TAB>权重]`、YAML 头和 `c=… d=…` 元数据；拼音词库的 `hans` 格式则每行接受纯汉字词条，由 Engine 从已验证主词典解析最高权重的规范拼音并以 10000 导入。省略权重时使用 10000。空行和 `#` 注释会跳过。调用方提供请求 ID 前缀，入口为每行生成稳定回执，重复提交同一请求安全。`export` 按页返回相同两种格式的文本和 `has_more`；设置窗口把拼好的文件交给 Tauri `save_export` 写进用户的「下载」文件夹（重名时另起 `name (2).txt`），并在页面上提示写入的完整路径。这一入口契约不变；桌面设置页导入不超过 32 MB 的文件时（更大的文件在读取前就被拒绝，提示拆分后分别导入），会在行边界把它拆成若干满足上述限制的请求（请求 ID 为 `<ID>-<序号>`，Rime YAML 头以空行代替），按整份文件的列顺序逐批导入，并把各批结果合并成一份报告，失败行号按整份文件计算；整份文件因控制字符、没有可用行等原因会被入口拒绝时，设置页在写入任何一批之前就拒绝。导入取得独占维护锁。活动 IBus / Fcitx5 会话持有共享锁时，设置窗口会在用户数据目录写入带过期时间的 `.msime-dictionary-quiesce` 租约（最长 30 秒）：两个宿主在偏好轮询时（Fcitx5 每 250 ms、IBus 每秒）上屏当前组合、关闭会话，租约存在期间不再打开新会话；设置窗口在约 2.5 秒内重试获取锁，分批导入时租约在各批之间保持并在每批前续期，整次操作结束后立即删除租约，仍取不到锁才返回 busy。导出使用共享锁，不会中断用户组合。
 
-账户云词典使用独立的 `msime-client-cloud-dictionary /absolute/provider.sock` 入口。它验证 `list`、`changes`、`add`、`update`、`delete`、`import` 和 `export` 请求后，经用户管理的 Unix socket 转发一行 `{"version":1,"kind":"cloud_dictionary","request":...}`；provider 负责登录态、凭据、网络和冲突同步，入口只输出有界 JSON 响应，不保存账户信息。Tauri 设置页通过 `cloud_dictionary_provider_socket` 或 `MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET` 接入同一 provider，提供词库选择、搜索分页、词条 CRUD，以及标准 TSV、Windows TSV 和拼音汉字自动注音导入。
+账户云词典使用独立的 `msime-linux-cloud-dictionary /absolute/provider.sock` 入口。它验证 `list`、`changes`、`add`、`update`、`delete`、`import` 和 `export` 请求后，经用户管理的 Unix socket 转发一行 `{"version":1,"kind":"cloud_dictionary","request":...}`；provider 负责登录态、凭据、网络和冲突同步，入口只输出有界 JSON 响应，不保存账户信息。Tauri 设置页通过 `cloud_dictionary_provider_socket` 或 `MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET` 接入同一 provider，提供词库选择、搜索分页、词条 CRUD，以及标准 TSV、Windows TSV 和拼音汉字自动注音导入。
 
 ### 账号
 
 Linux 桌面外壳现在提供与 Windows、macOS 同样的九个账号命令（`account_status`、`account_providers`、`account_request_code`、`account_login`、`account_profile`、`account_rename`、`account_logout`、`account_delete`、`account_forget`），共享设置页的账号分类因此在 Linux 上可用。此前这些命令只为 Windows、macOS、Android、iOS 注册，`main.tsx` 也只在前两者注入 `account` 客户端，Linux 上整个账号界面没有宿主可调。
 
-命令本体与 Windows 完全一致，差别只在会话存放位置：Linux 没有一个所有目标桌面都保证在跑的密钥服务，因此会话保存在共享状态目录下的 `account-session.json`，以 0600 创建、按临时文件加原子重命名发布，读取前核对是普通文件（不跟随符号链接）、属主是当前用户、其他用户无任何权限、且大小不超过 16 KiB；不满足时报告存储错误而不是伪装成「未登录」。这与 Linux provider 私有配置文件一直声明的规则相同，也沿用 `msime-client-prepare` 建立的 0700 状态目录。**它不加密静态数据**，弱于 Windows 凭据管理器和 macOS Keychain；接 Secret Service（libsecret / KWallet）需要新增依赖，属于另外的决定。令牌只在桌面宿主进程内，交给 WebView 的仍是与其他平台相同的脱敏 DTO。
+命令本体与 Windows 完全一致，差别只在会话存放位置：Linux 没有一个所有目标桌面都保证在跑的密钥服务，因此会话保存在共享状态目录下的 `account-session.json`，以 0600 创建、按临时文件加原子重命名发布，读取前核对是普通文件（不跟随符号链接）、属主是当前用户、其他用户无任何权限、且大小不超过 16 KiB；不满足时报告存储错误而不是伪装成「未登录」。这与 Linux provider 私有配置文件一直声明的规则相同，也沿用 `msime-linux-prepare` 建立的 0700 状态目录。**它不加密静态数据**，弱于 Windows 凭据管理器和 macOS Keychain；接 Secret Service（libsecret / KWallet）需要新增依赖，属于另外的决定。令牌只在桌面宿主进程内，交给 WebView 的仍是与其他平台相同的脱敏 DTO。
 
-云剪贴板使用独立的 `msime-client-cloud-clipboard /absolute/provider.sock` 入口。它验证列表、明确添加、删除和启停请求后，经同一类用户管理服务转发 `{"version":1,"kind":"cloud_clipboard","request":...}`；服务负责账户凭据、云端保留和冲突处理，不自动读取本地剪贴板。
+云剪贴板使用独立的 `msime-linux-cloud-clipboard /absolute/provider.sock` 入口。它验证列表、明确添加、删除和启停请求后，经同一类用户管理服务转发 `{"version":1,"kind":"cloud_clipboard","request":...}`；服务负责账户凭据、云端保留和冲突处理，不自动读取本地剪贴板。
 
 桌面设置可在 HostOptions 中配置 `cloud_dictionary_provider_socket` 和 `cloud_clipboard_provider_socket` 两个绝对 Unix socket；未配置时分别回退到 `MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET` 和 `MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET`。这两个字段会随 runtime-options 原样保留，但不会进入 Engine 选项或输入会话。
 
@@ -268,10 +268,10 @@ target/linux-ibus/msime-linux-ibus /absolute/new-state/runtime-options.json
 
 准备配置必须在没有会话使用该状态目录时执行。运行入口动态注册独立的 `msime-linux`，不安装系统组件、不修改旧 Linux 产品或自动切换用户输入法；关闭进程即结束本次注册。安装后的 component 通过 `msime-linux-ibus-launcher` 启动，默认读取 `~/.config/msime-client/runtime-options.json`；也可用 `MSIME_IBUS_OPTIONS` 指向已准备好的绝对路径。launcher 按自身目录定位 Engine，支持自定义安装前缀。上面这条命令直接跑构建目录里的二进制，路径指向源码树，面向开发调试；面向发行的包见「生成 Linux 安装包」。宿主监听配置 JSON 的写入和原子替换事件；后续新焦点会话使用新配置，正在组合的会话保持原设置直到结束。
 
-安装产物提供 `msime-client-prepare`，首次准备状态无需 Cargo 或源码目录：
+安装产物提供 `msime-linux-prepare`，首次准备状态无需 Cargo 或源码目录：
 
 ```sh
-msime-client-prepare /absolute/verified-resources /absolute/new-state
+msime-linux-prepare /absolute/verified-resources /absolute/new-state
 export MSIME_IBUS_OPTIONS=/absolute/new-state/runtime-options.json
 msime-linux-ibus-launcher
 ```
@@ -281,7 +281,7 @@ msime-linux-ibus-launcher
 若安装时已在 CMake 配置阶段传入 `-DMSIME_ENGINE_RESOURCES=/absolute/verified-resources`，CMake 会按仓库内固定的 `resources/desktop-dictionary.lock.json` 校验每个词库文件的名称、大小和 SHA-256，并将这些文件安装到 `${CMAKE_INSTALL_DATADIR}/msime-client/resources`；锁文件作为同级的来源元数据安装，不会混入 Engine 运行目录。这样可以直接使用已安装资源准备状态：
 
 ```sh
-msime-client-prepare --installed /absolute/new-state
+msime-linux-prepare --installed /absolute/new-state
 ```
 
 非英文翻译目标（法、日、西、俄、德、韩）的离线释义词典是可选的：用 `scripts/build_offline_glosses.py` 生成到 `target/offline-glosses` 后，配置时传 `-DMSIME_OFFLINE_GLOSSES=/absolute/target/offline-glosses`，CMake 把其中的 `zh-*.db` 连同必需的 `offline-glosses-NOTICE.txt` 装到资源目录的同级 `${CMAKE_INSTALL_DATADIR}/msime-client/offline-glosses`。使用显式资源目录时，把它们放在该目录同级的 `offline-glosses/` 下即可。IBus 与 Fcitx5 在主翻译目标装有词典时先显示词典释义，开启候选翻译且配置了自己的翻译服务时再逐个询问所有候选，服务的回答替换词典的，没回答的保留词典释义。没有这些文件时候选释义仍只有英文。
@@ -294,17 +294,17 @@ Linux Tauri 设置窗口也会监视同一 `PreferencesStore` 的 revision。其
 
 设置页「关于 → 数据目录」可以把词库、学习记录、缓存、偏好、皮肤和剪贴板历史移到另一个空目录（例如另一块磁盘）。目录用桌面自带的选择器挑选：KDE 下优先 `kdialog`，其他桌面优先 `zenity`，两者都没有时设置页提示安装。Linux 上默认状态目录 `$XDG_CONFIG_HOME/msime-client` 同时是 IBus 启动器、Fcitx5 插件、剪贴板监视服务和设置启动器读取 `runtime-options.json` 的固定位置，在线服务和语音服务也从这里读取凭据，所以移动时这个目录本身不动：`runtime-options.json` 和三个 provider 凭据文件留在原处，复制开始前设置窗口先在旧的 `user` 目录写入词库维护用的 quiesce lease，并等到拿到词库的独占锁：两个宿主都在计时器上看到 lease 后结束组字、关闭会话，锁拿到才说明它们确实放手了，此后直到迁移结束都不会有会话在旧目录打开（lease 过期也挡得住），翻译词义缓存的写入也要同一把锁，一并被挡住；两个宿主的菜单偏好保存在 lease 生效期间同样暂缓（按保存失败处理，可重试），旧 `user` 目录被移走后，仍按旧配置发起的保存直接放弃，不会在旧目录里重建 `preferences.json`，Fcitx5 每次保存前都重读 locator，保存到它当前指向的目录；约 2.5 秒内还有会话不放手就以“输入法仍在使用数据目录”失败，什么都不复制。没有运行的宿主不持有锁，不会让迁移一直忙。其余状态条目先复制到目标目录内的临时目录（lease 文件不复制），再逐个 rename 到位，然后只把 `runtime-options.json` 里位于旧目录下的绝对路径改写到新目录，provider socket、模型等其他键原样保留。任一步失败都会回滚已放置的条目和 locator，原数据不动。发布成功后才删除旧目录中的这些条目，先整体 rename 进旧目录内的临时目录再删除，仍按旧路径打开会话的宿主只会找不到目录而打不开，不会在半空的旧目录里重建空词库；删除只成功一部分时，删不掉的条目放回原来的名字，设置页提示旧数据已保留，用户能在原处找到它们，以 `.msime-data-migration-` 开头的遗留临时目录以后既不会被当作状态复制，也不会让目标目录被判为非空；目标目录写入 `.metasequoiaime-data` 标记，以后再移走时整个目录只在确认归水杉所有时才删除，否则保留并告知用户。移回默认目录同样可行。完成后仍在持有 lease 和锁的时候重启当前输入法框架（Fcitx5 经 `gdbus` 调用 controller 的 `ReloadAddonConfig`（参数 `msime`）重置水杉插件，见上文 Fcitx5 的 `Ctrl+Shift+Alt+R` 一段；否则 `ibus restart`），再放开旧目录，宿主按改写后的 locator 在新目录重新打开会话；重启失败不会撤销已完成的迁移，设置页会提示手动重启输入法，窗口多停留几秒再关闭。剪贴板监视服务每轮都重读 locator，无需重启；设置窗口随后关闭。
 
-安装时可使用 `cmake --install target/linux-ibus`。安装产物包含 IBus 主程序、`msime-client-online` 在线候选请求入口、`msime-client-translation` 候选翻译请求入口、`msime-client-dictionary` 个人词典请求入口、`msime-client-cloud-dictionary` 云词典请求入口、`msime-client-cloud-clipboard` 云剪贴板请求入口、`msime-client-clipboard` 剪贴板历史工具、`msime-client-handwriting` 手写识别请求入口、`msime-client-voice` 语音识别请求入口和 `msime-client-emoji` Emoji 目录请求入口；工具与主程序使用相同的安装前缀。需要预置系统配置时，在 CMake 配置阶段传入 `-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`，安装到 `${CMAKE_INSTALL_SYSCONFDIR}/msime-client/runtime-options.json`。该文件必须来自已准备且匹配安装环境的状态目录，不能直接分发开发机上的私人状态。
+安装时可使用 `cmake --install target/linux-ibus`。安装产物包含 IBus 主程序、`msime-linux-online` 在线候选请求入口、`msime-linux-translation` 候选翻译请求入口、`msime-linux-dictionary` 个人词典请求入口、`msime-linux-cloud-dictionary` 云词典请求入口、`msime-linux-cloud-clipboard` 云剪贴板请求入口、`msime-linux-clipboard` 剪贴板历史工具、`msime-linux-handwriting` 手写识别请求入口、`msime-linux-voice` 语音识别请求入口和 `msime-linux-emoji` Emoji 目录请求入口；工具与主程序使用相同的安装前缀。需要预置系统配置时，在 CMake 配置阶段传入 `-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`，安装到 `${CMAKE_INSTALL_SYSCONFDIR}/msime-client/runtime-options.json`。该文件必须来自已准备且匹配安装环境的状态目录，不能直接分发开发机上的私人状态。
 
-CMake 配置时可传入 `-DMSIME_EMOJI_RESOURCES=/absolute/emoji-resources`，安装会将该受信任目录复制到 `${CMAKE_INSTALL_DATADIR}/msime-client/emoji`，供 `msime-client-emoji --local` 自动发现；未提供时不会从未验证的相邻仓库或网络下载资源。
+CMake 配置时可传入 `-DMSIME_EMOJI_RESOURCES=/absolute/emoji-resources`，安装会将该受信任目录复制到 `${CMAKE_INSTALL_DATADIR}/msime-client/emoji`，供 `msime-linux-emoji --local` 自动发现；未提供时不会从未验证的相邻仓库或网络下载资源。
 
-Emoji 本地 CLI 的 `msime-client-emoji --local` 会按显式资源目录、其中包含 `others.db` 的 `MSIME_EMOJI_RESOURCES`、`$XDG_DATA_HOME/msime-client/emoji`、`$XDG_DATA_DIRS/*/msime-client/emoji`、安装前缀和系统数据目录顺序查找资源。显式传入路径优先；未找到时返回错误，不访问网络。这样发行版安装后的 Emoji 面板不要求用户手工复制 Windows 风格资源路径。
+Emoji 本地 CLI 的 `msime-linux-emoji --local` 会按显式资源目录、其中包含 `others.db` 的 `MSIME_EMOJI_RESOURCES`、`$XDG_DATA_HOME/msime-client/emoji`、`$XDG_DATA_DIRS/*/msime-client/emoji`、安装前缀和系统数据目录顺序查找资源。显式传入路径优先；未找到时返回错误，不访问网络。这样发行版安装后的 Emoji 面板不要求用户手工复制 Windows 风格资源路径。
 
-`msime-client-handwriting --local` 也会按显式模型路径、`MSIME_HANDWRITING_MODEL`、`$XDG_DATA_HOME`、`$XDG_DATA_DIRS`、安装前缀和系统目录自动查找模型；未找到模型时不访问网络。
+`msime-linux-handwriting --local` 也会按显式模型路径、`MSIME_HANDWRITING_MODEL`、`$XDG_DATA_HOME`、`$XDG_DATA_DIRS`、安装前缀和系统目录自动查找模型；未找到模型时不访问网络。
 
 Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置 Engine 随附的离线中文模型（可用 `-DMSIME_HANDWRITING_MODEL=/absolute/model` 覆盖）。模型及其许可证随 Engine 发布，面板应只引用该受信任安装路径。
 
-若要把 Tauri 设置窗口一并安装，可先用 `pnpm --filter @msime/desktop tauri build --no-bundle` 生成 Linux 二进制，再在 CMake 配置阶段传入 `-DMSIME_DESKTOP_BINARY=/absolute/path/to/msime-desktop`。安装会增加 `msime-client-desktop`、`msime-client-settings` 和桌面菜单项；设置启动器按 `MSIME_CLIENT_HOST_OPTIONS`、`MSIME_IBUS_OPTIONS`、用户配置路径、安装时配置的系统配置路径的顺序选择绝对 runtime-options，并把它传给 Tauri 宿主，不把开发机路径写入桌面文件。设置页的“语音输入”分类可打开独立语音面板，面板调用同一 provider 并把识别结果提交到打开前捕获的编辑器。Linux IBus 与 Fcitx5 的“桌面工具”菜单还将“关于”“帮助”“反馈”分别路由到共享 Tauri 的对应设置页（`msime-client-settings --panel about|help|feedback` 同样如此）；“快捷键”分类提供“重启输入法服务”按钮：先用 `fcitx5-remote --check` 探测当前会话，Fcitx5 正在运行时经 `gdbus` 调用它的 `ReloadAddonConfig`（参数 `msime`）重置水杉插件，否则调用当前用户的 `ibus restart`。探测不会通过 D-Bus 启动一个原本未运行的 Fcitx5，也不会为了刷新 MSIME 杀掉承载其他输入法的整个 Fcitx5 进程。普通配置保存仍通过 runtime-options 文件热重载，不需要为了设置变更重启服务。
+若要把 Tauri 设置窗口一并安装，可先用 `pnpm --filter @msime/desktop tauri build --no-bundle` 生成 Linux 二进制，再在 CMake 配置阶段传入 `-DMSIME_DESKTOP_BINARY=/absolute/path/to/msime-desktop`。安装会增加 `msime-linux-desktop`、`msime-linux-settings` 和桌面菜单项；设置启动器按 `MSIME_CLIENT_HOST_OPTIONS`、`MSIME_IBUS_OPTIONS`、用户配置路径、安装时配置的系统配置路径的顺序选择绝对 runtime-options，并把它传给 Tauri 宿主，不把开发机路径写入桌面文件。设置页的“语音输入”分类可打开独立语音面板，面板调用同一 provider 并把识别结果提交到打开前捕获的编辑器。Linux IBus 与 Fcitx5 的“桌面工具”菜单还将“关于”“帮助”“反馈”分别路由到共享 Tauri 的对应设置页（`msime-linux-settings --panel about|help|feedback` 同样如此）；“快捷键”分类提供“重启输入法服务”按钮：先用 `fcitx5-remote --check` 探测当前会话，Fcitx5 正在运行时经 `gdbus` 调用它的 `ReloadAddonConfig`（参数 `msime`）重置水杉插件，否则调用当前用户的 `ibus restart`。探测不会通过 D-Bus 启动一个原本未运行的 Fcitx5，也不会为了刷新 MSIME 杀掉承载其他输入法的整个 Fcitx5 进程。普通配置保存仍通过 runtime-options 文件热重载，不需要为了设置变更重启服务。
 
 ## 隔离验证
 
@@ -322,7 +322,7 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 嵌套偏好对象整体可以省略（共享 `Preferences` 会给默认值），但它的成员一个都不能少：宿主若把单个键补进一个 runtime-options 文档里本来没有的 `mixed_input` / `local_modes`，写出的就是残缺对象，Host API 会判为 invalid options document。这些默认值因此由 `msime_client_default_preferences` 从共享层发布，宿主据此补全缺失成员，不在 C++ 里另写一份契约。
 
-已验证的环境包括 Debian bookworm arm64、IBus 1.5.27 的容器链路，以及 Arch x86_64（Hyprland/Wayland、Fcitx5 5.1.22、IBus 1.5.34）上的真实安装：`cmake --install` 到 `/usr` 后，Fcitx5 加载 addon（日志中的 `Loaded addon msime`）、输入法出现在可用列表与当前输入法组、`msime-client-settings` 拉起的设置窗口实际映射。CI 在固定容器里构建并跑 ctest；发行附件 `.deb`/`.tar.gz` 的包内文件、Depends 与动态链接在打包容器里检查过，尚未在真实系统上用 apt 安装验收；换发行版、换架构或改动桌面环境时，按本节的容器脚本和上面的安装步骤各跑一遍即可确认。
+已验证的环境包括 Debian bookworm arm64、IBus 1.5.27 的容器链路，以及 Arch x86_64（Hyprland/Wayland、Fcitx5 5.1.22、IBus 1.5.34）上的真实安装：`cmake --install` 到 `/usr` 后，Fcitx5 加载 addon（日志中的 `Loaded addon msime`）、输入法出现在可用列表与当前输入法组、`msime-linux-settings` 拉起的设置窗口实际映射。CI 在固定容器里构建并跑 ctest；发行附件 `.deb`/`.tar.gz` 的包内文件、Depends 与动态链接在打包容器里检查过，尚未在真实系统上用 apt 安装验收；换发行版、换架构或改动桌面环境时，按本节的容器脚本和上面的安装步骤各跑一遍即可确认。
 
 系统行为依据 [IBus Engine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html) 和 [IBus InputContext API](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html)。
 
@@ -336,7 +336,7 @@ Linux 关于页的“检查更新”读取水杉输入法仓库的 GitHub 发行
 
 Linux 桌面设置页通过宿主能力显示共享的模糊音配置。总开关首次从关闭切换为开启时，偏好存储会一次性选中 11 条规则；用户之后删减规则、暂时关闭再恢复时保留删减结果，并用内部播种标记避免空规则集被再次填充。规则计算仍由 Engine 完成。
 
-本地词典管理可从桌面启动器的“本地词典”动作或执行 `msime-client-settings --panel dictionary` 打开，与 Windows 桌面工具使用同一设置宿主和词典状态。
+本地词典管理可从桌面启动器的“本地词典”动作或执行 `msime-linux-settings --panel dictionary` 打开，与 Windows 桌面工具使用同一设置宿主和词典状态。
 
 全角/半角输出与 Windows 模式面板对应：`CharacterWidth` 由 `input-runtime` 和 `msime-host-api` 按会话携带，IBus 属性菜单和 Fcitx5 状态栏都提供该开关，可打印 ASCII 在上屏时完成全角转换。配置了共享偏好目录时，模式按 `character_width` 持久化；没有该目录的直接预览配置保持会话级。Fcitx5 与 IBus 都在会话建立时按 `character_width` 设置全角，共享偏好热重载、属性/状态菜单和快捷键切换都会立即同步到正在运行的会话；焦点切换不会丢失全角状态。Fcitx5 新会话以偏好存储中的 `character_width` 为准，另一个窗口在状态栏切换的宽度也会带过来；状态栏切换后尚未写入存储的宽度（保存失败待重试，或隐私输入窗口中本不保存的切换）不会被热重载改回，下一个会话再以存储为准。IBus 冒烟夹具和 Fcitx5 原生上下文测试覆盖全角与半角 ASCII 上屏。
 
@@ -382,12 +382,12 @@ IBus 的语音识别、剪贴板历史选取、空闲全角输入和直接标点
 
 ## 随包在线候选服务
 
-安装包含 Python 3.9+ 标准库实现的 `msime-client-online-provider`，为 IBus 提供 Google 云候选和 OpenAI 兼容 AI 联想。使用当前用户的私有运行目录启动：
+安装包含 Python 3.9+ 标准库实现的 `msime-linux-online-provider`，为 IBus 提供 Google 云候选和 OpenAI 兼容 AI 联想。使用当前用户的私有运行目录启动：
 
 ```sh
 mkdir -p "$XDG_RUNTIME_DIR/msime-client"
 chmod 700 "$XDG_RUNTIME_DIR/msime-client"
-msime-client-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
+msime-linux-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
 ```
 
 将该 socket 的绝对路径填入 runtime-options 的 `online_provider_socket`。仅提供云候选时无需凭据；AI 服务可增加 `--ai-config /absolute/private-ai.json`，文件仅允许所有者读写，包含 `provider`、`endpoint`、`model`、`token` 四个字符串字段。前三项须与共享 AI 设置一致，endpoint 使用 HTTPS，token 只留在服务配置中，不进入 IBus 查询。AI 私有配置在每次符合条件的请求中重新加载，修改凭据无需重启；可用 `profiles` 按 provider 保存多组配置，选择与共享设置一致的 provider、endpoint、model。不会自动启用系统服务或 CI。
@@ -412,10 +412,10 @@ IBus 宿主在后台通过共享 Host API 查询随包 `english.db`。目标语�
 
 ## 随包语音服务
 
-`msime-client-voice-provider` 接收现有 `voice`、`voice_stop` 和 `voice_cancel` 请求，实现 OpenAI、Groq、SiliconFlow 批量语音识别及可选润色。需要 Python 3.9+，录音使用 `pulseaudio-utils` 的 `parec`（也适用于 PipeWire 的 PulseAudio 兼容服务），或 `alsa-utils` 的 `arecord`。默认优先使用已安装的 `parec`，可用 `--capture alsa` 显式选择 ALSA；选定后设备打开失败会返回失败，不会偷偷改用另一麦克风。
+`msime-linux-voice-provider` 接收现有 `voice`、`voice_stop` 和 `voice_cancel` 请求，实现 OpenAI、Groq、SiliconFlow 批量语音识别及可选润色。需要 Python 3.9+，录音使用 `pulseaudio-utils` 的 `parec`（也适用于 PipeWire 的 PulseAudio 兼容服务），或 `alsa-utils` 的 `arecord`。默认优先使用已安装的 `parec`，可用 `--capture alsa` 显式选择 ALSA；选定后设备打开失败会返回失败，不会偷偷改用另一麦克风。
 
 ```sh
-msime-client-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
+msime-linux-voice-provider "$XDG_RUNTIME_DIR/msime-client/voice.sock" \
   --config /absolute/private-voice.json --capture pulse
 ```
 
@@ -447,11 +447,11 @@ Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windo
 
 Linux provider 请求工具可省略 socket 参数，依次使用对应的 `MSIME_*_PROVIDER_SOCKET` 环境变量和 `$XDG_RUNTIME_DIR/msime-client/` 下的默认 socket：`online.sock`、`translation.sock`、`voice.sock`、`cloud-dictionary.sock`、`cloud-clipboard.sock`、`handwriting.sock`、`emoji.sock`。语音的 `--stream` 同样支持省略 socket；手写和 Emoji 的 `--local` 仍使用本地资源发现。IBus 在配置热重载时重新发现在线和语音 socket，候选翻译继续按独立配置、环境变量、在线 socket 的顺序选择服务。
 
-IBus 属性菜单中的“桌面工具”可直接打开手写识别板、屏幕键盘、表情与符号、语音面板、云词典、云剪贴板和设置。该菜单独立于可配置工具栏，通过 `msime-client-settings` 启动已有 Tauri 面板；需要安装桌面二进制，也支持 `MSIME_CLIENT_SETTINGS_COMMAND` 自定义启动器。密码等受限输入上下文禁用这些入口。
+IBus 属性菜单中的“桌面工具”可直接打开手写识别板、屏幕键盘、表情与符号、语音面板、云词典、云剪贴板和设置。该菜单独立于可配置工具栏，通过 `msime-linux-settings` 启动已有 Tauri 面板；需要安装桌面二进制，也支持 `MSIME_CLIENT_SETTINGS_COMMAND` 自定义启动器。密码等受限输入上下文禁用这些入口。
 
-安装桌面宿主后，支持 Desktop Actions 的应用菜单或任务栏可直接打开手写、屏幕键盘、表情、语音、云词典与云剪贴板。也可把 `msime-client-settings --panel handwriting` 等命令绑定到桌面环境快捷键；`--panel` 支持 `settings`、`handwriting`、`keyboard`、`emoji`、`voice`、`cloud-dictionary`、`cloud-clipboard`，继续使用同一 runtime-options 配置及桌面面板输入目标捕获流程。
+安装桌面宿主后，支持 Desktop Actions 的应用菜单或任务栏可直接打开手写、屏幕键盘、表情、语音、云词典与云剪贴板。也可把 `msime-linux-settings --panel handwriting` 等命令绑定到桌面环境快捷键；`--panel` 支持 `settings`、`handwriting`、`keyboard`、`emoji`、`voice`、`cloud-dictionary`、`cloud-clipboard`，继续使用同一 runtime-options 配置及桌面面板输入目标捕获流程。
 
-剪贴板工具支持 `add-stdin`，例如 `wl-paste --no-newline | msime-client-clipboard "$XDG_STATE_HOME/msime-client/clipboard.json" add-stdin`（需将 `XDG_STATE_HOME` 设为绝对目录，未设置时使用 `$HOME/.local/state`）。X11 可将管道上游换为 `xclip -selection clipboard -o`。文本通过标准输入传递，首次写入自动创建历史目录；最多读取 1 MiB，保存时保留完整 UTF-8 字符并限制为 4000 个 UTF-16 单元（与 Windows 规则一致），继续去重并保留最近 50 项。此命令仅执行一次明确采集，不注册后台剪贴板监听。
+剪贴板工具支持 `add-stdin`，例如 `wl-paste --no-newline | msime-linux-clipboard "$XDG_STATE_HOME/msime-client/clipboard.json" add-stdin`（需将 `XDG_STATE_HOME` 设为绝对目录，未设置时使用 `$HOME/.local/state`）。X11 可将管道上游换为 `xclip -selection clipboard -o`。文本通过标准输入传递，首次写入自动创建历史目录；最多读取 1 MiB，保存时保留完整 UTF-8 字符并限制为 4000 个 UTF-16 单元（与 Windows 规则一致），继续去重并保留最近 50 项。此命令仅执行一次明确采集，不注册后台剪贴板监听。
 
 剪贴板历史菜单的粘贴操作使用展示时缓存的文本；删除在文件锁内按文本内容匹配，后台新增历史不会导致误删另一行。菜单行绑定加载代次，忽略已过期的行操作；清空也使用同一历史文件锁。条目与删除按钮可见，预览按完整 UTF-8 字符截断。
 
@@ -469,31 +469,31 @@ IBus 在可输入的焦点会话中监听历史文件所在目录，外部工具
 
 ### 用户服务启动
 
-安装包提供 `msime-client-online.service` 和 `msime-client-voice.service`，不自动启用。服务通过 `msime-client-provider-session` 使用 `$XDG_RUNTIME_DIR/msime-client/online.sock` 和 `voice.sock`，与 IBus 自动发现路径一致。运行目录首次启动时创建为仅当前用户可访问；已有目录权限不合要求时直接报错。
+安装包提供 `msime-linux-online.service` 和 `msime-linux-voice.service`，不自动启用。服务通过 `msime-linux-provider-session` 使用 `$XDG_RUNTIME_DIR/msime-client/online.sock` 和 `voice.sock`，与 IBus 自动发现路径一致。运行目录首次启动时创建为仅当前用户可访问；已有目录权限不合要求时直接报错。
 
 配置放在 `$XDG_CONFIG_HOME/msime-client/`（默认 `~/.config/msime-client/`）：在线服务可选 `ai-provider.json`、`tencent-provider.json`，语音服务的云端识别与润色需要 `voice-provider.json`，本地识别不需要。格式和 owner-only 权限要求与对应 provider 参数一致。仅云候选可不提供私有配置。
 
 `ai-provider.json` 和 `tencent-provider.json` 不必手写：设置页「AI 辅助」和「输入 → 在线翻译服务」里的凭据输入框会由 Tauri 宿主直接写入这两个文件（目录 0700、文件 0600、先写临时文件再 rename），AI 凭据按服务商存到 `profiles` 下并绑定当时的接口地址和模型。凭据只从设置页流向宿主进程，设置页只能读到哪些服务商已有凭据及其绑定的接口和模型。已存在但不合规的文件（权限过宽、符号链接、JSON 无效）不会被覆盖，设置页会提示修复或删除。
 
-`voice-provider.json` 同样可以在设置页「语音输入」里写入：识别和润色各有一组凭据输入框，按上方选中的服务商、模型、接口地址（豆包还有资源 ID、鉴权方式和旧式鉴权的 App Key）写进 provider 要求的 `asr`/`polish` 与 `asr_profiles`/`polish_profiles` 布局。语音 provider 没有该文件也能启动，本地识别（`local`）不读取任何凭据，所以识别与润色凭据都可以单独保存：只用本地模型并开启润色时文件里只有 `polish`，手写的 `{"provider": "local"}` 识别条目也会原样保留。每次保存凭据后宿主执行 `systemctl --user enable --now msime-client-voice.socket`（并先 `reset-failed` 之前失败的服务），在设置页下载本地模型后同样执行一次，因此选择「本地模型（离线）」并选用已下载的模型即可使用，不需要任何云端凭据。清除凭据只改文件，清除最后一个凭据时删除文件，但不停用 socket，本地识别仍然可用。用户服务管理器不可达时文件照常保存，设置页给出需要手动执行的命令。豆包识别凭据上方与 Windows 一样提供「流式接口」选择：整句流式（`bigmodel_nostream`）或双向流式（`bigmodel_async`），选中后写入凭据的接口地址；地址留空时 provider 默认使用双向流式。
+`voice-provider.json` 同样可以在设置页「语音输入」里写入：识别和润色各有一组凭据输入框，按上方选中的服务商、模型、接口地址（豆包还有资源 ID、鉴权方式和旧式鉴权的 App Key）写进 provider 要求的 `asr`/`polish` 与 `asr_profiles`/`polish_profiles` 布局。语音 provider 没有该文件也能启动，本地识别（`local`）不读取任何凭据，所以识别与润色凭据都可以单独保存：只用本地模型并开启润色时文件里只有 `polish`，手写的 `{"provider": "local"}` 识别条目也会原样保留。每次保存凭据后宿主执行 `systemctl --user enable --now msime-linux-voice.socket`（并先 `reset-failed` 之前失败的服务），在设置页下载本地模型后同样执行一次，因此选择「本地模型（离线）」并选用已下载的模型即可使用，不需要任何云端凭据。清除凭据只改文件，清除最后一个凭据时删除文件，但不停用 socket，本地识别仍然可用。用户服务管理器不可达时文件照常保存，设置页给出需要手动执行的命令。豆包识别凭据上方与 Windows 一样提供「流式接口」选择：整句流式（`bigmodel_nostream`）或双向流式（`bigmodel_async`），选中后写入凭据的接口地址；地址留空时 provider 默认使用双向流式。
 
 随包在线服务启动器通过 `--config-directory` 固定配置目录，即使启动时尚无 `ai-provider.json` 或 `tencent-provider.json`，后续创建或修复文件也会在下次请求生效，无需重启服务。目录模式下缺失、损坏或权限不合规的配置只会停用相应功能；每次请求仍执行 owner-only 文件校验。手动传入 `--ai-config` 或 `--tencent-config` 时保留原有启动校验，并优先于配置目录中的默认文件。
 
-Windows 上在线、语音和剪贴板功能随常驻的服务进程一直可用；Linux 对应的做法是 systemd 用户 socket 激活。安装提供 `msime-client-online.socket` 和 `msime-client-voice.socket`，登录后 `$XDG_RUNTIME_DIR/msime-client/online.sock` 与 `voice.sock` 即存在（目录 0700、socket 0600），输入法和面板按原有路径发现服务，首个请求到达时 systemd 才启动 provider 进程。`msime-linux-setup` 准备好状态目录后会执行 `systemctl --user enable --now`：在线 socket 总是启用（没有私有配置也能提供云候选）；语音 socket 也总是启用，语音 provider 没有 `voice-provider.json` 也能启动并提供本地识别；状态目录位于默认的 `$XDG_CONFIG_HOME/msime-client` 时同时启用剪贴板监视器。没有 systemctl 或启用失败时，脚本打印可手动执行的命令，不影响首次配置本身。
+Windows 上在线、语音和剪贴板功能随常驻的服务进程一直可用；Linux 对应的做法是 systemd 用户 socket 激活。安装提供 `msime-linux-online.socket` 和 `msime-linux-voice.socket`，登录后 `$XDG_RUNTIME_DIR/msime-client/online.sock` 与 `voice.sock` 即存在（目录 0700、socket 0600），输入法和面板按原有路径发现服务，首个请求到达时 systemd 才启动 provider 进程。`msime-linux-setup` 准备好状态目录后会执行 `systemctl --user enable --now`：在线 socket 总是启用（没有私有配置也能提供云候选）；语音 socket 也总是启用，语音 provider 没有 `voice-provider.json` 也能启动并提供本地识别；状态目录位于默认的 `$XDG_CONFIG_HOME/msime-client` 时同时启用剪贴板监视器。没有 systemctl 或启用失败时，脚本打印可手动执行的命令，不影响首次配置本身。
 
 手动启用或补启用语音：
 
 ```sh
 systemctl --user daemon-reload
-systemctl --user enable --now msime-client-online.socket
-systemctl --user enable --now msime-client-voice.socket
+systemctl --user enable --now msime-linux-online.socket
+systemctl --user enable --now msime-linux-voice.socket
 ```
 
 仍可像以前一样直接启用 `.service` 让 provider 登录即常驻。
 
-修改配置后使用 `systemctl --user restart msime-client-voice.service`；停止并取消登录自启使用 `systemctl --user disable --now msime-client-voice.socket msime-client-voice.service`（只停 service 时 socket 仍会在下一个请求到达时重新启动它）。在线服务同理。异常退出会重启，配置错误不会循环重启。语音停止时留出录音退出和恢复静音的时间。
+修改配置后使用 `systemctl --user restart msime-linux-voice.service`；停止并取消登录自启使用 `systemctl --user disable --now msime-linux-voice.socket msime-linux-voice.service`（只停 service 时 socket 仍会在下一个请求到达时重新启动它）。在线服务同理。异常退出会重启，配置错误不会循环重启。语音停止时留出录音退出和恢复静音的时间。
 
-可通过 `systemctl --user edit msime-client-voice.service` 的 `[Service]` 段设置 `Environment=MSIME_VOICE_CAPTURE=pipewire`、`Environment=MSIME_VOICE_CAPTURE_DEVICE=设备名` 和 `Environment=MSIME_VOICE_MAX_RECORDING_SECONDS=300`；凭据仍放在私有 JSON 中。无 systemd 的桌面可直接运行 `msime-client-provider-session online` 或 `voice`。自定义安装前缀可用 CMake 的 `MSIME_SYSTEMD_USER_UNIT_DIR` 指定用户服务搜索目录。
+可通过 `systemctl --user edit msime-linux-voice.service` 的 `[Service]` 段设置 `Environment=MSIME_VOICE_CAPTURE=pipewire`、`Environment=MSIME_VOICE_CAPTURE_DEVICE=设备名` 和 `Environment=MSIME_VOICE_MAX_RECORDING_SECONDS=300`；凭据仍放在私有 JSON 中。无 systemd 的桌面可直接运行 `msime-linux-provider-session online` 或 `voice`。自定义安装前缀可用 CMake 的 `MSIME_SYSTEMD_USER_UNIT_DIR` 指定用户服务搜索目录。
 
 在线和语音默认 socket 的发现由宿主每秒独立刷新，不依赖偏好目录是否配置或偏好文件能否成功读取。服务晚启动后会更新菜单可用状态并重新调度当前在线查询；默认路径仅接受实际 socket，缺失或不可访问的路径不会抛出文件系统异常。活动语音端点切换时先向旧端点取消录音，再保存新端点。
 
@@ -507,11 +507,11 @@ systemctl --user enable --now msime-client-voice.socket
 
 ### 独立剪贴板采集
 
-`msime-client-clipboard-monitor /absolute/runtime-options.json` 在没有 Tauri 设置窗口时也可采集文本历史。它读取 runtime-options 的 `preferences_directory`，仅在该目录已保存的 `preferences.json` 中明确开启 `clipboard_history` 时工作；如果指定 `clipboard_history_path`，它必须指向同目录的 `clipboard_history.json`。配置读取失败或关闭开关时停止采集并忘记本轮去重状态。
+`msime-linux-clipboard-monitor /absolute/runtime-options.json` 在没有 Tauri 设置窗口时也可采集文本历史。它读取 runtime-options 的 `preferences_directory`，仅在该目录已保存的 `preferences.json` 中明确开启 `clipboard_history` 时工作；如果指定 `clipboard_history_path`，它必须指向同目录的 `clipboard_history.json`。配置读取失败或关闭开关时停止采集并忘记本轮去重状态。
 
-Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和 `xfixes` pkg-config 模块时，安装 `msime-client-clipboard-watch-x11`，通过 XFixes 监听 CLIPBOARD 所有权变化，并优先使用同一工具的 `--read` 原生读取路径，无需额外安装 `xclip`/`xsel`。读取支持 UTF8_STRING、STRING 编码回退和 INCR 分块传输，限制累计数据量并使用统一超时；原生读取不可用时仍可回退 `xclip` 或 `xsel`。再次复制相同文本也会触发捕获。监听模式只输出事件标记；读取模式将有界文本经标准输出管道交给监控器，不写日志。不支持事件监听的环境继续以 750ms 间隔轮询；每次文本读取限时 1 秒、最多 12000 个 UTF-8 字节，并保留最多 4000 个完整 UTF-16 单元。文本经标准输入交给 `msime-client-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
+Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和 `xfixes` pkg-config 模块时，安装 `msime-linux-clipboard-watch-x11`，通过 XFixes 监听 CLIPBOARD 所有权变化，并优先使用同一工具的 `--read` 原生读取路径，无需额外安装 `xclip`/`xsel`。读取支持 UTF8_STRING、STRING 编码回退和 INCR 分块传输，限制累计数据量并使用统一超时；原生读取不可用时仍可回退 `xclip` 或 `xsel`。再次复制相同文本也会触发捕获。监听模式只输出事件标记；读取模式将有界文本经标准输出管道交给监控器，不写日志。不支持事件监听的环境继续以 750ms 间隔轮询；每次文本读取限时 1 秒、最多 12000 个 UTF-8 字节，并保留最多 4000 个完整 UTF-16 单元。文本经标准输入交给 `msime-linux-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
 
-可按需执行 `systemctl --user enable --now msime-client-clipboard.service`，使用默认 XDG runtime-options 路径。`make install` 本身不启用服务，由 `msime-linux-setup` 在首次配置时启用；语音和在线服务不依赖它。启用后服务随 `graphical-session.target` 启动，桌面会话需向用户服务管理器提供 `WAYLAND_DISPLAY` 或 `DISPLAY`。没有这个 target 的会话（Sway、i3、未用 uwsm 的 Hyprland 等）由随包安装的 XDG 自启动项 `msime-client-clipboard.desktop` 在登录时启动，这对应 Windows 上剪贴板监视随输入法在每次登录时启动：它先把本次会话的 `WAYLAND_DISPLAY`、`DISPLAY`、`XAUTHORITY` 导入用户服务管理器，再重启服务，使 linger 下遗留的旧实例也换到本次会话的显示。从未启用服务的用户不受影响，自启动项什么都不做；`graphical-session.target` 已在运行时也交给它，不重复启动。安装包把它放在 `/etc/xdg/autostart/`；CMake 安装在前缀为 `/usr` 时同样放在那里，其他前缀放在 `<前缀>/etc/xdg/autostart/`，随 `cmake --install --prefix` 一起移动，但只有这个目录在会话的 `XDG_CONFIG_DIRS` 里时才会被读到。安装位置、卸载与启动条件由 `tests/core/clipboard_autostart.py` 钉住。
+可按需执行 `systemctl --user enable --now msime-linux-clipboard.service`，使用默认 XDG runtime-options 路径。`make install` 本身不启用服务，由 `msime-linux-setup` 在首次配置时启用；语音和在线服务不依赖它。启用后服务随 `graphical-session.target` 启动，桌面会话需向用户服务管理器提供 `WAYLAND_DISPLAY` 或 `DISPLAY`。没有这个 target 的会话（Sway、i3、未用 uwsm 的 Hyprland 等）由随包安装的 XDG 自启动项 `msime-linux-clipboard.desktop` 在登录时启动，这对应 Windows 上剪贴板监视随输入法在每次登录时启动：它先把本次会话的 `WAYLAND_DISPLAY`、`DISPLAY`、`XAUTHORITY` 导入用户服务管理器，再重启服务，使 linger 下遗留的旧实例也换到本次会话的显示。从未启用服务的用户不受影响，自启动项什么都不做；`graphical-session.target` 已在运行时也交给它，不重复启动。安装包把它放在 `/etc/xdg/autostart/`；CMake 安装在前缀为 `/usr` 时同样放在那里，其他前缀放在 `<前缀>/etc/xdg/autostart/`，随 `cmake --install --prefix` 一起移动，但只有这个目录在会话的 `XDG_CONFIG_DIRS` 里时才会被读到。安装位置、卸载与启动条件由 `tests/core/clipboard_autostart.py` 钉住。
 
 未显式指定 `clipboard_history_path` 时，IBus 使用 `preferences_directory/clipboard_history.json`，与共享设置存储及独立采集服务一致。显式历史路径仍优先；切换偏好目录时默认历史来源随之更新。监视器遇到非对象 JSON 或无效偏好结构时停止本轮采集并等待下次有效配置。
 
@@ -613,7 +613,7 @@ Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音�
 
 本地离线手写识别和外部 socket 识别共同使用 Engine 的候选策略：去重、中文候选优先、同组保持原顺序，最多十二项。本地识别也从八项扩展为十二项。中文范围对齐 Windows 手写面板固定基线的 CJK、扩展 A 与兼容汉字范围；排序不由平台界面维护。
 
-自定义 `MSIME_HANDWRITING_MODEL` 构建输入可以使用任意源文件名，安装时统一命名为 `handwriting-zh_CN.model`，保证桌面面板和 `msime-client-handwriting --local` 自动找到同一模型。桌面配置或环境变量的模型路径为空时视为未配置并继续查找安装资源；非空但无效的显式路径仍会报错，不切换到其他模型。
+自定义 `MSIME_HANDWRITING_MODEL` 构建输入可以使用任意源文件名，安装时统一命名为 `handwriting-zh_CN.model`，保证桌面面板和 `msime-linux-handwriting --local` 自动找到同一模型。桌面配置或环境变量的模型路径为空时视为未配置并继续查找安装资源；非空但无效的显式路径仍会报错，不切换到其他模型。
 
 ### Wayland 剪贴板变更通知
 
@@ -649,9 +649,9 @@ Sway 面板输入在发送前解析窗口切换命令的成功回复，并读取
 
 前台目标获取对每个外部命令设置 1 秒期限，并限制窗口树和工具输出大小。wtype 通过空标准输入探测虚拟键盘连接，不发送文字或按键，不使用上游不支持的 `--version`；文本发送省略延时参数，使用默认零延时，避免显式 `-d 0` 被拒绝。依据 [wtype 官方参数解析](https://raw.githubusercontent.com/atx/wtype/master/main.c)。
 
-IBus「桌面工具」提供「关于」入口，与 Windows 托盘菜单对应，直接打开共享设置的关于页。桌面启动器也提供「关于水杉输入法」快捷操作；命令行可用 `msime-client-settings --panel about`，或设置 `MSIME_CLIENT_PANEL=about`。自定义 `MSIME_CLIENT_SETTINGS_COMMAND` 同样收到标准 settings 面板和 about 页环境变量。
+IBus「桌面工具」提供「关于」入口，与 Windows 托盘菜单对应，直接打开共享设置的关于页。桌面启动器也提供「关于水杉输入法」快捷操作；命令行可用 `msime-linux-settings --panel about`，或设置 `MSIME_CLIENT_PANEL=about`。自定义 `MSIME_CLIENT_SETTINGS_COMMAND` 同样收到标准 settings 面板和 about 页环境变量。
 
-IBus 桌面工具和桌面启动器提供「本地剪贴板」入口，`msime-client-settings --panel clipboard` 可直接进入现有剪贴板历史页，使用同一份历史及搜索、复制、粘贴、删除功能。未开启历史时保留主动开启界面，不自动开启采集。该面板与其他可编辑面板一样，在通用 Wayland 粘贴前释放焦点。
+IBus 桌面工具和桌面启动器提供「本地剪贴板」入口，`msime-linux-settings --panel clipboard` 可直接进入现有剪贴板历史页，使用同一份历史及搜索、复制、粘贴、删除功能。未开启历史时保留主动开启界面，不自动开启采集。该面板与其他可编辑面板一样，在通用 Wayland 粘贴前释放焦点。
 
 IBus「剪贴板历史」菜单内可直接打开完整历史面板，即使历史关闭也能进入主动开启界面；关闭或当前输入不可用时，刷新、条目提交及清空仍禁用，菜单不展示缓存条目。菜单预览将换行和制表符压成空格，提交与删除仍使用完整原文。
 
@@ -723,9 +723,9 @@ X11 辅助面板首次打开和再次显示时，将目标位置限制在最近�
 
 Sway 面板从同一次有界 `get_tree` 响应读取编辑器所在工作区矩形，沿普通节点与浮动节点查找所属工作区，并在逻辑坐标中限制面板位置。负坐标工作区得到保留；面板大于工作区时对齐起点。缺少有效工作区矩形时保留编辑器附近的位置，最终定位仍由 compositor 决定。
 
-桌面菜单、IBus 工具入口和 `msime-client-settings --panel …` 启动辅助面板时，捕获前台编辑器后复用设置窗口内的定位流程，包括 X11 工作区限制和 Sway 逻辑工作区限制。读取位置失败时仍由桌面环境安排窗口，不影响面板启动。
+桌面菜单、IBus 工具入口和 `msime-linux-settings --panel …` 启动辅助面板时，捕获前台编辑器后复用设置窗口内的定位流程，包括 X11 工作区限制和 Sway 逻辑工作区限制。读取位置失败时仍由桌面环境安排窗口，不影响面板启动。
 
-Linux 桌面设置外壳在 session D-Bus 可用时使用单实例路由。重复执行 `msime-client-settings --panel …` 不会创建第二个设置进程；已运行的外壳会显示对应设置页或辅助面板，并重新捕获输入目标。关闭主设置窗口时先隐藏外壳，保留最多十分钟供后续路由复用，超时后才退出；辅助面板仍按各自窗口生命周期关闭。启动器仍只传递受限路由参数，不会把它们写入输入内容。
+Linux 桌面设置外壳在 session D-Bus 可用时使用单实例路由。重复执行 `msime-linux-settings --panel …` 不会创建第二个设置进程；已运行的外壳会显示对应设置页或辅助面板，并重新捕获输入目标。关闭主设置窗口时先隐藏外壳，保留最多十分钟供后续路由复用，超时后才退出；辅助面板仍按各自窗口生命周期关闭。启动器仍只传递受限路由参数，不会把它们写入输入内容。
 
 X11 面板选择显示器及水平居中时以编辑器的物理中心为锚点，再按目标显示器缩放比例换算面板宽度，随后限制到工作区；避免高 DPI 下仅按逻辑宽度计算导致右偏，也避免用面板左边缘误选邻近显示器。
 

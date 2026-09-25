@@ -329,7 +329,7 @@ std::string translationSocket(const Json &options) {
 bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
-  if (!command || !*command) command = "msime-client-settings";
+  if (!command || !*command) command = "msime-linux-settings";
   // About, help and feedback are settings sections, not desktop surfaces, so each travels as "settings:<category>" exactly as the IBus host sends it; the bare name is not a route head and the shared parser would reject it, leaving the window on its home page.
   const char *page = std::strcmp(panel, "about") == 0      ? "about"
                      : std::strcmp(panel, "help") == 0     ? "help"

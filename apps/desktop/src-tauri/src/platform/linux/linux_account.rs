@@ -5,7 +5,7 @@
 //! service every target desktop is guaranteed to run. This host keeps the
 //! session in an owner-only file inside the shared state directory - the same
 //! rule the Linux provider services already state for their credential files,
-//! and the same 0700 directory `msime-client-prepare` publishes. That is
+//! and the same 0700 directory `msime-linux-prepare` publishes. That is
 //! weaker than the Windows Credential Manager or the macOS Keychain, which
 //! encrypt at rest; it is stronger than not offering the account surface at
 //! all, which is where this host was.

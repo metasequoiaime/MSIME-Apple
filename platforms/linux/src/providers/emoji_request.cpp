@@ -22,7 +22,7 @@ std::string local_resources(int argc, char **argv, bool *local) {
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-emoji [provider-socket] | --local [resources]\n";
+    std::cout << "Usage: msime-linux-emoji [provider-socket] | --local [resources]\n";
     return 0;
   }
   bool local = false;

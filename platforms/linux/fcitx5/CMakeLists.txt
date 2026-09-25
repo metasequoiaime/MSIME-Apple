@@ -76,7 +76,7 @@ if(MSIME_BADGE_WAYLAND_SOURCES OR MSIME_BADGE_X11_SOURCES)
   target_sources(msime-fcitx5 PRIVATE ../src/overlay/ModeBadgeSurfaceFactory.cpp
       ${MSIME_BADGE_X11_SOURCES})
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_MODE_BADGE
-      MSIME_MODE_BADGE_ICON="${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/128x128/apps/msime-client.png")
+      MSIME_MODE_BADGE_ICON="${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/128x128/apps/msime-linux.png")
   target_include_directories(msime-fcitx5 PRIVATE ../src/overlay "${MSIME_BADGE_PROTOCOL_DIR}")
   if(MSIME_BADGE_WAYLAND_SOURCES)
     target_compile_definitions(msime-fcitx5 PRIVATE MSIME_BADGE_HAS_WAYLAND)

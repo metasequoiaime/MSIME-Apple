@@ -10,7 +10,7 @@ inline constexpr std::string_view kFirstRunHint =
     "水杉输入法尚未完成首次配置：请打开「水杉输入法」设置，或在终端运行 msime-linux-setup";
 
 // Installed beside the IBus launcher; it opens the settings window and posts a notification at most once per login session. Both frontends call the same script so that limit is shared between them.
-inline constexpr std::string_view kFirstRunGuideProgram = "msime-client-first-run-guide";
+inline constexpr std::string_view kFirstRunGuideProgram = "msime-linux-first-run-guide";
 
 enum class RuntimeOptionsState { Found, NotConfigured, Invalid };
 

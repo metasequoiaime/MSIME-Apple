@@ -28,13 +28,13 @@ while read -r uid name _; do
   esac
   if systemctl --user -M "$uid@" daemon-reload </dev/null >/dev/null 2>&1; then
     if command -v systemd-run >/dev/null 2>&1; then
-      systemd-run --user -M "$uid@" --wait --collect --quiet @CMAKE_INSTALL_FULL_BINDIR@/msime-client-online-provider --ensure-anonymous-account </dev/null >/dev/null 2>&1 || true
+      systemd-run --user -M "$uid@" --wait --collect --quiet @CMAKE_INSTALL_FULL_BINDIR@/msime-linux-online-provider --ensure-anonymous-account </dev/null >/dev/null 2>&1 || true
     fi
     for unit in @MSIME_USER_SERVICE_LIST@; do
       systemctl --user -M "$uid@" try-restart "$unit" </dev/null >/dev/null 2>&1 || true
     done
     if [ -n "$notify" ] && [ -n "$upgrade" ]; then
-      systemd-run --user -M "$uid@" --collect --quiet notify-send -a 水杉输入法 -i msime-client "水杉输入法已升级" "重启输入法后生效：IBus 执行 ibus restart，Fcitx5 执行 fcitx5 -r，或注销后重新登录" </dev/null >/dev/null 2>&1 || true
+      systemd-run --user -M "$uid@" --collect --quiet notify-send -a 水杉输入法 -i msime-linux "水杉输入法已升级" "重启输入法后生效：IBus 执行 ibus restart，Fcitx5 执行 fcitx5 -r，或注销后重新登录" </dev/null >/dev/null 2>&1 || true
     fi
   else
     echo "msime-client: could not reach the systemd user manager of ${name:-uid $uid}; that user should restart its services: systemctl --user daemon-reload && systemctl --user try-restart @MSIME_USER_SERVICE_LIST@; and the input method: ibus restart (IBus) or fcitx5 -r (Fcitx5), or log out and back in" >&2

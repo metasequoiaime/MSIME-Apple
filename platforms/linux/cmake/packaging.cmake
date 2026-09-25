@@ -15,7 +15,7 @@ endif()
 
 # CMakeLists.txt resolves the version before the IBus host is compiled, because the host reports the same version at startup.
 set(CPACK_PACKAGE_VERSION "${MSIME_LINUX_VERSION}")
-set(CPACK_PACKAGE_NAME "msime-client")
+set(CPACK_PACKAGE_NAME "msime-linux")
 set(CPACK_PACKAGE_VENDOR "Metasequoia IME")
 set(CPACK_PACKAGE_CONTACT "Metasequoia IME <metasequoiaime@gmail.com>")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MSIME Linux IBus host and desktop tools (Fcitx5 addon available)")
@@ -41,7 +41,7 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS "${MSIME_HOST_LIBRARY_DIR};${MSI
 # prerm stops and disables the user units of logged-in users on removal and postinst restarts running services after an upgrade; CMakeLists.txt configures both from the unit list the CMake uninstall uses.
 # The clipboard XDG autostart entry is the package's one file under /etc (a /usr prefix puts MSIME_XDG_AUTOSTART_DIR there), and Debian policy requires /etc files to be conffiles so an administrator who edits or deletes it keeps that change across upgrades. CPack's DEB generator marks nothing by itself; the list travels as a control file like the maintainer scripts.
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/debian/conffiles"
-     CONTENT "${MSIME_XDG_AUTOSTART_DIR}/msime-client-clipboard.desktop\n")
+     CONTENT "${MSIME_XDG_AUTOSTART_DIR}/msime-linux-clipboard.desktop\n")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_BINARY_DIR}/debian/prerm;${CMAKE_CURRENT_BINARY_DIR}/debian/postinst;${CMAKE_CURRENT_BINARY_DIR}/debian/conffiles")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION ON)
 

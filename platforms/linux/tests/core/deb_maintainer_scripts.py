@@ -16,7 +16,7 @@ UNINSTALL = Path(sys.argv[2])
 UNITS = sys.argv[3].split()
 SERVICES = [unit for unit in UNITS if unit.endswith(".service")]
 SETUP = sys.argv[4]
-PROVIDER = SETUP.rsplit("/", 1)[0] + "/msime-client-online-provider"
+PROVIDER = SETUP.rsplit("/", 1)[0] + "/msime-linux-online-provider"
 # Removing the input method from each user's lists, the counterpart of the Windows uninstaller unregistering the TSF profile.
 MANUAL_LISTS = "remove the input method from its lists: Metasequoia 水杉输入法 from the desktop input sources (IBus), MSIME from the current group in fcitx5-configtool (Fcitx5)"
 
@@ -45,7 +45,7 @@ printf 'notify-send ran in the maintainer script\\n' >> "$STUB_LOG"
 exit 1
 """
 
-NOTICE = "notify-send -a 水杉输入法 -i msime-client 水杉输入法已升级 重启输入法后生效：IBus 执行 ibus restart，Fcitx5 执行 fcitx5 -r，或注销后重新登录"
+NOTICE = "notify-send -a 水杉输入法 -i msime-linux 水杉输入法已升级 重启输入法后生效：IBus 执行 ibus restart，Fcitx5 执行 fcitx5 -r，或注销后重新登录"
 NOTIFYING = ("systemctl", "loginctl", "systemd-run", "notify-send")
 
 LOGINCTL = """#!/bin/sh

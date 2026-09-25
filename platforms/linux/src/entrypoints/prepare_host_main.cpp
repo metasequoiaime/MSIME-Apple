@@ -124,9 +124,9 @@ void disable_cloud_candidates(const std::filesystem::path &state, nlohmann::json
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-client-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
-                 "       msime-client-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
-                 "       msime-client-prepare --refresh <absolute-runtime-options.json>\n"
+    std::cout << "Usage: msime-linux-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
+                 "       msime-linux-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
+                 "       msime-linux-prepare --refresh <absolute-runtime-options.json>\n"
                  "The state directory must not exist (except for installer-created anonymous account files); its parent must exist.\n"
                  "--installed uses the resource bundle installed beside this executable.\n"
                  "--no-cloud-candidates turns cloud candidates off in the new preferences.\n"
@@ -142,9 +142,9 @@ int main(int argc, char **argv) {
     ++argv;
   }
   if (argc != 3) {
-    std::cerr << "Usage: msime-client-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
-                 "       msime-client-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
-                 "       msime-client-prepare --refresh <absolute-runtime-options.json>\n";
+    std::cerr << "Usage: msime-linux-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
+                 "       msime-linux-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
+                 "       msime-linux-prepare --refresh <absolute-runtime-options.json>\n";
     return 2;
   }
   try {

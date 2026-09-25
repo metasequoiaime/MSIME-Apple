@@ -25,7 +25,7 @@ def main():
                 info.st_mode & 0o077):
             raise ValueError("runtime directory must be private")
         config = absolute_directory("XDG_CONFIG_HOME", str(Path.home() / ".config")) / "msime-client"
-        executable = Path(__file__).resolve().parent / ("msime-client-" + args.provider + "-provider")
+        executable = Path(__file__).resolve().parent / ("msime-linux-" + args.provider + "-provider")
         command = [str(executable), str(runtime / (args.provider + ".sock"))]
         if args.provider == "online":
             # Track optional files even when configured after this service starts.

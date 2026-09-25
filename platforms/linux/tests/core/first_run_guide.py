@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """选中输入法却还没做首次配置时的引导：IBus 启动器与共享的引导脚本；以及升级后下载的词库落后于当前版本时的通知。
 
-用桩代替 msime-client-settings、notify-send 和 msime-linux-ibus，只看谁被调用了几次，不联网、不需要词库，也不起任何桌面进程。
+用桩代替 msime-linux-settings、notify-send 和 msime-linux-ibus，只看谁被调用了几次，不联网、不需要词库，也不起任何桌面进程。
 """
 import os
 import re
@@ -47,11 +47,11 @@ def main() -> int:
         bin_dir = scratch / "bin"
         bin_dir.mkdir()
         log = scratch / "calls.log"
-        for script in ("msime-linux-ibus-launcher", "msime-client-first-run-guide"):
+        for script in ("msime-linux-ibus-launcher", "msime-linux-first-run-guide"):
             target = bin_dir / script
             target.write_text((SCRIPTS / script).read_text())
             target.chmod(0o755)
-        stub(bin_dir / "msime-client-settings", log, "settings")
+        stub(bin_dir / "msime-linux-settings", log, "settings")
         stub(bin_dir / "msime-linux-ibus", log, "ibus")
         tools = scratch / "tools"
         tools.mkdir()
@@ -99,7 +99,7 @@ def main() -> int:
         # IBus 组件已经退出，恢复步骤是切走再切回，必要时 ibus restart。
         assert "切换到其他输入法" in calls(log, "notify")[0] and "ibus restart" in calls(log, "notify")[0], calls(log, "notify")
         # 切回时要找的名字就是 IBus 输入源列表里显示的 longname：组件 XML 与 msime-linux-ibus 自报的描述都得是这一个。
-        longname = re.search(r"<longname>([^<]+)</longname>", (ROOT / "data/msime-client.xml.in").read_text()).group(1)
+        longname = re.search(r"<longname>([^<]+)</longname>", (ROOT / "data/msime-linux.xml.in").read_text()).group(1)
         assert longname == "Metasequoia 水杉输入法", longname
         assert f'"{longname}"' in (ROOT / "src/entrypoints/ibus_main.cpp").read_text()
         assert f"切回「{longname}」" in calls(log, "notify")[0], calls(log, "notify")
@@ -122,7 +122,7 @@ def main() -> int:
 
         # Fcitx5 下次按键或聚焦就会重读配置，通知不要求重新选择输入法。
         stamp.unlink()
-        guide = [str(bin_dir / "msime-client-first-run-guide"), "--host", "fcitx5"]
+        guide = [str(bin_dir / "msime-linux-first-run-guide"), "--host", "fcitx5"]
         assert subprocess.run(guide, env=graphical, timeout=10).returncode == 0
         wait_for(lambda: len(calls(log, "settings")) == 2 and len(calls(log, "notify")) == 2,
                  "Fcitx5 guidance was not launched")
@@ -156,7 +156,7 @@ def main() -> int:
         (config_home / "msime-client").rmdir()
 
         # 没装设置窗口（只装输入法的最小安装）：仍然通知，改为指向终端命令。
-        (bin_dir / "msime-client-settings").unlink()
+        (bin_dir / "msime-linux-settings").unlink()
         # Keep the minimal-install case independent of a settings launcher that may be
         # installed in the test runner's real PATH.
         environment = dict(
@@ -168,7 +168,7 @@ def main() -> int:
         wait_for(lambda: any("msime-linux-setup" in line for line in calls(log, "notify")), "notification missing without a settings window")
         assert any("msime-linux-setup" in line for line in calls(log, "notify")), calls(log, "notify")
         assert len(calls(log, "settings")) == 3
-        stub(bin_dir / "msime-client-settings", log, "settings")
+        stub(bin_dir / "msime-linux-settings", log, "settings")
 
         # 没有 XDG_RUNTIME_DIR 时记录落在缓存目录，缓存跨会话保留，所以只在冷却期内压住重复引导。
         stamp.unlink()
@@ -204,7 +204,7 @@ def main() -> int:
         assert len(calls(log, "settings")) == 6, log.read_text()
 
         # 升级后下载的词库落后于当前版本：宿主以 --reason dictionary-outdated 调用，只发通知、不开设置窗口，通知里给出取回新词库的命令。
-        outdated = [str(bin_dir / "msime-client-first-run-guide"), "--reason", "dictionary-outdated"]
+        outdated = [str(bin_dir / "msime-linux-first-run-guide"), "--reason", "dictionary-outdated"]
         outdated_stamp = runtime / "msime-client/dictionary-outdated.stamp"
         first_run_stamp = runtime / "msime-client/first-run-guide.stamp"
         notified = len(calls(log, "notify"))
@@ -261,7 +261,7 @@ def main() -> int:
         assert len(calls(log, "notify")) == notified + 2 and not outdated_stamp.exists() and not first_run_stamp.exists()
 
     # 引导脚本本身不发起任何下载：msime-linux-setup 和 --download 只出现在注释和这几条通知文案里，从不作为命令执行。文案按原样去掉，剩下的非注释行里一处都不许有。
-    guide = (SCRIPTS / "msime-client-first-run-guide").read_text()
+    guide = (SCRIPTS / "msime-linux-first-run-guide").read_text()
     for forbidden in ("curl", "wget"):
         assert forbidden not in guide, forbidden
     for body in (

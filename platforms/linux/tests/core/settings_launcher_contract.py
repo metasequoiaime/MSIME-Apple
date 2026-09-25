@@ -6,8 +6,8 @@ import tempfile
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
-launcher = (root / "data/msime-client-settings.in").read_text()
-desktop = (root / "data/msime-client.desktop.in").read_text()
+launcher = (root / "data/msime-linux-settings.in").read_text()
+desktop = (root / "data/msime-linux.desktop.in").read_text()
 engine = (root / "src/core/ClientEngine.cpp").read_text()
 assert "settings|about|help|feedback|dictionary|" in launcher
 assert 'MSIME_CLIENT_PANEL:-}" = "dictionary"' in launcher
@@ -41,10 +41,10 @@ assert "MenuPreference::WubiCodeHint" in engine
 with tempfile.TemporaryDirectory() as scratch:
     scratch = Path(scratch)
     system_config = scratch / "system/runtime-options.json"
-    script = scratch / "bin/msime-client-settings"
+    script = scratch / "bin/msime-linux-settings"
     script.parent.mkdir()
     script.write_text(launcher.replace("@MSIME_SETTINGS_SYSTEM_CONFIG@", str(system_config)))
-    desktop_binary = scratch / "bin/msime-client-desktop"
+    desktop_binary = scratch / "bin/msime-linux-desktop"
     desktop_binary.write_text('#!/bin/sh\nprintf %s "$MSIME_CLIENT_HOST_OPTIONS"\n')
     for path in (script, desktop_binary):
         path.chmod(0o755)

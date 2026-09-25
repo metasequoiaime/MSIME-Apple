@@ -40,7 +40,7 @@ mkdir -p "$build_root"
 # built from the Dockerfile in each of them, so a fixed tag means whichever
 # finished last decides what everybody runs - a gate silently executing another
 # checkout's image is worse than no gate.
-image_tag="msime-client-linux-build-gate:$(printf %s "$repo_root" | shasum | cut -c1-12)"
+image_tag="msime-linux-build-gate:$(printf %s "$repo_root" | shasum | cut -c1-12)"
 
 docker build -q -t "$image_tag" \
   -f platforms/linux/tests/tools/Dockerfile.build-gate platforms/linux/tests >/dev/null

@@ -4286,8 +4286,8 @@ test("Linux help network section says what goes online and where credentials liv
   // Cloud candidates are on after first-run setup unless declined, and they send the spelling being typed.
   expect(text).toContain("云候选默认开启");
   expect(text).toContain("Google input-tools");
-  expect(text).toContain("msime-client-online-provider");
-  expect(text).toContain("msime-client-voice-provider");
+  expect(text).toContain("msime-linux-online-provider");
+  expect(text).toContain("msime-linux-voice-provider");
   // A custom translation service goes online with only an endpoint, its API key being optional, so the gate is a configured service rather than a credential.
   expect(text).toContain("只在启用并配置好对应服务（凭据，或自定义翻译的服务地址）后联网");
   expect(text).not.toContain("填好凭据后联网");
@@ -5560,16 +5560,16 @@ test("Linux update notice shows the .deb digest GitHub computed and the sha256su
           html_url: "https://github.com/metasequoiaime/msime/releases/tag/linux-v1.2.0",
           assets: [
             {
-              name: "msime-client-1.2.0-linux-x86_64.tar.gz",
+              name: "msime-linux-1.2.0-linux-x86_64.tar.gz",
               digest: `sha256:${"f".repeat(64)}`,
               browser_download_url:
-                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-client-1.2.0-linux-x86_64.tar.gz",
+                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-linux-1.2.0-linux-x86_64.tar.gz",
             },
             {
-              name: "msime-client_1.2.0_amd64.deb",
+              name: "msime-linux_1.2.0_amd64.deb",
               digest: `sha256:${digest}`,
               browser_download_url:
-                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-client_1.2.0_amd64.deb",
+                "https://github.com/metasequoiaime/msime/releases/download/linux-v1.2.0/msime-linux_1.2.0_amd64.deb",
             },
             { name: "SHA256SUMS", digest: `sha256:${"e".repeat(64)}` },
           ],
@@ -5591,7 +5591,7 @@ test("Linux update notice shows the .deb digest GitHub computed and the sha256su
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
   expect(screen.getByText("该软件包未签名，请务必核对下面的校验值。")).toBeDefined();
   expect(screen.getByText(digest)).toBeDefined();
-  expect(screen.getByText("sha256sum msime-client_1.2.0_amd64.deb")).toBeDefined();
+  expect(screen.getByText("sha256sum msime-linux_1.2.0_amd64.deb")).toBeDefined();
   expect(screen.queryByText(/Get-FileHash/)).toBeNull();
   vi.unstubAllGlobals();
 });
@@ -5612,15 +5612,15 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
       }
     );
   };
-  expect(pick([{ name: "msime-client_1.2.0_amd64.deb", digest: `sha256:${digest}` }])).toEqual({
-    name: "msime-client_1.2.0_amd64.deb",
+  expect(pick([{ name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` }])).toEqual({
+    name: "msime-linux_1.2.0_amd64.deb",
     sha256: digest,
     signed: false,
   });
   // The tarball is the fallback when no .deb was uploaded.
   expect(
-    pick([{ name: "msime-client-1.2.0-linux-x86_64.tar.gz", digest: `sha256:${digest}` }]),
-  ).toEqual({ name: "msime-client-1.2.0-linux-x86_64.tar.gz", sha256: digest, signed: false });
+    pick([{ name: "msime-linux-1.2.0-linux-x86_64.tar.gz", digest: `sha256:${digest}` }]),
+  ).toEqual({ name: "msime-linux-1.2.0-linux-x86_64.tar.gz", sha256: digest, signed: false });
   // Older API responses omit the digest or return null; a wrong algorithm, uppercase hex or a short value is not trusted either.
   for (const bad of [
     undefined,
@@ -5631,8 +5631,8 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
     digest,
     42,
   ]) {
-    expect(pick([{ name: "msime-client_1.2.0_amd64.deb", digest: bad }])).toEqual({
-      name: "msime-client_1.2.0_amd64.deb",
+    expect(pick([{ name: "msime-linux_1.2.0_amd64.deb", digest: bad }])).toEqual({
+      name: "msime-linux_1.2.0_amd64.deb",
       sha256: null,
       signed: false,
     });
@@ -5640,8 +5640,8 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
   // Two architectures would make any single digest wrong for someone.
   expect(
     pick([
-      { name: "msime-client_1.2.0_amd64.deb", digest: `sha256:${digest}` },
-      { name: "msime-client_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
+      { name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` },
+      { name: "msime-linux_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
     ]),
   ).toEqual({ name: null, sha256: null, signed: false });
   // A name that would need shell quoting is never put into the copyable command.
@@ -5660,7 +5660,7 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
         {
           tag_name: "windows-v1.2.0",
           html_url: `${page}/tag/windows-v1.2.0`,
-          assets: [{ name: "msime-client_1.2.0_amd64.deb", digest: `sha256:${digest}` }],
+          assets: [{ name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` }],
         },
       ],
       "windows",
@@ -5678,7 +5678,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
       {
         version,
         releaseUrl,
-        installerName: "msime-client_1.2.0_amd64.deb",
+        installerName: "msime-linux_1.2.0_amd64.deb",
         installerSha256: digest,
         signed: false,
       },
@@ -5686,7 +5686,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
     ),
   ).toEqual({
     warning: "该软件包未签名，请务必核对下面的校验值。",
-    verify: { command: "sha256sum msime-client_1.2.0_amd64.deb", sha256: digest },
+    verify: { command: "sha256sum msime-linux_1.2.0_amd64.deb", sha256: digest },
   });
   expect(
     describeInstallerTrust(

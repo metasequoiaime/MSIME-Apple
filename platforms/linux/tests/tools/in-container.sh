@@ -37,7 +37,7 @@ for name in sorted(symbols):
     getattr(library, name)
 print("Host API header exports verified")
 PY
-cargo test -p msime-client-core -p msime-input-runtime -p msime-host-api --locked
+cargo test -p msime-linux-core -p msime-input-runtime -p msime-host-api --locked
 if [[ ${MSIME_TEST_FCITX5:-0} == 1 ]]; then
   bash platforms/linux/tests/tools/fcitx5-container.sh
   exit 0
@@ -47,41 +47,41 @@ cmake --build /build/ibus
 ctest --test-dir /build/ibus --output-on-failure --no-tests=error
 rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
-if [[ -x /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 ]]; then
-  xvfb-run -a python3 platforms/linux/tests/clipboard/clipboard_x11_events.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11
-  xvfb-run -a python3 platforms/linux/tests/clipboard/clipboard_x11_read.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 /build/ibus/msime-test-x11-string-owner
+if [[ -x /build/stage/usr/local/bin/msime-linux-clipboard-watch-x11 ]]; then
+  xvfb-run -a python3 platforms/linux/tests/clipboard/clipboard_x11_events.py /build/stage/usr/local/bin/msime-linux-clipboard-watch-x11
+  xvfb-run -a python3 platforms/linux/tests/clipboard/clipboard_x11_read.py /build/stage/usr/local/bin/msime-linux-clipboard-watch-x11 /build/ibus/msime-test-x11-string-owner
 fi
 test -x /build/stage/usr/local/bin/msime-linux-ibus
-test -x /build/stage/usr/local/bin/msime-client-dictionary
-test -x /build/stage/usr/local/bin/msime-client-cloud-dictionary
-test -x /build/stage/usr/local/bin/msime-client-cloud-clipboard
-test -x /build/stage/usr/local/bin/msime-client-voice
-test -f /build/stage/usr/local/share/ibus/component/msime-client.xml
-test -f /build/stage/usr/local/etc/xdg/autostart/msime-client-clipboard.desktop
+test -x /build/stage/usr/local/bin/msime-linux-dictionary
+test -x /build/stage/usr/local/bin/msime-linux-cloud-dictionary
+test -x /build/stage/usr/local/bin/msime-linux-cloud-clipboard
+test -x /build/stage/usr/local/bin/msime-linux-voice
+test -f /build/stage/usr/local/share/ibus/component/msime-linux.xml
+test -f /build/stage/usr/local/etc/xdg/autostart/msime-linux-clipboard.desktop
 grep -q '/usr/local/etc/msime-client/runtime-options.json' \
-  /build/stage/usr/local/share/ibus/component/msime-client.xml
-python3 platforms/linux/tests/dictionary/dictionary_smoke.py /build/ibus/msime-client-dictionary /build/cargo/debug/libmsime_host_api.so /resources
+  /build/stage/usr/local/share/ibus/component/msime-linux.xml
+python3 platforms/linux/tests/dictionary/dictionary_smoke.py /build/ibus/msime-linux-dictionary /build/cargo/debug/libmsime_host_api.so /resources
 clipboard_fixture=$(mktemp -d /tmp/msime-clipboard.XXXXXX)
 trap 'rm -rf "$clipboard_fixture"' EXIT
-/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add $'first\nentry'
-/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add "second"
+/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" add $'first\nentry'
+/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" add "second"
 [[ $(stat -c '%a' "$clipboard_fixture/history.json") == 600 ]]
 [[ $(stat -c '%a' "$clipboard_fixture/history.json.lock") == 600 ]]
 ! compgen -G "$clipboard_fixture/history.json.tmp.*" >/dev/null
-[[ $(/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 1) == $'first\nentry' ]]
-if /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 2 >/dev/null; then
+[[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 1) == $'first\nentry' ]]
+if /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 2 >/dev/null; then
   echo "clipboard get accepted an out-of-range index" >&2
   exit 1
 fi
 echo "Linux clipboard stream acceptance passed"
 unicode_text='水杉输入法 😀'
-/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add "$unicode_text"
-[[ $(/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 0) == "$unicode_text" ]]
+/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" add "$unicode_text"
+[[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 0) == "$unicode_text" ]]
 echo "Linux clipboard UTF-8 acceptance passed"
-/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" remove-index 0
-[[ $(/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" get 0) == "second" ]]
+/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" remove-index 0
+[[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 0) == "second" ]]
 echo "Linux clipboard remove-index acceptance passed"
-/build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" clear
+/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" clear
 [[ ! -e "$clipboard_fixture/history.json" ]]
 echo "Linux clipboard clear acceptance passed"
 /build/ibus/ibus-engine-smoke /resources
@@ -101,7 +101,7 @@ print("Installed host resolves staged Host API library")
 PYTHON
 # The installed prepare records a declined cloud-candidate choice in both the shared store and the published options.
 declined=$(mktemp -d /tmp/msime-prepare-declined.XXXXXX)
-/build/stage/usr/local/bin/msime-client-prepare --no-cloud-candidates /resources "$declined/state" >/dev/null
+/build/stage/usr/local/bin/msime-linux-prepare --no-cloud-candidates /resources "$declined/state" >/dev/null
 python3 - "$declined/state" <<'PYTHON'
 import json
 import sys
@@ -112,7 +112,7 @@ assert json.loads((state / "preferences.json").read_text())["preferences"]["clou
 assert json.loads((state / "runtime-options.json").read_text())["preferences"]["cloud_candidates"] is False
 print("Declined cloud candidates are recorded at preparation")
 PYTHON
-/build/stage/usr/local/bin/msime-client-prepare /resources "$declined/default" >/dev/null
+/build/stage/usr/local/bin/msime-linux-prepare /resources "$declined/default" >/dev/null
 python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["preferences"]["cloud_candidates"] is True' "$declined/default/runtime-options.json"
 rm -rf "$declined"
 fixture=$(mktemp -d /tmp/msime-ibus-bootstrap.XXXXXX)
@@ -152,8 +152,8 @@ runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayl
 
 # The staged uninstall cannot reach any user's systemd manager or session, so it names the units to disable and the input method lists to clean up instead of touching them, and still removes the program files.
 uninstall_log=$(DESTDIR=/build/stage cmake -P /build/ibus/uninstall.cmake)
-grep -F "systemctl --user disable --now msime-client-online.socket msime-client-online.service msime-client-voice.socket msime-client-voice.service msime-client-clipboard.service" <<<"$uninstall_log" >/dev/null
+grep -F "systemctl --user disable --now msime-linux-online.socket msime-linux-online.service msime-linux-voice.socket msime-linux-voice.service msime-linux-clipboard.service" <<<"$uninstall_log" >/dev/null
 grep -F "MSIME from the current group in fcitx5-configtool" <<<"$uninstall_log" >/dev/null
 test ! -e /build/stage/usr/local/bin/msime-linux-ibus
-test ! -e /build/stage/usr/local/etc/xdg/autostart/msime-client-clipboard.desktop
+test ! -e /build/stage/usr/local/etc/xdg/autostart/msime-linux-clipboard.desktop
 echo "Staged uninstall names the user units and input method lists, and removes the programs"

@@ -29,7 +29,7 @@ def load(name, filename):
     return module
 
 
-online = load("ai_service_online_provider", "msime-client-online-provider")
+online = load("ai_service_online_provider", "msime-linux-online-provider")
 
 PRIVATE = {
     "provider": "synthetic",

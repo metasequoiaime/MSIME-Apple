@@ -1,4 +1,4 @@
-"""On-device recognition for msime-client-voice-provider through the msime-voice-local helper.
+"""On-device recognition for msime-linux-voice-provider through the msime-voice-local helper.
 
 The helper (shared/voice/LocalAsrHelper.cpp) loads the sherpa-onnx runtime and the model in its own process and speaks one JSON object per line on stdin and stdout. The service keeps one idle helper warm between recordings, so the model the helper caches stays loaded for the next dictation; a helper that did not end its session cleanly is killed instead of reused.
 """
@@ -272,7 +272,7 @@ class LocalStream:
             kind = event.get("type")
             if kind == "exit":
                 if self.failed is None:
-                    print("msime-client-voice-provider: msime-voice-local exited during a recording", file=sys.stderr, flush=True)
+                    print("msime-linux-voice-provider: msime-voice-local exited during a recording", file=sys.stderr, flush=True)
                 self.failed = self.failed or "msime-voice-local exited"
                 self.done.set()
                 return True
@@ -291,7 +291,7 @@ class LocalStream:
                 self.failed = message if isinstance(message, str) and message else kind
                 if kind == "error":
                     # The helper's diagnostic is English text about the runtime or the model; the host only shows a generic failure, so the journal is where it can be read.
-                    print("msime-client-voice-provider: local recognition failed: %s" % self.failed[:512],
+                    print("msime-linux-voice-provider: local recognition failed: %s" % self.failed[:512],
                           file=sys.stderr, flush=True)
                 self.done.set()
                 return True
@@ -310,7 +310,7 @@ class LocalStream:
             self.helper.send(message)
         except OSError:
             if self.failed is None:
-                print("msime-client-voice-provider: msime-voice-local exited during a recording", file=sys.stderr, flush=True)
+                print("msime-linux-voice-provider: msime-voice-local exited during a recording", file=sys.stderr, flush=True)
             self.failed = "msime-voice-local exited"
             self.done.set()
 

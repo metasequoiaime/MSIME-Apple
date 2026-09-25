@@ -3,8 +3,8 @@ project(MSIMEClientLinux LANGUAGES CXX)
 find_package(CURL REQUIRED)
 include(GNUInstallDirs)
 # The user units msime-linux-setup can enable. The CMake uninstall and the Debian maintainer scripts all stop them, so the list is defined once here; each socket precedes its service so stopping in this order does not activate the service again. The maintainer scripts restart only the services: sockets run no program.
-set(MSIME_USER_UNITS msime-client-online.socket msime-client-online.service msime-client-voice.socket
-    msime-client-voice.service msime-client-clipboard.service)
+set(MSIME_USER_UNITS msime-linux-online.socket msime-linux-online.service msime-linux-voice.socket
+    msime-linux-voice.service msime-linux-clipboard.service)
 set(MSIME_USER_SERVICES ${MSIME_USER_UNITS})
 list(FILTER MSIME_USER_SERVICES INCLUDE REGEX "\\.service$")
 list(JOIN MSIME_USER_UNITS " " MSIME_USER_UNIT_LIST)
@@ -84,10 +84,10 @@ if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE)
   endif()
 endif()
 if(X11_CLIPBOARD_FOUND)
-  add_executable(msime-client-clipboard-watch-x11 src/clipboard/clipboard_watch_x11.cpp)
-  target_compile_options(msime-client-clipboard-watch-x11 PRIVATE -Wall -Wextra -Werror)
-  target_link_libraries(msime-client-clipboard-watch-x11 PRIVATE PkgConfig::X11_CLIPBOARD)
-  install(TARGETS msime-client-clipboard-watch-x11 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT clipboard-watch)
+  add_executable(msime-linux-clipboard-watch-x11 src/clipboard/clipboard_watch_x11.cpp)
+  target_compile_options(msime-linux-clipboard-watch-x11 PRIVATE -Wall -Wextra -Werror)
+  target_link_libraries(msime-linux-clipboard-watch-x11 PRIVATE PkgConfig::X11_CLIPBOARD)
+  install(TARGETS msime-linux-clipboard-watch-x11 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT clipboard-watch)
   if(BUILD_TESTING)
     add_executable(msime-test-x11-string-owner tests/clipboard/clipboard_x11_string_owner.cpp)
     target_compile_options(msime-test-x11-string-owner PRIVATE -Wall -Wextra -Werror)
@@ -147,46 +147,46 @@ target_compile_definitions(msime-linux-ibus PRIVATE MSIME_LINUX_VERSION="${MSIME
 target_link_libraries(msime-linux-ibus PRIVATE CURL::libcurl Threads::Threads)
 target_compile_options(msime-linux-ibus PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-linux-ibus PRIVATE msime-ibus-host)
-add_executable(msime-client-dictionary src/providers/dictionary_request.cpp)
-add_executable(msime-client-prepare src/entrypoints/prepare_host_main.cpp)
-target_compile_options(msime-client-prepare PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-prepare PRIVATE msime-ibus-host)
+add_executable(msime-linux-dictionary src/providers/dictionary_request.cpp)
+add_executable(msime-linux-prepare src/entrypoints/prepare_host_main.cpp)
+target_compile_options(msime-linux-prepare PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-prepare PRIVATE msime-ibus-host)
 file(RELATIVE_PATH MSIME_INSTALLED_RESOURCE_RELATIVE_DIR
      "${CMAKE_INSTALL_FULL_BINDIR}"
      "${CMAKE_INSTALL_FULL_DATADIR}/msime-client/resources")
-target_compile_definitions(msime-client-prepare PRIVATE
+target_compile_definitions(msime-linux-prepare PRIVATE
   MSIME_INSTALLED_RESOURCE_RELATIVE_DIR="${MSIME_INSTALLED_RESOURCE_RELATIVE_DIR}")
-target_compile_options(msime-client-dictionary PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-dictionary PRIVATE msime-ibus-host)
-add_executable(msime-client-cloud-dictionary src/providers/cloud_dictionary_request.cpp)
-target_compile_options(msime-client-cloud-dictionary PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-cloud-dictionary PRIVATE msime-ibus-host)
-add_executable(msime-client-cloud-clipboard src/providers/cloud_clipboard_request.cpp)
-target_compile_options(msime-client-cloud-clipboard PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-cloud-clipboard PRIVATE msime-ibus-host)
-add_executable(msime-client-online src/providers/online_request.cpp)
-target_compile_options(msime-client-online PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-online PRIVATE msime-ibus-host)
-add_executable(msime-client-online-provider-contract tests/provider/online_provider_contract.cpp)
-target_compile_options(msime-client-online-provider-contract PRIVATE -Wall -Wextra -Werror)
-target_include_directories(msime-client-online-provider-contract PRIVATE ../../crates/host-api/include)
-target_link_libraries(msime-client-online-provider-contract PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
-add_test(NAME linux-online-provider-contract COMMAND msime-client-online-provider-contract)
-add_executable(msime-client-translation src/providers/translation_request.cpp)
-target_compile_options(msime-client-translation PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-translation PRIVATE msime-ibus-host)
-add_executable(msime-client-clipboard src/clipboard/clipboard_history.cpp)
-target_compile_options(msime-client-clipboard PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-clipboard PRIVATE nlohmann_json::nlohmann_json)
-add_executable(msime-client-clipboard-capture src/clipboard/clipboard_capture.cpp)
-target_compile_options(msime-client-clipboard-capture PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-clipboard-capture PRIVATE msime-ibus-host)
-add_executable(msime-client-handwriting src/providers/handwriting_request.cpp)
-target_compile_options(msime-client-handwriting PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-handwriting PRIVATE msime-ibus-host)
-add_executable(msime-client-voice src/voice/voice_request.cpp)
-target_compile_options(msime-client-voice PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-voice PRIVATE msime-ibus-host)
+target_compile_options(msime-linux-dictionary PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-dictionary PRIVATE msime-ibus-host)
+add_executable(msime-linux-cloud-dictionary src/providers/cloud_dictionary_request.cpp)
+target_compile_options(msime-linux-cloud-dictionary PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-cloud-dictionary PRIVATE msime-ibus-host)
+add_executable(msime-linux-cloud-clipboard src/providers/cloud_clipboard_request.cpp)
+target_compile_options(msime-linux-cloud-clipboard PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-cloud-clipboard PRIVATE msime-ibus-host)
+add_executable(msime-linux-online src/providers/online_request.cpp)
+target_compile_options(msime-linux-online PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-online PRIVATE msime-ibus-host)
+add_executable(msime-linux-online-provider-contract tests/provider/online_provider_contract.cpp)
+target_compile_options(msime-linux-online-provider-contract PRIVATE -Wall -Wextra -Werror)
+target_include_directories(msime-linux-online-provider-contract PRIVATE ../../crates/host-api/include)
+target_link_libraries(msime-linux-online-provider-contract PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+add_test(NAME linux-online-provider-contract COMMAND msime-linux-online-provider-contract)
+add_executable(msime-linux-translation src/providers/translation_request.cpp)
+target_compile_options(msime-linux-translation PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-translation PRIVATE msime-ibus-host)
+add_executable(msime-linux-clipboard src/clipboard/clipboard_history.cpp)
+target_compile_options(msime-linux-clipboard PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-clipboard PRIVATE nlohmann_json::nlohmann_json)
+add_executable(msime-linux-clipboard-capture src/clipboard/clipboard_capture.cpp)
+target_compile_options(msime-linux-clipboard-capture PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-clipboard-capture PRIVATE msime-ibus-host)
+add_executable(msime-linux-handwriting src/providers/handwriting_request.cpp)
+target_compile_options(msime-linux-handwriting PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-handwriting PRIVATE msime-ibus-host)
+add_executable(msime-linux-voice src/voice/voice_request.cpp)
+target_compile_options(msime-linux-voice PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-voice PRIVATE msime-ibus-host)
 # On-device recognition for the `local` voice provider: the voice service spawns this helper (scripts/msime_voice_local.py) and speaks its JSON-lines protocol, so the model never loads into the service or the input method. It opens the sherpa-onnx runtime with dlopen from its own directory, so it builds without one; MSIME_VOICE_RUNTIME_DIR below installs the runtime beside it. Compiled from the shared sources directly because shared/voice/CMakeLists.txt also builds the cloud providers, which need libcurl and the Engine's voice target.
 find_package(Threads REQUIRED)
 set(MSIME_SHARED_VOICE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice")
@@ -195,9 +195,9 @@ target_compile_options(msime-voice-local PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-voice-local PRIVATE "${MSIME_SHARED_VOICE_DIR}" "${MSIME_SHARED_VOICE_DIR}/third_party"
                            "${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/MSIME-Engine/voice/include")
 target_link_libraries(msime-voice-local PRIVATE nlohmann_json::nlohmann_json Threads::Threads ${CMAKE_DL_LIBS})
-add_executable(msime-client-emoji src/providers/emoji_request.cpp)
-target_compile_options(msime-client-emoji PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(msime-client-emoji PRIVATE msime-ibus-host)
+add_executable(msime-linux-emoji src/providers/emoji_request.cpp)
+target_compile_options(msime-linux-emoji PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-emoji PRIVATE msime-ibus-host)
 add_executable(ibus-engine-smoke tests/runtime/engine_smoke.cpp)
 target_compile_options(ibus-engine-smoke PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host)
@@ -323,7 +323,7 @@ add_test(NAME linux-setup-resolution
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_resolution.py")
 add_test(NAME linux-setup-update
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_update.py"
-                 $<TARGET_FILE:msime-client-prepare>)
+                 $<TARGET_FILE:msime-linux-prepare>)
 add_test(NAME linux-setup-registration
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_registration.py")
 add_test(NAME linux-setup-panel-restore
@@ -365,7 +365,7 @@ add_test(NAME linux-voice-capture-device
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/capture_device_contract.py")
 add_test(NAME linux-clipboard-tool-parity
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/clipboard/clipboard_tool_parity.py"
-                 $<TARGET_FILE:msime-client-clipboard>)
+                 $<TARGET_FILE:msime-linux-clipboard>)
 add_executable(linux-first-run-guidance-test tests/core/first_run_guidance.cpp)
 target_compile_options(linux-first-run-guidance-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-first-run-guidance-test PRIVATE src)
@@ -396,15 +396,15 @@ if(MSIME_LINUX_VOICE)
  target_include_directories(msime-voice-worker-test PRIVATE src)
  add_test(NAME linux-voice-worker COMMAND msime-voice-worker-test)
 endif()
-configure_file(data/msime-client.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client.xml @ONLY)
-install(TARGETS msime-linux-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-clipboard
-                msime-client-handwriting msime-client-voice msime-client-emoji msime-client-clipboard-capture msime-client-prepare
+configure_file(data/msime-linux.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-linux.xml @ONLY)
+install(TARGETS msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-clipboard
+                msime-linux-handwriting msime-linux-voice msime-linux-emoji msime-linux-clipboard-capture msime-linux-prepare
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(MSIME_LINUX_VOICE)
  install(TARGETS msime-voice-worker-test RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
-install(PROGRAMS scripts/msime-linux-ibus-launcher scripts/msime-client-first-run-guide scripts/msime-client-online-provider scripts/msime-client-voice-provider scripts/msime-client-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
-install(PROGRAMS scripts/msime-client-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(PROGRAMS scripts/msime-linux-ibus-launcher scripts/msime-linux-first-run-guide scripts/msime-linux-online-provider scripts/msime-linux-voice-provider scripts/msime-linux-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(PROGRAMS scripts/msime-linux-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # 安装后的首次配置入口。词库与状态目录此前没有任何产品侧的路径：词库要么在配置阶段随包
 # 装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而
 # 没有词库一个候选都出不来。两份锁无条件随装，它们是这个入口据以校验和取回的依据——词库
@@ -418,15 +418,15 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../engine-lock.json"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
 set(MSIME_SYSTEMD_USER_UNIT_DIR "${CMAKE_INSTALL_DATADIR}/systemd/user" CACHE PATH "systemd user unit installation directory")
 foreach(MSIME_PROVIDER online voice clipboard)
-  configure_file(data/msime-client-${MSIME_PROVIDER}.service.in
-                 ${CMAKE_CURRENT_BINARY_DIR}/msime-client-${MSIME_PROVIDER}.service @ONLY)
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-${MSIME_PROVIDER}.service
+  configure_file(data/msime-linux-${MSIME_PROVIDER}.service.in
+                 ${CMAKE_CURRENT_BINARY_DIR}/msime-linux-${MSIME_PROVIDER}.service @ONLY)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-linux-${MSIME_PROVIDER}.service
           DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
 endforeach()
 # Starts the clipboard service at login on sessions without graphical-session.target, for users who enabled it; see the comment in the file. Its own component lets the test install just this file.
-install(FILES data/msime-client-clipboard.desktop DESTINATION "${MSIME_XDG_AUTOSTART_DIR}" COMPONENT clipboard-autostart)
+install(FILES data/msime-linux-clipboard.desktop DESTINATION "${MSIME_XDG_AUTOSTART_DIR}" COMPONENT clipboard-autostart)
 # Socket units keep the provider paths present from login, so the input method and the panels find the services the way the Windows server is simply there; systemd starts a provider on its first request.
-install(FILES data/msime-client-online.socket data/msime-client-voice.socket
+install(FILES data/msime-linux-online.socket data/msime-linux-voice.socket
         DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
 install(FILES scripts/msime_voice_doubao.py scripts/msime_voice_local.py scripts/msime_provider_runtime.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # The helper and the sherpa-onnx runtime share the host library's private directory: the helper finds the runtime in its own directory, and libsherpa-onnx-c-api.so finds libonnxruntime.so through its $ORIGIN RPATH.
@@ -575,11 +575,11 @@ if(MSIME_DESKTOP_BINARY)
   # Quote the configured path as one POSIX shell word, including apostrophes.
   string(REPLACE "'" "'\\''" MSIME_SETTINGS_SYSTEM_CONFIG
          "${CMAKE_INSTALL_FULL_SYSCONFDIR}/msime-client/runtime-options.json")
-  configure_file(data/msime-client-settings.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client-settings @ONLY)
-  configure_file(data/msime-client.desktop.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client.desktop @ONLY)
-  install(PROGRAMS "${MSIME_DESKTOP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME msime-client-desktop)
-  install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/msime-client-settings DESTINATION "${CMAKE_INSTALL_BINDIR}")
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client.desktop DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+  configure_file(data/msime-linux-settings.in ${CMAKE_CURRENT_BINARY_DIR}/msime-linux-settings @ONLY)
+  configure_file(data/msime-linux.desktop.in ${CMAKE_CURRENT_BINARY_DIR}/msime-linux.desktop @ONLY)
+  install(PROGRAMS "${MSIME_DESKTOP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME msime-linux-desktop)
+  install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/msime-linux-settings DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-linux.desktop DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
 endif()
 # Nothing here starts the MCP server: an agent's MCP configuration names the command and runs it over stdio, so it only has to be on PATH.
 if(MSIME_MCP_BINARY)
@@ -588,7 +588,7 @@ if(MSIME_MCP_BINARY)
   endif()
   install(PROGRAMS "${MSIME_MCP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
-# 桌面入口的 Icon=msime-client、Fcitx5 输入法条目的 Icon 和 IBus 组件的 <icon> 都按名字
+# 桌面入口的 Icon=msime-linux、Fcitx5 输入法条目的 Icon 和 IBus 组件的 <icon> 都按名字
 # 解析，所以这些文件决定了托盘、输入法列表和启动器上显示的是 logo 还是占位图。它们此前
 # 装在桌面二进制那个分支里，于是只装输入法、不装设置窗口的安装一张图标都没有，而那恰恰
 # 是最小可用的安装方式。
@@ -599,12 +599,12 @@ install(SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/icon-cache.cmake)
 if(MSIME_RUNTIME_OPTIONS_FILE)
  install(FILES "${MSIME_RUNTIME_OPTIONS_FILE}" DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/msime-client" RENAME runtime-options.json)
 endif()
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client.xml DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-linux.xml DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
-set_target_properties(msime-linux-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-handwriting
-                      msime-client-voice msime-client-emoji msime-client-clipboard-capture msime-client-prepare PROPERTIES
+set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-handwriting
+                      msime-linux-voice msime-linux-emoji msime-linux-clipboard-capture msime-linux-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
 
 add_executable(linux-native-compose-test tests/input/native_compose.cpp)
