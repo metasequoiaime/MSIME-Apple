@@ -20,6 +20,10 @@ def main() -> int:
             and "KeyboardSession.shared.invalidateReplyContext(false)" in show,
         "late local result invalidated": "this.replyGeneration += 1" in show,
         "visible old result cleared": "this.replyResults = []" in show,
+        "diagnostic timer cancelled": "clearTimeout(this.diagnosticTimer)" in disappear
+            and "this.diagnosticTimer = -1" in disappear,
+        "reply generation invalidated": "this.replyGeneration += 1" in disappear,
+        "polish generation invalidated": "this.polishGeneration += 1" in disappear,
     }
     problems = [name for name, present in required.items() if not present]
     if problems:
