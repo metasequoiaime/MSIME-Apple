@@ -2802,6 +2802,14 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   } | null>(null);
   const requestRevision = useRef(0);
   const busyRef = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
   async function run(action: (revision: number) => Promise<void>, failure: string) {
     if (busyRef.current) return;
@@ -2908,9 +2916,11 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   }
 
   async function exportSnapshot() {
+    if (!mounted.current) return;
     setSnapshotBusy(true);
     try {
       const result = await client.request({ operation: "snapshot_export" });
+      if (!mounted.current) return;
       if (client.snapshotNative && typeof result.saved === "boolean") {
         setNotice(result.saved ? "完整云词库快照已导出" : "已取消导出");
         return;
@@ -2932,13 +2942,14 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
     } catch {
-      setNotice("导出完整云词库快照失败");
+      if (mounted.current) setNotice("导出完整云词库快照失败");
     } finally {
-      setSnapshotBusy(false);
+      if (mounted.current) setSnapshotBusy(false);
     }
   }
 
   async function chooseRestoreSnapshot(selected: File) {
+    if (!mounted.current) return;
     if (selected.size === 0 || selected.size > 512 * 1024 * 1024) {
       setNotice("快照文件必须大于 0 且不超过 512 MiB");
       return;
@@ -2947,6 +2958,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     try {
       const text = client.snapshotNative ? "" : await selected.text();
       const result = await client.request({ operation: "snapshot_restore_preview", text });
+      if (!mounted.current) return;
       if (!result.snapshot || typeof result.expectedRevision !== "number")
         throw new Error("invalid snapshot preview");
       if (client.snapshotNative && typeof result.previewToken !== "string")
@@ -2959,18 +2971,19 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       });
       setNotice("快照已校验，请确认后替换云端词库");
     } catch {
-      setNotice("无法校验快照，云端词库未改变");
+      if (mounted.current) setNotice("无法校验快照，云端词库未改变");
     } finally {
-      setSnapshotBusy(false);
+      if (mounted.current) setSnapshotBusy(false);
     }
   }
 
   async function chooseNativeRestoreSnapshot() {
-    if (!client.chooseSnapshotRestore) return;
+    if (!client.chooseSnapshotRestore || !mounted.current) return;
     setRestorePreview(null);
     setSnapshotBusy(true);
     try {
       const result = await client.chooseSnapshotRestore();
+      if (!mounted.current) return;
       if (result.saved === false) {
         setNotice("已取消选择快照");
         return;
@@ -2988,25 +3001,27 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       });
       setNotice("快照已校验，请确认后替换云端词库");
     } catch {
-      setNotice("无法校验快照，云端词库未改变");
+      if (mounted.current) setNotice("无法校验快照，云端词库未改变");
     } finally {
-      setSnapshotBusy(false);
+      if (mounted.current) setSnapshotBusy(false);
     }
   }
 
   async function abandonRestoreSnapshot() {
+    if (!mounted.current) return;
     setRestorePreview(null);
     if (client.snapshotNative) {
       setSnapshotBusy(true);
       try {
         await client.request({ operation: "snapshot_restore_cancel" });
       } finally {
-        setSnapshotBusy(false);
+        if (mounted.current) setSnapshotBusy(false);
       }
     }
   }
 
   async function restoreSnapshot() {
+    if (!mounted.current) return;
     const prepared = restorePreview;
     if (!prepared) return;
     const confirmed = await confirm({
@@ -3015,7 +3030,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       confirmLabel: "替换",
       danger: true,
     });
-    if (!confirmed) return;
+    if (!confirmed || !mounted.current) return;
     setSnapshotBusy(true);
     try {
       const result = await client.request(
@@ -3028,12 +3043,13 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
               revision: prepared.expectedRevision,
             },
       );
+      if (!mounted.current) return;
       setRestorePreview(null);
       setNotice(`云端词库已恢复到新版本 ${result.revision ?? ""}`.trim());
     } catch {
-      setNotice("恢复失败，可能是云端版本已变化；云端词库未改变");
+      if (mounted.current) setNotice("恢复失败，可能是云端版本已变化；云端词库未改变");
     } finally {
-      setSnapshotBusy(false);
+      if (mounted.current) setSnapshotBusy(false);
     }
   }
 
