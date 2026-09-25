@@ -6,6 +6,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
+    def test_tauri_apk_staging_clears_previous_abi_and_resource_outputs(self):
+        build = (ROOT / "platforms/android/build-client-apk.sh").read_text()
+
+        self.assertIn('rm -rf "$tauri_jni"', build)
+        self.assertIn('rm -rf "$assets"', build)
+
     def test_native_apk_preflight_matches_gradle_compile_sdk(self):
         gradle = (ROOT / "platforms/android/gradle-app/app/build.gradle.kts").read_text()
         build = (ROOT / "platforms/android/build-apk.sh").read_text()
