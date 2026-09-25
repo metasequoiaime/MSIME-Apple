@@ -1,8 +1,9 @@
 //! The tools, and the limits around the ones that write.
 //!
-//! Every tool reads the runtime-options document afresh, so the server follows the settings page when it moves the data directory or changes the dictionaries without being restarted. Nothing typed and no credential leaves the input method through here, and no dictionary content beyond quick phrases unless the user started the server with --allow-dictionary-read; the audit lines on stderr name the tool and the outcome, never what was written.
+//! Every tool reads the runtime-options document afresh, so the server follows the settings page when it moves the data directory or changes the dictionaries without being restarted. Nothing typed and no credential leaves the input method through here, and no dictionary content beyond quick phrases unless the user started the server with --allow-dictionary-read. The diagnostic log is always readable: it holds event names, timings and error codes, the user turns it on themselves, and the keys the Windows TIP traces are blanked before a line is returned; the audit lines on stderr name the tool and the outcome, never what was written.
 
 use crate::config::Config;
+use crate::diagnostics::{self, LogRequest, LogView, SwitchRequest, SwitchView};
 use crate::preferences::{self, PreferencesChange, PreferencesView};
 use crate::statistics::{self, StatisticsRequest, StatisticsView};
 use crate::words;
@@ -35,7 +36,7 @@ const DICTIONARY_READ_TOOLS: [&str; 2] = ["list_dictionary_words", "lookup_candi
 /// Offered with --allow-write and --allow-dictionary-read together: an edit or import also tells whether a word is there.
 const DICTIONARY_WRITE_TOOLS: [&str; 2] = ["edit_dictionary_words", "import_dictionary_words"];
 
-const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. Changes take effect in the input method within a few seconds. Writing tools are only offered when the user started the server with --allow-write.";
+const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
 
 #[derive(Clone)]
 pub struct MsimeServer {
@@ -309,6 +310,56 @@ impl MsimeServer {
     }
 
     #[tool(
+        name = "read_diagnostic_log",
+        description = "Read the most recent lines of the input method's diagnostic log, the record its hosts keep of focus changes, slow requests, candidate window and dictionary events and failures, to look into a problem the user describes. Filter by text and by local time. Also tells whether the log is on; nothing is recorded while it is off.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn read_diagnostic_log(
+        &self,
+        Parameters(request): Parameters<LogRequest>,
+    ) -> Result<Json<LogView>, String> {
+        let config = self.config.clone();
+        blocking(move || {
+            let state_dir = config.state_dir(&config.read_options()?)?;
+            diagnostics::load(&state_dir, &request).map(Json)
+        })
+        .await
+    }
+
+    #[tool(
+        name = "set_diagnostic_log",
+        description = "Turn the input method's diagnostic log on, so that what goes wrong next is recorded, or off once the problem is understood. Only changes whether the input method writes its log on this computer.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn set_diagnostic_log(
+        &self,
+        Parameters(request): Parameters<SwitchRequest>,
+    ) -> Result<Json<SwitchView>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let state_dir = config.state_dir(&config.read_options()?)?;
+            diagnostics::set(&state_dir, &config.options, request.enabled).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: set_diagnostic_log {}",
+            match (&result, request.enabled) {
+                (Err(_), _) => "refused",
+                (Ok(_), true) => "on",
+                (Ok(_), false) => "off",
+            }
+        );
+        result
+    }
+
+    #[tool(
         name = "list_dictionary_words",
         description = "List the words the user added to a typing dictionary, or with include_bundled and a code_prefix every word the dictionary has under that code, with the weights that rank them.",
         annotations(read_only_hint = true, open_world_hint = false)
@@ -567,7 +618,9 @@ mod tests {
             [
                 "get_preferences",
                 "get_typing_statistics",
-                "list_quick_phrases"
+                "list_quick_phrases",
+                "read_diagnostic_log",
+                "set_diagnostic_log"
             ]
         );
         assert_eq!(
@@ -577,6 +630,8 @@ mod tests {
                 "get_preferences",
                 "get_typing_statistics",
                 "list_quick_phrases",
+                "read_diagnostic_log",
+                "set_diagnostic_log",
                 "update_preferences"
             ]
         );
@@ -587,7 +642,9 @@ mod tests {
                 "get_typing_statistics",
                 "list_dictionary_words",
                 "list_quick_phrases",
-                "lookup_candidates"
+                "lookup_candidates",
+                "read_diagnostic_log",
+                "set_diagnostic_log"
             ]
         );
         assert_eq!(
@@ -601,6 +658,8 @@ mod tests {
                 "list_dictionary_words",
                 "list_quick_phrases",
                 "lookup_candidates",
+                "read_diagnostic_log",
+                "set_diagnostic_log",
                 "update_preferences"
             ]
         );

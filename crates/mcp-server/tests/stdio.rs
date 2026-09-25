@@ -134,7 +134,9 @@ async fn read_only_by_default() {
         [
             "get_preferences",
             "get_typing_statistics",
-            "list_quick_phrases"
+            "list_quick_phrases",
+            "read_diagnostic_log",
+            "set_diagnostic_log"
         ]
     );
     let page = ok(&client, "list_quick_phrases", json!({})).await;
@@ -155,7 +157,7 @@ async fn an_agent_manages_quick_phrases_and_preferences() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
     let (client, _child) = start(&options, &["--allow-write"]).await;
-    assert_eq!(tool_names(&client).await.len(), 5);
+    assert_eq!(tool_names(&client).await.len(), 7);
 
     // Quick phrases: add, list, replace, remove, with a failure in the middle of a batch.
     let outcome = ok(
@@ -265,7 +267,7 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
     client.cancel().await.unwrap();
 
     let (client, _child) = start(&options, &["--allow-write", "--allow-dictionary-read"]).await;
-    assert_eq!(tool_names(&client).await.len(), 9);
+    assert_eq!(tool_names(&client).await.len(), 11);
 
     let outcome = ok(
         &client,
@@ -368,6 +370,99 @@ async fn an_agent_imports_reweighs_and_explains_dictionary_words() {
             .await
             .is_empty()
     );
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_agent_turns_on_and_reads_the_diagnostic_log() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    // No flags: the settings page registers the server this way, and someone who cannot edit a configuration file must still get from a description of the problem to the log.
+    let (client, _child) = start(&options, &[]).await;
+
+    // Off by default: nothing to read, and the answer says how to get something.
+    let view = ok(&client, "read_diagnostic_log", json!({})).await;
+    assert_eq!(view["server_enabled"], false);
+    assert_eq!(view["lines"], json!([]));
+    // The local time to measure "a few minutes ago" from, in the log's own form.
+    let now = view["now"].as_str().unwrap();
+    assert_eq!(now.len(), 19);
+    assert!(now.starts_with("20") && now.as_bytes()[10] == b' ');
+    assert!(view["hint"]
+        .as_str()
+        .unwrap()
+        .contains("set_diagnostic_log"));
+
+    let switched = ok(&client, "set_diagnostic_log", json!({ "enabled": true })).await;
+    assert_eq!(switched["server_enabled"], true);
+    assert_eq!(switched["tsf_enabled"], cfg!(windows));
+    assert_eq!(
+        ok(&client, "get_preferences", json!({})).await["diagnostic_log_server"],
+        true
+    );
+    let view = ok(&client, "read_diagnostic_log", json!({})).await;
+    assert!(view["hint"]
+        .as_str()
+        .unwrap()
+        .contains("nothing has been written"));
+
+    // What a host writes once the user reproduces the problem, in the place this platform's host writes it.
+    let file = if cfg!(windows) {
+        directory.path().join("logs").join("server.log")
+    } else {
+        directory.path().join("diagnostic.log")
+    };
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(
+        &file,
+        "2026-09-25 09:00:00 [p1] focus_in\n\
+         2026-09-25 10:00:00 [p1] candidate_window_slow stage=layout elapsed_ms=180\n\
+         2026-09-25 10:00:01 [p1:t2] [msime][issue47] seq=1 stage=key-down vk=0x41 wch=U+0061 key=a key_class=letter\n\
+         2026-09-25 10:00:02 [p1] focus_out\n",
+    )
+    .unwrap();
+
+    let view = ok(
+        &client,
+        "read_diagnostic_log",
+        json!({ "since": "2026-09-25 10:00", "lines": 2 }),
+    )
+    .await;
+    assert_eq!(view["server_enabled"], true);
+    assert!(view.get("hint").is_none());
+    assert_eq!(view["has_more"], true);
+    assert_eq!(
+        view["lines"],
+        json!([
+            "2026-09-25 10:00:01 [p1:t2] [msime][issue47] seq=1 stage=key-down vk=- wch=- key=- key_class=letter",
+            "2026-09-25 10:00:02 [p1] focus_out"
+        ])
+    );
+    let view = ok(
+        &client,
+        "read_diagnostic_log",
+        json!({ "contains": "SLOW" }),
+    )
+    .await;
+    assert_eq!(view["lines"].as_array().unwrap().len(), 1);
+    assert!(!refused(
+        &client,
+        "read_diagnostic_log",
+        json!({ "since": "earlier" })
+    )
+    .await
+    .is_empty());
+
+    // Done: the log goes off again, and what was written stays readable.
+    after_write_interval().await;
+    let switched = ok(&client, "set_diagnostic_log", json!({ "enabled": false })).await;
+    assert_eq!(
+        switched,
+        json!({ "server_enabled": false, "tsf_enabled": false })
+    );
+    let view = ok(&client, "read_diagnostic_log", json!({})).await;
+    assert_eq!(view["lines"].as_array().unwrap().len(), 4);
 
     client.cancel().await.unwrap();
 }
