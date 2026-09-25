@@ -564,9 +564,8 @@ private:
                 L"要让助手修改快捷短语和设置，在 args 中加入 "
                 L"--allow-write；要让它读取你的用户词库、查看编码的候选，加入 "
                 L"--allow-dictionary-"
-                L"read；两项都加才能增删、调整和导入词；要让它读取输入法的诊断日"
-                L"志、帮你排查问题，加入 --allow-diagnostic-read。这些选项只应在"
-                L"你信任该助手时开启。");
+                L"read；两项都加才能增删、调整和导入词。这两项只应在你信任该助"
+                L"手时开启。");
     auto copy = Button();
     copy.Content(box_value(L"复制配置"));
     copy.Click([snippet](IInspectable const &sender, RoutedEventArgs const &) {
