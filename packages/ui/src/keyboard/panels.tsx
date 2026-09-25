@@ -3225,21 +3225,26 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("先获取本机词库版本，再下载并预览云端快照");
   const busyRef = useRef(false);
+  const statusRevision = useRef(0);
 
   async function refreshStatus() {
+    if (busyRef.current) return;
+    const revision = ++statusRevision.current;
     try {
       const result = await client.request({ operation: "snapshot_status" });
+      if (revision !== statusRevision.current) return;
       setLocalVersion(typeof result.localVersion === "string" ? result.localVersion : null);
       setRequest(
         result.request && typeof result.request.status === "string" ? result.request : null,
       );
     } catch {
-      setNotice("无法读取本机词库状态，请确认键盘已启用");
+      if (revision === statusRevision.current) setNotice("无法读取本机词库状态，请确认键盘已启用");
     }
   }
 
   async function run(action: () => Promise<void>, failure: string) {
     if (busyRef.current) return;
+    ++statusRevision.current;
     busyRef.current = true;
     setBusy(true);
     try {
