@@ -26,6 +26,7 @@ public actor BackendTelemetryClient {
   static let maxPayloadBytes = 64 * 1024
   // An older or foreign queue may exceed the payload bound; read it and keep what fits.
   static let maxQueueFileBytes = 1024 * 1024
+  private static let queueLock = NSLock()
 
   public init(configuration: URLSessionConfiguration = .ephemeral, queueURL: URL? = nil) {
     let configuration = configuration.copy() as! URLSessionConfiguration
@@ -62,18 +63,20 @@ public actor BackendTelemetryClient {
                                       message: String(message.prefix(2048)),
                                       stack: stack.map { String($0.prefix(12_000)) })
     let url = queueURL ?? defaultQueueURL()
-    var events = readQueue(url)
+    queueLock.lock()
+    defer { queueLock.unlock() }
+    var events = readQueueUnlocked(url)
     events.append(event)
-    guard let data = boundedEncode(events) else { return }
-    do {
-      try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                               attributes: [.posixPermissions: 0o700])
-      try data.write(to: url, options: [.atomic])
-      try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-    } catch { }
+    saveUnlocked(events, at: url)
   }
 
   static func readQueue(_ url: URL) -> [BackendTelemetryEvent] {
+    queueLock.lock()
+    defer { queueLock.unlock() }
+    return readQueueUnlocked(url)
+  }
+
+  private static func readQueueUnlocked(_ url: URL) -> [BackendTelemetryEvent] {
     guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber,
           size.intValue <= maxQueueFileBytes,
           let data = try? Data(contentsOf: url),
@@ -102,7 +105,7 @@ public actor BackendTelemetryClient {
   }
 
   public func flush() async {
-    var events = load()
+    let events = load()
     guard !events.isEmpty else { return }
     var pending: [BackendTelemetryEvent] = []
     for event in events {
@@ -121,14 +124,16 @@ public actor BackendTelemetryClient {
         pending.append(event)
       }
     }
-    events = pending
-    save(events)
+    let sent = Set(events.map(\.id)).subtracting(pending.map(\.id))
+    Self.mergeAfterFlush(sent: sent, pending: pending, at: queueURL)
   }
 
   private func enqueue(_ event: BackendTelemetryEvent) {
-    var events = load()
+    Self.queueLock.lock()
+    defer { Self.queueLock.unlock() }
+    var events = Self.readQueueUnlocked(queueURL)
     events.append(event)
-    save(events)
+    Self.saveUnlocked(events, at: queueURL)
   }
 
   private func load() -> [BackendTelemetryEvent] {
@@ -138,7 +143,7 @@ public actor BackendTelemetryClient {
     return bounded
   }
 
-  private func save(_ events: [BackendTelemetryEvent]) {
+  private static func saveUnlocked(_ events: [BackendTelemetryEvent], at queueURL: URL) {
     guard let directory = queueURL.deletingLastPathComponent() as URL? else { return }
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
@@ -147,6 +152,17 @@ public actor BackendTelemetryClient {
       try data.write(to: queueURL, options: [.atomic])
       try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: queueURL.path)
     } catch { /* telemetry must never affect the host app */ }
+  }
+
+  private static func mergeAfterFlush(sent: Set<String>, pending: [BackendTelemetryEvent], at queueURL: URL) {
+    queueLock.lock()
+    defer { queueLock.unlock() }
+    // Crash handlers can append while requests are in flight. Merge against the
+    // current file so those events survive removal of successfully uploaded items.
+    var current = readQueueUnlocked(queueURL).filter { !sent.contains($0.id) }
+    let present = Set(current.map { $0.id })
+    current.append(contentsOf: pending.filter { !present.contains($0.id) })
+    saveUnlocked(current, at: queueURL)
   }
 
   private static var platform: String {
