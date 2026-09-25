@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Host failures may contain private paths or data; display only fixed UI messages. */
 export function HostActionButton({
@@ -16,15 +16,24 @@ export function HostActionButton({
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<"success" | "error" | null>(null);
   const [errorMessage, setErrorMessage] = useState("操作失败，请重试。");
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
   async function run() {
-    if (!action || running.current) return;
+    if (!action || running.current || !mounted.current) return;
     running.current = true;
     setPending(true);
     setResult(null);
     try {
       await action();
+      if (!mounted.current) return;
       setResult("success");
     } catch (reason) {
+      if (!mounted.current) return;
       const code =
         typeof reason === "object" && reason !== null && "code" in reason ? reason.code : undefined;
       setErrorMessage(
@@ -37,7 +46,7 @@ export function HostActionButton({
       setResult("error");
     } finally {
       running.current = false;
-      setPending(false);
+      if (mounted.current) setPending(false);
     }
   }
   return (
