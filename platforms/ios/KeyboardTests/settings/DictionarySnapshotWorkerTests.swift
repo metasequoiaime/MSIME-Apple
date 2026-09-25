@@ -40,11 +40,15 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     XCTAssertEqual(try queue.read().request?.status, .queued)
     worker?.tick(idle: true, fullAccess: true)
     worker?.stop()
+    let firstPreparation = Date()
     while worker?.isPreparing == true { try await Task.sleep(nanoseconds: 30_000_000) }
+    let firstPreparationSeconds = Date().timeIntervalSince(firstPreparation)
     XCTAssertEqual(try session!.localDictionaryStateVersion(), originalVersion)
     XCTAssertEqual(try queue.read().request?.id, id)
     XCTAssertEqual(try queue.read().request?.status, .preparing)
-    let deadline = Date().addingTimeInterval(30)
+    // A bound for a stuck worker, not a budget for a slow one. The whole case takes 10 to 20 s on an idle runner, but one preparation copies and opens the dictionaries and took 23 s on a loaded one, and this wait holds a second preparation plus the activation; 30 s timed out with the worker still preparing and nothing wrong.
+    let retry = Date()
+    let deadline = retry.addingTimeInterval(120)
     while Date() < deadline {
       worker?.tick(idle: true, fullAccess: true)
       if try queue.read().request?.status == .applied { break }
@@ -57,6 +61,7 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
       let prepared = worker.flatMap { Mirror(reflecting: $0).descendant("prepared") }.map { String(describing: $0) } ?? "unknown"
       stalled.append("prepared: \(prepared != "nil")")
       stalled.append("worker lease free: \((try? queue.acquireWorkerLease()) != nil)")
+      stalled.append(String(format: "first preparation %.1f s, waited %.1f s", firstPreparationSeconds, Date().timeIntervalSince(retry)))
     }
     XCTAssertEqual(try queue.read().request?.status, .applied, stalled.joined(separator: "; "))
     if try queue.read().request?.status == .applied {
