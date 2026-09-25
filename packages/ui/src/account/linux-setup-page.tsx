@@ -53,6 +53,13 @@ export function LinuxSetupPage({
   const [error, setError] = useState("");
   const [lines, setLines] = useState<LinuxSetupLine[]>([]);
   const log = useRef<HTMLPreElement>(null);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
   const directory = status.stateDirectory ?? "~/.config/msime-client";
   const blocked = !status.setupAvailable
     ? failureMessage({ code: "setup_unavailable" })
@@ -65,20 +72,21 @@ export function LinuxSetupPage({
   }, [lines]);
 
   const start = async () => {
-    if (busy) return;
+    if (busy || !mounted.current) return;
     setBusy(true);
     setError("");
     setLines([]);
     try {
-      const result = await client.run({ download, cloudCandidates }, (line) =>
-        setLines((current) => [...current, line]),
-      );
+      const result = await client.run({ download, cloudCandidates }, (line) => {
+        if (mounted.current) setLines((current) => [...current, line]);
+      });
+      if (!mounted.current) return;
       if (result.prepared) setDone(true);
       else setError(failureMessage(null));
     } catch (failure) {
-      setError(failureMessage(failure));
+      if (mounted.current) setError(failureMessage(failure));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
