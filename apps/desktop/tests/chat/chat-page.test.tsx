@@ -98,6 +98,20 @@ test("does not render a late response after cancellation", async () => {
   expect(screen.queryByText("正在回复…")).toBeNull();
 });
 
+test("ignores a late model catalog after the chat page unmounts", async () => {
+  let resolveModels: (value: { data: { id: string }[]; defaultModel: string }) => void = () => {};
+  const models = vi.fn(
+    () =>
+      new Promise<{ data: { id: string }[]; defaultModel: string }>((resolve) => {
+        resolveModels = resolve;
+      }),
+  );
+  const view = render(<ChatPage client={client({ models })} />);
+  view.unmount();
+  resolveModels({ data: [{ id: "late-model" }], defaultModel: "late-model" });
+  await Promise.resolve();
+});
+
 test("prompts for login when the account backend rejects model loading", async () => {
   const onLogin = vi.fn();
   render(
