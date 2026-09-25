@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { SettingsPage, type McpServerStatus, type SettingsClient, type Snapshot } from "@msime/ui";
+import {
+  McpConnectSection,
+  SettingsPage,
+  type McpServerStatus,
+  type SettingsClient,
+  type Snapshot,
+} from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -44,6 +50,16 @@ function status(configured = false): McpServerStatus {
       { id: "cursor", path: "/home/someone/.cursor/mcp.json", configured: false },
     ],
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 async function openAi(extra: Partial<SettingsClient>) {
@@ -118,4 +134,25 @@ test("a configuration file that is not JSON is reported and left alone", async (
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   await within(group).findByText("Cursor 的配置文件不是有效的 JSON，已保持原样。请先修正该文件。");
+});
+
+test("a late status response cannot update an unmounted section or replace a newer refresh", async () => {
+  const first = deferred<McpServerStatus>();
+  const second = deferred<McpServerStatus>();
+  const view = render(<McpConnectSection status={() => first.promise} />);
+  view.rerender(<McpConnectSection status={() => second.promise} />);
+
+  first.resolve(status());
+  await Promise.resolve();
+  expect(screen.queryByLabelText("MCP 配置")).toBeNull();
+
+  second.resolve(status(true));
+  expect(await screen.findByLabelText("MCP 配置")).not.toBeNull();
+  view.unmount();
+
+  const late = deferred<McpServerStatus>();
+  const unmounted = render(<McpConnectSection status={() => late.promise} />);
+  unmounted.unmount();
+  late.resolve(status());
+  await Promise.resolve();
 });

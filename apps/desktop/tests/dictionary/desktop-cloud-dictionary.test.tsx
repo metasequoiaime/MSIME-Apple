@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DesktopCloudDictionary } from "../../src/dictionary/desktop-cloud-dictionary";
-import { CloudCandidatesPanel, CloudDictionaryCatalogPanel } from "@msime/ui";
+import {
+  CloudCandidatesPanel,
+  CloudDictionaryApplyPanel,
+  CloudDictionaryCatalogPanel,
+} from "@msime/ui";
 import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
@@ -121,6 +125,76 @@ test("desktop dictionary apply page previews, confirms and cancels through the s
   fireEvent.click(screen.getByRole("button", { name: "取消待应用快照" }));
   await answerConfirm("confirm");
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
+});
+
+test("apply status polling cannot overwrite a mutation result with a stale response", async () => {
+  vi.useFakeTimers();
+  let statusCalls = 0;
+  let resolveStaleStatus: ((value: object) => void) | undefined;
+  const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
+    if (action.operation === "snapshot_status") {
+      statusCalls += 1;
+      if (statusCalls === 1) return { localVersion: "local-v1", request: null };
+      return new Promise((resolve) => {
+        resolveStaleStatus = resolve;
+      });
+    }
+    if (action.operation === "snapshot_preview")
+      return {
+        previewToken: "snapshot-token",
+        snapshot: {
+          cloudRevision: 42,
+          sha256: "a".repeat(64),
+          bytes: 2048,
+          records: 12,
+          entries: 4,
+          overlays: 4,
+          positions: 2,
+          selections: 2,
+        },
+      };
+    return {
+      request: {
+        id: "request",
+        cloudRevision: 42,
+        fileSha256: "a".repeat(64),
+        status: "queued",
+      },
+    };
+  });
+  try {
+    render(
+      <CloudDictionaryApplyPanel client={{ close: async () => {}, request, snapshot: true }} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(2000);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("已获取本机词库版本")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "下载云词库并预览" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/云端 revision 42/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "替换本机词库" }));
+    const dialog = screen.getByRole("alertdialog");
+    fireEvent.click(dialog.querySelectorAll("button")[1]);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("状态：queued · 云端 revision 42")).toBeTruthy();
+    resolveStaleStatus?.({ localVersion: "local-v1", request: null });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("状态：queued · 云端 revision 42")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("desktop dictionary file page reuses the authenticated client and returns to entries", async () => {
