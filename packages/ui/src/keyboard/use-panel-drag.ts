@@ -5,12 +5,15 @@ export function usePanelDrag(
   onFailure: () => void,
 ): HTMLAttributes<HTMLElement> {
   const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
+  const mounted = useRef(true);
   const reset = () => {
     pendingDrag.current = null;
   };
   useEffect(() => {
+    mounted.current = true;
     window.addEventListener("blur", reset);
     return () => {
+      mounted.current = false;
       reset();
       window.removeEventListener("blur", reset);
     };
@@ -39,7 +42,7 @@ export function usePanelDrag(
         try {
           await client.beginWindowDrag?.();
         } catch {
-          onFailure();
+          if (mounted.current) onFailure();
         }
       })();
     },
