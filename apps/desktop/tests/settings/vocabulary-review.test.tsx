@@ -111,6 +111,21 @@ test("only one request is in flight, so a double tap grades once", async () => {
   await waitFor(() => expect(screen.getByText("ubiquitous")).toBeTruthy());
 });
 
+test("a late review response is ignored after the panel unmounts", async () => {
+  let release: (value: VocabularyReviewStatus) => void = () => {};
+  const answer = vi.fn(
+    () =>
+      new Promise<VocabularyReviewStatus>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const view = render(<VocabularyReviewPage client={client({ answer })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "认识" }));
+  view.unmount();
+  release(status());
+  await Promise.resolve();
+});
+
 test("choosing a wordbook saves it", async () => {
   const setSettings = vi.fn(async () => status());
   render(<VocabularyReviewPage client={client({ setSettings })} />);
