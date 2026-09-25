@@ -492,6 +492,24 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("Date(timeIntervalSinceReferenceDate: seconds)", store)
         self.assertIn("encoder.dateEncodingStrategy = .iso8601", store)
 
+    def test_keyboard_cancels_delayed_gloss_work_when_hidden(self):
+        controller = (
+            TAURI_ROOT / "../../../platforms/ios/KeyboardExtension/Sources/keyboard/KeyboardViewController.swift"
+        ).read_text()
+        disappear_start = controller.index("  override func viewWillDisappear")
+        disappear = controller[disappear_start : controller.index("\n  private func", disappear_start)]
+        self.assertIn("candidateGlossTimer?.invalidate()", disappear)
+        self.assertIn("candidateGlossTimer = nil", disappear)
+
+    def test_candidate_translation_cancel_stops_inflight_tasks(self):
+        store = (
+            TAURI_ROOT / "../../../platforms/ios/KeyboardExtension/Sources/candidate/CandidateTranslationStore.swift"
+        ).read_text()
+        self.assertIn("private var tasks: [Task<Void, Never>] = []", store)
+        self.assertIn("for task in tasks { task.cancel() }", store)
+        self.assertIn("tasks.removeAll()", store)
+        self.assertIn("tasks.append(task)", store)
+
 
 if __name__ == "__main__":
     unittest.main()
