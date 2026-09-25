@@ -16,6 +16,7 @@ pub enum CloudDictionaryRequest {
     SnapshotRestoreNative {
         token: String,
     },
+    SnapshotRestoreCancel,
     SnapshotEnqueue {
         token: String,
     },
@@ -173,6 +174,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         CloudDictionaryRequest::SnapshotPreview
         | CloudDictionaryRequest::SnapshotExport
         | CloudDictionaryRequest::SnapshotStatus
+        | CloudDictionaryRequest::SnapshotRestoreCancel
         | CloudDictionaryRequest::SnapshotCancel => Ok(()),
         CloudDictionaryRequest::SnapshotRestorePreview { text } => {
             if valid_snapshot_text(text) {
@@ -469,9 +471,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deserializes_snapshot_restore_cancel_operation() {
+        let request: CloudDictionaryRequest = serde_json::from_value(serde_json::json!({
+            "operation": "snapshot_restore_cancel"
+        }))
+        .expect("snapshot restore cancellation is part of the host protocol");
+        assert!(matches!(
+            request,
+            CloudDictionaryRequest::SnapshotRestoreCancel
+        ));
+    }
+
+    #[test]
     fn validates_dictionary_values_and_entry_identity() {
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotPreview).is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotStatus).is_ok());
+        assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotRestoreCancel).is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotCancel).is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotExport).is_ok());
         assert!(

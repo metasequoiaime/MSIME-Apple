@@ -1652,6 +1652,9 @@ pub async fn cloud_dictionary_request(
         CloudDictionaryRequest::SnapshotRestoreNative { .. } => Err(crate::CommandError {
             code: "snapshot_unavailable",
         }),
+        CloudDictionaryRequest::SnapshotRestoreCancel => Err(crate::CommandError {
+            code: "snapshot_unavailable",
+        }),
         CloudDictionaryRequest::SnapshotEnqueue { token } => {
             dictionary_snapshot_enqueue(state, token).await
         }
