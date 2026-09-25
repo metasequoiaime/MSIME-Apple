@@ -148,6 +148,13 @@ final class OnlineCandidateTests: XCTestCase {
     var otherModel = query
     otherModel["ai_assistant"] = ["enabled": true, "model": "b"]
     XCTAssertNotEqual(OnlineCandidateProvider.signature(query), OnlineCandidateProvider.signature(otherModel))
+    var splitCache = query
+    splitCache["cache_key"] = "a:b"
+    splitCache["identity"] = "c"
+    var splitIdentity = query
+    splitIdentity["cache_key"] = "a"
+    splitIdentity["identity"] = "b:c"
+    XCTAssertNotEqual(OnlineCandidateProvider.signature(splitCache), OnlineCandidateProvider.signature(splitIdentity))
   }
 
   private func type(_ bridge: MetasequoiaInputSessionBridge, _ letters: String) {

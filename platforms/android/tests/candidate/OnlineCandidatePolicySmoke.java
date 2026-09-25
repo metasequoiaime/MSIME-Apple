@@ -37,6 +37,8 @@ public final class OnlineCandidatePolicySmoke {
             .equals(OnlineCandidatePolicy.signature(7, "ni'hao'ma", "fixture", true, "")));
         check(!OnlineCandidatePolicy.signature(7, "ni'hao", "fixture", true, "")
             .equals(OnlineCandidatePolicy.signature(7, "ni'hao", "other", true, "")));
+        check(!OnlineCandidatePolicy.signature(7, "a:b", "c", true, "")
+            .equals(OnlineCandidatePolicy.signature(7, "a", "b:c", true, "")));
 
         // Provider order is kept, duplicates drop out, and the limit caps the result.
         check(OnlineCandidatePolicy.aiCandidates(

@@ -36,8 +36,9 @@ public final class OnlineCandidatePolicy {
      */
     public static String signature(long sessionId, String cacheKey, String identity,
             boolean cloudCandidates, String assistant) {
-        return sessionId + ":" + text(cacheKey) + ":" + text(identity) + ":" + cloudCandidates
-            + ":" + text(assistant);
+        return "session=" + sessionId + "|cache=" + field(cacheKey)
+            + "|identity=" + field(identity) + "|cloud=" + cloudCandidates
+            + "|assistant=" + field(assistant);
     }
 
     /** Whether the cloud provider should be asked for this query. */
@@ -91,6 +92,11 @@ public final class OnlineCandidatePolicy {
     }
 
     private static String text(String value) { return value == null ? "" : value; }
+
+    private static String field(String value) {
+        value = text(value);
+        return value.length() + ":" + value;
+    }
 
     private static boolean hasControl(String value) {
         for (int index = 0; index < value.length();) {
