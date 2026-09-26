@@ -28,7 +28,9 @@ static intptr_t snapshotNext(void *context, uint8_t *buffer, size_t capacity) no
     for (;;) {
         size_t length = 0;
         bool ended = false;
-        while (length < capacity) {
+        // Reserve one byte for the NUL terminator used by the lightweight record discriminator.
+        // A full buffer is still a malformed overlong line, never a reason to write past it.
+        while (length + 1 < capacity) {
             const int value = reader->input.get();
             if (value == EOF) {
                 if (!reader->input.eof()) return -1;
