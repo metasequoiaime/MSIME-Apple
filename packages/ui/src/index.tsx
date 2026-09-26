@@ -2919,6 +2919,7 @@ export function SettingsPage({
   // The refs are also written the moment a load or save resolves: the host's monitor echoes this
   // window's own save back as a change, and it can arrive before React commits the new snapshot.
   const adoptSnapshot = (value: Snapshot) => {
+    if (!mounted.current) return;
     snapshotRef.current = value;
     draftRef.current = value.preferences;
     setSnapshot(value);
@@ -2995,17 +2996,19 @@ export function SettingsPage({
   }, [client]);
 
   async function reload() {
+    if (!mounted.current) return;
     setBusy(true);
     setError("");
     setNotice("");
     setRecoveredBackup("");
     try {
       const value = await client.load();
+      if (!mounted.current) return;
       adoptSnapshot(value);
     } catch (reason) {
-      setError(message(reason));
+      if (mounted.current) setError(message(reason));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
 
@@ -3051,14 +3054,16 @@ export function SettingsPage({
         macosWubiAutoCommitUnique !== undefined
       ) {
         await client.saveMacosWubiAutoCommitUnique(macosWubiAutoCommitUnique);
+        if (!mounted.current) return;
         setSavedMacosWubiAutoCommitUnique(macosWubiAutoCommitUnique);
       }
+      if (!mounted.current) return;
       adoptSnapshot(value);
       setNotice("设置已保存。");
     } catch (reason) {
-      setError(message(reason));
+      if (mounted.current) setError(message(reason));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
       savingRef.current = false;
       const held = heldChange.current;
       heldChange.current = undefined;
