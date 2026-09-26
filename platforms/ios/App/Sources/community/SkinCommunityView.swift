@@ -12,6 +12,7 @@ struct SkinCommunityView: View {
   @State private var search = ""
   @State private var showPublish = false
   @State private var showAccount = false
+  @State private var requestID = UUID()
   private let api = SkinCommunityAPI.shared
 
   private var gallery: some View {
@@ -72,7 +73,10 @@ struct SkinCommunityView: View {
     } message: { Text(message ?? "") }
   }
   @MainActor private func load(append: Bool = false) async throws {
+    let id = UUID()
+    requestID = id
     let page = try await api.list(offset: append ? skins.count : 0, search: search)
+    guard requestID == id else { return }
     if append { let ids = Set(skins.map(\.id)); skins += page.skins.filter { !ids.contains($0.id) } }
     else { skins = page.skins }
     more = page.has_more
