@@ -16,6 +16,10 @@ namespace
 {
 constexpr std::size_t kPcmChunkBytes = 6400; // 200 ms, 16 kHz, signed 16-bit mono.
 constexpr std::size_t kMaximumQueuedBytes = 16000 * 2 * 10; // 10 seconds of PCM.
+// Match the shared Doubao frame decoder's limits. A remote WebSocket may send
+// arbitrarily many fragments or a tiny gzip stream that expands far beyond a
+// transcript; neither may exhaust the Server process.
+constexpr std::size_t kMaximumResponseBytes = 1024 * 1024;
 
 struct WinHttpHandle
 {
@@ -95,8 +99,14 @@ std::vector<std::uint8_t> GzipDecompress(const std::uint8_t *data, std::size_t s
         stream.next_out = buffer.data();
         stream.avail_out = static_cast<uInt>(buffer.size());
         status = inflate(&stream, Z_NO_FLUSH);
+        const auto produced = buffer.size() - stream.avail_out;
+        if (produced > kMaximumResponseBytes - output.size())
+        {
+            inflateEnd(&stream);
+            return {};
+        }
         output.insert(output.end(), buffer.begin(),
-                      buffer.begin() + static_cast<std::ptrdiff_t>(buffer.size() - stream.avail_out));
+                      buffer.begin() + static_cast<std::ptrdiff_t>(produced));
     }
     inflateEnd(&stream);
     return status == Z_STREAM_END ? output : std::vector<std::uint8_t>{};
@@ -201,6 +211,8 @@ bool ReceiveMessage(HINTERNET websocket, std::vector<std::uint8_t> &message)
         const DWORD error =
             WinHttpWebSocketReceive(websocket, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, &type);
         if (error != NO_ERROR)
+            return false;
+        if (bytes_read > kMaximumResponseBytes - message.size())
             return false;
         message.insert(message.end(), buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(bytes_read));
         if (type == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE)
