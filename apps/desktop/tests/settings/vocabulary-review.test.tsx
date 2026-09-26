@@ -58,6 +58,22 @@ test("shows today's counts and the first card with its meaning hidden", async ()
   expect(screen.getByText("点击查看释义")).toBeTruthy();
 });
 
+test("a replaced vocabulary client ignores its older load response", async () => {
+  let resolveOld!: (value: VocabularyReviewStatus) => void;
+  const old = client({
+    load: vi.fn(() => new Promise<VocabularyReviewStatus>((resolve) => (resolveOld = resolve))),
+  });
+  const nextStatus = status({ queue: [{ word: "new-card", phonetic: "", meaning: "new" }] });
+  const next = client({ load: vi.fn().mockResolvedValue(nextStatus) });
+  const view = render(<VocabularyReviewPage client={old} />);
+  await waitFor(() => expect(old.load).toHaveBeenCalled());
+  view.rerender(<VocabularyReviewPage client={next} />);
+  await screen.findByText("new-card");
+  resolveOld(status({ queue: [{ word: "old-card", phonetic: "", meaning: "old" }] }));
+  await Promise.resolve();
+  expect(screen.queryByText("old-card")).toBeNull();
+});
+
 test("tapping the card reveals the meaning", async () => {
   render(<VocabularyReviewPage client={client()} />);
 
