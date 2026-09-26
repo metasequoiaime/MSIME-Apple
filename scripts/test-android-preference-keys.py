@@ -42,9 +42,15 @@ for key in keys:
         failures.append(f"{key}: no `pub {key}:` field in {SCHEMA.relative_to(ROOT)}")
         continue
     # Any mention outside the schema file and outside test trees counts as a reader.
+    # The quotes are inside single-quoted literals on purpose: written as `\"` inside
+    # an f-string they stay backslash-plus-quote in the argument, and rg's default
+    # engine rejects `\"` with "unrecognized escape sequence". It then exits 2 with an
+    # empty stdout, which this file read as "no reader" for every key at once - the
+    # whole table reported renamed at the same moment, which is a parse failure rather
+    # than a finding. The guard below is what turns that back into a visible error.
     found = subprocess.run(
         [
-            "rg", "-l", rf"\.{key}\b|\"{key}\"",
+            "rg", "-l", rf'\.{key}\b|"{key}"',
             "--glob", "!**/tests/**", "--glob", "!**/tests.rs",
             f"--glob=!{SCHEMA.relative_to(ROOT)}",
             "crates", "apps",
@@ -53,6 +59,15 @@ for key in keys:
         capture_output=True,
         text=True,
     )
+    # rg exits 0 with matches, 1 with none, and anything else means the search itself
+    # failed. A failed search returns no matches, so without this the file reports every
+    # key as unread - the exact "declared and read by nothing" wording below, but about
+    # the broken query instead of the key.
+    if found.returncode not in (0, 1):
+        sys.exit(
+            f"rg failed to search for {key} (exit {found.returncode}): "
+            f"{found.stderr.strip()}"
+        )
     if not found.stdout.strip():
         failures.append(
             f"{key}: declared in the schema and read by nothing - a retired key still on a switch"
