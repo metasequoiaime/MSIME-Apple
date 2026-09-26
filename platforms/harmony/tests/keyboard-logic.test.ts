@@ -3391,6 +3391,14 @@ group("clipboard entries are bounded in characters and in UTF-8 bytes", () => {
     ClipboardHistoryPolicy.acceptable(astral) === true,
     "the heaviest text the character bound allows is still inside the byte bound",
   );
+  check(
+    ClipboardHistoryPolicy.acceptable("😀".repeat(6000)) === true,
+    "astral characters count once rather than as two UTF-16 units",
+  );
+  check(
+    ClipboardHistoryPolicy.acceptable("a\u0000b") === false,
+    "NUL cannot be persisted by the shared store",
+  );
 });
 
 group("diagnostics are trimmed, bounded and elided", () => {

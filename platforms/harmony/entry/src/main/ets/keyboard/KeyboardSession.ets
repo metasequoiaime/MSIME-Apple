@@ -3798,7 +3798,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       const entries: ClipboardHistoryItem[] = this.clipboardEntries(value);
       if (value.captured !== true) {
         return { entries: entries, failure: value.reason === 'full'
-          ? ClipboardFailure.FULL : ClipboardFailure.INVALID_FILE };
+          ? ClipboardFailure.FULL : value.reason === 'invalid'
+            ? ClipboardFailure.TOO_LONG : ClipboardFailure.INVALID_FILE };
       }
       return { entries: entries, failure: null };
     } catch (error) {
