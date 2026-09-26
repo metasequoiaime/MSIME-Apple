@@ -320,6 +320,11 @@ pub struct VerifiedMarker {
     pub directory: String,
     /// `(name, size, modified-nanoseconds)` per artifact, sorted by name.
     pub files: Vec<(String, u64, u128)>,
+    /// Every entry in the resource directory, including the Engine-owned `helpcodes` directory.
+    /// The fast path must notice an unpinned file appearing after the initial verification; the
+    /// full verifier rejects such files, so a marker that does not record the directory shape
+    /// would silently skip that check on the next launch.
+    pub entries: Vec<String>,
 }
 
 impl VerifiedMarker {
@@ -328,11 +333,48 @@ impl VerifiedMarker {
         directory: &Path,
         specification: &ResourceSet,
     ) -> Result<Option<Self>, ResourceError> {
-        let mut files = Vec::with_capacity(specification.artifacts.len());
-        for artifact in &specification.artifacts {
-            let Ok(metadata) = fs::metadata(directory.join(&artifact.name)) else {
+        let expected: HashSet<_> = specification
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect();
+        let Ok(directory_entries) = fs::read_dir(directory) else {
+            return Ok(None);
+        };
+        let mut entries = Vec::new();
+        for entry in directory_entries {
+            let Ok(entry) = entry else {
                 return Ok(None);
             };
+            let Ok(kind) = entry.file_type() else {
+                return Ok(None);
+            };
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                return Ok(None);
+            };
+            // Keep the same exception as `verify`: Engine helpcode tables are installed beside
+            // the pinned artifacts, but the directory itself must be a real directory.
+            if name == HELPCODE_DIRECTORY {
+                if !kind.is_dir() {
+                    return Ok(None);
+                }
+            } else if !expected.contains(name.as_str()) || !kind.is_file() {
+                return Ok(None);
+            }
+            entries.push(name);
+        }
+        entries.sort();
+        let mut files = Vec::with_capacity(specification.artifacts.len());
+        for artifact in &specification.artifacts {
+            // `metadata` follows symlinks. The full verifier rejects them, so use
+            // `symlink_metadata` here and force a marker miss instead of letting a symlinked
+            // artifact inherit the target file's size and mtime.
+            let Ok(metadata) = fs::symlink_metadata(directory.join(&artifact.name)) else {
+                return Ok(None);
+            };
+            if !metadata.file_type().is_file() {
+                return Ok(None);
+            }
             let Ok(modified) = metadata.modified() else {
                 return Ok(None);
             };
@@ -350,6 +392,7 @@ impl VerifiedMarker {
             generation: specification.generation()?,
             directory: directory.to_string_lossy().into_owned(),
             files,
+            entries,
         }))
     }
 
@@ -577,6 +620,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn marker_misses_unpinned_entries_and_symlinked_artifacts() {
+        let directory = tempfile::tempdir().unwrap();
+        let spec = specification();
+        fs::write(directory.path().join("msime.db"), b"fixture").unwrap();
+        assert!(VerifiedMarker::describe(directory.path(), &spec)
+            .unwrap()
+            .is_some());
+
+        // Resource verification rejects files outside the pinned set. The marker fast path must
+        // therefore stop matching when one appears after the initial verification.
+        fs::write(directory.path().join("unexpected.db"), b"fixture").unwrap();
+        assert_eq!(
+            VerifiedMarker::describe(directory.path(), &spec).unwrap(),
+            None
+        );
+
+        fs::remove_file(directory.path().join("unexpected.db")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let target = directory.path().join("target.db");
+            fs::write(&target, b"fixture").unwrap();
+            fs::remove_file(directory.path().join("msime.db")).unwrap();
+            symlink(&target, directory.path().join("msime.db")).unwrap();
+            assert_eq!(
+                VerifiedMarker::describe(directory.path(), &spec).unwrap(),
+                None
+            );
+        }
+    }
+
     /// A marker that cannot be read is a miss, not a failure.
     #[test]
     fn an_unusable_marker_falls_back_to_hashing() {
@@ -589,8 +664,10 @@ mod tests {
         assert_eq!(VerifiedMarker::read(&path), None, "an older or newer shape");
 
         let spec = specification();
-        fs::write(directory.path().join("msime.db"), b"fixture").unwrap();
-        let marker = VerifiedMarker::describe(directory.path(), &spec)
+        let resources = directory.path().join("resources");
+        fs::create_dir(&resources).unwrap();
+        fs::write(resources.join("msime.db"), b"fixture").unwrap();
+        let marker = VerifiedMarker::describe(&resources, &spec)
             .unwrap()
             .unwrap();
         marker.write(&path).unwrap();
