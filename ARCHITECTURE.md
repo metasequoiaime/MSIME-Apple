@@ -51,7 +51,7 @@ bash scripts/verify-local.sh           # 全量
 
 Windows 的编译门禁不需要 Windows 机器。装好 MinGW（`x86_64-w64-mingw32-g++`）后，在主工作区跑一次 `platforms/windows/build-cross.sh x64` 把 vcpkg 引导到清单基线，整台机器就位了：之后 `verify-local.sh` 在任何一个 worktree 里都会自动接管这条路径，把 host DLL、TSF DLL、Server 与全部原生测试链接一遍（vcpkg 树从 `MSIME_VCPKG_ROOT`、本工作区的 `target/tooling/vcpkg`、主工作区的同名目录依次查找；编译好的依赖放在该 vcpkg 树旁边共用，不必每个 worktree 各自把 curl 和 boost 再编一遍）。没有这套环境时该阶段仍然跳过，但会把这行命令打出来——它曾经在每台机器上都只打印「skipped」，而背后的原生构建同时坏了六处。
 
-Linux 的 Tauri 外壳同理，只要机器上有 Docker 就不需要 Linux 机器：`verify-local.sh` 会在固定的 `rust:1.97.1-bookworm` 容器里装上 webkit2gtk/gtk3/libsoup 后 `cargo check -p msime-desktop --all-targets`。这一阶段的由来和 Windows 那条一样——`cargo check --workspace` 只看宿主 target，而 macOS 上 `msime-desktop` 因为缺少它当资源列出的 app bundle 被整包排除，于是 Tauri 外壳里所有 `#[cfg(target_os = "linux")]` 分支从来没被任何东西编译过，攒到 36 个编译错误：Linux 的设置窗口、全部共享面板和账号界面根本构建不出来。没有 Docker 时该阶段跳过并打印命令。
+Linux 的 Tauri 外壳同理，只要机器上有 Docker 就不需要 Linux 机器：`verify-local.sh` 会在 `platforms/linux/tests/tools/Dockerfile.desktop-check` 构建的镜像（固定摘要的 `rust:1.97.1-bookworm` 预装 webkit2gtk/gtk3/libsoup，按 checkout 打 tag）里 `cargo check -p msime-desktop --all-targets`。这一阶段的由来和 Windows 那条一样——`cargo check --workspace` 只看宿主 target，而 macOS 上 `msime-desktop` 因为缺少它当资源列出的 app bundle 被整包排除，于是 Tauri 外壳里所有 `#[cfg(target_os = "linux")]` 分支从来没被任何东西编译过，攒到 36 个编译错误：Linux 的设置窗口、全部共享面板和账号界面根本构建不出来。没有 Docker 时该阶段跳过并打印命令。
 
 Linux 的原生宿主也一样，由 `platforms/linux/build-container.sh` 在同一个容器里编译 IBus engine、Fcitx5 插件、全部 provider 入口和单测并跑 `ctest`。这一条同样是补洞：此前没有任何阶段构建过 `platforms/linux`，而它已经不能配置了——三个测试的相对 include 比源码移动后的层级少一级，其中一个连自己的 fixture 都引不到。这不是单元测试的覆盖问题，是这个平台的产品本体构建不出来。Linux 主机上直接用系统的 ibus 开发包跑，其它主机走容器；两者都没有时跳过并打印命令。这一阶段只编译并跑单测，`platforms/linux/tests/tools/check-container.sh` 仍是需要已验证词库和真实 IBus daemon 的验收运行。
 

@@ -127,15 +127,15 @@ bash platforms/linux/build-container.sh    # 固定容器内构建 IBus/Fcitx5 �
 Tauri 外壳的 Linux 编译是唯一能看见 `#[cfg(target_os = "linux")]` 分支的地方——macOS 上 `cargo check --workspace` 根本走不到 `msime-desktop`，这个盲区曾攒下 36 个编译错误：
 
 ```sh
+image="msime-linux-desktop-check:$(printf %s "$PWD" | shasum | cut -c1-12)"
+docker build -q -t "$image" -f platforms/linux/tests/tools/Dockerfile.desktop-check platforms/linux/tests
 docker run --rm -v "$PWD":/source -v "$PWD/vendor":/source/vendor:ro \
   -v "$PWD/target/linux-desktop-check":/ctarget -w /source \
   -e CARGO_TARGET_DIR=/ctarget -e MSIME_SKIP_ENGINE_FETCH=1 \
-  rust:1.97.1-bookworm bash -c 'apt-get update -qq >/dev/null 2>&1; \
-    apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev \
-      libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config cmake libssl-dev libboost-dev \
-      libfmt-dev libspdlog-dev libsqlite3-dev python3 >/dev/null 2>&1; \
-    cargo check -p msime-desktop --locked --all-targets --message-format short'
+  "$image" cargo check -p msime-desktop --locked --all-targets --message-format short
 ```
+
+镜像与 `verify-local.sh` 用的是同一个 tag，apt 只在 Dockerfile 变化后装一次。
 
 zsh 下不要照抄 `verify-local.sh` 里的 `${var:+-v "$x":/path}` 写法——它会把一个前导空格带进参数，docker 报 `includes invalid characters for a local volume name`。把挂载路径写死。
 

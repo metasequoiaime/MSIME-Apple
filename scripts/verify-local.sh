@@ -551,7 +551,9 @@ note "compile: linux desktop shell"
 # can run it. The build tree is kept out of target/debug - the container's
 # aarch64-unknown-linux-gnu host build would otherwise share that directory with
 # the host's own and the two would rebuild each other on every run.
-linux_desktop_note="docker run --rm -v \"\$PWD\":/source -w /source rust:1.97.1-bookworm cargo check -p msime-desktop --locked --all-targets"
+#
+# The build dependencies live in an image (platforms/linux/tests/tools/Dockerfile.desktop-check) rather than being installed with apt in a throwaway container: that reinstall of the whole webkit2gtk closure ran on every --quick and so on every push, and it is the part of this phase that does not change. The image is tagged per checkout the same way platforms/linux/build-container.sh tags its gate image, so concurrent worktrees never run each other's Dockerfile; the README says how to prune the tags old worktrees leave behind.
+linux_desktop_note="image=msime-linux-desktop-check:\$(printf %s \"\$PWD\" | shasum | cut -c1-12); docker build -t \"\$image\" -f platforms/linux/tests/tools/Dockerfile.desktop-check platforms/linux/tests && docker run --rm -v \"\$PWD\":/source -w /source \"\$image\" cargo check -p msime-desktop --locked --all-targets"
 if [ "$(uname -s 2>/dev/null)" = "Linux" ]; then
   cargo check -p msime-desktop --locked --all-targets 2>&1 | tail -3
   [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check -p msime-desktop (linux)"
@@ -565,25 +567,29 @@ elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     [ -d "$candidate/MSIME-Engine" ] && python3 scripts/fetch_engine.py --matches "$candidate" && linux_vendor="$candidate" && break
   done
   mkdir -p "$root/target/linux-desktop-check"
-  docker run --rm \
-    -v "$root":/source \
-    ${linux_vendor:+-v "$linux_vendor":/source/vendor:ro} \
-    -v "$root/target/linux-desktop-check":/ctarget \
-    -w /source \
-    -e CARGO_TARGET_DIR=/ctarget \
-    ${linux_vendor:+-e MSIME_SKIP_ENGINE_FETCH=1} \
-    -e PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    rust:1.97.1-bookworm bash -c '
-      apt-get update -qq >/dev/null 2>&1
-      apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev \
-        libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config cmake libssl-dev libboost-dev \
-        libfmt-dev libspdlog-dev libsqlite3-dev python3 >/dev/null 2>&1
-      cargo check -p msime-desktop --locked --all-targets --message-format short 2>&1
-    ' > "$root/target/linux-desktop-check/check.log" 2>&1
-  status=$?
-  grep -E ': error' "$root/target/linux-desktop-check/check.log" | head -5
-  [ "$status" -eq 0 ] || fail "cargo check -p msime-desktop (linux container)"
-  tail -1 "$root/target/linux-desktop-check/check.log"
+  linux_desktop_image="msime-linux-desktop-check:$(printf %s "$root" | shasum | cut -c1-12)"
+  # The build log is kept rather than discarded, so an apt failure shows apt's own message instead of only an exit code; once the image is cached the build is a few lines of CACHED.
+  if docker build -t "$linux_desktop_image" \
+    -f platforms/linux/tests/tools/Dockerfile.desktop-check platforms/linux/tests \
+    > "$root/target/linux-desktop-check/image.log" 2>&1; then
+    docker run --rm \
+      -v "$root":/source \
+      ${linux_vendor:+-v "$linux_vendor":/source/vendor:ro} \
+      -v "$root/target/linux-desktop-check":/ctarget \
+      -w /source \
+      -e CARGO_TARGET_DIR=/ctarget \
+      ${linux_vendor:+-e MSIME_SKIP_ENGINE_FETCH=1} \
+      "$linux_desktop_image" \
+      cargo check -p msime-desktop --locked --all-targets --message-format short \
+      > "$root/target/linux-desktop-check/check.log" 2>&1
+    status=$?
+    grep -E ': error' "$root/target/linux-desktop-check/check.log" | head -5
+    [ "$status" -eq 0 ] || fail "cargo check -p msime-desktop (linux container)"
+    tail -1 "$root/target/linux-desktop-check/check.log"
+  else
+    tail -20 "$root/target/linux-desktop-check/image.log"
+    fail "docker build $linux_desktop_image (linux desktop shell)"
+  fi
 else
   echo "skipped: no docker available for the linux desktop shell check"
   echo "  run $linux_desktop_note"
