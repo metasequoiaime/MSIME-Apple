@@ -1,63 +1,58 @@
+#include "../../../../shared/input/GlossSenses.h"
 #include "../../src/candidate/CandidateGlossSenses.h"
 #include "../../../windows/src/candidate/CandidateTranslationPolicy.h"
 #include "../../../linux/src/candidates/CandidateTranslationPolicy.h"
 
 #include <cassert>
 #include <string>
+#include <utility>
 #include <vector>
 
-// The same rule, written three times, asked the same questions.
+// The gloss-sense rule, pinned case by case, and every host's name for it asked the same questions.
 //
-// Splitting a candidate's gloss into its senses is host-independent - the dictionary decides what a
-// separator is - but each host carries its own copy: Windows because its policy header predates the
-// others, Linux because its two front ends share one, and macOS because it draws its own sub-page.
-// Three copies of a rule drift, and the drift is invisible: a sense that stops being offered on one
-// platform looks like a dictionary difference.
+// Splitting a candidate's gloss into its senses is host-independent - the dictionary decides what a separator is - so it lives once in shared/input/GlossSenses.h. Windows, Linux and macOS each keep their own name for it as a forwarder; checking those here catches a host that stops forwarding and grows its own copy again, which would look like a dictionary difference rather than a bug.
 //
-// This host is the one that can compile all three - every one of them is plain C++ with no platform
-// header - so the comparison lives here.
+// This host is the one that can compile all three headers - every one of them is plain C++ with no platform header - so the test lives here.
 int main()
 {
-    const std::vector<std::string> fixtures = {
+    using Senses = std::vector<std::string>;
+    const std::vector<std::pair<std::string, Senses>> fixtures = {
         // The ordinary shapes: one sense, several ASCII-separated, several full-width separated.
-        "hello",
-        "hello; hi; greetings",
-        "你好；嗨",
-        "mixed; 混合；both",
+        {"hello", {"hello"}},
+        {"hello; hi; greetings", {"hello", "hi", "greetings"}},
+        {"你好；嗨", {"你好", "嗨"}},
+        {"mixed; 混合；both", {"mixed", "混合", "both"}},
         // Whitespace around separators, and a trailing one.
-        "  padded  ;  sides  ",
-        "trailing;",
-        ";leading",
+        {"  padded  ;  sides  ", {"padded", "sides"}},
+        {"trailing;", {"trailing"}},
+        {";leading", {"leading"}},
+        {"\tleft\r\n; right ", {"left", "right"}},
         // Nothing but separators and spaces: no sense survives.
-        ";;;",
-        "  ",
-        "",
-        "；；",
+        {";;;", {}},
+        {"  ", {}},
+        {"", {}},
+        {"；；", {}},
+        {" ; \xEF\xBC\x9B", {}},
         // Repeated separators leave no empty sense between them.
-        "a;;b",
-        "a；；b",
-        // A byte that shares the full-width separator's lead byte but is a different character, so
-        // a split that matched on one byte would cut it in half.
-        "， comma",
+        {"a;;b", {"a", "b"}},
+        {"a；；b", {"a", "b"}},
+        // A byte that shares the full-width separator's lead byte but is a different character, so a split that matched on one byte would cut it in half.
+        {"， comma", {"， comma"}},
         // Newlines are the host's column separator, not a sense separator: they must survive.
-        "first line\nsecond line",
-        "line one; two\nline two",
+        {"first line\nsecond line", {"first line\nsecond line"}},
+        {"line one; two\nline two", {"line one", "two\nline two"}},
     };
 
-    for (const auto &fixture : fixtures)
+    for (const auto &[gloss, expected] : fixtures)
     {
-        const auto mac = msime::mac::candidate_gloss_senses(fixture);
-        const auto windows = msime::windows::translation_senses(fixture);
-        const auto linux_host = msime::linux_host::split_translation_gloss(fixture);
-        assert(mac == windows);
-        assert(mac == linux_host);
+        const auto shared = msime::input::gloss_senses(gloss);
+        assert(shared == expected);
+        assert(msime::mac::candidate_gloss_senses(gloss) == expected);
+        assert(msime::windows::translation_senses(gloss) == expected);
+        assert(msime::linux_host::split_translation_gloss(gloss) == expected);
     }
 
-    // And the answers themselves, so all three agreeing on something wrong still fails.
-    assert(msime::mac::candidate_gloss_senses("hello; hi").size() == 2);
-    assert(msime::mac::candidate_gloss_senses("hello; hi")[1] == "hi");
-    assert(msime::mac::candidate_gloss_senses(";;;").empty());
-    assert(msime::mac::candidate_gloss_senses("first\nsecond").size() == 1);
     assert(msime::windows::first_translation_sense("hello; hi") == "hello");
+    assert(msime::windows::first_translation_sense(" ; ").empty());
     return 0;
 }
