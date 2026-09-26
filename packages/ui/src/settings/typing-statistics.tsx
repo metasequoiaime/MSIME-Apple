@@ -622,7 +622,7 @@ function StatisticsHeatmap({
                       className={`${heatCell} ${heatLevels[level]} cursor-pointer${selectedDay === day.key ? " outline-2 outline-offset-1 outline-[#e59b43]" : ""}`}
                       key={day.key}
                       title={`${day.label}：${day.count > 0 ? `${day.count.toLocaleString("zh-CN")} 字符` : "无记录"}`}
-                      aria-label={`热力图：${day.label}，${day.count} 字符`}
+                      aria-label={`热力图：${day.key}，${day.count} 字符`}
                       aria-pressed={selectedDay === day.key}
                       onClick={() => onSelect(day.key)}
                     />
