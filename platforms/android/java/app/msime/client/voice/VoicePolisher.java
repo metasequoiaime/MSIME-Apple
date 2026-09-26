@@ -50,7 +50,11 @@ public final class VoicePolisher {
             }
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) return null;
-            String content = content(read(connection.getInputStream()));
+            String response;
+            try (InputStream input = connection.getInputStream()) {
+                response = read(input);
+            }
+            String content = content(response);
             return VoicePolishPolicy.sendable(content) ? content.trim() : null;
         } catch (IOException error) {
             return null;

@@ -132,6 +132,9 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # A failed rewrite keeps what was recognised.
         self.assertIn("return polished == null ? text : polished;", activity)
         self.assertIn("return null;", polisher)
+        # The response stream owns the HTTP socket until it is closed; disconnect() alone is not
+        # the stream's close contract on every Android URLConnection implementation.
+        self.assertIn("try (InputStream input = connection.getInputStream())", polisher)
 
     def test_on_device_recognition_keeps_the_audio_on_the_device(self):
         """A user who chose provider `local` must get the installed model or an error, never the platform recognizer, and the model must run through the shared runtime rather than a copy."""
