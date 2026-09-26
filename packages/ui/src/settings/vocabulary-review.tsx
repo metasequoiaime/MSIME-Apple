@@ -121,11 +121,13 @@ export function VocabularyReviewPage({
 
   useEffect(() => {
     mounted.current = true;
+    requestRef.current = null;
+    setBusy(true);
     return () => {
       mounted.current = false;
       requestRef.current = null;
     };
-  }, []);
+  }, [client]);
 
   // One funnel, one in-flight request. Two taps on 认识 in quick succession would otherwise both
   // read the same card and the second would schedule from a state the first had already replaced.
