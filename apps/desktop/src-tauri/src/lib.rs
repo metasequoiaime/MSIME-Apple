@@ -2930,35 +2930,7 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
     cancel_settings_linger(app);
     if let Some(surface) = route.panel_for(host_platform()) {
         let state = app.state::<PanelInputState>();
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, surface.label, true);
-            panel_position(
-                &state,
-                surface.label,
-                f64::from(surface.width),
-                f64::from(surface.height),
-            )
-        };
-        #[cfg(target_os = "windows")]
-        let height =
-            panel_window::windows_panel_height(app, surface.label, f64::from(surface.height));
-        #[cfg(not(target_os = "windows"))]
-        let height = f64::from(surface.height);
-        #[cfg(target_os = "windows")]
-        let position = {
-            let _ = remember_panel_input_target(&state);
-            windows_panel_position(f64::from(surface.width), height, surface.placement)
-        };
-        let _ = panel_window::open_panel_window(
-            app,
-            surface.label,
-            surface.query,
-            surface.title,
-            f64::from(surface.width),
-            height,
-            position,
-        );
+        let _ = panel_window::open_surface_panel(app, &state, surface);
         return;
     }
     if let Some(window) = app.get_webview_window("main") {

@@ -911,6 +911,7 @@ fn csp_lets_the_skin_editor_decode_a_picked_photo() {
 
 #[test]
 fn every_opened_panel_label_can_be_closed() {
+    use msime_client_core::host_surface::{HostPlatform, SurfaceRoute};
     let closable = crate::panel_window::CLOSABLE_PANELS;
     for label in [
         "keyboard-panel",
@@ -920,22 +921,21 @@ fn every_opened_panel_label_can_be_closed() {
     ] {
         assert!(closable.contains(&label), "{label}");
     }
-    // The literal labels passed straight to open_panel_window.
-    let source = include_str!("panel_window.rs");
-    let lines = source.lines().map(str::trim).collect::<Vec<_>>();
-    let mut literal_labels = 0;
-    for pair in lines.windows(2) {
-        if pair[0] == "&app," {
-            if let Some(label) = pair[1]
-                .strip_prefix('"')
-                .and_then(|rest| rest.strip_suffix("\","))
-            {
-                literal_labels += 1;
-                assert!(closable.contains(&label), "{label}");
-            }
+    // Every open_*_panel command opens a route's panel or the vocabulary panel, on whichever host it runs.
+    for platform in [
+        HostPlatform::Linux,
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+    ] {
+        for surface in SurfaceRoute::ALL
+            .into_iter()
+            .filter_map(|route| route.panel_for(platform))
+        {
+            assert!(closable.contains(&surface.label), "{}", surface.label);
         }
     }
-    assert!(literal_labels >= 4);
+    let vocabulary = crate::panel_window::VOCABULARY_PANEL.label;
+    assert!(closable.contains(&vocabulary), "{vocabulary}");
 }
 #[test]
 fn toolbar_stylesheet_command_errors_do_not_expose_paths() {
