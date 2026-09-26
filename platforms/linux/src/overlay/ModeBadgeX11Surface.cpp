@@ -72,6 +72,10 @@ bool ModeBadgeX11Surface::ensure_window() {
                           mask, &attributes);
   if (visuals) XFree(visuals);
   if (!window_) {
+    if (colormap_) {
+      XFreeColormap(display_, colormap_);
+      colormap_ = 0;
+    }
     XCloseDisplay(display_);
     display_ = nullptr;
     return false;
