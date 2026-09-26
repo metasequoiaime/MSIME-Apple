@@ -13,11 +13,13 @@
 //! The React surface receives the same redacted DTOs as every other host: the
 //! tokens never leave this process.
 
-use msime_client_core::account::{
-    AccountChallenge, AccountError, AccountProfile, AccountSessionStorage, AccountUser,
-    BackendAccountClient, BackendAccountSession, SavedAccountSession,
+use crate::shared::account_dto::{
+    providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
-use serde::Serialize;
+use msime_client_core::account::{
+    AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
+    SavedAccountSession,
+};
 use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
@@ -27,83 +29,6 @@ use tauri::Manager;
 /// A session document is a pair of JWTs and an expiry. Anything appreciably
 /// larger is not one, and is rejected before it is parsed.
 const MAX_ACCOUNT_SESSION_BYTES: u64 = 16 * 1024;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StatusResponse {
-    user: Option<UserResponse>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UserResponse {
-    id: String,
-    display_name: String,
-    created_at: String,
-}
-
-impl From<AccountUser> for UserResponse {
-    fn from(user: AccountUser) -> Self {
-        Self {
-            id: user.id,
-            display_name: user.display_name,
-            created_at: user.created_at,
-        }
-    }
-}
-
-#[derive(Serialize)]
-pub struct ProvidersResponse {
-    email: bool,
-    phone: bool,
-    apple: bool,
-}
-
-fn providers_response(providers: std::collections::HashMap<String, bool>) -> ProvidersResponse {
-    ProvidersResponse {
-        email: providers.get("email") == Some(&true),
-        phone: providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
-        apple: providers.get("apple") == Some(&true),
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChallengeResponse {
-    challenge_id: String,
-    expires_in: u64,
-}
-
-impl From<AccountChallenge> for ChallengeResponse {
-    fn from(value: AccountChallenge) -> Self {
-        Self {
-            challenge_id: value.challenge_id,
-            expires_in: value.expires_in,
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileResponse {
-    user: UserResponse,
-    providers: Vec<String>,
-}
-
-impl From<AccountProfile> for ProfileResponse {
-    fn from(profile: AccountProfile) -> Self {
-        let mut providers = Vec::new();
-        for identity in profile.identities {
-            if !providers.contains(&identity.provider) {
-                providers.push(identity.provider);
-            }
-        }
-        Self {
-            user: profile.user.into(),
-            providers,
-        }
-    }
-}
 
 #[derive(Clone)]
 pub(crate) struct LinuxAccountStorage {

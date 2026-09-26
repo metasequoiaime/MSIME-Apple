@@ -1,8 +1,12 @@
-use msime_client_core::account::{
-    AccountChallenge, AccountChatModels, AccountPreferenceSchema, AccountProfile, AccountUser,
+#[cfg(target_os = "ios")]
+use crate::shared::account_dto::{
+    providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
+use msime_client_core::account::{AccountChatModels, AccountPreferenceSchema};
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
+#[cfg(target_os = "ios")]
+use std::collections::HashMap;
 
 #[cfg(target_os = "ios")]
 use serde_json::Value;
@@ -29,83 +33,6 @@ use std::sync::Arc;
 use std::{fs, path::PathBuf, sync::Mutex};
 #[cfg(target_os = "ios")]
 use tauri::{AppHandle, Manager, Runtime, State, Wry};
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StatusResponse {
-    user: Option<UserResponse>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UserResponse {
-    id: String,
-    display_name: String,
-    created_at: String,
-}
-
-impl From<AccountUser> for UserResponse {
-    fn from(user: AccountUser) -> Self {
-        Self {
-            id: user.id,
-            display_name: user.display_name,
-            created_at: user.created_at,
-        }
-    }
-}
-
-#[derive(Serialize)]
-pub struct ProvidersResponse {
-    email: bool,
-    phone: bool,
-    apple: bool,
-}
-
-fn providers_response(providers: std::collections::HashMap<String, bool>) -> ProvidersResponse {
-    ProvidersResponse {
-        email: providers.get("email") == Some(&true),
-        phone: providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
-        apple: providers.get("apple") == Some(&true),
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChallengeResponse {
-    challenge_id: String,
-    expires_in: u64,
-}
-
-impl From<AccountChallenge> for ChallengeResponse {
-    fn from(challenge: AccountChallenge) -> Self {
-        Self {
-            challenge_id: challenge.challenge_id,
-            expires_in: challenge.expires_in,
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileResponse {
-    user: UserResponse,
-    providers: Vec<String>,
-}
-
-impl From<AccountProfile> for ProfileResponse {
-    fn from(profile: AccountProfile) -> Self {
-        let mut providers = Vec::new();
-        for identity in profile.identities {
-            if !providers.contains(&identity.provider) {
-                providers.push(identity.provider);
-            }
-        }
-        Self {
-            user: profile.user.into(),
-            providers,
-        }
-    }
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1313,83 +1240,12 @@ pub async fn mobile_keyboard_feedback_preview(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        providers_response, ChallengeResponse, ChatModelsResponse, ChatResponse,
-        PreferenceSchemaResponse, ProfileResponse, StatusResponse,
-    };
+    use super::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
     use msime_client_core::account::{
-        AccountChallenge, AccountChatModel, AccountChatModels, AccountPreferenceField,
-        AccountPreferenceSchema, AccountProfile, AccountProfileIdentity, AccountUser,
+        AccountChatModel, AccountChatModels, AccountPreferenceField, AccountPreferenceSchema,
     };
     use serde_json::json;
-    use std::collections::{BTreeMap, HashMap};
-
-    fn user() -> AccountUser {
-        AccountUser {
-            id: "synthetic-user".into(),
-            display_name: "测试账号".into(),
-            created_at: "2026-01-01T00:00:00Z".into(),
-        }
-    }
-
-    #[test]
-    fn account_responses_match_the_shared_webview_contract() {
-        let status = serde_json::to_value(StatusResponse {
-            user: Some(user().into()),
-        })
-        .unwrap();
-        assert_eq!(status["user"]["displayName"], "测试账号");
-        assert_eq!(status["user"]["createdAt"], "2026-01-01T00:00:00Z");
-
-        let challenge = serde_json::to_value(ChallengeResponse::from(AccountChallenge {
-            challenge_id: "synthetic-challenge".into(),
-            expires_in: 300,
-            nonce: Some("not-exposed".into()),
-            authorization_url: Some("https://invalid.example".into()),
-        }))
-        .unwrap();
-        assert_eq!(
-            challenge,
-            json!({"challengeId":"synthetic-challenge","expiresIn":300})
-        );
-    }
-
-    #[test]
-    fn provider_and_profile_responses_normalize_backend_names() {
-        let providers = providers_response(HashMap::from([
-            ("email".into(), true),
-            ("sms".into(), true),
-        ]));
-        // "sms" is the backend's name for the phone provider, and apple is reported even when absent so
-        // the client can tell "this account has no Apple identity" from "this build does not know about
-        // the provider".
-        assert_eq!(
-            serde_json::to_value(providers).unwrap(),
-            json!({"email":true,"phone":true,"apple":false})
-        );
-
-        let profile = ProfileResponse::from(AccountProfile {
-            user: user(),
-            identities: vec![
-                AccountProfileIdentity {
-                    provider: "email".into(),
-                    subject: "synthetic-one".into(),
-                },
-                AccountProfileIdentity {
-                    provider: "email".into(),
-                    subject: "synthetic-two".into(),
-                },
-                AccountProfileIdentity {
-                    provider: "phone".into(),
-                    subject: "synthetic-three".into(),
-                },
-            ],
-        });
-        assert_eq!(
-            serde_json::to_value(profile).unwrap()["providers"],
-            json!(["email", "phone"])
-        );
-    }
+    use std::collections::BTreeMap;
 
     #[test]
     fn chat_responses_match_the_shared_webview_contract() {

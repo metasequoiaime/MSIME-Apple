@@ -1,90 +1,16 @@
 //! macOS desktop account commands backed by the Swift backend's Keychain item.
 
-use msime_client_core::account::{
-    AccountChallenge, AccountError, AccountProfile, AccountSessionStorage, AccountTokens,
-    AccountUser, BackendAccountClient, BackendAccountSession, SavedAccountSession,
+use crate::shared::account_dto::{
+    providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
-use serde::{Deserialize, Serialize};
+use msime_client_core::account::{
+    AccountError, AccountSessionStorage, AccountTokens, BackendAccountClient,
+    BackendAccountSession, SavedAccountSession,
+};
+use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tauri::Manager;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StatusResponse {
-    user: Option<UserResponse>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UserResponse {
-    id: String,
-    display_name: String,
-    created_at: String,
-}
-
-impl From<AccountUser> for UserResponse {
-    fn from(user: AccountUser) -> Self {
-        Self {
-            id: user.id,
-            display_name: user.display_name,
-            created_at: user.created_at,
-        }
-    }
-}
-
-#[derive(Serialize)]
-pub struct ProvidersResponse {
-    email: bool,
-    phone: bool,
-    apple: bool,
-}
-
-fn providers_response(providers: std::collections::HashMap<String, bool>) -> ProvidersResponse {
-    ProvidersResponse {
-        email: providers.get("email") == Some(&true),
-        phone: providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
-        apple: providers.get("apple") == Some(&true),
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChallengeResponse {
-    challenge_id: String,
-    expires_in: u64,
-}
-
-impl From<AccountChallenge> for ChallengeResponse {
-    fn from(value: AccountChallenge) -> Self {
-        Self {
-            challenge_id: value.challenge_id,
-            expires_in: value.expires_in,
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileResponse {
-    user: UserResponse,
-    providers: Vec<String>,
-}
-
-impl From<AccountProfile> for ProfileResponse {
-    fn from(profile: AccountProfile) -> Self {
-        let mut providers = Vec::new();
-        for identity in profile.identities {
-            if !providers.contains(&identity.provider) {
-                providers.push(identity.provider);
-            }
-        }
-        Self {
-            user: profile.user.into(),
-            providers,
-        }
-    }
-}
 
 #[derive(Deserialize)]
 struct SwiftSavedSession {
