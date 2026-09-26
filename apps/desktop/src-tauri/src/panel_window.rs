@@ -16,9 +16,7 @@ use crate::platform::macos::macos_keyboard;
 use crate::platform::macos::macos_panel_session;
 use crate::voice::cancel_voice;
 use crate::{DictionaryHostOptions, HostActionError, PanelInputState};
-#[cfg(target_os = "windows")]
-use msime_client_core::host_surface::PanelPlacement;
-use msime_client_core::host_surface::{PanelSurface, SurfaceRoute};
+use msime_client_core::host_surface::{PanelPlacement, PanelSurface, SurfaceRoute};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub(crate) fn panel_accepts_focus(label: &str) -> bool {
@@ -212,42 +210,65 @@ fn panel_surface(route: SurfaceRoute) -> Result<PanelSurface, HostActionError> {
         })
 }
 
+/// 背单词 has no launch route, so its geometry lives here rather than in the shared route table.
+pub(crate) const VOCABULARY_PANEL: PanelSurface = PanelSurface {
+    label: "vocabulary-panel",
+    query: "vocabulary",
+    title: "水杉背单词",
+    width: 560,
+    height: 680,
+    placement: PanelPlacement::BottomCenter,
+};
+
+/// Opens a panel route's window on this host. See [`open_surface_panel`].
+pub(crate) fn open_route_panel(
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, PanelInputState>,
+    route: SurfaceRoute,
+) -> Result<(), HostActionError> {
+    open_surface_panel(app, state, panel_surface(route)?)
+}
+
+/// Opens a panel window where this host places it. Linux and Windows first remember the window that owns the caret, because the panel never becomes the input target itself and synthetic input has to reach that window later; Windows also applies the keyboard panel's saved height.
+pub(crate) fn open_surface_panel(
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, PanelInputState>,
+    surface: PanelSurface,
+) -> Result<(), HostActionError> {
+    let (width, height) = (f64::from(surface.width), f64::from(surface.height));
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let _ = state;
+    #[cfg(target_os = "linux")]
+    let position = {
+        let _ = remember_panel_input_target(state, surface.label, true);
+        panel_position(state, surface.label, width, height)
+    };
+    #[cfg(target_os = "windows")]
+    let height = windows_panel_height(app, surface.label, height);
+    #[cfg(target_os = "windows")]
+    let position = {
+        let _ = remember_panel_input_target(state);
+        windows_panel_position(width, height, surface.placement)
+    };
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let position = None;
+    open_panel_window(
+        app,
+        surface.label,
+        surface.query,
+        surface.title,
+        width,
+        height,
+        position,
+    )
+}
+
 #[tauri::command]
 pub(crate) fn open_keyboard_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    {
-        let surface = panel_surface(SurfaceRoute::Keyboard)?;
-        let (width, height) = (f64::from(surface.width), f64::from(surface.height));
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, surface.label, true);
-            panel_position(&state, surface.label, width, height)
-        };
-        // The panel never activates, so the window that owns the caret now is
-        // the one synthetic input has to reach later.
-        #[cfg(target_os = "windows")]
-        let height = windows_panel_height(&app, surface.label, height);
-        #[cfg(target_os = "windows")]
-        let position = {
-            let _ = remember_panel_input_target(&state);
-            windows_panel_position(width, height, surface.placement)
-        };
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let position = None;
-        open_panel_window(
-            &app,
-            surface.label,
-            surface.query,
-            surface.title,
-            width,
-            height,
-            position,
-        )
-    }
+    open_route_panel(&app, &state, SurfaceRoute::Keyboard)
 }
 
 #[tauri::command]
@@ -255,35 +276,7 @@ pub(crate) fn open_handwriting_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    {
-        let surface = panel_surface(SurfaceRoute::Handwriting)?;
-        let (width, height) = (f64::from(surface.width), f64::from(surface.height));
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, surface.label, true);
-            panel_position(&state, surface.label, width, height)
-        };
-        // The panel never activates, so the window that owns the caret now is
-        // the one synthetic input has to reach later.
-        #[cfg(target_os = "windows")]
-        let position = {
-            let _ = remember_panel_input_target(&state);
-            windows_panel_position(width, height, surface.placement)
-        };
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let position = None;
-        open_panel_window(
-            &app,
-            surface.label,
-            surface.query,
-            surface.title,
-            width,
-            height,
-            position,
-        )
-    }
+    open_route_panel(&app, &state, SurfaceRoute::Handwriting)
 }
 
 #[tauri::command]
@@ -292,35 +285,8 @@ pub(crate) fn open_emoji_panel(
     options: tauri::State<'_, DictionaryHostOptions>,
     input: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    {
-        let surface = panel_surface(SurfaceRoute::Emoji)?;
-        let (width, height) = (f64::from(surface.width), f64::from(surface.height));
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let _ = (&options, &input);
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = &options;
-            let _ = remember_panel_input_target(&input, surface.label, true);
-            panel_position(&input, surface.label, width, height)
-        };
-        #[cfg(target_os = "windows")]
-        let position = {
-            let _ = &options;
-            let _ = remember_panel_input_target(&input);
-            windows_panel_position(width, height, surface.placement)
-        };
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let position = None;
-        open_panel_window(
-            &app,
-            surface.label,
-            surface.query,
-            surface.title,
-            width,
-            height,
-            position,
-        )
-    }
+    let _ = &options;
+    open_route_panel(&app, &input, SurfaceRoute::Emoji)
 }
 
 #[tauri::command]
@@ -333,35 +299,12 @@ pub(crate) fn open_voice_panel(
         .state::<macos_panel_session::PanelState>()
         .can_open_voice_panel()
     {
-        // A standalone Tauri keyboard has no authenticated IMK target. Do not
-        // open a panel which could recognize text but can never submit it.
+        // A standalone Tauri keyboard has no authenticated IMK target. Do not open a panel which could recognize text but can never submit it.
         return Err(HostActionError {
             code: "unavailable",
         });
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    let _ = &state;
-    #[cfg(target_os = "linux")]
-    let position = {
-        let _ = remember_panel_input_target(&state, "voice-panel", true);
-        panel_position(&state, "voice-panel", 620.0, 520.0)
-    };
-    #[cfg(target_os = "windows")]
-    let position = {
-        let _ = remember_panel_input_target(&state);
-        windows_panel_position(620.0, 520.0, PanelPlacement::BottomCenter)
-    };
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    let position = None;
-    open_panel_window(
-        &app,
-        "voice-panel",
-        "voice",
-        "水杉语音输入",
-        620.0,
-        520.0,
-        position,
-    )
+    open_route_panel(&app, &state, SurfaceRoute::Voice)
 }
 
 #[tauri::command]
@@ -369,89 +312,18 @@ pub(crate) fn open_cloud_clipboard_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = remember_panel_input_target(&state);
-        let position = windows_panel_position(560.0, 560.0, PanelPlacement::BottomCenter);
-        open_panel_window(
-            &app,
-            "cloud-clipboard-panel",
-            "cloud-clipboard",
-            "水杉云剪贴板",
-            560.0,
-            560.0,
-            position,
-        )
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, "cloud-clipboard-panel", true);
-            panel_position(&state, "cloud-clipboard-panel", 560.0, 560.0)
-        };
-        #[cfg(not(target_os = "linux"))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "cloud-clipboard-panel",
-            "cloud-clipboard",
-            "水杉云剪贴板",
-            560.0,
-            560.0,
-            position,
-        )
-    }
+    open_route_panel(&app, &state, SurfaceRoute::CloudClipboard)
 }
 
 /// 背单词, summoned from wherever the user is typing.
 ///
-/// A panel rather than a page in the settings window: a review session is ten minutes a day, and
-/// settings is a drawer people open to flip one switch and leave. It is not the candidate window
-/// either — recalling a word before its meaning appears cannot share attention with composing a
-/// sentence, and both Linux hosts have already spoken for their auxiliary row.
+/// A panel rather than a page in the settings window: a review session is ten minutes a day, and settings is a drawer people open to flip one switch and leave. It is not the candidate window either — recalling a word before its meaning appears cannot share attention with composing a sentence, and both Linux hosts have already spoken for their auxiliary row.
 #[tauri::command]
 pub(crate) fn open_vocabulary_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = remember_panel_input_target(&state);
-        let position = windows_panel_position(560.0, 680.0, PanelPlacement::BottomCenter);
-        open_panel_window(
-            &app,
-            "vocabulary-panel",
-            "vocabulary",
-            "水杉背单词",
-            560.0,
-            680.0,
-            position,
-        )
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, "vocabulary-panel", true);
-            panel_position(&state, "vocabulary-panel", 560.0, 680.0)
-        };
-        #[cfg(not(target_os = "linux"))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "vocabulary-panel",
-            "vocabulary",
-            "水杉背单词",
-            560.0,
-            680.0,
-            position,
-        )
-    }
+    open_surface_panel(&app, &state, VOCABULARY_PANEL)
 }
 
 #[tauri::command]
@@ -459,41 +331,7 @@ pub(crate) fn open_cloud_dictionary_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = remember_panel_input_target(&state);
-        let position = windows_panel_position(760.0, 700.0, PanelPlacement::BottomCenter);
-        open_panel_window(
-            &app,
-            "cloud-dictionary-panel",
-            "cloud-dictionary",
-            "水杉云词库",
-            760.0,
-            700.0,
-            position,
-        )
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, "cloud-dictionary-panel", true);
-            panel_position(&state, "cloud-dictionary-panel", 760.0, 700.0)
-        };
-        #[cfg(not(target_os = "linux"))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "cloud-dictionary-panel",
-            "cloud-dictionary",
-            "水杉云词典",
-            760.0,
-            700.0,
-            position,
-        )
-    }
+    open_route_panel(&app, &state, SurfaceRoute::CloudDictionary)
 }
 
 /// Every label an `open_*_panel` command creates. `close_panel` refuses anything
