@@ -134,12 +134,11 @@ export class HarmonyLocalAsrRecognizer {
     this.sessionId = id + 1;
     this.clearMaxDuration();
     void this.capture.stop();
-    if (this.active && this.worker !== undefined) {
-      const request: LocalAsrRequest = {
-        type: 'cancel', id: id, directory: '', language: '', hotwords: [], threads: 0, pcm: null
-      };
-      this.worker.postMessage(request);
-    }
+    // The worker runs sherpa synchronously while decoding an offline VAD segment. Its message
+    // queue cannot deliver the `cancel` request until that decode returns, so posting a cancel
+    // alone leaves the model and CPU alive behind a dismissed keyboard. Terminate the worker now;
+    // stale replies are rejected by the session id and the next dictation creates a clean worker.
+    if (this.active) this.terminateWorker();
     this.settle();
   }
 
@@ -208,12 +207,7 @@ export class HarmonyLocalAsrRecognizer {
     this.sessionId = id + 1;
     this.clearMaxDuration();
     void this.capture.stop();
-    if (this.worker !== undefined) {
-      const request: LocalAsrRequest = {
-        type: 'cancel', id: id, directory: '', language: '', hotwords: [], threads: 0, pcm: null
-      };
-      this.worker.postMessage(request);
-    }
+    this.terminateWorker();
     const handler: LocalAsrErrorHandler | undefined = this.errorHandler;
     this.settle();
     if (handler !== undefined) handler(message);
