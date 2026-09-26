@@ -35,12 +35,6 @@ MEASURE = re.compile(r"\.length\b|\.count\b|getBytes\(|utf8\.count|lengthOfBytes
 # Second copies that exist today, each with what is actually wrong with it. This is a ratchet, not
 # an exemption: a host is listed here only with a diagnosis, and a new copy anywhere else fails.
 PENDING = {
-    "platforms/harmony/entry/src/main/ets/keyboard/clipboard/ClipboardHistoryPolicy.ts": (
-        "The copy Android's was ported from, with the same defect: `text.length` is UTF-16 code "
-        "units in ArkTS as in Java, so it refuses text the shared store accepts - six thousand "
-        "emoji are twelve thousand units. Live, not latent. Left for a HarmonyOS slice; fixing it "
-        "from an Android change would put an unbuildable host in this PR."
-    ),
     "platforms/ios/SharedUI/clipboard/ClipboardHistoryStore.swift": (
         "Bounds agree - Swift's String.count is grapheme clusters, which is the shared unit - but "
         "the control-character rule is missing, so text the store refuses passes this check and "
