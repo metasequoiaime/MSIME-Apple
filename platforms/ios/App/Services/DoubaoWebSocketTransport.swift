@@ -58,12 +58,33 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
     self.session = session
     self.task = task
     task.resume()
-    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-      task.sendPing { error in
-        if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+    do {
+      try await withTaskCancellationHandler(operation: {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+          task.sendPing { error in
+            if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+          }
+        }
+      }, onCancel: {
+        task.cancel(with: .goingAway, reason: nil)
+        session.invalidateAndCancel()
+      })
+      try Task.checkCancellation()
+      isConnected = true
+    } catch {
+      // Keep a failed or cancelled handshake retryable. The task is stored before
+      // sendPing so callbacks can observe it, but leaving it there after an error
+      // makes the next start() hit the `task == nil` guard and silently reuse a
+      // dead socket forever.
+      task.cancel(with: .goingAway, reason: nil)
+      session.invalidateAndCancel()
+      if self.task === task {
+        self.task = nil
+        self.session = nil
+        self.isConnected = false
       }
+      throw error
     }
-    isConnected = true
   }
 
   func send(binary frame: Data) async throws {
