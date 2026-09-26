@@ -127,6 +127,26 @@ test("mobile accounts keep profile editing and session actions on the pushed pro
   await waitFor(() => expect(client.clearExpired).toHaveBeenCalledTimes(1));
 });
 
+test("a mobile profile rename response from a replaced client is ignored", async () => {
+  let resolveOld!: (value: AccountProfile) => void;
+  const oldClient = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    rename: vi.fn(() => new Promise<AccountProfile>((resolve) => (resolveOld = resolve))),
+  });
+  const nextClient = account({ status: vi.fn().mockResolvedValue({ user }) });
+  const view = render(<AccountPage client={oldClient} platform="ios" />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "编辑社区昵称" }), {
+    target: { value: "旧客户端昵称" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存昵称" }));
+  await waitFor(() => expect(oldClient.rename).toHaveBeenCalled());
+  view.rerender(<AccountPage client={nextClient} platform="ios" />);
+  resolveOld({ user: { ...user, displayName: "响应旧昵称" }, providers: ["email"] });
+  await Promise.resolve();
+  expect(screen.queryByText("响应旧昵称")).toBeNull();
+});
+
 test("Harmony uses the mobile account flow instead of desktop account controls", async () => {
   window.history.replaceState({ msimeSettings: true, page: "account" }, "");
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });

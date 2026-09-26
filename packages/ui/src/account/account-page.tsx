@@ -147,6 +147,7 @@ function MobileAccountProfilePage({
   >(null);
   const [copied, setCopied] = useState(false);
   const mounted = useRef(true);
+  const clientGeneration = useRef(0);
   const normalizedName = name.trim();
   const validName =
     Boolean(normalizedName) &&
@@ -154,50 +155,63 @@ function MobileAccountProfilePage({
     !/[\u0000-\u001f\u007f]/.test(normalizedName);
 
   useEffect(() => {
+    const generation = ++clientGeneration.current;
     mounted.current = true;
+    setBusy(false);
     return () => {
       mounted.current = false;
+      if (generation === clientGeneration.current) clientGeneration.current++;
     };
-  }, []);
+  }, [client]);
 
   const perform = async (operation: () => Promise<void>) => {
     if (busy || !mounted.current) return;
+    const generation = clientGeneration.current;
     setBusy(true);
     setError("");
     setNotice("");
     try {
       await operation();
     } catch (cause) {
-      if (mounted.current && !isAccountCancellation(cause)) setError(accountMessage(cause));
+      if (
+        mounted.current &&
+        generation === clientGeneration.current &&
+        !isAccountCancellation(cause)
+      )
+        setError(accountMessage(cause));
     } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted.current && generation === clientGeneration.current) setBusy(false);
     }
   };
   const rename = () =>
     void perform(async () => {
+      const generation = clientGeneration.current;
       if (!validName) throw { code: "account_invalid" };
       const updated = await client.rename(normalizedName);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       onProfileUpdated(updated);
       setName(updated.user.displayName);
       setNotice("昵称已更新。");
     });
   const signOut = (all: boolean) =>
     void perform(async () => {
+      const generation = clientGeneration.current;
       await client.logout(all);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       onSignedOut();
     });
   const clearExpired = () =>
     void perform(async () => {
+      const generation = clientGeneration.current;
       await client.clearExpired();
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       onSignedOut();
     });
   const deleteAccount = () =>
     void perform(async () => {
+      const generation = clientGeneration.current;
       await client.deleteAccount();
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       onSignedOut();
     });
   const confirmAction = () => {
@@ -804,13 +818,17 @@ function AccountDetailsPage({
   const [mobileProfilePage, setMobileProfilePage] = useState(false);
   const [copiedAccountId, setCopiedAccountId] = useState(false);
   const mounted = useRef(true);
+  const clientGeneration = useRef(0);
 
   useEffect(() => {
+    const generation = ++clientGeneration.current;
     mounted.current = true;
+    setBusy(false);
     return () => {
       mounted.current = false;
+      if (generation === clientGeneration.current) clientGeneration.current++;
     };
-  }, []);
+  }, [client]);
 
   useEffect(() => {
     if (!mobile || typeof window === "undefined") return;
@@ -830,9 +848,9 @@ function AccountDetailsPage({
     setName(value.user.displayName);
   };
 
-  const loadProfile = async () => {
+  const loadProfile = async (generation = clientGeneration.current) => {
     const value = await client.profile();
-    if (mounted.current) applyProfile(value);
+    if (mounted.current && generation === clientGeneration.current) applyProfile(value);
   };
 
   useEffect(() => {
@@ -913,17 +931,18 @@ function AccountDetailsPage({
 
   const signIn = () =>
     void perform(async () => {
+      const generation = clientGeneration.current;
       if (!challenge || code.length !== 6 || !/^\d{6}$/.test(code) || expiresAt <= Date.now())
         throw { code: "account_invalid" };
       const result = await client.login(challenge.challengeId, code);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       if (!result.user) throw { code: "account_unavailable" };
       setUser(result.user);
       setChannel(null);
       setChallenge(null);
       setCode("");
-      await loadProfile();
-      if (!mounted.current) return;
+      await loadProfile(generation);
+      if (!mounted.current || generation !== clientGeneration.current) return;
       setNotice("登录成功。");
       onLoginComplete?.();
     });
