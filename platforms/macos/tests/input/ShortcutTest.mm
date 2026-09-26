@@ -4784,6 +4784,7 @@ static void TestTencentCandidateScheduling() {
 @interface AccountGlossSession : ShortcutSession
 @property(nonatomic, copy) NSArray *candidates;
 @property(nonatomic, copy) NSArray *applied;
+@property(nonatomic, assign) NSUInteger generation;
 // Replaces the service choice the shared query reports; nil means the user explicitly chose the account.
 @property(nonatomic, copy) NSDictionary *choice;
 @end
@@ -4791,12 +4792,12 @@ static void TestTencentCandidateScheduling() {
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
     (void)error;
     // The account endpoint needs an explicit choice: the shared query reports translation_account only when the user selected it and no service of their own takes precedence.
-    NSMutableDictionary *query = [@{@"generation":@1, @"target_languages":@[@"en"], @"candidates":self.candidates ?: @[]} mutableCopy];
+    NSMutableDictionary *query = [@{@"generation":@(self.generation ?: 1), @"target_languages":@[@"en"], @"candidates":self.candidates ?: @[]} mutableCopy];
     [query addEntriesFromDictionary:self.choice ?: @{@"translation_account":@YES, @"provider":@"none"}];
     return query;
 }
 - (NSDictionary *)viewWithError:(NSError **)error {
-    (void)error; return @{@"generation":@1, @"scheme":@0, @"local_mode":@"none", @"candidates":@[]};
+    (void)error; return @{@"generation":@(self.generation ?: 1), @"scheme":@0, @"local_mode":@"none", @"candidates":@[]};
 }
 // Reached once a gloss arrives and the controller pushes the merged results back into the view.
 - (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
@@ -4861,6 +4862,21 @@ static void TestAccountGlossCacheIsSharedAcrossControllers() {
         [NSNotification notificationWithName:@"MSIMEBackendCandidateTranslationsDidArrive" object:nil
             userInfo:@{@"generation":@1, @"translations":@{@"\u6d4b\u8bd5":@"ignored"}}]];
     assert(fetcherSession.applied == nil);
+
+    // A response for the previous candidate generation must not be accepted by a new request,
+    // even when the text itself is unchanged. The generation is the request identity here.
+    [[MSIMETranslationCache sharedCache] clear];
+    fetcherSession.generation = 2;
+    [fetcher synchronizeAccountGloss:[fetcher currentAccountGlossRequest]];
+    fetcherSession.applied = nil;
+    [fetcher accountCandidateTranslationsDidArrive:
+        [NSNotification notificationWithName:@"MSIMEBackendCandidateTranslationsDidArrive" object:nil
+            userInfo:@{@"generation":@1, @"translations":@{@"\u6d4b\u8bd5":@"stale"}}]];
+    assert(fetcherSession.applied == nil);
+    [fetcher accountCandidateTranslationsDidArrive:
+        [NSNotification notificationWithName:@"MSIMEBackendCandidateTranslationsDidArrive" object:nil
+            userInfo:@{@"generation":@2, @"translations":@{@"\u6d4b\u8bd5":@"fresh"}}]];
+    assert([[[fetcher valueForKey:@"accountGlossResults"] firstObject][@"translation"] isEqual:@"fresh"]);
 }
 
 static void TestAccountGlossSkipsNonChineseCandidates() {
