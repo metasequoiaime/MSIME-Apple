@@ -1,6 +1,6 @@
 # The release packaging image: the build-gate image plus what only a release needs. Layered on the gate image instead of repeating its package list, so the native host a package ships is compiled against exactly the libraries the gate tests.
 #
-# webkit2gtk, gtk3, libsoup and javascriptcoregtk are the Tauri desktop shell's build dependencies (the same set scripts/verify-local.sh installs for its msime-desktop check). dpkg-dev provides dpkg-shlibdeps and file lets CPack find the ELF files it hands to it; together they fill the .deb Depends from what the binaries actually link.
+# webkit2gtk, gtk3, libsoup and javascriptcoregtk are the Tauri desktop shell's build dependencies (the same set Dockerfile.desktop-check bakes in for the msime-desktop check in scripts/verify-local.sh). dpkg-dev provides dpkg-shlibdeps and file lets CPack find the ELF files it hands to it; together they fill the .deb Depends from what the binaries actually link.
 ARG MSIME_BUILD_GATE_IMAGE
 FROM ${MSIME_BUILD_GATE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends \
