@@ -54,6 +54,8 @@ use platform::macos::{
     macos_handwriting, macos_input_source, macos_keyboard, macos_launch, macos_panel_session,
 };
 #[cfg(any(target_os = "ios", target_os = "android"))]
+use platform::mobile::mobile_cloud_clipboard;
+#[cfg(any(target_os = "ios", target_os = "android"))]
 use platform::mobile::mobile_community;
 #[cfg(windows)]
 use platform::windows::{windows_account, windows_voice};
@@ -1996,28 +1998,16 @@ async fn cloud_clipboard_request(
     })?
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 #[tauri::command]
 async fn cloud_clipboard_request(
-    state: tauri::State<'_, ios_account::AccountState>,
+    state: tauri::State<'_, platform::mobile::MobileAccountState>,
     action: Value,
 ) -> Result<Value, CommandError> {
     msime_host_api::cloud_clipboard::validate_request(&action).map_err(|_| CommandError {
         code: "invalid_cloud_clipboard",
     })?;
-    ios_account::cloud_clipboard_request(state, action).await
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-async fn cloud_clipboard_request(
-    state: tauri::State<'_, android_account::AccountState>,
-    action: Value,
-) -> Result<Value, CommandError> {
-    msime_host_api::cloud_clipboard::validate_request(&action).map_err(|_| CommandError {
-        code: "invalid_cloud_clipboard",
-    })?;
-    android_account::cloud_clipboard_request(state, action).await
+    mobile_cloud_clipboard::cloud_clipboard_request(state.session(), action).await
 }
 
 #[tauri::command]
