@@ -66,6 +66,14 @@ function baseClient(): SettingsClient {
   return { load: async () => preferences, save: vi.fn() };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 test("desktop settings omit typing statistics without the Android capability", async () => {
   render(<SettingsPage client={baseClient()} />);
   await screen.findByRole("button", { name: "保存设置" });
@@ -301,6 +309,30 @@ test("a late statistics response is ignored after the page unmounts", async () =
   view.unmount();
   finish(status());
   await Promise.resolve();
+});
+
+test("a statistics mutation from a replaced client cannot overwrite the current page", async () => {
+  const pending = deferred<TypingStatisticsStatus>();
+  const oldClient = {
+    load: vi.fn().mockResolvedValue(status()),
+    setEnabled: vi.fn().mockReturnValue(pending.promise),
+    reset: vi.fn(),
+  };
+  const nextClient = {
+    load: vi.fn().mockResolvedValue(status()),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  const view = render(<TypingStatisticsPage client={oldClient} />);
+  await screen.findByLabelText("记录打字统计");
+  fireEvent.click(screen.getByLabelText("记录打字统计"));
+  view.rerender(<TypingStatisticsPage client={nextClient} />);
+  await waitFor(() =>
+    expect((screen.getByLabelText("记录打字统计") as HTMLInputElement).checked).toBe(true),
+  );
+  pending.resolve(status({ ...initialStatistics, enabled: false, total: 0, days: {} }));
+  await Promise.resolve();
+  expect((screen.getByLabelText("记录打字统计") as HTMLInputElement).checked).toBe(true);
 });
 
 test("statistics toggle refreshes immediately and reset requires confirmation without re-enabling", async () => {
