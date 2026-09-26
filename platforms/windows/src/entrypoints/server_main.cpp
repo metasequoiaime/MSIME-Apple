@@ -46,7 +46,7 @@
 #include <thread>
 #include <curl/curl.h>
 #ifdef _WIN32
-#include <shlobj.h>
+#include "StateDirectory.h"
 #endif
 
 namespace {
@@ -178,53 +178,7 @@ bool contains(const std::filesystem::path &parent,
 }
 std::filesystem::path production_state_directory() {
 #ifdef _WIN32
-  // Keep the Windows host relocatable like the upstream installer. The
-  // installer/enterprise launcher can provide one absolute data directory;
-  // all preferences, dictionaries and runtime leases then follow it instead
-  // of silently splitting state between the redirected path and LocalAppData.
-  {
-    std::vector<wchar_t> configured(32768);
-    const DWORD length = GetEnvironmentVariableW(
-        L"METASEQUOIA_IME_DATA_DIR", configured.data(),
-        static_cast<DWORD>(configured.size()));
-    if (length && length < configured.size()) {
-      const std::filesystem::path value(std::wstring(configured.data(), length));
-      if (value.is_absolute())
-        return value;
-    }
-  }
-  // The installer stores its user-selected directory in the 64-bit machine
-  // view so the 32-bit TSF DLL and the 64-bit Server resolve the same root.
-  // Keep the registry lookup after the environment override for enterprise
-  // launches that deliberately inject a temporary profile.
-  {
-    DWORD bytes = 0;
-    constexpr wchar_t key_name[] =
-        L"Software\\Metasequoia\\MetasequoiaIME";
-    constexpr wchar_t value_name[] = L"DataDir";
-    if (RegGetValueW(HKEY_LOCAL_MACHINE, key_name, value_name,
-                     RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, nullptr,
-                     &bytes) == ERROR_SUCCESS &&
-        bytes >= sizeof(wchar_t)) {
-      std::wstring value(bytes / sizeof(wchar_t), L'\0');
-      if (RegGetValueW(HKEY_LOCAL_MACHINE, key_name, value_name,
-                       RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr,
-                       value.data(), &bytes) == ERROR_SUCCESS) {
-        value.resize((bytes / sizeof(wchar_t)) - 1);
-        const std::filesystem::path path(value);
-        if (path.is_absolute())
-          return path;
-      }
-    }
-  }
-  PWSTR app_data = nullptr;
-  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr,
-                                  &app_data)))
-    return {};
-  const std::filesystem::path state =
-      std::filesystem::path(app_data) / L"MSIME-Client";
-  CoTaskMemFree(app_data);
-  return state;
+  return msime::windows::resolve_state_directory();
 #else
   return {};
 #endif
@@ -448,14 +402,11 @@ void apply_diagnostic_log(msime::windows::DiagnosticLog &log,
 // which is why they were hidden on Windows. Writing is best effort - a config
 // we cannot update costs the user their hotkey choice, never the IME.
 void publish_switch_language_keybindings(const nlohmann::json &preferences) {
-  // The same folder the TIP resolves, through the known-folder API rather than
-  // the environment variable so a redirected profile still lands in one place.
-  PWSTR app_data = nullptr;
-  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &app_data)))
+  // The same folder the TIP resolves. With no root there is nowhere to write, and a bare relative config.toml would land in the working directory.
+  const auto state = production_state_directory();
+  if (state.empty())
     return;
-  const std::filesystem::path path =
-      production_state_directory() / L"config.toml";
-  CoTaskMemFree(app_data);
+  const std::filesystem::path path = state / L"config.toml";
   const auto bindings =
       preferences.value("keybindings", nlohmann::json::object());
   msime::windows::SwitchLanguageKeybindings values;
