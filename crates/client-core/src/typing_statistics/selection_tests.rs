@@ -62,3 +62,61 @@ fn a_file_written_before_this_existed_still_loads() {
     assert_eq!(value.total, 5);
     assert_eq!(value.selections.total(), 0);
 }
+
+#[test]
+fn a_batch_counts_the_same_as_one_call_per_selection() {
+    let (_single_directory, single) = store();
+    for position in [1, 1, 1, 2, 9, 10, 40] {
+        single.record_selection(position).expect("record");
+    }
+    let (_batch_directory, batch) = store();
+    batch
+        .record_selections(&[(1, 3), (2, 1), (9, 1), (10, 1), (40, 1)])
+        .expect("record batch");
+    assert_eq!(
+        batch.load().expect("load").selections,
+        single.load().expect("load").selections
+    );
+}
+
+#[test]
+fn an_empty_batch_touches_nothing_on_disk() {
+    let parent = tempfile::tempdir().expect("tempdir");
+    let directory = parent.path().join("statistics");
+    let store = TypingStatisticsStore::new(&directory);
+    store.record_selections(&[]).expect("empty batch");
+    store
+        .record_selections(&[(1, 0), (4, 0)])
+        .expect("zero batch");
+    assert!(!directory.exists());
+}
+
+#[test]
+fn a_batch_is_dropped_while_statistics_are_off() {
+    let (directory, store) = store();
+    store.record_selection(1).expect("record");
+    store.set_enabled(false).expect("disable");
+    let path = directory.path().join("typing-statistics.json");
+    let before = std::fs::read(&path).expect("read");
+    store
+        .record_selections(&[(1, 5), (12, 2)])
+        .expect("record while off");
+    assert_eq!(std::fs::read(&path).expect("read"), before);
+}
+
+#[test]
+fn an_invalid_batch_leaves_the_document_as_it_was() {
+    let (directory, store) = store();
+    store.record_selection(2).expect("record");
+    let path = directory.path().join("typing-statistics.json");
+    let before = std::fs::read(&path).expect("read");
+    assert!(matches!(
+        store.record_selections(&[(1, 4), (0, 1)]),
+        Err(TypingStatisticsError::InvalidPosition)
+    ));
+    assert!(matches!(
+        store.record_selections(&[(3, 1), (2, MAX_COUNT)]),
+        Err(TypingStatisticsError::CountExhausted)
+    ));
+    assert_eq!(std::fs::read(&path).expect("read"), before);
+}

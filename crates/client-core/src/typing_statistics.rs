@@ -199,14 +199,14 @@ pub struct SelectionCounts {
 pub const RANKS: usize = 9;
 
 impl SelectionCounts {
-    fn add(&mut self, position: usize) -> Result<(), TypingStatisticsError> {
+    fn add(&mut self, position: usize, count: u64) -> Result<(), TypingStatisticsError> {
         if position == 0 {
             return Err(TypingStatisticsError::InvalidPosition);
         }
         if position > RANKS {
             self.beyond = self
                 .beyond
-                .checked_add(1)
+                .checked_add(count)
                 .filter(|count| *count <= MAX_COUNT)
                 .ok_or(TypingStatisticsError::CountExhausted)?;
             return Ok(());
@@ -216,7 +216,7 @@ impl SelectionCounts {
         }
         let slot = &mut self.ranks[position - 1];
         *slot = slot
-            .checked_add(1)
+            .checked_add(count)
             .filter(|count| *count <= MAX_COUNT)
             .ok_or(TypingStatisticsError::CountExhausted)?;
         Ok(())
@@ -673,12 +673,27 @@ impl TypingStatisticsStore {
     /// the lock are shared, so turning statistics off turns this off with them and no second
     /// switch appears in settings for a user to misread.
     pub fn record_selection(&self, position: usize) -> Result<(), TypingStatisticsError> {
+        self.record_selections(&[(position, 1)])
+    }
+
+    /// Count several commits at once, each `(position, count)` pair adding `count` commits from that one-based position, under one lock, one read and at most one write.
+    ///
+    /// This is what lets a host keep selections in memory and hand them over in batches instead of paying a full read, fsync and rename per selection. An empty batch touches nothing on disk. The batch is applied whole or not at all: an invalid position or an exhausted count leaves the document as it was. Statistics being off drops the batch without writing, the same answer `record_selection` gives.
+    pub fn record_selections(
+        &self,
+        selections: &[(usize, u64)],
+    ) -> Result<(), TypingStatisticsError> {
+        if selections.iter().all(|(_, count)| *count == 0) {
+            return Ok(());
+        }
         let _lock = self.lock()?;
         let mut value = self.read_locked()?;
         if !value.enabled {
             return Ok(());
         }
-        value.selections.add(position)?;
+        for &(position, count) in selections {
+            value.selections.add(position, count)?;
+        }
         self.write_locked(&value)?;
         Ok(())
     }

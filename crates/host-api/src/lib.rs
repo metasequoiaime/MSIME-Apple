@@ -23,7 +23,7 @@ use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore, VerifiedMarker};
-use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore};
+use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore, RANKS};
 use msime_client_core::voice::doubao_frame::{
     audio_frame, decode_error_code, decode_json_frame, start_frame,
 };
@@ -194,6 +194,8 @@ struct HostSession {
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<String>,
     voice: VoiceSessionState,
+    /// Committing candidate selections counted but not yet written to typing statistics, indexed by one-based position minus one, with every position past a page in the last slot. See `SELECTION_BATCH`.
+    pending_selections: [u64; RANKS + 1],
     // Declared after runtime so the Engine is dropped before releasing access.
     _dictionary_access: DictionaryAccess,
 }
@@ -268,6 +270,37 @@ impl HostSession {
                 .as_ref()
                 .is_none_or(|snapshot| snapshot.preferences.cloud_candidates)
     }
+    /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
+    fn count_selection(&mut self, position: usize) {
+        // Positions are one-based; zero is not a position, and the store has always refused it.
+        let Some(slot) = position.checked_sub(1) else {
+            return;
+        };
+        let slot = &mut self.pending_selections[slot.min(RANKS)];
+        *slot = slot.saturating_add(1);
+        if self.pending_selections.iter().sum::<u64>() >= SELECTION_BATCH {
+            self.flush_selections();
+        }
+    }
+
+    /// Write the selections counted since the last flush, in the store the host already keeps.
+    ///
+    /// Best effort on purpose: statistics must never be the reason a keystroke fails, so a locked or unwritable store is dropped rather than surfaced, and the batch goes with it rather than being retried on every later key. The store honours the user's switch itself, so there is no second check here to fall out of step with it. Nothing pending means nothing touches the disk.
+    fn flush_selections(&mut self) {
+        let pending = std::mem::take(&mut self.pending_selections);
+        let directory = std::path::Path::new(&self.options.user_data);
+        if !directory.is_absolute() {
+            return;
+        }
+        let batch: Vec<(usize, u64)> = pending
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count > 0)
+            .map(|(slot, count)| (slot + 1, *count))
+            .collect();
+        let _ = TypingStatisticsStore::new(directory).record_selections(&batch);
+    }
+
     fn apply_pending(&mut self) -> Result<(), String> {
         if self.runtime.is_idle() {
             if let Some(size) = self.page_size_override {
@@ -1093,7 +1126,7 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
                 .map_err(|e| e.to_string())?;
             if result.commit.is_some() {
                 if let Some(position) = position {
-                    record_selection(session, position);
+                    session.count_selection(position);
                 }
             }
             let result = session.complete_transition(result);
@@ -1118,18 +1151,10 @@ fn selected_position(action: &Action) -> Option<usize> {
     }
 }
 
-/// Count a commit against the position it came from, in the store the host already keeps.
+/// How many committing selections a session holds in memory before writing them to typing statistics.
 ///
-/// Best effort on purpose: statistics must never be the reason a keystroke fails, so a locked or
-/// unwritable store is dropped rather than surfaced. The store honours the user's switch itself,
-/// so there is no second check here to fall out of step with it.
-fn record_selection(session: &HostSession, position: usize) {
-    let directory = std::path::Path::new(&session.options.user_data);
-    if !directory.is_absolute() {
-        return;
-    }
-    let _ = TypingStatisticsStore::new(directory).record_selection(position);
-}
+/// Writing one means locking, reading and parsing the whole document, then an fsync (F_FULLFSYNC on Apple platforms) and a rename, all on the host's input thread, which cost a few milliseconds per tapped or clicked candidate. A session also writes what it holds on focus-out and on destroy, so this only bounds what a process killed mid-field loses - the iOS keyboard extension and the Android IME process can be killed without either. 32 selections is some tens of seconds of typing, a small loss for a statistic that only ever reports a rate, and it turns 32 writes into one.
+const SELECTION_BATCH: u64 = 32;
 
 #[cfg(test)]
 mod tests;

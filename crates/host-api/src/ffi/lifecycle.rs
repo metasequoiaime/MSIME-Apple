@@ -28,11 +28,13 @@ pub unsafe extern "C" fn msime_client_update_preferences(
 pub extern "C" fn msime_client_destroy(handle: u64) -> *mut c_char {
     response(|| {
         SESSIONS.with(|sessions| {
-            sessions
+            let mut session = sessions
                 .try_borrow_mut()
                 .map_err(|_| "reentrant host call")?
                 .remove(&handle)
                 .ok_or("unknown session or wrong thread")?;
+            // A host may tear a session down without a focus-out first; what it counted is still written.
+            session.flush_selections();
             Ok(Value::Null)
         })
     })
