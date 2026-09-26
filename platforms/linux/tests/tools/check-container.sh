@@ -15,12 +15,8 @@ mkdir -p "$repo_root/target/linux"
 # checkout last fetched it. Mount that one rather than making this run impossible
 # from the working style this repository actually uses. Same lookup order as the
 # Windows gate's vcpkg tree and platforms/linux/build-container.sh.
-main_worktree=$(dirname "$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null || echo "$repo_root")")
-vendor=""
 # A tree prepared for a different lock (same Engine commit, older overlays) builds against the wrong Engine source, so only one matching this checkout's engine-lock.json is borrowed.
-for candidate in "$repo_root/vendor" "$main_worktree/vendor"; do
-  [[ -d $candidate/MSIME-Engine ]] && python3 "$repo_root/scripts/fetch_engine.py" --matches "$candidate" && vendor=$(cd "$candidate" && pwd) && break
-done
+vendor=$(python3 "$repo_root/scripts/fetch_engine.py" --borrowable)
 # The container cannot fetch into the read-only /source, so prepare this checkout's own tree on the host when nothing matches.
 if [[ -z $vendor ]]; then
   python3 "$repo_root/scripts/fetch_engine.py"

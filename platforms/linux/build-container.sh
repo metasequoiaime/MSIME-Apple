@@ -26,12 +26,8 @@ command -v docker >/dev/null 2>&1 || {
 # fresh worktree has none. Mount whichever tree already holds it rather than
 # fetching another copy per worktree - the same order the Windows gate uses to
 # find its vcpkg.
-main_worktree="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")"
-vendor=""
-for candidate in "$repo_root/vendor" "$main_worktree/vendor"; do
-  # Only a tree prepared for this checkout's engine-lock.json: one at the same Engine commit with older overlays compiles, or fails, against the wrong Engine source. With no match the container fetches its own.
-  [ -d "$candidate/MSIME-Engine" ] && python3 scripts/fetch_engine.py --matches "$candidate" && vendor="$(cd "$candidate" && pwd)" && break
-done
+# Only a tree prepared for this checkout's engine-lock.json: one at the same Engine commit with older overlays compiles, or fails, against the wrong Engine source. With no match the container fetches its own.
+vendor="$(python3 scripts/fetch_engine.py --borrowable)"
 
 build_root="$repo_root/target/linux-build-gate"
 mkdir -p "$build_root"
