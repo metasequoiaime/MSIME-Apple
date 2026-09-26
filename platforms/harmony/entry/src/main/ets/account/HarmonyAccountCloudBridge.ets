@@ -251,8 +251,7 @@ class HarmonyTransport implements AccountTransport {
       connectTimeout: 30000,
       readTimeout: 600000
     };
-    const handle = fs.openSync(destination,
-      fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+    let handle: fs.File | undefined = undefined;
     let bytes: number = 0;
     let failed: boolean = false;
     let contentLength: number | undefined = undefined;
@@ -287,6 +286,10 @@ class HarmonyTransport implements AccountTransport {
       }
     });
     try {
+      // Open the destination inside the guarded region: if the picker URI or parent directory is
+      // unavailable, the request created above still needs to be destroyed.
+      handle = fs.openSync(destination,
+        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       const status: number = await request.requestInStream(`${ACCOUNT_ORIGIN}${path}`, options);
       await ended;
       if (status < 200 || status >= 300) {
@@ -298,7 +301,7 @@ class HarmonyTransport implements AccountTransport {
       }
       return { status: status, bytes: bytes, contentLength: contentLength, contentType: contentType };
     } finally {
-      fs.closeSync(handle);
+      if (handle !== undefined) fs.closeSync(handle);
       request.destroy();
     }
   }
