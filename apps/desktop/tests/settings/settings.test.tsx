@@ -6551,6 +6551,30 @@ test("saves edited preferences against the loaded revision", async () => {
   );
 });
 
+test("a late preference save is ignored after settings unmounts", async () => {
+  let finish!: (value: Snapshot) => void;
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(
+      () =>
+        new Promise<Snapshot>((resolve) => {
+          finish = resolve;
+        }),
+    ),
+  };
+  const view = render(<SettingsPage client={client} />);
+  const size = await screen.findByRole("combobox", { name: "每页候选项数量" });
+  fireEvent.change(size, { target: { value: "9" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  view.unmount();
+  finish({
+    ...initial,
+    revision: 8,
+    preferences: { ...initial.preferences, candidate_page_size: 9 },
+  });
+  await Promise.resolve();
+});
+
 test("macOS offers the same candidate page sizes as every other host and keeps the saved one", async () => {
   // These were 5, 7 and 9 - the Apple reference's set - while the host rewrote anything else to 9. The
   // shared default is six, so the platform displayed and saved nine for a setting nobody had touched.
