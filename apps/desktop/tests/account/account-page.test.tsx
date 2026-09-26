@@ -515,6 +515,32 @@ test("app icon errors are ignored only when the reread system state matches", as
   expect((await screen.findByRole("alert")).textContent).toContain("图标未能更换，请稍后重试。");
 });
 
+test("a stale app icon response cannot overwrite a replacement client", async () => {
+  let resolveOld!: (value: { supported: boolean; selected: string }) => void;
+  const oldInfo = vi.fn(
+    () =>
+      new Promise<{ supported: boolean; selected: string }>((resolve) => {
+        resolveOld = resolve;
+      }),
+  );
+  const nextInfo = vi.fn().mockResolvedValue({ supported: true, selected: "forest" });
+  const view = render(
+    <AccountPage client={account({ appIcon: { info: oldInfo, set: vi.fn() } })} />,
+  );
+  await waitFor(() => expect(oldInfo).toHaveBeenCalled());
+  view.rerender(<AccountPage client={account({ appIcon: { info: nextInfo, set: vi.fn() } })} />);
+  expect(
+    (await screen.findByRole("button", { name: "杉林，杉叶青绿，沉静自然" })).getAttribute(
+      "aria-pressed",
+    ),
+  ).toBe("true");
+  resolveOld({ supported: true, selected: "classic" });
+  await Promise.resolve();
+  expect(
+    screen.getByRole("button", { name: "杉林，杉叶青绿，沉静自然" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+});
+
 test("settings sync requires confirmation and preserves a remote conflict error", async () => {
   const upload = vi
     .fn()

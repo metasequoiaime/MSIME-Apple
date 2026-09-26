@@ -417,19 +417,22 @@ function AppIconSettingsCard({
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState("");
   const mounted = useRef(true);
+  const generation = useRef(0);
 
   useEffect(() => {
     let active = true;
+    const current = ++generation.current;
     mounted.current = true;
     setInfo(null);
     setError("");
     void client
       .info()
       .then((value) => {
-        if (active) setInfo(value);
+        if (active && mounted.current && generation.current === current) setInfo(value);
       })
       .catch(() => {
-        if (active) setError("暂时无法读取 App 图标状态，请稍后重试。");
+        if (active && mounted.current && generation.current === current)
+          setError("暂时无法读取 App 图标状态，请稍后重试。");
       });
     return () => {
       active = false;
@@ -439,11 +442,12 @@ function AppIconSettingsCard({
 
   const choose = async (style: string) => {
     if (!info?.supported || pending || info.selected === style) return;
+    const current = generation.current;
     setPending(style);
     setError("");
     try {
       const updated = await client.set(style);
-      if (!mounted.current) return;
+      if (!mounted.current || generation.current !== current) return;
       setInfo(updated);
       if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
     } catch {
@@ -451,14 +455,15 @@ function AppIconSettingsCard({
       // applying the icon. Read the OS state again before showing a failure.
       try {
         const updated = await client.info();
-        if (!mounted.current) return;
+        if (!mounted.current || generation.current !== current) return;
         setInfo(updated);
         if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
       } catch {
-        if (mounted.current) setError("图标未能更换，请稍后重试。");
+        if (mounted.current && generation.current === current)
+          setError("图标未能更换，请稍后重试。");
       }
     } finally {
-      if (mounted.current) setPending(null);
+      if (mounted.current && generation.current === current) setPending(null);
     }
   };
 
