@@ -111,7 +111,10 @@ public final class AccountFragment extends HomeTabFragment {
                 return;
             }
             GoogleSignInFlow.start(requireActivity(), clientId, challenge.nonce(),
-                java.util.concurrent.Executors.newSingleThreadExecutor(),
+                // Credential Manager only dispatches the result; use the activity's lifecycle
+                // executor instead of creating a thread per sign-in attempt that is never shut
+                // down after the callback completes.
+                ContextCompat.getMainExecutor(requireActivity()),
                 new GoogleSignInFlow.Listener() {
                     @Override public void onToken(String idToken) {
                         HostTask.run(AccountFragment.this, context -> {
