@@ -35,11 +35,11 @@
 
 ### 平台目录
 
-`platforms/{android,ios,macos,linux,windows,harmony}` 各自持有系统入口、平台适配和该平台的测试；`platforms/common` 只有一份共用的 `Telemetry`。`shared/` 是跨语言而非跨平台的共享层：`shared/apple` 与 `shared/apple-bridge` 被 macOS 宿主和 iOS 键盘扩展同时依赖，`shared/backend`、`shared/backend-ui` 是 Swift Package 形态的账号与界面后端，`shared/voice` 是 C++ 的 provider 注册表与录音常量，`shared/snapshot` 是词库快照，`shared/input` 只有一个 `CompositionDisplay.h`。
+`platforms/{android,ios,macos,linux,windows,harmony}` 各自持有系统入口、平台适配和该平台的测试；`platforms/common` 放桌面宿主之间共用的 C++：Linux 与 Windows 编译的 `Telemetry`，以及 Linux 与 macOS 共用的词库维护租约 `DictionaryQuiesceLease.h`（单测在 `tests/`）。`shared/` 是跨语言而非跨平台的共享层：`shared/apple` 与 `shared/apple-bridge` 被 macOS 宿主和 iOS 键盘扩展同时依赖，`shared/backend`、`shared/backend-ui` 是 Swift Package 形态的账号与界面后端，`shared/voice` 是 C++ 的 provider 注册表与录音常量，`shared/snapshot` 是词库快照，`shared/input` 是 `CompositionDisplay.h` 与 `EnglishModeOutput.h` 两个 C++ 头文件。
 
 ### 引擎与资源
 
-`engine-lock.json` 把 Engine 钉到具体 commit 的 tar.gz 归档（带 sha256），而不是 submodule；`patches` 为空，改动全部走 16 个 `scripts/apply_engine_*.py` overlay 脚本和 2 个 overlay asset，这样上游 bump 时冲突面清晰可见。四个嵌套依赖（Google-PinyinIME-Rev、utfcpp、miniaudio、whisper.cpp）各自带归档和摘要。
+`engine-lock.json` 把 Engine 钉到具体 commit 的 tar.gz 归档（带 sha256），而不是 submodule；`patches` 为空，改动全部走 17 个 `scripts/apply_engine_*.py` overlay 脚本和 2 个 overlay asset，这样上游 bump 时冲突面清晰可见。四个嵌套依赖（Google-PinyinIME-Rev、utfcpp、miniaudio、whisper.cpp）各自带归档和摘要。
 
 `resources/desktop-dictionary.lock.json` 锁定 10 个词库 artifact（合计约 175 MB，含 `msime.db`、`dict_japanese.dat`、`bigram.bin`/`trigram.bin`、`english.db`、`others.db`、`dict_pinyin.dat`、`sentence-model.safetensors`），每项带 sha256 和长度；`resources/settled-model.lock.json` 锁定重排模型。`resources/eval/` 是四套转换质量数据集及其基线，`resources/helpcodes/` 是辅助码表与其 NOTICE。
 
@@ -180,7 +180,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 **外部皮肤包的资源解析在 host 边界完成。** 浏览器按样式表位置解析相对 `@import` 与 `url()`，而共享预览用 constructed stylesheet，`@import` 会被直接丢弃、子目录里的资源地址还会被误当成相对包根。所以改为在 host 边界先读同一包内的 CSS，递归展开导入并把每份样式表的资源路径归一到包根；远程、绝对和越出包根的导入删除并报 partial，循环、深度、文件数与总字节都有上限。Tauri 命令只接受 package id 与已归一化的相对路径，Rust 侧重新验证 manifest、目录 containment、MIME、单文件大小与 UTF-8，不向 webview 暴露文件系统路径。
 
-**引擎改动走 overlay 脚本，不走 patch。** `engine-lock.json` 的 `patches` 是空的，16 个 `scripts/apply_engine_*.py` 在取回归档后按顺序改写源码。相比一堆 diff，脚本能表达「在这个函数里找到这一段再改」这种带上下文的合并，上游 bump 时要么干净应用要么明确报错，而不是产生一堆需要手工消解的 reject。引擎本身用归档而非 submodule 固定，因此嵌套依赖的 bump 会以裸路径的形式出现在 diff 里，走人工 review 而不是自动合并。
+**引擎改动走 overlay 脚本，不走 patch。** `engine-lock.json` 的 `patches` 是空的，17 个 `scripts/apply_engine_*.py` 在取回归档后按顺序改写源码。相比一堆 diff，脚本能表达「在这个函数里找到这一段再改」这种带上下文的合并，上游 bump 时要么干净应用要么明确报错，而不是产生一堆需要手工消解的 reject。引擎本身用归档而非 submodule 固定，因此嵌套依赖的 bump 会以裸路径的形式出现在 diff 里，走人工 review 而不是自动合并。
 
 **候选窗口的位置有记忆，翻页没有。** 竖排候选在一次组词期间记录出现过的最高卡片高度，用最高高度决定是否从光标下方翻到上方，实际放置仍用当前页高度；候选面板隐藏后清除该记忆。这样短页不会在同一次组词里因为暂时变矮而跳回光标下方，也不会在翻转后留下按最高页算出来的空洞。`candidate_follow_cursor` 关闭时，面板在一次组词期间锁定首次有效光标位置，切换会话、结束组合或重新开启跟随才清除锚点。Linux 的候选位置由桌面 panel 管理，这套逻辑不适用，也没有硬塞进去。
 
