@@ -2113,16 +2113,21 @@ function PersonalDictionaryImportCard({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const mounted = useRef(true);
+  const dictionaryGeneration = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
+    dictionaryGeneration.current++;
+    setBusy(false);
     return () => {
       mounted.current = false;
+      dictionaryGeneration.current++;
     };
-  }, []);
+  }, [dictionary]);
 
   const chooseFile = async (file: File | undefined) => {
     if (!file) return;
+    const generation = dictionaryGeneration.current;
     setEntries(null);
     setFileName(file.name);
     setError("");
@@ -2131,35 +2136,36 @@ function PersonalDictionaryImportCard({
     try {
       // The Apple-compatible personal dictionary file is at most 1 MiB.
       const parsed = parsePersonalDictionaryImport(await readDictionaryFile(file, 1_048_576));
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== dictionaryGeneration.current) return;
       setEntries(parsed);
     } catch (cause) {
-      if (mounted.current)
+      if (mounted.current && generation === dictionaryGeneration.current)
         setError(cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。");
     } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted.current && generation === dictionaryGeneration.current) setBusy(false);
     }
   };
 
   const importEntries = async () => {
     if (!entries || !dictionary.importPersonal) return;
+    const generation = dictionaryGeneration.current;
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const text = JSON.stringify({ format: "msime-personal-dictionary", version: 1, entries });
       const result = await dictionary.importPersonal(text, `ui-personal-import-${Date.now()}`);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== dictionaryGeneration.current) return;
       setNotice(
         `已加入本机同步队列，共 ${entries.length} 条；当前等待同步 ${result.pending_count} 条。`,
       );
       setEntries(null);
       setFileName("");
     } catch (cause) {
-      if (mounted.current)
+      if (mounted.current && generation === dictionaryGeneration.current)
         setError(cause instanceof Error ? cause.message : "导入失败，请稍后重试。");
     } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted.current && generation === dictionaryGeneration.current) setBusy(false);
     }
   };
 
