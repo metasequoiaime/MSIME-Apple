@@ -22,7 +22,9 @@ export interface AccountTransport {
     token?: string,
     body?: Record<string, unknown>,
     timeoutMs?: number,
+    requestTag?: string,
   ): Promise<AccountTransportResponse>;
+  cancelRequests?(requestTag: string): void;
   download?(
     path: string,
     token: string,
@@ -425,9 +427,10 @@ export class AccountCloudBridge {
     path: string,
     body?: Record<string, unknown>,
     timeoutMs?: number,
+    requestTag?: string,
   ): Promise<{ value?: Action; error?: string }> {
     if (!path.startsWith("/v1/")) return { error: "ai_skin_invalid" };
-    const result = await this.authenticatedJson(method, path, body, timeoutMs);
+    const result = await this.authenticatedJson(method, path, body, timeoutMs, requestTag);
     if (result.error === undefined) return result;
     // The AI skin page decodes its own vocabulary, and an account code would arrive as a sentence
     // about signing in rather than about the picture that failed.
@@ -441,6 +444,11 @@ export class AccountCloudBridge {
               ? "ai_skin_busy"
               : "ai_skin_unavailable",
     };
+  }
+
+  /** Abort the HTTP request currently owned by one AI skin generation. */
+  cancelAiSkinRequests(requestTag: string): void {
+    if (requestTag.length > 0) this.transport.cancelRequests?.(requestTag);
   }
 
   /** The account preference schema and document, for the native half of the settings sync. */
@@ -1400,6 +1408,7 @@ export class AccountCloudBridge {
     path: string,
     body?: Record<string, unknown>,
     timeoutMs?: number,
+    requestTag?: string,
   ): Promise<AuthorizedReply> {
     const currentToken: string | null = this.usableToken();
     let credential: CredentialReply =
@@ -1414,6 +1423,7 @@ export class AccountCloudBridge {
       token,
       body,
       timeoutMs,
+      requestTag,
     );
     if (generation !== this.generation) return { error: "account_cancelled" };
     if (response.status !== 401 && response.status !== 403) return { response, token };
@@ -1422,7 +1432,7 @@ export class AccountCloudBridge {
       return { error: credential.error ?? "account_unauthorized" };
     token = credential.token;
     generation = this.generation;
-    response = await this.transport.request(method, path, token, body, timeoutMs);
+    response = await this.transport.request(method, path, token, body, timeoutMs, requestTag);
     if (generation !== this.generation) return { error: "account_cancelled" };
     if (response.status === 401 || response.status === 403) {
       this.clearExpired();
@@ -1534,8 +1544,9 @@ export class AccountCloudBridge {
     path: string,
     body?: Record<string, unknown>,
     timeoutMs?: number,
+    requestTag?: string,
   ): Promise<{ value?: Action; error?: string }> {
-    const result = await this.authorizedResponse(method, path, body, timeoutMs);
+    const result = await this.authorizedResponse(method, path, body, timeoutMs, requestTag);
     if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
     const response: AccountTransportResponse = result.response;
     if (response.status < 200 || response.status >= 300)
