@@ -1,6 +1,7 @@
 #import "AppearancePreferences.h"
 #import "SettingsLayout.h"
 #import "../backend/account/BackendAccountEntry.h"
+#import "../candidate/CandidateFontCache.h"
 #import "../candidate/CandidateSkinPreviewView.h"
 #import "../candidate/SkinSettingsView.h"
 #import "../cloud/CloudAppearanceSettings.h"
@@ -2182,9 +2183,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (englishFirst && self.candidateEnglishFont.length) [families addObject:self.candidateEnglishFont];
     [families addObject:self.fontFamily];
     [families addObjectsFromArray:self.fallbackFonts];
+    // The family list is read afresh on every call so writes from other processes apply; only the per-family match is cached.
     for (NSString *family in families) {
-        NSFontDescriptor *requested = [NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute:family}];
-        NSFontDescriptor *matched = [requested matchingFontDescriptorWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]];
+        NSFontDescriptor *matched = MSIMEInstalledFontFamilyDescriptor(family);
         if (matched) [resolved addObject:matched];
     }
     NSFont *system = [NSFont systemFontOfSize:size];
