@@ -116,6 +116,13 @@ pub struct AccountState {
     feedback: PluginHandle<Wry>,
 }
 
+impl AccountState {
+    /// The account session, for the account-backed commands shared with iOS.
+    pub(crate) fn session(&self) -> &Arc<Session> {
+        &self.session
+    }
+}
+
 struct PendingSnapshot {
     account_id: String,
     path: PathBuf,
@@ -1460,81 +1467,6 @@ pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), crate:
         clear_snapshot_previews(&previews);
     }
     result
-}
-
-pub async fn cloud_clipboard_request(
-    state: State<'_, AccountState>,
-    action: Value,
-) -> Result<Value, crate::CommandError> {
-    let operation = action
-        .get("operation")
-        .and_then(Value::as_str)
-        .ok_or(crate::CommandError {
-            code: "invalid_cloud_clipboard",
-        })?;
-    match operation {
-        "list" => {
-            let search = action
-                .get("search")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned();
-            call(state, move |session| {
-                session.clipboard(&search).and_then(|page| {
-                    serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
-                })
-            })
-            .await
-        }
-        "set_enabled" => {
-            let enabled =
-                action
-                    .get("enabled")
-                    .and_then(Value::as_bool)
-                    .ok_or(crate::CommandError {
-                        code: "invalid_cloud_clipboard",
-                    })?;
-            call(state, move |session| {
-                session
-                    .set_clipboard_enabled(enabled)
-                    .map(|()| serde_json::json!({ "enabled": enabled }))
-            })
-            .await
-        }
-        "add" => {
-            let text = action
-                .get("text")
-                .and_then(Value::as_str)
-                .ok_or(crate::CommandError {
-                    code: "invalid_cloud_clipboard",
-                })?
-                .to_owned();
-            call(state, move |session| {
-                session.add_clipboard(&text).and_then(|item| {
-                    serde_json::to_value(item).map_err(|_| AccountError::Unavailable)
-                })
-            })
-            .await
-        }
-        "delete" => {
-            let id = action
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or(crate::CommandError {
-                    code: "invalid_cloud_clipboard",
-                })?
-                .to_owned();
-            call(state, move |session| {
-                session
-                    .delete_clipboard(Some(&id))
-                    .map(|()| serde_json::json!({}))
-            })
-            .await
-        }
-        _ => Err(crate::CommandError {
-            code: "invalid_cloud_clipboard",
-        }),
-    }
 }
 
 fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
