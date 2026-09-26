@@ -8,7 +8,7 @@
 2. 保持改动聚焦；目录或命名整理应同步更新构建文件、测试和文档引用。
 3. Rust 改动运行相关测试、`cargo fmt` 和 `cargo clippy`；前端改动运行类型检查和构建；原生宿主改动在可用平台上运行对应验证。目录整理必须同时更新构建文件、测试路径和平台 README。
 4. 提交前运行 `scripts/verify-local.sh --quick`，并检查 `git diff --check`。
-5. 新增文本契约检查时，把它写成 `scripts/test-<name>.py` 即可：`verify-local.sh` 会自动发现并在每次运行（包括 `--quick`）里执行 `scripts/` 下每一个 `test-*.py`，阶段名取自文件名，不需要再去脚本里登记。因为没有登记这一步，检查必须能在任何贡献者的机器上直接运行：缺少它需要的工具链或输入（pnpm、参考仓库、Android SDK、交叉编译器等）时，打印一行 `skipped: <原因>` 并以 0 退出，而不是失败。确实不能无参运行的检查（需要参数、需要加锁，或由别的门禁负责执行），在 `verify-local.sh` 的 `special_checks` 里写成 `名字=负责执行它的文件`；`contract check registry` 阶段会在该文件没有引用这个脚本、或脚本已不存在时失败。
+5. 新增文本契约检查时，把它写成 `scripts/test-<name>.py` 即可：`verify-local.sh` 会自动发现并在每次运行（包括 `--quick`）里执行 `scripts/` 下每一个 `test-*.py`，阶段名取自文件名，不需要再去脚本里登记。因为没有登记这一步，检查必须能在任何贡献者的机器上直接运行：缺少它需要的工具链或输入（pnpm、参考仓库、Android SDK、交叉编译器等）时，打印一行 `skipped: <原因>` 并以 0 退出，而不是失败。确实不能无参运行的检查（需要参数、需要加锁，或由别的门禁负责执行），在 `verify-local.sh` 的 `special_checks` 里写成 `名字=负责执行它的脚本`（没有任何门禁执行的，写成说明如何手动运行它的文档）；`contract check registry` 阶段会在该脚本没有实际调用它、该文档没有提到它、或脚本已不存在时失败。
 6. 使用 Conventional Commits，例如 `fix(linux): ...`、`refactor(android): ...` 或 `docs: ...`。每个可验证切片独立提交；合并前运行 `bash scripts/verify-local.sh --quick`。
 
 不要提交真实输入、凭据、个人资料、生成目录或本机配置。测试数据应使用合成值。

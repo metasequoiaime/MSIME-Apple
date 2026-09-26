@@ -143,7 +143,7 @@ else
   echo "  until then every build error below may be an artefact of the stale tree"
 fi
 
-# Every scripts/test-*.py is a contract check, and the loop at the end of this section runs each one without it being named anywhere: a check is wired the moment its file exists. The hand-kept list this replaced had already forgotten one (test-clipboard-capture-bounds.py sat in scripts/ unrun). A check that cannot run bare - it needs arguments, a lock, or is run by another gate - is named in special_checks instead, paired with the file that runs it, and the registry phase fails when that file does not. Because nothing opts a check in, a new one has to skip cleanly and exit 0 when its toolchain or input is missing; CONTRIBUTING.md says so for contributors.
+# Every scripts/test-*.py is a contract check, and the loop at the end of this section runs each one without it being named anywhere: a check is wired the moment its file exists. The hand-kept list this replaced had already forgotten one (test-clipboard-capture-bounds.py sat in scripts/ unrun). A check that cannot run bare - it needs arguments, a lock, or is run by another gate - is named in special_checks instead, paired with the script that runs it (or, for the Playwright pair no gate runs, the document that says how to), and the registry phase fails when that script does not invoke it or the document does not mention it. Because nothing opts a check in, a new one has to skip cleanly and exit 0 when its toolchain or input is missing; CONTRIBUTING.md says so for contributors.
 #
 # Why the discovered checks exist, keyed by the part of the file name after test-:
 #
@@ -246,12 +246,18 @@ for entry in $special_checks; do
   if [ ! -f "scripts/test-$name.py" ]; then
     fail "special check $name: scripts/test-$name.py does not exist"
     registry_ok=0
+  elif [ "${owner%.sh}" != "$owner" ]; then
+    # A shell owner has to invoke the check on a live line; a comment that merely mentions the path does not count.
+    if ! grep -qE "^[^#]*python3 [^#]*scripts/test-$name\.py" "$owner" 2>/dev/null; then
+      fail "special check $name: $owner does not run scripts/test-$name.py"
+      registry_ok=0
+    fi
   elif ! grep -qF "scripts/test-$name.py" "$owner" 2>/dev/null; then
-    fail "special check $name: $owner does not run scripts/test-$name.py"
+    fail "special check $name: $owner does not document scripts/test-$name.py"
     registry_ok=0
   fi
 done
-[ "$registry_ok" -eq 1 ] && echo "contract check registry: every special check is run by the file it names"
+[ "$registry_ok" -eq 1 ] && echo "contract check registry: every special check is run by the script it names, or documented where no gate runs it"
 
 # Everything else, in file-name order. It has to stay after fetch_engine.py above: several of these read vendor/MSIME-Engine (candidate-sources, quick-phrase-limit and fetch-engine-matches among them), and a stale tree there fails them for reasons unrelated to the change under test.
 for check in scripts/test-*.py; do
