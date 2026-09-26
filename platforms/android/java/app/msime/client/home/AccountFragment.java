@@ -131,7 +131,14 @@ public final class AccountFragment extends HomeTabFragment {
                     }
 
                     @Override public void onFailure(String message) {
-                        requireActivity().runOnUiThread(() -> note(message));
+                        // Credential Manager may finish after the user has left this tab. A
+                        // detached fragment cannot resolve requireActivity(), and turning a
+                        // cancelled chooser into an IllegalStateException would crash the app.
+                        android.app.Activity activity = getActivity();
+                        if (activity == null || !isAdded()) return;
+                        activity.runOnUiThread(() -> {
+                            if (isAdded() && getView() != null) note(message);
+                        });
                     }
                 });
         });
