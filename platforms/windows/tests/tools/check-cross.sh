@@ -6,7 +6,7 @@ cd "$repo_root"
 json_include=${1:?usage: check-cross.sh <nlohmann-json-include-root>}
 [[ -f "$json_include/nlohmann/json.hpp" ]] || { echo "nlohmann JSON headers required" >&2; exit 2; }
 winrt_include=${MSIME_WINRT_INCLUDE:-}
-windows_includes=(-Iplatforms/windows -Iplatforms/windows/src)
+windows_includes=(-Iplatforms/windows -Iplatforms/windows/common -Iplatforms/windows/src)
 for area in server ipc candidate voice clipboard input system; do
   windows_includes+=(-Iplatforms/windows/src/$area)
 done

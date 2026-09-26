@@ -114,7 +114,7 @@ ANSWERED_BY: dict[str, str] = {
     "outbound_session_state": "platforms/windows/src/ipc/ReplyComposer.h",
     "pipe_write_policy": "platforms/windows/src/ipc/PipeIo.h",
     "async_request_origin": "platforms/windows/src/ipc/PipeTicket.h",
-    "ipc_protocol_limits": "platforms/windows/src/ipc/PipeMetadata.h",
+    "ipc_protocol_limits": "platforms/windows/common/PipeMetadata.h",
     # Diagnostics.
     "candidate_diag_log": "platforms/windows/src/ipc/DiagnosticBatch.h",
     "ftb_diag_log": "platforms/windows/src/ipc/DiagnosticBatch.h",
@@ -124,8 +124,8 @@ ANSWERED_BY: dict[str, str] = {
     "window_utils": "platforms/windows/src/candidate/WindowShadow.h",
     "single_instance": "platforms/windows/src/entrypoints/server_main.cpp",
     "chinese_converter": "platforms/windows/src/input/ChineseTextConversion.cpp",
-    "base_structures": "platforms/windows/src/ipc/PipeMetadata.h",
-    "defines": "platforms/windows/src/ipc/PipeMetadata.h",
+    "base_structures": "platforms/windows/common/PipeMetadata.h",
+    "defines": "platforms/windows/common/PipeMetadata.h",
     "client_fallback": "platforms/windows/tests/runtime/server_launch.cpp",
 }
 

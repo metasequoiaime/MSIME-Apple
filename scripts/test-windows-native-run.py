@@ -171,6 +171,8 @@ def include_flags() -> list[str]:
     # Every source directory, the way the Windows build exposes them, plus the
     # contract and host headers. Derived so a new subdirectory needs no edit.
     directories = [SRC, *(path for path in sorted(SRC.iterdir()) if path.is_dir())]
+    # The DLL/Server contract headers, which the Windows build puts on the global include path. Ahead of the TIP's directories, so the forwarding tsf/IPC/KeyEventSendResult.h does not shadow the definition it forwards to.
+    directories += [ROOT / "platforms/windows/common"]
     directories += [TESTS / "core", ROOT / "vendor/MSIME-Engine/contracts", ROOT / "crates/host-api/include"]
     # The TIP's own headers, for its own tests: its root and each of its source directories, which its CMakeLists hands to individual tests (`IPC` for passthrough statistics, `Global` for the smart punctuation fingerprint). Last, so a header both trees have still resolves to the host's copy as before.
     tsf = ROOT / "platforms/windows/tsf"

@@ -17,7 +17,7 @@
 #include "FanyUtils.h"
 #include "FanyLog.h"
 #include "../Utils/PerfTimer.h"
-#include "../../src/ipc/PipeMetadata.h"
+#include "../../common/PipeMetadata.h"
 #include <chrono>
 #include "../../../../vendor/MSIME-Engine/contracts/ipc_negotiation.h"
 

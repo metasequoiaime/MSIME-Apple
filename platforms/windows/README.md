@@ -4,6 +4,8 @@
 
 Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`installer/` 各自守着协议、UI、测试与打包的边界，`experiments/` 放不进产品的验证工具。平台根目录放构建文件、脚本、清单和文档。
 
+`common/` 只收 TSF DLL 与 Server 两侧都要编译的协议头：`PipeMetadata.h`（主管道元数据位）、`AuxMessage.h`（Aux 管道消息的编码与解析）、`TsfFocusLeaseProtocol.h`（焦点租约帧）和 `KeyEventSendResult.h`（按键写入结果的三分类；`tsf/IPC/KeyEventSendResult.h` 只是把它以 DLL 原有的全局名转出来）。`tsf/` 只能以 `../../common/` 引用这里的头文件，不得再伸进 `src/`；Server 侧经全局 include 路径按文件名引用。往这里加头文件等于扩大 DLL ↔ Server 的契约，只放两侧确实共用的定义。
+
 `src/` 按职责分目录，每个目录一句话说清它收什么：
 
 | 目录 | 收什么 |
