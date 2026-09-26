@@ -210,7 +210,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 **iOS。** `MSIMEClientTests` 聚合键盘、服务、共享三个单测 target，`MSIMEDoubaoTransportTests` 与 `MSIMEClientUITests` 各自是独立 scheme；`tests/settings/ProjectConfigurationTests.py` 是纯 Python 的工程配置校验，不需要模拟器。模拟器套件需要已暂存的词库资源，单次约十分钟量级。
 
-**契约门禁。** `scripts/` 下 43 个 `test-*.py`，多数不需要任何工具链，检查的是「这个东西是否还接在一起」：路径与能力映射、配置 key 是否都落到共享设置页上、界面动作是否都能在仓库里检索到对应 token、生成产物是否与源重建后逐字节一致。其中一组依赖一份外部参考实现检出（由 `MSIME_REFERENCE_DIR` 指定），没有检出时它们自报所需条件并通过，不阻塞其他人。
+**契约门禁。** `scripts/` 下的每个 `test-*.py` 都由 `verify-local.sh` 自动发现执行（少数需要参数或由别的门禁负责的列在它的 `special_checks` 里），多数不需要任何工具链，检查的是「这个东西是否还接在一起」：路径与能力映射、配置 key 是否都落到共享设置页上、界面动作是否都能在仓库里检索到对应 token、生成产物是否与源重建后逐字节一致。其中一组依赖一份外部参考实现检出（由 `MSIME_REFERENCE_DIR` 指定），没有检出时它们自报所需条件并通过，不阻塞其他人。
 
 ## 七、本地验证入口
 
@@ -218,7 +218,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 它的核心设计是**把失败的测试名集合与 `scripts/known-failures.txt` 比对，只对不在清单里的名字失败**。多个套件有长期失败，裸 pass/fail 没有信息量；清单里每一条都带完整的取证记录，文件开头写明「Every line here is debt, not an exemption」。
 
-阶段顺序：校准 vendored Engine → 四十来个 `scripts/test-*.py` 静态与契约门禁 → Rust workspace 编译 → Android 目标编译与 host 检查 → HarmonyOS ArkTS 打包 → Linux 桌面 shell 与原生宿主 → Windows 交叉构建与 Wine 套件 → macOS 与 shared apple bridge → pipe-only 配置（`--quick` 到此为止）→ Rust 测试、fmt、clippy（七个 crate 的 `-D warnings` 硬门禁，无基线）→ 前端 lint 与格式 → 依赖 advisory → 整句转换质量评测与重排延迟 → 各平台 ctest → TypeScript 与 Vitest。缺少某个工具链时该阶段明确跳过并打印所需条件，不静默通过。
+阶段顺序：校准 vendored Engine → 自动发现的 `scripts/test-*.py` 静态与契约门禁 → Rust workspace 编译 → Android 目标编译与 host 检查 → HarmonyOS ArkTS 打包 → Linux 桌面 shell 与原生宿主 → Windows 交叉构建与 Wine 套件 → macOS 与 shared apple bridge → pipe-only 配置（`--quick` 到此为止）→ Rust 测试、fmt、clippy（七个 crate 的 `-D warnings` 硬门禁，无基线）→ 前端 lint 与格式 → 依赖 advisory → 整句转换质量评测与重排延迟 → 各平台 ctest → TypeScript 与 Vitest。缺少某个工具链时该阶段明确跳过并打印所需条件，不静默通过。
 
 各平台的直接入口：
 
