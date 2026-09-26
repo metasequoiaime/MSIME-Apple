@@ -110,6 +110,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             try {
                 List<BackendAccount.ChatModel> loaded = new BackendAccount(this).chatModels();
                 runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     models.clear();
                     models.addAll(loaded);
                     load.setText("模型 " + models.get(0).id());
@@ -117,6 +118,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     load.setEnabled(true);
                     load.setText("重新加载 AI");
                     android.widget.Toast.makeText(this,
