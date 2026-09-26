@@ -1089,6 +1089,11 @@ struct ServiceSettingsView: View {
   private func cancelRequest() {
     requestID = UUID()
     operation?.cancel()
+    // Live recognition owns the microphone until the recorder finishes its stream. Cancelling the
+    // task alone does not finish an AsyncStream producer, so the send side can remain suspended
+    // while the audio engine keeps recording in the background. Stop and discard it here to close
+    // the stream and release the engine immediately.
+    if recognizesLive { recorder.discard() }
     fetchingModels = false
     testingConnection = false
     busy = false
