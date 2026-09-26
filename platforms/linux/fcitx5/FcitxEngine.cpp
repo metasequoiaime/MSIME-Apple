@@ -370,8 +370,9 @@ bool reloadFcitxService() {
 
 class FcitxState : public fcitx::InputContextProperty {
 public:
-  explicit FcitxState(fcitx::InputContext &ic, FcitxEngine *engine, fcitx::EventLoop &loop)
-      : ic_(ic), engine_(engine), loop_(&loop) {
+  // system_dark is the engine's last probed appearance, so a context opened between probes starts in it rather than in light until the next change.
+  FcitxState(fcitx::InputContext &ic, FcitxEngine *engine, fcitx::EventLoop &loop, bool system_dark)
+      : ic_(ic), engine_(engine), loop_(&loop), system_dark_(system_dark) {
     wave_overlay_surface_ = create_fcitx_wave_overlay_surface(
         [this](msime::linux_host::WaveOverlayModel::Action action) {
           if (action == msime::linux_host::WaveOverlayModel::Action::Cancel)
@@ -389,7 +390,6 @@ public:
           refreshClipboard();
           refreshCloudClipboard();
           refreshEmoji();
-          refreshSystemTheme();
           refreshVoice();
           timer->setNextInterval(250000);
           timer->setOneShot();
@@ -2255,13 +2255,10 @@ public:
     clearPanel();
     msime_linux_diagnostic_write("dictionary_quiesce_released");
   }
-  void refreshSystemTheme() {
-    const auto now = std::chrono::steady_clock::now();
-    if (now < system_theme_probe_due_) return;
-    system_theme_probe_due_ = now + std::chrono::seconds(5);
-    const auto dark = fcitx_system_dark_theme();
-    if (!dark || *dark == system_dark_) return;
-    system_dark_ = *dark;
+  // Called by FcitxEngine::applySystemTheme on the loop when its addon-wide probe sees the desktop appearance change.
+  void setSystemDark(bool dark) {
+    if (dark == system_dark_) return;
+    system_dark_ = dark;
     wave_overlay_.light_theme = msime_voice_overlay_light_theme(
         preferences_.value("voice_theme", "follow"),
         preferences_.value("theme", "dark"), system_dark_);
@@ -3136,7 +3133,6 @@ public:
   bool wave_overlay_visible_ = false;
   bool wave_overlay_failed_ = false;
   bool system_dark_ = false;
-  std::chrono::steady_clock::time_point system_theme_probe_due_{};
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
   bool translation_candidates_active_ = false;
@@ -5035,6 +5031,45 @@ public:
           listenPanelInput();
         });
     listenPanelInput();
+    // The first probe starts at addon load; stepSystemTheme sets every later interval.
+    system_theme_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC), 10000,
+        [this](fcitx::EventSourceTime *timer, uint64_t) {
+          timer->setNextInterval(stepSystemTheme());
+          timer->setOneShot();
+          return true;
+        });
+  }
+  // The theme worker runs addon code on a schedule rather than on user action, so it is the detached job most likely to be in flight when Fcitx5 unloads the addon. Waiting for it here (its portal call gives up after 1 s) keeps that code from running after the library is gone; the other detached jobs keep the risk their comment accepts.
+  ~FcitxEngine() override {
+    if (system_theme_job_.valid()) system_theme_job_.wait_for(std::chrono::seconds(2));
+  }
+  // The desktop appearance (the portal's color-scheme) is probed once for the whole addon, not once per input context, and never on the loop: fcitx_system_dark_theme is a synchronous portal round trip that can block for its full 1 s D-Bus timeout. One worker is in flight at a time; the loop polls it every 250 ms and starts the next one 5 s after the last answer, so a theme switch reaches every context within about 5 s, as when each context probed on its own. Returns the microseconds until the next step.
+  uint64_t stepSystemTheme() {
+    constexpr uint64_t kPollUs = 250000;
+    constexpr uint64_t kProbeIntervalUs = 5000000;
+    if (!system_theme_job_.valid()) {
+      system_theme_job_ = detachedJob([] {
+        const auto dark = fcitx_system_dark_theme();
+        return dark ? Json(*dark) : Json();
+      });
+      return kPollUs;
+    }
+    if (system_theme_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return kPollUs;
+    const auto dark = system_theme_job_.get();
+    system_theme_job_ = {};
+    // No portal (null) keeps the previous appearance, as fcitx_system_dark_theme documents.
+    if (dark.is_boolean()) applySystemTheme(dark.get<bool>());
+    return kProbeIntervalUs;
+  }
+  // Runs on the loop. Every context, whichever input method owns it, keeps the value so that it is current when MSIME activates there; each one redraws its voice overlay and candidate theme exactly as its own probe used to.
+  void applySystemTheme(bool dark) {
+    if (dark == system_dark_) return;
+    system_dark_ = dark;
+    instance_->inputContextManager().foreach([this, dark](fcitx::InputContext *ic) {
+      ic->propertyFor(&factory_)->setSystemDark(dark);
+      return true;
+    });
   }
   // The desktop panels type through the focused input context; see PanelInputChannel.h.
   void listenPanelInput() {
@@ -5317,9 +5352,13 @@ public:
   msime::linux_host::CandidateFontSync candidate_font_sync_;
   std::string candidate_theme_applied_;
   msime::linux_host::CandidateWheelPagingSync candidate_wheel_paging_sync_;
+  // Last appearance the addon-wide probe reported; see stepSystemTheme.
+  bool system_dark_ = false;
+  std::shared_future<Json> system_theme_job_;
   fcitx::FactoryFor<FcitxState> factory_{[this](fcitx::InputContext &ic) {
-    return new FcitxState(ic, this, instance_->eventLoop());
+    return new FcitxState(ic, this, instance_->eventLoop(), system_dark_);
   }};
+  std::unique_ptr<fcitx::EventSourceTime> system_theme_timer_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
   // Declared in this order so the event sources go before the socket and the connections they serve.

@@ -438,6 +438,33 @@ int main(int argc, char **argv) {
       else unsetenv("XDG_CONFIG_HOME");
       setenv("MSIME_FCITX5_OPTIONS", path.c_str(), 1);
     }
+    {
+      // The desktop appearance is probed once for the addon, on a worker, and handed to every context on the loop; a context opened later starts in the last probed value. The fixture never runs the loop, so this drives the timer's step and the hand-off directly.
+      FixtureContext before(instance.inputContextManager());
+      const auto themeOf = [&engine](fcitx::InputContext &context) {
+        return context.propertyFor(&engine.factory_)->system_dark_;
+      };
+      require(engine.stepSystemTheme() == 250000 && engine.system_theme_job_.valid(),
+              "the first step starts the portal probe on a worker and polls it");
+      require(engine.stepSystemTheme() == 250000 || !engine.system_theme_job_.valid(),
+              "a step while the probe runs only polls it");
+      if (engine.system_theme_job_.valid()) {
+        engine.system_theme_job_.wait();
+        require(engine.stepSystemTheme() == 5000000 && !engine.system_theme_job_.valid(),
+                "a finished probe is taken on the loop and the next one waits the full interval");
+      }
+      require(themeOf(before) == engine.system_dark_, "the probed appearance reaches an open context");
+      auto *beforeState = before.propertyFor(&engine.factory_);
+      beforeState->preferences_["theme"] = "system";
+      for (const bool dark : {!engine.system_dark_, engine.system_dark_}) {
+        engine.applySystemTheme(dark);
+        require(themeOf(before) == dark, "an appearance change reaches every open context");
+        require(beforeState->wave_overlay_.light_theme == !dark,
+                "an appearance change redraws a system-following voice overlay");
+        FixtureContext after(instance.inputContextManager());
+        require(themeOf(after) == dark, "a context opened after the probe starts in its value");
+      }
+    }
     FixtureContext ic(instance.inputContextManager());
     ic.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit,
                                                fcitx::CapabilityFlag::SurroundingText});
