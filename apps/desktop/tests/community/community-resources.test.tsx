@@ -132,6 +132,48 @@ test("dictionary details apply the displayed revision and refresh saved state", 
   await waitFor(() => expect(save).toHaveBeenCalledWith(item.id, true));
 });
 
+test("a resource action from a replaced client cannot overwrite the current detail", async () => {
+  const item = base("dictionary");
+  const replacement = { ...item, name: "新客户端词库", saved: true };
+  let finishSave!: () => void;
+  let finishOldDetail!: () => void;
+  const stale = { ...item, saved: false };
+  const oldClient = client({
+    list: vi.fn().mockResolvedValue({ items: [item], has_more: false }),
+    detail: vi
+      .fn()
+      .mockResolvedValueOnce(item)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldDetail = () => resolve(stale);
+          }),
+      ),
+    save: vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve;
+        }),
+    ),
+  });
+  const nextClient = client({
+    list: vi.fn().mockResolvedValue({ items: [replacement], has_more: false }),
+    detail: vi.fn().mockResolvedValue(replacement),
+  });
+  const view = render(<CommunityResourcesPage client={oldClient} kind="dictionary" />);
+  fireEvent.click(await screen.findByRole("button", { name: "查看词库 开发词包" }));
+  fireEvent.click(await screen.findByRole("button", { name: "收藏，关注后续更新" }));
+
+  finishSave();
+  await waitFor(() => expect(oldClient.detail).toHaveBeenCalledTimes(2));
+  view.rerender(<CommunityResourcesPage client={nextClient} kind="dictionary" />);
+  expect(await screen.findByRole("button", { name: "取消收藏" })).not.toBeNull();
+
+  finishOldDetail();
+  await Promise.resolve();
+  expect(screen.getByRole("button", { name: "取消收藏" })).not.toBeNull();
+});
+
 test("mobile resource details join the WebView history stack and system back restores the list", async () => {
   window.history.replaceState({ msimeSettings: true, page: "community" }, "");
   const item = base("dictionary", "10000000-0000-4000-8000-000000000061");

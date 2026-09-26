@@ -393,49 +393,58 @@ function ResourceDetail({
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const mounted = useRef(true);
-  const run = async (action: () => Promise<void>) => {
+  const clientGeneration = useRef(0);
+  const renderGeneration = clientGeneration.current;
+  const run = async (action: (generation: number) => Promise<void>) => {
     if (busy || !mounted.current) return;
+    const generation = clientGeneration.current;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      await action();
+      await action(generation);
     } catch (actionError) {
-      if (mounted.current) setError(resourceMessage(actionError));
+      if (mounted.current && generation === clientGeneration.current)
+        setError(resourceMessage(actionError));
     } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted.current && generation === clientGeneration.current) setBusy(false);
     }
   };
   useEffect(() => {
     let active = true;
+    const generation = ++clientGeneration.current;
     mounted.current = true;
+    setBusy(false);
     void client
       .detail(initial.id)
       .then((value) => {
-        if (active) setItem(value);
+        if (active && generation === clientGeneration.current) setItem(value);
       })
       .catch((errorValue) => {
-        if (active) setError(resourceMessage(errorValue));
+        if (active && generation === clientGeneration.current)
+          setError(resourceMessage(errorValue));
       });
     return () => {
       active = false;
       mounted.current = false;
+      if (generation === clientGeneration.current) clientGeneration.current++;
     };
   }, [client, initial.id]);
   const save = () =>
-    void run(async () => {
+    void run(async (generation) => {
       await client.save(item.id, !item.saved);
+      if (!mounted.current || generation !== clientGeneration.current) return;
       const updated = await client.detail(item.id);
-      if (mounted.current) setItem(updated);
+      if (mounted.current && generation === clientGeneration.current) setItem(updated);
     });
   const apply = () =>
-    void run(async () => {
+    void run(async (generation) => {
       const result = await client.apply(item.id, item.revision);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       setNotice(`已导入云端词库，新增或更新 ${result.imported} 个词条。`);
     });
   const applyLocal = () =>
-    void run(async () => {
+    void run(async (generation) => {
       if (!localDictionary?.import) return;
       const groups = new Map<CommunitySharedWord["kind"], CommunitySharedWord[]>();
       for (const entry of item.content.entries ?? []) {
@@ -457,36 +466,39 @@ function ResourceDetail({
         );
         applied += result.applied;
       }
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       setNotice(`已导入本机词库，应用 ${applied} 个词条。`);
     });
   const storeReply = () =>
-    void run(async () => {
+    void run(async (generation) => {
       await client.save(item.id, true);
+      if (!mounted.current || generation !== clientGeneration.current) return;
       const latest = await client.detail(item.id);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       await client.storeReply(latest);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       setItem(latest);
       setNotice("已添加到回复键盘；只有点按生成时才会发送文字。");
     });
   const rateResource = (stars: number) =>
-    void run(async () => {
+    void run(async (generation) => {
       await client.rate(item.id, stars);
+      if (!mounted.current || generation !== clientGeneration.current) return;
       const updated = await client.detail(item.id);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       setItem(updated);
       setNotice(`已评分：${stars} 星。`);
     });
   const removeReply = () =>
-    void run(async () => {
+    void run(async (generation) => {
       await client.removeReply(item.id);
+      if (!mounted.current || generation !== clientGeneration.current) return;
       setNotice("已从本机回复键盘移除，社区收藏保留。");
     });
   const unpublish = () =>
-    void run(async () => {
+    void run(async (generation) => {
       await client.unpublish(item.id);
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       setConfirmDelete(false);
       close();
     });
@@ -655,7 +667,9 @@ function ResourceDetail({
           close={() => setEditing(false)}
           onPublished={async () => {
             setEditing(false);
-            setItem(await client.detail(item.id));
+            const updated = await client.detail(item.id);
+            if (!mounted.current || renderGeneration !== clientGeneration.current) return;
+            setItem(updated);
           }}
         />
       )}
