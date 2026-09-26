@@ -1038,7 +1038,7 @@ export function TypingStatisticsPage({
     requestRef.current = null;
     requestStartedAtRef.current = 0;
     lastRequestAtRef.current = 0;
-    setBusy(true);
+    setBusy(false);
     setError("");
     return () => {
       if (generation === clientGeneration.current) {
