@@ -343,7 +343,7 @@ AI worker 七条：结果带对 lease/query/候选、去抖窗口内只付一次
 
 现在这条路由排在那条兜底规则前面：候选窗开着、译义开关打开、高亮候选确实有译义时才拦截，否则 Ctrl+Enter 仍按原样结束组字（用例里两种回落都验了）。副候选页复用引擎视图的形状，面板、皮肤和摆位都不用改；选中一条之后走 `MSIME_CANCEL` 而不是结束组字——译义才是用户要的那个词，结束组字会把中文候选再补到译义后面。Esc 只需把进页前存下的视图放回去，因为进页没有改引擎里的任何状态。
 
-切分规则本身（半角 `;` 与全角 `；` 都算分隔符，两边空白去掉，空的丢掉）是字典定的，与宿主无关，但三个宿主各存了一份实现。新增 `platforms/macos/tests/candidate/TranslationSensesAgreementTest.cpp` 把 Windows、Linux、macOS 三份头文件编到一起，用 17 个样例问同样的问题并要求答案一致——三份同样的规则会悄悄漂移，而某个宿主少给一条释义，看上去像字典差异而不是 bug。其中两个样例是专门挑的：与全角分号共享首字节的「，」不能被切成半个字符，换行是宿主的分栏符、不是释义分隔符。（后续：三份实现已合并为 `shared/input/GlossSenses.h` 的 `msime::input::gloss_senses`，Windows 的 `translation_senses`、Linux 的 `split_translation_gloss`、macOS 的 `candidate_gloss_senses` 保留为转发，调用点不变；该测试改为逐例钉住期望结果，并同时检查三个转发。）
+切分规则本身（半角 `;` 与全角 `；` 都算分隔符，两边空白去掉，空的丢掉）是字典定的，与宿主无关，但三个宿主各存了一份实现。新增 `platforms/macos/tests/candidate/TranslationSensesAgreementTest.cpp` 把 Windows、Linux、macOS 三份头文件编到一起，用 18 个样例问同样的问题并要求答案一致——三份同样的规则会悄悄漂移，而某个宿主少给一条释义，看上去像字典差异而不是 bug。其中两个样例是专门挑的：与全角分号共享首字节的「，」不能被切成半个字符，换行是宿主的分栏符、不是释义分隔符。（后续：三份实现已合并为 `shared/input/GlossSenses.h` 的 `msime::input::gloss_senses`，Windows 的 `translation_senses`、Linux 的 `split_translation_gloss`、macOS 的 `candidate_gloss_senses` 保留为转发，调用点不变；该测试改为逐例钉住期望结果，并同时检查三个转发。）
 
 增量记录（2026-09-21，维护快捷键已齐，另修关于页日志开关的名字）：来源《服务守护》一节的四组维护快捷键在 macOS 上都在，也都有宿主用例：`Control+Shift+Option` 加 1–8 删除候选（八个槽位逐个验过，含重复按键抑制）、加 C 清缓存、加 R 重新注册并退出、加 T 退出进程。来源写的是 `Ctrl+Shift+Alt`，macOS 换成 Option 是平台适配，共享设置页里那句说明也按平台改过。
 
