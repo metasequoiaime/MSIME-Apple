@@ -1,6 +1,6 @@
 //! Unit tests for the parent module, in their own file because the module
 //! is large enough that mixing them with the implementation obscured both.
-//! Same `mod tests` as before, so `use super::*` still names the parent.
+//! Same `mod selection_tests` as before, so `use super::*` still names the parent.
 
 use super::*;
 
