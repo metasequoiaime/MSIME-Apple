@@ -13,11 +13,12 @@ The TSF dynamic thread-local strings have a single source definition while retai
 
 For x86, Homebrew's i686 MinGW uses SJLJ exceptions while Rust's `i686-pc-windows-gnu` needs DWARF unwinding, so `build-cross.sh x86` refuses that combination up front. Use `bash platforms/windows/build-cross-container.sh x86`, which runs the same script against Debian's DWARF-built i686 MinGW inside a container.
 
-The candidate initialization regression (CTest `windows-candidate-initialization`) also runs on a host compiler, which is how it gets sanitizer coverage. It needs the header-only JSON dependency, the seven `src` subdirectories that `platforms/windows/CMakeLists.txt` puts on the include path, and the Cargo-built host library that `ChineseTextConversion.cpp` calls into:
+The candidate initialization regression (CTest `windows-candidate-initialization`) also runs on a host compiler, which is how it gets sanitizer coverage. It needs the header-only JSON dependency, the `common` directory and the `src` subdirectories that `platforms/windows/CMakeLists.txt` puts on the include path, and the Cargo-built host library that `ChineseTextConversion.cpp` calls into:
 
 ```sh
 cargo build -p msime-host-api --locked
 c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -Iplatforms/windows/common \
   -Iplatforms/windows/src/candidate -Iplatforms/windows/src/input \
   -Iplatforms/windows/src/ipc -Iplatforms/windows/src/system \
   -Icrates/host-api/include -Ivendor/MSIME-Engine/contracts \

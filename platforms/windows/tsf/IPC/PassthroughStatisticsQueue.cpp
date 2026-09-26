@@ -2,7 +2,7 @@
 
 #include "Globals.h"
 #include "Ipc.h"
-#include "../../src/ipc/AuxMessage.h"
+#include "../../common/AuxMessage.h"
 
 #include <atomic>
 #include <string>
