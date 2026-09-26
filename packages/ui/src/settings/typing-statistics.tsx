@@ -622,7 +622,7 @@ function StatisticsHeatmap({
                       className={`${heatCell} ${heatLevels[level]} cursor-pointer${selectedDay === day.key ? " outline-2 outline-offset-1 outline-[#e59b43]" : ""}`}
                       key={day.key}
                       title={`${day.label}：${day.count > 0 ? `${day.count.toLocaleString("zh-CN")} 字符` : "无记录"}`}
-                      aria-label={`热力图：${day.key}，${day.count} 字符`}
+                      aria-label={`热力图：${day.label}，${day.count} 字符`}
                       aria-pressed={selectedDay === day.key}
                       onClick={() => onSelect(day.key)}
                     />
@@ -1017,6 +1017,7 @@ export function TypingStatisticsPage({
   const lastRequestAtRef = useRef(0);
   const statusSignatureRef = useRef("");
   const mounted = useRef(true);
+  const clientGeneration = useRef(0);
   const mobileTrendDays = useMemo(
     () => recentDays(mobileTrendLength(status?.statistics.days ?? {})),
     [status?.statistics.days],
@@ -1032,8 +1033,24 @@ export function TypingStatisticsPage({
     };
   }, []);
 
+  useEffect(() => {
+    const generation = ++clientGeneration.current;
+    requestRef.current = null;
+    requestStartedAtRef.current = 0;
+    lastRequestAtRef.current = 0;
+    setBusy(false);
+    setError("");
+    return () => {
+      if (generation === clientGeneration.current) {
+        clientGeneration.current++;
+        requestRef.current = null;
+      }
+    };
+  }, [client]);
+
   async function update(operation: () => Promise<TypingStatisticsStatus>, overview = false) {
     if (!mounted.current || requestRef.current) return;
+    const generation = clientGeneration.current;
     setBusy(true);
     setError("");
     const request = operation();
@@ -1042,24 +1059,34 @@ export function TypingStatisticsPage({
     if (overview) lastRequestAtRef.current = requestStartedAtRef.current;
     try {
       const next = await request;
-      if (!mounted.current || requestRef.current !== request) return;
+      if (
+        !mounted.current ||
+        clientGeneration.current !== generation ||
+        requestRef.current !== request
+      )
+        return;
       statusSignatureRef.current = JSON.stringify(next);
       setStatus(next);
     } catch {
-      if (mounted.current && requestRef.current === request)
+      if (
+        mounted.current &&
+        clientGeneration.current === generation &&
+        requestRef.current === request
+      )
         setError("无法读取或保存统计，请稍后重试。原有统计不会被自动重置。");
     } finally {
       if (requestRef.current === request) {
         requestRef.current = null;
-        if (mounted.current) setBusy(false);
+        if (mounted.current && clientGeneration.current === generation) setBusy(false);
       }
     }
   }
 
   useEffect(() => {
     let active = true;
+    const generation = clientGeneration.current;
     const refreshWhenVisible = () => {
-      if (!mounted.current) return;
+      if (!mounted.current || clientGeneration.current !== generation) return;
       const now = Date.now();
       if (
         document.visibilityState === "hidden" ||
@@ -1074,7 +1101,8 @@ export function TypingStatisticsPage({
       requestStartedAtRef.current = now;
       void request
         .then((next) => {
-          if (!active || requestRef.current !== request) return;
+          if (!active || clientGeneration.current !== generation || requestRef.current !== request)
+            return;
           const signature = JSON.stringify(next);
           if (signature !== statusSignatureRef.current) {
             statusSignatureRef.current = signature;
@@ -1082,13 +1110,14 @@ export function TypingStatisticsPage({
           }
         })
         .catch(() => {
-          if (active && requestRef.current === request)
+          if (active && clientGeneration.current === generation && requestRef.current === request)
             setError("无法读取或保存统计，请稍后重试。原有统计不会被自动重置。");
         })
         .finally(() => {
           if (requestRef.current === request) {
             requestRef.current = null;
-            if (active && mounted.current) setBusy(false);
+            if (active && mounted.current && clientGeneration.current === generation)
+              setBusy(false);
           }
         });
     };
