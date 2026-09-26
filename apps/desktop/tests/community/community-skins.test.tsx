@@ -6,6 +6,7 @@ import {
   SettingsPage,
   type CommunitySkin,
   type CommunitySkinClient,
+  type CommunitySkinDownload,
   type CommunitySkinPage,
   type Snapshot,
 } from "@msime/ui";
@@ -241,6 +242,30 @@ test("downloads enter a recoverable trial and can restore the previous skin", as
     expect(finishTrial).toHaveBeenCalledWith("20000000-0000-4000-8000-000000000001", false),
   );
   expect(await screen.findByText("已恢复试用前的皮肤。")).not.toBeNull();
+});
+
+test("a download response from a replaced community client is ignored", async () => {
+  const original = skin("10000000-0000-4000-8000-000000000070", "替换客户端皮肤");
+  const pending = deferred<CommunitySkinDownload>();
+  const oldClient = client({
+    list: vi.fn().mockResolvedValue({ skins: [original], has_more: false }),
+    detail: vi.fn().mockResolvedValue(original),
+    download: vi.fn().mockReturnValue(pending.promise),
+  });
+  const replacement = client({
+    list: vi.fn().mockResolvedValue({ skins: [original], has_more: false }),
+    detail: vi.fn().mockResolvedValue(original),
+  });
+  const view = render(<CommunitySkinsPage client={oldClient} theme="dark" />);
+  fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${original.name}` }));
+  fireEvent.click(await screen.findByRole("button", { name: "下载并试用" }));
+  await waitFor(() => expect(oldClient.download).toHaveBeenCalledWith(original.id, original.name));
+  view.rerender(<CommunitySkinsPage client={replacement} theme="dark" />);
+  pending.resolve({
+    skin: { ...original, design: { ...design, background: 0x123456 } },
+    trial: { id: "stale-trial", name: original.name },
+  });
+  await waitFor(() => expect(screen.queryByText(`正在试用：${original.name}`)).toBeNull());
 });
 
 test("leaving an active trial restores it and keeping it suppresses later recovery", async () => {

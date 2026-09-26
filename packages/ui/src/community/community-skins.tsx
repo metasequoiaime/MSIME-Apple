@@ -438,6 +438,7 @@ export function CommunitySkinsPage({
   const activeSearch = useRef("");
   const trialRef = useRef<CommunitySkinTrial | null>(null);
   const mounted = useRef(true);
+  const clientGeneration = useRef(0);
 
   const requestList = async (query: string, append: boolean) => {
     const generation = ++listGeneration.current;
@@ -461,10 +462,13 @@ export function CommunitySkinsPage({
   };
 
   useEffect(() => {
+    const currentClient = ++clientGeneration.current;
     mounted.current = true;
+    setActionBusy(false);
     void requestList("", false);
     return () => {
       mounted.current = false;
+      if (clientGeneration.current === currentClient) clientGeneration.current++;
       listGeneration.current += 1;
       detailGeneration.current += 1;
       const pending = trialRef.current;
@@ -545,74 +549,78 @@ export function CommunitySkinsPage({
 
   const download = async () => {
     if (!selected || actionBusy) return;
+    const currentClient = clientGeneration.current;
     setActionBusy(true);
     setActionNotice("");
     setError("");
     try {
       const result = await client.download(selected.id, selected.name);
-      if (!mounted.current) return;
+      if (!mounted.current || currentClient !== clientGeneration.current) return;
       setSelected((current) => (current ? { ...current, design: result.skin.design } : current));
       trialRef.current = result.trial;
       setTrial(result.trial);
       setActionNotice("已下载并开始试用；关闭此页会恢复原皮肤。");
     } catch (actionError) {
-      fail(actionError);
+      if (currentClient === clientGeneration.current) fail(actionError);
     } finally {
-      if (mounted.current) setActionBusy(false);
+      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
     }
   };
 
   const finishTrial = async (keep: boolean) => {
     if (!trial || actionBusy) return;
+    const currentClient = clientGeneration.current;
     const pending = trial;
     setActionBusy(true);
     setError("");
     try {
       await client.finishTrial(pending.id, keep);
-      if (!mounted.current) return;
+      if (!mounted.current || currentClient !== clientGeneration.current) return;
       trialRef.current = null;
       setTrial(null);
       setActionNotice(keep ? "已保留这款皮肤。" : "已恢复试用前的皮肤。");
     } catch (actionError) {
-      fail(actionError);
+      if (currentClient === clientGeneration.current) fail(actionError);
     } finally {
-      if (mounted.current) setActionBusy(false);
+      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
     }
   };
 
   const rateSkin = async (stars: number) => {
     if (!selected || actionBusy) return;
+    const currentClient = clientGeneration.current;
     setActionBusy(true);
     setError("");
     try {
       await client.rate(selected.id, stars);
       const updated = await client.detail(selected.id);
-      if (!mounted.current) return;
+      if (!mounted.current || currentClient !== clientGeneration.current) return;
       setSelected(updated);
       setActionNotice(`已评分：${stars} 星。`);
     } catch (actionError) {
-      fail(actionError);
+      if (currentClient === clientGeneration.current) fail(actionError);
     } finally {
-      if (mounted.current) setActionBusy(false);
+      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
     }
   };
 
   const unpublish = async () => {
     if (!selected || actionBusy || trial) return;
+    const currentClient = clientGeneration.current;
     setActionBusy(true);
     setError("");
     try {
       await client.unpublish(selected.id);
-      if (!mounted.current) return;
+      if (!mounted.current || currentClient !== clientGeneration.current) return;
       detailGeneration.current += 1;
       setSelected(null);
       setConfirmUnpublish(false);
       setActionNotice("已下架这款皮肤；其他用户将无法再下载，已有本地副本不会受影响。");
       await requestList(activeSearch.current, false);
     } catch (actionError) {
-      fail(actionError);
+      if (currentClient === clientGeneration.current) fail(actionError);
     } finally {
-      if (mounted.current) setActionBusy(false);
+      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
     }
   };
 
