@@ -3658,8 +3658,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const handle = fs.openSync(KeyboardSession.feedbackFileIn(stateRoot),
         fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
-      fs.closeSync(handle);
+      try {
+        fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
+      } finally {
+        fs.closeSync(handle);
+      }
       return true;
     } catch (error) {
       KeyboardLog.error(`key feedback not saved: ${describeError(error)}`);
@@ -3684,8 +3687,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const handle = fs.openSync(this.feedbackFile(),
         fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
-      fs.closeSync(handle);
+      try {
+        fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
+      } finally {
+        fs.closeSync(handle);
+      }
       this.feedbackSettings = settings;
       return true;
     } catch (error) {
