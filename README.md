@@ -50,7 +50,7 @@
 
 ## CI 与发布
 
-`develop` 上的基础检查由 `Core CI` 负责，实际执行的是 actionlint 的 workflow 校验和依赖审查；仓库的文本契约是 `scripts/` 下的那批 `test-*.py`，由 `scripts/verify-local.sh` 在本地跑，`Core CI` 的 contracts job 目前只是占位，不校验内容。iOS 与 macOS 的编译与测试由各自的原生宿主 workflow 负责。Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时运行，未改动时明确跳过；这一层覆盖宿主契约、JVM 冒烟、容器构建和交叉编译。设备级的输入验收由各平台 README 记录的设备套件和手动步骤承担，不由 CI 代替。
+`develop` 上的基础检查由 `Core CI` 负责，实际执行的是 actionlint 的 workflow 校验和依赖审查；仓库的文本契约是 `scripts/` 下的那批 `test-*.py`，由 `scripts/run-checks.sh` 按文件名自动发现并执行，`Core CI` 的 contracts job 在 Linux 上跑它，`scripts/verify-local.sh` 在本地跑同一份脚本；缺少所需工具或参考仓库的检查在 CI 上打印 skipped 并通过。iOS 与 macOS 的编译与测试由各自的原生宿主 workflow 负责。Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时运行，未改动时明确跳过；这一层覆盖宿主契约、JVM 冒烟、容器构建和交叉编译。设备级的输入验收由各平台 README 记录的设备套件和手动步骤承担，不由 CI 代替。
 
 六个平台的发布完全独立：每个平台有自己的手动 release workflow、版本文件、并发组、构建产物和 GitHub Release tag。版本文件分别位于 `platforms/android/version.txt`、`platforms/ios/version.txt`、`platforms/macos/version.txt`、`platforms/linux/version.txt`、`platforms/windows/version.txt` 和 `platforms/harmony/version.txt`；tag 使用 `android-vX.Y.Z`、`ios-vX.Y.Z`、`macos-vX.Y.Z`、`linux-vX.Y.Z`、`windows-vX.Y.Z` 和 `harmony-vX.Y.Z`。发布 workflow 只创建 GitHub Release，不自动上传应用商店或使用签名凭据。
 
