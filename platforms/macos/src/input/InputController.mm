@@ -800,7 +800,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSTimer *_preferencesTimer;
     MSIMEPreferenceLoadState _preferenceLoadState;
     MSIMEPreferenceSaveState _preferenceSaveState;
-    BOOL _preferenceRecoveryAttempted;
     MSIMEAppearancePreferences *_appearance;
     BOOL _wubiCodeHintEnabled;
     msime::input::EnglishPunctuationState _englishPunctuation;
@@ -3562,6 +3561,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     // the previous document, which cannot be written into this one.
     _pendingPairedClosing = nil;
     _pairedPunctuation.clear();
+    _englishPunctuation = {};
     [self clearSmartPunctuationSpaceConversion];
     [self clearSmartPunctuationSpaceRevert];
     [_voiceOverlay dismissFailure];
@@ -3825,6 +3825,18 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     return [MSIMEClientSession recoverPreferencesInDirectory:directory error:error];
 }
 
+// The Windows source repairs an unparseable config.toml as the IME starts (InitImeConfig before LoadImeConfig). Here the document is polled by every controller from a background queue, so the repair is claimed once per directory per process under a lock: a document that cannot be repaired, or a read that keeps failing for another reason, is not retried every second or once more for each client application.
+static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
+    static NSMutableSet<NSString *> *claimed;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ claimed = [NSMutableSet set]; });
+    @synchronized(claimed) {
+        if ([claimed containsObject:directory]) return NO;
+        [claimed addObject:directory];
+        return YES;
+    }
+}
+
 - (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
                        session:(MSIMEClientSession *)session client:(id)client {
     if (!_preferenceLoadState.finish(generation)) return;
@@ -3890,20 +3902,26 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         if (!current) return;
         NSError *error = nil;
         NSDictionary *snapshot = [current readPreferencesSnapshotInDirectory:directory error:&error];
-        if (!snapshot && error && !current->_preferenceRecoveryAttempted) {
-            current->_preferenceRecoveryAttempted = YES;
+        // A document that is not JSON at all is backed up and repaired here, so the IME comes back on the salvaged values instead of running on whatever it last applied. The host refuses a well-formed document it cannot read - most likely a newer build's - and leaves that to the settings page's explicit repair.
+        NSString *backupName = nil;
+        if (!snapshot && error && MSIMEClaimPreferenceRecovery(directory)) {
             NSError *recoveryError = nil;
             NSDictionary *recovery = [current recoverPreferencesInDirectory:directory error:&recoveryError];
             NSDictionary *recoveredSnapshot = [recovery[@"snapshot"] isKindOfClass:NSDictionary.class] ? recovery[@"snapshot"] : nil;
             if (recoveredSnapshot && !recoveryError) {
                 snapshot = recoveredSnapshot;
                 error = nil;
+                if ([recovery[@"recovered"] isEqual:@YES])
+                    backupName = [recovery[@"backup_name"] isKindOfClass:NSString.class] ? recovery[@"backup_name"] : @"";
             } else if (recoveryError) {
                 error = recoveryError;
             }
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             [weakSelf completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+            // After the completion, which is what configures the diagnostic log from the repaired document.
+            if (backupName)
+                msime_macos_diagnostic_write(std::string("preferences_recovered backup=") + (backupName.UTF8String ?: ""));
         });
     });
 }

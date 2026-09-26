@@ -897,7 +897,8 @@ fn keyboard_does_not_accept_focus_but_editable_panels_do() {
 fn csp_lets_the_skin_editor_decode_a_picked_photo() {
     // The editor reads a picked photo as a data: URL, so the CSP can stay without
     // blob:. jsdom does not enforce CSP, so only this check sees the source go missing.
-    let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
     let csp = config["app"]["security"]["csp"].as_str().unwrap();
     let img_src = csp
         .split(';')
@@ -1721,4 +1722,33 @@ fn the_macos_release_is_read_or_left_out() {
     ] {
         assert_eq!(crate::product_version_from_plist(rejected), None);
     }
+}
+
+/// The settings page reads `backupPath` and `salvaged` from a repair; only the struct's camelCase rename produces those names, and the page's own tests mock the reply, so nothing else would notice a rename dropping it.
+#[cfg(not(target_os = "ios"))]
+#[test]
+fn preferences_recovery_serializes_the_fields_the_settings_page_reads() {
+    use msime_client_core::preferences::PreferencesSnapshot;
+
+    let recovered = serde_json::to_value(super::PreferencesRecovery {
+        snapshot: PreferencesSnapshot::default(),
+        backup_path: Some("/synthetic/preferences.json.corrupt".into()),
+        salvaged: true,
+    })
+    .unwrap();
+    assert_eq!(
+        recovered["backupPath"],
+        "/synthetic/preferences.json.corrupt"
+    );
+    assert_eq!(recovered["salvaged"], true);
+    assert!(recovered["snapshot"]["preferences"].is_object());
+    assert!(recovered.get("backup_path").is_none());
+
+    let untouched = serde_json::to_value(super::PreferencesRecovery {
+        snapshot: PreferencesSnapshot::default(),
+        backup_path: None,
+        salvaged: false,
+    })
+    .unwrap();
+    assert!(untouched["backupPath"].is_null());
 }
