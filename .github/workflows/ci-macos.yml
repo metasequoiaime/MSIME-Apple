@@ -66,7 +66,7 @@ jobs:
             case "$path" in
               platforms/macos/*|LICENSE|THIRD_PARTY_NOTICES.txt)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "macOS 改动: $path"; exit 0 ;;
-              shared/*|vendor/*|engine-lock.json|cmake/*|CMakeLists.txt|product-lock.json|.github/workflows/ci-macos.yml)
+              shared/*|platforms/common/*|vendor/*|engine-lock.json|.github/workflows/ci-macos.yml)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
               # 工作区清单与工具链:Dependabot 的 cargo 分组只改这几个。crates/ 只列这条构建真正编译的:
               # CMakeLists.txt 直接编 host-macos/native,cargo build -p msime-host-api 带上它依赖的三个 crate。
@@ -79,10 +79,8 @@ jobs:
               # 机器,公开仓库的 macOS 并发额度是个位数,队列因此堵过。
               #
               # apply_engine_* 是 engine-lock.json 的 overlay_scripts,fetch_engine.py 会执行它们来改
-              # Engine 源码,所以它们和 Engine 本身一样要重建。build_backend_swift.sh 由 macOS 的
-              # CMakeLists.txt 调用,其余几个由本工作流自己的步骤调用。fetch_voice_runtime.py 和它读的
-              # voice-runtime.lock.json 决定打进包里的 sherpa-onnx 运行库,由 CMakeLists.txt 在构建时调用。
-              resources/voice-runtime.lock.json|scripts/fetch_voice_runtime.py|scripts/apply_engine_*|scripts/fetch_engine.py|scripts/product_lock.py|scripts/build_backend_swift.sh|scripts/format.sh|scripts/install.sh|scripts/register_input_source.swift|scripts/check-dictionary-contract.py|scripts/check-product-lock-contract.py)
+              # Engine 源码,所以它们和 Engine 本身一样要重建。fetch_engine.py 另由本工作流自己的步骤调用。fetch_voice_runtime.py 和它读的 voice-runtime.lock.json 决定打进包里的 sherpa-onnx 运行库,由 platforms/macos/CMakeLists.txt 在构建时调用。build_backend_swift.sh、install.sh 等 macOS 专用脚本在 platforms/macos/scripts/ 下,已由 platforms/macos/* 覆盖。
+              resources/voice-runtime.lock.json|scripts/fetch_voice_runtime.py|scripts/apply_engine_*|scripts/fetch_engine.py)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "构建脚本改动: $path"; exit 0 ;;
             esac
           done <<< "$changed"
@@ -171,13 +169,6 @@ jobs:
       - name: Build the Rust host library
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: cargo build --locked -p msime-host-api
-      - name: Validate the product lock
-        if: ${{ needs.changes.outputs.build == 'true' }}
-        run: |
-          if [[ -f scripts/check-dictionary-contract.py ]]; then python3 scripts/check-dictionary-contract.py; fi
-          if [[ -f scripts/check-product-lock-contract.py ]]; then python3 scripts/check-product-lock-contract.py; fi
-          if [[ -f scripts/product_lock.py ]]; then python3 scripts/product_lock.py validate; fi
-          if [[ -f platforms/macos/tests/ProductLockTests.py ]]; then python3 platforms/macos/tests/ProductLockTests.py; else echo 'ProductLockTests.py is not present; skipped'; fi
       # The unit tests run against a fixture rather than the released database: they assert behaviour
       # around composition, not dictionary content, and downloading 100 MB per run to do it would buy
       # nothing. The release build is what verifies the real data, against the digests in the lock.

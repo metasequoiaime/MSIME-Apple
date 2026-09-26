@@ -64,7 +64,9 @@ jobs:
               platforms/linux/*) linux=true ;;
               platforms/harmony/*) harmonyos=true ;;
               platforms/windows/*) windows=true ;;
-              shared/*|vendor/*|crates/*|packages/*|apps/*|engine-lock.json|product-lock.json|scripts/*|cmake/*|CMakeLists.txt|.github/workflows/ci-platforms.yml)
+              # Telemetry is compiled by the Linux and Windows hosts and DictionaryQuiesceLease.h by Linux and macOS; Android and HarmonyOS build neither, so this is not a shared path. ci-macos.yml covers the macOS side.
+              platforms/common/*) linux=true; windows=true ;;
+              shared/*|vendor/*|crates/*|packages/*|apps/*|engine-lock.json|scripts/*|.github/workflows/ci-platforms.yml)
                 shared=true ;;
               # The workspace manifests, the toolchain pin and the JS workspace: a Dependabot bump touches only these.
               Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.nvmrc)
