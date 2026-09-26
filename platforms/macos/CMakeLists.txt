@@ -819,9 +819,7 @@ add_executable(candidate-panel-test tests/candidate/CandidatePanelTests.mm src/c
 target_compile_options(candidate-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(candidate-panel-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit")
 add_test(NAME candidate-panel COMMAND candidate-panel-test)
-# One rule, three copies: the Windows, Linux and macOS gloss splitters compiled together and asked
-# the same questions, because a sense that stops being offered on one host looks like a dictionary
-# difference rather than a bug.
+# The shared gloss-sense rule (shared/input/GlossSenses.h) pinned case by case, and the Windows, Linux and macOS forwarders asked the same questions, because a sense that stops being offered on one host looks like a dictionary difference rather than a bug.
 add_executable(translation-senses-agreement-test tests/candidate/TranslationSensesAgreementTest.cpp)
 target_compile_options(translation-senses-agreement-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME translation-senses-agreement COMMAND translation-senses-agreement-test)
