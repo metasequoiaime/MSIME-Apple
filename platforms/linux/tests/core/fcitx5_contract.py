@@ -191,7 +191,9 @@ assert 'fcitx_system_dark_theme()' in source
 # The portal read is a blocking D-Bus round trip: it runs once per addon on a worker, never from each context's loop tick.
 assert source.count('fcitx_system_dark_theme()') == 1
 theme_step = source[source.index('uint64_t stepSystemTheme()'):source.index('void applySystemTheme(bool dark)')]
-assert 'system_theme_job_ = detachedJob([] {\n        const auto dark = fcitx_system_dark_theme();' in theme_step
+assert 'system_theme_job_ = detachedJob(' in theme_step
+assert theme_step.index('detachedJob(') < theme_step.index('fcitx_system_dark_theme()')
+assert '~FcitxEngine() override' in source and 'system_theme_job_.wait_for(' in source[source.index('~FcitxEngine() override'):]
 assert 'refreshSystemTheme' not in source
 assert 'system_theme_probe_due_' not in source
 assert 'setNextInterval(stepSystemTheme())' in source

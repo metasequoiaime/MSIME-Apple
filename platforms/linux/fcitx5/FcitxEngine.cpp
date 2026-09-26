@@ -5040,6 +5040,10 @@ public:
           return true;
         });
   }
+  // The theme worker runs addon code on a schedule rather than on user action, so it is the detached job most likely to be in flight when Fcitx5 unloads the addon. Waiting for it here (its portal call gives up after 1 s) keeps that code from running after the library is gone; the other detached jobs keep the risk their comment accepts.
+  ~FcitxEngine() override {
+    if (system_theme_job_.valid()) system_theme_job_.wait_for(std::chrono::seconds(2));
+  }
   // The desktop appearance (the portal's color-scheme) is probed once for the whole addon, not once per input context, and never on the loop: fcitx_system_dark_theme is a synchronous portal round trip that can block for its full 1 s D-Bus timeout. One worker is in flight at a time; the loop polls it every 250 ms and starts the next one 5 s after the last answer, so a theme switch reaches every context within about 5 s, as when each context probed on its own. Returns the microseconds until the next step.
   uint64_t stepSystemTheme() {
     constexpr uint64_t kPollUs = 250000;
