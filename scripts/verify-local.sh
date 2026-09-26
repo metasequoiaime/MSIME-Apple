@@ -162,6 +162,10 @@ python3 scripts/test-fetch-engine-matches.py || fail "borrowed engine tree"
 note "engine relock"
 python3 scripts/test-relock-engine.py || fail "engine relock"
 
+# fetch_engine.py applies only the overlays the lock lists; one dropped by a merge silently never reaches the Engine.
+note "engine overlay registry"
+python3 scripts/test-engine-overlay-registry.py || fail "engine overlay registry"
+
 # Same shape again, one target further out: `std::fs::File::lock` compiles for Android and then
 # fails at runtime, so only a keyboard running on a handset ever finds out.
 note "file locking helper"

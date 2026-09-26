@@ -92,7 +92,7 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 | 注入方式 | `engine-lock.json` 列出的 `scripts/apply_engine_jiajia_helpcode.py`，在准备 Engine 时写入 `vendor/MSIME-Engine/helpcode/helpcodes/` |
 | 许可状态 | **本仓库的 GPL-3.0 不覆盖这张表的内容** |
 
-按 NOTICE.md 的记录，本表的一部分条目直接来自拼音加加 5.x 安装包内的数据表 `fzm.bin`，而拼音加加是商业软件；来源仓库的 `engine/helpcode/NOTICE.md` 写明六张辅助码表没有任何一项拿到明确的再分发授权，并指出 `jiajia` 一行与其余五张性质不同（其余各表只是复现已发表的输入方案）。**在权利澄清之前不要假定这张表可以自由再分发**，打包发布前需确认它在目标渠道是否可接受。退出方式也记在 NOTICE.md 里：去掉 `engine-lock.json` 中的 `scripts/apply_engine_jiajia_helpcode.py` 即可让整套方案不进入产物，设置页随之少一个选项，Engine 自带的另外五套不受影响。
+按 NOTICE.md 的记录，本表的一部分条目直接来自拼音加加 5.x 安装包内的数据表 `fzm.bin`，而拼音加加是商业软件；来源仓库的 `engine/helpcode/NOTICE.md` 写明六张辅助码表没有任何一项拿到明确的再分发授权，并指出 `jiajia` 一行与其余五张性质不同（其余各表只是复现已发表的输入方案）。**在权利澄清之前不要假定这张表可以自由再分发**，打包发布前需确认它在目标渠道是否可接受。退出方式也记在 NOTICE.md 里：去掉 `engine-lock.json` 中的 `scripts/apply_engine_jiajia_helpcode.py` 即可让整套方案不进入产物，同时把它登记进 `scripts/test-engine-overlay-registry.py` 的 `RETIRED` 并写明原因（例如“该渠道未获再分发许可”），或者直接从 `scripts/` 删掉这个脚本，否则覆盖层登记检查（以及跑它的 `verify-local.sh`）会报红；设置页随之少一个选项，Engine 自带的另外五套不受影响。
 
 构成这张表所用的部件拆分与笔顺数据另有来源（rime-radical-pinyin，GPL-3.0，上游含 chaizi/CC-BY-3.0、CHISE/GPL-2+、yi-bai/ids/MIT；笔顺来自 cnchar，MIT），逐条同样见 NOTICE.md。Engine 自带的五套辅助码表随 `engine-lock.json` 锁定的归档一起来，来源说明在 `vendor/MSIME-Engine/helpcode/NOTICE.md`。
 
