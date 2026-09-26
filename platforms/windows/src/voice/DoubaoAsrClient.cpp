@@ -409,7 +409,23 @@ void DoubaoAsrClient::Run()
                 {
                     last_notified_text = response.text;
                     if (transcript_callback_)
-                        transcript_callback_(response.text);
+                    {
+                        // The callback crosses back into the Server/TSF
+                        // boundary. A provider update must never be allowed
+                        // to escape this receiver thread: an allocation or a
+                        // host callback failure otherwise invokes
+                        // std::terminate and takes down the input method.
+                        try
+                        {
+                            transcript_callback_(response.text);
+                        }
+                        catch (...)
+                        {
+                            std::lock_guard<std::mutex> lock(result_mutex_);
+                            if (error_.empty())
+                                error_ = "豆包语音识别结果处理失败。";
+                        }
+                    }
                 }
             }
             if (response.last || response.code != 0)
