@@ -118,13 +118,17 @@ struct Command {
   nlohmann::json message;
 };
 
-class Server {
+class Server : public std::enable_shared_from_this<Server> {
 public:
   explicit Server(std::chrono::seconds idle_exit) : idle_exit_(idle_exit) {}
 
   int run() {
     emit({{"type", "hello"}, {"version", 1}, {"available", msime::voice::sherpa_runtime_available()}, {"error", msime::voice::sherpa_runtime_error()}});
-    std::thread reader([this] { read_loop(); });
+    // The reader can remain blocked on stdin when the idle timer ends the
+    // worker loop. Keep the server alive until that detached reader observes
+    // EOF; otherwise it would dereference the stack object after run() returns.
+    const auto keep_alive = shared_from_this();
+    std::thread reader([keep_alive] { keep_alive->read_loop(); });
     work_loop();
     reader.detach();
     return 0;
@@ -317,5 +321,5 @@ int main(int argc, char **argv) {
       return 1;
     }
   }
-  return Server(idle_exit).run();
+  return std::make_shared<Server>(idle_exit)->run();
 }
