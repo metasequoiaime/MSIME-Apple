@@ -111,7 +111,14 @@ static bool argumentArrayBuffer(napi_env env, napi_value value, std::vector<uint
     if (napi_is_arraybuffer(env, value, &is_array_buffer) != napi_ok || !is_array_buffer) return false;
     void *data = nullptr;
     size_t length = 0;
-    if (napi_get_arraybuffer_info(env, value, &data, &length) != napi_ok || !data) return false;
+    if (napi_get_arraybuffer_info(env, value, &data, &length) != napi_ok) return false;
+    // N-API may expose a zero-length ArrayBuffer with a null data pointer. Empty PCM is a
+    // legitimate final audio frame, so only require storage when there are bytes to copy.
+    if (length == 0) {
+        out.clear();
+        return true;
+    }
+    if (!data) return false;
     out.assign(static_cast<const uint8_t *>(data), static_cast<const uint8_t *>(data) + length);
     return true;
 }
