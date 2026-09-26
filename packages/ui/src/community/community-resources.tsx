@@ -162,6 +162,17 @@ function ResourceEditor({
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const mounted = useRef(true);
+  const clientGeneration = useRef(0);
+  useEffect(() => {
+    const generation = ++clientGeneration.current;
+    mounted.current = true;
+    setBusy(false);
+    return () => {
+      mounted.current = false;
+      if (generation === clientGeneration.current) clientGeneration.current++;
+    };
+  }, [client]);
   const addEntry = () => {
     const value = { kind: entryKind, code: code.trim(), word, weight: Number(weight) };
     if (
@@ -203,6 +214,7 @@ function ResourceEditor({
     }
     setBusy(true);
     setError("");
+    const generation = clientGeneration.current;
     try {
       await client.publish(
         id,
@@ -212,10 +224,13 @@ function ResourceEditor({
         kind === "reply" ? { prompt } : { entries },
         existing?.revision ?? 0,
       );
+      if (!mounted.current || generation !== clientGeneration.current) return;
       await onPublished();
     } catch (publishError) {
-      setError(resourceMessage(publishError));
-      setBusy(false);
+      if (mounted.current && generation === clientGeneration.current) {
+        setError(resourceMessage(publishError));
+        setBusy(false);
+      }
     }
   };
   return (

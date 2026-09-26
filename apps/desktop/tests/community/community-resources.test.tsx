@@ -174,6 +174,35 @@ test("a resource action from a replaced client cannot overwrite the current deta
   expect(screen.getByRole("button", { name: "取消收藏" })).not.toBeNull();
 });
 
+test("a publish response from a replaced resource client cannot close the editor", async () => {
+  let finishPublish!: () => void;
+  const oldClient = client({
+    publish: vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishPublish = resolve;
+        }),
+    ),
+  });
+  const nextClient = client();
+  const view = render(<CommunityResourcesPage client={oldClient} kind="reply" />);
+  fireEvent.click(await screen.findByRole("button", { name: "发布作品" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "社区作品名称" }), {
+    target: { value: "新的语气" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "社区回复提示词" }), {
+    target: { value: "请保持简洁" },
+  });
+  fireEvent.click(screen.getByRole("checkbox", { name: "确认拥有发布内容权利" }));
+  fireEvent.click(screen.getByRole("button", { name: "公开发布" }));
+
+  view.rerender(<CommunityResourcesPage client={nextClient} kind="reply" />);
+  expect(screen.getByRole("dialog", { name: "发布回复" })).not.toBeNull();
+  finishPublish();
+  await Promise.resolve();
+  expect(screen.getByRole("dialog", { name: "发布回复" })).not.toBeNull();
+});
+
 test("mobile resource details join the WebView history stack and system back restores the list", async () => {
   window.history.replaceState({ msimeSettings: true, page: "community" }, "");
   const item = base("dictionary", "10000000-0000-4000-8000-000000000061");
