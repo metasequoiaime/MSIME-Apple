@@ -183,10 +183,21 @@ function responseContentType(headers: Object): string | undefined {
 }
 
 class HarmonyTransport implements AccountTransport {
+  private readonly activeRequests: Map<string, Set<http.HttpRequest>> =
+    new Map<string, Set<http.HttpRequest>>();
+
   async request(method: string, path: string, token?: string, body?: Object,
-    timeoutMs?: number): Promise<AccountTransportResponse> {
+    timeoutMs?: number, requestTag?: string): Promise<AccountTransportResponse> {
     if (!path.startsWith('/v1/') || path.includes('\\')) throw new Error('account_invalid');
     const request = http.createHttp();
+    if (requestTag !== undefined && requestTag.length > 0) {
+      let requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
+      if (requests === undefined) {
+        requests = new Set<http.HttpRequest>();
+        this.activeRequests.set(requestTag, requests);
+      }
+      requests.add(request);
+    }
     const headers: HttpHeaders = { Accept: 'application/json', 'Content-Type': 'application/json' };
     if (token !== undefined) headers.Authorization = `Bearer ${token}`;
     // Only the read side takes the caller's budget. Connecting is connecting on every endpoint, and
@@ -206,8 +217,20 @@ class HarmonyTransport implements AccountTransport {
         contentLength: responseContentLength(response.header)
       };
     } finally {
+      if (requestTag !== undefined && requestTag.length > 0) {
+        const requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
+        requests?.delete(request);
+        if (requests !== undefined && requests.size === 0) this.activeRequests.delete(requestTag);
+      }
       request.destroy();
     }
+  }
+
+  cancelRequests(requestTag: string): void {
+    const requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
+    if (requests === undefined) return;
+    for (const request of requests) request.destroy();
+    this.activeRequests.delete(requestTag);
   }
 
   async download(path: string, token: string, destination: string, maximumBytes: number,

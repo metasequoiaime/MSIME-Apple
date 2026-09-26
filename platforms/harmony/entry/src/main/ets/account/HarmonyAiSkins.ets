@@ -83,7 +83,7 @@ export class HarmonyAiSkins {
       return HarmonyAiSkins.failure('ai_skin_invalid');
     }
     if (this.runs.has(requestId)) return HarmonyAiSkins.failure('ai_skin_busy');
-    const run = new AiSkinRun(this.runner());
+    const run = new AiSkinRun(this.runner(requestId));
     this.runs.set(requestId, run);
     try {
       const proposals: AiSkinProposal[] = await run.generate(prompt, progress);
@@ -108,6 +108,7 @@ export class HarmonyAiSkins {
       return HarmonyAiSkins.failure('ai_skin_invalid');
     }
     this.runs.get(requestId)?.cancel();
+    this.bridge.cancelAiSkinRequests(requestId);
     return JSON.stringify({ ok: true, value: {} as EmptyValue } as SuccessReply);
   }
 
@@ -130,12 +131,12 @@ export class HarmonyAiSkins {
     }
   }
 
-  private runner(): AiSkinRunner {
+  private runner(requestTag: string): AiSkinRunner {
     const bridge = this.bridge;
     const owner = this;
     return {
       defaultModel: async (): Promise<string> => {
-        const reply = await bridge.aiSkinRequest('GET', '/v1/models');
+        const reply = await bridge.aiSkinRequest('GET', '/v1/models', undefined, undefined, requestTag);
         if (reply.error !== undefined || reply.value === undefined) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
@@ -156,7 +157,7 @@ export class HarmonyAiSkins {
           throw new AiSkinFailure('ai_skin_invalid');
         }
         const reply = await bridge.aiSkinRequest('POST', request.path,
-          request.body as Record<string, Object>, CHAT_TIMEOUT_MS);
+          request.body as Record<string, Object>, CHAT_TIMEOUT_MS, requestTag);
         if (reply.error !== undefined || reply.value === undefined) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
@@ -180,21 +181,21 @@ export class HarmonyAiSkins {
       },
       createJob: async (artworkPrompt: string): Promise<ArtworkJob> => {
         const reply = await bridge.aiSkinRequest('POST', '/v1/skins/jobs',
-          { prompt: artworkPrompt });
+          { prompt: artworkPrompt }, undefined, requestTag);
         if (reply.error !== undefined || reply.value === undefined) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
         return reply.value as ArtworkJob;
       },
       readJob: async (id: string): Promise<ArtworkJob> => {
-        const reply = await bridge.aiSkinRequest('GET', `/v1/skins/jobs/${id}`);
+        const reply = await bridge.aiSkinRequest('GET', `/v1/skins/jobs/${id}`, undefined, undefined, requestTag);
         if (reply.error !== undefined || reply.value === undefined) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
         return reply.value as ArtworkJob;
       },
       deleteJob: async (id: string): Promise<void> => {
-        await bridge.aiSkinRequest('DELETE', `/v1/skins/jobs/${id}`);
+        await bridge.aiSkinRequest('DELETE', `/v1/skins/jobs/${id}`, undefined, undefined, requestTag);
       },
       validateArtwork: (artwork: Object): boolean =>
         owner.plan({ operation: 'artwork', artwork: artwork } as PlanRequest) !== null,
