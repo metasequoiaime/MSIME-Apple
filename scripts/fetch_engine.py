@@ -24,10 +24,13 @@ separately as ``dependencies``. Anyone re-pinning this again should reproduce th
 than trust a digest that is merely stable across two downloads — stability only says the server is
 consistent, not that it is serving what the commit says.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 import runpy
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -72,6 +75,25 @@ def prepared_at_lock(lock: dict, dest: Path = DEST) -> bool:
     if any(path.name == ".gitmodules" for path in dest.rglob("*")):
         return False
     return all((dest / dependency["path"]).is_dir() for dependency in lock["dependencies"])
+
+
+def borrowable(lock: dict, root: Path = ROOT) -> Path | None:
+    """The first prepared vendor/ this checkout may mount: its own, then the main worktree's.
+
+    A fresh worktree has no vendor/ of its own, because the directory is ignored and lives in whichever checkout last fetched it. The container gates mount that tree rather than fetching another 322 MB copy per worktree, and only when it was prepared for this checkout's exact lock (see ``--matches``).
+    """
+    candidates = [root / "vendor"]
+    common = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+    )
+    if common.returncode == 0 and common.stdout.strip():
+        candidates.append(Path(common.stdout.strip()).parent / "vendor")
+    for candidate in candidates:
+        if prepared_at_lock(lock, candidate / DEST.name):
+            return candidate.resolve()
+    return None
 
 
 def download_and_extract(artifact: dict, directory: Path) -> Path:
@@ -134,6 +156,12 @@ def main() -> int:
     if len(sys.argv) == 3 and sys.argv[1] == "--matches":
         # The container gates borrow another checkout's vendor/ so a worktree need not fetch its own. That tree can be at the same Engine commit and still be stale, because the marker also covers the overlay scripts: on 2026-09-23 the main checkout's tree predated an overlay, and every worktree gate failed in bridge.cpp on a missing Engine symbol. Only a tree prepared for this checkout's exact lock may be mounted.
         return 0 if prepared_at_lock(lock, Path(sys.argv[2]) / DEST.name) else 1
+    if len(sys.argv) == 2 and sys.argv[1] == "--borrowable":
+        # Prints the tree to mount, or nothing when neither checkout holds a matching one; the caller decides whether to fetch.
+        vendor = borrowable(lock)
+        if vendor is not None:
+            print(vendor)
+        return 0
     if prepared_at_lock(lock):
         print(f"Engine already prepared at {lock['commit']}")
         return 0

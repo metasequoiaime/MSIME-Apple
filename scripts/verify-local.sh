@@ -561,11 +561,7 @@ elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   # The Engine archive is fetched into vendor/, which a fresh worktree does not
   # have; mount whichever tree already holds it rather than downloading it again
   # inside the container. Without one the container fetches it itself.
-  main_worktree="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")"
-  linux_vendor=""
-  for candidate in "$root/vendor" "$main_worktree/vendor"; do
-    [ -d "$candidate/MSIME-Engine" ] && python3 scripts/fetch_engine.py --matches "$candidate" && linux_vendor="$candidate" && break
-  done
+  linux_vendor="$(python3 scripts/fetch_engine.py --borrowable)"
   mkdir -p "$root/target/linux-desktop-check"
   linux_desktop_image="msime-linux-desktop-check:$(printf %s "$root" | shasum | cut -c1-12)"
   # The build log is kept rather than discarded, so an apt failure shows apt's own message instead of only an exit code; once the image is cached the build is a few lines of CACHED.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""`fetch_engine.py --matches <vendor>` accepts only a tree prepared for this checkout's exact lock.
+"""`fetch_engine.py --matches <vendor>` accepts only a tree prepared for this checkout's exact lock, and `--borrowable` finds such a tree in this checkout or the main one.
 
 The Linux container gates borrow the main checkout's vendor/ so a worktree need not fetch 322 MB of its own. They used to accept any directory that existed. On 2026-09-23 the main checkout's tree was at the locked Engine commit but predated an overlay script, and every worktree gate failed in bridge.cpp on a missing Engine symbol that looked exactly like a code break. The marker records the overlay scripts by content, so comparing it is what tells the two trees apart.
 """
@@ -29,6 +29,34 @@ def prepare(vendor: pathlib.Path, marker: str, lock: dict) -> pathlib.Path:
         (engine / dependency["path"]).mkdir(parents=True, exist_ok=True)
     (engine / ".msime-engine-lock").write_text(marker, encoding="utf-8")
     return engine
+
+
+def git(*args: str) -> None:
+    subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+
+def check_borrowable(base: pathlib.Path, current: str, lock: dict, failures: list) -> None:
+    """`--borrowable` prefers this checkout's own tree, falls back to the main worktree's, and returns nothing when neither matches."""
+    main_checkout = base / "main-checkout"
+    worktree = base / "worktree"
+    git("init", "-q", str(main_checkout))
+    git("-C", str(main_checkout), "commit", "-q", "--allow-empty", "-m", "init")
+    git("-C", str(main_checkout), "worktree", "add", "-q", "--detach", str(worktree))
+
+    if fetch_engine.borrowable(lock, worktree) is not None:
+        failures.append("--borrowable returned a tree when neither checkout has one")
+
+    main_engine = prepare(main_checkout / "vendor", current.replace(lock["commit"], "0" * 40, 1), lock)
+    if fetch_engine.borrowable(lock, worktree) is not None:
+        failures.append("--borrowable returned the main checkout's tree prepared for another lock")
+
+    (main_engine / ".msime-engine-lock").write_text(current, encoding="utf-8")
+    if fetch_engine.borrowable(lock, worktree) != (main_checkout / "vendor").resolve():
+        failures.append("--borrowable did not fall back to the main checkout's matching tree")
+
+    prepare(worktree / "vendor", current, lock)
+    if fetch_engine.borrowable(lock, worktree) != (worktree / "vendor").resolve():
+        failures.append("--borrowable did not prefer this checkout's own matching tree")
 
 
 def main() -> int:
@@ -68,11 +96,13 @@ def main() -> int:
         if matches(base / "absent"):
             failures.append("a directory without MSIME-Engine was accepted")
 
+        check_borrowable(base, current, lock, failures)
+
     for failure in failures:
         print(f"FAIL: {failure}")
     if failures:
         return 1
-    print("fetch_engine --matches accepts only this checkout's lock")
+    print("fetch_engine --matches and --borrowable accept only this checkout's lock")
     return 0
 
 
