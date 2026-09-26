@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   SettingsPage,
@@ -965,24 +965,36 @@ function HarmonySettings({
   const [cloudClipboardOpen, setCloudClipboardOpen] = useState(false);
   const [cloudDictionaryOpen, setCloudDictionaryOpen] = useState(false);
   const [cloudDictionaryPage, setCloudDictionaryPage] = useState<CloudDictionaryPage>("main");
-  const client = makeClient(
-    native,
-    () => setCloudClipboardOpen(true),
-    () => {
-      setCloudDictionaryPage("main");
-      setCloudDictionaryOpen(true);
-    },
+  // Each client is built once per bridge. SettingsPage and the cloud panels key their load and subscription effects on the client, so a fresh one on every render (opening a cloud panel re-renders this component) reloaded the page and threw away the unsaved draft. The callbacks only close over state setters, which React keeps stable.
+  const client = useMemo(
+    () =>
+      makeClient(
+        native,
+        () => setCloudClipboardOpen(true),
+        () => {
+          setCloudDictionaryPage("main");
+          setCloudDictionaryOpen(true);
+        },
+      ),
+    [native],
   );
-  const dictionaryClient = cloudDictionaryClient(
-    native,
-    () => setCloudDictionaryOpen(false),
-    setCloudDictionaryPage,
+  const cloudClipboard = useMemo(
+    () => cloudClipboardClient(native, () => setCloudClipboardOpen(false)),
+    [native],
   );
-  const filesClient: CloudDictionaryPanelClient = {
-    ...dictionaryClient,
-    snapshot: true,
-    snapshotNative: true,
-  };
+  const dictionaryClient = useMemo(
+    () =>
+      cloudDictionaryClient(native, () => setCloudDictionaryOpen(false), setCloudDictionaryPage),
+    [native],
+  );
+  const filesClient = useMemo<CloudDictionaryPanelClient>(
+    () => ({
+      ...dictionaryClient,
+      snapshot: true,
+      snapshotNative: true,
+    }),
+    [dictionaryClient],
+  );
   if (bootstrapRequired) {
     return (
       <WelcomeFlowPage
@@ -1023,11 +1035,7 @@ function HarmonySettings({
   return (
     <>
       <SettingsPage client={client} onReplayOnboarding={() => setBootstrapRequired(true)} />
-      {cloudClipboardOpen && (
-        <CloudClipboardPanel
-          client={cloudClipboardClient(native, () => setCloudClipboardOpen(false))}
-        />
-      )}
+      {cloudClipboardOpen && <CloudClipboardPanel client={cloudClipboard} />}
       {cloudDictionaryOpen && cloudDictionaryPage === "main" && (
         <CloudDictionaryPanel client={dictionaryClient} />
       )}
