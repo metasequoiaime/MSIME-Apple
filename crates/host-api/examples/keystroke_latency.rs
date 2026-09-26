@@ -13,6 +13,9 @@ use serde_json::{json, Value};
 use std::ffi::{c_char, CString};
 use std::time::Instant;
 
+/// Committing candidate selections timed per statistics setting, enough for a stable p95.
+const SELECTIONS: usize = 200;
+
 fn read(pointer: *mut c_char) -> Value {
     // SAFETY: each fresh owned host response is consumed exactly once.
     let response = unsafe { CString::from_raw(pointer) };
@@ -47,7 +50,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         read(unsafe { msime_client_prepare_host(request.as_ptr(), request.len()) });
     options["preferences"]["scheme"] = json!(scheme);
     options["preferences"]["candidate_page_size"] = json!(9);
-    let options = options.to_string();
+    let options_value = options;
+    let options = options_value.to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     let handle = created["session"].as_u64().unwrap();
     read(msime_client_focus(handle, true));
@@ -113,10 +117,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Picking a candidate by position - a click, or a tap on a touch keyboard - is the one keystroke that also feeds typing statistics, so it is timed on its own, with statistics on and then off. Each run ends in a focus-out, and that call is timed too because it is where a host's session hands over whatever it has not written yet.
+    let user_data = options_value["user_data"].as_str().unwrap().to_owned();
+    let statistics = |action: Value| {
+        let request = json!({"directory": user_data, "action": action}).to_string();
+        read(unsafe { msime_client_typing_statistics(request.as_ptr(), request.len()) })
+    };
+    let mut selections = Vec::new();
+    for enabled in [true, false] {
+        statistics(json!({"operation": "set_enabled", "enabled": enabled}));
+        read(msime_client_focus(handle, true));
+        let mut select = Vec::new();
+        for round in 0..SELECTIONS {
+            read(msime_client_command(handle, 3));
+            let mut current = Value::Null;
+            for byte in words[round % words.len()].bytes() {
+                current = read(msime_client_character(handle, byte, false))["view"].clone();
+            }
+            // Only a selection that commits is counted, so a candidate that covers part of the word is followed by the first candidate for the rest until something commits, and only that last call is kept.
+            let mut index = round % current["candidates"].as_array().unwrap().len().min(9);
+            loop {
+                let generation = current["generation"].as_u64().unwrap();
+                let started = Instant::now();
+                let result = read(msime_client_select(handle, generation, index));
+                let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+                if !result["commit"].is_null() {
+                    select.push(elapsed);
+                    break;
+                }
+                current = result["view"].clone();
+                index = 0;
+            }
+        }
+        let started = Instant::now();
+        read(msime_client_focus(handle, false));
+        let blur = started.elapsed().as_secs_f64() * 1000.0;
+        selections.push((enabled, select, blur));
+    }
+    let recorded = statistics(json!({"operation": "load"}))["selections"].clone();
+
     println!("scheme={scheme}");
     report("character", character);
     report("view", view);
     report("commit", commit);
+    for (enabled, samples, blur) in selections {
+        let state = if enabled { "on" } else { "off" };
+        report(&format!("select, stats {state}"), samples);
+        println!("{:<22} {blur:6.2}ms", format!("focus-out, stats {state}"));
+    }
+    let counted: u64 = recorded["ranks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|count| count.as_u64().unwrap())
+        .sum::<u64>()
+        + recorded["beyond"].as_u64().unwrap();
+    println!("selections counted after focus-out: {counted} of {SELECTIONS}");
     println!("\nby position in the composition (character + view):");
     for (index, samples) in by_position.iter().enumerate() {
         if samples.is_empty() {
