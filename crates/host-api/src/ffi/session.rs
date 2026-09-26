@@ -85,6 +85,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     nine_key_override: None,
                     ai_credential: None,
                     voice: VoiceSessionState::default(),
+                    pending_selections: Default::default(),
                     _dictionary_access: dictionary_access,
                 },
             )
@@ -97,6 +98,10 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
 pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
+            // Focus-out is where a host's field ends, so selections counted in it are written here rather than waiting for a batch to fill.
+            if !focused {
+                session.flush_selections();
+            }
             let result = session.runtime.focus(focused).map_err(|e| e.to_string())?;
             let result = session.complete_transition(result);
             serde_json::to_value(result).map_err(|e| e.to_string())

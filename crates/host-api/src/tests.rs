@@ -2028,6 +2028,102 @@ fn typing_statistics_boundary_persists_only_aggregate_counts() {
         false
     );
 }
+/// A session over the two-candidate `nihao` fixture, focused, with typing statistics switched as asked, and the store it writes to.
+fn selection_statistics_host(
+    root: &std::path::Path,
+    enabled: bool,
+) -> (u64, TypingStatisticsStore) {
+    let store = TypingStatisticsStore::new(root.join("user"));
+    store.set_enabled(enabled).unwrap();
+    let handle = test_host_with_pinyin_fixture(root, chinese_preferences());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    (handle, store)
+}
+/// Type `nihao` and commit the candidate at `index` by position, as a click or a tap does.
+fn commit_candidate_by_position(handle: u64, index: usize) {
+    let mut view = Value::Null;
+    for byte in b"nihao" {
+        view = read(msime_client_character(handle, *byte, false))["value"]["view"].clone();
+    }
+    let generation = view["generation"].as_u64().unwrap();
+    let selected = read(msime_client_select(handle, generation, index));
+    assert!(selected["value"]["commit"].is_string(), "{selected}");
+}
+#[test]
+fn selection_statistics_reach_the_store_at_focus_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    for index in [0, 1, 1] {
+        commit_candidate_by_position(handle, index);
+    }
+    // Held in the session until the field ends, which is the point: no document cycle per selection.
+    assert_eq!(store.load().unwrap().selections.total(), 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let selections = store.load().unwrap().selections;
+    assert_eq!(selections.ranks[0], 1);
+    assert_eq!(selections.ranks[1], 2);
+    assert_eq!(selections.total(), 3);
+    // A second focus-out has nothing left to write and must not count anything twice.
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(store.load().unwrap().selections.total(), 3);
+    read(msime_client_destroy(handle));
+    assert_eq!(store.load().unwrap().selections.total(), 3);
+}
+#[test]
+fn selection_statistics_reach_the_store_when_the_session_is_destroyed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    commit_candidate_by_position(handle, 1);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(store.load().unwrap().selections.total(), 0);
+    // No focus-out first: a host tearing the session down directly still keeps what it counted.
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    let selections = store.load().unwrap().selections;
+    assert_eq!(selections.ranks[0], 1);
+    assert_eq!(selections.ranks[1], 1);
+    assert_eq!(selections.total(), 2);
+}
+#[test]
+fn selection_statistics_are_written_once_a_batch_fills() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    let batch = SELECTION_BATCH as usize;
+    for round in 0..batch - 1 {
+        commit_candidate_by_position(handle, round % 2);
+    }
+    assert_eq!(store.load().unwrap().selections.total(), 0);
+    // The selection that fills the batch writes it, with no focus-out, which bounds what a killed process loses.
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(store.load().unwrap().selections.total(), SELECTION_BATCH);
+    commit_candidate_by_position(handle, 1);
+    assert_eq!(store.load().unwrap().selections.total(), SELECTION_BATCH);
+    read(msime_client_focus(handle, false));
+    let selections = store.load().unwrap().selections;
+    assert_eq!(selections.total(), SELECTION_BATCH + 1);
+    assert_eq!(selections.ranks[0], SELECTION_BATCH / 2 + 1);
+    assert_eq!(selections.ranks[1], SELECTION_BATCH / 2);
+    read(msime_client_destroy(handle));
+}
+#[test]
+fn selection_statistics_write_nothing_while_switched_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), false);
+    let path = store.directory().join("typing-statistics.json");
+    let before = std::fs::read(&path).unwrap();
+    let written = std::fs::metadata(&path).unwrap().modified().unwrap();
+    for round in 0..SELECTION_BATCH as usize + 3 {
+        commit_candidate_by_position(handle, round % 2);
+    }
+    read(msime_client_focus(handle, false));
+    read(msime_client_destroy(handle));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().modified().unwrap(),
+        written
+    );
+    assert_eq!(store.load().unwrap().selections.total(), 0);
+}
 #[test]
 fn clipboard_reader_respects_preferences_and_preserves_history() {
     let directory = tempfile::tempdir().unwrap();
