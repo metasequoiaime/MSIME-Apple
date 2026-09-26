@@ -410,17 +410,21 @@ class IOSProjectConfigTests(unittest.TestCase):
     def test_ios_community_services_use_shared_backend_and_tauri_ui(self):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
+        community = (TAURI_ROOT / "src/platform/mobile/mobile_community.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
         mobile_services = (TAURI_ROOT.parent / "src/core/mobile-host-services.ts").read_text()
 
+        self.assertIn("use platform::mobile::mobile_community;", rust_entry)
         for symbol in [
-            "ios_account::community_skin_list",
-            "ios_account::community_skin_download",
-            "ios_account::ai_skin_generate",
-            "ios_account::community_resource_list",
-            "ios_account::community_resource_apply",
+            "mobile_community::community_skin_list",
+            "mobile_community::community_skin_download",
+            "mobile_community::ai_skin_generate",
+            "mobile_community::community_resource_list",
+            "mobile_community::community_resource_apply",
         ]:
             self.assertIn(symbol, rust_entry)
+        self.assertIn("MobileCommunityState::new(client, &session)", account)
+        self.assertIn("app.manage(community);", account)
         for symbol in [
             "BackendCommunitySkinService",
             "BackendCommunityResourceService",
@@ -430,7 +434,7 @@ class IOSProjectConfigTests(unittest.TestCase):
             "pub async fn community_resource_list",
             "CommunityResourceLibraryStore",
         ]:
-            self.assertIn(symbol, account)
+            self.assertIn(symbol, community)
         self.assertIn("createMobileHostServices", desktop_entry)
         self.assertIn("communitySkins:", mobile_services)
         self.assertIn("communityResources:", mobile_services)

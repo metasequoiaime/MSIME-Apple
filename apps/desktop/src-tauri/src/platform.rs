@@ -1,8 +1,6 @@
-//! Host integrations that exist on one target only.
+//! Host integrations that exist on some targets only.
 //!
-//! Each child mirrors a directory under `src/platform/` and is gated on the
-//! target it speaks to, so the crate root can name a module without repeating
-//! the platform condition at every use site.
+//! Each child mirrors a directory under `src/platform/` and is gated on the targets it speaks to (one OS, or a family such as `desktop` and `mobile`), so the crate root can name a module without repeating the platform condition at every use site.
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
@@ -14,5 +12,7 @@ pub(crate) mod ios;
 pub(crate) mod linux;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod macos;
+#[cfg(any(target_os = "ios", target_os = "android"))]
+pub(crate) mod mobile;
 #[cfg(windows)]
 pub(crate) mod windows;
