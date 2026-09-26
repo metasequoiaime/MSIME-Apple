@@ -188,8 +188,13 @@ assert 'preferences_.value("default_ime_mode", "chinese")' in source
 assert 'voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_)' in source
 assert 'voice_options_.value("asr_provider", std::string{"doubao"})' in source
 assert 'fcitx_system_dark_theme()' in source
-assert 'refreshSystemTheme()' in source
-assert 'system_theme_probe_due_' in source
+# The portal read is a blocking D-Bus round trip: it runs once per addon on a worker, never from each context's loop tick.
+assert source.count('fcitx_system_dark_theme()') == 1
+theme_step = source[source.index('uint64_t stepSystemTheme()'):source.index('void applySystemTheme(bool dark)')]
+assert 'system_theme_job_ = detachedJob([] {\n        const auto dark = fcitx_system_dark_theme();' in theme_step
+assert 'refreshSystemTheme' not in source
+assert 'system_theme_probe_due_' not in source
+assert 'setNextInterval(stepSystemTheme())' in source
 assert 'pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)' in (root / "fcitx5/CMakeLists.txt").read_text()
 assert 'fcitx_system_dark_theme' in (root / "fcitx5/SystemTheme.cpp").read_text()
 
