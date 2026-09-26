@@ -31,9 +31,10 @@ constexpr auto beyond_debounce = std::chrono::milliseconds(850);
 // A query the worker can derive a cache key from: the key is built from the
 // provider identity and the pinyin segments, and nothing else in the envelope
 // matters to this side.
-std::string query_for(const std::string &segments) {
+std::string query_for(const std::string &segments, int candidate_limit = 3) {
   return R"({"ai_eligible":true,"ai_assistant":{"enabled":true,"provider":"openai",)"
-         R"("endpoint":"https://example.invalid/v1","model":"gpt"},"pinyin_segments":[")" +
+         R"("endpoint":"https://example.invalid/v1","model":"gpt","candidate_limit":)" +
+         std::to_string(candidate_limit) + R"(},"pinyin_segments":[")" +
          segments + R"("]})";
 }
 
@@ -186,6 +187,23 @@ int main() {
       require(harness.fetches() == 2, "the retry was not suppressed by a cache");
       require(harness.results[0].candidates == std::vector<std::string>{"你好"},
               "and the answer that arrived is delivered");
+    }
+
+    // The candidate limit is part of the provider request. A cached answer
+    // for one limit must not suppress a later request for a different number
+    // of rows.
+    {
+      Harness harness;
+      require(harness.worker.submit(lease(42, 7, 9), query_for("nihao", 1)),
+              "the one-candidate request is accepted");
+      require(harness.wait_for_results(1), "the limited request completes");
+      std::this_thread::sleep_for(beyond_debounce);
+      require(harness.worker.submit(lease(42, 7, 10), query_for("nihao", 2)),
+              "the larger-candidate request is accepted");
+      require(harness.wait_for_results(2), "the larger request completes");
+      std::this_thread::sleep_for(beyond_debounce);
+      require(harness.fetches() == 2,
+              "a changed candidate limit bypasses the old cache entry");
     }
 
     // A request superseded while it is in flight sees the cancellation, and its
