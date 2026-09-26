@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Guard Harmony feedback writes against leaking handles on write errors."""
+
+from pathlib import Path
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets").read_text()
+    required = {
+        "static feedback write closes in finally":
+            "KeyboardSession.feedbackFileIn(stateRoot)" in source
+            and source.count("fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));") >= 2
+            and source.count("} finally {\n        fs.closeSync(handle);") >= 2,
+        "instance feedback write closes in finally":
+            "fs.closeSync(handle);\n      }\n      this.feedbackSettings = settings;" in source,
+    }
+    problems = [name for name, present in required.items() if not present]
+    if problems:
+        for problem in problems:
+            print(f"missing Harmony feedback lifecycle guard: {problem}")
+        return 1
+    print("harmony feedback lifecycle: write failures still close file handles")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
