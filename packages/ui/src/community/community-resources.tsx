@@ -167,6 +167,7 @@ function ResourceEditor({
   useEffect(() => {
     const generation = ++clientGeneration.current;
     mounted.current = true;
+    setBusy(false);
     return () => {
       mounted.current = false;
       if (generation === clientGeneration.current) clientGeneration.current++;
