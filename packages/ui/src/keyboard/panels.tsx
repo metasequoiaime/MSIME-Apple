@@ -3496,6 +3496,23 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
   const requestRevision = useRef(0);
   const busyRef = useRef(false);
 
+  useEffect(() => {
+    requestRevision.current++;
+    busyRef.current = false;
+    setBusy(false);
+    setEntries([]);
+    setForm(null);
+    setConfirmed(null);
+    setHasMore(false);
+    setOffset(0);
+    setRevision(0);
+    setNormalized("");
+    return () => {
+      requestRevision.current++;
+      busyRef.current = false;
+    };
+  }, [client]);
+
   async function run(action: (requestRevision: number) => Promise<void>, failure: string) {
     if (busyRef.current) return;
     const current = ++requestRevision.current;
@@ -3910,6 +3927,21 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   const textRef = useRef("");
   const requestRevision = useRef(0);
   const busyRef = useRef(false);
+
+  useEffect(() => {
+    requestRevision.current++;
+    busyRef.current = false;
+    setBusy(false);
+    setCandidates([]);
+    setPositions([]);
+    setQuery(null);
+    setContext("");
+    setRevision(0);
+    return () => {
+      requestRevision.current++;
+      busyRef.current = false;
+    };
+  }, [client]);
 
   async function run(action: (requestRevision: number) => Promise<void>, failure: string) {
     if (busyRef.current) return;

@@ -54,6 +54,74 @@ test("candidate lookup failure removes old candidates and fixed positions", asyn
   expect(screen.queryByRole("button", { name: "取消固定" })).toBeNull();
 });
 
+test("catalog ignores a response from a replaced client", async () => {
+  let resolveOld: ((value: object) => void) | undefined;
+  const oldRequest = vi.fn().mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+  );
+  const nextRequest = vi.fn().mockResolvedValue({
+    catalog_entries: [],
+    offset: 0,
+    has_more: false,
+    revision: 2,
+    normalized: "he",
+  });
+  const panel = render(
+    <CloudDictionaryCatalogPanel client={{ close: async () => {}, request: oldRequest }} />,
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "完整目录编码" }), {
+    target: { value: "he" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "查询完整目录" }));
+  await waitFor(() => expect(oldRequest).toHaveBeenCalled());
+  panel.rerender(
+    <CloudDictionaryCatalogPanel client={{ close: async () => {}, request: nextRequest }} />,
+  );
+  await act(async () => {
+    resolveOld?.({
+      catalog_entries: [{ kind: "pinyin", code: "he", word: "旧客户端", weight: 1 }],
+      offset: 0,
+      has_more: false,
+      revision: 1,
+      normalized: "he",
+    });
+    await Promise.resolve();
+  });
+  expect(screen.queryByText("旧客户端")).toBeNull();
+});
+
+test("candidate lookup ignores a response from a replaced client", async () => {
+  let resolveOld: ((value: object) => void) | undefined;
+  const oldRequest = vi.fn().mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+  );
+  const nextRequest = vi.fn().mockResolvedValue({ candidates: [], context: "", revision: 2 });
+  const panel = render(
+    <CloudCandidatesPanel client={{ close: async () => {}, request: oldRequest }} />,
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "云端候选编码" }), {
+    target: { value: "he" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
+  await waitFor(() => expect(oldRequest).toHaveBeenCalled());
+  panel.rerender(<CloudCandidatesPanel client={{ close: async () => {}, request: nextRequest }} />);
+  await act(async () => {
+    resolveOld?.({
+      candidates: [{ code: "he", word: "旧客户端", weight: 1 }],
+      context: "pinyin:he",
+      revision: 1,
+    });
+    await Promise.resolve();
+  });
+  expect(screen.queryByText("旧客户端")).toBeNull();
+});
+
 test("desktop dictionary subpages reuse the session client and return without closing its window", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const request = vi.fn().mockResolvedValue({ entries: [], has_more: false, offset: 0 });
