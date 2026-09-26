@@ -57,7 +57,6 @@ import {
   TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, TranslationCandidate
 } from './candidate/TranslationPolicy';
 import { TranslationSensePolicy } from './candidate/TranslationSensePolicy';
-import fs from '@ohos.file.fs';
 import pasteboard from '@ohos.pasteboard';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
