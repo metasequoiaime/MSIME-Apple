@@ -2803,13 +2803,28 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   const requestRevision = useRef(0);
   const busyRef = useRef(false);
   const mounted = useRef(true);
+  const lifecycleRevision = useRef(0);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const current = ++lifecycleRevision.current;
+    requestRevision.current++;
+    busyRef.current = false;
+    setBusy(false);
+    setSnapshotBusy(false);
+    setRestorePreview(null);
+    return () => {
+      if (current === lifecycleRevision.current) lifecycleRevision.current++;
+      requestRevision.current++;
+      busyRef.current = false;
+      if (client.snapshotNative) void client.request({ operation: "snapshot_restore_cancel" });
+    };
+  }, [client]);
+
+  useEffect(() => {
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function run(action: (revision: number) => Promise<void>, failure: string) {
     if (busyRef.current) return;
@@ -2917,10 +2932,11 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
 
   async function exportSnapshot() {
     if (!mounted.current) return;
+    const lifecycle = lifecycleRevision.current;
     setSnapshotBusy(true);
     try {
       const result = await client.request({ operation: "snapshot_export" });
-      if (!mounted.current) return;
+      if (!mounted.current || lifecycle !== lifecycleRevision.current) return;
       if (client.snapshotNative && typeof result.saved === "boolean") {
         setNotice(result.saved ? "完整云词库快照已导出" : "已取消导出");
         return;
@@ -2942,14 +2958,16 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
     } catch {
-      if (mounted.current) setNotice("导出完整云词库快照失败");
+      if (mounted.current && lifecycle === lifecycleRevision.current)
+        setNotice("导出完整云词库快照失败");
     } finally {
-      if (mounted.current) setSnapshotBusy(false);
+      if (mounted.current && lifecycle === lifecycleRevision.current) setSnapshotBusy(false);
     }
   }
 
   async function chooseRestoreSnapshot(selected: File) {
     if (!mounted.current) return;
+    const lifecycle = lifecycleRevision.current;
     if (selected.size === 0 || selected.size > 512 * 1024 * 1024) {
       setNotice("快照文件必须大于 0 且不超过 512 MiB");
       return;
@@ -2958,7 +2976,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     try {
       const text = client.snapshotNative ? "" : await selected.text();
       const result = await client.request({ operation: "snapshot_restore_preview", text });
-      if (!mounted.current) return;
+      if (!mounted.current || lifecycle !== lifecycleRevision.current) return;
       if (!result.snapshot || typeof result.expectedRevision !== "number")
         throw new Error("invalid snapshot preview");
       if (client.snapshotNative && typeof result.previewToken !== "string")
@@ -2971,19 +2989,21 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       });
       setNotice("快照已校验，请确认后替换云端词库");
     } catch {
-      if (mounted.current) setNotice("无法校验快照，云端词库未改变");
+      if (mounted.current && lifecycle === lifecycleRevision.current)
+        setNotice("无法校验快照，云端词库未改变");
     } finally {
-      if (mounted.current) setSnapshotBusy(false);
+      if (mounted.current && lifecycle === lifecycleRevision.current) setSnapshotBusy(false);
     }
   }
 
   async function chooseNativeRestoreSnapshot() {
     if (!client.chooseSnapshotRestore || !mounted.current) return;
+    const lifecycle = lifecycleRevision.current;
     setRestorePreview(null);
     setSnapshotBusy(true);
     try {
       const result = await client.chooseSnapshotRestore();
-      if (!mounted.current) return;
+      if (!mounted.current || lifecycle !== lifecycleRevision.current) return;
       if (result.saved === false) {
         setNotice("已取消选择快照");
         return;
@@ -3001,27 +3021,30 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       });
       setNotice("快照已校验，请确认后替换云端词库");
     } catch {
-      if (mounted.current) setNotice("无法校验快照，云端词库未改变");
+      if (mounted.current && lifecycle === lifecycleRevision.current)
+        setNotice("无法校验快照，云端词库未改变");
     } finally {
-      if (mounted.current) setSnapshotBusy(false);
+      if (mounted.current && lifecycle === lifecycleRevision.current) setSnapshotBusy(false);
     }
   }
 
   async function abandonRestoreSnapshot() {
     if (!mounted.current) return;
+    const lifecycle = lifecycleRevision.current;
     setRestorePreview(null);
     if (client.snapshotNative) {
       setSnapshotBusy(true);
       try {
         await client.request({ operation: "snapshot_restore_cancel" });
       } finally {
-        if (mounted.current) setSnapshotBusy(false);
+        if (mounted.current && lifecycle === lifecycleRevision.current) setSnapshotBusy(false);
       }
     }
   }
 
   async function restoreSnapshot() {
     if (!mounted.current) return;
+    const lifecycle = lifecycleRevision.current;
     const prepared = restorePreview;
     if (!prepared) return;
     const confirmed = await confirm({
@@ -3030,7 +3053,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       confirmLabel: "替换",
       danger: true,
     });
-    if (!confirmed || !mounted.current) return;
+    if (!confirmed || !mounted.current || lifecycle !== lifecycleRevision.current) return;
     setSnapshotBusy(true);
     try {
       const result = await client.request(
@@ -3043,25 +3066,16 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
               revision: prepared.expectedRevision,
             },
       );
-      if (!mounted.current) return;
+      if (!mounted.current || lifecycle !== lifecycleRevision.current) return;
       setRestorePreview(null);
       setNotice(`云端词库已恢复到新版本 ${result.revision ?? ""}`.trim());
     } catch {
-      if (mounted.current) setNotice("恢复失败，可能是云端版本已变化；云端词库未改变");
+      if (mounted.current && lifecycle === lifecycleRevision.current)
+        setNotice("恢复失败，可能是云端版本已变化；云端词库未改变");
     } finally {
-      if (mounted.current) setSnapshotBusy(false);
+      if (mounted.current && lifecycle === lifecycleRevision.current) setSnapshotBusy(false);
     }
   }
-
-  useEffect(
-    () => () => {
-      requestRevision.current++;
-      if (client.snapshotNative) {
-        void client.request({ operation: "snapshot_restore_cancel" });
-      }
-    },
-    [],
-  );
 
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词库文件">
@@ -3260,34 +3274,44 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   const [notice, setNotice] = useState("先获取本机词库版本，再下载并预览云端快照");
   const busyRef = useRef(false);
   const statusRevision = useRef(0);
+  const lifecycleRevision = useRef(0);
 
   async function refreshStatus() {
     if (busyRef.current) return;
+    const lifecycle = lifecycleRevision.current;
     const revision = ++statusRevision.current;
     try {
       const result = await client.request({ operation: "snapshot_status" });
-      if (revision !== statusRevision.current) return;
+      if (lifecycle !== lifecycleRevision.current || revision !== statusRevision.current) return;
       setLocalVersion(typeof result.localVersion === "string" ? result.localVersion : null);
       setRequest(
         result.request && typeof result.request.status === "string" ? result.request : null,
       );
     } catch {
-      if (revision === statusRevision.current) setNotice("无法读取本机词库状态，请确认键盘已启用");
+      if (lifecycle === lifecycleRevision.current && revision === statusRevision.current)
+        setNotice("无法读取本机词库状态，请确认键盘已启用");
     }
   }
 
-  async function run(action: () => Promise<void>, failure: string) {
+  async function run(
+    action: (revision: number, lifecycle: number) => Promise<void>,
+    failure: string,
+  ) {
     if (busyRef.current) return;
-    ++statusRevision.current;
+    const lifecycle = lifecycleRevision.current;
+    const revision = ++statusRevision.current;
     busyRef.current = true;
     setBusy(true);
     try {
-      await action();
+      await action(revision, lifecycle);
     } catch {
-      setNotice(failure);
+      if (lifecycle === lifecycleRevision.current && revision === statusRevision.current)
+        setNotice(failure);
     } finally {
-      busyRef.current = false;
-      setBusy(false);
+      if (lifecycle === lifecycleRevision.current && revision === statusRevision.current) {
+        busyRef.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -3296,8 +3320,9 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       setNotice("尚未获取本机词库版本，请先打开水杉键盘");
       return;
     }
-    void run(async () => {
+    void run(async (revision, lifecycle) => {
       const result = await client.request({ operation: "snapshot_preview" });
+      if (lifecycle !== lifecycleRevision.current || revision !== statusRevision.current) return;
       if (!result.snapshot || typeof result.previewToken !== "string")
         throw new Error("invalid preview");
       setPreview(result.snapshot);
@@ -3309,15 +3334,18 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   async function enqueue() {
     const token = previewToken;
     if (!token || !preview || busyRef.current) return;
+    const lifecycle = lifecycleRevision.current;
     const confirmed = await confirm({
       title: "替换本机词库",
       message: "这份云端快照会替换本机个人词库和学习记录，输入法将在下一次空闲边界应用。",
       confirmLabel: "替换",
       danger: true,
     });
-    if (!confirmed || busyRef.current) return;
-    void run(async () => {
+    if (!confirmed || busyRef.current || lifecycle !== lifecycleRevision.current) return;
+    void run(async (revision, currentLifecycle) => {
       const result = await client.request({ operation: "snapshot_enqueue", token });
+      if (currentLifecycle !== lifecycleRevision.current || revision !== statusRevision.current)
+        return;
       setPreview(null);
       setPreviewToken(null);
       setRequest(
@@ -3329,15 +3357,18 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
 
   async function cancel() {
     if (busyRef.current) return;
+    const lifecycle = lifecycleRevision.current;
     const confirmed = await confirm({
       title: "取消待应用快照",
       message: "待应用的云词库快照会被撤销。",
       confirmLabel: "取消快照",
       cancelLabel: "保留",
     });
-    if (!confirmed || busyRef.current) return;
-    void run(async () => {
+    if (!confirmed || busyRef.current || lifecycle !== lifecycleRevision.current) return;
+    void run(async (revision, currentLifecycle) => {
       const result = await client.request({ operation: "snapshot_cancel" });
+      if (currentLifecycle !== lifecycleRevision.current || revision !== statusRevision.current)
+        return;
       setRequest(
         result.request && typeof result.request.status === "string" ? result.request : null,
       );
@@ -3346,11 +3377,22 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   }
 
   useEffect(() => {
+    const lifecycle = ++lifecycleRevision.current;
+    statusRevision.current++;
+    busyRef.current = false;
+    setBusy(false);
+    setPreview(null);
+    setPreviewToken(null);
     void refreshStatus();
     const timer = window.setInterval(() => {
       void refreshStatus();
     }, 2000);
-    return () => window.clearInterval(timer);
+    return () => {
+      if (lifecycle === lifecycleRevision.current) lifecycleRevision.current++;
+      statusRevision.current++;
+      busyRef.current = false;
+      window.clearInterval(timer);
+    };
   }, [client]);
 
   return (

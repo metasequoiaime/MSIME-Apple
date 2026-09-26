@@ -6,6 +6,7 @@ import {
   CloudCandidatesPanel,
   CloudDictionaryApplyPanel,
   CloudDictionaryCatalogPanel,
+  CloudDictionaryFilesPanel,
 } from "@msime/ui";
 import { answerConfirm } from "../support/confirm";
 
@@ -120,6 +121,63 @@ test("candidate lookup ignores a response from a replaced client", async () => {
     await Promise.resolve();
   });
   expect(screen.queryByText("旧客户端")).toBeNull();
+});
+
+test("cloud dictionary file snapshot export ignores a response from a replaced client", async () => {
+  let resolveOld: ((value: object) => void) | undefined;
+  const oldRequest = vi.fn().mockImplementation(({ operation }: { operation: string }) =>
+    operation === "snapshot_export"
+      ? new Promise((resolve) => {
+          resolveOld = resolve;
+        })
+      : Promise.resolve({}),
+  );
+  const nextRequest = vi.fn().mockResolvedValue({});
+  const panel = render(
+    <CloudDictionaryFilesPanel
+      client={{ close: async () => {}, request: oldRequest, snapshot: true }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "导出完整快照" }));
+  await waitFor(() => expect(oldRequest).toHaveBeenCalledWith({ operation: "snapshot_export" }));
+  panel.rerender(
+    <CloudDictionaryFilesPanel
+      client={{ close: async () => {}, request: nextRequest, snapshot: true }}
+    />,
+  );
+  await act(async () => {
+    resolveOld?.({ text: "stale snapshot", filename: "stale.ndjson" });
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("status").textContent).not.toContain("完整云词库快照已导出");
+});
+
+test("cloud dictionary apply ignores status from a replaced client", async () => {
+  let resolveOld: ((value: object) => void) | undefined;
+  const oldRequest = vi.fn().mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+  );
+  const nextRequest = vi.fn().mockResolvedValue({ localVersion: "new-v2", request: null });
+  const panel = render(
+    <CloudDictionaryApplyPanel
+      client={{ close: async () => {}, request: oldRequest, snapshot: true }}
+    />,
+  );
+  await waitFor(() => expect(oldRequest).toHaveBeenCalledWith({ operation: "snapshot_status" }));
+  panel.rerender(
+    <CloudDictionaryApplyPanel
+      client={{ close: async () => {}, request: nextRequest, snapshot: true }}
+    />,
+  );
+  await screen.findByText("new-v2");
+  await act(async () => {
+    resolveOld?.({ localVersion: "stale-v1", request: null });
+    await Promise.resolve();
+  });
+  expect(screen.queryByText("stale-v1")).toBeNull();
 });
 
 test("desktop dictionary subpages reuse the session client and return without closing its window", async () => {
