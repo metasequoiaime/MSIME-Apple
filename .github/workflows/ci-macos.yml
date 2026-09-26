@@ -78,8 +78,7 @@ jobs:
               # 都触发双架构构建加 Sanitizers:一个 test-android-preference-keys.py 的改动要三台 macOS
               # 机器,公开仓库的 macOS 并发额度是个位数,队列因此堵过。
               #
-              # apply_engine_* 是 engine-lock.json 的 overlay_scripts,fetch_engine.py 会执行它们来改
-              # Engine 源码,所以它们和 Engine 本身一样要重建。fetch_engine.py 另由本工作流自己的步骤调用。fetch_voice_runtime.py 和它读的 voice-runtime.lock.json 决定打进包里的 sherpa-onnx 运行库,由 platforms/macos/CMakeLists.txt 在构建时调用。build_backend_swift.sh、install.sh 等 macOS 专用脚本在 platforms/macos/scripts/ 下,已由 platforms/macos/* 覆盖。
+              # apply_engine_* 是 engine-lock.json 的 overlay_scripts,fetch_engine.py 会执行它们来改 Engine 源码,所以它们和 Engine 本身一样要重建。fetch_engine.py 另由本工作流自己的步骤调用。fetch_voice_runtime.py 和它读的 voice-runtime.lock.json 决定打进包里的 sherpa-onnx 运行库,由 platforms/macos/CMakeLists.txt 在构建时调用。build_backend_swift.sh、install.sh 等 macOS 专用脚本在 platforms/macos/scripts/ 下,已由 platforms/macos/* 覆盖。下面格式检查步骤引用的 scripts/format.sh 目前不存在,不再触发构建。
               resources/voice-runtime.lock.json|scripts/fetch_voice_runtime.py|scripts/apply_engine_*|scripts/fetch_engine.py)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "构建脚本改动: $path"; exit 0 ;;
             esac
@@ -162,7 +161,7 @@ jobs:
       - name: Check the tooling parses under the stock macOS interpreter
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: /usr/bin/python3 -m compileall -q scripts platforms/macos/tests platforms/ios/scripts platforms/ios/tests
-      # CMake prepares the Engine on configure, but the checks below read it first. The fetch is a no-op once the tree matches the lock, so the later configure pays nothing.
+      # CMake prepares the Engine on configure, but the Rust host library build below reads it first. The fetch is a no-op once the tree matches the lock, so the later configure pays nothing.
       - name: Prepare the locked Engine archive
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: python3 scripts/fetch_engine.py
