@@ -296,6 +296,10 @@ python3 scripts/test-preference-suite-cleanup.py || fail "preference suite clean
 note "candidate sources"
 python3 scripts/test-candidate-sources.py || fail "candidate sources"
 
+# Whether a clipboard entry is storable is decided by crates/client-core/src/clipboard.rs alone. Android once kept a second copy of that rule that counted UTF-16 units instead of graphemes, so this fails when a host starts deciding it again.
+note "clipboard capture bounds"
+python3 scripts/test-clipboard-capture-bounds.py || fail "clipboard capture bounds"
+
 # The offline glosses for the non-English targets are built from Wiktionary rows whose shape is easy to misread: the Mandarin rows are "Chinese Mandarin", the plain "Chinese" ones are topolects, and senses[] repeats the top-level tables. The fixture holds real rows, so a rule that drifts from them fails here instead of in a release.
 note "offline glosses"
 python3 scripts/test-offline-glosses.py || fail "offline glosses"
