@@ -1028,6 +1028,22 @@ target_compile_features(paired-punctuation-test PRIVATE cxx_std_17)
 target_compile_options(paired-punctuation-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME paired-punctuation COMMAND paired-punctuation-test)
 
+add_executable(candidate-font-cache-test tests/candidate/CandidateFontCacheTest.mm src/candidate/CandidateFontCache.mm)
+target_compile_options(candidate-font-cache-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-font-cache-test PRIVATE "-framework AppKit" "-framework CoreText")
+add_test(NAME candidate-font-cache COMMAND candidate-font-cache-test)
+
+# AppearancePreferences.mm resolves candidate font families through CandidateFontCache.mm, so every target compiling the one compiles the other; a loop rather than a hand-kept list so a new consumer cannot miss it.
+get_property(MSIME_FONT_CACHE_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(msime_target IN LISTS MSIME_FONT_CACHE_TARGETS)
+  get_target_property(msime_target_sources ${msime_target} SOURCES)
+  if(NOT msime_target_sources OR NOT "src/settings/AppearancePreferences.mm" IN_LIST msime_target_sources)
+    continue()
+  endif()
+  target_sources(${msime_target} PRIVATE src/candidate/CandidateFontCache.mm)
+  target_link_libraries(${msime_target} PRIVATE "-framework CoreText")
+endforeach()
+
 # AppearancePreferences.mm and InputController.mm reach the Swift account pane and the native uninstaller through weak_import: the input method binds them from MSIMEBackend.dylib and from uninstaller.mm, and a process that has neither checks for null before calling. Test targets are that process, so the linker has to be told those names may stay undefined - one name at a time, so every other missing symbol is still an error.
 #
 # The settings window's dictionary controller is the counter-example and the reason this loop exists rather than a hand-kept list: `feat(macos): open dictionary manager from settings` added the reference and the source file to shortcut-test only, and the other five targets compiling the same file did not link again until now.
