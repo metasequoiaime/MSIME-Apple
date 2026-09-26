@@ -25,6 +25,7 @@ export interface AccountTransport {
     requestTag?: string,
   ): Promise<AccountTransportResponse>;
   cancelRequests?(requestTag: string): void;
+  cancelDownloads?(): void;
   download?(
     path: string,
     token: string,
@@ -1568,6 +1569,7 @@ export class AccountCloudBridge {
     this.session = null;
     this.generation++;
     this.refreshing = null;
+    this.transport.cancelDownloads?.();
     this.store.clear();
   }
 }
