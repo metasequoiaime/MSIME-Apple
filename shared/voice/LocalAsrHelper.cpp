@@ -28,6 +28,10 @@
 #include <string>
 #include <thread>
 #include <vector>
+#if !defined(_WIN32)
+#include <poll.h>
+#include <unistd.h>
+#endif
 
 #if defined(_WIN32)
 #include <fcntl.h>
@@ -118,47 +122,94 @@ struct Command {
   nlohmann::json message;
 };
 
-class Server : public std::enable_shared_from_this<Server> {
+class Server {
 public:
   explicit Server(std::chrono::seconds idle_exit) : idle_exit_(idle_exit) {}
 
   int run() {
     emit({{"type", "hello"}, {"version", 1}, {"available", msime::voice::sherpa_runtime_available()}, {"error", msime::voice::sherpa_runtime_error()}});
-    // The reader can remain blocked on stdin when the idle timer ends the
-    // worker loop. Keep the server alive until that detached reader observes
-    // EOF; otherwise it would dereference the stack object after run() returns.
-    const auto keep_alive = shared_from_this();
-    std::thread reader([keep_alive] { keep_alive->read_loop(); });
+#if !defined(_WIN32)
+    if (::pipe(stop_pipe_) != 0)
+      return 1;
+#endif
+    std::thread reader([this] { read_loop(); });
     work_loop();
-    reader.detach();
+#if !defined(_WIN32)
+    // poll() makes the reader interruptible even when the parent keeps the
+    // helper's stdin open while the idle timer expires. Join before this
+    // object is destroyed; the old detached reader could outlive Server.
+    const char stop = 1;
+    (void)::write(stop_pipe_[1], &stop, 1);
+#else
+    // The Windows CRT has no pollable stdin descriptor. Closing the helper's
+    // inherited input handle wakes getline so the reader can be joined before
+    // this Server is destroyed.
+    (void)_close(_fileno(stdin));
+#endif
+    reader.join();
+#if !defined(_WIN32)
+    ::close(stop_pipe_[0]);
+    ::close(stop_pipe_[1]);
+#endif
     return 0;
   }
 
 private:
   void read_loop() {
+#if !defined(_WIN32)
+    std::string pending;
+    std::array<char, 8192> buffer{};
+    for (;;) {
+      pollfd descriptors[] = {{stop_pipe_[0], POLLIN, 0}, {STDIN_FILENO, POLLIN, 0}};
+      const int ready = ::poll(descriptors, 2, -1);
+      if (ready < 0) {
+        if (errno == EINTR) continue;
+        break;
+      }
+      if (descriptors[0].revents & POLLIN) break;
+      if (!(descriptors[1].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+      const auto count = ::read(STDIN_FILENO, buffer.data(), buffer.size());
+      if (count == 0) break;
+      if (count < 0) {
+        if (errno == EINTR) continue;
+        break;
+      }
+      pending.append(buffer.data(), static_cast<size_t>(count));
+      for (;;) {
+        const auto newline = pending.find('\n');
+        if (newline == std::string::npos) break;
+        auto line = pending.substr(0, newline);
+        pending.erase(0, newline + 1);
+        handle_line(std::move(line));
+      }
+    }
+#else
     std::string line;
     while (std::getline(std::cin, line)) {
-      if (line.empty())
-        continue;
-      nlohmann::json message;
-      try {
-        message = nlohmann::json::parse(line);
-      } catch (const nlohmann::json::exception &) {
-        emit({{"type", "error"}, {"message", "malformed request"}});
-        continue;
-      }
-      // Cancellation takes effect in the middle of a decode, so it cannot wait its turn in the queue.
-      if (message.value("op", std::string()) == "cancel") {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (cancelled_)
-          cancelled_->store(true);
-      }
-      std::lock_guard<std::mutex> lock(mutex_);
-      queue_.push_back({std::move(message)});
-      ready_.notify_one();
+      handle_line(std::move(line));
     }
+#endif
     std::lock_guard<std::mutex> lock(mutex_);
     closed_ = true;
+    ready_.notify_one();
+  }
+
+  void handle_line(std::string line) {
+    if (line.empty()) return;
+    nlohmann::json message;
+    try {
+      message = nlohmann::json::parse(line);
+    } catch (const nlohmann::json::exception &) {
+      emit({{"type", "error"}, {"message", "malformed request"}});
+      return;
+    }
+    // Cancellation takes effect in the middle of a decode, so it cannot wait its turn in the queue.
+    if (message.value("op", std::string()) == "cancel") {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (cancelled_) cancelled_->store(true);
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    queue_.push_back({std::move(message)});
     ready_.notify_one();
   }
 
@@ -253,6 +304,9 @@ private:
   std::shared_ptr<std::atomic_bool> cancelled_;
   std::unique_ptr<LocalAsrSession> session_;
   nlohmann::json session_id_;
+#if !defined(_WIN32)
+  int stop_pipe_[2]{-1, -1};
+#endif
 };
 
 // Whole non-negative decimal seconds, nothing else.
@@ -321,5 +375,5 @@ int main(int argc, char **argv) {
       return 1;
     }
   }
-  return std::make_shared<Server>(idle_exit)->run();
+  return Server(idle_exit).run();
 }
