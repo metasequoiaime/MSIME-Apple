@@ -15,16 +15,16 @@ thiserror.workspace = true
 tempfile.workspace = true
 unicode-general-category.workspace = true
 unicode-segmentation.workspace = true
-sha2 = "0.11"
+sha2.workspace = true
 hmac = "0.13"
 hex = "0.4"
 md-5 = "0.11"
 base64 = "0.23"
 flate2 = "1"
-uuid = { version = "1", features = ["serde", "v4"] }
-time = "0.3"
+uuid = { workspace = true, features = ["serde", "v4"] }
+time.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
-tokio = { version = "1", features = ["rt", "net", "time"] }
+tokio = { workspace = true, features = ["rt", "net", "time"] }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 # On-device speech models: the catalog archives are tar.bz2. bzip2 0.6 defaults to the pure-Rust libbz2-rs-sys backend, so no C toolchain is needed on any host.
@@ -36,7 +36,7 @@ pinyin = { version = "0.11", default-features = false, features = ["plain", "het
 [dev-dependencies]
 
 [target.'cfg(target_os = "android")'.dependencies]
-rustix = { version = "1", features = ["fs"] }
+rustix = { workspace = true, features = ["fs"] }
 
 [lints]
 workspace = true

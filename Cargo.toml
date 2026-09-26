@@ -31,6 +31,13 @@ thiserror = "2"
 tempfile = "3"
 unicode-general-category = "1.1"
 unicode-segmentation = "1.13"
+sha2 = "0.11"
+rusqlite = "0.40"
+time = "0.3"
+tokio = "1"
+rustix = "1.1"
+uuid = "1"
+tauri = "2"
 
 # Inherited by every member through `[lints] workspace = true`. `deny` rather
 # than `forbid` on purpose: the five FFI crates cannot honour an unoverridable

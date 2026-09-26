@@ -18,18 +18,18 @@ serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 toml.workspace = true
-sha2 = "0.11"
-time = "0.3"
+sha2.workspace = true
+time.workspace = true
 
 [dev-dependencies]
-rusqlite = "0.40"
+rusqlite.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Graphics_DirectWrite", "Win32_Graphics_Gdi", "Win32_Globalization"] }
 
 # Only linux_catalog uses rustix, and that module excludes OpenHarmony, which reports target_os = "linux" as well.
 [target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
-rustix = { version = "1.1", features = ["fs"] }
+rustix = { workspace = true, features = ["fs"] }
 
 [lints]
 workspace = true

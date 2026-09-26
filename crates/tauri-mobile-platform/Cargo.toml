@@ -11,7 +11,7 @@ links = "msime-tauri-mobile-platform"
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2", features = [] }
+tauri.workspace = true
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
