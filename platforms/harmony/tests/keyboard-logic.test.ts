@@ -78,6 +78,7 @@ import { FullWidthInputPolicy } from "../entry/src/main/ets/keyboard/input/FullW
 import { InputDiagnosticPolicy } from "../entry/src/main/ets/keyboard/input/InputDiagnosticPolicy";
 import { ChineseOutputPolicy } from "../entry/src/main/ets/keyboard/input/ChineseOutputPolicy";
 import { LocalInputMode } from "../entry/src/main/ets/keyboard/input/LocalInputMode";
+import { VoiceSessionPolicy } from "../entry/src/main/ets/keyboard/input/VoiceSessionPolicy";
 import {
   QuickPunctuationPolicy,
   PunctuationEntry,
@@ -3472,6 +3473,21 @@ group("local modes are addressable by trigger and by preference key", () => {
   check(LocalInputMode.fromTrigger("Z") === null, "an unassigned letter enters nothing");
   const triggers = new Set(LocalInputMode.MODES.map((entry) => entry.trigger));
   check(triggers.size === LocalInputMode.MODES.length, "no two modes share a trigger");
+});
+
+group("voice providers share one recording session", () => {
+  check(
+    VoiceSessionPolicy.canStart(false, false, false, false, false),
+    "an idle keyboard can start voice recognition",
+  );
+  check(
+    !VoiceSessionPolicy.canStart(true, false, false, false, false) &&
+      !VoiceSessionPolicy.canStart(false, true, false, false, false) &&
+      !VoiceSessionPolicy.canStart(false, false, true, false, false) &&
+      !VoiceSessionPolicy.canStart(false, false, false, true, false) &&
+      !VoiceSessionPolicy.canStart(false, false, false, false, true),
+    "a second provider cannot overlap any active microphone session",
+  );
 });
 
 group("quick punctuation prints one glyph and sends another", () => {

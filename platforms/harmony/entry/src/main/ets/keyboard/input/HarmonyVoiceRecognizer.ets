@@ -9,6 +9,7 @@ import { HarmonyLocalAsrRecognizer } from './HarmonyLocalAsrRecognizer';
 import { HarmonyPcmCapture } from './HarmonyPcmCapture';
 import { LocalAsrPolicy, PcmFrameSlicer, SpeechSentenceAccumulator } from './LocalAsrPolicy';
 import { KeyboardLog, describeError } from '../KeyboardLog';
+import { VoiceSessionPolicy } from './VoiceSessionPolicy';
 
 export type VoiceResultHandler = (text: string, final: boolean) => void;
 export type VoiceErrorHandler = (message: string) => void;
@@ -47,6 +48,15 @@ export class HarmonyVoiceRecognizer {
     if (localProvider && this.local.isActive()) throw new Error('语音识别正在进行');
     if (localProvider && !LocalAsrPolicy.usesLocalModel(config.asr_provider, config.asr_model_path)) {
       throw new Error('请先在设置中下载并选择本地语音模型');
+    }
+    // The recognizers all own the same microphone and the keyboard has one recording
+    // session. Checking only the selected provider lets a configuration change start a
+    // second provider while the first one is still uploading or decoding; `stop()` then
+    // stops only the provider it happens to check first and leaves the other session alive.
+    if (!VoiceSessionPolicy.canStart(this.doubao.isActive(), this.httpAsr.isActive(),
+      this.local.isActive(), this.capture.isActive(),
+      this.engine !== undefined && this.engine.isBusy())) {
+      throw new Error('语音识别正在进行');
     }
     if (config.asr_provider !== 'doubao' && !httpProvider && !localProvider && config.asr_provider !== 'system'
       && config.asr_provider.length > 0) {
