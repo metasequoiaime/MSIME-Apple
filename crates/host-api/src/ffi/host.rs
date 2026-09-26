@@ -4,6 +4,11 @@
 
 use crate::*;
 
+/// Candidate and commit text normally stays far below this bound. Keep the direct conversion ABI
+/// bounded as well so a malformed native length cannot make it scan an unbounded buffer or allocate
+/// an arbitrarily large converted string.
+const MAX_TRADITIONAL_CONVERSION_BYTES: usize = 1 << 20;
+
 #[no_mangle]
 pub extern "C" fn msime_client_abi_version() -> u32 {
     2
@@ -19,7 +24,7 @@ pub unsafe extern "C" fn msime_client_simplified_to_traditional(
     text: *const u8,
     length: usize,
 ) -> *mut c_char {
-    if text.is_null() {
+    if text.is_null() || length > MAX_TRADITIONAL_CONVERSION_BYTES {
         return std::ptr::null_mut();
     }
     // SAFETY: guaranteed by the documented caller contract.
