@@ -77,14 +77,18 @@ export function McpConnectSection({
   const [copied, setCopied] = useState(false);
   const mounted = useRef(true);
   const refreshGeneration = useRef(0);
+  const clientGeneration = useRef(0);
 
   useEffect(() => {
+    const generation = ++clientGeneration.current;
     mounted.current = true;
+    setBusy(undefined);
     return () => {
       mounted.current = false;
       refreshGeneration.current += 1;
+      if (generation === clientGeneration.current) clientGeneration.current++;
     };
-  }, []);
+  }, [status, install, copyText]);
 
   const refresh = useCallback(() => {
     const generation = ++refreshGeneration.current;
@@ -107,6 +111,7 @@ export function McpConnectSection({
 
   async function write(id: McpClientId) {
     if (!install) return;
+    const generation = clientGeneration.current;
     const name = clientNames[id];
     setBusy(id);
     setResult(undefined);
@@ -122,20 +127,23 @@ export function McpConnectSection({
           confirmLabel: "替换",
         });
         if (!replace) return;
+        if (!mounted.current || generation !== clientGeneration.current) return;
         outcome = await install(id, true);
       }
-      if (mounted.current) {
+      if (mounted.current && generation === clientGeneration.current) {
         setResult(
           outcome === "unchanged"
             ? `${name} 已经连接，无需改动。`
             : `已写入 ${name} 的配置。重新启动 ${name} 后生效。`,
         );
       }
+      if (!mounted.current || generation !== clientGeneration.current) return;
       await refresh();
     } catch (error) {
-      if (mounted.current) setResult(failure(error, name));
+      if (mounted.current && generation === clientGeneration.current)
+        setResult(failure(error, name));
     } finally {
-      if (mounted.current) setBusy(undefined);
+      if (mounted.current && generation === clientGeneration.current) setBusy(undefined);
     }
   }
 

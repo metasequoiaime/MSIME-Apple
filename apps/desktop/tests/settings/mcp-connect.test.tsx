@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   McpConnectSection,
+  type McpInstallOutcome,
   SettingsPage,
   type McpServerStatus,
   type SettingsClient,
@@ -124,6 +125,30 @@ test("writing adds the entry and a different one is replaced only after confirmi
   await within(group).findByText("已写入 Claude Desktop 的配置。重新启动 Claude Desktop 后生效。");
   expect(installMcpClient).toHaveBeenLastCalledWith("claude_desktop", true);
   expect(group.textContent).toContain("（已连接）");
+});
+
+test("a write response from a replaced host cannot update the new MCP section", async () => {
+  const pending = deferred<McpInstallOutcome>();
+  const oldInstall = vi.fn(() => pending.promise);
+  const nextInstall = vi.fn().mockResolvedValue("added" as const);
+  const view = render(
+    <McpConnectSection status={() => Promise.resolve(status())} install={oldInstall} />,
+  );
+  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
+  view.rerender(
+    <McpConnectSection status={() => Promise.resolve(status())} install={nextInstall} />,
+  );
+  pending.resolve("added");
+  await Promise.resolve();
+  expect(screen.queryByText("已写入 Cursor 的配置。重新启动 Cursor 后生效。")).toBeNull();
+  expect(
+    (
+      within(await screen.findByRole("group", { name: "连接 AI 助手" })).getByRole("button", {
+        name: "写入 Cursor",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
 });
 
 test("a configuration file that is not JSON is reported and left alone", async () => {
