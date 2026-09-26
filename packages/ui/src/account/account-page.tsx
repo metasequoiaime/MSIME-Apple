@@ -533,6 +533,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState<"upload" | "apply" | null>(null);
   const mounted = useRef(true);
+  const generation = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -543,37 +544,46 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
 
   const load = async () => {
     if (busy || !mounted.current) return;
+    const current = generation.current;
     setBusy(true);
     setMessage("");
     try {
       const [nextSchema, nextCloud] = await Promise.all([client.schema(), client.load()]);
-      if (!mounted.current) return;
+      if (!mounted.current || generation.current !== current) return;
       setSchema(nextSchema);
       setCloud(nextCloud);
     } catch (error) {
-      if (mounted.current && !isAccountCancellation(error)) setMessage(accountMessage(error));
+      if (mounted.current && generation.current === current && !isAccountCancellation(error))
+        setMessage(accountMessage(error));
     } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted.current && generation.current === current) setBusy(false);
     }
   };
 
   useEffect(() => {
     let active = true;
+    const current = ++generation.current;
     setSchema(null);
     setCloud(null);
     setMessage("");
     setBusy(true);
     void Promise.all([client.schema(), client.load()])
       .then(([nextSchema, nextCloud]) => {
-        if (!active) return;
+        if (!active || !mounted.current || generation.current !== current) return;
         setSchema(nextSchema);
         setCloud(nextCloud);
       })
       .catch((error) => {
-        if (active && !isAccountCancellation(error)) setMessage(accountMessage(error));
+        if (
+          active &&
+          mounted.current &&
+          generation.current === current &&
+          !isAccountCancellation(error)
+        )
+          setMessage(accountMessage(error));
       })
       .finally(() => {
-        if (active) setBusy(false);
+        if (active && mounted.current && generation.current === current) setBusy(false);
       });
     return () => {
       active = false;
@@ -582,6 +592,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
 
   const runConfirmed = async () => {
     if (!cloud || !schema || !confirmation || busy) return;
+    const current = generation.current;
     setBusy(true);
     setMessage("");
     const operation = confirmation;
@@ -589,21 +600,23 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
     try {
       if (operation === "upload") {
         const next = await client.upload();
-        if (!mounted.current) return;
+        if (!mounted.current || generation.current !== current) return;
         setCloud(next);
       } else {
         await client.apply(userId, cloud);
-        if (!mounted.current) return;
+        if (!mounted.current || generation.current !== current) return;
       }
-      setMessage(
-        operation === "upload"
-          ? "本机设置已上传。"
-          : "已应用云端设置。请重新打开键盘使部分设置生效。",
-      );
+      if (mounted.current && generation.current === current)
+        setMessage(
+          operation === "upload"
+            ? "本机设置已上传。"
+            : "已应用云端设置。请重新打开键盘使部分设置生效。",
+        );
     } catch (error) {
-      if (mounted.current && !isAccountCancellation(error)) setMessage(accountMessage(error));
+      if (mounted.current && generation.current === current && !isAccountCancellation(error))
+        setMessage(accountMessage(error));
     } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted.current && generation.current === current) setBusy(false);
     }
   };
 
