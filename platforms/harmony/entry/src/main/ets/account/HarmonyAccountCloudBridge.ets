@@ -185,6 +185,7 @@ function responseContentType(headers: Object): string | undefined {
 class HarmonyTransport implements AccountTransport {
   private readonly activeRequests: Map<string, Set<http.HttpRequest>> =
     new Map<string, Set<http.HttpRequest>>();
+  private readonly activeDownloads: Set<http.HttpRequest> = new Set<http.HttpRequest>();
 
   async request(method: string, path: string, token?: string, body?: Object,
     timeoutMs?: number, requestTag?: string): Promise<AccountTransportResponse> {
@@ -233,6 +234,12 @@ class HarmonyTransport implements AccountTransport {
     this.activeRequests.delete(requestTag);
   }
 
+  /** Abort large file transfers when the account session is invalidated. */
+  cancelDownloads(): void {
+    for (const request of this.activeDownloads) request.destroy();
+    this.activeDownloads.clear();
+  }
+
   async download(path: string, token: string, destination: string, maximumBytes: number,
     mediaType: string): Promise<AccountDownloadResponse> {
     if (!path.startsWith('/v1/') || path.includes('\\') || destination.length === 0
@@ -240,6 +247,7 @@ class HarmonyTransport implements AccountTransport {
       throw new Error('account_invalid');
     }
     const request = http.createHttp();
+    this.activeDownloads.add(request);
     const headers: DownloadHeaders = {
       Accept: mediaType,
       Authorization: `Bearer ${token}`,
@@ -301,6 +309,7 @@ class HarmonyTransport implements AccountTransport {
       }
       return { status: status, bytes: bytes, contentLength: contentLength, contentType: contentType };
     } finally {
+      this.activeDownloads.delete(request);
       if (handle !== undefined) fs.closeSync(handle);
       request.destroy();
     }
@@ -359,6 +368,7 @@ interface SnapshotInspectReply {
 
 /** Account and cloud clipboard state stays in the host; WebView receives only bounded DTOs. */
 export class HarmonyAccountCloudBridge {
+  private readonly transport: HarmonyTransport;
   private readonly bridge: AccountCloudBridge;
   private readonly context: common.UIAbilityContext;
   private snapshotFile: string = '';
@@ -380,7 +390,8 @@ export class HarmonyAccountCloudBridge {
     } catch {
       // The store reports an unavailable session if the sandbox cannot be prepared.
     }
-    this.bridge = new AccountCloudBridge(new HarmonyTransport(), new FileSessionStore(directory));
+    this.transport = new HarmonyTransport();
+    this.bridge = new AccountCloudBridge(this.transport, new FileSessionStore(directory));
   }
 
   async request(action: string): Promise<string> {
@@ -395,6 +406,7 @@ export class HarmonyAccountCloudBridge {
     }
     if (operation === 'logout' || operation === 'delete_account'
       || operation === 'login' || operation === 'clear_expired') {
+      this.transport.cancelDownloads();
       this.clearSnapshotPreview();
       this.clearRestorePreview();
       if (accountId !== null && !this.cancelQueueForAccount(accountId)) {
