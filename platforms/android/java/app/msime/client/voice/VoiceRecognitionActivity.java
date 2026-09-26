@@ -57,6 +57,7 @@ public final class VoiceRecognitionActivity extends Activity {
     private DoubaoRecognizer streaming;
     private LocalAsrRecognizer local;
     private ExecutorService providerWorker;
+    private final VoicePolisher voicePolisher = new VoicePolisher();
     private TextView recordingTitle;
     private TextView recordingHint;
     private boolean stopping;
@@ -210,6 +211,7 @@ public final class VoiceRecognitionActivity extends Activity {
 
     @Override protected void onDestroy() {
         finished = true;
+        voicePolisher.cancel();
         if (local != null) {
             // Releases the microphone and stops a decode; the loaded model stays cached for the next dictation and is dropped after it has been idle (LocalAsrPolicy).
             local.cancel();
@@ -522,6 +524,7 @@ public final class VoiceRecognitionActivity extends Activity {
     private void cancelRecognition() {
         if (finished) return;
         finished = true;
+        voicePolisher.cancel();
         if (local != null) local.cancel();
         if (streaming != null) streaming.cancel();
         if (provider != null) provider.cancel();
@@ -574,7 +577,7 @@ public final class VoiceRecognitionActivity extends Activity {
         Intent intent = getIntent();
         String endpoint = intent.getStringExtra(EXTRA_POLISH_ENDPOINT);
         if (endpoint == null) return text;
-        String polished = VoicePolisher.polish(endpoint,
+        String polished = voicePolisher.polish(endpoint,
             intent.getStringExtra(EXTRA_POLISH_MODEL),
             intent.getStringExtra(EXTRA_POLISH_TOKEN),
             intent.getStringExtra(EXTRA_POLISH_PROMPT), text);

@@ -23,11 +23,20 @@ public final class VoicePolisher {
     private static final int READ_TIMEOUT_MILLIS = 60_000;
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 
-    private VoicePolisher() {}
+    private volatile HttpURLConnection connection;
+    private volatile boolean cancelled;
+
+    /** Interrupt a polish request, including one blocked in a response read. */
+    public void cancel() {
+        cancelled = true;
+        HttpURLConnection active = connection;
+        if (active != null) active.disconnect();
+    }
 
     /** The polished text, or null to keep what was recognised. */
-    public static String polish(String endpoint, String model, String token, String prompt,
+    public String polish(String endpoint, String model, String token, String prompt,
                                 String text) {
+        if (cancelled) return null;
         if (!VoicePolishPolicy.usable(endpoint, model, token, prompt)
                 || !VoicePolishPolicy.sendable(text)) {
             return null;
@@ -37,6 +46,8 @@ public final class VoicePolisher {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(endpoint).openConnection();
+            this.connection = connection;
+            if (cancelled) return null;
             connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
             connection.setReadTimeout(READ_TIMEOUT_MILLIS);
             connection.setRequestMethod("POST");
@@ -48,6 +59,7 @@ public final class VoicePolisher {
             try (OutputStream out = connection.getOutputStream()) {
                 out.write(body);
             }
+            if (cancelled) return null;
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) return null;
             String response;
@@ -55,10 +67,11 @@ public final class VoicePolisher {
                 response = read(input);
             }
             String content = content(response);
-            return VoicePolishPolicy.sendable(content) ? content.trim() : null;
+            return cancelled ? null : (VoicePolishPolicy.sendable(content) ? content.trim() : null);
         } catch (IOException error) {
             return null;
         } finally {
+            if (this.connection == connection) this.connection = null;
             if (connection != null) connection.disconnect();
         }
     }
