@@ -436,6 +436,10 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
     OnlineCandidatePolicy.aiCandidates("x".repeat(1024 * 1024 + 1), 3) === null,
     "oversized AI response is rejected before parsing",
   );
+  check(
+    OnlineCandidatePolicy.acceptsCloudBody("你".repeat(128 * 1024)) === false,
+    "oversized UTF-8 cloud responses are rejected by byte size",
+  );
 });
 
 group("keeps translation provider policy bounded and credential-free in signatures", () => {
