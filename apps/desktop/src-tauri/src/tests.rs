@@ -897,7 +897,8 @@ fn keyboard_does_not_accept_focus_but_editable_panels_do() {
 fn csp_lets_the_skin_editor_decode_a_picked_photo() {
     // The editor reads a picked photo as a data: URL, so the CSP can stay without
     // blob:. jsdom does not enforce CSP, so only this check sees the source go missing.
-    let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
     let csp = config["app"]["security"]["csp"].as_str().unwrap();
     let img_src = csp
         .split(';')

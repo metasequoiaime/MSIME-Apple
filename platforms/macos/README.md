@@ -59,6 +59,8 @@ cask 安装 `MSIME.app`，并把其中的 `msime-mcp` 链接到 `PATH`，供在�
 
 这里有两个不同产品进程，不能用同一个概念混写：输入法本体是 InputMethodKit bundle，继续使用系统已经登记的 `app.msime.inputmethod.MetasequoiaIME`；承载共享 React 设置页的设置应用使用 `app.msime.client`。设置应用的默认状态根和输入法读取的原生定位器都在 `~/Library/Application Support/app.msime.client/`，外部皮肤、偏好、统计与 `runtime-options.json` 以此为当前默认来源。
 
+设置窗口同一时间只有一个，与 Windows 一致：设置窗已经开着时，再从输入法菜单、悬浮工具栏或 Finder 打开设置、关于或检查更新，会把已有窗口拉回前台并切到请求的页面，而不是再开一个窗口。屏幕键盘、emoji、手写、语音和云剪贴板 / 云词典面板仍按输入会话各自启动独立进程。
+
 设置应用和原生宿主均以 `app.msime.client` 作为正式客户端标识与默认状态目录；新安装按该标识初始化，不创建额外的预览目录。
 
 SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、字号、页大小、输入方案、翻页快捷键，以及纠错、辅助码、中文标点、智能标点、重复标点转中文、成对标点、标点锁定、中英/Emoji/颜文字混输、中英混输阈值、中英文模式、切换快捷键、中英文切换提示、全角、浮动工具栏、繁体输出、五笔自动上屏、双拼提示和手写板主题。浮动工具栏的本地设置还支持分别显示标点、全半角、简繁、Emoji、屏幕键盘和设置按钮，并选择 75/100/125/150% 缩放和 16–28pt 字号；这些字段通过 `preferences.floating_toolbar` 共享。共享 Tauri 与原生备用屏幕键盘都为普通键提供 450ms/75ms 的按住重复，粘滞修饰键不自动重复；键盘和辅助功能激活仍单次发送。macOS Tauri 键盘首次显示及隐藏后重开时使用显示器物理工作区底部居中，不混用逻辑点与 Retina 像素，也能处理负坐标副屏和比面板更小的工作区。云端桌面快照覆盖 Apple 固定提交 `2b0250f4dd7012520392b310dfcc0288c3208a75` 的 20 项字段，并保留客户端新增的 `shuangpin_preedit_uses_raw`、`smart_punctuation` 和 `smart_punctuation_repeat`，共 23 项：两套辅助码方案、候选学习、本地扩展模式、候选布局/尺寸、输入方案、纠错、标点、智能标点、重复标点转中文、英文模式、全角、工具栏、繁体输出、五笔自动上屏和双拼键位图。辅助码方案按稳定枚举索引同步；本地扩展模式的兼容布尔值为全开/全关，应用时写回八个本地模式而不丢弃未知键。布尔字段只接收 JSON 布尔值，旧云端快照缺少新增字段时不会部分应用，可先上传本机完整快照；其他平台云端字段由既有合并逻辑保留。
@@ -95,7 +97,7 @@ SwiftUI 设置同步覆盖 24 个当前宿主偏好：候选皮肤、布局、�
 
 ## 全角输入
 
-全角输入按同一固定 Apple 版本的 `FullWidthInput.h` 与控制器回退顺序迁移，默认关闭。候选设置中的勾选框（宿主偏好 `MSIMEClientFullWidthInput`，共享字段 `character_width`）是每个应用的起始值；中文模式下 Option + Shift + H、任意模式下 Control + Shift + Space（来源的 Shift + Space 在 macOS 上是中英文切换）以及悬浮工具栏的全角按钮只切换当前应用、不保存，与来源按线程保存在 TSF compartment 里一致，从本输入法切到别的输入源后所有应用回到起始值，起始值一旦改变所有应用都跟着重置；重复按键只消费不反复切换；Option + Shift + H 遇 Command/Control 竞争修饰键或在英文模式下不触发。按键先交给 Engine，已处理的中文组词、选词与标点不再转换；未处理的按键先完成剩余组合，确认空闲后才将 ASCII 空格变为 U+3000、ASCII 可打印字符变为对应全角字符。无会话、失败响应或组合未完成时不插入全角回退，非 ASCII 字符不转换。原生测试覆盖 95 个字符、快捷键/偏好、Engine 优先、组合提交顺序及失败/未完成排除，使用替身会话驱动。
+全角输入按同一固定 Apple 版本的 `FullWidthInput.h` 与控制器回退顺序迁移，默认关闭。候选设置中的勾选框（宿主偏好 `MSIMEClientFullWidthInput`，共享字段 `character_width`）是每个应用的起始值；中文模式下 Option + Shift + H、任意模式下 Control + Shift + Space（来源的 Shift + Space 在 macOS 上是中英文切换）以及悬浮工具栏的全角按钮只切换当前应用、不保存，与来源按线程保存在 TSF compartment 里一致，从本输入法切到别的输入源后所有应用回到起始值，起始值一旦改变所有应用都跟着重置；重复按键只消费不反复切换；Option + Shift + H 遇 Command/Control 竞争修饰键或在英文模式下不触发。按键先交给 Engine，已处理的中文组词、选词与标点不再转换；未处理的按键先完成剩余组合，确认空闲后才将 ASCII 空格变为 U+3000、ASCII 可打印字符变为对应全角字符。无会话、失败响应或组合未完成时不插入全角回退，非 ASCII 字符不转换。英文模式没有 Engine 往返：全角开着时，不带 Command/Control/Option 的可打印 ASCII 直接变为全角（空格为 U+3000），与来源输入法关闭时仍按 `FUNCTION_DOUBLE_SINGLE_BYTE` 处理一致；转换表与 Linux 宿主共用 `shared/input/EnglishModeOutput.h`，中文标点同时开着时标点先按中文标点输出。原生测试覆盖 95 个字符、快捷键/偏好、Engine 优先、组合提交顺序及失败/未完成排除，使用替身会话驱动。
 
 ## 共享运行时视图字段
 
@@ -165,7 +167,7 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 ## 标点
 
-中文标点的勾选框（宿主偏好 `MSIMEClientChinesePunctuation`，共享字段 `chinese_punctuation`）同样只是每个应用的起始值：Ctrl + . 与悬浮工具栏的标点按钮只切换当前应用、不保存，中英文切换让标点重新跟上模式，对应来源的 `SyncPunctuationWithImeMode`：进入英文模式时标点变为英文（标点锁定固定为中文时除外），回到中文模式时丢掉当前应用的切换、回到起始值；从本输入法切到别的输入源后所有应用回到起始值，普通的焦点切换不会。成对标点和标点锁定跟随 Windows 基线迁移到候选设置。成对标点默认开启；组合中按左符号键时引擎把候选连同左符号一起提交（`nihao(` 上屏 `你好（`），宿主按提交末字符照样补上右符号、把引号改写为左引号，而用空格或数字选中的、本身以引号或括号结尾的候选原样上屏。中文标点与成对标点都打开时，`{` 上屏 `{` 并把 `}` 留在光标后（全角输入为 `｛｝`），组合中则先上屏高亮候选再开这一对，与来源 `_GetPairedPunctuationClosingFor` 及 Linux 宿主一致。标点锁定默认跟随中文标点，也可固定为中文或英文；设置值分别写入宿主偏好域，并按共享 `paired_punctuation`、`punctuation_lock` 字段同步。输入会话只通过 `MSIMEClientSession` 调用 Engine 的运行时覆盖，重建会话时恢复覆盖值；原生控件和替身会话测试覆盖默认、持久化、非法值和同步路径。
+中文标点的勾选框（宿主偏好 `MSIMEClientChinesePunctuation`，共享字段 `chinese_punctuation`）同样只是每个应用的起始值：Ctrl + . 与悬浮工具栏的标点按钮只切换当前应用、不保存，中英文切换让标点重新跟上模式，对应来源的 `SyncPunctuationWithImeMode`：进入英文模式时标点变为英文（标点锁定固定为中文时除外），回到中文模式时丢掉当前应用的切换、回到起始值；从本输入法切到别的输入源后所有应用回到起始值，普通的焦点切换不会。英文模式与来源输入法关闭时一样仍转换中文标点：标点锁定固定为中文，或锁定跟随且进入英文模式后用 Ctrl + . 或工具栏打开了中文标点时，不带 Command/Control/Option 的 ASCII 标点按 Engine 正向表换成中文标点（引号交替、书名号嵌套，模式切换或换客户端后重新开始），小键盘不转换，其余键交给应用。英文模式下标点锁定固定为中文或英文时，Ctrl + . 与工具栏保持锁定值，对应来源的 `ResolvePunctuationOpen`。成对标点和标点锁定跟随 Windows 基线迁移到候选设置。成对标点默认开启；组合中按左符号键时引擎把候选连同左符号一起提交（`nihao(` 上屏 `你好（`），宿主按提交末字符照样补上右符号、把引号改写为左引号，而用空格或数字选中的、本身以引号或括号结尾的候选原样上屏。中文标点与成对标点都打开时，`{` 上屏 `{` 并把 `}` 留在光标后（全角输入为 `｛｝`），组合中则先上屏高亮候选再开这一对，与来源 `_GetPairedPunctuationClosingFor` 及 Linux 宿主一致。标点锁定默认跟随中文标点，也可固定为中文或英文；设置值分别写入宿主偏好域，并按共享 `paired_punctuation`、`punctuation_lock` 字段同步。输入会话只通过 `MSIMEClientSession` 调用 Engine 的运行时覆盖，重建会话时恢复覆盖值；原生控件和替身会话测试覆盖默认、持久化、非法值和同步路径。
 
 智能标点和重复标点转中文按 Windows 基线适配到 macOS 编辑器上下文：空闲态先看宿主最后送到应用的一个字符，这个记录被清掉时才通过 NSTextInputClient 读光标前一个 Unicode scalar，据此判断逗号、句号和冒号前是否为 ASCII 字母/数字，并按「数字后直出」「字母后直出」两个开关分别决定是否保留 ASCII。智能标点、重复标点转中文和这两个直出开关与来源一样默认关闭，需要用户主动打开。组合态依据高亮候选末尾走 Engine 的 ASCII 标点入口。短时间在同一编辑器重复输入同一标点时，将前一个 ASCII 或全角标点替换为对应中文标点，与「成对标点」开关无关（重复键只有逗号、句号和冒号，都不成对），与来源一致；切换客户端、退格、关闭选项或不满足上下文时清除重复状态。全角输入仍优先转换为全角标点，小键盘物理键路由优先于智能标点。测试使用合成 NSTextInputClient，不保存或记录真实输入。
 
@@ -279,7 +281,7 @@ ctest --test-dir target/macos-isolated -L emoji-local --output-on-failure
 
 ## 按键处理与翻页快捷键
 
-Home/End 在候选可见时通过共享运行时移到当前页首/末候选，不改变编辑串、光标或提交文本；最后不足一页时止于实际末项。候选隐藏后沿用编辑光标 Home/End。测试覆盖可见/隐藏状态、完整页及末页、过期候选和全局索引提交。翻页快捷键提供减号/等号（默认）、方括号、Page Up/Page Down 三种设置。字符键仅在候选可见且无 Shift/Command/Control/Option 时按所选键组翻页；未匹配或有 Shift 时将实际字符交给 Engine。Page Up/Page Down 在三种设置下均有效，与 Apple 路由一致。设置保存在宿主原生偏好域，测试覆盖默认、非法值归一化、控件保存、48 种字符组合以及修饰键优先级。
+Home/End 在候选可见时通过共享运行时移到当前页首/末候选，不改变编辑串、光标或提交文本；最后不足一页时止于实际末项。候选隐藏后沿用编辑光标 Home/End。测试覆盖可见/隐藏状态、完整页及末页、过期候选和全局索引提交。翻页快捷键提供减号/等号（默认）、方括号、Page Up/Page Down 三种设置。字符键仅在候选可见且无 Shift/Command/Control/Option 时按所选键组翻页；未匹配或有 Shift 时将实际字符交给 Engine。Page Up/Page Down 在三种设置下均有效，与 Apple 路由一致。候选可见时，快捷键已关闭的 Tab/Shift+Tab、Page Up/Page Down 与 ↑/↓ 会被输入法吞掉，编辑串和候选保持原样，与 Windows 一致；只有没有候选显示时这些键才交还应用。设置保存在宿主原生偏好域，测试覆盖默认、非法值归一化、控件保存、48 种字符组合以及修饰键优先级。
 
 迁移对照固定为 MSIME-Apple 远端默认分支 develop 的提交 `b637828e15eafcb5e459edd270a962dd14517285`。Command、Control、Option 快捷键沿用其 `MetasequoiaInputController.mm` 行为：先通过 Engine finish 提交当前高亮对应组合，再放行快捷键。原生控制器测试覆盖三个修饰键的分派、提交、清空预编辑和返回未处理，使用替身会话驱动。
 
@@ -313,9 +315,11 @@ platforms/macos/stage-resources.sh <已校验资源目录>
 
 Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `runtime-options.json`，会从 bundle 内的 `EngineResources` 调用共享 Host API 准备默认用户词库、缓存和配置，并以同目录原子发布配置；已有配置不会被覆盖。`MSIME_CLIENT_HOST_OPTIONS`（兼容 `MSIME_IBUS_OPTIONS`）显式指定配置时不会触发自动准备，`MSIME_CLIENT_STATE_DIR` 仍可指定偏好与用户状态根目录。资源校验或准备失败会以通用错误终止本次设置宿主启动，不泄露路径、输入或 Host API 诊断内容。
 
+升级应用之后不需要重新准备状态。Windows 安装程序在每次升级时回放用户词库，macOS 没有按用户执行的安装步骤（Sparkle 升级只替换整个 app bundle，连同其中的 `EngineResources`，不会触碰用户数据目录里的 `runtime-options.json` 与工作词库），所以改由宿主在启动时完成：IMK 宿主在 `input_method_main.mm` 建立 `IMKServer` 与独立偏好窗口之前、设置应用在 `macos_launch.rs` 读取配置之前，都对 `runtime-options.json` 调用共享的 `msime_client_refresh_host`（`RuntimeOptionsRefresh.h` / `msime_host_api::refresh_host_options`）。它用编译进去的词库锁算出当前代次，与 `dictionaries` 指向的代次目录比较；不一致时校验新词库、由 Engine 复制出新代次的工作词库并把用户词库日志回放进去，再原子替换这份文件，只改 `resources` 和 `dictionaries` 两项，provider socket 等其他键原样保留；已是当前代次时只读一次文件。默认应用数据目录与 IMK 读取的定位文件是同一份 `~/Library/Application Support/app.msime.client/runtime-options.json`，谁先启动谁完成刷新，另一个读到的已是新代次。旧代次目录不会被改动，还在用它的宿主重启前照常工作；准备失败时文件保持原样，输入法继续用旧词库，诊断只写一行不含路径的通用日志，下次启动再试。符号链接、签名 bundle 内嵌的开发配置以及路径不符合 `prepare_host` 布局的文件都不会被改写，文件尚不存在（尚未配置）时 IMK 不做刷新。首次启动升级后的版本要同步完成一次词库复制与回放，会多花几秒。`~/Library/Input Methods` 里的 IMK 由设置页的「安装 / 更新」复制，可能落后于设置应用：旧 IMK 编译的是旧词库锁，看到设置应用刷新出的新代次会按自己的锁去准备，校验新资源失败后保留文件不动，因此在重新安装 IMK 之前每次启动都会多一次失败的校验，但不影响输入。
+
 产物为 `target/macos/水杉输入法.app`。可选开发配置包含本机绝对路径，不得对外分发。未嵌入开发配置时从客户端的应用数据目录读取 `runtime-options.json`；配置缺失时不拦截输入。Tauri macOS bundle 会把同一 IMK bundle 随应用资源打包。设置应用每次启动都在后台比较随附与已安装 bundle 的 `CFBundleShortVersionString`（按数字逐段比较）和 `CFBundleVersion`：未安装时安装，随附的更新时刷新，已安装的相同或更新（例如先装了新版 DMG 又打开旧版 DMG 里的设置应用，或用 `install.sh` 装了更新的构建；带 `SUFeedURL` 的构建还可能经 Sparkle 更新过）时不动，从不降级。只有打包好的 `.app` 做这一步，只看它自身 `Contents/Resources` 里的 bundle：`tauri dev`、`cargo run` 与 `target/<profile>` 下的二进制不是打包应用，它们的资源目录是 cargo 产物目录，tauri-build 在那里放了一份 Sparkle 符号链接被展开的开发构建，这些运行一律跳过，不会拿它或 `target/macos` 的构建去覆盖开发者已安装的输入法；设置了 `MSIME_CLIENT_HOST_OPTIONS` / `MSIME_IBUS_OPTIONS` 的运行和输入法拉起的面板进程也跳过。启动检查、「安装 / 更新」与卸载在进程内互斥，staging 与备份目录不会被两次操作同时改写。检查结果连同输入源是否已在系统设置的输入法列表里（经 `defaults export com.apple.HIToolbox` 读 `AppleEnabledInputSources`）交给设置页：刚安装或刷新过会提示版本，首次安装要等下次登录时提示注销并重新登录，未启用时提示到「系统设置 > 键盘 > 输入法」添加并给出打开该页的按钮，失败时指向手动按钮。安装与刷新和设置页的“安装 / 更新”走同一条路径：先在 staging 目录完成校验和原子替换到 `~/Library/Input Methods/水杉输入法.app`，再直接启动 bundle 的 `--register-input-source`，失败不会删除旧安装，也不会替用户切换当前输入源；没有旧安装时新 bundle 留在原处等下次登录（见「发布包」一节）。“安装 / 更新”保留为不比较版本的强制重装。比较依赖 `Info.plist.in` 里的 `CFBundleShortVersionString` 随每次发布递增：`CFBundleVersion` 是提交数，没有 git 的源码树构建出来是 1，只在同一发布版本内排序。静态库与宿主均以 macOS 13 为最低构建目标，必须使用同一架构。
 
-`prepare_host` 生成的配置包含 `preferences_directory`。宿主激活时立即后台读取此目录，之后每秒检查一次，前一次未完成时不重叠读取；失活后停止定时器。文件锁和读取不占用会话主线程，应用仍在主线程且有组合时延迟；读取错误保留原配置。旧配置没有此字段时不自动重读，需要重新准备开发配置（先停止该开发宿主）。
+`prepare_host` 生成的配置包含 `preferences_directory`。宿主激活时立即后台读取此目录，之后每秒检查一次，前一次未完成时不重叠读取；失活后停止定时器。文件锁和读取不占用会话主线程，应用仍在主线程且有组合时延迟；读取错误保留原配置；如果 `preferences.json` 不是合法 JSON，输入法进程在每个目录上自动修复一次：原文件备份为同目录的 `preferences.json.corrupt-<UTC 时间戳>`，仍可解析的字段（含服务凭据）保留，诊断日志写 `preferences_recovered backup=<name>`。合法 JSON 但含未知字段或未来格式时不自动改写，设置页的「修复配置文件…」可以显式修复并在 Finder 中显示备份。旧配置没有此字段时不自动重读，需要重新准备开发配置（先停止该开发宿主）。
 
 从仓库根目录让设置页写入同一份隔离配置：`MSIME_CLIENT_STATE_DIR="$PWD/target/macos-state" pnpm --filter @msime/desktop tauri dev`。保存后活跃宿主通常在下一次轮询收到快照，当前组词结束后生效；无需 Tauri 常驻。
 
@@ -331,7 +335,7 @@ Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `run
 
 ## 数据目录迁移
 
-发行设置页的“关于 → 数据目录”可以把词库、学习记录、偏好、统计、剪贴板历史、皮肤和缓存移动到另一块磁盘。设置 bundle 与 IMK bundle 各自在固定 Application Support 目录保留一个小型 `runtime-options.json` 定位器，二者指向同一个可移动状态根；bundle 内只读资源不搬。迁移会先停掉 IMK 进程，只接受真实的空目录，在目标卷完成复制和按最终路径重新准备后原子切换两个定位器，最后才清理旧目录。失败保持旧目录有效；无 `.metasequoiaime-data` 所有权标记的非默认源目录不会自动删除。成功后设置窗口关闭，重新打开即可从新目录继续。
+发行设置页的“关于 → 数据目录”可以把词库、学习记录、偏好、统计、剪贴板历史、皮肤和缓存移动到另一块磁盘。设置 bundle 与 IMK bundle 各自在固定 Application Support 目录保留一个小型 `runtime-options.json` 定位器，二者指向同一个可移动状态根；bundle 内只读资源不搬。迁移会先停掉 IMK 进程，只接受真实的空目录，在目标卷完成复制和按最终路径重新准备后原子切换两个定位器，最后才清理旧目录。失败保持旧目录有效；无 `.metasequoiaime-data` 所有权标记的非默认源目录不会自动删除。成功后设置窗口关闭、设置进程退出（macOS 设置窗关闭即退出，不像 Linux / Windows 那样驻留），重新打开会启动新进程并从新目录继续。
 
 ## 文本适配与维护快捷键
 
