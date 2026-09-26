@@ -76,17 +76,26 @@ public final class VoicePolisher {
         }
     }
 
+    /** Returns null when the response exceeds the bound, without retaining the overflow. */
     private static String read(InputStream stream) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
         int read;
-        while ((read = stream.read(chunk)) > 0 && out.size() < MAX_RESPONSE_BYTES) {
+        // Read one extra byte when the limit is reached so a valid JSON prefix followed by
+        // arbitrary data cannot be accepted merely because the overflow was ignored.
+        while (out.size() <= MAX_RESPONSE_BYTES) {
+            int remaining = MAX_RESPONSE_BYTES - out.size();
+            int requested = Math.min(chunk.length, remaining + 1);
+            read = stream.read(chunk, 0, requested);
+            if (read <= 0) break;
+            if (read > remaining) return null;
             out.write(chunk, 0, read);
         }
         return out.toString(StandardCharsets.UTF_8.name());
     }
 
     private static String content(String response) {
+        if (response == null) return "";
         try {
             JSONArray choices = new JSONObject(response).optJSONArray("choices");
             JSONObject first = choices == null ? null : choices.optJSONObject(0);
