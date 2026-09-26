@@ -121,9 +121,17 @@ public final class CloudClipboardActivity extends AppCompatActivity {
         worker.execute(() -> {
             try {
                 T result = work.run();
-                runOnUiThread(() -> { busy = false; done.accept(result); });
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    busy = false;
+                    done.accept(result);
+                });
             } catch (Exception error) {
-                runOnUiThread(() -> { busy = false; status.setText("连接未完成，请登录后重试"); });
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    busy = false;
+                    status.setText("连接未完成，请登录后重试");
+                });
             }
         });
     }
