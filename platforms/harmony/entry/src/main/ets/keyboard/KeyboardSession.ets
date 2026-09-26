@@ -3236,7 +3236,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       });
       if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
         || response.responseCode >= 300 || typeof response.result !== 'string'
-        || OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES < response.result.length) return false;
+        || !OnlineCandidatePolicy.acceptsCloudBody(response.result)) return false;
       const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyCloudResponse(
         handle, queryDocument, response.result)) as NativeReply<OnlineApplyValue>;
       if (applied.ok && applied.value.applied) this.render(applied.value.view);

@@ -44,6 +44,12 @@ export class OnlineCandidatePolicy {
   static readonly MAX_CLOUD_RESPONSE_BYTES: number = 256 * 1024;
   static readonly MAX_AI_RESPONSE_BYTES: number = 1024 * 1024;
 
+  /** Whether a cloud reply is bounded before it is handed to the native parser. */
+  static acceptsCloudBody(body: string | null | undefined): boolean {
+    return body !== null && body !== undefined && body.length > 0
+      && utf8Length(body) <= OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES;
+  }
+
   static signature(query: OnlineQuery): string {
     const assistant: OnlineAssistantConfig | null | undefined = query.ai_assistant;
     return `${query.session_id}:${query.cache_key}:${query.identity}:`
