@@ -163,6 +163,12 @@ export class HarmonyDoubaoRecognizer {
       await this.startCapturer(config, token, socket);
     } catch (error) {
       if (!this.isCurrent(token, socket)) return;
+      // A user stop may race the connection attempt. It is a normal cancellation, not a
+      // startup failure; report neither an error nor a phantom microphone session.
+      if (this.stopping) {
+        await this.complete(token, socket);
+        return;
+      }
       await this.fail(`豆包语音启动失败：${describeError(error)}`, token);
       throw new Error('豆包语音启动失败');
     }
