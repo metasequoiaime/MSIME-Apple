@@ -1723,3 +1723,32 @@ fn the_macos_release_is_read_or_left_out() {
         assert_eq!(crate::product_version_from_plist(rejected), None);
     }
 }
+
+/// The settings page reads `backupPath` and `salvaged` from a repair; only the struct's camelCase rename produces those names, and the page's own tests mock the reply, so nothing else would notice a rename dropping it.
+#[cfg(not(target_os = "ios"))]
+#[test]
+fn preferences_recovery_serializes_the_fields_the_settings_page_reads() {
+    use msime_client_core::preferences::PreferencesSnapshot;
+
+    let recovered = serde_json::to_value(super::PreferencesRecovery {
+        snapshot: PreferencesSnapshot::default(),
+        backup_path: Some("/synthetic/preferences.json.corrupt".into()),
+        salvaged: true,
+    })
+    .unwrap();
+    assert_eq!(
+        recovered["backupPath"],
+        "/synthetic/preferences.json.corrupt"
+    );
+    assert_eq!(recovered["salvaged"], true);
+    assert!(recovered["snapshot"]["preferences"].is_object());
+    assert!(recovered.get("backup_path").is_none());
+
+    let untouched = serde_json::to_value(super::PreferencesRecovery {
+        snapshot: PreferencesSnapshot::default(),
+        backup_path: None,
+        salvaged: false,
+    })
+    .unwrap();
+    assert!(untouched["backupPath"].is_null());
+}
