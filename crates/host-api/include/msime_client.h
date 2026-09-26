@@ -692,9 +692,10 @@ char *msime_client_parse_surface_route(const uint8_t *value, size_t length);
 /* Convert UTF-8 Simplified Chinese to Traditional Chinese with the shared
  * OpenCC s2t tables (phrase-level, so 头发 -> 頭髮 and 发展 -> 發展). Unlike
  * the JSON calls, returns the converted NUL-terminated text directly because
- * hosts call it per candidate. Returns NULL for NULL, invalid UTF-8 or an
- * embedded NUL; keep the original text then. Free with string_free. The first
- * call parses the tables (a few milliseconds in release builds). */
+ * hosts call it per candidate. Returns NULL for NULL, inputs over 1 MiB,
+ * invalid UTF-8 or an embedded NUL; keep the original text then. Free with
+ * string_free. The first call parses the tables (a few milliseconds in
+ * release builds). */
 char *msime_client_simplified_to_traditional(const uint8_t *text, size_t length);
 /* Display-only font aliases. Input: JSON array, at most 33 names / 32 KiB.
  * Returns the standard response with an array value. Free with string_free.

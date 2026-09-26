@@ -496,6 +496,13 @@ fn traditional_conversion_boundary_returns_text_or_null() {
     assert_eq!(convert(b"a\0b"), None);
     // SAFETY: null is part of the documented contract.
     assert!(unsafe { msime_client_simplified_to_traditional(std::ptr::null(), 4) }.is_null());
+    // A native length is bounded before the borrowed slice is formed, so a malformed or stale
+    // length cannot make the ABI scan beyond the caller's intended text buffer.
+    let fixture = b"fixture";
+    assert!(
+        unsafe { msime_client_simplified_to_traditional(fixture.as_ptr(), (1 << 20) + 1) }
+            .is_null()
+    );
 }
 
 #[test]
