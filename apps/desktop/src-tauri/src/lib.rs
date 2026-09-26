@@ -53,6 +53,8 @@ use platform::macos::{
     macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_data_directory,
     macos_handwriting, macos_input_source, macos_keyboard, macos_launch, macos_panel_session,
 };
+#[cfg(any(target_os = "ios", target_os = "android"))]
+use platform::mobile::mobile_community;
 #[cfg(windows)]
 use platform::windows::{windows_account, windows_voice};
 
@@ -4772,42 +4774,6 @@ pub fn run() {
             ios_account::mobile_keyboard_feedback_save,
             #[cfg(target_os = "ios")]
             ios_account::mobile_keyboard_feedback_preview,
-            #[cfg(target_os = "ios")]
-            ios_account::community_skin_list,
-            #[cfg(target_os = "ios")]
-            ios_account::community_skin_detail,
-            #[cfg(target_os = "ios")]
-            ios_account::community_skin_download,
-            #[cfg(target_os = "ios")]
-            ios_account::community_skin_rate,
-            #[cfg(target_os = "ios")]
-            ios_account::community_skin_publish,
-            #[cfg(target_os = "ios")]
-            ios_account::community_skin_unpublish,
-            #[cfg(target_os = "ios")]
-            ios_account::community_skin_finish_trial,
-            #[cfg(target_os = "ios")]
-            ios_account::ai_skin_generate,
-            #[cfg(target_os = "ios")]
-            ios_account::ai_skin_cancel,
-            #[cfg(target_os = "ios")]
-            ios_account::community_resource_list,
-            #[cfg(target_os = "ios")]
-            ios_account::community_resource_detail,
-            #[cfg(target_os = "ios")]
-            ios_account::community_resource_publish,
-            #[cfg(target_os = "ios")]
-            ios_account::community_resource_apply,
-            #[cfg(target_os = "ios")]
-            ios_account::community_resource_save,
-            #[cfg(target_os = "ios")]
-            ios_account::community_resource_rate,
-            #[cfg(target_os = "ios")]
-            ios_account::community_resource_unpublish,
-            #[cfg(target_os = "ios")]
-            ios_account::community_resource_store_reply,
-            #[cfg(target_os = "ios")]
-            ios_account::community_resource_remove_reply,
             #[cfg(target_os = "android")]
             android_account::account_preferences_schema,
             #[cfg(target_os = "android")]
@@ -4816,42 +4782,42 @@ pub fn run() {
             android_account::account_preferences_upload,
             #[cfg(target_os = "android")]
             android_account::account_preferences_apply,
-            #[cfg(target_os = "android")]
-            android_account::community_skin_list,
-            #[cfg(target_os = "android")]
-            android_account::community_skin_detail,
-            #[cfg(target_os = "android")]
-            android_account::community_skin_download,
-            #[cfg(target_os = "android")]
-            android_account::community_skin_rate,
-            #[cfg(target_os = "android")]
-            android_account::community_skin_publish,
-            #[cfg(target_os = "android")]
-            android_account::community_skin_unpublish,
-            #[cfg(target_os = "android")]
-            android_account::community_skin_finish_trial,
-            #[cfg(target_os = "android")]
-            android_account::ai_skin_generate,
-            #[cfg(target_os = "android")]
-            android_account::ai_skin_cancel,
-            #[cfg(target_os = "android")]
-            android_account::community_resource_list,
-            #[cfg(target_os = "android")]
-            android_account::community_resource_detail,
-            #[cfg(target_os = "android")]
-            android_account::community_resource_publish,
-            #[cfg(target_os = "android")]
-            android_account::community_resource_apply,
-            #[cfg(target_os = "android")]
-            android_account::community_resource_save,
-            #[cfg(target_os = "android")]
-            android_account::community_resource_rate,
-            #[cfg(target_os = "android")]
-            android_account::community_resource_unpublish,
-            #[cfg(target_os = "android")]
-            android_account::community_resource_store_reply,
-            #[cfg(target_os = "android")]
-            android_account::community_resource_remove_reply,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_skin_list,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_skin_detail,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_skin_download,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_skin_rate,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_skin_publish,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_skin_unpublish,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_skin_finish_trial,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::ai_skin_generate,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::ai_skin_cancel,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_resource_list,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_resource_detail,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_resource_publish,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_resource_apply,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_resource_save,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_resource_rate,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_resource_unpublish,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_resource_store_reply,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_resource_remove_reply,
         ])
         .build(context)
         .expect("client application failed")

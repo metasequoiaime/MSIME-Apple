@@ -14,5 +14,7 @@ pub(crate) mod ios;
 pub(crate) mod linux;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod macos;
+#[cfg(any(target_os = "ios", target_os = "android"))]
+pub(crate) mod mobile;
 #[cfg(windows)]
 pub(crate) mod windows;
