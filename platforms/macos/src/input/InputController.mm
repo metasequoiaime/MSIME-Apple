@@ -1743,6 +1743,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)accountCandidateTranslationsDidArrive:(NSNotification *)notification {
     NSDictionary *info = notification.userInfo;
     if (![_accountGlossRequest isKindOfClass:NSDictionary.class] || ![info isKindOfClass:NSDictionary.class]) return;
+    // The account backend can finish a request after this controller has moved on to a newer
+    // candidate generation. Do not let that late response populate the current page (or its
+    // shared cache) with data belonging to the old request.
+    NSNumber *generation = info[@"generation"];
+    if (![generation isKindOfClass:NSNumber.class] ||
+        ![generation isEqual:_accountGlossRequest[@"generation"]]) return;
     void (^merge)(NSDictionary *, NSString *) = ^(NSDictionary *values, NSString *target) {
         if (![values isKindOfClass:NSDictionary.class]) return;
         for (NSString *text in values) {
