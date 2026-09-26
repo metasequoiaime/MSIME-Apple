@@ -32,7 +32,7 @@ jobs:
   quality:
     uses: ./.github/workflows/quality.yml
 
-  # Called for the same reason ci.yml calls it: whatever this job grows to assert needs neither a build nor a Mac, so a documentation pull request should not lose it. Today it is the placeholder the workflow's own header describes.
+  # Called for the same reason ci.yml calls it: whatever this job grows to assert needs neither a build nor a Mac, so a documentation pull request should not lose it. It runs scripts/run-checks.sh, the discovered scripts/test-*.py text contracts, with no build.
   contracts:
     uses: ./.github/workflows/contracts.yml
 

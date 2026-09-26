@@ -210,7 +210,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 **iOS。** `MSIMEClientTests` 聚合键盘、服务、共享三个单测 target，`MSIMEDoubaoTransportTests` 与 `MSIMEClientUITests` 各自是独立 scheme；`tests/settings/ProjectConfigurationTests.py` 是纯 Python 的工程配置校验，不需要模拟器。模拟器套件需要已暂存的词库资源，单次约十分钟量级。
 
-**契约门禁。** `scripts/` 下的每个 `test-*.py` 都由 `verify-local.sh` 自动发现执行（少数需要参数或由别的门禁负责的列在它的 `special_checks` 里），多数不需要任何工具链，检查的是「这个东西是否还接在一起」：路径与能力映射、配置 key 是否都落到共享设置页上、界面动作是否都能在仓库里检索到对应 token、生成产物是否与源重建后逐字节一致。其中一组依赖一份外部参考实现检出（由 `MSIME_REFERENCE_DIR` 指定），没有检出时它们自报所需条件并通过，不阻塞其他人。
+**契约门禁。** `scripts/` 下的每个 `test-*.py` 都由 `scripts/run-checks.sh` 自动发现执行（少数需要参数或由别的门禁负责的列在它的 `special_checks` 里），`verify-local.sh` 与 `Core CI` 的 contracts job 都调用它，多数不需要任何工具链，检查的是「这个东西是否还接在一起」：路径与能力映射、配置 key 是否都落到共享设置页上、界面动作是否都能在仓库里检索到对应 token、生成产物是否与源重建后逐字节一致。其中一组依赖一份外部参考实现检出（由 `MSIME_REFERENCE_DIR` 指定），没有检出时它们自报所需条件并通过，不阻塞其他人。
 
 ## 七、本地验证入口
 

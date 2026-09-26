@@ -28,7 +28,7 @@
 
 ## 验证
 
-合并前执行 `bash scripts/verify-local.sh --quick`；发布前执行完整版，并把失败项与 `scripts/known-failures.txt` 对照。Rust 改动还需测试、fmt、clippy，UI 改动还需类型检查和构建。Pull Request 的 GitHub Actions 质量（workflow 校验）、依赖审查、macOS 和 iOS 检查也必须通过；改到某个原生平台或共享层时，Native Platform CI 的对应 job 同样必须通过。仓库文本契约不在 CI 上执行，`Core CI` 的 contracts job 目前是占位，这批断言只在本地随 `scripts/verify-local.sh` 跑，所以提交前要自己跑过。
+合并前执行 `bash scripts/verify-local.sh --quick`；发布前执行完整版，并把失败项与 `scripts/known-failures.txt` 对照。Rust 改动还需测试、fmt、clippy，UI 改动还需类型检查和构建。Pull Request 的 GitHub Actions 质量（workflow 校验）、依赖审查、macOS 和 iOS 检查也必须通过；改到某个原生平台或共享层时，Native Platform CI 的对应 job 同样必须通过。仓库文本契约（`scripts/` 下的 `test-*.py`）由 `scripts/run-checks.sh` 执行，`Core CI` 的 contracts job 在 Linux 上跑它，`scripts/verify-local.sh` 在本地跑同一份脚本；缺少所需工具或参考仓库的检查在 CI 上打印 skipped 并通过，所以提交前仍要自己跑过 `verify-local.sh --quick`。
 
 平台产物的验证范围写清楚做的是哪一层：共享层单元测试、跨目标或容器构建、模拟器运行、真实设备与系统输入入口、安装与签名。发布记录里按平台注明本次实际走到哪一层，读的人不用去猜。
 

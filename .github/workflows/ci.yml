@@ -35,7 +35,7 @@ jobs:
   quality:
     uses: ./.github/workflows/quality.yml
 
-  # Minutes into the run rather than after the macOS build that ctest waits for. The macOS job still runs the same suite through ctest, including the cases this one skips for want of Apple tooling.
+  # Minutes into the run rather than after the platform builds: the text contracts need no toolchain, so a broken contract is reported before any compile finishes. verify-local.sh runs the same scripts/run-checks.sh locally, where the checks that skip here for want of a tool or the reference checkout can run.
   contracts:
     uses: ./.github/workflows/contracts.yml
 

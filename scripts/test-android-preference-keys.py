@@ -21,6 +21,7 @@ stricter rule would start arguing about what counts as a read.
 """
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -30,6 +31,11 @@ SCHEMA = ROOT / "crates/client-core/src/preferences.rs"
 
 # `NAME(Group.X, "key", default, "title", "description")`
 ENTRY = re.compile(r"^\s*[A-Z_]+\(Group\.[A-Z_]+,\s*\"([a-z0-9_]+)\"", re.MULTILINE)
+
+# The reader search below is ripgrep. The ubuntu runner behind the contracts workflow does not ship it and that job deliberately avoids apt-get, so a missing rg skips like any other absent toolchain instead of crashing on the first key; verify-local.sh still runs this wherever rg is installed.
+if shutil.which("rg") is None:
+    print("skipped: ripgrep (rg) is not installed")
+    sys.exit(0)
 
 keys = ENTRY.findall(TOGGLES.read_text())
 if len(keys) < 5:
