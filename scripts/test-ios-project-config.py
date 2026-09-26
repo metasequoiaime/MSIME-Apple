@@ -514,10 +514,11 @@ class IOSProjectConfigTests(unittest.TestCase):
         store = (
             TAURI_ROOT / "../../../platforms/ios/KeyboardExtension/Sources/candidate/CandidateTranslationStore.swift"
         ).read_text()
-        self.assertIn("private var tasks: [Task<Void, Never>] = []", store)
-        self.assertIn("for task in tasks { task.cancel() }", store)
+        self.assertIn("private var tasks: [UUID: Task<Void, Never>] = [:]", store)
+        self.assertIn("for task in tasks.values { task.cancel() }", store)
         self.assertIn("tasks.removeAll()", store)
-        self.assertIn("tasks.append(task)", store)
+        self.assertIn("tasks[id] = task", store)
+        self.assertIn("tasks[id] = nil", store)
 
 
 if __name__ == "__main__":

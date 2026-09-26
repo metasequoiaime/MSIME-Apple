@@ -37,7 +37,7 @@ final class CandidateTranslationStore {
   private var signature: String?
   private var debounce: Timer?
   /// Requests belong to the visible candidate strip; cancel them when the keyboard leaves it.
-  private var tasks: [UUID: Task<Void, Never>] = []
+  private var tasks: [UUID: Task<Void, Never>] = [:]
   /// The keyboard process lives long; only the page on screen needs its glosses kept.
   private let cacheLimit: Int
   init(service: any CandidateTranslationService = ProviderCandidateTranslationService(route: .none), scope: String = "none",
