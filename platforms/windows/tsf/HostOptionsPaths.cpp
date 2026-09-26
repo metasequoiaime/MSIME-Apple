@@ -1,7 +1,6 @@
 #include "HostOptionsPaths.h"
 #include "HostPathEncoding.h"
-#include <windows.h>
-#include <shlobj.h>
+#include "../common/StateDirectory.h"
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -31,34 +30,7 @@ void PreferenceWatcher::run() {
   }
 }
 std::string default_state_directory() {
-  if (const auto *configured = _wgetenv(L"METASEQUOIA_IME_DATA_DIR");
-      configured && *configured) {
-    const std::filesystem::path path(configured);
-    if (path.is_absolute())
-      return path_to_utf8(path);
-  }
-  constexpr wchar_t key_name[] =
-      L"Software\\Metasequoia\\MetasequoiaIME";
-  constexpr wchar_t value_name[] = L"DataDir";
-  DWORD bytes = 0;
-  if (RegGetValueW(HKEY_LOCAL_MACHINE, key_name, value_name,
-                   RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, nullptr,
-                   &bytes) == ERROR_SUCCESS && bytes >= sizeof(wchar_t)) {
-    std::wstring value(bytes / sizeof(wchar_t), L'\0');
-    if (RegGetValueW(HKEY_LOCAL_MACHINE, key_name, value_name,
-                     RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr,
-                     value.data(), &bytes) == ERROR_SUCCESS) {
-      value.resize(bytes / sizeof(wchar_t) - 1);
-      const std::filesystem::path path(value);
-      if (path.is_absolute())
-        return path_to_utf8(path);
-    }
-  }
-  PWSTR appData = nullptr;
-  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appData))) return {};
-  std::filesystem::path state = std::filesystem::path(appData) / L"MSIME-Client";
-  CoTaskMemFree(appData);
-  return path_to_utf8(state);
+  return path_to_utf8(msime::windows::resolve_state_directory());
 }
 std::string default_host_options_json() {
   const auto state = default_state_directory();
