@@ -185,7 +185,7 @@ export class HarmonyDoubaoRecognizer {
     // Before the capturer exists, because the routing choice is process-wide rather than a property
     // of one stream. A device that has gone away leaves the system default in place.
     await HarmonyVoiceCaptureDevices.select(config.capture_backend, config.capture_device);
-    if (!this.isCurrent(token, socket) || this.settled) {
+    if (!this.isCurrent(token, socket) || this.settled || this.stopping) {
       return;
     }
     const options: audio.AudioCapturerOptions = {
@@ -201,7 +201,7 @@ export class HarmonyDoubaoRecognizer {
       }
     };
     const capturer: audio.AudioCapturer = await audio.createAudioCapturer(options);
-    if (!this.isCurrent(token, socket) || this.settled) {
+    if (!this.isCurrent(token, socket) || this.settled || this.stopping) {
       await capturer.release();
       return;
     }
@@ -211,6 +211,17 @@ export class HarmonyDoubaoRecognizer {
     };
     this.readCallback = readCallback;
     capturer.on('readData', readCallback);
+    // `stop()` may have arrived after the capturer was created but before `start()`;
+    // do not bring a microphone up for a session that is already finishing.
+    if (!this.isCurrent(token, socket) || this.settled || this.stopping) {
+      capturer.off('readData', readCallback);
+      if (this.capturer === capturer) {
+        this.readCallback = undefined;
+        this.capturer = undefined;
+      }
+      await capturer.release();
+      return;
+    }
     try {
       await capturer.start();
     } catch (error) {
