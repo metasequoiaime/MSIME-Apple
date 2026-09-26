@@ -394,6 +394,7 @@ python3 scripts/test-harmony-expanded-candidates.py || fail "harmony expanded ca
 python3 scripts/test-harmony-reply-lifecycle.py || fail "harmony reply lifecycle"
 python3 scripts/test-harmony-voice-lifecycle.py || fail "harmony voice lifecycle"
 python3 scripts/test-harmony-ai-skin-lifecycle.py || fail "harmony AI skin lifecycle"
+python3 scripts/test-harmony-download-lifecycle.py || fail "harmony download lifecycle"
 python3 scripts/test-harmony-session-lifecycle.py || fail "harmony session lifecycle"
 python3 scripts/test-harmony-custom-skin-rendering.py || fail "harmony custom skin rendering"
 python3 scripts/test-harmony-typing-statistics.py || fail "harmony typing statistics"
