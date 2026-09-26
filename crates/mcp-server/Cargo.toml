@@ -19,8 +19,8 @@ serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 # The local time the diagnostic log's timestamps are in, so an agent can turn "a few minutes ago" into a time to read from.
-time = { version = "0.3", features = ["local-offset"] }
-tokio = { version = "1", features = ["rt", "macros", "io-std"] }
+time = { workspace = true, features = ["local-offset"] }
+tokio = { workspace = true, features = ["rt", "macros", "io-std"] }
 
 # Where the Windows Server keeps its runtime options.
 [target.'cfg(windows)'.dependencies]
@@ -28,8 +28,8 @@ msime-host-windows = { path = "../host-windows" }
 
 [dev-dependencies]
 rmcp = { version = "3.4.1", default-features = false, features = ["client", "transport-io"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process"] }
-rusqlite = "0.40"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process"] }
+rusqlite.workspace = true
 
 [lints]
 workspace = true

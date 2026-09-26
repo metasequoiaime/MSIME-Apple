@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 cxx = "1"
-sha2 = "0.11"
+sha2.workspace = true
 thiserror.workspace = true
 
 [build-dependencies]
@@ -17,7 +17,7 @@ cxx-build = "1"
 cmake = "0.1"
 
 [dev-dependencies]
-rusqlite = "0.40"
+rusqlite.workspace = true
 tempfile.workspace = true
 
 [lints]

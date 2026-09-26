@@ -20,7 +20,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri.workspace = true
 serde.workspace = true
 msime-client-core = { path = "../../../crates/client-core" }
 msime-host-api = { path = "../../../crates/host-api" }
@@ -28,18 +28,18 @@ msime-input-runtime = { path = "../../../crates/input-runtime" }
 serde_json.workspace = true
 tempfile.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-sha2 = "0.11"
-time = { version = "0.3", features = ["local-offset"] }
+sha2.workspace = true
+time = { workspace = true, features = ["local-offset"] }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-uuid = "1"
+uuid.workspace = true
 msime-tauri-mobile-platform = { path = "../../../crates/tauri-mobile-platform" }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 msime-ios-native-ffi = { path = "../../../crates/ios-native-ffi" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-rustix = { version = "1.1", features = ["fs", "process"] }
+rustix = { workspace = true, features = ["fs", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 msime-host-macos = { path = "../../../crates/host-macos" }
@@ -54,7 +54,7 @@ tauri-plugin-single-instance = "2.4"
 msime-host-windows = { path = "../../../crates/host-windows" }
 
 [dev-dependencies]
-tauri = { version = "2", features = ["test"] }
+tauri = { workspace = true, features = ["test"] }
 msime-tauri-mobile-platform = { path = "../../../crates/tauri-mobile-platform" }
 
 [lints]
