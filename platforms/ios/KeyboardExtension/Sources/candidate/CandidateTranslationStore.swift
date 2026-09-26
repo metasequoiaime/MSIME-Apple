@@ -37,7 +37,7 @@ final class CandidateTranslationStore {
   private var signature: String?
   private var debounce: Timer?
   /// Requests belong to the visible candidate strip; cancel them when the keyboard leaves it.
-  private var tasks: [Task<Void, Never>] = []
+  private var tasks: [UUID: Task<Void, Never>] = []
   /// The keyboard process lives long; only the page on screen needs its glosses kept.
   private let cacheLimit: Int
   init(service: any CandidateTranslationService = ProviderCandidateTranslationService(route: .none), scope: String = "none",
@@ -73,7 +73,7 @@ final class CandidateTranslationStore {
   }
   func cancel() {
     debounce?.invalidate(); debounce = nil
-    for task in tasks { task.cancel() }
+    for task in tasks.values { task.cancel() }
     tasks.removeAll()
   }
   private static func signature(_ values: [String]) -> String {
@@ -96,12 +96,14 @@ final class CandidateTranslationStore {
     for (code, missing) in pending {
       let service = service
       let scope = scope
+      let id = UUID()
       let task = Task { [weak self] in
+        defer { self?.tasks[id] = nil }
         guard let glosses = try? await service.translate(words: missing, target: code) else { return }
         guard self?.scope == scope else { return }
         self?.absorb(code: code, words: missing, glosses: glosses)
       }
-      tasks.append(task)
+      tasks[id] = task
     }
   }
   private func absorb(code: String, words: [String], glosses: [String]) {
