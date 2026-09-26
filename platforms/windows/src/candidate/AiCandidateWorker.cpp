@@ -101,12 +101,20 @@ std::optional<std::string> ai_cache_key(const std::string &query) {
     if (!config.is_object() || !config.value("enabled", false) ||
         !segments.is_array() || segments.empty())
       return std::nullopt;
+    // The provider is asked for this many candidates. Keep it in the cache
+    // identity: reusing a three-candidate answer after the user raises the
+    // preference to ten would silently hide the newly requested rows.
+    const auto configured_limit = config.value("candidate_limit", 3);
+    const auto candidate_limit = configured_limit >= 1 && configured_limit <= 10
+                                     ? configured_limit
+                                     : 3;
     // Match the source worker's cache identity. Deliberately omit token,
     // prompt, context, session, and generation so no secrets are retained and
     // an unchanged prefix can be reused after a candidate refresh.
     return nlohmann::json{{"provider", config.value("provider", std::string{})},
                           {"endpoint", config.value("endpoint", std::string{})},
                           {"model", config.value("model", std::string{})},
+                          {"candidate_limit", candidate_limit},
                           {"pinyin_segments", segments}}
         .dump();
   } catch (...) {
