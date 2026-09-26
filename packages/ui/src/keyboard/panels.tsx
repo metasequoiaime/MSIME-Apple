@@ -2400,18 +2400,26 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   const refreshRevision = useRef(0);
   const busyRef = useRef(false);
   const searchRef = useRef("");
+  const mounted = useRef(true);
+
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
   async function run(action: (revision: number) => Promise<void>, failure: string) {
-    if (busyRef.current) return;
+    if (!mounted.current || busyRef.current) return;
     const revision = ++refreshRevision.current;
     busyRef.current = true;
     setBusy(true);
     try {
       await action(revision);
     } catch {
-      if (revision === refreshRevision.current) setNotice(failure);
+      if (mounted.current && revision === refreshRevision.current) setNotice(failure);
     } finally {
-      if (revision === refreshRevision.current) {
+      if (mounted.current && revision === refreshRevision.current) {
         busyRef.current = false;
         setBusy(false);
       }
@@ -2526,7 +2534,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   }
 
   async function confirmRemove(entry: CloudDictionaryEntry) {
-    if (busyRef.current) return;
+    if (!mounted.current || busyRef.current) return;
     const confirmed = await confirm({
       title: "删除云词条",
       message: `“${entry.word}”只会从云端删除，本机词库不会改变。`,
@@ -2535,18 +2543,18 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     });
     // Re-checked after the answer: the dialog is not instant, and another action may have started
     // while it was open.
-    if (!confirmed || busyRef.current) return;
+    if (!confirmed || !mounted.current || busyRef.current) return;
     void remove(entry);
   }
 
   async function downloadToLocal(entry: CloudDictionaryEntry) {
-    if (busyRef.current || !client.downloadToLocal) return;
+    if (!mounted.current || busyRef.current || !client.downloadToLocal) return;
     const confirmed = await confirm({
       title: "加入本机词典",
       message: `云词条“${entry.word}”会被加入本机个人词典。`,
       confirmLabel: "加入",
     });
-    if (!confirmed || busyRef.current || !client.downloadToLocal) return;
+    if (!confirmed || !mounted.current || busyRef.current || !client.downloadToLocal) return;
     const download = client.downloadToLocal;
     return run(async (revision) => {
       await download(entry);
