@@ -76,6 +76,9 @@ export class HarmonyDoubaoRecognizer {
   private sessionId: string = '';
   private stopping: boolean = false;
   private settled: boolean = false;
+  // The socket object exists while connect() is pending, but it cannot accept a frame yet.
+  // Keeping this separate prevents stop() from sending an end frame before the start frame.
+  private connected: boolean = false;
   private timeoutHandle: number | undefined = undefined;
   private resultHandler: DoubaoResultHandler | undefined = undefined;
   private errorHandler: DoubaoErrorHandler | undefined = undefined;
@@ -100,6 +103,7 @@ export class HarmonyDoubaoRecognizer {
     this.sessionId = util.generateRandomUUID(false);
     this.stopping = false;
     this.settled = false;
+    this.connected = false;
     this.pending = new Uint8Array(0);
     this.queuedBytes = 0;
     this.sequence = 2;
@@ -128,6 +132,10 @@ export class HarmonyDoubaoRecognizer {
     try {
       const connected: boolean = await socket.connect(config.asr_endpoint, this.headers(config));
       if (!connected || !this.isCurrent(token, socket) || this.settled) throw new Error('connect failed');
+      if (this.stopping) {
+        await this.complete(token, socket);
+        return;
+      }
       const start: DoubaoStartRequest = {
         user: { uid: 'metasequoia-ime' },
         audio: { format: 'pcm', codec: 'raw', rate: 16000, bits: 16, channel: 1 },
@@ -147,6 +155,11 @@ export class HarmonyDoubaoRecognizer {
       const payload: ArrayBuffer = encoder.encode(JSON.stringify(start)).buffer as ArrayBuffer;
       const frame: ArrayBuffer = client.doubaoEncodeFrame(1, 1, 1, payload);
       if (!await socket.send(frame)) throw new Error('start frame rejected');
+      this.connected = true;
+      if (this.stopping) {
+        await this.complete(token, socket);
+        return;
+      }
       await this.startCapturer(config, token, socket);
     } catch (error) {
       if (!this.isCurrent(token, socket)) return;
@@ -278,7 +291,7 @@ export class HarmonyDoubaoRecognizer {
   private async finishFrame(): Promise<void> {
     await this.releaseCapturer();
     const socket: webSocket.WebSocket | undefined = this.socket;
-    if (socket === undefined || this.settled) return;
+    if (socket === undefined || this.settled || !this.connected) return;
     const token: number = this.sessionToken;
     const pending: ArrayBuffer = this.pending.buffer.slice(
       this.pending.byteOffset, this.pending.byteOffset + this.pending.byteLength) as ArrayBuffer;
@@ -323,6 +336,7 @@ export class HarmonyDoubaoRecognizer {
   private async complete(token: number, activeSocket: webSocket.WebSocket): Promise<void> {
     if (!this.isCurrent(token, activeSocket) || this.settled) return;
     this.settled = true;
+    this.connected = false;
     this.clearTimeout();
     await this.releaseCapturer();
     const socket: webSocket.WebSocket | undefined = this.socket;
@@ -335,6 +349,7 @@ export class HarmonyDoubaoRecognizer {
   private async fail(message: string, token: number): Promise<void> {
     if (token !== this.sessionToken || this.settled) return;
     this.settled = true;
+    this.connected = false;
     this.clearTimeout();
     await this.releaseCapturer();
     const socket: webSocket.WebSocket | undefined = this.socket;
